@@ -1,9 +1,10 @@
 @echo off
 echo Completing the requirements installation...
 cd PianoidCore
-python3 -m venv .venv
+python -m venv .venv
 call .venv\Scripts\activate.bat
-venv\Scripts\python.exe -m pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 echo.
 echo Installation completed!
 pause
