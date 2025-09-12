@@ -1,0 +1,20 @@
+{
+  "versions": {
+    "python": "3.12.0",
+    "cuda": "12.6.0",
+    "nodejs": "20.18.0",
+    "sdl2": "2.30.8"
+  },
+  "paths": {
+    "sdl2_root": "C:\\"
+  },
+  "options": {
+    "skip_components": [],
+    "force_reinstall_components": [],
+    "auto_reboot": false,
+    "clean_install": true
+  },
+  "cuda": {
+    "architectures": ["75", "80", "86", "89"]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "_comment": "PianoidCore Development Environment Configuration",
+  "_instructions": "Copy this to setup-config.json and customize as needed",
+  
+  "versions": {
+    "python": "3.12.0",
+    "cuda": "12.6.0",
+    "nodejs": "20.18.0",
+    "sdl2": "2.30.8"
+  },
+  
+  "paths": {
+    "sdl2_root": "C:\\"
+  },
+  
+  "options": {
+    "_comment": "Configuration options for installation behavior",
+    "skip_components": [],
+    "force_reinstall_components": [],
+    "auto_reboot": false,
+    "clean_install": true
+  },
+  
+  "cuda": {
+    "_comment": "CUDA architecture support - adjust based on your GPU",
+    "architectures": ["75", "80", "86", "89"]
+  },
+  
+  "_version_notes": {
+    "python": "Tested versions: 3.11.x, 3.12.x",
+    "cuda": "Compatible with CUDA 12.x series. Avoid 13.x for compatibility",
+    "nodejs": "LTS versions recommended: 18.x, 20.x",
+    "sdl2": "Latest stable version recommended"
+  },
+  
+  "_architecture_guide": {
+    "75": "RTX 2060, 2070, 2080 series (Turing)",
+    "80": "RTX 3050, 3060, 3070, 3080 series (Ampere)",
+    "86": "RTX 3070Ti, 3080Ti, 3090 series (Ampere)",
+    "89": "RTX 4060, 4070, 4080, 4090 series (Ada Lovelace)"
+  }
+}
