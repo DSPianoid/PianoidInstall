@@ -8,10 +8,12 @@ import re
 import sys
 from pathlib import Path
 
+
 # -------- helpers --------
 
 def log(msg):
     print(msg, flush=True)
+
 
 def which(p):
     # like shutil.which but minimal
@@ -32,11 +34,13 @@ def which(p):
                 return str(f2)
     return None
 
+
 def _first_existing(paths):
     for p in paths:
         if p and Path(p).exists():
             return str(Path(p))
     return None
+
 
 def _glob_latest(root, pattern):
     root = Path(root)
@@ -45,6 +49,7 @@ def _glob_latest(root, pattern):
     found = sorted(root.glob(pattern), key=lambda p: p.name, reverse=True)
     return str(found[0]) if found else None
 
+
 def _try_vswhere():
     # vswhere default locations
     pf86 = os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)"
@@ -52,6 +57,7 @@ def _try_vswhere():
     if vswhere.exists():
         return str(vswhere)
     return None
+
 
 def _find_msvc():
     # Try env first
@@ -63,7 +69,7 @@ def _find_msvc():
         tools_root = None
         try:
             idx = p.parts.index("MSVC")
-            tools_root = Path(*p.parts[:idx+2])  # ...\MSVC\<ver>
+            tools_root = Path(*p.parts[:idx + 2])  # ...\MSVC\<ver>
         except Exception:
             tools_root = p.parent.parent.parent  # rough fallback
         return {"msvc_cl": cl, "msvc_tools_root": str(tools_root)}
@@ -105,6 +111,7 @@ def _find_msvc():
             return {"msvc_cl": str(cl), "msvc_tools_root": str(Path(tools_root))}
     return {}
 
+
 def _find_windows_sdk():
     # Prefer env
     wdir = os.environ.get("WindowsSdkDir")
@@ -127,6 +134,7 @@ def _find_windows_sdk():
             ver = sorted(children, reverse=True)[0] if children else None
         return {"winsdk_root": str(kits10), "winsdk_version": ver}
     return {}
+
 
 def _find_cuda(user_hint=None):
     cand = None
@@ -152,6 +160,7 @@ def _find_cuda(user_hint=None):
             "cuda_libdir": str(lib64),
         }
     return {}
+
 
 def _find_sdl2(user_hint=None):
     root = None
@@ -202,6 +211,7 @@ def _find_sdl2(user_hint=None):
         "sdl2_libdir": str(lib64) if lib64.exists() else "",
     }
 
+
 def _py_info():
     import sysconfig
     py_inc = sysconfig.get_paths().get("include")
@@ -211,12 +221,14 @@ def _py_info():
         libdir = str(Path(sys.base_prefix) / "libs")
     return {"python_include": str(py_inc), "python_libdir": str(libdir)}
 
+
 def _find_pybind11():
     try:
         import pybind11  # type: ignore
         return {"pybind11_include": str(Path(pybind11.get_include()))}
     except Exception:
         return {}
+
 
 def _default_arches():
     # Safe defaults for modern RTX; override via env CUDA_ARCHES="80,86,89"
@@ -236,6 +248,7 @@ def _default_arches():
         pass
     return ["80", "86", "89"]
 
+
 def build_config(args):
     cfg = {}
     # collect raw data
@@ -245,13 +258,14 @@ def build_config(args):
     sdl2_info = _find_sdl2(args.sdl2)
     py_info = _py_info()
     pybind_info = _find_pybind11()
-    
+
     # Structure the config to match what setup.py expects
     cfg = {
         "windows": {
             "cuda_home": cuda_info.get("cuda_home", ""),
             "visual_studio": {
-                "vc_tools_bin_hostx64_x64": str(Path(msvc_info.get("msvc_cl", "")).parent) if msvc_info.get("msvc_cl") else ""
+                "vc_tools_bin_hostx64_x64": str(Path(msvc_info.get("msvc_cl", "")).parent) if msvc_info.get(
+                    "msvc_cl") else ""
             },
             "sdl2": {
                 "base_path": sdl2_info.get("sdl2_root", "")
@@ -259,7 +273,7 @@ def build_config(args):
         },
         "cuda_arch_list": _default_arches(),
         "project_root": str(Path(args.project_root).resolve()) if args.project_root else str(Path.cwd().resolve()),
-        
+
         # Keep flat structure for validation
         "msvc_cl": msvc_info.get("msvc_cl", ""),
         "msvc_tools_root": msvc_info.get("msvc_tools_root", ""),
@@ -271,7 +285,7 @@ def build_config(args):
         "python_libdir": py_info.get("python_libdir", ""),
         "pybind11_include": pybind_info.get("pybind11_include", ""),
     }
-    
+
     # augment derived include/lib search paths for convenience consumers
     includes = []
     if cfg.get("pybind11_include"):
@@ -280,12 +294,12 @@ def build_config(args):
         includes.append(cuda_info["cuda_include"])
     includes.append(str(Path(cfg["project_root"]) / "pianoid_cuda"))
     includes.append(cfg["python_include"])
-    
-    # For SDL2, only add the parent include directory for #include <SDL2/SDL.h> to work
     sdl_inc = sdl2_info.get("sdl2_include")
     if sdl_inc:
         includes.append(sdl_inc)
-    # Don't add the SDL2 subdirectory - it breaks #include <SDL2/SDL.h>
+    sdl_inc2 = sdl2_info.get("sdl2_include_sdl2")
+    if sdl_inc2:
+        includes.append(sdl_inc2)
 
     libdirs = []
     if sdl2_info.get("sdl2_libdir"):
@@ -298,40 +312,30 @@ def build_config(args):
     cfg["include_dirs"] = includes
     cfg["library_dirs"] = libdirs
     cfg["libraries"] = ["SDL2", "cudart", "winmm", "ole32", "advapi32"]
-    
+
     return cfg
 
+
 def validate(cfg):
-    # Platform-specific required components
-    if os.name == 'nt':
-        # Windows requirements
-        req = [
-            "msvc_cl",
-            "msvc_tools_root", 
-            "winsdk_root",
-            "cuda_home",
-            "cuda_nvcc",
-            "sdl2_root",
-            "python_include",
-            "python_libdir",
-        ]
-    else:
-        # Unix/Linux/macOS requirements
-        req = [
-            "cuda_home",
-            "cuda_nvcc", 
-            "sdl2_root",
-            "python_include",
-            "python_libdir",
-        ]
-    
+    req = [
+        "msvc_cl",
+        "msvc_tools_root",
+        "winsdk_root",
+        "cuda_home",
+        "cuda_nvcc",
+        "sdl2_root",
+        "python_include",
+        "python_libdir",
+    ]
     missing = [k for k in req if not cfg.get(k)]
     return missing
+
 
 def main():
     ap = argparse.ArgumentParser(description="Detect build toolchain for PianoidCore (Windows).")
     ap.add_argument("--out", default="build_config.json", help="Output JSON path (default: build_config.json)")
-    ap.add_argument("--cuda", default=None, help="Hint for CUDA root, e.g. C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x")
+    ap.add_argument("--cuda", default=None,
+                    help="Hint for CUDA root, e.g. C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x")
     ap.add_argument("--sdl2", default=None, help="Hint for SDL2 root, e.g. C:\\SDL2-2.30.0")
     ap.add_argument("--project-root", default=None, help="Root of the project (default: cwd)")
     ap.add_argument("--quiet", action="store_true", help="Print only the summary line")
@@ -369,6 +373,7 @@ def main():
         log("Detection Summary: OK")
         log("Configuration saved to %s" % str(out_path))
     return 0
+
 
 if __name__ == "__main__":
     code = main()
