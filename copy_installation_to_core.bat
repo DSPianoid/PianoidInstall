@@ -1,0 +1,5 @@
+ COPY "venv-activate.bat" "PianoidCore\venv_activate.bat"
+ COPY "build_pianoid_basic.bat" "PianoidCore\build_pianoid_basic.bat"
+ COPY "build_pianoid_cuda.bat" "PianoidCore\build_pianoid_cuda.bat"
+ COPY "build_pianoid_complete.bat" "PianoidCore\build_pianoid_complete.bat"
+ COPY "detect_paths.py" "PianoidCore\detect_paths.py"
