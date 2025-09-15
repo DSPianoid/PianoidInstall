@@ -28,15 +28,15 @@ if not exist "%CORE_DIR%" (
 
 echo Copying batch files...
 
-if exist "%ROOT_DIR%venv-activate.bat" (
-    copy "%ROOT_DIR%venv-activate.bat" "%CORE_DIR%\venv-activate.bat" >nul
+if exist "%ROOT_DIR%build_pianoid_venv.bat" (
+    copy "%ROOT_DIR%build_pianoid_venv.bat" "%CORE_DIR%\build_pianoid_venv.bat" >nul
     if !errorlevel! equ 0 (
-        echo   ✓ Copied venv-activate.bat
+        echo   ✓ Copied build_pianoid_venv.bat
     ) else (
-        echo   ✗ Failed to copy venv-activate.bat
+        echo   ✗ Failed to copy build_pianoid_venv.bat
     )
 ) else (
-    echo   ⚠ venv-activate.bat not found in root
+    echo   ⚠ build_pianoid_venv.bat not found in root
 )
 
 if exist "%ROOT_DIR%build_pianoid_complete.bat" (
@@ -48,6 +48,17 @@ if exist "%ROOT_DIR%build_pianoid_complete.bat" (
     )
 ) else (
     echo   ⚠ build_pianoid_complete.bat not found in root
+)
+
+if exist "%ROOT_DIR%build_pianoid_quiet.bat" (
+    copy "%ROOT_DIR%build_pianoid_quiet.bat" "%CORE_DIR%\build_pianoid_quiet.bat" >nul
+    if !errorlevel! equ 0 (
+        echo   ✓ Copied build_pianoid_quiet.bat
+    ) else (
+        echo   ✗ Failed to copy build_pianoid_quiet.bat
+    )
+) else (
+    echo   ⚠ build_pianoid_quiet.bat not found in root
 )
 
 if exist "%ROOT_DIR%build_pianoid_cuda.bat" (
@@ -83,6 +94,8 @@ if exist "%ROOT_DIR%detect_paths.py" (
     echo   ⚠ detect_paths.py not found in root
 )
 
+
+
 echo ✓ STEP 1 COMPLETED: Batch files copied
 echo.
 
@@ -92,16 +105,16 @@ rem =========================================================================
 echo [STEP 2/4] Setting up Python virtual environment...
 echo =========================================================================
 
-if not exist "%CORE_DIR%\venv-activate.bat" (
-    echo ERROR: venv-activate.bat not found in PianoidCore after copy
+if not exist "%CORE_DIR%\build_pianoid_venv.bat" (
+    echo ERROR: build_pianoid_venv.bat not found in PianoidCore after copy
     goto :error
 )
 
 echo Changing to PianoidCore directory...
 pushd "%CORE_DIR%"
 
-echo Running venv-activate.bat...
-call venv-activate.bat
+echo Running build_pianoid_venv.bat...
+call build_pianoid_venv.bat
 set "VENV_EXIT=!errorlevel!"
 
 popd
@@ -120,16 +133,16 @@ rem =========================================================================
 echo [STEP 3/4] Building PianoidCore packages...
 echo =========================================================================
 
-if not exist "%CORE_DIR%\build_pianoid_complete.bat" (
-    echo ERROR: build_pianoid_complete.bat not found in PianoidCore after copy
+if not exist "%CORE_DIR%\build_pianoid_quiet.bat" (
+    echo ERROR: build_pianoid_quiet.bat not found in PianoidCore after copy
     goto :error
 )
 
 echo Changing to PianoidCore directory...
 pushd "%CORE_DIR%"
 
-echo Running build_pianoid_complete.bat...
-call build_pianoid_complete.bat
+echo Running build_pianoid_quiet.bat...
+call build_pianoid_quiet.bat
 set "BUILD_EXIT=!errorlevel!"
 
 popd
