@@ -1,0 +1,44 @@
+{
+  "windows": {
+    "cuda_home": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6",
+    "visual_studio": {
+      "vc_tools_bin_hostx64_x64": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64"
+    },
+    "sdl2": {
+      "base_path": "C:\\SDL2-2.30.8"
+    }
+  },
+  "cuda_arch_list": [
+    "80",
+    "86",
+    "89"
+  ],
+  "project_root": "C:\\Users\\astri\\PianoidInstall",
+  "msvc_cl": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
+  "msvc_tools_root": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207",
+  "winsdk_root": "C:\\Program Files (x86)\\Windows Kits\\10",
+  "cuda_home": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6",
+  "cuda_nvcc": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\bin\\nvcc.exe",
+  "sdl2_root": "C:\\SDL2-2.30.8",
+  "python_include": "C:\\Users\\astri\\AppData\\Local\\Programs\\Python\\Python312\\Include",
+  "python_libdir": "C:\\Users\\astri\\AppData\\Local\\Programs\\Python\\Python312\\libs",
+  "pybind11_include": "",
+  "include_dirs": [
+    "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\include",
+    "C:\\Users\\astri\\PianoidInstall\\pianoid_cuda",
+    "C:\\Users\\astri\\AppData\\Local\\Programs\\Python\\Python312\\Include",
+    "C:\\SDL2-2.30.8\\include"
+  ],
+  "library_dirs": [
+    "C:\\SDL2-2.30.8\\lib\\x64",
+    "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6\\lib\\x64",
+    "C:\\Users\\astri\\AppData\\Local\\Programs\\Python\\Python312\\libs"
+  ],
+  "libraries": [
+    "SDL2",
+    "cudart",
+    "winmm",
+    "ole32",
+    "advapi32"
+  ]
+}
