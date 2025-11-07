@@ -16,9 +16,9 @@ echo PianoidTunner: %TUNNER_DIR%
 echo.
 
 rem =========================================================================
-rem STEP 1: Copy batch files to PianoidCore
+rem STEP 1: Copy required files to PianoidCore
 rem =========================================================================
-echo [STEP 1/4] Copying batch files to PianoidCore...
+echo [STEP 1/5] Copying required files to PianoidCore...
 echo =========================================================================
 
 if not exist "%CORE_DIR%" (
@@ -26,40 +26,7 @@ if not exist "%CORE_DIR%" (
     goto :error
 )
 
-echo Copying batch files...
-
-if exist "%ROOT_DIR%build_pianoid_venv.bat" (
-    copy "%ROOT_DIR%build_pianoid_venv.bat" "%CORE_DIR%\build_pianoid_venv.bat" >nul
-    if !errorlevel! equ 0 (
-        echo   ✓ Copied build_pianoid_venv.bat
-    ) else (
-        echo   ✗ Failed to copy build_pianoid_venv.bat
-    )
-) else (
-    echo   ⚠ build_pianoid_venv.bat not found in root
-)
-
-if exist "%ROOT_DIR%build_pianoid_complete.bat" (
-    copy "%ROOT_DIR%build_pianoid_complete.bat" "%CORE_DIR%\build_pianoid_complete.bat" >nul
-    if !errorlevel! equ 0 (
-        echo   ✓ Copied build_pianoid_complete.bat
-    ) else (
-        echo   ✗ Failed to copy build_pianoid_complete.bat
-    )
-) else (
-    echo   ⚠ build_pianoid_complete.bat not found in root
-)
-
-if exist "%ROOT_DIR%build_pianoid_quiet.bat" (
-    copy "%ROOT_DIR%build_pianoid_quiet.bat" "%CORE_DIR%\build_pianoid_quiet.bat" >nul
-    if !errorlevel! equ 0 (
-        echo   ✓ Copied build_pianoid_quiet.bat
-    ) else (
-        echo   ✗ Failed to copy build_pianoid_quiet.bat
-    )
-) else (
-    echo   ⚠ build_pianoid_quiet.bat not found in root
-)
+echo Copying build scripts and utilities...
 
 if exist "%ROOT_DIR%build_pianoid_cuda.bat" (
     copy "%ROOT_DIR%build_pianoid_cuda.bat" "%CORE_DIR%\build_pianoid_cuda.bat" >nul
@@ -94,71 +61,126 @@ if exist "%ROOT_DIR%detect_paths.py" (
     echo   ⚠ detect_paths.py not found in root
 )
 
-
-
-echo ✓ STEP 1 COMPLETED: Batch files copied
+echo ✓ STEP 1 COMPLETED: Required files copied
 echo.
 
 rem =========================================================================
 rem STEP 2: Setup Python virtual environment
 rem =========================================================================
-echo [STEP 2/4] Setting up Python virtual environment...
+echo [STEP 2/5] Setting up Python virtual environment...
 echo =========================================================================
 
-if not exist "%CORE_DIR%\build_pianoid_venv.bat" (
-    echo ERROR: build_pianoid_venv.bat not found in PianoidCore after copy
-    goto :error
-)
-
-echo Changing to PianoidCore directory...
 pushd "%CORE_DIR%"
 
-echo Running build_pianoid_venv.bat...
-call build_pianoid_venv.bat
-set "VENV_EXIT=!errorlevel!"
+set "VENV_DIR=%CORE_DIR%.venv"
+echo Creating virtual environment at: %VENV_DIR%
 
-popd
+if not exist "%VENV_DIR%" (
+    python -m venv .venv
+    if !errorlevel! neq 0 (
+        echo ERROR: Failed to create virtual environment
+        popd
+        goto :error
+    )
+    echo   ✓ Virtual environment created
+) else (
+    echo   Virtual environment already exists
+)
 
-if not !VENV_EXIT! equ 0 (
-    echo ERROR: Virtual environment setup failed with exit code !VENV_EXIT!
+echo Activating virtual environment...
+call .venv\Scripts\activate.bat
+if !errorlevel! neq 0 (
+    echo ERROR: Failed to activate virtual environment
+    popd
     goto :error
 )
+
+echo Upgrading pip...
+python -m pip install --upgrade pip
+if !errorlevel! neq 0 (
+    echo ERROR: Failed to upgrade pip
+    popd
+    goto :error
+)
+
+if exist requirements.txt (
+    echo Installing requirements...
+    python -m pip install -r requirements.txt
+    if !errorlevel! neq 0 (
+        echo ERROR: Failed to install requirements
+        popd
+        goto :error
+    )
+    echo   ✓ Requirements installed
+) else (
+    echo   Note: No requirements.txt found, skipping
+)
+
+popd
 
 echo ✓ STEP 2 COMPLETED: Python virtual environment setup
 echo.
 
 rem =========================================================================
-rem STEP 3: Build PianoidCore packages  
+rem STEP 3: Build PianoidBasic package
 rem =========================================================================
-echo [STEP 3/4] Building PianoidCore packages...
+echo [STEP 3/5] Building PianoidBasic package...
 echo =========================================================================
 
-if not exist "%CORE_DIR%\build_pianoid_quiet.bat" (
-    echo ERROR: build_pianoid_quiet.bat not found in PianoidCore after copy
+if not exist "%CORE_DIR%\build_pianoid_basic.bat" (
+    echo ERROR: build_pianoid_basic.bat not found in PianoidCore after copy
     goto :error
 )
 
 echo Changing to PianoidCore directory...
 pushd "%CORE_DIR%"
 
-echo Running build_pianoid_quiet.bat...
-call build_pianoid_quiet.bat
-set "BUILD_EXIT=!errorlevel!"
+echo Running build_pianoid_basic.bat...
+call build_pianoid_basic.bat
+set "BASIC_EXIT=!errorlevel!"
 
 popd
 
-if not !BUILD_EXIT! equ 0 (
-    echo ERROR: PianoidCore build failed with exit code !BUILD_EXIT!
+if not !BASIC_EXIT! equ 0 (
+    echo ERROR: PianoidBasic build failed with exit code !BASIC_EXIT!
     goto :error
 )
 
-echo ✓ STEP 3 COMPLETED: PianoidCore packages built
+echo ✓ STEP 3 COMPLETED: PianoidBasic package built
 echo.
 
 rem =========================================================================
-rem STEP 4: Install frontend dependencies
+rem STEP 4: Build PianoidCuda package
 rem =========================================================================
-echo [STEP 4/4] Installing frontend dependencies...
+echo [STEP 4/5] Building PianoidCuda package...
+echo =========================================================================
+
+if not exist "%CORE_DIR%\build_pianoid_cuda.bat" (
+    echo ERROR: build_pianoid_cuda.bat not found in PianoidCore after copy
+    goto :error
+)
+
+echo Changing to PianoidCore directory...
+pushd "%CORE_DIR%"
+
+echo Running build_pianoid_cuda.bat...
+call build_pianoid_cuda.bat
+set "CUDA_EXIT=!errorlevel!"
+
+popd
+
+if not !CUDA_EXIT! equ 0 (
+    echo ERROR: PianoidCuda build failed with exit code !CUDA_EXIT!
+    goto :error
+)
+
+echo ✓ STEP 4 COMPLETED: PianoidCuda package built
+echo.
+
+rem =========================================================================
+rem STEP 5: Install frontend dependencies
+rem =========================================================================
+echo [STEP 5/5] Installing frontend dependencies...
 echo =========================================================================
 
 if not exist "%TUNNER_DIR%" (
@@ -196,7 +218,7 @@ if not !NPM_EXIT! equ 0 (
     goto :error
 )
 
-echo ✓ STEP 4 COMPLETED: Frontend dependencies installed
+echo ✓ STEP 5 COMPLETED: Frontend dependencies installed
 echo.
 
 rem =========================================================================
@@ -207,10 +229,11 @@ echo ✓ SUCCESS: PianoidCore installation completed!
 echo =========================================================================
 echo.
 echo Summary of completed steps:
-echo   [1/4] ✓ Batch files copied to PianoidCore
-echo   [2/4] ✓ Python virtual environment and dependencies setup
-echo   [3/4] ✓ PianoidCore packages built and installed
-echo   [4/4] ✓ Frontend dependencies installed
+echo   [1/5] ✓ Required files copied to PianoidCore
+echo   [2/5] ✓ Python virtual environment and dependencies setup
+echo   [3/5] ✓ PianoidBasic package built and installed
+echo   [4/5] ✓ PianoidCuda package built and installed
+echo   [5/5] ✓ Frontend dependencies installed
 echo.
 echo Directory verification:
 if exist "%CORE_DIR%\.venv" (

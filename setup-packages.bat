@@ -7,16 +7,17 @@ if exist "setup-config.json" (
 ) else (
     echo No config file found. Using default versions:
     echo   Python: 3.12.0
-    echo   CUDA: 12.6.0  
+    echo   CUDA: 12.6.0
     echo   Node.js: 20.18.0
     echo   SDL2: 2.30.8
+    echo   SDL3: 3.1.6 (default)
 )
 echo.
 echo This script will install/update:
 echo   - Python (with pip)
 echo   - Visual Studio 2022 Build Tools (C++)
 echo   - CUDA Toolkit
-echo   - SDL2
+echo   - SDL2 and SDL3 (audio libraries)
 echo   - Node.js LTS
 echo.
 echo Available options:
@@ -58,9 +59,10 @@ if "%choice%"=="1" (
                 cuda = '12.6.0'
                 nodejs = '20.18.0'
                 sdl2 = '2.30.8'
+                sdl3 = '3.1.6'
             }
             paths = @{
-                sdl2_root = 'C:\'
+                sdl_root = 'C:\'
             }
             options = @{
                 skip_components = @()

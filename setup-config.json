@@ -3,10 +3,11 @@
     "python": "3.12.0",
     "cuda": "12.6.0",
     "nodejs": "20.18.0",
-    "sdl2": "2.30.8"
+    "sdl2": "2.30.8",
+    "sdl3": "3.1.6"
   },
   "paths": {
-    "sdl2_root": "C:\\"
+    "sdl_root": "C:\\"
   },
   "options": {
     "skip_components": [],

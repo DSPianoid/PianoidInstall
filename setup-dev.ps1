@@ -1,5 +1,5 @@
 # setup-dev.ps1
-# Installs Python, VS 2022 Build Tools (C++), SDL2, CUDA Toolkit, Node.js
+# Installs Python, VS 2022 Build Tools (C++), SDL2, SDL3, CUDA Toolkit, Node.js
 # Supports configuration file for version management
 # Works in Windows PowerShell 5.1 and PowerShell 7+.
 
@@ -13,12 +13,13 @@ param(
   [switch]$ForceReinstall,      # Force reinstall all components
   [switch]$ForceVS,            # Force reinstall VS Build Tools
   [switch]$ForceCUDA,          # Force reinstall CUDA
-  [switch]$ForceSDL,           # Force reinstall SDL2
+  [switch]$ForceSDL,           # Force reinstall SDL2/SDL3
   [switch]$ForceNode,          # Force reinstall Node.js
   [switch]$ForcePython,        # Force reinstall Python
   [string]$ConfigFile = "setup-config.json",  # Configuration file path
   [string]$CudaVersion = "",    # Override config file version
-  [string]$SdlVersion = "",     # Override config file version
+  [string]$Sdl2Version = "",    # Override config file SDL2 version
+  [string]$Sdl3Version = "",    # Override config file SDL3 version
   [string]$NodeVersion = "",    # Override config file version
   [string]$PythonVersion = "",  # Override config file version
   [string]$SdlRoot = ""         # Override config file path
@@ -32,10 +33,11 @@ $DefaultVersions = @{
   cuda = "12.6.0"
   nodejs = "20.18.0"
   sdl2 = "2.30.8"
+  sdl3 = "3.1.6"
 }
 
 $DefaultPaths = @{
-  sdl2_root = "C:\"
+  sdl_root = "C:\"
 }
 
 $DefaultCudaArchs = @("75", "80", "86", "89")
@@ -480,6 +482,55 @@ function Ensure-SDL2 {
   return $final
 }
 
+function Ensure-SDL3 {
+  param([string]$Version, [string]$SdlRoot)
+
+  if ($SkipSDL) {
+    return $null
+  }
+
+  $final = Join-Path $SdlRoot ("SDL3-$Version")
+  $forceRequested = $ForceReinstall -or $ForceSDL
+
+  if ($forceRequested) {
+    Write-Host "Force reinstall requested for SDL3"
+    if (Test-Path $final) {
+      Write-Host "Removing existing SDL3 installation: $final"
+      Remove-Item -Recurse -Force $final
+    }
+  }
+
+  if ((Test-Path $final) -and (-not $forceRequested)) {
+    Write-Host "SDL3 $Version already installed at: $final"
+    return $final
+  }
+
+  Write-Host "`n== Installing SDL3 $Version (VC) to $final =="
+
+  $zip   = Join-Path $env:TEMP "SDL3-devel-$Version-VC.zip"
+  $stage = Join-Path $env:TEMP ("sdl3_unpack_" + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+  Invoke-Download "https://github.com/libsdl-org/SDL/releases/download/preview-$Version/SDL3-devel-$Version-VC.zip" $zip
+  Expand-Archive -Path $zip -DestinationPath $stage -Force
+
+  $src = (Get-ChildItem -Directory $stage | Where-Object { $_.Name -like 'SDL3-*' } |
+          Sort-Object Name -Descending | Select-Object -First 1)
+  if (-not $src) {
+    throw "SDL3 base folder not found after extraction."
+  }
+
+  $parent = Split-Path -Path $final -Parent
+  if ($parent -and (-not (Test-Path $parent))) {
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  }
+  Move-Item -Path $src.FullName -Destination $final
+
+  # Cleanup staging
+  Remove-Item -Recurse -Force $stage, $zip -ErrorAction SilentlyContinue
+  return $final
+}
+
 function Ensure-CUDA {
   param([string]$Version)
   
@@ -562,21 +613,64 @@ function Ensure-CUDA {
   return $cuda
 }
 
-function Write-BuildConfig($CudaHome, $VcBin, $SdlBase, $CudaArchs) {
+function Write-BuildConfig($CudaHome, $VcBin, $Sdl2Base, $Sdl3Base, $CudaArchs) {
+  # Detect SDL include/lib paths
+  $sdl2Available = $false
+  $sdl3Available = $false
+
+  $sdl2Include = ""
+  $sdl2IncludeSubdir = ""
+  $sdl2Libdir = ""
+  $sdl2Dll = ""
+
+  $sdl3Include = ""
+  $sdl3IncludeSubdir = ""
+  $sdl3Libdir = ""
+  $sdl3Dll = ""
+
+  if ($Sdl2Base -and (Test-Path $Sdl2Base)) {
+    $sdl2Available = $true
+    $sdl2Include = Join-Path $Sdl2Base "include"
+    $sdl2IncludeSubdir = Join-Path $sdl2Include "SDL2"
+    $sdl2Libdir = Join-Path $Sdl2Base "lib\x64"
+    $sdl2Dll = Join-Path $sdl2Libdir "SDL2.dll"
+    Write-Host "  SDL2 base  : $Sdl2Base"
+  }
+
+  if ($Sdl3Base -and (Test-Path $Sdl3Base)) {
+    $sdl3Available = $true
+    $sdl3Include = Join-Path $Sdl3Base "include"
+    $sdl3IncludeSubdir = Join-Path $sdl3Include "SDL3"
+    $sdl3Libdir = Join-Path $Sdl3Base "lib\x64"
+    $sdl3Dll = Join-Path $sdl3Libdir "SDL3.dll"
+    Write-Host "  SDL3 base  : $Sdl3Base"
+  }
+
   $cfg = @{
     windows = @{
       cuda_home = $CudaHome
       visual_studio = @{ vc_tools_bin_hostx64_x64 = $VcBin }
-      sdl2 = @{ base_path = $SdlBase }
+      sdl2 = @{ base_path = if ($Sdl2Base) { $Sdl2Base } else { "" } }
     }
     cuda_arch_list = $CudaArchs
+    audio_driver = "SDL3"  # Default to SDL3
+    sdl2_available = $sdl2Available
+    sdl3_available = $sdl3Available
+    sdl2_include = $sdl2Include
+    sdl2_include_subdir = $sdl2IncludeSubdir
+    sdl2_libdir = $sdl2Libdir
+    sdl2_dll = $sdl2Dll
+    sdl3_include = $sdl3Include
+    sdl3_include_subdir = $sdl3IncludeSubdir
+    sdl3_libdir = $sdl3Libdir
+    sdl3_dll = $sdl3Dll
   }
   $out = Join-Path (Get-Location) 'build_config.json'
   $cfg | ConvertTo-Json -Depth 6 | Set-Content -Path $out -Encoding UTF8
   Write-Host "`nbuild_config.json written to: $out"
   Write-Host "  cuda_home  : $CudaHome"
   Write-Host "  VC bin     : $VcBin"
-  Write-Host "  SDL2 base  : $SdlBase"
+  Write-Host "  Default audio driver: SDL3"
 }
 
 # --- main ---
@@ -589,18 +683,19 @@ Write-Host "Python Version: $($config.versions.python)"
 Write-Host "CUDA Version: $($config.versions.cuda)"
 Write-Host "Node.js Version: $($config.versions.nodejs)"
 Write-Host "SDL2 Version: $($config.versions.sdl2)"
+Write-Host "SDL3 Version: $($config.versions.sdl3)"
 
-if ($ForceReinstall) { 
-  Write-Host "Force reinstall: ALL components" 
+if ($ForceReinstall) {
+  Write-Host "Force reinstall: ALL components"
 }
 elseif ($ForceVS -or $ForceCUDA -or $ForceSDL -or $ForceNode -or $ForcePython) {
   $components = @()
   if ($ForceVS) { $components += 'VS' }
   if ($ForceCUDA) { $components += 'CUDA' }
-  if ($ForceSDL) { $components += 'SDL2' }
+  if ($ForceSDL) { $components += 'SDL2/SDL3' }
   if ($ForceNode) { $components += 'Node.js' }
   if ($ForcePython) { $components += 'Python' }
-  Write-Host "Force reinstall: $($components -join ' ')"
+  Write-Host "Force reinstall: $($components -join ', ')"
 }
 
 Assert-Admin
@@ -611,15 +706,18 @@ Ensure-VSBuildTools
 $vcBin = Get-VcBinHostx64x64
 & (Join-Path $vcBin 'cl.exe') /? | Out-Null  # sanity check
 
-$sdlBase  = Ensure-SDL2 -Version $config.versions.sdl2 -SdlRoot $config.paths.sdl2_root
+$sdl2Base = Ensure-SDL2 -Version $config.versions.sdl2 -SdlRoot $config.paths.sdl_root
+$sdl3Base = Ensure-SDL3 -Version $config.versions.sdl3 -SdlRoot $config.paths.sdl_root
 $nodeJs   = Ensure-NodeJS -Version $config.versions.nodejs
 $cudaHome = Ensure-CUDA -Version $config.versions.cuda
 
-Write-BuildConfig -CudaHome $cudaHome -VcBin $vcBin -SdlBase $sdlBase -CudaArchs $config.cuda.architectures
+Write-BuildConfig -CudaHome $cudaHome -VcBin $vcBin -Sdl2Base $sdl2Base -Sdl3Base $sdl3Base -CudaArchs $config.cuda.architectures
 
 Write-Host "`n=== Setup Complete ==="
 if ($python) { Write-Host "Python $($config.versions.python) installed at: $python" }
 Write-Host "CUDA $($config.versions.cuda) installed at: $cudaHome"
 if ($nodeJs) { Write-Host "Node.js installed at: $nodeJs" }
+if ($sdl2Base) { Write-Host "SDL2 $($config.versions.sdl2) installed at: $sdl2Base" }
+if ($sdl3Base) { Write-Host "SDL3 $($config.versions.sdl3) installed at: $sdl3Base (default)" }
 Write-Host "Open a NEW terminal so PATH updates are visible, then build with:"
 Write-Host "  pip install -v ."
