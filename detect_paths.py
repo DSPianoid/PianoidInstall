@@ -174,22 +174,46 @@ def _find_sdl2(user_hint=None):
         if env and Path(env).exists():
             root = Path(env)
         else:
-            # common defaults
-            # Prefer versioned dir if present, otherwise C:\SDL2
-            bases = []
+            # Search in multiple common locations
             candidates = []
+
+            # 1. System drive root (C:\, D:\, etc.)
             sysdrive = os.environ.get("SystemDrive", "C:")
-            bases.append(Path(sysdrive + os.sep))
+            candidates.extend(Path(sysdrive + os.sep).glob("SDL2-*"))
+            candidates.append(Path(sysdrive + os.sep) / "SDL2")
 
-            # Also check a literal C:\ as a fallback search base
-            bases.append(Path("C:\\"))
+            # 2. C:\ drive explicitly (if different from SystemDrive)
+            if sysdrive.upper() != "C:":
+                candidates.extend(Path("C:\\").glob("SDL2-*"))
+                candidates.append(Path("C:\\") / "SDL2")
 
-            for base in bases:
-                candidates.extend(base.glob("SDL2-*"))
-                candidates.append(base / "SDL2")
+            # 3. Program Files directories
+            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+            candidates.extend(Path(pf).glob("SDL2-*"))
+            candidates.append(Path(pf) / "SDL2")
 
-            root = next((p for p in candidates if p.exists()), None)
-            root = Path(root) if root else None
+            pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            if pf86 != pf:
+                candidates.extend(Path(pf86).glob("SDL2-*"))
+                candidates.append(Path(pf86) / "SDL2")
+
+            # 4. User's home directory
+            home = Path.home()
+            candidates.extend(home.glob("SDL2-*"))
+            candidates.append(home / "SDL2")
+
+            # 5. Common development directories
+            for dev_dir in ["dev", "Development", "libs", "Libraries", "SDK"]:
+                for base in [Path(sysdrive + os.sep), Path("C:\\"), home]:
+                    dev_path = base / dev_dir
+                    if dev_path.exists():
+                        candidates.extend(dev_path.glob("SDL2-*"))
+                        candidates.append(dev_path / "SDL2")
+
+            # Find first existing candidate, prefer versioned directories
+            versioned = [p for p in candidates if p.exists() and p.name.startswith("SDL2-")]
+            unversioned = [p for p in candidates if p.exists() and p.name == "SDL2"]
+            root = next(iter(sorted(versioned, key=lambda p: p.name, reverse=True)), None) or next(iter(unversioned), None)
     if not root:
         return {}
     inc = Path(root) / "include"
@@ -204,11 +228,103 @@ def _find_sdl2(user_hint=None):
             lib64 = Path(root) / "lib"
     if not inc.exists():
         return {}
+
+    # Find SDL2.dll
+    dll_path = ""
+    if lib64 and Path(lib64).exists():
+        dll = Path(lib64) / "SDL2.dll"
+        if dll.exists():
+            dll_path = str(dll)
+
     return {
         "sdl2_root": str(Path(root)),
         "sdl2_include": str(inc),
-        "sdl2_include_sdl2": str(inc2) if inc2.exists() else "",
+        "sdl2_include_subdir": str(inc2) if inc2.exists() else "",
         "sdl2_libdir": str(lib64) if lib64.exists() else "",
+        "sdl2_dll": dll_path,
+    }
+
+
+def _find_sdl3(user_hint=None):
+    root = None
+    if user_hint:
+        root = Path(user_hint)
+        if not root.exists():
+            return {}
+    else:
+        # env hint
+        env = os.environ.get("SDL3_DIR")
+        if env and Path(env).exists():
+            root = Path(env)
+        else:
+            # Search in multiple common locations
+            candidates = []
+
+            # 1. System drive root (C:\, D:\, etc.)
+            sysdrive = os.environ.get("SystemDrive", "C:")
+            candidates.extend(Path(sysdrive + os.sep).glob("SDL3-*"))
+            candidates.append(Path(sysdrive + os.sep) / "SDL3")
+
+            # 2. C:\ drive explicitly (if different from SystemDrive)
+            if sysdrive.upper() != "C:":
+                candidates.extend(Path("C:\\").glob("SDL3-*"))
+                candidates.append(Path("C:\\") / "SDL3")
+
+            # 3. Program Files directories
+            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+            candidates.extend(Path(pf).glob("SDL3-*"))
+            candidates.append(Path(pf) / "SDL3")
+
+            pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            if pf86 != pf:
+                candidates.extend(Path(pf86).glob("SDL3-*"))
+                candidates.append(Path(pf86) / "SDL3")
+
+            # 4. User's home directory
+            home = Path.home()
+            candidates.extend(home.glob("SDL3-*"))
+            candidates.append(home / "SDL3")
+
+            # 5. Common development directories
+            for dev_dir in ["dev", "Development", "libs", "Libraries", "SDK"]:
+                for base in [Path(sysdrive + os.sep), Path("C:\\"), home]:
+                    dev_path = base / dev_dir
+                    if dev_path.exists():
+                        candidates.extend(dev_path.glob("SDL3-*"))
+                        candidates.append(dev_path / "SDL3")
+
+            # Find first existing candidate, prefer versioned directories
+            versioned = [p for p in candidates if p.exists() and p.name.startswith("SDL3-")]
+            unversioned = [p for p in candidates if p.exists() and p.name == "SDL3"]
+            root = next(iter(sorted(versioned, key=lambda p: p.name, reverse=True)), None) or next(iter(unversioned), None)
+    if not root:
+        return {}
+    inc = Path(root) / "include"
+    # Some layouts use include\SDL3 (both are valid to add)
+    inc2 = inc / "SDL3"
+    # lib dir (x64)
+    lib64 = Path(root) / "lib" / "x64"
+    # if unpacked "SDL3-devel-3.x.x-VC", lib dir may be lib\x64
+    if not lib64.exists():
+        # try lib
+        if (Path(root) / "lib").exists():
+            lib64 = Path(root) / "lib"
+    if not inc.exists():
+        return {}
+
+    # Find SDL3.dll
+    dll_path = ""
+    if lib64 and Path(lib64).exists():
+        dll = Path(lib64) / "SDL3.dll"
+        if dll.exists():
+            dll_path = str(dll)
+
+    return {
+        "sdl3_root": str(Path(root)),
+        "sdl3_include": str(inc),
+        "sdl3_include_subdir": str(inc2) if inc2.exists() else "",
+        "sdl3_libdir": str(lib64) if lib64.exists() else "",
+        "sdl3_dll": dll_path,
     }
 
 
@@ -256,8 +372,16 @@ def build_config(args):
     winsdk_info = _find_windows_sdk()
     cuda_info = _find_cuda(args.cuda)
     sdl2_info = _find_sdl2(args.sdl2)
+    sdl3_info = _find_sdl3(getattr(args, 'sdl3', None))
     py_info = _py_info()
     pybind_info = _find_pybind11()
+
+    # Determine which SDL drivers are available
+    sdl2_available = bool(sdl2_info.get("sdl2_root"))
+    sdl3_available = bool(sdl3_info.get("sdl3_root"))
+
+    # Default to SDL3 if available, otherwise SDL2
+    default_driver = "SDL3" if sdl3_available else ("SDL2" if sdl2_available else "")
 
     # Structure the config to match what setup.py expects
     cfg = {
@@ -274,6 +398,23 @@ def build_config(args):
         "cuda_arch_list": _default_arches(),
         "project_root": str(Path(args.project_root).resolve()) if args.project_root else str(Path.cwd().resolve()),
 
+        # Audio driver configuration
+        "audio_driver": default_driver,
+        "sdl2_available": sdl2_available,
+        "sdl3_available": sdl3_available,
+
+        # SDL2 paths
+        "sdl2_include": sdl2_info.get("sdl2_include", ""),
+        "sdl2_include_subdir": sdl2_info.get("sdl2_include_subdir", ""),
+        "sdl2_libdir": sdl2_info.get("sdl2_libdir", ""),
+        "sdl2_dll": sdl2_info.get("sdl2_dll", ""),
+
+        # SDL3 paths
+        "sdl3_include": sdl3_info.get("sdl3_include", ""),
+        "sdl3_include_subdir": sdl3_info.get("sdl3_include_subdir", ""),
+        "sdl3_libdir": sdl3_info.get("sdl3_libdir", ""),
+        "sdl3_dll": sdl3_info.get("sdl3_dll", ""),
+
         # Keep flat structure for validation
         "msvc_cl": msvc_info.get("msvc_cl", ""),
         "msvc_tools_root": msvc_info.get("msvc_tools_root", ""),
@@ -281,6 +422,7 @@ def build_config(args):
         "cuda_home": cuda_info.get("cuda_home", ""),
         "cuda_nvcc": cuda_info.get("cuda_nvcc", ""),
         "sdl2_root": sdl2_info.get("sdl2_root", ""),
+        "sdl3_root": sdl3_info.get("sdl3_root", ""),
         "python_include": py_info.get("python_include", ""),
         "python_libdir": py_info.get("python_libdir", ""),
         "pybind11_include": pybind_info.get("pybind11_include", ""),
@@ -294,16 +436,28 @@ def build_config(args):
         includes.append(cuda_info["cuda_include"])
     includes.append(str(Path(cfg["project_root"]) / "pianoid_cuda"))
     includes.append(cfg["python_include"])
-    sdl_inc = sdl2_info.get("sdl2_include")
-    if sdl_inc:
-        includes.append(sdl_inc)
-    sdl_inc2 = sdl2_info.get("sdl2_include_sdl2")
-    if sdl_inc2:
-        includes.append(sdl_inc2)
+
+    # Add SDL includes based on default driver
+    if default_driver == "SDL2":
+        sdl_inc = sdl2_info.get("sdl2_include")
+        if sdl_inc:
+            includes.append(sdl_inc)
+        sdl_inc2 = sdl2_info.get("sdl2_include_subdir")
+        if sdl_inc2:
+            includes.append(sdl_inc2)
+    elif default_driver == "SDL3":
+        sdl_inc = sdl3_info.get("sdl3_include")
+        if sdl_inc:
+            includes.append(sdl_inc)
+        sdl_inc2 = sdl3_info.get("sdl3_include_subdir")
+        if sdl_inc2:
+            includes.append(sdl_inc2)
 
     libdirs = []
-    if sdl2_info.get("sdl2_libdir"):
+    if default_driver == "SDL2" and sdl2_info.get("sdl2_libdir"):
         libdirs.append(sdl2_info["sdl2_libdir"])
+    elif default_driver == "SDL3" and sdl3_info.get("sdl3_libdir"):
+        libdirs.append(sdl3_info["sdl3_libdir"])
     if cuda_info.get("cuda_libdir"):
         libdirs.append(cuda_info["cuda_libdir"])
     if cfg.get("python_libdir"):
@@ -311,7 +465,15 @@ def build_config(args):
 
     cfg["include_dirs"] = includes
     cfg["library_dirs"] = libdirs
-    cfg["libraries"] = ["SDL2", "cudart", "winmm", "ole32", "advapi32"]
+
+    # Set libraries based on default driver
+    libs = []
+    if default_driver == "SDL2":
+        libs.append("SDL2")
+    elif default_driver == "SDL3":
+        libs.append("SDL3")
+    libs.extend(["cudart", "winmm", "ole32", "advapi32"])
+    cfg["libraries"] = libs
 
     return cfg
 
@@ -323,11 +485,15 @@ def validate(cfg):
         "winsdk_root",
         "cuda_home",
         "cuda_nvcc",
-        "sdl2_root",
         "python_include",
         "python_libdir",
     ]
     missing = [k for k in req if not cfg.get(k)]
+
+    # Require at least one SDL version
+    if not cfg.get("sdl2_root") and not cfg.get("sdl3_root"):
+        missing.append("sdl2_root or sdl3_root")
+
     return missing
 
 
@@ -337,6 +503,7 @@ def main():
     ap.add_argument("--cuda", default=None,
                     help="Hint for CUDA root, e.g. C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x")
     ap.add_argument("--sdl2", default=None, help="Hint for SDL2 root, e.g. C:\\SDL2-2.30.0")
+    ap.add_argument("--sdl3", default=None, help="Hint for SDL3 root, e.g. C:\\SDL3-3.1.6")
     ap.add_argument("--project-root", default=None, help="Root of the project (default: cwd)")
     ap.add_argument("--quiet", action="store_true", help="Print only the summary line")
     args = ap.parse_args()
