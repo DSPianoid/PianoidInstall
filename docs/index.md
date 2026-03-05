@@ -63,6 +63,8 @@ interactive latency.
   MIDI input through synthesis to audio output
 - [architecture/BUILD_SYSTEM.md](architecture/BUILD_SYSTEM.md) — Toolchain detection, CUDA
   compilation, wheel builds, and dependency management
+- [architecture/DATA_FLOWS.md](architecture/DATA_FLOWS.md) — End-to-end traces for playback,
+  parameter management, and chart/action flows
 
 ### pianoid_cuda
 

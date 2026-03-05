@@ -1,0 +1,60 @@
+site_name: Pianoid Documentation
+site_description: Real-time GPU-accelerated physical modeling piano synthesizer
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Architecture:
+    - System Overview: architecture/SYSTEM_OVERVIEW.md
+    - Build System: architecture/BUILD_SYSTEM.md
+    - Data Flows: architecture/DATA_FLOWS.md
+  - CUDA Engine:
+    - Overview: modules/pianoid-cuda/OVERVIEW.md
+    - Synthesis Engine: modules/pianoid-cuda/SYNTHESIS_ENGINE.md
+    - Playback System: modules/pianoid-cuda/PLAYBACK_SYSTEM.md
+    - Memory Management: modules/pianoid-cuda/MEMORY_MANAGEMENT.md
+    - Audio Drivers: modules/pianoid-cuda/AUDIO_DRIVERS.md
+    - Parameter System: modules/pianoid-cuda/PARAMETER_SYSTEM.md
+  - Middleware:
+    - Overview: modules/pianoid-middleware/OVERVIEW.md
+    - REST API: modules/pianoid-middleware/REST_API.md
+    - MIDI System: modules/pianoid-middleware/MIDI_SYSTEM.md
+    - Chart System: modules/pianoid-middleware/CHART_SYSTEM.md
+  - PianoidBasic: modules/pianoid-basic/OVERVIEW.md
+  - Frontend: modules/pianoid-tunner/OVERVIEW.md
+  - Guides:
+    - Quick Start: guides/QUICK_START.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
