@@ -44,6 +44,9 @@ nav:
     - Chart System: modules/pianoid-middleware/CHART_SYSTEM.md
   - PianoidBasic: modules/pianoid-basic/OVERVIEW.md
   - Frontend: modules/pianoid-tunner/OVERVIEW.md
+  - Development:
+    - Testing: development/TESTING.md
+    - Work in Progress: development/WORK_IN_PROGRESS.md
   - Guides:
     - Quick Start: guides/QUICK_START.md
 

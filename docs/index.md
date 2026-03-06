@@ -102,6 +102,13 @@ interactive latency.
 - [modules/pianoid-tunner/OVERVIEW.md](modules/pianoid-tunner/OVERVIEW.md) — React component
   tree, parameter binding, visualization panels, and MIDI input handling
 
+### Development
+
+- [development/TESTING.md](development/TESTING.md) — Three-level pytest framework, test inventory,
+  instrumentation APIs
+- [development/WORK_IN_PROGRESS.md](development/WORK_IN_PROGRESS.md) — Active investigations
+  and planned work
+
 ### Guides
 
 - [guides/QUICK_START.md](guides/QUICK_START.md) — Prerequisites, build steps, and running the
