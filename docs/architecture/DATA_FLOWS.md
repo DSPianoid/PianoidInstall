@@ -301,9 +301,11 @@ C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
   Next MainKernel launch reads updated values from dev_preset_working_
 ```
 
-### 2.2 Excitation Parameters (Bulk Path)
+### 2.2 Excitation Parameters (Excitation-Only Path)
 
-Excitation parameters still use the bulk upload path (all 256 strings repacked).
+Excitation parameters use an excitation-only upload path. All pitches in the request
+are updated in the Python model first, then a single GPU transfer sends only the
+excitation buffer.
 
 ```
 React: GaussEditor.jsx — user edits Gauss curve for pitch 60
@@ -314,14 +316,13 @@ usePreset: changeParametersOfExcitation(...)
          │
          ▼
 pianoid.update_parameter(param='gauss')
-  1. pitch.excitation.load_from_dict(values)
-     ExcitationParameters.recalculate_excitation_matrix()
-       → interpolate 5 base levels → 128 velocity levels (shape 128×4×5)
-  2. send_updated_params_to_CUDA()               // pianoid.py:1851
-     ├── sm.pack_parameters()                    // packs ALL 256 strings
-     │   returns: physical(4096) + hammer(24576) + gauss(655360)
-     │           + deck(131072) + volume(256) = ~3.15 MB
-     └── pianoid_cpp.setUpdatedParameters(phys, hammer, gauss, vol)
+  1. For each pitch in request:
+       pitch.excitation.load_from_dict(values)
+       ExcitationParameters.recalculate_excitation_matrix()
+         → interpolate 5 base levels → 128 velocity levels (shape 128×4×5)
+  2. Single GPU upload (outside loop):
+     sm.pack_excitations()                      // excitation data only
+     pianoid_cpp.setNewExcitationParameters(excitations)
          └── updateTunableParameter("dev_gauss_params_full", data)
              └── double-buffer swap (same as 2.1)
 ```
@@ -387,16 +388,19 @@ React: HammerSpatialProperties.jsx — user edits hammer width
 axios.post('/set_parameter/hammer/60', { width, sharpness })
          │
          ▼
-pianoid.update_parameter(param='hammer')                     // pianoid.py:1830
-  1. sm.update_hammer_shape(pitchID=60, **values)
-     PianoHammer.calculate_hammer_shape(offset)
-       → Gaussian/circular force profile, min 3 grid points
-  ❌ BUG: GPU transfer missing — Python model updates but
-          send_updated_params_to_CUDA() not called at line 1834
+pianoid.update_parameter(param='hammer')
+  1. For each pitch in request:
+       sm.update_hammer_shape(pitchID=60, **values)
+       PianoHammer.calculate_hammer_shape(offset)
+         → Gaussian/circular force profile, min 3 grid points
+  2. send_hammer_params_to_CUDA()
+     sm.pack_hammers()                          // hammer data only
+     pianoid_cpp.setNewHammerParameters(hammer)
+         └── updateTunableParameter("dev_hammer", data)
+             └── double-buffer swap (same as 2.1)
 
-Workaround: POST /set_hammer_shape/<pitch_no> (backendserver.py:466)
-  ─► sm.update_hammer_shape() + update_physical_parameters(pianoid)
-      → packs and sends ALL params to CUDA
+Also: POST /set_hammer_shape/<pitch_no> (backendserver.py:466)
+  ─► sm.update_hammer_shape() + send_hammer_params_to_CUDA()
 ```
 
 ### 2.6 Runtime Parameters (Volume, Feedback)
