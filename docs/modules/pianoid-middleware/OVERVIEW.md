@@ -32,26 +32,32 @@ The middleware exposes a REST API (served by `backendServer.py`) that the UI cal
 | pianoid.py |   | ChartGenerator   |
 | Pianoid    |   | (ChartGenerator.py)|
 | orchestr.  |   | ActionPerformer  |
-+------------+   +------------------+
-    |    |              |
-    |    |              v
-    |    |       +------------------+
-    |    |       | ChartRegistry    |
-    |    |       | (ChartRegistry.py)|
-    |    |       | chart_config.json|
-    |    |       +------------------+
-    |    |              |
-    |    |              v
-    |    |       +------------------+
-    |    |       | chartFunctions.py|
-    |    |       | (computation fns)|
-    |    |       +------------------+
-    |    |
-    |    v
-    |  pianoidMidiListener.py
-    |  MidiListener (rtmidi)
-    |
-    v
++-----+------+   +------------------+
+      |  |              |
+      |  |              v
+      |  |       +------------------+
+      |  |       | ChartRegistry    |
+      |  |       | (ChartRegistry.py)|
+      |  |       | chart_config.json|
+      |  |       +------------------+
+      |  |              |
+      |  |              v
+      |  |       +------------------+
+      |  |       | chartFunctions.py|
+      |  |       | (computation fns)|
+      |  |       +------------------+
+      |  |
+      |  v
+      | pianoidMidiListener.py
+      | MidiListener (rtmidi)
+      |
+      v
++---------------------+
+| parameter_manager.py|  ParameterManager
+| (CUDA transfers)    |  All pack-and-send logic
++---------------------+
+      |
+      v
   pianoidCuda (C++ extension)
   CUDA string simulation engine
   Audio driver (ASIO / SDL)
@@ -81,6 +87,20 @@ Key methods called by the REST layer:
 - `get_chart_for_frontend(chartType, **kwargs)` — delegates to `ChartGenerator`
 - `perform_frontend_command(action_type, **kwargs)` — delegates to `ActionPerformer`
 - `save_preset(path)` / `reset()` / `destroyPianoid()`
+
+### `ParameterManager` (parameter_manager.py)
+
+Owns all parameter packing and GPU transfer operations. Receives `pianoid` (C++ binding), `sm` (StringMap), `modes` (ModeMap), `mp` (ModelParameters), and `cuda_lock`. Created during `initialize_pianoid()`.
+
+Key methods:
+- `update_parameter(param, values, **param_range)` — central dispatcher for all parameter types
+- `update_pitch_physical_params(pitchID, **params)` — bulk physics update (used by NoteTunner, MidiListener)
+- `update_pitch_physical_params_GRANULAR(pitchID, **params)` — per-string granular update via `updateMultiStringParameter_NEW`
+- `send_*_params_to_CUDA()` — type-specific pack-and-send helpers (hammer, mode, deck, excitation)
+
+Module-level constant `PYTHON_TO_CUDA_PARAM_MAP` maps middleware parameter names (e.g. `'jung'`) to CUDA names (e.g. `'stiffness'`).
+
+The `Pianoid` class retains thin delegation methods so all external callers remain unchanged.
 
 ### Flask app (backendServer.py)
 

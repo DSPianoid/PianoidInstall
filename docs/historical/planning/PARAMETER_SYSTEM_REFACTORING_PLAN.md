@@ -142,12 +142,12 @@ Currently this is an inline dict at line 1969-1980.
 
 ## Summary
 
-| Phase | Scope | Risk | Files |
-|---|---|---|---|
-| 0 | Fix hammer bug + dead excitation endpoint | LOW | pianoid.py, backendServer.py |
-| 1 | Fix excitation bulk upload inefficiency | LOW | pianoid.py |
-| 2 | Consolidate REST routing | MEDIUM | backendServer.py |
-| 3 | Extract parameter_manager.py module | MEDIUM | NEW parameter_manager.py, pianoid.py |
-| 4 | Delete deprecated code, extract constants | LOW | pianoid.py / parameter_manager.py |
+| Phase | Scope | Risk | Files | Status |
+|---|---|---|---|---|
+| 0 | Fix hammer bug + dead excitation endpoint | LOW | pianoid.py, backendServer.py | **Done** |
+| 1 | Fix excitation bulk upload inefficiency | LOW | pianoid.py | **Done** |
+| 2 | Consolidate REST routing | MEDIUM | backendServer.py | **Done** |
+| 3 | Extract parameter_manager.py module | MEDIUM | NEW parameter_manager.py, pianoid.py | **Done** |
+| 4 | Delete deprecated code, extract constants | LOW | pianoid.py / parameter_manager.py | Pending |
 
 Each phase is independently deployable. Phases 0-1 are pure bug fixes. Phases 2-4 are structural improvements.
