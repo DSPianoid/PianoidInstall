@@ -375,8 +375,8 @@ pianoid.update_parameter(param='feedin')
      └── pianoid_cpp.setNewDeckParameters(deck)
          └── updateTunableParameter("dev_deck_parameters", data)
 
-Also: POST /set_deck/<matrix> (backendserver.py:379)
-  ─► same terminal path
+Deck updates use /set_parameter/feedin/<key> and /set_parameter/feedback/<key>
+exclusively (the legacy /set_deck/<matrix> endpoint was removed).
 ```
 
 ### 2.5 Hammer Shape

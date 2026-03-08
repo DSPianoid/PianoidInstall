@@ -19,9 +19,8 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /graph_names              -- chart and action type catalogue
   /get_parameter/<p>/<k>    -- read simulation parameters
   /set_parameter/<p>/<k>    -- write simulation parameters
-  /set_deck/<matrix>        -- write feedin/feedback matrix
-  /set_string_excitation/<pitch>  -- write excitation curves
-  /set_hammer_shape/<pitch>       -- write hammer geometry
+  /set_string_excitation/<pitch>  -- write single-level excitation curves
+  /set_hammer_shape/<pitch>       -- write hammer geometry (delegates to dispatcher)
   /set_mode_parameters      -- write mode parameters
   /set_velocity/<velocity>  -- fix MIDI velocity
   /set_runtime_parameters   -- volume / feedback at runtime
@@ -247,34 +246,10 @@ or
 
 ---
 
-### `POST /set_deck/<matrix>`
-
-Writes a feedin or feedback coupling matrix.
-
-`matrix`: `"feedin"` or `"feedback"`
-
-Request body:
-```json
-{
-  "pitch": "all",
-  "values": [[...], [...], ...]
-}
-```
-
-`pitch` can be `"all"`, a single integer, or a 2-element array `[start, stop]`.
-
-Response `200`:
-```json
-{"message": "feedin set successfully"}
-```
-
-Response `457` on bad pitch specification.
-
----
-
 ### `POST /set_string_excitation/<pitch_no>`
 
-Sets temporal excitation (hammer) curves for a single pitch.
+Sets temporal excitation curves for a single pitch at one velocity level.
+Delegates to `update_pitch_excitation()` which updates the Python model and GPU.
 
 `pitch_no`: integer pitch ID
 
@@ -298,7 +273,8 @@ Response `200`:
 
 ### `POST /set_hammer_shape/<pitch_no>`
 
-Sets hammer geometry for a single pitch. Null values in the JSON body are silently ignored.
+Sets hammer geometry for a single pitch. Null values in the JSON body are silently
+ignored. Delegates to `update_parameter('hammer', ...)`.
 
 `pitch_no`: integer pitch ID
 
@@ -649,7 +625,6 @@ Response `200`: block map array.
 | 400 | Bad request: missing or invalid parameters, pianoid not initialized |
 | 404 | Resource not found (e.g. MIDI file) |
 | 416 | Parameter parsing error or internal module error |
-| 457 | Invalid pitch specification in `/set_deck` |
 | 499 | Action executed (returned by `/get_chart_test` for action types) |
 | 500 | Unexpected server error |
 
