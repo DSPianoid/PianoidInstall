@@ -1,5 +1,13 @@
 # Work in Progress
 
+## Parameter Routing Unification
+
+**Status:** Complete.
+
+All parameter modifications now route through `ParameterManager`. Dead code removed (`TunePreset.py`, `playPianoid.py`, `playNotes.py`, `update_physical_parameters()`). Broken `pitch_wheel` MIDI handler fixed. `/set_mode_parameters` and MIDI deck handlers routed through dispatcher/facade.
+
+---
+
 ## Buffer Underrun Investigation
 
 **Status:** Diagnostic tests implemented. Root cause identified. Fix not yet applied.

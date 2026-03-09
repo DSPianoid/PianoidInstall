@@ -96,20 +96,24 @@ Key methods:
 - `update_parameter(param, values, **param_range)` — central dispatcher for all parameter types
 - `update_pitch_params(pitchID, **params)` — per-pitch granular update via `updateMultiStringParameter_NEW` (preferred for runtime changes)
 - `reload_all_physical_params(pitchID, **params)` — bulk repack of all 256 strings (for init, preset load, or global changes)
-- `send_*_params_to_CUDA()` — type-specific pack-and-send helpers (hammer, mode, deck, excitation)
+- `apply_deck_coefficient(feedin_coeff, feedback_coeff, feedbackOFF)` — scale deck parameters and send to CUDA
+- `send_*_params_to_CUDA()` — internal type-specific pack-and-send helpers (hammer, mode, deck, excitation)
 
 Module-level constant:
 - `CUDA_TRANSFERABLE_PARAMS` — set of parameter names that can be sent to CUDA (e.g. `'tension'`, `'string_damping'`, `'string_stiffness'`)
 
 Parameter names are consistent across all layers (frontend, middleware, domain model, CUDA). No translation maps are needed — the same canonical name is used everywhere. Legacy preset files are handled by `normalize_param_names()` in `PhysicalParameters.py`.
 
-The `Pianoid` class exposes `update_pitch_physical_params()` which routes to the granular path, and `reload_all_physical_params()` for explicit bulk use.
+All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods:
+- `update_parameter()` — dispatcher for REST API and batch operations
+- `update_pitch_physical_params()` — single-pitch shorthand for MIDI/tuning (routes to granular)
+- `reload_all_physical_params()` — bulk repack for init or global changes
+- `apply_deck_coefficient()` — deck scaling for MIDI CC handlers
 
 ### Flask app (backendServer.py)
 
 - Module-level globals: `pianoid` (current `Pianoid` instance), `running` (bool), `chart_registry` (`ChartTypeRegistry`)
 - `long_running_procedure(pianoid, listen)` — background thread target, calls `start_realtime_playback`
-- `update_physical_parameters(pianoid)` — packs all string/hammer/gauss params and sends to CUDA
 - `parse_range(pianoid, parameter, key_no)` — converts URL segment (`all`, `42`, `from21to88`) to pitch/mode lists
 
 ### `ChartGenerator` (ChartGenerator.py)
