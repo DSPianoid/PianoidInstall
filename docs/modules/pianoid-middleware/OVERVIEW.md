@@ -94,8 +94,8 @@ Owns all parameter packing and GPU transfer operations. Receives `pianoid` (C++ 
 
 Key methods:
 - `update_parameter(param, values, **param_range)` — central dispatcher for all parameter types
-- `update_pitch_physical_params(pitchID, **params)` — bulk physics update (used by NoteTunner, MidiListener)
-- `update_pitch_physical_params_GRANULAR(pitchID, **params)` — per-string granular update via `updateMultiStringParameter_NEW`
+- `update_pitch_params(pitchID, **params)` — per-pitch granular update via `updateMultiStringParameter_NEW` (preferred for runtime changes)
+- `reload_all_physical_params(pitchID, **params)` — bulk repack of all 256 strings (for init, preset load, or global changes)
 - `send_*_params_to_CUDA()` — type-specific pack-and-send helpers (hammer, mode, deck, excitation)
 
 Module-level constant:
@@ -103,9 +103,7 @@ Module-level constant:
 
 Parameter names are consistent across all layers (frontend, middleware, domain model, CUDA). No translation maps are needed — the same canonical name is used everywhere. Legacy preset files are handled by `normalize_param_names()` in `PhysicalParameters.py`.
 
-`update_pitch_physical_params()` emits a `DeprecationWarning` — callers should migrate to the granular API.
-
-The `Pianoid` class retains thin delegation methods so all external callers remain unchanged.
+The `Pianoid` class exposes `update_pitch_physical_params()` which routes to the granular path, and `reload_all_physical_params()` for explicit bulk use.
 
 ### Flask app (backendServer.py)
 
