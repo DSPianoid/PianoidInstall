@@ -148,6 +148,6 @@ Currently this is an inline dict at line 1969-1980.
 | 1 | Fix excitation bulk upload inefficiency | LOW | pianoid.py | **Done** |
 | 2 | Consolidate REST routing | MEDIUM | backendServer.py | **Done** |
 | 3 | Extract parameter_manager.py module | MEDIUM | NEW parameter_manager.py, pianoid.py | **Done** |
-| 4 | Delete deprecated code, extract constants | LOW | pianoid.py / parameter_manager.py | Pending |
+| 4 | Delete deprecated code, extract constants | LOW | pianoid.py / parameter_manager.py | **Done** |
 
 Each phase is independently deployable. Phases 0-1 are pure bug fixes. Phases 2-4 are structural improvements.

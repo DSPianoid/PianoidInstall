@@ -98,7 +98,11 @@ Key methods:
 - `update_pitch_physical_params_GRANULAR(pitchID, **params)` — per-string granular update via `updateMultiStringParameter_NEW`
 - `send_*_params_to_CUDA()` — type-specific pack-and-send helpers (hammer, mode, deck, excitation)
 
-Module-level constant `PYTHON_TO_CUDA_PARAM_MAP` maps middleware parameter names (e.g. `'jung'`) to CUDA names (e.g. `'stiffness'`).
+Module-level constants:
+- `PYTHON_TO_CUDA_PARAM_MAP` — middleware → CUDA name mapping (e.g. `'jung'` → `'stiffness'`)
+- `FRONTEND_TO_PYTHON_PARAM_MAP` — frontend → Python model name mapping (e.g. `'detuning'` → `'tension_offset'`)
+
+`update_pitch_physical_params()` emits a `DeprecationWarning` — callers should migrate to the granular API.
 
 The `Pianoid` class retains thin delegation methods so all external callers remain unchanged.
 
