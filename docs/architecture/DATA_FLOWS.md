@@ -277,12 +277,11 @@ pianoid.py: update_parameter(param='string')                  (line 2230)
   ─► update_pitch_physical_params_GRANULAR(pitchID=60, **values)
          │                                                    (line 1906)
          ▼
-  1. Map Python names → CUDA names ("jung"→"stiffness", "rho"→"density")
-  2. pitch = sm.pitches[60]
-  3. pitch.physics.set_params(**values)          // update Python model
-  4. string_indices = sm.get_cuda_string_indices(60)  // e.g. [120, 121, 122]
-  5. For each string: apply detuning offset
-     new_values[i] = value * (1 + i * tension_offset)
+  1. pitch = sm.pitches[60]
+  2. pitch.physics.set_params(**values)          // update Python model
+  3. string_indices = sm.get_cuda_string_indices(60)  // e.g. [120, 121, 122]
+  4. For each string: apply detuning offset
+     new_values[i] = value * (1 + i * detuning)
   6. With cuda_lock:
      pianoid_cpp.setNewPhysicalParameters(physical_params, volume_coeffs)
      pianoid_cpp.setNewHammerParameters(hammer)
@@ -457,7 +456,7 @@ GET /get_parameter/<type>/<key_no>
          │
          ▼
 pianoid.pack_for_interface(type, pitches, modes)
-  ├── type="string"  → pitch.physics.pack()      → {tension, rho, r, jung, ...}
+  ├── type="string"  → pitch.physics.pack()      → {tension, string_density, string_radius, string_stiffness, ...}
   ├── type="gauss"   → pitch.excitation → velocity curves dict
   ├── type="mode"    → mode.pack()                → {frequency, decrement, ...}
   ├── type="feedin"  → sm.pack_deck()             → coupling matrix
