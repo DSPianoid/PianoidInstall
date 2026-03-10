@@ -10,9 +10,13 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 - Questions, exploration, or research tasks
 - Trivial one-line fixes where the full workflow would be overkill
 
-## Context Lookup
+## Documentation-First Rule (MANDATORY)
 
-When handling any request where the context is not fully clear — questions about how something works, running tests on a specific module, investigating behaviour, or any task that requires understanding project structure — **always consult the documentation first**, in this order:
+**Every time** you need to understand something about the Pianoid codebase — whether at the start of a task, mid-implementation, during debugging, or when a new question arises — you MUST consult documentation before searching or reading source code. This applies at every stage of work, not just the beginning.
+
+**NEVER use Grep, Glob, or Read on source files to answer a "how does X work?" question without checking docs first.** The docs exist precisely to avoid expensive source-code trawling.
+
+Documentation lookup order (stop as soon as you have enough context):
 
 1. `D:\repos\PianoidInstall\docs\index.md` — module map, entry point
 2. `D:\repos\PianoidInstall\docs\architecture\SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
@@ -25,7 +29,7 @@ When handling any request where the context is not fully clear — questions abo
 5. `D:\repos\PianoidInstall\docs\development\TESTING.md` — test inventory and usage
 6. `D:\repos\PianoidInstall\docs\development\WORK_IN_PROGRESS.md` — active investigations
 
-Stop reading as soon as you have enough context. Only then proceed to source files if needed.
+Only after the docs don't answer your question may you proceed to source files.
 
 ## Key Paths
 

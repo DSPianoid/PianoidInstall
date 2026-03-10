@@ -8,6 +8,21 @@ All parameter modifications now route through `ParameterManager`. Dead code remo
 
 ---
 
+## Parameter Update Sleep Removal
+
+**Status:** Future refactoring.
+
+`parameter_manager.py` has `time.sleep(0.01)` after every bulk `setNew*Parameters()` call (hammer, mode, deck, excitation). The sleeps are a crude workaround for the `DROP_IF_BUSY` async policy — without them, consecutive updates can be silently dropped because `cudaMemcpyAsync` returns before the double-buffer swap completes.
+
+All UI-driven parameter routes (REST endpoints, MIDI handlers) are designed to work during online playback. The bulk `setNew*` methods and their sleep workarounds may be obsolete — the granular `updateMultiStringParameter_NEW()` path (used by `update_pitch_params()`) already handles this correctly with explicit `waitForParameterUpdate()`.
+
+**Refactoring options:**
+- Replace sleeps with `waitForParameterUpdate()` calls
+- Migrate all paths to the granular API
+- Remove bulk methods if no longer needed
+
+---
+
 ## Buffer Underrun Investigation
 
 **Status:** Diagnostic tests implemented. Root cause identified. Fix not yet applied.
