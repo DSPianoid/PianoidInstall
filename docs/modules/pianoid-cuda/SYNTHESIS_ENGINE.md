@@ -179,40 +179,45 @@ Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
   MIDI / REST event
        |
        v
-  addStringToBatch() → excitation Gaussian loaded into dev_gauss_params_full
-       |
+  addStringToBatch() → records string index + velocity into host batch buffers
+       |                 (Gauss params already resident on GPU in dev_gauss_params_full)
        v
-  commitStringBatch() → exct_cycle_index[string] set to 0
+  commitStringBatch() → cudaMemcpy batch buffers to GPU
+       |                  sets new_notes_ind = batch_size + 1
        |
   +----+
   |
-  |  +----- per cycle --------------------------------------------------------+
-  |  |                                                                         |
-  |  |  dev_gauss_params_full                                                  |
-  |  |        |  (force function)                                              |
-  |  |        v                                                                |
-  |  |  [FDTD string update] <--- string_state (t, t-1)                       |
-  |  |        |                                                                |
-  |  |  force_on_bridge  -->  feedin_cycle_matrix  -->  sumArray              |
-  |  |                                                      |                  |
-  |  |                                               F_applied (per mode)     |
-  |  |                                                      |                  |
-  |  |                                            [harmonic oscillator]       |
-  |  |                                                      |                  |
-  |  |                                              mode_state (t, t-1)       |
-  |  |                                                      |                  |
-  |  |                    feedback_cycle_matrix  <----------+                  |
-  |  |                           |                                             |
-  |  |                        sumArray                                         |
-  |  |                           |                                             |
-  |  |                     feedback (per string)                               |
-  |  |                           |                                             |
-  |  |                    [stem displacement = feedback]                       |
-  |  |                                                                         |
-  |  |  soundFloat / soundInt  <-- (feedback - s_b) * main_volume_coeff       |
-  |  |        |                                                                |
-  |  +--------+                                                                |
-  |           +----------------------------------------------------------------+
+  |  +----- executeSynthesisCycle() -----------------------------------------+
+  |  |                                                                        |
+  |  |  if new_notes_ind > 0:  parameterKernel (update coefficients)         |
+  |  |  if new_notes_ind > 1:  gaussKernel (compute force_function)          |
+  |  |                                                                        |
+  |  |  dev_gauss_params_full ──► gaussKernel ──► dev_force_function          |
+  |  |                                                  |                     |
+  |  |                                                  v                     |
+  |  |  [FDTD string update] <--- string_state (t, t-1)                      |
+  |  |        |                    + force_function[n] * coeff_force          |
+  |  |        |                                                               |
+  |  |  force_on_bridge  -->  feedin_cycle_matrix  -->  sumArray             |
+  |  |                                                      |                 |
+  |  |                                               F_applied (per mode)    |
+  |  |                                                      |                 |
+  |  |                                            [harmonic oscillator]      |
+  |  |                                                      |                 |
+  |  |                                              mode_state (t, t-1)      |
+  |  |                                                      |                 |
+  |  |                    feedback_cycle_matrix  <----------+                 |
+  |  |                           |                                            |
+  |  |                        sumArray                                        |
+  |  |                           |                                            |
+  |  |                     feedback (per string)                              |
+  |  |                           |                                            |
+  |  |                    [stem displacement = feedback]                      |
+  |  |                                                                        |
+  |  |  soundFloat / soundInt  <-- (feedback - s_b) * main_volume_coeff      |
+  |  |        |                                                               |
+  |  +--------+                                                               |
+  |           +---------------------------------------------------------------+
   |
   v
   [FIR convolution kernel — optional]
@@ -220,6 +225,175 @@ Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
        v
   audio driver (ASIO / SDL3)
 ```
+
+---
+
+## Excitation System
+
+**Files:** `gaussTest.cu` / `gaussTest.cuh`, `Pianoid.cu`
+
+The excitation system translates MIDI note events into time-varying force waveforms that
+drive the FDTD string simulation. It operates in two phases: a **parameter phase** (Gauss
+curves uploaded via the double-buffer preset system) and a **trigger phase** (per-note batch
+API that launches `gaussKernel` to compute the force function).
+
+### Batch Excitation API
+
+When a note event arrives, the host prepares a batch of strings to excite, then commits
+them all in one GPU transfer:
+
+```cpp
+void beginStringBatch();
+// Reset batch counter (noStrings_in_GP = 0)
+
+void addStringToBatch(int stringNo, int velocity);
+// Append one string to the batch:
+//   1. Store (stringNo, volume_coeff[stringNo], timing=0) in host buffer
+//   2. Compute param_offset = (stringNo * 128 + velocity) * 20
+//      into string_gauss_param_indices (index into dev_gauss_params_full)
+//   3. Set dec_open[stringNo] = DUMP_OPEN (damper lifted)
+//   4. Increment noStrings_in_GP
+
+void commitStringBatch();
+// Transfer batch to GPU and arm the kernel trigger:
+//   1. cudaMemcpy: string_gauss_param_indices → dev_gauss_param_indices
+//   2. cudaMemcpy: string_excitation_params   → dev_string_excitation_params
+//   3. Set new_notes_ind = noStrings_in_GP + 1
+//   4. Execute pending mode excitation if staged
+```
+
+Single-string convenience wrapper:
+
+```cpp
+void addOneString(int stringNo, int velocity);
+// Equivalent to beginStringBatch() + addStringToBatch() + commitStringBatch()
+// for a single string
+```
+
+### Kernel Trigger: `new_notes_ind`
+
+`launchMainKernel()` checks `new_notes_ind` to decide which kernels to launch:
+
+```
+new_notes_ind == 0  →  addKernel only (normal synthesis cycle)
+new_notes_ind == 1  →  parameterKernel + addKernel
+new_notes_ind >  1  →  parameterKernel + gaussKernel + addKernel
+                        (gaussKernel grid: noStrings = new_notes_ind - 1)
+```
+
+`new_notes_ind` is reset to 0 at the end of `launchMainKernel()`.
+
+### gaussKernel — Force Function Computation
+
+**File:** `gaussTest.cu`
+
+`gaussKernel` is a separate kernel (not part of `addKernel`) launched once per note event
+to pre-compute the full excitation time series into `dev_force_function`.
+
+```
+Launch configuration:
+  gridDim  = (noStrings, numSeg)     where numSeg = (mode_iteration * sound_step * 7) / 128
+  blockDim = 128
+```
+
+For each string in the batch, the kernel:
+
+1. Reads the Gauss parameter offset from `dev_gauss_param_indices[blockIdx.x]`
+2. Loads 20 parameters from `dev_gauss_params_full` at that offset:
+
+```
+[offset +  0.. 4]  →  mu[5]       (peak time of each Gaussian)
+[offset +  5.. 9]  →  sigma[5]    (width of each Gaussian)
+[offset + 10..14]  →  g_vol[5]    (amplitude of each Gaussian)
+[offset + 15..19]  →  g_shift[5]  (vertical offset / ReLU threshold)
+```
+
+3. Computes the force value at each time point using a sum of 5 Gaussians:
+
+```
+xCoordinate = sample_index * (EXCITATION_FACTOR - 1) / excitation_length
+
+For each Gaussian i:
+    g = exp(-0.5 * ((xCoordinate - mu[i]) / sigma[i])²)
+    g = max(g - g_shift[i], 0)      // per-component ReLU gate
+    result += g * g_vol[i]
+
+result *= volume_coefficient
+```
+
+4. Writes to `dev_force_function[stringNo * totalExcitationLength + sample_index]`
+
+**Note:** The per-component ReLU gate (`max(g - shift, 0)` applied before summation) differs
+from the Python `ExcitationParameters.calculate()` method which clips the total sum after
+all 5 Gaussians are added. The GPU formula is the one used in actual synthesis.
+
+### Excitation Cycle Index
+
+Each string has an `exct_cycle_index` counter in `dev_exct_cycle_index` (256 ints). When
+`gaussKernel` runs, it resets the counter to 0 for each excited string. The main kernel
+(`addKernel`) advances this counter each synthesis cycle and reads `force_function` at the
+corresponding offset. When the counter exceeds `excitation_factor × num_iterations()`
+(default: 8 × 576 = 4,608 sub-steps), the force drops to zero — the hammer has left the string.
+
+### Force Function Buffer
+
+`dev_force_function` is a WORKING-category single-buffered GPU allocation:
+
+```
+Size: MAX_NUM_STRINGS × totalExcitationLength reals
+      where totalExcitationLength = mode_iteration × sound_step × EXCITATION_FACTOR
+      typical: 256 × 4096 = 1,048,576 reals (~4 MB float, ~8 MB double)
+
+Layout (row-major):
+  force_function[string_index * totalExcitationLength + sample_index]
+```
+
+The buffer is overwritten each time `gaussKernel` runs. Only strings in the current batch
+are updated; previously-excited strings retain their force function until the next note event
+targeting them.
+
+### Excitation Parameter Storage (Preset Region)
+
+`dev_gauss_params_full` is part of the TUNABLE double-buffered preset block:
+
+```
+Size: 256 strings × 128 velocity levels × 20 params = 655,360 reals (2.5 MB float)
+
+Indexing: param_offset = (stringNo * 128 + velocity) * 20
+
+Per velocity level (20 reals):
+  [0..4]    mu[5]       — Gaussian peak times (ms within excitation window)
+  [5..9]    sigma[5]    — Gaussian widths
+  [10..14]  g_vol[5]    — Gaussian amplitudes
+  [15..19]  g_shift[5]  — ReLU threshold offsets
+```
+
+Updated via `setNewExcitationParameters()` which calls `updateTunableParameter()` on the
+double-buffer system (see [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
+
+### Mode Excitation
+
+Modes can be excited directly (bypassing string-to-mode coupling) via:
+
+```cpp
+void addModeExcitation(int modeNo, float displacement, float velocity);
+// Stages a direct mode excitation for the next commitStringBatch() call.
+// Sets mode state: q = displacement, q_prev = displacement - velocity * dt
+// Applied synchronously by commitStringBatch() via _exciteSingleMode().
+```
+
+This is used for testing individual resonator modes without triggering string excitation.
+
+### Excitation Constants
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `NUM_GAUSS` | 5 | Gaussian components per excitation curve |
+| `GAUSS_PARAMETERS_NUMBER` | 4 | Parameters per Gaussian (mu, sigma, vol, shift) |
+| `LEN_LEVEL_GP` | 20 | Total params per velocity level (5 × 4) |
+| `NO_EXCITATION_LEVELS` | 128 | MIDI velocity levels |
+| `EXCITATION_FACTOR` | 8 | Excitation duration in milliseconds |
+| `MAX_STRINGS_PER_EVENT` | 64 | Max strings per batch |
 
 ---
 

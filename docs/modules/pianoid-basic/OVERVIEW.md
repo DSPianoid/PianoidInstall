@@ -276,10 +276,11 @@ Model the velocity-dependent hammer force waveform as a sum of Gaussian pulses.
 
 **ExcitationParameters** — manages the full excitation model for one pitch:
 
-- `levels_matrix` — shape `(128, 4, 5)` — Gauss parameters for all 128 MIDI velocity levels
-- Five base velocity levels (`LEVEL_INDICES = [0, 31, 63, 95, 127]`) are stored directly; all 128 levels are produced by `extrapolate()` which linearly interpolates between breakpoints
-- `calculate(velocity)` — returns shape `(excitation_factor, num_iterations())` — the excitation time series reshaped for the CUDA kernel indexing
-- `pack_gauss_params()` — flattens the entire 128-level matrix to a list for GPU upload
+- `levels_matrix` — shape `(128, 4, 5)` — axes: [velocity_level, param_index, gauss_component]. Param indices: 0=mu, 1=sigma, 2=volume, 3=shift
+- Five base velocity levels (`LEVEL_INDICES = [0, 31, 63, 95, 127]`) are stored directly; `recalculate_excitation_matrix()` extracts these 5 rows and calls `extrapolate()` to linearly interpolate between breakpoints, producing all 128 levels
+- `calculate(velocity)` — returns shape `(excitation_factor, num_iterations())` — the excitation time series reshaped for the CUDA kernel indexing. Applies `cut_negative=True` which clips the **total sum** of all 5 Gaussians (post-summation ReLU). Note: the GPU `gaussKernel` applies ReLU per-component before summation — the GPU formula is the one used in actual synthesis
+- `pack_gauss_params()` — flattens the entire 128-level matrix via `levels_matrix.ravel().tolist()`. GPU layout per velocity level: `[mu×5, sigma×5, volume×5, shift×5]` (20 reals). Total per pitch: 128 × 20 = 2,560 reals
+- `volume_coefficients` — shape `(5,)` — per-base-level volume scaling. Applied to the volume row when `pack_gauss_params(volume_coefficients=True)` is called (multiplied before extrapolation)
 
 The extrapolation scheme: 5 base curves × 5 Gauss components = 25 parameter sets; these are linearly interpolated to produce 128 complete curves covering the full MIDI velocity range.
 

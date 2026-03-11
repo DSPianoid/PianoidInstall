@@ -93,8 +93,14 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
         EventDispatcher.dispatch(event)
           │
           ├── NOTE_ON  → exciteStringsForPitch(pianoid, pitch, velocity)
-          │                → pianoid->exciteStrings(indices, velocity)
-          │                    → GPU: excitation kernel
+          │                → beginStringBatch()
+          │                → addStringToBatch(stringNo, velocity)  × N strings
+          │                → commitStringBatch()
+          │                    → cudaMemcpy batch indices to GPU
+          │                    → set new_notes_ind (arms gaussKernel)
+          │                → next executeSynthesisCycle():
+          │                    gaussKernel computes force_function from
+          │                    dev_gauss_params_full[string][velocity]
           ├── NOTE_OFF → releaseStrings(indices)
           └── SUSTAIN  → processSustain(pedal_value)
       │
@@ -304,7 +310,8 @@ C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
 
 Excitation parameters use an excitation-only upload path. All pitches in the request
 are updated in the Python model first, then a single GPU transfer sends only the
-excitation buffer.
+excitation buffer. The uploaded data is not applied immediately — it is consumed later
+by `gaussKernel` when a note event triggers string excitation (see §1.2).
 
 ```
 React: GaussEditor.jsx — user edits Gauss curve for pitch 60
@@ -314,17 +321,26 @@ usePreset: changeParametersOfExcitation(...)
   ─► axios.post('/set_parameter/gauss/60', { velocity_curves_dict })
          │
          ▼
-pianoid.update_parameter(param='gauss')
+parameter_manager.update_parameter(param='gauss')
   1. For each pitch in request:
        pitch.excitation.load_from_dict(values)
-       ExcitationParameters.recalculate_excitation_matrix()
-         → interpolate 5 base levels → 128 velocity levels (shape 128×4×5)
-  2. Single GPU upload (outside loop):
-     sm.pack_excitations()                      // excitation data only
+         → load_from_dict_to_matrix(): write into levels_matrix[level, param, curve]
+         → recalculate_excitation_matrix():
+             extract 5 base levels (indices [0,31,63,95,127])
+             extrapolate() → 128 velocity levels (shape 128×4×5)
+  2. Single GPU upload (outside loop, with cuda_lock):
+     sm.pack_excitations()                      // all pitches, excitation data only
+       → for each pitch: pack_gauss_params() → 128×4×5 = 2560 reals
+       → concatenate → 256 × 2560 = 655,360 reals (2.5 MB float)
      pianoid_cpp.setNewExcitationParameters(excitations)
          └── updateTunableParameter("dev_gauss_params_full", data)
              └── double-buffer swap (same as 2.1)
+     time.sleep(0.01)                           // allow GPU swap to complete
 ```
+
+**GPU-side consumption:** When a NOTE_ON event arrives, `gaussKernel` reads the
+velocity-specific slice from `dev_gauss_params_full` and computes the force function
+waveform. See [SYNTHESIS_ENGINE.md — Excitation System](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#excitation-system).
 
 **Transfer sizes (bulk vs granular):**
 

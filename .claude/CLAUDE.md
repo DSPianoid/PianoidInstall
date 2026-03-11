@@ -31,6 +31,14 @@ Documentation lookup order (stop as soon as you have enough context):
 
 Only after the docs don't answer your question may you proceed to source files.
 
+## Documentation Links
+
+When referencing documentation files in reports or summaries, **always** provide MkDocs links via `http://localhost:8001/` (not file paths or VS Code links). Use the nav structure from `mkdocs.yml` to build URLs. Anchor fragments use the heading text lowercased with hyphens (e.g., `#excitation-system`).
+
+Examples:
+- `http://localhost:8001/modules/pianoid-cuda/SYNTHESIS_ENGINE/#excitation-system`
+- `http://localhost:8001/architecture/DATA_FLOWS/#22-excitation-parameters-excitation-only-path`
+
 ## Key Paths
 
 | Resource | Path |
