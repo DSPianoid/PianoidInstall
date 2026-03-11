@@ -1,13 +1,13 @@
 ---
 name: update-pianoid
-description: Update all Pianoid packages (PianoidCore, PianoidBasic, PianoidTunner) by fetching latest from git and rebuilding with smart rebuild detection.
+description: Update all Pianoid repos (PianoidInstall, PianoidCore, PianoidBasic, PianoidTunner) — fetch, rebuild, sync project skills.
 user-invocable: true
 argument-hint: [--force|-f] [--force-heavy|-h]
 ---
 
 # Update Pianoid Packages
 
-Update PianoidCore, PianoidBasic, and PianoidTunner by fetching latest changes from git and rebuilding as needed.
+Update PianoidInstall (docs, skills, config), PianoidCore, PianoidBasic, and PianoidTunner by fetching latest changes from git and rebuilding as needed.
 
 ## Arguments
 
@@ -18,6 +18,7 @@ Update PianoidCore, PianoidBasic, and PianoidTunner by fetching latest changes f
 
 ## Repository Locations
 
+- **PianoidInstall**: `D:\repos\PianoidInstall` (parent repo — docs, project skills, config)
 - **PianoidCore**: `D:\repos\PianoidInstall\PianoidCore`
 - **PianoidBasic**: `D:\repos\PianoidInstall\PianoidBasic`
 - **PianoidTunner**: `D:\repos\PianoidInstall\PianoidTunner` (React/Node.js frontend)
@@ -28,6 +29,7 @@ Update PianoidCore, PianoidBasic, and PianoidTunner by fetching latest changes f
 
 For all repos, run:
 ```bash
+git -C "D:\repos\PianoidInstall" status --porcelain
 git -C "D:\repos\PianoidInstall\PianoidCore" status --porcelain
 git -C "D:\repos\PianoidInstall\PianoidBasic" status --porcelain
 git -C "D:\repos\PianoidInstall\PianoidTunner" status --porcelain
@@ -39,6 +41,7 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" status --porcelain
 ### 2. Fetch and Check for Updates
 
 ```bash
+git -C "D:\repos\PianoidInstall" fetch origin
 git -C "D:\repos\PianoidInstall\PianoidCore" fetch origin
 git -C "D:\repos\PianoidInstall\PianoidBasic" fetch origin
 git -C "D:\repos\PianoidInstall\PianoidTunner" fetch origin
@@ -46,6 +49,7 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" fetch origin
 
 Show pending commits:
 ```bash
+git -C "D:\repos\PianoidInstall" log HEAD..origin/master --oneline
 git -C "D:\repos\PianoidInstall\PianoidCore" log HEAD..origin/dev --oneline
 git -C "D:\repos\PianoidInstall\PianoidBasic" log HEAD..origin/dev --oneline
 git -C "D:\repos\PianoidInstall\PianoidTunner" log HEAD..origin/dev --oneline
@@ -57,6 +61,7 @@ If no updates in any repo: report "Already up to date" and exit.
 
 Get changed files:
 ```bash
+git -C "D:\repos\PianoidInstall" diff HEAD..origin/master --name-only
 git -C "D:\repos\PianoidInstall\PianoidCore" diff HEAD..origin/dev --name-only
 git -C "D:\repos\PianoidInstall\PianoidBasic" diff HEAD..origin/dev --name-only
 git -C "D:\repos\PianoidInstall\PianoidTunner" diff HEAD..origin/dev --name-only
@@ -79,10 +84,21 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" diff HEAD..origin/dev --name-only
 ### 4. Pull Updates
 
 ```bash
+git -C "D:\repos\PianoidInstall" pull origin master
 git -C "D:\repos\PianoidInstall\PianoidCore" pull origin dev
 git -C "D:\repos\PianoidInstall\PianoidBasic" pull origin dev
 git -C "D:\repos\PianoidInstall\PianoidTunner" pull origin dev
 ```
+
+### 4a. Install Project-Level Skills
+
+After pulling PianoidInstall, project-level skills in `.claude/commands/` are automatically updated via git. Report any new or changed skills:
+
+```bash
+git -C "D:\repos\PianoidInstall" diff HEAD@{1}..HEAD --name-only -- .claude/commands/
+```
+
+If any `.claude/commands/*.md` files changed, list them in the report.
 
 ### 5. Rebuild Packages
 
@@ -156,8 +172,9 @@ docs/
 
 ### 7. Report Summary
 
-- Which repos were updated (with commit count)
+- Which repos were updated (with commit count), including PianoidInstall
 - Which packages were rebuilt (and build mode)
+- Which project-level skills were added/updated (from `.claude/commands/`)
 - Any warnings or errors
 
 ## Example Usage
