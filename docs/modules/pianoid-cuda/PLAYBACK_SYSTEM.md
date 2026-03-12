@@ -36,7 +36,7 @@ Supporting structures:
 struct PlaybackConfig {
     bool audio_enabled      = true;
     bool record_to_buffer   = false;
-    bool cycle_accurate     = false;
+    bool cycle_accurate     = false;    // Reserved, not currently used by engines
     int  max_duration_ms    = 0;       // 0 = infinite
     int  sample_rate        = 48000;
     int  samples_per_cycle  = 64;
@@ -88,11 +88,20 @@ public:
 ```
 
 The `run()` loop:
-1. Starts `CycleTimeEstimator`
-2. Calls `processEventsAtCycle(current_cycle)` — drains both sources
-3. Calls `PlaybackCycleExecutor::executeCycle(pianoid_, record_audio)` — synthesis step
-4. Optionally appends audio if `record_to_buffer`
-5. Repeats until `stop()` is called or `max_duration_ms` expires
+1. Starts audio device and application, then starts `CycleTimeEstimator`
+   (estimator starts *after* audio init to prevent ~150ms startup drift)
+2. Immediate `syncToCycle(0)` for initial calibration
+3. Calls `processEventsAtCycle(current_cycle)` — drains both sources
+4. Calls `PlaybackCycleExecutor::executeCycle(pianoid_, record_audio)` — synthesis step
+5. Drift calibration: every cycle for the first 10 cycles (rapid warmup),
+   then every 100 cycles (periodic maintenance)
+6. Repeats until `stop()` is called or `max_duration_ms` expires
+7. On exit: stops estimator, application, and audio device
+
+**Legacy fallback:** When no `RealTimeEventBuffer` is set, the engine falls back to
+time-based event processing via `processEventsAtTime(elapsed_ms)`, converting wall-clock
+time to cycle indices. This path exists for backward compatibility but is not the
+recommended mode.
 
 ---
 
@@ -197,6 +206,11 @@ Events are indexed by `PlaybackEvent::cycle_index` (a `uint32_t`). The engine ad
 `current_index_` forward monotonically; `getEventsAtCycle()` returns all events at exactly
 the requested cycle.
 
+**Important:** `getEventsAtCycle()` also advances past any events with
+`cycle_index < requested_cycle`, silently consuming them. If an engine skips a cycle
+number, events scheduled for that cycle are dropped. This is by design — the sorted
+queue assumes monotonically increasing cycle queries.
+
 ---
 
 ## PlaybackEvent Types
@@ -296,6 +310,11 @@ public:
 The engine calls `drainEventsUpTo(current_cycle)` once per synthesis cycle to collect all
 events whose `target_cycle <= current_cycle`. Typical insertion latency is under 1 µs.
 
+**Threading note:** `pushEvent()` acquires the mutex twice per call — once for the insert,
+once for latency statistics update. This is a known trade-off: the stats lock is released
+between operations to minimize contention on the hot path, at the cost of an extra lock
+acquisition for instrumentation.
+
 ---
 
 ## CycleTimeEstimator
@@ -322,8 +341,15 @@ public:
 
 `cycle_duration_us = (samples_per_cycle / sample_rate) * 1e6`
 
-Drift correction: `syncToCycle()` computes `drift = estimated - actual` and stores it as
-an atomic `int32_t` applied on every subsequent `getCurrentCycle()` call.
+Drift correction: `syncToCycle()` computes `drift = actual - estimated_raw` and stores
+it as an atomic `int32_t` applied on every subsequent `getCurrentCycle()` call.
+
+Calibration schedule (driven by `OnlinePlaybackEngine::run()`):
+- Cycles 0–9: every cycle (rapid warmup to absorb audio startup delay)
+- Cycle 10+: every 100 cycles (periodic maintenance)
+
+The estimator suppresses drift warnings during the first 10 calibrations (warmup phase)
+since large initial drift is expected during audio device startup.
 
 ---
 
@@ -352,3 +378,45 @@ run():                                   run():
   stop audio driver                      return PlaybackStats
   return PlaybackStats
 ```
+
+---
+
+## Python-Side Lifecycle Control
+
+`stop_playback()` is the canonical method for halting playback. It:
+
+1. Stops the MIDI listener (if running)
+2. Signals `engine.stop()`
+3. Joins `_playback_thread` with timeout (no sleep)
+4. Stops the audio driver
+5. Prints buffer/engine stats
+6. Transitions PLAYBACK_ACTIVE → PAUSED
+
+Legacy wrappers delegate to `stop_playback()`:
+
+| Method | Extra Behavior | Use Case |
+|--------|---------------|----------|
+| `stop_playback()` | — | Canonical stop (preferred) |
+| `stop_pianoid()` | Extracts pending audio results first | Chart actions, MIDI keyboard bindings |
+| `stop_unified_playback()` | None (direct delegate) | Legacy callers |
+| `pause_playback()` | None (direct delegate) | Legacy callers |
+
+---
+
+## Pybind11 Binding Coverage
+
+Not all `EventType` values are exposed to Python. Currently bound:
+
+| EventType | Bound | Notes |
+|-----------|-------|-------|
+| `NOTE_ON` | Yes | |
+| `NOTE_OFF` | Yes | |
+| `SUSTAIN` | Yes | |
+| `PARAM_UPDATE_SINGLE` | Yes | |
+| `PARAM_UPDATE_BATCH` | No | C++ only |
+| `TEST_STRING_ONLY` | Yes | |
+| `TEST_MODE_ONLY` | No | C++ only |
+| `RESET_STATE` | Yes | |
+| `TOGGLE_FEEDBACK` | No | C++ only, handler is TODO |
+
+Unbound types can only be used in C++ (e.g., in pre-built `EventQueue` objects).

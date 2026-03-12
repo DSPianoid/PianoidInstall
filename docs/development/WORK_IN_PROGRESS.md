@@ -72,3 +72,38 @@ The full 3-level testing system is being built top-down:
 | Unit | `tests/unit/` | Pure Python | Planned |
 
 See [Testing](TESTING.md) for the implemented test inventory and usage.
+
+---
+
+## Playback System Known Issues
+
+**Status:** Partially fixed.
+
+### play_mode() Blocking Sleep
+
+`pianoid.py:play_mode()` uses `time.sleep(length / 1000)` to wait for GPU synthesis to
+complete before extracting results. This blocks the calling thread and prevents concurrent
+use. Also contains `TODO: DEBUG!!!!!!!` for mode state management.
+
+### ~~Duplicate Stop Methods~~ (Fixed)
+
+Consolidated into canonical `stop_playback()`. Legacy methods (`stop_pianoid()`,
+`stop_unified_playback()`, `pause_playback()`) now delegate to it.
+
+### ~~long_running_procedure() Dead Reference~~ (Fixed)
+
+Updated to reference `_playback_thread` instead of `application_thread`.
+
+### ~~Sleep Race Condition in stop_pianoid()~~ (Fixed)
+
+Replaced `time.sleep(0.15)` with `_playback_thread.join(timeout=3.0)`.
+
+### RealTimeEventBuffer Double Mutex
+
+`pushEvent()` acquires the mutex twice per call (insert + stats). Could be consolidated
+into a single lock scope with minimal contention impact.
+
+### PlaybackConfig.cycle_accurate Unused
+
+`PlaybackConfig::cycle_accurate` is defined, bound to Python via pybind11, and set by
+`render_midi_offline()`, but no engine code reads it.
