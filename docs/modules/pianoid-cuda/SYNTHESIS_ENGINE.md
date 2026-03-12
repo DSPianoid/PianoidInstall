@@ -10,6 +10,8 @@ mode displacement feeds back into each string at its bridge termination point.
 An optional FIR convolution kernel post-processes the output for room acoustics or
 equalization.
 
+![Synthesis Signal Flow](../../images/synthesis-signal-flow.svg)
+
 ---
 
 ## Kernel Grid Layout
@@ -111,28 +113,87 @@ sub-step, accumulated via `feedin_cycle_matrix` and reduced with `sumArray()`.
 
 ## String–Mode Coupling
 
-Coupling is implemented through two intermediate global matrices that are zeroed after
-each sub-step to avoid accumulation across cycles.
+Coupling is bidirectional: string vibration drives soundboard modes (feedin), and mode
+displacement feeds back into each string at its bridge termination point (feedback). Two
+intermediate global matrices (`feedin_cycle_matrix`, `feedback_cycle_matrix`) accumulate
+contributions from all thread blocks, then `sumArray()` reduces them to per-mode and
+per-string scalars. Both matrices are zeroed once per outer iteration (per audio sample),
+not per inner FDTD sub-step.
+
+### Coupling Coefficients
+
+Each thread loads coupling coefficients at kernel entry from `mode_coefficients` (the deck
+coupling buffer in `PianoidPresetParameters`). A thread covers up to `NUM_FOLDS_IN_QUARTER=3`
+mode indices via index folding, so 512 threads per block can address all 256 modes:
 
 ```
-String → Mode  (feedin_cycle_matrix)
-  For each string s and mode m:
-    feedin_cycle_matrix[s * SEGMENT + block] += mode_feedin[i] * force_on_bridge
+mode_feedin[i]  = mode_coefficients[stringNo * numModes + modeIndex[i]]
+                  (loaded from preset, row-major: string × mode)
 
-  sumArray() reduces SEGMENT columns → scalar F_applied for each mode
-
-Mode → String  (feedback_cycle_matrix)
-  For each mode m and string s:
-    feedback_cycle_matrix[s * SEGMENT + block] += mode_feedback[i] * s_mode
-
-  sumArray() reduces SEGMENT columns → scalar feedback for each string
-
-  With USE_SINGLE_DECK_MATRIX=1 (current default):
+mode_feedback[i]:
+  USE_SINGLE_DECK_MATRIX=1 (current default):
     mode_feedback[i] = mode_feedin[i] * (*deck_feedback_coeff)
+    (feedback derived at runtime from feedin × scalar coefficient)
+
+  USE_SINGLE_DECK_MATRIX=0 (legacy):
+    mode_feedback[i] = mode_coefficients[numStrings*numModes + string*numModes + mode]
+    (loaded from second half of a 2× larger deck buffer)
 ```
 
-`mode_feedin` and `mode_feedback` are loaded once before the main iteration from the
-`mode_coefficients` (deck coupling) buffer.
+### Feedin: String → Mode
+
+After the inner FDTD loop, each stem point has accumulated `force_on_bridge_point` across
+all `soundStep` sub-steps. The per-string bridge force is summed via `atomicAdd` into
+`force_on_bridge_summed[stringInArr]`, then written into `feedin_cycle_matrix`:
+
+```
+feedin_cycle_matrix[string * SEGMENT + blockNo] +=
+    mode_feedin[i] * force_on_bridge_summed[quarter] / soundStep
+```
+
+The `/soundStep` normalises the accumulated force to a per-sub-step average. After a
+`grid_group::sync()`, `sumArray()` reduces `SEGMENT_FOR_SHUFFLE_SUMMATION=64` columns to
+a single scalar `F_applied` for each mode. The matrix is then zeroed for the next iteration.
+
+### Feedback: Mode → String
+
+At the start of each outer iteration (before the FDTD inner loop), mode displacement is
+written into `feedback_cycle_matrix`:
+
+```
+feedback_cycle_matrix[string * SEGMENT + blockNo] +=
+    mode_feedback[i] * s_mode[quarter]
+```
+
+After `grid_group::sync()`, `sumArray()` reduces to one scalar `s_feedback[stringInArr]`
+per string. This scalar overwrites the stem boundary points:
+
+```
+if (onStem):  target = s_feedback[stringInArr]
+```
+
+### Audio Output
+
+The per-sample audio output is computed from the feedback-driven stem displacement:
+
+```
+diff_result = feedback - s_b    (stem displacement minus previous)
+soundInt[sampleIndex] = Sint32(diff_result * main_volume_coeff)
+soundFloat[sampleIndex] = float(diff_result * main_volume_coeff)
+```
+
+### sumArray Reduction
+
+`sumArray()` uses a two-level reduction: warp-level `__shfl_down_sync` (32 lanes, ~10
+cycles) followed by cross-warp `atomicAdd` into shared memory (~100 cycles). The reduction
+is synchronised with `thread_group::sync()` before and after.
+
+### Runtime Feedback Coefficient
+
+`deck_feedback_coeff` is a single `real` in GPU global memory, updated via direct
+`cudaMemcpy` + `cudaDeviceSynchronize()` (not double-buffered). Controlled at runtime by
+MIDI CC 74 with exponential mapping: `8.0^((CC - 64) / 63)` — CC 0 → 0.125, CC 64 → 1.0,
+CC 127 → 8.0. Validation range: 0.0–1000.0.
 
 ---
 
@@ -368,8 +429,19 @@ Per velocity level (20 reals):
   [15..19]  g_shift[5]  — ReLU threshold offsets
 ```
 
-Updated via `setNewExcitationParameters()` which calls `updateTunableParameter()` on the
-double-buffer system (see [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
+**Update paths:**
+
+| Path | Method | Transfer | When |
+|------|--------|----------|------|
+| Init | `setNewExcitationParameters()` | Full 128 levels from Python (655,360 reals) | Once at startup via `loadPresetToLibrary` |
+| Runtime | `setNewExcitationBaseLevels()` | 5 base levels from Python (25,600 reals) → C++ interpolates to 128 | Every parameter edit |
+
+`setNewExcitationBaseLevels()` receives the 5 base velocity levels (indices [0, 31, 63,
+95, 127]) and performs linear interpolation on the C++ host side to reconstruct the full
+128-level buffer. The interpolation uses the same segment boundaries and linear formula
+as Python's `extrapolate()`. The reconstructed buffer is then uploaded via
+`updateTunableParameter()` on the double-buffer system (see
+[MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
 
 ### Mode Excitation
 

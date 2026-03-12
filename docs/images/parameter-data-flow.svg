@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 950" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="srcGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7C4DFF"/>
+      <stop offset="100%" stop-color="#B388FF"/>
+    </linearGradient>
+    <linearGradient id="mwGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00BFA5"/>
+      <stop offset="100%" stop-color="#64FFDA"/>
+    </linearGradient>
+    <linearGradient id="gpuGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF6D00"/>
+      <stop offset="100%" stop-color="#FFAB40"/>
+    </linearGradient>
+    <linearGradient id="dblBufGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF6D00"/>
+      <stop offset="100%" stop-color="#E65100"/>
+    </linearGradient>
+    <linearGradient id="directGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D50000"/>
+      <stop offset="100%" stop-color="#B71C1C"/>
+    </linearGradient>
+    <filter id="sh" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity="0.18"/>
+    </filter>
+    <marker id="a1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#9E9E9E"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="950" rx="16" fill="#1a1a2e"/>
+
+  <!-- Title -->
+  <text x="450" y="48" text-anchor="middle" fill="#E0E0E0" font-size="26" font-weight="700">Parameter Data Flow</text>
+  <text x="450" y="72" text-anchor="middle" fill="#9E9E9E" font-size="13">From UI Controls to GPU Memory — All Parameter Paths</text>
+
+  <!-- ═══ PARAMETER SOURCES ═══ -->
+  <text x="450" y="106" text-anchor="middle" fill="#B388FF" font-size="14" font-weight="600">Parameter Sources</text>
+
+  <rect x="40" y="118" width="185" height="72" rx="10" fill="url(#srcGrad)" filter="url(#sh)"/>
+  <text x="132" y="145" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">React UI</text>
+  <text x="132" y="165" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">Sliders, inputs, matrices</text>
+  <text x="132" y="180" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">300ms debounce</text>
+
+  <rect x="245" y="118" width="185" height="72" rx="10" fill="url(#srcGrad)" filter="url(#sh)"/>
+  <text x="337" y="145" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">MIDI CC</text>
+  <text x="337" y="165" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">CC 7 = Volume</text>
+  <text x="337" y="180" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">CC 74 = Deck Feedback</text>
+
+  <rect x="450" y="118" width="185" height="72" rx="10" fill="url(#srcGrad)" filter="url(#sh)"/>
+  <text x="542" y="145" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Preset File</text>
+  <text x="542" y="165" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">/load_preset (JSON)</text>
+  <text x="542" y="180" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">Full parameter reload</text>
+
+  <rect x="655" y="118" width="200" height="72" rx="10" fill="url(#srcGrad)" filter="url(#sh)"/>
+  <text x="755" y="145" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">REST API</text>
+  <text x="755" y="165" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">/set_parameter/&lt;type&gt;/&lt;key&gt;</text>
+  <text x="755" y="180" text-anchor="middle" fill="#fff" font-size="10" opacity="0.8">Programmatic access</text>
+
+  <!-- Arrows down to middleware -->
+  <line x1="132" y1="190" x2="132" y2="238" stroke="#B388FF" stroke-width="1.5" marker-end="url(#a1)"/>
+  <line x1="337" y1="190" x2="337" y2="238" stroke="#B388FF" stroke-width="1.5" marker-end="url(#a1)"/>
+  <line x1="542" y1="190" x2="542" y2="238" stroke="#B388FF" stroke-width="1.5" marker-end="url(#a1)"/>
+  <line x1="755" y1="190" x2="755" y2="238" stroke="#B388FF" stroke-width="1.5" marker-end="url(#a1)"/>
+
+  <!-- ═══ MIDDLEWARE LAYER ═══ -->
+  <rect x="40" y="240" width="820" height="200" rx="14" fill="url(#mwGrad)" filter="url(#sh)" opacity="0.92"/>
+  <text x="60" y="268" fill="#1a1a2e" font-size="11" font-weight="600" opacity="0.6">MIDDLEWARE — pianoid.py</text>
+  <text x="60" y="290" fill="#1a1a2e" font-size="16" font-weight="700">update_parameter() → Route by Type</text>
+
+  <!-- Parameter type boxes inside middleware -->
+  <rect x="60" y="305" width="130" height="60" rx="8" fill="rgba(0,0,0,0.12)"/>
+  <text x="125" y="328" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="700">String/Physics</text>
+  <text x="125" y="346" text-anchor="middle" fill="#1a1a2e" font-size="10">Granular (1 pitch)</text>
+  <text x="125" y="358" text-anchor="middle" fill="#1a1a2e" font-size="9" opacity="0.7">16 KB transfer</text>
+
+  <rect x="205" y="305" width="130" height="60" rx="8" fill="rgba(0,0,0,0.12)"/>
+  <text x="270" y="328" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="700">Excitation</text>
+  <text x="270" y="346" text-anchor="middle" fill="#1a1a2e" font-size="10">Bulk upload</text>
+  <text x="270" y="358" text-anchor="middle" fill="#1a1a2e" font-size="9" opacity="0.7">2.6 MB transfer</text>
+
+  <rect x="350" y="305" width="120" height="60" rx="8" fill="rgba(0,0,0,0.12)"/>
+  <text x="410" y="328" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="700">Mode</text>
+  <text x="410" y="346" text-anchor="middle" fill="#1a1a2e" font-size="10">pack_modes()</text>
+  <text x="410" y="358" text-anchor="middle" fill="#1a1a2e" font-size="9" opacity="0.7">5 KB transfer</text>
+
+  <rect x="485" y="305" width="120" height="60" rx="8" fill="rgba(0,0,0,0.12)"/>
+  <text x="545" y="328" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="700">Deck</text>
+  <text x="545" y="346" text-anchor="middle" fill="#1a1a2e" font-size="10">feedin / feedback</text>
+  <text x="545" y="358" text-anchor="middle" fill="#1a1a2e" font-size="9" opacity="0.7">256 KB transfer</text>
+
+  <rect x="620" y="305" width="110" height="60" rx="8" fill="rgba(0,0,0,0.12)"/>
+  <text x="675" y="328" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="700">Hammer</text>
+  <text x="675" y="346" text-anchor="middle" fill="#1a1a2e" font-size="10">shape profile</text>
+  <text x="675" y="358" text-anchor="middle" fill="#1a1a2e" font-size="9" opacity="0.7">98 KB transfer</text>
+
+  <rect x="745" y="305" width="100" height="60" rx="8" fill="rgba(255,0,0,0.15)" stroke="#FF5252" stroke-width="1"/>
+  <text x="795" y="328" text-anchor="middle" fill="#FF5252" font-size="12" font-weight="700">Runtime</text>
+  <text x="795" y="346" text-anchor="middle" fill="#FF5252" font-size="10">Volume, Feedback</text>
+  <text x="795" y="358" text-anchor="middle" fill="#FF5252" font-size="9" opacity="0.7">Direct path</text>
+
+  <!-- cuda_lock indicator -->
+  <rect x="60" y="376" width="670" height="28" rx="6" fill="rgba(0,0,0,0.1)"/>
+  <text x="395" y="395" text-anchor="middle" fill="#1a1a2e" font-size="11" font-weight="600">cuda_lock (threading.Lock) — held during all GPU parameter transfers</text>
+
+  <!-- Lock-free label for runtime -->
+  <rect x="745" y="376" width="100" height="28" rx="6" fill="rgba(255,0,0,0.1)"/>
+  <text x="795" y="395" text-anchor="middle" fill="#FF5252" font-size="10" font-weight="600">No lock needed</text>
+
+  <!-- Arrows from middleware to GPU -->
+  <!-- Double-buffer path (5 param types) -->
+  <line x1="350" y1="440" x2="350" y2="510" stroke="#FFAB40" stroke-width="2" marker-end="url(#a1)"/>
+  <!-- Direct path (runtime) -->
+  <line x1="795" y1="440" x2="795" y2="510" stroke="#FF5252" stroke-width="2" marker-end="url(#a1)"/>
+
+  <!-- Path labels -->
+  <rect x="280" y="465" width="140" height="22" rx="4" fill="#2a2a4e"/>
+  <text x="350" y="480" text-anchor="middle" fill="#FFAB40" font-size="11" font-weight="600">Double-Buffer Swap</text>
+  <rect x="730" y="465" width="130" height="22" rx="4" fill="#2a2a4e"/>
+  <text x="795" y="480" text-anchor="middle" fill="#FF5252" font-size="11" font-weight="600">Direct cudaMemcpy</text>
+
+  <!-- ═══ GPU MEMORY MANAGER ═══ -->
+  <rect x="40" y="515" width="820" height="250" rx="14" fill="rgba(255,171,64,0.08)" stroke="#FF6D00" stroke-width="1.5"/>
+  <text x="60" y="543" fill="#FFAB40" font-size="11" font-weight="600" opacity="0.7">C++ — UnifiedGpuMemoryManager</text>
+  <text x="60" y="565" fill="#FFAB40" font-size="16" font-weight="700">GPU Memory — Double-Buffer Architecture</text>
+
+  <!-- Double buffer diagram -->
+  <rect x="80" y="585" width="310" height="70" rx="10" fill="url(#dblBufGrad)" filter="url(#sh)" opacity="0.9"/>
+  <text x="235" y="612" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">dev_preset_working_</text>
+  <text x="235" y="632" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">Active preset — read by MainKernel</text>
+  <text x="235" y="648" text-anchor="middle" fill="#fff" font-size="10" opacity="0.6">~3 MB (physics + hammer + gauss + modes + deck)</text>
+
+  <rect x="80" y="670" width="310" height="70" rx="10" fill="rgba(255,109,0,0.4)" stroke="#FF6D00" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="235" y="697" text-anchor="middle" fill="#FFAB40" font-size="14" font-weight="700">dev_preset_updating_</text>
+  <text x="235" y="717" text-anchor="middle" fill="#FFAB40" font-size="11" opacity="0.85">Staging buffer — receives cudaMemcpyAsync</text>
+  <text x="235" y="733" text-anchor="middle" fill="#FFAB40" font-size="10" opacity="0.6">IDLE → UPDATING → SWAPPING → SYNCING → IDLE</text>
+
+  <!-- Swap arrows between buffers -->
+  <path d="M 395 620 L 415 620 L 415 700 L 395 700" fill="none" stroke="#FFD600" stroke-width="2"/>
+  <text x="430" y="660" fill="#FFD600" font-size="12" font-weight="700">swap</text>
+
+  <!-- Direct write section -->
+  <rect x="510" y="585" width="320" height="155" rx="10" fill="url(#directGrad)" filter="url(#sh)" opacity="0.8"/>
+  <text x="670" y="612" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">Direct GPU Writes</text>
+
+  <rect x="530" y="625" width="280" height="36" rx="6" fill="rgba(255,255,255,0.1)"/>
+  <text x="670" y="648" text-anchor="middle" fill="#fff" font-size="12">dev_main_volume_coeff</text>
+
+  <rect x="530" y="670" width="280" height="36" rx="6" fill="rgba(255,255,255,0.1)"/>
+  <text x="670" y="693" text-anchor="middle" fill="#fff" font-size="12">deck_feedback_coeff</text>
+
+  <text x="670" y="728" text-anchor="middle" fill="#fff" font-size="10" opacity="0.6">cudaMemcpy + cudaDeviceSynchronize()</text>
+
+  <!-- ═══ GPU BUFFERS TABLE ═══ -->
+  <rect x="40" y="785" width="820" height="150" rx="14" fill="rgba(255,255,255,0.04)" stroke="#555" stroke-width="1"/>
+  <text x="60" y="810" fill="#9E9E9E" font-size="12" font-weight="600">GPU Buffer Sizes</text>
+
+  <!-- Table header -->
+  <rect x="60" y="822" width="780" height="24" rx="4" fill="rgba(255,255,255,0.06)"/>
+  <text x="180" y="838" text-anchor="middle" fill="#E0E0E0" font-size="11" font-weight="700">Buffer</text>
+  <text x="380" y="838" text-anchor="middle" fill="#E0E0E0" font-size="11" font-weight="700">Elements</text>
+  <text x="520" y="838" text-anchor="middle" fill="#E0E0E0" font-size="11" font-weight="700">Size</text>
+  <text x="700" y="838" text-anchor="middle" fill="#E0E0E0" font-size="11" font-weight="700">Update Method</text>
+
+  <!-- Table rows -->
+  <text x="180" y="862" text-anchor="middle" fill="#42A5F5" font-size="11">dev_physical_parameters</text>
+  <text x="380" y="862" text-anchor="middle" fill="#9E9E9E" font-size="11">256 × 16 = 4,096</text>
+  <text x="520" y="862" text-anchor="middle" fill="#9E9E9E" font-size="11">16 KB</text>
+  <text x="700" y="862" text-anchor="middle" fill="#FFAB40" font-size="11">Double-buffer</text>
+
+  <text x="180" y="882" text-anchor="middle" fill="#42A5F5" font-size="11">dev_gauss_params_full</text>
+  <text x="380" y="882" text-anchor="middle" fill="#9E9E9E" font-size="11">256 × 128 × 20 = 655K</text>
+  <text x="520" y="882" text-anchor="middle" fill="#FF5252" font-size="11" font-weight="700">2.6 MB</text>
+  <text x="700" y="882" text-anchor="middle" fill="#FFAB40" font-size="11">Double-buffer</text>
+
+  <text x="180" y="902" text-anchor="middle" fill="#42A5F5" font-size="11">dev_deck_parameters</text>
+  <text x="380" y="902" text-anchor="middle" fill="#9E9E9E" font-size="11">256 × 256 = 65,536</text>
+  <text x="520" y="902" text-anchor="middle" fill="#9E9E9E" font-size="11">256 KB</text>
+  <text x="700" y="902" text-anchor="middle" fill="#FFAB40" font-size="11">Double-buffer</text>
+
+  <text x="180" y="922" text-anchor="middle" fill="#42A5F5" font-size="11">dev_mode_state / dev_hammer</text>
+  <text x="380" y="922" text-anchor="middle" fill="#9E9E9E" font-size="11">1,280 / 24,576</text>
+  <text x="520" y="922" text-anchor="middle" fill="#9E9E9E" font-size="11">5 KB / 98 KB</text>
+  <text x="700" y="922" text-anchor="middle" fill="#FFAB40" font-size="11">Double-buffer</text>
+</svg>

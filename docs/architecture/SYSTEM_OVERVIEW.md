@@ -5,43 +5,7 @@
 Pianoid is organized into four layers that process audio from user interaction down
 to GPU synthesis and out to the audio device.
 
-```
-+--------------------------------------------------+
-|  LAYER 1: Frontend (React)                       |
-|  Browser-based UI: preset management, parameter  |
-|  controls, MIDI triggers, visualization charts   |
-+--------------------------------------------------+
-            | HTTP (REST/JSON)
-            v
-+--------------------------------------------------+
-|  LAYER 2: REST API (Flask / backendServer.py)    |
-|  Routes: /load_preset, /set_parameter,           |
-|  /set_runtime_parameters, /play_note, etc.       |
-|  Validates ranges, parses pitch/mode selectors   |
-+--------------------------------------------------+
-            | Python function calls
-            v
-+--------------------------------------------------+
-|  LAYER 3: Middleware (pianoid.py Pianoid class)  |
-|  Preset loading, StringMap/ModeMap management,   |
-|  parameter serialization, lifecycle state FSM,   |
-|  MIDI routing via EventQueue                     |
-+--------------------------------------------------+
-            | pybind11 C++ extension (pianoidCuda)
-            v
-+--------------------------------------------------+
-|  LAYER 4: CUDA Engine (pianoid_cuda / C++/CUDA)  |
-|  GPU memory management, physical string model,   |
-|  mode synthesis kernels, audio driver output     |
-+--------------------------------------------------+
-            | Audio samples (Sint32*)
-            v
-+--------------------------------------------------+
-|  AUDIO DRIVER (ASIO or SDL2/SDL3)                |
-|  AudioDriverInterface -> ASIOAudioDriver or      |
-|  SDLAudioDriver / SDL3AudioDriver                |
-+--------------------------------------------------+
-```
+![Pianoid Architecture Overview](../images/architecture-overview.svg)
 
 ---
 

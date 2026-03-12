@@ -13,7 +13,9 @@ PianoidCore/tests/
 │   ├── conftest.py      # Session-scoped Pianoid with SDL3 audio
 │   ├── test_audio_drivers.py
 │   └── test_performance.py
-├── integration/         # GPU required, no audio (planned)
+├── integration/         # GPU required, no audio
+│   ├── conftest.py      # Session-scoped Pianoid without audio, offline helpers
+│   └── test_feedback_coupling.py
 └── unit/                # Pure Python, no GPU (planned)
 ```
 
@@ -63,6 +65,23 @@ Tests marked `gpu` or `audio` auto-skip when hardware is unavailable.
 | `TestBufferSynchronization` | Buffer underrun diagnosis — correlates GPU time with callback stats |
 | `TestTimingDistribution` | Statistical tail analysis (p95/p99) of GPU, total, and buffer phase |
 
+## Integration Tests (implemented)
+
+### test_feedback_coupling.py
+
+Validates string-to-soundboard coupling via the feedin matrix. Uploads custom deck matrices with single nonzero coefficients, excites specific pitches via offline playback, and verifies mode displacements.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestCouplingCompleteness::test_target_mode_excited` | Nonzero feedin[S,M] produces displacement in mode M |
+| `TestCouplingCompleteness::test_no_leakage_to_other_modes` | Only the target mode is excited — all others zero |
+| `TestPerPairLeakage::test_zero_coefficient_blocks_signal` | feedin[S,M]=0 blocks signal to M while feedin[S,M']!=0 excites M' |
+| `TestFullZeroLeakage::test_zero_row_string_produces_no_mode_excitation` | All-zero deck produces no mode excitation |
+| `TestFullZeroLeakage::test_zero_column_mode_receives_no_signal` | Mode with zero feedin stays silent while adjacent mode with nonzero feedin is excited |
+| `TestFullZeroLeakage::test_zero_feedback_coefficient_keeps_feedin_active` | Feedin path works independently of deck_feedback_coefficient |
+
+Key implementation detail: deck rows are indexed by position in `StringMap.string_index` (not by raw string ID). The `_deck_row()` helper converts string IDs to deck row indices.
+
 ## Key Constants
 
 ```python
@@ -80,3 +99,4 @@ TOTAL_BUDGET_MS = GPU_BUDGET_MS * 1.5  # 2.0 ms
 | `p.initTimeRecord()` / `getTimeRecord()` | Per-cycle wall-clock checkpoints (µs) | PlaybackCycleExecutor |
 | `p.getCallbackStats()` | Callback count, interval, underruns | AudioDriverInterface |
 | `p.getRecordedAudio()` | Offline playback audio buffer | OfflinePlaybackEngine |
+| `p.getModeDisplacements()` | Per-mode state: q, q_prev, dec, omega, mass_inv (flat, 5×N) | Pianoid GPU memory |

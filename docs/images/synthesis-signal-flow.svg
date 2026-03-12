@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1050" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="eventGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7C4DFF"/>
+      <stop offset="100%" stop-color="#B388FF"/>
+    </linearGradient>
+    <linearGradient id="batchGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00BFA5"/>
+      <stop offset="100%" stop-color="#64FFDA"/>
+    </linearGradient>
+    <linearGradient id="kernelGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF6D00"/>
+      <stop offset="100%" stop-color="#FFAB40"/>
+    </linearGradient>
+    <linearGradient id="stringGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1565C0"/>
+      <stop offset="100%" stop-color="#42A5F5"/>
+    </linearGradient>
+    <linearGradient id="modeGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#AD1457"/>
+      <stop offset="100%" stop-color="#F06292"/>
+    </linearGradient>
+    <linearGradient id="outGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D50000"/>
+      <stop offset="100%" stop-color="#FF5252"/>
+    </linearGradient>
+    <linearGradient id="couplingGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFD600"/>
+      <stop offset="100%" stop-color="#FFF176"/>
+    </linearGradient>
+    <filter id="shadow2" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity="0.2"/>
+    </filter>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9E9E9E"/>
+    </marker>
+    <marker id="arrGreen" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64FFDA"/>
+    </marker>
+    <marker id="arrYellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#FFD600"/>
+    </marker>
+    <marker id="arrPink" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#F06292"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="1050" rx="16" fill="#1a1a2e"/>
+
+  <!-- Title -->
+  <text x="450" y="48" text-anchor="middle" fill="#E0E0E0" font-size="26" font-weight="700">CUDA Synthesis Signal Flow</text>
+  <text x="450" y="72" text-anchor="middle" fill="#9E9E9E" font-size="13">From MIDI Event to Audio Output — One Synthesis Cycle</text>
+
+  <!-- ═══ EVENT INPUT ═══ -->
+  <rect x="250" y="95" width="400" height="60" rx="12" fill="url(#eventGrad)" filter="url(#shadow2)"/>
+  <text x="450" y="122" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">MIDI / REST Event</text>
+  <text x="450" y="142" text-anchor="middle" fill="#fff" font-size="12" opacity="0.8">NOTE_ON (pitch, velocity) | NOTE_OFF | SUSTAIN</text>
+
+  <!-- Arrow -->
+  <line x1="450" y1="155" x2="450" y2="185" stroke="#B388FF" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- ═══ BATCH API ═══ -->
+  <rect x="200" y="188" width="500" height="85" rx="12" fill="url(#batchGrad)" filter="url(#shadow2)"/>
+  <text x="450" y="215" text-anchor="middle" fill="#1a1a2e" font-size="16" font-weight="700">Batch Excitation API</text>
+  <text x="250" y="238" fill="#1a1a2e" font-size="12">beginStringBatch()</text>
+  <text x="420" y="238" fill="#1a1a2e" font-size="12">addStringToBatch(stringNo, vel)</text>
+  <text x="250" y="258" fill="#1a1a2e" font-size="12">commitStringBatch() → cudaMemcpy → sets new_notes_ind</text>
+
+  <!-- Arrow -->
+  <line x1="450" y1="273" x2="450" y2="303" stroke="#64FFDA" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- ═══ KERNEL DISPATCH ═══ -->
+  <rect x="140" y="306" width="620" height="100" rx="12" fill="url(#kernelGrad)" filter="url(#shadow2)"/>
+  <text x="450" y="332" text-anchor="middle" fill="#1a1a2e" font-size="16" font-weight="700">executeSynthesisCycle()</text>
+
+  <!-- Sub-blocks inside -->
+  <rect x="160" y="342" width="175" height="50" rx="8" fill="rgba(0,0,0,0.15)"/>
+  <text x="247" y="362" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="600">parameterKernel</text>
+  <text x="247" y="380" text-anchor="middle" fill="#1a1a2e" font-size="10" opacity="0.7">FDTD coefficients</text>
+
+  <rect x="355" y="342" width="175" height="50" rx="8" fill="rgba(0,0,0,0.15)"/>
+  <text x="442" y="362" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="600">gaussKernel</text>
+  <text x="442" y="380" text-anchor="middle" fill="#1a1a2e" font-size="10" opacity="0.7">5-Gaussian force waveform</text>
+
+  <rect x="550" y="342" width="195" height="50" rx="8" fill="rgba(0,0,0,0.15)"/>
+  <text x="647" y="362" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="600">addKernel (Main)</text>
+  <text x="647" y="380" text-anchor="middle" fill="#1a1a2e" font-size="10" opacity="0.7">Cooperative grid launch</text>
+
+  <!-- Arrow to main loop -->
+  <line x1="450" y1="406" x2="450" y2="440" stroke="#FFAB40" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- ═══ MAIN SYNTHESIS LOOP ═══ -->
+  <rect x="80" y="443" width="740" height="400" rx="14" fill="rgba(255,255,255,0.04)" stroke="#555" stroke-width="1"/>
+  <text x="100" y="470" fill="#9E9E9E" font-size="11" font-weight="600">MAIN KERNEL LOOP — samplesInCycle iterations (64 samples @ 48kHz)</text>
+
+  <!-- String FDTD block -->
+  <rect x="110" y="488" width="320" height="120" rx="10" fill="url(#stringGrad)" filter="url(#shadow2)"/>
+  <text x="270" y="514" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">FDTD String Simulation</text>
+  <text x="270" y="538" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">Wave equation: tension + stiffness + damping</text>
+  <text x="270" y="556" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">+ force_function[n] × coeff_force</text>
+  <text x="270" y="578" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">256 strings × soundStep sub-steps</text>
+  <text x="270" y="596" text-anchor="middle" fill="#fff" font-size="10" opacity="0.6">Boundary: stem = mode feedback</text>
+
+  <!-- Mode Oscillator block -->
+  <rect x="470" y="488" width="320" height="120" rx="10" fill="url(#modeGrad)" filter="url(#shadow2)"/>
+  <text x="630" y="514" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">Harmonic Oscillators</text>
+  <text x="630" y="538" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">256 damped resonance modes</text>
+  <text x="630" y="556" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">result = (2q - q_prev) + dec + omega + F</text>
+  <text x="630" y="578" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">F_applied = feedin × bridge_force</text>
+  <text x="630" y="596" text-anchor="middle" fill="#fff" font-size="10" opacity="0.6">Soundboard/body resonances</text>
+
+  <!-- COUPLING ARROWS (bidirectional) -->
+  <!-- Feedin: String → Mode -->
+  <rect x="310" y="625" width="280" height="52" rx="8" fill="url(#couplingGrad)" filter="url(#shadow2)"/>
+  <text x="450" y="647" text-anchor="middle" fill="#1a1a2e" font-size="13" font-weight="700">Bidirectional Coupling</text>
+  <text x="450" y="665" text-anchor="middle" fill="#1a1a2e" font-size="11">feedin_matrix + feedback_matrix + sumArray</text>
+
+  <!-- Feedin arrow (String→Mode) -->
+  <path d="M 430 540 Q 390 580 400 625" fill="none" stroke="#FFD600" stroke-width="2.5" marker-end="url(#arrYellow)"/>
+  <text x="370" y="590" fill="#FFD600" font-size="10" font-weight="600" transform="rotate(-20, 370, 590)">feedin</text>
+
+  <!-- Feedback arrow (Mode→String) -->
+  <path d="M 500 625 Q 510 580 470 540" fill="none" stroke="#F06292" stroke-width="2.5" marker-end="url(#arrPink)"/>
+  <text x="510" y="590" fill="#F06292" font-size="10" font-weight="600" transform="rotate(20, 510, 590)">feedback</text>
+
+  <!-- GPU sync note -->
+  <rect x="110" y="690" width="700" height="36" rx="6" fill="rgba(255,255,255,0.06)"/>
+  <text x="450" y="713" text-anchor="middle" fill="#9E9E9E" font-size="11">grid_group::sync() — cooperative kernel synchronizes all 64 blocks between string and mode phases</text>
+
+  <!-- Audio output extraction -->
+  <rect x="110" y="740" width="340" height="48" rx="8" fill="rgba(66,165,245,0.2)" stroke="#42A5F5" stroke-width="1"/>
+  <text x="280" y="764" text-anchor="middle" fill="#42A5F5" font-size="12" font-weight="600">soundInt = (feedback - s_b) × volume_coeff</text>
+  <text x="280" y="780" text-anchor="middle" fill="#42A5F5" font-size="10" opacity="0.7">Per-sample audio output extraction</text>
+
+  <!-- Double-buffer note -->
+  <rect x="470" y="740" width="340" height="48" rx="8" fill="rgba(255,171,64,0.15)" stroke="#FFAB40" stroke-width="1"/>
+  <text x="640" y="764" text-anchor="middle" fill="#FFAB40" font-size="12" font-weight="600">Double-Buffer Preset Swap</text>
+  <text x="640" y="780" text-anchor="middle" fill="#FFAB40" font-size="10" opacity="0.7">working ↔ updating (zero-copy parameter updates)</text>
+
+  <!-- Arrow to output -->
+  <line x1="280" y1="788" x2="280" y2="820" stroke="#42A5F5" stroke-width="2"/>
+
+  <!-- ═══ OPTIONAL FIR ═══ -->
+  <rect x="160" y="830" width="240" height="50" rx="10" fill="rgba(255,255,255,0.08)" stroke="#78909C" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="280" y="855" text-anchor="middle" fill="#B0BEC5" font-size="13" font-weight="600">FIR Convolution</text>
+  <text x="280" y="872" text-anchor="middle" fill="#78909C" font-size="10">Optional — room acoustics / EQ</text>
+
+  <!-- Arrow to audio driver -->
+  <line x1="280" y1="880" x2="280" y2="910" stroke="#78909C" stroke-width="2"/>
+
+  <!-- ═══ AUDIO DRIVER ═══ -->
+  <rect x="100" y="915" width="360" height="55" rx="10" fill="url(#outGrad)" filter="url(#shadow2)"/>
+  <text x="280" y="942" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">Audio Driver Output</text>
+  <text x="280" y="960" text-anchor="middle" fill="#fff" font-size="11" opacity="0.85">ASIO / SDL3 — LockFreeCircularBuffer → Speakers</text>
+
+  <!-- Recorded audio branch -->
+  <line x1="640" y1="788" x2="640" y2="915" stroke="#FFAB40" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <rect x="520" y="915" width="280" height="55" rx="10" fill="rgba(255,171,64,0.15)" stroke="#FFAB40" stroke-width="1.5"/>
+  <text x="660" y="942" text-anchor="middle" fill="#FFAB40" font-size="14" font-weight="600">Recorded Audio Buffer</text>
+  <text x="660" y="960" text-anchor="middle" fill="#FFAB40" font-size="11" opacity="0.85">D2H copy → WAV export / Charts</text>
+
+  <!-- Timing note -->
+  <text x="450" y="1010" text-anchor="middle" fill="#616161" font-size="11">Cycle: 64 samples @ 48kHz = 1.33ms | Inner loop: soundStep FDTD sub-steps per sample</text>
+  <text x="450" y="1030" text-anchor="middle" fill="#616161" font-size="11">Grid: 64 blocks × 512 threads | Shared memory per block: ~16 KB</text>
+</svg>

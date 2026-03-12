@@ -252,8 +252,15 @@ Key methods:
 
 - `get_coefficients(damper)` — computes c0,c1,c2,cb,cf,c2dec from physics
 - `pack_params_for_string(stringId)` — returns flat dict for one string (passed to CUDA)
-- `calculate_force()` — accumulates bridge force across all strings, weighted by `deck['feedin']`
-- `set_feedback(mode_positions)` — applies `deck['feedback']` dot `mode_positions` to all strings
+- `calculate_force()` — sums bridge force across all strings, multiplies element-wise by
+  `deck['feedin']` → returns shape `(num_modes,)` force vector
+- `set_feedback(mode_positions)` — computes `dot(deck['feedback'], mode_positions)` → scalar
+  feedback, broadcasts to all strings via `string.set_feedback()`
+- `update_deck(deck_params=None, values=None)` — sets feedin/feedback arrays from dict or
+  per-mode value updates
+
+Deck arrays are padded to `num_modes_for_model` with `ext_to_the_right()` (edge-padding)
+during `pack_deck()` if shorter than the CUDA grid requires.
 
 ---
 

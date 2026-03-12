@@ -246,3 +246,54 @@ Pianoid API through pybind11 bindings defined in the `.cu` / `.cpp` sources.
 | `SDL2_DIR` / `SDL_DIR` | SDL2 root hint |
 | `SDL3_DIR` | SDL3 root hint |
 | `VCToolsInstallDir` | MSVC tools root hint |
+
+---
+
+## Troubleshooting
+
+### `LINK : fatal error LNK1181: cannot open input file 'SDL3.lib'`
+
+`detect_paths.py` could not find the SDL3 library directory. The script scans for
+`SDL3-*` directories on the system drive root (e.g. `C:\SDL3-3.1.6\lib\x64\`).
+
+**Diagnosis:** Run `detect_paths.py` standalone and check the output:
+
+```bash
+cd PianoidCore
+.venv/Scripts/python detect_paths.py --project-root pianoid_cuda --out /dev/null
+```
+
+Check the `sdl3_libdir` field. If empty, the directory structure doesn't match expectations
+(`<root>/include/` and `<root>/lib/x64/` must both exist).
+
+**Fixes (in order of preference):**
+1. Install SDL3 to a standard location: `C:\SDL3-<version>\` with `include\` and `lib\x64\`
+2. Pass `--sdl3` hint: edit `build_pianoid_cuda.bat` step [4/6] to add `--sdl3 "C:\path\to\SDL3"`
+3. Set `SDL3_DIR` environment variable to the SDL3 root
+
+**Important:** `build_pianoid_cuda.bat` runs `detect_paths.py` on every build (step [4/6]),
+regenerating `build_config.json`. Manual edits to `build_config.json` are overwritten.
+To persist changes, fix the discovery inputs (directory layout, env vars, or CLI hints).
+
+### Build succeeds but `import pianoidCuda` fails
+
+The `.pyd` file is installed into the `.venv` `site-packages/`. Check:
+
+```bash
+.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+```
+
+If it fails with a DLL error, verify that `SDL3.dll` and `cudart64_*.dll` are present
+next to the `.pyd` file. The build copies them automatically; if missing, the DLL source
+paths in `build_config.json` (`sdl3_dll`, `cuda_home`) may be incorrect.
+
+### `--heavy` vs `--light` build modes
+
+| Mode | Behavior |
+|------|----------|
+| `--heavy` (default) | Full clean, uninstall, cache purge, rebuild from scratch |
+| `--light` | Incremental — keeps build cache, skips uninstall/purge |
+
+`--heavy` uninstalls `pianoidCuda` before building. If the build then fails, the package
+is gone. Use `--light` for iterative development; use `--heavy` only when a clean
+rebuild is needed (e.g. after changing `setup.py` or pybind11 bindings).

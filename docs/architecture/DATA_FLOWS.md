@@ -2,6 +2,8 @@
 
 End-to-end traces for the three major data flows in Pianoid: playback, parameters, and charts/actions. Every function name, endpoint, and class method is verified against the source code.
 
+![Parameter Data Flow](../images/parameter-data-flow.svg)
+
 ---
 
 ## 1. Playback Flows
@@ -213,7 +215,10 @@ backendserver.py (line 797)
      ├── modes.pack_modes(updated_modes) → mode_state array
      └── pianoid_cpp.setNewModeParameters(mode_state)
   6. mode.set_state(0, 0)                        // reset Python state
-  7. time.sleep(length / 1000)                   // wait for synthesis
+     // TODO: DEBUG — proper mode state extracting needed
+  7. time.sleep(length / 1000)                   // blocking wait for synthesis
+     // Known workaround: sleep blocks the calling thread while GPU synthesizes.
+     // Not suitable for concurrent use; only called from REST endpoint.
   8. get_result_from_pianoid(length)              // fetch audio
   9. return self.result.get_record(1, mode_no)
 ```
@@ -306,12 +311,13 @@ C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
   Next MainKernel launch reads updated values from dev_preset_working_
 ```
 
-### 2.2 Excitation Parameters (Excitation-Only Path)
+### 2.2 Excitation Parameters (Base-Levels Path)
 
-Excitation parameters use an excitation-only upload path. All pitches in the request
-are updated in the Python model first, then a single GPU transfer sends only the
-excitation buffer. The uploaded data is not applied immediately — it is consumed later
-by `gaussKernel` when a note event triggers string excitation (see §1.2).
+Excitation parameters use a base-levels upload path. Python sends only the 5 fixed
+velocity levels (indices [0, 31, 63, 95, 127]) per string. C++ interpolates these to
+the full 128 velocity levels on the host side before uploading to GPU. This reduces the
+Python→C++ transfer by 25× (25,600 vs 655,360 reals) and eliminates the Python-side
+matrix recalculation on every parameter update.
 
 ```
 React: GaussEditor.jsx — user edits Gauss curve for pitch 60
@@ -328,15 +334,26 @@ parameter_manager.update_parameter(param='gauss')
          → recalculate_excitation_matrix():
              extract 5 base levels (indices [0,31,63,95,127])
              extrapolate() → 128 velocity levels (shape 128×4×5)
+             (Python model updated for preset save/read-back;
+              the 128-level matrix is NOT sent to GPU)
   2. Single GPU upload (outside loop, with cuda_lock):
-     sm.pack_excitations()                      // all pitches, excitation data only
-       → for each pitch: pack_gauss_params() → 128×4×5 = 2560 reals
-       → concatenate → 256 × 2560 = 655,360 reals (2.5 MB float)
-     pianoid_cpp.setNewExcitationParameters(excitations)
-         └── updateTunableParameter("dev_gauss_params_full", data)
+     sm.pack_base_excitations()                 // 5 base levels only
+       → for each pitch: pack_base_levels() → 5×4×5 = 100 reals
+       → concatenate → 256 × 100 = 25,600 reals (100 KB float)
+     pianoid_cpp.setNewExcitationBaseLevels(base_levels)
+         └── C++ host interpolation: 5 → 128 levels (linear, matching Python extrapolate())
+         └── updateTunableParameter("dev_gauss_params_full", full_params)
              └── double-buffer swap (same as 2.1)
-     time.sleep(0.01)                           // allow GPU swap to complete
 ```
+
+**C++ interpolation** (`Pianoid::setNewExcitationBaseLevels`): Uses the same segment
+boundaries [0, 31, 63, 95, 128] and linear interpolation as Python's `extrapolate()`.
+Segment 0 uses denom=30; segments 1–3 use denom=span. The GPU buffer layout and
+`gaussKernel` are unchanged.
+
+**Init path** (`loadPresetToLibrary`): Still uses full 128-level packing via
+`pack_parameters()` → `pack_excitations()`. This runs once at startup and does not
+use the base-levels path.
 
 **GPU-side consumption:** When a NOTE_ON event arrives, `gaussKernel` reads the
 velocity-specific slice from `dev_gauss_params_full` and computes the force function
@@ -348,9 +365,10 @@ waveform. See [SYNTHESIS_ENGINE.md — Excitation System](../modules/pianoid-cud
 |--------|-------------|----------|
 | `dev_physical_parameters` | 256 × 16 = 4,096 | 16 KB |
 | `dev_hammer` | 64 × 384 = 24,576 | 98 KB |
-| `dev_gauss_params_full` | 256 × 128 × 20 = 655,360 | **2.6 MB** |
+| `dev_gauss_params_full` (init) | 256 × 128 × 20 = 655,360 | **2.6 MB** |
+| `dev_gauss_params_full` (update) | 256 × 5 × 20 = 25,600 | **100 KB** (+ C++ interpolation) |
 | `dev_mode_state` | 64 × 5 = 1,280 | 5 KB |
-| `dev_deck_parameters` | 256 × 256 = 131,072 | 524 KB |
+| `dev_deck_parameters` | 256 × 256 = 65,536 | 256 KB (single matrix mode) |
 | `dev_volume_coeff` | 256 | 1 KB |
 
 ### 2.3 Mode Parameters
@@ -386,7 +404,7 @@ usePreset: changeFeedInValues(matrix, pitch=60)
 pianoid.update_parameter(param='feedin')
   1. sm.update_deck(matrix='feedin', pitches=[60], values)
   2. send_deck_params_to_CUDA()                  // pianoid.py:2091
-     ├── sm.pack_deck(single_matrix_mode=True) → deck (131072 reals, 524 KB)
+     ├── sm.pack_deck(single_matrix_mode=True) → deck (65536 reals, 256 KB)
      └── pianoid_cpp.setNewDeckParameters(deck)
          └── updateTunableParameter("dev_deck_parameters", data)
 
