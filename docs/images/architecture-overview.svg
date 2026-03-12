@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 920" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <linearGradient id="layer1Grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7C4DFF"/>
+      <stop offset="100%" stop-color="#B388FF"/>
+    </linearGradient>
+    <linearGradient id="layer2Grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#536DFE"/>
+      <stop offset="100%" stop-color="#8C9EFF"/>
+    </linearGradient>
+    <linearGradient id="layer3Grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00BFA5"/>
+      <stop offset="100%" stop-color="#64FFDA"/>
+    </linearGradient>
+    <linearGradient id="layer4Grad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF6D00"/>
+      <stop offset="100%" stop-color="#FFAB40"/>
+    </linearGradient>
+    <linearGradient id="audioGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D50000"/>
+      <stop offset="100%" stop-color="#FF5252"/>
+    </linearGradient>
+    <linearGradient id="domainGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6A1B9A"/>
+      <stop offset="100%" stop-color="#CE93D8"/>
+    </linearGradient>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity="0.18"/>
+    </filter>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="920" rx="16" fill="#1a1a2e"/>
+
+  <!-- Title -->
+  <text x="400" y="52" text-anchor="middle" fill="#E0E0E0" font-size="26" font-weight="700" letter-spacing="1">Pianoid System Architecture</text>
+  <text x="400" y="76" text-anchor="middle" fill="#9E9E9E" font-size="13">Four-Layer Stack with Cross-Cutting Domain Model</text>
+
+  <!-- LAYER 1: Frontend -->
+  <rect x="60" y="100" width="680" height="120" rx="14" fill="url(#layer1Grad)" filter="url(#shadow)" opacity="0.92"/>
+  <text x="80" y="128" fill="#fff" font-size="11" font-weight="600" opacity="0.7">LAYER 1</text>
+  <text x="80" y="152" fill="#fff" font-size="20" font-weight="700">Frontend — React</text>
+  <text x="80" y="176" fill="#fff" font-size="13" opacity="0.85">Browser-based UI: preset management, parameter controls,</text>
+  <text x="80" y="194" fill="#fff" font-size="13" opacity="0.85">MIDI triggers, visualization charts (ChartSelector, GaussEditor)</text>
+  <!-- icons -->
+  <rect x="590" y="120" width="64" height="28" rx="6" fill="rgba(255,255,255,0.18)"/>
+  <text x="622" y="139" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">React</text>
+  <rect x="660" y="120" width="64" height="28" rx="6" fill="rgba(255,255,255,0.18)"/>
+  <text x="692" y="139" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Vite</text>
+  <rect x="590" y="155" width="134" height="28" rx="6" fill="rgba(255,255,255,0.18)"/>
+  <text x="657" y="174" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Recharts + Axios</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="400" y1="220" x2="400" y2="248" stroke="#B388FF" stroke-width="2.5" marker-end="url(#arrowPurple)"/>
+  <rect x="310" y="224" width="180" height="22" rx="4" fill="#2a2a4e"/>
+  <text x="400" y="239" text-anchor="middle" fill="#B388FF" font-size="11" font-weight="600">HTTP (REST / JSON)</text>
+
+  <!-- LAYER 2: REST API -->
+  <rect x="60" y="252" width="680" height="120" rx="14" fill="url(#layer2Grad)" filter="url(#shadow)" opacity="0.92"/>
+  <text x="80" y="280" fill="#fff" font-size="11" font-weight="600" opacity="0.7">LAYER 2</text>
+  <text x="80" y="304" fill="#fff" font-size="20" font-weight="700">REST API — Flask</text>
+  <text x="80" y="328" fill="#fff" font-size="13" opacity="0.85">backendServer.py — validates ranges, parses pitch/mode selectors</text>
+  <text x="80" y="346" fill="#fff" font-size="13" opacity="0.85">Routes: /load_preset, /set_parameter, /play_note, /get_chart_test</text>
+  <rect x="590" y="272" width="134" height="28" rx="6" fill="rgba(255,255,255,0.18)"/>
+  <text x="657" y="291" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Flask + Waitress</text>
+  <rect x="590" y="307" width="134" height="28" rx="6" fill="rgba(255,255,255,0.18)"/>
+  <text x="657" y="326" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">ChartRegistry</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="400" y1="372" x2="400" y2="400" stroke="#8C9EFF" stroke-width="2.5"/>
+  <rect x="290" y="376" width="220" height="22" rx="4" fill="#2a2a4e"/>
+  <text x="400" y="391" text-anchor="middle" fill="#8C9EFF" font-size="11" font-weight="600">Python function calls</text>
+
+  <!-- LAYER 3: Middleware -->
+  <rect x="60" y="404" width="680" height="130" rx="14" fill="url(#layer3Grad)" filter="url(#shadow)" opacity="0.92"/>
+  <text x="80" y="432" fill="#1a1a2e" font-size="11" font-weight="600" opacity="0.7">LAYER 3</text>
+  <text x="80" y="456" fill="#1a1a2e" font-size="20" font-weight="700">Middleware — pianoid.py</text>
+  <text x="80" y="480" fill="#1a1a2e" font-size="13" opacity="0.85">Preset loading, StringMap / ModeMap management, parameter serialization</text>
+  <text x="80" y="498" fill="#1a1a2e" font-size="13" opacity="0.85">Lifecycle FSM, MIDI routing via EventQueue, cuda_lock thread safety</text>
+  <text x="80" y="516" fill="#1a1a2e" font-size="13" opacity="0.85">ParameterManager, MidiListener, ChartGenerator, ActionPerformer</text>
+  <rect x="580" y="424" width="144" height="28" rx="6" fill="rgba(0,0,0,0.12)"/>
+  <text x="652" y="443" text-anchor="middle" fill="#1a1a2e" font-size="11" font-weight="600">pybind11 bridge</text>
+  <rect x="580" y="459" width="144" height="28" rx="6" fill="rgba(0,0,0,0.12)"/>
+  <text x="652" y="478" text-anchor="middle" fill="#1a1a2e" font-size="11" font-weight="600">threading.Lock</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="400" y1="534" x2="400" y2="562" stroke="#64FFDA" stroke-width="2.5"/>
+  <rect x="270" y="538" width="260" height="22" rx="4" fill="#2a2a4e"/>
+  <text x="400" y="553" text-anchor="middle" fill="#64FFDA" font-size="11" font-weight="600">pybind11 C++ extension (pianoidCuda)</text>
+
+  <!-- LAYER 4: CUDA Engine -->
+  <rect x="60" y="566" width="680" height="130" rx="14" fill="url(#layer4Grad)" filter="url(#shadow)" opacity="0.92"/>
+  <text x="80" y="594" fill="#1a1a2e" font-size="11" font-weight="600" opacity="0.7">LAYER 4</text>
+  <text x="80" y="618" fill="#1a1a2e" font-size="20" font-weight="700">CUDA Engine — C++ / CUDA</text>
+  <text x="80" y="642" fill="#1a1a2e" font-size="13" opacity="0.85">GPU memory management (UnifiedGpuMemoryManager), double-buffer swap</text>
+  <text x="80" y="660" fill="#1a1a2e" font-size="13" opacity="0.85">Physical string model (FDTD), mode synthesis kernels, gaussKernel</text>
+  <text x="80" y="678" fill="#1a1a2e" font-size="13" opacity="0.85">OnlinePlaybackEngine, OfflinePlaybackEngine, FIR convolution</text>
+  <rect x="580" y="586" width="144" height="28" rx="6" fill="rgba(0,0,0,0.12)"/>
+  <text x="652" y="605" text-anchor="middle" fill="#1a1a2e" font-size="11" font-weight="600">Cooperative Grid</text>
+  <rect x="580" y="621" width="144" height="28" rx="6" fill="rgba(0,0,0,0.12)"/>
+  <text x="652" y="640" text-anchor="middle" fill="#1a1a2e" font-size="11" font-weight="600">cudaMemcpyAsync</text>
+
+  <!-- Arrow 4→Audio -->
+  <line x1="400" y1="696" x2="400" y2="724" stroke="#FFAB40" stroke-width="2.5"/>
+  <rect x="300" y="700" width="200" height="22" rx="4" fill="#2a2a4e"/>
+  <text x="400" y="715" text-anchor="middle" fill="#FFAB40" font-size="11" font-weight="600">Audio samples (Sint32*)</text>
+
+  <!-- Audio Driver -->
+  <rect x="160" y="728" width="480" height="80" rx="14" fill="url(#audioGrad)" filter="url(#shadow)" opacity="0.92"/>
+  <text x="400" y="760" text-anchor="middle" fill="#fff" font-size="18" font-weight="700">Audio Driver</text>
+  <text x="400" y="782" text-anchor="middle" fill="#fff" font-size="13" opacity="0.85">ASIO (low-latency) | SDL2 | SDL3 — LockFreeCircularBuffer</text>
+
+  <!-- PianoidBasic sidebar -->
+  <rect x="60" y="830" width="680" height="76" rx="14" fill="url(#domainGrad)" filter="url(#shadow)" opacity="0.88"/>
+  <text x="80" y="858" fill="#fff" font-size="11" font-weight="600" opacity="0.7">CROSS-CUTTING</text>
+  <text x="80" y="880" fill="#fff" font-size="18" font-weight="700">PianoidBasic — Domain Model</text>
+  <text x="80" y="898" fill="#fff" font-size="12" opacity="0.85">StringMap | ModelParams | Mode / ModeMap | SoundChannels | bytestream_encoding</text>
+
+  <!-- Dashed lines from PianoidBasic to layers 2-3 -->
+  <line x1="400" y1="830" x2="200" y2="534" stroke="#CE93D8" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.5"/>
+  <line x1="400" y1="830" x2="600" y2="534" stroke="#CE93D8" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.5"/>
+</svg>

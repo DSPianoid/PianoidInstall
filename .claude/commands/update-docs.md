@@ -65,6 +65,26 @@ For each affected section:
    - No redundant explanations
    - Delete outdated content rather than marking it
 
+### 2b. Update Infographics
+
+Whenever changes affect logic depicted in an existing infographic, update that
+infographic to reflect the new state. Check all SVGs in `docs/images/` and any
+Mermaid code blocks in the affected doc files.
+
+When documentation would benefit from a new diagram (flow, architecture, state machine,
+sequence, etc.), prefer **Mermaid** over ASCII art. Mermaid is configured in `mkdocs.yml`
+(superfences custom fences) and renders natively in MkDocs Material. Use fenced code
+blocks with `mermaid` language tag. For complex, high-visual-impact diagrams (hero
+overviews, dense coupling diagrams), use **hand-crafted SVG** in `docs/images/`.
+
+SVG style rules:
+- Dark background (`#1a1a2e`), gradient fills matching Material theme (deep purple + amber)
+- `filter` with `feDropShadow` for depth, rounded rectangles (`rx="10-14"`)
+- Embed as `![Alt text](../images/filename.svg)` in markdown
+
+**Never add new ASCII art diagrams.** Replace existing ASCII diagrams with Mermaid or SVG
+when you are already editing that section.
+
 ### 3. Structural Changes (REQUIRES USER APPROVAL)
 
 If code changes suggest any of these, **stop and ask the user before proceeding:**

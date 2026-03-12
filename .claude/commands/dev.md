@@ -159,6 +159,25 @@ Follow patterns from `test_performance.py` (fixtures, markers, assertions).
 Keep docs lean and concise. Tables over prose. Every sentence earns its place.
 **Structural doc changes (new pages, nav changes) require user approval.**
 
+**Infographics** — whenever code changes affect logic that is depicted in an existing
+infographic, update that infographic to reflect the new state. All infographics live in
+`docs/images/` (SVGs) or inline in markdown (Mermaid). Check existing SVGs in
+`docs/images/` and Mermaid blocks in the affected doc files.
+
+When documentation would benefit from a new diagram (flow, architecture, state machine,
+sequence, etc.), prefer **Mermaid** over ASCII art. Mermaid is configured in `mkdocs.yml`
+(superfences custom fences) and renders natively in MkDocs Material. Use fenced code
+blocks with `mermaid` language tag. For complex, high-visual-impact diagrams (hero
+overviews, dense coupling diagrams), use **hand-crafted SVG** in `docs/images/`.
+
+SVG style rules:
+- Dark background (`#1a1a2e`), gradient fills matching Material theme (deep purple + amber)
+- `filter` with `feDropShadow` for depth, rounded rectangles (`rx="10-14"`)
+- Embed as `![Alt text](../images/filename.svg)` in markdown
+
+**Never add new ASCII art diagrams.** Replace existing ASCII diagrams with Mermaid or SVG
+when you are already editing that section.
+
 **Commit** — ask user before committing:
 
 ```bash
