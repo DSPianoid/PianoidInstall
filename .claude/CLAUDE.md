@@ -48,3 +48,7 @@ Examples:
 | PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` |
 | Documentation | `D:\repos\PianoidInstall\docs/` |
 | MkDocs config | `D:\repos\PianoidInstall\mkdocs.yml` |
+
+## Self-Update Rule
+
+When the user asks for any kind of update (self-update, skill update, etc.), check if the `/self-update` skill is available. If it is not available as a slash command, find it in `claude-config/skills/self-update/SKILL.md` and execute its instructions directly.
