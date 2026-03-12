@@ -98,15 +98,13 @@ Updated to reference `_playback_thread` instead of `application_thread`.
 
 Replaced `time.sleep(0.15)` with `_playback_thread.join(timeout=3.0)`.
 
-### RealTimeEventBuffer Double Mutex
+### ~~RealTimeEventBuffer Double Mutex~~ (Fixed)
 
-`pushEvent()` acquires the mutex twice per call (insert + stats). Could be consolidated
-into a single lock scope with minimal contention impact.
+Consolidated to single lock scope in `pushEvent()` and `drainEventsUpTo()`.
 
-### PlaybackConfig.cycle_accurate Unused
+### ~~PlaybackConfig.cycle_accurate Unused~~ (Fixed)
 
-`PlaybackConfig::cycle_accurate` is defined, bound to Python via pybind11, and set by
-`render_midi_offline()`, but no engine code reads it.
+Removed field, pybind11 binding, and all Python set-sites.
 
 ---
 
@@ -122,6 +120,6 @@ into a single lock scope with minimal contention impact.
 | 4 | MIDI→EventType mapping duplicated 3× | Major | **Done** — `midi_to_event_type()` helper, 4 sites consolidated |
 | 5 | No CUDA error check in online engine | Minor | **Done** — `cudaGetLastError()` after `executeCycle()`, matches offline engine |
 | 6 | `play_mode()` blocking sleep | Minor | **Done** — cycle-aware polling via `CycleTimeEstimator`, sleep fallback if no engine |
-| 7-10 | Dead code cleanup (`processEventsAtTime`, `applyEvent`, `cycle_accurate`, debug printfs) | Minor | Pending |
-| 11 | Double mutex in `RealTimeEventBuffer` | Minor | Pending |
+| 7-10 | Dead code cleanup (`processEventsAtTime`, `applyEvent`, `cycle_accurate`, debug printfs) | Minor | **Done** — removed dead methods, unused field, reduced printfs |
+| 11 | Double mutex in `RealTimeEventBuffer` | Minor | **Done** — consolidated to single lock scope in `pushEvent()` and `drainEventsUpTo()` |
 | 14 | No playback integration tests | Major | Pending |
