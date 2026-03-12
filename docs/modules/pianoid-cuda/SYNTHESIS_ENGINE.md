@@ -429,17 +429,17 @@ Per velocity level (20 reals):
   [15..19]  g_shift[5]  — ReLU threshold offsets
 ```
 
-**Update paths:**
+**Update path (unified):** Both init and runtime use the same flow:
 
-| Path | Method | Transfer | When |
-|------|--------|----------|------|
-| Init | `setNewExcitationParameters()` | Full 128 levels from Python (655,360 reals) | Once at startup via `loadPresetToLibrary` |
-| Runtime | `setNewExcitationBaseLevels()` | 5 base levels from Python (25,600 reals) → C++ interpolates to 128 | Every parameter edit |
+| Entry point | Method | When |
+|-------------|--------|------|
+| Init | `loadPresetToLibrary()` | Once at startup |
+| Runtime | `setNewExcitationBaseLevels()` | Every parameter edit |
 
-`setNewExcitationBaseLevels()` receives the 5 base velocity levels (indices [0, 31, 63,
-95, 127]) and performs linear interpolation on the C++ host side to reconstruct the full
-128-level buffer. The interpolation uses the same segment boundaries and linear formula
-as Python's `extrapolate()`. The reconstructed buffer is then uploaded via
+Both accept 5 base velocity levels per string (25,600 reals) and call the private
+`interpolateBaseLevels()` helper to reconstruct the full 128-level buffer. The
+interpolation uses the same segment boundaries [0, 31, 63, 95, 128] and linear formula
+as Python's `extrapolate()`. The reconstructed buffer is uploaded via
 `updateTunableParameter()` on the double-buffer system (see
 [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
 

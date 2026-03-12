@@ -346,14 +346,15 @@ parameter_manager.update_parameter(param='gauss')
              └── double-buffer swap (same as 2.1)
 ```
 
-**C++ interpolation** (`Pianoid::setNewExcitationBaseLevels`): Uses the same segment
+**C++ interpolation** (`Pianoid::interpolateBaseLevels`): Private helper used by both
+`loadPresetToLibrary()` and `setNewExcitationBaseLevels()`. Uses the same segment
 boundaries [0, 31, 63, 95, 128] and linear interpolation as Python's `extrapolate()`.
 Segment 0 uses denom=30; segments 1–3 use denom=span. The GPU buffer layout and
 `gaussKernel` are unchanged.
 
-**Init path** (`loadPresetToLibrary`): Still uses full 128-level packing via
-`pack_parameters()` → `pack_excitations()`. This runs once at startup and does not
-use the base-levels path.
+**Single path for all excitation uploads:** Both init (`loadPresetToLibrary`) and
+runtime updates (`setNewExcitationBaseLevels`) accept base levels and interpolate via
+`interpolateBaseLevels()`. `setNewExcitationParameters()` has been removed.
 
 **GPU-side consumption:** When a NOTE_ON event arrives, `gaussKernel` reads the
 velocity-specific slice from `dev_gauss_params_full` and computes the force function
@@ -365,8 +366,7 @@ waveform. See [SYNTHESIS_ENGINE.md — Excitation System](../modules/pianoid-cud
 |--------|-------------|----------|
 | `dev_physical_parameters` | 256 × 16 = 4,096 | 16 KB |
 | `dev_hammer` | 64 × 384 = 24,576 | 98 KB |
-| `dev_gauss_params_full` (init) | 256 × 128 × 20 = 655,360 | **2.6 MB** |
-| `dev_gauss_params_full` (update) | 256 × 5 × 20 = 25,600 | **100 KB** (+ C++ interpolation) |
+| `dev_gauss_params_full` | 256 × 5 × 20 = 25,600 | **100 KB** (+ C++ interpolation to 128 levels) |
 | `dev_mode_state` | 64 × 5 = 1,280 | 5 KB |
 | `dev_deck_parameters` | 256 × 256 = 65,536 | 256 KB (single matrix mode) |
 | `dev_volume_coeff` | 256 | 1 KB |
