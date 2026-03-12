@@ -120,6 +120,11 @@ Compare against baseline and print a table:
 
 ## Step 6: Debug (if tests fail)
 
+**Build failures:** If a build command fails (linker errors, missing libraries, DLL issues),
+consult `docs/architecture/BUILD_SYSTEM.md` — especially the Troubleshooting section — before
+attempting manual fixes. Common issues (SDL3.lib not found, import failures, `--heavy` vs
+`--light` trade-offs) are documented there with diagnosis steps and fixes.
+
 Iterative loop (max 5 iterations):
 1. Read failure output — identify root cause, not just symptom
 2. Make targeted fix

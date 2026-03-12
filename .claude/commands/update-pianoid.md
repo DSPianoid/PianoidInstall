@@ -122,6 +122,9 @@ cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\Pi
 cmd //c "cd /d D:\repos\PianoidInstall\PianoidTunner && npm install"
 ```
 
+**Build failures:** If any build command fails, consult `docs/architecture/BUILD_SYSTEM.md`
+(Troubleshooting section) for diagnosis and fixes before retrying.
+
 ### 6. Update Documentation (if docs or source changed)
 
 If any source code files (`.py`, `.cu`, `.cpp`, `.h`, `.cuh`, `.tsx`, `.jsx`, `.ts`, `.js`) changed in any repo, or if `docs/**` files changed in PianoidInstall:

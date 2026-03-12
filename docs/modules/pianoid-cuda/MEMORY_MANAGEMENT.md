@@ -145,8 +145,8 @@ WORKING (~45 MB)
   dev_string_state      — current and previous displacement for all string points
   dev_force_function    — per-string force time series (excitation)
   dev_hammer            — hammer shape staging buffer
-  feedin_cycle_matrix   — string→mode force accumulator (zeroed each sub-step)
-  feedback_cycle_matrix — mode→string feedback accumulator (zeroed each sub-step)
+  feedin_cycle_matrix   — string→mode force accumulator (zeroed each outer iteration)
+  feedback_cycle_matrix — mode→string feedback accumulator (zeroed each outer iteration)
 
 OUTPUT (~120 MB)
   dev_soundInt          — Sint32 audio output (NUM_CHANNELS × samplesInCycle)
