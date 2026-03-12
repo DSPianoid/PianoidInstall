@@ -79,11 +79,11 @@ See [Testing](TESTING.md) for the implemented test inventory and usage.
 
 **Status:** Partially fixed.
 
-### play_mode() Blocking Sleep
+### ~~play_mode() Blocking Sleep~~ (Fixed)
 
-`pianoid.py:play_mode()` uses `time.sleep(length / 1000)` to wait for GPU synthesis to
-complete before extracting results. This blocks the calling thread and prevents concurrent
-use. Also contains `TODO: DEBUG!!!!!!!` for mode state management.
+Replaced `time.sleep(length / 1000)` with cycle-aware polling via `CycleTimeEstimator`.
+Falls back to sleep when no online engine is running. `TODO: DEBUG!!!!!!!` for mode
+state management remains (separate issue).
 
 ### ~~Duplicate Stop Methods~~ (Fixed)
 
@@ -107,3 +107,21 @@ into a single lock scope with minimal contention impact.
 
 `PlaybackConfig::cycle_accurate` is defined, bound to Python via pybind11, and set by
 `render_midi_offline()`, but no engine code reads it.
+
+---
+
+## Playback System Analysis — Improvement Tracker
+
+**Source:** `/analyse playback system` (2026-03-12)
+
+| # | Finding | Severity | Status |
+|---|---------|----------|--------|
+| 1 | Three overlapping stop methods | Major | **Done** — canonical `stop_playback()`, legacy methods delegate |
+| 2 | `stop_pianoid()` sleep race condition | Major | **Done** — `thread.join(timeout)` replaces `time.sleep()` |
+| 3 | `long_running_procedure()` dead reference | Major | **Done** — `application_thread` → `_playback_thread` |
+| 4 | MIDI→EventType mapping duplicated 3× | Major | **Done** — `midi_to_event_type()` helper, 4 sites consolidated |
+| 5 | No CUDA error check in online engine | Minor | **Done** — `cudaGetLastError()` after `executeCycle()`, matches offline engine |
+| 6 | `play_mode()` blocking sleep | Minor | **Done** — cycle-aware polling via `CycleTimeEstimator`, sleep fallback if no engine |
+| 7-10 | Dead code cleanup (`processEventsAtTime`, `applyEvent`, `cycle_accurate`, debug printfs) | Minor | Pending |
+| 11 | Double mutex in `RealTimeEventBuffer` | Minor | Pending |
+| 14 | No playback integration tests | Major | Pending |
