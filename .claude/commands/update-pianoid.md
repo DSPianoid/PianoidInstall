@@ -18,10 +18,10 @@ Update PianoidInstall (docs, skills, config), PianoidCore, PianoidBasic, and Pia
 
 ## Repository Locations
 
-- **PianoidInstall**: `D:\repos\PianoidInstall` (parent repo — docs, project skills, config)
-- **PianoidCore**: `D:\repos\PianoidInstall\PianoidCore`
-- **PianoidBasic**: `D:\repos\PianoidInstall\PianoidBasic`
-- **PianoidTunner**: `D:\repos\PianoidInstall\PianoidTunner` (React/Node.js frontend)
+- **PianoidInstall**: `D:\repos\PianoidInstall` (branch: `master` — docs, project skills, config)
+- **PianoidCore**: `D:\repos\PianoidInstall\PianoidCore` (branch: `dev`)
+- **PianoidBasic**: `D:\repos\PianoidInstall\PianoidBasic` (branch: `dev`)
+- **PianoidTunner**: `D:\repos\PianoidInstall\PianoidTunner` (branch: `dev`, React/Node.js frontend)
 
 ## Workflow
 
@@ -29,11 +29,13 @@ Update PianoidInstall (docs, skills, config), PianoidCore, PianoidBasic, and Pia
 
 For all repos, run:
 ```bash
-git -C "D:\repos\PianoidInstall" status --porcelain
+git -C "D:\repos\PianoidInstall" status --porcelain | grep -v "^??"
 git -C "D:\repos\PianoidInstall\PianoidCore" status --porcelain
 git -C "D:\repos\PianoidInstall\PianoidBasic" status --porcelain
 git -C "D:\repos\PianoidInstall\PianoidTunner" status --porcelain
 ```
+
+Note: PianoidInstall ignores untracked files (`??`) since nested repos appear as untracked — only modified tracked files block the update.
 
 - If uncommitted changes exist and NO `--force` flag: **ABORT** with warning listing changed files
 - If `--force` flag provided: discard changes with `git checkout .`
@@ -46,6 +48,19 @@ git -C "D:\repos\PianoidInstall\PianoidCore" fetch origin
 git -C "D:\repos\PianoidInstall\PianoidBasic" fetch origin
 git -C "D:\repos\PianoidInstall\PianoidTunner" fetch origin
 ```
+
+**Verify fetch is complete** — for each repo, confirm local `origin/<branch>` matches the remote:
+```bash
+git -C "D:\repos\PianoidInstall" rev-parse origin/master
+git -C "D:\repos\PianoidInstall\PianoidCore" rev-parse origin/dev
+git -C "D:\repos\PianoidInstall\PianoidBasic" rev-parse origin/dev
+git -C "D:\repos\PianoidInstall\PianoidTunner" rev-parse origin/dev
+git -C "D:\repos\PianoidInstall" ls-remote origin master | cut -f1
+git -C "D:\repos\PianoidInstall\PianoidCore" ls-remote origin dev | cut -f1
+git -C "D:\repos\PianoidInstall\PianoidBasic" ls-remote origin dev | cut -f1
+git -C "D:\repos\PianoidInstall\PianoidTunner" ls-remote origin dev | cut -f1
+```
+If any local `rev-parse` does not match `ls-remote`, run `git fetch origin` again for that repo.
 
 Show pending commits:
 ```bash
