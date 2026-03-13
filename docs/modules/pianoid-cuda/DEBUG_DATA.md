@@ -30,15 +30,18 @@ Frontend (JSON + base64 audio)
 
 ## Compile Guard
 
-A single preprocessor flag in `constants.h` controls all debug data extraction:
+A single preprocessor flag controls all debug data extraction. It is **not** defined
+in `constants.h` — instead, `setup.py` passes `-DPIANOID_DEBUG_DATA` only when
+building the **debug** variant (`PIANOID_BUILD_VARIANT=debug`).
 
-```c
-#define PIANOID_DEBUG_DATA
-```
+| Flag | Layer | Effect | When active |
+|------|-------|--------|-------------|
+| `PIANOID_DEBUG_DATA` | Kernel + Host | **Kernel:** enables `recordOutputData()` writes to `dev_output_data` (records 0–9), `dev_sound_records`, `dev_string_state`. **Host:** enables D2H copies in `getPianoidState()`, `getOutputData()`, `getParameters()`, `getSoundRecords()` | Debug variant only (`pianoidCuda_debug`) |
 
-| Flag | Layer | Effect | Default |
-|------|-------|--------|---------|
-| `PIANOID_DEBUG_DATA` | Kernel + Host | **Kernel:** enables `recordOutputData()` writes to `dev_output_data` (records 0–9), `dev_sound_records`, `dev_string_state`. **Host:** enables D2H copies in `getPianoidState()`, `getOutputData()`, `getParameters()`, `getSoundRecords()` | Defined |
+To use the debug variant at runtime, set `PIANOID_USE_DEBUG=1` or pass
+`use_debug_build=True` to `initialize_pianoid()`. See
+[BUILD_SYSTEM.md](../../architecture/BUILD_SYSTEM.md#build-variants-debug--release)
+for build commands.
 
 **Design rationale:** Writing intermediate results to GPU global memory during synthesis is expensive and should be avoided in production deployments. Disabling `PIANOID_DEBUG_DATA` has three effects:
 
@@ -110,20 +113,20 @@ A single preprocessor flag in `constants.h` controls all debug data extraction:
 
 ## Output Data Records
 
-The `dev_output_data` buffer contains 10 records, each of size `num_strings × array_size`. All records require `PIANOID_DEBUG_DATA`.
+The `dev_output_data` buffer contains `NUM_OUTPUT_RECORDS` (10) records, each of size `num_strings × array_size`. All records require `PIANOID_DEBUG_DATA`. Constants defined in `constants.h`.
 
-| Record | Content | Written When | Index Domain |
-|--------|---------|-------------|--------------|
-| 0 | String displacement `s_a[point]` | `PIANOID_DEBUG_DATA` | Spatial (point position) |
-| 1 | String previous state `s_b` | `PIANOID_DEBUG_DATA` | Spatial |
-| 2 | String identification (debug) | `PIANOID_DEBUG_DATA` | Spatial |
-| 3 | Spatial hammer force distribution `coeff_force` | `PIANOID_DEBUG_DATA` | Spatial |
-| 4 | Active feedin to modes `mode_feedin[string, mode]` | `PIANOID_DEBUG_DATA` | Mode index |
-| 5 | Computed feedback from modes `mode_feedback[string, mode]` | `PIANOID_DEBUG_DATA` | Mode index |
-| 6 | Feedin cycle matrix (string→mode accumulation) | `PIANOID_DEBUG_DATA`, cycle 0 | Mode index |
-| 7 | Feedback cycle matrix (mode→string accumulation) | `PIANOID_DEBUG_DATA`, cycle 32 | Mode index |
-| 8 | Final feedback applied to string stem | `PIANOID_DEBUG_DATA` | Spatial |
-| 9 | Raw mode coefficients (unfiltered feedin) | `PIANOID_DEBUG_DATA` | Mode index |
+| Constant | Index | Content | Written When | Index Domain |
+|----------|-------|---------|-------------|--------------|
+| `OUTPUT_REC_STRING_SHAPE` | 0 | String displacement `s_a[point]` | Error path only | Spatial (point position) |
+| `OUTPUT_REC_STRING_PREV` | 1 | Previous string state `s_b` | Error path only | Spatial |
+| `OUTPUT_REC_STRING_ID` | 2 | String identification tag | Always (debug) | Spatial |
+| `OUTPUT_REC_HAMMER_FORCE` | 3 | Spatial hammer force distribution `coeff_force` | Pre-loop | Spatial |
+| `OUTPUT_REC_MODE_FEEDIN` | 4 | Feedin coefficients `mode_feedin[string, mode]` | Pre-loop | Mode index |
+| `OUTPUT_REC_MODE_FEEDBACK` | 5 | Feedback coefficients `mode_feedback[string, mode]` | Pre-loop | Mode index |
+| `OUTPUT_REC_FEEDIN_MATRIX` | 6 | Feedin cycle matrix (string→mode accumulation) | Cycle 0 snapshot | Mode index |
+| `OUTPUT_REC_FEEDBACK_MATRIX` | 7 | Feedback cycle matrix (mode→string accumulation) | Cycle 32 snapshot | Mode index |
+| `OUTPUT_REC_STEM_FEEDBACK` | 8 | Final feedback applied to string stem | Error path only | Spatial |
+| `OUTPUT_REC_RAW_COEFFICIENTS` | 9 | Raw mode coefficients from GPU memory | Pre-loop | Mode index |
 
 Records 6 and 7 are **snapshot records** — they capture the accumulation matrix at a specific cycle index (0 and 32 respectively), not the final state.
 
@@ -139,10 +142,14 @@ A circular GPU buffer for per-string debug data across multiple synthesis cycles
 | Parameters per string per cycle | `NUM_PARAMS_IN_SOUND_RECORD` = 4 |
 | Total buffer size | 500 × mode_iteration × num_strings × 4 reals |
 
-Written by `recordOutputData()` calls in the kernel:
-- Record 0: `force_on_bridge_summed` (bridge force per string)
-- Record 2: `applied_force` (force after processing)
-- Records 1, 3: reserved / commented out
+Written by `recordOutputData()` calls in the kernel. Constants defined in `constants.h`:
+
+| Constant | Index | Content |
+|----------|-------|---------|
+| `SOUND_REC_BRIDGE_FORCE` | 0 | `force_on_bridge_summed` (bridge force per string) |
+| `SOUND_REC_MODE_STATE` | 1 | `s_mode` (mode displacement) |
+| `SOUND_REC_APPLIED_FORCE` | 2 | `applied_force` (force after hammer processing) |
+| `SOUND_REC_MODE_FORCE` | 3 | `s_mode_applied_force` (force applied to mode) |
 
 Controlled by `sound_record_index` (incremented each cycle by `appendSoundRecords()`). Wraps silently when index exceeds `MAX_SOUND_RECORD_INDEX`.
 
