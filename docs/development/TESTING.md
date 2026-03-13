@@ -76,6 +76,21 @@ Production-safe: no dependency on `PIANOID_DEBUG_DATA`. Plays a 3-second C major
 
 ## Integration Tests (implemented)
 
+### test_excitation_interpolation.py
+
+Verifies that excitation base-level interpolation is consistent between C++ and Python, and that updating excitation parameters via `setNewExcitationBaseLevels()` changes sound output.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestInterpolationAlgorithm::test_boundary_values_match` | Boundary velocities (0, 31, 63, 95, 127) map directly to base levels without interpolation |
+| `TestInterpolationAlgorithm::test_cpp_reference_matches_python_extrapolate` | Python reference implementation of `interpolateBaseLevels()` matches `StringExcitation.extrapolate()` |
+| `TestInterpolationAlgorithm::test_monotonic_interpolation` | Interpolated matrix is monotonically non-decreasing per velocity index |
+| `TestInterpolationAlgorithm::test_multiple_random_strings` | Interpolation consistency holds across randomly generated base-level sets |
+| `TestExcitationUpdate::test_excitation_update_changes_output` | Calling `setNewExcitationBaseLevels()` with different base levels produces different audio output |
+| `TestExcitationUpdate::test_velocity_sensitivity` | Higher-velocity base levels produce louder output than lower-velocity base levels |
+
+Key constants used: `NUM_BASE_LEVELS=5`, `LEN_LEVEL_GP=20`, `BOUNDARIES=[0, 31, 63, 95, 128]`.
+
 ### test_feedback_coupling.py
 
 Validates string-to-soundboard coupling via the feedin matrix. Uploads custom deck matrices with single nonzero coefficients, excites specific pitches via offline playback, and verifies mode displacements.
