@@ -43,11 +43,11 @@ build_pianoid_cuda.bat
     build_ext.build_extension()
       nvcc  *.cu  -->  *.obj   (CUDA compilation)
       MSVC  *.cpp -->  linked  (C++ compilation)
-      link  pianoidCuda.pyd
-      copy  SDL2.dll / SDL3.dll + cudart64_*.dll
+      link  pianoidCuda.pyd (or pianoidCuda_debug.pyd)
+      copy  SDL2.dll / SDL3.dll + cudart64_*.dll (release only)
         |
         v
-  pianoidCuda.pyd  (importable from .venv)
+  pianoidCuda.pyd + pianoidCuda_debug.pyd  (importable from .venv)
         |
         v
 (optional) npm install / npm run build
@@ -224,14 +224,53 @@ This ensures `import pianoidCuda` works without modifying `PATH`.
 
 ### Extension Module
 
-The output is a single Python extension module:
+The output is one or two Python extension modules:
 
 ```
-pianoidCuda.pyd
+pianoidCuda.pyd          (release variant)
+pianoidCuda_debug.pyd    (debug variant, optional)
 ```
 
-Loaded in middleware via `import pianoidCuda`. The extension exposes the full C++
-Pianoid API through pybind11 bindings defined in the `.cu` / `.cpp` sources.
+Loaded in middleware via `import pianoidCuda`. When the debug variant is selected
+at runtime, `pianoidCuda_debug` is aliased as `pianoidCuda` in `sys.modules`.
+The extension exposes the full C++ Pianoid API through pybind11 bindings defined
+in the `.cu` / `.cpp` sources.
+
+---
+
+## Build Variants (Debug / Release)
+
+`setup.py` supports two build variants controlled by the `PIANOID_BUILD_VARIANT` env var:
+
+| Variant | Module name | Optimization | `PIANOID_DEBUG_DATA` | GPU memory |
+|---------|-------------|-------------|----------------------|------------|
+| `release` (default) | `pianoidCuda` | `-O3 -use_fast_math` (nvcc), `/O2` (MSVC) | OFF | ~170 MB |
+| `debug` | `pianoidCuda_debug` | `-O2` (nvcc), `/Od` (MSVC) | ON | ~170 MB + ~113 MB debug |
+
+Both variants can be installed simultaneously — they are separate pip packages with
+different module names. The middleware selects which to import at runtime.
+
+### Building variants
+
+```bash
+# Release only (default, backward compatible)
+build_pianoid_cuda.bat --heavy
+
+# Debug only
+build_pianoid_cuda.bat --heavy --debug
+
+# Both variants (builds release first, then debug)
+build_pianoid_cuda.bat --heavy --both
+
+# Incremental + both
+build_pianoid_cuda.bat --light --both
+```
+
+### Runtime selection
+
+Set `PIANOID_USE_DEBUG=1` before starting the server, or pass `use_debug_build=True`
+to `initialize_pianoid()`. The middleware aliases `pianoidCuda_debug` as `pianoidCuda`
+via `sys.modules`, so all existing import sites work unchanged.
 
 ---
 
@@ -240,7 +279,9 @@ Pianoid API through pybind11 bindings defined in the `.cu` / `.cpp` sources.
 | Variable | Purpose |
 |---|---|
 | `PIANOID_BUILD_CONFIG` | Override path to `build_config.json` |
+| `PIANOID_BUILD_VARIANT` | `release` (default) or `debug` — controls module name and flags |
 | `PIANOID_INCREMENTAL_BUILD` | Set to `1` to enable incremental `.cu` recompilation |
+| `PIANOID_USE_DEBUG` | Set to `1` at runtime to import `pianoidCuda_debug` as `pianoidCuda` |
 | `CUDA_ARCHES` | Comma-separated compute capabilities, e.g. `"80,86,89"` |
 | `CUDA_PATH` | CUDA installation root hint |
 | `SDL2_DIR` / `SDL_DIR` | SDL2 root hint |

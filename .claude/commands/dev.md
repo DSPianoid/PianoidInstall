@@ -202,6 +202,38 @@ git commit -m "Update documentation"
 git push origin master
 ```
 
+## Step 9: Merge Feature Branch to Dev
+
+**This step is mandatory when a feature branch was created in Step 3.** Unmerged feature
+branches break other systems that install from `dev`.
+
+After the user confirms the work is complete and tests pass:
+
+1. **Merge into dev** for each repo that has a feature branch:
+```bash
+# Example for PianoidCore
+cd D:\repos\PianoidInstall\PianoidCore
+git checkout dev
+git merge feature/<name> --no-ff -m "Merge feature/<name> into dev"
+git push origin dev
+
+# Example for PianoidBasic (if changed)
+cd D:\repos\PianoidInstall\PianoidBasic
+git checkout dev
+git merge feature/<name> --no-ff -m "Merge feature/<name> into dev"
+git push origin dev
+```
+
+2. **Clean up** — ask user if the feature branch should be deleted:
+```bash
+git branch -d feature/<name>
+git push origin --delete feature/<name>
+```
+
+**Do not end the workflow with commits only on a feature branch.** If the user declines
+to merge now, warn them explicitly: "Feature branch `feature/<name>` has not been merged
+to dev. Other systems installing from dev will not have these changes."
+
 ## Key Paths
 
 | Resource | Path |
