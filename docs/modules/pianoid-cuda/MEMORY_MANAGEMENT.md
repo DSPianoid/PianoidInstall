@@ -18,13 +18,15 @@ enum class BufferCategory {
     TUNABLE,       // Double-buffered preset parameters (~2.93–6.37 MB)
     STATIC_INPUT,  // Single-buffered configuration inputs (~3 MB)
     WORKING,       // Single-buffered intermediate computation (~45 MB)
-    OUTPUT,        // Single-buffered audio and state output (~120 MB)
+    OUTPUT,        // Single-buffered production output (~7 MB)
+    DEBUG_OUTPUT,  // Single-buffered debug extraction (conditional, ~113 MB)
     FILTER_SYSTEM  // FIR convolution buffers (~10 MB)
 };
 ```
 
-Only `TUNABLE` buffers are double-buffered. All other categories use a single GPU
-allocation that is overwritten in place.
+Only `TUNABLE` buffers are double-buffered. `DEBUG_OUTPUT` buffers are only allocated
+when `PIANOID_DEBUG_DATA` is defined (see [DEBUG_DATA.md](DEBUG_DATA.md#compile-guard)).
+All other categories use a single GPU allocation that is overwritten in place.
 
 ---
 
@@ -148,11 +150,18 @@ WORKING (~45 MB)
   feedin_cycle_matrix   — string→mode force accumulator (zeroed each outer iteration)
   feedback_cycle_matrix — mode→string feedback accumulator (zeroed each outer iteration)
 
-OUTPUT (~120 MB)
-  dev_soundInt          — Sint32 audio output (NUM_CHANNELS × samplesInCycle)
-  dev_soundFloat        — float audio output  (NUM_CHANNELS × samplesInCycle)
-  dev_output_data       — diagnostic / state export buffer
-  dev_sound_records     — optional audio record buffer (up to 500 cycles)
+OUTPUT (~7 MB)
+  dev_string_state           — current and previous string displacement (simulation state)
+  dev_soundInt               — Sint32 audio output (NUM_CHANNELS × samplesInCycle)
+  dev_soundFloat             — float audio output  (NUM_CHANNELS × samplesInCycle)
+  dev_soundDouble            — temporary sound storage
+  dev_filteredSound          — post-FIR audio (Sint32, stereo)
+  dev_filteredSoundFloat     — post-FIR audio (float, stereo)
+
+DEBUG_OUTPUT (~113 MB, conditional — requires PIANOID_DEBUG_DATA)
+  dev_output_data            — 10 diagnostic records (string shape, feedin/feedback, hammer force)
+  dev_sound_records_ms       — per-cycle per-string force snapshot
+  dev_sound_records          — circular buffer (up to 500 cycles)
 
 FILTER_SYSTEM (~10 MB)
   dev_filter_input_buffers   — per-channel ring buffers for overlap-add
@@ -163,7 +172,7 @@ FILTER_SYSTEM (~10 MB)
   dev_fir_filters            — FIR coefficient store
 ```
 
-Total GPU memory in a typical 256-string, 256-mode configuration: approximately **180 MB**.
+Total GPU memory: ~180 MB (debug mode) or ~67 MB (production, `PIANOID_DEBUG_DATA` disabled).
 
 ---
 
@@ -240,10 +249,11 @@ GPU Device Memory
   | (identical layout) |
   +--------------------+
 
-  [STATIC_INPUT buffers]  ~3 MB  (single allocation each)
-  [WORKING buffers]       ~45 MB (single allocation each)
-  [OUTPUT buffers]        ~120 MB (single allocation each)
-  [FILTER_SYSTEM buffers] ~10 MB (single allocation each)
+  [STATIC_INPUT buffers]   ~3 MB   (single allocation each)
+  [WORKING buffers]        ~45 MB  (single allocation each)
+  [OUTPUT buffers]         ~7 MB   (production audio + state)
+  [DEBUG_OUTPUT buffers]   ~113 MB (conditional, PIANOID_DEBUG_DATA only)
+  [FILTER_SYSTEM buffers]  ~10 MB  (single allocation each)
 
-  Total: ~180 MB
+  Total: ~180 MB (debug) / ~67 MB (production)
 ```

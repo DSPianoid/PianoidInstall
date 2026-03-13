@@ -40,21 +40,25 @@ A single preprocessor flag in `constants.h` controls all debug data extraction:
 |------|-------|--------|---------|
 | `PIANOID_DEBUG_DATA` | Kernel + Host | **Kernel:** enables `recordOutputData()` writes to `dev_output_data` (records 0–9), `dev_sound_records`, `dev_string_state`. **Host:** enables D2H copies in `getPianoidState()`, `getOutputData()`, `getParameters()`, `getSoundRecords()` | Defined |
 
-**Design rationale:** Writing intermediate results to GPU global memory during synthesis is expensive and should be avoided in production deployments. Disabling `PIANOID_DEBUG_DATA` removes all debug writes from the kernel and all corresponding D2H copies from the host extraction methods (which return zero-filled vectors since there is nothing to read).
+**Design rationale:** Writing intermediate results to GPU global memory during synthesis is expensive and should be avoided in production deployments. Disabling `PIANOID_DEBUG_DATA` has three effects:
+
+1. **Kernel:** removes all debug writes from the synthesis kernel
+2. **Host:** D2H extraction methods return zero-filled vectors
+3. **Memory:** debug buffers are not allocated (~113 MB saved), registered under `DEBUG_OUTPUT` category
 
 **What is always active (regardless of flag):**
 
-- Audio buffers (`dev_soundFloat`, `dev_soundInt`) — production audio path
+- Audio buffers (`dev_soundFloat`, `dev_soundInt`) — production audio path, `OUTPUT` category
 - Mode state (`dev_mode_state`) — readable via `getModeDisplacements()`, used at runtime
-- String state to `string_state` buffer (when `*status > 0`) — simulation state, not debug
+- String state to `string_state` buffer (when `*status > 0`) — simulation state, `OUTPUT` category
 - NaN detection in the main loop — always-on, negligible cost, catches corruption early
 
 **What requires `PIANOID_DEBUG_DATA`:**
 
-- output\_data records 0–9 (string shape snapshots, feedin/feedback diagnostics, hammer force)
-- sound\_records circular buffer (per-string per-cycle bridge force, mode force)
-- string\_state writes to `dev_string_state` (snapshot for chart extraction)
-- Host D2H copies in `getPianoidState()`, `getOutputData()`, `getParameters()`, `getSoundRecords()`
+- GPU buffer allocation: `dev_output_data`, `dev_sound_records_ms`, `dev_sound_records` (`DEBUG_OUTPUT` category)
+- Kernel writes: output\_data records 0–9, sound\_records, string\_state snapshots
+- Host D2H copies: `getPianoidState()`, `getOutputData()`, `getParameters()`, `getSoundRecords()`
+- Per-cycle operations: `appendSoundRecords()`, `dev_output_data` memset
 
 ---
 

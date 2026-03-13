@@ -12,7 +12,8 @@ PianoidCore/tests/
 ├── system/              # Full stack — GPU + audio hardware
 │   ├── conftest.py      # Session-scoped Pianoid with SDL3 audio
 │   ├── test_audio_drivers.py
-│   └── test_performance.py
+│   ├── test_performance.py
+│   └── test_playback.py
 ├── integration/         # GPU required, no audio
 │   ├── conftest.py      # Session-scoped Pianoid without audio, offline helpers
 │   └── test_feedback_coupling.py
@@ -64,6 +65,14 @@ Tests marked `gpu` or `audio` auto-skip when hardware is unavailable.
 | `TestSoundRegression` | Waveform/spectral correlation vs saved reference |
 | `TestBufferSynchronization` | Buffer underrun diagnosis — correlates GPU time with callback stats |
 | `TestTimingDistribution` | Statistical tail analysis (p95/p99) of GPU, total, and buffer phase |
+
+### test_playback.py
+
+| Test | What it validates |
+|------|-------------------|
+| `TestOnlinePlayback::test_chord_playback` | C major chord via `runOnlinePlayback()` — no profiling, no debug data, auditory evaluation |
+
+Production-safe: no dependency on `PIANOID_DEBUG_DATA`. Plays a 3-second C major chord (C4+E4+G4) through the audio driver with note-off and release tail.
 
 ## Integration Tests (implemented)
 
