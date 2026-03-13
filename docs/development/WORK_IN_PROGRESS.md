@@ -1,5 +1,20 @@
 # Work in Progress
 
+## Excitation API Mismatch — PianoidBasic Missing `pack_base_excitations()`
+
+**Status:** Blocking. PianoidBasic update pending.
+
+PianoidCore's new `loadPresetToLibrary()` expects 5-base-level excitation data
+(`5 × 20 × 224 = 22 400` elements), but `StringMap.pack_excitations()` still returns
+the old 128-level format (`128 × 20 × 224 = 573 440` elements). Initialization fails
+with a size mismatch, then the GPU kernel crashes.
+
+`StringMap.pack_base_excitations()` needs to be added to PianoidBasic.
+
+See [EXCITATION_API_MISMATCH.md](EXCITATION_API_MISMATCH.md) for full details.
+
+---
+
 ## Parameter Routing Unification
 
 **Status:** Complete.
