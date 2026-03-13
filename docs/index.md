@@ -80,6 +80,8 @@ interactive latency.
   callback integration and platform-specific driver configuration
 - [modules/pianoid-cuda/PARAMETER_SYSTEM.md](modules/pianoid-cuda/PARAMETER_SYSTEM.md) —
   Parameter schema, atomic swap protocol, and real-time update path
+- [modules/pianoid-cuda/DEBUG_DATA.md](modules/pianoid-cuda/DEBUG_DATA.md) —
+  GPU state extraction, PianoidResult wrapper, output_data record layout
 
 ### pianoid_middleware
 

@@ -37,6 +37,7 @@ nav:
     - Memory Management: modules/pianoid-cuda/MEMORY_MANAGEMENT.md
     - Audio Drivers: modules/pianoid-cuda/AUDIO_DRIVERS.md
     - Parameter System: modules/pianoid-cuda/PARAMETER_SYSTEM.md
+    - Debug Data Extraction: modules/pianoid-cuda/DEBUG_DATA.md
   - Middleware:
     - Overview: modules/pianoid-middleware/OVERVIEW.md
     - REST API: modules/pianoid-middleware/REST_API.md

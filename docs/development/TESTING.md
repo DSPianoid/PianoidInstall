@@ -93,10 +93,34 @@ TOTAL_BUDGET_MS = GPU_BUDGET_MS * 1.5  # 2.0 ms
 
 ## Instrumentation APIs
 
+### Performance Profiling
+
 | Python API | Data | Source |
 |-----------|------|--------|
 | `p.startProfiling()` / `getGpuProfilingData()` | Per-cycle GPU kernel timings (ms) | PianoidProfiler (CUDA events) |
 | `p.initTimeRecord()` / `getTimeRecord()` | Per-cycle wall-clock checkpoints (µs) | PlaybackCycleExecutor |
 | `p.getCallbackStats()` | Callback count, interval, underruns | AudioDriverInterface |
-| `p.getRecordedAudio()` | Offline playback audio buffer | OfflinePlaybackEngine |
-| `p.getModeDisplacements()` | Per-mode state: q, q_prev, dec, omega, mass_inv (flat, 5×N) | Pianoid GPU memory |
+
+### Audio Extraction
+
+| Python API | Data | Source |
+|-----------|------|--------|
+| `p.getRecordedAudio()` | Audio from last completed playback session | `last_recorded_audio_` (host) |
+| `p.getRawSoundRecord()` | Per-cycle accumulated audio (if recording enabled) | `rawSound` (host vector) |
+| `p.enableRawSoundRecording(bool)` | Enable/disable per-cycle D2H audio copy | `rawSoundRecordingEnabled` flag |
+| `p.getCurrentCycleAudio()` | Audio from current synthesis cycle (float or int32→float) | `dev_soundFloat` / `dev_soundInt` (GPU) |
+
+### State Extraction (GPU → Host)
+
+| Python API | Data | Source |
+|-----------|------|--------|
+| `p.getPianoidState()` | String displacement + velocity (2 × total_points) | `dev_string_state` (GPU, `PIANOID_DEBUG_DATA`) |
+| `p.getModeDisplacements()` | Per-mode: q, q\_prev, dec, omega, mass\_inv (5×N) | `dev_mode_state` (GPU) |
+| `p.getOutputData()` | 10 debug records × num\_strings × array\_size | `dev_output_data` (GPU, `PIANOID_DEBUG_DATA`) |
+| `p.getParameters()` | Per-point parameters (POINT\_PARAMETERS\_NO × total\_points) | `dev_parameters` (GPU, `PIANOID_DEBUG_DATA`) |
+| `p.fetchExcitation(stringNo, cycleIdx)` | Hammer excitation waveform for a string | `dev_force_function` (GPU) |
+| `p.getSoundRecords(length)` | Per-string debug records (circular, up to 500 cycles) | `dev_sound_records` (GPU, `PIANOID_DEBUG_DATA`) |
+
+### Compile Guards
+
+A single `PIANOID_DEBUG_DATA` flag in `constants.h` controls all debug data extraction — both kernel-side writes to GPU global memory and host-side D2H copies. Defined by default; disable for production to save GPU cycles. Without the flag, extraction methods return zero-filled vectors. See [DEBUG\_DATA.md](../../modules/pianoid-cuda/DEBUG_DATA.md#compile-guard) for full details.

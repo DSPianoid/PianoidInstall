@@ -36,7 +36,6 @@ Supporting structures:
 struct PlaybackConfig {
     bool audio_enabled      = true;
     bool record_to_buffer   = false;
-    bool cycle_accurate     = false;    // Reserved, not currently used by engines
     int  max_duration_ms    = 0;       // 0 = infinite
     int  sample_rate        = 48000;
     int  samples_per_cycle  = 64;
@@ -78,12 +77,23 @@ class OnlinePlaybackEngine : public IPlaybackEngine {
 
     // Internal methods
     void processEventsAtCycle(uint32_t cycle);   // unified: queue + real-time buffer
-    void applyEvent(const PlaybackEvent& event);
 
 public:
     void setRealTimeBuffer(RealTimeEventBuffer* buffer);
     CycleTimeEstimator* getCycleEstimator();
     EngineStats getEngineStats() const;
+};
+```
+
+`EngineStats` tracks cumulative event processing metrics:
+
+```cpp
+struct EngineStats {
+    uint32_t total_events_processed;
+    uint32_t realtime_events;
+    uint32_t scheduled_events;
+    double   avg_event_latency_ms;
+    uint32_t calibration_count;
 };
 ```
 
@@ -93,15 +103,11 @@ The `run()` loop:
 2. Immediate `syncToCycle(0)` for initial calibration
 3. Calls `processEventsAtCycle(current_cycle)` — drains both sources
 4. Calls `PlaybackCycleExecutor::executeCycle(pianoid_, record_audio)` — synthesis step
-5. Drift calibration: every cycle for the first 10 cycles (rapid warmup),
+5. CUDA error check: `cudaGetLastError()` after each `executeCycle()`
+6. Drift calibration: every cycle for the first 10 cycles (rapid warmup),
    then every 100 cycles (periodic maintenance)
-6. Repeats until `stop()` is called or `max_duration_ms` expires
-7. On exit: stops estimator, application, and audio device
-
-**Legacy fallback:** When no `RealTimeEventBuffer` is set, the engine falls back to
-time-based event processing via `processEventsAtTime(elapsed_ms)`, converting wall-clock
-time to cycle indices. This path exists for backward compatibility but is not the
-recommended mode.
+7. Repeats until `stop()` is called or `max_duration_ms` expires
+8. On exit: stops estimator, application, and audio device
 
 ---
 
@@ -133,8 +139,11 @@ public:
 };
 ```
 
-`pause()` and `resume()` are no-ops in offline mode. The engine runs as fast as the GPU
-allows, consuming no system audio resources.
+`pause()` and `resume()` are no-ops — offline rendering runs to completion as fast as
+the GPU allows, consuming no system audio resources.
+
+The engine adds a 5-second decay buffer after the last scheduled event to capture natural
+note release and resonance tails: `decay_cycles = (5 * sample_rate) / samples_per_cycle`.
 
 ---
 
@@ -310,10 +319,8 @@ public:
 The engine calls `drainEventsUpTo(current_cycle)` once per synthesis cycle to collect all
 events whose `target_cycle <= current_cycle`. Typical insertion latency is under 1 µs.
 
-**Threading note:** `pushEvent()` acquires the mutex twice per call — once for the insert,
-once for latency statistics update. This is a known trade-off: the stats lock is released
-between operations to minimize contention on the hot path, at the cost of an extra lock
-acquisition for instrumentation.
+**Threading note:** `pushEvent()` and `drainEventsUpTo()` each use a single
+`std::lock_guard` scope covering both the data operation and statistics update.
 
 ---
 
@@ -420,3 +427,11 @@ Not all `EventType` values are exposed to Python. Currently bound:
 | `TOGGLE_FEEDBACK` | No | C++ only, handler is TODO |
 
 Unbound types can only be used in C++ (e.g., in pre-built `EventQueue` objects).
+
+### MidiEventConverter
+
+Also exposed via pybind11, `MidiEventConverter` provides static helpers for creating
+`PlaybackEvent` records from raw MIDI data:
+
+- `fromMidiBytes(status, data1, data2, cycle_index)` — single MIDI message
+- `fromMidiRecord(midi_record, sample_rate, samples_per_cycle)` — full MIDI file → `EventQueue`

@@ -111,6 +111,7 @@ optionally overridden at runtime. See [AUDIO_DRIVERS.md](AUDIO_DRIVERS.md).
 | [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md) | UnifiedGpuMemoryManager, buffer categories, double-buffering, preset library |
 | [AUDIO_DRIVERS.md](AUDIO_DRIVERS.md) | SDL3 and ASIO drivers, LockFreeCircularBuffer, AudioDriverFactory |
 | [PARAMETER_SYSTEM.md](PARAMETER_SYSTEM.md) | ParameterInfo registry, granular and bulk update APIs, parameter pipeline |
+| [DEBUG_DATA.md](DEBUG_DATA.md) | GPU state extraction, PianoidResult wrapper, output_data record layout, compile guards |
 
 ---
 

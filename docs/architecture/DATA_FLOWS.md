@@ -644,11 +644,10 @@ Same as offline note but with full MIDI file → EventQueue
 
 **Online MIDI chart** (`online_midi_playback_chart_function`):
 ```
-  1. online_midi_playback_action("start")         // schedule MIDI events
-  2. time.sleep(capture_length / sample_rate)     // wait for playback
-  3. pianoid_cpp.captureResult()                  // force buffer extract
-  4. audio = pianoid.result.get_sound()           // recorded audio
-  5. online_midi_playback_action("stop")          // cleanup
+  1. pianoid.load_midi_for_online_playback(file, delay_ms)  // schedule MIDI events
+  2. time.sleep((delay_ms + 2000) / 1000)                   // wait for audio
+  3. audio = pianoid.result.get_sound(channel=-1)            // read last sound buffer
+  4. (no explicit stop — events drain naturally)
 ```
 
 **Feedin coupling** (`feedin_function`):
