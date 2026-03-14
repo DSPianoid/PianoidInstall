@@ -13,7 +13,7 @@ End-to-end traces for the three major data flows in Pianoid: playback, parameter
 ```
 Browser: POST /load_preset
   { path, listen_to_midi, audio_driver_type, sample_rate,
-    audio_buffer_size, volume, max_volume, start_right_away }
+    audio_buffer_size, array_size, volume, max_volume, start_right_away }
          │
          ▼
 backendserver.py: load_preset_route()
