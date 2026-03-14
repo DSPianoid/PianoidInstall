@@ -71,14 +71,11 @@ for build commands.
 
 | Method | Returns | Source Buffer | Notes |
 |--------|---------|---------------|-------|
-| `getRawSoundRecord()` | `vector<float>` | `rawSound` (host) | Returns accumulated per-cycle audio. Must call `enableRawSoundRecording(true)` first |
+| `getRawSoundRecord()` | `vector<float>` | `rawSoundBuffer` (host circular buffer) | Always active. Returns last 5 seconds of audio in chronological order |
 | `getRecordedAudio()` | `vector<float>` | `last_recorded_audio_` (host) | Audio from last completed playback session (online or offline) |
 | `getCurrentCycleAudio()` | `vector<float>` (mode_iteration samples) | `dev_soundFloat` or `dev_soundInt` (GPU) | Single cycle. Auto-converts int32→float via `/ INT32_MAX` |
 
-**Raw sound recording** is disabled by default for performance (~1.5ms saved per cycle). Control with:
-- `enableRawSoundRecording(true/false)`
-- `isRawSoundRecordingEnabled()`
-- `clearRawSoundRecording()`
+**Raw sound recording** uses a fixed circular buffer (`5 * sample_rate * num_channels` floats) that is always active — no enable/disable toggle. Each cycle writes directly into the buffer via `cudaMemcpy` (no intermediate allocation, no `cudaDeviceSynchronize`). `clearRecords()` resets the buffer.
 
 ### State Extraction
 
@@ -99,15 +96,14 @@ for build commands.
 
 | Method | Effect |
 |--------|--------|
-| `clearRecords()` | Resets `sound_record_index` to 0 (dev_sound_records overwrites from start) |
-| `clearRawSoundRecording()` | Clears the `rawSound` host vector |
+| `clearRecords()` | Resets `sound_record_index` to 0 and clears the raw sound circular buffer |
 
 ### Per-Cycle Recording (called by PlaybackCycleExecutor)
 
 | Method | What it does |
 |--------|-------------|
 | `recordCycleAudio()` | Calls `appendSoundRecords()` — GPU kernel copies `dev_sound_records_ms` → `dev_sound_records` at current index |
-| `appendRawSound(name)` | D2H copy from named GPU float buffer → appends to `rawSound` host vector |
+| `appendRawSound(name)` | D2H copy from named GPU float buffer → writes to circular buffer at current position |
 
 ---
 
@@ -207,7 +203,7 @@ The `debug` flag on the `Pianoid` middleware class (default `True`) controls whe
 
 | Chart Function | Data Used | Extraction Call |
 |----------------|----------|-----------------|
-| `sound_function` | `result.get_sound()` | `getRawSoundRecord()` |
+| `sound_function` | `result.get_sound()` | `get_sound_from_pianoid()` → `getRawSoundRecord()` (fetches fresh data from circular buffer) |
 | `string_shape_function` | `result.string_states` | `getPianoidState()` |
 | `block_output_data_function` | `result.string_states` (rec 0-1) or `result.output_data` (rec 2-9) | `getPianoidState()` / `getOutputData()` |
 | `mode_feedin_analysis_function` | `result.output_data[4..9]` | `getOutputData()` |

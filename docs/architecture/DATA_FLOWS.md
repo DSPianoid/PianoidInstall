@@ -608,15 +608,17 @@ pianoid.py: get_chart_for_frontend()                         (line 2278)
 **Sound waveform** (`sound_function`):
 ```
 sound_function(pianoid, length=48000, channel=0):
-  1. raw = pianoid.result.get_sound()
-     └► pianoid_cpp.getSoundBuffer()              // GPU D2H copy
-  2. Select channel, trim to length
-  3. charts = ChartArray()
-  4. charts.append_chart("", data)                // ChartData with statistics
-  5. charts.create_audio_to_chart('all', sr=48000)
+  1. pianoid.result.get_sound_from_pianoid(length)
+     └► pianoid_cpp.getRawSoundRecord()           // read from circular buffer (last 5s)
+     └► reshape to (num_channels, samples)
+  2. sound = pianoid.result.get_sound(channel=-1)
+  3. Select channel, trim to length
+  4. charts = ChartArray()
+  5. charts.append_chart("", data)                // ChartData with statistics
+  6. charts.create_audio_to_chart('all', sr=48000)
      └► ChartData.create_audio(sr, direct=True)
          → WAV encode → base64 string
-  6. return (charts, "Sound record", text_fields)
+  7. return (charts, "Sound record", text_fields)
 ```
 
 **String shape** (`string_shape_function`):

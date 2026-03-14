@@ -192,7 +192,7 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 
 | Function | What it retrieves |
 |----------|-------------------|
-| `sound_function` | `pianoid.result.get_sound()` — raw audio buffer, supports 1D and 2D (multi-channel) arrays; attaches direct WAV audio |
+| `sound_function` | Fetches fresh audio from circular buffer via `get_sound_from_pianoid()`, then `get_sound()` — supports 1D and 2D (multi-channel) arrays; attaches direct WAV audio |
 | `string_shape_function` | `pianoid.result.get_pianoid_state()` — string displacement array from GPU; selects by pitch, string, block, or all |
 | `feedin_function` | `pianoid.sm.pack_deck()` — deck feed-in coupling array for a pitch/string index |
 | `filter_test_function` | Runs CUDA FIR filter test via `FirFilterTest.filter_test()`; can generate test signals or use live sound; saves/loads filter files |
