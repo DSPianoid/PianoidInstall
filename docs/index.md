@@ -82,6 +82,8 @@ interactive latency.
   Parameter schema, atomic swap protocol, and real-time update path
 - [modules/pianoid-cuda/DEBUG_DATA.md](modules/pianoid-cuda/DEBUG_DATA.md) —
   GPU state extraction, PianoidResult wrapper, output_data record layout
+- [modules/pianoid-cuda/LOGGING.md](modules/pianoid-cuda/LOGGING.md) —
+  PianoidLogger, file-based logging, hot-path fixes
 
 ### pianoid_middleware
 

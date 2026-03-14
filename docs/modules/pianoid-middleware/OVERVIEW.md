@@ -79,8 +79,8 @@ Central orchestrator. Owns:
 - `self._lifecycle_state` — `PianoidState` enum value
 
 Key methods called by the REST layer:
-- `initialize(path, filterlen, **kwargs)` — factory function, loads preset and allocates GPU memory
-- `start_realtime_playback(with_midi_listener)` — launches audio + main loop threads
+- `initialize(path, filterlen, **kwargs)` — factory function, loads preset and allocates GPU memory. Opens C++ logger files before the constructor.
+- `start_realtime_playback(with_midi_listener)` — launches audio + main loop threads. Switches C++ logger to RUNTIME phase.
 - `add_realtime_event(event_type, pitch, velocity, delay_ms)` — queues a MIDI event
 - `pack_for_interface(parameter, pitches, modes)` — serializes parameters for GET endpoints
 - `update_parameter(parameter, values, pitches, modes)` — applies parameter updates from POST

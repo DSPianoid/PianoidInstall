@@ -1,17 +1,27 @@
 # Work in Progress
 
-## Excitation API Mismatch — PianoidBasic Missing `pack_base_excitations()`
+## ~~Excitation API Mismatch — PianoidBasic Missing `pack_base_excitations()`~~ (Fixed)
 
-**Status:** Blocking. PianoidBasic update pending.
+**Status:** Complete. `StringMap.pack_base_excitations()` added to PianoidBasic, merged to dev. GPU-side interpolation verified by integration tests (`test_excitation_interpolation.py`).
 
-PianoidCore's new `loadPresetToLibrary()` expects 5-base-level excitation data
-(`5 × 20 × 224 = 22 400` elements), but `StringMap.pack_excitations()` still returns
-the old 128-level format (`128 × 20 × 224 = 573 440` elements). Initialization fails
-with a size mismatch, then the GPU kernel crashes.
+---
 
-`StringMap.pack_base_excitations()` needs to be added to PianoidBasic.
+## C++ Logging Migration
 
-See [EXCITATION_API_MISMATCH.md](EXCITATION_API_MISMATCH.md) for full details.
+**Status:** Session 1 complete. Remaining files pending.
+
+Replaced all `printf`/`cout`/`cerr` in hot-path and core C++ files with `PianoidLogger` file-based logging. Three hot-path statements fixed (cycle-level `std::cout` in `Pianoid.cu`, per-callback `printf` in `SDL3AudioDriver.cpp`, warmup `cout` in `CycleTimeEstimator.cu`).
+
+See [LOGGING.md](../modules/pianoid-cuda/LOGGING.md) for full details and migration status.
+
+| Scope | Status |
+|-------|--------|
+| PianoidLogger infrastructure | Done |
+| Hot-path fixes (3 locations) | Done |
+| Core C++ files (~175 statements in 8 files) | Done |
+| pybind11 bindings + Python lifecycle | Done |
+| Remaining C++ files (~75 statements) | Pending |
+| Python print migration (578 statements) | Planned |
 
 ---
 
