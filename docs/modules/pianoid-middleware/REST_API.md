@@ -134,6 +134,7 @@ Request body:
   "audio_driver_type": 4,
   "cycle_iterations": 64,
   "audio_buffer_size": 4,
+  "array_size": 384,
   "sample_rate": 48000,
   "string_iterations": 6,
   "volume": 64,
@@ -147,6 +148,7 @@ Parameter details:
 - `audio_driver_type`: `0`=default, `1`=ASIO, `2`=SDL2, `3`=SDL3, `4`=ASIO_CALLBACK (recommended)
 - `cycle_iterations`: samples per cycle; must match audio buffer size, minimum 16, default 64
 - `audio_buffer_size`: buffer chunks; `2`=low latency, `4`=balanced, `8`=high stability
+- `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512
 - `sample_rate`: Hz; if < 1000 is multiplied by 1000
 - `volume`: MIDI-style level 0–127 (old API)
 - `max_volume`: float, explicit max volume (new API, takes precedence over `volume`)
