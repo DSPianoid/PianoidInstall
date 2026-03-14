@@ -288,6 +288,7 @@ pianoid.py: update_parameter(param='string')                  (line 2230)
   ─► update_pitch_physical_params_GRANULAR(pitchID=60, **values)
          │                                                    (line 1906)
          ▼
+  0. FRONTEND_TO_PYTHON_PARAM_MAP translation    // string_stiffness→jung, etc.
   1. pitch = sm.pitches[60]
   2. pitch.physics.set_params(**values)          // update Python model
   3. string_indices = sm.get_cuda_string_indices(60)  // e.g. [120, 121, 122]

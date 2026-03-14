@@ -99,10 +99,17 @@ Key methods:
 - `apply_deck_coefficient(feedin_coeff, feedback_coeff, feedbackOFF)` — scale deck parameters and send to CUDA
 - `send_*_params_to_CUDA()` — internal type-specific pack-and-send helpers (hammer, mode, deck, excitation)
 
-Module-level constant:
-- `CUDA_TRANSFERABLE_PARAMS` — set of parameter names that can be sent to CUDA (e.g. `'tension'`, `'string_damping'`, `'string_stiffness'`)
+Module-level constants:
+- `CUDA_TRANSFERABLE_PARAMS` — set of Python canonical param names sendable to CUDA (e.g. `'tension'`, `'jung'`, `'gamma'`)
 
-Parameter names are consistent across all layers (frontend, middleware, domain model, CUDA). No translation maps are needed — the same canonical name is used everywhere. Legacy preset files are handled by `normalize_param_names()` in `PhysicalParameters.py`.
+Parameter name translation maps in `parameter_manager.py`:
+
+| Map | Direction | Example |
+|-----|-----------|---------|
+| `FRONTEND_TO_PYTHON_PARAM_MAP` | UI → Python model | `string_stiffness` → `jung`, `string_damping` → `gamma`, `string_radius` → `r`, `string_density` → `rho`, `detuning` → `tension_offset`, `dispersion_damping` → `disp_decay` |
+| `PYTHON_TO_CUDA_PARAM_MAP` | Python model → CUDA | `jung` → `stiffness`, `rho` → `density`, `gamma` → `damping`, `r` → `radius` |
+
+The frontend uses user-friendly names; `ParameterManager` translates through both maps before sending to CUDA. Legacy preset files are handled by `normalize_param_names()` in `PhysicalParameters.py`.
 
 All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods:
 - `update_parameter()` — dispatcher for REST API and batch operations

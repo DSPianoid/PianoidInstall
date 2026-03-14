@@ -61,7 +61,7 @@ The main application entry used in production is a separate top-level component 
 | `ModeSelector` | `ModeSelector.jsx` | Mode index selector |
 | `Mode` | `Mode.jsx` | Single-mode parameter display (frequency, decrement, mass, stiffness) |
 | `ModeMenu` | `ModeMenu.jsx` | Mode editing toolbar |
-| `Strings` | `Strings.jsx` | String parameter editor (tension, rho, r, jung, gamma, etc.) |
+| `Strings` | `Strings.jsx` | String parameter editor (tension, string_stiffness, string_damping, string_radius, string_density, etc.) |
 | `Hammers` | `Hammers.jsx` | Hammer overview across pitches |
 | `HammerSpatialProperties` | `HammerSpatialProperties.jsx` | Per-pitch hammer shape editor (position, width, sharpness) |
 | `Excitation` | `Excitation.jsx` | Gauss parameter editor for hammer excitation curves |
@@ -93,7 +93,7 @@ The main application entry used in production is a separate top-level component 
 | `CopyPastMenu` | `CopyPastMenu.jsx` | Copy/paste menu for parameter arrays |
 | `ToolBar` | `ToolBar.jsx` | Main application toolbar |
 | `BackendStatusIndicator` | `BackendStatusIndicator.jsx` | Health status badge (healthy/crashed/disconnected) |
-| `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects |
+| `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
 | `TestChart` | `TestChart.jsx` | Test/debug chart component |
@@ -117,7 +117,7 @@ State managed:
 - `totalModes` — mode count from feedin matrix dimensions
 - `feedInMatrix`, `feedbackMatrix` — pitch-to-mode coupling matrices (pitches 21–108)
 - `feedInMuteMap`, `feedbackMuteMap` — zero-filled shadow arrays for muting rows
-- `parametersOfStrings` — per-pitch physical parameter dict (tension, rho, r, jung, gamma, etc.)
+- `parametersOfStrings` — per-pitch physical parameter dict (tension, string_stiffness, string_damping, string_radius, string_density, etc.)
 - `parametersOfModes` — per-mode parameter dict (frequency, decrement)
 - `parametersOfExcitation` — merged hammer + Gauss parameters per pitch
 - `chartTypes` — `{ graphs: [], actions: [] }` from `/graph_names`
