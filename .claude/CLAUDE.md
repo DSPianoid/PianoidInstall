@@ -14,7 +14,13 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 
 **Every time** you need to understand something about the Pianoid codebase — whether at the start of a task, mid-implementation, during debugging, or when a new question arises — you MUST consult documentation before searching or reading source code. This applies at every stage of work, not just the beginning.
 
-**NEVER use Grep, Glob, or Read on source files to answer a "how does X work?" question without checking docs first.** The docs exist precisely to avoid expensive source-code trawling.
+**NEVER use Grep, Glob, or Read on source files to answer a question without checking docs first.** This includes:
+- "How does X work?" — architecture, data flow, threading
+- "What shape/format is X?" — buffer layouts, data structures, API signatures
+- "How do I run/start/test X?" — server startup, build commands, test invocation
+- "Where is X configured?" — env vars, config files, runtime selection
+
+The docs exist precisely to avoid expensive source-code trawling.
 
 Documentation lookup order (stop as soon as you have enough context):
 
