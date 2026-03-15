@@ -25,8 +25,11 @@ PianoidCore/tests/
 ```bash
 cd PianoidCore
 
-# All tests
+# All tests (release variant)
 .venv/Scripts/python -m pytest tests/ -v
+
+# All tests with debug variant (enables PIANOID_DEBUG_DATA extraction)
+PIANOID_USE_DEBUG=1 .venv/Scripts/python -m pytest tests/ -v
 
 # System tests only (requires GPU + audio)
 .venv/Scripts/python -m pytest tests/system/ -v -s
@@ -34,6 +37,8 @@ cd PianoidCore
 # Skip slow tests
 .venv/Scripts/python -m pytest tests/ -v -m "not slow"
 ```
+
+The debug variant must be built first (`build_pianoid_cuda.bat --heavy --both`). `conftest.py` reads `PIANOID_USE_DEBUG` and aliases `pianoidCuda_debug` as `pianoidCuda` via `sys.modules`.
 
 ## Markers
 
@@ -138,7 +143,7 @@ TOTAL_BUDGET_MS = GPU_BUDGET_MS * 1.5  # 2.0 ms
 
 | Python API | Data | Source |
 |-----------|------|--------|
-| `p.getPianoidState()` | String displacement + velocity (2 × total_points) | `dev_string_state` (GPU, `PIANOID_DEBUG_DATA`) |
+| `p.getPianoidState()` | String displacement + velocity (2 × total_points) | `dev_string_state` (GPU, always active) |
 | `p.getModeDisplacements()` | Per-mode: q, q\_prev, dec, omega, mass\_inv (5×N) | `dev_mode_state` (GPU) |
 | `p.getOutputData()` | 10 debug records × num\_strings × array\_size | `dev_output_data` (GPU, `PIANOID_DEBUG_DATA`) |
 | `p.getParameters()` | Per-point parameters (POINT\_PARAMETERS\_NO × total\_points) | `dev_parameters` (GPU, `PIANOID_DEBUG_DATA`) |
@@ -147,4 +152,4 @@ TOTAL_BUDGET_MS = GPU_BUDGET_MS * 1.5  # 2.0 ms
 
 ### Compile Guards
 
-A single `PIANOID_DEBUG_DATA` flag in `constants.h` controls all debug data extraction — both kernel-side writes to GPU global memory and host-side D2H copies. Defined by default; disable for production to save GPU cycles. Without the flag, extraction methods return zero-filled vectors. See [DEBUG\_DATA.md](../../modules/pianoid-cuda/DEBUG_DATA.md#compile-guard) for full details.
+The `PIANOID_DEBUG_DATA` flag controls debug data extraction — kernel-side writes to GPU global memory and host-side D2H copies for `getOutputData()`, `getParameters()`, `getSoundRecords()`. The flag is **not** in `constants.h` — it is added by `setup.py` only when building the debug variant (`PIANOID_BUILD_VARIANT=debug`). Without it, these methods return zero-filled vectors (~113 MB GPU memory saved). `getPianoidState()` and `getRawSoundRecord()` are always active regardless of variant. See [DEBUG\_DATA.md](../../modules/pianoid-cuda/DEBUG_DATA.md#compile-guard) and [BUILD\_SYSTEM.md](../../architecture/BUILD_SYSTEM.md#build-variants-debug--release).

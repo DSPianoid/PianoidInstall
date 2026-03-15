@@ -112,6 +112,8 @@ Flask routes call methods on the global `Pianoid` instance:
 
 ### Middleware -> CUDA Engine (pybind11)
 
+Two build variants exist: `pianoidCuda` (release, `-O3`) and `pianoidCuda_debug` (debug, `-O2` + `PIANOID_DEBUG_DATA`). At startup, `select_cuda_variant()` aliases the chosen variant as `pianoidCuda` in `sys.modules` — all downstream code imports a single name. Selection: `use_debug_build=True` in `initialize_pianoid()` or `PIANOID_USE_DEBUG=1` env var. See [BUILD_SYSTEM.md](BUILD_SYSTEM.md#build-variants-debug--release).
+
 The `pianoidCuda` extension module (built from `pianoid_cuda/`) exposes:
 - `pianoidCuda.RealTimeEventBuffer` - thread-safe cycle-keyed event queue
 - `pianoidCuda.OnlinePlaybackEngine` - real-time synthesis loop
