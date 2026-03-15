@@ -153,9 +153,11 @@ Key methods exposed:
 
 ### `useBackendHealth`
 
-Polls `GET /health` every 30 seconds (5-second timeout). Tracks `healthStatus` with fields: `status` (healthy/not_started/crashed/disconnected/checking), `pianoidLoaded`, `running`, `cppModuleResponsive`, `exception`, `listenMode`, `availableNotesCount`, `consecutiveFailures`.
+Polls `GET /health` every 30 seconds (2-second timeout). Initial state is `disconnected` (not `checking`). Timeout/connection-refused both map to `disconnected`; only HTTP error responses map to `crashed`. Tracks `healthStatus` with fields: `status` (healthy/not_started/crashed/disconnected/checking), `pianoidLoaded`, `running`, `cppModuleResponsive`, `exception`, `listenMode`, `availableNotesCount`, `consecutiveFailures`.
 
 Exposes: `manualHealthCheck()`, `attemptReconnection()`, `toggleLivePlayback()`.
+
+Preset loading uses `ensureBackendAndLoadPreset()` — if the backend is disconnected and the launcher is connected, it auto-starts the backend via `useBackendProcess`, polls `/health` until responsive (up to 30s), then calls `loadPreset()`.
 
 ### `useMidi`
 
@@ -171,7 +173,7 @@ Manages all UI configuration state, persisted to `localStorage`. Parameter categ
 
 | State | localStorage key | Contents |
 |---|---|---|
-| `presetLoadSettings` | `presetLoadSettings` | Path, volume, sample_rate, string_iterations, number_of_modes, use_cuda, audio_driver_type (ASIO=1, SDL=2, ASIO_CALLBACK=4), audio_buffer_size, cycle_iterations, array_size (384/512) |
+| `presetLoadSettings` | `presetLoadSettings` | Path, volume, sample_rate, string_iterations, number_of_modes, use_cuda, audio_driver_type (ASIO=1, SDL=2, ASIO_CALLBACK=4), audio_buffer_size, cycle_iterations, array_size (384/512), debug_mode (0=release, 1=debug build + extraction) |
 | `virtualPianoSettings` | `virtualPianoSettings` | Key colours, velocity, range display |
 | `modesSettings` | `modesSettings` | Auto-select, decimal places |
 | `stringsSettings` | `stringsSettings` | Auto-select, decimal places |

@@ -113,7 +113,7 @@ Response `200`:
   "sample_rate": "",
   "string_iterations": 6,
   "use_simulation": 0,
-  "extract_data": 0,
+  "debug_mode": 0,
   "listen_to_midi": 0
 }
 ```
@@ -130,7 +130,7 @@ Request body:
   "path": "presets/IversPond_ESPRIT_128modes.json",
   "listen_to_midi": 0,
   "use_simulation": 0,
-  "extract_data": 0,
+  "debug_mode": 0,
   "audio_driver_type": 4,
   "cycle_iterations": 64,
   "audio_buffer_size": 4,
@@ -581,7 +581,7 @@ Response `416` on internal error.
 
 ### `POST /capture`
 
-Forces extraction of the current simulation result buffer. Useful before requesting a chart when `extract_data` is enabled.
+Forces extraction of the current simulation result buffer. Useful before requesting a chart when `debug_mode` is enabled.
 
 Response `200`:
 ```json
