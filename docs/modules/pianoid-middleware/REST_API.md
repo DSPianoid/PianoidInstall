@@ -148,7 +148,7 @@ Parameter details:
 - `audio_driver_type`: `0`=default, `1`=ASIO, `2`=SDL2, `3`=SDL3, `4`=ASIO_CALLBACK (recommended)
 - `cycle_iterations`: samples per cycle; must match audio buffer size, minimum 16, default 64
 - `audio_buffer_size`: buffer chunks; `2`=low latency, `4`=balanced, `8`=high stability
-- `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512
+- `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512. When the requested value differs from the preset's native `array_size`, string geometry (`main` and `tail`) is scaled proportionally
 - `sample_rate`: Hz; if < 1000 is multiplied by 1000
 - `volume`: MIDI-style level 0–127 (old API)
 - `max_volume`: float, explicit max volume (new API, takes precedence over `volume`)

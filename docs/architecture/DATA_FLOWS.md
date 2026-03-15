@@ -23,7 +23,8 @@ backendserver.py: load_preset_route()
          ▼
 pianoid.py: initialize()
   1. json.load(preset_file)                      // read preset JSON
-  2. Pianoid(preset=dict, ...)                    // build StringMap, ModeMap
+  2. scale geometry if array_size != preset native // main & tail * (new/old)
+  3. Pianoid(preset=dict, ...)                    // build StringMap, ModeMap
   3. init_pianoid(...)                            // pianoid.py:1515
      ├── sm.pack_parameters()                    // pack all 256 strings
      ├── pianoidCuda.Pianoid(strings, init_params) // C++ object
