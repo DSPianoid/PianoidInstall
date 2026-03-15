@@ -60,7 +60,7 @@ for build commands.
 
 - GPU buffer allocation: `dev_output_data`, `dev_sound_records_ms`, `dev_sound_records` (`DEBUG_OUTPUT` category)
 - Kernel writes: output\_data records 0–9, sound\_records, string\_state snapshots
-- Host D2H copies: `getPianoidState()`, `getOutputData()`, `getParameters()`, `getSoundRecords()`
+- Host D2H copies: `getOutputData()`, `getParameters()`, `getSoundRecords()` (note: `getPianoidState()` is now always active)
 - Per-cycle operations: `appendSoundRecords()`, `dev_output_data` memset
 
 ---
@@ -81,7 +81,7 @@ for build commands.
 
 | Method | Returns | Size | Source Buffer | Guard |
 |--------|---------|------|---------------|-------|
-| `getPianoidState()` | `vector<real>` | 2 × total_points | `dev_string_state` | `PIANOID_DEBUG_DATA` |
+| `getPianoidState()` | `vector<real>` | 2 × total_points | `dev_string_state` | Always |
 | `getModeDisplacements()` | `vector<real>` | num_modes × 5 | `dev_mode_state` | Always |
 | `getOutputData()` | `vector<real>` | 10 × num_strings × array_size | `dev_output_data` | `PIANOID_DEBUG_DATA` |
 | `getParameters()` | `vector<real>` | total_points × POINT_PARAMETERS_NO | `dev_parameters` | `PIANOID_DEBUG_DATA` |
@@ -165,7 +165,7 @@ PianoidResult(pianoid_cpp, model_params, num_records=4, num_states=10, num_param
 
 | Member | Shape | Source Method |
 |--------|-------|--------------|
-| `sound` | `(num_channels, samples)` | `get_sound_from_pianoid(length)` ← `getRawSoundRecord()` |
+| `sound` | `(num_channels, samples)` | `get_sound_from_pianoid(length=None)` ← `getRawSoundRecord()`. `length=None` returns full circular buffer |
 | `string_states` | `(2, num_blocks, array_size)` | `get_pianoid_state()` ← `getPianoidState()` |
 | `output_data` | `(10, num_strings, array_size)` | `get_output_data_from_pianoid()` ← `getOutputData()` |
 | `records` | `(4, num_strings, samples)` | `get_sound_records_from_pianoid(length)` ← `getSoundRecords()` |

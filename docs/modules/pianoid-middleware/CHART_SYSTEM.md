@@ -129,7 +129,7 @@ The file contains 19 entries: 12 chart types and 7 action types.
 
 | Name | Function | Key Parameters |
 |------|----------|----------------|
-| `sound` | `sound_function` | `length` (default 10000), `channel` (default 0) |
+| `sound` | `sound_function` | `length` (default 240000), `channel` (default 0) |
 | `string_shape` | `string_shape_function` | `pitch_no`, `string_no`, `mode_no`, `block_no` (all default -1) |
 | `feedin` | `feedin_function` | `pitch_no` (default -1), `string_no` (default -1) |
 | `filter_test` | `filter_test_function` | `mode` (choice: pianoid/pulses/harmonic), `num_outputs`, `num_inputs`, `length`, `save_path`, `load_from_file`, `stop_pianoid`, `block_no`, `filter_file_no` |

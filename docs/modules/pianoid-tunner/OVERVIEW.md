@@ -28,6 +28,10 @@
 
 Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
+### Backend Process Launcher
+
+`server/launcher.js` — Node.js script that spawns and manages the Flask backend (`backendServer.py`) as a child process. Used by `useBackendProcess` hook to start/stop the backend from the frontend UI.
+
 ---
 
 ## Application Entry Point
@@ -92,7 +96,8 @@ The main application entry used in production is a separate top-level component 
 | `PitchTools` | `PitchTools.jsx` | Pitch-level action toolbar (play, reset, copy) |
 | `CopyPastMenu` | `CopyPastMenu.jsx` | Copy/paste menu for parameter arrays |
 | `ToolBar` | `ToolBar.jsx` | Main application toolbar |
-| `BackendStatusIndicator` | `BackendStatusIndicator.jsx` | Health status badge (healthy/crashed/disconnected) |
+| `BackendStatusIndicator` | `BackendStatusIndicator.jsx` | Health status badge (healthy/crashed/disconnected) with backend start/stop controls |
+| `BackendConsole` | `BackendConsole.jsx` | Backend process stdout/stderr console viewer |
 | `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
@@ -201,6 +206,10 @@ Tracks edit history for the feedin/feedback matrices to support undo operations.
 ### `useValuesHistory`
 
 Tracks edit history for generic parameter arrays.
+
+### `useBackendProcess`
+
+Manages the Flask backend process lifecycle from the frontend. Launches `server/launcher.js` (Node.js) which spawns the Python backend, monitors its stdout/stderr, and handles restart/shutdown. Exposes: `startBackend()`, `stopBackend()`, `backendOutput` (log lines), `isRunning`.
 
 ### `useWindowManager`
 
