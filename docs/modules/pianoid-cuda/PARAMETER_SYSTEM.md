@@ -75,7 +75,7 @@ Category             Buffer name                    Update method
 --------------------------------------------------------------------
 String physics       dev_physical_parameters        setNewPhysicalParameters()
 Hammer shape         dev_hammer                     setNewHammerParameters()
-Excitation shape     dev_gauss_params_full          setNewExcitationParameters()
+Excitation shape     dev_gauss_params_full          setNewExcitationBaseLevels()
 Mode properties      dev_mode_state                 setNewModeParameters()
 Deck coupling        dev_deck_parameters            setNewDeckParameters()
 Volume scaling       dev_volume_coeff               setNewPhysicalParameters()

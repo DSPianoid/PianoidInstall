@@ -132,12 +132,16 @@ mode_feedin[i]  = mode_coefficients[stringNo * numModes + modeIndex[i]]
 
 mode_feedback[i]:
   USE_SINGLE_DECK_MATRIX=1 (current default):
-    mode_feedback[i] = mode_feedin[i] * (*deck_feedback_coeff)
-    (feedback derived at runtime from feedin × scalar coefficient)
+    mode_feedback[i] = mode_coefficients[targetString * numModes + modeNo] * (*deck_feedback_coeff)
+    (feedback for target string loaded from feedin matrix × scalar coefficient)
 
   USE_SINGLE_DECK_MATRIX=0 (legacy):
     mode_feedback[i] = mode_coefficients[numStrings*numModes + string*numModes + mode]
     (loaded from second half of a 2× larger deck buffer)
+
+Note: the target string index for feedback (`foldedIndexInQuarter`) differs from the source
+string index for feedin (`stringNoForQuarter`). Each thread processes a different (string,
+mode) pair for feedin vs feedback within the cooperative grid.
 ```
 
 ### Feedin: String → Mode
@@ -190,10 +194,19 @@ is synchronised with `thread_group::sync()` before and after.
 
 ### Runtime Feedback Coefficient
 
-`deck_feedback_coeff` is a single `real` in GPU global memory, updated via direct
-`cudaMemcpy` + `cudaDeviceSynchronize()` (not double-buffered). Controlled at runtime by
-MIDI CC 74 with exponential mapping: `8.0^((CC - 64) / 63)` — CC 0 → 0.125, CC 64 → 1.0,
+`deck_feedback_coeff` is a single `real` in GPU global memory, registered as
+`STATIC_INPUT` category (not part of the TUNABLE double-buffered preset region). Updated
+via direct `cudaMemcpy` + `cudaDeviceSynchronize()`. Controlled at runtime by MIDI CC 74
+with exponential mapping: `8.0^((CC - 64) / 63)` — CC 0 → 0.125, CC 64 → 1.0,
 CC 127 → 8.0. Validation range: 0.0–1000.0.
+
+### FEEDBACK_OFF Debug Switch
+
+`FEEDBACK_OFF` is a preprocessor define in `MainKernel.cu` (commented out by default). When
+enabled, it overrides the stem boundary condition to `feedback = 0`, effectively decoupling
+modes from strings. Used for debugging the feedin path in isolation — mode oscillators still
+receive force from strings, but the feedback loop is broken so string behaviour is
+independent of mode displacement.
 
 ---
 

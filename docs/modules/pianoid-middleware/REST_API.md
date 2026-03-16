@@ -34,6 +34,7 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /capture                  -- force result extraction
   /get_chart_test           -- render a chart
   /start_test               -- execute an action
+  /shutdown                 -- graceful shutdown (free GPU, stop Flask)
 ```
 
 ---
@@ -185,6 +186,19 @@ Response `200`:
 ```json
 {"message": "Reset successfull"}
 ```
+
+---
+
+### `POST /shutdown`
+
+Graceful shutdown: destroys the pianoid instance (freeing GPU resources), stops the MIDI listener, then terminates the Flask process via `SIGTERM` after a short delay so the HTTP response can be sent.
+
+Response `200`:
+```json
+{"message": "Shutting down"}
+```
+
+The process exits ~300 ms after responding. If cleanup raises an exception, the endpoint still proceeds with shutdown. Callers should follow up with a force-kill (`taskkill /T /F`) if the process does not exit within a few seconds.
 
 ---
 
