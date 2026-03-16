@@ -94,28 +94,26 @@ Owns all parameter packing and GPU transfer operations. Receives `pianoid` (C++ 
 
 Key methods:
 - `update_parameter(param, values, **param_range)` — central dispatcher for all parameter types
-- `update_pitch_params(pitchID, **params)` — per-pitch granular update via `updateMultiStringParameter_NEW` (preferred for runtime changes)
-- `reload_all_physical_params(pitchID, **params)` — bulk repack of all 256 strings (for init, preset load, or global changes)
-- `apply_deck_coefficient(feedin_coeff, feedback_coeff, feedbackOFF)` — scale deck parameters and send to CUDA
-- `send_*_params_to_CUDA()` — internal type-specific pack-and-send helpers (hammer, mode, deck, excitation)
+- `update_pitch_physical_params_GRANULAR(pitchID, **params)` — per-pitch granular update via `updateMultiStringParameter_NEW` (preferred for runtime changes)
+- `update_pitch_physical_params(pitchID, **params)` — *(deprecated)* bulk repack of all 256 strings; use granular variant instead
+- `update_pitch_excitation(pitchID, **params)` — per-pitch excitation update; packs base levels via `pack_base_excitations()` and sends to CUDA
+- `send_deck_params_to_CUDA()` — pack deck matrix and send to CUDA
+- `send_hammer_params_to_CUDA()`, `send_mode_params_to_CUDA()`, `send_updated_params_to_CUDA()` — bulk pack-and-send helpers
 
-Module-level constants:
-- `CUDA_TRANSFERABLE_PARAMS` — set of Python canonical param names sendable to CUDA (e.g. `'tension'`, `'jung'`, `'gamma'`)
-
-Parameter name translation maps in `parameter_manager.py`:
+Module-level translation maps:
 
 | Map | Direction | Example |
 |-----|-----------|---------|
-| `FRONTEND_TO_PYTHON_PARAM_MAP` | UI → Python model | `string_stiffness` → `jung`, `string_damping` → `gamma`, `string_radius` → `r`, `string_density` → `rho`, `detuning` → `tension_offset`, `dispersion_damping` → `disp_decay` |
+| `FRONTEND_TO_PYTHON_PARAM_MAP` | UI → Python model | `detuning` → `tension_offset`, `dispersion_damping` → `disp_decay` |
 | `PYTHON_TO_CUDA_PARAM_MAP` | Python model → CUDA | `jung` → `stiffness`, `rho` → `density`, `gamma` → `damping`, `r` → `radius` |
 
-The frontend uses user-friendly names; `ParameterManager` translates through both maps before sending to CUDA. Legacy preset files are handled by `normalize_param_names()` in `PhysicalParameters.py`.
+The frontend uses user-friendly names; `ParameterManager` translates through both maps before sending to CUDA.
 
-All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods:
+All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods that delegate directly:
 - `update_parameter()` — dispatcher for REST API and batch operations
-- `update_pitch_physical_params()` — single-pitch shorthand for MIDI/tuning (routes to granular)
-- `reload_all_physical_params()` — bulk repack for init or global changes
-- `apply_deck_coefficient()` — deck scaling for MIDI CC handlers
+- `update_pitch_physical_params()` / `update_pitch_physical_params_GRANULAR()` — single-pitch physical param update
+- `update_pitch_excitation()` — single-pitch excitation update
+- `send_deck_params_to_CUDA()` — deck scaling for MIDI CC handlers
 
 ### Flask app (backendServer.py)
 
