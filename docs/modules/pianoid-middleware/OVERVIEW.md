@@ -97,6 +97,7 @@ Key methods:
 - `update_pitch_physical_params_GRANULAR(pitchID, **params)` — per-pitch granular update via `updateMultiStringParameter_NEW` (preferred for runtime changes)
 - `update_pitch_physical_params(pitchID, **params)` — *(deprecated)* bulk repack of all 256 strings; use granular variant instead
 - `update_pitch_excitation(pitchID, **params)` — per-pitch excitation update; packs base levels via `pack_base_excitations()` and sends to CUDA
+- `update_mode_params_GRANULAR(mode_indices, param_values_by_mode)` — per-mode granular update; fits only affected modes, sends only dec/omega/mass to CUDA via `updateModeParameters_GRANULAR` (preserves running GPU state)
 - `send_deck_params_to_CUDA()` — pack deck matrix and send to CUDA
 - `send_hammer_params_to_CUDA()`, `send_mode_params_to_CUDA()`, `send_updated_params_to_CUDA()` — bulk pack-and-send helpers
 

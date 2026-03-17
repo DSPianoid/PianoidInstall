@@ -32,6 +32,8 @@ Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
 `server/launcher.js` — Node.js script that spawns and manages the Flask backend (`backendServer.py`) as a child process. Used by `useBackendProcess` hook to start/stop the backend from the frontend UI.
 
+REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on port 5000 before spawning. `kill-stale` kills any process on port 5000 without starting a new one.
+
 ---
 
 ## Application Entry Point
@@ -157,7 +159,16 @@ Polls `GET /health` every 30 seconds (2-second timeout). Initial state is `disco
 
 Exposes: `manualHealthCheck()`, `attemptReconnection()`, `toggleLivePlayback()`.
 
-Preset loading uses `ensureBackendAndLoadPreset()` — if the backend is disconnected and the launcher is connected, it auto-starts the backend via `useBackendProcess`, polls `/health` until responsive (up to 30s), then calls `loadPreset()`.
+Preset loading uses `ensureBackendAndLoadPreset()` in `PianoidTuner.js`. On every call it performs a **fresh HTTP probe** to `:5000/health` (never trusts stale React state). Decision matrix:
+
+| `:5000` responds | Launcher owns process | Action |
+|---|---|---|
+| yes | yes | Load preset directly |
+| yes | no | **Stale server** — `killStale()`, then start fresh |
+| no | yes | Backend unresponsive — `stopBackend()`, then restart |
+| no | no | `startBackend()`, poll until responsive (30 s), then load |
+
+The Apply button (`handleApplySettings`, Preset case) sets `presetLoadSettings` state; a `useEffect` is the sole trigger for `ensureBackendAndLoadPreset` to avoid double-fire.
 
 ### `useMidi`
 
@@ -211,7 +222,9 @@ Tracks edit history for generic parameter arrays.
 
 ### `useBackendProcess`
 
-Manages the Flask backend process lifecycle from the frontend. Launches `server/launcher.js` (Node.js) which spawns the Python backend, monitors its stdout/stderr, and handles restart/shutdown. Exposes: `startBackend()`, `stopBackend()`, `backendOutput` (log lines), `isRunning`.
+Manages the Flask backend process lifecycle from the frontend. Launches `server/launcher.js` (Node.js) which spawns the Python backend, monitors its stdout/stderr, and handles restart/shutdown. Exposes: `startBackend()`, `stopBackend()`, `killStale()`, `backendOutput` (log lines), `isRunning`.
+
+`killStale()` calls `POST /api/kill-stale` on the launcher, which runs `killProcessesOnPort(5000)` to terminate any process holding the backend port — regardless of whether the launcher spawned it.
 
 ### `useWindowManager`
 

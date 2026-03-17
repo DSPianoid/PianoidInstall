@@ -373,7 +373,7 @@ waveform. See [SYNTHESIS_ENGINE.md — Excitation System](../modules/pianoid-cud
 | `dev_deck_parameters` | 256 × 256 = 65,536 | 256 KB (single matrix mode) |
 | `dev_volume_coeff` | 256 | 1 KB |
 
-### 2.3 Mode Parameters
+### 2.3 Mode Parameters (Granular Path)
 
 ```
 React: Mode.jsx — user edits frequency for mode 5
@@ -383,13 +383,26 @@ usePreset: changeParametersOfModes([5], "frequency", [261.6])
   ─► axios.post('/set_parameter/mode/5', { "frequency": 261.6 })
          │
          ▼
-pianoid.update_parameter(param='mode')
-  1. mode.update_params(values)
-     Piano_mode.fit_params()                     // recompute omega, dec
-  2. send_mode_params_to_CUDA(keep_state=True)   // pianoid.py:2081
-     ├── modes.pack_modes() → mode_state (1280 reals, ~5 KB)
-     └── pianoid_cpp.setNewModeParameters(mode_state)
-         └── updateTunableParameter("dev_mode_state", data)
+parameter_manager.update_parameter(param='mode')
+  ─► update_mode_params_GRANULAR(modes=[5], values)
+      1. mode = modes.get(5)
+         mode.update_params({"frequency": 261.6})
+           └── fit_params()                         // recompute omega, dec
+               (only the affected mode is fitted)
+      2. With cuda_lock:
+         pianoid_cpp.updateModeParameters_GRANULAR(
+             [5], [dec], [omega], [mass])
+           ├── readTunableBuffer("dev_mode_state")  // read 1280 reals from GPU
+           │   (preserves running state/state_1 from GPU, not Python)
+           ├── write dec/omega/mass at offsets [2N+i, 3N+i, 4N+i]
+           └── updateTunableParameter("dev_mode_state", full_buffer)
+               └── double-buffer swap (async)
+
+Batch path (used by play_mode, init):
+  send_mode_params_to_CUDA(updated_modes={...})
+    ├── modes.pack_modes() → mode_state (1280 reals, ~5 KB)
+    └── pianoid_cpp.setNewModeParameters(mode_state)
+        └── updateTunableParameter("dev_mode_state", data)
 ```
 
 ### 2.4 Deck (Feedin/Feedback) Matrices
