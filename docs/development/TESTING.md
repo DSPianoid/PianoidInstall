@@ -108,6 +108,8 @@ Validates string-to-soundboard coupling via the feedin matrix. Uploads custom de
 | `TestFullZeroLeakage::test_zero_row_string_produces_no_mode_excitation` | All-zero deck produces no mode excitation |
 | `TestFullZeroLeakage::test_zero_column_mode_receives_no_signal` | Mode with zero feedin stays silent while adjacent mode with nonzero feedin is excited |
 | `TestFullZeroLeakage::test_zero_feedback_coefficient_keeps_feedin_active` | Feedin path works independently of deck_feedback_coefficient |
+| `TestPerStringFeedback::test_all_strings_receive_feedback` | Every string in every multi-string pitch has nonzero stem displacement (mode→string feedback) |
+| `TestPerStringFeedback::test_feedback_absent_without_coefficient` | With deck_feedback_coeff=0, all stems are zero (sanity check) |
 
 Key implementation detail: deck rows are indexed by position in `StringMap.string_index` (not by raw string ID). The `_deck_row()` helper converts string IDs to deck row indices.
 

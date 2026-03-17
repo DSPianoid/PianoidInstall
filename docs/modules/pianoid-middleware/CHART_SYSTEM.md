@@ -196,9 +196,9 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 | `string_shape_function` | `pianoid.result.get_pianoid_state()` — string displacement array from GPU; selects by pitch, string, block, or all |
 | `feedin_function` | `pianoid.sm.pack_deck()` — deck feed-in coupling array for a pitch/string index |
 | `filter_test_function` | Runs CUDA FIR filter test via `FirFilterTest.filter_test()`; can generate test signals or use live sound; saves/loads filter files |
-| `block_output_data_function` | Fetches debug output buffers from CUDA. Records 0–1 from string_states (block-indexed). Records 2–9 from output_data: block-indexed records (2,3,6,7,8) show single block view; string-indexed records (4,5,9) show one chart per string in block |
+| `block_output_data_function` | Fetches debug output buffers from CUDA. Records 0–1 from string_states (block-indexed). Records 2–9 from output_data: block-indexed records (2,3,6,7,8) show single block view; string-indexed records (4,5,9) show one chart per string in block. Text fields include block layout info (string IDs, pitches, per-string point counts, total points vs array_size, min/max values) |
 | `profiling_data_function` | Reads CPU/GPU profiling CSV files and charts timing data |
-| `play_mode_chart_function` | Triggers mode playback, captures result audio |
+| `play_mode_chart_function` | Triggers offline mode playback via `0xF1` event, captures mode oscillation and generated sound. Charts are normalized (divided by peak) for display; raw max/RMS values are reported in text fields. Audio playback uses unnormalized data |
 | `play_note_offline_chart_function` | Renders a single note offline, returns audio waveform |
 | `test_volume_parameters_function` | Tests volume coefficient calculation |
 | `feedback_diagnostic_function` | Plots feedback coefficients across modes for a pitch |

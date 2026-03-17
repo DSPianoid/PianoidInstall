@@ -34,6 +34,8 @@ Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
 REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on port 5000 before spawning. `kill-stale` kills any process on port 5000 without starting a new one.
 
+`stopBackend()` uses a two-phase shutdown: first sends `POST /shutdown` to the Flask backend for graceful GPU cleanup (3-second timeout), then falls back to `taskkill /T /F` if the process is still alive. A `process.on('exit')` handler ensures force-kill as a last resort.
+
 ---
 
 ## Application Entry Point
@@ -117,7 +119,7 @@ All hooks live in `src/hooks/`.
 
 ### `usePreset`
 
-The primary data-management hook. Owns all preset state and provides debounced API calls (300 ms debounce) for every parameter category.
+The primary data-management hook. Owns all preset state and provides debounced API calls (300 ms debounce) for every parameter category. A `loadingRef` guard prevents concurrent `loadPreset()` calls — a second call while one is in-flight is silently skipped to avoid destroying the pianoid instance mid-initialization.
 
 State managed:
 - `availableNotes`, `availableOutputChanels` — MIDI pitches and output channels from loaded preset
@@ -169,6 +171,8 @@ Preset loading uses `ensureBackendAndLoadPreset()` in `PianoidTuner.js`. On ever
 | no | no | `startBackend()`, poll until responsive (30 s), then load |
 
 The Apply button (`handleApplySettings`, Preset case) sets `presetLoadSettings` state; a `useEffect` is the sole trigger for `ensureBackendAndLoadPreset` to avoid double-fire.
+
+A `beforeunload` handler in `PianoidTuner.js` sends `POST /api/stop-backend` (with `keepalive: true`) when the browser tab is closed, preventing stale backend processes. Health status is automatically refreshed (`manualHealthCheck()`) whenever a preset load completes (`isBusy` transitions from true to false).
 
 ### `useMidi`
 
@@ -256,6 +260,7 @@ Endpoint conventions observed in the codebase:
 
 ```
 GET  /health                              Backend health check
+POST /shutdown                            Graceful shutdown (GPU cleanup + exit)
 GET  /get_available_notes                 Available MIDI pitches in loaded preset
 GET  /get_parameter/{type}/all            Fetch all parameters of a type
 GET  /get_parameter/{type}/{id}           Fetch one parameter
