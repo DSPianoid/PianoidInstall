@@ -465,7 +465,15 @@ void addModeExcitation(int modeNo, float displacement, float velocity);
 // Stages a direct mode excitation for the next commitStringBatch() call.
 // Sets mode state: q = displacement, q_prev = displacement - velocity * dt
 // Applied synchronously by commitStringBatch() via _exciteSingleMode().
+
+void exciteMode(int modeNo, float displacement, float velocity);
+// Direct mode excitation — writes q/q_prev to GPU immediately.
+// No commitStringBatch() needed. Safe to call before runOfflinePlayback().
 ```
+
+Mode state is stored in strided (SoA) layout in `dev_mode_state`:
+`[q_0..q_N, q_prev_0..q_prev_N, dec_0..dec_N, omega_0..omega_N, mass_inv_0..mass_inv_N]`.
+The kernel reads `mode_state[modeNo]` for q and `mode_state[numModes + modeNo]` for q_prev.
 
 This is used for testing individual resonator modes without triggering string excitation.
 

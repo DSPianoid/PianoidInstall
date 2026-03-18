@@ -142,6 +142,7 @@ The file contains 19 entries: 12 chart types and 7 action types.
 | `hammer_shape` | `hammer_shape_function` | `pitch_no` (default 60) |
 | `hammer_temporal` | `hammer_temporal_function` | `pitch_no` (default 60), `velocity` (default 100) |
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
+| `pure_mode_test` | `pure_mode_test_function` | `mode_index` (default 0), `velocity` (default 100), `duration_ms` (default 50), `coupling` (choice: off/on, default off) |
 
 ### Action Types
 
@@ -205,3 +206,4 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 | `hammer_shape_function` | Retrieves spatial hammer force profile for a pitch |
 | `hammer_temporal_function` | Retrieves temporal hammer force envelope for a pitch and velocity |
 | `online_midi_playback_chart_function` | Starts MIDI file, waits, captures audio result |
+| `pure_mode_test_function` | Excites a single mode via `exciteMode()` + offline playback. Coupling off: deck matrix zeroed for pure damped oscillator. Coupling on: full string-mode interaction. Normalized output with frequency measurement via zero-crossings |
