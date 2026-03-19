@@ -123,6 +123,71 @@ python detect_paths.py
 
 ---
 
+## Using the Virtual Environment
+
+All Python work (running the server, installing packages, running tests) must use the venv at `PianoidCore\.venv`. There are two ways to use it:
+
+### Option A: Activate the venv (interactive sessions)
+
+```bat
+cd PianoidInstall\PianoidCore
+.venv\Scripts\activate.bat
+```
+
+After activation, the prompt shows `(.venv)` and `python` / `pip` resolve to the venv automatically:
+
+```bat
+(.venv) > python -c "import pianoidCuda; print('OK')"
+(.venv) > pip list
+```
+
+### Option B: Call the venv Python directly (scripts, one-off commands)
+
+```bat
+cd PianoidInstall\PianoidCore
+.venv\Scripts\python.exe -c "import pianoidCuda; print('OK')"
+.venv\Scripts\python.exe -m pip list
+```
+
+This is useful when you don't want to activate the venv, e.g. from batch scripts or CI.
+
+> **Important:** Do NOT use the system Python or any other venv. The root `.venv/` (if present) does not contain Pianoid packages. Always use `PianoidCore\.venv`.
+
+---
+
+## Starting the Backend Server Manually
+
+To start the Flask backend server without `start-pianoid.bat`:
+
+```bat
+cd PianoidInstall\PianoidCore
+.venv\Scripts\activate.bat
+cd pianoid_middleware
+python backendserver.py
+```
+
+Or without activating:
+
+```bat
+cd PianoidInstall\PianoidCore
+.venv\Scripts\python.exe pianoid_middleware\backendserver.py
+```
+
+The server starts on `http://localhost:5000`. Verify with:
+
+```bat
+curl http://localhost:5000/health
+```
+
+To use the debug CUDA build, set the environment variable before starting:
+
+```bat
+set PIANOID_USE_DEBUG=1
+python backendserver.py
+```
+
+---
+
 ## Step 4 — Run
 
 From the install root:

@@ -87,10 +87,10 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" diff HEAD..origin/dev --name-only
 | Changed Files | Action |
 |--------------|--------|
 | Any files in PianoidBasic | Rebuild PianoidBasic |
-| `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh` | Heavy CUDA rebuild |
-| `pianoid_cuda/setup.py` | Heavy CUDA rebuild |
-| `detect_paths.py`, `build_config.json` | Heavy CUDA rebuild |
-| `pianoid_middleware/*.py` only | Light CUDA rebuild |
+| `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh` | Heavy CUDA rebuild (dual: release + debug) |
+| `pianoid_cuda/setup.py` | Heavy CUDA rebuild (dual: release + debug) |
+| `detect_paths.py`, `build_config.json` | Heavy CUDA rebuild (dual: release + debug) |
+| `pianoid_middleware/*.py` only | Light CUDA rebuild (dual: release + debug) |
 | `docs/**`, `*.md` files only | Skip CUDA rebuild, update documentation |
 | `--force-heavy` flag | Heavy CUDA rebuild |
 | `package.json` or `package-lock.json` in PianoidTunner | Run `npm install` |
@@ -105,15 +105,16 @@ git -C "D:\repos\PianoidInstall\PianoidBasic" pull origin dev
 git -C "D:\repos\PianoidInstall\PianoidTunner" pull origin dev
 ```
 
-### 4a. Install Project-Level Skills
+### 4a. Install Project-Level Skills and Settings
 
-After pulling PianoidInstall, project-level skills in `.claude/commands/` are automatically updated via git. Report any new or changed skills:
+After pulling PianoidInstall, project-level skills and settings in `.claude/` are automatically updated via git. Report any new or changed files:
 
 ```bash
-git -C "D:\repos\PianoidInstall" diff HEAD@{1}..HEAD --name-only -- .claude/commands/
+git -C "D:\repos\PianoidInstall" diff HEAD@{1}..HEAD --name-only -- .claude/
 ```
 
 If any `.claude/commands/*.md` files changed, list them in the report.
+If `.claude/settings.json` changed, note that Claude Code permissions were updated (takes effect on next session or VS Code reload).
 
 ### 5. Rebuild Packages
 
@@ -124,12 +125,12 @@ cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\Pi
 
 **PianoidCuda Heavy** (if C++/CUDA changed OR `--force-heavy`):
 ```bash
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy"
+cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both"
 ```
 
 **PianoidCuda Light** (if only Python middleware changed):
 ```bash
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light --both"
 ```
 
 **PianoidTunner** (if `package.json` or `package-lock.json` changed):
