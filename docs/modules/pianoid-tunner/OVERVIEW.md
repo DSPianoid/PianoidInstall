@@ -188,7 +188,7 @@ Manages all UI configuration state, persisted to `localStorage`. Parameter categ
 
 | State | localStorage key | Contents |
 |---|---|---|
-| `presetLoadSettings` | `presetLoadSettings` | Path, volume, sample_rate, string_iterations, number_of_modes, use_cuda, audio_driver_type (ASIO=1, SDL=2, ASIO_CALLBACK=4), audio_buffer_size, cycle_iterations, array_size (384/512), debug_mode (0=release, 1=debug build + extraction) |
+| `presetLoadSettings` | `presetLoadSettings` | Path, volume, sample_rate, string_iterations, number_of_modes, use_cuda, audio_driver_type (ASIO=1, SDL=2, ASIO_CALLBACK=4), audio_buffer_size, cycle_iterations, array_size (384/512), debug_mode (0=release, 1=debug build + extraction), listen_to_modes (0=strings, 1=modes) |
 | `virtualPianoSettings` | `virtualPianoSettings` | Key colours, velocity, range display |
 | `modesSettings` | `modesSettings` | Auto-select, decimal places |
 | `stringsSettings` | `stringsSettings` | Auto-select, decimal places |

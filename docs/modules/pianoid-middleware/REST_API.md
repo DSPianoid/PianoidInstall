@@ -141,7 +141,8 @@ Request body:
   "volume": 64,
   "max_volume": null,
   "audio_on": 1,
-  "start_right_away": 1
+  "start_right_away": 1,
+  "listen_to_modes": 1
 }
 ```
 
@@ -154,6 +155,7 @@ Parameter details:
 - `volume`: MIDI-style level 0–127 (old API)
 - `max_volume`: float, explicit max volume (new API, takes precedence over `volume`)
 - `start_right_away`: `1`=start in background thread, `2`=start inline (deprecated), `3`=init only no start, `0`=init only
+- `listen_to_modes`: `0`=sound channels carry string bridge displacement, `1`=sound channels carry mode forces (default `1`)
 
 Response `200`:
 ```json
