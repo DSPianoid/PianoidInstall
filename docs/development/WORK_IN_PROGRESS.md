@@ -92,7 +92,7 @@ The full 3-level testing system is being built top-down:
 
 | Level | Directory | Scope | Status |
 |-------|-----------|-------|--------|
-| System | `tests/system/` | Full stack + audio hardware | 7 tests passing |
+| System | `tests/system/` | Full stack + audio hardware | 11/11 passing |
 | Integration | `tests/integration/` | GPU, no audio | Planned |
 | Unit | `tests/unit/` | Pure Python | Planned |
 

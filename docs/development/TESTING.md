@@ -11,6 +11,7 @@ PianoidCore/tests/
 ├── fixtures/            # Reference data (e.g. reference_c4_preset_test5.npy)
 ├── system/              # Full stack — GPU + audio hardware
 │   ├── conftest.py      # Session-scoped Pianoid with SDL3 audio
+│   ├── test_asio_multichannel.py
 │   ├── test_audio_drivers.py
 │   ├── test_performance.py
 │   └── test_playback.py
@@ -71,6 +72,20 @@ Tests marked `gpu` or `audio` auto-skip when hardware is unavailable.
 | `TestBufferSynchronization` | Buffer underrun diagnosis — correlates GPU time with callback stats |
 | `TestTimingDistribution` | Statistical tail analysis (p95/p99) of GPU, total, and buffer phase |
 
+### test_asio_multichannel.py
+
+Verifies ASIO multi-channel output using the string-direct audio path (`listen_to_modes=False`).
+
+| Test | What it validates |
+|------|-------------------:|
+| `TestAsioMultiChannel::test_channel_playback[0..3]` | C4 played on ASIO channels 0–3 — non-silent audio on each channel |
+
+Key implementation details:
+- **`outer_sound` patch**: defaults to `max(pitch - 127, 0) = 0` for all MIDI pitches ≤ 127, silencing string-direct audio. The fixture monkey-patches `Pitch.pack_params_for_string` **before** `init_pianoid` so `stringMapKernel` bakes `outerSoundChannel = channel + 1`.
+- **FIR filter**: `firFilterLength` must be non-zero (buffers must be allocated for `initParameters()`). `FIRfilterON=False` by default (no coefficients loaded), so `playSoundSamples` takes the else branch and sends `soundInt` directly to ASIO.
+- **Volume**: `max_volume=1e25` → coefficient `(1e25)^(64/127) ≈ 4e12` → peak `soundInt ≈ −8 dBFS`. The default `5e18` gives −71 dBFS (inaudible).
+- One function-scoped Pianoid instance per channel; ASIO re-initialised between iterations.
+
 ### test_playback.py
 
 | Test | What it validates |
@@ -129,7 +144,7 @@ TOTAL_BUDGET_MS = GPU_BUDGET_MS * 1.5  # 2.0 ms
 | Python API | Data | Source |
 |-----------|------|--------|
 | `p.startProfiling()` / `getGpuProfilingData()` | Per-cycle GPU kernel timings (ms) | PianoidProfiler (CUDA events) |
-| `p.initTimeRecord()` / `getTimeRecord()` | Per-cycle wall-clock checkpoints (µs) | PlaybackCycleExecutor |
+| `p.initTimeRecord()` / `getTimeRecord()` | Per-cycle wall-clock checkpoints (µs) — columns: `[timing_offset, cycle_start, after_gpu, after_buffer, ..., cycle_end]` | `PlaybackCycleExecutor::executeCycle()` |
 | `p.getCallbackStats()` | Callback count, interval, underruns | AudioDriverInterface |
 
 ### Audio Extraction
