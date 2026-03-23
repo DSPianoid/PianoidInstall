@@ -18,7 +18,7 @@ Browser: POST /load_preset
          ▼
 backendserver.py: load_preset_route()
   ─► pianoid.destroyPianoid()                    // tear down previous instance
-  ─► initialize(path, filterlen, **kwargs)       // pianoid.py:2290
+  ─► initialize(path, filterlen, **kwargs)       // pianoid.py:2058
          │
          ▼
 pianoid.py: initialize()
@@ -29,7 +29,7 @@ pianoid.py: initialize()
      ├── sm.pack_parameters()                    // pack all 256 strings
      ├── pianoidCuda.Pianoid(strings, init_params) // C++ object
      ├── pianoid.devMemoryInit(state, fir, ...)  // allocate ~180 MB GPU
-     ├── pianoid.loadPresetToLibrary(phys, hammer, gauss, modes, deck, vol)
+     ├── pianoid.loadPresetToLibrary("default", phys, hammer, gauss, modes, deck, vol)
      ├── pianoid.switchPreset("default", False)  // activate preset
      ├── pianoid.initParameters()                // finalize kernel args
      └── pianoid.setRuntimeParameters(level=64)  // default volume
@@ -481,22 +481,109 @@ Volume formula (applied in GPU kernel):
 
 ### 2.7 Preset Save and Load
 
-```
-SAVE: POST /save_preset { path: "MySave.json" }
-         │
-         ▼
-pianoid.save_preset(path)                        // pianoid.py:2104
-  1. sm.pack_for_preset_file(blocks=blockMode)   // serialize all StringMap
-  2. modes.pack_modes_for_preset()               // serialize ModeMap
-  3. json.dump(preset, file)                     // write to disk
-  Note: reads Python model state only, NOT GPU memory
+#### Preset JSON Schema
 
-LOAD: POST /load_preset { path, ... }
+```json
+{
+  "model_parameters": {
+    "mode_iteration": 48, "string_iteration": 12, "array_size": 384,
+    "num_strings_in_array": 2, "excitation_factor": 8,
+    "level_indices": [0,31,63,95,127], "num_modes": 32
+  },
+  "pitches": {
+    "<pitchID>": {
+      "physics": { "tension", "rho", "r", "jung", "gamma", "disp_decay",
+                    "volume_coefficient", "damper_string", "damper_tail",
+                    "hammer": { "position", "width", "shape", "sharpness" } },
+      "excitation": { "data": "<base64>", "shape": [128,4,5], "type": "float64" },
+      "deck": { "data": "<base64>", "shape": [2, num_modes], "type": "float64" },
+      "geometry": { "length", "main", "tail" },
+      "strings": [0, 1, 2],
+      "tension_offset": 0.001,
+      "hammer_offset": 0
+    }
+  },
+  "blocks": [[0,1], [2,3], ...],
+  "modes": [
+    { "ID": 0, "frequency": 27.5, "decrement": 0.001 }
+  ],
+  "mode_sound_channels": {
+    "num_channels": 4,
+    "<pitchID>": [coeff1, coeff2, ...]
+  }
+}
+```
+
+Numpy arrays (excitation, deck) are base64-encoded via `bytestream_encoding.encode_for_json()`.
+
+#### Save Flow
+
+```
+POST /save_preset { path: "MySave.json" }
          │
          ▼
-  Full startup sequence (see section 1.1)
-  Destroys existing instance → fresh GPU init → load all parameters
+backendserver.py: save_preset_route()              (line 288)
+  ─► pianoid.save_preset(path)                      // pianoid.py:1910
+         │
+         ▼
+  1. sm.pack_for_preset_file()                      // StringMap.py:517
+     ├── For each pitch: pitch.pack_for_saving_preset()
+     │   ├── physics.pack_for_saving()              // dict with hammer
+     │   ├── encode_for_json(excitation.levels_matrix) // base64 numpy
+     │   ├── encode_for_json(np.stack([feedin, feedback])) // base64
+     │   └── geometry.pack(), strings, tension_offset, hammer_offset
+     ├── blocks: [block.get_string_IDs() for block]
+     └── model_parameters: mp.pack()
+  2. modes.pack_modes_for_preset()                  // Mode.py:336
+     └── For each mode: { ID, frequency, decrement } or { ID, mass, stiffness, damping }
+  3. If listen_to_modes: add mode_sound_channels section
+  4. json.dump(preset, file)
+  Note: reads Python model state only, NOT GPU memory
 ```
+
+#### Load Flow
+
+```
+POST /load_preset { path, sample_rate, audio_driver_type, ... }
+         │
+         ▼
+backendserver.py: load_preset_route()               (line 132)
+  ─► pianoid.destroyPianoid()                       // tear down previous instance
+  ─► initialize(path, filterlen, **init_kwargs)     // pianoid.py:2058
+         │
+         ▼
+  1. json.load(preset_file)                         // read JSON
+  2. Scale geometry if array_size != preset native   // main & tail × scale
+  3. Pianoid(preset=dict, ...)                       // constructor:
+     ├── ModelParameters from preset['model_parameters']
+     ├── StringMap(**preset) → Pitch objects with physics, excitation, deck, geometry
+     │   └── ExcitationParameters: decode_from_json() → levels_matrix (128×4×5)
+     ├── ModeMap(preset['modes']) → Piano_mode objects
+     └── mode_sound_channels (if present)
+  4. Hardcoded parameter overrides:                 // lines 2089–2116
+     ├── Damper parameters overwritten for all pitches
+     ├── jung/r overwritten for ranges 21–98, 50–89
+     ├── tension_offset set to 0.001 for all pitches
+     ├── hammer position set to 0.15 for all pitches
+     └── volume_coefficient set to 1 for all pitches
+     WARNING: these overrides discard preset values on every load
+  5. init_pianoid(...)
+     ├── sm.pack_parameters() → flat arrays
+     ├── pianoidCuda.Pianoid(strings, init_params)
+     ├── devMemoryInit() → GPU memory
+     ├── loadPresetToLibrary("default", phys, hammer, gauss, modes, deck, vol)
+     ├── switchPreset("default", False)
+     └── initParameters()
+  State: UNINITIALIZED → PARAMETERS_LOADED
+         │
+         ▼  (if start_right_away == 1)
+  threading.Thread → start_realtime_playback()
+  State: PARAMETERS_LOADED → PLAYBACK_ACTIVE
+```
+
+#### Known Issues
+
+- **Hardcoded overrides in `initialize()`** (lines 2089–2116): After loading preset data, physics parameters (jung, r, damper), hammer position, tension_offset, and volume_coefficient are overwritten with hardcoded values. Saved presets lose their tuned values on reload.
 
 ### 2.8 Parameter Read Path (GET)
 
@@ -813,6 +900,78 @@ backendserver.py (line 961)
 │   audio_data: [b64]   │
 │ }                     │
 └──────────────────────┘
+```
+
+---
+
+## 4. Auto-Tuning Flow
+
+### 4.1 Frequency Tuning
+
+```
+auto_tune_action(type="frequency")
+         │
+         ▼
+_stop_online_engine()              // pause audio for offline render
+         │
+         ▼
+FrequencyTuner.tune_range(start=21, end=108)
+  For each pitch:
+    ┌─── iteration loop (max 5) ──────────────────────────────────┐
+    │ 1. MeasurementEngine.render_note(pitch, velocity=20, dur)   │
+    │    └── EventQueue → PlaybackConfig → runOfflinePlayback()   │
+    │        └── result.get_sound(channel=0) → PCM array          │
+    │                                                              │
+    │ 2. measure_frequency(signal, sample_rate, expected_hz)       │
+    │    ├── FFT peak in ±1 semitone window (parabolic interp.)   │
+    │    └── Autocorrelation refinement (sub-sample precision)     │
+    │    → MeasuredPitch(hz, confidence, cents_error)              │
+    │                                                              │
+    │ 3. if |cents_error| < tolerance: break (converged)           │
+    │                                                              │
+    │ 4. Correct: new_tension = old_tension × (target/measured)²   │
+    │    └── update_pitch_physical_params_GRANULAR(tension=...)    │
+    │        └── updateMultiStringParameter_NEW("tension", ...)    │
+    └─────────────────────────────────────────────────────────────┘
+         │
+         ▼
+_restart_online_engine()
+```
+
+### 4.2 Volume Equalization
+
+```
+auto_tune_action(type="volume")
+         │
+         ▼
+_stop_online_engine()
+         │
+         ▼
+VolumeTuner.equalize(reference_pitch=60, curve="piano")
+  1. measure_keyboard_all_levels():
+     For each pitch × 5 LEVEL_INDICES [0, 31, 63, 95, 127]:
+       render_note(pitch, velocity=level) → measure_volume()
+       → skip 50ms, window = min(max(20/freq*1000, 50), 500) ms
+       → MeasuredVolume(rms, peak)
+
+  2. Compute A-weighted target per pitch per level:
+     target = ref_rms × (1 / A_weight_relative) × bass_boost
+     coefficient = clamp(target / measured, 0.1, 10.0)
+
+  3. Store: pitch.excitation.volume_coefficients[level_idx] = coefficient
+     (length-5 array, one per base velocity level)
+
+  4. Bulk upload:
+     sm.pack_base_excitations()        // volume_coefficients multiply
+       → for each pitch:               // the volume row (index 2)
+           pack_base_levels()           // of the 5×4×5 base matrix
+       → 256 × 100 = 25,600 reals
+     setNewExcitationBaseLevels()       // C++ interpolates 5 → 128 levels
+       → updateTunableParameter("dev_gauss_params_full")
+       → double-buffer swap
+         │
+         ▼
+_restart_online_engine()
 ```
 
 ---

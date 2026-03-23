@@ -110,6 +110,12 @@ Module-level translation maps:
 
 The frontend uses user-friendly names; `ParameterManager` translates through both maps before sending to CUDA.
 
+Additional parameter types handled directly (no map translation):
+
+| Parameter | Handler | Effect |
+|-----------|---------|--------|
+| `sound_channel` | `set_parameter_batch('sound_channel', ...)` | Updates `soundChannelModes.coefficients[pitchID]` and sends deck params to CUDA |
+
 All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods that delegate directly:
 - `update_parameter()` — dispatcher for REST API and batch operations
 - `update_pitch_physical_params()` / `update_pitch_physical_params_GRANULAR()` — single-pitch physical param update
@@ -153,6 +159,23 @@ PAUSED (4)             -- GPU ready, playback stopped
 ```
 
 The `health` endpoint reports this state. `load_preset` always destroys any existing instance before creating a new one, returning to `UNINITIALIZED`.
+
+---
+
+## AutoTuner (auto_tuner.py)
+
+Automatic frequency and volume tuning system. Uses offline rendering for clean, deterministic measurements.
+
+| Class | Purpose |
+|-------|---------|
+| `MeasurementEngine` | Renders isolated notes offline, measures pitch (FFT + autocorrelation) and volume (frequency-aware RMS windowing) |
+| `FrequencyTuner` | Iterative tension adjustment: measures pitch, corrects tension via `f ∝ √tension`, repeats until error < tolerance |
+| `VolumeTuner` | A-weighted loudness equalization across keyboard × 5 velocity levels. Sets `ExcitationParameters.volume_coefficients` per pitch per level, bulk uploads via `setNewExcitationBaseLevels` |
+| `TuningResults` | Persistence (JSON sidecar files) and reporting |
+
+Exposed to the frontend via chart/action system:
+- Action `auto_tune` — runs frequency and/or volume tuning
+- Chart `tuning_report` — displays frequency error curve and volume coefficient charts
 
 ---
 

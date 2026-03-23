@@ -446,7 +446,7 @@ Per velocity level (20 reals):
 
 | Entry point | Method | When |
 |-------------|--------|------|
-| Init | `loadPresetToLibrary()` | Once at startup |
+| Init | `loadPresetToLibrary(preset_name, ...)` | Once at startup |
 | Runtime | `setNewExcitationBaseLevels()` | Every parameter edit |
 
 Both accept 5 base velocity levels per string (25,600 reals) and call the private

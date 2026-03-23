@@ -143,6 +143,7 @@ The file contains 19 entries: 12 chart types and 7 action types.
 | `hammer_temporal` | `hammer_temporal_function` | `pitch_no` (default 60), `velocity` (default 100) |
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
 | `pure_mode_test` | `pure_mode_test_function` | `mode_index` (default 0), `velocity` (default 100), `duration_ms` (default 50), `coupling` (choice: off/on, default off) |
+| `tuning_report` | `tuning_report_function` | `type` (choice: frequency/volume/both, default both) |
 
 ### Action Types
 
@@ -156,6 +157,7 @@ The file contains 19 entries: 12 chart types and 7 action types.
 | `play_note_offline` | `play_note_offline_action` | Synthesizes a single note offline to a WAV file |
 | `audio_driver_test` | `audio_driver_test_action` | Tests audio driver with sinewave or synthesis engine |
 | `online_midi_playback` | `online_midi_playback_action` | Controls online MIDI file playback (start/stop/status) |
+| `auto_tune` | `auto_tune_action` | Runs automatic frequency and/or volume tuning (from `auto_tuner.py`) |
 
 ---
 

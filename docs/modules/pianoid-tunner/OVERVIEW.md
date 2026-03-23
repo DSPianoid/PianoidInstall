@@ -90,8 +90,9 @@ The main application entry used in production is a separate top-level component 
 | `BarChartValue` | `BarChartValue.jsx` | Editable numeric bar chart cell |
 | `VerticalColumn` | `VerticalColumn.jsx` | Vertical bar column component |
 | `VerticalColumnChart` | `VerticalColumnChart.jsx` | Multi-column vertical chart |
-| `ChartSelector` | `ChartSelector.jsx` | Dropdown for selecting chart type from `/graph_names` response |
-| `newWindowChart` | `newWindowChart.jsx` | Chart rendered in a mosaic pane |
+| `ChartSelector` | `ChartSelector.jsx` | Tabbed selector (Charts / Dynamic / Actions) for chart types from `/graph_names` response |
+| `newWindowChart` | `newWindowChart.jsx` | Chart rendered in a mosaic pane; supports multi-chart layouts and interactive zoom |
+| `SoundChannelEditor` | `SoundChannelEditor.jsx` | Per-pitch sound channel coefficient editor; sends updates via `/set_parameter/sound_channel` |
 | `ParameterEditor` | `ParameterEditor.jsx` | Generic numeric parameter editor |
 | `PropertyInput` | `PropertyInput.jsx` | Labelled numeric input with validation |
 | `NumericInput` | `NumericInput.jsx` | Standalone numeric input field |
