@@ -128,6 +128,23 @@ Validates string-to-soundboard coupling via the feedin matrix. Uploads custom de
 
 Key implementation detail: deck rows are indexed by position in `StringMap.string_index` (not by raw string ID). The `_deck_row()` helper converts string IDs to deck row indices.
 
+### test_feedin_zero_leakage.py
+
+Validates that `pack_pitch_feedin()` respects the `listen_to_modes` flag when injecting sound channel coefficients, and that the CUDA kernel has no inherent leakage on an all-zero deck.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestPythonPackingLeakage::test_sound_channel_indices_exist` | Preset has sound channels configured at expected mode indices |
+| `TestPythonPackingLeakage::test_sound_channel_coefficients_nonzero` | Test pitch has non-zero sound channel coefficients |
+| `TestPythonPackingLeakage::test_modes_mode_injects_coefficients` | `listen_to_modes=True`: zeroed feedin row has sc coefficients at mode_channel_index |
+| `TestPythonPackingLeakage::test_strings_mode_zeroes_injection` | `listen_to_modes=False`: zeroed feedin row is truly all-zero (no injection) |
+| `TestGpuZeroDeckSilence::test_zero_deck_produces_silent_audio` | All-zero deck → zero mode displacement (no kernel leakage) |
+| `TestGpuZeroDeckSilence::test_zero_deck_zero_audio_rms` | All-zero deck → zero audio RMS |
+| `TestEndToEndZeroedFeedinProducesSound::test_zeroed_feedin_via_pack_deck_still_produces_mode_excitation` | Modes mode + zeroed feedin + pack_deck → sc modes excited |
+| `TestEndToEndZeroedFeedinProducesSound::test_zeroed_feedin_via_pack_deck_still_produces_audio` | Modes mode + zeroed feedin + pack_deck → non-silent audio |
+| `TestEndToEndZeroedFeedinProducesSound::test_regular_modes_negligible_vs_sound_channel_modes` | Regular modes have negligible displacement from cross-coupling |
+| `TestStringsModeSilenceOnZeroedFeedin::test_strings_mode_zeroed_feedin_produces_silence` | Strings mode + zeroed feedin + pack_deck → silence (fix validation) |
+
 ## Key Constants
 
 ```python

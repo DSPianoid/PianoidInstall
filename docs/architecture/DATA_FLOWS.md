@@ -433,7 +433,7 @@ Sound channels have two coefficient types, selected by `listen_to_modes`:
 
 | Parameter | Listen Mode | Store | Description |
 |-----------|-------------|-------|-------------|
-| `sound_channel` | modes (`listen_to_modes=1`) | `soundChannelModes.coefficients` | Mode-coupling injected into feedin at `mode_channel_index` |
+| `sound_channel` | modes (`listen_to_modes=1`) | `soundChannelModes.coefficients` | Mode-coupling injected into feedin at `mode_channel_index` (only when `listen_to_modes=True`; zeroed in strings mode) |
 | `string_sound_channel` | strings (`listen_to_modes=0`) | `soundChannelModes.string_coefficients` | Strings-mode gain scaling feedback |
 
 ```
@@ -613,7 +613,74 @@ backendserver.py: load_preset_route()               (line 132)
 
 - **Hardcoded overrides in `initialize()`** (lines 2089–2116): After loading preset data, physics parameters (jung, r, damper), hammer position, tension_offset, and volume_coefficient are overwritten with hardcoded values. Saved presets lose their tuned values on reload.
 
-### 2.8 Parameter Read Path (GET)
+### 2.8 Preset Library — Hot-Switch Path
+
+The preset library allows loading multiple presets into host memory and switching between them during playback without restarting the engine.
+
+#### Load to Library
+
+```
+POST /preset/load { path: "presets/Steinway.json", name: "Steinway" }
+         │
+         ▼
+backendserver.py: preset_load_to_library_route()       (line 319)
+  ─► pianoid.load_preset_to_library(path, name)         // pianoid.py:1935
+         │
+         ▼
+  1. json.load(preset_file)                              // read JSON
+  2. Build temporary domain model (StringMap, ModeMap)
+     ├── ModelParameters from preset, overridden with running instance's
+     │   array_size, sr, mode_iteration, string_iteration
+     ├── Scale geometry if array_size differs
+     ├── Load sound channel coefficients
+     └── Pad deck arrays to num_working_modes
+  3. Pack flat arrays (same layout as init_pianoid):
+     ├── physical_parameters, hammer, gauss_params
+     ├── mode_state, mode_coefficients, volume_coefficients
+  4. pianoid.loadPresetToLibrary(name, phys, hammer, gauss, modes, deck, vol)
+     ├── Validate input sizes against compile-time maxima
+     ├── Interpolate 5 base excitation levels → 128 velocity levels
+     ├── Pack all sections into contiguous buffer (751,104 reals)
+     └── Store in preset_library_ (host-side hash map)
+```
+
+#### Switch Preset
+
+```
+POST /preset/switch { name: "Steinway" }
+         │
+         ▼
+backendserver.py: preset_switch_route()                 (line 336)
+  ─► pianoid.switch_preset(name, async_switch=False)     // pianoid.py:2005
+         │
+         ▼
+  pianoid.switchPreset(name, async=False)                 // C++ Pianoid.cu:2655
+  1. memory_manager_.switchPreset(name, async)
+     ├── Find preset in preset_library_ (mutex-protected)
+     ├── Check UpdatePolicy if update in progress
+     ├── Copy preset data to host_preset_
+     ├── cudaMemcpyAsync(host → dev_preset_updating_, update_stream)
+     ├── Record completion event
+     └── If sync: block until transfer completes
+  2. Update compatibility pointers:
+     ├── dev_physical_parameters → getStringPhysicsPointer()
+     ├── dev_hammer → getHammerPointer()
+     ├── dev_gauss_params_full → getExcitationPointer()
+     ├── dev_mode_state → getModeStatePointer()
+     ├── dev_deck_parameters → getDeckPointer()
+     └── dev_volume_coeff → getVolumePointer()
+  3. Copy GPU data back to host (for Python read-back)
+  4. Set new_notes_ind = 1 (triggers parameter kernel next cycle)
+  Playback continues uninterrupted — double-buffer swap is atomic
+```
+
+#### Known Limitations
+
+- **Python model not updated on switch:** `switch_preset()` only updates GPU memory. The Python-side `StringMap`, `ModeMap`, and `PhysicalParameters` objects still reflect the original preset. `GET /get_parameter` reads from Python model, so it returns stale data after a library switch.
+- **Async switch hardcoded to sync:** `preset_switch_route()` always passes `async_switch=False`, blocking the Flask thread until GPU transfer completes (~1ms).
+- **No duplicate detection on load:** `loadPresetToLibrary` throws if a preset name already exists. To update a preset, unload first then reload.
+
+### 2.9 Parameter Read Path (GET)
 
 ```
 GET /get_parameter/<type>/<key_no>
