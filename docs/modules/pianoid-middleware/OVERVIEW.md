@@ -87,6 +87,9 @@ Key methods called by the REST layer:
 - `get_chart_for_frontend(chartType, **kwargs)` — delegates to `ChartGenerator`
 - `perform_frontend_command(action_type, **kwargs)` — delegates to `ActionPerformer`
 - `save_preset(path)` / `reset()` / `destroyPianoid()`
+- `load_preset_to_library(path, preset_name)` — loads a preset JSON into the GPU library without activating it
+- `switch_preset(preset_name, async_switch)` — switches the active preset via double-buffer swap
+- `get_library_presets()` / `get_active_preset()` / `unload_preset(preset_name)` — preset library management
 
 ### `ParameterManager` (parameter_manager.py)
 

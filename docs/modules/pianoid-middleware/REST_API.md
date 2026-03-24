@@ -35,6 +35,10 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /get_chart_test           -- render a chart
   /start_test               -- execute an action
   /shutdown                 -- graceful shutdown (free GPU, stop Flask)
+  /preset/list              -- list loaded presets + active preset
+  /preset/load              -- load preset to GPU library (no activation)
+  /preset/switch            -- switch active preset (double-buffer swap)
+  /preset/unload            -- remove preset from GPU library
 ```
 
 ---
@@ -605,6 +609,102 @@ Response `200`:
 ```json
 {"Message": "OK"}
 ```
+
+---
+
+## Preset Library Endpoints
+
+### `GET /preset/list`
+
+Returns all presets currently loaded in the GPU preset library and the active preset name. Requires a loaded pianoid instance.
+
+Response `200`:
+```json
+{
+  "presets": ["default", "Steinway", "Bluthner"],
+  "active": "default"
+}
+```
+
+Response `400` if pianoid not initialized.
+
+---
+
+### `POST /preset/load`
+
+Loads a preset JSON file into the GPU preset library without activating it. The preset is parsed, packed into flat arrays, and stored in host memory ready for instant GPU transfer via `/preset/switch`.
+
+Request body:
+```json
+{
+  "path": "presets/Steinway_256modes.json",
+  "name": "Steinway"
+}
+```
+
+- `path`: path to preset JSON file (relative to middleware working directory)
+- `name`: unique identifier for this preset in the library
+
+Response `200`:
+```json
+{
+  "message": "Preset loaded as Steinway",
+  "presets": ["default", "Steinway"]
+}
+```
+
+Response `400` if `path` or `name` missing.
+Response `500` if preset already exists in library or file not found.
+
+---
+
+### `POST /preset/switch`
+
+Switches the active synthesis parameters to a named preset from the GPU library. Uses the double-buffered swap mechanism — the new preset is uploaded to the staging buffer via `cudaMemcpyAsync` and pointer-swapped atomically, so playback continues without glitches.
+
+Request body:
+```json
+{
+  "name": "Steinway"
+}
+```
+
+Response `200`:
+```json
+{
+  "message": "Switched to Steinway",
+  "active": "Steinway"
+}
+```
+
+Response `400` if `name` missing.
+Response `500` if preset not found in library.
+
+**Note:** Currently uses `async_switch=False` (synchronous), blocking until the GPU transfer completes.
+
+---
+
+### `POST /preset/unload`
+
+Removes a preset from the GPU library, freeing host memory.
+
+Request body:
+```json
+{
+  "name": "Steinway"
+}
+```
+
+Response `200`:
+```json
+{
+  "message": "Preset Steinway unloaded",
+  "presets": ["default"]
+}
+```
+
+Response `400` if `name` missing.
+Response `500` if preset not found or is the active preset.
 
 ---
 

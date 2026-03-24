@@ -100,6 +100,10 @@ Selected routes defined in `backendServer.py`:
 | `/play_note/<pitch>/<velocity>` | POST | Inject note via EventQueue |
 | `/reset` | GET | Reset string and mode state |
 | `/save_preset` | POST | Serialize current state to file |
+| `/preset/list` | GET | List loaded presets and active preset |
+| `/preset/load` | POST | Load preset to GPU library (no activation) |
+| `/preset/switch` | POST | Switch active preset (double-buffer swap) |
+| `/preset/unload` | POST | Remove preset from GPU library |
 
 ### Flask -> Middleware (Python)
 
@@ -124,6 +128,10 @@ The `pianoidCuda` extension module (built from `pianoid_cuda/`) exposes:
 - `Pianoid.devMemoryInit()`, `Pianoid.initParameters()`, `Pianoid.resetStringsState()`
 - `Pianoid.setNewPhysicalParameters(...)`, `Pianoid.setRuntimeParameters(...)`
 - `Pianoid.runOfflinePlayback(event_queue, config)` - offline MIDI-to-WAV render
+- `Pianoid.loadPresetToLibrary(name, physics, hammer, excitation, modes, deck, volume)` - store preset in host library
+- `Pianoid.switchPreset(name, async)` - activate preset via double-buffer swap
+- `Pianoid.getLibraryPresets()`, `Pianoid.getActivePreset()`, `Pianoid.unloadPresetFromLibrary(name)` - library management
+- `pianoidCuda.UpdatePolicy` - DROP_IF_BUSY, BLOCK_UNTIL_READY, QUEUE_NEXT
 
 ### CUDA Engine -> Audio Driver
 
