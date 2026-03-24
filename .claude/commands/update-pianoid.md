@@ -118,19 +118,21 @@ If `.claude/settings.json` changed, note that Claude Code permissions were updat
 
 ### 5. Rebuild Packages
 
+**IMPORTANT — venv isolation:** The build scripts check `VIRTUAL_ENV` and skip activating `PianoidCore\.venv` if it's already set (e.g. to the root `.venv` from the bash shell). Use `env -u VIRTUAL_ENV` to strip it from the environment before spawning cmd. This ensures packages install into `PianoidCore\.venv` (the correct target). Note: `set VIRTUAL_ENV=` inside cmd does NOT work because the bat file's `setlocal` captures the inherited environment before the chained `set` takes effect.
+
 **PianoidBasic** (if changed):
 ```bash
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_basic.bat"
+env -u VIRTUAL_ENV cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_basic.bat"
 ```
 
 **PianoidCuda Heavy** (if C++/CUDA changed OR `--force-heavy`):
 ```bash
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both"
+env -u VIRTUAL_ENV cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both"
 ```
 
 **PianoidCuda Light** (if only Python middleware changed):
 ```bash
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light --both"
+env -u VIRTUAL_ENV cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light --both"
 ```
 
 **PianoidTunner** (if `package.json` or `package-lock.json` changed):
