@@ -427,6 +427,34 @@ Deck updates use /set_parameter/feedin/<key> and /set_parameter/feedback/<key>
 exclusively (the legacy /set_deck/<matrix> endpoint was removed).
 ```
 
+#### Sound Channel Coefficients
+
+Sound channels have two coefficient types, selected by `listen_to_modes`:
+
+| Parameter | Listen Mode | Store | Description |
+|-----------|-------------|-------|-------------|
+| `sound_channel` | modes (`listen_to_modes=1`) | `soundChannelModes.coefficients` | Mode-coupling injected into feedin at `mode_channel_index` |
+| `string_sound_channel` | strings (`listen_to_modes=0`) | `soundChannelModes.string_coefficients` | Strings-mode gain scaling feedback |
+
+```
+React: SoundChannelEditor — user edits coefficients for pitch 60
+         │
+         ▼
+usePreset: changeSoundChannelValues(pitch=60, values, type)
+  ─► 300 ms debounce
+  ─► axios.post('/set_parameter/sound_channel/60', { values })
+     or  axios.post('/set_parameter/string_sound_channel/60', { values })
+         │
+         ▼
+pianoid.update_parameter(param='sound_channel' | 'string_sound_channel')
+  1. sm.soundChannelModes.coefficients[pitchID] = values   (or string_coefficients)
+  2. send_deck_params_to_CUDA()                            // same deck packing path as feedin/feedback
+```
+
+Preset save/load includes both sections:
+- `mode_sound_channels`: `{pitchID: [ch0, ch1, ...]}` — always saved
+- `string_sound_channels`: `{pitchID: [ch0, ch1, ...]}` — saved alongside; old presets without this section default to `40.0` per channel
+
 ### 2.5 Hammer Shape
 
 ```

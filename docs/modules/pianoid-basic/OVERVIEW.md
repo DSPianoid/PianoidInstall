@@ -35,7 +35,7 @@ PianoidBasic/
         PianoMeasure.py      # PianoMeasure
         PianoidSimulation.py # PianoidSimulation
         HarmonicSimulator.py # HarmonicSimulation
-        SoundChannels.py     # ModeSoundChannels
+        SoundChannels.py     # StringSoundChannels, ModeSoundChannels
         bytestream_encoding.py
         chart_animation.py
         utilities.py
@@ -371,6 +371,37 @@ Key responsibilities:
 - `pack_deck()` — assembles `feedin` and `feedback` matrices (shape: `num_strings × num_modes`) for CUDA
 - `pack_excitations()` — flattens all 128-level Gauss parameter matrices in string-index order
 - `update_hammer_shapes()` — recomputes all hammer spatial profiles after a geometry change
+
+---
+
+### SoundChannels
+
+File: `SoundChannels.py`
+
+Two classes manage the coupling between modes/strings and audio output channels.
+
+**`ModeSoundChannels`** — per-pitch coefficients for the mode-based sound output path. Owned by `StringMap.soundChannelModes`.
+
+| Attribute | Shape | Description |
+|-----------|-------|-------------|
+| `coefficients` | `{pitchID: ndarray[num_channels]}` | Modes-mode coupling: injected into feedin at `mode_channel_index` slots |
+| `string_coefficients` | `{pitchID: ndarray[num_channels]}` | Strings-mode gain: scales feedback for sound channel strings |
+
+Key methods:
+
+| Method | Purpose |
+|--------|---------|
+| `add_pitch(pitchID)` | Initialise zero coefficients for both stores |
+| `update_coefficients(pitches, target)` | Batch update; `target='mode'` or `'string'` selects which store |
+| `read_from_preset(data)` | Load mode coefficients from preset JSON `mode_sound_channels` section |
+| `read_string_coefficients_from_preset(data)` | Load string coefficients from preset JSON `string_sound_channels` section |
+| `get_coeff(pitch)` / `get_string_coeff(pitch)` | Read coefficients for a single pitch |
+
+**`StringSoundChannels`** — `num_channels × num_modes` matrix (not currently used in the GPU path; reserved for future string-level channel routing).
+
+Preset JSON sections:
+- `mode_sound_channels`: `{pitchID: [ch0, ch1, ...], ...}` — mode coupling coefficients
+- `string_sound_channels`: `{pitchID: [ch0, ch1, ...], ...}` — string gain coefficients (old presets default to `40.0` per channel)
 
 ---
 

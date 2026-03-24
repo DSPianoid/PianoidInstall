@@ -92,7 +92,7 @@ The main application entry used in production is a separate top-level component 
 | `VerticalColumnChart` | `VerticalColumnChart.jsx` | Multi-column vertical chart |
 | `ChartSelector` | `ChartSelector.jsx` | Tabbed selector (Charts / Dynamic / Actions) for chart types from `/graph_names` response |
 | `newWindowChart` | `newWindowChart.jsx` | Chart rendered in a mosaic pane; supports multi-chart layouts and interactive zoom |
-| `SoundChannelEditor` | `SoundChannelEditor.jsx` | Per-pitch sound channel coefficient editor; sends updates via `/set_parameter/sound_channel` |
+| `SoundChannelEditor` | `SoundChannelEditor.jsx` | Dual-mode sound channel editor: edits mode-coupling (`/set_parameter/sound_channel`) or strings-mode gain (`/set_parameter/string_sound_channel`) based on `listen_to_modes` flag; uses `MeasuredMatrix` for full matrix editing |
 | `ParameterEditor` | `ParameterEditor.jsx` | Generic numeric parameter editor |
 | `PropertyInput` | `PropertyInput.jsx` | Labelled numeric input with validation |
 | `NumericInput` | `NumericInput.jsx` | Standalone numeric input field |

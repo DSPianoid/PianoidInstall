@@ -223,6 +223,8 @@ Reads simulation parameters serialized for the frontend.
 | `feedin` | Deck feed-in coupling matrix |
 | `feedback` | Deck feedback coupling matrix |
 | `output` | External sound output parameters (alias for feedback on output pitches) |
+| `sound_channel` | Mode-coupling coefficients per pitch (modes listen mode) |
+| `string_sound_channel` | Strings-mode gain per pitch (strings listen mode) |
 
 `key_no` formats:
 - Integer string: `"57"` — single pitch or mode number
