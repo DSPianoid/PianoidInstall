@@ -93,8 +93,10 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" diff HEAD..origin/dev --name-only
 | `pianoid_middleware/*.py` only | Light CUDA rebuild (dual: release + debug) |
 | `docs/**`, `*.md` files only | Skip CUDA rebuild, update documentation |
 | `--force-heavy` flag | Heavy CUDA rebuild |
-| `package.json` or `package-lock.json` in PianoidTunner | Run `npm install` |
+| `package.json` or `package-lock.json` in PianoidTunner | Run `npm install` (see Step 4d) |
 | Any files in PianoidTunner (no dependency changes) | Skip npm install (no build step needed) |
+| MCP servers missing from `~/.claude.json` | Install via Step 4b |
+| Node.js < 20.19.0 | Upgrade via Step 4c |
 
 ### 4. Pull Updates
 
@@ -115,6 +117,77 @@ git -C "D:\repos\PianoidInstall" diff HEAD@{1}..HEAD --name-only -- .claude/
 
 If any `.claude/commands/*.md` files changed, list them in the report.
 If `.claude/settings.json` changed, note that Claude Code permissions were updated (takes effect on next session or VS Code reload).
+
+### 4b. Check and Install Required MCP Servers
+
+The following MCP servers are required for Pianoid development. Check `~/.claude.json` and install any that are missing.
+
+**Required servers:**
+
+| Server | Package | Purpose |
+|--------|---------|---------|
+| `chrome-devtools` | `chrome-devtools-mcp@latest` | Browser automation for `/pianoid-ui` skill |
+| `context7` | `@upstash/context7-mcp@latest` | Up-to-date library documentation lookup |
+
+**Check and install:**
+
+```bash
+# Read current config
+python -c "
+import json, sys
+with open('C:/Users/astri/.claude.json') as f:
+    cfg = json.load(f)
+servers = cfg.get('mcpServers', {})
+missing = []
+required = {
+    'chrome-devtools': {'command': 'npx', 'args': ['-y', 'chrome-devtools-mcp@latest']},
+    'context7': {'command': 'npx', 'args': ['-y', '@upstash/context7-mcp@latest']},
+}
+for name, spec in required.items():
+    if name not in servers:
+        missing.append(name)
+        servers[name] = spec
+        print(f'INSTALLING: {name}')
+    else:
+        print(f'OK: {name}')
+if missing:
+    cfg['mcpServers'] = servers
+    with open('C:/Users/astri/.claude.json', 'w') as f:
+        json.dump(cfg, f, indent=2)
+    print(f'Added {len(missing)} MCP server(s). Reload VS Code to activate.')
+else:
+    print('All required MCP servers configured.')
+"
+```
+
+If any servers were added, warn the user to reload VS Code (`Ctrl+Shift+P` → "Developer: Reload Window").
+
+### 4c. Check Node.js Version
+
+The `chrome-devtools-mcp` package requires Node.js ≥ 20.19.0. Check and upgrade if needed:
+
+```bash
+node --version
+```
+
+If the version is below 20.19.0:
+```bash
+winget upgrade --id OpenJS.NodeJS.20 --accept-source-agreements --accept-package-agreements
+```
+
+After upgrading, verify:
+```bash
+node --version
+```
+
+### 4d. Update npm in PianoidTunner
+
+If PianoidTunner was updated or `package.json`/`package-lock.json` changed, ensure npm is current and dependencies are installed:
+
+```bash
+npm install -g npm@latest
+cmd //c "cd /d D:\repos\PianoidInstall\PianoidTunner && npm install"
+```
 
 ### 5. Rebuild Packages
 

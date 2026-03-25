@@ -14,6 +14,19 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 - Questions, exploration, or research tasks (until user approves implementation)
 - Trivial one-line Python-only fixes where the full workflow would be overkill
 
+## UI Interaction Rule
+
+When the user requests any task that involves the Pianoid frontend interface — viewing parameters, editing excitation/string/mode parameters, playing notes, capturing sound, or any browser-based interaction — automatically invoke the `/pianoid-ui` skill unless the user explicitly instructs otherwise.
+
+## Backend Startup Rule
+
+When the backend server needs to be started and the exact process, preset path, or initialization parameters are unclear, **always consult the documentation first**:
+
+- `docs/modules/pianoid-middleware/REST_API.md` — `POST /load_preset` payload, `audio_driver_type` values, parameter details
+- `docs/modules/pianoid-middleware/OVERVIEW.md` — startup sequence, component dependencies
+
+Default preset: `presets/BaselinePreset1.json`. Default initialization settings and audio driver selection rules are documented in `docs/modules/pianoid-middleware/REST_API.md`.
+
 ## Documentation-First Rule (MANDATORY)
 
 **Every time** you need to understand something about the Pianoid codebase — whether at the start of a task, mid-implementation, during debugging, or when a new question arises — you MUST consult documentation before searching or reading source code. This applies at every stage of work, not just the beginning.

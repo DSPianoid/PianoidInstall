@@ -339,7 +339,8 @@ parameter_manager.update_parameter(param='gauss')
              (Python model updated for preset save/read-back;
               the 128-level matrix is NOT sent to GPU)
   2. Single GPU upload (outside loop, with cuda_lock):
-     sm.pack_base_excitations()                 // 5 base levels only
+     _gpu_upload() waits for double-buffer IDLE  // prevents DROP_IF_BUSY loss
+     sm.pack_base_excitations()                  // 5 base levels only
        → for each pitch: pack_base_levels() → 5×4×5 = 100 reals
        → concatenate → 256 × 100 = 25,600 reals (100 KB float)
      pianoid_cpp.setNewExcitationBaseLevels(base_levels)

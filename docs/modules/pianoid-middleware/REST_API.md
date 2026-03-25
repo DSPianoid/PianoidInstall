@@ -129,10 +129,12 @@ Response `200`:
 
 Destroys any existing pianoid instance, initializes a new one from a preset file, and optionally starts playback immediately.
 
-Request body:
+Default preset: `presets/BaselinePreset1.json`
+
+Request body (default initialization settings):
 ```json
 {
-  "path": "presets/IversPond_ESPRIT_128modes.json",
+  "path": "presets/BaselinePreset1.json",
   "listen_to_midi": 0,
   "use_simulation": 0,
   "debug_mode": 0,
@@ -140,18 +142,20 @@ Request body:
   "cycle_iterations": 64,
   "audio_buffer_size": 4,
   "array_size": 384,
-  "sample_rate": 48000,
-  "string_iterations": 6,
-  "volume": 64,
-  "max_volume": null,
+  "sample_rate": 48,
+  "string_iterations": 4,
+  "volume": 120,
   "audio_on": 1,
   "start_right_away": 1,
-  "listen_to_modes": 1
+  "listen_to_modes": 1,
+  "use_cuda": 1
 }
 ```
 
 Parameter details:
-- `audio_driver_type`: `0`=default, `1`=ASIO, `2`=SDL2, `3`=SDL3, `4`=ASIO_CALLBACK (recommended)
+- `audio_driver_type`: `0`=default, `1`=ASIO, `2`=SDL2, `3`=SDL3, `4`=ASIO_CALLBACK
+
+**Audio driver selection rule:** Prefer ASIO Callback (`4`) when an ASIO device is available — it provides the lowest latency. If ASIO is not available (no ASIO driver installed, or running without a dedicated audio interface), use SDL (`2`) as fallback. SDL works on all systems without special drivers
 - `cycle_iterations`: samples per cycle; must match audio buffer size, minimum 16, default 64
 - `audio_buffer_size`: buffer chunks; `2`=low latency, `4`=balanced, `8`=high stability
 - `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512. When the requested value differs from the preset's native `array_size`, string geometry (`main` and `tail`) is scaled proportionally
