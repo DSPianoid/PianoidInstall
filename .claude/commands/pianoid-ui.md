@@ -320,7 +320,9 @@ Key fields: status, pianoid_loaded, gpu_initialized, audio_driver_active, availa
 
 ---
 
-## Stop Services
+## Stop Services (MANDATORY on task completion)
+
+**Always run cleanup when the UI task is finished**, whether it succeeded or failed. Do not leave services running.
 
 1. Stop backend via launcher:
    ```bash
@@ -329,9 +331,14 @@ Key fields: status, pianoid_loaded, gpu_initialized, audio_driver_active, availa
 
 2. Close browser tab: `close_page` tool
 
-3. Kill frontend:
+3. Kill frontend and all node processes:
    ```bash
-   taskkill //F //IM node.exe
+   taskkill //F //IM node.exe 2>/dev/null
+   ```
+
+4. Kill any remaining python backend processes:
+   ```bash
+   taskkill //F //IM python.exe 2>/dev/null
    ```
 
 ---
