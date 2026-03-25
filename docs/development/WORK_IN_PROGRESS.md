@@ -1,5 +1,17 @@
 # Work in Progress
 
+## NumInput Bidirectional Data Flow — Cursor Drift on Rapid Stepping
+
+**Status:** Partially fixed. Core bidirectional issues resolved; cursor drift during rapid arrow/wheel remains.
+
+Seven issues were fixed in `NumInput.js`, `PropertyInput.jsx`, and `usePreset.js` to stabilize the digital input components when connected to the live backend. The remaining open issue is cursor position drift during rapid arrow key or scroll wheel stepping — caused by React's controlled input pattern resetting the cursor on each render cycle.
+
+See [DIGITAL_INPUT_ANALYSIS.md](DIGITAL_INPUT_ANALYSIS.md) for full root cause analysis, fixes applied, and potential solutions for the cursor drift.
+
+**Branch:** `feature/fix-bidirectional-input` in PianoidTunner
+
+---
+
 ## ~~Excitation API Mismatch — PianoidBasic Missing `pack_base_excitations()`~~ (Fixed)
 
 **Status:** Complete. `StringMap.pack_base_excitations()` added to PianoidBasic, merged to dev. GPU-side interpolation verified by integration tests (`test_excitation_interpolation.py`).
