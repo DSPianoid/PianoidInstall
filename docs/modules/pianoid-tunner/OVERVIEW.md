@@ -231,6 +231,24 @@ Manages the Flask backend process lifecycle from the frontend. Launches `server/
 
 `killStale()` calls `POST /api/kill-stale` on the launcher, which runs `killProcessesOnPort(5000)` to terminate any process holding the backend port — regardless of whether the launcher spawned it.
 
+### `useHotkeys`
+
+Global keyboard shortcut handler. Registers `keydown`/`keyup` listeners on `window`. All shortcuts are suppressed when focus is inside an `<input>`, `<textarea>`, `<select>`, or `contentEditable` element.
+
+| Key | Action |
+|---|---|
+| Space | Play selected pitch (default 60); note-off on key release |
+| ← / → | Select and play previous / next available pitch |
+| + / = | Volume +5 (clamped 0–127) |
+| - | Volume −5 (clamped 0–127) |
+| Shift + + | Feedback +5 (clamped 0–127) |
+| Shift + - | Feedback −5 (clamped 0–127) |
+| Ctrl + - | Feedback → 0 |
+| [ / ] | Previous / next library preset |
+| Escape | Reset synthesiser |
+
+Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95, ff=127.
+
 ### `useWindowManager`
 
 Manages the set of open/closed mosaic panes and their IDs.
