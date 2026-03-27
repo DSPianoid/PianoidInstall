@@ -137,6 +137,28 @@ After 5 failed iterations, stop and report findings to the user. Do not keep loo
 
 ## Step 7: Feature-Specific Testing (new features only)
 
+### 7a: UI + Audio Verification (mandatory for audio-affecting changes)
+
+If the change affects synthesis output, volume, excitation, or any parameter that
+influences sound — invoke `/test-ui` to verify with measured evidence:
+
+```
+/test-ui <description of what to verify>
+```
+
+This launches the full stack, applies the change via UI, measures sound via
+`note_playback` chart (deterministic offline render), and reports pass/fail with
+amplitude numbers. **Do not skip this for audio features.**
+
+Changes that require `/test-ui`:
+- Volume formula or sensitivity
+- Excitation parameters (sliders, curves)
+- Physical string parameters (tension, damping, etc.)
+- Hammer shape changes
+- Any new UI control that sends data to the synthesis engine
+
+### 7b: Automated Tests
+
 Ask the user for acceptance criteria:
 - What inputs to test?
 - What behavior is expected?

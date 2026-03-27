@@ -18,6 +18,10 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 
 When the user requests any task that involves the Pianoid frontend interface — viewing parameters, editing excitation/string/mode parameters, playing notes, capturing sound, or any browser-based interaction — automatically invoke the `/pianoid-ui` skill unless the user explicitly instructs otherwise.
 
+## Audio Verification Rule
+
+After completing any code change that affects synthesis output — volume, excitation, physical parameters, hammer shape, or any parameter that influences sound — invoke `/test-ui` to verify the change with measured evidence before reporting completion. This applies whether the change is in C++/CUDA, Python middleware, or frontend React code. **Do not claim an audio-affecting feature works without a measured before/after comparison.**
+
 ## Backend Startup Rule
 
 When the backend server needs to be started and the exact process, preset path, or initialization parameters are unclear, **always consult the documentation first**:

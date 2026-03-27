@@ -269,37 +269,84 @@ In the Excitation panel below the chart: Width (mm), Sharpness (%), Position (%)
 
 ## Sound Capture & Analysis
 
-For programmatic sound analysis (read-only operations where direct API calls ARE appropriate):
+For programmatic sound analysis (read-only operations where direct API calls ARE appropriate).
+
+### Deterministic measurement (PREFERRED)
+
+Use `note_playback` chart — renders a note offline and returns a precise WAV. No timing issues, no audio driver dependency:
 
 ```js
 // Via evaluate_script:
+const resp = await fetch('http://127.0.0.1:5000/get_chart_test', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    chartType: 'note_playback',
+    pitch: 60,
+    velocity: 127,
+    duration_ms: 500,
+    display_length_ms: 500
+  })
+}).then(r => r.json());
+// resp.audio_data[0] = base64-encoded WAV file
+// resp.data = [[waveform samples]] for charting
+```
 
-// 1. Capture current buffer
-await fetch('http://127.0.0.1:5000/capture', {method: 'POST'}).then(r => r.json());
+Decode and measure in Python (save audio_data to file first):
+```python
+import base64, wave, io, numpy as np
+wav_bytes = base64.b64decode(audio_data_b64)
+wf = wave.open(io.BytesIO(wav_bytes), 'rb')
+samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(float)
+max_amp = np.max(np.abs(samples))
+rms = np.sqrt(np.mean(samples**2))
+```
 
-// 2. Get waveform data
+### Live circular buffer (for monitoring only)
+
+**WARNING:** The circular buffer captures a rolling 5-second window. If the note has finished or timing is off, it captures silence. Use `note_playback` for precise measurement.
+
+```js
+// 1. Capture current buffer snapshot
+await fetch('http://127.0.0.1:5000/capture', {method: 'POST'});
+
+// 2. Get waveform from buffer (audio_data[0] is base64 WAV)
 const chart = await fetch('http://127.0.0.1:5000/get_chart_test', {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
   body: JSON.stringify({chartType: 'sound', length: 48000, channel: 0})
 }).then(r => r.json());
-
-// 3. List available chart types
-const types = await fetch('http://127.0.0.1:5000/graph_names').then(r => r.json());
-
-// 4. Playback statistics
-const stats = await fetch('http://127.0.0.1:5000/playback_stats').then(r => r.json());
 ```
 
 ### Before/After Comparison
 
-1. Play note via Virtual Piano canvas click (see Step 7)
-2. Wait 300ms for sound to develop
-3. Capture + get chart → save as `before`
-4. Edit parameter via UI
-5. Play same note again
-6. Capture + get chart → save as `after`
-7. Compare amplitudes and report
+1. Call `note_playback` chart with target pitch/velocity → save `audio_data[0]` as `before`
+2. Edit parameter via UI
+3. Call `note_playback` chart with SAME pitch/velocity → save as `after`
+4. Decode both WAVs, compare max amplitude and RMS
+
+**Note:** `note_playback` uses `OfflinePlaybackEngine` which reads `dev_main_volume_coeff` from GPU, so volume/sensitivity changes ARE reflected in the measurement.
+
+### Other useful endpoints
+
+```js
+// List available chart types and actions
+const types = await fetch('http://127.0.0.1:5000/graph_names').then(r => r.json());
+
+// Playback statistics
+const stats = await fetch('http://127.0.0.1:5000/playback_stats').then(r => r.json());
+```
+
+### Playing notes for audible testing
+
+| Method | Audible? | Measurable? | How |
+|--------|----------|-------------|-----|
+| Space key (hold) | Yes | Imprecise | `evaluate_script`: keydown, setTimeout(keyup, 3000) |
+| Virtual Piano right-click | Yes | Imprecise | `evaluate_script`: MouseEvent button=2 on canvas |
+| `note_playback` chart | No | Precise | `POST /get_chart_test` as above |
+| `play_note_offline` action | No (saves WAV) | Precise | `POST /start_test` |
+
+For audible notes, blur any focused input first (`document.activeElement?.blur()`) — range inputs block Space key via `isInputFocused()`.
 
 ---
 
