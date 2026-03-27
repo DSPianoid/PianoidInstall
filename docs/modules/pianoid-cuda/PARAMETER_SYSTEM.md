@@ -51,7 +51,7 @@ Index  Name                      Description
   5    tension                   String tension
   6    damping                   Damping coefficient (coeff_gamma)
   7    dx                        Spatial step size
-  8    volume_coefficient        Per-string volume scaling
+  8    volume_coefficient        Per-string volume scaling (deprecated, always 1.0)
   9    position_in_array         Position in the GPU array block
  10    hammer_position           Strike point (hammer center)
  11    outer_sound               Outer sound channel coefficient

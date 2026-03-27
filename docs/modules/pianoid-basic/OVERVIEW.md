@@ -201,7 +201,7 @@ Holds the physical material constants for a pitch and manages the associated `Pi
 | `jung` | 19000 | Young's modulus coefficient |
 | `gamma` | 0.1 | Viscous damping coefficient |
 | `disp_decay` | 0 | Dispersive-decay amplitude |
-| `volume_coefficient` | 1 | Output scaling |
+| `volume_coefficient` | *(deprecated)* | Was per-string output scaling; always 1.0, volume characteristics are embedded in excitation curves |
 | `damper_string` | 0.5 | Damper stiffness on string |
 | `damper_tail` | 127 | MIDI velocity below which damper is active |
 

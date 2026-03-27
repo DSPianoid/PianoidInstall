@@ -74,7 +74,7 @@ The main application entry used in production is a separate top-level component 
 | `HammerSpatialProperties` | `HammerSpatialProperties.jsx` | Per-pitch hammer shape editor (position, width, sharpness) |
 | `Excitation` | `Excitation.jsx` | Gauss parameter editor for hammer excitation curves |
 | `ExcitationProperties` | `ExcitationProperties.jsx` | Single-pitch excitation properties panel |
-| `GaussEditor` | `GaussEditor.jsx` | Interactive Gauss curve editor |
+| `GaussEditor` | `GaussEditor.jsx` | Interactive Gauss curve editor with general volume/duration scaling sliders |
 | `GaussChart` | `GaussChart.jsx` | Chart rendering of a Gaussian excitation curve |
 | `GaussDemo` | `GaussDemo.jsx` | Live preview of all 5 Gaussian components |
 | `CompositeGaussianChart` | `CompositeGaussianChart.jsx` | Composite view of all Gauss curves at one velocity level |
