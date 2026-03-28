@@ -58,7 +58,14 @@ This creates the Python virtual environment, builds PianoidBasic, compiles the C
 start-pianoid.bat
 ```
 
-Opens two terminal windows (backend Flask server + frontend React dev server). The browser should open automatically at `http://localhost:3000`.
+This starts the launcher and React dev server via `npm run dev`. The browser opens automatically at `http://localhost:3000`. Click **APPLY** in the UI to start the backend.
+
+Alternatively, start manually from a terminal:
+
+```bat
+cd PianoidTunner
+npm run dev
+```
 
 | Service | URL |
 |---------|-----|

@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo =========================================================================
-echo Starting PianoidCore Application
+echo Starting Pianoid Application
 echo =========================================================================
 echo.
 
@@ -13,8 +13,8 @@ set "TUNNER_DIR=%ROOT_DIR%PianoidTunner"
 set "BACKEND_SCRIPT=%MIDDLEWARE_DIR%\backendserver.py"
 
 echo Root directory: %ROOT_DIR%
-echo Backend script: %BACKEND_SCRIPT%
-echo Frontend directory: %TUNNER_DIR%
+echo PianoidCore:   %CORE_DIR%
+echo PianoidTunner: %TUNNER_DIR%
 echo.
 
 rem =========================================================================
@@ -47,84 +47,94 @@ if not exist "%TUNNER_DIR%\package.json" (
     goto :error
 )
 
-echo ✓ All directories and files found
+echo   OK  All directories and files found
 echo.
 
 rem Check if virtual environment exists
 if not exist "%CORE_DIR%\.venv" (
     echo ERROR: Python virtual environment not found.
-    echo Please run the setup script first to create the virtual environment.
+    echo Please run setup-pianoid.bat first.
     goto :error
 )
 
-echo ✓ Python virtual environment found
+echo   OK  Python virtual environment found
 echo.
 
 rem Check if node_modules exists
 if not exist "%TUNNER_DIR%\node_modules" (
     echo ERROR: node_modules not found in PianoidTunner.
-    echo Please run the setup script first to install frontend dependencies.
+    echo Please run setup-pianoid.bat first.
     goto :error
 )
 
-echo ✓ Frontend dependencies found
+echo   OK  Frontend dependencies found
 echo.
 
 rem =========================================================================
-rem Start both processes
+rem Start application
 rem =========================================================================
-echo Starting PianoidCore application...
+rem The launcher (server/launcher.js) manages the backend lifecycle:
+rem   - Starts/stops the Flask backend on demand from the UI
+rem   - Monitors backend health
+rem   - Handles stale process cleanup
+rem
+rem "npm run dev" runs both the launcher (port 3001) and React dev server
+rem (port 3000) via concurrently.
+
+echo Starting Pianoid...
 echo.
-echo This will open two windows:
-echo   1. Backend Flask server (Python)
-echo   2. Frontend development server (npm start)
+echo   Launcher + React dev server will start in a new window.
+echo   The browser opens automatically at http://localhost:3000
+echo   Click APPLY in the UI to start the backend.
 echo.
-echo Press Ctrl+C in either window to stop that process.
-echo Close this window to stop both processes.
+echo   Services:
+echo     Frontend UI:  http://localhost:3000
+echo     Launcher WS:  http://localhost:3001
+echo     Backend API:  http://localhost:5000  (after APPLY)
 echo.
-echo Press any key to start both servers...
+echo Press any key to start...
 pause >nul
 
-echo Starting backend server...
-start "PianoidCore Backend" /D "%CORE_DIR%" cmd /k ".venv\Scripts\activate.bat && cd pianoid_middleware && python backendserver.py"
-
-echo Waiting 3 seconds for backend to start...
-timeout /t 3 /nobreak >nul
-
-echo Starting frontend server...
-start "PianoidCore Frontend" /D "%TUNNER_DIR%" cmd /k "npm start"
+start "Pianoid" /D "%TUNNER_DIR%" cmd /k "npm run dev"
 
 echo.
 echo =========================================================================
-echo ✓ SUCCESS: Both servers started!
+echo   OK  Pianoid started in a new window.
 echo =========================================================================
 echo.
-echo Backend server: Running in PianoidCore Backend window
-echo Frontend server: Running in PianoidCore Frontend window
+echo To stop: close the Pianoid window or press Ctrl+C in it.
 echo.
-echo The application should open in your web browser automatically.
-echo If not, check the frontend window for the URL (usually http://localhost:3000)
+echo -------------------------------------------------------------------------
+echo Manual start (alternative):
 echo.
-echo To stop the application:
-echo   - Close both server windows, OR
-echo   - Press Ctrl+C in each server window, OR
-echo   - Close this window (will attempt to stop both)
+echo   cd %TUNNER_DIR%
+echo   npm run dev
 echo.
-echo This window can be closed once both servers are running.
-echo =========================================================================
+echo Or start backend and frontend separately:
+echo.
+echo   :: Terminal 1 - Backend
+echo   cd %CORE_DIR%
+echo   .venv\Scripts\activate.bat
+echo   cd pianoid_middleware
+echo   python backendserver.py
+echo.
+echo   :: Terminal 2 - Frontend
+echo   cd %TUNNER_DIR%
+echo   npm start
+echo -------------------------------------------------------------------------
 
 goto :end
 
 :error
 echo.
 echo =========================================================================
-echo ✗ STARTUP FAILED
+echo   STARTUP FAILED
 echo =========================================================================
 echo See error messages above for details.
 echo.
-echo Make sure you have run the setup script first:
-echo   1. setup-packages.bat (as admin) - for third-party packages
-echo   2. simple-pianoid-setup.bat - for PianoidCore packages
+echo Make sure you have run the setup scripts first:
+echo   1. setup-packages.bat (as admin) - install system dependencies
+echo   2. setup-pianoid.bat             - build all packages
 echo.
 
 :end

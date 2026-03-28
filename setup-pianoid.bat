@@ -72,7 +72,7 @@ echo =========================================================================
 
 pushd "%CORE_DIR%"
 
-set "VENV_DIR=%CORE_DIR%.venv"
+set "VENV_DIR=%CORE_DIR%\.venv"
 echo Creating virtual environment at: %VENV_DIR%
 
 if not exist "%VENV_DIR%" (
