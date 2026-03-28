@@ -1,3 +1,3 @@
 git clone -b dev https://github.com/DSPianoid/PianoidTunner
-git clone https://github.com/DSPianoid/PianoidCore
-git clone https://github.com/DSPianoid/PianoidBasic
+git clone -b dev https://github.com/DSPianoid/PianoidCore
+git clone -b dev https://github.com/DSPianoid/PianoidBasic
