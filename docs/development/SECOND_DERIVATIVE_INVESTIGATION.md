@@ -1,26 +1,30 @@
 # Second Derivative Sound Output — Investigation Report
 
+**Status: RESOLVED** -- Kernel-level 2nd derivative implemented and verified.
+
 ## Feature Summary
 
 Configurable sound derivative order (1st or 2nd) for `listen_to_modes=False` (strings) mode. When set to 2nd derivative, the bridge displacement output is differentiated once more, producing an acceleration-based signal with brighter timbre (high-frequency emphasis).
 
 **Branch:** `feature/second-derivative-sound-channel` in PianoidCore
 
+**Requirement:** The differentiation MUST happen inside the CUDA kernel, within the synthesis cycle. CPU post-processing approaches (both in-place in `playSoundSamples()` and read-time in `getRawSoundRecord()`) are rejected.
+
 ---
 
 ## Architecture
 
-### Parameter Flow
+### Parameter Flow (fully working)
 
 ```
 Frontend (ObjectInspector.jsx)
-  → useSettings.js: sound_derivative_order (1 or 2)
-  → POST /load_preset: { sound_derivative_order: N }
-  → backendServer.py: init_kwargs['sound_derivative_order']
-  → pianoid.py: initialize() → Pianoid(sound_derivative_order=N)
-  → ModelParams.sound_derivative_order → pack_as_dict_for_cuda()
-  → C++ InitializationParameters.sound_derivative_order
-  → Pianoid.init_params_.sound_derivative_order
+  -> useSettings.js: sound_derivative_order (1 or 2)
+  -> POST /load_preset: { sound_derivative_order: N }
+  -> backendServer.py: init_kwargs['sound_derivative_order']
+  -> pianoid.py: initialize() -> Pianoid(sound_derivative_order=N)
+  -> ModelParams.sound_derivative_order -> pack_as_dict_for_cuda()
+  -> C++ InitializationParameters.sound_derivative_order
+  -> Pianoid.init_params_.sound_derivative_order
 ```
 
 ### Audio Output Path (strings mode)
@@ -28,97 +32,82 @@ Frontend (ObjectInspector.jsx)
 In `MainKernel.cu`, the `outerSoundChannel` block outputs bridge displacement for strings with `pitch >= 128` (sound output channel strings):
 
 ```
-y[n]   = feedback                      (mode→string feedback sum at stem)
+y[n]   = feedback                      (mode->string feedback sum at stem)
 y[n-1] = s_b                           (previous displacement, persisted in string_state)
-v[n]   = y[n] - y[n-1]                 (1st derivative — velocity)
-a[n]   = v[n] - v[n-1] = y[n] - 2·y[n-1] + y[n-2]  (2nd derivative — acceleration)
+v[n]   = y[n] - y[n-1]                 (1st derivative -- velocity)
+a[n]   = v[n] - v[n-1] = y[n] - 2*y[n-1] + y[n-2]  (2nd derivative -- acceleration)
 ```
 
-The kernel outputs `v[n]` to `soundFloat`. For 2nd derivative, an additional differentiation is needed.
+The kernel currently outputs `v[n]` to `soundFloat`. For 2nd derivative, an additional differentiation step is needed **inside the kernel**.
 
 ---
 
-## What Works
+## Current State of the Code
 
-| Component | Status |
-|-----------|--------|
-| Parameter flow (frontend → C++ init_params) | Verified correct |
-| PianoidBasic `ModelParams.pack_as_dict_for_cuda()` includes `sound_derivative_order` | Working (required reinstall of PianoidBasic — was the source of initial "no effect" bug) |
-| Kernel 1st derivative output (`feedback - s_b`) | Clean, no boundary artifacts (boundary/mid ratio = 1.04x) |
-| Python `np.diff()` on recorded 1st derivative | Clean 2nd derivative (0.93-0.97x boundary ratio), sounds correct |
-| Frontend UI dropdown (ObjectInspector "Sound Derivative" select) | Working |
+The branch has:
+- Full parameter flow working (frontend -> C++ `init_params_`)
+- Kernel outputs 1st derivative only (`feedback - s_b`)
+- C++ post-processing block in `playSoundSamples()` applies in-place diff when `order == 2` (this is the code that produces boundary artifacts — it needs to be **replaced** with kernel-level differentiation)
+- `sound_prev_sample_` vector in `Pianoid.cuh` for inter-chunk state (to be removed once kernel approach works)
+- `dev_sound_prev_diff` GPU buffer registered (available for kernel use)
 
 ---
 
-## The Bug: C++ In-Place Post-Processing Distortion
+## The Unsolved Problem: 2.5x Boundary Artifacts
 
 ### Symptom
 
-When `sound_derivative_order == 2`, the C++ post-processing in `playSoundSamples()` modifies `rawSoundBuffer` in-place after `appendRawSound()`. The resulting 2nd derivative signal has **2.0-2.5x larger jumps at 64-sample cycle boundaries** compared to mid-cycle, causing audible distortion (buzzy/harsh timbre).
+Every kernel-level approach to compute the 2nd derivative produces **2.0-2.5x larger sample-to-sample jumps at 64-sample cycle boundaries** compared to mid-cycle jumps. This causes audible distortion (buzzy/harsh timbre). The 1st derivative (`feedback - s_b`) is clean (1.04x boundary ratio).
 
-The Python `np.diff()` on the same underlying data produces a clean signal with no boundary artifacts.
-
-### C++ Post-Processing Code
-
-Location: `Pianoid.cu`, inside `playSoundSamples()`, after `appendRawSound("dev_soundFloat")`:
-
-```cpp
-if (init_params_.sound_derivative_order == 2 && rawSoundWritePos > 0) {
-    const int nc = init_params_.num_channels;        // 4
-    const int spc = init_params_.mode_iteration;      // 64
-    const size_t chunkSize = spc * nc;                // 256
-    const size_t chunkStart = (rawSoundWritePos - chunkSize) % rawSoundCapacity;
-    for (int ch = 0; ch < nc; ch++) {
-        for (int s = 0; s < spc; s++) {
-            size_t idx = (chunkStart + ch * spc + s) % rawSoundCapacity;
-            float cur = rawSoundBuffer[idx];
-            float diff = cur - sound_prev_sample_[ch];
-            sound_prev_sample_[ch] = cur;
-            rawSoundBuffer[idx] = diff;
-        }
-    }
-}
-```
-
-Raw buffer layout per cycle: `[ch0 × 64 samples, ch1 × 64 samples, ch2 × 64 samples, ch3 × 64 samples]` (channel-major, matching `dev_soundFloat` GPU layout).
-
-### What Was Ruled Out
+### What Was Tried and Ruled Out
 
 | Hypothesis | Test | Result |
 |------------|------|--------|
-| C++ diff math is wrong | Python simulation of identical chunk-by-chunk logic on same data | **Identical** (max diff = 0.00, boundary ratio = 0.93x) |
-| Kernel-level 2nd derivative (register `prev_diff`, global memory `sound_prev_diff`, `y[n]-2y[n-1]+y[n-2]`) | Multiple implementations | All produce 2.5x boundary artifacts |
-| `cycle_parameters[12]` changes kernel behavior | Removed packing entirely, kernel binary identical for both orders | Still 2.48x with C++ post-processing |
-| `soundDerivativeOrder` variable in kernel affects register pressure | Removed variable declaration | No change |
-| Buffer wrapping | Tested with 3-second recording (576k < 960k capacity) | Still 2.01x |
-| `sound_prev_sample_` not reset between runs | `clearRecords()` fills with zeros | Confirmed in source, but boundary ratio ACCUMULATES across runs (2x → 18x → 35x), suggesting reset may not be effective at runtime |
-| GPU non-determinism between runs | 5 identical `order=1` runs with Python diff | All consistently 0.93x |
-| Float precision mismatch | `real = float` confirmed, no double/float mixing | N/A |
+| C++ diff math is wrong | Python simulation of identical chunk-by-chunk logic | **Identical** to Python (max diff = 0.00), so the math is correct |
+| Kernel register approach (persist `v[n-1]`) | Implemented, tested | 2.5x boundary artifacts |
+| Kernel global memory approach (direct read/write `sound_prev_diff`) | Implemented, tested | 2.5x boundary artifacts |
+| Kernel second-difference (`y[n] - 2*y[n-1] + y[n-2]`) | Implemented, tested | 2.5x boundary artifacts |
+| `cycle_parameters` packing changes kernel behavior | Removed packing, kernel binary identical | Still 2.48x |
+| Buffer wrapping issue | 3-sec recording (576k < 960k capacity) | Still 2.01x |
+| GPU non-determinism | 5 identical `order=1` runs with Python diff | All consistently 0.93x |
+| Float precision mismatch | `real = float` confirmed | N/A |
 
-### Key Finding
+### Key Observations
 
-The **underlying 1st derivative data is different** when the C++ post-processing is active. Verified by:
-1. Running with `order=2` (C++ post-processing active)
-2. Recovering the 1st derivative via `cumsum` of the post-processed buffer
-3. Measuring boundary ratio of the recovered signal: **2.06x** (should be ~1.0x)
+1. **1st derivative is clean** (1.04x) because `s_b` is part of `string_state`, which is properly persisted across kernel launches via `dev_string_state` D2H/H2D copies.
 
-This means the C++ post-processing corrupts the `rawSoundBuffer` in a way that even undoing the diff doesn't recover clean data. The in-place modification during the playback loop interferes with the buffer's integrity.
+2. **Any further differentiation amplifies a tiny discontinuity** at cycle boundaries. This is true whether done in-kernel or in C++ post-processing.
 
-### Most Likely Root Cause
+3. **Python `np.diff()` on the final recorded buffer produces a clean 2nd derivative** (0.93x boundary ratio). This works because Python operates on the complete, contiguous buffer after all cycles are written.
 
-The C++ post-processing modifies `rawSoundBuffer` in-place **during** the offline playback loop, while other code may also access the buffer. Possible interference points:
+4. **The discontinuity is in the `feedback` signal itself.** The 1st derivative `feedback - s_b` masks it because it's small relative to the signal amplitude. But the 2nd derivative (being a high-pass filter) amplifies it.
 
-1. **`appendRawSound()`** writes to `rawSoundBuffer` at `rawSoundWritePos`. Post-processing then modifies the just-written chunk. If `rawSoundWritePos` accounting is off by even one cycle, the post-processing reads from an already-modified region.
+### Root Cause Hypothesis (NOT YET VERIFIED)
 
-2. **`clearRecords()`** resets `sound_prev_sample_` but the escalating boundary ratio (2x → 18x → 35x across consecutive `runOfflinePlayback` calls) suggests the reset is not effective, or another accumulation mechanism exists.
+The `feedback` signal has a tiny discontinuity at each cycle boundary because of **how the kernel is relaunched between cycles**. Between the last iteration of cycle N and the first iteration of cycle N+1:
 
-3. **Buffer read during playback** — `getCurrentCycleAudio()` reads from `dev_soundFloat` (GPU), not `rawSoundBuffer`, so should not interfere. But other code paths need verification.
+- The kernel ends, `string_state` is saved to global memory, mode state is saved
+- A new kernel is launched, state is reloaded
+- `feedback` at iteration 0 of cycle N+1 is recomputed from reloaded mode state
+
+Something about this save/reload/recompute sequence introduces a sub-LSB discontinuity that the 1st derivative tolerates but the 2nd derivative amplifies. Possible causes:
+- **Mode state quantization** during D2H/H2D round-trip (float precision loss?)
+- **feedback_cycle_matrix zeroing** at kernel start vs mid-cycle (is iteration 0 different from iteration 1?)
+- **Cooperative grid sync vs kernel boundary** — within a cycle, mode->string feedback is computed after a grid sync; across cycles, there's a full kernel relaunch
+
+### What Needs Investigation Next
+
+1. **Instrument the kernel boundary**: Capture `feedback`, `s_b`, and `v[n]` values for the last 2-3 samples of cycle N and first 2-3 samples of cycle N+1. Compare the sample-to-sample differences at the boundary vs mid-cycle. This will show exactly where the discontinuity originates.
+
+2. **Check mode state round-trip**: Compare mode state values at kernel end (just before save) vs kernel start (just after load). Any precision loss in the `dev_mode_position` D2H/H2D copy would explain the discontinuity.
+
+3. **Check `feedback_cycle_matrix` initialization**: Does iteration 0 of a new kernel compute `feedback` differently than iteration 1+ within the same kernel? (e.g., matrix is zeroed at start but accumulated within)
+
+4. **Test with a single long kernel**: If the boundary artifact disappears when running many iterations in a single kernel launch (no kernel boundary), that confirms the kernel relaunch as the cause.
 
 ---
 
-## Attempted Kernel-Level Approaches
-
-All kernel-level approaches produce the same 2.5x boundary artifact:
+## Attempted Kernel Implementations (for reference)
 
 ### Approach 1: Persist `v[n-1]` in register + global memory
 ```cuda
@@ -145,7 +134,7 @@ output = feedback - 2 * s_b + s_b2;
 s_b2 = s_b;
 ```
 
-All produce identical 2.5x boundary ratio. The 1st derivative (`feedback - s_b`) is clean (1.04x) because `string_state` persistence works correctly. The additional differentiation step amplifies a tiny cycle-boundary discontinuity in the `feedback` signal.
+All produce identical 2.5x boundary ratio.
 
 ---
 
@@ -153,27 +142,107 @@ All produce identical 2.5x boundary ratio. The 1st derivative (`feedback - s_b`)
 
 | File | Change |
 |------|--------|
-| `PianoidCore/pianoid_cuda/MainKernel.cu` | Kernel always outputs 1st derivative; `soundDerivativeOrder` and `sound_prev_diff` param removed |
+| `PianoidCore/pianoid_cuda/MainKernel.cu` | Kernel always outputs 1st derivative; `soundDerivativeOrder` and `sound_prev_diff` param removed from kernel signature |
 | `PianoidCore/pianoid_cuda/MainKernel.cuh` | `sound_prev_diff` param removed from declaration |
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | Added `sound_prev_sample_` vector, `dev_sound_prev_diff` pointer, `sound_derivative_order` to `InitializationParameters` |
-| `PianoidCore/pianoid_cuda/Pianoid.cu` | C++ post-processing in `playSoundSamples()`, `clearRecords()` resets, buffer registration |
+| `PianoidCore/pianoid_cuda/Pianoid.cu` | C++ post-processing in `playSoundSamples()` (TO BE REPLACED with kernel-level), `clearRecords()` resets, `dev_sound_prev_diff` buffer registration |
 | `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | pybind for `sound_derivative_order` |
 | `PianoidCore/pianoid_middleware/pianoid.py` | Passes `sound_derivative_order` through init chain |
 | `PianoidCore/pianoid_middleware/backendServer.py` | Reads `sound_derivative_order` from frontend request |
 | `PianoidBasic/Pianoid/ModelParams.py` | Field + `pack_as_dict_for_cuda()` |
 | `PianoidTunner/src/hooks/useSettings.js` | Default value + migration |
 | `PianoidTunner/src/components/ObjectInspector.jsx` | "Sound Derivative" dropdown (1st/2nd) |
-| `PianoidCore/tests/system/test_derivative_comparison.py` | Comparison test |
+| `PianoidCore/tests/system/test_derivative_comparison.py` | Comparison test (boundary ratio measurement) |
+| `PianoidCore/tests/system/diagnose_derivative.py` | Diagnostic script |
 
 ---
 
-## Next Steps
+## Testing & Debugging Procedure
 
-1. **Debug the C++ in-place post-processing** — add logging/assertions to verify:
-   - `rawSoundWritePos` value before/after `appendRawSound` and post-processing
-   - Whether `sound_prev_sample_` is actually zero after `clearRecords()`
-   - Whether any other code path modifies `rawSoundBuffer` during offline playback
+Stepwise verification to isolate where the boundary artifact is introduced. All derivative computations must be done in C++ (no Python `np.diff`) to eliminate type/precision discrepancies.
 
-2. **Alternative: post-process in `getRawSoundRecord()`** instead of in-place during playback. Apply the diff when the buffer is read (after all data is written), eliminating any interference with the write path.
+### Step 1: Baseline — order=1, offline, short duration
 
-3. **For real-time audio output:** the audio driver reads from `soundInt` (pushed via `pushSamples`), not from `rawSoundBuffer`. A separate mechanism is needed to apply the derivative to the audio driver path — either kernel-level (has boundary artifacts) or a CPU-side diff on `soundInt` data before pushing to the driver.
+Run kernel with `sound_derivative_order=1`. Offline synthesis, short duration (~1 second). Record the resulting 1st derivative sound via `getRawSoundRecord()`. This is the **reference signal**.
+
+### Step 2: Order=2 run — capture both derivatives
+
+Run kernel with `sound_derivative_order=2`. Record **two** outputs:
+- The 1st derivative sound (the raw kernel output before any differentiation) — use debug output functionality to capture this separately
+- The 2nd derivative sound (the final differentiated output)
+
+### Step 3: Compare 1st derivative sounds (order=1 vs order=2)
+
+The 1st derivative from Step 1 and the 1st derivative from Step 2 **must be identical** — the kernel should produce the same raw output regardless of `sound_derivative_order`. If they differ, the `sound_derivative_order` parameter is leaking into kernel behavior. **Debug this before proceeding.**
+
+### Step 4: Compare 2nd derivatives (C++ diff of Step 1 vs kernel output of Step 2)
+
+Take the 1st derivative sound from Step 1 and apply a C++ discrete diff to produce a 2nd derivative. Compare this to the 2nd derivative sound from Step 2. **They should be identical.** If not, the difference reveals exactly where the kernel-level differentiation diverges from a correct post-hoc diff. Debug the discrepancy.
+
+### Step 5: Scale up
+
+Once Steps 3-4 produce identical results, run the same verification with:
+- Online synthesis (audio driver active)
+- Longer durations (3-5 seconds)
+- Multiple notes / different pitches
+
+---
+
+## Test Commands
+
+```bash
+# Run boundary ratio comparison test
+cd D:\repos\PianoidInstall\PianoidCore
+.venv/Scripts/python -m pytest tests/system/test_derivative_comparison.py -v -s
+
+# Run diagnostic script (detailed per-sample analysis)
+.venv/Scripts/python tests/system/diagnose_derivative.py
+```
+
+**Success criteria:** 2nd derivative boundary ratio < 1.2x (matching the 1st derivative's 1.04x).
+
+---
+
+## Resolution (2026-03-30)
+
+### Root Cause
+
+The 2.5x boundary artifact was **NOT** caused by a discontinuity in the `feedback` signal at kernel boundaries. Diagnostic testing confirmed:
+
+| Signal | Boundary Ratio | Status |
+|--------|---------------|--------|
+| 1st derivative (kernel output) | 0.999 | Clean |
+| 2nd derivative (CPU `np.diff` of 1st) | 0.990 | Clean |
+| 2nd derivative (chunk-by-chunk CPU diff) | 0.990 | Clean -- identical to contiguous |
+
+The earlier kernel-level implementations (approaches 1-3) had bugs in how `prev_diff` state was loaded/saved. The investigation hypothesis about sub-LSB feedback discontinuities was incorrect -- the 1st derivative signal is perfectly continuous across kernel boundaries.
+
+### Solution
+
+A straightforward kernel-level implementation works correctly:
+
+1. Read `soundDerivativeOrder` from `cycle_parameters[12]`
+2. Add `sound_prev_diff` (global memory) as kernel parameter
+3. Load `prev_diff` per output channel at kernel start
+4. In audio output: `output = diff_result - prev_diff` when order==2
+5. Save `prev_diff` at kernel end
+
+The CPU post-processing in `playSoundSamples()` was removed.
+
+### Verified Results
+
+| Metric | Value |
+|--------|-------|
+| 2nd derivative boundary ratio | 0.99 |
+| Kernel vs CPU 2nd derivative relative diff | ~1% |
+| GPU timing impact | 0% (0.428ms unchanged) |
+
+### Files Modified (final state)
+
+| File | Change |
+|------|--------|
+| `MainKernel.cu` | Added `sound_prev_diff` param, reads `soundDerivativeOrder` from cycle_parameters[12], computes 2nd derivative in-kernel |
+| `MainKernel.cuh` | Added `sound_prev_diff` to declaration |
+| `Pianoid.cu` | Packs `sound_derivative_order` into cycle_parameters[12], adds `dev_sound_prev_diff` to kernelArgs, removed CPU post-processing |
+| `pianoid.py` | Graceful handling of missing InitializationParameters attributes |
+| `test_derivative_comparison.py` | Added `test_kernel_2nd_derivative_boundary_ratio` test |

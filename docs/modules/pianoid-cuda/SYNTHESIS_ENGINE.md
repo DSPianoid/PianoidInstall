@@ -178,13 +178,25 @@ if (onStem):  target = s_feedback[stringInArr]
 
 ### Audio Output
 
-The per-sample audio output is computed from the feedback-driven stem displacement:
+The per-sample audio output is computed from the feedback-driven stem displacement.
+The derivative order is controlled by `cycle_parameters[12]` (`sound_derivative_order`):
 
 ```
-diff_result = feedback - s_b    (stem displacement minus previous)
-soundInt[sampleIndex] = Sint32(diff_result * main_volume_coeff)
-soundFloat[sampleIndex] = float(diff_result * main_volume_coeff)
+diff_result = feedback - s_b              (1st derivative: velocity)
+
+if sound_derivative_order == 1:
+    output = diff_result
+elif sound_derivative_order == 2:
+    output = diff_result - prev_diff      (2nd derivative: acceleration)
+    prev_diff = diff_result               (persisted in sound_prev_diff[channel])
+
+soundInt[sampleIndex] = Sint32(output * main_volume_coeff)
+soundFloat[sampleIndex] = float(output)
 ```
+
+The `prev_diff` state is persisted across kernel launches via the `sound_prev_diff`
+global memory buffer (one `real` per output channel). It is loaded at kernel start
+and saved at kernel end.
 
 ### sumArray Reduction
 
