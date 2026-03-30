@@ -41,6 +41,8 @@ Default preset: `presets/BaselinePreset1.json`. Default initialization settings 
 - "How do I run/start/test X?" — server startup, build commands, test invocation
 - "Where is X configured?" — env vars, config files, runtime selection
 
+**ESPECIALLY during debugging.** When something doesn't work as expected — wrong output, silent audio, unexpected behavior — do NOT start Grepping source files to trace the issue. Go back to `docs/index.md`, find the relevant module doc, and read the documented architecture first. The docs describe sound channel routing, output paths, and parameter flow. Source-code trawling without doc context leads to hours of wasted investigation.
+
 The docs exist precisely to avoid expensive source-code trawling.
 
 Documentation lookup order (stop as soon as you have enough context):
