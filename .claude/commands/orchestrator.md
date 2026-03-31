@@ -91,7 +91,36 @@ Then wait for inbound messages.
 
 ## Step 3: Handle Inbound Messages
 
-When a message arrives via Telegram (or another channel), classify and dispatch:
+When a message arrives via Telegram (or another channel):
+
+### Voice Message Detection
+
+If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mime` starts with `audio/` (e.g., `audio/ogg`), it is a voice message:
+
+1. Download the audio file:
+   ```
+   mcp__plugin_telegram_telegram__download_attachment(file_id=<attachment_file_id>)
+   ```
+   This returns the local file path (e.g., `~/.claude/channels/telegram/inbox/12345.ogg`).
+
+2. Transcribe using faster-whisper:
+   ```bash
+   cd D:/repos/PianoidInstall/PianoidCore && .venv/Scripts/python D:/repos/PianoidInstall/tools/transcribe_voice.py "<downloaded_path>"
+   ```
+   The transcribed text is printed to stdout. Stderr shows timing info.
+
+3. Acknowledge to the user:
+   ```
+   Voice message received. Transcription: "<text>"
+   ```
+
+4. Process the transcribed text as if the user had typed it (continue to classification below).
+
+**First-run note:** The `small` model (~500MB) downloads automatically on first use. Pre-download with `--preload` flag if needed.
+
+### Text Message Classification
+
+Classify and dispatch:
 
 ### Task Classification
 
