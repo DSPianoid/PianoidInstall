@@ -160,3 +160,18 @@ Removed field, pybind11 binding, and all Python set-sites.
 | 7-10 | Dead code cleanup (`processEventsAtTime`, `applyEvent`, `cycle_accurate`, debug printfs) | Minor | **Done** — removed dead methods, unused field, reduced printfs |
 | 11 | Double mutex in `RealTimeEventBuffer` | Minor | **Done** — consolidated to single lock scope in `pushEvent()` and `drainEventsUpTo()` |
 | 14 | No playback integration tests | Major | Pending |
+
+---
+
+## Microphone-Based Volume Equalization
+
+**Status:** Planned. Implementation pending.
+
+Acoustic volume equalization using microphone feedback. Required because exciter-soundboard output differs from the digital signal. Involves:
+
+1. **Deprecate per-string `volume_coeff`** — fold into excitation parameters, remove from `gaussKernel`
+2. **C++ mic capture** — `CaptureBuffer` + driver-level recording (SDL3 recording stream, ASIO input buffers)
+3. **`MicAnalyzer`** — RMS/spectral measurement on captured audio
+4. **Calibration pipeline** — play note online, capture mic, measure, compute correction, apply to excitation `volume_coefficients` at all 5 velocity levels
+
+See [MIC_VOLUME_EQUALIZATION_PLAN.md](MIC_VOLUME_EQUALIZATION_PLAN.md) for full design.
