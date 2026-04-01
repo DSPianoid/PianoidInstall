@@ -149,26 +149,52 @@ Classify and dispatch:
 
 ### Spawning Sub-Agents
 
-**Always include in the sub-agent prompt:**
+**CRITICAL RULES:**
+
+1. **Always use skills, not inline instructions.** Sub-agents must be invoked with the appropriate skill (`/dev`, `/analyse`, `/update-docs`, etc.). Skills enforce correct workflows (docs-first, baseline tests, builds, verification). Never give a sub-agent raw implementation instructions — the skill handles the workflow.
+
+2. **Never edit code or read source files in the orchestrator.** The orchestrator is a dispatcher. The moment you start reading source code or editing files, you are doing it wrong. Spawn a sub-agent instead.
+
+3. **Keep agents alive until user approves.** Do NOT consider a sub-agent's work done until the user confirms the result is acceptable. Save the agent ID so you can send follow-up instructions via `SendMessage` if the user reports issues.
+
+4. **Continue agents, don't replace them.** When a research agent builds context that is needed for implementation, use `SendMessage(to: agentId)` to transition that same agent to implementation — do NOT spawn a fresh agent that loses the context. Similarly, if the user requests fixes to work done by an agent, relay the fix request to the same agent.
+
+**Include in the sub-agent prompt:**
 1. The user's exact request (quoted)
 2. Any context from the conversation that's relevant
 3. Clear instruction on whether to make changes or just research
-4. Instruction to report results concisely
 
-**Always use `run_in_background: true`** for non-trivial tasks so the orchestrator remains responsive to new messages.
+**Use `run_in_background: true`** for non-trivial tasks so the orchestrator remains responsive to new messages.
 
-**When a sub-agent completes:**
-1. Summarize the result (keep it concise — 5-10 lines max)
-2. Send summary to user via Telegram
-3. If the agent produced files/screenshots, attach them
-4. If the agent has questions, relay them and wait for user response
+### Agent Lifecycle
 
-### Relaying Questions
+```
+User sends task via Telegram
+    |
+    v
+Orchestrator classifies task → selects skill
+    |
+    v
+Spawn sub-agent with skill (save agentId)
+    |
+    v
+Agent completes → orchestrator summarizes to user via Telegram
+    |
+    v
+User approves?
+    |-- YES → agent is done
+    |-- NO / issues → SendMessage(to: agentId) with fix instructions
+                          |
+                          v
+                      Agent fixes → orchestrator relays result → repeat
+```
 
-When a sub-agent needs user input:
-1. Send the question via Telegram
-2. When the user replies, use `SendMessage` to forward the answer to the waiting agent
-3. Continue until the agent completes
+### Relaying Questions and Fixes
+
+When a sub-agent needs user input or the user reports issues:
+1. Send the question/issue via Telegram
+2. When the user replies, use `SendMessage(to: agentId)` to forward to the **same** agent
+3. Continue until the user approves the result
 
 ---
 
@@ -254,10 +280,23 @@ On `/orchestrator stop` or user saying "stop" / "done for now":
 ## What the Orchestrator Does NOT Do
 
 - **Read source files** — spawn a sub-agent
-- **Edit code** — spawn `/dev`
+- **Edit code** — spawn `/dev` sub-agent
 - **Run builds or tests** — spawn a sub-agent
-- **Analyze architecture** — spawn `/analyse`
+- **Analyze architecture** — spawn `/analyse` sub-agent
 - **Long research** — spawn an Explore agent
 - **Hold large amounts of project context** — that's what sub-agents are for
+- **Give sub-agents raw inline instructions** — always invoke via a skill
+- **Spawn a new agent when an existing one has the context** — use `SendMessage`
+- **Declare work complete without user approval** — keep the agent alive
 
 The orchestrator is a **dispatcher and communicator**, not a worker.
+
+### Anti-Patterns (learned from incidents)
+
+| Mistake | Correct Approach |
+|---------|-----------------|
+| Reading source files to "quickly check" something | Spawn Explore agent or ask sub-agent |
+| Editing code directly because "it's just one line" | Spawn `/dev` sub-agent — even for one line |
+| Spawning fresh agent after research agent found context | `SendMessage` to continue the same agent |
+| Reporting task complete before user confirms | Wait for explicit approval on Telegram |
+| Giving agent raw instructions instead of a skill | Always invoke `/dev`, `/analyse`, etc. |
