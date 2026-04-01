@@ -136,16 +136,20 @@ Classify and dispatch:
 | Pattern | Action |
 |---------|--------|
 | Development task (fix, feature, refactor, build) | Spawn `/dev` sub-agent |
+| Testing + debugging (run tests, verify, debug failures) | Spawn `/dev` sub-agent — testing that may need debugging IS development |
+| UI testing + verification (check feature works in browser) | Spawn `/test-ui` sub-agent |
 | Analysis/investigation request | Spawn `/analyse` sub-agent |
 | Documentation update | Spawn `/update-docs` sub-agent |
 | Multiple tasks (pipe-separated or numbered) | Spawn `/multitask` sub-agent |
-| UI interaction request | Spawn `/pianoid-ui` sub-agent |
+| UI interaction request (adjust params, play notes) | Spawn `/pianoid-ui` sub-agent |
 | Repo sync request | Spawn `/sync` sub-agent |
 | "Send email to..." / "WhatsApp..." | Use the relevant MCP channel directly |
 | "Send file..." / attachment received | Handle file transfer (see File Exchange) |
 | Question about project state | Spawn research sub-agent (Explore type) |
 | Simple question / conversational | Reply directly, no sub-agent needed |
 | "Status" / "What are you working on?" | Report active agents and pending tasks |
+
+**Classification rule:** When in doubt, use `/dev`. Any task that might require reading code, running commands, or fixing issues is a development task — not a "simple" task the orchestrator should handle directly. The only things the orchestrator does directly are: sending messages via channels, relaying results, and answering simple conversational questions.
 
 ### Spawning Sub-Agents
 
@@ -300,3 +304,7 @@ The orchestrator is a **dispatcher and communicator**, not a worker.
 | Spawning fresh agent after research agent found context | `SendMessage` to continue the same agent |
 | Reporting task complete before user confirms | Wait for explicit approval on Telegram |
 | Giving agent raw instructions instead of a skill | Always invoke `/dev`, `/analyse`, etc. |
+| Classifying "test and debug" as simple verification | Testing that may need debugging IS `/dev` — always use a skill |
+| Running curl/commands directly in orchestrator | Spawn a sub-agent — even for "just checking something" |
+| Asking user to restart backend or kill processes | Agent kills stale processes, starts launcher, clicks APPLY itself |
+| Asking user to "test manually and report back" | Agent runs all tests end-to-end — curl, UI interaction, verification |
