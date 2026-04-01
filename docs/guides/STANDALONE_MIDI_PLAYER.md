@@ -21,7 +21,7 @@ It provides the lowest-latency path from MIDI input to audio output.
 
 ```bash
 cd D:\repos\PianoidInstall\PianoidCore
-.venv\Scripts\python pianoid_middleware\playPianoid.py [preset_path]
+.venv\Scripts\python pianoid_middleware\playPianoid.py [preset_path] [options]
 ```
 
 If no preset path is given, the default `presets/BaselinePreset1.json` is loaded.
@@ -30,7 +30,7 @@ The player will:
 
 1. Initialize the CUDA synthesis engine with the specified preset
 2. Start real-time audio playback
-3. Enumerate available MIDI ports and connect to port 0
+3. Enumerate available MIDI ports and connect to the selected port (default: port 0)
 4. Print "Ready. Press Ctrl+C to quit."
 5. Wait for MIDI input until interrupted
 
@@ -38,24 +38,55 @@ The player will:
 
 ## Command-Line Parameters
 
-Currently `playPianoid.py` accepts a single positional argument:
+All engine initialization parameters are exposed as command-line arguments:
+
+### Positional
 
 | Position | Parameter | Default | Description |
 |----------|-----------|---------|-------------|
 | 1 | `preset_path` | `presets/BaselinePreset1.json` | Path to the JSON preset file (relative to `PianoidCore/`) |
 
-The engine is initialized with these hardcoded defaults:
+### Engine Parameters
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `filterlen` | `48 * 128 * 3` (18432) | FIR filter length |
-| `string_iteration` | `6` | Solver iterations per string per cycle |
-| `volume` | `48` | Initial main volume (0--127) |
-| `array_size` | `384` | Spatial discretization points per string block |
-| `use_paceholder` | `False` | Use real CUDA engine (not placeholder) |
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--filterlen` | `18432` (48\*128\*3) | FIR filter length |
+| `--string-iteration` | `6` | Solver iterations per string per cycle |
+| `--volume` | `48` | Initial main volume, MIDI-style 0--127 |
+| `--max-volume` | *(none)* | Explicit max volume float (overrides `--volume` if set) |
+| `--array-size` | `384` | Spatial discretization points per string block (384 or 512) |
+| `--sample-rate` | `48000` | Audio sample rate in Hz (values < 1000 are multiplied by 1000) |
+| `--cycle-iterations` | `64` | Samples per synthesis cycle (minimum 16) |
+| `--buffer-size` | `2` | Audio buffer chunks: 2=low latency, 4=balanced, 8=high stability |
+| `--audio-driver-type` | `0` | Audio driver selection (see table below) |
+| `--listen-to-modes` | `1` | Sound channels: 0=string displacement, 1=mode forces |
+| `--sound-derivative-order` | `1` | Sound derivative order for output |
+| `--no-audio` | *(flag)* | Initialize engine without audio output |
+| `--use-placeholder` | *(flag)* | Use placeholder engine instead of real CUDA engine |
+| `--debug-build` | *(flag)* | Use debug build of pianoidCuda if available |
 
-Audio driver selection follows the compile-time default (ASIO Callback if available,
-SDL3 otherwise). The `audio_driver_type` is not currently exposed as a CLI argument.
+### MIDI Parameters
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--midi-port` | `0` | MIDI input port index to connect to |
+| `--list-midi-ports` | *(flag)* | List available MIDI input ports and exit |
+| `--no-midi` | *(flag)* | Run without MIDI listener (audio output only) |
+
+---
+
+## Audio Driver Types
+
+| Value | Driver | Description |
+|-------|--------|-------------|
+| `0` | Auto-select | Default -- picks best available driver |
+| `1` | ASIO polling | ASIO without callback mode |
+| `2` | SDL2 | Legacy cross-platform fallback |
+| `3` | SDL3 | Cross-platform, works on all systems |
+| `4` | ASIO callback | Lowest latency, requires ASIO-compatible interface |
+
+**Recommendation:** Use ASIO Callback (`4`) for lowest latency when an ASIO device
+is available. Use SDL3 (`3`) as fallback on systems without ASIO drivers.
 
 ---
 
@@ -78,6 +109,42 @@ cd D:\repos\PianoidInstall\PianoidCore
 
 ```bash
 .venv\Scripts\python pianoid_middleware\playPianoid.py "C:\Users\me\my_presets\Grand.json"
+```
+
+### Force ASIO callback driver with higher volume
+
+```bash
+.venv\Scripts\python pianoid_middleware\playPianoid.py --audio-driver-type 4 --volume 80
+```
+
+### Use SDL3 driver with 512-point array size
+
+```bash
+.venv\Scripts\python pianoid_middleware\playPianoid.py --audio-driver-type 3 --array-size 512
+```
+
+### List available MIDI ports
+
+```bash
+.venv\Scripts\python pianoid_middleware\playPianoid.py --list-midi-ports
+```
+
+### Connect to a specific MIDI port
+
+```bash
+.venv\Scripts\python pianoid_middleware\playPianoid.py --midi-port 1
+```
+
+### Run without MIDI (audio output only, useful for API testing)
+
+```bash
+.venv\Scripts\python pianoid_middleware\playPianoid.py --no-midi
+```
+
+### Low-latency configuration
+
+```bash
+.venv\Scripts\python pianoid_middleware\playPianoid.py --audio-driver-type 4 --buffer-size 2 --cycle-iterations 64
 ```
 
 ---
@@ -137,34 +204,6 @@ for the full action reference.
 
 ---
 
-## Audio Driver Selection
-
-The standalone player uses the compile-time default audio driver. The priority order is:
-
-| Priority | Driver | `audio_driver_type` | Description |
-|----------|--------|---------------------|-------------|
-| 1 | ASIO Callback | `4` | Lowest latency, requires ASIO-compatible interface |
-| 2 | ASIO Polling | `1` | ASIO without callback mode |
-| 3 | SDL3 | `3` | Cross-platform, works on all systems |
-| 4 | SDL2 | `2` | Legacy fallback |
-| -- | Default | `0` | Auto-select best available |
-
-To change the audio driver, modify the `initialize()` call in `playPianoid.py` and
-add `audio_driver_type=N` to the keyword arguments. For example:
-
-```python
-pianoid = initialize(
-    preset, filterlen,
-    string_iteration=6,
-    volume=48,
-    array_size=384,
-    use_paceholder=False,
-    audio_driver_type=3,  # Force SDL3
-)
-```
-
----
-
 ## Troubleshooting
 
 ### No MIDI input ports found
@@ -182,7 +221,7 @@ WARNING: No MIDI input ports available. Running without MIDI input.
 ### Wrong audio driver / no sound
 
 - If ASIO is selected but no ASIO device is available, the engine may fail to initialize
-- Set `audio_driver_type=3` in the `initialize()` call to force SDL3 (works everywhere)
+- Use `--audio-driver-type 3` to force SDL3 (works everywhere)
 - Check that your audio interface is not locked by another application (ASIO is
   exclusive-access)
 
@@ -194,17 +233,15 @@ WARNING: No MIDI input ports available. Running without MIDI input.
 
 ### Port index mismatch
 
-The C++ listener always connects to MIDI port 0. If your target device is on a
-different port, modify the `midi_listener.start(0)` call in `playPianoid.py` to
-use the correct port index (shown in the port enumeration output at startup).
+Use `--list-midi-ports` to see available ports and their indices, then use
+`--midi-port N` to connect to the correct one.
 
 ### High latency
 
-- Use ASIO Callback (`audio_driver_type=4`) for lowest latency
-- Reduce `string_iteration` (fewer solver iterations = faster cycles, but less accuracy)
+- Use `--audio-driver-type 4` for ASIO Callback (lowest latency)
+- Reduce `--string-iteration` (fewer solver iterations = faster cycles, but less accuracy)
+- Use `--buffer-size 2` for minimum audio buffer latency
 - Ensure no other GPU-intensive applications are running
-- Check `circular_buffer_chunks` -- smaller values (2--4) reduce latency at the cost of
-  stability
 
 ### Ctrl+C does not stop cleanly
 
