@@ -34,13 +34,15 @@ Invoke this skill after code changes that affect synthesis, parameters, or UI co
    ```
    Wait for ports 3000 + 3001.
 
-3. Open browser, set layout if needed, navigate to `http://localhost:3000`.
+3. **Timeout safeguard:** If any chrome-devtools MCP call (especially `new_page`, `navigate_page`) does not respond within 30 seconds, abort the task immediately and report: "Browser MCP timed out — chrome-devtools server may not be running or is unresponsive." Do NOT retry or wait indefinitely.
 
-4. Click **APPLY** → wait for **"Playing"**.
+4. Open browser, set layout if needed, navigate to `http://localhost:3000`.
 
-5. Select pitch via **Pitch spinbutton** → fill value → press Enter.
+5. Click **APPLY** → wait for **"Playing"**.
 
-6. **Take screenshot** — confirm preset loaded, pitch selected, status "Playing".
+6. Select pitch via **Pitch spinbutton** → fill value → press Enter.
+
+7. **Take screenshot** — confirm preset loaded, pitch selected, status "Playing".
 
 ### Phase 2: Baseline Measurement
 

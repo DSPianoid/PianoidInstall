@@ -165,7 +165,7 @@ Removed field, pybind11 binding, and all Python set-sites.
 
 ## Microphone-Based Volume Equalization
 
-**Status:** Planned. Implementation pending.
+**Status:** Implemented. Verified 2026-03-31.
 
 Acoustic volume equalization using microphone feedback. Required because exciter-soundboard output differs from the digital signal. Involves:
 

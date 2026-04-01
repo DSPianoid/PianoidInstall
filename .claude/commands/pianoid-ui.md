@@ -127,6 +127,10 @@ done
 
 The frontend comes up first; the launcher takes a few extra seconds.
 
+### Timeout Safeguard
+
+If any chrome-devtools MCP call (especially `new_page`, `navigate_page`) does not respond within 30 seconds, abort the task immediately and report: "Browser MCP timed out — chrome-devtools server may not be running or is unresponsive." Do NOT retry or wait indefinitely.
+
 ### Step 4: Open Browser
 
 Use chrome-devtools MCP:

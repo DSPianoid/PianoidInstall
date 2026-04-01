@@ -36,9 +36,18 @@ This keeps the orchestrator's context clean and able to run for extended session
 
 1. Check Telegram MCP is connected by calling `mcp__plugin_telegram_telegram__reply` with a test message
 2. If disconnected:
+   - First, check plugin dependencies are installed:
+     ```bash
+     ls ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4/node_modules/ 2>/dev/null | head -3
+     ```
+     If empty or missing, install them:
+     ```bash
+     cd ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4 && bun install
+     ```
+     Then instruct the user to reload VS Code — the plugin cannot start without `grammy` and `@modelcontextprotocol/sdk`.
    - Check for zombie bun processes: `tasklist | grep -i bun`
    - If more than 2 bun processes, kill all: `taskkill /F /IM bun.exe`
-   - Instruct user to reload VS Code
+   - If dependencies are present but still disconnected, instruct user to reload VS Code
 3. Verify inbox queue patch is active:
    - Check `~/.claude/channels/telegram/inbox/` exists
    - If not, run `python D:/repos/PianoidInstall/tools/apply_telegram_patch.py`
