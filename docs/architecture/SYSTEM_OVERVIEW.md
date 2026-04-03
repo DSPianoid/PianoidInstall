@@ -170,9 +170,14 @@ Main Process
     |       Pulls from ring buffer filled by engine thread.
     |       Must not block; no Python code runs here.
     |
-    +-- MIDI listener thread (optional, pianoidMidiListener.py)
-            Calls pianoid.perform_midi_command() for each MIDI event.
-            Pushes events into RealTimeEventBuffer (thread-safe, < 1us lock).
+    +-- MIDI listener thread (optional)
+            Two implementations:
+            a) C++ MidiInputListener (RtMidi callback, lowest latency)
+               Pushes NOTE/SUSTAIN events to RealTimeEventBuffer.
+               Volume/deck CC applied directly to RuntimeParameters.
+            b) Python MidiListener (legacy, pianoidMidiListener.py)
+               Polls rtmidi at 10ms, routes through perform_midi_command().
+            Both push events into RealTimeEventBuffer (thread-safe, < 1us lock).
 ```
 
 Thread safety is maintained by:

@@ -2,9 +2,16 @@
 
 ## Overview
 
-The MIDI system consists of two files:
+Two MIDI listener implementations exist:
 
-- `pianoidMidiListener.py` — the active listener that reads hardware MIDI input, maps events to actions, and pushes note events into the CUDA engine
+- **C++ `MidiInputListener`** (recommended) — embedded RtMidi in `pianoid_cuda/`, callback
+  mode for lowest latency, pushes events to `RealTimeEventBuffer`. See
+  [PLAYBACK_SYSTEM.md](../pianoid-cuda/PLAYBACK_SYSTEM.md#midiinputlistener).
+- **Python `MidiListener`** (legacy) — `pianoidMidiListener.py`, polls `rtmidi` at 10ms
+  intervals, maps events via YAML keyboard config. Supports advanced features (mode pad,
+  per-note CC, keyboard configuration utility).
+
+Supporting file:
 - `midi_commands.py` — lower-level `MidiCommand` and `MidiProcessor` classes (command data structure and a command-queue processor)
 
 ---

@@ -435,3 +435,56 @@ Also exposed via pybind11, `MidiEventConverter` provides static helpers for crea
 
 - `fromMidiBytes(status, data1, data2, cycle_index)` — single MIDI message
 - `fromMidiRecord(midi_record, sample_rate, samples_per_cycle)` — full MIDI file → `EventQueue`
+
+---
+
+## MidiInputListener
+
+**Files:** `MidiInputListener.h` / `MidiInputListener.cpp`
+
+C++ MIDI input listener using embedded RtMidi (MIT-licensed). Receives MIDI from a
+hardware controller via RtMidi's callback mode (lowest latency, no polling) and pushes
+events into a `RealTimeEventBuffer` for cycle-accurate dispatch.
+
+```cpp
+class MidiInputListener {
+public:
+    MidiInputListener(Pianoid* pianoid, RealTimeEventBuffer* buffer);
+    std::vector<std::string> listPorts();
+    void start(int port);
+    void stop();
+    bool isRunning() const;
+    void setCycleEstimator(CycleTimeEstimator* estimator);
+};
+```
+
+### MIDI Message Handling
+
+| MIDI Message | Action |
+|---|---|
+| NOTE_ON (0x90, vel>0) | `MidiEventConverter::fromMidiBytes` → `RealTimeEventBuffer` |
+| NOTE_OFF (0x80 or vel=0) | `MidiEventConverter::fromMidiBytes` → `RealTimeEventBuffer` |
+| Sustain (CC 64) | Sustain event → `RealTimeEventBuffer` |
+| Volume (CC 7) | Direct `setRuntimeParameters(volume_level)` on `Pianoid` |
+| Deck feedback (CC 74) | Exponential mapping (64→1.0, 127→8.0, 0→0.125) → `setRuntimeParameters` |
+
+Volume and deck feedback bypass the event buffer for immediate effect, matching legacy
+Python listener behavior. Note/sustain events go through the event buffer for
+cycle-accurate scheduling.
+
+### RtMidi Integration
+
+RtMidi is embedded as single-file source (`RtMidi.h` + `RtMidi.cpp`). On Windows it uses
+the WinMM backend (`__WINDOWS_MM__` define, `winmm.lib` already linked). The listener
+uses callback mode — RtMidi calls `midiCallback()` on its internal thread, which converts
+the message and pushes to the thread-safe `RealTimeEventBuffer`.
+
+### Python Binding
+
+```python
+listener = pianoidCuda.MidiInputListener(pianoid_cpp, realtime_buffer)
+listener.setCycleEstimator(engine.getCycleEstimator())
+ports = listener.listPorts()      # ["MIDI Controller 0", ...]
+listener.start(0)                 # Open port 0, begin receiving
+listener.stop()                   # Close port
+```

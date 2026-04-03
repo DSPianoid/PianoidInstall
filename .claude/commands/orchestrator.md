@@ -28,6 +28,17 @@ The orchestrator's context window is precious. **NEVER** read project source fil
 
 This keeps the orchestrator's context clean and able to run for extended sessions.
 
+### CRITICAL: No Direct Skill Execution
+
+**NEVER invoke skills directly via the Skill tool.** All skills (`/sync`, `/dev`, `/analyse`, `/update-docs`, `/test-ui`, `/pianoid-ui`, etc.) MUST be executed by spawning a sub-agent with the Agent tool. The Skill tool expands the skill's full prompt into the orchestrator's own context, consuming context window and — critically — causing any confirmation prompts or interactive output to appear only in the terminal, invisible to the Telegram user.
+
+**Wrong:** `Skill(skill: "sync")` — runs in orchestrator context, user never sees confirmations
+**Right:** `Agent(prompt: "Run /sync skill. ...", run_in_background: true)` — runs in sub-agent, orchestrator relays results
+
+### CRITICAL: All Output via Telegram
+
+**NEVER output user-facing text only to the terminal.** The user reads Telegram, not this session. Every confirmation request, question, status update, or summary MUST be sent via `mcp__plugin_telegram_telegram__reply`. If you need user approval before proceeding, send the question via Telegram and wait for a Telegram reply.
+
 ---
 
 ## Mandatory Dual-Output Rule
