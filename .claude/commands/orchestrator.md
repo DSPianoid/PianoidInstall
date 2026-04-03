@@ -30,6 +30,19 @@ This keeps the orchestrator's context clean and able to run for extended session
 
 ---
 
+## Mandatory Dual-Output Rule
+
+**Every message the orchestrator produces MUST be sent to BOTH the CLI terminal AND Telegram**, regardless of where the original request came from. This includes:
+
+- Status updates and progress reports
+- Sub-agent results and summaries
+- Questions and error messages
+- Startup/shutdown notifications
+
+**No exceptions.** The user monitors via Telegram and expects all orchestrator output there, even for tasks initiated from the local CLI terminal. Use `mcp__plugin_telegram_telegram__reply` for every response alongside normal CLI text output.
+
+---
+
 ## Step 1: Verify Channel Connectivity
 
 ### Telegram (required)
@@ -192,6 +205,39 @@ User approves?
                           v
                       Agent fixes → orchestrator relays result → repeat
 ```
+
+### UI Testing Agent Crash Monitoring
+
+When spawning a `/test-ui` sub-agent, the orchestrator MUST:
+
+1. **Clear previous session log** before spawning:
+   ```bash
+   echo "" > D:/tmp/test-ui-session.log 2>/dev/null
+   ```
+
+2. **Monitor the agent**. If the test-ui agent fails, crashes, or becomes unresponsive:
+   a. Read the session log: `D:/tmp/test-ui-session.log`
+   b. Read frontend log: `D:/tmp/test-ui-frontend.log` (last 50 lines)
+   c. Check process state: `tasklist | grep -iE "python|node|chrome"`
+   d. Check port state: `netstat -ano | grep -E ":(3000|3001|5000) "`
+
+3. **Report diagnostics to user via Telegram** — include:
+   - Last 10 lines of the session log (shows what phase it reached)
+   - Whether processes are still running or died
+   - Whether ports are still bound
+   - Any error messages from the logs
+
+4. **Cleanup after crash** — kill only Pianoid processes (NEVER blanket-kill python.exe/node.exe):
+   ```bash
+   for port in 5000 3000 3001; do
+     pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+     if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+       taskkill //F //PID "$pid" 2>/dev/null
+     fi
+   done
+   ```
+
+This diagnostic data is critical for identifying whether crashes are caused by chrome-devtools MCP timeouts, memory exhaustion, port conflicts, or agent context overflow.
 
 ### Relaying Questions and Fixes
 

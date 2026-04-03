@@ -165,13 +165,70 @@ Removed field, pybind11 binding, and all Python set-sites.
 
 ## Microphone-Based Volume Equalization
 
-**Status:** Implemented. Verified 2026-03-31.
+**Status:** Implemented but uncommitted. Precision investigation ongoing.
 
-Acoustic volume equalization using microphone feedback. Required because exciter-soundboard output differs from the digital signal. Involves:
+Acoustic volume equalization using microphone feedback. Required because exciter-soundboard output differs from the digital signal. The system has been significantly rewritten from the original plan.
 
-1. **Deprecate per-string `volume_coeff`** — fold into excitation parameters, remove from `gaussKernel`
-2. **C++ mic capture** — `CaptureBuffer` + driver-level recording (SDL3 recording stream, ASIO input buffers)
-3. **`MicAnalyzer`** — RMS/spectral measurement on captured audio
-4. **Calibration pipeline** — play note online, capture mic, measure, compute correction, apply to excitation `volume_coefficients` at all 5 velocity levels
+### What Was Implemented (uncommitted across 3 repos)
 
-See [MIC_VOLUME_EQUALIZATION_PLAN.md](MIC_VOLUME_EQUALIZATION_PLAN.md) for full design.
+**PianoidCore (~947 lines changed):**
+
+- **Semi-offline calibration mode** — new C++ methods (`stopEngineKeepAudio`, `executeSingleMeasurementCycle`, `restartOnlineEngine`) plus `PlaybackConfig.keep_audio_on_stop` flag. The engine loop stops but the audio driver stays alive, enabling deterministic cycle-by-cycle synthesis from Python (no `time.sleep` timing).
+- **`CalibrationController` rewrite** — replaced time-based waits with synchronous cycle execution:
+  - `measure_single(pitch, velocity)` — single note measurement with frequency-dependent settling
+  - `equalize_keyboard(reference_pitch, velocity)` — full keyboard equalization with noise-floor detection, correction, and iterative 3-pass verification (20% error threshold)
+  - `tune_single(pitch, velocity, target_db)` — iterative single-note tuning to a target dB (1 dB tolerance, max 5 iterations)
+- **Clipping protection** — Sint32 overflow guard before each measurement
+- **3 new REST endpoints:** `POST /measure_rms`, `POST /equalize_keyboard`, `POST /tune_note` (plus `/calibration_status` and `/calibration_cancel`)
+- **`parameter_manager.py`** — removed `_debug_extra_volume_arg` and old volume_coefficients upload path
+
+**PianoidBasic:**
+
+- Removed `volume_coefficient` from `PhysicalParameters.set_params`
+- Deprecated `volume_coefficient` path in `Pitch.update_excitation`
+
+**PianoidTunner (+233 lines in Excitation.jsx):**
+
+- "Measure RMS" button with dB display
+- Target dB input + "Tune Note" button
+- "Equalize Keyboard" with progress polling and cancel support
+
+### Architecture Change: Semi-Offline Mode
+
+The original plan used online playback with `time.sleep` for timing. The implementation replaced this with a **semi-offline** approach:
+
+1. `enter_calibration_mode()` stops the engine loop but keeps the audio driver alive
+2. Python calls `executeSingleMeasurementCycle()` synchronously — exact cycle count, no timing races
+3. `exit_calibration_mode()` restarts the online engine loop
+
+This eliminates all `time.sleep` calls and makes measurements deterministic.
+
+### Known Issues (from user testing)
+
+| Issue | Status | Description |
+|-------|--------|-------------|
+| ~~Precision at low volume~~ | **Fixed** | Bisection algorithm converges reliably at all volume levels |
+| ~~Non-linear volume curve~~ | **Fixed** | Bisection exploits monotonicity without assuming linearity |
+| ~~Outlier rejection disabled~~ | **Fixed** | `MEASURE_REPETITIONS = 3` — median filtering now active |
+| Single velocity only | Open | Only one velocity level supported per session; plan calls for all 5 levels |
+| No persistence | Open | Corrections are not saved to the preset file — lost on restart |
+
+### Algorithm Change: Linear Correction to Bisection
+
+The original `tune_single` and `equalize_keyboard` Phase 3 used linear dB correction (`10^(error/20)`) which assumed the volume-to-multiplier relationship was linear in dB. This caused oscillation and overshoot, especially at low volume levels.
+
+Replaced with `_bisect_to_target()` — a bisection search on the volume coefficient:
+
+1. Measure at current coefficient
+2. Establish a bracket `[lo, hi]` where measured dB straddles the target (exponential probing with factor 4x)
+3. Bisect: midpoint coefficient, measure, narrow bracket
+4. Converge to 0.2 dB tolerance (was 1.0 dB) within max 20 iterations
+
+Key constants: `BISECTION_TOLERANCE_DB = 0.2`, `BISECTION_MAX_ITERATIONS = 20`, `MEASURE_REPETITIONS = 3`.
+
+### Next Steps
+
+- Implement all 5 velocity levels in a single calibration pass
+- Persist corrections to preset JSON
+
+See [MIC_VOLUME_EQUALIZATION_PLAN.md](MIC_VOLUME_EQUALIZATION_PLAN.md) for the original design and current implementation details.

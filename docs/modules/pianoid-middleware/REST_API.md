@@ -35,6 +35,13 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /get_chart_test           -- render a chart
   /start_test               -- execute an action
   /shutdown                 -- graceful shutdown (free GPU, stop Flask)
+  /measure_rms              -- measure RMS for a single pitch (mic)
+  /equalize_keyboard        -- equalize volume across keyboard (mic, background)
+  /tune_note                -- iteratively tune a pitch to target dB (mic)
+  /calibration_status       -- poll calibration progress
+  /calibration_cancel       -- cancel running calibration
+  /mic_devices              -- list microphone input devices
+  /set_mic_device           -- select microphone input device
   /preset/list              -- list loaded presets + active preset
   /preset/load              -- load preset to GPU library (no activation)
   /preset/switch            -- switch active preset (double-buffer swap)
@@ -738,6 +745,201 @@ Response `200`: string map dictionary (structure defined by `StringMap` domain c
 Returns the block-to-string mapping from `pianoid.sm.get_strings_for_stringmap_manager()`.
 
 Response `200`: block map array.
+
+---
+
+## Calibration Endpoints
+
+These endpoints use the **semi-offline calibration mode**: the engine loop is stopped but the audio driver stays alive, allowing deterministic cycle-by-cycle synthesis and microphone capture. See [MIC_VOLUME_EQUALIZATION_PLAN.md](http://localhost:8001/development/MIC_VOLUME_EQUALIZATION_PLAN/) for architecture details.
+
+### `POST /measure_rms`
+
+Measures RMS for a single pitch via microphone. Automatically enters and exits semi-offline calibration mode.
+
+Request body:
+```json
+{
+  "pitch": 60,
+  "velocity": 95,
+  "repetitions": 3
+}
+```
+
+- `pitch` (required): MIDI pitch number
+- `velocity` (optional, default `95`): MIDI velocity 0-127
+- `repetitions` (optional, default `1`): number of measurements to take. When > 1, takes multiple samples and returns the median to reject outliers. Internal calibration workflows (equalize, tune) use 3 repetitions by default.
+
+Response `200`:
+```json
+{
+  "rms": 0.00234,
+  "peak": 0.0089,
+  "spectralEnergy": 0.0018,
+  "db": -52.6,
+  "capturedFrames": 24000,
+  "analyzedFrames": 14400
+}
+```
+
+Response `400` if `pitch` missing or pianoid not initialized.
+Response `500` on measurement error.
+
+---
+
+### `POST /equalize_keyboard`
+
+Starts full keyboard equalization in a background thread. Measures every available pitch and adjusts excitation volume coefficients to match a reference pitch's RMS.
+
+Three-phase process per pitch: noise floor lift, initial correction, iterative verification (up to 3 passes, 20% error threshold). Poll progress via `GET /calibration_status`.
+
+Request body:
+```json
+{
+  "reference_pitch": 60,
+  "velocity": 95,
+  "reference_rms": 0.01
+}
+```
+
+- `reference_pitch` (required): MIDI pitch to use as the equalization target
+- `velocity` (optional, default `95`): MIDI velocity for all measurements
+- `reference_rms` (optional): pre-measured RMS of reference pitch. If omitted, the reference is measured first.
+
+Response `200`:
+```json
+{
+  "status": "started",
+  "message": "Keyboard equalization started in background"
+}
+```
+
+Response `400` if `reference_pitch` missing or pianoid not initialized.
+Response `409` if calibration is already in progress.
+Response `500` on error.
+
+---
+
+### `POST /tune_note`
+
+Iteratively adjusts the excitation volume coefficient for a single pitch until the measured dB matches the target (within 1 dB tolerance, max 5 iterations). Blocking — returns when tuning completes.
+
+Request body:
+```json
+{
+  "pitch": 60,
+  "velocity": 95,
+  "target_db": -35.0
+}
+```
+
+- `pitch` (required): MIDI pitch number
+- `velocity` (optional, default `95`): MIDI velocity 0-127
+- `target_db` (required): target RMS level in decibels (e.g. `-35.0`)
+
+Response `200` (converged):
+```json
+{
+  "rms": 0.0178,
+  "db": -35.0,
+  "iterations": 3,
+  "converged": true
+}
+```
+
+Response `200` (did not converge):
+```json
+{
+  "rms": 0.0195,
+  "db": -34.2,
+  "iterations": 5,
+  "converged": false
+}
+```
+
+Response `400` if `pitch` or `target_db` missing, or pianoid not initialized.
+Response `500` on error.
+
+---
+
+### `GET /calibration_status`
+
+Returns the current calibration progress. Used to poll `equalize_keyboard` status from the frontend.
+
+Response `200` (not running):
+```json
+{
+  "running": false,
+  "progress": 0.0
+}
+```
+
+Response `200` (in progress):
+```json
+{
+  "running": true,
+  "progress": 0.45,
+  "current_pitch": 57,
+  "current_level": null,
+  "pitches_completed": 10,
+  "results": {
+    "48": {"rms": 0.0023, "db": -52.8, "correction": 1.23, "noise_boosted": false, "boost_iterations": 0}
+  },
+  "corrections": {
+    "48": {"3": 1.23}
+  }
+}
+```
+
+---
+
+### `POST /calibration_cancel`
+
+Cancels a running keyboard equalization. The equalization thread stops after the current pitch completes.
+
+Response `200`:
+```json
+{"status": "cancelled"}
+```
+
+Response `200` (no calibration running):
+```json
+{"status": "not_running"}
+```
+
+---
+
+### `GET /mic_devices`
+
+Lists available microphone input devices.
+
+Response `200`:
+```json
+{
+  "devices": ["Microphone (Realtek)", "Line In (ASIO)"]
+}
+```
+
+Returns empty list if pianoid is not initialized.
+
+---
+
+### `POST /set_mic_device`
+
+Sets the microphone input device by name.
+
+Request body:
+```json
+{
+  "device_name": "Microphone (Realtek)"
+}
+```
+
+Response `200`:
+```json
+{"message": "Mic device set"}
+```
+
+Response `400` if pianoid not initialized.
 
 ---
 

@@ -33,6 +33,29 @@ Summarize to the user:
 
 **Ask the user to confirm the approach before proceeding.**
 
+## Step 1b: Kill Stale Backend Instances (MANDATORY)
+
+Before running any tests, builds, or starting the backend, **always** kill existing Pianoid backend and frontend processes. Stale instances from previous sessions cause port conflicts and distorted audio output (two audio drivers fighting over the sound device).
+
+**CRITICAL: Only kill processes bound to Pianoid ports — NEVER use blanket `taskkill //F //IM python.exe` or `taskkill //F //IM node.exe`.** Those commands kill MCP servers (WhatsApp, email, Google Workspace), Chrome DevTools, and even Claude Code itself (node.exe), crashing the orchestrator session.
+
+```bash
+# Kill ONLY processes on Pianoid ports (5000=backend, 3000/3001=frontend)
+for port in 5000 3000 3001; do
+  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    echo "Killing PID $pid on port $port"
+    taskkill //F //PID "$pid" 2>/dev/null
+  fi
+done
+# Wait for ports to release
+sleep 2
+# Verify ports are free
+netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000) " && echo "WARNING: ports still in use" || echo "Ports clear"
+```
+
+**This applies every time** — even if you think nothing is running. Previous sub-agents or user sessions may have left orphaned processes. Distorted sound is the #1 symptom of skipping this step.
+
 ## Step 2: Baseline Performance Test
 
 Before any code changes, run the performance test suite and save results:

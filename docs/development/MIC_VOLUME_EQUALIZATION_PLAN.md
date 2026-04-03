@@ -1,7 +1,7 @@
-# Microphone-Based Volume Equalization — Implementation Plan
+# Microphone-Based Volume Equalization
 
-**Status:** Implemented. Verified 2026-03-31.
-**Date:** 2026-03-31
+**Status:** Implemented but uncommitted. Precision investigation ongoing.
+**Date:** 2026-03-31 (initial), 2026-04-02 (updated)
 
 ## Problem
 
@@ -18,72 +18,179 @@ When outputting sound via a real soundboard with exciters, perceived acoustic vo
 
 ## Prerequisite: Deprecate Per-String `volume_coeff`
 
-The per-string `volume_coeff` array (`dev_volume_coeff`, 256 reals in `gaussKernel`) is a hidden scaling factor with no frontend editor. It must be deprecated.
+**Status:** Partially done (uncommitted).
 
-**Current usage:**
-- `gaussKernel` (`gaussTest.cu:50,92`): `result *= volume_coefficient`
-- Updated via `setUpdatedParameters()`, `loadPresetToLibrary()`, `updateSingleStringParameter_NEW()`
-- Stored in `PresetParameters.h:47`: `real volume_coefficients[NUM_STRINGS]`
+The per-string `volume_coeff` array (`dev_volume_coeff`, 256 reals in `gaussKernel`) is a hidden scaling factor with no frontend editor. Migration is in progress:
 
-**Migration path:**
-1. Fold existing `volume_coeff` values into the excitation parameters (`ExcitationParameters.volume_coefficients[level_idx]`) so the effect is preserved
-2. Set all `volume_coeff[i] = 1.0` (neutral)
-3. Remove `volume_coeff` multiplication from `gaussKernel`
-4. Remove `volume_coeff` from preset packing/unpacking
-5. All future volume adjustments go through excitation parameters, which are editable in the frontend
+- `volume_coefficient` removed from `PhysicalParameters.set_params` (PianoidBasic)
+- `volume_coefficient` path deprecated in `Pitch.update_excitation` (PianoidBasic)
+- `_debug_extra_volume_arg` and old volume_coefficients upload path removed from `parameter_manager.py`
 
-**This migration must happen before the mic equalization work.**
+Remaining: remove `volume_coeff` multiplication from `gaussKernel` and preset packing.
 
-## Architecture
+## Architecture — Semi-Offline Mode (Implemented)
+
+The original plan used online playback with `time.sleep` for measurement timing. The implementation replaced this with a **semi-offline** approach that eliminates all timing races:
 
 ```
-Mic Input
+Python CalibrationController
    |
-   v
-[Audio Hardware]
+   | enter_calibration_mode()
+   |   └── stopEngineKeepAudio() — stops engine loop, audio driver stays alive
    |
-   +--- SDL3: SDL_OpenAudioDeviceStream(RECORDING) --> recordingCallback()
-   +--- ASIO: bufferSwitchTimeInfo() reads input buffers (already allocated)
+   | For each pitch:
+   |   1. reset() — cut previous note tail
+   |   2. executeSingleMeasurementCycle() x N — run settling cycles (freq-dependent)
+   |   3. startMicCapture(duration_ms) — begin recording
+   |   4. beginStringBatch() / addStringToBatch() / commitStringBatch() — excite strings
+   |   5. executeSingleMeasurementCycle() x M — run measurement cycles
+   |   6. stopMicCapture() → samples
+   |   7. analyzeCapturedAudio(samples, sampleRate, freq) → MicMeasurement
+   |   8. Compute correction, apply to volume_coefficients, upload to GPU
    |
-   v
-CaptureBuffer (host std::vector<float>, sequential write)
-   |
-   v
-stopCapture() returns samples
-   |
-   v
-MicAnalyzer::analyze(samples, sampleRate, freqHz)
-   - Skip attack transient (frequency-dependent)
-   - Windowed RMS measurement
-   - Optional bandpass around fundamental
-   |
-   v
-Compute correction coefficient
-   |
-   v
-Apply to ExcitationParameters.volume_coefficients[level_idx]
-   |
-   v
-Upload via setNewExcitationBaseLevels() (double-buffer swap)
+   | exit_calibration_mode()
+   |   └── restartOnlineEngine() — resume normal playback
 ```
 
-## Measurement Timing
+Key C++ additions for semi-offline mode:
 
-Short windows are sufficient since we only need RMS energy, not full decay analysis.
+| Method | Description |
+|--------|-------------|
+| `stopEngineKeepAudio()` | Stops engine loop, keeps audio driver alive via `PlaybackConfig.keep_audio_on_stop` |
+| `executeSingleMeasurementCycle()` | Runs exactly one synthesis cycle synchronously |
+| `restartOnlineEngine()` | Resumes the normal online engine loop |
 
-| Frequency Range | Skip (attack) | Window (measure) | Total per note |
-|-----------------|---------------|-------------------|----------------|
-| Low (A0–C3)    | 100 ms        | 300 ms            | ~500 ms        |
-| Mid (C3–C5)    | 50 ms         | 200 ms            | ~350 ms        |
-| High (C5–C8)   | 30 ms         | 150 ms            | ~280 ms        |
+### Measurement Timing
 
-**Estimated total calibration time:** 88 pitches x 5 velocities x ~400ms avg = ~3 minutes
+Frequency-dependent settling and capture windows:
 
-## New C++ Components
+| Frequency Range | Settling delay | Skip (attack) | Window (measure) | Total per note |
+|-----------------|---------------|---------------|-------------------|----------------|
+| Low (< C3)     | 500 ms        | 100 ms        | 300 ms            | ~1000 ms       |
+| Mid (C3–C5)    | 300 ms        | 50 ms         | 200 ms            | ~650 ms        |
+| High (> C5)    | 150 ms        | 30 ms         | 150 ms            | ~430 ms        |
+
+All timing is converted to exact cycle counts via `ms_to_cycles()` — no `time.sleep` anywhere.
+
+## C++ Components (Implemented)
+
+### CaptureBuffer, MicAnalyzer, AudioDriver Extensions
+
+As originally planned — `CaptureBuffer` for host-memory sequential capture, `MicAnalyzer` for CPU-only RMS/spectral analysis. Both SDL3 and ASIO recording paths implemented. See the original plan section below for API signatures.
+
+### Pianoid Class Extensions
+
+```cpp
+class Pianoid {
+    // Semi-offline calibration
+    void stopEngineKeepAudio();           // Stop loop, keep audio driver
+    void executeSingleMeasurementCycle(); // Run one synthesis cycle synchronously
+    void restartOnlineEngine();           // Resume online loop
+
+    // Mic capture and analysis
+    void startMicCapture(int maxDurationMs);
+    std::vector<float> stopMicCapture();
+    MicMeasurement analyzeCapturedAudio(
+        const std::vector<float>& samples, int sampleRate, float freqHz);
+    void setMicDevice(const std::string& deviceName);
+    std::vector<std::string> listMicDevices();
+
+    // String batch excitation (for calibration)
+    void beginStringBatch();
+    void addStringToBatch(int cudaIdx, int velocity);
+    void commitStringBatch();
+};
+```
+
+All exposed via pybind11 bindings.
+
+## Python Calibration Controller (Implemented)
+
+`pianoid_middleware/calibration_controller.py` — orchestrates the full calibration workflow.
+
+### Core Methods
+
+**`measure_single(pitch, velocity, repetitions=1)`**
+
+Measures RMS for a single pitch. Enters/exits semi-offline mode automatically if not already in calibration mode. With `repetitions > 1`, takes multiple measurements and returns the median for outlier rejection.
+
+Returns: `{rms, peak, spectralEnergy, db, capturedFrames, analyzedFrames}`
+
+**`equalize_keyboard(reference_pitch, velocity, reference_rms=None)`**
+
+Full keyboard equalization relative to a reference pitch. Three-phase process per pitch:
+
+1. **Noise floor detection** — if spectral energy near the fundamental is too low relative to broadband RMS (ratio < 0.15), boost the excitation volume coefficient up to 5 times (2x per boost, max coefficient 20.0) until the signal is above noise.
+2. **Initial correction** — compute `reference_rms / measured_rms`, clamp to [0.1, 10.0], apply immediately.
+3. **Iterative verification** — re-measure up to 3 times. If error within 20% of reference, stop. Otherwise apply refinement correction (clamped to [0.5, 2.0]).
+
+Runs in a background thread. Progress tracked via `/calibration_status`.
+
+**`tune_single(pitch, velocity, target_db)`**
+
+Iteratively adjusts a single pitch to match a target dB level. Algorithm per iteration:
+1. Measure current RMS, convert to dB
+2. `correction = 10^((target_db - current_db) / 20)`
+3. Multiply volume coefficient by correction, upload to GPU
+4. Re-measure
+
+Stops when |error| < 1 dB or after 5 iterations.
+
+### Safety Features
+
+- **Sint32 clipping protection** — before each measurement, checks whether `volume_coeff * main_volume_coefficient` could overflow Sint32 max. Clamps with 90% headroom if needed.
+- **Cancellation** — `cancel()` sets `running = False`, checked between pitches during `equalize_keyboard`.
+
+## REST Endpoints (Implemented)
+
+See [REST API Reference](http://localhost:8001/modules/pianoid-middleware/REST_API/#calibration-endpoints) for full endpoint documentation.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/measure_rms` | POST | Measure RMS for a single pitch |
+| `/equalize_keyboard` | POST | Start full keyboard equalization (background) |
+| `/tune_note` | POST | Iteratively tune a single pitch to target dB |
+| `/calibration_status` | GET | Poll calibration progress |
+| `/calibration_cancel` | POST | Cancel running equalization |
+| `/mic_devices` | GET | List available microphone devices |
+| `/set_mic_device` | POST | Select microphone input device |
+
+## Frontend UI (Implemented)
+
+`PianoidTunner/src/Excitation.jsx` (+233 lines):
+
+- **Measure RMS** button — calls `/measure_rms` for the selected pitch, displays result in dB
+- **Target dB** input + **Tune Note** button — calls `/tune_note` with iterative convergence
+- **Equalize Keyboard** button — calls `/equalize_keyboard`, polls `/calibration_status` for progress, supports cancel
+
+## Known Issues and Precision Investigation
+
+### Non-Linear Volume/Multiplier Relationship
+
+User testing revealed that the volume-to-multiplier relationship is monotonic but **non-linear**. The current correction algorithm assumes linearity (`correction = target / measured`), which causes:
+
+- Good convergence at medium volume levels
+- Poor precision at low volume levels (small coefficient changes produce disproportionate dB changes)
+- `tune_single` may oscillate instead of converging
+
+**Root cause:** The CUDA synthesis path has multiple non-linear stages (excitation curve shape, mode force computation, output scaling). A simple linear gain correction does not model the actual transfer function.
+
+**Needed:** A better descent algorithm where tuning precision matches measurement precision — potentially logarithmic stepping or binary search in dB domain.
+
+### Other Issues
+
+| Issue | Status |
+|-------|--------|
+| `MEASURE_REPETITIONS = 1` (outlier rejection disabled) | Implemented but disabled for speed |
+| Single velocity level per session | Only velocity parameter used; 5-level sweep not wired |
+| No persistence to preset file | Corrections lost on restart |
+
+## Original Plan — C++ API Signatures
+
+<details>
+<summary>Click to expand original C++ component designs</summary>
 
 ### CaptureBuffer (`CaptureBuffer.h`)
-
-Simple host-memory sequential buffer. Not GPU-aware.
 
 ```cpp
 class CaptureBuffer {
@@ -101,8 +208,6 @@ public:
 ```
 
 ### MicAnalyzer (`MicAnalyzer.h` / `MicAnalyzer.cpp`)
-
-CPU-only signal analysis.
 
 ```cpp
 struct MicMeasurement {
@@ -128,100 +233,39 @@ public:
 ```cpp
 class AudioDriverInterface {
 public:
-    // ... existing methods ...
-
-    // Mic capture (optional, default throws)
     virtual void startCapture(int maxDurationMs = 5000) { throw ...; }
     virtual std::vector<float> stopCapture() { throw ...; }
     virtual bool isCapturing() const { return false; }
-
-    // Mic device selection
     virtual void setInputDevice(const std::string& deviceName) {}
     virtual std::vector<std::string> listInputDevices() { return {}; }
 };
 ```
 
-### SDL3 Recording Implementation
+</details>
 
-1. Open `SDL_AUDIO_DEVICE_DEFAULT_RECORDING` (or named device) as second stream
-2. Recording callback writes to `CaptureBuffer`
-3. Separate from playback stream — both run simultaneously
-4. Device enumeration via `SDL_GetAudioRecordingDevices()`
-
-### ASIO Recording Implementation
-
-1. Input buffers already allocated in `create_asio_buffers()` (indices 0..inputChannels-1)
-2. Currently skipped in `bufferSwitchTimeInfo()` (`isInput == FALSE` guard)
-3. When `capturing`, read input buffer data and append to `CaptureBuffer`
-4. Zero overhead when not capturing (just an `if (capturing)` check)
-5. ASIO input device = same hardware as output (no separate device selection)
-
-### Pianoid Class Extensions
-
-```cpp
-class Pianoid {
-    // ... existing ...
-    void startMicCapture(int maxDurationMs);
-    std::vector<float> stopMicCapture();
-    MicMeasurement analyzeCapturedAudio(
-        const std::vector<float>& samples, int sampleRate, float freqHz);
-    void setMicDevice(const std::string& deviceName);
-    std::vector<std::string> listMicDevices();
-};
-```
-
-### pybind11 Bindings
-
-Expose `startMicCapture`, `stopMicCapture`, `analyzeCapturedAudio`, `setMicDevice`, `listMicDevices` to Python.
-
-## Calibration Workflow
-
-```
-POST /calibrate_volume { velocity_levels: [0,1,2,3,4], pitches: "all" }
-
-For each velocity_level V in requested levels:
-  For each pitch P in [21..108]:
-    1. startMicCapture(skip_ms + window_ms + margin)
-    2. playNote(P, velocity_for_level[V])
-    3. wait(skip_ms + window_ms + margin)
-    4. samples = stopMicCapture()
-    5. measurement = analyzeCapturedAudio(samples, 48000, freq[P])
-    6. correction = target_rms(freq[P], V) / measurement.rms
-    7. correction = clamp(correction, 0.1, 10.0)
-    8. Update excitation volume_coefficients[V] for pitch P
-
-After all pitches measured:
-  Upload via setNewExcitationBaseLevels() (bulk double-buffer swap)
-
-Optional verification pass:
-  Re-measure a subset of pitches, report convergence
-```
-
-## Files to Create/Modify
+## Files Created/Modified
 
 | File | Action | Description |
 |------|--------|-------------|
-| `pianoid_cuda/CaptureBuffer.h` | Create | Host-memory capture buffer |
-| `pianoid_cuda/MicAnalyzer.h` | Create | Analysis header |
-| `pianoid_cuda/MicAnalyzer.cpp` | Create | RMS/spectral analysis |
-| `pianoid_cuda/AudioDriverInterface.h` | Modify | Add capture + device selection methods |
-| `pianoid_cuda/SDL3AudioDriver.h` | Modify | Add recording stream, CaptureBuffer |
-| `pianoid_cuda/SDL3AudioDriver.cpp` | Modify | Implement SDL3 recording |
-| `pianoid_cuda/ASIOAudioDriver.h` | Modify | Add CaptureBuffer |
-| `pianoid_cuda/ASIOAudioDriver.cpp` | Modify | Read input buffers when capturing |
-| `pianoid_cuda/AsioAudioInterface.h` | Modify | Expose input buffer pointers |
-| `pianoid_cuda/AsioAudioInterface.cpp` | Modify | Pass input data to callback |
-| `pianoid_cuda/Pianoid.cuh` | Modify | Capture/analysis method declarations |
-| `pianoid_cuda/Pianoid.cu` | Modify | Implement capture/analysis |
-| `pianoid_cuda/AddArraysWithCUDA.cpp` | Modify | pybind11 bindings |
-| `pianoid_cuda/setup.py` | Modify | Add MicAnalyzer.cpp to sources |
-| `pianoid_middleware/calibration_controller.py` | Create | REST orchestration |
-| `pianoid_middleware/backendServer.py` | Modify | Register calibration endpoint |
+| `pianoid_cuda/CaptureBuffer.h` | Created | Host-memory capture buffer |
+| `pianoid_cuda/MicAnalyzer.h` | Created | Analysis header |
+| `pianoid_cuda/MicAnalyzer.cpp` | Created | RMS/spectral analysis |
+| `pianoid_cuda/AudioDriverInterface.h` | Modified | Capture + device selection methods |
+| `pianoid_cuda/SDL3AudioDriver.h/.cpp` | Modified | SDL3 recording stream |
+| `pianoid_cuda/ASIOAudioDriver.h/.cpp` | Modified | ASIO input buffer reading |
+| `pianoid_cuda/Pianoid.cuh/.cu` | Modified | Semi-offline methods + capture/analysis |
+| `pianoid_cuda/AddArraysWithCUDA.cpp` | Modified | pybind11 bindings for all new methods |
+| `pianoid_middleware/calibration_controller.py` | Created | CalibrationController with 3 calibration modes |
+| `pianoid_middleware/backendServer.py` | Modified | 7 new REST endpoints |
+| `pianoid_middleware/parameter_manager.py` | Modified | Removed legacy volume_coefficients path |
+| `PianoidBasic/PhysicalParameters.py` | Modified | Removed volume_coefficient from set_params |
+| `PianoidBasic/Pitch.py` | Modified | Deprecated volume_coefficient update path |
+| `PianoidTunner/src/Excitation.jsx` | Modified | Calibration UI (+233 lines) |
 
 ## Risks and Open Questions
 
-1. **ASIO input channel mapping:** The ESI GIGAPORT eX has 2 input channels. Need to confirm which physical input maps to which ASIO buffer index.
-2. **Room noise:** Mic captures room reflections + background noise. Bandpass filtering around the fundamental helps, but noisy environments degrade accuracy.
-3. **Soundboard transfer function:** The exciter-soundboard system has a frequency-dependent response. Per-pitch calibration compensates for this naturally, but cross-coupling between strings/exciters may cause interference.
-4. **Non-linearity:** Correction assumes `output = input * gain`. If the system is nonlinear (especially at high volumes), single-point calibration may not generalize across velocity levels — hence calibrating at all 5 levels.
-5. **ASIO callback timing:** Reading input data adds ~256 bytes memcpy to the callback. Trivially fast (< 1 microsecond), no risk of buffer underrun.
+1. **Non-linear transfer function** — the biggest open issue. Linear correction does not converge well at low volumes. Needs logarithmic or binary-search approach.
+2. **Room noise** — mic captures room reflections + background noise. Spectral-ratio noise detection helps, but noisy environments degrade accuracy.
+3. **Soundboard transfer function** — the exciter-soundboard system has a frequency-dependent response. Per-pitch calibration compensates naturally, but cross-coupling between strings/exciters may cause interference.
+4. **No persistence** — corrections are not saved to the preset file. A restart loses all calibration work.
+5. **Single velocity level** — only one velocity level is calibrated per session. The 5-level sweep from the original plan is not yet wired into the UI or the equalize_keyboard endpoint.

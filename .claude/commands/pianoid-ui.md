@@ -60,9 +60,17 @@ Follow these steps in order. Skip steps that are already satisfied.
 
 **Always run this first** to prevent audio distortion from competing processes:
 
+**CRITICAL: Only kill processes on Pianoid ports — NEVER blanket-kill python.exe or node.exe (kills MCP servers and Claude Code itself).**
+
 ```bash
-taskkill //F //IM python.exe 2>/dev/null
-taskkill //F //IM node.exe 2>/dev/null
+# Kill ONLY processes on Pianoid ports (5000=backend, 3000/3001=frontend)
+for port in 5000 3000 3001; do
+  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    echo "Killing PID $pid on port $port"
+    taskkill //F //PID "$pid" 2>/dev/null
+  fi
+done
 sleep 2
 ```
 
@@ -382,14 +390,14 @@ Key fields: status, pianoid_loaded, gpu_initialized, audio_driver_active, availa
 
 2. Close browser tab: `close_page` tool
 
-3. Kill frontend and all node processes:
+3. Kill only Pianoid processes (by port, not by image name):
    ```bash
-   taskkill //F //IM node.exe 2>/dev/null
-   ```
-
-4. Kill any remaining python backend processes:
-   ```bash
-   taskkill //F //IM python.exe 2>/dev/null
+   for port in 5000 3000 3001; do
+     pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+     if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+       taskkill //F //PID "$pid" 2>/dev/null
+     fi
+   done
    ```
 
 ---
@@ -398,7 +406,7 @@ Key fields: status, pianoid_loaded, gpu_initialized, audio_driver_active, availa
 
 | Problem | Diagnosis | Fix |
 |---------|-----------|-----|
-| **Distorted sound** | Multiple python processes | `taskkill //F //IM python.exe`, then APPLY to reload |
+| **Distorted sound** | Multiple python processes on port 5000 | Kill by PID via `netstat -ano | grep :5000`, then APPLY to reload |
 | **Backend won't start** | Launcher error | `curl http://127.0.0.1:3001/api/kill-stale` to clear port 5000 |
 | **UI doesn't reflect changes** | Used direct API calls | Reload page, load preset via APPLY, edit via UI only |
 | **"Disconnected" after reload** | Page reload killed connection | Wait for health polling to reconnect, or click APPLY again |
