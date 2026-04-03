@@ -136,29 +136,197 @@ def _find_windows_sdk():
     return {}
 
 
-def _find_cuda(user_hint=None):
-    cand = None
-    if user_hint:
-        cand = user_hint
-    if not cand:
-        cand = os.environ.get("CUDA_PATH")
-    if not cand:
-        # scan default
-        pf = os.environ.get("ProgramFiles") or r"C:\Program Files"
-        cand = _glob_latest(Path(pf) / "NVIDIA GPU Computing Toolkit" / "CUDA", "v*")
-    if not cand:
-        return {}
-    cuda_home = Path(cand)
-    nvcc = cuda_home / "bin" / "nvcc.exe"
-    include = cuda_home / "include"
-    lib64 = cuda_home / "lib" / "x64"
+def _validate_cuda_home(path):
+    """Verify a CUDA home directory has nvcc.exe, include/, and lib/x64/."""
+    if not path:
+        return None
+    p = Path(path)
+    nvcc = p / "bin" / "nvcc.exe"
+    include = p / "include"
+    lib64 = p / "lib" / "x64"
     if nvcc.exists() and include.exists() and lib64.exists():
         return {
-            "cuda_home": str(cuda_home),
+            "cuda_home": str(p),
             "cuda_nvcc": str(nvcc),
             "cuda_include": str(include),
             "cuda_libdir": str(lib64),
         }
+    return None
+
+
+def _cuda_version_key(path):
+    """Extract a sortable version tuple from a CUDA path like .../v12.6 or .../CUDA/12.6."""
+    name = Path(path).name
+    m = re.match(r"v?(\d+)\.(\d+)", name)
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    return (0, 0)
+
+
+def _best_cuda(candidates):
+    """From a list of candidate CUDA home dirs, pick the latest valid one."""
+    valid = []
+    for c in candidates:
+        info = _validate_cuda_home(c)
+        if info:
+            valid.append((c, info))
+    if not valid:
+        return None
+    # sort by version descending, pick latest
+    valid.sort(key=lambda x: _cuda_version_key(x[0]), reverse=True)
+    return valid[0][1]
+
+
+def _find_cuda(user_hint=None):
+    candidates = []
+
+    # Strategy 1: user-provided hint (--cuda flag)
+    if user_hint:
+        log("  [CUDA] Checking user hint: %s" % user_hint)
+        info = _validate_cuda_home(user_hint)
+        if info:
+            log("  [CUDA] Found via user hint: %s" % user_hint)
+            return info
+        log("  [CUDA] User hint invalid (nvcc.exe/include/lib missing)")
+
+    # Strategy 2: CUDA_PATH and CUDA_HOME environment variables
+    for var in ("CUDA_PATH", "CUDA_HOME"):
+        val = os.environ.get(var)
+        if val:
+            log("  [CUDA] Checking %s=%s" % (var, val))
+            candidates.append(val)
+
+    # Strategy 3: CUDA_PATH_V* environment variables (e.g. CUDA_PATH_V12_6)
+    cuda_path_vars = sorted(
+        [k for k in os.environ if re.match(r"^CUDA_PATH_V\d+", k)],
+        reverse=True
+    )
+    for var in cuda_path_vars:
+        val = os.environ.get(var)
+        if val:
+            log("  [CUDA] Checking %s=%s" % (var, val))
+            candidates.append(val)
+
+    # Return early if any env var candidate is valid (prefer CUDA_PATH/CUDA_HOME)
+    for c in candidates:
+        info = _validate_cuda_home(c)
+        if info:
+            log("  [CUDA] Found via environment variable: %s" % c)
+            return info
+
+    # Strategy 4: standard NVIDIA GPU Computing Toolkit location on all drives
+    log("  [CUDA] Scanning standard NVIDIA GPU Computing Toolkit locations...")
+    toolkit_candidates = []
+    pf = os.environ.get("ProgramFiles") or r"C:\Program Files"
+    toolkit_root = Path(pf) / "NVIDIA GPU Computing Toolkit" / "CUDA"
+    if toolkit_root.exists():
+        toolkit_candidates.extend(sorted(toolkit_root.glob("v*"), key=lambda p: p.name, reverse=True))
+    # Also scan other drive letters
+    try:
+        import string
+        for letter in string.ascii_uppercase:
+            drive_pf = Path("%s:\\Program Files" % letter)
+            alt_root = drive_pf / "NVIDIA GPU Computing Toolkit" / "CUDA"
+            if alt_root.exists() and str(alt_root) != str(toolkit_root):
+                toolkit_candidates.extend(sorted(alt_root.glob("v*"), key=lambda p: p.name, reverse=True))
+    except Exception:
+        pass
+    for tc in toolkit_candidates:
+        log("  [CUDA] Checking toolkit path: %s" % tc)
+    result = _best_cuda(toolkit_candidates)
+    if result:
+        log("  [CUDA] Found via standard toolkit location: %s" % result["cuda_home"])
+        return result
+
+    # Strategy 5: find nvcc.exe on PATH
+    log("  [CUDA] Searching for nvcc.exe on PATH...")
+    nvcc_path = which("nvcc")
+    if nvcc_path:
+        log("  [CUDA] Found nvcc on PATH: %s" % nvcc_path)
+        # nvcc is typically at <CUDA_HOME>/bin/nvcc.exe
+        cuda_home = Path(nvcc_path).parent.parent
+        info = _validate_cuda_home(cuda_home)
+        if info:
+            log("  [CUDA] Derived CUDA home from PATH: %s" % cuda_home)
+            return info
+
+    # Strategy 6: Windows registry
+    log("  [CUDA] Checking Windows registry...")
+    try:
+        import winreg
+        reg_key = r"SOFTWARE\NVIDIA Corporation\GPU Computing Toolkit\CUDA"
+        reg_candidates = []
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(hive, reg_key) as key:
+                    i = 0
+                    while True:
+                        try:
+                            subkey_name = winreg.EnumKey(key, i)
+                            with winreg.OpenKey(key, subkey_name) as subkey:
+                                install_dir, _ = winreg.QueryValueEx(subkey, "InstallDir")
+                                if install_dir:
+                                    log("  [CUDA] Registry entry: %s -> %s" % (subkey_name, install_dir))
+                                    reg_candidates.append(install_dir)
+                            i += 1
+                        except OSError:
+                            break
+            except OSError:
+                pass
+        result = _best_cuda(reg_candidates)
+        if result:
+            log("  [CUDA] Found via Windows registry: %s" % result["cuda_home"])
+            return result
+    except ImportError:
+        log("  [CUDA] winreg not available (non-Windows)")
+
+    # Strategy 7: common alternative locations on all drives
+    log("  [CUDA] Scanning alternative locations...")
+    alt_patterns = [
+        ("CUDA", "v*"),
+        ("NVIDIA\\CUDA", "v*"),
+        ("Program Files\\NVIDIA\\CUDA", "v*"),
+    ]
+    alt_candidates = []
+    try:
+        import string
+        for letter in string.ascii_uppercase:
+            drive = "%s:\\" % letter
+            if not Path(drive).exists():
+                continue
+            for parent, pattern in alt_patterns:
+                search_root = Path(drive) / parent
+                if search_root.exists():
+                    found = sorted(search_root.glob(pattern), key=lambda p: p.name, reverse=True)
+                    for f in found:
+                        log("  [CUDA] Checking alternative: %s" % f)
+                        alt_candidates.append(f)
+    except Exception:
+        pass
+    result = _best_cuda(alt_candidates)
+    if result:
+        log("  [CUDA] Found via alternative location: %s" % result["cuda_home"])
+        return result
+
+    # Strategy 8: 'where nvcc' fallback (Windows-specific)
+    log("  [CUDA] Trying 'where nvcc' fallback...")
+    try:
+        import subprocess
+        out = subprocess.check_output(["where", "nvcc"], encoding="utf-8", errors="ignore",
+                                      stderr=subprocess.DEVNULL)
+        for line in out.strip().splitlines():
+            line = line.strip()
+            if line and Path(line).exists():
+                log("  [CUDA] 'where nvcc' found: %s" % line)
+                cuda_home = Path(line).parent.parent
+                info = _validate_cuda_home(cuda_home)
+                if info:
+                    log("  [CUDA] Derived CUDA home from 'where nvcc': %s" % cuda_home)
+                    return info
+    except Exception:
+        pass
+
+    log("  [CUDA] No valid CUDA installation found")
     return {}
 
 

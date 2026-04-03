@@ -124,8 +124,16 @@ Discovery logic per component:
 
 **CUDA (`_find_cuda`)**
 1. `--cuda` hint argument
-2. `CUDA_PATH` environment variable
-3. Glob latest `v*` under `Program Files\NVIDIA GPU Computing Toolkit\CUDA\`
+2. `CUDA_PATH` and `CUDA_HOME` environment variables
+3. `CUDA_PATH_V*` environment variables (e.g. `CUDA_PATH_V12_6`)
+4. Glob latest `v*` under `Program Files\NVIDIA GPU Computing Toolkit\CUDA\` on all drives
+5. `nvcc.exe` on `PATH` (derives CUDA home two levels up)
+6. Windows registry (`HKLM/HKCU\SOFTWARE\NVIDIA Corporation\GPU Computing Toolkit\CUDA`)
+7. Alternative locations on all drives: `X:\CUDA\v*`, `X:\NVIDIA\CUDA\v*`, `X:\Program Files\NVIDIA\CUDA\v*`
+8. `where nvcc` fallback (Windows-specific)
+
+Each step validates that `nvcc.exe`, `include/`, and `lib/x64/` exist. When multiple
+versions are found, the latest is selected. All searched paths are logged for diagnostics.
 
 **SDL2 (`_find_sdl2`) / SDL3 (`_find_sdl3`)**
 1. `--sdl2` / `--sdl3` hint argument
