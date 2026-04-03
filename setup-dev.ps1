@@ -27,11 +27,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Default versions (used when config file doesn't exist or values are missing)
+# Default versions: use major.minor (no patch) for components installed via winget
+# so that winget can find the latest available patch release.
+# Only SDL versions need exact patch since we download specific archive URLs.
 $DefaultVersions = @{
-  python = "3.12.0"
-  cuda = "12.6.0"
-  nodejs = "20.18.0"
+  python = "3.12"
+  cuda = "12.6"
+  nodejs = "20"
   sdl2 = "2.30.8"
   sdl3 = "3.1.6"
 }
@@ -146,11 +148,12 @@ function Ensure-Python {
   if ($python -and (-not $forceRequested)) {
     try {
       $currentVersion = & $python --version 2>&1
-      if ($currentVersion -match "Python (\d+\.\d+\.\d+)") {
-        $installedVersion = $Matches[1]
+      if ($currentVersion -match "Python (\d+\.\d+)\.(\d+)") {
+        $installedMajorMinor = $Matches[1]
         Write-Host "Python already installed: $currentVersion"
-        if ($installedVersion -eq $Version) {
-          Write-Host "Correct version already installed."
+        # Accept any patch version matching the requested major.minor
+        if ($installedMajorMinor -eq $Version -or $currentVersion -like "Python $Version*") {
+          Write-Host "Compatible version already installed."
           # Also check pip
           $pip = Get-Tool 'pip'
           if ($pip) {
@@ -159,7 +162,7 @@ function Ensure-Python {
           }
           return $python.Source
         } else {
-          Write-Host "Different version found, will install Python $Version"
+          Write-Host "Different version found ($installedMajorMinor vs requested $Version), will install Python $Version"
         }
       }
     } catch {
@@ -177,8 +180,16 @@ function Ensure-Python {
   $winget = Get-Tool 'winget'
   if ($winget) {
     try {
-      Write-Host "Attempting to install Python $Version via winget..."
-      & $winget install -e --id Python.Python.3.12 --version $Version --silent --accept-package-agreements --accept-source-agreements
+      # Extract major.minor for the winget package ID (e.g., "3.12" -> Python.Python.3.12)
+      $pyMajorMinor = $Version -replace '(\d+\.\d+).*', '$1'
+      $wingetId = "Python.Python.$pyMajorMinor"
+      Write-Host "Attempting to install Python $Version via winget (package: $wingetId)..."
+      # Use --version only if a full x.y.z version was specified; otherwise let winget pick latest
+      $wingetArgs = @("install", "-e", "--id", $wingetId, "--silent", "--accept-package-agreements", "--accept-source-agreements")
+      if ($Version -match '^\d+\.\d+\.\d+') {
+        $wingetArgs += @("--version", $Version)
+      }
+      & $winget @wingetArgs
       Start-Sleep -Seconds 5
       
       # Refresh PATH and test
@@ -197,14 +208,21 @@ function Ensure-Python {
 
   # Fallback to direct installer
   Write-Host "Using direct installer method..."
-  
+
   # Determine architecture
   $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" }
   Write-Host "Detected architecture: $arch"
-  
+
+  # Direct installer requires a full x.y.z version; if only major.minor given, append .0
+  $installerVersion = $Version
+  if ($installerVersion -notmatch '^\d+\.\d+\.\d+') {
+    $installerVersion = "$installerVersion.0"
+    Write-Host "No patch version specified, using $installerVersion for direct installer"
+  }
+
   # Construct download URL
-  $url = "https://www.python.org/ftp/python/$Version/python-$Version-$arch.exe"
-  $tmp = Join-Path $env:TEMP "python-$Version-installer.exe"
+  $url = "https://www.python.org/ftp/python/$installerVersion/python-$installerVersion-$arch.exe"
+  $tmp = Join-Path $env:TEMP "python-$installerVersion-installer.exe"
   
   try {
     Write-Host "Downloading Python $Version..."
@@ -282,10 +300,15 @@ function Uninstall-CUDA {
     }
   }
 
-  # Clear CUDA environment variables
+  # Clear CUDA environment variables (remove CUDA_PATH and all versioned CUDA_PATH_V* vars)
   [Environment]::SetEnvironmentVariable('CUDA_PATH', $null, 'Machine')
-  [Environment]::SetEnvironmentVariable('CUDA_PATH_V13_0', $null, 'Machine')
-  [Environment]::SetEnvironmentVariable('CUDA_PATH_V12_6', $null, 'Machine')
+  $envVars = [Environment]::GetEnvironmentVariables('Machine')
+  foreach ($key in $envVars.Keys) {
+    if ($key -like 'CUDA_PATH_V*') {
+      Write-Host "Clearing environment variable: $key"
+      [Environment]::SetEnvironmentVariable($key, $null, 'Machine')
+    }
+  }
   
   Write-Host "CUDA cleanup completed. A reboot may be required for full cleanup."
 }
@@ -373,11 +396,13 @@ function Ensure-NodeJS {
   if ($node -and (-not $forceRequested)) {
     $currentVersion = & $node --version
     Write-Host "Node.js already installed: $currentVersion"
-    if ($currentVersion -like "v$Version*") {
-      Write-Host "Correct version already installed."
+    # Extract major version from requested (e.g., "20" or "20.18.0" -> "20")
+    $requestedMajor = ($Version -split '\.')[0]
+    if ($currentVersion -match "^v$requestedMajor\.") {
+      Write-Host "Compatible version already installed (major version $requestedMajor matches)."
       return $node.Source
     } else {
-      Write-Host "Different version found, will install Node.js $Version"
+      Write-Host "Different major version found, will install Node.js $Version"
     }
   }
   
@@ -389,8 +414,15 @@ function Ensure-NodeJS {
   $winget = Get-Tool 'winget'
   if ($winget) {
     try {
-      Write-Host "Attempting to install Node.js $Version via winget..."
-      & $winget install -e --id OpenJS.NodeJS --version $Version --silent --accept-package-agreements --accept-source-agreements
+      # Use --version only if a full x.y.z version was specified; otherwise let winget pick latest LTS
+      $wingetArgs = @("install", "-e", "--id", "OpenJS.NodeJS.LTS", "--silent", "--accept-package-agreements", "--accept-source-agreements")
+      if ($Version -match '^\d+\.\d+\.\d+') {
+        Write-Host "Attempting to install Node.js $Version (exact) via winget..."
+        $wingetArgs += @("--version", $Version)
+      } else {
+        Write-Host "Attempting to install Node.js LTS (major version $Version) via winget..."
+      }
+      & $winget @wingetArgs
       Start-Sleep -Seconds 5
       
       # Refresh PATH and test
@@ -408,9 +440,35 @@ function Ensure-NodeJS {
   }
 
   # Fallback to direct installer
-  Write-Host "Downloading Node.js $Version installer..."
-  $tmp = Join-Path $env:TEMP "node-v$Version-x64.msi"
-  $url = "https://nodejs.org/dist/v$Version/node-v$Version-x64.msi"
+  # Direct installer requires full version; if only major given, try to resolve latest from nodejs.org
+  $nodeInstallerVersion = $Version
+  if ($nodeInstallerVersion -notmatch '^\d+\.\d+\.\d+') {
+    Write-Host "Resolving latest Node.js version for major version $Version..."
+    try {
+      $nodeVersions = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json" -ErrorAction Stop
+      $latestMatch = $nodeVersions | Where-Object { $_.version -match "^v$Version\." -and $_.lts } | Select-Object -First 1
+      if ($latestMatch) {
+        $nodeInstallerVersion = $latestMatch.version -replace '^v', ''
+        Write-Host "Resolved to Node.js $nodeInstallerVersion"
+      } else {
+        # Try without LTS filter
+        $latestMatch = $nodeVersions | Where-Object { $_.version -match "^v$Version\." } | Select-Object -First 1
+        if ($latestMatch) {
+          $nodeInstallerVersion = $latestMatch.version -replace '^v', ''
+          Write-Host "Resolved to Node.js $nodeInstallerVersion"
+        } else {
+          throw "Could not resolve Node.js version for major version $Version"
+        }
+      }
+    } catch {
+      Write-Warning "Could not resolve Node.js version online: $_"
+      $nodeInstallerVersion = "$Version.0.0"
+      Write-Host "Falling back to $nodeInstallerVersion"
+    }
+  }
+  Write-Host "Downloading Node.js $nodeInstallerVersion installer..."
+  $tmp = Join-Path $env:TEMP "node-v$nodeInstallerVersion-x64.msi"
+  $url = "https://nodejs.org/dist/v$nodeInstallerVersion/node-v$nodeInstallerVersion-x64.msi"
   
   try {
     Invoke-Download $url $tmp
@@ -561,8 +619,15 @@ function Ensure-CUDA {
   $winget = Get-Tool 'winget'
   if ($winget) {
     try {
-      Write-Host "Attempting to install CUDA $Version via winget..."
-      & $winget install -e --id Nvidia.CUDA --version $Version --silent --accept-package-agreements --accept-source-agreements
+      # Use --version only if a full x.y.z version was specified
+      $wingetArgs = @("install", "-e", "--id", "Nvidia.CUDA", "--silent", "--accept-package-agreements", "--accept-source-agreements")
+      if ($Version -match '^\d+\.\d+\.\d+') {
+        Write-Host "Attempting to install CUDA $Version (exact) via winget..."
+        $wingetArgs += @("--version", $Version)
+      } else {
+        Write-Host "Attempting to install CUDA (version prefix $Version) via winget..."
+      }
+      & $winget @wingetArgs
       Start-Sleep -Seconds 10
       
       # Refresh environment variables
@@ -577,17 +642,22 @@ function Ensure-CUDA {
     }
   }
 
-  # Fallback to direct installer
-  Write-Host "Downloading CUDA $Version installer..."
-  $tmp = Join-Path $env:TEMP "cuda_${Version}_windows_network.exe"
-  $url = "https://developer.download.nvidia.com/compute/cuda/$Version/network_installers/cuda_${Version}_windows_network.exe"
-  
+  # Fallback to direct installer (requires full x.y.z version for URL)
+  $cudaInstallerVersion = $Version
+  if ($cudaInstallerVersion -notmatch '^\d+\.\d+\.\d+') {
+    $cudaInstallerVersion = "$cudaInstallerVersion.0"
+    Write-Host "No patch version specified, using $cudaInstallerVersion for CUDA direct installer"
+  }
+  Write-Host "Downloading CUDA $cudaInstallerVersion installer..."
+  $tmp = Join-Path $env:TEMP "cuda_${cudaInstallerVersion}_windows_network.exe"
+  $url = "https://developer.download.nvidia.com/compute/cuda/$cudaInstallerVersion/network_installers/cuda_${cudaInstallerVersion}_windows_network.exe"
+
   try {
     Invoke-Download $url $tmp
   } catch {
     # Try local installer as fallback
-    $localUrl = "https://developer.download.nvidia.com/compute/cuda/$Version/local_installers/cuda_${Version}_windows.exe"
-    $tmp = Join-Path $env:TEMP "cuda_${Version}_windows.exe"
+    $localUrl = "https://developer.download.nvidia.com/compute/cuda/$cudaInstallerVersion/local_installers/cuda_${cudaInstallerVersion}_windows.exe"
+    $tmp = Join-Path $env:TEMP "cuda_${cudaInstallerVersion}_windows.exe"
     Write-Host "Network installer failed, trying local installer..."
     Invoke-Download $localUrl $tmp
   }

@@ -48,14 +48,14 @@ rem =========================================================================
 echo [STEP 1/4] Setting up Python virtual environment...
 echo =========================================================================
 
-rem Verify Python version is 3.12.x
-python --version 2>nul | findstr /C:"3.12" >nul
+rem Verify Python 3.12+ is available
+python --version 2>nul | findstr /R "3\.1[2-9] 3\.[2-9][0-9]" >nul
 if !errorlevel! neq 0 (
-    echo ERROR: Python 3.12.x is required but not found on PATH.
+    echo ERROR: Python 3.12 or newer is required but not found on PATH.
     echo Found:
     python --version 2>&1
     echo.
-    echo Install Python 3.12 via setup-packages.bat or ensure it is on PATH.
+    echo Install Python 3.12+ via setup-packages.bat or ensure it is on PATH.
     goto :error
 )
 

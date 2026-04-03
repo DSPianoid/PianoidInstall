@@ -5,12 +5,8 @@ if exist "setup-config.json" (
     echo Configuration file found: setup-config.json
     echo Versions will be loaded from config file.
 ) else (
-    echo No config file found. Using default versions:
-    echo   Python: 3.12.0
-    echo   CUDA: 12.6.0
-    echo   Node.js: 20.18.0
-    echo   SDL2: 2.30.8
-    echo   SDL3: 3.1.6 (default)
+    echo No config file found. Using default versions from setup-dev.ps1.
+    echo   Run option 6 to create a sample config file.
 )
 echo.
 echo This script will install/update:
@@ -52,32 +48,7 @@ if "%choice%"=="1" (
     if exist "setup-config.json" (
         echo setup-config.json already exists. Rename it first to create a new sample.
     ) else (
-        "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "
-        $config = @{
-            versions = @{
-                python = '3.12.0'
-                cuda = '12.6.0'
-                nodejs = '20.18.0'
-                sdl2 = '2.30.8'
-                sdl3 = '3.1.6'
-            }
-            paths = @{
-                sdl_root = 'C:\'
-            }
-            options = @{
-                skip_components = @()
-                force_reinstall_components = @()
-                auto_reboot = $false
-                clean_install = $true
-            }
-            cuda = @{
-                architectures = @('75', '80', '86', '89')
-            }
-        }
-        $config | ConvertTo-Json -Depth 4 | Set-Content -Path 'setup-config.json' -Encoding UTF8
-        Write-Host 'Sample config file created: setup-config.json'
-        Write-Host 'You can edit this file to customize versions and options.'
-        "
+        "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0create-sample-config.ps1"
         echo.
         echo Sample configuration file created successfully!
         echo Edit setup-config.json to customize versions and options.

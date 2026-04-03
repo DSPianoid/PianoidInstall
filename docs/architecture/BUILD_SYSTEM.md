@@ -65,9 +65,9 @@ in `setup-config.json`:
 ```json
 {
   "versions": {
-    "python": "3.12.0",
-    "cuda":   "12.6.0",
-    "nodejs": "20.18.0",
+    "python": "3.12",
+    "cuda":   "12.6",
+    "nodejs": "20",
     "sdl2":   "2.30.8",
     "sdl3":   "3.1.6"
   },
@@ -76,6 +76,10 @@ in `setup-config.json`:
   }
 }
 ```
+
+Version values use major.minor (no patch) for components installed via winget
+(Python, CUDA, Node.js), allowing the latest available patch to be installed.
+SDL versions require exact patch numbers because they map to specific download URLs.
 
 Options include selective reinstall of individual components (Python, CUDA, Node.js)
 or a full reinstall of all components.
