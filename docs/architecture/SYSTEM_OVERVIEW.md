@@ -104,6 +104,9 @@ Selected routes defined in `backendServer.py`:
 | `/preset/load` | POST | Load preset to GPU library (no activation) |
 | `/preset/switch` | POST | Switch active preset (double-buffer swap) |
 | `/preset/unload` | POST | Remove preset from GPU library |
+| `/calibrate_volume` | POST | Multi-velocity mic calibration (background) |
+| `/calibration_params` | GET/POST | Perception curves, timing bands, level multipliers |
+| `/modal/*` | various | ESPRIT modal extraction pipeline (load, map, run, apply) |
 
 ### Flask -> Middleware (Python)
 
@@ -132,6 +135,9 @@ The `pianoidCuda` extension module (built from `pianoid_cuda/`) exposes:
 - `Pianoid.switchPreset(name, async)` - activate preset via double-buffer swap
 - `Pianoid.getLibraryPresets()`, `Pianoid.getActivePreset()`, `Pianoid.unloadPresetFromLibrary(name)` - library management
 - `pianoidCuda.UpdatePolicy` - DROP_IF_BUSY, BLOCK_UNTIL_READY, QUEUE_NEXT
+- `Pianoid.stopEngineKeepAudio()`, `Pianoid.executeSingleMeasurementCycle()`, `Pianoid.restartOnlineEngine()` - semi-offline calibration mode
+- `Pianoid.startMicCapture()`, `Pianoid.stopMicCapture()`, `Pianoid.getMicBuffer()` - microphone capture for calibration
+- `Pianoid.listMicDevices()`, `Pianoid.setMicDevice(name)` - mic device selection
 
 ### CUDA Engine -> Audio Driver
 

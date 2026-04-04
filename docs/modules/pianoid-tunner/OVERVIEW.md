@@ -80,7 +80,7 @@ The main application entry used in production is a separate top-level component 
 | `CompositeGaussianChart` | `CompositeGaussianChart.jsx` | Composite view of all Gauss curves at one velocity level |
 | `GaussianParameterGrid` | `GaussianParameterGrid.jsx` | Grid of Gauss parameters (mu, sigma, volume, shift) across levels |
 | `GaussCell` | `GaussCell.jsx` | Single cell in the Gauss parameter grid |
-| `VelocitySelector` | `VelocitySelector.jsx` | Selects which of the 5 base velocity levels to edit |
+| `VelocitySelector` | `VelocitySelector.jsx` | Selects which of the 6 base velocity levels to edit |
 | `PitchesModesMatrix` | `PitchesModesMatrix.jsx` | 2-D heatmap of pitches × modes for feedin/feedback |
 | `PitchesModesMatrixCanvas` | `PitchesModesMatrixCanvas.jsx` | Canvas-rendered version of the matrix |
 | `MeasuredMatrix` | `MeasuredMatrix.jsx` | Matrix with measurement overlays |
@@ -103,6 +103,13 @@ The main application entry used in production is a separate top-level component 
 | `ToolBar` | `ToolBar.jsx` | Main application toolbar |
 | `BackendStatusIndicator` | `BackendStatusIndicator.jsx` | Health status badge (healthy/crashed/disconnected) with backend start/stop controls |
 | `BackendConsole` | `BackendConsole.jsx` | Backend process stdout/stderr console viewer |
+| `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
+| `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
+| `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
+| `ModalAdapter` | `modules/ModalAdapter.jsx` | 6-step ESPRIT modal extraction wizard (load, map, configure, run, review, apply) |
+| `MappingEditor` | `MappingEditor.jsx` | Maps measurement excitation points to MIDI pitches and channels to sound outputs |
+| `EspritConfig` | `EspritConfig.jsx` | ESPRIT analysis parameters (frequency bands, model order) |
+| `ModalResultsView` | `ModalResultsView.jsx` | Displays extracted modes with selection for preset injection |
 | `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
@@ -229,7 +236,7 @@ Tracks edit history for generic parameter arrays.
 
 Manages the Flask backend process lifecycle from the frontend. Launches `server/launcher.js` (Node.js) which spawns the Python backend, monitors its stdout/stderr, and handles restart/shutdown. Exposes: `startBackend()`, `stopBackend()`, `killStale()`, `backendOutput` (log lines), `isRunning`.
 
-`killStale()` calls `POST /api/kill-stale` on the launcher, which runs `killProcessesOnPort(5000)` to terminate any process holding the backend port — regardless of whether the launcher spawned it.
+`killStale()` calls `POST /api/kill-stale` on the launcher, which runs `killProcessesOnPort(5000)` to terminate any process holding the backend port — regardless of whether the launcher spawned it. The implementation uses `netstat -ano` to find PIDs on the specific port, then `taskkill /pid <PID> /T /F` to kill only those PIDs. It never blanket-kills `python.exe` or `node.exe`.
 
 ### `useHotkeys`
 
@@ -248,6 +255,10 @@ Global keyboard shortcut handler. Registers `keydown`/`keyup` listeners on `wind
 | Escape | Reset synthesiser |
 
 Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95, ff=127.
+
+### `useModalAdapter`
+
+Manages the Modal Adapter state machine for ESPRIT modal extraction. Tracks the 6-step workflow: load measurements, set mapping, configure ESPRIT, run extraction, review results, apply to preset. Polls `/modal/status` during extraction. Exposes: `loadFolder()`, `submitMapping()`, `runEsprit()`, `cancel()`, `applyToPreset()`, `reset()`, `activeStep`, `progress`, `results`, `measurementInfo`.
 
 ### `useWindowManager`
 

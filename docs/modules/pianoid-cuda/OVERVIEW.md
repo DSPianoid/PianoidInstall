@@ -125,6 +125,6 @@ optionally overridden at runtime. See [AUDIO_DRIVERS.md](AUDIO_DRIVERS.md).
 | `NUM_STRINGS_IN_ARRAY` | 4 | Strings packed per GPU block |
 | `MAX_ARRAY_SIZE` | 512 | Maximum spatial points per string array |
 | `PHYSICAL_PARAMETERS_NUMBER` | 16 | Physical parameters per string |
-| `EXCITATION_FACTOR` | 8 | Velocity-level excitation slots (see `NUM_BASE_LEVELS=5` for base-level interpolation) |
+| `EXCITATION_FACTOR` | 8 | Velocity-level excitation slots (see `NUM_BASE_LEVELS=6` for base-level interpolation) |
 | `NUM_CHANNELS` | 8 | GPU audio output channels |
 | `WARP_SIZE` | 32 | CUDA warp size |

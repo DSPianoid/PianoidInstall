@@ -103,7 +103,7 @@ After this step, `import Pianoid` works inside the `.venv`.
 ## Step 3: Toolchain Detection (detect_paths.py)
 
 `detect_paths.py` is a pure-stdlib Python script that auto-discovers all build tools
-and writes `pianoid_cuda/build_config.json`. It accepts optional hints via CLI flags:
+and writes `pianoid_cuda/build_config.json`. The build script first checks the parent repo directory (`PianoidInstall/detect_paths.py`), then falls back to `PianoidCore/detect_paths.py`. It accepts optional hints via CLI flags:
 
 ```
 python detect_paths.py \
@@ -230,7 +230,7 @@ advapi32   (Windows registry)
 
 After linking, the build copies runtime DLLs next to `pianoidCuda.pyd`:
 - `SDL3.dll` or `SDL2.dll` (default driver only)
-- `cudart64_*.dll` (CUDA runtime)
+- `cudart64_*.dll` (CUDA runtime, any version — e.g. `cudart64_12.dll`, `cudart64_120.dll`)
 
 This ensures `import pianoidCuda` works without modifying `PATH`.
 
@@ -324,9 +324,11 @@ Check the `sdl3_libdir` field. If empty, the directory structure doesn't match e
 2. Pass `--sdl3` hint: edit `build_pianoid_cuda.bat` step [4/6] to add `--sdl3 "C:\path\to\SDL3"`
 3. Set `SDL3_DIR` environment variable to the SDL3 root
 
-**Important:** `build_pianoid_cuda.bat` runs `detect_paths.py` on every build (step [4/6]),
+**Important:** `build_pianoid_cuda.bat` runs `detect_paths.py` on every build (step [2/6]),
 regenerating `build_config.json`. Manual edits to `build_config.json` are overwritten.
 To persist changes, fix the discovery inputs (directory layout, env vars, or CLI hints).
+
+When toolchain detection fails, the build script now re-runs `detect_paths.py` with full output visible (not just to the log file), making diagnosis easier.
 
 ### Build succeeds but `import pianoidCuda` fails
 

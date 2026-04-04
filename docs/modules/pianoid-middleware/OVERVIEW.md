@@ -175,12 +175,69 @@ Automatic frequency and volume tuning system. Uses offline rendering for clean, 
 |-------|---------|
 | `MeasurementEngine` | Renders isolated notes offline, measures pitch (FFT + autocorrelation) and volume (frequency-aware RMS windowing) |
 | `FrequencyTuner` | Iterative tension adjustment: measures pitch, corrects tension via `f ∝ √tension`, repeats until error < tolerance |
-| `VolumeTuner` | A-weighted loudness equalization across keyboard × 5 velocity levels. Sets `ExcitationParameters.volume_coefficients` per pitch per level, bulk uploads via `setNewExcitationBaseLevels` |
+| `VolumeTuner` | A-weighted loudness equalization across keyboard x 6 velocity levels. Sets `ExcitationParameters.volume_coefficients` per pitch per level, bulk uploads via `setNewExcitationBaseLevels` |
 | `TuningResults` | Persistence (JSON sidecar files) and reporting |
 
 Exposed to the frontend via chart/action system:
 - Action `auto_tune` — runs frequency and/or volume tuning
 - Chart `tuning_report` — displays frequency error curve and volume coefficient charts
+
+---
+
+## CalibrationController (calibration_controller.py)
+
+Microphone-based volume equalization using semi-offline calibration mode. The engine loop is stopped but the audio driver stays alive, enabling deterministic cycle-by-cycle synthesis from Python.
+
+**4-phase calibration pipeline:**
+
+| Phase | Description |
+|-------|-------------|
+| 1. Persistence | Load/save calibration data (perception curves, timing bands, level multipliers) to/from preset JSON |
+| 2. Multi-velocity | Calibrate across 6 velocity levels (`[0, 5, 31, 63, 95, 127]`) per pitch |
+| 3. Level multipliers | Per-velocity-level global scaling factors (e.g., boost pp, attenuate ff) |
+| 4. ISO 226 curves | Frequency-dependent perception compensation (low-freq boost, high-freq cut) applied as per-pitch correction weights |
+
+Key methods:
+
+| Method | Purpose |
+|--------|---------|
+| `calibrate(velocity_levels, pitches, target_rms)` | Full calibration run (background thread) |
+| `measure_single(pitch, velocity, repetitions)` | Single-note RMS measurement |
+| `equalize_keyboard(reference_pitch, velocity)` | Equalize all pitches to a reference |
+| `tune_single(pitch, velocity, target_db)` | Bisection search to match target dB |
+| `get_perception_curves()` / `set_perception_curves()` | Read/write per-pitch correction weights |
+| `apply_level_multipliers(multipliers)` | Apply 6-element velocity-level scaling |
+| `save_perception_curves_to_preset()` | Persist calibration to preset JSON |
+
+Timing is frequency-adaptive via timing bands (configurable from UI):
+
+```python
+DEFAULT_TIMING_BANDS = [
+    {"max_freq": 131.0, "settle_ms": 500, "skip_ms": 100, "window_ms": 300},
+    {"max_freq": 523.0, "settle_ms": 300, "skip_ms": 50,  "window_ms": 200},
+    {"max_freq": 99999, "settle_ms": 150, "skip_ms": 30,  "window_ms": 150},
+]
+```
+
+---
+
+## Modal Adapter (modal_adapter/)
+
+ESPRIT-based modal extraction pipeline. Extracts soundboard resonance modes from impulse response measurements and injects them into the active preset.
+
+**State machine:** `idle` -> `loaded` -> `mapped` -> `running` -> `results` -> `applied`
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `ModalAdapter` | `modal_adapter.py` | State machine orchestrator |
+| `MappingConfig` | `mapping.py` | Maps measurement points to pitches and channels to sound outputs |
+| `EspritRunner` | `esprit_runner.py` | Runs ESPRIT analysis per excitation point (background thread) |
+| `PresetInjector` | `preset_injector.py` | Applies extracted modes to the active Pianoid preset |
+| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` |
+
+Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data.
+
+REST endpoints: see [REST_API.md](REST_API.md#modal-adapter-endpoints).
 
 ---
 

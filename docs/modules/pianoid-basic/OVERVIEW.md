@@ -98,7 +98,7 @@ Global simulation configuration. Holds the parameters that determine how the CUD
 | `array_size` | 384 | Max number of spatial points per string block |
 | `num_strings_in_array` | 2 | Strings packed side-by-side in one block |
 | `excitation_factor` | 8 | Duration of a hammer excitation in milliseconds |
-| `level_indices` | [0,31,63,95,127] | MIDI velocity breakpoints for Gauss interpolation |
+| `level_indices` | [0,5,31,63,95,127] | MIDI velocity breakpoints for Gauss interpolation (6 levels) |
 | `num_modes` | 0 | Actual resonator modes in preset |
 | `num_modes_for_model` | 0 | Modes padded to a multiple of `num_blocks()` |
 | `buffer_size` | 2 | Audio output circular buffer depth |
@@ -201,7 +201,7 @@ Holds the physical material constants for a pitch and manages the associated `Pi
 | `jung` | 19000 | Young's modulus coefficient |
 | `gamma` | 0.1 | Viscous damping coefficient |
 | `disp_decay` | 0 | Dispersive-decay amplitude |
-| `volume_coefficient` | *(deprecated)* | Was per-string output scaling; always 1.0, volume characteristics are embedded in excitation curves |
+| `volume_coefficient` | *(removed)* | Removed from `set_params()`. Volume characteristics are embedded in excitation curves via `volume_coefficients` |
 | `damper_string` | 0.5 | Damper stiffness on string |
 | `damper_tail` | 127 | MIDI velocity below which damper is active |
 
@@ -284,12 +284,12 @@ Model the velocity-dependent hammer force waveform as a sum of Gaussian pulses.
 **ExcitationParameters** — manages the full excitation model for one pitch:
 
 - `levels_matrix` — shape `(128, 4, 5)` — axes: [velocity_level, param_index, gauss_component]. Param indices: 0=mu, 1=sigma, 2=volume, 3=shift
-- Five base velocity levels (`LEVEL_INDICES = [0, 31, 63, 95, 127]`) are stored directly; `recalculate_excitation_matrix()` extracts these 5 rows and calls `extrapolate()` to linearly interpolate between breakpoints, producing all 128 levels
+- Six base velocity levels (`LEVEL_INDICES = [0, 5, 31, 63, 95, 127]`) are stored directly; `recalculate_excitation_matrix()` extracts these 6 rows and calls `extrapolate()` to linearly interpolate between breakpoints, producing all 128 levels. Legacy presets with 5 levels (`[0, 31, 63, 95, 127]`) are migrated automatically on load
 - `calculate(velocity)` — returns shape `(excitation_factor, num_iterations())` — the excitation time series reshaped for the CUDA kernel indexing. Applies `cut_negative=True` which clips the **total sum** of all 5 Gaussians (post-summation ReLU). Note: the GPU `gaussKernel` applies ReLU per-component before summation — the GPU formula is the one used in actual synthesis
 - `pack_gauss_params()` — flattens the entire 128-level matrix via `levels_matrix.ravel().tolist()`. GPU layout per velocity level: `[mu×5, sigma×5, volume×5, shift×5]` (20 reals). Total per pitch: 128 × 20 = 2,560 reals
-- `volume_coefficients` — shape `(5,)` — per-base-level volume scaling. Applied to the volume row when `pack_gauss_params(volume_coefficients=True)` is called (multiplied before extrapolation)
+- `volume_coefficients` — shape `(6,)` — per-base-level volume scaling. Applied to the volume row when `pack_gauss_params(volume_coefficients=True)` is called (multiplied before extrapolation)
 
-The extrapolation scheme: 5 base curves × 5 Gauss components = 25 parameter sets; these are linearly interpolated to produce 128 complete curves covering the full MIDI velocity range.
+The extrapolation scheme: 6 base curves x 5 Gauss components = 30 parameter sets; these are linearly interpolated to produce 128 complete curves covering the full MIDI velocity range.
 
 ---
 
@@ -491,7 +491,7 @@ PianoidSimulation
 | `STEM_LENGTH` | 2 | Guard points added to each end of string array |
 | `NUM_GAUSS` | 5 | Gaussian components per excitation curve |
 | `NUM_PARAMS_GAUSS` | 4 | Parameters per Gaussian: mu, sigma, volume, shift |
-| `LEVEL_INDICES` | [0,31,63,95,127] | Base MIDI velocity breakpoints |
+| `LEVEL_INDICES` | [0,5,31,63,95,127] | Base MIDI velocity breakpoints (6 levels) |
 | `K_OMEGA` | 4*pi^2 | Factor in mode omega calculation |
 | `MIN_INTERSTRING_INTERVAL` | 2 | Guard points between strings in a block |
 | `STRING_PARAMS_NO` | 16 | Number of physical parameters per string for CUDA |

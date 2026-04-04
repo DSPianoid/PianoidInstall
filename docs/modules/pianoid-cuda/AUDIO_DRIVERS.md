@@ -8,8 +8,11 @@ use and `ASIOAudioDriver` for low-latency professional audio on Windows. The act
 driver is selected at compile time via `AudioDriverConfig.h` and can be overridden at
 runtime through `AudioDriverFactory`.
 
-All audio passes through `LockFreeCircularBuffer`, which decouples the GPU synthesis
+All audio output passes through `LockFreeCircularBuffer`, which decouples the GPU synthesis
 thread (producer) from the audio hardware callback thread (consumer).
+
+Both SDL3 and ASIO drivers also support **microphone capture** via the `CaptureBuffer` class,
+used by the calibration system for semi-offline RMS measurement.
 
 ---
 

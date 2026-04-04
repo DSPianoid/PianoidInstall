@@ -109,7 +109,7 @@ Verifies that excitation base-level interpolation is consistent between C++ and 
 | `TestExcitationUpdate::test_excitation_update_changes_output` | Calling `setNewExcitationBaseLevels()` with different base levels produces different audio output |
 | `TestExcitationUpdate::test_velocity_sensitivity` | Higher-velocity base levels produce louder output than lower-velocity base levels |
 
-Key constants used: `NUM_BASE_LEVELS=5`, `LEN_LEVEL_GP=20`, `BOUNDARIES=[0, 31, 63, 95, 128]`.
+Key constants used: `NUM_BASE_LEVELS=6`, `LEN_LEVEL_GP=20`, `BOUNDARIES=[0, 5, 31, 63, 95, 128]`.
 
 ### test_feedback_coupling.py
 

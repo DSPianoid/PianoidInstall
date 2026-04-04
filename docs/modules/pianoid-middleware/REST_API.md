@@ -35,17 +35,28 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /get_chart_test           -- render a chart
   /start_test               -- execute an action
   /shutdown                 -- graceful shutdown (free GPU, stop Flask)
+  /calibrate_volume         -- multi-velocity calibration (mic, background)
   /measure_rms              -- measure RMS for a single pitch (mic)
   /equalize_keyboard        -- equalize volume across keyboard (mic, background)
   /tune_note                -- iteratively tune a pitch to target dB (mic)
   /calibration_status       -- poll calibration progress
   /calibration_cancel       -- cancel running calibration
+  /calibration_params       -- GET/POST perception curves, timing bands, level multipliers
   /mic_devices              -- list microphone input devices
   /set_mic_device           -- select microphone input device
   /preset/list              -- list loaded presets + active preset
   /preset/load              -- load preset to GPU library (no activation)
   /preset/switch            -- switch active preset (double-buffer swap)
   /preset/unload            -- remove preset from GPU library
+  /modal/load_folder        -- load impulse response measurements
+  /modal/upload_measurements -- upload measurement arrays
+  /modal/measurement_info   -- measurement metadata
+  /modal/mapping            -- set excitation-to-pitch mapping
+  /modal/run_esprit         -- launch ESPRIT extraction (background)
+  /modal/status             -- poll ESPRIT progress
+  /modal/results            -- get extraction results
+  /modal/apply_to_preset    -- inject modes into active preset
+  /modal/cancel             -- cancel running extraction
 ```
 
 ---
@@ -940,6 +951,187 @@ Response `200`:
 ```
 
 Response `400` if pianoid not initialized.
+
+---
+
+### `POST /calibrate_volume`
+
+Starts multi-velocity calibration in a background thread. Measures and corrects volume across selected velocity levels and pitches.
+
+Request body:
+```json
+{
+  "velocity_levels": [0, 1, 2, 3, 4, 5],
+  "pitches": "all",
+  "target_rms": 0.01
+}
+```
+
+- `velocity_levels` (optional): list of base level indices (0-5) to calibrate. Default: all levels
+- `pitches` (optional): `"all"` or comma-separated pitch list. Default: `"all"`
+- `target_rms` (optional, default `0.01`): target RMS level
+
+Response `200`:
+```json
+{"status": "started", "message": "Calibration started in background"}
+```
+
+Poll progress via `GET /calibration_status`.
+
+---
+
+### `GET /calibration_params`
+
+Returns perception curves, timing bands, level multipliers, and reference settings for the Calibration UI panel.
+
+Response `200`:
+```json
+{
+  "perception_curves": {"21": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0], ...},
+  "timing_bands": [{"max_freq": 131.0, "settle_ms": 500, "skip_ms": 100, "window_ms": 300}, ...],
+  "reference_target_db": -50,
+  "reference_pitch": 60,
+  "level_multipliers": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+}
+```
+
+---
+
+### `POST /calibration_params`
+
+Updates calibration parameters in-memory. Supports partial updates.
+
+Request body (all fields optional):
+```json
+{
+  "perception_curves": {"21": [1.2, 1.1, 1.0, 0.95, 0.9, 0.85], ...},
+  "timing_bands": [...],
+  "reference_target_db": -50,
+  "reference_pitch": 60,
+  "level_multipliers": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  "generate_defaults": false,
+  "save_to_preset": false
+}
+```
+
+- `generate_defaults`: if `true`, returns ISO 226-based default perception curves without applying
+- `save_to_preset`: if `true`, persists calibration data to the preset JSON file
+- `level_multipliers`: 6-element array of per-velocity-level global scaling factors
+
+Response `200`:
+```json
+{"status": "ok", "updated": {"perception_curves": 88, "timing_bands": true}}
+```
+
+---
+
+## Modal Adapter Endpoints
+
+ESPRIT-based modal extraction pipeline. All endpoints mounted at `/modal/*`. State machine: `idle` -> `loaded` -> `mapped` -> `running` -> `results` -> `applied`.
+
+### `POST /modal/load_folder`
+
+Load impulse response measurements from a folder. Auto-detects direct `.npy` files or RoomResponse per-channel scenario structure.
+
+Request body:
+```json
+{
+  "path": "/path/to/measurements",
+  "sample_rate": 48000,
+  "scenarios": [10, 40, 70]
+}
+```
+
+- `scenarios` (optional): specific scenario indices for RoomResponse format
+
+Response `200`: measurement info (excitation points, channels, sample rate, file list).
+
+---
+
+### `POST /modal/upload_measurements`
+
+Upload measurement arrays as multipart form data.
+
+Form fields: `sample_rate` (required). File fields: numbered keys (`0`, `1`, ...) with `.npy` files.
+
+Response `200`: measurement info.
+
+---
+
+### `GET /modal/measurement_info`
+
+Returns metadata about currently loaded measurements.
+
+---
+
+### `POST /modal/mapping`
+
+Set the mapping from measurement excitation points to MIDI pitches and channels to sound outputs.
+
+Request body:
+```json
+{
+  "excitation_to_pitch": {"0": 36, "1": 48, "2": 60},
+  "channel_to_sound": {"0": 0, "1": 1},
+  "skipped_channels": [3, 4]
+}
+```
+
+---
+
+### `POST /modal/run_esprit`
+
+Launch ESPRIT extraction in background. Accepts ESPRIT-specific parameters (frequency bands, model order, etc.).
+
+Response `200`:
+```json
+{"task_id": "modal_esprit"}
+```
+
+---
+
+### `GET /modal/status`
+
+Poll extraction progress.
+
+Response `200`:
+```json
+{
+  "state": "running",
+  "progress": 3,
+  "current_point": 3,
+  "total_points": 5,
+  "message": "Processing point 3..."
+}
+```
+
+---
+
+### `GET /modal/results`
+
+Returns extraction results (frequencies, decrements, mode shapes).
+
+---
+
+### `POST /modal/apply_to_preset`
+
+Apply extracted modes to the active Pianoid preset.
+
+Request body:
+```json
+{
+  "selected_modes": [0, 1, 2, 5, 8],
+  "merge": false
+}
+```
+
+- `merge`: if `true`, merges with existing modes; if `false`, replaces
+
+---
+
+### `POST /modal/cancel`
+
+Cancel a running ESPRIT extraction.
 
 ---
 

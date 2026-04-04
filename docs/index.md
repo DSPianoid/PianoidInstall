@@ -49,7 +49,7 @@ interactive latency.
 | Module | Language | Role |
 |--------|----------|------|
 | `pianoid_cuda` | CUDA C++ | Real-time synthesis engine |
-| `pianoid_middleware` | Python (Flask) | Backend orchestration and API |
+| `pianoid_middleware` | Python (Flask) | Backend orchestration, API, calibration, and modal extraction |
 | `PianoidBasic` | Python | Physical domain model |
 | `PianoidTunner` | React / TypeScript | Frontend UI and MIDI input |
 

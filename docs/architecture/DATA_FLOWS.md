@@ -315,11 +315,11 @@ C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
 
 ### 2.2 Excitation Parameters (Base-Levels Path)
 
-Excitation parameters use a base-levels upload path. Python sends only the 5 fixed
-velocity levels (indices [0, 31, 63, 95, 127]) per string. C++ interpolates these to
+Excitation parameters use a base-levels upload path. Python sends only the 6 fixed
+velocity levels (indices [0, 5, 31, 63, 95, 127]) per string. C++ interpolates these to
 the full 128 velocity levels on the host side before uploading to GPU. This reduces the
-Python→C++ transfer by 25× (25,600 vs 655,360 reals) and eliminates the Python-side
-matrix recalculation on every parameter update.
+Python-to-C++ transfer significantly and eliminates the Python-side matrix recalculation
+on every parameter update.
 
 ```
 React: GaussEditor.jsx — user edits Gauss curve for pitch 60
@@ -334,26 +334,25 @@ parameter_manager.update_parameter(param='gauss')
        pitch.excitation.load_from_dict(values)
          → load_from_dict_to_matrix(): write into levels_matrix[level, param, curve]
          → recalculate_excitation_matrix():
-             extract 5 base levels (indices [0,31,63,95,127])
+             extract 6 base levels (indices [0,5,31,63,95,127])
              extrapolate() → 128 velocity levels (shape 128×4×5)
              (Python model updated for preset save/read-back;
               the 128-level matrix is NOT sent to GPU)
   2. Single GPU upload (outside loop, with cuda_lock):
      _gpu_upload() waits for double-buffer IDLE  // prevents DROP_IF_BUSY loss
-     sm.pack_base_excitations()                  // 5 base levels only
-       → for each pitch: pack_base_levels() → 5×4×5 = 100 reals
-       → concatenate → 256 × 100 = 25,600 reals (100 KB float)
+     sm.pack_base_excitations()                  // 6 base levels only
+       → for each pitch: pack_base_levels() → 6×4×5 = 120 reals
+       → concatenate → 256 × 120 = 30,720 reals
      pianoid_cpp.setNewExcitationBaseLevels(base_levels)
-         └── C++ host interpolation: 5 → 128 levels (linear, matching Python extrapolate())
+         └── C++ host interpolation: 6 → 128 levels (linear, matching Python extrapolate())
          └── updateTunableParameter("dev_gauss_params_full", full_params)
              └── double-buffer swap (same as 2.1)
 ```
 
 **C++ interpolation** (`Pianoid::interpolateBaseLevels`): Private helper used by both
 `loadPresetToLibrary()` and `setNewExcitationBaseLevels()`. Uses the same segment
-boundaries [0, 31, 63, 95, 128] and linear interpolation as Python's `extrapolate()`.
-Segment 0 uses denom=30; segments 1–3 use denom=span. The GPU buffer layout and
-`gaussKernel` are unchanged.
+boundaries [0, 5, 31, 63, 95, 128] and linear interpolation as Python's `extrapolate()`.
+The GPU buffer layout and `gaussKernel` are unchanged.
 
 **Single path for all excitation uploads:** Both init (`loadPresetToLibrary`) and
 runtime updates (`setNewExcitationBaseLevels`) accept base levels and interpolate via
@@ -517,7 +516,7 @@ Volume formula (applied in GPU kernel):
   "model_parameters": {
     "mode_iteration": 48, "string_iteration": 12, "array_size": 384,
     "num_strings_in_array": 2, "excitation_factor": 8,
-    "level_indices": [0,31,63,95,127], "num_modes": 32
+    "level_indices": [0,5,31,63,95,127], "num_modes": 32
   },
   "pitches": {
     "<pitchID>": {
@@ -640,7 +639,7 @@ backendserver.py: preset_load_to_library_route()       (line 319)
      ├── mode_state, mode_coefficients, volume_coefficients
   4. pianoid.loadPresetToLibrary(name, phys, hammer, gauss, modes, deck, vol)
      ├── Validate input sizes against compile-time maxima
-     ├── Interpolate 5 base excitation levels → 128 velocity levels
+     ├── Interpolate 6 base excitation levels → 128 velocity levels
      ├── Pack all sections into contiguous buffer (751,104 reals)
      └── Store in preset_library_ (host-side hash map)
 ```
@@ -1045,7 +1044,7 @@ _stop_online_engine()
          ▼
 VolumeTuner.equalize(reference_pitch=60, curve="piano")
   1. measure_keyboard_all_levels():
-     For each pitch × 5 LEVEL_INDICES [0, 31, 63, 95, 127]:
+     For each pitch × 6 LEVEL_INDICES [0, 5, 31, 63, 95, 127]:
        render_note(pitch, velocity=level) → measure_volume()
        → skip 50ms, window = min(max(20/freq*1000, 50), 500) ms
        → MeasuredVolume(rms, peak)
@@ -1055,14 +1054,14 @@ VolumeTuner.equalize(reference_pitch=60, curve="piano")
      coefficient = clamp(target / measured, 0.1, 10.0)
 
   3. Store: pitch.excitation.volume_coefficients[level_idx] = coefficient
-     (length-5 array, one per base velocity level)
+     (length-6 array, one per base velocity level)
 
   4. Bulk upload:
      sm.pack_base_excitations()        // volume_coefficients multiply
        → for each pitch:               // the volume row (index 2)
-           pack_base_levels()           // of the 5×4×5 base matrix
-       → 256 × 100 = 25,600 reals
-     setNewExcitationBaseLevels()       // C++ interpolates 5 → 128 levels
+           pack_base_levels()           // of the 6×4×5 base matrix
+       → 256 × 120 = 30,720 reals
+     setNewExcitationBaseLevels()       // C++ interpolates 6 → 128 levels
        → updateTunableParameter("dev_gauss_params_full")
        → double-buffer swap
          │

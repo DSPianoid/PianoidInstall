@@ -461,9 +461,9 @@ Per velocity level (20 reals):
 | Init | `loadPresetToLibrary(preset_name, ...)` | Once at startup |
 | Runtime | `setNewExcitationBaseLevels()` | Every parameter edit |
 
-Both accept 5 base velocity levels per string (25,600 reals) and call the private
+Both accept 6 base velocity levels per string (30,720 reals) and call the private
 `interpolateBaseLevels()` helper to reconstruct the full 128-level buffer. The
-interpolation uses the same segment boundaries [0, 31, 63, 95, 128] and linear formula
+interpolation uses the same segment boundaries [0, 5, 31, 63, 95, 128] and linear formula
 as Python's `extrapolate()`. The reconstructed buffer is uploaded via
 `updateTunableParameter()` on the double-buffer system (see
 [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
