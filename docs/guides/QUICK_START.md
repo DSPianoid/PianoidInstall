@@ -99,27 +99,52 @@ After the script completes, a system restart may be required if VS Build Tools o
 
 Once system prerequisites are installed, build the Python virtual environment and compile the CUDA extension:
 
-The PianoidCore repository contains batch scripts for building:
+```bat
+cd PianoidInstall
+setup-pianoid.bat
+```
+
+This runs four steps in sequence:
+
+1. **Python venv** — creates `PianoidCore\.venv`, installs `requirements.txt`
+2. **PianoidBasic** — builds the domain model wheel, installs into `.venv`
+3. **PianoidCuda** — detects toolchain paths, compiles CUDA extension (release + debug)
+4. **Frontend** — runs `npm install` in PianoidTunner
+
+The build takes 5–15 minutes depending on GPU architecture count. Check `PianoidCore\build.log` for compiler output.
+
+### Build individual components
 
 ```bat
 cd PianoidInstall\PianoidCore
-build_pianoid_complete.bat
+
+:: PianoidBasic only
+build_pianoid_basic.bat
+
+:: CUDA extension — full clean rebuild, both variants
+build_pianoid_cuda.bat --heavy --both
+
+:: CUDA extension — incremental rebuild, release only
+build_pianoid_cuda.bat --light --release
 ```
 
-This will:
-1. Create a Python virtual environment at `PianoidCore\.venv`
-2. Install `PianoidBasic` (the domain model package) into the venv via `pip install -e`
-3. Install all Python dependencies from `requirements.txt`
-4. Compile the CUDA extension (`pianoid_cuda`) against the detected CUDA toolkit
-5. Install frontend dependencies for PianoidTunner via `npm install`
+### Diagnosing build failures
 
-If the build fails on the CUDA step, verify that `nvcc` is on the system PATH and that the GPU architecture is supported. Run `detect_paths.py` to diagnose SDL and CUDA path detection:
+If the CUDA step fails, run toolchain detection standalone to see what was found/missing:
 
 ```bat
 cd PianoidInstall\PianoidCore
-.venv\Scripts\activate.bat
-python detect_paths.py
+.venv\Scripts\python detect_paths.py --project-root pianoid_cuda --out NUL
 ```
+
+Common issues:
+
+- **`nvcc` not found** — CUDA Toolkit not installed or not on PATH. Set `CUDA_PATH` environment variable.
+- **SDL library not found** — install SDL2/SDL3 to `C:\SDL2-<version>` or `C:\SDL3-<version>`, or set `SDL2_DIR`/`SDL3_DIR`.
+- **MSVC not found** — install Visual Studio 2022 Build Tools with C++ workload.
+- **File in use error** — backend server or Python is still running and holding `.pyd` files. Stop the backend first.
+
+See [Build System](../architecture/BUILD_SYSTEM.md) for the full pipeline reference and environment variables.
 
 ---
 
@@ -155,9 +180,75 @@ This is useful when you don't want to activate the venv, e.g. from batch scripts
 
 ---
 
-## Starting the Backend Server Manually
+## Environment Variables
 
-To start the Flask backend server without `start-pianoid.bat`:
+| Variable | Purpose |
+|---|---|
+| `PIANOID_USE_DEBUG` | Set to `1` to load `pianoidCuda_debug` instead of `pianoidCuda` at runtime |
+| `PIANOID_BUILD_VARIANT` | `release` (default) or `debug` — controls which variant `setup.py` builds |
+| `PIANOID_BUILD_CONFIG` | Override path to `build_config.json` |
+| `PIANOID_INCREMENTAL_BUILD` | Set to `1` to enable incremental `.cu` recompilation |
+| `CUDA_ARCHES` | Comma-separated compute capabilities, e.g. `"80,86,89"` |
+| `CUDA_PATH` | CUDA installation root hint for `detect_paths.py` |
+| `SDL2_DIR` / `SDL3_DIR` | SDL root hint for `detect_paths.py` |
+
+To start the backend with the debug CUDA build:
+
+```bat
+set PIANOID_USE_DEBUG=1
+cd PianoidInstall\PianoidCore\pianoid_middleware
+..\\.venv\Scripts\python backendserver.py
+```
+
+---
+
+## Step 4 — Start (UI Method)
+
+The standard way to run Pianoid uses the launcher architecture: a Node.js process manager (port 3001) controls the backend lifecycle from the browser UI.
+
+```bat
+start-pianoid.bat
+```
+
+The script checks prerequisites (directories, `.venv`, `node_modules`), then opens a terminal running `npm run dev` in PianoidTunner. This starts two services simultaneously:
+
+| Service | Port | Role |
+|---|---|---|
+| React dev server | 3000 | Frontend UI |
+| Node.js launcher | 3001 | Backend process manager + WebSocket console |
+
+The backend (port 5000) is **not started yet** — it launches on demand when you click **APPLY** in the UI.
+
+### Starting the backend from the UI
+
+1. Open http://localhost:3000 in a browser (opens automatically)
+2. In the **Settings** sidebar, configure:
+   - **Preset path**: `presets/BaselinePreset1.json` (default)
+   - **Audio driver**: ASIO Callback (4) if you have an ASIO device, otherwise SDL (2)
+   - **Sample rate**: 48000
+   - **Volume**: 120
+3. Click **APPLY**
+4. The frontend calls the launcher (`POST http://localhost:3001/api/start-backend`), which spawns the Flask process
+5. The backend initializes the CUDA engine, loads the preset, and starts the audio playback thread
+6. The status indicator turns green when ready
+
+### Launcher API (port 3001)
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/start-backend` | POST | Spawn Flask backend process |
+| `/api/stop-backend` | POST | Graceful shutdown → force kill |
+| `/api/kill-stale` | POST | Force-kill any process on port 5000 |
+| `/api/backend-status` | GET | Returns `{ running, pid }` |
+| `/ws/console` | WebSocket | Real-time backend log stream |
+
+---
+
+## Step 4 (Alternative) — Start via CLI
+
+To start the backend directly without the launcher UI:
+
+### Terminal 1 — Backend
 
 ```bat
 cd PianoidInstall\PianoidCore
@@ -166,76 +257,108 @@ cd pianoid_middleware
 python backendserver.py
 ```
 
-Or without activating:
+The Flask server starts on http://localhost:5000. It does **not** load a preset or start audio automatically — you must call `/load_preset`.
+
+### Terminal 2 — Frontend (optional)
 
 ```bat
-cd PianoidInstall\PianoidCore
-.venv\Scripts\python.exe pianoid_middleware\backendserver.py
+cd PianoidInstall\PianoidTunner
+npm start
 ```
 
-The server starts on `http://localhost:5000`. Verify with:
+This starts only the React dev server on port 3000 (no launcher on 3001).
 
-```bat
+### Initialize via API
+
+After starting the backend manually, load a preset and start playback:
+
+```bash
+curl -X POST http://localhost:5000/load_preset \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "presets/BaselinePreset1.json",
+    "audio_driver_type": 2,
+    "sample_rate": 48,
+    "volume": 120,
+    "string_iterations": 4,
+    "cycle_iterations": 64,
+    "audio_buffer_size": 4,
+    "array_size": 384,
+    "audio_on": 1,
+    "start_right_away": 1,
+    "listen_to_midi": 0,
+    "listen_to_modes": 1,
+    "use_cuda": 1,
+    "use_simulation": 0,
+    "debug_mode": 0
+  }'
+```
+
+Verify:
+
+```bash
 curl http://localhost:5000/health
-```
-
-To use the debug CUDA build, set the environment variable before starting:
-
-```bat
-set PIANOID_USE_DEBUG=1
-python backendserver.py
+# Expected: {"status": "healthy", "pianoid_loaded": true, ...}
 ```
 
 ---
 
-## Step 4 — Run
+## Startup Parameters Reference
 
-From the install root:
+Parameters passed to `POST /load_preset` control engine initialization:
 
-```bat
-start-pianoid.bat
-```
-
-The script performs pre-flight checks:
-- `PianoidCore` directory exists
-- `PianoidCore\pianoid_middleware\backendserver.py` exists
-- `PianoidCore\.venv` exists
-- `PianoidTunner\node_modules` exists
-
-If all checks pass it opens two terminal windows:
-
-| Window | Command | What it does |
+| Parameter | Default | Description |
 |---|---|---|
-| PianoidCore Backend | `.venv\Scripts\activate.bat && python backendserver.py` | Flask server, CUDA engine, audio driver |
-| PianoidCore Frontend | `npm start` | React development server |
+| `path` | `presets/BaselinePreset1.json` | Preset file path (relative to `pianoid_middleware/`) |
+| `audio_driver_type` | `4` | `0`=default, `1`=ASIO, `2`=SDL2, `3`=SDL3, `4`=ASIO Callback |
+| `sample_rate` | `48` | Sample rate in kHz (values < 1000 are multiplied by 1000) |
+| `volume` | `120` | MIDI-style volume 0–127 |
+| `max_volume` | — | Float, explicit max volume (overrides `volume` if set) |
+| `string_iterations` | `4` | Solver iterations per sample |
+| `cycle_iterations` | `64` | Samples per synthesis cycle (min 16) |
+| `audio_buffer_size` | `4` | Buffer chunks: `2`=low latency, `4`=balanced, `8`=stable |
+| `array_size` | `384` | Spatial discretization points per string (384–512) |
+| `audio_on` | `1` | `1`=enable audio output, `0`=silent |
+| `start_right_away` | `1` | `0`/`3`=init only, `1`=start in background thread |
+| `listen_to_midi` | `0` | `1`=start MIDI listener on load |
+| `listen_to_modes` | `1` | `0`=bridge displacement output, `1`=mode forces output |
+| `use_cuda` | `1` | `1`=GPU synthesis, `0`=CPU fallback |
+| `use_simulation` | `0` | `1`=simulation mode |
+| `debug_mode` | `0` | `1`=load debug CUDA build (`pianoidCuda_debug`) |
 
-The backend starts first; the script waits 3 seconds before launching the frontend.
+### Audio driver selection guide
+
+| Driver | Code | When to use |
+|---|---|---|
+| ASIO Callback | `4` | Best: lowest latency, requires ASIO device/driver (e.g. ASIO4ALL, Focusrite, RME) |
+| ASIO | `1` | Legacy ASIO mode |
+| SDL2 | `2` | Universal fallback, works on any system, higher latency |
+| SDL3 | `3` | Newer SDL, same role as SDL2 |
+| Default | `0` | Auto-select based on compile-time configuration |
 
 ---
 
-## Step 5 — Access
+## Services and Ports
 
-| Service | URL |
-|---|---|
-| Frontend (React UI) | http://localhost:3000 |
-| Backend API (Flask) | http://localhost:5000 |
-| Health check | http://localhost:5000/health |
-
-The browser should open automatically. If not, navigate to `http://localhost:3000` manually.
+| Service | Port | Started by |
+|---|---|---|
+| React frontend | 3000 | `npm start` or `npm run dev` |
+| Node.js launcher | 3001 | `npm run dev` only (not `npm start`) |
+| Flask backend | 5000 | Launcher APPLY button, or manual `python backendserver.py` |
 
 ---
 
 ## Verification Steps
 
-1. Open `http://localhost:5000/health` in a browser. The response should be a JSON object with `"status": "not_started"` or `"healthy"`. A connection refused error means the backend did not start.
+1. **Health check**: `curl http://localhost:5000/health` — expect `"status": "healthy"` after preset load, or `"status": "not_started"` if backend is running but no preset loaded yet. Connection refused means the backend process is not running.
 
-2. In the frontend, the `BackendStatusIndicator` badge (top-right of the UI) should show green. If it shows red/orange, the backend is unreachable or the CUDA engine failed to initialise.
+2. **Status indicator**: the badge in the top-right of the React UI should show green after APPLY. Red/orange means the backend is unreachable or CUDA initialization failed.
 
-3. Click **Load / Save** and load a preset file. After loading, the virtual piano should populate with available notes and the Feedin/Feedback matrices should render.
+3. **Load preset**: click **APPLY** in Settings (UI) or call `POST /load_preset` (CLI). The virtual piano should populate with available notes.
 
-4. Press a key on the virtual piano or connected MIDI device. The backend should synthesise a note and play it through the audio output.
+4. **Play a note**: press a key on the virtual piano or connected MIDI device. Audio should play through the selected audio driver.
 
-5. Check `PianoidCore\build.log` if the CUDA build step produced errors — it contains the full compiler output.
+5. **Build log**: check `PianoidCore\build.log` for CUDA compiler output if the extension failed to build.
 
 ---
 

@@ -51,6 +51,7 @@ nav:
     - Work in Progress: development/WORK_IN_PROGRESS.md
   - Guides:
     - Quick Start: guides/QUICK_START.md
+    - Startup Troubleshooting: guides/STARTUP_TROUBLESHOOTING.md
 
 markdown_extensions:
   - pymdownx.highlight:

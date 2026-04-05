@@ -60,10 +60,25 @@ Documentation lookup order (stop as soon as you have enough context):
 
 Only after the docs don't answer your question may you proceed to source files.
 
+## Startup & Build Failure Rule
+
+When the standard startup procedure fails (`start-pianoid.bat`, `npm run dev`, backend crash, port conflict, build failure, missing dependency, audio driver error) — or when any non-standard installation/build/startup procedure is required — automatically invoke the `/startup` skill. This skill consolidates all installation, build, and startup knowledge including toolchain detection, CUDA compilation, server launch, port conflicts, and audio driver troubleshooting.
+
+**Auto-trigger `/startup` when:**
+- `start-pianoid.bat` or `npm run dev` fails
+- A build step fails (PianoidBasic, PianoidCuda, frontend npm)
+- `import pianoidCuda` or `import Pianoid` fails
+- Port 3000/3001/5000 is already in use
+- Audio driver fails to initialize
+- A fresh installation is needed
+- The user asks about installation, build, or startup procedures
+
 ## Build & Environment Problems
 
 When encountering import errors, missing modules, wrong Python interpreter, or any build/environment issue — **do NOT probe the filesystem** (listing site-packages, trying different Python paths, checking pyvenv.cfg). Instead, consult these docs immediately:
 
+- `docs/guides/QUICK_START.md` — full installation and startup reference
+- `docs/guides/STARTUP_TROUBLESHOOTING.md` — known failure modes and recovery
 - `docs/architecture/BUILD_SYSTEM.md` — venv location (`PianoidCore/.venv/`), build pipeline, toolchain setup
 - `docs/development/TESTING.md` — correct Python invocation (`cd PianoidCore && .venv/Scripts/python`)
 
