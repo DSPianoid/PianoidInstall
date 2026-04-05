@@ -107,12 +107,58 @@ Ask the user which approach if unclear.
 
 **Rebuild after edits:**
 
+Before building, consult `docs/architecture/BUILD_SYSTEM.md` for build pipeline details, venv handling, and troubleshooting.
+
+**Pre-build check (MANDATORY):** Before every build, verify no process holds the `.pyd` or CUDA DLLs. A locked file causes `[WinError 5] Access is denied` and a failed uninstall leaves the package missing.
+
+```bash
+# Check for locked pianoidCuda files
+locked_pids=$(tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python | awk '{print $2}')
+if [ -n "$locked_pids" ]; then
+  echo "WARNING: pianoidCuda.pyd is locked by PIDs: $locked_pids"
+  echo "Kill these processes before building (they are likely stale backends or test runners)"
+  # Show what they are:
+  for pid in $locked_pids; do
+    wmic process where "ProcessId=$pid" get CommandLine 2>/dev/null | head -2
+  done
+  # Ask user before killing, or kill only known-safe Pianoid processes
+fi
+# Also check cudart DLL
+tasklist //M cudart64_12.dll 2>/dev/null | grep python && echo "WARNING: cudart64_12.dll locked — kill holder first"
+```
+
+**Build commands:** The build script MUST be invoked from `PianoidCore/` using its own `.venv`. Clear `VIRTUAL_ENV` first to prevent the script from installing into the wrong venv (see `docs/architecture/BUILD_SYSTEM.md` — the script uses `%REPO_ROOT%.venv`).
+
 | Changed Files | Build Command |
 |--------------|---------------|
-| `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh`, `setup.py` | `cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && build_pianoid_cuda.bat --heavy"` |
-| `pianoid_middleware/*.py` only | `cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && build_pianoid_cuda.bat --light"` |
-| PianoidBasic `*.py` | `cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && build_pianoid_basic.bat"` |
+| `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh`, `setup.py` | see below (heavy) |
+| `pianoid_middleware/*.py` only | see below (light) |
+| PianoidBasic `*.py` | `unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_basic.bat"` |
 | `tests/**` only | No rebuild needed |
+
+**CUDA build (heavy — full rebuild for C++/CUDA changes):**
+```bash
+unset VIRTUAL_ENV
+cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy"
+```
+
+**CUDA build (light — incremental for Python-only middleware changes):**
+```bash
+unset VIRTUAL_ENV
+cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+```
+
+**Fallback (if bat script fails or for quick iteration):**
+```bash
+cd D:/repos/PianoidInstall/PianoidCore
+.venv/Scripts/python -m pip install --force-reinstall --no-deps pianoid_cuda/
+```
+
+**Post-build verification:**
+```bash
+D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+```
+Verify the path is inside `PianoidCore/.venv/` (not root `.venv/`).
 
 ## Step 5: Post-Change Performance Test
 

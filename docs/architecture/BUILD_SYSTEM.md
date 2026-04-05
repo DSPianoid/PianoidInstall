@@ -352,3 +352,38 @@ paths in `build_config.json` (`sdl3_dll`, `cuda_home`) may be incorrect.
 `--heavy` uninstalls `pianoidCuda` before building. If the build then fails, the package
 is gone. Use `--light` for iterative development; use `--heavy` only when a clean
 rebuild is needed (e.g. after changing `setup.py` or pybind11 bindings).
+
+### Build installs into wrong venv
+
+The build script activates `%REPO_ROOT%.venv` where `REPO_ROOT` is the directory
+containing the `.bat` file. The correct script is `PianoidCore/build_pianoid_cuda.bat`
+which targets `PianoidCore/.venv/`.
+
+**Common mistake:** If `VIRTUAL_ENV` is already set (e.g., the root `.venv/` was
+activated earlier), the build script uses that venv instead. Always clear it first:
+
+```bash
+unset VIRTUAL_ENV
+cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+```
+
+**Verify target:** After building, confirm the `.pyd` is in the correct location:
+
+```bash
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+# Expected: PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
+```
+
+### `[WinError 5] Access is denied` during build
+
+A running Python process (backend server, test runner, previous sub-agent) holds
+`pianoidCuda.pyd` or `cudart64_12.dll` open. The uninstall step cannot delete the file.
+
+**Diagnosis:**
+```bash
+tasklist //M pianoidCuda.cp312-win_amd64.pyd
+tasklist //M cudart64_12.dll
+```
+
+**Fix:** Kill the process holding the file, then rebuild. Only kill by specific PID —
+never use `taskkill //F //IM python.exe` as that kills MCP servers and Claude Code.

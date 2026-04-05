@@ -84,6 +84,35 @@ When encountering import errors, missing modules, wrong Python interpreter, or a
 
 The working venv with all packages (numpy, pianoidCuda, etc.) is always `PianoidCore/.venv/`, **not** the root `.venv/`.
 
+### Build Commands (Quick Reference)
+
+**Before ANY build:** check for locked `.pyd`/`.dll` files. A locked file causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks everything.
+
+```bash
+# Check for locked files — kill holders BEFORE building
+tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
+tasklist //M cudart64_12.dll 2>/dev/null | grep python
+```
+
+**Build pianoidCuda** (always clear `VIRTUAL_ENV` to prevent installing into root `.venv/`):
+
+```bash
+# Full rebuild (C++/CUDA changes)
+unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy"
+
+# Incremental (Python middleware only)
+unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+
+# Fallback (pip direct — when bat script fails)
+cd D:/repos/PianoidInstall/PianoidCore && .venv/Scripts/python -m pip install --force-reinstall --no-deps pianoid_cuda/
+```
+
+**Verify** the build installed into the correct venv:
+```bash
+D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+# Must show PianoidCore/.venv/..., NOT root .venv/...
+```
+
 ## Documentation Links
 
 When referencing documentation files in reports or summaries, **always** provide MkDocs links via `http://localhost:8001/` (not file paths or VS Code links). Use the nav structure from `mkdocs.yml` to build URLs. Anchor fragments use the heading text lowercased with hyphens (e.g., `#excitation-system`).

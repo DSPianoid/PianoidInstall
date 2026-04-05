@@ -554,6 +554,8 @@ Check `/playback_stats` for buffer overruns (`peak_buffer_size` spike, event cou
 
 **Skip if** `-skip-mic` flag is set or user chose to skip in Phase 1.
 
+This phase verifies end-to-end audio output by comparing mic recordings with and without a note playing. A simple RMS comparison is insufficient — the mic always captures ambient noise. The test must prove the mic captured the **actual synthesized note** by checking SNR and frequency content.
+
 ### 7a: List available microphone devices
 
 ```bash
@@ -573,31 +575,105 @@ curl -s -X POST http://127.0.0.1:5000/set_mic_device \
   -d "{\"device_index\": $device_idx}" > /dev/null
 ```
 
-### 7c: Measure RMS via microphone
+### 7c: Capture baseline noise (NO note playing)
 
-Use the `/measure_rms` endpoint for a test pitch:
+Record 1.5 seconds of silence to establish the noise floor:
 
-```bash
-rms_resp=$(curl -s -X POST http://127.0.0.1:5000/measure_rms \
-  -H "Content-Type: application/json" \
-  -d "{\"pitch\": $pitch, \"velocity\": 100}" 2>/dev/null)
-echo "[$(date -Iseconds)] Phase 7c: Mic RMS: $rms_resp" >> D:/tmp/diagnose-session.log
+```python
+# Run via PianoidCore/.venv/Scripts/python inline or via a helper script
+import numpy as np, requests, time, base64
+
+# Start mic capture (1500 ms)
+requests.post('http://127.0.0.1:5000/start_mic_capture', json={"duration_ms": 1500})
+time.sleep(1.5)
+noise_resp = requests.post('http://127.0.0.1:5000/stop_mic_capture').json()
+noise_samples = np.array(noise_resp.get('samples', []), dtype=np.float32)
+noise_rms = np.sqrt(np.mean(noise_samples**2)) if len(noise_samples) > 0 else 0
 ```
 
-### 7d: Compare generated vs recorded
+If the backend does not expose `start_mic_capture`/`stop_mic_capture` REST endpoints, use a **direct Python script** instead of REST calls:
 
-1. Generate sound via `note_playback` (internal, deterministic) — get max_amp and rms
-2. Record via microphone (external, real audio path) — get mic rms
-3. Compare:
-   - Mic RMS should be > 0 (sound is reaching the mic)
-   - Check for gross distortion: if mic RMS is > 10× the expected proportional level, flag as distorted
-   - If mic captures silence while internal sound is loud, flag audio routing issue
+```python
+# Direct Python approach (preferred — avoids REST endpoint dependency)
+import time, numpy as np
+from scipy.fft import fft
 
-**PASS criteria:** Mic captures non-zero audio, proportional to generated amplitude, no obvious distortion.
+# Assumes pianoid (p) is already loaded and playback is active
+# Step 1: Baseline noise
+p.pianoid.startMicCapture(1500)
+time.sleep(1.5)
+noise = np.array(p.pianoid.stopMicCapture(), dtype=np.float32)
+noise_rms = np.sqrt(np.mean(noise**2)) if len(noise) > 0 else 0
+```
 
-**WARN criteria:** Mic level very low (possible volume/routing issue) or very high (possible clipping).
+### 7d: Capture signal WITH note playing
 
-**FAIL criteria:** Mic captures pure silence while engine generates sound — audio driver or routing broken.
+Play the test pitch and record simultaneously:
+
+```python
+import pianoidCuda
+
+# Step 2: Signal with note
+p.pianoid.startMicCapture(3000)
+time.sleep(0.2)  # Let capture stabilize
+p.add_realtime_event(pianoidCuda.EventType.NOTE_ON, pitch, 127)
+time.sleep(2)
+p.add_realtime_event(pianoidCuda.EventType.NOTE_OFF, pitch, 0)
+time.sleep(0.5)
+signal = np.array(p.pianoid.stopMicCapture(), dtype=np.float32)
+signal_rms = np.sqrt(np.mean(signal**2)) if len(signal) > 0 else 0
+signal_max = np.max(np.abs(signal)) if len(signal) > 0 else 0
+```
+
+### 7e: SNR analysis — distinguish sound from noise
+
+```python
+snr = signal_rms / (noise_rms + 1e-10)
+snr_db = 20 * np.log10(snr + 1e-10)
+
+print(f"Noise RMS: {noise_rms:.6f}")
+print(f"Signal RMS: {signal_rms:.6f}")
+print(f"SNR: {snr:.2f}x ({snr_db:.1f} dB)")
+```
+
+### 7f: Frequency analysis — verify correct pitch
+
+```python
+sr = 48000  # or actual sample rate from config
+freqs = np.fft.rfftfreq(len(signal), 1.0 / sr)
+spectrum = np.abs(fft(signal)[:len(signal) // 2 + 1])
+peak_idx = np.argmax(spectrum[10:]) + 10  # skip DC
+peak_freq = freqs[peak_idx]
+
+# Expected fundamental for the test pitch (MIDI → Hz)
+expected_hz = 440.0 * 2 ** ((pitch - 69) / 12.0)
+
+# Check if peak is a harmonic of expected pitch (within 5%)
+is_harmonic = any(
+    abs(peak_freq - expected_hz * n) / (expected_hz * n) < 0.05
+    for n in range(1, 9)
+)
+
+print(f"Peak frequency: {peak_freq:.1f} Hz")
+print(f"Expected fundamental: {expected_hz:.1f} Hz")
+print(f"Is harmonic match: {is_harmonic}")
+```
+
+### 7g: Evaluate results
+
+| Metric | PASS | WARN | FAIL |
+|--------|------|------|------|
+| SNR | > 6x (> 15 dB) | 3–6x (10–15 dB) | < 3x (< 10 dB) — indistinguishable from noise |
+| Peak frequency | Harmonic of expected pitch | Non-harmonic but SNR > 6 | No dominant frequency |
+| Signal RMS | > 10× noise_rms | > 3× noise_rms | ≤ 3× noise_rms |
+
+**PASS criteria:** SNR > 3x AND peak frequency is a harmonic of the test pitch. This proves the synthesized note traveled through the audio driver → hardware output → microphone.
+
+**WARN criteria:** SNR > 3x but frequency doesn't match expected pitch. Sound is output but may be wrong note or distorted.
+
+**FAIL criteria:** SNR ≤ 3x — mic captures only noise. Audio driver may be routing to wrong output channels or the audio hardware is not connected to speakers/monitors near the mic.
+
+Save all values as variables for the report: `noise_rms`, `signal_rms`, `signal_max`, `snr`, `snr_db`, `peak_freq`, `expected_hz`, `is_harmonic`.
 
 ---
 
@@ -910,11 +986,14 @@ Write the following to the report file:
 | Metric | Value |
 |--------|-------|
 | Device | <mic_device> |
-| Mic dB | <mic_db> |
-| Mic RMS | <mic_rms> |
-| Mic Peak | <mic_peak> |
-| Synthesis Peak | <synthesis_peak> |
-| Mic/Synthesis Ratio | <ratio> |
+| Noise RMS (baseline) | <noise_rms> |
+| Signal RMS (with note) | <signal_rms> |
+| Signal Peak | <signal_max> |
+| SNR | <snr>x (<snr_db> dB) |
+| Peak Frequency | <peak_freq> Hz |
+| Expected Fundamental | <expected_hz> Hz |
+| Harmonic Match | <is_harmonic> |
+| Verdict | PASS/WARN/FAIL |
 
 ## Frontend UI (if tested)
 
