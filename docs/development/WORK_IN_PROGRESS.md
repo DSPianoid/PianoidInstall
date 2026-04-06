@@ -208,7 +208,7 @@ See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the
 
 ## RoomResponse Modal Adapter Integration
 
-**Status:** Waves 1-3 complete. Wave 4 (integration test) pending.
+**Status:** All 4 waves complete.
 
 ### Known Issues
 
@@ -230,7 +230,7 @@ Full pipeline: Load → ESPRIT Extract → Mode Tracking → Feedin Extraction �
 | 1 | Backend core | `feedin_extractor.py` (new), rewrite `esprit_runner.py` to use `merge_multiband_results()` + `track_modes_along_bridge()`, channel roles in `mapping.py` | **Done** |
 | 2 | State machine + fixes | Independent stages + persistence in `modal_adapter.py`, sound output bug fix in `preset_injector.py`, FFT feedin path (`apply_with_feedin`), 12 new REST endpoints (21 total) | **Done** |
 | 3 | Frontend | Panel with collapsible sections (Accordion), stabilization diagram (ECharts scatter), mode shape along bridge, feedin heatmap, enhanced mode table with sort/filter, band preset selector, channel role assignment | **Done** |
-| 4 | Integration test | End-to-end with Belarus data: 78 scenarios → ESPRIT → tracking → FFT feedin → preset → verify sound | Pending |
+| 4 | Integration test | End-to-end with Belarus data: 78 scenarios → ESPRIT → tracking → FFT feedin → preset → verify sound. Bug fix: feedin key-type mismatch in `preset_injector.py`. | **Done** |
 
 Reference presets:
 - `presets/IversPond_ESPRIT_128modes.json` (128 modes, base64 deck matrices)

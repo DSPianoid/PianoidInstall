@@ -1,7 +1,7 @@
 # Modal Adapter Pipeline: Implementation Plan
 
 **Date:** 2026-04-06
-**Status:** Planned
+**Status:** Complete (all 4 waves)
 
 ---
 
@@ -356,13 +356,13 @@ Replace 6-step Stepper with a single-page panel containing collapsible sections:
 
 ---
 
-## Wave 4: Integration Test
+## Wave 4: Integration Test (**Done**)
 
-End-to-end test with Belarus data:
+End-to-end test with Belarus data (`tests/integration/test_modal_adapter_e2e.py`):
 
-1. Load `D:/repos/RoomResponse/piano/exported_responses/` (78 scenarios, 6 channels)
+1. Load `D:/repos/RoomResponse/piano/` (78 scenarios, 6 channels)
 2. Configure: ch2=force, ch5=reference, [0,1,3,4]=response, bridge boundary=28, offset=21
-3. Run ESPRIT: Extended 8-band, MAC threshold 0.9
+3. Run ESPRIT: Standard 4-band (subset) / Extended 8-band (full), MAC threshold 0.9, GPU
 4. Run tracking: freq_tol=2%, max_gap=3
 5. Verify stabilization diagram shows ~100+ stable chains matching `belarus_tracked_modes_v2.json`
 6. Select stable + semi-stable chains
@@ -370,8 +370,20 @@ End-to-end test with Belarus data:
 8. Verify feedin heatmap shows non-uniform coupling varying by pitch and mode
 9. Map channels: [0→0, 1→1, 3→2, 4→3]
 10. Apply to preset
-11. Play notes — verify non-uniform feedin and working sound output on all 4 channels
+11. Play notes — verify non-uniform feedin and working sound output
 12. Compare sound character with uniform-feedin Belarus_ESPRIT_v2 preset
+
+**Bug found and fixed:** `preset_injector.py` key-type mismatch — feedin data uses int keys but preset pitches use string keys, causing all feedin to be silently dropped during `apply_with_feedin()`.
+
+| Test class | Count | Time | What it validates |
+|------------|-------|------|-------------------|
+| TestBelarusLoad | 5 | ~3s | Measurement loading, scenario detection, shape |
+| TestBelarusMapping | 3 | <1s | Channel roles, bridge boundary, pitch offset |
+| TestBelarusESPRIT | 2 | ~35s | GPU ESPRIT on 6-scenario subset, frequency range |
+| TestBelarusPipeline | 7 | ~35s | Tracking, feedin, mapping, stabilization, persistence |
+| TestBelarusReferenceComparison | 4 | <1s | Reference chain structure and stability counts |
+| TestBelarusApplyPreset | 2 | ~40s | Baseline preset sound, pipeline results → sound |
+| TestBelarusFullPipeline | 5 | ~1hr | All 78 scenarios with extended 8-band (slow) |
 
 ---
 

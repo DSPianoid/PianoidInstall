@@ -145,6 +145,43 @@ Validates that `pack_pitch_feedin()` respects the `listen_to_modes` flag when in
 | `TestEndToEndZeroedFeedinProducesSound::test_regular_modes_negligible_vs_sound_channel_modes` | Regular modes have negligible displacement from cross-coupling |
 | `TestStringsModeSilenceOnZeroedFeedin::test_strings_mode_zeroed_feedin_produces_silence` | Strings mode + zeroed feedin + pack_deck → silence (fix validation) |
 
+### test_modal_adapter_e2e.py
+
+End-to-end integration test for the Modal Adapter pipeline with Belarus measurement data. Tests all 6 stages: Load → ESPRIT → Tracking → Feedin → Channel Mapping → Apply to Preset.
+
+Requires Belarus data at `D:/repos/RoomResponse/piano/` and RoomResponse ESPRIT library.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestBelarusLoad::test_load_folder_auto_detects_roomresponse` | Auto-detects RoomResponse scenario folder structure |
+| `TestBelarusLoad::test_scenario_indices_populated` | Scenario indices extracted from folder names |
+| `TestBelarusLoad::test_measurement_shape` | Measurement arrays have correct (samples, channels) shape |
+| `TestBelarusLoad::test_load_subset` | Load specific subset of scenarios |
+| `TestBelarusLoad::test_sample_rate` | Sample rate setter works |
+| `TestBelarusMapping::test_set_mapping_with_roles` | Channel roles (force/reference/response) accepted |
+| `TestBelarusMapping::test_channel_roles_parsed` | Roles correctly categorize channels |
+| `TestBelarusMapping::test_bridge_boundary` | Bridge boundary and pitch offset stored correctly |
+| `TestBelarusESPRIT::test_run_esprit_subset` | GPU ESPRIT runs on 6-scenario subset, produces per-scenario results |
+| `TestBelarusESPRIT::test_esprit_modes_in_expected_range` | Mode frequencies are in audible range |
+| `TestBelarusPipeline::test_tracking_on_subset` | Mode tracking produces chains with stability classification |
+| `TestBelarusPipeline::test_feedin_extraction_on_subset` | FFT feedin is non-uniform and non-zero |
+| `TestBelarusPipeline::test_channel_mapping` | Channel-to-sound mapping persists |
+| `TestBelarusPipeline::test_stabilization_data` | Stabilization diagram data formatted correctly |
+| `TestBelarusPipeline::test_mode_shape_data` | Mode shape data has pitch/magnitude arrays |
+| `TestBelarusPipeline::test_mode_preview_params` | Mode preview returns frequency/damping |
+| `TestBelarusPipeline::test_persistence_roundtrip` | Intermediate results save and reload correctly |
+| `TestBelarusReferenceComparison::test_reference_structure` | Reference file has 300 chains |
+| `TestBelarusReferenceComparison::test_reference_stability_distribution` | 100+ stable, 80+ semi-stable |
+| `TestBelarusReferenceComparison::test_reference_frequency_coverage` | Modes span <50 Hz to >5 kHz |
+| `TestBelarusReferenceComparison::test_reference_chain_format_matches_pipeline` | Chain dict keys match pipeline output |
+| `TestBelarusApplyPreset::test_baseline_preset_produces_sound` | Belarus_ESPRIT_v2 preset produces non-silent audio |
+| `TestBelarusApplyPreset::test_apply_pipeline_results` | Pipeline results applied → non-silent sound on measured and interpolated pitches |
+| `TestBelarusFullPipeline::test_esprit_all_scenarios` | (slow) ESPRIT on all 78 scenarios |
+| `TestBelarusFullPipeline::test_tracking_stability_counts` | (slow) 80+ stable chains (ref: 121) |
+| `TestBelarusFullPipeline::test_feedin_non_uniform` | (slow) Feedin varies across pitches |
+| `TestBelarusFullPipeline::test_interpolated_pitches` | (slow) Unmeasured pitches interpolated |
+| `TestBelarusFullPipeline::test_sound_coefficients_per_channel` | (slow) Sound coefficients vary across channels |
+
 ## Key Constants
 
 ```python
