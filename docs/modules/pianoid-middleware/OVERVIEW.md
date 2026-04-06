@@ -239,7 +239,7 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 | `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
 | `EspritRunner` | `esprit_runner.py` | MAC-based band merging + spatial mode tracking | Working (merge_multiband_results + track_modes_along_bridge) |
 | `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
-| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) | Working (pitches 128-131 fixed) |
+| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) | Working (output pitches dynamic, up to 16 channels) |
 | `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 21 endpoints |
 
 Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data. Auto-persists intermediate results to project directory.

@@ -215,7 +215,7 @@ See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the
 | Issue | Severity | Root Cause | Status |
 |-------|----------|------------|--------|
 | Uniform feedin (all 1.0) | **Critical** | No FFT feedin extraction from measured IRs | **Fixed** — `feedin_extractor.py` extracts FFT magnitudes at mode frequencies |
-| Sound output pitches zeroed (128-131) | **Critical** | `preset_injector.py` skips pitch >= 128 | **Fixed** — explicit zero deck for 128-131, average sound coefficients |
+| Sound output pitches zeroed (>= 128) | **Critical** | `preset_injector.py` skips pitch >= 128 | **Fixed** — explicit zero deck for output pitches, average sound coefficients; dynamic channel count (up to 16) |
 | No MAC-based band merging | Major | `esprit_runner.py` uses frequency-only dedup | **Fixed** — uses `merge_multiband_results()` with MAC |
 | No spatial mode tracking | Major | Global clustering instead of bridge-aware tracking | **Fixed** — `run_tracking()` calls `track_modes_along_bridge()` per bridge |
 | No intermediate result persistence | Major | Long ESPRIT runs lost on crash | **Fixed** — auto-persist to `{project_dir}/modal_adapter/{stage}/` |
