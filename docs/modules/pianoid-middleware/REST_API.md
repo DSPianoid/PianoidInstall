@@ -1027,11 +1027,11 @@ Response `200`:
 
 ## Modal Adapter Endpoints
 
-ESPRIT-based modal extraction pipeline. All endpoints mounted at `/modal/*`. State machine: `idle` -> `loaded` -> `mapped` -> `running` -> `results` -> `applied`.
+ESPRIT-based modal extraction pipeline. All endpoints mounted at `/modal/*`. Stage-based architecture with independent stage execution and auto-persistence.
 
-**Note:** These endpoints are implemented and callable but the pipeline does not yet produce usable presets (feedin coefficients are uniform, sound output channels are zeroed). See [WORK_IN_PROGRESS — Modal Adapter](../../development/WORK_IN_PROGRESS.md#roomresponse-modal-adapter-integration) for the rebuild plan.
+### Stage 1: Load Measurements
 
-### `POST /modal/load_folder`
+#### `POST /modal/load_folder`
 
 Load impulse response measurements from a folder. Auto-detects direct `.npy` files or RoomResponse per-channel scenario structure.
 
@@ -1050,7 +1050,7 @@ Response `200`: measurement info (excitation points, channels, sample rate, file
 
 ---
 
-### `POST /modal/upload_measurements`
+#### `POST /modal/upload_measurements`
 
 Upload measurement arrays as multipart form data.
 
@@ -1060,30 +1060,59 @@ Response `200`: measurement info.
 
 ---
 
-### `GET /modal/measurement_info`
+#### `GET /modal/measurement_info`
 
 Returns metadata about currently loaded measurements.
 
 ---
 
-### `POST /modal/mapping`
+### Stage 2: Mapping & Configuration
 
-Set the mapping from measurement excitation points to MIDI pitches and channels to sound outputs.
+#### `POST /modal/mapping`
+
+Set the mapping from measurement points to MIDI pitches, channel roles, and bridge geometry.
 
 Request body:
 ```json
 {
   "excitation_to_pitch": {"0": 36, "1": 48, "2": 60},
   "channel_to_sound": {"0": 0, "1": 1},
-  "skipped_channels": [3, 4]
+  "skipped_channels": [3, 4],
+  "channel_roles": {"0": "response", "1": "response", "2": "force", "3": "response", "4": "response", "5": "reference"},
+  "bridge_boundary": 28,
+  "pitch_offset": 21
 }
 ```
 
 ---
 
-### `POST /modal/run_esprit`
+#### `POST /modal/config`
 
-Launch ESPRIT extraction in background. Accepts ESPRIT-specific parameters (frequency bands, model order, etc.).
+Set ESPRIT configuration with band preset name and/or advanced parameters.
+
+Request body:
+```json
+{
+  "band_preset": "extended_8band",
+  "mac_threshold": 0.9,
+  "freq_tol_pct": 0.01,
+  "use_gpu": false
+}
+```
+
+---
+
+#### `GET /modal/band_presets`
+
+Return available band preset configurations (standard_4band, extended_8band) with per-band parameters.
+
+---
+
+### Stage 3: ESPRIT Extraction
+
+#### `POST /modal/run_esprit`
+
+Launch ESPRIT extraction in background. Accepts ESPRIT-specific parameters (frequency bands, model order, etc.). Results auto-persist to project dir.
 
 Response `200`:
 ```json
@@ -1092,7 +1121,7 @@ Response `200`:
 
 ---
 
-### `GET /modal/status`
+#### `GET /modal/status`
 
 Poll extraction progress.
 
@@ -1103,21 +1132,104 @@ Response `200`:
   "progress": 3,
   "current_point": 3,
   "total_points": 5,
-  "message": "Processing point 3..."
+  "message": "ESPRIT scenario 40 (3/5)..."
 }
 ```
 
 ---
 
-### `GET /modal/results`
+#### `GET /modal/results`
 
-Returns extraction results (frequencies, decrements, mode shapes).
+Returns per-scenario extraction results (frequencies, damping ratios, merge stats).
 
 ---
 
-### `POST /modal/apply_to_preset`
+### Stage 4: Mode Tracking
 
-Apply extracted modes to the active Pianoid preset.
+#### `POST /modal/run_tracking`
+
+Run spatial mode tracking on ESPRIT results. Tracks separately for bass and treble bridges.
+
+Request body:
+```json
+{
+  "bridge_boundary": 28,
+  "freq_tol_pct": 0.02,
+  "max_gap": 3
+}
+```
+
+Response `200`: tracked chains with stability classification and summary.
+
+---
+
+#### `GET /modal/tracking_results`
+
+Return tracked chains with stability classification.
+
+---
+
+### Stage 5: Feedin Extraction
+
+#### `POST /modal/run_feedin`
+
+Run FFT feedin extraction on tracked mode chains. Uses response channels from mapping if not specified.
+
+Request body:
+```json
+{
+  "response_channels": [0, 1, 3, 4]
+}
+```
+
+Response `200`: per-pitch feedin coefficients, sound coefficients, measured/interpolated pitch lists.
+
+---
+
+#### `GET /modal/feedin_results`
+
+Return per-pitch feedin and sound coefficients.
+
+---
+
+### Stage 6: Channel Mapping & Visualization
+
+#### `POST /modal/channel_mapping`
+
+Set response channel to Pianoid sound output mapping.
+
+Request body:
+```json
+{
+  "channel_to_sound": {"0": 0, "1": 1, "3": 2, "4": 3}
+}
+```
+
+---
+
+#### `GET /modal/stabilization_diagram`
+
+Return chain data for scatter plot visualization. Points: scenario x frequency, colored by stability.
+
+---
+
+#### `GET /modal/mode_shape/<chain_id>`
+
+Return feedin magnitude along bridge for a single mode chain.
+
+---
+
+#### `GET /modal/mode_preview/<chain_id>`
+
+Return frequency + damping for rendering decaying sinewave (uses existing `exciteMode()` pattern).
+
+---
+
+### Stage 7: Apply & Persistence
+
+#### `POST /modal/apply_to_preset`
+
+Apply extracted modes to the active Pianoid preset. Uses FFT feedin path when feedin data is available.
 
 Request body:
 ```json
@@ -1131,9 +1243,26 @@ Request body:
 
 ---
 
-### `POST /modal/cancel`
+#### `POST /modal/cancel`
 
 Cancel a running ESPRIT extraction.
+
+---
+
+#### `POST /modal/set_project_dir`
+
+Set persistence directory. Creates subdirs for auto-saving intermediate results.
+
+Request body:
+```json
+{"path": "D:/projects/my_piano"}
+```
+
+---
+
+#### `GET /modal/load_intermediate/<stage>`
+
+Load saved intermediate results for a stage. Stage: `esprit`, `tracking`, `feedin`, `mapping`.
 
 ---
 

@@ -223,29 +223,26 @@ DEFAULT_TIMING_BANDS = [
 
 ## Modal Adapter (modal_adapter/)
 
-ESPRIT-based modal extraction pipeline. Intended to extract soundboard resonance modes from impulse response measurements and inject them into the active preset.
+ESPRIT-based modal extraction pipeline. Extracts soundboard resonance modes from impulse response measurements and injects them into the active preset with measured feedin coefficients.
 
-**Status:** Skeleton implemented but produces unusable presets. See [WORK_IN_PROGRESS.md](../../development/WORK_IN_PROGRESS.md#roomresponse-modal-adapter-integration) for known issues and rebuild plan.
+**Status:** Waves 1-2 complete. Backend core, stage-based state machine, persistence, injector fixes, and 21 REST endpoints operational. Frontend (Wave 3) pending.
 
-**State machine:** `idle` -> `loaded` -> `mapped` -> `running` -> `results` -> `applied`
+**Architecture:** Stage-based with independent execution. Each stage can run independently if prerequisite data exists (from prior run or loaded from persistence).
+
+```
+Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapping → Apply
+```
 
 | Component | File | Purpose | Status |
 |-----------|------|---------|--------|
-| `ModalAdapter` | `modal_adapter.py` | State machine orchestrator | Working (6 states) |
-| `MappingConfig` | `mapping.py` | Maps measurement points to pitches and channels to sound outputs | Working (no channel role config) |
-| `EspritRunner` | `esprit_runner.py` | Runs ESPRIT analysis per excitation point (background thread) | Runs but uses naive dedup instead of MAC merging |
-| `PresetInjector` | `preset_injector.py` | Applies extracted modes to the active Pianoid preset | Bug: zeroes sound output pitches 128-131 |
-| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 9 endpoints working |
+| `ModalAdapter` | `modal_adapter.py` | Stage-based orchestrator with auto-persistence | Working (independent stages) |
+| `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
+| `EspritRunner` | `esprit_runner.py` | MAC-based band merging + spatial mode tracking | Working (merge_multiband_results + track_modes_along_bridge) |
+| `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
+| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) | Working (pitches 128-131 fixed) |
+| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 21 endpoints |
 
-**Known issues preventing end-to-end use:**
-- Feedin coefficients are uniform (no FFT extraction from measured IRs)
-- No MAC-based band merging (uses frequency-proximity dedup, loses mode shapes)
-- No spatial mode tracking along bridge
-- Sound output pitches 128-131 get zeroed `mode_sound_channels`
-- No intermediate result persistence
-- Channel roles (force/reference/response) not configurable
-
-Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data.
+Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data. Auto-persists intermediate results to project directory.
 
 REST endpoints: see [REST_API.md](REST_API.md#modal-adapter-endpoints).
 
