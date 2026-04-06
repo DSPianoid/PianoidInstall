@@ -106,10 +106,10 @@ The main application entry used in production is a separate top-level component 
 | `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
-| `ModalAdapter` | `modules/ModalAdapter.jsx` | ESPRIT modal extraction wizard (load, map, configure, run, review, apply). UI skeleton only — pipeline rebuild planned, see [WORK_IN_PROGRESS](../../development/WORK_IN_PROGRESS.md#roomresponse-modal-adapter-integration) |
-| `MappingEditor` | `MappingEditor.jsx` | Maps measurement excitation points to MIDI pitches and channels to sound outputs |
-| `EspritConfig` | `EspritConfig.jsx` | ESPRIT analysis parameters (frequency bands, model order) |
-| `ModalResultsView` | `ModalResultsView.jsx` | Displays extracted modes with selection for preset injection |
+| `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with collapsible sections: load measurements, ESPRIT extraction, mode tracking, mode selection & visualization, feedin extraction, apply to preset. Each stage runs independently with stored intermediate results |
+| `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/reference/response/skip) with per-channel sound output mapping, bridge boundary, and pitch offset |
+| `EspritConfig` | `EspritConfig.jsx` | ESPRIT config with band preset selector (standard_4band / extended_8band / custom), MAC threshold, model order, per-band advanced editing |
+| `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram (ECharts scatter: scenario x frequency, colored by stability), sortable/filterable mode chain table, per-mode shape plot along bridge, feedin heatmap (pitch x mode) |
 | `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
@@ -258,7 +258,11 @@ Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95,
 
 ### `useModalAdapter`
 
-Manages the Modal Adapter state machine for ESPRIT modal extraction. Tracks the 6-step wizard workflow: load measurements, set mapping, configure ESPRIT, run extraction, review results, apply to preset. Polls `/modal/status` during extraction. Exposes: `loadFolder()`, `submitMapping()`, `runEsprit()`, `cancel()`, `applyToPreset()`, `reset()`, `activeStep`, `progress`, `results`, `measurementInfo`. Note: wizard will be replaced with independent-stage panel in the pipeline rebuild.
+Manages the Modal Adapter pipeline with independent stage state. Each stage (load, esprit, tracking, feedin, mapping) has its own `{done, running, data, error}` state. Stages can be triggered independently if prerequisite data exists. Fetches band presets from `/modal/band_presets` on mount.
+
+Key state: `stages` (per-stage state), `channelRoles` (per-channel force/reference/response/skip), `bridgeBoundary`, `pitchOffset`, `espritConfig` (with band preset name), `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived from roles).
+
+Key actions: `loadFolder()`, `setProjectDir()`, `setConfigPreset()`, `runEsprit()`, `cancelEsprit()`, `runTracking()`, `runFeedin()`, `submitChannelMapping()`, `getStabilizationDiagram()`, `getModeShape(chainId)`, `getModePreview(chainId)`, `loadIntermediate(stage)`, `applyToPreset()`, `reset()`.
 
 ### `useWindowManager`
 
