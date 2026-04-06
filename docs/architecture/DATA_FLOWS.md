@@ -615,7 +615,7 @@ backendserver.py: load_preset_route()               (line 132)
 
 ### 2.8 Preset Library — Hot-Switch Path
 
-The preset library allows loading multiple presets into host memory and switching between them during playback without restarting the engine.
+The preset library stores multiple presets in **GPU memory** for instant switching during playback without restarting the engine. Each library entry has both a host-side copy (for Python inspection) and a GPU-resident copy (for D2D switching).
 
 #### Load to Library
 
@@ -624,11 +624,11 @@ POST /preset/load { path: "presets/Steinway.json", name: "Steinway" }
          │
          ▼
 backendserver.py: preset_load_to_library_route()       (line 319)
-  ─► pianoid.load_preset_to_library(path, name)         // pianoid.py:1935
+  ─► pianoid.load_preset_to_library(path, name)         // pianoid.py:2051
          │
          ▼
   1. json.load(preset_file)                              // read JSON
-  2. Build temporary domain model (StringMap, ModeMap)
+  2. Build domain model (StringMap, ModeMap)
      ├── ModelParameters from preset, overridden with running instance's
      │   array_size, sr, mode_iteration, string_iteration
      ├── Scale geometry if array_size differs
@@ -636,12 +636,14 @@ backendserver.py: preset_load_to_library_route()       (line 319)
      └── Pad deck arrays to num_working_modes
   3. Pack flat arrays (same layout as init_pianoid):
      ├── physical_parameters, hammer, gauss_params
-     ├── mode_state, mode_coefficients, volume_coefficients
-  4. pianoid.loadPresetToLibrary(name, phys, hammer, gauss, modes, deck, vol)
+     ├── mode_state, mode_coefficients
+  4. pianoid.loadPresetToLibrary(name, phys, hammer, gauss, modes, deck)
      ├── Validate input sizes against compile-time maxima
      ├── Interpolate 6 base excitation levels → 128 velocity levels
-     ├── Pack all sections into contiguous buffer (751,104 reals)
-     └── Store in preset_library_ (host-side hash map)
+     ├── Pack all sections into contiguous buffer (~759,040 reals)
+     ├── Store in preset_library_ (host-side hash map)
+     └── cudaMalloc + cudaMemcpy(H2D) → preset_gpu_library_ (GPU-resident)
+  5. Store Python domain objects (sm, modes, mp) in _library_models dict
 ```
 
 #### Switch Preset
@@ -650,34 +652,40 @@ backendserver.py: preset_load_to_library_route()       (line 319)
 POST /preset/switch { name: "Steinway" }
          │
          ▼
-backendserver.py: preset_switch_route()                 (line 336)
-  ─► pianoid.switch_preset(name, async_switch=False)     // pianoid.py:2005
+backendserver.py: preset_switch_route()                 (line 345)
+  ─► pianoid.switch_preset(name, async_switch=False)     // pianoid.py:2116
          │
          ▼
-  pianoid.switchPreset(name, async=False)                 // C++ Pianoid.cu:2655
-  1. memory_manager_.switchPreset(name, async)
-     ├── Find preset in preset_library_ (mutex-protected)
-     ├── Check UpdatePolicy if update in progress
-     ├── Copy preset data to host_preset_
-     ├── cudaMemcpyAsync(host → dev_preset_updating_, update_stream)
-     ├── Record completion event
-     └── If sync: block until transfer completes
-  2. Update compatibility pointers:
-     ├── dev_physical_parameters → getStringPhysicsPointer()
-     ├── dev_hammer → getHammerPointer()
-     ├── dev_gauss_params_full → getExcitationPointer()
-     ├── dev_mode_state → getModeStatePointer()
-     ├── dev_deck_parameters → getDeckPointer()
-     └── dev_volume_coeff → getVolumePointer()
-  3. Copy GPU data back to host (for Python read-back)
-  4. Set new_notes_ind = 1 (triggers parameter kernel next cycle)
+  1. pianoid.saveActiveToLibrary()                        // D2D: working → library
+     └── cudaMemcpy(D2D) dev_preset_working_ → preset_gpu_library_[active]
+         (preserves live parameter edits for later recall)
+  2. pianoid.switchPreset(name, async=False)               // C++ Pianoid.cu
+     └── memory_manager_.switchPreset(name, async)
+         ├── Find preset in preset_gpu_library_ (mutex-protected)
+         ├── Check UpdatePolicy if update in progress
+         ├── cudaMemcpyAsync(D2D: gpu_library → dev_preset_updating_)
+         ├── Record completion event, swap buffers
+         └── If sync: block until transfer completes
+  3. Update compatibility pointers to new working buffer
+  4. Swap Python model: self.sm, self.modes ← _library_models[name]
+  5. Repack deck from (now correct) Python model → send_deck_params_to_CUDA()
+  6. Set run_string_map_kernel_ = true, new_notes_ind = 1
   Playback continues uninterrupted — double-buffer swap is atomic
 ```
 
+#### GPU Memory Layout
+
+| Buffer | Location | Purpose |
+|--------|----------|---------|
+| `dev_preset_working_` | GPU | Active parameters (read by kernels) |
+| `dev_preset_updating_` | GPU | Staging area for async updates |
+| `preset_gpu_library_[name]` | GPU | Per-preset snapshot (~3.15 MB each) |
+| `preset_library_[name]` | Host | Per-preset host copy (for Python read-back) |
+| `_library_models[name]` | Python | Per-preset domain objects (StringMap, ModeMap) |
+
 #### Known Limitations
 
-- **Python model not updated on switch:** `switch_preset()` only updates GPU memory. The Python-side `StringMap`, `ModeMap`, and `PhysicalParameters` objects still reflect the original preset. `GET /get_parameter` reads from Python model, so it returns stale data after a library switch.
-- **Async switch hardcoded to sync:** `preset_switch_route()` always passes `async_switch=False`, blocking the Flask thread until GPU transfer completes (~1ms).
+- **Async switch hardcoded to sync:** `preset_switch_route()` always passes `async_switch=False`, blocking the Flask thread until GPU transfer completes (~0.1ms with D2D).
 - **No duplicate detection on load:** `loadPresetToLibrary` throws if a preset name already exists. To update a preset, unload first then reload.
 
 ### 2.9 Parameter Read Path (GET)
