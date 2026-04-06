@@ -208,29 +208,29 @@ See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the
 
 ## RoomResponse Modal Adapter Integration
 
-**Status:** Pipeline rebuild planned. Current skeleton produces unusable presets (uniform feedin, zeroed sound channels).
+**Status:** Wave 1 (backend core) complete. Wave 2 (state machine + injector fix) pending.
 
 ### Known Issues
 
-| Issue | Severity | Root Cause |
-|-------|----------|------------|
-| Uniform feedin (all 1.0) | **Critical** | No FFT feedin extraction from measured IRs; mode shapes lost in naive concat |
-| Sound output pitches zeroed (128-131) | **Critical** | `preset_injector.py:238` skips pitch >= 128; sound coefficients set to zero |
-| No MAC-based band merging | Major | `esprit_runner.py` uses frequency-only deduplication |
-| No spatial mode tracking | Major | Global clustering instead of bridge-aware `track_modes_along_bridge()` |
-| No intermediate result persistence | Major | Long ESPRIT runs lost on crash |
-| Channel roles not configurable | Minor | Force/reference/response hardcoded |
+| Issue | Severity | Root Cause | Status |
+|-------|----------|------------|--------|
+| Uniform feedin (all 1.0) | **Critical** | No FFT feedin extraction from measured IRs | **Fixed** — `feedin_extractor.py` extracts FFT magnitudes at mode frequencies |
+| Sound output pitches zeroed (128-131) | **Critical** | `preset_injector.py:238` skips pitch >= 128 | Pending (Wave 2) |
+| No MAC-based band merging | Major | `esprit_runner.py` uses frequency-only dedup | **Fixed** — uses `merge_multiband_results()` with MAC |
+| No spatial mode tracking | Major | Global clustering instead of bridge-aware tracking | **Fixed** — `run_tracking()` calls `track_modes_along_bridge()` per bridge |
+| No intermediate result persistence | Major | Long ESPRIT runs lost on crash | Pending (Wave 2) |
+| Channel roles not configurable | Minor | Force/reference/response hardcoded | **Fixed** — `channel_roles` in `MappingConfig` |
 
 ### Rebuild Plan (4 waves)
 
 Full pipeline: Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapping → Apply. Panel-based UI (not wizard) with independent stage execution and auto-persisted intermediates.
 
-| Wave | Scope | Key Deliverables |
-|------|-------|-----------------|
-| 1 | Backend core | `feedin_extractor.py` (new), rewrite `esprit_runner.py` to use `merge_multiband_results()` + `track_modes_along_bridge()`, channel roles in `mapping.py` |
-| 2 | State machine + fixes | Expand `modal_adapter.py` to independent stages + persistence, fix sound output bug in `preset_injector.py`, add ~12 REST endpoints |
-| 3 | Frontend | Panel with collapsible sections, stabilization diagram, mode shape along bridge, feedin heatmap, decaying sinewave preview per mode |
-| 4 | Integration test | End-to-end with Belarus data: 78 scenarios → ESPRIT → tracking → FFT feedin → preset → verify sound |
+| Wave | Scope | Key Deliverables | Status |
+|------|-------|-----------------|--------|
+| 1 | Backend core | `feedin_extractor.py` (new), rewrite `esprit_runner.py` to use `merge_multiband_results()` + `track_modes_along_bridge()`, channel roles in `mapping.py` | **Done** |
+| 2 | State machine + fixes | Expand `modal_adapter.py` to independent stages + persistence, fix sound output bug in `preset_injector.py`, add ~12 REST endpoints | Pending |
+| 3 | Frontend | Panel with collapsible sections, stabilization diagram, mode shape along bridge, feedin heatmap, decaying sinewave preview per mode | Pending |
+| 4 | Integration test | End-to-end with Belarus data: 78 scenarios → ESPRIT → tracking → FFT feedin → preset → verify sound | Pending |
 
 Reference presets:
 - `presets/IversPond_ESPRIT_128modes.json` (128 modes, base64 deck matrices)
