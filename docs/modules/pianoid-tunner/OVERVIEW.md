@@ -106,7 +106,7 @@ The main application entry used in production is a separate top-level component 
 | `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
-| `ModalAdapter` | `modules/ModalAdapter.jsx` | 6-step ESPRIT modal extraction wizard (load, map, configure, run, review, apply) |
+| `ModalAdapter` | `modules/ModalAdapter.jsx` | ESPRIT modal extraction wizard (load, map, configure, run, review, apply). UI skeleton only — pipeline rebuild planned, see [WORK_IN_PROGRESS](../../development/WORK_IN_PROGRESS.md#roomresponse-modal-adapter-integration) |
 | `MappingEditor` | `MappingEditor.jsx` | Maps measurement excitation points to MIDI pitches and channels to sound outputs |
 | `EspritConfig` | `EspritConfig.jsx` | ESPRIT analysis parameters (frequency bands, model order) |
 | `ModalResultsView` | `ModalResultsView.jsx` | Displays extracted modes with selection for preset injection |
@@ -258,7 +258,7 @@ Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95,
 
 ### `useModalAdapter`
 
-Manages the Modal Adapter state machine for ESPRIT modal extraction. Tracks the 6-step workflow: load measurements, set mapping, configure ESPRIT, run extraction, review results, apply to preset. Polls `/modal/status` during extraction. Exposes: `loadFolder()`, `submitMapping()`, `runEsprit()`, `cancel()`, `applyToPreset()`, `reset()`, `activeStep`, `progress`, `results`, `measurementInfo`.
+Manages the Modal Adapter state machine for ESPRIT modal extraction. Tracks the 6-step wizard workflow: load measurements, set mapping, configure ESPRIT, run extraction, review results, apply to preset. Polls `/modal/status` during extraction. Exposes: `loadFolder()`, `submitMapping()`, `runEsprit()`, `cancel()`, `applyToPreset()`, `reset()`, `activeStep`, `progress`, `results`, `measurementInfo`. Note: wizard will be replaced with independent-stage panel in the pipeline rebuild.
 
 ### `useWindowManager`
 

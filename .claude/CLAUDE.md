@@ -41,6 +41,8 @@ Default preset: `presets/BaselinePreset1.json`. Default initialization settings 
 - "How do I run/start/test X?" — server startup, build commands, test invocation
 - "Where is X configured?" — env vars, config files, runtime selection
 
+**This rule applies equally to documentation tasks.** When auditing, updating, or verifying documentation — start from `docs/index.md`, trace the doc hierarchy to find all pages that reference the topic, then read those pages in order. Do NOT grep across the docs folder to find mentions — that skips the structural understanding of how docs reference each other and leads to inconsistent updates. The doc hierarchy IS the context.
+
 **ESPECIALLY during debugging.** When something doesn't work as expected — wrong output, silent audio, unexpected behavior — do NOT start Grepping source files to trace the issue. Go back to `docs/index.md`, find the relevant module doc, and read the documented architecture first. The docs describe sound channel routing, output paths, and parameter flow. Source-code trawling without doc context leads to hours of wasted investigation.
 
 The docs exist precisely to avoid expensive source-code trawling.

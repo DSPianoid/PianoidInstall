@@ -1,5 +1,7 @@
 # Modal Adapter — Phase 1 Implementation Plan
 
+**Status:** Implemented. Skeleton works (state machine, REST endpoints, wizard UI) but pipeline produces unusable presets — feedin is uniform, sound output pitches zeroed, no MAC merging, no mode tracking. Superseded by [MODAL_ADAPTER_PIPELINE_PLAN.md](MODAL_ADAPTER_PIPELINE_PLAN.md) for the full rebuild.
+
 Integrate RoomResponse ESPRIT modal extraction into Pianoid as a UI-managed module. Takes raw measurement data, extracts modes, and applies them to the active preset.
 
 ---

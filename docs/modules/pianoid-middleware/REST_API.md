@@ -1029,6 +1029,8 @@ Response `200`:
 
 ESPRIT-based modal extraction pipeline. All endpoints mounted at `/modal/*`. State machine: `idle` -> `loaded` -> `mapped` -> `running` -> `results` -> `applied`.
 
+**Note:** These endpoints are implemented and callable but the pipeline does not yet produce usable presets (feedin coefficients are uniform, sound output channels are zeroed). See [WORK_IN_PROGRESS — Modal Adapter](../../development/WORK_IN_PROGRESS.md#roomresponse-modal-adapter-integration) for the rebuild plan.
+
 ### `POST /modal/load_folder`
 
 Load impulse response measurements from a folder. Auto-detects direct `.npy` files or RoomResponse per-channel scenario structure.

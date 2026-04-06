@@ -223,17 +223,27 @@ DEFAULT_TIMING_BANDS = [
 
 ## Modal Adapter (modal_adapter/)
 
-ESPRIT-based modal extraction pipeline. Extracts soundboard resonance modes from impulse response measurements and injects them into the active preset.
+ESPRIT-based modal extraction pipeline. Intended to extract soundboard resonance modes from impulse response measurements and inject them into the active preset.
+
+**Status:** Skeleton implemented but produces unusable presets. See [WORK_IN_PROGRESS.md](../../development/WORK_IN_PROGRESS.md#roomresponse-modal-adapter-integration) for known issues and rebuild plan.
 
 **State machine:** `idle` -> `loaded` -> `mapped` -> `running` -> `results` -> `applied`
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| `ModalAdapter` | `modal_adapter.py` | State machine orchestrator |
-| `MappingConfig` | `mapping.py` | Maps measurement points to pitches and channels to sound outputs |
-| `EspritRunner` | `esprit_runner.py` | Runs ESPRIT analysis per excitation point (background thread) |
-| `PresetInjector` | `preset_injector.py` | Applies extracted modes to the active Pianoid preset |
-| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` |
+| Component | File | Purpose | Status |
+|-----------|------|---------|--------|
+| `ModalAdapter` | `modal_adapter.py` | State machine orchestrator | Working (6 states) |
+| `MappingConfig` | `mapping.py` | Maps measurement points to pitches and channels to sound outputs | Working (no channel role config) |
+| `EspritRunner` | `esprit_runner.py` | Runs ESPRIT analysis per excitation point (background thread) | Runs but uses naive dedup instead of MAC merging |
+| `PresetInjector` | `preset_injector.py` | Applies extracted modes to the active Pianoid preset | Bug: zeroes sound output pitches 128-131 |
+| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 9 endpoints working |
+
+**Known issues preventing end-to-end use:**
+- Feedin coefficients are uniform (no FFT extraction from measured IRs)
+- No MAC-based band merging (uses frequency-proximity dedup, loses mode shapes)
+- No spatial mode tracking along bridge
+- Sound output pitches 128-131 get zeroed `mode_sound_channels`
+- No intermediate result persistence
+- Channel roles (force/reference/response) not configurable
 
 Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data.
 

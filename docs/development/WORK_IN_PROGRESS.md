@@ -202,3 +202,40 @@ Bisection search on volume coefficient: bracket `[lo, hi]`, bisect to 0.2 dB tol
 | ~~Precision at low volume~~ | **Fixed** | Bisection algorithm converges reliably |
 
 See [MIC_VOLUME_EQUALIZATION_PLAN.md](MIC_VOLUME_EQUALIZATION_PLAN.md) for the original design.
+See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the full system analysis (signal chain, algorithms, modal adapter, frontend).
+
+---
+
+## RoomResponse Modal Adapter Integration
+
+**Status:** Pipeline rebuild planned. Current skeleton produces unusable presets (uniform feedin, zeroed sound channels).
+
+### Known Issues
+
+| Issue | Severity | Root Cause |
+|-------|----------|------------|
+| Uniform feedin (all 1.0) | **Critical** | No FFT feedin extraction from measured IRs; mode shapes lost in naive concat |
+| Sound output pitches zeroed (128-131) | **Critical** | `preset_injector.py:238` skips pitch >= 128; sound coefficients set to zero |
+| No MAC-based band merging | Major | `esprit_runner.py` uses frequency-only deduplication |
+| No spatial mode tracking | Major | Global clustering instead of bridge-aware `track_modes_along_bridge()` |
+| No intermediate result persistence | Major | Long ESPRIT runs lost on crash |
+| Channel roles not configurable | Minor | Force/reference/response hardcoded |
+
+### Rebuild Plan (4 waves)
+
+Full pipeline: Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapping → Apply. Panel-based UI (not wizard) with independent stage execution and auto-persisted intermediates.
+
+| Wave | Scope | Key Deliverables |
+|------|-------|-----------------|
+| 1 | Backend core | `feedin_extractor.py` (new), rewrite `esprit_runner.py` to use `merge_multiband_results()` + `track_modes_along_bridge()`, channel roles in `mapping.py` |
+| 2 | State machine + fixes | Expand `modal_adapter.py` to independent stages + persistence, fix sound output bug in `preset_injector.py`, add ~12 REST endpoints |
+| 3 | Frontend | Panel with collapsible sections, stabilization diagram, mode shape along bridge, feedin heatmap, decaying sinewave preview per mode |
+| 4 | Integration test | End-to-end with Belarus data: 78 scenarios → ESPRIT → tracking → FFT feedin → preset → verify sound |
+
+Reference presets:
+- `presets/IversPond_ESPRIT_128modes.json` (128 modes, base64 deck matrices)
+- `presets/Belarus_ESPRIT_v2.json` (100 modes, uniform feedin — to be replaced)
+
+See [MODAL_ADAPTER_PIPELINE_PLAN.md](MODAL_ADAPTER_PIPELINE_PLAN.md) for the full implementation plan.
+See [ROOMRESPONSE_INTEGRATION_PLAN.md](ROOMRESPONSE_INTEGRATION_PLAN.md) for the original design.
+See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the acoustic measurement system analysis.

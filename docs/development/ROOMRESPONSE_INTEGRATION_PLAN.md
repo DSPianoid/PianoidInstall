@@ -1,5 +1,7 @@
 # RoomResponse-Pianoid Integration Plan
 
+**Status:** Original plan. Skeleton implemented but pipeline produces unusable presets (uniform feedin, zeroed sound channels). Superseded by [MODAL_ADAPTER_PIPELINE_PLAN.md](MODAL_ADAPTER_PIPELINE_PLAN.md) for the rebuild.
+
 Bridge RoomResponse modal extraction (ESPRIT) with Pianoid synthesis engine — feed measured soundboard modes into the physical model.
 
 ---
@@ -110,9 +112,10 @@ Deck shape `(2, num_modes)`: row 0 = feedin, row 1 = feedback.
 
 ## Phased Implementation
 
-### Phase 1: Minimal Viable Integration (1-2 weeks)
+### Phase 1: Minimal Viable Integration (1-2 weeks) — DONE (with caveats)
 
 **Goal**: Get ESPRIT modes into Pianoid and hear the result.
+**Actual outcome**: Modes load and play, but feedin is uniform (no spatial coupling) and sound output pitches are zeroed. See [MODAL_ADAPTER_PIPELINE_PLAN.md](MODAL_ADAPTER_PIPELINE_PLAN.md) for fixes.
 
 | Deliverable | Description |
 |-------------|-------------|
