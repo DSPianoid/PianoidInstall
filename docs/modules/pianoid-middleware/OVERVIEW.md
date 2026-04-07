@@ -225,7 +225,7 @@ DEFAULT_TIMING_BANDS = [
 
 ESPRIT-based modal extraction pipeline. Extracts soundboard resonance modes from impulse response measurements and injects them into the active preset with measured feedin coefficients.
 
-**Status:** Waves 1-2 complete. Backend core, stage-based state machine, persistence, injector fixes, and 21 REST endpoints operational. Frontend (Wave 3) pending.
+**Status:** Waves 1-3 complete. Backend core, stage-based state machine, persistence, injector fixes, offline preset builder, and 21 REST endpoints operational. Frontend hooks (Wave 5) and UI (Wave 6) pending.
 
 **Architecture:** Stage-based with independent execution. Each stage can run independently if prerequisite data exists (from prior run or loaded from persistence).
 

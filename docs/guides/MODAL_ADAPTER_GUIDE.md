@@ -369,6 +369,27 @@ curl http://localhost:5000/modal/load_intermediate/mapping
 curl http://localhost:5000/modal/band_presets
 ```
 
+### Offline Preset Building
+
+`PresetInjector.build_preset_to_file()` generates a preset file without a running engine.
+It reads a baseline preset JSON, applies modal data (frequencies, damping, feedin), and
+writes the result to an output path. This enables the full pipeline to produce a preset
+file that can be loaded later.
+
+```python
+from modal_adapter.preset_injector import PresetInjector
+
+injector = PresetInjector()
+result = injector.build_preset_to_file(
+    baseline_path="presets/BaselinePreset1.json",
+    output_path="output/modal_preset.json",
+    mode_chains=tracked_chains,        # from EspritRunner.chains_to_dicts()
+    feedin_data=feedin_extraction,      # from FeedinExtractor.extract_all()
+    channel_mapping={0: 0, 1: 1},      # response_channel → sound_output_index
+    selected_chains=[0, 1, 5],          # optional: None = all chains
+)
+```
+
 ### Via Filesystem
 
 When a project directory is set, intermediate results are auto-saved to subdirectories:
