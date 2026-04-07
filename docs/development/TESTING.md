@@ -17,8 +17,11 @@ PianoidCore/tests/
 │   └── test_playback.py
 ├── integration/         # GPU required, no audio
 │   ├── conftest.py      # Session-scoped Pianoid without audio, offline helpers
-│   └── test_feedback_coupling.py
-└── unit/                # Pure Python, no GPU (planned)
+│   ├── test_feedback_coupling.py
+│   └── test_modal_adapter_e2e.py   # Full modal adapter pipeline (Belarus data + GPU ESPRIT)
+└── unit/                # Pure Python, no GPU
+    ├── test_mic_analyzer.py         # Microphone SNR analyzer
+    └── test_modal_adapter_state.py  # ModalAdapter state removal, data checks, ModeChain reconstruction
 ```
 
 ## Running Tests
@@ -37,6 +40,9 @@ PIANOID_USE_DEBUG=1 .venv/Scripts/python -m pytest tests/ -v
 
 # Skip slow tests
 .venv/Scripts/python -m pytest tests/ -v -m "not slow"
+
+# Unit tests only (no GPU/audio needed)
+.venv/Scripts/python -m pytest tests/unit/ -v
 ```
 
 The debug variant must be built first (`build_pianoid_cuda.bat --heavy --both`). `conftest.py` reads `PIANOID_USE_DEBUG` and aliases `pianoidCuda_debug` as `pianoidCuda` via `sys.modules`.

@@ -1,6 +1,6 @@
 # Modal Adapter Redesign: Independent Stages + Full Pipeline
 
-**Status:** Not started  
+**Status:** Wave 1 complete  
 **Date:** 2026-04-07
 
 ## Context

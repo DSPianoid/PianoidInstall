@@ -112,6 +112,25 @@ See [Testing](TESTING.md) for the implemented test inventory and usage.
 
 ---
 
+## Modal Adapter Redesign — Independent Stages
+
+**Status:** Wave 1 complete.
+
+Replaced `AdapterState` enum with data-driven precondition checks. Each pipeline stage now asks "do I have my inputs?" instead of "was the previous stage run in this session?" Added `data_status()` method returning per-stage availability flags, `_Chain`/`_Detection` duck-types for ModeChain reconstruction from serialized dicts (unblocks feedin from loaded tracking data).
+
+See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for remaining waves (2-6).
+
+| Wave | Scope | Status |
+|------|-------|--------|
+| 1 | State machine removal + data checks + ModeChain reconstruction | Done |
+| 2 | Measurement persistence + ESPRIT refactor + pipeline method | Planned |
+| 3 | Offline preset builder | Planned |
+| 4 | New API endpoints | Planned |
+| 5 | Frontend hook | Planned |
+| 6 | Frontend UI | Planned |
+
+---
+
 ## Playback System Known Issues
 
 **Status:** Partially fixed.
