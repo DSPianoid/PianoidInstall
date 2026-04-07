@@ -75,7 +75,12 @@ This keeps the orchestrator's context clean and able to run for extended session
 3. Verify inbox queue patch is active:
    - Check `~/.claude/channels/telegram/inbox/` exists
    - If not, run `python D:/repos/PianoidInstall/tools/apply_telegram_patch.py`
-4. Confirm bidirectional: send a message, wait for reply
+4. Clean up stale archive files (older than 7 days):
+   ```bash
+   mkdir -p ~/.claude/channels/telegram/inbox/archive
+   find ~/.claude/channels/telegram/inbox/archive/ -type f -mtime +7 -delete 2>/dev/null
+   ```
+5. Confirm bidirectional: send a message, wait for reply
 
 ### Email (optional, activate on request)
 
@@ -126,6 +131,20 @@ Then wait for inbound messages.
 
 When a message arrives via Telegram (or another channel):
 
+### Inbox Queue Processing
+
+Before processing any inbox message, **archive the source file immediately** to prevent re-processing on restart:
+
+1. Read the message file (`msg-*.json` or voice `.oga` file) from `~/.claude/channels/telegram/inbox/`
+2. Move it to the archive directory:
+   ```bash
+   mkdir -p ~/.claude/channels/telegram/inbox/archive
+   mv ~/.claude/channels/telegram/inbox/<filename> ~/.claude/channels/telegram/inbox/archive/
+   ```
+3. Then proceed to process the message content (voice or text classification below)
+
+This ensures that if the orchestrator restarts, already-read messages are not re-processed.
+
 ### Voice Message Detection
 
 If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mime` starts with `audio/` (e.g., `audio/ogg`), it is a voice message:
@@ -136,18 +155,25 @@ If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mim
    ```
    This returns the local file path (e.g., `~/.claude/channels/telegram/inbox/12345.ogg`).
 
-2. Transcribe using faster-whisper:
+2. Archive the downloaded file immediately:
    ```bash
-   cd D:/repos/PianoidInstall/PianoidCore && .venv/Scripts/python D:/repos/PianoidInstall/tools/transcribe_voice.py "<downloaded_path>"
+   mkdir -p ~/.claude/channels/telegram/inbox/archive
+   mv "<downloaded_path>" ~/.claude/channels/telegram/inbox/archive/
+   ```
+   Use the archived path for transcription.
+
+3. Transcribe using faster-whisper:
+   ```bash
+   cd D:/repos/PianoidInstall/PianoidCore && .venv/Scripts/python D:/repos/PianoidInstall/tools/transcribe_voice.py "<archived_path>"
    ```
    The transcribed text is printed to stdout. Stderr shows timing info.
 
-3. Acknowledge to the user:
+4. Acknowledge to the user:
    ```
    Voice message received. Transcription: "<text>"
    ```
 
-4. Process the transcribed text as if the user had typed it (continue to classification below).
+5. Process the transcribed text as if the user had typed it (continue to classification below).
 
 **First-run note:** The `small` model (~500MB) downloads automatically on first use. Pre-download with `--preload` flag if needed.
 
@@ -305,8 +331,8 @@ The orchestrator can bridge channels on user request:
 
 If the user reports a missed message or the orchestrator suspects a gap:
 1. Check `~/.claude/channels/telegram/inbox/` for queued messages
-2. Process any unread `msg-*.json` files
-3. Delete processed files after handling
+2. Process any unread `msg-*.json` files, **moving each to `archive/` immediately after reading** (before processing)
+3. Already-archived files are not re-read — the archive is the record of processed messages
 
 ### Sub-agent fails
 
