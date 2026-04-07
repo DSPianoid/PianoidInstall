@@ -21,7 +21,7 @@ PianoidCore/tests/
 │   └── test_modal_adapter_e2e.py   # Full modal adapter pipeline (Belarus data + GPU ESPRIT)
 └── unit/                # Pure Python, no GPU
     ├── test_mic_analyzer.py         # Microphone SNR analyzer
-    └── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder
+    └── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, REST endpoints
 ```
 
 ## Running Tests

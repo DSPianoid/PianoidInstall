@@ -114,18 +114,18 @@ See [Testing](TESTING.md) for the implemented test inventory and usage.
 
 ## Modal Adapter Redesign — Independent Stages
 
-**Status:** Wave 2 complete.
+**Status:** Wave 4 complete.
 
-Wave 1 replaced `AdapterState` enum with data-driven precondition checks. Wave 2 added measurement source persistence (`_persist_measurement_source()`), extracted `_run_esprit_sync()` for reuse, and added `run_full_pipeline(config)` for end-to-end background execution with stage-based progress reporting.
+Waves 1-3 built the backend: data-driven preconditions, measurement persistence, ESPRIT refactor, pipeline method, offline preset builder. Wave 4 added REST endpoints (`GET /modal/data_status`, `POST /modal/run_pipeline`) exposing these to the frontend.
 
-See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for remaining waves (3-6).
+See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for remaining waves (5-6).
 
 | Wave | Scope | Status |
 |------|-------|--------|
 | 1 | State machine removal + data checks + ModeChain reconstruction | Done |
 | 2 | Measurement persistence + ESPRIT refactor + pipeline method | Done |
-| 3 | Offline preset builder | Planned |
-| 4 | New API endpoints | Planned |
+| 3 | Offline preset builder | Done |
+| 4 | New API endpoints (`data_status`, `run_pipeline`) | Done |
 | 5 | Frontend hook | Planned |
 | 6 | Frontend UI | Planned |
 
