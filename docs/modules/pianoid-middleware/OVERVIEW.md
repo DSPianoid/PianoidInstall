@@ -225,9 +225,9 @@ DEFAULT_TIMING_BANDS = [
 
 ESPRIT-based modal extraction pipeline. Extracts soundboard resonance modes from impulse response measurements and injects them into the active preset with measured feedin coefficients.
 
-**Status:** Waves 1-2 complete. Backend core, stage-based state machine, persistence, injector fixes, and 21 REST endpoints operational. Frontend (Wave 3) pending.
+**Status:** All 6 waves complete — untested (not yet verified in browser). Backend (Waves 1-4) and frontend (Waves 5-6) implementation done. See [MODAL_ADAPTER_REDESIGN_PLAN.md](../../development/MODAL_ADAPTER_REDESIGN_PLAN.md) for commit references.
 
-**Architecture:** Stage-based with independent execution. Each stage can run independently if prerequisite data exists (from prior run or loaded from persistence).
+**Architecture:** Data-availability-driven with independent stage execution. The old sequential `AdapterState` enum is replaced by `data_status()` checks — each stage asks "do I have my inputs?" not "was the previous stage run in this session?" A `run_full_pipeline(config)` method executes all stages sequentially in a background thread.
 
 ```
 Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapping → Apply
@@ -235,12 +235,17 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 
 | Component | File | Purpose | Status |
 |-----------|------|---------|--------|
-| `ModalAdapter` | `modal_adapter.py` | Stage-based orchestrator with auto-persistence | Working (independent stages) |
+| `ModalAdapter` | `modal_adapter.py` | Data-driven orchestrator with auto-persistence, `data_status()`, `run_full_pipeline()` | Working (independent stages) |
 | `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
 | `EspritRunner` | `esprit_runner.py` | MAC-based band merging + spatial mode tracking | Working (merge_multiband_results + track_modes_along_bridge) |
 | `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
-| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) | Working (output pitches dynamic, up to 16 channels) |
-| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 21 endpoints |
+| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation | Working (output pitches dynamic, up to 16 channels) |
+| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 23 endpoints (includes `data_status`, `run_pipeline`) |
+
+Key endpoints added in the redesign:
+
+- `GET /modal/data_status` — returns availability flags (`has_measurements`, `has_esprit`, `has_tracking`, `has_feedin`, etc.) used by the frontend to enable/disable stages independently
+- `POST /modal/run_pipeline` — runs the full pipeline in a background thread; poll `GET /modal/status` for progress
 
 Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data. Auto-persists intermediate results to project directory.
 

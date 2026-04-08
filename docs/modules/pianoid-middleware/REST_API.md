@@ -48,6 +48,8 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /preset/load              -- load preset to GPU library (no activation)
   /preset/switch            -- switch active preset (double-buffer swap)
   /preset/unload            -- remove preset from GPU library
+  /modal/data_status        -- pipeline stage availability flags
+  /modal/run_pipeline       -- run full extraction pipeline (background)
   /modal/load_folder        -- load impulse response measurements
   /modal/upload_measurements -- upload measurement arrays
   /modal/measurement_info   -- measurement metadata
@@ -1028,6 +1030,60 @@ Response `200`:
 ## Modal Adapter Endpoints
 
 ESPRIT-based modal extraction pipeline. All endpoints mounted at `/modal/*`. Stage-based architecture with independent stage execution and auto-persistence.
+
+### Data Status & Pipeline
+
+#### `GET /modal/data_status`
+
+Returns availability flags for each pipeline stage. Used by the frontend to determine which stages can run independently.
+
+Response `200`:
+```json
+{
+  "measurements": true,
+  "mapping": true,
+  "esprit": true,
+  "tracking": false,
+  "feedin": false,
+  "channel_mapping": false,
+  "applied": false
+}
+```
+
+---
+
+#### `POST /modal/run_pipeline`
+
+Runs the full extraction pipeline (load → mapping → ESPRIT → tracking → feedin) in a background thread. Returns immediately with a task ID. Poll progress via `GET /modal/status`.
+
+Request body:
+```json
+{
+  "folder_path": "/path/to/measurements",
+  "sample_rate": 48000,
+  "scenarios": [10, 40, 70],
+  "mapping": {
+    "excitation_to_pitch": {"0": 36, "1": 48},
+    "channel_to_sound": {"0": 0, "1": 1},
+    "skipped_channels": [],
+    "channel_roles": {"0": "response", "1": "response"},
+    "bridge_boundary": 28,
+    "pitch_offset": 21
+  },
+  "esprit_params": {"band_preset": "extended_8band"},
+  "tracking": {"bridge_boundary": 28, "freq_tol_pct": 0.02, "max_gap": 3},
+  "response_channels": [0, 1]
+}
+```
+
+Response `200`:
+```json
+{"task_id": "modal_pipeline"}
+```
+
+Response `400` if ModalAdapter not initialized.
+
+---
 
 ### Stage 1: Load Measurements
 

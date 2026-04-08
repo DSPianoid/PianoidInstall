@@ -112,6 +112,25 @@ See [Testing](TESTING.md) for the implemented test inventory and usage.
 
 ---
 
+## Modal Adapter Redesign — Independent Stages
+
+**Status:** All 6 waves complete — untested (not yet verified in browser).
+
+All backend (Waves 1-4) and frontend (Waves 5-6) implementation is done. The redesign replaces the sequential `AdapterState` enum with data-availability checks, adds per-section "Load Saved" buttons, a "Run Full Pipeline" button with Stepper progress, and data-driven section enablement. Pending browser verification.
+
+See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for full plan and commit references.
+
+| Wave | Scope | Commit | Status |
+|------|-------|--------|--------|
+| 1 | State machine removal + data checks + ModeChain reconstruction | `b4c7238` (PianoidCore) | Done |
+| 2 | Measurement persistence + ESPRIT refactor + pipeline method | `e3378ca` (PianoidCore) | Done |
+| 3 | Offline preset builder | `607a11c` (PianoidCore) | Done |
+| 4 | New API endpoints (`data_status`, `run_pipeline`) | `8e6d4a5` (PianoidCore) | Done |
+| 5 | Frontend hook (`useModalAdapter`) | `273b494` (PianoidTunner) | Done |
+| 6 | Frontend UI (`ModalAdapter.jsx`) | `3f4ea58` (PianoidTunner) | Done |
+
+---
+
 ## Playback System Known Issues
 
 **Status:** Partially fixed.
