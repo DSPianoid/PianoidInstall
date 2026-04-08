@@ -1,6 +1,6 @@
 # Modal Adapter Redesign: Independent Stages + Full Pipeline
 
-**Status:** Wave 4 complete  
+**Status:** Wave 5 complete  
 **Date:** 2026-04-07
 
 ## Context
@@ -50,7 +50,7 @@ Replace `AdapterState` enum with data-availability checks. Each stage asks "do I
 2. ~~Measurement persistence + ESPRIT refactor + pipeline method~~
 3. ~~Offline preset builder~~
 4. ~~New API endpoints~~
-5. Frontend hook
+5. ~~Frontend hook~~
 6. Frontend UI
 
 ## Verification

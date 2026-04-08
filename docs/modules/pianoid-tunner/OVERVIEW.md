@@ -258,11 +258,15 @@ Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95,
 
 ### `useModalAdapter`
 
-Manages the Modal Adapter pipeline with independent stage state. Each stage (load, esprit, tracking, feedin, mapping) has its own `{done, running, data, error}` state. Stages can be triggered independently if prerequisite data exists. Fetches band presets from `/modal/band_presets` on mount.
+Manages the Modal Adapter pipeline with independent stage state. Each stage (load, esprit, tracking, feedin, mapping) has its own `{done, running, data, error}` state. Stages can be triggered independently if prerequisite data exists. Fetches band presets from `/modal/band_presets` and data availability from `GET /modal/data_status` on mount.
 
-Key state: `stages` (per-stage state), `channelRoles` (per-channel force/reference/response/skip), `bridgeBoundary`, `pitchOffset`, `espritConfig` (with band preset name), `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived from roles).
+Key state: `stages` (per-stage state), `channelRoles` (per-channel force/reference/response/skip), `bridgeBoundary`, `pitchOffset`, `espritConfig` (with band preset name), `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived from roles), `dataStatus` (backend availability flags), `pipelineRunning`, `pipelineStage`.
 
-Key actions: `loadFolder()`, `setProjectDir()`, `setConfigPreset()`, `runEsprit()`, `cancelEsprit()`, `runTracking()`, `runFeedin()`, `submitChannelMapping()`, `getStabilizationDiagram()`, `getModeShape(chainId)`, `getModePreview(chainId)`, `loadIntermediate(stage)`, `applyToPreset()`, `reset()`.
+Derived flags (from `dataStatus`): `canRunEsprit` (needs measurements+mapping), `canRunTracking` (needs esprit), `canRunFeedin` (needs tracking), `canApply` (needs feedin). These enable UI components to show/disable stage controls based on actual data availability rather than session state.
+
+Key actions: `loadFolder()`, `setProjectDir()`, `setConfigPreset()`, `runEsprit()`, `cancelEsprit()`, `runTracking()`, `runFeedin()`, `submitChannelMapping()`, `getStabilizationDiagram()`, `getModeShape(chainId)`, `getModePreview(chainId)`, `loadIntermediate(stage)`, `applyToPreset()`, `runPipeline(config)`, `cancelPipeline()`, `fetchDataStatus()`, `reset()`.
+
+`dataStatus` is auto-refreshed after every stage completion (load, esprit, tracking, feedin, mapping, apply, loadIntermediate) so derived flags stay current. `runPipeline(config)` calls `POST /modal/run_pipeline` and polls `/modal/status` for progress, tracking the current stage in `pipelineStage`.
 
 ### `useWindowManager`
 
