@@ -30,6 +30,7 @@ $ErrorActionPreference = 'Stop'
 # Default versions: use major.minor (no patch) for components installed via winget
 # so that winget can find the latest available patch release.
 # Only SDL versions need exact patch since we download specific archive URLs.
+# CUDA must stay on 12.x — Pianoid does not support CUDA 13+.
 $DefaultVersions = @{
   python = "3.12"
   cuda = "12.6"
@@ -107,10 +108,17 @@ function Load-Configuration {
   # Apply command line overrides
   if ($PythonVersion) { $config.versions.python = $PythonVersion }
   if ($CudaVersion) { $config.versions.cuda = $CudaVersion }
-  if ($NodeVersion) { $config.versions.nodejs = $NodeVersion }  
-  if ($SdlVersion) { $config.versions.sdl2 = $SdlVersion }
-  if ($SdlRoot) { $config.paths.sdl2_root = $SdlRoot }
-  
+  if ($NodeVersion) { $config.versions.nodejs = $NodeVersion }
+  if ($Sdl2Version) { $config.versions.sdl2 = $Sdl2Version }
+  if ($SdlRoot) { $config.paths.sdl_root = $SdlRoot }
+
+  # Enforce CUDA 12.x — reject any 13+ from config or CLI override
+  $cudaMajor = ($config.versions.cuda -split '\.')[0]
+  if ([int]$cudaMajor -ge 13) {
+    Write-Warning "CUDA $($config.versions.cuda) specified but Pianoid requires 12.x. Forcing 12.6."
+    $config.versions.cuda = "12.6"
+  }
+
   return $config
 }
 
@@ -606,26 +614,57 @@ function Ensure-CUDA {
   }
   
   $cuda = [Environment]::GetEnvironmentVariable('CUDA_PATH','Machine')
-  if (-not $cuda) { 
-    $cuda = $env:CUDA_PATH 
+  if (-not $cuda) {
+    $cuda = $env:CUDA_PATH
   }
-  
-  if ($cuda -and (Test-Path $cuda) -and (-not $forceRequested)) { 
-    Write-Host "CUDA already installed at: $cuda"; 
-    return $cuda 
+
+  # Enforce CUDA 12.x — uninstall and replace any 13+ version
+  if ($cuda -and (Test-Path $cuda) -and (-not $forceRequested)) {
+    $nvcc = Join-Path $cuda "bin\nvcc.exe"
+    if (Test-Path $nvcc) {
+      $nvccOut = & $nvcc --version 2>&1 | Out-String
+      if ($nvccOut -match 'release (\d+)\.(\d+)') {
+        $installedMajor = [int]$Matches[1]
+        $installedMinor = [int]$Matches[2]
+        if ($installedMajor -ge 13) {
+          Write-Host "WARNING: CUDA $installedMajor.$installedMinor detected — Pianoid requires CUDA 12.x"
+          Write-Host "Removing incompatible CUDA $installedMajor.$installedMinor and installing $Version ..."
+          Uninstall-CUDA
+          $env:CUDA_PATH = [Environment]::GetEnvironmentVariable('CUDA_PATH','Machine')
+          $cuda = $env:CUDA_PATH
+        } else {
+          Write-Host "CUDA $installedMajor.$installedMinor already installed at: $cuda"
+          return $cuda
+        }
+      } else {
+        Write-Host "CUDA already installed at: $cuda"
+        return $cuda
+      }
+    } else {
+      Write-Host "CUDA already installed at: $cuda"
+      return $cuda
+    }
+  }
+
+  # Validate requested version is 12.x
+  $requestedMajor = ($Version -split '\.')[0]
+  if ([int]$requestedMajor -ge 13) {
+    Write-Host "WARNING: CUDA $Version requested but Pianoid requires 12.x. Overriding to 12.6."
+    $Version = "12.6"
   }
 
   Write-Host "`n== Installing CUDA Toolkit $Version =="
   $winget = Get-Tool 'winget'
   if ($winget) {
     try {
-      # Use --version only if a full x.y.z version was specified
+      # Pin to exact version to prevent winget from installing CUDA 13+
       $wingetArgs = @("install", "-e", "--id", "Nvidia.CUDA", "--silent", "--accept-package-agreements", "--accept-source-agreements")
       if ($Version -match '^\d+\.\d+\.\d+') {
         Write-Host "Attempting to install CUDA $Version (exact) via winget..."
         $wingetArgs += @("--version", $Version)
       } else {
-        Write-Host "Attempting to install CUDA (version prefix $Version) via winget..."
+        Write-Host "Attempting to install CUDA $Version via winget (pinned to 12.x)..."
+        $wingetArgs += @("--version", "$Version.0")
       }
       & $winget @wingetArgs
       Start-Sleep -Seconds 10
