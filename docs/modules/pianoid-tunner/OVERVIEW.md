@@ -106,7 +106,7 @@ The main application entry used in production is a separate top-level component 
 | `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
-| `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with collapsible sections: load measurements, ESPRIT extraction, mode tracking, mode selection & visualization, feedin extraction, apply to preset. Each stage runs independently with stored intermediate results |
+| `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with collapsible sections: load measurements, ESPRIT extraction, mode tracking, mode selection & visualization, feedin extraction, apply to preset. Each section enabled by data-availability flags (not sequential session state). Per-section "Load Saved" buttons load intermediate data from disk. "Run Full Pipeline" button with MUI Stepper progress tracking |
 | `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/reference/response/skip) with per-channel sound output mapping, bridge boundary, and pitch offset |
 | `EspritConfig` | `EspritConfig.jsx` | ESPRIT config with band preset selector (standard_4band / extended_8band / custom), MAC threshold, model order, per-band advanced editing |
 | `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram (ECharts scatter: scenario x frequency, colored by stability), sortable/filterable mode chain table, per-mode shape plot along bridge, feedin heatmap (pitch x mode) |
@@ -264,7 +264,7 @@ Key state: `stages` (per-stage state), `channelRoles` (per-channel force/referen
 
 Derived flags (from `dataStatus`): `canRunEsprit` (needs measurements+mapping), `canRunTracking` (needs esprit), `canRunFeedin` (needs tracking), `canApply` (needs feedin). These enable UI components to show/disable stage controls based on actual data availability rather than session state.
 
-Key actions: `loadFolder()`, `setProjectDir()`, `setConfigPreset()`, `runEsprit()`, `cancelEsprit()`, `runTracking()`, `runFeedin()`, `submitChannelMapping()`, `getStabilizationDiagram()`, `getModeShape(chainId)`, `getModePreview(chainId)`, `loadIntermediate(stage)`, `applyToPreset()`, `runPipeline(config)`, `cancelPipeline()`, `fetchDataStatus()`, `reset()`.
+Key actions: `loadFolder()`, `setProjectDir()`, `setConfigPreset()`, `runEsprit()`, `cancelEsprit()`, `runTracking()`, `runFeedin()`, `submitChannelMapping()`, `getStabilizationDiagram()`, `getModeShape(chainId)`, `getModePreview(chainId)`, `loadIntermediate(stage)` (loads saved intermediate data from disk without re-running), `applyToPreset()`, `runPipeline(config)`, `cancelPipeline()`, `fetchDataStatus()`, `reset()`.
 
 `dataStatus` is auto-refreshed after every stage completion (load, esprit, tracking, feedin, mapping, apply, loadIntermediate) so derived flags stay current. `runPipeline(config)` calls `POST /modal/run_pipeline` and polls `/modal/status` for progress, tracking the current stage in `pipelineStage`.
 

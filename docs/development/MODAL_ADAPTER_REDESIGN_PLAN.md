@@ -1,6 +1,6 @@
 # Modal Adapter Redesign: Independent Stages + Full Pipeline
 
-**Status:** Wave 5 complete  
+**Status:** Complete (all 6 waves)  
 **Date:** 2026-04-07
 
 ## Context
@@ -51,7 +51,7 @@ Replace `AdapterState` enum with data-availability checks. Each stage asks "do I
 3. ~~Offline preset builder~~
 4. ~~New API endpoints~~
 5. ~~Frontend hook~~
-6. Frontend UI
+6. ~~Frontend UI~~
 
 ## Verification
 
