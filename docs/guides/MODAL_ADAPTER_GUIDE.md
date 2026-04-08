@@ -5,18 +5,33 @@ presets for the Pianoid engine. It extracts vibrational modes (frequencies, damp
 spatial shapes) from measurement data using the ESPRIT algorithm, tracks them across excitation
 points, computes feedin coupling coefficients, and injects the results into the active preset.
 
-The pipeline is divided into sequential stages. Each stage must complete before the next becomes
-available. Intermediate results are auto-saved to the project directory, so work can be resumed
-across sessions.
+!!! warning "Untested"
+    The redesigned UI (independent stages, Load Saved buttons, Run Full Pipeline) is implemented
+    but has not yet been verified in the browser.
+
+The pipeline is divided into independent stages. Each stage can run on its own as long as its
+prerequisite data exists — either from a prior run in the same session, or loaded from disk via
+a **Load Saved** button. A **Run Full Pipeline** button executes all stages sequentially with
+Stepper progress tracking. Intermediate results are auto-saved to the project directory, so work
+can be resumed across sessions.
 
 ---
 
 ## Panel Sections
 
-The panel is organized as a series of collapsible accordion sections. A status indicator appears
-next to each section title: a green checkmark when complete, a blue "Running" chip during
-processing, or a red "Error" chip on failure. A **Reset** button in the header clears all state
-and returns to the initial configuration.
+The panel is organized as a series of collapsible accordion sections. Each section is enabled or
+disabled based on **data availability flags** fetched from `GET /modal/data_status` — not by
+whether previous stages ran in the current session. A status indicator appears next to each
+section title: a green checkmark when complete, a blue "Running" chip during processing, or a
+red "Error" chip on failure. A **Reset** button in the header clears all state and returns to the
+initial configuration.
+
+Each section with saved intermediate data shows a **Load Saved** button that loads results from
+disk without re-running the stage. This enables resuming work across sessions or running
+downstream stages from previously saved data.
+
+A **Run Full Pipeline** button at the top executes all stages sequentially (load → ESPRIT →
+tracking → feedin → apply). An MUI Stepper component tracks which stage is currently running.
 
 ### 1. Load Measurements
 
@@ -362,6 +377,40 @@ curl http://localhost:5000/modal/load_intermediate/feedin
 curl http://localhost:5000/modal/load_intermediate/mapping
 ```
 
+#### Data Status (Availability Flags)
+
+```bash
+# Get data availability flags for all stages
+curl http://localhost:5000/modal/data_status
+```
+
+Response:
+```json
+{
+  "has_measurements": true,
+  "has_mapping": true,
+  "has_esprit": true,
+  "has_tracking": true,
+  "has_feedin": false,
+  "has_project_dir": true
+}
+```
+
+The frontend uses these flags to derive `canRunEsprit`, `canRunTracking`, `canRunFeedin`, and
+`canApply` — enabling or disabling each section independently.
+
+#### Run Full Pipeline
+
+```bash
+# Run all stages sequentially in background
+curl -X POST http://localhost:5000/modal/run_pipeline \
+  -H "Content-Type: application/json" \
+  -d '{"config": {...}}'
+```
+
+Poll `GET /modal/status` for progress. The `pipelineStage` field in the response indicates which
+stage is currently executing.
+
 #### Band Presets
 
 ```bash
@@ -409,7 +458,9 @@ as NumPy/JSON files for offline analysis.
 
 ## Workflow Example
 
-A typical end-to-end pipeline run:
+A typical end-to-end pipeline run. You can either run stages individually (clicking each button
+in sequence) or use **Run Full Pipeline** to execute everything automatically with Stepper
+progress. You can also **Load Saved** data at any stage to skip re-running earlier stages:
 
 1. **Set project directory** -- Enter a path like `D:\modal_projects\steinway_b` and click
    **Set**. This enables auto-persistence of intermediate results.

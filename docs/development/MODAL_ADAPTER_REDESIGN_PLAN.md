@@ -1,7 +1,7 @@
 # Modal Adapter Redesign: Independent Stages + Full Pipeline
 
-**Status:** Complete (all 6 waves)  
-**Date:** 2026-04-07
+**Status:** Implementation complete — untested (not yet verified in browser)  
+**Date:** 2026-04-06
 
 ## Context
 
@@ -46,14 +46,16 @@ Replace `AdapterState` enum with data-availability checks. Each stage asks "do I
 
 ## Implementation Order (6 Waves)
 
-1. ~~State machine removal + data checks + ModeChain reconstruction~~
-2. ~~Measurement persistence + ESPRIT refactor + pipeline method~~
-3. ~~Offline preset builder~~
-4. ~~New API endpoints~~
-5. ~~Frontend hook~~
-6. ~~Frontend UI~~
+1. ~~State machine removal + data checks + ModeChain reconstruction~~ — `b4c7238` (PianoidCore)
+2. ~~Measurement persistence + ESPRIT refactor + pipeline method~~ — `e3378ca` (PianoidCore)
+3. ~~Offline preset builder~~ — `607a11c` (PianoidCore)
+4. ~~New API endpoints~~ — `8e6d4a5` (PianoidCore)
+5. ~~Frontend hook~~ — `273b494` (PianoidTunner)
+6. ~~Frontend UI~~ — `3f4ea58` (PianoidTunner)
 
 ## Verification
+
+**Status:** Untested — browser verification pending.
 
 1. **Independent stages:** load intermediate → run downstream (no sequential run)
 2. **Full pipeline:** configure → click Run → verify preset file
