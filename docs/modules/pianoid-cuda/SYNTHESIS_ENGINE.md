@@ -133,6 +133,11 @@ For **output pitches** (128+, soundboard receiver points), feedin is zero (recei
 excite modes) and feedback carries the mode shape at the receiver location — this determines
 how much of each mode's displacement is observed at that point.
 
+**The engine expects deck coefficients in the 0–1 range.** Raw measurement values (FFT
+magnitudes, ESPRIT coefficients) must be normalised per mode across all pitches — including
+output pitches — before preset injection. Un-normalised values (e.g. raw FFT magnitudes of
+order 1e-4) produce silent output because the force-to-mode coupling becomes negligible.
+
 Each thread loads coupling coefficients at kernel entry from `mode_coefficients` (the deck
 coupling buffer in `PianoidPresetParameters`). A thread covers up to `NUM_FOLDS_IN_QUARTER=3`
 mode indices via index folding, so 512 threads per block can address all 256 modes:

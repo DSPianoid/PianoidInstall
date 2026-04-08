@@ -274,6 +274,21 @@ mass parameters — the deck coefficient describes only the spatial shape.
 By physical reciprocity (the coupling between a bridge point and a mode is the same in both
 directions), `deck['feedback']` equals `deck['feedin']` for both regular and output pitches.
 
+**Per-mode normalisation is mandatory.** When building a preset from measured data (FFT
+magnitudes, ESPRIT coefficients, etc.), raw values must be normalised per mode before
+injection. The algorithm:
+
+```
+coupling_matrix[pitch, mode] = raw FFT magnitude or ESPRIT coefficient
+for each mode m:
+    coupling_matrix[:, m] /= max(coupling_matrix[:, m])
+```
+
+Include **all** pitches in the normalisation pass — both excited (0–127) and output (128+) —
+because a mode's spatial maximum may occur at a receiver point. Without this step, raw
+magnitudes (typically 1e-4 to 1e-2 from FFT extraction) produce silent or near-silent output
+because the synthesis engine expects 0–1 range coefficients.
+
 #### Output Pitches (Receiver Points)
 
 Pitches 128–139 are **output pitches** — virtual soundboard strings that represent physical
