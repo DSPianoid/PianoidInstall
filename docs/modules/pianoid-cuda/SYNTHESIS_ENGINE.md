@@ -122,6 +122,17 @@ not per inner FDTD sub-step.
 
 ### Coupling Coefficients
 
+Each deck coefficient is a **normalised spatial coupling** value: the mode shape amplitude at
+a bridge position, scaled so that the spatial maximum for each mode equals 1. This per-mode
+normalisation ensures all modes are on the same scale; each mode's absolute amplitude is
+encoded in its frequency, damping, and mass parameters. By physical reciprocity, feedin and
+feedback use the same spatial coefficients (the coupling between a bridge point and a mode
+is identical in both directions).
+
+For **output pitches** (128+, soundboard receiver points), feedin is zero (receivers don't
+excite modes) and feedback carries the mode shape at the receiver location — this determines
+how much of each mode's displacement is observed at that point.
+
 Each thread loads coupling coefficients at kernel entry from `mode_coefficients` (the deck
 coupling buffer in `PianoidPresetParameters`). A thread covers up to `NUM_FOLDS_IN_QUARTER=3`
 mode indices via index folding, so 512 threads per block can address all 256 modes:

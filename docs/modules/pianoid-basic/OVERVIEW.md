@@ -239,13 +239,13 @@ The central aggregate for one piano key. Owns geometry, physical parameters, exc
 
 | Attribute | Meaning |
 |---|---|
-| `pitch` | MIDI note number 0–127; 128–139 are sound output channels |
+| `pitch` | MIDI note number 0–127 (piano keys); 128–139 are output pitches (soundboard receiver points) |
 | `geometry` | `StringGeometry` instance |
 | `physics` | `PhysicalParameters` instance |
 | `excitation` | `ExcitationParameters` instance |
 | `stringIDs` | List of integer string IDs assigned to this pitch |
-| `deck['feedin']` | Length-`num_modes` array: string-to-mode coupling weights |
-| `deck['feedback']` | Length-`num_modes` array: mode-to-string coupling weights |
+| `deck['feedin']` | Length-`num_modes` array: spatial coupling coefficients (string → mode). See [Coupling Coefficients](#coupling-coefficients) |
+| `deck['feedback']` | Length-`num_modes` array: spatial coupling coefficients (mode → string). Equal to feedin by reciprocity |
 | `tension_offset` | Per-string detuning step (fractional) for chorus effect |
 
 Key methods:
@@ -261,6 +261,42 @@ Key methods:
 
 Deck arrays are padded to `num_modes_for_model` with `ext_to_the_right()` (edge-padding)
 during `pack_deck()` if shorter than the CUDA grid requires.
+
+#### Coupling Coefficients
+
+Each deck coefficient `deck[mode]` is a **normalised spatial coupling** value representing the
+mode shape amplitude at that pitch's bridge position. Values range from 0 to 1, where 1 is the
+spatial maximum for that mode across all bridge positions. This per-mode normalisation preserves
+the spatial pattern (where on the bridge each mode couples most strongly) while keeping all modes
+on the same scale. The mode's absolute amplitude is determined by its frequency, damping, and
+mass parameters — the deck coefficient describes only the spatial shape.
+
+By physical reciprocity (the coupling between a bridge point and a mode is the same in both
+directions), `deck['feedback']` equals `deck['feedin']` for both regular and output pitches.
+
+#### Output Pitches (Receiver Points)
+
+Pitches 128–139 are **output pitches** — virtual soundboard strings that represent physical
+receiver/measurement points (accelerometers, microphones) on the soundboard. They do not
+correspond to piano keys and are never excited by a hammer.
+
+| Property | Regular Pitches (0–127) | Output Pitches (128–139) |
+|----------|------------------------|--------------------------|
+| Physical role | Piano keys (excitation points) | Soundboard receivers (observation points) |
+| `deck['feedin']` | Spatial coupling: string bridge → modes | **Zero** (receivers don't excite modes) |
+| `deck['feedback']` | Spatial coupling: modes → string bridge | Mode shape at receiver location |
+| `outerSound` | 0 (no direct audio output) | `pitch - 127` (audio output channel index) |
+| Excitation | Hammer force function | None |
+
+In `listen_to_modes=0` (strings mode), audio output comes exclusively from output pitches.
+Each output pitch's bridge displacement is driven by the sum of mode displacements weighted
+by its feedback coefficients — this reproduces what a physical receiver at that location would
+measure. The `string_sound_channels` coefficients scale the output per channel.
+
+Each output pitch corresponds to one response channel from the measurement setup. The channel
+mapping (`channel_to_sound`) assigns each measurement response channel to a specific output
+pitch. For example, with 4 response channels, output pitches 128–131 each receive the feedback
+pattern for one receiver location.
 
 ---
 

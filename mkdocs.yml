@@ -52,6 +52,7 @@ nav:
   - Guides:
     - Quick Start: guides/QUICK_START.md
     - Startup Troubleshooting: guides/STARTUP_TROUBLESHOOTING.md
+    - Modal Adapter Pipeline: guides/MODAL_ADAPTER_GUIDE.md
 
 markdown_extensions:
   - pymdownx.highlight:

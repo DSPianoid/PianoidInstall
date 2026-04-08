@@ -206,6 +206,18 @@ See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the
 
 ---
 
+## Modal Adapter Redesign — Independent Stages + Full Pipeline
+
+**Status:** Planned. Not started.
+
+Redesign the Modal Adapter panel from sequential-only execution to independent-stage execution with a full pipeline command. Each stage should be runnable individually using saved intermediate data from different sessions. A "Run Full Pipeline" command covers all steps from raw data to saved preset file (offline, no running engine required).
+
+Key changes: replace `AdapterState` enum with data-availability checks, add ModeChain reconstruction from serialized data, persist measurement source path, add `build_preset_to_file()` for headless apply, per-section "Load Saved" buttons in UI.
+
+See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for the full implementation plan.
+
+---
+
 ## RoomResponse Modal Adapter Integration
 
 **Status:** All 4 waves complete.
@@ -235,7 +247,82 @@ Full pipeline: Load → ESPRIT Extract → Mode Tracking → Feedin Extraction �
 Reference presets:
 - `presets/IversPond_ESPRIT_128modes.json` (128 modes, base64 deck matrices)
 - `presets/Belarus_ESPRIT_v2.json` (100 modes, uniform feedin — to be replaced)
+- `presets/BaselineBelorus1.json` (196 modes, Belarus measured feedin, per-mode normalised)
 
 See [MODAL_ADAPTER_PIPELINE_PLAN.md](MODAL_ADAPTER_PIPELINE_PLAN.md) for the full implementation plan.
 See [ROOMRESPONSE_INTEGRATION_PLAN.md](ROOMRESPONSE_INTEGRATION_PLAN.md) for the original design.
 See [ACOUSTIC_MEASUREMENT_ANALYSIS.md](ACOUSTIC_MEASUREMENT_ANALYSIS.md) for the acoustic measurement system analysis.
+
+---
+
+## note_playback Chart Auto-Normalization
+
+**Status:** Pending fix.
+
+The `note_playback` chart type produces misleading amplitude readings. `ChartData.create_audio()` in `ChartRegistry.py` (line 152) normalises the WAV audio to 0.8× peak amplitude before sending to the frontend:
+
+```python
+audio_data = audio_data / np.max(np.abs(audio_data)) * amplitude_scale
+```
+
+This means `note_playback` always appears loud regardless of actual synthesis output level. During the Belarus preset development, this masked a silent-output bug — `note_playback` reported max_amp=26213 while the ASIO real-time output was inaudible (mic measured -38 dB, synthesis_peak=1.8e-6).
+
+The chart statistics (max, RMS) are computed from the raw buffer before normalisation, but the WAV audio IS normalised. This mismatch between displayed stats and audible output is confusing.
+
+**Fix options:**
+1. Report `synthesis_peak` (actual kernel output magnitude) alongside the chart stats
+2. Add a warning when synthesis_peak is below a threshold (e.g. < 0.001)
+3. Optionally disable auto-normalisation so the chart reflects true output level
+
+---
+
+## ASIO Driver Re-initialization Failure
+
+**Status:** Pending fix.
+
+**Problem:** After the ASIO callback driver is stopped (e.g. by offline `note_playback` chart or preset switch), re-initialization fails with "ASIO driver initialization failed — no working ASIO device found". All ASIO drivers on the system fail (UMC, Realtek, etc.), not just the previously used one. A fresh server start succeeds.
+
+**Root cause:** `AsioAudioOutput::Close()` in `AsioAudioInterface.cpp` (line 615) calls `ASIOStop()`, `ASIODisposeBuffers()`, `ASIOExit()` but does not reset global state variables:
+
+- `asioDriverInfo` — retains previous driver data
+- `directOutputFn` — callback pointer still set (potential race with ASIO callback thread)
+- `asioCallbacks` — stale callback table
+- `queueToPlay` — circular buffer state lingers
+- `asioDrivers` — COM singleton never destroyed/recreated
+
+The `AsioDrivers` COM wrapper (global singleton, allocated with `new`, never deleted) holds stale COM references after `ASIOExit()`, causing all subsequent driver init attempts to fail.
+
+**Fix:** Reset all globals in `Close()` and destroy/recreate the `AsioDrivers` singleton. Add `directOutputFn = nullptr` before `ASIOStop()` to prevent callback races. The destructor (`~AsioAudioOutput`) is empty and should call `Close()`.
+
+**Workaround:** Restart the backend server between ASIO sessions.
+
+---
+
+## Sound Channel useEffect Feedback Loop
+
+**Status:** Pending fix.
+
+**Problem:** During normal online playback (no user editing), the frontend continuously sends `POST /set_parameter/sound_channel/null` and `POST /set_parameter/feedback/output` to the backend. This rewrites all output pitch (128–131) feedback values every 300ms and triggers full deck re-upload to GPU on each call.
+
+**Root cause:** Two `useEffect` hooks in `PianoidTuner.js` (lines 1021–1038) fire whenever their history object's `mutedMatrix` changes:
+
+```js
+useEffect(() => {
+    changeSoundChannelValues(scModesHistory.mutedMatrix, null, "sound_channel");
+}, [scModesHistory.mutedMatrix]);
+
+useEffect(() => {
+    changeSoundChannelFeedback(scStringsHistory.mutedMatrix, null);
+}, [scStringsHistory.mutedMatrix]);
+```
+
+Inside `changeSoundChannelValues` (`usePreset.js` line 225), `setSoundChannelData()` updates React state, which triggers the history object to update, which fires the `useEffect` dependency again — creating a loop. The 300ms debounce throttles but does not break the cycle.
+
+Additionally, `pitch` is passed as `null`, producing the endpoint path `/set_parameter/sound_channel/null` which returns 416 (invalid key).
+
+**Impact:** Continuous GPU deck re-uploads during playback; potential audio glitches; unnecessary backend load.
+
+**Fix:** Break the feedback loop by either:
+1. Guard the `useEffect` to only fire on user-initiated changes (not state-driven updates)
+2. Use a ref to track whether the change originated from the backend fetch vs user edit
+3. Compare previous and new `mutedMatrix` values and skip if unchanged
