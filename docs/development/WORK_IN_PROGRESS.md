@@ -1,5 +1,22 @@
 # Work in Progress
 
+## Preset System Revision — Per-Preset Runtime State & Complete Switch
+
+**Status:** Planned. Implementation pending.
+
+Volume and feedback are global runtime parameters that persist across preset switches — switching from a loud preset A to quiet B and back loses A's volume/feedback settings. Additionally, available notes are not refreshed after switch (stale keyboard), the frontend MIDI feedback slider position is lost (lossy reverse mapping from coefficient), and rapid `[`/`]` key presses can interleave switch requests.
+
+The fix adds a `runtime` dict to each `_library_models[name]` entry (backend-authoritative), saves/restores `RuntimeParameters` during `switch_preset()`, enriches the `/preset/switch` response with volume/feedback/sensitivity values, and updates the frontend to consume these values and refresh available notes.
+
+See [PRESET_SYSTEM_REVISION_PLAN.md](PRESET_SYSTEM_REVISION_PLAN.md) for full analysis, architecture decision, implementation steps, data flow, edge cases, and verification checklist.
+
+**Files to modify:**
+- `PianoidCore/pianoid_middleware/pianoid.py` — `switch_preset()`, `load_preset_to_library()`, `init_pianoid()`, new helpers
+- `PianoidCore/pianoid_middleware/backendServer.py` — `/preset/switch` response, `/set_runtime_parameters` sync
+- `PianoidTunner/src/hooks/usePreset.js` — `switchPreset()` consume runtime state, add `getAvailableNotes()`, concurrency guard
+
+---
+
 ## NumInput Bidirectional Data Flow — Cursor Drift on Rapid Stepping
 
 **Status:** Partially fixed. Core bidirectional issues resolved; cursor drift during rapid arrow/wheel remains.
@@ -57,6 +74,28 @@ In `CircularBuffer.cu:105`, `produce()` releases its mutex **before** `cudaMemcp
 | Fix `produce()` lock scope in CircularBuffer.cu | Pending |
 
 See [Testing](TESTING.md) for the test inventory.
+
+---
+
+## Interactive Stabilization Diagram — Chain Editing & Visualization
+
+**Status:** Planned. Implementation pending.
+
+Make the Modal Adapter's stabilization diagram fully interactive: zoom/pan, brush selection, chain path lines, bidirectional table sync, visual encoding (coverage → size, damping → opacity), damping layer toggle. Add manual chain editing — add/remove points, draw new chains, connect/break existing chains, dissolve chains in a frequency range. Client-side editing with undo/redo, batch save to backend with feedin invalidation.
+
+See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md) for full architecture decisions, 5-phase implementation plan, and risk analysis.
+
+**New files:**
+- `PianoidTunner/src/components/StabilizationDiagram.jsx` — extracted interactive diagram
+- `PianoidTunner/src/components/StabilizationToolbar.jsx` — mode-switching toolbar
+- `PianoidTunner/src/hooks/useChainEditor.js` — client-side chain editing state machine
+
+**Files to modify:**
+- `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` — `save_edited_chains()` method
+- `PianoidCore/pianoid_middleware/modal_adapter/routes.py` — `POST /modal/chains/save` endpoint
+- `PianoidTunner/src/hooks/useModalAdapter.js` — `saveEditedChains` API method
+- `PianoidTunner/src/modules/ModalAdapter.jsx` — integrate `useChainEditor`
+- `PianoidTunner/src/components/ModalResultsView.jsx` — import extracted diagram
 
 ---
 

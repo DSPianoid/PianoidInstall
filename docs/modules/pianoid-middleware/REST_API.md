@@ -1,12 +1,21 @@
 # pianoid_middleware — REST API Reference
 
-## Server
+## Server Architecture
 
-Flask application defined in `backendServer.py`. CORS is enabled for all origins. Default port when run directly: Flask development server on 5000.
+The middleware runs as **two Flask servers**:
+
+| Server | Port | Role |
+|--------|------|------|
+| `backendServer.py` | 5000 | Synthesis engine, playback, parameters, calibration, presets |
+| `modal_adapter_server.py` | 5001 | Modal extraction pipeline, project management, folder dialogs |
+
+Both servers have CORS enabled for all origins. The frontend connects to both servers concurrently.
 
 ---
 
 ## Endpoint Categories
+
+### backendServer.py (port 5000)
 
 ```
   /ping                     -- connectivity check
@@ -28,6 +37,8 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /play_mode/<mode_no>      -- trigger mode playback
   /midi_playback            -- MIDI file playback control
   /playback_stats           -- EventQueue statistics
+  /pause_synthesis          -- pause synthesis cycle (keeps GPU)
+  /resume_synthesis         -- resume synthesis from pause
   /get_available_notes      -- list pitches in preset
   /get_string_map           -- string layout data
   /get_block_map            -- block-to-string mapping
@@ -44,11 +55,18 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /calibration_params       -- GET/POST perception curves, timing bands, level multipliers
   /mic_devices              -- list microphone input devices
   /set_mic_device           -- select microphone input device
-  /open_folder_dialog       -- native OS folder picker (tkinter)
   /preset/list              -- list loaded presets + active preset
   /preset/load              -- load preset to GPU library (no activation)
   /preset/switch            -- switch active preset (double-buffer swap)
   /preset/unload            -- remove preset from GPU library
+```
+
+### modal_adapter_server.py (port 5001)
+
+```
+  /health                   -- lifecycle status
+  /shutdown                 -- graceful shutdown
+  /open_folder_dialog       -- native OS folder picker (tkinter subprocess)
   /modal/data_status        -- pipeline stage availability flags
   /modal/run_pipeline       -- run full extraction pipeline (background)
   /modal/load_folder        -- load impulse response measurements
@@ -60,6 +78,13 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /modal/results            -- get extraction results
   /modal/apply_to_preset    -- inject modes into active preset
   /modal/cancel             -- cancel running extraction
+  /modal/projects           -- list projects, current project, projects_base
+  /modal/projects/create    -- create project with optional measurement_source
+  /modal/projects/open      -- open existing project
+  /modal/projects/copy      -- copy measurements from existing project
+  /modal/projects/delete    -- delete project
+  /modal/projects/add_measurements -- add measurements to current project
+  /modal/projects/set_base  -- set projects base directory
 ```
 
 ---
@@ -233,26 +258,24 @@ The process exits ~300 ms after responding. If cleanup raises an exception, the 
 
 ---
 
-### `POST /open_folder_dialog`
+### `POST /pause_synthesis`
 
-Opens the native OS folder picker (tkinter `askdirectory`) and returns the selected path. The dialog appears on top of all windows. Used by the frontend `FolderBrowser` component for measurement folder selection.
-
-Request:
-```json
-{
-  "title": "Select Measurement Folder",
-  "initial_dir": "D:\\tmp"
-}
-```
+Pauses the synthesis cycle (transitions `PLAYBACK_ACTIVE` → `PAUSED`). GPU resources are retained — the engine stops producing audio but can resume instantly.
 
 Response `200`:
 ```json
-{"path": "D:\\tmp\\belarus_78_extended_8band", "cancelled": false}
+{"message": "Synthesis paused"}
 ```
 
-Response `200` (user cancelled):
+---
+
+### `POST /resume_synthesis`
+
+Resumes synthesis after a pause (transitions `PAUSED` → `PLAYBACK_ACTIVE`).
+
+Response `200`:
 ```json
-{"path": "", "cancelled": true}
+{"message": "Synthesis resumed"}
 ```
 
 ---
@@ -1052,9 +1075,47 @@ Response `200`:
 
 ---
 
-## Modal Adapter Endpoints
+## Modal Adapter Endpoints (port 5001)
 
-ESPRIT-based modal extraction pipeline. All endpoints mounted at `/modal/*`. Stage-based architecture with independent stage execution and auto-persistence.
+Served by `modal_adapter_server.py` on port 5001. ESPRIT-based modal extraction pipeline, project management, and folder dialogs. All `/modal/*` endpoints use stage-based architecture with independent stage execution and auto-persistence.
+
+### Utility Endpoints
+
+#### `GET /health`
+
+Returns lifecycle status of the modal adapter server.
+
+---
+
+#### `POST /shutdown`
+
+Graceful shutdown of the modal adapter server.
+
+---
+
+#### `POST /open_folder_dialog`
+
+Opens the native OS folder picker (tkinter `askdirectory` in a subprocess) and returns the selected path. The dialog appears on top of all windows. Runs in a subprocess so tkinter gets its own main thread — calling tkinter from a Flask worker thread hangs on Windows. Used by the frontend `FolderBrowser` component for measurement folder selection.
+
+Request:
+```json
+{
+  "title": "Select Measurement Folder",
+  "initial_dir": "D:\\tmp"
+}
+```
+
+Response `200`:
+```json
+{"path": "D:\\tmp\\belarus_78_extended_8band", "cancelled": false}
+```
+
+Response `200` (user cancelled):
+```json
+{"path": "", "cancelled": true}
+```
+
+---
 
 ### Data Status & Pipeline
 
@@ -1344,6 +1405,98 @@ Request body:
 #### `GET /modal/load_intermediate/<stage>`
 
 Load saved intermediate results for a stage. Stage: `esprit`, `tracking`, `feedin`, `mapping`.
+
+---
+
+### Project Management
+
+#### `GET /modal/projects`
+
+Returns the list of projects, current active project, and the projects base directory.
+
+Response `200`:
+```json
+{
+  "projects": ["piano_A", "piano_B"],
+  "current_project": "piano_A",
+  "projects_base": "D:\\projects"
+}
+```
+
+---
+
+#### `POST /modal/projects/create`
+
+Create a new project. Optionally copy measurements from an existing source.
+
+Request body:
+```json
+{
+  "name": "piano_C",
+  "measurement_source": "piano_A"
+}
+```
+
+- `measurement_source` (optional): name of existing project to copy measurements from
+
+---
+
+#### `POST /modal/projects/open`
+
+Open an existing project. Loads measurements and any saved intermediate data (ESPRIT results, tracking, feedin).
+
+Request body:
+```json
+{
+  "name": "piano_A"
+}
+```
+
+---
+
+#### `POST /modal/projects/copy`
+
+Copy measurements from an existing project into a new project.
+
+Request body:
+```json
+{
+  "source": "piano_A",
+  "destination": "piano_A_copy"
+}
+```
+
+---
+
+#### `POST /modal/projects/delete`
+
+Delete a project and its data.
+
+Request body:
+```json
+{
+  "name": "piano_C"
+}
+```
+
+---
+
+#### `POST /modal/projects/add_measurements`
+
+Add measurement files to the current project.
+
+---
+
+#### `POST /modal/projects/set_base`
+
+Set the base directory for all projects.
+
+Request body:
+```json
+{
+  "path": "D:\\projects"
+}
+```
 
 ---
 

@@ -106,13 +106,13 @@ The main application entry used in production is a separate top-level component 
 | `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
-| `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel. Collapsible sections: load measurements (with native folder picker via `FolderBrowser`), ESPRIT extraction, mode tracking, mode selection & visualization, feedin extraction, apply to preset. Each section enabled by data-availability flags from `GET /modal/data_status`. Project directory auto-set from measurement folder on load. Per-section "Load Saved" buttons load intermediate data from disk. "Run Full Pipeline" button with MUI Stepper progress tracking. See [MODAL_ADAPTER_REDESIGN_PLAN.md](../../development/MODAL_ADAPTER_REDESIGN_PLAN.md) |
-| `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/reference/response/skip) with per-channel sound output mapping, bridge boundary, and pitch offset |
-| `EspritConfig` | `EspritConfig.jsx` | ESPRIT config with band preset selector (standard_4band / extended_8band / custom), MAC threshold, model order, per-band advanced editing |
-| `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram (ECharts scatter: scenario x frequency, colored by stability), sortable/filterable mode chain table, per-mode shape plot along bridge, feedin heatmap (pitch x mode) |
+| `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel. Tab navigation: Project (project management, channel roles), ESPRIT (scenario selection, band config, extraction), Tracking (mode tracking, stabilization diagram, mode table), Apply (feedin, sound output mapping, apply to preset). Connects to modal adapter server on port 5001. See [MODAL_ADAPTER_GUIDE](../../guides/MODAL_ADAPTER_GUIDE.md) |
+| `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/response/skip) with bridge boundary and pitch offset. Collapsible after initial config |
+| `EspritConfig` | `EspritConfig.jsx` | Band preset selector + GPU checkbox. Advanced toggle reveals per-band table (name, f_min, f_max, order, decimation, exp_factor, model_order, window_length) |
+| `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram (ECharts scatter), collapsible mode chain table, per-mode shape plot, feedin heatmap |
 | `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading (native OS file picker) |
-| `FolderBrowser` | `FolderBrowser.jsx` | Folder picker using native OS dialog via `POST /open_folder_dialog`. Same icon-button pattern as `FileUploader`. Used in Modal Adapter for measurement folder selection. |
+| `FolderBrowser` | `FolderBrowser.jsx` | Folder picker using native OS dialog via `POST /open_folder_dialog` (on modal adapter server, port 5001). Uses tkinter subprocess for thread safety. |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
 | `TestChart` | `TestChart.jsx` | Test/debug chart component |
 | `ModeWaveChart` | `ModeWaveChart.js` | Waveform chart for a single mode |
@@ -259,15 +259,15 @@ Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95,
 
 ### `useModalAdapter`
 
-Manages the Modal Adapter pipeline with independent stage state. Each stage (load, esprit, tracking, feedin, mapping) has its own `{done, running, data, error}` state. Stages can be triggered independently if prerequisite data exists — either from the current session or loaded from disk via `loadIntermediate(stage)`. Fetches band presets from `/modal/band_presets` and data availability from `GET /modal/data_status` on mount. `dataStatus` is auto-refreshed after every stage completion so derived enablement flags stay current. `loadFolder()` auto-sets the project directory to the measurement folder path.
+Manages the Modal Adapter pipeline. Connects to the modal adapter server on port 5001 (passed as `url` prop). On mount, auto-restores the current project's state (measurements, ESPRIT results, tracking chains) from the backend.
 
-Key state: `stages` (per-stage state), `channelRoles` (per-channel force/reference/response/skip), `bridgeBoundary`, `pitchOffset`, `espritConfig` (with band preset name), `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived from roles), `dataStatus` (backend availability flags), `pipelineRunning`, `pipelineStage`.
+Key state: `stages` (per-stage `{done, running, data, error}`), `channelRoles`, `bridgeBoundary`, `pitchOffset`, `espritConfig`, `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived), `dataStatus`, `serverRunning`, `projectList`, `currentProject`.
 
-Derived flags (from `dataStatus`): `canRunEsprit` (needs measurements+mapping), `canRunTracking` (needs esprit), `canRunFeedin` (needs tracking), `canApply` (needs feedin). These enable UI components to show/disable stage controls based on actual data availability rather than session state.
+Project actions: `createProject(name, source)`, `openProject(name)`, `copyProject(src, dst)`, `deleteProject(name)`, `addMeasurementsToProject(source)`.
 
-Key actions: `loadFolder()`, `setProjectDir()`, `setConfigPreset()`, `runEsprit()`, `cancelEsprit()`, `runTracking()`, `runFeedin()`, `submitChannelMapping()`, `getStabilizationDiagram()`, `getModeShape(chainId)`, `getModePreview(chainId)`, `loadIntermediate(stage)` (loads saved intermediate data from disk without re-running), `applyToPreset()`, `runPipeline(config)`, `cancelPipeline()`, `fetchDataStatus()`, `reset()`.
+ESPRIT: `runEsprit()` drives a per-scenario loop from the frontend — each scenario is a synchronous `POST /modal/run_esprit` with `scenario_indices: [i]`. Progress updates after each scenario (elapsed, remaining, modes found). Pauses synthesis before, resumes after. Results accumulate across runs. After completion, auto-selects unprocessed scenarios.
 
-`dataStatus` is auto-refreshed after every stage completion (load, esprit, tracking, feedin, mapping, apply, loadIntermediate) so derived flags stay current. `runPipeline(config)` calls `POST /modal/run_pipeline` and polls `/modal/status` for progress, tracking the current stage in `pipelineStage`.
+Other actions: `runTracking()` (uses all processed scenarios), `runFeedin()`, `applyToPreset()`, `submitChannelMapping()`, `fetchDataStatus()`, `reset()`.
 
 ### `useWindowManager`
 

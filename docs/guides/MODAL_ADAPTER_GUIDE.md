@@ -5,90 +5,92 @@ presets for the Pianoid engine. It extracts vibrational modes (frequencies, damp
 spatial shapes) from measurement data using the ESPRIT algorithm, tracks them across excitation
 points, computes feedin coupling coefficients, and injects the results into the active preset.
 
-!!! warning "Untested"
-    The redesigned UI (independent stages, Load Saved buttons, Run Full Pipeline) is implemented
-    but has not yet been verified in the browser.
+## Architecture
 
-The pipeline is divided into independent stages. Each stage can run on its own as long as its
-prerequisite data exists — either from a prior run in the same session, or loaded from disk via
-a **Load Saved** button. A **Run Full Pipeline** button executes all stages sequentially with
-Stepper progress tracking. Intermediate results are auto-saved to the project directory, so work
-can be resumed across sessions.
+The Modal Adapter runs as a **separate Flask server** (`modal_adapter_server.py`, port 5001)
+from the main Pianoid backend (port 5000). This separation is required because CuPy GPU
+operations (used by ESPRIT) deadlock in non-main threads — the modal adapter server runs
+single-threaded (`threaded=False`) so ESPRIT executes on the main thread.
+
+| Server | Port | Role |
+|--------|------|------|
+| `backendServer.py` | 5000 | Pianoid synthesis, parameter editing, playback |
+| `modal_adapter_server.py` | 5001 | ESPRIT extraction, mode tracking, project management |
+
+Both servers run simultaneously. Before ESPRIT extraction, the frontend pauses synthesis
+on port 5000 (`POST /pause_synthesis`) to free GPU, and resumes after (`POST /resume_synthesis`).
+The Node.js launcher (`server/launcher.js`) manages both processes.
+
+## Project Management
+
+All data is organized by **projects**. Each project stores measurements, ESPRIT results,
+tracking chains, and feedin data in a self-contained directory:
+
+```
+{projects_base}/          # default: {PianoidInstall}/modal_projects
+  {project_name}/
+    project.json          # metadata: name, created, sample_rate, scenarios, channels
+    measurements/
+      scenario_3.npy      # combined (T, n_channels) array per scenario
+      scenario_4.npy
+      ...
+    modal_adapter/
+      esprit/             # per-scenario extraction results
+      tracking/           # tracked chains with stability
+      feedin/             # per-pitch feedin coefficients
+      mapping/            # channel mapping config
+      output/             # generated presets
+```
+
+Projects can be created from measurement folders (RoomResponse or flat `.npy` format),
+cloned from existing projects, or reopened across sessions. Measurement data is copied
+into the project as combined `.npy` files — the original source is not needed after import.
 
 ---
 
-## Panel Sections
+## UI Sections
 
-The panel is organized as a series of collapsible accordion sections. Each section is enabled or
-disabled based on **data availability flags** fetched from `GET /modal/data_status` — not by
-whether previous stages ran in the current session. A status indicator appears next to each
-section title: a green checkmark when complete, a blue "Running" chip during processing, or a
-red "Error" chip on failure. A **Reset** button in the header clears all state and returns to the
-initial configuration.
+The panel uses a **tab navigation** with four sections: Project, ESPRIT, Tracking, Apply.
+A status bar shows the server state and current project name. Green checkmarks on tabs
+indicate completed stages.
 
-Each section with saved intermediate data shows a **Load Saved** button that loads results from
-disk without re-running the stage. This enables resuming work across sessions or running
-downstream stages from previously saved data.
+### 1. Project Tab
 
-A **Run Full Pipeline** button at the top executes all stages sequentially (load → ESPRIT →
-tracking → feedin → apply). An MUI Stepper component tracks which stage is currently running.
+**Open existing** -- click a project chip to load it. All intermediate data (measurements,
+ESPRIT results, tracking chains) are restored automatically.
 
-### 1. Load Measurements
+**Create new** -- enter project name + measurement folder path, click **Create**. Measurements
+are imported as combined `.npy` files. Supports RoomResponse per-channel and flat `.npy` formats.
 
-This section configures where data comes from and where intermediate results are saved.
+**Clone** -- click a project name in "Or copy from" to create a copy with the same measurements.
 
-**Project Directory** -- Set a persistence folder (e.g. `D:\modal_projects\piano1`) where
-intermediate results (ESPRIT output, tracking chains, feedin data) are auto-saved between stages.
-Click **Set** to register the directory on the backend. If omitted, intermediate data exists only
-in memory for the current session.
+**Channel roles** -- shown after project creation/clone. Assign each measurement channel a role:
 
-**Measurement Folder** -- Path to a directory containing impulse response data. The backend
-auto-detects two formats:
+| Role | Description |
+|------|-------------|
+| Response | Soundboard/bridge sensors — used for feedin extraction |
+| Force | Hammer force channel — used for normalization |
+| Skip | Ignore this channel |
 
-- **Direct `.npy` files** -- one array per excitation scenario
-- **RoomResponse per-channel structure** -- subdirectories with per-channel scenario files
+Collapsed to a summary line once configured. Click **Edit** to change.
 
-Enter the path and click **Load**. On success, a summary appears showing the number of
-**scenarios** (excitation points), **channels**, and **sample rate** (Hz).
+**Add measurements** -- add more scenarios from another folder to the current project.
 
-**Channel Mapping** -- After loading, a mapping editor appears (see
-[Channel Mapping](#7-channel-mapping) below) where you assign roles to each measurement channel
-and configure bridge geometry. This mapping is used by all downstream stages.
+### 2. ESPRIT Tab
 
-### 2. ESPRIT Configuration
+**Scenario selector** -- choose which scenarios to extract. Processed scenarios are highlighted
+green; unprocessed are gray. After extraction, selection auto-advances to unprocessed scenarios.
+Supports range input (e.g. `0-10, 20, 30-40`), shift-click for ranges, All/None buttons.
 
-Controls for the ESPRIT modal extraction algorithm. This section is disabled until measurements
-are loaded.
+**Band preset** -- `standard_4band` (faster) or `extended_8band` (higher resolution). GPU
+checkbox enables CuPy-accelerated extraction. Click **Show Advanced** for the per-band table
+with editable fields (name, f_min, f_max, filter_order, decimation, exp_factor, model_order,
+window_length).
 
-**Band Preset** -- Select a frequency band configuration:
-
-| Preset | Description |
-|--------|-------------|
-| `standard_4band` | 4 frequency bands -- faster, suitable for most pianos. Per-band model orders: Low=10, Mid-Low=15, Mid-High=25, High=30 |
-| `extended_8band` | 8 frequency bands -- higher resolution, more memory-intensive. Per-band model orders: Ultra-Low=8, Low=12, Low-Mid=25, Mid=35, Mid-High=45, High/Upper/Top=50 |
-| `custom` | Manual band definition |
-
-Click **Show Band Details** to expand the per-band table with editable fields:
-
-| Field | Description |
-|-------|-------------|
-| `f_min` | Lower frequency bound (Hz) |
-| `f_max` | Upper frequency bound (Hz) |
-| `filter_order` | Bandpass filter order |
-| `decimation` | Signal decimation factor (higher = faster but lower resolution) |
-| `exp_factor` | Exponential weighting factor |
-| `model_order` | Per-band ESPRIT model order. Determines how many signal components ESPRIT searches for in this band. Empty = use global default. Low-frequency bands need fewer modes (5--15), high-frequency bands need more (30--50) |
-
-You can add or remove bands. Any manual edit switches the preset to "Custom".
-
-**Core Parameters:**
-
-- **Default Model Order** (slider, 10--100, default 30) -- Fallback model order used when a band
-  does not specify its own. Each band can override this via the per-band `model_order` field in
-  the band details table. Low-frequency bands typically contain only 5--7 modes and benefit from
-  lower orders (8--15); high-frequency bands need higher orders (30--50).
-- **MAC Threshold** (0--1, default 0.9) -- Modal Assurance Criterion threshold for merging
-  duplicate modes across bands. Lower values merge more aggressively.
+**Run ESPRIT** -- processes selected scenarios one at a time. Each scenario runs synchronously
+on the modal adapter server's main thread (CuPy GPU requirement). Progress shows current
+scenario, elapsed/remaining time, and accumulated mode count. Results persist across runs —
+run 3 scenarios, then 2 more, and tracking sees all 5.
 - **Max Damping** (0--1, default 0.2) -- Discard modes with damping ratio above this value.
 - **Freq Min / Freq Max** -- Overall frequency range to analyze (default 30--5000 Hz).
 
@@ -102,208 +104,47 @@ You can add or remove bands. Any manual edit switches the preset to "Custom".
 window length calculation. Leave empty for automatic sizing based on sample rate and band
 parameters.
 
-### 3. ESPRIT Extraction
+### 3. Tracking Tab
 
-Click **Run ESPRIT** to start the extraction. This runs in the background. The panel shows:
+Mode tracking links detected modes across scenarios into **chains** — sequences of the same
+physical mode observed at different piano keys. Tracking runs on ALL processed scenarios
+(accumulated across ESPRIT runs), not just the current selection.
 
-- A progress bar with the current scenario number (e.g. "Point 3 / 88")
-- A progress message from the backend
+**Parameters:** Freq Tolerance % (default 0.02), Max Gap (default 3).
 
-Click **Cancel** to abort a running extraction. When complete, a success alert shows the total
-number of modes found.
+**Stabilization diagram** — scatter plot (X=scenario, Y=frequency). Colors: green=stable,
+yellow=semi-stable, orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
 
-**Expected duration:**
+**Mode chains table** — collapsible (hidden by default to maximize diagram space). Sortable
+columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
+range, min coverage. Stable and semi-stable chains are auto-selected.
 
-- `standard_4band` with GPU: approximately 1--5 minutes for 88 scenarios
-- `extended_8band` with GPU: approximately 10--30 minutes for 88 scenarios
-- Without GPU: multiply by 5--10x
+### 4. Apply Tab (Feedin & Apply)
 
-The backend polls `GET /modal/status` every second to update the progress display.
+**Feedin extraction** — computes mode coupling per channel per pitch via FFT. Requires response
+channels configured in the Project tab. Shows measured vs interpolated pitch counts.
 
-### 4. Mode Tracking
+**Sound output mapping** — maps response channels to Pianoid output pitches (128+).
 
-After ESPRIT extraction, mode tracking links detected modes across excitation scenarios into
-**chains** -- sequences of the same physical mode observed at different piano keys.
+**Merge mode** — replace or merge with existing preset modes.
 
-**Parameters:**
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| Bridge Boundary | 28 | Scenario index separating bass bridge from treble bridge. Tracking runs independently for each bridge region. |
-| Freq Tolerance % | 0.02 | Maximum relative frequency difference (2%) for linking a mode detection to an existing chain. |
-| Max Gap | 3 | Maximum number of consecutive missing scenarios before a chain is terminated. |
-
-Click **Run Tracking** to execute. Results appear as summary chips showing the count of chains
-in each stability category:
-
-- **stable** -- detected in most scenarios, consistent frequency
-- **semi stable** -- detected in many scenarios with some gaps
-- **weak** -- detected in few scenarios
-- **spurious** -- likely noise artifacts
-
-After tracking completes, the stabilization diagram is automatically fetched for visualization.
-
-### 5. Mode Selection & Visualization
-
-This section provides interactive tools for inspecting tracked mode chains and selecting which
-ones to include in the final preset. A chip in the section header shows the selection count
-(e.g. "12 / 45").
-
-Stable and semi-stable chains are auto-selected after tracking. You can manually adjust the
-selection using the tools below.
-
-#### Stabilization Diagram
-
-A scatter plot with:
-
-- **X axis**: Scenario index (0--87, corresponding to piano keys)
-- **Y axis**: Frequency (Hz, logarithmic scale)
-- **Color coding**: green = stable, yellow = semi-stable, orange = weak, gray = spurious
-- **Blue highlights**: currently selected chains
-- **Red dashed line**: bridge boundary marker
-
-**Interaction**: Click any point to select that chain and load its mode shape plot below.
-Hovering shows a tooltip with the scenario index, frequency, chain ID, and stability class.
-
-#### Mode Table
-
-A sortable, filterable table of all tracked chains.
-
-**Columns** (all sortable by clicking the header):
-
-| Column | Description |
-|--------|-------------|
-| Freq (Hz) | Mean frequency across all detections |
-| Damping | Mean damping ratio |
-| Stability | Classification (stable / semi stable / weak / spurious) |
-| Detections | Number of scenarios where this mode was detected |
-| Coverage % | Fraction of scenarios covered |
-| Drift (Hz) | Frequency variation across scenarios |
-
-**Filters** (above the table):
-
-- **Stability** -- multi-select dropdown to show only specific stability classes
-- **Freq Min / Freq Max** -- numeric fields to restrict frequency range
-- **Min Coverage** -- slider (0--100%) to hide chains below a coverage threshold
-
-A **select-all checkbox** in the header toggles all currently filtered chains. Individual
-checkboxes toggle single chains. The filter status line shows "N / M chains" to indicate how
-many are visible.
-
-#### Mode Shape Plot
-
-Appears after clicking a chain in the stabilization diagram. Shows the feedin magnitude of that
-mode along the bridge, split into bass bridge (blue) and treble bridge (green) regions based on
-the bridge boundary and pitch offset settings.
-
-- **X axis**: MIDI pitch number (21--108)
-- **Y axis**: Feedin magnitude
-
-This reveals the spatial shape of the mode -- where on the bridge the mode couples most strongly.
-
-#### Feedin Heatmap
-
-Appears after feedin extraction (section 6). A color-coded matrix showing feedin magnitude for
-every pitch (X axis) and mode (Y axis). Colors range from dark blue (low coupling) through
-yellow to dark red (high coupling). Hover for exact values.
-
-The heatmap provides an overview of which modes contribute to which pitches, helping identify
-modes that are globally important versus locally relevant.
-
-### 6. Feedin Extraction
-
-Computes how strongly each tracked mode couples to each response channel at each pitch. This
-uses FFT-based analysis of the impulse responses at the tracked mode frequencies.
-
-**Prerequisites**: At least one channel must be assigned the "response" role in the channel
-mapping. The panel lists which channels are currently marked as response channels. If none are
-assigned, the Run button is disabled.
-
-Click **Run Feedin Extraction** to compute. On success, the alert shows the count of measured
-pitches (where direct data exists) and interpolated pitches (where values were estimated from
-neighbors).
-
-The feedin data is used by the "Apply to Preset" stage and also populates the feedin heatmap
-in the visualization section.
-
-### 7. Channel Mapping
-
-The mapping editor appears within the Load Measurements section after data is loaded. It
-configures how measurement channels map to the synthesis engine.
-
-#### Bridge Geometry
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| Bridge Boundary | 28 | Scenario index where bass bridge ends and treble bridge begins. Scenarios 0--27 are bass, 28--87 are treble. |
-| Pitch Offset | 21 | MIDI pitch number of scenario 0. The formula is: `pitch = scenario + offset`. With offset 21, scenario 0 corresponds to MIDI pitch 21 (A0). |
-
-#### Channel Roles
-
-Each measurement channel is assigned one of four roles:
-
-| Role | Color | Description |
-|------|-------|-------------|
-| Response | Green | Channels that capture the piano's acoustic response (soundboard, bridge sensors). These are used for feedin extraction. |
-| Force | Yellow | The excitation (hammer) force channel. Used for normalization. |
-| Reference | Blue | Reference channels (e.g. accelerometer on frame). Not used for feedin but preserved for analysis. |
-| Skip | Gray | Channels to ignore entirely. Rows appear dimmed. |
-
-The panel shows a summary of how many channels are assigned to each role.
-
-#### Sound Output Mapping
-
-For response channels, the **Sound Output** column maps each measurement channel to a Pianoid
-**output pitch** (128+). Each response channel corresponds to a physical receiver point
-(accelerometer, microphone) on the soundboard. The mapping determines which output pitch
-receives that receiver's modal coupling data:
-
-- Sound Output 0 → output pitch 128
-- Sound Output 1 → output pitch 129
-- Sound Output 2 → output pitch 130
-- Sound Output 3 → output pitch 131
-
-Output pitches are virtual soundboard strings: their feedback coefficients carry the mode shape
-at the receiver location, reproducing what that physical sensor would measure. In
-`listen_to_modes=0` (strings mode), audio output comes exclusively from these output pitches.
-Only editable for channels with the "response" role.
-
-### 8. Apply to Preset
-
-The final stage injects the extracted modal data into the currently active Pianoid preset.
-
-**Summary panel** shows:
-
-- Number of selected mode chains
-- Number of pitches with measured feedin vs. interpolated
-- Response channel to sound output mapping
-
-**Merge mode toggle**:
-
-- **Replace existing modes** (default) -- overwrites all mode data in the preset
-- **Merge with existing modes** -- adds extracted modes alongside existing ones
-
-Click **Apply to Preset** to execute. This first submits the channel mapping, then applies the
-selected chains and feedin data to the active preset. The preset must be loaded and the engine
-running for this to work.
+**Apply to Preset** — injects selected chains and feedin data into the active preset on port
+5000. Requires preset loaded and engine running.
 
 !!! warning "Save your preset first"
-    Applying modes modifies the in-memory preset. Use `POST /save_preset` or the frontend save
-    button to persist changes to disk before applying, so you can revert if needed.
+    Applying modes modifies the in-memory preset. Save before applying to enable revert.
 
 ---
 
-## Accessing Intermediate Data
+## REST API
 
-### Via REST API
-
-All endpoints are relative to the backend server (default `http://localhost:5000`).
+All modal adapter endpoints are on the modal adapter server (default `http://localhost:5001`).
 
 #### Status & Progress
 
 ```bash
 # Poll ESPRIT extraction progress
-curl http://localhost:5000/modal/status
+curl http://localhost:5001/modal/status
 ```
 
 Response:
@@ -321,7 +162,7 @@ Response:
 
 ```bash
 # Get all tracked chains with stability classification
-curl http://localhost:5000/modal/tracking_results
+curl http://localhost:5001/modal/tracking_results
 ```
 
 Response includes an array of chain objects with `chain_id`, `frequency_mean`, `damping_mean`,
@@ -332,7 +173,7 @@ scenario index.
 
 ```bash
 # Get per-pitch feedin coefficients
-curl http://localhost:5000/modal/feedin_results
+curl http://localhost:5001/modal/feedin_results
 ```
 
 Response includes `per_pitch_feedin` (pitch -> feedin array), `mode_frequencies`,
@@ -342,14 +183,14 @@ Response includes `per_pitch_feedin` (pitch -> feedin array), `mode_frequencies`
 
 ```bash
 # Get scatter plot data (chains with per-scenario detections)
-curl http://localhost:5000/modal/stabilization_diagram
+curl http://localhost:5001/modal/stabilization_diagram
 ```
 
 #### Mode Shape for a Single Chain
 
 ```bash
 # Get feedin magnitude along bridge for chain 5
-curl http://localhost:5000/modal/mode_shape/5
+curl http://localhost:5001/modal/mode_shape/5
 ```
 
 Response includes `pitches`, `magnitudes`, `bridge_labels`, and `frequency`.
@@ -358,30 +199,30 @@ Response includes `pitches`, `magnitudes`, `bridge_labels`, and `frequency`.
 
 ```bash
 # Get frequency + damping for chain 5
-curl http://localhost:5000/modal/mode_preview/5
+curl http://localhost:5001/modal/mode_preview/5
 ```
 
 #### Load Saved Intermediate Results
 
 ```bash
 # Load saved ESPRIT results from project directory
-curl http://localhost:5000/modal/load_intermediate/esprit
+curl http://localhost:5001/modal/load_intermediate/esprit
 
 # Load saved tracking results
-curl http://localhost:5000/modal/load_intermediate/tracking
+curl http://localhost:5001/modal/load_intermediate/tracking
 
 # Load saved feedin results
-curl http://localhost:5000/modal/load_intermediate/feedin
+curl http://localhost:5001/modal/load_intermediate/feedin
 
 # Load saved mapping
-curl http://localhost:5000/modal/load_intermediate/mapping
+curl http://localhost:5001/modal/load_intermediate/mapping
 ```
 
 #### Data Status (Availability Flags)
 
 ```bash
 # Get data availability flags for all stages
-curl http://localhost:5000/modal/data_status
+curl http://localhost:5001/modal/data_status
 ```
 
 Response:
@@ -403,7 +244,7 @@ The frontend uses these flags to derive `canRunEsprit`, `canRunTracking`, `canRu
 
 ```bash
 # Run all stages sequentially in background
-curl -X POST http://localhost:5000/modal/run_pipeline \
+curl -X POST http://localhost:5001/modal/run_pipeline \
   -H "Content-Type: application/json" \
   -d '{"config": {...}}'
 ```
@@ -415,7 +256,7 @@ stage is currently executing.
 
 ```bash
 # List available band presets with per-band parameters
-curl http://localhost:5000/modal/band_presets
+curl http://localhost:5001/modal/band_presets
 ```
 
 ### Offline Preset Building

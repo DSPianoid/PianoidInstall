@@ -106,7 +106,8 @@ Selected routes defined in `backendServer.py`:
 | `/preset/unload` | POST | Remove preset from GPU library |
 | `/calibrate_volume` | POST | Multi-velocity mic calibration (background) |
 | `/calibration_params` | GET/POST | Perception curves, timing bands, level multipliers |
-| `/modal/*` | various | ESPRIT modal extraction pipeline (load, map, run, apply) |
+| `/pause_synthesis` | POST | Pause synthesis (PLAYBACK_ACTIVE → PAUSED), keeps GPU |
+| `/resume_synthesis` | POST | Resume synthesis (PAUSED → PLAYBACK_ACTIVE) |
 
 ### Flask -> Middleware (Python)
 
@@ -152,10 +153,27 @@ preprocessor defines; selected at runtime via the `audio_driver_type` parameter
 
 ---
 
+## Server Architecture
+
+Two Flask servers run in parallel, managed by the Node.js launcher (`server/launcher.js`):
+
+| Server | Port | Script | Role |
+|--------|------|--------|------|
+| Backend | 5000 | `backendServer.py` | Pianoid synthesis engine, parameter editing, playback |
+| Modal Adapter | 5001 | `modal_adapter_server.py` | ESPRIT extraction, mode tracking, project management |
+
+Separation is required because CuPy GPU operations (used by ESPRIT) deadlock in
+non-main threads. The modal adapter server runs with `threaded=False` so ESPRIT
+executes on the main thread. The frontend drives the per-scenario loop, sending
+one `POST /modal/run_esprit` per scenario. Before ESPRIT starts, the frontend
+pauses synthesis on port 5000 (`POST /pause_synthesis`) to free GPU resources.
+
+---
+
 ## Threading Model
 
 ```
-Main Process
+Backend Process (port 5000)
     |
     +-- Flask thread (backendServer.py)
     |       Handles HTTP requests from the browser.
