@@ -44,6 +44,7 @@ Flask application defined in `backendServer.py`. CORS is enabled for all origins
   /calibration_params       -- GET/POST perception curves, timing bands, level multipliers
   /mic_devices              -- list microphone input devices
   /set_mic_device           -- select microphone input device
+  /open_folder_dialog       -- native OS folder picker (tkinter)
   /preset/list              -- list loaded presets + active preset
   /preset/load              -- load preset to GPU library (no activation)
   /preset/switch            -- switch active preset (double-buffer swap)
@@ -229,6 +230,30 @@ Response `200`:
 ```
 
 The process exits ~300 ms after responding. If cleanup raises an exception, the endpoint still proceeds with shutdown. Callers should follow up with a force-kill (`taskkill /T /F`) if the process does not exit within a few seconds.
+
+---
+
+### `POST /open_folder_dialog`
+
+Opens the native OS folder picker (tkinter `askdirectory`) and returns the selected path. The dialog appears on top of all windows. Used by the frontend `FolderBrowser` component for measurement folder selection.
+
+Request:
+```json
+{
+  "title": "Select Measurement Folder",
+  "initial_dir": "D:\\tmp"
+}
+```
+
+Response `200`:
+```json
+{"path": "D:\\tmp\\belarus_78_extended_8band", "cancelled": false}
+```
+
+Response `200` (user cancelled):
+```json
+{"path": "", "cancelled": true}
+```
 
 ---
 

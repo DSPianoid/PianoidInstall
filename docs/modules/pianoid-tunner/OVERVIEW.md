@@ -106,12 +106,13 @@ The main application entry used in production is a separate top-level component 
 | `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
-| `ModalAdapter` | `modules/ModalAdapter.jsx` | Redesigned modal extraction panel (untested). Collapsible sections: load measurements, ESPRIT extraction, mode tracking, mode selection & visualization, feedin extraction, apply to preset. Each section enabled by data-availability flags from `GET /modal/data_status` (not sequential session state). Per-section "Load Saved" buttons load intermediate data from disk. "Run Full Pipeline" button with MUI Stepper progress tracking. See [MODAL_ADAPTER_REDESIGN_PLAN.md](../../development/MODAL_ADAPTER_REDESIGN_PLAN.md) |
+| `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel. Collapsible sections: load measurements (with native folder picker via `FolderBrowser`), ESPRIT extraction, mode tracking, mode selection & visualization, feedin extraction, apply to preset. Each section enabled by data-availability flags from `GET /modal/data_status`. Project directory auto-set from measurement folder on load. Per-section "Load Saved" buttons load intermediate data from disk. "Run Full Pipeline" button with MUI Stepper progress tracking. See [MODAL_ADAPTER_REDESIGN_PLAN.md](../../development/MODAL_ADAPTER_REDESIGN_PLAN.md) |
 | `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/reference/response/skip) with per-channel sound output mapping, bridge boundary, and pitch offset |
 | `EspritConfig` | `EspritConfig.jsx` | ESPRIT config with band preset selector (standard_4band / extended_8band / custom), MAC threshold, model order, per-band advanced editing |
 | `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram (ECharts scatter: scenario x frequency, colored by stability), sortable/filterable mode chain table, per-mode shape plot along bridge, feedin heatmap (pitch x mode) |
 | `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
-| `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading |
+| `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading (native OS file picker) |
+| `FolderBrowser` | `FolderBrowser.jsx` | Folder picker using native OS dialog via `POST /open_folder_dialog`. Same icon-button pattern as `FileUploader`. Used in Modal Adapter for measurement folder selection. |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
 | `TestChart` | `TestChart.jsx` | Test/debug chart component |
 | `ModeWaveChart` | `ModeWaveChart.js` | Waveform chart for a single mode |
@@ -258,7 +259,7 @@ Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95,
 
 ### `useModalAdapter`
 
-Manages the redesigned Modal Adapter pipeline (untested) with independent stage state. Each stage (load, esprit, tracking, feedin, mapping) has its own `{done, running, data, error}` state. Stages can be triggered independently if prerequisite data exists — either from the current session or loaded from disk via `loadIntermediate(stage)`. Fetches band presets from `/modal/band_presets` and data availability from `GET /modal/data_status` on mount. `dataStatus` is auto-refreshed after every stage completion so derived enablement flags stay current.
+Manages the Modal Adapter pipeline with independent stage state. Each stage (load, esprit, tracking, feedin, mapping) has its own `{done, running, data, error}` state. Stages can be triggered independently if prerequisite data exists — either from the current session or loaded from disk via `loadIntermediate(stage)`. Fetches band presets from `/modal/band_presets` and data availability from `GET /modal/data_status` on mount. `dataStatus` is auto-refreshed after every stage completion so derived enablement flags stay current. `loadFolder()` auto-sets the project directory to the measurement folder path.
 
 Key state: `stages` (per-stage state), `channelRoles` (per-channel force/reference/response/skip), `bridgeBoundary`, `pitchOffset`, `espritConfig` (with band preset name), `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived from roles), `dataStatus` (backend availability flags), `pipelineRunning`, `pipelineStage`.
 
