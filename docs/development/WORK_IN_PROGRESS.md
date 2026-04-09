@@ -99,22 +99,44 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 
 ---
 
-## Modal Adapter Redesign — Independent Stages + Full Pipeline
+## Modal Adapter Redesign — Phase 1 + Phase 2
 
-**Status:** All 6 waves implemented — untested in browser.
+**Status:** All implementation complete (2026-04-06 to 2026-04-09). Browser verification pending.
 
-Replaces sequential `AdapterState` enum with data-availability checks, adds per-section "Load Saved" buttons, "Run Full Pipeline" button with Stepper progress, and data-driven section enablement.
+See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for full plan, commit references, and architecture details.
 
-See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for full plan and commit references.
+### Phase 1: Independent Stages + Full Pipeline (6 waves)
+
+Replaces sequential `AdapterState` enum with data-availability checks, per-section "Load Saved" buttons, "Run Full Pipeline" with Stepper progress.
 
 | Wave | Scope | Status |
 |------|-------|--------|
 | 1 | State machine removal + data checks + ModeChain reconstruction | Done |
 | 2 | Measurement persistence + ESPRIT refactor + pipeline method | Done |
-| 3 | Offline preset builder | Done |
-| 4 | New API endpoints (`data_status`, `run_pipeline`) | Done |
-| 5 | Frontend hook (`useModalAdapter`) | Done |
-| 6 | Frontend UI (`ModalAdapter.jsx`) | Done |
+| 3 | Offline preset builder (`build_preset_to_file`) | Done |
+| 4 | New API endpoints (`GET /modal/data_status`, `POST /modal/run_pipeline`) | Done |
+| 5 | Frontend hook (`useModalAdapter` — `dataStatus`, `canRun*` flags, `runPipeline`, `loadIntermediate`) | Done |
+| 6 | Frontend UI (`ModalAdapter.jsx` — data-driven enablement, pipeline controls) | Done |
+
+### Phase 2: Server Separation, Projects & UI Overhaul (2026-04-08/09)
+
+| Feature | Commits | Status |
+|---------|---------|--------|
+| Separate modal adapter server (port 5001, `threaded=False`) | `8fd1226` | Done |
+| Project management system (7 CRUD endpoints, project.json storage) | `8fd1226` | Done |
+| Synthesis pause/resume (`/pause_synthesis`, `/resume_synthesis`) | `8fd1226` | Done |
+| ESPRIT fixes (`_resolve_bands`, null `window_length`, numpy serialization) | `8fd1226` | Done |
+| FolderBrowser component (native OS folder picker via tkinter) | `2e55e80` | Done |
+| Frontend tab UI (Project/ESPRIT/Tracking/Apply replacing accordions) | `020dbd7` | Done |
+| Per-scenario ESPRIT with checkbox selection + shift-click | `020dbd7` | Done |
+| EspritConfig simplification (GPU checkbox + advanced toggle) | `020dbd7` | Done |
+| Dual-process launcher (port 5000 + 5001 management) | `020dbd7` | Done |
+
+### Remaining
+
+- Browser verification of all Phase 1 + Phase 2 features
+- Independent-stage loading, full pipeline execution, backward compatibility
+- Project CRUD workflow, tab navigation, per-scenario ESPRIT UI
 
 ---
 
