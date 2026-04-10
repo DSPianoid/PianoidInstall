@@ -109,7 +109,9 @@ The main application entry used in production is a separate top-level component 
 | `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with compact toolbar UI. **Toolbar** (left to right): server status chip (On/Off, clickable to start), project button (shows current project name or "Select Project", checkmark when done), pipeline section ButtonGroup (ESPRIT / Tracking / Apply with status indicators — checkmark for done, spinner for running), settings gear icon (toggles collapsible context-sensitive settings panel), and right-aligned play buttons (play current step, skip-to-end, both show stop icon when running). **Settings panel** content changes per active section: ESPRIT shows EspritConfig, Tracking shows freq tolerance and max gap, Apply shows merge mode and sound output mapping. Connects to modal adapter server on port 5001. See [MODAL_ADAPTER_GUIDE](../../guides/MODAL_ADAPTER_GUIDE.md) |
 | `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/response/skip) with bridge boundary and pitch offset. Collapsible after initial config |
 | `EspritConfig` | `EspritConfig.jsx` | Band preset selector + GPU checkbox. Advanced toggle reveals per-band table (name, f_min, f_max, order, decimation, exp_factor, model_order, window_length) |
-| `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram (ECharts scatter), collapsible mode chain table, per-mode shape plot, feedin heatmap |
+| `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram wrapper, collapsible mode chain table, per-mode shape plot, feedin heatmap |
+| `StabilizationDiagram` | `StabilizationDiagram.jsx` | ECharts scatter plot of tracked mode chains with stability coloring, zoom/pan, brush selection, chain paths, damping overlay. Accepts `interactionMode` for editing integration |
+| `StabilizationToolbar` | `StabilizationToolbar.jsx` | MUI ToggleButtonGroup for chain editing modes (select/addPoint/drawChain/connect/break/dissolve) with undo/redo/save/discard buttons |
 | `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading (native OS file picker) |
 | `FolderBrowser` | `FolderBrowser.jsx` | Folder picker using native OS dialog via `POST /open_folder_dialog` (on modal adapter server, port 5001). Uses tkinter subprocess for thread safety. |
@@ -256,6 +258,16 @@ Global keyboard shortcut handler. Registers `keydown`/`keyup` listeners on `wind
 | Escape | Reset synthesiser |
 
 Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95, ff=127.
+
+### `useChainEditor`
+
+Client-side chain editing state machine with snapshot-based undo/redo. Provides a working copy of tracked chains (`editedChains`), dirty tracking, and interaction mode switching (`select`, `addPoint`, `drawChain`, `connectChains`, `breakChain`, `dissolve`).
+
+Mutation methods: `addPointToChain`, `removePointFromChain`, `createNewChain`, `mergeChains`, `breakChainAt`, `dissolveInRange`. Each mutation pushes the previous state to the undo stack and clears the redo stack.
+
+Lifecycle: `initFromServer(chains)` loads chains from tracking data. `saveChains()` POSTs to `/modal/chains/save` via `useModalAdapter.saveEditedChains`. `discardEdits()` reverts to original server state.
+
+Wired into `ModalAdapter.jsx` Tracking section alongside `StabilizationToolbar`.
 
 ### `useModalAdapter`
 
