@@ -194,6 +194,21 @@ Frontend pauses main synth before GPU-intensive ESPRIT, resumes after completion
 | Pause/resume synthesis | Yes | Pending |
 | EspritConfig simplification | Yes | Pending |
 
+### Bug Fixes (2026-04-10)
+
+| Fix | Files |
+|-----|-------|
+| `modal_adapter/__init__.py` log dir missing → `os.makedirs` | `__init__.py` |
+| `load_folder` auto-descend into child subfolder for RoomResponse | `modal_adapter.py` |
+| Faulty scenarios (channel mismatch) skipped with warning instead of aborting | `modal_adapter.py` (`load_roomresponse_scenarios`, `_load_roomresponse_raw`) |
+| `create_project` re-opens existing project instead of erroring | `modal_adapter.py` |
+| Incomplete project (no `project.json`) re-created instead of failing open | `modal_adapter.py` |
+| `data_status()` returns `mapping_config` for channel role restoration | `modal_adapter.py` |
+| `openProject`/`createProject` restore saved channel roles from backend | `useModalAdapter.js` |
+| Server start/stop button on Modal Adapter panel | `useModalAdapter.js`, `ModalAdapter.jsx` |
+| `EXTENDED_BANDS` defined locally (missing from RoomResponse library) | `esprit_runner.py` |
+| **ESPRIT still broken:** `merge_multiband_results` not in RoomResponse library | `esprit_runner.py` — needs implementation |
+
 ### Documentation Cross-References
 
 Module docs already updated for Phase 2:

@@ -1367,6 +1367,24 @@ Return frequency + damping for rendering decaying sinewave (uses existing `excit
 
 ---
 
+#### `POST /modal/chains/save`
+
+Replace tracked chains with manually edited version. Re-indexes chain IDs 0..N-1, invalidates feedin data (must re-run feedin after edits), persists to disk.
+
+Request:
+```json
+{
+  "chains": [{ "chain_id": 0, "frequency_mean": 440.0, "damping_mean": 0.001, ... }]
+}
+```
+
+Response `200`:
+```json
+{ "saved": 42, "data_status": { "measurements": true, "mapping": true, ... } }
+```
+
+---
+
 ### Stage 7: Apply & Persistence
 
 #### `POST /modal/apply_to_preset`

@@ -79,23 +79,24 @@ See [Testing](TESTING.md) for the test inventory.
 
 ## Interactive Stabilization Diagram — Chain Editing & Visualization
 
-**Status:** Planned. Implementation pending.
+**Status:** Phase 1 + Phase 2 implemented. Phase 3–5 pending.
 
-Make the Modal Adapter's stabilization diagram fully interactive: zoom/pan, brush selection, chain path lines, bidirectional table sync, visual encoding (coverage → size, damping → opacity), damping layer toggle. Add manual chain editing — add/remove points, draw new chains, connect/break existing chains, dissolve chains in a frequency range. Client-side editing with undo/redo, batch save to backend with feedin invalidation.
+Phase 1 (diagram enhancements) and Phase 2 (backend chain CRUD) are implemented. Phase 3–5 (frontend editing hooks, interactive chart editing, polish) are pending.
 
 See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md) for full architecture decisions, 5-phase implementation plan, and risk analysis.
 
-**New files:**
-- `PianoidTunner/src/components/StabilizationDiagram.jsx` — extracted interactive diagram
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 1 | Zoom/pan, brush selection, chain paths, bidirectional sync, visual encoding, damping toggle | Done |
+| 2 | `save_edited_chains()` + `POST /modal/chains/save` | Done |
+| 3 | `useChainEditor` hook + `StabilizationToolbar` component | Pending |
+| 4 | Interactive chart editing (mode-dependent handlers) | Pending |
+| 5 | Polish, keyboard shortcuts, validation, performance | Pending |
+
+**Remaining files (Phase 3–5):**
+- `PianoidTunner/src/components/StabilizationDiagram.jsx` — extract from ModalResultsView
 - `PianoidTunner/src/components/StabilizationToolbar.jsx` — mode-switching toolbar
 - `PianoidTunner/src/hooks/useChainEditor.js` — client-side chain editing state machine
-
-**Files to modify:**
-- `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` — `save_edited_chains()` method
-- `PianoidCore/pianoid_middleware/modal_adapter/routes.py` — `POST /modal/chains/save` endpoint
-- `PianoidTunner/src/hooks/useModalAdapter.js` — `saveEditedChains` API method
-- `PianoidTunner/src/modules/ModalAdapter.jsx` — integrate `useChainEditor`
-- `PianoidTunner/src/components/ModalResultsView.jsx` — import extracted diagram
 
 ---
 
