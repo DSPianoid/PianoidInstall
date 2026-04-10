@@ -100,7 +100,7 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 
 ---
 
-## Modal Adapter Redesign — Phase 1 + Phase 2
+## Modal Adapter Redesign — Phase 1 + Phase 2 + Phase 3
 
 **Status:** All implementation complete (2026-04-06 to 2026-04-09). Browser verification pending.
 
@@ -128,16 +128,29 @@ Replaces sequential `AdapterState` enum with data-availability checks, per-secti
 | Synthesis pause/resume (`/pause_synthesis`, `/resume_synthesis`) | `8fd1226` | Done |
 | ESPRIT fixes (`_resolve_bands`, null `window_length`, numpy serialization) | `8fd1226` | Done |
 | FolderBrowser component (native OS folder picker via tkinter) | `2e55e80` | Done |
-| Frontend tab UI (Project/ESPRIT/Tracking/Apply replacing accordions) | `020dbd7` | Done |
+| Frontend tab UI (Project/ESPRIT/Tracking/Apply replacing accordions) | `020dbd7` | Done (superseded by Phase 3 toolbar) |
 | Per-scenario ESPRIT with checkbox selection + shift-click | `020dbd7` | Done |
 | EspritConfig simplification (GPU checkbox + advanced toggle) | `020dbd7` | Done |
 | Dual-process launcher (port 5000 + 5001 management) | `020dbd7` | Done |
 
+### Phase 3: Toolbar UI (2026-04-09)
+
+Replaced tab navigation with a compact single-row toolbar: server status chip, project button, pipeline ButtonGroup (ESPRIT/Tracking/Apply with checkmark/spinner status), gear icon for collapsible context-sensitive settings, and play/skip-next buttons (with stop when running). Settings and run buttons removed from section bodies.
+
+| Feature | Status |
+|---------|--------|
+| Toolbar with pipeline ButtonGroup | Done |
+| Server status chip (On/Off, clickable) | Done |
+| Project button with name + checkmark | Done |
+| Context-sensitive settings panel (gear toggle) | Done |
+| Play (run step) + SkipNext (run to end) buttons | Done |
+| Stop button overlay when running | Done |
+
 ### Remaining
 
-- Browser verification of all Phase 1 + Phase 2 features
+- Browser verification of all Phase 1 + Phase 2 + Phase 3 features
 - Independent-stage loading, full pipeline execution, backward compatibility
-- Project CRUD workflow, tab navigation, per-scenario ESPRIT UI
+- Project CRUD workflow, toolbar navigation, per-scenario ESPRIT UI
 
 ---
 

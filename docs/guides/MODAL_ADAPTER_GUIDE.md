@@ -50,11 +50,43 @@ into the project as combined `.npy` files — the original source is not needed 
 
 ## UI Sections
 
-The panel uses a **tab navigation** with four sections: Project, ESPRIT, Tracking, Apply.
-A status bar shows the server state and current project name. Green checkmarks on tabs
-indicate completed stages.
+The panel uses a **compact toolbar** instead of tabs. All navigation and actions are in a
+single toolbar row, with a collapsible settings panel below it.
 
-### 1. Project Tab
+### Toolbar Layout
+
+From left to right:
+
+1. **Server status chip** — "On" (green) or "Off" (gray). Clickable to start the modal
+   adapter server if it is not running.
+
+2. **Project button** — displays the current project name, or "Select Project" if none is
+   loaded. Shows a checkmark icon when a project is open. Clicking opens the project
+   management panel (create, open, clone, delete projects).
+
+3. **Pipeline section buttons** — a `ButtonGroup` with three buttons: **ESPRIT**,
+   **Tracking**, **Apply**. Each button shows a status indicator: checkmark when the stage
+   has completed data, spinner while running. Clicking a section button selects it as the
+   active section (highlighting it and switching the settings panel content).
+
+4. **Settings gear icon** — toggles the collapsible settings panel. The panel content is
+   **context-sensitive** based on which pipeline section is active:
+   - **ESPRIT** → EspritConfig (GPU checkbox, band preset, advanced per-band table)
+   - **Tracking** → freq tolerance %, max gap
+   - **Apply** → merge mode, sound output channel mapping
+
+5. **Play buttons** (right-aligned):
+   - **Play icon** (▶) — run the currently selected pipeline step
+   - **SkipNext icon** (⏭) — run from the current step through to the end of the pipeline
+   - Both buttons show a **Stop icon** (■) when their operation is running, allowing
+     cancellation
+
+Settings and individual Run/Apply buttons that were previously inside each section body
+have been removed — the toolbar handles all actions.
+
+### Project Management
+
+Accessed by clicking the **Project button** in the toolbar.
 
 **Open existing** -- click a project chip to load it. All intermediate data (measurements,
 ESPRIT results, tracking chains) are restored automatically.
@@ -76,7 +108,7 @@ Collapsed to a summary line once configured. Click **Edit** to change.
 
 **Add measurements** -- add more scenarios from another folder to the current project.
 
-### 2. ESPRIT Tab
+### ESPRIT Section
 
 **Scenario selector** -- choose which scenarios to extract. Processed scenarios are highlighted
 green; unprocessed are gray. After extraction, selection auto-advances to unprocessed scenarios.
@@ -87,10 +119,12 @@ checkbox enables CuPy-accelerated extraction. Click **Show Advanced** for the pe
 with editable fields (name, f_min, f_max, filter_order, decimation, exp_factor, model_order,
 window_length).
 
-**Run ESPRIT** -- processes selected scenarios one at a time. Each scenario runs synchronously
-on the modal adapter server's main thread (CuPy GPU requirement). Progress shows current
-scenario, elapsed/remaining time, and accumulated mode count. Results persist across runs —
-run 3 scenarios, then 2 more, and tracking sees all 5.
+**Run ESPRIT** -- click the **Play** button in the toolbar (with ESPRIT selected) to process
+selected scenarios one at a time. Each scenario runs synchronously on the modal adapter
+server's main thread (CuPy GPU requirement). Progress shows current scenario,
+elapsed/remaining time, and accumulated mode count. Results persist across runs — run 3
+scenarios, then 2 more, and tracking sees all 5. Use **SkipNext** to run the full pipeline
+from ESPRIT through Apply.
 - **Max Damping** (0--1, default 0.2) -- Discard modes with damping ratio above this value.
 - **Freq Min / Freq Max** -- Overall frequency range to analyze (default 30--5000 Hz).
 
@@ -104,13 +138,14 @@ run 3 scenarios, then 2 more, and tracking sees all 5.
 window length calculation. Leave empty for automatic sizing based on sample rate and band
 parameters.
 
-### 3. Tracking Tab
+### Tracking Section
 
 Mode tracking links detected modes across scenarios into **chains** — sequences of the same
 physical mode observed at different piano keys. Tracking runs on ALL processed scenarios
 (accumulated across ESPRIT runs), not just the current selection.
 
-**Parameters:** Freq Tolerance % (default 0.02), Max Gap (default 3).
+**Parameters** (in settings panel when Tracking is active): Freq Tolerance % (default 0.02),
+Max Gap (default 3).
 
 **Stabilization diagram** — scatter plot (X=scenario, Y=frequency). Colors: green=stable,
 yellow=semi-stable, orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
@@ -119,17 +154,20 @@ yellow=semi-stable, orange=weak, gray=spurious. Blue=selected. Click points to v
 columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
 range, min coverage. Stable and semi-stable chains are auto-selected.
 
-### 4. Apply Tab (Feedin & Apply)
+### Apply Section (Feedin & Apply)
 
 **Feedin extraction** — computes mode coupling per channel per pitch via FFT. Requires response
-channels configured in the Project tab. Shows measured vs interpolated pitch counts.
+channels configured in the Project panel. Shows measured vs interpolated pitch counts.
 
-**Sound output mapping** — maps response channels to Pianoid output pitches (128+).
+**Sound output mapping** (in settings panel when Apply is active) — maps response channels
+to Pianoid output pitches (128+).
 
-**Merge mode** — replace or merge with existing preset modes.
+**Merge mode** (in settings panel when Apply is active) — replace or merge with existing
+preset modes.
 
-**Apply to Preset** — injects selected chains and feedin data into the active preset on port
-5000. Requires preset loaded and engine running.
+**Apply to Preset** — click the **Play** button in the toolbar (with Apply selected) to inject
+selected chains and feedin data into the active preset on port 5000. Requires preset loaded
+and engine running.
 
 !!! warning "Save your preset first"
     Applying modes modifies the in-memory preset. Save before applying to enable revert.
@@ -299,54 +337,51 @@ as NumPy/JSON files for offline analysis.
 
 ## Workflow Example
 
-A typical end-to-end pipeline run. You can either run stages individually (clicking each button
-in sequence) or use **Run Full Pipeline** to execute everything automatically with Stepper
-progress. You can also **Load Saved** data at any stage to skip re-running earlier stages:
+A typical end-to-end pipeline run. You can run stages individually using the toolbar play
+button, or use the **SkipNext** (⏭) button to run from the current step through to the end
+of the pipeline. You can also **Load Saved** data at any stage to skip re-running earlier
+stages:
 
-1. **Set project directory** -- Enter a path like `D:\modal_projects\steinway_b` and click
-   **Set**. This enables auto-persistence of intermediate results.
+1. **Open or create a project** -- Click the **Project** button in the toolbar. Either click
+   an existing project chip to open it, or enter a new project name + measurement folder
+   path and click **Create**.
 
-2. **Load measurements** -- Enter the measurement folder path and click **Load**. Verify the
-   summary shows the expected number of scenarios and channels.
-
-3. **Configure channel roles** -- In the mapping editor, assign each channel its role:
+2. **Configure channel roles** -- In the mapping editor (shown after project open/create),
+   assign each channel its role:
     - Mark accelerometer/microphone channels as **Response**
     - Mark the hammer force sensor as **Force**
     - Mark any unused channels as **Skip**
     - Set the bridge boundary (typically 28 for a standard 88-key piano)
     - Verify the pitch offset (21 for A0 = scenario 0)
 
-4. **Configure ESPRIT** -- Expand the ESPRIT section. Select `standard_4band` for a first pass.
-   Leave other parameters at defaults unless you have specific requirements.
+3. **Configure ESPRIT** -- Click **ESPRIT** in the toolbar to select it. Click the **gear**
+   icon to open settings. Select `standard_4band` for a first pass. Leave other parameters
+   at defaults unless you have specific requirements.
 
-5. **Run ESPRIT** -- Click **Run ESPRIT** and wait for completion. Monitor the progress bar.
-   For 88 scenarios with `standard_4band` and GPU, expect 1--5 minutes.
+4. **Run ESPRIT** -- Click the **Play** (▶) button in the toolbar. Monitor progress via the
+   spinner on the ESPRIT button. For 88 scenarios with `standard_4band` and GPU, expect
+   1--5 minutes. Alternatively, click **SkipNext** (⏭) to run ESPRIT + Tracking + Apply
+   in sequence.
 
-6. **Run tracking** -- Expand the Mode Tracking section. Verify the bridge boundary matches
-   your channel mapping. Click **Run Tracking**.
+5. **Run tracking** -- Click **Tracking** in the toolbar, then click **Play** (▶). Or if
+   using SkipNext, tracking runs automatically after ESPRIT.
 
-7. **Inspect results** -- Expand Mode Selection & Visualization. Review the stabilization
-   diagram:
+6. **Inspect results** -- The stabilization diagram and mode table appear in the main panel
+   when Tracking is selected:
     - Green clusters at consistent frequencies indicate real physical modes
     - Isolated gray points are likely spurious
     - Use the frequency and coverage filters to focus on high-quality chains
     - Click chains in the diagram to see their spatial mode shapes
 
-8. **Adjust selection** -- Use the mode table filters and checkboxes to refine which chains to
+7. **Adjust selection** -- Use the mode table filters and checkboxes to refine which chains to
    include. Aim for chains that are stable or semi-stable with good coverage. Deselect any
    chains that appear spurious despite being classified otherwise.
 
-9. **Run feedin extraction** -- Expand the Feedin section. Verify response channels are listed.
-   Click **Run Feedin Extraction**. Check the feedin heatmap to verify sensible coupling
-   patterns.
+8. **Configure and apply** -- Click **Apply** in the toolbar, then click the **gear** icon to
+   configure merge mode and sound output mapping. Click **Play** (▶) to apply to the active
+   preset.
 
-10. **Map sound outputs** -- In the channel mapping, set the Sound Output index for each
-    response channel to match your desired Pianoid output routing (0--3).
-
-11. **Apply to preset** -- Expand Apply to Preset. Choose merge or replace mode. Click
-    **Apply to Preset**.
-
-12. **Save** -- Save the preset via the frontend or `POST /save_preset` to persist the changes.
+9. **Save** -- Save the preset via the frontend or `POST /save_preset` to persist the changes.
 
 ---
 

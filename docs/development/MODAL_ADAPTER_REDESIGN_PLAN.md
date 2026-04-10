@@ -1,7 +1,7 @@
 # Modal Adapter Redesign
 
-**Status:** Phase 1 + Phase 2 implementation complete. Browser testing pending.  
-**Date:** 2026-04-06 (Phase 1 code complete), 2026-04-09 (Phase 2 + code audit)
+**Status:** Phase 1 + Phase 2 + Phase 3 implementation complete. Browser testing pending.  
+**Date:** 2026-04-06 (Phase 1 code complete), 2026-04-09 (Phase 2 + code audit + Phase 3 toolbar UI)
 
 ## Phase 1: Independent Stages + Full Pipeline
 
@@ -187,7 +187,7 @@ Frontend pauses main synth before GPU-intensive ESPRIT, resumes after completion
 |---------|--------------|----------------|
 | Separate server (port 5001) | Yes | Pending |
 | Project CRUD | Yes | Pending |
-| Tab UI | Yes | Pending |
+| Tab UI | Yes (superseded by Phase 3 toolbar) | Pending |
 | Per-scenario ESPRIT | Yes | Pending |
 | FolderBrowser | Yes | Pending |
 | Dual-process launcher | Yes | Pending |
@@ -218,3 +218,48 @@ Module docs already updated for Phase 2:
 - [Middleware Overview — Modal Adapter](../modules/pianoid-middleware/OVERVIEW.md#modal-adapter-modal_adapter)
 - [Tunner Overview — ModalAdapter component](../modules/pianoid-tunner/OVERVIEW.md)
 - [Tunner Overview — useModalAdapter hook](../modules/pianoid-tunner/OVERVIEW.md#useModalAdapter)
+
+---
+
+## Phase 3: Toolbar UI (2026-04-09)
+
+**Status:** Implementation complete. Docs updated.
+
+Replaced the Tab navigation and server status bar in `ModalAdapter.jsx` with a compact single-row toolbar.
+
+### Changes
+
+| Old (Phase 2) | New (Phase 3) |
+|----------------|---------------|
+| 4 MUI Tabs (Project, ESPRIT, Tracking, Apply) | Toolbar with pipeline ButtonGroup (ESPRIT, Tracking, Apply) |
+| Server status bar below tabs | Server status chip ("On"/"Off") in toolbar, clickable to start |
+| Project as a tab | Project button in toolbar showing current project name |
+| Per-section Run/Apply buttons in section bodies | Two toolbar play buttons: Play (run current step), SkipNext (run from here to end) |
+| Settings visible in section bodies | Gear icon toggles collapsible settings panel with context-sensitive content |
+| Tab-based status indicators | ButtonGroup buttons show checkmark (done) or spinner (running) |
+
+### Toolbar Layout (Left to Right)
+
+1. **Server status chip** — "On"/"Off", clickable to start modal server
+2. **Project button** — shows `currentProject` name or "Select Project", checkmark when project is open
+3. **Pipeline section ButtonGroup** — ESPRIT, Tracking, Apply; status indicators (checkmark/spinner)
+4. **Settings gear icon** — toggles collapsible panel:
+   - ESPRIT selected → EspritConfig
+   - Tracking selected → freq tolerance, max gap
+   - Apply selected → merge mode, sound output mapping
+5. **Play buttons** (right-aligned):
+   - Play icon (▶) → run current step
+   - SkipNext icon (⏭) → run from here to end of pipeline
+   - Both show Stop icon (■) when running
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `PianoidTunner/src/modules/ModalAdapter.jsx` | Complete toolbar rewrite — removed Tabs, added toolbar with ButtonGroup, gear icon, play/stop buttons |
+
+### Documentation Updated
+
+- [Tunner Overview — ModalAdapter component](../modules/pianoid-tunner/OVERVIEW.md)
+- [Modal Adapter Pipeline Guide — UI Sections](../guides/MODAL_ADAPTER_GUIDE.md#toolbar-layout)
+- [Work in Progress](WORK_IN_PROGRESS.md)
