@@ -238,6 +238,7 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 | `ModalAdapter` | `modal_adapter.py` | Data-driven orchestrator with auto-persistence, `data_status()`, `run_full_pipeline()` | Working (independent stages) |
 | `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
 | `EspritRunner` | `esprit_runner.py` | MAC-based band merging + spatial mode tracking | Working (merge_multiband_results + track_modes_along_bridge) |
+| `esprit/` | `esprit/*.py` | Inlined ESPRIT library — see table below | Refactored, no external dependency |
 | `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
 | `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation | Working (output pitches dynamic, up to 16 channels) |
 | `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 23 endpoints (includes `data_status`, `run_pipeline`) |
@@ -248,6 +249,15 @@ Key endpoints added in the redesign:
 - `POST /modal/run_pipeline` — runs the full pipeline in a background thread; poll `GET /modal/status` for progress
 
 Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data. Auto-persists intermediate results to project directory.
+
+The ESPRIT library (`esprit/` subpackage) is inlined from the RoomResponse project. No external dependency required.
+
+| File | Responsibility |
+|------|---------------|
+| `esprit_core.py` | Core ESPRIT algorithm: Hankel matrix, LS/TLS pole extraction, conjugate pairing, filtering, mode shape estimation |
+| `band_processing.py` | Signal processing: `FrequencyBand` config, band presets, bandpass filter, preemphasis, decimation |
+| `band_merging.py` | Cross-band deduplication (MAC + center weighting) and `merge_multiband_results()` orchestrator |
+| `mode_tracking.py` | Spatial mode tracking along the bridge (`track_modes_along_bridge`, `ModeChain`) |
 
 REST endpoints: see [REST_API.md](REST_API.md#modal-adapter-endpoints).
 
