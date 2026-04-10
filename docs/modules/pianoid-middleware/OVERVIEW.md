@@ -240,8 +240,23 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 | `EspritRunner` | `esprit_runner.py` | MAC-based band merging + spatial mode tracking | Working (merge_multiband_results + track_modes_along_bridge) |
 | `esprit/` | `esprit/*.py` | Inlined ESPRIT library — see table below | Refactored, no external dependency |
 | `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
-| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation | Working (output pitches dynamic, up to 16 channels) |
+| `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation. Configurable via `PresetConfig` | Working (output pitches dynamic, up to 16 channels) |
+| `PresetConfig` | `preset_injector.py` | Dataclass for preset build parameters: `max_modes`, `feedin_max`, `regular_feedback`, `sound_max`, `interpolate_missing` | Working |
 | `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 23 endpoints (includes `data_status`, `run_pipeline`) |
+
+### PresetConfig Parameters
+
+`PresetConfig` controls post-processing applied during preset building. All parameters default to legacy behavior (no normalization, feedback = feedin copy).
+
+| Parameter | Type | Default | Effect |
+|-----------|------|---------|--------|
+| `max_modes` | `int \| None` | `None` | Filter to top N chains by stability class (stable > semi-stable > weak > spurious) then coverage |
+| `feedin_max` | `float \| None` | `None` | Scale feedin so global max equals this value (ASIO compatibility) |
+| `regular_feedback` | `float \| None` | `None` | Uniform feedback for regular pitches; enables per-channel output pitch feedback from baseline ratio |
+| `sound_max` | `float \| None` | `None` | Scale sound coefficients so global max does not exceed this value |
+| `interpolate_missing` | `bool` | `False` | Fill missing pitch feedin/sound data from nearest neighbors |
+
+Belarus pipeline equivalent: `PresetConfig(max_modes=196, feedin_max=0.5, regular_feedback=2.0, sound_max=1.0, interpolate_missing=True)`.
 
 Key endpoints added in the redesign:
 
