@@ -79,7 +79,7 @@ See [Testing](TESTING.md) for the test inventory.
 
 ## Interactive Stabilization Diagram — Chain Editing & Visualization
 
-**Status:** Phase 1 + Phase 2 + Phase 3 implemented. Phase 4–5 pending.
+**Status:** All phases complete (Phase 1–5).
 
 See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md) for full architecture decisions, 5-phase implementation plan, and risk analysis.
 
@@ -88,12 +88,8 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 | 1 | Zoom/pan, brush selection, chain paths, bidirectional sync, visual encoding, damping toggle | Done |
 | 2 | `save_edited_chains()` + `POST /modal/chains/save` | Done |
 | 3 | `useChainEditor` hook + `StabilizationToolbar` + `StabilizationDiagram` extraction + `saveEditedChains` in useModalAdapter | Done |
-| 4 | Interactive chart editing (mode-dependent handlers) | Pending |
-| 5 | Polish, keyboard shortcuts, validation, performance | Pending |
-
-**Remaining files (Phase 4–5):**
-- `PianoidTunner/src/components/StabilizationDiagram.jsx` — add mode-dependent mouse handlers
-- Phase 5 polish: keyboard shortcuts, validation, performance optimizations
+| 4 | Interactive chart editing (mode-dependent handlers) | Done |
+| 5 | Polish: unassigned detections, keyboard shortcuts, validation, performance, feedin guard | Done |
 
 ---
 

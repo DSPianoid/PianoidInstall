@@ -171,14 +171,16 @@ Both X-axis (scenarios) and Y-axis (frequency) have independent `dataZoom` slide
 
 ---
 
-## Phase 5 — Polish & Edge Cases
+## Phase 5 — Polish & Edge Cases ✓ DONE
 
-- **Unassigned detections:** Show `_per_scenario_results` points not in any chain as faint dots, available for "add to chain".
-- **Keyboard shortcuts:** Ctrl+Z undo, Ctrl+Y redo, Escape cancel draw/connect.
-- **Validation:** One detection per scenario per chain. No duplicate scenario-frequency pairs.
-- **Chain ID re-indexing:** `save_edited_chains` re-indexes 0..N-1. Frontend remaps `selectedChains` after save response.
-- **Performance:** For >5000 points, use ECharts `large: true` mode. Debounce chain path rendering.
-- **Feedin guard:** Block "Apply to Preset" when chains are dirty or feedin is stale.
+All Phase 5 items implemented:
+
+- **Unassigned detections:** Backend `get_stabilization_data()` computes unassigned detections from `_per_scenario_results` not in any tracked chain. Rendered as faint gray dots (opacity 0.25, size 3) in a dedicated scatter series.
+- **Keyboard shortcuts:** `useEffect` keydown handler in `StabilizationDiagram`: Ctrl+Z undo, Ctrl+Y/Ctrl+Shift+Z redo, Escape cancel (drawing/connect/mode), Delete remove selected chains. Only active when diagram `visible` prop is true.
+- **Validation:** `addPointToChain` rejects duplicate scenario-frequency pairs across chains. `saveChains` requires minimum 2 detections per chain. `dissolveInRange` returns `{ dissolveWarning: true }` when >50% of a chain's points removed.
+- **Performance:** ECharts `large: true` + `largeThreshold: 5000` auto-applied to scatter series with >5000 points. Mousemove handler throttled to 16ms (~60fps). `drawingChain` uses `useRef` mirror to fix stale closure in rapid clicks.
+- **Feedin guard:** Apply step blocked when chains are dirty (play button disabled + warning). Stale-feedin indicator shown when chains saved since last feedin. `savedSinceFeedin` flag tracked in `useChainEditor`, reset after feedin runs.
+- **Delete selected chains:** Toolbar delete button + Delete key shortcut. `deleteChains(chainIds)` method in `useChainEditor`.
 
 ---
 
@@ -189,8 +191,8 @@ Both X-axis (scenarios) and Y-axis (frequency) have independent `dataZoom` slide
 | 1 | Phase 1 | Diagram enhancements (zoom, brush, paths, sync, encoding, damping) | None |
 | 2 | Phase 2 | Backend `save_edited_chains` + route | None (parallel with Phase 1) |
 | 3 | Phase 3 | `useChainEditor` hook + toolbar + API method | Phase 2 |
-| 4 | Phase 4 | Interactive chart editing with mode handlers | Phase 1 + Phase 3 |
-| 5 | Phase 5 | Polish, keyboard shortcuts, validation, performance | Phase 4 |
+| 4 | Phase 4 | Interactive chart editing with mode handlers | Phase 1 + Phase 3 | ✓ |
+| 5 | Phase 5 | Polish, keyboard shortcuts, validation, performance | Phase 4 | ✓ |
 
 ---
 
