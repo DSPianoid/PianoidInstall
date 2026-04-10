@@ -133,38 +133,41 @@ Add `saveEditedChains(chains)` — POST to `/modal/chains/save`. Expose in retur
 
 ---
 
-## Phase 4 — Interactive Chart Editing
+## Phase 4 — Interactive Chart Editing ✓ DONE
 
-### 4.1 Extract `StabilizationDiagram.jsx`
+### 4.1 Extract `StabilizationDiagram.jsx` ✓
 
-Move from `ModalResultsView.jsx` to its own file. The component grows significantly with editing logic.
+Already extracted in Phase 1. Component now contains full editing logic.
 
-### 4.2 Mode-Dependent Interaction Handlers
+### 4.2 Mode-Dependent Interaction Handlers ✓
 
-Use `onChartReady` to access ECharts instance and ZRender layer. Attach mouse handlers that behave based on `interactionMode`:
+ZRender-level mouse event handlers via `onChartReady` + `getZr()`. Handlers re-attach when `interactionMode` changes. Coordinate conversion via `convertFromPixel('grid', ...)`.
 
-| Mode | Interaction |
-|------|-------------|
-| **Select** | Click toggles chain selection. Brush selects region. |
-| **Add Point** | Click on empty space → add to nearest chain (within freq tolerance). Click on existing point → remove from chain. |
-| **Draw Chain** | Click places points. Temporary dashed line connects them. Double-click or toolbar button commits new chain. |
-| **Connect** | Click chain A (highlight with glow). Click chain B → merge via `mergeChains(A, B)`. Reset to select. |
-| **Break** | Click a chain point → `breakChainAt(chainId, scenarioIdx)` splits into two chains. |
-| **Dissolve** | Drag rect to define frequency/scenario range. All chains with detections in range are dissolved. Red tint overlay. |
+| Mode | Interaction | Implementation |
+|------|-------------|----------------|
+| **Select** | Click toggles chain selection. Brush selects region. | ECharts `click` event + `brush` component |
+| **Add Point** | Click existing → remove. Click empty → add to nearest chain (5% freq tolerance). | `findExactPoint` / `findNearestChain` helpers |
+| **Draw Chain** | Click places points. Dashed preview line. Double-click or toolbar button commits. | `drawingChain` transient state + scatter+line series |
+| **Connect** | Click chain A (glow highlight). Click chain B → merge. | `connectSource` state + shadow styling |
+| **Break** | Click a chain point → split into two chains. | `findExactPoint` → `breakChainAt` |
+| **Dissolve** | Drag rect → dissolve all points in range. Red tint overlay. | ZRender mousedown/move/up + absolute-position overlay |
 
-Coordinate conversion via `inst.convertFromPixel('grid', [offsetX, offsetY])` to get scenario/frequency from pixel coords.
+### 4.3 Visual Feedback ✓
 
-### 4.3 Visual Feedback
-
-- Draw mode: dashed line connecting placed points
-- Connect mode: glow effect on first selected chain
-- Dissolve mode: red-tinted selection rectangle
-- Add point mode: crosshair cursor, nearest-chain highlight
+- Draw mode: pink dashed line + scatter points for placed points
+- Connect mode: blue glow/shadow on first selected chain
+- Dissolve mode: red-tinted selection rectangle (absolute-position overlay)
+- Add point / break / connect modes: crosshair/pointer cursor, hovered chain glow
 - Dirty state: yellow border around diagram Paper
+- Status text in toolbar showing current mode instructions
 
-### 4.4 Integration in `ModalAdapter.jsx`
+### 4.4 Integration in `ModalAdapter.jsx` ✓
 
-Initialize `useChainEditor` with tracking chains. Pass editor state + methods through `ModalResultsView` to `StabilizationDiagram`. Show stale-feedin warning when chains are dirty.
+`chainEditor` object passed through `ModalResultsView` → `StabilizationDiagram`. Toolbar extended with commit/cancel drawing buttons.
+
+### 4.5 Independent Axis Zoom ✓
+
+Both X-axis (scenarios) and Y-axis (frequency) have independent `dataZoom` sliders. Inside zoom (scroll) available in select mode only (disabled during editing to prevent conflicts).
 
 ---
 
