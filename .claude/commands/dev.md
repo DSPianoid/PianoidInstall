@@ -11,13 +11,20 @@ Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. 
 
 **Code principles:** Lean (minimum code for the task), modular (one function one job), no workarounds (fix root causes), no redundancy (reuse existing utilities), match existing style.
 
-## Step 0: Start Session Log
+## Step 0: Initialize Session
 
-Create a session log file to track all actions during this dev session.
+### Generate Agent ID
+
+Every dev agent session has a unique identifier used in logs, WIP references, commits, and lock records.
 
 ```bash
-# Generate log filename with timestamp
-LOG_FILE="D:/repos/PianoidInstall/docs/development/logs/dev-$(date +%Y-%m-%d-%H%M%S).md"
+AGENT_ID="dev-$(openssl rand -hex 2)"   # e.g. dev-a3f1
+```
+
+### Create Session Log
+
+```bash
+LOG_FILE="D:/repos/PianoidInstall/docs/development/logs/${AGENT_ID}-$(date +%Y-%m-%d-%H%M%S).md"
 ```
 
 Write the log header:
@@ -25,6 +32,7 @@ Write the log header:
 ```markdown
 # Dev Session Log
 
+- **Agent:** <AGENT_ID>
 - **Task:** <user's task description>
 - **Started:** <ISO timestamp>
 - **Plan file:** <path to plan file if following one, or "None">
@@ -34,17 +42,38 @@ Write the log header:
 
 ```
 
-**Add a reference to `docs/development/WORK_IN_PROGRESS.md`** under a `## Active Dev Session` heading at the top of the file:
+### Register in WIP
+
+Add a reference to `docs/development/WORK_IN_PROGRESS.md` under `## Active Dev Sessions` at the top of the file. If the heading doesn't exist, create it. Multiple agents may have entries here simultaneously.
 
 ```markdown
-## Active Dev Session
+## Active Dev Sessions
 
-**Log:** [dev-YYYY-MM-DD-HHMMSS.md](logs/dev-YYYY-MM-DD-HHMMSS.md) — <brief task description>
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+| dev-a3f1 | <brief task description> | [log](logs/dev-a3f1-2026-04-10-143022.md) | 2026-04-10 |
 
 ---
 ```
 
-**Logging rule:** After completing each step below, append a timestamped entry to the log file:
+Append rows for new agents; do not replace existing entries from other agents.
+
+### Check for Paused or Stale Sessions
+
+Before starting new work, check for existing sessions:
+
+1. Read `docs/development/WORK_IN_PROGRESS.md` — look for `## Active Dev Sessions` entries
+2. List files in `docs/development/logs/` (excluding archive)
+
+If a **Paused** session exists for the same task (or the user asks to resume one):
+- **Do not proceed with normal Step 1.** Go to **Step 0b: Resume Paused Session** instead.
+
+If **stale** sessions exist (no "Paused" marker, but log files remain from crashed/abandoned agents):
+- Report them to the user. They may need cleanup (reset procedure).
+
+### Logging Rule
+
+After completing each step below, append a timestamped entry to the log file:
 
 ```markdown
 ### Step N: <Step Name> — <HH:MM>
@@ -53,6 +82,78 @@ Write the log header:
 ```
 
 Keep entries concise — bullet points, not prose. The log is a breadcrumb trail, not a narrative.
+
+## Step 0b: Resume Paused Session
+
+Use this instead of Steps 1–4 when picking up a paused session. The goal is to restore full context before touching any code — documentation first, then the pause snapshot, then the code state.
+
+### 1. Read documentation (same as Step 1)
+
+Follow the documentation-first rule. Read in order:
+1. `docs/index.md` — module map
+2. `docs/architecture/SYSTEM_OVERVIEW.md` — stack overview
+3. `docs/architecture/DATA_FLOWS.md` — relevant data flow
+4. Drill into the specific module doc under `docs/modules/`
+5. `docs/development/WORK_IN_PROGRESS.md` — find the paused session entry
+
+This ensures the resuming agent understands the architecture before reading the snapshot. **Do not skip this even if the snapshot seems self-contained.**
+
+### 2. Read the paused session log
+
+The paused entry in `## Active Dev Sessions` links to the log file in `docs/development/logs/`. Read the entire log:
+- **Task** and **Plan file** — what the previous agent was working on and what plan it followed
+- **Actions** — what steps were completed, what was learned
+- **Pause Snapshot** — the critical handoff section containing:
+  - Branch name
+  - Commit hash or stash reference
+  - Modified files list
+  - What's done vs. what's pending
+  - Recommended next steps
+  - Gotchas and non-obvious findings
+
+### 3. Restore code state
+
+Based on the snapshot's commit/stash info:
+
+```bash
+# If paused via commit on a feature branch:
+cd D:\repos\PianoidInstall\PianoidCore
+git checkout <branch-name>
+git log --oneline -5   # verify you're on the right branch with the WIP commit
+
+# If paused via stash:
+cd D:\repos\PianoidInstall\PianoidCore
+git stash list          # find the stash by AGENT_ID in the message
+git stash pop <stash-ref>
+```
+
+### 4. Verify restored state
+
+- Confirm the files listed in the snapshot are present and modified
+- Run a quick sanity check (import test or build) to ensure the codebase is functional
+- Read the source files listed as modified to re-establish code-level context
+
+### 5. Re-acquire module locks
+
+Check `docs/development/MODULE_LOCKS.md` — the previous agent released its locks on pause. Re-acquire locks for the same files (or an updated list if scope changed):
+- If any file is now locked by a different agent, **stop and report the conflict**
+- Register new locks under the new agent ID
+
+### 6. Update session tracking
+
+- Update the `## Active Dev Sessions` table: replace the old paused entry with a new active entry (new agent ID, link to new log)
+- The old log file stays in `docs/development/logs/` as history — append a note:
+  ```markdown
+  ## Resumed by <NEW_AGENT_ID> — <ISO timestamp>
+  ```
+- Create the new agent's own log file (per Step 0) and reference the old log:
+  ```markdown
+  - **Resuming:** [<OLD_AGENT_ID> log](logs/<old-log-filename>.md)
+  ```
+
+### 7. Continue from where the previous agent left off
+
+Based on the snapshot's "What's pending" and "Next steps", jump to the appropriate step (typically Step 4, 5, or 6). **Do not re-run completed steps** unless the snapshot indicates uncertainty about their results.
 
 ## Step 1: Understand Context (top-down)
 
@@ -69,9 +170,14 @@ Read documentation in this order, stopping when you have enough context:
 5. Read the actual source files identified from the docs
 6. Check `docs/development/WORK_IN_PROGRESS.md` for related ongoing work
 
+### Check Module Locks
+
+Read `docs/development/MODULE_LOCKS.md`. If any file you plan to modify is locked by another agent, **stop and report the conflict to the user**. Do not proceed until the conflict is resolved.
+
 Summarize to the user:
 - Which files are affected
 - Which data flow / component is involved
+- Any lock conflicts with other agents
 - Proposed approach
 
 **Ask the user to confirm the approach before proceeding.**
@@ -133,7 +239,27 @@ git -C "D:\repos\PianoidInstall\PianoidCore" checkout -b feature/<short-descript
 
 Ask the user which approach if unclear.
 
-## Step 4: Edit Code
+## Step 4: Acquire Module Locks and Edit Code
+
+### Acquire Locks
+
+Before editing any file, **register locks** in `docs/development/MODULE_LOCKS.md`. The lock file uses this format:
+
+```markdown
+# Module Locks
+
+| Agent | Files | Locked At | Task |
+|-------|-------|-----------|------|
+| dev-a3f1 | `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/backendServer.py` | 2026-04-10T14:30:22Z | Fix preset switch silence |
+```
+
+Rules:
+- List every file you intend to modify (source files, not docs)
+- If a file is already locked by another agent, **stop and report the conflict**
+- Locks persist until explicitly released (wrap-up, reset, or pause)
+- The lock file itself is not locked — multiple agents may add/remove their own rows
+
+### Edit Code
 
 **Before writing new code**, search for existing utilities:
 - `PianoidCore/pianoid_middleware/pianoid.py` — initialization, orchestration
@@ -283,9 +409,11 @@ Write tests in the appropriate level:
 
 Follow patterns from `test_performance.py` (fixtures, markers, assertions).
 
-## Step 8: Update Documentation and Commit
+## Step 8: Update Documentation
 
-**Documentation** — for each affected section, update the relevant doc file:
+**This step is mandatory for ALL exit procedures (wrap-up, reset, pause).** Documentation must always reflect the current state of the codebase.
+
+For each affected section, update the relevant doc file:
 
 | Changed source | Doc to update |
 |---------------|---------------|
@@ -316,25 +444,6 @@ SVG style rules:
 
 **Never add new ASCII art diagrams.** Replace existing ASCII diagrams with Mermaid or SVG
 when you are already editing that section.
-
-**Commit** — ask user before committing:
-
-```bash
-# PianoidCore changes
-cd D:\repos\PianoidInstall\PianoidCore
-git add <specific-files>
-git commit -m "<type>: <description>"
-```
-
-Then ask if they want to push and/or merge to dev.
-
-```bash
-# Documentation changes
-cd D:\repos\PianoidInstall
-git add docs/ mkdocs.yml
-git commit -m "Update documentation"
-git push origin master
-```
 
 ## Step 9: Merge Feature Branch to Dev
 
@@ -368,31 +477,99 @@ git push origin --delete feature/<name>
 to merge now, warn them explicitly: "Feature branch `feature/<name>` has not been merged
 to dev. Other systems installing from dev will not have these changes."
 
-## Step 10: Close Session Log
+## Step 10: Exit Procedures
 
-After all work is complete (committed, merged, or user says done):
+Every dev session ends with one of three procedures. **All three require Step 8 (Update Documentation) to be completed first.**
 
-1. **Update the log file** — mark status as Complete, add a summary:
+### Commit Convention
 
-```markdown
-- **Status:** Complete
-- **Completed:** <ISO timestamp>
+All commits made by a dev agent MUST include the agent ID:
 
-## Summary
-- <one-line outcome>
-- <files changed, tests passed/failed>
-```
-
-2. **Remove the `## Active Dev Session` block** from `docs/development/WORK_IN_PROGRESS.md`
-
-3. **Delete the log file:**
 ```bash
-rm "$LOG_FILE"
+git commit -m "[dev-a3f1] <type>: <description>"
 ```
 
-If no log files remain in `docs/development/logs/` (other than `.gitkeep`), the directory stays clean for the next session.
+### 10a: Wrap-up (successful implementation)
 
-**If the session is abandoned** (user cancels mid-way, agent crashes), the log and WIP reference remain as breadcrumbs for the next session to discover and clean up.
+Sequence: **Document → Commit → Release locks → Archive log → Clean WIP**
+
+1. **Verify Step 8 is done** — documentation is up to date
+2. **Commit** — ask user before committing:
+   ```bash
+   # PianoidCore changes
+   cd D:\repos\PianoidInstall\PianoidCore
+   git add <specific-files>
+   git commit -m "[${AGENT_ID}] <type>: <description>"
+   ```
+   ```bash
+   # Documentation changes
+   cd D:\repos\PianoidInstall
+   git add docs/ mkdocs.yml
+   git commit -m "[${AGENT_ID}] docs: <description>"
+   ```
+3. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+4. **Archive log** — move log file to archive:
+   ```bash
+   mkdir -p D:/repos/PianoidInstall/docs/development/logs/archive
+   mv "$LOG_FILE" D:/repos/PianoidInstall/docs/development/logs/archive/
+   ```
+5. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
+6. **Merge** — proceed to Step 9 if a feature branch was created
+
+### 10b: Reset (failed implementation)
+
+Sequence: **Document → Revert → Release locks → Delete log → Clean WIP**
+
+1. **Verify Step 8 is done** — document what was attempted and why it failed (in WIP or relevant doc)
+2. **Revert uncommitted changes:**
+   ```bash
+   # Revert only files this agent modified (check the lock registry for the list)
+   cd D:\repos\PianoidInstall\PianoidCore
+   git checkout -- <file1> <file2> ...
+   ```
+   If changes were already committed, ask the user whether to revert the commit(s).
+3. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+4. **Delete log:**
+   ```bash
+   rm "$LOG_FILE"
+   ```
+5. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table
+
+### 10c: Pause (freeze for handoff)
+
+Sequence: **Document → Commit/stash → Snapshot → Release locks → Update WIP**
+
+Use this when work is incomplete but needs to be handed off to another session.
+
+1. **Verify Step 8 is done** — document current state in relevant docs
+2. **Commit or stash all current changes:**
+   ```bash
+   # Prefer commit on a feature branch:
+   cd D:\repos\PianoidInstall\PianoidCore
+   git add <modified-files>
+   git commit -m "[${AGENT_ID}] wip: <what's done so far>"
+   
+   # Or stash if on dev and changes aren't ready:
+   git stash push -m "${AGENT_ID}: <task description>"
+   ```
+3. **Append snapshot to log** — a complete handoff context:
+   ```markdown
+   ## Pause Snapshot — <ISO timestamp>
+   
+   - **Branch:** <branch name>
+   - **Commit/stash:** <commit hash or stash ref>
+   - **Modified files:** <list>
+   - **What's done:** <bullet points>
+   - **What's pending:** <bullet points>
+   - **Next steps:** <what the next agent should do first>
+   - **Gotchas:** <anything non-obvious discovered during this session>
+   ```
+4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+5. **Update WIP** — change this agent's row status to "Paused":
+   ```markdown
+   | ~~dev-a3f1~~ | <task> | [log](logs/dev-a3f1-...) | 2026-04-10 | **Paused** |
+   ```
+   The log file stays in `docs/development/logs/` (not archived) so the next session can read it to resume.
 
 ## Key Paths
 
@@ -405,6 +582,8 @@ If no log files remain in `docs/development/logs/` (other than `.gitkeep`), the 
 | Audio driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
 | Documentation | `D:\repos\PianoidInstall\docs/` |
 | Session logs | `D:\repos\PianoidInstall\docs\development\logs/` |
+| Log archive | `D:\repos\PianoidInstall\docs\development\logs\archive/` |
+| Module locks | `D:\repos\PianoidInstall\docs\development\MODULE_LOCKS.md` |
 | venv Python | `PianoidCore/.venv/Scripts/python` |
 
 ## Example Usage
