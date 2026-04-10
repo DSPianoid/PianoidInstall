@@ -11,6 +11,49 @@ Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. 
 
 **Code principles:** Lean (minimum code for the task), modular (one function one job), no workarounds (fix root causes), no redundancy (reuse existing utilities), match existing style.
 
+## Step 0: Start Session Log
+
+Create a session log file to track all actions during this dev session.
+
+```bash
+# Generate log filename with timestamp
+LOG_FILE="D:/repos/PianoidInstall/docs/development/logs/dev-$(date +%Y-%m-%d-%H%M%S).md"
+```
+
+Write the log header:
+
+```markdown
+# Dev Session Log
+
+- **Task:** <user's task description>
+- **Started:** <ISO timestamp>
+- **Plan file:** <path to plan file if following one, or "None">
+- **Status:** In Progress
+
+## Actions
+
+```
+
+**Add a reference to `docs/development/WORK_IN_PROGRESS.md`** under a `## Active Dev Session` heading at the top of the file:
+
+```markdown
+## Active Dev Session
+
+**Log:** [dev-YYYY-MM-DD-HHMMSS.md](logs/dev-YYYY-MM-DD-HHMMSS.md) — <brief task description>
+
+---
+```
+
+**Logging rule:** After completing each step below, append a timestamped entry to the log file:
+
+```markdown
+### Step N: <Step Name> — <HH:MM>
+- <what was done: files read, commands run, decisions made>
+- <outcomes, metrics, errors encountered>
+```
+
+Keep entries concise — bullet points, not prose. The log is a breadcrumb trail, not a narrative.
+
 ## Step 1: Understand Context (top-down)
 
 Read documentation in this order, stopping when you have enough context:
@@ -325,6 +368,32 @@ git push origin --delete feature/<name>
 to merge now, warn them explicitly: "Feature branch `feature/<name>` has not been merged
 to dev. Other systems installing from dev will not have these changes."
 
+## Step 10: Close Session Log
+
+After all work is complete (committed, merged, or user says done):
+
+1. **Update the log file** — mark status as Complete, add a summary:
+
+```markdown
+- **Status:** Complete
+- **Completed:** <ISO timestamp>
+
+## Summary
+- <one-line outcome>
+- <files changed, tests passed/failed>
+```
+
+2. **Remove the `## Active Dev Session` block** from `docs/development/WORK_IN_PROGRESS.md`
+
+3. **Delete the log file:**
+```bash
+rm "$LOG_FILE"
+```
+
+If no log files remain in `docs/development/logs/` (other than `.gitkeep`), the directory stays clean for the next session.
+
+**If the session is abandoned** (user cancels mid-way, agent crashes), the log and WIP reference remain as breadcrumbs for the next session to discover and clean up.
+
 ## Key Paths
 
 | Resource | Path |
@@ -335,6 +404,7 @@ to dev. Other systems installing from dev will not have these changes."
 | Performance tests | `PianoidCore/tests/system/test_performance.py` |
 | Audio driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
 | Documentation | `D:\repos\PianoidInstall\docs/` |
+| Session logs | `D:\repos\PianoidInstall\docs\development\logs/` |
 | venv Python | `PianoidCore/.venv/Scripts/python` |
 
 ## Example Usage
