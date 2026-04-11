@@ -1,7 +1,7 @@
 # WebSocket Migration Analysis: REST API to Bi-Directional WebSocket
 
-> **Implementation Status:** All 3 phases complete (2026-04-10/11). See `feature/websocket-migration` branch.
-> Tests: 17/17 pass (10 unit in `test_websocket.py`, 7 integration in `test_websocket_integration.py`).
+> **Implementation Status:** All 4 phases complete (2026-04-10/11). See `feature/websocket-migration` branch.
+> Tests: 30/30 pass (20 unit in `test_websocket.py`, 10 integration in `test_websocket_integration.py`).
 
 ## Executive Summary
 
@@ -139,6 +139,22 @@ Or JSON for compatibility:
 {"type": "play", "pitch": 60, "velocity": 100, "command": 144}
 ```
 
+### Client -> Server (Parameter Updates)
+
+```json
+// Generic parameter update (mirrors POST /set_parameter/<p>/<k>)
+{"event": "set_parameter", "parameter": "string", "key": "60", "values": {"60": {"tension": 0.985}}}
+
+// Runtime parameters (volume, feedback, sensitivity)
+{"event": "set_runtime_parameters", "volume": 80, "feedback": 64, "volume_center": 5000, "volume_range": 6}
+
+// String excitation curves
+{"event": "set_string_excitation", "pitch": 60, "level": 2, "curves": {"0": {"sigma": 0.01, "mu": 0.5}}}
+
+// Hammer shape
+{"event": "set_hammer_shape", "pitch": 60, "width": 0.012, "position": 0.09, "sharpness": 0.7}
+```
+
 ### Server -> Client (Push Events)
 
 ```json
@@ -154,8 +170,9 @@ Or JSON for compatibility:
 // Engine error
 {"event": "error", "code": "engine_crash", "message": "CUDA out of memory"}
 
-// Parameter acknowledgment (optional)
-{"event": "param_ack", "parameter": "string", "key": 57, "applied": {"tension": 0.985}}
+// Parameter acknowledgment
+{"event": "param_ack", "parameter": "string", "key": "60", "status": "ok"}
+{"event": "param_ack", "parameter": "runtime", "status": "ok", "updated": {"volume": 80}}
 ```
 
 ---
@@ -247,6 +264,15 @@ No existing REST endpoints need to be removed or modified. The WebSocket layer i
 - Add MIDI playback progress push
 - Add engine error push
 - Remove polling where WebSocket covers it
+
+### Phase 4: Parameter Updates via WebSocket (Low Risk)
+- Add `set_parameter` WS handler mirroring REST `POST /set_parameter/<p>/<k>`
+- Add `set_string_excitation`, `set_hammer_shape` WS handlers
+- Add `set_runtime_parameters` WS handler (volume, feedback, sensitivity)
+- Frontend: all 8 debounced parameter write paths try WS first, REST fallback
+- Debounce reduced from 300ms to 50ms when WS connected (volume/feedback: 100ms to 50ms)
+- `param_ack` event returned to client on each successful parameter update
+- Extracted `_map_feedback_to_coefficient()` helper for MIDI-to-coefficient mapping
 
 ---
 

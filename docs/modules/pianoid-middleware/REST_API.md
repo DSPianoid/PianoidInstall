@@ -18,6 +18,11 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | Feature | Transport | Direction |
 |---------|-----------|-----------|
 | Note playback | `play` event (JSON or binary) | Client -> Server |
+| Parameter updates | `set_parameter` event | Client -> Server |
+| Runtime parameters | `set_runtime_parameters` event | Client -> Server |
+| String excitation | `set_string_excitation` event | Client -> Server |
+| Hammer shape | `set_hammer_shape` event | Client -> Server |
+| Parameter acknowledgment | `param_ack` event | Server -> Client (push) |
 | Lifecycle state | `lifecycle` event | Server -> Client (push) |
 | Calibration progress | `calibration` event | Server -> Client (push) |
 | MIDI playback progress | `midi_progress` event | Server -> Client (push) |
