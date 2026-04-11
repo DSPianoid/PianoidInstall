@@ -4,14 +4,13 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-bd25 | WebSocket migration (3 phases) | [log](logs/dev-bd25-2026-04-10-235037.md) | 2026-04-10 |
-| dev-3f50 | WebSocket parameter updates (Phase 4) | [log](logs/dev-3f50-2026-04-11-113916.md) | 2026-04-11 |
+| *(none)* | | | |
 
 ---
 
 ## WebSocket Migration — Hybrid REST + Socket.IO
 
-**Status:** All 4 phases implemented (2026-04-10/11). On `feature/websocket-migration` branch. Awaiting user approval to merge.
+**Status:** Complete. Merged and pushed (2026-04-11). All 4 phases shipped.
 
 Flask-SocketIO backend + socket.io-client frontend. Note playback via WebSocket with REST fallback, lifecycle push events (replace health polling), calibration progress push, MIDI playback push, engine error push, **parameter updates via WebSocket** (all 8 debounced write paths: string, mode, excitation, feedin, feedback, sound channel, volume, deck feedback). Debounce reduced from 300ms to 50ms when WS connected. `param_ack` events returned to client. Independent fixes: print() gated behind PIANOID_DEBUG_PLAY env var, deduplication added to unified play path, `_map_feedback_to_coefficient()` helper extracted.
 
