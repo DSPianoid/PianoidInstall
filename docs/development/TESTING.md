@@ -14,7 +14,9 @@ PianoidCore/tests/
 │   ├── test_asio_multichannel.py
 │   ├── test_audio_drivers.py
 │   ├── test_performance.py
-│   └── test_playback.py
+│   ├── test_playback.py
+│   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, debug flag
+│   └── test_websocket_integration.py  # WebSocket integration — server startup, WS connection, lifecycle push, play events, REST regression
 ├── integration/         # GPU required, no audio
 │   ├── conftest.py      # Session-scoped Pianoid without audio, offline helpers
 │   ├── test_feedback_coupling.py

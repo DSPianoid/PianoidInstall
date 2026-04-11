@@ -8,7 +8,7 @@
 - **Domain model** — the Python `Pianoid` orchestrator that owns the string map, modes, presets, and physical parameters
 - **CUDA engine** — the C++ extension (`pianoidCuda`) that runs real-time physical string simulation and audio output
 
-The middleware exposes a REST API (served by `backendServer.py`) that the UI calls to load presets, trigger playback, update parameters, retrieve simulation data, and render charts.
+The middleware exposes a REST API (served by `backendServer.py`) that the UI calls to load presets, trigger playback, update parameters, retrieve simulation data, and render charts. A **Socket.IO WebSocket channel** on the same port provides low-latency note playback and server-push events (lifecycle, calibration progress, MIDI playback, engine errors).
 
 ---
 
@@ -129,9 +129,14 @@ All parameter modifications route through `ParameterManager`. The `Pianoid` clas
 
 ### Flask app (backendServer.py)
 
-- Module-level globals: `pianoid` (current `Pianoid` instance), `running` (bool), `chart_registry` (`ChartTypeRegistry`)
+- Module-level globals: `pianoid` (current `Pianoid` instance), `running` (bool), `chart_registry` (`ChartTypeRegistry`), `socketio` (`SocketIO` instance)
 - `long_running_procedure(pianoid, listen)` — background thread target, calls `start_realtime_playback`
 - `parse_range(pianoid, parameter, key_no)` — converts URL segment (`all`, `42`, `from21to88`) to pitch/mode lists
+- `emit_lifecycle_event(state_name, preset, extra)` — broadcasts lifecycle state change via WebSocket (thread-safe)
+- `emit_calibration_progress(progress_data)` — broadcasts calibration progress via WebSocket (thread-safe)
+- `emit_midi_playback_progress(position_ms, total_ms, notes_played)` — broadcasts MIDI playback progress (thread-safe)
+- `emit_engine_error(code, message)` — broadcasts engine error via WebSocket (thread-safe)
+- `_DEBUG_PLAY` — environment flag (`PIANOID_DEBUG_PLAY=1`) to enable console print in the `/play` hot path
 
 ### `ChartGenerator` (ChartGenerator.py)
 

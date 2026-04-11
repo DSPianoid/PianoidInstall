@@ -11,6 +11,25 @@ The middleware runs as **two Flask servers**:
 
 Both servers have CORS enabled for all origins. The frontend connects to both servers concurrently.
 
+### WebSocket Channel (port 5000)
+
+`backendServer.py` also provides a **Socket.IO WebSocket channel** on the same port (5000) for low-latency bidirectional communication. The WebSocket layer is purely additive — all REST endpoints remain functional.
+
+| Feature | Transport | Direction |
+|---------|-----------|-----------|
+| Note playback | `play` event (JSON or binary) | Client -> Server |
+| Lifecycle state | `lifecycle` event | Server -> Client (push) |
+| Calibration progress | `calibration` event | Server -> Client (push) |
+| MIDI playback progress | `midi_progress` event | Server -> Client (push) |
+| Engine errors | `engine_error` event | Server -> Client (push) |
+| Latency measurement | `ping_ws` / `pong_ws` | Bidirectional |
+
+**Binary frame format** for minimum-latency note input: 3 bytes `[command, pitch, velocity]`.
+
+**Dependencies:** `flask-socketio>=5.3`, `python-socketio>=5.10` (backend); `socket.io-client@^4.7` (frontend).
+
+**Configuration:** `async_mode="threading"` for cuda_lock compatibility. `cors_allowed_origins="*"` for localhost deployment. Server started via `socketio.run()` instead of `app.run()`.
+
 ---
 
 ## Endpoint Categories

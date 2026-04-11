@@ -1,5 +1,8 @@
 # WebSocket Migration Analysis: REST API to Bi-Directional WebSocket
 
+> **Implementation Status:** All 3 phases complete (2026-04-10/11). See `feature/websocket-migration` branch.
+> Tests: 17/17 pass (10 unit in `test_websocket.py`, 7 integration in `test_websocket_integration.py`).
+
 ## Executive Summary
 
 Replace the REST API between PianoidTunner (React) and PianoidCore (Flask middleware) with a hybrid REST + WebSocket architecture. The primary motivation is reducing MIDI note playback latency — currently ~10-20 ms via REST vs ~7 ms via hardware MIDI. A WebSocket channel can save 3-11 ms per note by eliminating HTTP overhead, and also enables server-push for status monitoring, calibration progress, and error notifications.

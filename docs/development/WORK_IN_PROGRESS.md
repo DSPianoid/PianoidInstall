@@ -1,5 +1,25 @@
 # Work in Progress
 
+## Active Dev Sessions
+
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+| dev-bd25 | WebSocket migration (3 phases) | [log](logs/dev-bd25-2026-04-10-235037.md) | 2026-04-10 |
+
+---
+
+## WebSocket Migration — Hybrid REST + Socket.IO
+
+**Status:** All 3 phases implemented (2026-04-10/11). On `feature/websocket-migration` branch. Awaiting user approval to merge.
+
+Flask-SocketIO backend + socket.io-client frontend. Note playback via WebSocket with REST fallback, lifecycle push events (replace health polling), calibration progress push, MIDI playback push, engine error push. Independent fixes: print() gated behind PIANOID_DEBUG_PLAY env var, deduplication added to unified play path.
+
+Tests: 17/17 pass (`test_websocket.py` unit + `test_websocket_integration.py` integration).
+
+See [WEBSOCKET_MIGRATION_ANALYSIS.md](WEBSOCKET_MIGRATION_ANALYSIS.md) for full analysis and implementation details.
+
+---
+
 ## Preset System Revision — Per-Preset Runtime State & Complete Switch
 
 **Status:** Planned. Implementation pending.
