@@ -22,6 +22,7 @@
 | react-reflex | ^4.2.7 | Resizable flex panels |
 | react-resizable-panels | ^2.1.7 | Panel resizing primitives |
 | axios | ^1.7.9 | HTTP client for Flask API |
+| socket.io-client | ^4.7 | WebSocket client for real-time events |
 | react-router-dom | ^7.1.3 | Client-side routing |
 | react-icons | ^5.4.0 | Icon components |
 | styled-components | ^6.1.15 | CSS-in-JS |
@@ -280,6 +281,14 @@ Project actions: `createProject(name, source)`, `openProject(name)`, `copyProjec
 ESPRIT: `runEsprit()` drives a per-scenario loop from the frontend — each scenario is a synchronous `POST /modal/run_esprit` with `scenario_indices: [i]`. Progress updates after each scenario (elapsed, remaining, modes found). Pauses synthesis before, resumes after. Results accumulate across runs. After completion, auto-selects unprocessed scenarios.
 
 Other actions: `runTracking()` (uses all processed scenarios), `runFeedin()`, `applyToPreset()`, `submitChannelMapping()`, `fetchDataStatus()`, `reset()`.
+
+### `useSocketIO`
+
+Manages a persistent Socket.IO WebSocket connection to the Flask backend (port 5000). Provides low-latency note playback and receives server-push events.
+
+Exposes: `connected` (boolean), `latencyMs` (last measured RTT), `emit(event, data)` (send JSON event), `emitBinary(bytes)` (send binary frame), `on(event, callback)` (register listener, returns unsubscribe fn), `off(event, callback)`, `measureLatency()`.
+
+Used by `usePreset` (note playback with REST fallback) and `useBackendHealth` (lifecycle events with REST polling fallback). Configuration: reconnection with exponential backoff, prefers WebSocket transport with polling fallback.
 
 ### `useWindowManager`
 

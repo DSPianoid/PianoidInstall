@@ -12,7 +12,7 @@ interactive latency.
 +------------------+
 |  PianoidTunner   |  React/TypeScript — parameter UI, visualization, MIDI input
 +--------+---------+
-         | HTTP REST
+         | HTTP REST + Socket.IO WebSocket
 +--------+---------+
 | pianoid_middlew. |  Python Flask — REST API, orchestration, MIDI routing, chart generation
 +--------+---------+
