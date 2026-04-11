@@ -14,6 +14,13 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 - Questions, exploration, or research tasks (until user approves implementation)
 - Trivial one-line Python-only fixes where the full workflow would be overkill
 
+**`/fn` skill — single-function development:**
+- `/fn` is a lightweight skill for implementing a single function with clear requirements and test criteria
+- `/dev` agents should **prefer delegating to `/fn` sub-agents** whenever function-level requirements and testing are feasible (see Step 4b in `/dev`)
+- `/fn` can also be invoked directly by the user for small, self-contained changes that don't need the full `/dev` workflow
+- When `/dev` spawns `/fn`, the dev agent writes tests first and hands them to the sub-agent. The tests persist in the project test suite
+- Documentation and commits always stay at the `/dev` (or user) level — `/fn` never commits or updates docs
+
 ## UI Interaction Rule
 
 When the user requests any task that involves the Pianoid frontend interface — viewing parameters, editing excitation/string/mode parameters, playing notes, capturing sound, or any browser-based interaction — automatically invoke the `/pianoid-ui` skill unless the user explicitly instructs otherwise.
