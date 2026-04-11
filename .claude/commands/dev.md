@@ -21,6 +21,8 @@ Every dev agent session has a unique identifier used in logs, WIP references, co
 AGENT_ID="dev-$(openssl rand -hex 2)"   # e.g. dev-a3f1
 ```
 
+**Agent ID persistence rule:** When an agent is **restarted after a lock conflict** or **recovered after abnormal termination**, the new session MUST reuse the original agent's ID. This keeps log references, WIP entries, commit prefixes, and lock records consistent. Only generate a fresh ID for genuinely new tasks.
+
 ### Create Session Log
 
 ```bash
@@ -170,15 +172,39 @@ Read documentation in this order, stopping when you have enough context:
 5. Read the actual source files identified from the docs
 6. Check `docs/development/WORK_IN_PROGRESS.md` for related ongoing work
 
-### Check Module Locks
+### Check Module Locks and Repo Cleanliness
 
-Read `docs/development/MODULE_LOCKS.md`. If any file you plan to modify is locked by another agent, **stop and report the conflict to the user**. Do not proceed until the conflict is resolved.
+**Invariant: Every module file is either committed+clean OR locked by an editing agent.** Violations of this invariant are urgent.
 
-Summarize to the user:
+For every file you plan to modify, perform two checks:
+
+#### Check 1: Lock conflicts
+
+Read `docs/development/MODULE_LOCKS.md`. If any target file is locked by another agent:
+- **This is a normal execution conflict.** Report it clearly:
+  - Which file(s) are locked
+  - Which agent holds the lock and what task it's performing
+  - Recommend: pause this session (Step 10c) and resume after the lock is released
+- **Do not proceed.** The orchestrator will monitor the lock and restart this agent when it's released.
+
+#### Check 2: Uncommitted changes in target files
+
+Run `git status` in each repo containing target files. If any target file has uncommitted changes but is NOT locked by any agent:
+- **This is a repo inconsistency — URGENT.** Something left dirty state without a lock.
+- Report immediately:
+  - Which file(s) are dirty and in which repo
+  - What the changes appear to be (`git diff <file>` summary)
+  - Likely cause: a crashed/terminated agent that didn't clean up
+- **Do not proceed until resolved.** The user or orchestrator must investigate — either the changes should be committed (if valid) or reverted (if orphaned).
+
+#### Summary
+
+After both checks, summarize to the user:
 - Which files are affected
 - Which data flow / component is involved
-- Any lock conflicts with other agents
-- Proposed approach
+- Lock conflicts (if any) — normal, recommend pause
+- Repo inconsistencies (if any) — urgent, must investigate
+- Proposed approach (if no conflicts)
 
 **Ask the user to confirm the approach before proceeding.**
 
@@ -328,6 +354,141 @@ cd D:/repos/PianoidInstall/PianoidCore
 D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
 ```
 Verify the path is inside `PianoidCore/.venv/` (not root `.venv/`).
+
+## Step 4b: Delegate to `/fn` Sub-Agents (preferred)
+
+When a task can be decomposed into functions with clear requirements and testable acceptance criteria, **prefer delegating to `/fn` sub-agents** over editing code inline. This applies whether there's one function or many — the value is in enforced requirements clarity and test-driven implementation, not just parallelism.
+
+### When to delegate
+
+- The function has clear inputs, outputs, and behavior that can be specified upfront
+- Acceptance criteria can be expressed as a test (unit, integration, or system)
+- The function can be implemented and verified independently
+
+### When NOT to delegate
+
+- The change is a cross-cutting refactor (rename across many call sites, structural reorganization)
+- The function's behavior can only be verified through the full system (no isolated test possible)
+- The change is so trivial that writing the spec would take longer than the edit
+
+### Prepare tests FIRST (dev agent responsibility)
+
+Before spawning a sub-agent, the dev agent must ensure a test exists for the function. This is the dev agent's job, not the sub-agent's.
+
+**If a suitable test already exists:** reference it in the sub-agent's `test_command`.
+
+**If testing is non-trivial:** the dev agent writes the test script first, placing it in the correct location within the project test hierarchy:
+
+| Test type | Location | When to use |
+|-----------|----------|-------------|
+| Pure logic, no GPU | `PianoidCore/tests/unit/` | Utility functions, data transforms, formatters |
+| GPU required, no audio | `PianoidCore/tests/integration/` | Buffer operations, CUDA kernel wrappers |
+| Full stack | `PianoidCore/tests/system/` | Audio pipeline, preset loading, API endpoints |
+
+The test file **persists in the project** — it is not disposable scaffolding. Follow patterns from existing tests (`conftest.py` fixtures, markers, assertions). The test should:
+- Import the function (or call the API that exercises it)
+- Cover the requirements specified for the sub-agent
+- Include edge cases identified during Step 1 context analysis
+- Be runnable via a single pytest invocation
+
+**Write the test, commit-stage it, then reference it in the sub-agent spawn.** This way the test survives regardless of the sub-agent's outcome.
+
+### Spawning procedure
+
+1. **Decompose** — for each function, define:
+   - `target_file`: absolute path to the file to edit
+   - `function_spec`: what to implement (name, signature, behavior, edge cases)
+   - `requirements`: acceptance criteria matching the test assertions
+   - `test_command`: exact pytest command referencing the test written above
+   - `context_files`: docs and source files the sub-agent needs to read
+
+2. **Verify locks** — all target files must be in this agent's lock list (acquired in Step 4). The sub-agent inherits locks from the parent; it does NOT acquire its own.
+
+3. **Spawn** — use the `Agent` tool. Independent sub-agents can be spawned in parallel (single message, multiple Agent calls). Use `run_in_background: true` for parallel spawns.
+
+   ```
+   Agent({
+     description: "Implement <function_name>",
+     prompt: "Execute the /fn skill with these parameters:\n\n\
+       - target_file: <absolute path>\n\
+       - function_spec: <what to implement — be specific about signature, behavior, edge cases>\n\
+       - requirements: <acceptance criteria — must match the test assertions>\n\
+       - test_command: <exact pytest command>\n\
+       - context_files: <comma-separated paths>\n\
+       - parent_agent: <this agent's AGENT_ID>\n\
+       - held_locks: <comma-separated locked files>\n\n\
+       <any additional context: architectural constraints, performance requirements, \
+       related functions to be aware of>",
+     run_in_background: true
+   })
+   ```
+
+   **CRITICAL:** The sub-agent invokes `/fn` via the `Skill` tool inside its own context. Do NOT use `Skill("fn")` from the parent — that would expand the skill into the parent's context.
+
+4. **Collect results** — when sub-agents complete, read their log files:
+   ```bash
+   ls D:/repos/PianoidInstall/docs/development/logs/fn-*.md
+   ```
+
+5. **Incorporate logs** — for each sub-agent, append a summary to THIS agent's log:
+   ```markdown
+   ### Step 4b: Sub-Agent <fn-XXXX> — <HH:MM>
+   - **Task:** <function_spec summary>
+   - **Result:** Success | Failed
+   - **Log:** [fn-XXXX](logs/fn-XXXX-timestamp.md)
+   - **Changes:** <one-line summary>
+   - **Test:** <test file path> — <pass/fail>
+   ```
+
+6. **Handle failures** — if a sub-agent fails:
+   - Read its log to understand the failure
+   - Either fix it directly (inline, as normal Step 4 edit) or spawn a new sub-agent with adjusted instructions
+   - Do NOT proceed to Step 5 with failing sub-agents
+
+7. **Clean up sub-agent logs** — after incorporating into the parent log, move fn logs to archive:
+   ```bash
+   mv D:/repos/PianoidInstall/docs/development/logs/fn-*.md D:/repos/PianoidInstall/docs/development/logs/archive/
+   ```
+
+### Example: Dev agent prepares test, then spawns sub-agent
+
+Task: "Add velocity clamping to the MIDI input handler"
+
+**Step 1: Dev agent writes the test first:**
+```python
+# PianoidCore/tests/unit/test_velocity_clamp.py
+import pytest
+from pianoid_middleware.midi_utils import clamp_velocity
+
+class TestClampVelocity:
+    def test_within_range(self):
+        assert clamp_velocity(64, 1, 127) == 64
+
+    def test_below_min(self):
+        assert clamp_velocity(0, 1, 127) == 1
+
+    def test_above_max(self):
+        assert clamp_velocity(200, 1, 127) == 127
+
+    def test_at_boundaries(self):
+        assert clamp_velocity(1, 1, 127) == 1
+        assert clamp_velocity(127, 1, 127) == 127
+```
+
+**Step 2: Dev agent spawns the sub-agent:**
+```
+Agent({
+  description: "Implement clamp_velocity",
+  prompt: "Execute the /fn skill:\n\
+    - target_file: D:/.../pianoid_middleware/midi_utils.py\n\
+    - function_spec: clamp_velocity(v: int, min_v: int, max_v: int) -> int\n\
+    - requirements: Clamp v to [min_v, max_v]. Return min_v if v < min_v, max_v if v > max_v, v otherwise.\n\
+    - test_command: .venv/Scripts/python -m pytest tests/unit/test_velocity_clamp.py -v\n\
+    - context_files: docs/modules/pianoid-middleware/OVERVIEW.md\n\
+    - parent_agent: dev-a3f1\n\
+    - held_locks: midi_utils.py"
+})
+```
 
 ## Step 5: Post-Change Performance Test
 
@@ -570,6 +731,96 @@ Use this when work is incomplete but needs to be handed off to another session.
    | ~~dev-a3f1~~ | <task> | [log](logs/dev-a3f1-...) | 2026-04-10 | **Paused** |
    ```
    The log file stays in `docs/development/logs/` (not archived) so the next session can read it to resume.
+
+### 10d: Recover (orphaned session)
+
+Use this when a dev agent terminated abnormally — no wrap-up (10a), reset (10b), or pause (10c) was performed. Indicators: log file exists in `logs/` (not archived), agent listed in Active Dev Sessions, locks still held, but no running agent.
+
+**The recovering agent MUST reuse the original agent's ID.** Do not generate a new ID. This keeps all references (logs, WIP, locks, commits) consistent.
+
+#### Recovery procedure
+
+1. **Read the orphaned agent's log file** — understand what was attempted:
+   - What task was it working on?
+   - Which steps were completed?
+   - What files were being modified?
+
+2. **Check actual state against the log:**
+   ```bash
+   # What uncommitted changes exist in each repo?
+   cd D:/repos/PianoidInstall/PianoidCore && git status --short
+   cd D:/repos/PianoidInstall/PianoidTunner && git status --short
+   cd D:/repos/PianoidInstall/PianoidBasic && git status --short
+   cd D:/repos/PianoidInstall && git status --short
+   
+   # What do the changes look like?
+   cd D:/repos/PianoidInstall/PianoidCore && git diff --stat
+   ```
+
+3. **Classify recoverability:**
+
+   | Condition | Classification | Action |
+   |-----------|---------------|--------|
+   | Log documents all changes AND uncommitted changes match log | **RECOVERABLE** | Report status, ask user: continue or reset |
+   | Uncommitted changes exist that aren't documented in log | **PARTIALLY RECOVERABLE** | Report discrepancies, ask user to decide |
+   | No log, or log is empty/minimal, and changes exist | **NOT RECOVERABLE** | Auto-reset, report what was reverted |
+   | No uncommitted changes, only stale WIP/locks | **ALREADY CLEAN** | Just clean up metadata (locks, WIP, log) |
+
+4. **Report to user/orchestrator:**
+   - Original agent ID and task
+   - Last completed step (from log)
+   - Uncommitted changes found (file list + summary)
+   - Recovery classification
+   - Recommended action
+
+5. **Execute based on user decision:**
+
+   **Continue (recoverable):**
+   - Append to existing log:
+     ```markdown
+     ## Recovery — <ISO timestamp>
+     - **Recovered by:** same agent ID, new session
+     - **State at recovery:** <summary of uncommitted changes>
+     - **Continuing from:** Step <N>
+     ```
+   - Re-acquire locks (same files from original session)
+   - Resume from the last completed step
+
+   **Reset (any classification):**
+   - Execute Step 10b (reset procedure) using the original agent ID
+   - Revert uncommitted changes, release locks, clean WIP, delete log
+
+### 10e: Restart After Lock Conflict
+
+Use this when an agent was paused (10c) due to a lock conflict and the blocking lock has been released. The restarted agent must account for changes made by the agent that held the lock.
+
+**The restarting agent MUST reuse the original agent's ID.**
+
+#### Restart procedure
+
+1. **Follow Step 0b (Resume Paused Session)** — read docs, read pause snapshot, restore code state
+
+2. **Check what the blocking agent changed:**
+   - Read the blocking agent's log (if archived, check `logs/archive/`)
+   - Run `git log --oneline -10` in affected repos to see recent commits
+   - Run `git diff <pause-commit>..HEAD` to see all changes since this agent was paused
+
+3. **Assess impact on this agent's task:**
+   - Do the blocking agent's changes conflict with this agent's planned work?
+   - Did the blocking agent modify any of this agent's target files?
+   - Does this agent's approach need adjustment?
+
+4. **Append to log:**
+   ```markdown
+   ## Restart After Lock Conflict — <ISO timestamp>
+   - **Paused at:** <original pause timestamp>
+   - **Blocking agent:** <agent-id that held the lock>
+   - **Changes by blocking agent:** <summary of what changed>
+   - **Impact on this task:** <none / requires adjustment / conflicts>
+   - **Adjusted approach:** <if needed>
+   ```
+
+5. **Continue from where the pause snapshot left off**, incorporating awareness of the blocking agent's changes
 
 ## Key Paths
 

@@ -105,6 +105,172 @@ Channels:
 
 ---
 
+## Step 1.5: Repo Health Check and Session Recovery
+
+Before accepting tasks, verify the repo invariant and recover orphaned sessions.
+
+### Module Invariant Check
+
+**Invariant: Every module file is either committed+clean OR locked by an editing agent.**
+
+1. **Read `docs/development/MODULE_LOCKS.md`** — list all active locks
+2. **Read `docs/development/WORK_IN_PROGRESS.md`** — list all Active Dev Sessions
+3. **Check git status across all repos:**
+   ```bash
+   echo "=== PianoidCore ===" && cd D:/repos/PianoidInstall/PianoidCore && git status --short
+   echo "=== PianoidTunner ===" && cd D:/repos/PianoidInstall/PianoidTunner && git status --short
+   echo "=== PianoidBasic ===" && cd D:/repos/PianoidInstall/PianoidBasic && git status --short
+   echo "=== PianoidInstall ===" && cd D:/repos/PianoidInstall && git status --short
+   ```
+
+4. **Cross-reference:**
+
+   | Condition | Severity | Action |
+   |-----------|----------|--------|
+   | File is dirty AND locked by an active agent | OK | Normal — agent is working |
+   | File is dirty AND NOT locked | **URGENT** | Repo inconsistency — report immediately, investigate before accepting tasks |
+   | Lock exists but agent NOT in Active Dev Sessions | **STALE** | Orphaned lock — needs recovery (see below) |
+   | Agent in Active Dev Sessions but log file is in `logs/archive/` | **STALE** | WIP entry not cleaned — clean it up |
+
+5. **Report findings via Telegram** before proceeding.
+
+### Orphaned Session Recovery
+
+If stale locks or Active Dev Session entries exist without a running agent:
+
+1. **Check for the agent's log file** in `docs/development/logs/` (not archive)
+2. If log exists → spawn a `/dev` sub-agent with the **recover** procedure:
+   ```
+   Agent({
+     description: "Recover orphaned dev-XXXX",
+     prompt: "Run the /dev skill's Step 10d (Recover) procedure for orphaned agent dev-XXXX.
+       The original agent's log is at: docs/development/logs/dev-XXXX-....md
+       Reuse agent ID: dev-XXXX (do NOT generate a new ID).
+       Report recovery classification and recommended action. Do NOT proceed with
+       continue or reset without user approval — just report findings.",
+     run_in_background: true
+   })
+   ```
+3. If no log exists → clean up metadata directly (release locks, remove WIP entry, report to user)
+4. **Wait for recovery report before accepting new tasks** — orphaned state must be resolved first
+
+### Repo Inconsistency Resolution
+
+When unlocked dirty files are found:
+1. Report to user via Telegram with file list and `git diff --stat` summary
+2. Ask user to decide: commit the changes, revert them, or investigate further
+3. If user says investigate → spawn an Explore agent to determine what made the changes
+4. Do NOT accept new tasks that touch the dirty files until resolved
+
+---
+
+## Dev Agent Rules Reference
+
+The orchestrator must understand the /dev skill's lifecycle to correctly manage agents. This is reference knowledge — the orchestrator still delegates all work to /dev agents.
+
+### Dev Agent Lifecycle
+
+| Step | What Happens | Orchestrator's Role |
+|------|-------------|-------------------|
+| 0 | Generate ID, create log, register in WIP, acquire locks | — |
+| 1 | Read docs, check locks + repo cleanliness | Agent may report lock conflict → handle via conflict resolution |
+| 2-3 | Baseline tests, create branch | — |
+| 4 | Acquire locks, edit code, build | — |
+| 5-7 | Test, debug, verify | — |
+| 8 | Update documentation | — |
+| 9 | Merge feature branch | — |
+| 10a | **Wrap-up:** commit → release locks → archive log → clean WIP | Orchestrator verifies all 4 cleanup steps completed |
+| 10b | **Reset:** revert → release locks → delete log → clean WIP | On failure — verify cleanup |
+| 10c | **Pause:** commit/stash → snapshot → release locks → update WIP | On lock conflict or manual pause |
+| 10d | **Recover:** assess orphaned state → report → continue or reset | Orchestrator triggers this on startup if orphaned sessions found |
+| 10e | **Restart after lock:** resume paused → check blocking agent's changes → adjust approach | Orchestrator triggers this when lock is released |
+
+### Commit Convention
+
+All dev agent commits use: `[agent-id] <type>: <description>` (e.g., `[dev-a3f1] feat: add WS support`).
+
+### Agent ID Persistence
+
+**Recovered and restarted agents MUST reuse the original agent's ID.** Only genuinely new tasks get fresh IDs. The orchestrator must pass the original ID to `/dev` when spawning recovery or restart agents.
+
+### What to Verify After Agent Completion
+
+When a dev agent reports completion, the orchestrator MUST verify (by reading MODULE_LOCKS.md and WORK_IN_PROGRESS.md) that:
+1. Agent's locks are released from MODULE_LOCKS.md
+2. Agent's log is moved to `logs/archive/`
+3. Agent's WIP entry is removed from Active Dev Sessions
+4. Commits include the agent ID prefix
+
+If ANY of these are missing, the agent did not complete Step 10 properly. Clean up the remaining items.
+
+---
+
+## Conflict Resolution Policy
+
+When a dev agent reports a **lock conflict** (another agent holds the lock on a file it needs):
+
+### Automatic Conflict Resolution Flow
+
+```
+Dev agent reports lock conflict
+    |
+    v
+Orchestrator pauses the blocked agent (SendMessage → "Execute Step 10c pause")
+    |
+    v
+Orchestrator records: { blocked_agent_id, blocking_agent_id, contested_files }
+    |
+    v
+Orchestrator monitors the blocking agent until it completes
+    |
+    v
+Blocking agent completes → orchestrator verifies lock is released
+    |
+    v
+Orchestrator spawns restart for the blocked agent:
+  - Same agent ID (ID persistence rule)
+  - Step 10e (Restart After Lock Conflict)
+  - Include: what the blocking agent changed
+```
+
+### Implementation
+
+1. **On conflict report:** Send to blocked agent:
+   ```
+   SendMessage(to: blockedAgentId, message: "Lock conflict detected on <files>.
+     Execute Step 10c (Pause) — commit/stash your current work, write pause snapshot,
+     release locks. Do NOT continue editing.")
+   ```
+
+2. **Track the conflict:**
+   ```
+   Blocked: dev-XXXX (task: ..., contested files: ...)
+   Blocking: dev-YYYY (task: ..., expected completion: ...)
+   ```
+
+3. **Monitor blocking agent** — when it completes and its locks are released:
+
+4. **Restart blocked agent:**
+   ```
+   Agent({
+     description: "Restart dev-XXXX after lock release",
+     prompt: "Run the /dev skill's Step 10e (Restart After Lock Conflict).
+       Reuse agent ID: dev-XXXX (do NOT generate a new ID).
+       Original pause log: docs/development/logs/dev-XXXX-....md
+       Blocking agent that just finished: dev-YYYY
+       Blocking agent's log (archived): docs/development/logs/archive/dev-YYYY-....md
+       Check what dev-YYYY changed, assess impact on dev-XXXX's task, adjust approach if needed.",
+     run_in_background: true
+   })
+   ```
+
+5. **Report to user via Telegram** at each stage:
+   - When conflict is detected: "dev-XXXX paused — waiting for dev-YYYY to release lock on <files>"
+   - When lock is released: "Lock released. Restarting dev-XXXX with awareness of dev-YYYY's changes."
+   - When restart completes: "dev-XXXX resumed and completed" (or new conflict report)
+
+---
+
 ## Step 2: Enter Orchestrator Loop
 
 Send ready message via Telegram:
@@ -391,3 +557,7 @@ The orchestrator is a **dispatcher and communicator**, not a worker.
 | Running curl/commands directly in orchestrator | Spawn a sub-agent — even for "just checking something" |
 | Asking user to restart backend or kill processes | Agent kills stale processes, starts launcher, clicks APPLY itself |
 | Asking user to "test manually and report back" | Agent runs all tests end-to-end — curl, UI interaction, verification |
+| Spawning separate commit agent instead of letting dev agent wrap up | `SendMessage` to same agent → "proceed with commit and Step 10a wrap-up" |
+| Generating new agent ID for recovered/restarted agent | Reuse original agent ID — ID persistence rule |
+| Ignoring stale locks/WIP on startup | Always run Step 1.5 health check before accepting tasks |
+| Accepting tasks while repo has unlocked dirty files | Resolve inconsistency first — this is urgent |
