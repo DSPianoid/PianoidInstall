@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| *(none)* | | | |
+| dev-86ba | Fix 3 stabilization diagram bugs (toggle, selection, brush) + amplitude extraction | [log](logs/dev-86ba-2026-04-11-163935.md) | 2026-04-11 | **PAUSED** — all work committed & pushed to `dev` in both PianoidCore and PianoidTunner |
 
 ---
 
@@ -99,7 +99,7 @@ See [Testing](TESTING.md) for the test inventory.
 
 ## Interactive Stabilization Diagram — Chain Editing & Visualization
 
-**Status:** All phases complete (Phase 1–5).
+**Status:** All phases complete (Phase 1–5) + UI refactoring (2026-04-11).
 
 See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md) for full architecture decisions, 5-phase implementation plan, and risk analysis.
 
@@ -110,6 +110,14 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 | 3 | `useChainEditor` hook + `StabilizationToolbar` + `StabilizationDiagram` extraction + `saveEditedChains` in useModalAdapter | Done |
 | 4 | Interactive chart editing (mode-dependent handlers) | Done |
 | 5 | Polish: unassigned detections, keyboard shortcuts, validation, performance, feedin guard | Done |
+| Refactor | ESPRIT-only view, chain toggle fix, selection highlighting, rectangle zoom, damping/amplitude viz | Done |
+
+**Refactoring changes (2026-04-11):**
+- Diagram shows ESPRIT extraction data (unassigned dots) even before tracking runs
+- Chain path toggle (showPaths) fixed — no longer sticks in "on" state
+- Chain selection: default no selection; selected chains have white border + blue glow + larger size; unselect clears all visual emphasis
+- Rectangle zoom: brush selection in select mode zooms to area; "Reset Zoom" button restores full view
+- Damping overlay removed. Replaced with: (1) heatmap mode (D/A buttons) color-codes points by damping or amplitude, (2) sub-chart below main chart (Damp/Amp/Both) showing line charts for selected chains sharing X-axis
 
 ---
 
