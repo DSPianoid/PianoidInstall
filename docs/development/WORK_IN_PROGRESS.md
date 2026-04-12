@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-86ba | Debug amp/damp sub-charts in stabilization diagram | [log](logs/dev-86ba-2026-04-12-140829.md) | 2026-04-12 |
+| | | | |
 
 ---
 
