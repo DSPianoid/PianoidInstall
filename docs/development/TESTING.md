@@ -22,6 +22,7 @@ PianoidCore/tests/
 │   ├── test_feedback_coupling.py
 │   └── test_modal_adapter_e2e.py   # Full modal adapter pipeline (Belarus data + GPU ESPRIT)
 └── unit/                # Pure Python, no GPU
+    ├── test_channel_assignment.py   # MappingConfig persistence round-trip, _load_mapping_results file priority, ESPRIT response channel filtering
     ├── test_mic_analyzer.py         # Microphone SNR analyzer
     └── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints
 ```
