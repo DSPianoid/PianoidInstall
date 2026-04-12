@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-b515 | Add venv guard to modal_adapter_server.py and backendServer.py | [log](logs/dev-b515-2026-04-12-215956.md) | 2026-04-12 |
+| dev-b0d3 | Fix ESPRIT config not persisting across project reopen | [log](logs/dev-b0d3-2026-04-13-012223.md) | 2026-04-13 |
 
 ---
 

@@ -1148,7 +1148,7 @@ Response `200` (user cancelled):
 
 #### `GET /modal/data_status`
 
-Returns availability flags for each pipeline stage. Used by the frontend to determine which stages can run independently.
+Returns availability flags for each pipeline stage. Used by the frontend to determine which stages can run independently. When ESPRIT data exists, includes `esprit_config` with the parameters used for the last ESPRIT run (band preset, resolved bands, GPU/TLS flags, etc.) so the frontend can restore the configuration on project reopen.
 
 Response `200`:
 ```json
@@ -1159,9 +1159,24 @@ Response `200`:
   "tracking": false,
   "feedin": false,
   "channel_mapping": false,
-  "applied": false
+  "applied": false,
+  "esprit_config": {
+    "band_preset": "extended_8band",
+    "preset": "extended_8band",
+    "bands": [
+      {"name": "Ultra-Low", "f_min": 30, "f_max": 100, "filter_order": 4, "decimation": 1, "exp_factor": 0.15, "model_order": 8, "window_length": 12000},
+      {"name": "Low", "f_min": 80, "f_max": 200, "...": "..."}
+    ],
+    "use_gpu": true,
+    "use_tls": true,
+    "max_damping": 0.2,
+    "mac_threshold": 0.9,
+    "window_length": 2000
+  }
 }
 ```
+
+`esprit_config` is only present when `esprit` is `true`. The `bands` array contains the actual resolved frequency bands used for processing (not just the preset name).
 
 ---
 
