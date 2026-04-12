@@ -6,3 +6,4 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-86ba | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2026-04-12T20:00Z | Mode shape reference projection sub-chart |

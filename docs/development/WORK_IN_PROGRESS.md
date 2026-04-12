@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-86ba | Fix stabilization diagram bugs + amplitude extraction + right-click replacement | [log](logs/dev-86ba-2026-04-11-163935.md) | 2026-04-11 | **PAUSED** — all work committed and pushed to dev |
+| dev-86ba | Mode shape visualization (reference projection sub-chart) | [log](logs/dev-86ba-2026-04-12-200000.md) | 2026-04-12 |
 
 ---
 
@@ -122,6 +122,12 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 **Sub-chart data fix (2026-04-12):**
 - Amplitude/shape/MAC sub-charts showed empty when loading existing projects (chains.json lacked amplitude/shape data saved before the feature was added)
 - Fix: `_enrich_chains_from_esprit()` in `modal_adapter.py` back-fills amplitude and shape from ESPRIT per_scenario_results into chain detections on load, then persists enriched chains to disk
+
+**Reference projection sub-chart (2026-04-12):**
+- New "Proj" toggle button alongside Damp/Amp/MAC/Shape
+- Computes signed reference projection from complex mode shapes in frontend: mean shape as reference, Re(dot(shape, conj(ref))) per detection
+- X=scenario (zoom-synced with main diagram), Y=signed scalar (+in-phase / -anti-phase)
+- Zero reference line marks nodal boundary, area fill highlights positive/negative regions
 
 ---
 
