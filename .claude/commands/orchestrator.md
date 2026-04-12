@@ -54,6 +54,21 @@ This keeps the orchestrator's context clean and able to run for extended session
 
 ---
 
+## Step 0: Verify Agent Infrastructure
+
+### SendMessage tool (required)
+
+The orchestrator depends on `SendMessage` to keep sub-agents alive across feedback rounds. This tool requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`.
+
+1. Check if `SendMessage` is available by running `ToolSearch(query: "select:SendMessage")`
+2. If **not found**:
+   - Read `~/.claude/settings.json` and check for `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }`
+   - If missing, add it and instruct the user to reload Claude Code
+   - **Do NOT proceed without SendMessage** — the orchestrator cannot function correctly without agent continuation
+3. If **found**: proceed to Step 1
+
+---
+
 ## Step 1: Verify Channel Connectivity
 
 ### Telegram (required)
@@ -402,7 +417,7 @@ Agent completes → orchestrator summarizes to user via Telegram
     |
     v
 User approves?
-    |-- YES → agent is done
+    |-- YES → SendMessage(to: agentId) → "proceed with commit and Step 10a wrap-up"
     |-- NO / issues → SendMessage(to: agentId) with fix instructions
                           |
                           v
