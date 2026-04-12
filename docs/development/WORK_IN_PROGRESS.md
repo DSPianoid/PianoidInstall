@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-8a00 | Portable project export/import for modal adapter | [log](logs/dev-8a00-2026-04-12-161530.md) | 2026-04-12 |
 
 ---
 

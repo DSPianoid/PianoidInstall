@@ -108,7 +108,7 @@ The main application entry used in production is a separate top-level component 
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
 | `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with compact toolbar UI. **Toolbar** (left to right): server status chip (On/Off, clickable to start), project button (shows current project name or "Select Project", checkmark when done), pipeline section ButtonGroup (ESPRIT / Tracking / Apply with status indicators — checkmark for done, spinner for running), settings gear icon (toggles collapsible context-sensitive settings panel), and right-aligned play buttons (play current step, skip-to-end, both show stop icon when running). **Settings panel** content changes per active section: ESPRIT shows EspritConfig, Tracking shows freq tolerance and max gap, Apply shows merge mode and sound output mapping. Connects to modal adapter server on port 5001. See [MODAL_ADAPTER_GUIDE](../../guides/MODAL_ADAPTER_GUIDE.md) |
-| `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/response/skip) with bridge boundary and pitch offset. Collapsible after initial config |
+| `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/response/reference/skip) with bridge boundary and pitch offset. Shown in Project panel, locked (disabled) after ESPRIT runs. Sound channel mapping is separate — in Apply settings panel |
 | `EspritConfig` | `EspritConfig.jsx` | Band preset selector + GPU checkbox. Advanced toggle reveals per-band table (name, f_min, f_max, order, decimation, exp_factor, model_order, window_length) |
 | `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram wrapper, collapsible mode chain table, per-mode shape plot, feedin heatmap |
 | `StabilizationDiagram` | `StabilizationDiagram.jsx` | ECharts scatter plot of mode chains with stability coloring, zoom/pan, rectangle zoom (brush-to-zoom with reset button), chain paths toggle, heatmap color mode (damping/amplitude), sub-charts for selected chains (Damp/Amp/MAC/Shape/Proj — independent toggles, zoom-synced X-axis). Proj sub-chart computes signed reference projection from complex mode shapes. Shows ESPRIT data as unassigned dots even before tracking. Accepts `interactionMode` for editing integration |
@@ -280,7 +280,7 @@ Project actions: `createProject(name, source)`, `openProject(name)`, `copyProjec
 
 ESPRIT: `runEsprit()` drives a per-scenario loop from the frontend — each scenario is a synchronous `POST /modal/run_esprit` with `scenario_indices: [i]`. Progress updates after each scenario (elapsed, remaining, modes found). Pauses synthesis before, resumes after. Results accumulate across runs. After completion, auto-selects unprocessed scenarios.
 
-Other actions: `runTracking()` (uses all processed scenarios), `runFeedin()`, `applyToPreset()`, `submitChannelMapping()`, `fetchDataStatus()`, `reset()`.
+Other actions: `runTracking()` (uses all processed scenarios), `runFeedin()`, `applyToPreset()`, `submitChannelMapping()` (channel roles to `/modal/mapping`), `submitSoundMapping()` (sound output to `/modal/channel_mapping`), `fetchDataStatus()`, `reset()`. `copyProject` resets all stages and channel config to defaults (measurements only).
 
 ### `useSocketIO`
 
