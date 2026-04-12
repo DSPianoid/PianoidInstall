@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-1b5e | Merge Project+ESPRIT panels, hide channel roles from gear, freeze settings on ESPRIT start | [log](logs/dev-1b5e-2026-04-13-000534.md) | 2026-04-12 |
+|  |  |  |  |
 
 ---
 
