@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-1b5e | Merge Project+ESPRIT panels, hide channel roles from gear, freeze settings on ESPRIT start | [log](logs/dev-1b5e-2026-04-13-000534.md) | 2026-04-12 |
 
 ---
 
@@ -171,14 +172,28 @@ Replaced tab navigation with a compact single-row toolbar: server status chip, p
 |---------|--------|
 | Toolbar with pipeline ButtonGroup | Done |
 | Server status chip (On/Off, clickable) | Done |
-| Project button with name + checkmark | Done |
+| Project button with name + checkmark | Done (merged into Setup button) |
 | Context-sensitive settings panel (gear toggle) | Done |
 | Play (run step) + SkipNext (run to end) buttons | Done |
 | Stop button overlay when running | Done |
 
+### Phase 4: Merged Setup Panel + Settings Freeze (2026-04-12)
+
+Merged Project and ESPRIT into a unified "Setup" section. Channel roles and ESPRIT config moved to settings/gear panel. All settings freeze (disabled + lock icon) once ESPRIT processing starts.
+
+| Feature | Status |
+|---------|--------|
+| Merge Project + ESPRIT into unified Setup section | Done |
+| Channel roles in settings/gear panel (not section body) | Done |
+| ESPRIT config in settings/gear panel alongside channel roles | Done |
+| Settings freeze when ESPRIT starts (running or done) | Done |
+| Lock icon replaces gear icon when frozen | Done |
+| Project creation/import/copy/delete hidden when frozen | Done |
+| Setup button shows project name | Done |
+
 ### Remaining
 
-- Browser verification of all Phase 1 + Phase 2 + Phase 3 features
+- Browser verification of all Phase 1 + Phase 2 + Phase 3 + Phase 4 features
 - Independent-stage loading, full pipeline execution, backward compatibility
 - Project CRUD workflow, toolbar navigation, per-scenario ESPRIT UI
 
