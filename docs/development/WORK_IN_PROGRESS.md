@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-546d | Fix mapping config load + ESPRIT channel filtering | [log](logs/dev-546d-2026-04-12-162723.md) | 2026-04-12 |
+| — | — | — | — |
 
 ---
 
