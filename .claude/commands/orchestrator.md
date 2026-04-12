@@ -194,7 +194,8 @@ The orchestrator must understand the /dev skill's lifecycle to correctly manage 
 | 5-7 | Test, debug, verify | — |
 | 8 | Update documentation | — |
 | 9 | Merge feature branch | — |
-| 10a | **Wrap-up:** commit → release locks → archive log → clean WIP | Orchestrator verifies all 4 cleanup steps completed |
+| 10a P1 | **Wrap-up Phase 1 (auto):** commit → release locks → STOP | Agent stops and reports. Orchestrator relays to user, waits for approval |
+| 10a P2 | **Wrap-up Phase 2 (user-approved):** archive log → clean WIP → merge | Only after user explicitly approves |
 | 10b | **Reset:** revert → release locks → delete log → clean WIP | On failure — verify cleanup |
 | 10c | **Pause:** commit/stash → snapshot → release locks → update WIP | On lock conflict or manual pause |
 | 10d | **Recover:** assess orphaned state → report → continue or reset | Orchestrator triggers this on startup if orphaned sessions found |
@@ -208,15 +209,29 @@ All dev agent commits use: `[agent-id] <type>: <description>` (e.g., `[dev-a3f1]
 
 **Recovered and restarted agents MUST reuse the original agent's ID.** Only genuinely new tasks get fresh IDs. The orchestrator must pass the original ID to `/dev` when spawning recovery or restart agents.
 
-### What to Verify After Agent Completion
+### What to Verify After Agent Reports (Phase 1 complete)
 
-When a dev agent reports completion, the orchestrator MUST verify (by reading MODULE_LOCKS.md and WORK_IN_PROGRESS.md) that:
-1. Agent's locks are released from MODULE_LOCKS.md
-2. Agent's log is moved to `logs/archive/`
-3. Agent's WIP entry is removed from Active Dev Sessions
-4. Commits include the agent ID prefix
+Dev agents complete Step 10a Phase 1 autonomously (commit, release locks) then STOP and report. The orchestrator verifies:
+1. Agent's changes are committed (with agent ID prefix)
+2. Agent's locks are released from MODULE_LOCKS.md
+3. Agent's log is still in `logs/` (NOT archived yet — that's Phase 2)
+4. Agent's WIP entry is still in Active Dev Sessions (NOT cleaned yet — that's Phase 2)
 
-If ANY of these are missing, the agent did not complete Step 10 properly. Clean up the remaining items.
+Relay the report to the user via Telegram. Wait for explicit approval.
+
+### After User Approves
+
+Tell the agent to proceed with Step 10a Phase 2:
+```
+SendMessage(to: agentId, message: "User approved. Proceed with Step 10a Phase 2: archive log, clean WIP, merge if needed.")
+```
+
+Then verify:
+1. Agent's log is moved to `logs/archive/`
+2. Agent's WIP entry is removed from Active Dev Sessions
+3. Feature branch is merged if applicable
+
+If the user requests changes instead, relay to the same agent — it still has full context.
 
 ---
 
@@ -394,10 +409,15 @@ Classify and dispatch:
 
 4. **Continue agents, don't replace them.** When a research agent builds context that is needed for implementation, use `SendMessage(to: agentId)` to transition that same agent to implementation — do NOT spawn a fresh agent that loses the context. Similarly, if the user requests fixes to work done by an agent, relay the fix request to the same agent.
 
+5. **Never let dev agents auto-commit.** Dev agents must STOP before Step 10 (wrap-up/commit) and report their changes. The orchestrator relays the report to the user. Only after explicit user approval does the orchestrator tell the agent to proceed with Step 10. This keeps agents alive for debugging and review. **Always include in the dev agent prompt:** "Do NOT proceed to Step 10 (commit/wrap-up). Stop after editing and testing. Report your changes and wait for explicit approval before committing."
+
+   The only exception is if the user explicitly says "commit without asking" or "auto-wrap-up" for a specific task.
+
 **Include in the sub-agent prompt:**
 1. The user's exact request (quoted)
 2. Any context from the conversation that's relevant
 3. Clear instruction on whether to make changes or just research
+4. For /dev agents: explicit instruction to stop before Step 10 and await approval
 
 **Use `run_in_background: true`** for non-trivial tasks so the orchestrator remains responsive to new messages.
 
@@ -411,9 +431,10 @@ Orchestrator classifies task → selects skill
     |
     v
 Spawn sub-agent with skill (save agentId)
+  (prompt includes: "Stop before Step 10, report changes, await approval")
     |
     v
-Agent completes → orchestrator summarizes to user via Telegram
+Agent edits + tests → stops before commit → orchestrator relays report to user
     |
     v
 User approves?
@@ -576,3 +597,5 @@ The orchestrator is a **dispatcher and communicator**, not a worker.
 | Generating new agent ID for recovered/restarted agent | Reuse original agent ID — ID persistence rule |
 | Ignoring stale locks/WIP on startup | Always run Step 1.5 health check before accepting tasks |
 | Accepting tasks while repo has unlocked dirty files | Resolve inconsistency first — this is urgent |
+| Letting dev agent auto-commit without user approval | Always instruct agents to stop before Step 10; relay report; wait for explicit approval |
+| Sending hold message after agent completes | Send "stop before Step 10" in the initial spawn prompt, not reactively |

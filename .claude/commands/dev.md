@@ -660,16 +660,30 @@ All commits made by a dev agent MUST include the agent ID:
 git commit -m "[dev-a3f1] <type>: <description>"
 ```
 
+### Intermediate Commits
+
+Agents may make as many intermediate commits as needed during development. Use intermediate commits after completing a logical unit of work (e.g., a bug fix before starting the next, backend changes before frontend). This prevents accumulating large uncommitted diffs and makes recovery easier.
+
+```bash
+git commit -m "[${AGENT_ID}] <type>: <description of this unit>"
+```
+
+Intermediate commits do not require user approval. They are part of normal development flow.
+
 ### 10a: Wrap-up (successful implementation)
 
-Sequence: **Document → Audit locks → Commit → Release locks → Archive log → Clean WIP**
+Wrap-up has two phases: **agent-autonomous** (steps 1-4) and **user-approved** (steps 5-7). The agent completes steps 1-4 and then **stops and reports to the orchestrator/user**. Steps 5-7 only proceed after explicit user approval.
+
+#### Phase 1: Agent-autonomous (do immediately)
+
+Sequence: **Document → Audit locks → Final commit → Release locks**
 
 1. **Verify Step 8 is done** — documentation is up to date
 2. **Audit locks vs. dirty files** — run `git diff --name-only` in each repo. Every dirty file must appear in your lock list in `MODULE_LOCKS.md`. If you find unlocked dirty files:
    - Add them to your lock row retroactively (to maintain the invariant during commit)
    - Include them in your commit
    - Log a warning in the session log: "Scope expanded beyond original locks — added retroactive locks for: <files>"
-3. **Commit** — ask user before committing:
+3. **Final commit** — commit any remaining uncommitted changes:
    ```bash
    # PianoidCore changes
    cd D:\repos\PianoidInstall\PianoidCore
@@ -683,6 +697,11 @@ Sequence: **Document → Audit locks → Commit → Release locks → Archive lo
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
 4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+
+**STOP HERE.** Report changes to the orchestrator/user and wait for approval. Do NOT proceed to Phase 2 until explicitly told to.
+
+#### Phase 2: User-approved (only after explicit approval)
+
 5. **Archive log** — move log file to archive:
    ```bash
    mkdir -p D:/repos/PianoidInstall/docs/development/logs/archive
