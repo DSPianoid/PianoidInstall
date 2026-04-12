@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-86ba | Fix stabilization diagram bugs + amplitude extraction + right-click replacement | [log](logs/dev-86ba-2026-04-11-163935.md) | 2026-04-11 | **PAUSED** — all work committed and pushed to dev |
+| dev-86ba | Debug amp/damp sub-charts in stabilization diagram | [log](logs/dev-86ba-2026-04-12-140829.md) | 2026-04-12 |
 
 ---
 
@@ -118,6 +118,10 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Chain selection: default no selection; selected chains have white border + blue glow + larger size; unselect clears all visual emphasis
 - Rectangle zoom: brush selection in select mode zooms to area; "Reset Zoom" button restores full view
 - Damping overlay removed. Replaced with: (1) heatmap mode (D/A buttons) color-codes points by damping or amplitude, (2) sub-chart below main chart (Damp/Amp/Both) showing line charts for selected chains sharing X-axis
+
+**Sub-chart data fix (2026-04-12):**
+- Amplitude/shape/MAC sub-charts showed empty when loading existing projects (chains.json lacked amplitude/shape data saved before the feature was added)
+- Fix: `_enrich_chains_from_esprit()` in `modal_adapter.py` back-fills amplitude and shape from ESPRIT per_scenario_results into chain detections on load, then persists enriched chains to disk
 
 ---
 
