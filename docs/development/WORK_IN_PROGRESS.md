@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| | | | |
+| dev-86ba | Fix stabilization diagram bugs + amplitude extraction + right-click replacement | [log](logs/dev-86ba-2026-04-11-163935.md) | 2026-04-11 | **PAUSED** — all work committed and pushed to dev |
 
 ---
 

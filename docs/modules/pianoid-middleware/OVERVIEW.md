@@ -242,9 +242,9 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 |-----------|------|---------|--------|
 | `ModalAdapter` | `modal_adapter.py` | Data-driven orchestrator with auto-persistence, `data_status()`, `run_full_pipeline()` | Working (independent stages) |
 | `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
-| `EspritRunner` | `esprit_runner.py` | Per-scenario multi-band ESPRIT extraction, MAC-based band merging, spatial mode tracking along bridge, amplitude/shape computation | Working (merge_multiband_results + track_modes_along_bridge) |
+| `EspritRunner` | `esprit_runner.py` | Per-scenario multi-band ESPRIT extraction, MAC-based band merging, spatial mode tracking along bridge, amplitude/shape/mode_shape computation | Working (merge_multiband_results + track_modes_along_bridge) |
 | `esprit/` | `esprit/*.py` | Inlined ESPRIT library — see table below | Refactored, no external dependency |
-| `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
+| `FeedinExtractor` | `feedin_extractor.py` | Feedin extraction: mode-shape reference projection (default) with FFT fallback | Working (mode_shape + fft methods) |
 | `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation. Configurable via `PresetConfig` | Working (output pitches dynamic, up to 16 channels) |
 | `PresetConfig` | `preset_injector.py` | Dataclass for preset build parameters: `max_modes`, `feedin_max`, `regular_feedback`, `sound_max`, `interpolate_missing` | Working |
 | `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 23 endpoints (includes `data_status`, `run_pipeline`) |
@@ -277,7 +277,24 @@ The ESPRIT library (`esprit/` subpackage) is inlined from the RoomResponse proje
 | `esprit_core.py` | Core ESPRIT algorithm: Hankel matrix, LS/TLS pole extraction, conjugate pairing, filtering, mode shape estimation |
 | `band_processing.py` | Signal processing: `FrequencyBand` config, band presets, bandpass filter, preemphasis, decimation |
 | `band_merging.py` | Cross-band deduplication (MAC + center weighting) and `merge_multiband_results()` orchestrator |
-| `mode_tracking.py` | Spatial mode tracking along the bridge (`track_modes_along_bridge`, `ModeChain`) |
+| `mode_tracking.py` | Spatial mode tracking along the bridge (`track_modes_along_bridge`, `ModeChain`, `ModeDetection`) |
+
+### Feedin Extraction Methods
+
+The pipeline supports two feedin extraction methods, controlled by `feedin_method` parameter (`"mode_shape"` default, `"fft"` fallback):
+
+| Method | Algorithm | Input | Signed? |
+|--------|-----------|-------|---------|
+| `mode_shape` | Reference projection: mean complex mode shape as reference, project each detection via `Re(phi . conj(phi_ref))` | Complex mode shapes from ESPRIT (persisted as `.npy`) | Yes — captures node crossings |
+| `fft` | FFT magnitude at mode frequencies from raw IR measurements | Raw measurement signals + response channels | No — always positive |
+
+Mode-shape method auto-falls back to FFT when chains lack complex mode shape data (e.g., loaded from old project data without `.npy` files).
+
+### Complex Mode Shape Persistence
+
+ESPRIT results are persisted per scenario as:
+- `scenario_{idx}.json` — frequencies, damping, amplitudes, shape_magnitudes (real projections)
+- `scenario_{idx}_shapes.npy` — complex128 array (n_modes x n_channels), lossless phase preservation
 
 REST endpoints: see [REST_API.md](REST_API.md#modal-adapter-endpoints).
 
