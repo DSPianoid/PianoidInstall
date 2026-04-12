@@ -6,3 +6,4 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-8a00 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py`, `PianoidCore/pianoid_middleware/modal_adapter/routes.py`, `PianoidTunner/src/hooks/useModalAdapter.js`, `PianoidTunner/src/modules/ModalAdapter.jsx` | 2026-04-12T16:15:30Z | Project export/import |
