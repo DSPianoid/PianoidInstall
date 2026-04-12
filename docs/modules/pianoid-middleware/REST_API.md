@@ -109,6 +109,9 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /modal/projects/delete    -- delete project
   /modal/projects/add_measurements -- add measurements to current project
   /modal/projects/set_base  -- set projects base directory
+  /modal/projects/export    -- download project as .pianoid-project zip
+  /modal/projects/export_info -- preview export size and stage completeness
+  /modal/projects/import    -- upload and import .pianoid-project zip
 ```
 
 ---
@@ -1539,6 +1542,58 @@ Request body:
   "path": "D:\\projects"
 }
 ```
+
+---
+
+### Project Export / Import
+
+#### `GET /modal/projects/export?name=<name>`
+
+Streams a `.pianoid-project` zip archive as a download. The archive contains `manifest.json` (format version, checksum, hostname), sanitised `project.json` (measurement_source replaced with `"(exported)"`), and all project data (measurements, modal_adapter intermediate results).
+
+Response: binary zip file with `Content-Disposition: attachment; filename="<name>.pianoid-project"`.
+
+---
+
+#### `GET /modal/projects/export_info?name=<name>`
+
+Preview info before exporting. Returns size and stage completeness.
+
+Response `200`:
+```json
+{
+  "name": "piano_A",
+  "total_size_bytes": 73400320,
+  "total_size_mb": 70.0,
+  "num_scenarios": 78,
+  "stages": {
+    "measurements": true,
+    "esprit": true,
+    "tracking": true,
+    "feedin": false
+  }
+}
+```
+
+---
+
+#### `POST /modal/projects/import`
+
+Import a `.pianoid-project` zip archive via multipart file upload. Validates archive structure (must contain `manifest.json` + `project.json`), checks format version, extracts into `projects_base`. Resolves name conflicts by appending `_1`, `_2`, etc.
+
+Form fields: `file` (required, the zip archive), `name` (optional, override project name).
+
+Response `200`:
+```json
+{
+  "name": "piano_A",
+  "path": "D:\\projects\\piano_A",
+  "imported_from": "STUDIO-PC",
+  "renamed": false
+}
+```
+
+If name conflict was resolved, `renamed` is `true` and `name` contains the suffixed name.
 
 ---
 
