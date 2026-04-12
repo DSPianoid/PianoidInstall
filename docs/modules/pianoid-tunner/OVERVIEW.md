@@ -272,11 +272,13 @@ Wired into `ModalAdapter.jsx` Tracking section alongside `StabilizationToolbar`.
 
 ### `useModalAdapter`
 
-Manages the Modal Adapter pipeline. Connects to the modal adapter server on port 5001 (passed as `url` prop). On mount, auto-restores the current project's state (measurements, ESPRIT results, tracking chains) from the backend.
+Manages the Modal Adapter pipeline. Connects to the modal adapter server on port 5001 (passed as `url` prop). On mount, auto-restores the current project's state (measurements, ESPRIT results, tracking chains, ESPRIT config, channel roles, bridge boundary, pitch offset) from the backend via `data_status`.
 
 Key state: `stages` (per-stage `{done, running, data, error}`), `channelRoles`, `bridgeBoundary`, `pitchOffset`, `espritConfig`, `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived), `dataStatus`, `serverRunning`, `projectList`, `currentProject`.
 
 Project actions: `createProject(name, source)`, `openProject(name)`, `copyProject(src, dst)`, `deleteProject(name)`, `addMeasurementsToProject(source)`.
+
+`openProject(name)` resets stages and ESPRIT config immediately (unfreezing the UI), then loads the new project and restores all state from the backend: measurement info, channel roles, ESPRIT config (band preset, bands, GPU/TLS flags from `data_status.esprit_config`), stage completion states, and scenario info.
 
 ESPRIT: `runEsprit()` drives a per-scenario loop from the frontend — each scenario is a synchronous `POST /modal/run_esprit` with `scenario_indices: [i]`. Progress updates after each scenario (elapsed, remaining, modes found). Pauses synthesis before, resumes after. Results accumulate across runs. After completion, auto-selects unprocessed scenarios.
 
