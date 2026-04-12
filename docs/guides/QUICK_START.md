@@ -345,6 +345,9 @@ Parameters passed to `POST /load_preset` control engine initialization:
 | React frontend | 3000 | `npm start` or `npm run dev` |
 | Node.js launcher | 3001 | `npm run dev` only (not `npm start`) |
 | Flask backend | 5000 | Launcher APPLY button, or manual `python backendserver.py` |
+| Modal adapter | 5001 | Launcher (auto-start from UI), or manual `python modal_adapter_server.py` |
+
+Both `backendserver.py` and `modal_adapter_server.py` include a venv guard: if launched with the wrong Python interpreter (e.g., system Python instead of `PianoidCore\.venv`), they auto-relaunch under the correct venv Python. This ensures all dependencies (pianoidCuda, CuPy, Flask, etc.) are available regardless of how the server is started.
 
 ---
 
