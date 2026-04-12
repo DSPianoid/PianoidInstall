@@ -207,7 +207,7 @@ Frontend pauses main synth before GPU-intensive ESPRIT, resumes after completion
 | `openProject`/`createProject` restore saved channel roles from backend | `useModalAdapter.js` |
 | Server start/stop button on Modal Adapter panel | `useModalAdapter.js`, `ModalAdapter.jsx` |
 | `EXTENDED_BANDS` defined locally (missing from RoomResponse library) | `esprit_runner.py` |
-| **ESPRIT still broken:** `merge_multiband_results` not in RoomResponse library | `esprit_runner.py` — needs implementation |
+| **ESPRIT band merging:** ~~`merge_multiband_results` not in RoomResponse library~~ — **Resolved.** Function inlined in `esprit/band_merging.py`. | `esprit_runner.py` |
 
 ### Documentation Cross-References
 

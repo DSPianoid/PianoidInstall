@@ -242,7 +242,7 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 |-----------|------|---------|--------|
 | `ModalAdapter` | `modal_adapter.py` | Data-driven orchestrator with auto-persistence, `data_status()`, `run_full_pipeline()` | Working (independent stages) |
 | `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
-| `EspritRunner` | `esprit_runner.py` | MAC-based band merging + spatial mode tracking | Working (merge_multiband_results + track_modes_along_bridge) |
+| `EspritRunner` | `esprit_runner.py` | Per-scenario multi-band ESPRIT extraction, MAC-based band merging, spatial mode tracking along bridge, amplitude/shape computation | Working (merge_multiband_results + track_modes_along_bridge) |
 | `esprit/` | `esprit/*.py` | Inlined ESPRIT library — see table below | Refactored, no external dependency |
 | `FeedinExtractor` | `feedin_extractor.py` | FFT feedin extraction from measured IRs | Working (per-pitch + interpolation) |
 | `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation. Configurable via `PresetConfig` | Working (output pitches dynamic, up to 16 channels) |

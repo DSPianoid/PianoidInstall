@@ -21,6 +21,94 @@ Both servers run simultaneously. Before ESPRIT extraction, the frontend pauses s
 on port 5000 (`POST /pause_synthesis`) to free GPU, and resumes after (`POST /resume_synthesis`).
 The Node.js launcher (`server/launcher.js`) manages both processes.
 
+## Algorithm Overview
+
+The Modal Adapter uses the **ESPRIT** (Estimation of Signal Parameters via Rotational Invariance Techniques) algorithm to extract modal parameters from impulse response measurements. Given a recorded impulse response of a piano soundboard, ESPRIT identifies the individual vibrational modes — each characterized by a frequency, damping ratio, and spatial shape.
+
+### Key Steps
+
+1. **Band-splitting** — The full frequency range (30--5000+ Hz) is divided into overlapping bands (e.g., 4 or 8 bands). Each band is analyzed independently with a modest model order, which is far more tractable than fitting a single high-order model to the entire spectrum.
+
+2. **Hankel matrix construction** — For each band, a Hankel (data) matrix is built from the decimated, bandpass-filtered impulse response signal.
+
+3. **SVD decomposition** — Singular Value Decomposition separates the signal subspace from noise. The number of retained singular values corresponds to the expected number of modes in that band.
+
+4. **Shift-invariance pole extraction** — The ESPRIT shift-invariance property is exploited to estimate poles (complex eigenvalues). The **TLS** (Total Least Squares) variant provides better noise robustness than the standard LS variant by treating both subspace matrices symmetrically.
+
+5. **Conjugate pairing** — Extracted poles come in conjugate pairs (since the underlying signal is real-valued). Pairs are matched and only one pole per pair is retained.
+
+6. **Continuous-time conversion** — Discrete-time poles are converted to continuous-time via logarithmic mapping, yielding natural frequencies in Hz and dimensionless damping ratios (zeta).
+
+7. **Band merging** — Modes from overlapping bands are deduplicated using the **MAC** (Modal Assurance Criterion), which compares mode shape similarity. When two bands detect the same physical mode, the detection with higher MAC confidence is retained.
+
+### Output Per Scenario
+
+- **frequency** — natural frequency in Hz (ndarray)
+- **damping_ratio** — dimensionless ratio to critical damping, zeta (ndarray)
+- **mode_shapes** — complex spatial pattern per mode per channel (complex ndarray, n_modes x n_channels)
+- **poles** — continuous-time poles (complex ndarray)
+
+### Why Band-Splitting?
+
+A piano soundboard has hundreds of modes spanning 30 Hz to well above 5000 Hz. Fitting all modes at once would require an impractically large model order, leading to numerical instability and excessive computation. Band-splitting keeps each sub-problem small (model orders of 8--30 per band) while collectively covering the full range. Overlapping band edges ensure no modes are missed at boundaries; the MAC-based deduplication removes any double-counted modes.
+
+---
+
+## Data Formats
+
+This section documents the data shapes and units at each stage of the pipeline.
+
+### Input
+
+- **Per scenario:** `(T, n_channels)` numpy array — a multi-channel impulse response recording. `T` is the number of time samples; `n_channels` is the number of measurement channels (accelerometers/microphones along the bridge, plus optional force channel).
+
+### ESPRIT Extraction Output (per scenario)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `frequencies` | ndarray (n_modes,) | Natural frequencies in Hz |
+| `damping_ratios` | ndarray (n_modes,) | Dimensionless damping ratios (zeta) |
+| `mode_shapes` | complex ndarray (n_modes, n_channels) | Complex spatial pattern per mode |
+| `poles` | complex ndarray (n_modes,) | Continuous-time poles |
+
+### Tracking Output
+
+Mode tracking links per-scenario detections into **ModeChain** objects:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `frequency_mean` | float | Mean frequency across detections (Hz) |
+| `damping_mean` | float | Mean damping ratio across detections (dimensionless zeta) |
+| `stability` | str | Classification: `stable`, `semi-stable`, `weak`, or `spurious` |
+| `detections` | dict | Map of scenario index to detection data |
+
+Each detection within a chain includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `amplitude` | float | RMS mode shape amplitude = `sqrt(mean(\|shape\|^2))` |
+| `shape_magnitudes` | ndarray (n_channels,) | Phase-rotated real projections preserving sign (for visualization) |
+
+### Feedin Output
+
+- **Per pitch:** FFT magnitude evaluated at each mode frequency — measures coupling strength between the excitation point and each mode.
+- **Measured pitches:** Pitches with direct measurement data.
+- **Interpolated pitches:** Pitches where feedin is interpolated from neighboring measurements.
+
+### Preset Conversion
+
+When injecting into a synthesis preset, damping ratios are converted to the engine's native parameters:
+
+| Parameter | Formula | Description |
+|-----------|---------|-------------|
+| Logarithmic decrement | `delta = 2*pi*zeta / sqrt(1 - zeta^2)` | Continuous-time decay parameter |
+| Decrement coefficient (dec) | `dt * decrement * frequency` | Discrete-time decay per sample |
+| Omega | `dt^2 * frequency^2 * 4*pi^2` | Discrete-time squared angular frequency |
+
+Where `dt = 1 / sample_rate` and `decrement` = logarithmic decrement.
+
+---
+
 ## Project Management
 
 All data is organized by **projects**. Each project stores measurements, ESPRIT results,
