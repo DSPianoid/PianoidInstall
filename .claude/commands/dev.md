@@ -284,6 +284,16 @@ Rules:
 - If a file is already locked by another agent, **stop and report the conflict**
 - Locks persist until explicitly released (wrap-up, reset, or pause)
 - The lock file itself is not locked — multiple agents may add/remove their own rows
+- **Lock-before-edit invariant:** Before writing to ANY file not already in your lock list, you MUST first add it to `MODULE_LOCKS.md`. Update your lock row to include the new file. Check for conflicts (another agent holding that file) before proceeding. This applies even when scope expands mid-session — **never edit an unlocked file.**
+
+### Multi-Stage Session Management
+
+When a task involves multiple stages or scope expands during implementation:
+
+- **Commit intermediate work.** Don't accumulate all changes for one final commit. After completing a logical unit (e.g., a bug fix, a backend change before starting frontend), commit what you have. Use the agent ID prefix: `[dev-XXXX] feat: <what this intermediate commit does>`.
+- **Release locks on completed files.** If you're done with a file and moving to a different stage, release its lock in MODULE_LOCKS.md. Only hold locks on files you are actively editing or plan to edit next.
+- **Acquire new locks as needed.** When scope expands to new files, add them to your lock row before editing. This keeps the lock registry accurate at all times.
+- **Keep the "Files Modified" log section current.** Every file you edit must appear in your session log's Files Modified list — update it as you go, not just at the end.
 
 ### Edit Code
 
@@ -652,10 +662,14 @@ git commit -m "[dev-a3f1] <type>: <description>"
 
 ### 10a: Wrap-up (successful implementation)
 
-Sequence: **Document → Commit → Release locks → Archive log → Clean WIP**
+Sequence: **Document → Audit locks → Commit → Release locks → Archive log → Clean WIP**
 
 1. **Verify Step 8 is done** — documentation is up to date
-2. **Commit** — ask user before committing:
+2. **Audit locks vs. dirty files** — run `git diff --name-only` in each repo. Every dirty file must appear in your lock list in `MODULE_LOCKS.md`. If you find unlocked dirty files:
+   - Add them to your lock row retroactively (to maintain the invariant during commit)
+   - Include them in your commit
+   - Log a warning in the session log: "Scope expanded beyond original locks — added retroactive locks for: <files>"
+3. **Commit** — ask user before committing:
    ```bash
    # PianoidCore changes
    cd D:\repos\PianoidInstall\PianoidCore
@@ -668,14 +682,14 @@ Sequence: **Document → Commit → Release locks → Archive log → Clean WIP*
    git add docs/ mkdocs.yml
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
-3. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
-4. **Archive log** — move log file to archive:
+4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+5. **Archive log** — move log file to archive:
    ```bash
    mkdir -p D:/repos/PianoidInstall/docs/development/logs/archive
    mv "$LOG_FILE" D:/repos/PianoidInstall/docs/development/logs/archive/
    ```
-5. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
-6. **Merge** — proceed to Step 9 if a feature branch was created
+6. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
+7. **Merge** — proceed to Step 9 if a feature branch was created
 
 ### 10b: Reset (failed implementation)
 
