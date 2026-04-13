@@ -108,6 +108,8 @@ interactive latency.
 
 ### Development
 
+- [development/CODE_QUALITY.md](development/CODE_QUALITY.md) — Project-wide code quality principles,
+  naming conventions, architecture rules, review checklist
 - [development/TESTING.md](development/TESTING.md) — Three-level pytest framework, test inventory,
   instrumentation APIs
 - [development/WORK_IN_PROGRESS.md](development/WORK_IN_PROGRESS.md) — Active investigations
