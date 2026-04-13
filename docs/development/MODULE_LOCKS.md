@@ -6,4 +6,3 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-47a9 | `PianoidCore/pianoid_middleware/modal_adapter_server.py`, `PianoidTunner/server/launcher.js` | 2026-04-13T10:12:00Z | Add stale process check to modal adapter server and launcher |

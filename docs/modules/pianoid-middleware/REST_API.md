@@ -99,6 +99,8 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/upload_measurements -- upload measurement arrays
   /modal/measurement_info   -- measurement metadata
   /modal/mapping            -- set excitation-to-pitch mapping
+  /modal/esprit_config      -- GET/POST ESPRIT config (persists to config.json)
+  /modal/gpu_status         -- check CuPy GPU availability
   /modal/run_esprit         -- launch ESPRIT extraction (background)
   /modal/status             -- poll ESPRIT progress
   /modal/results            -- get extraction results
@@ -1287,6 +1289,25 @@ Request body:
 ```
 
 ---
+
+#### `POST /modal/esprit_config`
+
+Persist ESPRIT configuration to the project's `esprit/config.json`. This is the user's intended config, independent of whether ESPRIT has been run. Saved config is returned by `data_status` and used as defaults when running ESPRIT.
+
+Request body: same shape as `espritConfig` in the frontend.
+
+#### `GET /modal/esprit_config`
+
+Load saved ESPRIT configuration from project. Prefers `esprit/config.json` (explicit save) over `esprit/metadata.json` (run-time params).
+
+#### `GET /modal/gpu_status`
+
+Check CuPy GPU availability.
+
+Response `200`:
+```json
+{ "gpu_available": true, "gpu_name": "NVIDIA GeForce RTX 3080" }
+```
 
 #### `GET /modal/band_presets`
 
