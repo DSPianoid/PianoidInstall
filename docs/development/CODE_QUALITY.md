@@ -2,6 +2,12 @@
 
 Project-wide quality criteria for the Pianoid real-time piano synthesis system. These principles apply across all 4 layers (CUDA engine, domain model, middleware, frontend) and all 4 repositories (PianoidCore, PianoidBasic, PianoidTunner, PianoidInstall).
 
+**Note on backend servers:** Pianoid runs two independent backend servers:
+- **Main Pianoid server** (port 5000) — synthesis orchestration, preset management, playback, calibration
+- **Modal Adapter server** (port 5001) — modal analysis pipeline (ESPRIT, tracking, feedin, preset building)
+
+When this document says "backend," it refers to both unless explicitly qualified.
+
 ---
 
 ## 1. Architecture & Separation
@@ -20,8 +26,9 @@ Each layer has a defined responsibility. No layer reaches into another's interna
 ### 1.2 Separation of Concerns
 
 - **CUDA engine:** Real-time synthesis, audio output, GPU memory management
-- **Domain model (PianoidBasic):** Physical parameters, string geometry, serialization — pure Python, no I/O, no side effects
-- **Middleware:** Orchestration, HTTP/WS API, persistence, modal analysis (ESPRIT), calibration
+- **Domain model (PianoidBasic):** Physical parameters, string geometry, serialization — pure Python, no I/O, no side effects. **Note:** for real-performance playback requiring minimum latency, preset parameters and domain model logic may also be implemented in C++ within the CUDA engine. In this case, the C++ implementation is the runtime authority and PianoidBasic serves as the reference/offline implementation.
+- **Main Pianoid middleware (port 5000):** Synthesis orchestration, preset management, parameter routing, playback control, calibration, MIDI handling, HTTP/WS API
+- **Modal Adapter middleware (port 5001):** Modal analysis pipeline — ESPRIT extraction, mode tracking, feedin computation, preset building from measurement data
 - **Frontend:** Visualization, user interaction, parameter editing — no business logic, no authoritative state
 
 ### 1.3 Separation of Authority
@@ -30,23 +37,31 @@ Every piece of data has exactly ONE owner. The owner is the only code that creat
 
 | Data | Owner | Others |
 |------|-------|--------|
-| Preset parameters | Middleware (Pianoid orchestrator) | Frontend reads via API |
-| GPU state (buffers, kernels) | CUDA engine | Middleware writes via pybind11 |
-| Project config (channels, ESPRIT, tracking) | Backend ModalAdapter | Frontend reads via `GET /modal/project_state` |
+| Preset parameters (runtime) | Main Pianoid server (port 5000) | Frontend reads via API, engine receives via pybind11 |
+| GPU state (buffers, kernels) | CUDA engine | Main Pianoid server writes via pybind11 |
+| Modal analysis project config (channels, ESPRIT, tracking) | Modal Adapter server (port 5001) | Frontend reads via `GET /modal/project_state` |
 | UI layout, selection, transient state | Frontend React state | Nobody else |
-| Physical model (strings, modes, excitation) | PianoidBasic classes | Middleware packs into flat arrays |
+| Physical model definitions (strings, modes, excitation) | PianoidBasic classes | Middleware packs into flat arrays |
+
+**Dual-implementation note:** Preset parameters and domain model logic are currently owned by the Python layer (PianoidBasic + middleware). For real-performance playback, these may be re-implemented in C++ within the CUDA engine to eliminate Python overhead and achieve minimum latency. When a C++ implementation exists, it becomes the runtime authority for that parameter path. The Python implementation remains the reference for offline computation, testing, and preset building.
 
 ### 1.4 Modularity
 
-Each module is independently testable, replaceable, and understandable. Computation modules are stateless pure functions — they take inputs and return outputs with no side effects:
+Each module is independently testable, replaceable, and understandable. The system is composed of many modules across all layers:
 
-- `EspritRunner` — ESPRIT extraction orchestration
-- `FeedinExtractor` — feedin coefficient computation
-- `PresetInjector` — preset building from modal data
-- `mode_tracking` — chain tracking across scenarios
-- `band_merging` — multi-band deduplication
+**Principle:** Computation modules are stateless pure functions — they take inputs and return outputs with no side effects. State lives only in orchestrator objects, never in computation helpers.
 
-State lives only in orchestrators (`Pianoid`, `ModalAdapter`), never in computation helpers.
+**Orchestrators** (stateful, manage lifecycle):
+- `Pianoid` — main synthesis orchestrator (preset loading, parameter routing, playback)
+- `ModalAdapter` — modal analysis project orchestrator (ESPRIT pipeline, persistence)
+
+**Computation modules** (stateless, pure):
+- Domain model: `StringMap`, `ModeMap`, `ExcitationParameters`, `SoundChannels`, `Mode`, `Piano_string`
+- Modal analysis: `EspritRunner`, `FeedinExtractor`, `PresetInjector`, `mode_tracking`, `band_merging`, `esprit_core`
+- Middleware: `ParameterManager`, `ChartRegistry`, `CalibrationController`
+- CUDA engine: `OnlinePlaybackEngine`, `OfflinePlaybackEngine`, `CircularBuffer`, audio drivers
+
+**Rule:** When adding new functionality, determine whether it is computation (stateless) or orchestration (stateful). New computation does not get its own state — it receives inputs and returns outputs. New orchestration is rare and requires architectural justification.
 
 ---
 
@@ -162,40 +177,57 @@ No synonyms. `dump_ratio` vs `damping_ratio` is a bug, not a style preference.
 - Every CUDA kernel parameter follows the same packing convention (flat arrays, same ordering)
 - Config files use consistent JSON structure within each domain
 
-### 4.4 Directory Structure Consistency
+### 4.4 Directory Structure and Functional Hierarchy
 
-Each repo follows its established layout:
+Directory structure must reflect the functional hierarchy of the system. Each directory groups related functionality, and nesting reflects containment relationships. When adding new modules, place them where they functionally belong — not where it's convenient.
 
 ```
 PianoidCore/
-  pianoid_cuda/          # C++/CUDA source
-  pianoid_middleware/     # Python backend
-    modal_adapter/       # Modal analysis subsystem
-      esprit/            # ESPRIT library
-  tests/                 # Mirrors source structure
-    unit/
-    integration/
-    system/
+  pianoid_cuda/              # Layer 4: CUDA synthesis engine
+    *.cu, *.cuh, *.cpp, *.h  #   Kernels, drivers, playback engines, buffers
+  pianoid_middleware/         # Layer 2: Python backend (both servers)
+    backendServer.py          #   Main Pianoid server (port 5000)
+    pianoid.py                #   Main orchestrator
+    parameter_manager.py      #   Parameter packing/routing
+    chartFunctions.py         #   Chart generation
+    modal_adapter/            #   Modal analysis subsystem (port 5001)
+      modal_adapter.py        #     Modal orchestrator
+      modal_adapter_server.py #     Modal server entry point
+      routes.py               #     Modal API endpoints
+      mapping.py              #     Channel/mapping config
+      esprit/                 #     ESPRIT extraction library
+      feedin_extractor.py     #     Feedin computation
+      preset_injector.py      #     Preset building
+  tests/                      # Mirrors source structure
+    unit/                     #   Isolated component tests
+    integration/              #   Cross-component tests
+    system/                   #   Full-stack tests (GPU required)
 
 PianoidBasic/
-  Pianoid/               # Domain model package
+  Pianoid/                    # Layer 3: Domain model package
+    Mode.py, Piano_string.py  #   Physical entities
+    StringMap.py, ModeMap.py  #   Collection managers
+    Excitation.py             #   Excitation model
+    SoundChannels.py          #   Output coupling
 
 PianoidTunner/
   src/
-    components/          # Reusable UI components
-    hooks/               # React hooks (state + logic)
-    modules/             # Page-level components
-  server/                # Node.js launcher
+    components/               # Reusable UI components (PascalCase.jsx)
+    hooks/                    # React hooks — state + logic (useXxx.js)
+    modules/                  # Page-level components (PascalCase.jsx)
+  server/                     # Node.js launcher (manages both backend servers)
 
 PianoidInstall/
-  docs/                  # All documentation (MkDocs)
-    architecture/
-    modules/
-    guides/
-    development/
+  docs/                       # All documentation (MkDocs)
+    architecture/             #   System-level docs
+    modules/                  #   Per-module reference
+    guides/                   #   How-to guides
+    development/              #   Dev processes, testing, quality
+  presets/                    # Preset JSON files
+  tools/                      # Utility scripts
 ```
 
-New modules go in the correct directory. Tests mirror source structure.
+**Principle:** If the directory structure doesn't reflect the functional hierarchy, that's a structural debt to be addressed — not a convention to follow. New code goes where it functionally belongs, and existing misplacements should be corrected when the module is next modified.
 
 ---
 
@@ -207,7 +239,7 @@ The audio callback thread (C++) never blocks on Python, network, disk, or contes
 
 ### 5.2 GPU Budget Awareness
 
-Every operation in the CUDA kernel synthesis loop must fit within the 1.33ms cycle budget (64 samples @ 48 kHz). New features that touch the hot path require timing verification with the performance test suite.
+Every operation in the CUDA kernel synthesis loop must fit within the per-cycle GPU budget. The budget is not a fixed value — it equals `cycle_iterations / sample_rate` (e.g., 64 samples / 48000 Hz = 1.33ms). Both `cycle_iterations` (buffer size) and `sample_rate` are configurable. New features that touch the hot path require timing verification with the performance test suite across representative configurations.
 
 ### 5.3 No Silent Drops
 
@@ -223,6 +255,25 @@ The system produces output even when components are degraded:
 | CuPy not installed | NumPy ESPRIT (CPU only) | GPU status indicator |
 | ASIO driver fails | SDL fallback (higher latency) | Audio driver status |
 | WebSocket disconnected | REST fallback (higher debounce) | Connection indicator |
+
+### 5.5 Thread Management
+
+The system has multiple concurrent threads with strict interaction rules:
+
+| Thread | Owner | Constraints |
+|--------|-------|-------------|
+| Audio callback (C++) | Audio driver (ASIO/SDL) | Never blocks. No Python, no locks, no allocation. Reads from ring buffer only. |
+| CUDA synthesis loop (C++) | `OnlinePlaybackEngine` | Runs `mainKernel` per cycle. Writes to `CircularBuffer`. Holds GPU context. |
+| Flask request handlers (Python) | Main Pianoid server (port 5000) | Acquires `cuda_lock` before any pybind11 call. Sequential via lock. |
+| Modal adapter main thread (Python) | Modal Adapter server (port 5001) | `threaded=False` — all requests sequential. Holds its own CUDA context (CuPy). |
+| MIDI listener (Python/C++) | `RtMidi` callback thread | Writes to `RealTimeEventBuffer` (thread-safe). No Python GIL dependency. |
+| WebSocket event handlers (Python) | Flask-SocketIO | Share `cuda_lock` with REST handlers. Must not hold lock during I/O waits. |
+
+**Rules:**
+- Never create new threads without documenting their interaction with existing threads
+- The CUDA engine's GPU context and the Modal Adapter's CuPy GPU context run in separate processes to avoid GPU deadlock — do not merge them into one process
+- `cuda_lock` serializes all Python→C++ calls on the main Pianoid server. Every pybind11 call must be inside the lock. No nested locking.
+- The audio callback thread must never be blocked by any other thread. If it starves, the user hears glitches.
 
 ---
 
