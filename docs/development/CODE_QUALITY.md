@@ -8,6 +8,8 @@ Project-wide quality criteria for the Pianoid real-time piano synthesis system. 
 
 When this document says "backend," it refers to both unless explicitly qualified.
 
+**Note on entity lists:** This document contains lists of modules, threads, data owners, and other entities. These lists reflect a **snapshot of the current codebase** at time of writing — they are examples illustrating the principles, not exhaustive or fixed inventories. The codebase evolves; the principles are durable. When the codebase changes, update the examples but preserve the principles.
+
 ---
 
 ## 1. Architecture & Separation
