@@ -1184,6 +1184,57 @@ Response `200`:
 
 ---
 
+#### `GET /modal/project_state`
+
+Returns complete project state in a single response. Combines project metadata, data availability flags, all configuration, and applied status. Designed to replace multiple individual GET calls from the frontend.
+
+Response `200`:
+```json
+{
+  "project_name": "belarus_78",
+  "project_dir": "D:\\modal_projects\\belarus_78",
+  "projects_base": "D:\\modal_projects",
+  "measurement_info": {
+    "num_scenarios": 78,
+    "num_channels": 5,
+    "sample_rate": 48000.0,
+    "scenario_indices": [0, 1, 2, "..."]
+  },
+  "data_status": {
+    "measurements": true,
+    "mapping": true,
+    "esprit": true,
+    "tracking": true,
+    "feedin": true,
+    "applied": false
+  },
+  "mapping_config": {
+    "channel_roles": {"0": "force", "1": "response", "...": "..."},
+    "bridge_boundary": 28,
+    "pitch_offset": 21,
+    "excitation_to_pitch": {"0": 21, "1": 22, "...": "..."},
+    "skipped_channels": []
+  },
+  "channel_mapping": {"0": 0, "1": 1},
+  "esprit_config": {
+    "preset": "extended_8band",
+    "bands": ["..."],
+    "use_gpu": true,
+    "use_tls": true,
+    "max_damping": 0.2
+  },
+  "tracking_params": {
+    "freq_tol_pct": 0.02,
+    "max_gap": 3
+  },
+  "applied": false
+}
+```
+
+Fields are `null` when data is not available (e.g., `measurement_info` is `null` before loading measurements, `tracking_params` is `null` before running tracking). `mapping_config` contains channel roles and bridge geometry; `channel_mapping` is the separate sound channel mapping. Old projects without `tracking/config.json` or `output/applied.json` get default values (`null` and `false`).
+
+---
+
 #### `POST /modal/run_pipeline`
 
 Runs the full extraction pipeline (load → mapping → ESPRIT → tracking → feedin) in a background thread. Returns immediately with a task ID. Poll progress via `GET /modal/status`.
@@ -1269,22 +1320,6 @@ Request body:
   "channel_roles": {"0": "response", "1": "response", "2": "force", "3": "response", "4": "response", "5": "reference"},
   "bridge_boundary": 28,
   "pitch_offset": 21
-}
-```
-
----
-
-#### `POST /modal/config`
-
-Set ESPRIT configuration with band preset name and/or advanced parameters.
-
-Request body:
-```json
-{
-  "band_preset": "extended_8band",
-  "mac_threshold": 0.9,
-  "freq_tol_pct": 0.01,
-  "use_gpu": false
 }
 ```
 

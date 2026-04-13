@@ -7,6 +7,7 @@
 | dev-b515 | Add venv guard to modal_adapter_server.py and backendServer.py | [log](logs/dev-b515-2026-04-12-215956.md) | 2026-04-12 |
 | dev-b0d3 | Fix ESPRIT config not persisting across project reopen | [log](logs/dev-b0d3-2026-04-13-012223.md) | 2026-04-13 |
 | dev-47a9 | Add stale process check to modal adapter server and launcher (port 5001) | [log](logs/dev-47a9-2026-04-13-100936.md) | 2026-04-13 |
+| dev-7644 | Modal Adapter state management rewrite — Phase 1 (backend-only) | [log](logs/dev-7644-2026-04-13-113833.md) | 2026-04-13 |
 
 ---
 
