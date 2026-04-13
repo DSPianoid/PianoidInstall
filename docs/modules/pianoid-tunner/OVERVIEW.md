@@ -33,7 +33,7 @@ Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
 `server/launcher.js` — Node.js script that spawns and manages the Flask backend (`backendServer.py`) as a child process. Used by `useBackendProcess` hook to start/stop the backend from the frontend UI.
 
-REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on port 5000 before spawning. `kill-stale` kills any process on port 5000 without starting a new one.
+REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on port 5000 before spawning. `start-modal-adapter` kills stale processes on port 5001 before spawning. Both use port-specific WMIC patterns (`backendserver.py` for 5000, `modal_adapter_server.py` for 5001) to catch orphan processes not yet bound to their port. `kill-stale` kills processes on both ports without starting new ones.
 
 `stopBackend()` uses a two-phase shutdown: first sends `POST /shutdown` to the Flask backend for graceful GPU cleanup (3-second timeout), then falls back to `taskkill /T /F` if the process is still alive. A `process.on('exit')` handler ensures force-kill as a last resort.
 

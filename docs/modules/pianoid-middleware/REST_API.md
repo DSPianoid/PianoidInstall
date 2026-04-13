@@ -87,6 +87,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 
 ### modal_adapter_server.py (port 5001)
 
+On startup, the server runs a stale process check: finds any PID listening on the configured port via `netstat`, verifies it is a Python process running `modal_adapter_server` via WMIC, and kills only confirmed stale instances before binding.
+
 ```
   /health                   -- lifecycle status
   /shutdown                 -- graceful shutdown
