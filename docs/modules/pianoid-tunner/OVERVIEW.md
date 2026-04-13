@@ -272,17 +272,19 @@ Wired into `ModalAdapter.jsx` Tracking section alongside `StabilizationToolbar`.
 
 ### `useModalAdapter`
 
-Manages the Modal Adapter pipeline. Connects to the modal adapter server on port 5001 (passed as `url` prop). On mount, auto-restores the current project's state (measurements, ESPRIT results, tracking chains, ESPRIT config, channel roles, bridge boundary, pitch offset) from the backend via `data_status`.
+Manages the Modal Adapter pipeline. Connects to the modal adapter server on port 5001 (passed as `url` prop). All state synchronization flows through a single `syncFromBackend()` function that calls `GET /modal/project_state` and populates all frontend state from the backend response. This eliminates split-brain state between frontend and backend.
 
 Key state: `stages` (per-stage `{done, running, data, error}`), `channelRoles`, `bridgeBoundary`, `pitchOffset`, `espritConfig`, `trackingParams`, `selectedChains`, `channelToSound`, `responseChannels` (derived), `dataStatus`, `serverRunning`, `projectList`, `currentProject`.
 
-Project actions: `createProject(name, source)`, `openProject(name)`, `copyProject(src, dst)`, `deleteProject(name)`, `addMeasurementsToProject(source)`.
+**State sync pattern:** `syncFromBackend()` reads the complete project state snapshot from the backend and populates: `channelRoles` from `mapping_config.channel_roles`, `bridgeBoundary`/`pitchOffset` from `mapping_config`, `channelToSound` from `channel_mapping` (separate from mapping_config), `espritConfig` from `esprit_config`, `trackingParams` from `tracking_params`, `measurementInfo` from `measurement_info`, stage completion flags from `data_status`. Result data (ESPRIT modes, tracking chains, feedin arrays) is fetched from separate endpoints. Sets `mappingDirty = false` after sync.
 
-`openProject(name)` resets stages and ESPRIT config immediately (unfreezing the UI), then loads the new project and restores all state from the backend: measurement info, channel roles, ESPRIT config (band preset, bands, GPU/TLS flags from `data_status.esprit_config`), stage completion states, and scenario info.
+On mount: fetches project list, calls `syncFromBackend()` if a project is open. After every mutation (submit mapping, run ESPRIT/tracking/feedin, apply to preset, save config, etc.), calls `syncFromBackend()` to refresh state.
 
-ESPRIT: `runEsprit()` drives a per-scenario loop from the frontend — each scenario is a synchronous `POST /modal/run_esprit` with `scenario_indices: [i]`. Progress updates after each scenario (elapsed, remaining, modes found). Pauses synthesis before, resumes after. Results accumulate across runs. After completion, auto-selects unprocessed scenarios.
+Project actions: `createProject(name, source)`, `openProject(name)`, `copyProject(src, dst)`, `deleteProject(name)`, `addMeasurementsToProject(source)`. All call the backend endpoint then `syncFromBackend()`.
 
-Other actions: `runTracking()` (uses all processed scenarios), `runFeedin()`, `applyToPreset()`, `submitChannelMapping()` (channel roles to `/modal/mapping`), `submitSoundMapping()` (sound output to `/modal/channel_mapping`), `fetchDataStatus()`, `reset()`. `copyProject` resets all stages and channel config to defaults (measurements only).
+ESPRIT: `runEsprit()` drives a per-scenario loop from the frontend — each scenario is a synchronous `POST /modal/run_esprit` with `scenario_indices: [i]`. Progress updates after each scenario (elapsed, remaining, modes found). Pauses synthesis before, resumes after. Results accumulate across runs. After completion, calls `syncFromBackend()` and auto-selects unprocessed scenarios.
+
+Other actions: `runTracking()` (uses all processed scenarios), `runFeedin()`, `applyToPreset()`, `submitChannelMapping()` (channel roles to `/modal/mapping`), `submitSoundMapping()` (sound output to `/modal/channel_mapping`), `fetchDataStatus()`, `reset()`. All call `syncFromBackend()` after success.
 
 ### `useSocketIO`
 

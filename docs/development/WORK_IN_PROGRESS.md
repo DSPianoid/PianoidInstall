@@ -10,6 +10,7 @@
 | dev-7644 | Modal Adapter state management rewrite — Phase 1 (backend-only) | [log](logs/dev-7644-2026-04-13-113833.md) | 2026-04-13 |
 | dev-46d7 | Modal Adapter state management rewrite — Phase 2 (backend + frontend) | [log](logs/dev-46d7-2026-04-13-084621.md) | 2026-04-13 |
 | dev-dbbf | Modal Adapter state management rewrite — Phase 3 (frontend-only) | [log](logs/dev-dbbf-2026-04-13-084632.md) | 2026-04-13 |
+| dev-0333 | Modal Adapter state management rewrite — Phase 4 (syncFromBackend) | [log](logs/dev-0333-2026-04-13-120053.md) | 2026-04-13 |
 
 ---
 
@@ -196,9 +197,23 @@ Merged Project and ESPRIT into a unified "Setup" section. Channel roles and ESPR
 | Project creation/import/copy/delete hidden when frozen | Done |
 | Setup button shows project name | Done |
 
+### State Management Rewrite (2026-04-13)
+
+Phased elimination of split-brain state between frontend and backend.
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 1 | Backend `GET /modal/project_state` endpoint | Done |
+| 2 | Backend `DEFAULT_CONFIG.preset` → `extended_8band` | Done |
+| 3 | Frontend `mappingDirty` tracking for explicit save | Done |
+| 4 | Frontend `syncFromBackend()` — single state sync function | Done |
+
+Phase 4 replaced ~200 lines of ad-hoc state restoration across `openProject`, `createProject`, `copyProject`, mount effect, and `addMeasurementsToProject` with a single `syncFromBackend()` function. Every mutation now calls `syncFromBackend()` after success. Removed dead `applyConfig`/`setConfigPreset` (endpoint deleted in Phase 1).
+
 ### Remaining
 
 - Browser verification of all Phase 1 + Phase 2 + Phase 3 + Phase 4 features
+- Browser verification of state management rewrite (project open/create/copy, ESPRIT run, state persistence)
 - Independent-stage loading, full pipeline execution, backward compatibility
 - Project CRUD workflow, toolbar navigation, per-scenario ESPRIT UI
 
