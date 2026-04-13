@@ -11,6 +11,7 @@
 | dev-46d7 | Modal Adapter state management rewrite — Phase 2 (backend + frontend) | [log](logs/dev-46d7-2026-04-13-084621.md) | 2026-04-13 |
 | dev-dbbf | Modal Adapter state management rewrite — Phase 3 (frontend-only) | [log](logs/dev-dbbf-2026-04-13-084632.md) | 2026-04-13 |
 | dev-0333 | Modal Adapter state management rewrite — Phase 4 (syncFromBackend) | [log](logs/dev-0333-2026-04-13-120053.md) | 2026-04-13 |
+| dev-03db | Modal Adapter state management rewrite — Phase 5 (cleanup) | [log](logs/dev-03db-2026-04-13-092759.md) | 2026-04-13 |
 
 ---
 
@@ -207,8 +208,11 @@ Phased elimination of split-brain state between frontend and backend.
 | 2 | Backend `DEFAULT_CONFIG.preset` → `extended_8band` | Done |
 | 3 | Frontend `mappingDirty` tracking for explicit save | Done |
 | 4 | Frontend `syncFromBackend()` — single state sync function | Done |
+| 5 | Frontend cleanup — dead code, state consolidation, log path fix | Done |
 
 Phase 4 replaced ~200 lines of ad-hoc state restoration across `openProject`, `createProject`, `copyProject`, mount effect, and `addMeasurementsToProject` with a single `syncFromBackend()` function. Every mutation now calls `syncFromBackend()` after success. Removed dead `applyConfig`/`setConfigPreset` (endpoint deleted in Phase 1).
+
+Phase 5 cleanup: removed `onPresetSelect` dead prop from EspritConfig, removed band-preset retry-polling (fetch once on mount instead), consolidated 4 project-related useState calls into grouped `project` state object, removed unused `pct` variable in importProject upload handler, fixed hardcoded log path in modal_adapter `__init__.py` to use system temp directory.
 
 ### Remaining
 
