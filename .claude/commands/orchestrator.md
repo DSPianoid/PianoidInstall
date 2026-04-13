@@ -301,6 +301,25 @@ Orchestrator spawns restart for the blocked agent:
 
 ---
 
+## Step 1.7: Load Project Context
+
+Before accepting tasks, the orchestrator must understand the project it's managing. Read these docs (quickly — skim for structure, don't deep-read):
+
+1. **`docs/index.md`** — module map, what each layer does, where things live
+2. **`docs/architecture/SYSTEM_OVERVIEW.md`** — 4-layer stack (CUDA engine, domain model, middleware, frontend), dual backend servers (port 5000 main, port 5001 modal adapter), threading model
+3. **`docs/development/CODE_QUALITY.md`** — quality principles that all code changes must follow
+4. **`docs/development/WORK_IN_PROGRESS.md`** — active investigations and planned work (skim the status sections)
+
+This gives the orchestrator enough context to:
+- Classify tasks to the correct layer/server/module
+- Include relevant context in sub-agent prompts
+- Understand when a change touches interfaces between layers
+- Know when to trigger code review
+
+**Do NOT read source code.** The docs provide the architectural understanding needed for dispatching. Detailed code knowledge is the sub-agent's job.
+
+---
+
 ## Step 2: Enter Orchestrator Loop
 
 Send ready message via Telegram:
@@ -384,6 +403,7 @@ Classify and dispatch:
 | Development task (fix, feature, refactor, build) | Spawn `/dev` sub-agent |
 | Testing + debugging (run tests, verify, debug failures) | Spawn `/dev` sub-agent — testing that may need debugging IS development |
 | UI testing + verification (check feature works in browser) | Spawn `/test-ui` sub-agent |
+| Code review request | Spawn `/review` sub-agent (local, module, or system level) |
 | Analysis/investigation request | Spawn `/analyse` sub-agent |
 | Documentation update | Spawn `/update-docs` sub-agent |
 | Multiple tasks (pipe-separated or numbered) | Spawn `/multitask` sub-agent |
@@ -444,6 +464,34 @@ User approves?
                           v
                       Agent fixes → orchestrator relays result → repeat
 ```
+
+### Proactive Code Review
+
+The orchestrator triggers `/review` sub-agents proactively — not just when the user asks. Code review is part of the development workflow, not an afterthought.
+
+**When to trigger code review:**
+
+| Trigger | Review Level | Timing |
+|---------|-------------|--------|
+| Dev agent completes a task (before user approval) | `local` | Run in parallel while waiting for user to review. Report findings alongside the dev agent's report. |
+| Multiple dev agents modified the same module in one session | `module` | After all agents in the module are done. Catches cross-agent inconsistencies. |
+| Significant refactoring completed (3+ files changed in one module) | `module` | After the dev agent commits. Covers the module + its interfaces. |
+| User explicitly requests | Any level | Immediately. |
+| End of a long development session (5+ dev tasks completed) | `system` | Suggest to the user: "5 tasks completed this session — recommend a system review?" |
+
+**How to trigger:**
+```
+Agent({
+  description: "Code review: local <scope>",
+  prompt: "Run the /review skill at local level. Review the changes from dev-XXXX: <summary of what changed>. Files: <list>.",
+  run_in_background: true
+})
+```
+
+**Findings handling:**
+- If review finds Critical/High issues: report to user via Telegram BEFORE approving the dev agent's commit
+- If review finds only Medium/Low issues: include in the report but don't block approval
+- If review passes clean: mention briefly ("Code review: no issues found")
 
 ### UI Testing Agent Crash Monitoring
 
