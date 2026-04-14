@@ -7,6 +7,7 @@
 | dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
 | dev-5d0d | Refactor zoom/scale system in StabilizationDiagram — unify dual-state zoom | [log](logs/dev-5d0d-2026-04-14-160337.md) | 2026-04-14 |
 | dev-22e6 | Fix stabilization diagram zoom reset — intermediate state on reset | [log](logs/dev-22e6-2026-04-14-131404.md) | 2026-04-14 |
+| dev-d4d3 | Fix stabilization diagram periodic redraw interfering with user interaction | [log](logs/dev-d4d3-2026-04-14-161758.md) | 2026-04-14 |
 
 ---
 
