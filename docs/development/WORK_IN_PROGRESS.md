@@ -4,8 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-4116 | Shape sub-chart multi-line click selection + main chart highlight | [log](logs/dev-4116-2026-04-14-105530.md) | 2026-04-14 |
-| dev-dba1 | Normalize mode shape phase across scenarios in shape sub-chart | [log](logs/dev-dba1-2026-04-14-111539.md) | 2026-04-14 |
 
 ---
 
