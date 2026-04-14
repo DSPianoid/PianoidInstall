@@ -128,6 +128,15 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - X=scenario (zoom-synced with main diagram), Y=signed scalar (+in-phase / -anti-phase)
 - Zero reference line marks nodal boundary, area fill highlights positive/negative regions
 
+**Visualization enhancements (2026-04-14):**
+- Bridge boundary: replaced inaccurate graphic percentage line with ECharts markLine at exact scenario index, tracks zoom/pan, "Bass | Treble" label
+- Chain visibility filter: ToggleButtonGroup (Stable / +Semi / All / Unasgn) filters chains by stability class; "Unasgn" hides all chains and shows only orphan detections (larger, orange)
+- Chain paths visible by default (`showPaths` initialized to `true`)
+- Chain selection fix: brush tool was intercepting clicks before scatter handler; tiny brush areas now detected and converted to click-select via `findNearestChain`
+- Full-bridge chains (`bridge="full"`): path lines split at `bridgeBoundary` to show natural gap between bass/treble sections
+- Interactive shape sub-chart: clicking a line (detection) highlights the corresponding point on the main chart (white diamond, orange glow); other shape lines dim; toggleable
+- Zoom fixes: brush rectangle artifact cleared via brush tool toggle off/on; reset zoom also dispatches `dataZoom` reset to 0-100% on both axes
+
 ---
 
 ## Modal Adapter Redesign — Phase 1 + Phase 2 + Phase 3
