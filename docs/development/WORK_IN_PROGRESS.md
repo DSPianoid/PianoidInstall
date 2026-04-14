@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
+| dev-5d0d | Refactor zoom/scale system in StabilizationDiagram — unify dual-state zoom | [log](logs/dev-5d0d-2026-04-14-160337.md) | 2026-04-14 |
 
 ---
 
@@ -143,6 +144,13 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Interactive shape sub-chart: clicking selects ALL lines crossing the click area (5% Y-range tolerance), not just the single clicked line; all corresponding points highlighted on main chart (white diamond, orange glow); non-matching shape lines dim; toggleable
 - Zoom fixes: brush rectangle artifact cleared via brush tool toggle off/on; reset zoom also dispatches `dataZoom` reset to 0-100% on both axes
 - Shape phase alignment: scenario shapes normalized to consistent phase before display — dot product with reference shape determines sign flip, so shapes from different scenarios are visually comparable
+
+**Zoom system refactoring (2026-04-14):**
+- Unified dual-state zoom: removed ECharts `dataZoom` (type "inside") components; all zoom now flows through single `viewBounds` React state
+- Manual scroll-wheel zoom: cursor-centered, log-aware for Y axis (frequency), replaces ECharts internal scroll/pinch zoom
+- Reset Zoom button visible whenever any zoom source is active (not just brush zoom)
+- Centralized brush lifecycle: single effect manages brush arm/disarm via `brushGeneration` counter, replacing 3 competing paths (handleBrushSelected cleanup, useEffect on option change, handleChartReady)
+- Sub-charts sync with unified zoom state via `viewBounds`
 
 ---
 
