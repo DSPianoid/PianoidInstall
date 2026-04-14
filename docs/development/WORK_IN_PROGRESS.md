@@ -6,6 +6,7 @@
 |-------|------|-----|---------|
 | dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
 | dev-5d0d | Refactor zoom/scale system in StabilizationDiagram — unify dual-state zoom | [log](logs/dev-5d0d-2026-04-14-160337.md) | 2026-04-14 |
+| dev-22e6 | Fix stabilization diagram zoom reset — intermediate state on reset | [log](logs/dev-22e6-2026-04-14-131404.md) | 2026-04-14 |
 
 ---
 
@@ -151,6 +152,7 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Reset Zoom button visible whenever any zoom source is active (not just brush zoom)
 - Centralized brush lifecycle: single effect manages brush arm/disarm via `brushGeneration` counter, replacing 3 competing paths (handleBrushSelected cleanup, useEffect on option change, handleChartReady)
 - Sub-charts sync with unified zoom state via `viewBounds`
+- All chart animations disabled (`animation: false`) — ECharts axis interpolation caused visible intermediate state on zoom reset
 
 ---
 

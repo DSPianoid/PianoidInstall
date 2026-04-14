@@ -6,4 +6,4 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-5d0d | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2026-04-14T16:05:00Z | Refactor zoom/scale system — unify dual-state zoom |
+| dev-22e6 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2026-04-14T13:14:04Z | Fix zoom reset intermediate state |
