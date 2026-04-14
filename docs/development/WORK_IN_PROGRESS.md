@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-4116 | Shape sub-chart multi-line click selection + main chart highlight | [log](logs/dev-4116-2026-04-14-105530.md) | 2026-04-14 |
 
 ---
 
@@ -134,7 +135,7 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Chain paths visible by default (`showPaths` initialized to `true`)
 - Chain selection fix: brush tool was intercepting clicks before scatter handler; tiny brush areas now detected and converted to click-select via `findNearestChain`
 - Full-bridge chains (`bridge="full"`): path lines split at `bridgeBoundary` to show natural gap between bass/treble sections
-- Interactive shape sub-chart: clicking a line (detection) highlights the corresponding point on the main chart (white diamond, orange glow); other shape lines dim; toggleable
+- Interactive shape sub-chart: clicking selects ALL lines crossing the click area (5% Y-range tolerance), not just the single clicked line; all corresponding points highlighted on main chart (white diamond, orange glow); non-matching shape lines dim; toggleable
 - Zoom fixes: brush rectangle artifact cleared via brush tool toggle off/on; reset zoom also dispatches `dataZoom` reset to 0-100% on both axes
 
 ---
