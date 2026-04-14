@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
 
 ---
 
@@ -127,6 +128,11 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Computes signed reference projection from complex mode shapes in frontend: mean shape as reference, Re(dot(shape, conj(ref))) per detection
 - X=scenario (zoom-synced with main diagram), Y=signed scalar (+in-phase / -anti-phase)
 - Zero reference line marks nodal boundary, area fill highlights positive/negative regions
+
+**Selected chain properties display (2026-04-14):**
+- When chains are selected, MUI Chips appear above the main chart showing per-chain: ID, mean frequency (Hz), mean damping ratio, scenario count
+- Chips bordered by stability color (green/yellow/orange/grey) for quick identification
+- Compact and non-intrusive — wraps across multiple rows when many chains selected
 
 **Visualization enhancements (2026-04-14):**
 - Bridge boundary: replaced inaccurate graphic percentage line with ECharts markLine at exact scenario index, tracks zoom/pan, "Bass | Treble" label
