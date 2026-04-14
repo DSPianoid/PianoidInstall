@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-4116 | Shape sub-chart multi-line click selection + main chart highlight | [log](logs/dev-4116-2026-04-14-105530.md) | 2026-04-14 |
+| dev-dba1 | Normalize mode shape phase across scenarios in shape sub-chart | [log](logs/dev-dba1-2026-04-14-111539.md) | 2026-04-14 |
 
 ---
 
@@ -137,6 +138,7 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Full-bridge chains (`bridge="full"`): path lines split at `bridgeBoundary` to show natural gap between bass/treble sections
 - Interactive shape sub-chart: clicking selects ALL lines crossing the click area (5% Y-range tolerance), not just the single clicked line; all corresponding points highlighted on main chart (white diamond, orange glow); non-matching shape lines dim; toggleable
 - Zoom fixes: brush rectangle artifact cleared via brush tool toggle off/on; reset zoom also dispatches `dataZoom` reset to 0-100% on both axes
+- Shape phase alignment: scenario shapes normalized to consistent phase before display — dot product with reference shape determines sign flip, so shapes from different scenarios are visually comparable
 
 ---
 
