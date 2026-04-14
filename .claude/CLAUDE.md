@@ -140,6 +140,58 @@ Examples:
 | Documentation | `D:\repos\PianoidInstall\docs/` |
 | MkDocs config | `D:\repos\PianoidInstall\mkdocs.yml` |
 
+## Frontend UI Standards
+
+Adapted from the [Claude Code Frontend Design Toolkit](https://github.com/wilwaldon/Claude-Code-Frontend-Design-Toolkit) for Pianoid's stack.
+
+### Stack
+
+- **React 18** + **MUI v6** (Material UI) — all UI components use MUI, not Tailwind/shadcn
+- **Emotion** (`@emotion/react`, `@emotion/styled`) — MUI's styling engine
+- **ECharts 5** (`echarts-for-react`) — all data visualization (stabilization diagrams, charts, heatmaps)
+- **Socket.IO** — real-time WebSocket communication with Flask backend
+- **react-mosaic-component** — tiling window manager for dockable panes
+- **CRA** (`react-scripts 5.0.1`) — build toolchain
+
+### Theme Direction
+
+<always_use_dark_professional_theme>
+Always design with Pianoid's dark professional aesthetic:
+- MUI dark theme (`mode: 'dark'`) as the base — never light mode
+- Dense, information-rich layouts appropriate for audio engineering tools
+- Muted accent colors (blues, teals) against dark backgrounds — no neon, no gradients
+- Compact spacing (MUI `dense` prop, `size="small"`) — screen real estate is precious in mosaic panes
+- Monospace or tabular-nums for numeric parameter displays
+- High contrast for interactive controls (sliders, inputs) against dark panels
+- No decorative elements — every pixel serves a function
+</always_use_dark_professional_theme>
+
+### Component Conventions
+
+- **Always use MUI components** (`Button`, `TextField`, `Slider`, `Select`, `ToggleButtonGroup`, `Chip`, `Tooltip`, etc.) — never raw HTML or custom CSS equivalents
+- **Use `sx` prop** for one-off styles, `styled()` for reusable styled components — never inline `style` objects
+- **Use MUI `useTheme()` and `theme.palette`** for colors — never hardcode hex values
+- **Use `context7` MCP** to fetch current MUI v6 docs before using any MUI API — MUI v6 has breaking changes from v5 (e.g., `Grid2` replaces `Grid`, `pigment-css` changes)
+- **ECharts options** must respect the dark theme: `backgroundColor: 'transparent'`, axis/label colors from MUI palette, tooltip with dark background
+- **Numeric inputs** use the existing `NumInput` component (`src/components/NumInput/NumInput.js`) — do not create new numeric input components
+- **Parameter editors** follow the existing pattern: optimistic UI update + 300ms debounced API call via `usePreset`
+- **Mosaic panes** must have a `MosaicWindow` wrapper with a proper title — panes without titles break the window management
+
+### Accessibility Baseline
+
+- All interactive elements must be keyboard-navigable (MUI handles this by default — do not break it with custom click handlers that skip `onKeyDown`)
+- Slider labels must include units and current value (use MUI `Slider` `valueLabelDisplay="auto"`)
+- Color is never the only indicator — pair with icons or text labels (especially in matrix heatmaps and stabilization diagrams)
+- Use `aria-label` on icon-only buttons (MUI `IconButton`)
+
+### What NOT to Do
+
+- Do not install or use Tailwind CSS, shadcn/ui, or any CSS utility framework — MUI is the design system
+- Do not add new charting libraries — use ECharts for all visualization
+- Do not create standalone CSS/SCSS files — use Emotion via MUI's `sx` or `styled()`
+- Do not use `React.createElement` — use JSX
+- Do not add animation libraries (GSAP, Framer Motion) — Pianoid is a performance-critical audio tool, not a marketing site
+
 ## Self-Update Rule
 
 When the user asks for any kind of update (self-update, skill update, etc.), check if the `/self-update` skill is available. If it is not available as a slash command, find it in `claude-config/skills/self-update/SKILL.md` and execute its instructions directly.
