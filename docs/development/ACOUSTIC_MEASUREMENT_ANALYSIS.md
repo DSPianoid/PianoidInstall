@@ -16,27 +16,33 @@ A separate **modal adapter** pipeline bridges ESPRIT modal extraction from physi
 ## 2. Signal Chain
 
 ```
-Microphone Hardware
-       |
-  SDL3 / ASIO callback (real-time thread)
-       |
-  CaptureBuffer (lock-free ring buffer, atomic sync)
-       |
-  stopCapture() -> std::vector<float>
-       |
-  MicAnalyzer::analyze() (CPU-only)
-       |-- Extract mono channel
-       |-- Skip attack transient (freq-dependent)
-       |-- Measure RMS in window (double accumulation)
-       |-- 2nd-order IIR bandpass @ fundamental (+/-6% BW)
-       |-- Filtered RMS -> spectralEnergy
-       |
-  MicMeasurement {rms, peak, spectralEnergy}
+Microphone Hardware                      Synthesis Engine
+       |                                        |
+  SDL3 / ASIO callback                   dev_soundFloat (GPU)
+       |                                        |
+  CaptureBuffer (lock-free)              startSynthesisCapture()
+       |                                        |
+  stopCapture()                          stopSynthesisCapture()
+       |                                        |
+       +---------- MicAnalyzer::analyzeWithReference() (CPU) ----------+
+                   |                                                    |
+                   |-- Extract mono channel                             |
+                   |-- Skip attack transient (Python-configurable)      |
+                   |-- DC removal (subtract mean)                       |
+                   |-- Goertzel @ fundamental + harmonics 2..6          |
+                   |-- Sum harmonic energies -> spectralEnergy          |
+                   |-- Same Goertzel on reference -> referenceEnergy    |
+                   |-- transferRatio = mic / synth                      |
+                   |
+  MicMeasurement {rms, spectralEnergy, referenceEnergy, transferRatio, harmonics[]}
        |
   CalibrationController (Python)
+       |-- Ambient noise measurement (pre-excitation)
+       |-- Noise power subtraction: rms = sqrt(max(0, rms^2 - noise^2))
        |-- Noise floor detection (spectral ratio < 0.15 -> boost)
        |-- Bisection search on volume coefficient (+/-0.2 dB tolerance)
        |-- ISO 226 perception curve adjustment
+       |-- 3 repetitions with median selection
        |-- Upload corrected excitation to GPU
 ```
 
@@ -59,16 +65,28 @@ CPU-only signal analysis returning `MicMeasurement`:
 
 | Field | Computation |
 |-------|-------------|
-| `rms` | `sqrt(sum(x^2) / N)` over measurement window (double accumulation) |
-| `peak` | `max(|x|)` over measurement window |
-| `spectralEnergy` | RMS after 2nd-order Butterworth bandpass centered on fundamental |
+| `rms` | `sqrt(sum(x^2) / N)` over DC-removed measurement window |
+| `peak` | `max(|x|)` over DC-removed measurement window |
+| `spectralEnergy` | Sum of Goertzel energy at fundamental + harmonics 2..N (skipping above Nyquist) |
+| `referenceEnergy` | Same Goertzel analysis on synthesis output buffer (when `analyzeWithReference` used) |
+| `transferRatio` | `spectralEnergy / referenceEnergy` — mic/synth energy ratio |
+| `numHarmonics` | Number of harmonics analyzed (those below Nyquist, max 8) |
+| `harmonics[]` | Per-harmonic breakdown: `{frequency, energy}` for mic signal |
+| `referenceHarmonics[]` | Per-harmonic breakdown: `{frequency, energy}` for synthesis output |
 | `capturedFrames` | Total frames in capture buffer |
 | `analyzedFrames` | Frames in measurement window only |
 
-**Bandpass filter** (when `fundamentalFreqHz > 20 Hz`):
-- Bandwidth: `fundamentalFreqHz * 0.12` (~2 semitones)
-- `Q = centerFreq / bandwidth`, `w0 = 2*pi*f/sr`, `alpha = sin(w0) / (2Q)`
-- Direct Form II transposed IIR, applied forward-only
+**Goertzel algorithm** (replaced 2nd-order IIR bandpass):
+- `goertzelEnergy(data, N, freq, sampleRate)` — O(N) per harmonic, normalized by N^2
+- Measures energy at fundamental and harmonics 2..6 (configurable via `numHarmonics` param)
+- Harmonics above Nyquist are automatically skipped
+- No transient settling issues — works identically at all frequencies
+- **DC removal** applied before all analysis (mean subtracted from measurement window)
+
+**Reference signal comparison** (`analyzeWithReference`):
+- Runs identical Goertzel analysis on both mic recording and synthesis output
+- Transfer ratio compensates for speaker response, room acoustics, mic response
+- Per-harmonic ratios available for diagnostics
 
 ### 3.3 Audio Driver Extensions
 
@@ -111,14 +129,18 @@ All timing converted to exact cycle counts via `ms_to_cycles()`. No `time.sleep`
 
 1. `reset()` — cut previous note tail
 2. Run settling cycles synchronously (frequency-dependent)
-3. `startMicCapture(duration_ms)` — begin recording
-4. `beginStringBatch()` / `addStringToBatch()` / `commitStringBatch()` — excite strings
-5. Run measurement cycles:
+3. Measure ambient noise: capture brief silence, analyze RMS (no fundamental)
+4. `startMicCapture(duration_ms)` + `startSynthesisCapture()` — begin dual recording
+5. `beginStringBatch()` / `addStringToBatch()` / `commitStringBatch()` — excite strings
+6. Run measurement cycles:
    - First `CLIPPING_PROBE_CYCLES` (10 cycles, ~13 ms) to sample synthesis peak
    - Remaining cycles until `skip_ms + window_ms + 100` elapsed
-6. `stopMicCapture()` -> samples vector
-7. `analyzeCapturedAudio(samples, sampleRate, freq)` -> `MicMeasurement`
-8. `reset()` — cut this note's tail
+7. `stopMicCapture()` -> mic samples; `stopSynthesisCapture()` -> synthesis samples
+8. `analyzeCapturedAudioWithReference(mic, ref, sampleRate, freq, skipMs, windowMs)` -> `MicMeasurement`
+9. Ambient noise correction: `rms = sqrt(max(0, rms^2 - ambient_rms^2))`
+10. `reset()` — cut this note's tail
+
+**Timing is unified**: Python passes `skipMs`/`windowMs` from its configurable timing bands to C++. The C++ defaults are used only when Python omits them (backward compatibility).
 
 ---
 
@@ -313,7 +335,10 @@ Pipeline rebuild planned — see [MODAL_ADAPTER_PIPELINE_PLAN.md](MODAL_ADAPTER_
 |--------|----------|-----------|
 | Capture sync | Lock-free atomics | Real-time safe; no mutex on audio callback |
 | Measurement timing | Frequency-dependent bands | Low frequencies need longer settling for accurate RMS |
-| Spectral energy | Bandpass RMS @ fundamental | Distinguishes pitched signal from broadband noise |
+| Spectral energy | Goertzel at fundamental + harmonics 2-6 | Consistent across all frequencies; includes harmonic energy; O(N) per harmonic |
+| Reference signal | Goertzel on synthesis output | Compensates speaker/room/mic response automatically |
+| DC removal | Mean subtraction on measurement window | Prevents DC offset from corrupting RMS and Goertzel |
+| Ambient noise | Pre-excitation RMS, power subtraction | Removes background noise contribution from measurement |
 | Bisection tolerance | +/-0.2 dB | Matches mic measurement precision; finer adds no value |
 | Semi-offline mode | Stop loop, keep driver | Eliminates timing races; synthesis still real-time |
 | Noise floor lifting | Adaptive 2x boost, max 5 steps | Empirically effective; caps to prevent runaway |

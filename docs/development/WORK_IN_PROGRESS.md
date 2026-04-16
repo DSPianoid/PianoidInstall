@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-eebf | Revise volume measurement system — Goertzel spectral + reference signal | [log](logs/dev-eebf-2026-04-16-155139.md) | 2026-04-16 |
 | dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
 | dev-5d0d | Refactor zoom/scale system in StabilizationDiagram — unify dual-state zoom | [log](logs/dev-5d0d-2026-04-14-160337.md) | 2026-04-14 |
 | dev-22e6 | Fix stabilization diagram zoom reset — intermediate state on reset | [log](logs/dev-22e6-2026-04-14-131404.md) | 2026-04-14 |
