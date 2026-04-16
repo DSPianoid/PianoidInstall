@@ -882,7 +882,7 @@ Response `500` on measurement error.
 
 Starts full keyboard equalization in a background thread. Measures every available pitch and adjusts excitation volume coefficients to match a reference pitch's RMS.
 
-Three-phase process per pitch: noise floor lift, initial correction, iterative verification (up to 3 passes, 20% error threshold). Poll progress via `GET /calibration_status`.
+Two-phase process per pitch: noise floor lift (boost until signal above noise), then direct linear correction (1-2 measurements using RMS = K * excitation linearity, with bisection fallback). Poll progress via `GET /calibration_status`.
 
 Request body:
 ```json
@@ -913,7 +913,7 @@ Response `500` on error.
 
 ### `POST /tune_note`
 
-Iteratively adjusts the excitation volume coefficient for a single pitch until the measured dB matches the target (within 1 dB tolerance, max 5 iterations). Blocking — returns when tuning completes.
+Adjusts the excitation volume coefficient for a single pitch to match the target dB using direct linear correction (1-2 measurements). Falls back to bisection search if direct correction overshoots. Blocking -- returns when tuning completes.
 
 Request body:
 ```json
@@ -933,10 +933,14 @@ Response `200` (converged):
 {
   "rms": 0.0178,
   "db": -35.0,
-  "iterations": 3,
-  "converged": true
+  "iterations": 2,
+  "converged": true,
+  "coefficient": 1.234,
+  "method": "direct"
 }
 ```
+
+`method` values: `direct` (converged via linear correction), `direct_noop` (already at target), `direct_no_verify` (small correction, skipped verification), `bisection_fallback_zero` / `bisection_fallback_clip` / `bisection_fallback_overshoot` (fell back to bisection).
 
 Response `200` (did not converge):
 ```json
@@ -944,7 +948,9 @@ Response `200` (did not converge):
   "rms": 0.0195,
   "db": -34.2,
   "iterations": 5,
-  "converged": false
+  "converged": false,
+  "coefficient": 1.456,
+  "method": "bisection_fallback_overshoot"
 }
 ```
 

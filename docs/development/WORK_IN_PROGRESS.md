@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-a565 | Replace iterative volume calibration with direct linear correction (10-15x speedup) | [log](logs/dev-a565-2026-04-16-173133.md) | 2026-04-16 |
 | dev-eebf | Revise volume measurement system — Goertzel spectral + reference signal | [log](logs/dev-eebf-2026-04-16-155139.md) | 2026-04-16 |
 | dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
 | dev-5d0d | Refactor zoom/scale system in StabilizationDiagram — unify dual-state zoom | [log](logs/dev-5d0d-2026-04-14-160337.md) | 2026-04-14 |

@@ -202,14 +202,16 @@ Microphone-based volume equalization using semi-offline calibration mode. The en
 | 3. Level multipliers | Per-velocity-level global scaling factors (e.g., boost pp, attenuate ff) |
 | 4. ISO 226 curves | Frequency-dependent perception compensation (low-freq boost, high-freq cut) applied as per-pitch correction weights |
 
+**Volume correction algorithm:** Direct linear correction exploiting the linear RMS-to-excitation relationship (`RMS = K(pitch) * excitation_scale`, R^2 > 0.998). A single measurement determines the correction factor (`target_rms / measured_rms`), reducing per-note calibration from 20-30 measurements (bisection) to 1-2 measurements. Bisection is retained as a fallback for clipping, near-zero signal, or unexpected nonlinearity.
+
 Key methods:
 
 | Method | Purpose |
 |--------|---------|
 | `calibrate(velocity_levels, pitches, target_rms)` | Full calibration run (background thread) |
 | `measure_single(pitch, velocity, repetitions)` | Single-note RMS measurement |
-| `equalize_keyboard(reference_pitch, velocity)` | Equalize all pitches to a reference |
-| `tune_single(pitch, velocity, target_db)` | Bisection search to match target dB |
+| `equalize_keyboard(reference_pitch, velocity)` | Equalize all pitches to a reference (direct correction) |
+| `tune_single(pitch, velocity, target_db)` | Direct correction to match target dB (bisection fallback) |
 | `get_perception_curves()` / `set_perception_curves()` | Read/write per-pitch correction weights |
 | `apply_level_multipliers(multipliers)` | Apply 6-element velocity-level scaling |
 | `save_perception_curves_to_preset()` | Persist calibration to preset JSON |
