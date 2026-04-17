@@ -6,6 +6,7 @@
 |-------|------|-----|---------|
 | dev-5312 | Simplify CalibrationPanel to 2 tabs, move timing to Settings | [log](logs/dev-5312-2026-04-18-160214.md) | 2026-04-18 |
 | dev-de0f | Fix CurveEditor chart not updating on RCM capture | [log](logs/dev-de0f-2026-04-18-161900.md) | 2026-04-18 |
+| dev-d4d3 | Fix stabilization diagram periodic redraw interfering with user interaction | [log](logs/dev-d4d3-2026-04-14-161758.md) | 2026-04-14 |
 
 ---
 
