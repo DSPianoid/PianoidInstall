@@ -242,14 +242,17 @@ For features with a range (volume slider, sensitivity):
    - range=2: 4× total (center/2 to center×2)
    - range=5: 25× total
 
-### Phase 7: Cleanup (MANDATORY)
+### Phase 7: Cleanup (MANDATORY — NEVER SKIP)
+
+**You MUST clean up ALL servers and browser pages you started, regardless of test outcome.** Leaving stale processes prevents the user from restarting and is a severe violation.
 
 ```bash
 echo "[$(date -Iseconds)] Phase 7: Cleanup" >> D:/tmp/test-ui-session.log
+# Close browser page via chrome-devtools MCP (close_page) FIRST
+# Then stop backend gracefully
 curl -s -X POST http://127.0.0.1:3001/api/stop-backend 2>/dev/null
-# close_page via MCP
-# Kill ONLY processes on Pianoid ports — never blanket-kill python.exe or node.exe
-for port in 5000 3000 3001; do
+# Kill ALL processes on Pianoid ports — never blanket-kill python.exe or node.exe
+for port in 5000 5001 3000 3001; do
   pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
   if [ -n "$pid" ] && [ "$pid" != "0" ]; then
     echo "Cleanup: killing PID $pid on port $port" >> D:/tmp/test-ui-session.log
@@ -258,6 +261,12 @@ for port in 5000 3000 3001; do
 done
 echo "[$(date -Iseconds)] Session complete" >> D:/tmp/test-ui-session.log
 ```
+
+**This cleanup MUST run even if:**
+- The test failed or crashed
+- The agent is about to return/exit
+- An earlier phase threw an error
+- The user cancelled the test
 
 ## Quick Reference
 

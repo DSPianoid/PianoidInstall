@@ -272,6 +272,27 @@ cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidIns
 - If the server crashes on startup, read the log file to diagnose — do not ask the user
 - If startup fails 3 times, report the log contents and stop — do not loop indefinitely
 
+### Clean Up After Yourself (MANDATORY)
+
+**Every agent MUST shut down all servers it started before exiting**, regardless of exit path (success, failure, or kill). This includes wrap-up, reset, pause, and any abnormal termination.
+
+```bash
+# Graceful shutdown of servers started by this agent
+for port in 5000 5001 3000 3001; do
+  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    echo "Cleaning up: killing PID $pid on port $port"
+    taskkill //F //PID "$pid" 2>/dev/null
+  fi
+done
+```
+
+**Rules:**
+- If you started a backend (port 5000/5001) or frontend (port 3000/3001), you MUST stop it before returning
+- Include cleanup in ALL exit paths: Step 10a (wrap-up), Step 10b (reset), Step 10c (pause), and error/exception paths
+- The user should never have to clean up after an agent — leaving stale processes is a severe violation
+- If the agent used chrome-devtools to open a browser, close the page before exiting
+
 ## Step 2: Baseline Performance Test
 
 Before any code changes, run the performance test suite and save results:

@@ -425,15 +425,21 @@ Classify and dispatch:
 
 2. **Never edit code or read source files in the orchestrator.** The orchestrator is a dispatcher. The moment you start reading source code or editing files, you are doing it wrong. Spawn a sub-agent instead.
 
-3. **NEVER spawn single-task agents that die on return.** SendMessage is NOT available — once an agent returns, its context is lost FOREVER. Every agent must be instructed to STAY ALIVE and wait for follow-up instructions or explicit confirmation to wrap up. **Always include in every agent prompt:**
+3. **ALWAYS spawn agents via Agent Teams (TeamCreate + Agent with team_name).** NEVER use the basic Agent tool without a team. Teams keep agents alive so the orchestrator can send follow-ups via SendMessage. The basic Agent tool kills agents on return — their context is lost forever.
+
+   **Setup:** On orchestrator start, create a team if one doesn't exist:
    ```
-   STAY ALIVE after completing this task. Do NOT return or exit. After reporting your results,
-   wait for follow-up instructions — the orchestrator will relay user feedback, additional bugs
-   to fix, or approval to commit. You will handle ALL follow-up work on this module until the
-   user explicitly approves wrap-up.
+   TeamCreate({ team_name: "pianoid-dev", description: "Pianoid development team" })
    ```
+   Then spawn all agents with `team_name: "pianoid-dev"` and a `name`:
+   ```
+   Agent({ team_name: "pianoid-dev", name: "dev-calibration", prompt: "...", run_in_background: true })
+   ```
+   Follow-ups go via: `SendMessage({ to: "dev-calibration", message: "Fix this additional issue: ..." })`
 
 4. **Scope agents broadly, not narrowly.** An agent for "fix bug X in module Y" should be scoped as "fix and debug module Y until user approves." The agent will handle the initial bug, follow-up bugs, UI testing, and iterations — all in one session with full context. Never spawn a new agent for a follow-up bug in the same module.
+
+5. **Controller agent.** The team should include a permanent controller agent whose job is to monitor /dev workflow compliance. See "Controller Agent" section below.
 
 5. **Never let dev agents auto-commit.** Dev agents must STOP before Step 10 (wrap-up/commit) and report their changes. The orchestrator relays the report to the user. Only after explicit user approval does the orchestrator instruct the agent to proceed with Step 10.
 
@@ -445,6 +451,7 @@ Classify and dispatch:
 3. Clear instruction on whether to make changes or just research
 4. For /dev agents: explicit instruction to stop before Step 10 and await approval
 5. **STAY ALIVE instruction** (see rule 3 above) — this is MANDATORY for every agent
+6. For /dev agents: **"Your FIRST actions must be Step 0 (create session log, register in WIP) and Step 1b (environment control). You MUST NOT edit any source file before acquiring locks in MODULE_LOCKS.md. Editing code without logging and locking is a SEVERE VIOLATION."**
 
 **Use `run_in_background: true`** for non-trivial tasks so the orchestrator remains responsive to new messages.
 
@@ -602,47 +609,67 @@ If the user reports a missed message or the orchestrator suspects a gap:
 1. Report the failure to user via Telegram (include error summary)
 2. Ask if they want to retry, adjust approach, or skip
 
-### Post-Agent Verification (MANDATORY after EVERY dev agent completion)
+## Agent Lifecycle Management (BLOCKING — runs before relaying results)
 
-After every dev agent completes (success or failure), the orchestrator MUST:
+**When a dev agent notification arrives, the orchestrator MUST assess agent state and act accordingly BEFORE relaying results or processing new messages.**
 
-1. **Read the agent's session log** from `docs/development/logs/` (NOT the output file — the session log is the authoritative record):
-   ```bash
-   ls docs/development/logs/dev-XXXX-*.md
-   ```
-   This tells you what the agent actually did, what files it modified, and whether it completed cleanup.
+### Agent States
 
-2. **Check MODULE_LOCKS.md** — verify the agent's locks are released. If not, release them.
+An agent is in exactly one of these states:
 
-3. **Check WORK_IN_PROGRESS.md** — verify the agent's entry is still appropriate:
-   - If agent completed and user approved commit: entry should remain until user approves wrap-up
-   - If agent was killed or failed: remove the entry immediately
+| State | Log | Locks | WIP | Action |
+|-------|-----|-------|-----|--------|
+| **ALIVE** — still running, waiting for follow-ups | Active (in logs/) | Held | Present | Do nothing — agent owns its resources. Relay results but DO NOT clean up. |
+| **RETURNED** — completed, context lost, awaiting user confirmation | Active (in logs/) | Held | Present | Relay results. Wait for user to confirm/approve. |
+| **CONFIRMED** — user approved, ready for wrap-up/commit | Active (in logs/) | Held | Present | Instruct agent to commit (if alive) or commit via sync agent. Then → CLOSED. |
+| **CLOSED** — work done, approved, committed | Archived | Released | Removed | All resources freed. |
+| **KILLED** — terminated by orchestrator | Must archive | Must release | Must remove | Immediate full cleanup. |
 
-4. **Check for dirty files** — if the agent was killed mid-edit:
-   ```bash
-   git status --short
-   ```
-   If there are uncommitted changes from the killed agent, report to user and ask: keep or revert?
+### On Agent Completion (notification arrives)
 
-5. **Archive the log** — only after user approves wrap-up and the agent has committed:
-   ```bash
-   mv docs/development/logs/dev-XXXX-*.md docs/development/logs/archive/
-   ```
+1. **Determine state:** Did the agent return (context lost) or is it still alive?
+   - If using Agent Teams with SendMessage: agent may still be alive → state = ALIVE
+   - If agent returned via Agent tool: context is lost → state = RETURNED
+2. **Relay results** to user via Telegram
+3. **Do NOT release locks, archive logs, or clean WIP** — the agent's work is pending user review
+4. **Wait for user response** (approve, request changes, or reject)
 
-**Never skip this.** Ghost entries accumulate fast and confuse future agents.
+### On User Approval
 
-### Post-Kill Cleanup (MANDATORY when orchestrator kills an agent)
+1. If agent is ALIVE: instruct it to proceed with Step 10a (commit + cleanup)
+2. If agent has RETURNED: spawn a commit/sync agent to commit the changes
+3. After commit succeeds: release locks, remove WIP entry, archive log → state = CLOSED
 
-When the orchestrator kills a dev agent (TaskStop), immediately:
+### On Agent Termination (TaskStop)
 
-1. **Read the agent's session log** to understand what it did
-2. **Release locks** in MODULE_LOCKS.md (the agent can't do it itself — it's dead)
-3. **Remove WIP entry** from WORK_IN_PROGRESS.md
-4. **Check git status** for uncommitted changes:
-   - If changes are partial/broken: `git checkout -- <files>` to revert
-   - If changes look complete but uncommitted: report to user, ask whether to commit or revert
-5. **Archive the session log** to `docs/development/logs/archive/`
-6. **Report to user** what was cleaned up
+The agent is dead — it cannot clean up or finish its work. The orchestrator must handle dirty state. Two options:
+
+**Option A — RESET (revert agent's work):**
+Use when the agent's changes are clearly broken or unwanted.
+1. **Revert uncommitted changes:** `git checkout -- <files the agent modified>` (check session log for file list)
+2. **Release locks** in MODULE_LOCKS.md
+3. **Remove WIP entry** from WORK_IN_PROGRESS.md  
+4. **Archive session log** to `docs/development/logs/archive/`
+5. **Report** to user: "Agent terminated, changes reverted, repo clean"
+
+**Option B — RECOVER (preserve and continue agent's work):**
+Use when the agent made partial progress worth keeping.
+1. **Read the session log** to understand what was done and what remains
+2. **Check git status** and `git diff --stat` to assess the state of changes
+3. **Report to user** with: what the agent completed, what's uncommitted, whether the code is in a buildable/testable state
+4. **Ask user:** commit as-is, continue with a new agent, or reset?
+5. Locks and WIP stay until the user decides
+
+**How to choose:**
+- **RESET** — user reported a problem caused by the agent (broken UI, crashes), or changes are clearly wrong
+- **RECOVER + ask user** — situation is ambiguous, partial work may or may not be useful
+- **RECOVER + continue autonomously** — situation is clear, agent stalled on infrastructure (network, server startup), no information loss, partial work is valid. Use discretion: spawn a new agent with the session log as context and continue the task without asking.
+
+### Periodic Health Check
+
+On startup (Step 1.5) and periodically: scan `docs/development/logs/` for logs that don't correspond to any running agent. These are orphaned from crashed/killed agents. Clean them up.
+
+**The invariant: every log in `docs/development/logs/` must correspond to an agent that is either ALIVE, RETURNED (awaiting user review), or CONFIRMED (awaiting commit). Anything else is orphaned and must be cleaned up immediately.**
 
 ### Channel disconnects
 
@@ -701,6 +728,9 @@ The orchestrator is a **dispatcher and communicator**, not a worker.
 | Asking user to check browser console, hard-refresh, or verify UI behavior | Spawn /test-ui or /dev agent with chrome-devtools MCP to test yourself — NEVER ask user to debug UI |
 | Suggesting "try X and let me know" for any testable behavior | Test it yourself via sub-agent. The orchestrator has full access to browser, REST, and CLI |
 | Spawning narrow single-bug agents for a module under active debugging | Scope agents broadly: "fix and debug this module until user approves." The agent stays alive for follow-up bugs, UI testing, and iteration. SendMessage is NOT available — once an agent returns, its context is lost forever. Design prompts accordingly. |
+| Not verifying agent created session log + acquired locks | The controller agent handles this. If no controller, check within ~2 min that docs/development/logs/dev-*.md exists and MODULE_LOCKS.md has the agent's entry. Kill and respawn if not. SEVERE VIOLATION. |
+| Spawning agents via basic Agent tool (no team) | ALWAYS use Agent Teams (team_name parameter). Basic Agent kills agents on return — context lost forever. |
+| Spawning a new agent for a follow-up in the same module | Use SendMessage to the existing team agent — it has the context. Only spawn new if the agent is genuinely dead. |
 | Relying on servers already running | Always kill stale and start fresh with correct venv Python |
 | Checking agent status via output file size | Read the agent's session log in docs/development/logs/ — it's the authoritative record |
 | Skipping post-completion verification | ALWAYS run Post-Agent Verification after every dev agent — no exceptions |
