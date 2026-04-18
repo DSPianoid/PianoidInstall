@@ -93,6 +93,7 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /health                   -- lifecycle status
   /shutdown                 -- graceful shutdown
   /open_folder_dialog       -- native OS folder picker (tkinter subprocess)
+  /modal/defaults           -- pipeline defaults shared with frontend
   /modal/data_status        -- pipeline stage availability flags
   /modal/run_pipeline       -- run full extraction pipeline (background)
   /modal/load_folder        -- load impulse response measurements
@@ -1116,6 +1117,24 @@ Response `200`:
 
 Served by `modal_adapter_server.py` on port 5001. ESPRIT-based modal extraction pipeline, project management, and folder dialogs. All `/modal/*` endpoints use stage-based architecture with independent stage execution and auto-persistence.
 
+### Error Status Codes
+
+All `/modal/*` endpoints return JSON error responses `{"error": "<message>"}` with the following status classification (F18, W4-A):
+
+| Status | Mapped from | When |
+|--------|-------------|------|
+| `400` | `ValueError`, `TypeError`, `KeyError` | Bad request payload (malformed JSON, missing/invalid keys, schema mismatch) |
+| `404` | `FileNotFoundError` | A resource (project, measurement file, export) does not exist |
+| `409` | `RuntimeError` | Server state conflict — no project open, ModalAdapter not initialized, pipeline in wrong stage |
+| `503` | `ModalAdapterOnlyError` | The requested route is main-server-only (port 5000) and was hit on the modal-adapter server (port 5001) |
+| `500` | Any other exception | Unexpected server bug — logged with traceback |
+
+Routes may still return explicit codes (e.g. export endpoints return `404` for "not found" inside the happy path); the automatic classification applies to uncaught exceptions routed through `_error()`.
+
+### Server Role & Cross-Process Routes
+
+Routes that mutate the running synthesis engine (`POST /modal/apply_to_preset`) require a live `Pianoid` instance and therefore only work when served by the **main** backend (port 5000). When served by the standalone **modal adapter** server (port 5001), these routes respond `503` with message `"This route only runs on the main server at port 5000 ..."` (F9, W4-A). Each server advertises its role via the Flask `app.config['role']` attribute (`'main'` / `'modal_adapter_server'`).
+
 ### Utility Endpoints
 
 #### `GET /health`
@@ -1151,6 +1170,38 @@ Response `200` (user cancelled):
 ```json
 {"path": "", "cancelled": true}
 ```
+
+---
+
+#### `GET /modal/defaults`
+
+Returns pipeline defaults shared between backend and frontend (F16, W4-A). Replaces hardcoded duplicates (`bridge_boundary=28`, `pitch_offset=21`) in both layers with a single source of truth derived from `MappingConfig` dataclass defaults and `DEFAULT_ESPRIT_PARAMS`.
+
+The frontend (`useModalAdapter.js`) fetches this endpoint once on mount and uses the values as initial `bridgeBoundary` / `pitchOffset` / `trackingParams` state. Hardcoded fallbacks remain in the frontend as a first-render guard when the modal adapter server is not yet reachable.
+
+Response `200`:
+```json
+{
+  "bridge_boundary": 28,
+  "pitch_offset": 21,
+  "tracking_params_default": {
+    "bridge_boundary": 28,
+    "freq_tol_pct": 0.02,
+    "max_gap": 3
+  },
+  "esprit_config_default": {
+    "band_preset": "extended_8band",
+    "mac_threshold": 0.9,
+    "freq_tol_pct": 0.01,
+    "use_gpu": true,
+    "use_tls": true,
+    "max_damping": 0.2,
+    "window_length": 2000
+  }
+}
+```
+
+`bridge_boundary` and `pitch_offset` are top-level aliases into `tracking_params_default` (kept flat for the most common frontend consumers).
 
 ---
 
@@ -1278,7 +1329,7 @@ Response `200`:
 {"task_id": "modal_pipeline"}
 ```
 
-Response `400` if ModalAdapter not initialized.
+Response `409` if ModalAdapter not initialized or pipeline is in a conflicting state (see Error Status Codes table above).
 
 ---
 

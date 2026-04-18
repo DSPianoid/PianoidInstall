@@ -269,6 +269,7 @@ Key endpoints added in the redesign:
 
 - `GET /modal/data_status` — returns availability flags (`has_measurements`, `has_esprit`, `has_tracking`, `has_feedin`, etc.) used by the frontend to enable/disable stages independently
 - `POST /modal/run_pipeline` — runs the full pipeline in a background thread; poll `GET /modal/status` for progress
+- `GET /modal/defaults` — pipeline defaults (`bridge_boundary`, `pitch_offset`, tracking and ESPRIT defaults) shared between backend and frontend (F16, W4-A)
 
 Supports two input formats: direct `.npy` files and RoomResponse per-channel scenario data. Auto-persists intermediate results to project directory.
 
