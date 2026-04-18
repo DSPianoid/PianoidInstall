@@ -4,13 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-f642 | Refactor CalibrationController into focused modules | [log](logs/dev-f642-2026-04-18-065209.md) | 2026-04-18 |
-| ~~dev-6bac~~ | Fix review findings #6 (CurveManager), #7 (stale state), #10 (imports) | [log](logs/dev-6bac-2026-04-17-195503.md) | 2026-04-17 | **Stale** |
-| ~~dev-eae8~~ | Fix all code review findings for calibration module | [log](logs/dev-eae8-2026-04-17-193925.md) | 2026-04-17 | **Complete** |
-| ~~dev-6de3~~ | Fix CalibrationPanel: manual reference input does not enable Calibrate Synthesis button | [log](logs/dev-6de3-2026-04-17-164548.md) | 2026-04-17 | **Stale** |
-| ~~dev-a48f~~ | Fix CalibrationPanel: velocity level selector + progress tracking for long-running ops | [log](logs/dev-a48f-2026-04-17-212602.md) | 2026-04-17 | **Stale** |
-| ~~dev-595e~~ | Fix offline render arch: skip audio output during calibration, no ASIO stop/restart | [log](logs/dev-595e-2026-04-17-205824.md) | 2026-04-17 | **Stale** |
-| ~~dev-068d~~ | Modular calibration curve system with interactive reference capture | [log](logs/dev-068d-2026-04-17-184215.md) | 2026-04-17 | **Stale** |
 
 ---
 
