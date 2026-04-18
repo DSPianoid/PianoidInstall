@@ -1347,7 +1347,7 @@ Request body: same shape as `espritConfig` in the frontend.
 
 #### `GET /modal/esprit_config`
 
-Load saved ESPRIT configuration from project. Prefers `esprit/config.json` (explicit save) over `esprit/metadata.json` (run-time params).
+Load saved ESPRIT configuration from `esprit/config.json` (single source of truth). Returns `{}` if no config has been saved. Never falls back to `esprit/metadata.json` — that file holds run provenance only (`scenario_count`, `scenario_indices`, `run_at`). A successful ESPRIT run overwrites `config.json` with the params actually used so the on-disk results and saved config never diverge. Legacy projects with `params` embedded in `metadata.json` are migrated to `config.json` automatically on `open_project`.
 
 #### `GET /modal/gpu_status`
 
