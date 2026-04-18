@@ -8,7 +8,6 @@
 | dev-de0f | Fix CurveEditor chart not updating on RCM capture | [log](logs/dev-de0f-2026-04-18-161900.md) | 2026-04-18 |
 | dev-2144 | F7 (frontend semi-stable rename) + F19 (dev-d4d3 follow-ups) in StabilizationDiagram.jsx | [log](logs/dev-2144-2026-04-18-174816.md) | 2026-04-18 |
 | dev-d9e7 | W2-C — dead-code purge F2/F3/F4/F13 in modal_adapter.py | [log](logs/dev-d9e7-2026-04-18-174847.md) | 2026-04-18 |
-| dev-e05f | W2-D — F14/F15/F7(comment) in useModalAdapter.js | [log](logs/dev-e05f-2026-04-18-174901.md) | 2026-04-18 |
 
 ---
 
