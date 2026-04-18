@@ -7,7 +7,6 @@
 | dev-5312 | Simplify CalibrationPanel to 2 tabs, move timing to Settings | [log](logs/dev-5312-2026-04-18-160214.md) | 2026-04-18 |
 | dev-de0f | Fix CurveEditor chart not updating on RCM capture | [log](logs/dev-de0f-2026-04-18-161900.md) | 2026-04-18 |
 | dev-2144 | F7 (frontend semi-stable rename) + F19 (dev-d4d3 follow-ups) in StabilizationDiagram.jsx | [log](logs/dev-2144-2026-04-18-174816.md) | 2026-04-18 |
-| dev-f7ba | F7 / W2-A — verify backend `semi-stable` naming consistency (no-op) | [log](logs/dev-f7ba-2026-04-18-174831.md) | 2026-04-18 |
 | dev-d9e7 | W2-C — dead-code purge F2/F3/F4/F13 in modal_adapter.py | [log](logs/dev-d9e7-2026-04-18-174847.md) | 2026-04-18 |
 | dev-e05f | W2-D — F14/F15/F7(comment) in useModalAdapter.js | [log](logs/dev-e05f-2026-04-18-174901.md) | 2026-04-18 |
 | dev-42e5 | W2-E — F17 add chainEditor dep in ModalAdapter.jsx useEffect | [log](logs/dev-42e5-2026-04-18-174902.md) | 2026-04-18 |

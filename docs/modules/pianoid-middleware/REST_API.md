@@ -1245,6 +1245,8 @@ Fields are `null` when data is not available (e.g., `measurement_info` is `null`
 
 Runs the full extraction pipeline (load → mapping → ESPRIT → tracking → feedin) in a background thread. Returns immediately with a task ID. Poll progress via `GET /modal/status`.
 
+Payload key names match the frontend exactly — `esprit_config` and `tracking_params` (not the legacy `esprit_params` / `tracking` names). Sending the old keys is silently ignored and the pipeline runs with defaults.
+
 Request body:
 ```json
 {
@@ -1259,11 +1261,17 @@ Request body:
     "bridge_boundary": 28,
     "pitch_offset": 21
   },
-  "esprit_params": {"band_preset": "extended_8band"},
-  "tracking": {"bridge_boundary": 28, "freq_tol_pct": 0.02, "max_gap": 3},
-  "response_channels": [0, 1]
+  "esprit_config": {"band_preset": "extended_8band"},
+  "tracking_params": {"bridge_boundary": 28, "freq_tol_pct": 0.02, "max_gap": 3},
+  "response_channels": [0, 1],
+  "feedin_method": "mode_shape"
 }
 ```
+
+All fields are optional. Two guards protect against silent data loss when re-running the pipeline on an already-open project:
+
+- **Measurements reuse.** If `folder_path` is omitted or matches the currently-loaded source folder, `load_folder` is skipped — the existing `_measurements`, `_mapping`, `_results`, and `_applied` state is preserved.
+- **Mapping preservation.** If `mapping` is omitted AND the adapter already has a mapping loaded, the existing `_mapping` is reused. If the adapter has no mapping and `mapping` is absent, the pipeline errors immediately with `"mapping required when adapter has no existing mapping loaded"`.
 
 Response `200`:
 ```json

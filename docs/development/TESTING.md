@@ -156,6 +156,18 @@ Validates that `pack_pitch_feedin()` respects the `listen_to_modes` flag when in
 | `TestEndToEndZeroedFeedinProducesSound::test_regular_modes_negligible_vs_sound_channel_modes` | Regular modes have negligible displacement from cross-coupling |
 | `TestStringsModeSilenceOnZeroedFeedin::test_strings_mode_zeroed_feedin_produces_silence` | Strings mode + zeroed feedin + pack_deck → silence (fix validation) |
 
+### test_modal_pipeline_payload.py
+
+Regression tests for finding F1 (Modal Adapter review, Wave 1) — payload key alignment between frontend `ModalAdapter.jsx` and backend `/modal/run_pipeline`. ESPRIT/tracking/feedin stages are stubbed so the test runs without real measurement data.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestFrontendPayloadKeys::test_esprit_config_key_reaches_esprit_stage` | Payload `esprit_config` reaches `_run_esprit_sync` verbatim (not dropped to defaults) |
+| `TestFrontendPayloadKeys::test_tracking_params_key_reaches_tracking_stage` | Payload `tracking_params` reaches `run_tracking` with the exact values posted |
+| `TestMappingPreservation::test_reused_folder_does_not_call_load_folder` | Re-running the pipeline with the currently-loaded `folder_path` skips `load_folder` (avoids wiping `_mapping`) |
+| `TestMappingPreservation::test_missing_mapping_in_payload_preserves_existing` | Omitting `mapping` in the payload preserves the adapter's existing `_mapping` instead of silently replacing with defaults |
+| `TestPayloadAcceptance::test_full_frontend_payload_accepted` | The exact JSON shape emitted by `ModalAdapter.jsx handleRunPipeline` is accepted and completes the pipeline |
+
 ### test_modal_adapter_e2e.py
 
 End-to-end integration test for the Modal Adapter pipeline with Belarus measurement data. Tests all 6 stages: Load → ESPRIT → Tracking → Feedin → Channel Mapping → Apply to Preset.
