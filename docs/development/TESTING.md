@@ -25,7 +25,7 @@ PianoidCore/tests/
     ├── test_channel_assignment.py   # MappingConfig persistence round-trip, _load_mapping_results file priority, ESPRIT response channel filtering
     ├── test_direct_correction.py    # CalibrationController: direct linear correction algorithm, fallback to bisection, edge cases (11 tests)
     ├── test_mic_analyzer.py         # MicAnalyzer: Goertzel spectral measurement, DC removal, harmonics, reference signal comparison (16 tests)
-    ├── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints
+    ├── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints, scenario discovery helpers (`_discover_{npy,roomresponse}_scenarios`)
     └── test_project_export_import.py # Project export/import: zip creation, manifest validation, sanitisation, round-trip, name conflict resolution
 ```
 
