@@ -22,7 +22,8 @@ Parse `$ARGUMENTS` for flags:
 
 ## Critical Rules
 
-1. **Documentation first** — before investigating any failure, consult docs (see CLAUDE.md Documentation-First Rule)
+1. **Environment ownership** — NEVER rely on servers already running. Always kill stale processes on Pianoid ports (5000, 5001, 3000, 3001) and start fresh with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state — check and fix it yourself. CWD for backend must be `PianoidCore/pianoid_middleware/` for relative paths.
+2. **Documentation first** — before investigating any failure, consult docs (see CLAUDE.md Documentation-First Rule)
 2. **Never blanket-kill processes** — kill by specific PID on specific ports only
 3. **Use correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
 4. **Port-specific cleanup** — `netstat -ano | findstr :<port>` to identify PIDs

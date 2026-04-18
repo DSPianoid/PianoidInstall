@@ -44,6 +44,8 @@ Write the log header:
 
 ```
 
+**Logging rule:** Log each step to your session log as you start it, with a timestamp and brief description. Update the log BEFORE starting the step's work, not after. This includes Steps 1-10 — not just initialization. The session log is how the orchestrator monitors your progress.
+
 ### Register in WIP
 
 Add a reference to `docs/development/WORK_IN_PROGRESS.md` under `## Active Dev Sessions` at the top of the file. If the heading doesn't exist, create it. Multiple agents may have entries here simultaneously.
@@ -208,15 +210,19 @@ After both checks, summarize to the user:
 
 **Ask the user to confirm the approach before proceeding.**
 
-## Step 1b: Kill Stale Backend Instances (MANDATORY)
+## Step 1b: Environment Control (MANDATORY)
+
+**You own the environment. NEVER ask the user to start/stop servers, check processes, or verify what's running. NEVER rely on servers already running. Always take full control.**
+
+### Kill Stale Processes
 
 Before running any tests, builds, or starting the backend, **always** kill existing Pianoid backend and frontend processes. Stale instances from previous sessions cause port conflicts and distorted audio output (two audio drivers fighting over the sound device).
 
 **CRITICAL: Only kill processes bound to Pianoid ports — NEVER use blanket `taskkill //F //IM python.exe` or `taskkill //F //IM node.exe`.** Those commands kill MCP servers (WhatsApp, email, Google Workspace), Chrome DevTools, and even Claude Code itself (node.exe), crashing the orchestrator session.
 
 ```bash
-# Kill ONLY processes on Pianoid ports (5000=backend, 3000/3001=frontend)
-for port in 5000 3000 3001; do
+# Kill ONLY processes on Pianoid ports (5000=backend, 5001=modal adapter, 3000/3001=frontend)
+for port in 5000 5001 3000 3001; do
   pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
   if [ -n "$pid" ] && [ "$pid" != "0" ]; then
     echo "Killing PID $pid on port $port"
@@ -226,10 +232,45 @@ done
 # Wait for ports to release
 sleep 2
 # Verify ports are free
-netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000) " && echo "WARNING: ports still in use" || echo "Ports clear"
+netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000|5001) " && echo "WARNING: ports still in use" || echo "Ports clear"
 ```
 
 **This applies every time** — even if you think nothing is running. Previous sub-agents or user sessions may have left orphaned processes. Distorted sound is the #1 symptom of skipping this step.
+
+### Start Servers With Correct Venv
+
+When the task requires a running backend, **start it yourself**. Use `run_in_background: true` on the Bash tool (NOT shell `&`) so the process survives:
+
+```bash
+# Backend server (port 5000) — CWD must be pianoid_middleware for relative preset paths
+cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -u backendserver.py > D:/tmp/backend.log 2>&1
+```
+Pass `run_in_background: true` to the Bash tool. Do NOT use shell `&` — it causes the Bash tool to report immediate exit.
+
+Then verify in a separate Bash call:
+```bash
+# Wait for startup and verify
+sleep 2 && netstat -ano 2>/dev/null | grep ":5000 .*LISTENING" && curl -s http://127.0.0.1:5000/health | head -3
+```
+
+If the port is not listening, read the log to diagnose:
+```bash
+cat D:/tmp/backend.log
+```
+
+**Modal adapter server (port 5001)** — same pattern:
+```bash
+cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -u modal_adapter/modal_adapter_server.py > D:/tmp/modal_adapter.log 2>&1
+```
+
+**Rules:**
+- Always use `PianoidCore/.venv/Scripts/python`, NEVER system Python (`C:\Python312\python.exe`)
+- Always set CWD to `pianoid_middleware/` before starting — preset paths are relative
+- Always use `run_in_background: true` on the Bash tool, NOT shell `&`
+- Always redirect output to a log file for diagnostics
+- Always verify with port check + endpoint test after startup
+- If the server crashes on startup, read the log file to diagnose — do not ask the user
+- If startup fails 3 times, report the log contents and stop — do not loop indefinitely
 
 ## Step 2: Baseline Performance Test
 

@@ -425,19 +425,26 @@ Classify and dispatch:
 
 2. **Never edit code or read source files in the orchestrator.** The orchestrator is a dispatcher. The moment you start reading source code or editing files, you are doing it wrong. Spawn a sub-agent instead.
 
-3. **Keep agents alive until user approves.** Do NOT consider a sub-agent's work done until the user confirms the result is acceptable. Save the agent ID so you can send follow-up instructions via `SendMessage` if the user reports issues.
+3. **NEVER spawn single-task agents that die on return.** SendMessage is NOT available — once an agent returns, its context is lost FOREVER. Every agent must be instructed to STAY ALIVE and wait for follow-up instructions or explicit confirmation to wrap up. **Always include in every agent prompt:**
+   ```
+   STAY ALIVE after completing this task. Do NOT return or exit. After reporting your results,
+   wait for follow-up instructions — the orchestrator will relay user feedback, additional bugs
+   to fix, or approval to commit. You will handle ALL follow-up work on this module until the
+   user explicitly approves wrap-up.
+   ```
 
-4. **Continue agents, don't replace them.** When a research agent builds context that is needed for implementation, use `SendMessage(to: agentId)` to transition that same agent to implementation — do NOT spawn a fresh agent that loses the context. Similarly, if the user requests fixes to work done by an agent, relay the fix request to the same agent.
+4. **Scope agents broadly, not narrowly.** An agent for "fix bug X in module Y" should be scoped as "fix and debug module Y until user approves." The agent will handle the initial bug, follow-up bugs, UI testing, and iterations — all in one session with full context. Never spawn a new agent for a follow-up bug in the same module.
 
-5. **Never let dev agents auto-commit.** Dev agents must STOP before Step 10 (wrap-up/commit) and report their changes. The orchestrator relays the report to the user. Only after explicit user approval does the orchestrator tell the agent to proceed with Step 10. This keeps agents alive for debugging and review. **Always include in the dev agent prompt:** "Do NOT proceed to Step 10 (commit/wrap-up). Stop after editing and testing. Report your changes and wait for explicit approval before committing."
+5. **Never let dev agents auto-commit.** Dev agents must STOP before Step 10 (wrap-up/commit) and report their changes. The orchestrator relays the report to the user. Only after explicit user approval does the orchestrator instruct the agent to proceed with Step 10.
 
    The only exception is if the user explicitly says "commit without asking" or "auto-wrap-up" for a specific task.
 
-**Include in the sub-agent prompt:**
+**Include in every sub-agent prompt:**
 1. The user's exact request (quoted)
 2. Any context from the conversation that's relevant
 3. Clear instruction on whether to make changes or just research
 4. For /dev agents: explicit instruction to stop before Step 10 and await approval
+5. **STAY ALIVE instruction** (see rule 3 above) — this is MANDATORY for every agent
 
 **Use `run_in_background: true`** for non-trivial tasks so the orchestrator remains responsive to new messages.
 
@@ -450,20 +457,26 @@ User sends task via Telegram
 Orchestrator classifies task → selects skill
     |
     v
-Spawn sub-agent with skill (save agentId)
-  (prompt includes: "Stop before Step 10, report changes, await approval")
+Spawn broad-scope sub-agent with skill
+  (prompt includes: STAY ALIVE, stop before Step 10, handle follow-ups)
     |
     v
-Agent edits + tests → stops before commit → orchestrator relays report to user
+Agent edits + tests → reports results → STAYS ALIVE (does not return)
     |
     v
-User approves?
-    |-- YES → SendMessage(to: agentId) → "proceed with commit and Step 10a wrap-up"
-    |-- NO / issues → SendMessage(to: agentId) with fix instructions
-                          |
-                          v
-                      Agent fixes → orchestrator relays result → repeat
+Orchestrator relays report to user via Telegram
+    |
+    v
+User responds:
+    |-- Approves → Orchestrator tells agent: "proceed with Step 10a wrap-up"
+    |-- Reports bug → Orchestrator tells agent: "fix this additional issue: ..."
+    |-- Requests changes → Orchestrator tells agent: "adjust X, add Y"
+    |
+    v
+Agent handles follow-up → reports again → STAYS ALIVE → repeat until user approves
 ```
+
+**NOTE:** Since SendMessage is NOT available, the orchestrator cannot send follow-up instructions to a completed agent. The STAY ALIVE instruction prevents agents from completing prematurely. If an agent does return despite the instruction, spawn a new broad-scope agent with full context from the previous agent's session log.
 
 ### Proactive Code Review
 
@@ -589,6 +602,48 @@ If the user reports a missed message or the orchestrator suspects a gap:
 1. Report the failure to user via Telegram (include error summary)
 2. Ask if they want to retry, adjust approach, or skip
 
+### Post-Agent Verification (MANDATORY after EVERY dev agent completion)
+
+After every dev agent completes (success or failure), the orchestrator MUST:
+
+1. **Read the agent's session log** from `docs/development/logs/` (NOT the output file — the session log is the authoritative record):
+   ```bash
+   ls docs/development/logs/dev-XXXX-*.md
+   ```
+   This tells you what the agent actually did, what files it modified, and whether it completed cleanup.
+
+2. **Check MODULE_LOCKS.md** — verify the agent's locks are released. If not, release them.
+
+3. **Check WORK_IN_PROGRESS.md** — verify the agent's entry is still appropriate:
+   - If agent completed and user approved commit: entry should remain until user approves wrap-up
+   - If agent was killed or failed: remove the entry immediately
+
+4. **Check for dirty files** — if the agent was killed mid-edit:
+   ```bash
+   git status --short
+   ```
+   If there are uncommitted changes from the killed agent, report to user and ask: keep or revert?
+
+5. **Archive the log** — only after user approves wrap-up and the agent has committed:
+   ```bash
+   mv docs/development/logs/dev-XXXX-*.md docs/development/logs/archive/
+   ```
+
+**Never skip this.** Ghost entries accumulate fast and confuse future agents.
+
+### Post-Kill Cleanup (MANDATORY when orchestrator kills an agent)
+
+When the orchestrator kills a dev agent (TaskStop), immediately:
+
+1. **Read the agent's session log** to understand what it did
+2. **Release locks** in MODULE_LOCKS.md (the agent can't do it itself — it's dead)
+3. **Remove WIP entry** from WORK_IN_PROGRESS.md
+4. **Check git status** for uncommitted changes:
+   - If changes are partial/broken: `git checkout -- <files>` to revert
+   - If changes look complete but uncommitted: report to user, ask whether to commit or revert
+5. **Archive the session log** to `docs/development/logs/archive/`
+6. **Report to user** what was cleaned up
+
 ### Channel disconnects
 
 1. Detect via failed tool calls
@@ -633,14 +688,23 @@ The orchestrator is a **dispatcher and communicator**, not a worker.
 | Mistake | Correct Approach |
 |---------|-----------------|
 | Reading source files to "quickly check" something | Spawn Explore agent or ask sub-agent |
-| Editing code directly because "it's just one line" | Spawn `/dev` sub-agent — even for one line |
+| Editing code directly because "it's just one line" | Spawn `/dev` sub-agent — even for one line. SEVERE VIOLATION — no exceptions |
+| Making a "quick fix" directly after noticing a problem | Always spawn /dev. The orchestrator's "quick fix" was wrong AND bypassed logging/locking |
 | Spawning fresh agent after research agent found context | `SendMessage` to continue the same agent |
 | Reporting task complete before user confirms | Wait for explicit approval on Telegram |
 | Giving agent raw instructions instead of a skill | Always invoke `/dev`, `/analyse`, etc. |
 | Classifying "test and debug" as simple verification | Testing that may need debugging IS `/dev` — always use a skill |
 | Running curl/commands directly in orchestrator | Spawn a sub-agent — even for "just checking something" |
-| Asking user to restart backend or kill processes | Agent kills stale processes, starts launcher, clicks APPLY itself |
-| Asking user to "test manually and report back" | Agent runs all tests end-to-end — curl, UI interaction, verification |
+| Asking user to restart backend or kill processes | Agent kills stale processes, starts with correct venv, verifies — NEVER ask user |
+| Asking user to confirm which code/server is running | Check PID, command line, port yourself — you have full access |
+| Asking user to "test manually and report back" | Agent runs all tests end-to-end — curl, UI interaction, verification. SEVERE VIOLATION |
+| Asking user to check browser console, hard-refresh, or verify UI behavior | Spawn /test-ui or /dev agent with chrome-devtools MCP to test yourself — NEVER ask user to debug UI |
+| Suggesting "try X and let me know" for any testable behavior | Test it yourself via sub-agent. The orchestrator has full access to browser, REST, and CLI |
+| Spawning narrow single-bug agents for a module under active debugging | Scope agents broadly: "fix and debug this module until user approves." The agent stays alive for follow-up bugs, UI testing, and iteration. SendMessage is NOT available — once an agent returns, its context is lost forever. Design prompts accordingly. |
+| Relying on servers already running | Always kill stale and start fresh with correct venv Python |
+| Checking agent status via output file size | Read the agent's session log in docs/development/logs/ — it's the authoritative record |
+| Skipping post-completion verification | ALWAYS run Post-Agent Verification after every dev agent — no exceptions |
+| Skipping post-kill cleanup | ALWAYS run Post-Kill Cleanup when killing a dev agent — release locks, clean WIP, archive log |
 | Spawning separate commit agent instead of letting dev agent wrap up | `SendMessage` to same agent → "proceed with commit and Step 10a wrap-up" |
 | Generating new agent ID for recovered/restarted agent | Reuse original agent ID — ID persistence rule |
 | Ignoring stale locks/WIP on startup | Always run Step 1.5 health check before accepting tasks |

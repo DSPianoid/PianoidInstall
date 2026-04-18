@@ -13,7 +13,7 @@ Control the Pianoid synthesizer interface through browser automation. Uses the `
 
 1. **NEVER use direct API calls** (`curl`, `fetch` via `evaluate_script`) for actions that should go through the React UI. The UI will not reflect changes and React state gets out of sync. Always interact through UI components (click, fill, press_key).
 2. **Always load presets via the Settings panel APPLY button** — this triggers `ensureBackendAndLoadPreset` which starts the backend, loads the preset, and fetches all parameters into React state.
-3. **Kill stale processes before starting** — multiple python processes cause audio distortion.
+3. **Kill stale processes and start fresh** — NEVER rely on servers already running. Always kill stale processes on Pianoid ports (5000, 5001, 3000, 3001) and start with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state — check and fix it yourself.
 4. **Never reload the page** (`window.location.reload()`) — it disconnects from the backend and may crash it. Set layout via localStorage BEFORE first navigation.
 
 ## Architecture Reference

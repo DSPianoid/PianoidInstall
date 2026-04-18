@@ -4,12 +4,13 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-a565 | Replace iterative volume calibration with direct linear correction (10-15x speedup) | [log](logs/dev-a565-2026-04-16-173133.md) | 2026-04-16 |
-| dev-eebf | Revise volume measurement system — Goertzel spectral + reference signal | [log](logs/dev-eebf-2026-04-16-155139.md) | 2026-04-16 |
-| dev-b3ba | Display chain properties (freq, damping) on selection in stabilization diagram | [log](logs/dev-b3ba-2026-04-14-155749.md) | 2026-04-14 |
-| dev-5d0d | Refactor zoom/scale system in StabilizationDiagram — unify dual-state zoom | [log](logs/dev-5d0d-2026-04-14-160337.md) | 2026-04-14 |
-| dev-22e6 | Fix stabilization diagram zoom reset — intermediate state on reset | [log](logs/dev-22e6-2026-04-14-131404.md) | 2026-04-14 |
-| dev-d4d3 | Fix stabilization diagram periodic redraw interfering with user interaction | [log](logs/dev-d4d3-2026-04-14-161758.md) | 2026-04-14 |
+| dev-f642 | Refactor CalibrationController into focused modules | [log](logs/dev-f642-2026-04-18-065209.md) | 2026-04-18 |
+| ~~dev-6bac~~ | Fix review findings #6 (CurveManager), #7 (stale state), #10 (imports) | [log](logs/dev-6bac-2026-04-17-195503.md) | 2026-04-17 | **Stale** |
+| ~~dev-eae8~~ | Fix all code review findings for calibration module | [log](logs/dev-eae8-2026-04-17-193925.md) | 2026-04-17 | **Complete** |
+| ~~dev-6de3~~ | Fix CalibrationPanel: manual reference input does not enable Calibrate Synthesis button | [log](logs/dev-6de3-2026-04-17-164548.md) | 2026-04-17 | **Stale** |
+| ~~dev-a48f~~ | Fix CalibrationPanel: velocity level selector + progress tracking for long-running ops | [log](logs/dev-a48f-2026-04-17-212602.md) | 2026-04-17 | **Stale** |
+| ~~dev-595e~~ | Fix offline render arch: skip audio output during calibration, no ASIO stop/restart | [log](logs/dev-595e-2026-04-17-205824.md) | 2026-04-17 | **Stale** |
+| ~~dev-068d~~ | Modular calibration curve system with interactive reference capture | [log](logs/dev-068d-2026-04-17-184215.md) | 2026-04-17 | **Stale** |
 
 ---
 

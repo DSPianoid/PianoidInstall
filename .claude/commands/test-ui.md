@@ -125,11 +125,11 @@ If this line is missing from the log, the agent crashed before completing.
 
 ### Phase 1: Setup
 
-1. Kill stale Pianoid processes (**ONLY on Pianoid ports — never blanket-kill python.exe or node.exe**):
+1. Kill stale Pianoid processes (**ONLY on Pianoid ports — never blanket-kill python.exe or node.exe**). **NEVER rely on servers already running — always kill and start fresh with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state.**
    ```bash
    echo "[$(date -Iseconds)] Phase 1: Killing stale processes" >> D:/tmp/test-ui-session.log
-   # Kill ONLY processes on Pianoid ports (5000=backend, 3000/3001=frontend)
-   for port in 5000 3000 3001; do
+   # Kill ONLY processes on Pianoid ports (5000=backend, 5001=modal adapter, 3000/3001=frontend)
+   for port in 5000 5001 3000 3001; do
      pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
      if [ -n "$pid" ] && [ "$pid" != "0" ]; then
        echo "Killing PID $pid on port $port" >> D:/tmp/test-ui-session.log

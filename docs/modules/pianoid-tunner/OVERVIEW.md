@@ -104,7 +104,7 @@ The main application entry used in production is a separate top-level component 
 | `ToolBar` | `ToolBar.jsx` | Main application toolbar |
 | `BackendStatusIndicator` | `BackendStatusIndicator.jsx` | Health status badge (healthy/crashed/disconnected) with backend start/stop controls |
 | `BackendConsole` | `BackendConsole.jsx` | Backend process stdout/stderr console viewer |
-| `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: perception curve editor, timing bands, level multipliers, reference dB tuning |
+| `CalibrationPanel` | `CalibrationPanel.jsx` | Mic-based volume calibration: 5-level velocity selector (pp/p/mf/f/ff synced with Excitation panel), perception curve editor, timing bands, level multipliers, reference dB tuning. All long-running ops (Calibrate Synthesis, Calibrate Acoustic, Measure Precision) show a shared progress bar via `GET /calibration_status` polling with completion/error indication |
 | `PerceptionCurveEditor` | `PerceptionCurveEditor.jsx` | Interactive drag-to-edit per-pitch perception correction weights across 6 velocity levels |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
 | `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with compact toolbar UI. **Toolbar** (left to right): server status chip (On/Off, clickable to start), pipeline section ButtonGroup (Setup / Tracking / Apply with status indicators — checkmark for done, spinner for running), settings gear/lock icon (toggles collapsible context-sensitive settings panel), and right-aligned play buttons (play current step, skip-to-end, both show stop icon when running). Setup button shows current project name when a project is open. **Settings panel** content changes per active section: Setup shows channel roles (MappingEditor) + ESPRIT config (EspritConfig), Tracking shows freq tolerance and max gap, Apply shows merge mode and sound output mapping. **All settings freeze** (disabled + lock icon) once ESPRIT processing starts (running or done). Connects to modal adapter server on port 5001. See [MODAL_ADAPTER_GUIDE](../../guides/MODAL_ADAPTER_GUIDE.md) |
@@ -340,3 +340,17 @@ GET  /reset                               Reset synthesiser state
 POST /capture                             Capture audio output
 POST /set_runtime_parameters              Set volume/feedback scalars
 ```
+
+---
+
+## Progress Tracking Rule
+
+All long-running backend operations must show progress in the UI. The pattern:
+
+1. **Launch:** POST the operation endpoint. The backend starts a background thread and returns immediately with `{ status: "started" }`.
+2. **Poll:** Start an interval polling `GET /calibration_status` (or the operation's status endpoint) every 800ms. The response includes `{ running, progress, current_pitch, pitches_completed }`.
+3. **Display:** Show a `LinearProgress` bar with percentage and current step description.
+4. **Complete:** When polling returns `running: false`, stop the interval and show a success/error chip with the result summary. Auto-clear after 8 seconds.
+5. **Guard:** While any operation is active, disable all operation buttons to prevent concurrent runs.
+
+This applies to: Calibrate Synthesis, Calibrate Acoustic, Measure Precision, Equalize Keyboard, and any future long-running backend operations.
