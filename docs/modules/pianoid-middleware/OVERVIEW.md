@@ -243,7 +243,7 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 | Component | File | Purpose | Status |
 |-----------|------|---------|--------|
 | `ModalAdapter` | `modal_adapter.py` | Data-driven orchestrator with auto-persistence, `data_status()`, `run_full_pipeline()` | Working (independent stages) |
-| `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry | Working (with channel_roles, bridge_boundary, pitch_offset) |
+| `MappingConfig` | `mapping.py` | Maps measurement points to pitches, channel roles, bridge geometry, and response-channel-to-sound-output (`channel_to_sound`). Single on-disk source is `mapping_config.json`; legacy `channel_mapping.json` is auto-migrated on `open_project` (F6 / W3-B). | Working (channel_roles, bridge_boundary, pitch_offset, channel_to_sound) |
 | `EspritRunner` | `esprit_runner.py` | Per-scenario multi-band ESPRIT extraction, MAC-based band merging, spatial mode tracking along bridge, amplitude/shape/mode_shape computation. Filters to response channels only when channel roles are set (excludes force/skip from Hankel matrix) | Working (merge_multiband_results + track_modes_along_bridge + response channel filtering) |
 | `esprit/` | `esprit/*.py` | Inlined ESPRIT library — see table below | Refactored, no external dependency |
 | `FeedinExtractor` | `feedin_extractor.py` | Feedin extraction: mode-shape reference projection (default) with FFT fallback | Working (mode_shape + fft methods) |

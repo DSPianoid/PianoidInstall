@@ -1237,7 +1237,7 @@ Response `200`:
 }
 ```
 
-Fields are `null` when data is not available (e.g., `measurement_info` is `null` before loading measurements, `tracking_params` is `null` before running tracking). `mapping_config` contains channel roles and bridge geometry; `channel_mapping` is the separate sound channel mapping. Old projects without `tracking/config.json` or `output/applied.json` get default values (`null` and `false`).
+Fields are `null` when data is not available (e.g., `measurement_info` is `null` before loading measurements, `tracking_params` is `null` before running tracking). `mapping_config` contains channel roles, bridge geometry, and the response-channel-to-sound-output mapping (`channel_to_sound`). The top-level `channel_mapping` field is a convenience view onto `mapping_config.channel_to_sound` (same data, flat dict) — kept for backward compatibility. On-disk storage is `modal_adapter/mapping/mapping_config.json` only; legacy projects with a standalone `channel_mapping.json` are auto-migrated into `mapping_config.json` on `open_project`. Old projects without `tracking/config.json` or `output/applied.json` get default values (`null` and `false`).
 
 ---
 
