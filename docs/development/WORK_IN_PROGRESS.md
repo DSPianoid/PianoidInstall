@@ -154,6 +154,31 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Sub-charts sync with unified zoom state via `viewBounds`
 - All chart animations disabled (`animation: false`) — ECharts axis interpolation caused visible intermediate state on zoom reset
 
+**Bug 4 — interactive shape anchor for phase + magnitude alignment (2026-04-19, dev-190d):**
+- Shape sub-chart ("shape across channels" mode) displayed unphased, unscaled curves. Existing `alignShape` helper phased scenarios within a SINGLE chain against that chain's own first detection, but different chains referenced different anchors and magnitudes varied wildly — so overlaid curves had no common visual reference and were not indicative.
+- First attempt (auto-minimax): picked anchor channel automatically as argmax over channels of min |value| across curves. Rejected by user on redesign — the "best" channel in a noise sense may not be the one the user wants to compare at, and aggressive normalization without consent hides the raw spatial pattern when it's the useful view.
+- Final implementation (user-driven anchor):
+  - New local state `shapeAnchor: null | channel_index` (null = raw unphased, integer = normalize to +1 at that channel). Default null.
+  - `useEffect` resets `shapeAnchor` to null whenever Shape sub-chart is toggled off, so re-enable always starts in raw mode.
+  - In the `subChartData` useMemo: scenario-level `alignShape` runs unconditionally as before (no regression of prior fix); cross-curve normalization is applied ONLY when `effectiveShapeAnchor != null` (clamped to valid channel range). For each curve, multiplier = `1 / curve[anchor]` so curve passes through +1 at the anchor. Guard: curves with `|curve[anchor]| < 1e-12` are left untouched (no division by zero).
+  - UI: above the Shape sub-chart, a compact `ToggleButtonGroup` lists channel numbers (0..nCh-1) plus an "OFF" button. Clicking a channel number sets the anchor; clicking another re-anchors instantly (re-triggers the useMemo via the `shapeAnchor` dep); clicking OFF clears back to raw view. OFF is disabled when no anchor is active.
+  - `makeShapeSubOption` gates the dashed vertical markLine and the `"Shape (norm @ Ch<N>)"` Y-axis label behind `anchorChannel != null` — both disappear in raw mode.
+  - Click-to-highlight handler on the sub-chart is unchanged: it operates on whatever `shapeSeries` it receives, so it works in both raw and normalized modes (tolerance scales with actual Y range).
+- UI verified end-to-end on Belarus8D_clean (5 response channels):
+  1. Default view = raw unphased curves (Y ~ -1..1). Pass.
+  2. Anchor Ch 1 / Ch 2 / Ch 3 / Ch 4 → dashed markLine appears, Y-axis label updates, curves converge at the anchor. Pass.
+  3. OFF → raw view restored, markLine gone, Y-axis back to "Shape". Pass.
+  4. Toggle Shape sub-chart OFF → ON → state reset to null, raw view. Pass.
+  5. Single chain selected + anchor set → single curve passes through +1 at anchor. Pass.
+
+- **Extension (same batch) — percentile-based Y clipping when anchor is active:** user reported that outlier chains (chains with near-zero at the anchor) stretched the Y range to ±thousands, jamming the readable curve body near 0.
+  - Added Y clip inside `makeShapeSubOption`: collect all y-values from `shapeSeries`, sort, take 5th/95th percentile, pad by 10% of the clipped range, then round to nice tick boundaries (`niceRound` helper — 0.5*10^mag steps). Always keep +1 inside the visible range so the anchor markLine remains meaningful.
+  - Min-samples guard: `< 20` total values → fall back to auto-range (small sample percentile is unreliable).
+  - Explicit `min: null, max: null` when anchor is off — ECharts merges yAxis options rather than replacing them, so without explicit nulls the previous clip bounds would persist after clearing the anchor (caught during UI test).
+  - Raw mode (anchor null) keeps ECharts auto-range. Tooltips still show real numeric values (ECharts axis-trigger uses series data, not clipped pixels).
+  - Verified visually on Belarus8D_clean (5 chains, Ch 0 anchor): before fix Y range was roughly -12000..3000 (curves invisible); after fix Y range is -4..4 (curves clearly readable, outliers run off-chart). Same Ch 0 anchor on single chain gives Y range -3..1.5. All other channels (Ch 1/2/3/4) behave similarly — readable curve body, outlier curves clip off.
+  - Console: 0 new errors. Pre-existing ModalAdapter "Invalid prop children" warning and WebSocket reconnect errors on :5000 are unrelated.
+
 **Bug 2 — brush rectangle persistence fix (2026-04-19, dev-9d5c):**
 - Blue brush rectangle sometimes persisted on screen after zoom. Root cause: the clear-brush dispatch in `handleBrushSelected` lived inside the outer try and AFTER the data-path `return` statements, so any early return (unrecognized coordRange shape, pixel-conversion failure) or exception in processing (chainEditor race, NaN in geometric mean) swallowed the clear and left the rectangle visible.
 - Fix (first pass): wrapped `handleBrushSelected` body in try/finally so `dispatchAction({type:"brush", areas:[]})` + `setBrushGeneration++` run on every exit path. Also added defensive `dispatchAction({type:"brush", areas:[]})` at the top of the centralized brush lifecycle effect.
