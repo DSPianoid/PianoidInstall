@@ -7,7 +7,6 @@
 | dev-5312 | Simplify CalibrationPanel to 2 tabs, move timing to Settings | [log](logs/dev-5312-2026-04-18-160214.md) | 2026-04-18 |
 | dev-de0f | Fix CurveEditor chart not updating on RCM capture | [log](logs/dev-de0f-2026-04-18-161900.md) | 2026-04-18 | **Fixed** |
 | dev-2144 | F7 (frontend semi-stable rename) + F19 (dev-d4d3 follow-ups) in StabilizationDiagram.jsx | [log](logs/dev-2144-2026-04-18-174816.md) | 2026-04-18 |
-| dev-ff72 | Review pipeline overhaul: architecture consistency, patch/workaround detection, god-object thresholds, authority + concern as primary principles | [log](logs/dev-ff72-2026-04-19-164936.md) | 2026-04-19 |
 
 
 ---
