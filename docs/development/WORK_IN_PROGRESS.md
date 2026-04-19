@@ -156,6 +156,10 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 - Sub-charts sync with unified zoom state via `viewBounds`
 - All chart animations disabled (`animation: false`) — ECharts axis interpolation caused visible intermediate state on zoom reset
 
+**Bug 2 — brush rectangle persistence fix (2026-04-19, dev-9d5c):**
+- Blue brush rectangle sometimes persisted on screen after zoom. Root cause: the clear-brush dispatch in `handleBrushSelected` lived inside the outer try and AFTER the data-path `return` statements, so any early return (unrecognized coordRange shape, pixel-conversion failure) or exception in processing (chainEditor race, NaN in geometric mean) swallowed the clear and left the rectangle visible.
+- Fix: (1) wrapped `handleBrushSelected` body in try/finally so `dispatchAction({type:"brush", areas:[]})` + `setBrushGeneration++` run on every exit path — early returns, caught exceptions, and the happy path. (2) Added defensive `dispatchAction({type:"brush", areas:[]})` at the top of the centralized brush lifecycle effect so every `brushGeneration` bump re-clears any residual cover before re-arming — belt-and-suspenders against ECharts `setOption` re-render races and `_creatingCover` guard edge cases.
+
 ---
 
 ## Modal Adapter Redesign — Phase 1 + Phase 2 + Phase 3
