@@ -9,7 +9,12 @@ argument-hint: <task description — bug fix, feature, or refactor>
 
 Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. Follow every step in order. Do not skip steps.
 
-**Code principles:** Lean (minimum code for the task), modular (one function one job), no workarounds (fix root causes), no redundancy (reuse existing utilities), match existing style.
+**Code principles (anchored in `docs/development/CODE_QUALITY.md`):**
+- **P1 Separation of Authority** — every piece of state has exactly one owner (the sole writer). Before you touch state, name its owner. If your change makes a non-owner write it, you're violating P1.
+- **P2 Separation of Concern** — every module/class/function has one job. Before you widen a module, ask whether the new responsibility is actually the module's concern. If not, put it elsewhere.
+- Supporting principles: lean code (S1), no redundancy (S2), no duplication (S3), fail-fast no workarounds (S5), file-size red flags (C4 — any file approaching 500 LOC deserves scrutiny; >1000 is a split-plan trigger).
+
+Do not ship a change that pushes a file past the C4 thresholds without discussing a split first.
 
 ## Step 0: Initialize Session
 
@@ -329,6 +334,17 @@ Ask the user which approach if unclear.
 
 ## Step 4: Acquire Module Locks and Edit Code
 
+### Before you write a single line
+
+Answer these two questions out loud (in your session log):
+
+1. **(P1 Authority)** Which piece of state am I about to touch, and who is its sole owner? If the change makes a non-owner write it, stop — either move the work to the owner, or redesign ownership first.
+2. **(P2 Concern)** What is the single concern of every module I'm editing? Is the change within each module's existing concern, or does it widen the module's responsibility? Concern bleed is not acceptable — find or create a module whose job this actually is.
+
+If either answer is unclear or uncomfortable, pause and read `docs/development/CODE_QUALITY.md` — the Primary Principles section at the top. You cannot proceed until both answers are crisp.
+
+**File-size watch (C4):** Before adding significant code to any file, check its current LOC (`wc -l <file>`). If the file is in YELLOW territory (500–1000 LOC), prefer extraction over insertion. If the file is already RED (>1000 LOC), do not add to it without a split plan — report to the orchestrator and request guidance.
+
 ### Acquire Locks
 
 Before editing any file, **register locks** in `docs/development/MODULE_LOCKS.md`. The lock file uses this format:
@@ -645,6 +661,10 @@ Follow patterns from `test_performance.py` (fixtures, markers, assertions).
 ## Step 8: Update Documentation
 
 **This step is mandatory for ALL exit procedures (wrap-up, reset, pause).** Documentation must always reflect the current state of the codebase.
+
+**Principle-namespace cross-reference:** when the change affects any state ownership, module concern, file-size threshold, or patch/workaround handling, cite the relevant principle from `docs/development/CODE_QUALITY.md` (P1/P2, A1–A5, C1–C6, S1–S5). Docs that justify a change by its principle age better than docs that describe what the code does.
+
+**C4 regression check:** if any file in scope crossed the 500 or 1000 LOC threshold during this session, update the "Current Known God Objects" list at the bottom of `CODE_QUALITY.md` accordingly — add new RED entries, remove entries that dropped below threshold after a refactor. Files are listed in decreasing LOC order.
 
 For each affected section, update the relevant doc file:
 

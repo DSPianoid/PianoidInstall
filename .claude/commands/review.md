@@ -11,6 +11,12 @@ Three-level code review skill that checks code against the project's quality pri
 
 **This skill is read-only.** It produces a review report with findings and recommendations. It does NOT edit code. Fixes are implemented via `/dev` after the review is accepted.
 
+**Primary architectural principles — dominate all other checks:**
+- **P1 Separation of Authority** — every piece of state has exactly one owner (the writer). Multi-writer state, silent fallbacks, defaults masking drift, and stale-copy propagation are all P1 violations.
+- **P2 Separation of Concern** — every module/class/function has one job. Grab-bag managers, cross-layer leaks, and concern bleed are P2 violations.
+
+These two principles anchor the review rubric. File-size red flags (C4), patch/workaround hunting (S5), authority/concern audits — all derive from P1 + P2.
+
 ## Arguments
 
 Parse `$ARGUMENTS`:
@@ -27,9 +33,131 @@ If no level is specified, infer from context:
 
 ## Step 0: Load Quality Principles
 
-**Always start here.** Read `docs/development/CODE_QUALITY.md` to load the project's quality principles. These are the criteria for every finding.
+**Always start here.** Read `docs/development/CODE_QUALITY.md` to load the project's quality principles. These are the criteria for every finding. Pay particular attention to the two Primary Principles (P1 Authority, P2 Concern) — they dominate the severity matrix.
 
-Also read `docs/index.md` to understand the module map and layer boundaries.
+Also read `docs/index.md` to understand the module map and layer boundaries, and the "Current Known God Objects" baseline at the bottom of CODE_QUALITY.md so new entries can be flagged as regressions.
+
+---
+
+## Step 1: God-Object and File-Size Check (RUN BEFORE LINE-BY-LINE REVIEW)
+
+Run a line-count pass on every file in the review scope:
+
+```bash
+wc -l <files_in_scope>
+```
+
+Apply the C4 thresholds from CODE_QUALITY.md:
+- **`> 1000 LOC` → RED flag.** Automatic **High**-severity finding: "God-object risk — file exceeds 1000 LOC." If the change being reviewed grows a file across the 1000 threshold, escalate to **Critical** and require a split plan before approval.
+- **`500–1000 LOC` → YELLOW flag.** Automatic **Medium**-severity finding. The change is allowed to land but the file must be named in the review output with a note "Watch — approaching god-object threshold."
+- **New RED file introduced by this change** → automatic Critical. No new >1000-line files should ship.
+- **Cross-reference "Current Known God Objects" in CODE_QUALITY.md.** An existing RED file that grows further is a regression (High). Reducing a RED file toward the threshold is a win — note it.
+
+**Required output section (every review, every level):**
+```markdown
+### Top 5 Files in Scope by LOC
+| # | File | LOC | Flag |
+|---|------|-----|------|
+| 1 | ... | 2952 | RED |
+```
+
+---
+
+## Step 2: First-Pass Architectural Consistency
+
+Before line-by-line review, audit the change at the architectural level. Answer four questions:
+
+**2.1 Layer Audit.** Which of the 4 layers (CUDA engine → domain model → middleware → frontend) does the change belong to? Does it stay within that layer's responsibility, or does it leak? (E.g. frontend business logic, backend UI concerns, domain-model code making HTTP calls.)
+
+**2.2 Server Audit.** For middleware changes: does the change land on the correct backend server (port 5000 main vs port 5001 modal adapter)? Are the import rules respected? (Routes on 5001 must not `import backendServer`; main server must not `import modal_adapter_server`.)
+
+**2.3 Authority Audit (P1).** List every piece of state touched by the change. For each: who is the owner (sole writer)? Does this change make a non-owner write it? Does it add a silent default that masks drift from the true owner?
+
+**2.4 Concern Audit (P2).** For each module modified: what is its single concern (one-sentence)? Does this change add a second concern or widen the existing one? A module name like "manager" / "handler" / "helpers" that's doing three unrelated things is a P2 violation.
+
+**Required output sections (every review):**
+```markdown
+### Architectural Consistency
+Layer audit: <PASS | VIOLATION — describe>
+Server audit: <PASS | VIOLATION — describe | N/A>
+
+### Authority Violations (P1)
+| # | State | Owner | Violating Writer | Severity |
+|---|-------|-------|------------------|----------|
+(empty table if none)
+
+### Concern Violations (P2)
+| # | Module | Stated Concern | Concern Added/Widened | Severity |
+|---|--------|---------------|----------------------|----------|
+(empty table if none)
+```
+
+---
+
+## Step 3: Patch / Workaround / Dead-Code Hunt (S5)
+
+Actively hunt for quick fixes and smell patterns. Run the following grep passes across the review scope:
+
+**3.1 TODO/FIXME/HACK markers.** Count and list each. TODO rot is a High-severity finding if the same marker has existed across multiple sessions.
+```bash
+grep -rn -E "TODO|FIXME|HACK|XXX" --include="*.py" --include="*.js" --include="*.jsx" --include="*.cu" --include="*.cpp" <scope>
+```
+
+**3.2 Silent exception handlers.**
+```bash
+grep -rn -B1 -A3 -E "except\s*:|except\s+Exception\s*:" --include="*.py" <scope>
+grep -rn -A2 "catch\s*\(\s*\)\s*{" --include="*.js" --include="*.jsx" <scope>
+```
+Each `try: ... except: pass` or empty JS `catch { }` is an S5 finding. High if it masks a real error path; Medium otherwise.
+
+**3.3 Fallback-masks-error.** Read for patterns like "if this fails, use the default" or "return null on error and continue." Every one of these must be justified — a fallback that hides a bug is an S5 violation.
+
+**3.4 Legacy/migration shims left in place.** Search for `legacy`, `deprecated`, `old_`, `_old`, `compat`, `backup_`, `TODO: remove after` comments. A migration that completed should have its shim removed; leaving it is technical debt.
+
+**3.5 Sleep-based synchronization.**
+```bash
+grep -rn -E "time\.sleep\(|setTimeout\(" --include="*.py" --include="*.js" --include="*.jsx" <scope>
+```
+Distinguish UI pacing (OK) from race workarounds (not OK — use events/signals).
+
+**3.6 Compatibility code for removed features.** If the codebase recently removed feature X, grep for references to X — leftover branches/conditions that were "just in case" are S5 violations.
+
+**Required output section:**
+```markdown
+### Patch / Workaround Findings
+TODO/FIXME/HACK count in scope: <N> (list in Appendix if > 5)
+Other patch/workaround findings:
+| # | Category | File:Line | Severity | Description |
+|---|----------|-----------|----------|-------------|
+```
+
+---
+
+## Severity Matrix (applies to every finding)
+
+| Severity | Triggers |
+|----------|----------|
+| **Critical** | Cross-server authority leak (P1); new file introduced above 1000 LOC (C4); existing feature broken by the change; frontend-visible regression |
+| **High** | Landing in a RED (>1000 LOC) file without a split plan; multi-owner state introduced (P1); concern bleed into an unrelated module (P2); silent exception handler that masks a real error path; TODO rot across sessions; persistence without load path (A2) or load without persistence (A1) |
+| **Medium** | YELLOW file growth (500–1000 LOC); fallback that could hide a bug but isn't proven to (S5); duplicated logic at 3+ sites without extraction (S3); naming drift (N1); legacy shim still in place after migration completed |
+| **Low** | Unused import; single-site cosmetic inconsistency; comment mismatch; localized naming nit |
+
+A review with **any Critical or High finding** cannot approve the change until addressed or explicitly waived by the user with a follow-up task logged.
+
+---
+
+## Required Output Sections (every review, every level)
+
+Every review report, regardless of level, must include ALL of the following sections — in this order — before any level-specific findings:
+
+1. **Top 5 Files in Scope by LOC** (with RED/YELLOW flags)
+2. **Architectural Consistency** (layer + server audits)
+3. **Authority Violations (P1)** — table or "None"
+4. **Concern Violations (P2)** — table or "None"
+5. **Patch / Workaround Findings** (TODO count + other patterns)
+6. **Level-specific findings** (per Level 1/2/3 below)
+
+A review missing any of these sections is incomplete and must be re-run.
 
 ---
 

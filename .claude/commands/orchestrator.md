@@ -496,6 +496,9 @@ The orchestrator triggers `/review` sub-agents proactively — not just when the
 | Dev agent completes a task (before user approval) | `local` | Run in parallel while waiting for user to review. Report findings alongside the dev agent's report. |
 | Multiple dev agents modified the same module in one session | `module` | After all agents in the module are done. Catches cross-agent inconsistencies. |
 | Significant refactoring completed (3+ files changed in one module) | `module` | After the dev agent commits. Covers the module + its interfaces. |
+| **Any file in editing scope crosses the C4 RED threshold (>1000 LOC) during a session** | `module` | **Automatic, non-negotiable.** Must land before the dev agent's commit is approved. |
+| **A new RED file (>1000 LOC at creation) is introduced** | `module` | Automatic. Block the commit until addressed. |
+| **Authority (P1) or Concern (P2) violation suspected — cross-server import, state duplicated across modules, grab-bag module extension** | `module` | Automatic when the orchestrator classifies the task as touching cross-server or cross-module state. |
 | User explicitly requests | Any level | Immediately. |
 | End of a long development session (5+ dev tasks completed) | `system` | Suggest to the user: "5 tasks completed this session — recommend a system review?" |
 
