@@ -249,7 +249,7 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 | `FeedinExtractor` | `feedin_extractor.py` | Feedin extraction: mode-shape reference projection (default) with FFT fallback | Working (mode_shape + fft methods) |
 | `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation. Configurable via `PresetConfig` | Working (output pitches dynamic, up to 16 channels) |
 | `PresetConfig` | `preset_injector.py` | Dataclass for preset build parameters: `max_modes`, `feedin_max`, `regular_feedback`, `sound_max`, `interpolate_missing` | Working |
-| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` | 23 endpoints (includes `data_status`, `project_state`, `run_pipeline`) |
+| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` on the **modal adapter server (port 5001)** only. The main backend (port 5000) does NOT register the blueprint; it defines just one counterpart route (`POST /modal/apply_to_preset`) inline because that route alone needs the live `Pianoid` engine. | 23 endpoints on 5001 + 1 on 5000 |
 
 ### PresetConfig Parameters
 

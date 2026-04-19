@@ -1135,6 +1135,8 @@ Routes may still return explicit codes (e.g. export endpoints return `404` for "
 
 Routes that mutate the running synthesis engine (`POST /modal/apply_to_preset`) require a live `Pianoid` instance and therefore only work when served by the **main** backend (port 5000). When served by the standalone **modal adapter** server (port 5001), these routes respond `503` with message `"This route only runs on the main server at port 5000 ..."` (F9, W4-A). Each server advertises its role via the Flask `app.config['role']` attribute (`'main'` / `'modal_adapter_server'`).
 
+The main backend provides its own `POST /modal/apply_to_preset` route (defined in `backendServer.py`, not via the blueprint) — it rehydrates a fresh `ModalAdapter` instance from the project directory on disk and applies to the local `pianoid`. The frontend (`useModalAdapter.applyToPreset`) posts directly to port 5000 for this route while all other `/modal/*` calls target port 5001. See the `POST /modal/apply_to_preset` entry under Stage 7 below for the main-server payload shape.
+
 ### Utility Endpoints
 
 #### `GET /health`
@@ -1552,19 +1554,33 @@ Response `200`:
 
 ### Stage 7: Apply & Persistence
 
-#### `POST /modal/apply_to_preset`
+#### `POST /modal/apply_to_preset` — **served by the main backend (port 5000)**
 
 Apply extracted modes to the active Pianoid preset. Uses FFT feedin path when feedin data is available.
+
+This is the one `/modal/*` route that runs on the **main backend** (port 5000), not on the modal adapter server (port 5001). It must mutate the running `Pianoid` engine, which lives only in the main server process. The modal adapter server rejects this route with `503 ModalAdapterOnlyError` (see F9 above) — external callers must POST to the main server instead.
+
+Implementation: the main-server route rehydrates a fresh `ModalAdapter` from the project directory on disk (auto-persisted by the 5001 server on every mutation), then calls `adapter.apply_to_preset(pianoid, selected_chains, merge)`.
 
 Request body:
 ```json
 {
-  "selected_modes": [0, 1, 2, 5, 8],
+  "project_name": "belarus_78",
+  "selected_chains": [0, 1, 2, 5, 8],
   "merge": false
 }
 ```
 
-- `merge`: if `true`, merges with existing modes; if `false`, replaces
+- `project_name` (required): the adapter's on-disk project to apply. Usually the frontend's `currentProject`.
+- `selected_chains` (optional, default `[]` = all): chain IDs to inject.
+- `merge` (optional, default `false`): if `true`, merges with existing modes; if `false`, replaces.
+
+Responses:
+- `200`: `{"message": "Applied N modes with FFT feedin"}`
+- `400`: missing `project_name`
+- `404`: project not found on disk
+- `409`: no preset loaded, or project has no tracking/feedin data to apply
+- `500`: unexpected error
 
 ---
 
