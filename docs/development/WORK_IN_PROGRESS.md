@@ -8,7 +8,6 @@
 | dev-de0f | Fix CurveEditor chart not updating on RCM capture | [log](logs/dev-de0f-2026-04-18-161900.md) | 2026-04-18 | **Fixed** |
 | dev-2144 | F7 (frontend semi-stable rename) + F19 (dev-d4d3 follow-ups) in StabilizationDiagram.jsx | [log](logs/dev-2144-2026-04-18-174816.md) | 2026-04-18 |
 | dev-9d5c | Bug 2 (brush rectangle persistence on stabilization chart) | [log](logs/dev-9d5c-2026-04-19-115644.md) | 2026-04-19 |
-| dev-6067 | Bug 1 (project list refresh) — auto-fetch projects when modal adapter becomes reachable | [log](logs/dev-6067-2026-04-19-115621.md) | 2026-04-19 |
 
 ---
 
