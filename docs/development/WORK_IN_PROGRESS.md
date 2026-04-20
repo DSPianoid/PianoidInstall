@@ -5,7 +5,6 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-0f80 | Wave B Task 3 — SC cache stale-key fix on preset switch | [log](logs/dev-0f80-2026-04-20-161528.md) | 2026-04-20 |
-| dev-bprint | Fix `backendServer.py:475` print OSError breaking `/get_parameter/*` under stdout redirection | [log](logs/dev-bprint-2026-04-20-164054.md) | 2026-04-20 |
 
 
 ---
