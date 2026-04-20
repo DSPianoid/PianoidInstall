@@ -93,7 +93,7 @@ The main application entry used in production is a separate top-level component 
 | `VerticalColumnChart` | `VerticalColumnChart.jsx` | Multi-column vertical chart |
 | `ChartSelector` | `ChartSelector.jsx` | Tabbed selector (Charts / Dynamic / Actions) for chart types from `/graph_names` response |
 | `newWindowChart` | `newWindowChart.jsx` | Chart rendered in a mosaic pane; supports multi-chart layouts and interactive zoom |
-| `SoundChannelEditor` | `SoundChannelEditor.jsx` | Dual-mode sound channel editor: edits mode-coupling (`/set_parameter/sound_channel`) or strings-mode gain (`/set_parameter/string_sound_channel`) based on `listen_to_modes` flag; uses `MeasuredMatrix` for full matrix editing |
+| `SoundChannelsPane` | `SoundChannelsPane.jsx` | Dual-axis sound channel editor pane (extracted from `PianoidTuner.js`, 2026-04-20 Wave A). Wraps `MeasuredMatrix`; axis is `listenToModes` (modes = pitches × channels, coupling into feedin; strings = channels × modes, feedback gain). Consumes the `useSoundChannels` hook for history/aggregate/fan-out; owns only display geometry (rows/cols/labels per axis and aggregate on/off) |
 | `ParameterEditor` | `ParameterEditor.jsx` | Generic numeric parameter editor |
 | `PropertyInput` | `PropertyInput.jsx` | Labelled numeric input with validation |
 | `NumericInput` | `NumericInput.jsx` | Standalone numeric input field |
@@ -133,6 +133,8 @@ All hooks live in `src/hooks/`.
 
 The primary data-management hook. Owns all preset state and provides debounced API calls (300 ms debounce) for every parameter category. A `loadingRef` guard prevents concurrent `loadPreset()` calls — a second call while one is in-flight is silently skipped to avoid destroying the pianoid instance mid-initialization.
 
+**Preset-switch / preset-load SC cache clear.** Both `loadPreset()` and `switchPreset()` call `setSoundChannelData(null)` + `setSoundChannelFeedbackMatrix(null)` before the async refetch. Without this, an in-flight debounced `changeSoundChannelValues` / `changeSoundChannelFeedback` from the outgoing preset can resolve after the refetch and re-merge stale pitch keys via `setSoundChannelData(prev => ({ ...prev, ...newData }))`, leaving orphan coefficients that silenced the new preset in Strings mode.
+
 State managed:
 - `availableNotes`, `availableOutputChanels` — MIDI pitches and output channels from loaded preset
 - `totalModes` — mode count from feedin matrix dimensions
@@ -166,6 +168,16 @@ Key methods exposed:
 | `capture()` | POST `/capture` | Captures current audio output |
 | `changeVolume(v)` | POST `/set_runtime_parameters` | Sets output volume (0–127) |
 | `changeFeedback(v)` | POST `/set_runtime_parameters` | Sets feedback gain (0–127) |
+
+### `useSoundChannels`
+
+Owns all Sound Channels UI state extracted from the former `PianoidTuner.js` god-object (Wave A, 2026-04-20). Lives at `src/hooks/useSoundChannels.js` and backs `SoundChannelsPane.jsx` + the SC Workbench row.
+
+Holds two independent `useMatrixHistory` instances (`scModesHistory`, `scStringsHistory`) — one per axis. `listenToModes` selects the active axis (`modes` = pitches × channels, coupling into feedin; `strings` = output channels × modes, feedback-path gain) and routes `activeHistory` / `activeAggMatrix` / `activeAggMuteMap` accordingly. Init effects seed each history from `soundChannelData` / `soundChannelFeedbackMatrix`; a commit effect pushes the muted matrix back through `changeSoundChannelValues` (modes axis, `/set_parameter/sound_channel`) or `changeSoundChannelFeedback` (strings axis, `/set_parameter/feedback/output`). `scDataRefresh` (set by `usePreset.switchPreset`) forces re-init on preset switch.
+
+Aggregate math is axis-parameterised: a single `computeAggregate(matrix, axis)` + `computeAggregateMuteMap(muteMap, axis)` + `fanOutAggregateChangeAxis(change, history, axis, numFanOut)` replaces the modes/strings pair duplicated in the old implementation. For `modes`, aggregate collapses channel columns to a per-pitch average and fan-out broadcasts scalar deltas across channels; for `strings`, aggregate collapses channel rows to a single `averaged` row of per-mode values and fan-out broadcasts across output channels.
+
+Exposes: `scModesHistory`, `scStringsHistory`, `scModesAggMatrix`, `scStringsAggMatrix` (workbench reads both), `axis`, `activeHistory`, `activeAggMatrix`, `activeAggMuteMap`, `scNumChannels`, `handleAggregateToggle(enabled)`, `applyAggregateChange(change)`.
 
 ### `useBackendHealth`
 

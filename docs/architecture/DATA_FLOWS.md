@@ -437,7 +437,7 @@ Sound channels have two coefficient types, selected by `listen_to_modes`:
 | `string_sound_channel` | strings (`listen_to_modes=0`) | `soundChannelModes.string_coefficients` | Strings-mode gain scaling feedback |
 
 ```
-React: SoundChannelEditor — user edits coefficients for pitch 60
+React: SoundChannelsPane (backed by useSoundChannels) — user edits coefficients for pitch 60
          │
          ▼
 usePreset: changeSoundChannelValues(pitch=60, values, type)

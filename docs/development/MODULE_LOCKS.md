@@ -6,3 +6,4 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| docs-sc-overview | docs/modules/pianoid-tunner/OVERVIEW.md, docs/architecture/DATA_FLOWS.md, docs/development/WORK_IN_PROGRESS.md | 2026-04-20 | Wave C — mt-sound-channels docs update |
