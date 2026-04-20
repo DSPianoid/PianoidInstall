@@ -299,11 +299,16 @@ keyed by target cycle for O(log n) insertion and O(k) range drain.
 ```cpp
 class RealTimeEventBuffer {
 public:
+    static constexpr size_t kDefaultSizeLimit = 10000;
+
     void pushEvent(const PlaybackEvent& event, uint32_t target_cycle); // thread-safe
     std::vector<PlaybackEvent> drainEventsUpTo(uint32_t current_cycle); // thread-safe
     bool   hasPendingEvents() const;   // lock-free
     size_t size() const;               // lock-free
     void   clear();
+
+    void   setSizeLimit(size_t limit); // 0 disables back-pressure
+    size_t getSizeLimit() const;
 
     struct Stats {
         size_t total_events_pushed;
@@ -311,6 +316,7 @@ public:
         size_t peak_buffer_size;
         double avg_insert_latency_us;
         double avg_drain_latency_us;
+        size_t dropped_event_count;    // incremented on back-pressure eviction
     };
     Stats getStats() const;
 };
@@ -319,8 +325,20 @@ public:
 The engine calls `drainEventsUpTo(current_cycle)` once per synthesis cycle to collect all
 events whose `target_cycle <= current_cycle`. Typical insertion latency is under 1 µs.
 
+**Back-pressure (Tranche A / M12):** `pushEvent()` enforces a soft cap (default
+`kDefaultSizeLimit = 10000`). When the buffer reaches the cap at insertion
+time, the oldest pending NOTE_OFF is evicted to make room; if no NOTE_OFF is
+present, the oldest event of any kind is evicted. The new event is then
+inserted. `Stats::dropped_event_count` tracks evictions. Setting
+`size_limit == 0` via `setSizeLimit(0)` disables the policy entirely. The
+policy favours musical integrity — NOTE_ONs and SUSTAINs are retained until
+their counterpart NOTE_OFFs have been evicted, which keeps the engine hearing
+note-ons under extreme producer bursts.
+
 **Threading note:** `pushEvent()` and `drainEventsUpTo()` each use a single
 `std::lock_guard` scope covering both the data operation and statistics update.
+The back-pressure eviction runs inside the same lock as the insert, so no
+additional synchronisation is required.
 
 ---
 
@@ -438,53 +456,20 @@ Also exposed via pybind11, `MidiEventConverter` provides static helpers for crea
 
 ---
 
-## MidiInputListener
+## MIDI Input
 
-**Files:** `MidiInputListener.h` / `MidiInputListener.cpp`
+MIDI input is handled in Python, not C++. The listener thread lives in
+`pianoid_middleware/pianoid.py` (`MIDI_listener_unified`) and uses `rtmidi` from
+Python. It parses incoming MIDI bytes and calls `Pianoid.schedule_event(...)`,
+which pushes `PlaybackEvent` records into the `RealTimeEventBuffer` exposed by
+the C++ engine via pybind11.
 
-C++ MIDI input listener using embedded RtMidi (MIT-licensed). Receives MIDI from a
-hardware controller via RtMidi's callback mode (lowest latency, no polling) and pushes
-events into a `RealTimeEventBuffer` for cycle-accurate dispatch.
+See [`modules/pianoid-middleware/MIDI_SYSTEM.md`](../pianoid-middleware/MIDI_SYSTEM.md)
+for the device-enumeration / event-parsing details, and §6 of
+[`development/PLAYBACK_ARCHITECTURE_REVIEW.md`](../../development/PLAYBACK_ARCHITECTURE_REVIEW.md)
+for the planned migration toward a unified envelope scheduler.
 
-```cpp
-class MidiInputListener {
-public:
-    MidiInputListener(Pianoid* pianoid, RealTimeEventBuffer* buffer);
-    std::vector<std::string> listPorts();
-    void start(int port);
-    void stop();
-    bool isRunning() const;
-    void setCycleEstimator(CycleTimeEstimator* estimator);
-};
-```
+A prior revision of this doc described a C++ `MidiInputListener` class that
+never shipped; the supporting `MidiInputListener.h` / `MidiInputListener.cpp`
+files are not in the source tree. Removed to match reality (Tranche A / M5).
 
-### MIDI Message Handling
-
-| MIDI Message | Action |
-|---|---|
-| NOTE_ON (0x90, vel>0) | `MidiEventConverter::fromMidiBytes` → `RealTimeEventBuffer` |
-| NOTE_OFF (0x80 or vel=0) | `MidiEventConverter::fromMidiBytes` → `RealTimeEventBuffer` |
-| Sustain (CC 64) | Sustain event → `RealTimeEventBuffer` |
-| Volume (CC 7) | Direct `setRuntimeParameters(volume_level)` on `Pianoid` |
-| Deck feedback (CC 74) | Exponential mapping (64→1.0, 127→8.0, 0→0.125) → `setRuntimeParameters` |
-
-Volume and deck feedback bypass the event buffer for immediate effect, matching legacy
-Python listener behavior. Note/sustain events go through the event buffer for
-cycle-accurate scheduling.
-
-### RtMidi Integration
-
-RtMidi is embedded as single-file source (`RtMidi.h` + `RtMidi.cpp`). On Windows it uses
-the WinMM backend (`__WINDOWS_MM__` define, `winmm.lib` already linked). The listener
-uses callback mode — RtMidi calls `midiCallback()` on its internal thread, which converts
-the message and pushes to the thread-safe `RealTimeEventBuffer`.
-
-### Python Binding
-
-```python
-listener = pianoidCuda.MidiInputListener(pianoid_cpp, realtime_buffer)
-listener.setCycleEstimator(engine.getCycleEstimator())
-ports = listener.listPorts()      # ["MIDI Controller 0", ...]
-listener.start(0)                 # Open port 0, begin receiving
-listener.stop()                   # Close port
-```

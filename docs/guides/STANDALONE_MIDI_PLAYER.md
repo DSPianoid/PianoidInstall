@@ -168,7 +168,7 @@ for details.
 
 ## MIDI CC Mapping
 
-The C++ `MidiInputListener` handles the following MIDI messages directly:
+The active Python MIDI listener (`MIDI_listener_unified` in `pianoid.py`) handles the following MIDI messages directly:
 
 | MIDI Message | CC Number | Action | Description |
 |--------------|-----------|--------|-------------|
@@ -183,9 +183,8 @@ All events are pushed into `RealTimeEventBuffer` and dispatched by
 
 ### Legacy Python MIDI Listener (additional CCs)
 
-The legacy Python `MidiListener` (used by the Flask backend, not by `playPianoid.py`)
-supports additional per-note CC controls. These are **not** available in the standalone
-C++ listener:
+The legacy Python `MidiListener` (in `pianoidMidiListener.py`, not wired by default)
+supports additional per-note CC controls that are not part of `MIDI_listener_unified`:
 
 | Action | Description |
 |--------|-------------|
