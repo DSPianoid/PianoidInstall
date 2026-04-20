@@ -4,6 +4,8 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-0f80 | Wave B Task 3 — SC cache stale-key fix on preset switch | [log](logs/dev-0f80-2026-04-20-161528.md) | 2026-04-20 |
+| dev-bprint | Fix `backendServer.py:475` print OSError breaking `/get_parameter/*` under stdout redirection | [log](logs/dev-bprint-2026-04-20-164054.md) | 2026-04-20 |
 
 
 ---
@@ -65,6 +67,8 @@ See [LOGGING.md](../modules/pianoid-cuda/LOGGING.md) for full details and migrat
 | pybind11 bindings + Python lifecycle | Done |
 | Remaining C++ files (~75 statements) | Pending |
 | Python print migration (578 statements) | Planned |
+| `backendServer.py:475` hot-path `print` → `logger.debug` | Done (dev-bprint, 2026-04-20) |
+| `backendServer.py` other request-handler prints (~80 calls across `/set_parameter`, volume, feedback, play, MIDI) | Pending — latent: same break mode if stdout pipe fails, now shielded by global errorhandler (returns JSON 500 with CORS) but still produce empty responses; best migrated to `logger` in the planned sweep |
 
 ---
 

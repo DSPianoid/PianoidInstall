@@ -6,3 +6,4 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-0f80 | `PianoidTunner/src/hooks/usePreset.js` | 2026-04-20T16:15:28Z | Wave B — fix SC cache stale-key on preset switch |
