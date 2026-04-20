@@ -299,11 +299,16 @@ keyed by target cycle for O(log n) insertion and O(k) range drain.
 ```cpp
 class RealTimeEventBuffer {
 public:
+    static constexpr size_t kDefaultSizeLimit = 10000;
+
     void pushEvent(const PlaybackEvent& event, uint32_t target_cycle); // thread-safe
     std::vector<PlaybackEvent> drainEventsUpTo(uint32_t current_cycle); // thread-safe
     bool   hasPendingEvents() const;   // lock-free
     size_t size() const;               // lock-free
     void   clear();
+
+    void   setSizeLimit(size_t limit); // 0 disables back-pressure
+    size_t getSizeLimit() const;
 
     struct Stats {
         size_t total_events_pushed;
@@ -311,6 +316,7 @@ public:
         size_t peak_buffer_size;
         double avg_insert_latency_us;
         double avg_drain_latency_us;
+        size_t dropped_event_count;    // incremented on back-pressure eviction
     };
     Stats getStats() const;
 };
@@ -319,8 +325,20 @@ public:
 The engine calls `drainEventsUpTo(current_cycle)` once per synthesis cycle to collect all
 events whose `target_cycle <= current_cycle`. Typical insertion latency is under 1 µs.
 
+**Back-pressure (Tranche A / M12):** `pushEvent()` enforces a soft cap (default
+`kDefaultSizeLimit = 10000`). When the buffer reaches the cap at insertion
+time, the oldest pending NOTE_OFF is evicted to make room; if no NOTE_OFF is
+present, the oldest event of any kind is evicted. The new event is then
+inserted. `Stats::dropped_event_count` tracks evictions. Setting
+`size_limit == 0` via `setSizeLimit(0)` disables the policy entirely. The
+policy favours musical integrity — NOTE_ONs and SUSTAINs are retained until
+their counterpart NOTE_OFFs have been evicted, which keeps the engine hearing
+note-ons under extreme producer bursts.
+
 **Threading note:** `pushEvent()` and `drainEventsUpTo()` each use a single
 `std::lock_guard` scope covering both the data operation and statistics update.
+The back-pressure eviction runs inside the same lock as the insert, so no
+additional synchronisation is required.
 
 ---
 

@@ -122,10 +122,13 @@ Additional parameter types handled directly (no map translation):
 | `sound_channel` | `set_parameter_batch('sound_channel', ...)` | Updates `soundChannelModes.coefficients[pitchID]` and sends deck params to CUDA |
 
 All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods that delegate directly:
-- `update_parameter()` — dispatcher for REST API and batch operations
+- `apply_parameter_request(request)` — canonical entry (Tranche A / M7). Accepts a typed `ParameterUpdateRequest(kind, values, pitches=None, modes=None, extra={})`. Used by the shared `_apply_parameter_request` / `_apply_string_excitation` helpers in `backendServer.py` so REST and WebSocket callers share the same dispatch glue.
+- `update_parameter()` — existing dispatcher for REST API and batch operations; still supported, also reached internally via `apply_parameter_request` for the standard `kind` values.
 - `update_pitch_physical_params()` / `update_pitch_physical_params_GRANULAR()` — single-pitch physical param update
-- `update_pitch_excitation()` — single-pitch excitation update
+- `update_pitch_excitation()` — single-pitch excitation update (also reachable via `kind="string_excitation_curves"` on `ParameterUpdateRequest`).
 - `send_deck_params_to_CUDA()` — deck scaling for MIDI CC handlers
+
+**Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. REST `/set_runtime_parameters` and WS `set_runtime_parameters` share a separate helper `_apply_runtime_parameters` in `backendServer.py` (Tranche A / M6).
 
 ### Flask app (backendServer.py)
 
