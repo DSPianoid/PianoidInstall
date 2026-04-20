@@ -102,8 +102,9 @@ The `run()` loop:
    (estimator starts *after* audio init to prevent ~150ms startup drift)
 2. Immediate `syncToCycle(0)` for initial calibration
 3. Calls `processEventsAtCycle(current_cycle)` — drains both sources
-4. Calls `PlaybackCycleExecutor::executeCycle(pianoid_, record_audio)` — synthesis step
-5. CUDA error check: `cudaGetLastError()` after each `executeCycle()`
+4. Calls `pianoid_->runCycle({CycleRegime::Online, /*record_to_host=*/true})` —
+   orchestrated synthesis + driver push + host-buffer ring
+5. CUDA error check: `cudaGetLastError()` after each `runCycle()`
 6. Drift calibration: every cycle for the first 10 cycles (rapid warmup),
    then every 100 cycles (periodic maintenance)
 7. Repeats until `stop()` is called or `max_duration_ms` expires
@@ -130,7 +131,7 @@ class OfflinePlaybackEngine : public IPlaybackEngine {
     std::vector<float>              recorded_audio_;
 
     void processEventsAtCycle(uint32_t cycle);
-    void runCycle();      // PlaybackCycleExecutor::executeCycle(pianoid_, true)
+    void runCycle();      // pianoid_->runCycle({CycleRegime::Offline, false})
     void collectAudio();  // getCurrentCycleAudio() → recorded_audio_
     uint32_t calculateTotalCycles() const;
 
@@ -147,11 +148,60 @@ note release and resonance tails: `decay_cycles = (5 * sample_rate) / samples_pe
 
 ---
 
+## Cycle Orchestration — `Pianoid::runCycle`
+
+**File:** `Pianoid.cu` / `Pianoid.cuh`
+
+`Pianoid::runCycle(const CycleOutput&)` is the single cycle-orchestration entry
+point. Both engines call it. It runs synthesis and routes the output through
+regime-specific primitives — there is one cycle function, one silence gate,
+and two mutually-exclusive output regimes.
+
+```cpp
+enum class CycleRegime : uint8_t {
+    Online,   // synthesis + driver push + (optional) host-buffer ring
+    Offline,  // synthesis only; recording is owned by the offline engine
+};
+
+struct CycleOutput {
+    CycleRegime regime;
+    bool        record_to_host = false;  // Online-only; ignored when Offline.
+};
+
+int runCycle(const CycleOutput& out);
+```
+
+Body:
+1. `runSynthesisKernel()` — GPU kernel launch
+2. `switch(regime)`:
+   - `Online`: if `record_to_host` → `appendCycleAudioToHostBuffer()`;
+              always → `pushCycleAudioToDriver()`
+   - `Offline`: nothing (the offline engine owns recording via `collectAudio`)
+3. `#ifdef PIANOID_DEBUG_DATA`: archive `dev_sound_records_ms` → `dev_sound_records`,
+   advance `sound_record_index`
+
+**Regime exclusivity is the single silence gate.** The prior inner
+`audioOn.load()` check inside `playSoundSamples` and the executor-level
+`audio_enabled` gate inside `PlaybackCycleExecutor::executeCycle` are both
+gone. Offline regime structurally never reaches `pushCycleAudioToDriver` —
+therefore never reaches `LockFreeCircularBuffer::produce` — therefore never
+blocks on the audio back-pressure condvar. Offline is free-running by
+construction.
+
+### Concern-specific primitives
+
+| Primitive | Concern | Called from |
+|-----------|---------|-------------|
+| `pushCycleAudioToDriver()` | FIR filter, channel map, `audioDriver->pushSamples` | Online regime |
+| `appendCycleAudioToHostBuffer()` | D2H copy `dev_soundFloat` → `rawSoundBuffer` (5s ring) | Online regime (when `record_to_host`) |
+| `collectAudio()` (engine-private) | `getCurrentCycleAudio()` → `recorded_audio_[pos]` | Offline engine run loop |
+
 ## PlaybackCycleExecutor
 
 **File:** `PlaybackCycleExecutor.h` / `PlaybackCycleExecutor.cu`
 
-Static utility class eliminating duplicated cycle execution code between the two engines.
+Static utility class that now holds two residual helpers used by the engines
+and `EventDispatcher`:
 
 ```cpp
 class PlaybackCycleExecutor {
@@ -163,19 +213,14 @@ public:
         uint32_t cycle_index
     );
 
-    // Execute one complete synthesis cycle (2-step)
-    // Returns status code: 200 = success
-    // audio_enabled=false skips the driver push (offline calibration mode).
-    static int executeCycle(Pianoid* pianoid, bool audio_enabled = true);
-
     // Excite all strings mapped to a MIDI pitch
     static void exciteStringsForPitch(Pianoid* pianoid, int pitch, int velocity);
 };
 ```
 
-`executeCycle()` calls in order:
-1. `pianoid->runSynthesisKernel()` — GPU kernel launch
-2. `pianoid->manageSoundBuffers()` — audio buffer push (skipped when `audio_enabled=false`)
+`executeCycle` was deleted in C3 — its 3-step orchestration moved to
+`Pianoid::runCycle(CycleOutput)`, and the executor-level `audio_enabled`
+gate collapsed into regime exclusivity.
 
 ---
 
@@ -373,29 +418,43 @@ since large initial drift is expected during audio device startup.
 
 ## Online vs Offline Flow
 
+Two mutually-exclusive output regimes routed through a single orchestrator,
+`Pianoid::runCycle`. Offline structurally never reaches the audio driver.
+
 ```
-ONLINE (real-time)                       OFFLINE (rendering)
-==================================       ==================================
-initialize()                             initialize()
-loadEvents(queue)                        loadEvents(queue)
+ONLINE regime                             OFFLINE regime
+==================================        ==================================
+initialize()                              initialize()
+loadEvents(queue)                         loadEvents(queue)
 setRealTimeBuffer(buffer)  [optional]
-run():                                   run():
-  start CycleTimeEstimator                 calculateTotalCycles()
-  start audio driver                       allocate recorded_audio_
-  loop:                                    loop:
-    cycle = estimator.getCurrentCycle()      processEventsAtCycle(current_cycle_)
-    processEventsAtCycle(cycle)              runCycle()
-      drain EventQueue                         executeCycle(pianoid, audio_enabled)
-      drain RealTimeEventBuffer                  runSynthesisKernel()
-    executeCycle(pianoid, audio_enabled)         if audio_enabled:
-      runSynthesisKernel()                         manageSoundBuffers()
-      if audio_enabled:                      collectAudio()
-        manageSoundBuffers()                 current_cycle_++
-    wait for next audio callback         end loop
-  end loop                               exportToWav() [optional]
-  stop audio driver                      return PlaybackStats
+
+run():                                    run():
+  start CycleTimeEstimator                  calculateTotalCycles()
+  start audio driver                        allocate recorded_audio_
+  loop:                                     loop:
+    cycle = estimator.getCurrentCycle()       processEventsAtCycle(current_cycle_)
+    processEventsAtCycle(cycle)               pianoid_->runCycle(
+      drain EventQueue                          {Offline, false})
+      drain RealTimeEventBuffer                   runSynthesisKernel()
+    pianoid_->runCycle(                           (no push, no ring —
+      {Online, record_to_host=true})             free-running)
+      runSynthesisKernel()                    collectAudio()
+      appendCycleAudioToHostBuffer()             getCurrentCycleAudio()
+      pushCycleAudioToDriver()                   → recorded_audio_[pos]
+        → audioDriver->pushSamples           current_cycle_++
+        → LockFreeCircularBuffer::produce   end loop
+    wait for next audio callback            exportToWav() [optional]
+  end loop                                  return PlaybackStats
+  stop audio driver
   return PlaybackStats
 ```
+
+**Key invariant:** the Offline branch of `runCycle`'s switch statement does
+nothing after synthesis. The audio back-pressure condvar
+(`LockFreeCircularBuffer::produce`'s `canProduce.wait`) is reachable only
+through `pushCycleAudioToDriver`, which is called only from the Online
+branch. This is enforced structurally — not by a runtime flag — so no test
+matrix of mixed modes exists.
 
 ---
 

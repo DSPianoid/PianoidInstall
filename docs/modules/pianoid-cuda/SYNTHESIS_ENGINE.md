@@ -269,7 +269,8 @@ Per synthesis cycle (managed by Pianoid::runSynthesisKernel):
              Save string_state (current + previous displacement)
              Save mode_state   (current + previous displacement)
 
-  2. Pianoid::playSoundSamples()   — advance excitation cycle index, push to audio driver
+  2. Pianoid::pushCycleAudioToDriver()   — advance excitation cycle index, push to audio driver
+     (Online regime only; called from Pianoid::runCycle after synthesis)
 ```
 
 ---

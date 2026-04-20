@@ -98,18 +98,18 @@ for build commands.
 |--------|--------|
 | `clearRecords()` | Resets `sound_record_index` to 0 and clears the raw sound circular buffer |
 
-### Per-Cycle Recording (called by PlaybackCycleExecutor)
+### Per-Cycle Recording (called from `Pianoid::runCycle`)
 
 | Method | What it does |
 |--------|-------------|
-| `appendRawSound(name)` | D2H copy from named GPU float buffer → writes to circular buffer at current position |
+| `appendCycleAudioToHostBuffer()` | D2H copy from `dev_soundFloat` → writes to `rawSoundBuffer` (5-second circular host ring) at current position. Called from the Online regime when `record_to_host == true`. |
 
-The `dev_sound_records` archival path (previously populated via `recordCycleAudio()` /
-`appendSoundRecords()`) is currently inert. `sound_record_index` remains at 0 and
-`getSoundRecords()` returns an empty vector in both release and debug builds.
-Reinstating the archival copy inline behind `#ifdef PIANOID_DEBUG_DATA` is planned as
-part of the regime-split work (`Pianoid::runCycle`, C2 scope in
-`docs/development/CYCLE_ORCHESTRATION_REFINEMENT.md`).
+The `dev_sound_records` archival path was reinstated in C2 (dev-568e,
+`77479ea`, 2026-04-20) — the `copyKernel<<<>>>(dev_sound_records_ms, 0,
+dev_sound_records, ...)` plus `sound_record_index++` now runs inline in
+`Pianoid::runCycle` behind `#ifdef PIANOID_DEBUG_DATA`. Release builds skip
+this entirely. Debug builds once again populate the long-form
+`dev_sound_records` buffer for debug-data chart extraction.
 
 ---
 

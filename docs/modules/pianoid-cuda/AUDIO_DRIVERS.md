@@ -260,7 +260,7 @@ GPU kernel (addKernel)
   |  dev_soundInt[NUM_CHANNELS × samplesInCycle]  (Sint32, GPU memory)
   |
   v
-Pianoid::playSoundSamples()
+Pianoid::pushCycleAudioToDriver()  (Online regime only)
   |  audioDriver->pushSamples(dev_soundInt, ...)
   |
   v

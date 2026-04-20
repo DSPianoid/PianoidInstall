@@ -63,7 +63,9 @@ class. Key responsibilities:
 
 - GPU memory initialisation via `devMemoryInit()`
 - Synthesis cycle execution via `runSynthesisKernel()`
-- Audio buffer management via `manageSoundBuffers()` / `playSoundSamples()`
+- Orchestrated cycle + output routing via `runCycle(CycleOutput)` — delegates
+  to `pushCycleAudioToDriver()` / `appendCycleAudioToHostBuffer()` for the
+  Online regime; no-op output for the Offline regime
 - Preset switching via `loadPresetToLibrary()` / `switchPreset()`
 - String and mode excitation via the batch API (`beginStringBatch()`, `addStringToBatch()`,
   `commitStringBatch()`)

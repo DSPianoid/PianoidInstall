@@ -107,9 +107,10 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
           ├── NOTE_OFF → releaseStrings(indices)
           └── SUSTAIN  → processSustain(pedal_value)
       │
-      PlaybackCycleExecutor.executeCycle(pianoid, audio_enabled):
-        1. pianoid->runSynthesisKernel()      → MainKernel GPU launch
-        2. pianoid->manageSoundBuffers()      → push to ring buffer (if audio_enabled)
+      pianoid->runCycle({CycleRegime::Online, record_to_host=true}):
+        1. runSynthesisKernel()               → MainKernel GPU launch
+        2. appendCycleAudioToHostBuffer()     → rawSoundBuffer 5s ring
+        3. pushCycleAudioToDriver()           → audioDriver->pushSamples
       │
       ▼
   AudioDriver callback → LockFreeCircularBuffer → PCM to OS audio
@@ -173,9 +174,9 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
        loop until done:
          processEventsAtCycle(cycle)
            EventQueue.getEventsAtCycle(cycle) → EventDispatcher.dispatch()
-         PlaybackCycleExecutor.executeCycle(pianoid, audio_enabled=false)
-           1. pianoid->runSynthesisKernel()       → GPU kernel
-           2. manageSoundBuffers() skipped (audio_enabled=false, driver stays idle)
+         pianoid->runCycle({CycleRegime::Offline, record_to_host=false})
+           1. runSynthesisKernel()                → GPU kernel
+           2. (no output routing — regime structurally skips push + ring)
          collectAudio() → recorded_audio_.append()   (via getCurrentCycleAudio)
          cycle++
        return PlaybackStats
@@ -245,10 +246,10 @@ backendserver.py (line 797)
       │                                          │
       │  processEventsAtCycle(cycle):             │
       │    drain both buffers → dispatch events   │
-      │  PlaybackCycleExecutor.executeCycle():    │
+      │  pianoid->runCycle({regime, record_host}):│
       │    1. runSynthesisKernel() → GPU          │
-      │    2. manageSoundBuffers() → ring buf     │
-      │       (skipped when audio_enabled=false)  │
+      │    2. Online: append ring + driver push   │
+      │       Offline: (no output routing)        │
       └──────────────────┬───────────────────────┘
                          │
               ┌──────────┴──────────┐
