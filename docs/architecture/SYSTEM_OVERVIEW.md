@@ -195,13 +195,13 @@ Backend Process (port 5000)
     |       Must not block; no Python code runs here.
     |
     +-- MIDI listener thread (optional)
-            Python MIDI_listener_unified (pianoid.py) — uses rtmidi to read
-            raw MIDI bytes from a hardware port, then pushes NOTE_ON /
-            NOTE_OFF / SUSTAIN events into RealTimeEventBuffer via
-            Pianoid.schedule_event(). Thread-safe buffer, < 1us lock.
-            Legacy Python MidiListener (pianoidMidiListener.py) is retained
-            for its YAML keyboard config / per-note CC handlers but is not
-            wired into the default startup path.
+            Two implementations:
+            a) C++ MidiInputListener (RtMidi callback, lowest latency)
+               Pushes NOTE/SUSTAIN events to RealTimeEventBuffer.
+               Volume/deck CC applied directly to RuntimeParameters.
+            b) Python MidiListener (legacy, pianoidMidiListener.py)
+               Polls rtmidi at 10ms, routes through perform_midi_command().
+            Both push events into RealTimeEventBuffer (thread-safe, < 1us lock).
 ```
 
 Thread safety is maintained by:
