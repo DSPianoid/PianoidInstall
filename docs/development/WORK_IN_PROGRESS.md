@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-63c2 | Fix offline-render silence (post-ctx-distortion) | [log](logs/dev-63c2-2026-04-20-162006.md) | 2026-04-20 |
 
 ---
 
