@@ -4,8 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| ctx-distortion | Commit stale distortion-investigation changes + collect distortion context report | [log](logs/ctx-distortion-2026-04-20-132155.md) | 2026-04-20 |
-
 
 ---
 
