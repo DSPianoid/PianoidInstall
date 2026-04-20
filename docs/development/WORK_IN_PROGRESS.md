@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-0f80 | Wave B Task 3 — SC cache stale-key fix on preset switch | [log](logs/dev-0f80-2026-04-20-161528.md) | 2026-04-20 |
 
 
 ---
