@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-cf56 | Cycle-orchestration cleanup tranche (C1+C8+C10+C11+C12+C13) — delete dead wrappers, collapse dual silence gate, remove legacy atomics | [log](logs/dev-cf56-2026-04-20-152325.md) | 2026-04-20 |
 
 ---
 
