@@ -163,26 +163,19 @@ public:
         uint32_t cycle_index
     );
 
-    // Execute one complete synthesis cycle (3-step)
+    // Execute one complete synthesis cycle (2-step)
     // Returns status code: 200 = success
-    static int executeCycle(Pianoid* pianoid, bool record_audio);
+    // audio_enabled=false skips the driver push (offline calibration mode).
+    static int executeCycle(Pianoid* pianoid, bool audio_enabled = true);
 
     // Excite all strings mapped to a MIDI pitch
     static void exciteStringsForPitch(Pianoid* pianoid, int pitch, int velocity);
-
-    // Excite a list of strings with corresponding velocities (uses batch API)
-    static void exciteStringBatch(
-        Pianoid* pianoid,
-        const std::vector<int>& string_indices,
-        const std::vector<int>& velocities
-    );
 };
 ```
 
 `executeCycle()` calls in order:
-1. `pianoid->executeSynthesisCycle()` — GPU kernel launch
-2. `pianoid->manageSoundBuffers()` — audio buffer push
-3. `pianoid->recordCycleAudio()` — D2H copy (if `record_audio == true`)
+1. `pianoid->runSynthesisKernel()` — GPU kernel launch
+2. `pianoid->manageSoundBuffers()` — audio buffer push (skipped when `audio_enabled=false`)
 
 ---
 
@@ -392,14 +385,14 @@ run():                                   run():
   loop:                                    loop:
     cycle = estimator.getCurrentCycle()      processEventsAtCycle(current_cycle_)
     processEventsAtCycle(cycle)              runCycle()
-      drain EventQueue                         executeSynthesisCycle()
-      drain RealTimeEventBuffer                manageSoundBuffers()
-    executeCycle(pianoid_, record)             recordCycleAudio()
-      executeSynthesisCycle()                collectAudio()
-      manageSoundBuffers()                   current_cycle_++
-      [recordCycleAudio if needed]         end loop
-    wait for next audio callback         exportToWav() [optional]
-  end loop
+      drain EventQueue                         executeCycle(pianoid, audio_enabled)
+      drain RealTimeEventBuffer                  runSynthesisKernel()
+    executeCycle(pianoid, audio_enabled)         if audio_enabled:
+      runSynthesisKernel()                         manageSoundBuffers()
+      if audio_enabled:                      collectAudio()
+        manageSoundBuffers()                 current_cycle_++
+    wait for next audio callback         end loop
+  end loop                               exportToWav() [optional]
   stop audio driver                      return PlaybackStats
   return PlaybackStats
 ```

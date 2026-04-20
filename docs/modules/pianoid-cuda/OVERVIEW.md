@@ -62,7 +62,7 @@ The central facade. Owns all GPU buffer pointers, the `UnifiedGpuMemoryManager`,
 class. Key responsibilities:
 
 - GPU memory initialisation via `devMemoryInit()`
-- Synthesis cycle execution via `executeSynthesisCycle()` / `launchMainKernel()`
+- Synthesis cycle execution via `runSynthesisKernel()`
 - Audio buffer management via `manageSoundBuffers()` / `playSoundSamples()`
 - Preset switching via `loadPresetToLibrary()` / `switchPreset()`
 - String and mode excitation via the batch API (`beginStringBatch()`, `addStringToBatch()`,
@@ -70,7 +70,8 @@ class. Key responsibilities:
 - Per-string and per-parameter granular updates (`updateSingleStringParameter_NEW()`,
   `updateMultiStringParameter_NEW()`)
 - Audio driver lifecycle (`startAudioDriver()`, `stopAudioDriver()`)
-- Online and offline playback orchestration (`runOnlinePlayback()`, `runOfflinePlayback()`)
+- Offline playback orchestration (`runOfflinePlayback()`). Online playback is driven by
+  Python constructing `OnlinePlaybackEngine` directly (see PLAYBACK_SYSTEM.md).
 
 ### MainKernel (`addKernel`)
 **File:** `MainKernel.cuh` / `MainKernel.cu`

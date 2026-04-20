@@ -103,7 +103,7 @@ Key implementation details:
 
 | Test | What it validates |
 |------|-------------------|
-| `TestOnlinePlayback::test_chord_playback` | C major chord via `runOnlinePlayback()` — no profiling, no debug data, auditory evaluation |
+| `TestOnlinePlayback::test_chord_playback` | C major chord via `OnlinePlaybackEngine` (initialize/loadEvents/run) — no profiling, no debug data, auditory evaluation |
 
 Production-safe: no dependency on `PIANOID_DEBUG_DATA`. Plays a 3-second C major chord (C4+E4+G4) through the audio driver with note-off and release tail.
 

@@ -4,12 +4,15 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-cf56 | Cycle-orchestration cleanup tranche (C1+C8+C10+C11+C12+C13) — delete dead wrappers, collapse dual silence gate, remove legacy atomics | [log](logs/dev-cf56-2026-04-20-152325.md) | 2026-04-20 |
 
 ---
 
 ## Known Follow-Ups
 
 - **`play_note_offline_chart_function` — missing `get_string_indices`.** The chart function calls `pianoid.get_string_indices(pitch)` (chartFunctions.py ~line 1529), which does not exist on `Pianoid`. The surrounding try/except swallows the `AttributeError` and leaves `string_oscillation_data = (0, 0)`. Effect: String Osc Max/RMS always display 0 in the note_playback chart. Found during dev-63c2 fix; left out of scope by orchestrator. Likely replacement: `pianoid.sm.get_string_indices(pitch)` or a similar StringMap API — needs a brief code audit before fix.
+- **Debug-build `dev_sound_records` archival path inert after C8.** The C8 cleanup (dev-cf56, 2026-04-20) deleted `Pianoid::recordCycleAudio` + `appendSoundRecords` outright. In release builds this was already a no-op. In debug builds (`PIANOID_DEBUG_DATA`), `sound_record_index` no longer advances and `getSoundRecords` returns empty. The archival `cudaMemcpy(dev_sound_records_ms → dev_sound_records)` with index increment should be reinstated inline in `Pianoid::runCycle` behind `#ifdef PIANOID_DEBUG_DATA` when regime-split C2 lands (see `CYCLE_ORCHESTRATION_REFINEMENT.md` §8 Q4). Users relying on debug-data chart extraction should not upgrade past `a102a7f` until that reinstatement lands.
+- **`audioOn` legacy atomic still live.** Its sibling `applicationIsRunning` was removed in C13 (dev-cf56, 2026-04-20) but `audioOn` retains one reader inside `playSoundSamples` at `Pianoid.cu:2265` (the dual-silence-gate `audioOn.load()` check). Deletion is folded into C3 of `CYCLE_ORCHESTRATION_REFINEMENT.md`, which also splits `playSoundSamples` into `pushCycleAudioToDriver` + `appendCycleAudioToHostBuffer`. Do NOT attempt to delete `audioOn` before C3.
 
 ---
 

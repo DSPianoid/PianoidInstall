@@ -245,9 +245,9 @@ One synthesis cycle corresponds to `samplesInCycle` audio samples. The outer loo
 Each iteration contains an inner loop of `soundStep` FDTD sub-steps.
 
 ```
-Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
+Per synthesis cycle (managed by Pianoid::runSynthesisKernel):
 
-  1. Pianoid::launchMainKernel()
+  1. Pianoid::runSynthesisKernel()
        |
        +-- cudaLaunchCooperativeKernel(addKernel, ...)
              |
@@ -270,7 +270,6 @@ Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
              Save mode_state   (current + previous displacement)
 
   2. Pianoid::playSoundSamples()   — advance excitation cycle index, push to audio driver
-  3. Pianoid::appendSoundRecords() — optional D2H copy for recording
 ```
 
 ---
@@ -289,7 +288,7 @@ Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
        |
   +----+
   |
-  |  +----- executeSynthesisCycle() -----------------------------------------+
+  |  +----- runSynthesisKernel() -------------------------------------------+
   |  |                                                                        |
   |  |  if new_notes_ind > 0:  parameterKernel (update coefficients)         |
   |  |  if new_notes_ind > 1:  gaussKernel (compute force_function)          |
@@ -374,7 +373,7 @@ void addOneString(int stringNo, int velocity);
 
 ### Kernel Trigger: `new_notes_ind`
 
-`launchMainKernel()` checks `new_notes_ind` to decide which kernels to launch:
+`runSynthesisKernel()` checks `new_notes_ind` to decide which kernels to launch:
 
 ```
 new_notes_ind == 0  →  addKernel only (normal synthesis cycle)
@@ -383,7 +382,7 @@ new_notes_ind >  1  →  parameterKernel + gaussKernel + addKernel
                         (gaussKernel grid: noStrings = new_notes_ind - 1)
 ```
 
-`new_notes_ind` is reset to 0 at the end of `launchMainKernel()`.
+`new_notes_ind` is reset to 0 at the end of `runSynthesisKernel()`.
 
 ### gaussKernel — Force Function Computation
 
