@@ -4,6 +4,13 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-63c2 | Fix offline-render silence (post-ctx-distortion) | [log](logs/dev-63c2-2026-04-20-162006.md) | 2026-04-20 |
+
+---
+
+## Known Follow-Ups
+
+- **`play_note_offline_chart_function` — missing `get_string_indices`.** The chart function calls `pianoid.get_string_indices(pitch)` (chartFunctions.py ~line 1529), which does not exist on `Pianoid`. The surrounding try/except swallows the `AttributeError` and leaves `string_oscillation_data = (0, 0)`. Effect: String Osc Max/RMS always display 0 in the note_playback chart. Found during dev-63c2 fix; left out of scope by orchestrator. Likely replacement: `pianoid.sm.get_string_indices(pitch)` or a similar StringMap API — needs a brief code audit before fix.
 
 ---
 
