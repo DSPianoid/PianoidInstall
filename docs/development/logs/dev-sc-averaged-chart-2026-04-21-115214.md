@@ -122,4 +122,29 @@ Console clean of app errors (only pre-existing WebSocket startup noise during re
 - `sc_agg_modes_after_smooth.png` — modes axis, zigzag attenuated by Smooth
 - `sc_agg_strings_after_undo_smooth.png` — strings axis post-undo state
 
+### Hot-fix: drawing reverts + Flat stale-value (user real-UI feedback) — 15:05
+User reported via Telegram that **drawing worked incorrectly** and the **Flat button did nothing** in real UI. My earlier scripted tests missed both bugs because the synthesized MouseEvents were spaced well apart (render could catch up) and because I never tested Flat after typing without pressing Enter. Reproduced both via chrome-devtools pointer + keyboard injection.
+
+**Bug 1 — Drawing reverts.** `emitPainted` rebuilt the full vector from `yValuesRef.current` on every mousemove, but React batches state updates — between mousemoves the ref often still pointed to the pre-drag `yValues`, so the emitted vector overwrote previously-painted indices with their original values. End effect: only the last touched index retained its new value; intermediate painted positions silently reverted.
+
+*Fix:* Keep a drag-scoped working vector inside `dragState.current.vector`. Seed from `yValuesRef` on mousedown, mutate only the touched indices on each mousemove, emit the vector, discard on mouseup. Emitted payload is now consistent regardless of render timing.
+
+**Bug 2 — Flat applies stale value.** NumInput defers `onChange` to Enter / internal Apply click, and its blur handler REVERTS uncommitted edits. User sequence `type "0.5" → click Flat`:
+1. Button mousedown → input blur → NumInput reverts display to previous committed value.
+2. Button onClick → handleFlat reads either stale `flatValue` state or reverted `input.value`. Either way wrong.
+
+First-attempt fix (read `input.value` at click time via wrapper ref) failed because blur had already run. Working fix: attach a native `input` event listener to the raw `<input>` via the wrapper Box ref. Every keystroke mirrors into `latestTypedValueRef`, so by the time the user clicks Flat the ref holds the typed value. handleFlat clamps to `[0, 20]` and syncs the committed React state so the NumInput display updates after next render (overriding any "reverted on blur" state).
+
+**Real-UI verification (chrome-devtools injected pointer + keyboard).**
+- Strings axis: `Ctrl+A, type "0.5", click Flat` → all 100 modes × 4 channels = 0.5. Fast 30-step drag of rising line across modes 10..90 → smooth 0.055..0.345 curve, untouched edges at 0.5. Per-mode channel arrays equal. Screenshot: `sc_agg_strings_drag_fixed.png`.
+- Modes axis: `Ctrl+A, type "0.8", click Flat` → all 84 pitches × 4 channels = 0.8. 26-step drag → smooth 0.033..0.205 curve across 68 pitches, per-pitch channel arrays equal. Screenshot: `sc_agg_modes_drag_fixed.png`.
+
+Console clean of app errors from this component (pre-existing ObjectInspector Max-update-depth warning unrelated).
+
+Build: 189 warnings (baseline parity). Commit: `51d26c6 fix: drawing reverts + Flat stale-value bugs` (1 file, +88/-29) on `feature/sc-averaged-curve`.
+
+### Final screenshots
+- `sc_agg_strings_drag_fixed.png` — 30-step drag produces smooth rising line across 81 modes (fix verified)
+- `sc_agg_modes_drag_fixed.png` — modes axis, rising line across 68 pitches (fix verified)
+
 
