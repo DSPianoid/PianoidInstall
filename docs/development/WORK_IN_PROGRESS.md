@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-568e | Core split C2+C3 — CycleRegime + runCycle + primitive extraction + delete playSoundSamples/manageSoundBuffers/audioOn | [log](logs/dev-568e-2026-04-20-215759.md) | 2026-04-20 |
 
 ---
 
