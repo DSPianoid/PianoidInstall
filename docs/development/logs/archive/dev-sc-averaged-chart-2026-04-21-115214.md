@@ -143,8 +143,40 @@ Console clean of app errors from this component (pre-existing ObjectInspector Ma
 
 Build: 189 warnings (baseline parity). Commit: `51d26c6 fix: drawing reverts + Flat stale-value bugs` (1 file, +88/-29) on `feature/sc-averaged-curve`.
 
-### Final screenshots
+### Drawing-reverts-fix screenshots
 - `sc_agg_strings_drag_fixed.png` — 30-step drag produces smooth rising line across 81 modes (fix verified)
 - `sc_agg_modes_drag_fixed.png` — modes axis, rising line across 68 pitches (fix verified)
+
+### Second hot-fix: value mapping (axis + clamp) — 15:40
+User re-tested and still saw "drawing sets wrong values". Deeper probe via fiber-chain ECharts access found two quantitative bugs neither of my earlier real-UI tests had caught.
+
+**Root cause A — y-axis auto-scaled below zero.** `convertFromPixel('grid', [0, canvasY=408])` (the grid bottom) returned `-0.27835`, not `0`. ECharts's default auto-scale adds padding to both ends, so the pixel-to-value line didn't pass through zero at the label's "0" tick. Dragging near the bottom wrote a small positive value that did NOT correspond to the pixel the user clicked.
+
+*Fix:* `yAxis.min = 0`. Auto-max remains (axis grows when user drags above current max). The bottom grid pixel now maps to exactly 0.
+
+**Root cause B — `DRAG_CLAMP_MAX = 20`.** Strings-axis preset coefficients range to ~3400; my clamp silently capped any drag or flat value > 20 to 20. On strings axis, a user trying to pull coefficients back to their baseline of 600 saw them lock at 20 with no error.
+
+*Fix:* `DRAG_CLAMP_MAX = 1e6`.
+
+**Verification after fix.**
+- `convertFromPixel` at grid bottom returns exactly 0.
+- Single-point drag at clientY=200 writes 0.2652 at the nearest pitch, matching `0.3 * (408 - 65) / (408 - 20) = 0.2652` exactly.
+- Drag above grid top (clientY=50) writes 0.381 → axis grows on next render to 0..0.4 (expected — auto-max).
+- Drag below current auto-max (clientY=500) writes 0.044 — inside [0, 0.38], no clamping.
+
+**Fan-out semantics (user-confirmed).** User answered "A" to the clarification: delta fan-out is correct. Drawing avg=700 at a mode with channels [600, 800, 300, 300] (oldAvg=500) gives [800, 1000, 500, 500] (newAvg=700, delta=+200 applied to each channel). No changes to `useSoundChannels.fanOutAggregateChangeAxis`.
+
+**Commit** on `feature/sc-averaged-curve`: `9d00780 fix: pin y-axis to zero + raise clamp for strings-axis values` (+15/-1). Build: 189 warnings (baseline).
+
+### Second-hot-fix screenshots
+- `sc_agg_axis_pinned.png` — fresh preset, y-axis starts at 0
+- `sc_agg_axis_pinned_after_drags.png` — cumulative drag produces visible pattern exactly matching commanded values
+
+### Final state at wrap-up (2026-04-21)
+- Feature branch `feature/sc-averaged-curve` in PianoidTunner: 5 commits (`98afef7`, `143787b`, `9038041`, `51d26c6`, `9d00780`). Merged into `dev` with `--no-ff` at Step 10a.
+- Docs branch `docs/sc-averaged-curve-flat-smooth` in PianoidInstall: 2 commits (`f68ec53`, `79b9306`) linear on top of the earlier direct-to-master `9777e58`. Merged into `master` with `--no-ff` at Step 10a — no history rewrite.
+- User-confirmed: delta fan-out retained (option A).
+- Neither push performed (per policy).
+- Status: **Complete**. Log archived.
 
 
