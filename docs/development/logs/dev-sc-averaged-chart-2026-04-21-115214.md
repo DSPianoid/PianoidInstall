@@ -86,4 +86,40 @@
 - `sc_agg_modes_after_toggle_cycle.png` — state preserved after ON→OFF→ON
 - `sc_agg_modes_fixed.png` — post-fix UI (IconButton toolbar), aggregate ON after reload
 
+### Extension: Flat + Smooth toolbar buttons — 14:25 (user second-pass request)
+User approved via Telegram: "B - add both" (Flat + Smooth).
+
+**Changes.** `PianoidTunner/src/components/SoundChannelsAggregateChart.jsx` only:
+- Added `useState`-backed `flatValue` (default 1.0) bound to an inline `NumInput` (MUI-dense, `min=0`, `max=20`, `step=0.1`, `decPlaces=3`, `width="80px"`).
+- Added `emitVector(values)` callback that packages a full painted vector into the axis-correct change shape (pitchesVectorDrawn / modesVectorDrawn) and calls `onAggregateChange`. Clamps per-point to `[0, 20]` (same clamp as drag).
+- `handleFlat()`: builds a vector of `flatValue` × N and calls `emitVector`.
+- `handleSmooth()`: 3-point moving average with 2-point single-sided average at indices 0 and N-1. Matches the approach taken by `PerceptionCurveEditor.handleSmooth` — documented inline.
+- Toolbar layout: `Divider` separates undo/redo from Flat/Smooth. Icon-only buttons: `HorizontalRuleIcon` for Flat, `BlurOnIcon` for Smooth. All wrap in `Tooltip` and carry `aria-label` per project CLAUDE.md.
+- Build: 189 warnings (baseline parity).
+
+**Test matrix (both axes).**
+
+Modes axis (BaselinePreset1, all 84 pitches × 4 channels start at 0.3):
+- Flat with default 1.0 → every pitch's 4 channels all become 1.0. Curve flat at y=1. Fan-out confirmed.
+- Drew a zigzag (6-point drag across indices 12..47) → backend shows the sawtooth pattern.
+- Smooth → sharp dips (e.g. index 20: 0.111) replaced with neighbor average (0.1753 = (0.175 + 0.111 + 0.24)/3). All 84 pitches × 4 channels preserved per-pitch-equal (fan-out intact).
+- Undo after Smooth → one step reverts exactly the smoothed indices to pre-smooth values.
+
+Strings axis (all 100 modes × 4 output channels):
+- Flat with 1.0 → every mode's 4 channels = 1.0. Fan-out confirmed.
+- Zigzag drag at modes 20..36, Smooth: mode 30 (0.11) → 0.254 = (0.33 + 0.11 + 0.33)/3 ✓. All 4 channels equal per mode.
+- Undo after Smooth → one step reverts.
+
+Console clean of app errors (only pre-existing WebSocket startup noise during reload).
+
+**Commit** on `feature/sc-averaged-curve`: `9038041 feat: add Flat + Smooth toolbar buttons to SC aggregate chart` (1 file, +93/-4).
+
+**Docs** on `docs/sc-averaged-curve-flat-smooth` (PianoidInstall, NOT master this time per team-lead note): SoundChannelsAggregateChart row updated with Flat/Smooth toolbar description.
+
+### Screenshots added (D:/tmp)
+- `sc_agg_modes_before_flat.png` — toolbar with Flat/Smooth buttons visible
+- `sc_agg_modes_after_flat1.png` — modes axis, all pitches flattened to 1.0
+- `sc_agg_modes_after_smooth.png` — modes axis, zigzag attenuated by Smooth
+- `sc_agg_strings_after_undo_smooth.png` — strings axis post-undo state
+
 
