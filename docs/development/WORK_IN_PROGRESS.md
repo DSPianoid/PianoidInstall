@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-e6b9 | Fix /play_keyboard mic capture path | [log](logs/dev-e6b9-2026-04-21-160643.md) | 2026-04-21 |
 
 ---
 
