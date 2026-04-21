@@ -59,6 +59,7 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /set_runtime_parameters   -- volume / feedback at runtime
   /play                     -- trigger note on/off
   /play_mode/<mode_no>      -- trigger mode playback
+  /play_keyboard            -- full-keyboard sweep (online+mic capture / offline render)
   /midi_playback            -- MIDI file playback control
   /playback_stats           -- EventQueue statistics
   /pause_synthesis          -- pause synthesis cycle (keeps GPU)
@@ -537,6 +538,37 @@ Response `200`:
 ```
 
 Response `416` if `mode_no` is not a valid integer.
+
+---
+
+### `POST /play_keyboard`
+
+Plays the full keyboard as a NOTE_ON/NOTE_OFF sweep in either online (live driver) or offline (rendered WAV) mode. Online mode can optionally record the microphone while playing so room acoustics can be captured.
+
+Request body:
+```json
+{
+  "mode": "online",
+  "speed_ms_per_note": 100,
+  "velocity": 63,
+  "capture_mic": false,
+  "tail_ms": 2000,
+  "pitches": null
+}
+```
+
+- `mode`: `"online"` (default) schedules events through the live audio driver and returns immediately. `"offline"` stops the online engine, runs `runOfflinePlayback`, writes a peak-normalized 16-bit PCM synth WAV to `D:/tmp/keyboard_offline_<timestamp>.wav`, then restarts the engine.
+- `speed_ms_per_note`: NOTE_ON to NOTE_OFF duration per key (also the per-step advance). Clamped to 10–2000 ms.
+- `velocity`: MIDI velocity 1–127, default 63 (mf).
+- `pitches`: optional explicit list; omit for all available pitches.
+- `capture_mic` (online only, default `false`): when `true`, the server calls `startMicCapture` before scheduling events, sleeps synchronously for `speed_ms_per_note * num_pitches + tail_ms`, then calls `stopMicCapture` and writes an un-normalized 16-bit PCM mic WAV to `D:/tmp/keyboard_mic_<timestamp>.wav`. Requires an active audio driver with a selected input device — set via `POST /set_mic_device` if needed.
+- `tail_ms` (online, `capture_mic` only): extra capture time after the last NOTE_OFF to catch decay. Clamped to 0–10000 ms, default 2000.
+
+Online response (no mic): scheduled event count + nominal duration, returns immediately.
+Online response (with mic): adds `mic_wav_path`, `mic_sample_rate`, `mic_samples`, `mic_peak`, `mic_rms`, `mic_nonzero_fraction`. Blocks until capture finishes.
+Offline response: `wav_path`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+
+Response `400` for invalid params or empty pitch list. Response `417` if pianoid is in exception state.
 
 ---
 
