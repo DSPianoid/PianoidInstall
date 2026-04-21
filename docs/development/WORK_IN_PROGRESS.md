@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-sc-averaged-chart | Refactor SC averaged mode: replace collapsed matrix with curve chart (reuse Volume Tuner) | [log](logs/dev-sc-averaged-chart-2026-04-21-115214.md) | 2026-04-21 |
 
 
 ---
