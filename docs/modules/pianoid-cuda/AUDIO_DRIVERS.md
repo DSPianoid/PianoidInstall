@@ -250,12 +250,13 @@ public:
 Internal storage is `std::vector<Sint32>` on the CPU. `produce()` performs a
 `cudaMemcpyAsync` from GPU to this buffer on a **dedicated non-blocking CUDA stream**
 (`produce_stream`), then `cudaStreamSynchronize` on that stream. The dedicated stream
-decouples the D→H copy + host wait from the synthesis kernel running on the default
-stream — without it, the default-stream `cudaMemcpy` would implicitly wait for every
-prior default-stream kernel, effectively serialising the producer against synthesis
-and doubling pipeline depth under load. See Fix F5 in the Buffer Underrun
-Investigation. `consume()` provides pointers into the buffer for the audio callback
-to read without copying.
+isolates the D→H copy from the synthesis kernel on the default stream — a correctness
+/ architecture improvement so the producer copy does not implicitly wait on unrelated
+default-stream GPU work. (See Fix F5 in the Buffer Underrun Investigation; note that
+the F5 A/B measurement showed this change did not reduce silent-engine underrun rate
+at iter=8 or iter=12 — the remaining underruns are synthesis-compute bound.)
+`consume()` provides pointers into the buffer for the audio callback to read without
+copying.
 
 ---
 

@@ -97,32 +97,35 @@ See [LOGGING.md](../modules/pianoid-cuda/LOGGING.md) for full details and migrat
 
 ## Buffer Underrun Investigation
 
-**Status:** Partial fix applied (F5, 2026-04-22, dev-f5-stream). Residual underruns remain — synthesis-kernel budget is the bottleneck at `string_iteration=8`.
+**Status:** F5 landed (2026-04-22, dev-f5-stream) but measured **no effect** on underrun rate. Investigation continues — compute-bound, not serialization-bound.
 
-Two distinct concerns were identified:
+Two concerns were identified pre-F5:
 
-1. **Lock-scope window (pre-existing, latent).** `produce()` releases its mutex before the D→H copy, creating a ~0.5–1.3 ms window where `consume()` can see a stale `write_position`. The F5 fix does not change lock semantics; this concern is unchanged.
+1. **Lock-scope window (pre-existing, latent).** `produce()` releases its mutex before the D→H copy, creating a ~0.5–1.3 ms window where `consume()` can see a stale `write_position`. Not addressed by F5.
 
-2. **Default-stream serialization (F5, fixed).** `produce()` previously did `cudaMemcpy(..., DeviceToHost)` + `cudaDeviceSynchronize()` on the default stream. Both operations waited on all prior default-stream work — including the synthesis kernel launched by `Pianoid::runCycle`. Under load (`string_iteration=8`, synthesis consumes 99.3% of the 1333 µs budget per `analyse-distortion` A1), this effectively doubled pipeline depth and turned any jitter into an underrun. F5 adds a dedicated `cudaStream_t produce_stream` (non-blocking) to `LockFreeCircularBuffer` and switches to `cudaMemcpyAsync` + `cudaStreamSynchronize`. The copy is now isolated from synthesis.
+2. **Default-stream serialization (F5 hypothesis, refuted by data).** `produce()` used default-stream `cudaMemcpy` + `cudaDeviceSynchronize`. Hypothesis: this implicitly serialised the D→H copy against the synthesis kernel (also on default stream), doubling pipeline depth and turning jitter into underruns. F5 moved produce() to a dedicated `cudaStream_t produce_stream` with `cudaMemcpyAsync` + `cudaStreamSynchronize`. **The A/B data below show this had no observable effect.**
 
-**F5 measured impact** (silent-engine probe, SDL3, Preset_test5, string_iteration=8, 30 s):
+**F5 A/B measurement** (silent-engine probe, SDL3, Preset_test5, `buffer_size=4`, 30 s). Same-harness: revert F5 → rebuild → measure → restore F5 → rebuild → measure.
 
-| Metric | Pre-fix (analyse-distortion A1) | Post-fix (F5) |
-|--------|---------------------------------|---------------|
-| Underrun rate | ~100% | 33.4% |
-| Max callback interval | — | 16 311 µs |
-| Avg interval | — | 9 996 µs |
-| Stddev | — | 320 µs |
+| Config | Pre-F5 | Post-F5 | Δ |
+|--------|--------|---------|---|
+| `string_iteration=8` | 33.3% underrun, 13 975 µs max | 33.4–35.0% underrun, 16 311–18 123 µs max | within noise |
+| `string_iteration=12` | 110.9% underrun, 18 501 µs max | 110.3% underrun, 21 031 µs max | within noise |
 
-See [logs/dev-f5-stream-2026-04-22-163903.md](logs/dev-f5-stream-2026-04-22-163903.md) for the full measurement, and [probe_f5_silent_engine.py](../../PianoidCore/tests/system/probe_f5_silent_engine.py) for reproduction.
+The initial report of "~100% → 33.4%" was a cross-load comparison error — the ~100% came from an analyse-distortion A1 run whose `string_iterations` kwarg (plural) silently dropped and ran at default iter=12, not iter=8. After correction, same-harness A/B shows **no F5 effect** at either load level.
+
+F5 is **kept** on correctness grounds (producer copy should not implicitly block on unrelated default-stream GPU work), but is **not the fix** for distortion. The real lever is synthesis kernel cost (iter=12: 110% = kernel over budget; iter=8: 33% = kernel near budget, OS scheduling tips it over).
+
+See [logs/dev-f5-stream-2026-04-22-163903.md](logs/dev-f5-stream-2026-04-22-163903.md) for the full A/B and [probe_f5_silent_engine.py](../../PianoidCore/tests/system/probe_f5_silent_engine.py) for reproduction (env vars `F5_STRING_ITER`, `F5_DURATION_S`).
 
 | Task | Status |
 |------|--------|
 | Diagnostic tests | Done |
-| Root cause analysis | Done |
-| F5 — dedicated CUDA stream for produce() | Done (dev-f5-stream) |
-| Fix `produce()` lock scope | Pending (distinct concern) |
-| Reduce synthesis kernel budget at high `string_iteration` | Pending (remaining 33.4% is synthesis-compute bound) |
+| Root cause analysis | In progress — serialization refuted, compute-bound hypothesis remains |
+| F5 — dedicated CUDA stream for produce() | Merged, no underrun effect (dev-f5-stream) |
+| Fix `produce()` lock scope | Pending (distinct concern; F5 null result suggests it's also not load-bearing) |
+| Reduce synthesis kernel cost at high `string_iteration` | Pending — now the primary lever |
+| Investigate SDL3 callback jitter (300 µs stddev, 18 ms max on 10 ms cadence) | Pending — OS-scheduling hypothesis |
 
 See [Testing](TESTING.md) for the test inventory.
 
