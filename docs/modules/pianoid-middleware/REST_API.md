@@ -11,6 +11,8 @@ The middleware runs as **two Flask servers**:
 
 Both servers have CORS enabled for all origins. The frontend connects to both servers concurrently.
 
+**Error-response CORS guarantee** — `backendServer.py` registers a global `@app.errorhandler(Exception)` that converts any uncaught exception into a JSON 500 response (`{"error": <ExceptionClass>, "message": <str>, "path": <request.path>}`). This ensures Flask-CORS attaches `Access-Control-Allow-Origin` to every error the browser might see. Werkzeug `HTTPException` responses (404, 400, etc.) are passed through unchanged — Flask-CORS handles those via `after_request`. Without this, the Werkzeug debug HTML 500 response is untagged and the browser blocks it as a CORS error, making the actual failure invisible to the frontend.
+
 ### WebSocket Channel (port 5000)
 
 `backendServer.py` also provides a **Socket.IO WebSocket channel** on the same port (5000) for low-latency bidirectional communication. The WebSocket layer is purely additive — all REST endpoints remain functional.

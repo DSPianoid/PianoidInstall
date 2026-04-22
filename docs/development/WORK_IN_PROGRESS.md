@@ -33,6 +33,12 @@ Volume and feedback are global runtime parameters that persist across preset swi
 
 The fix adds a `runtime` dict to each `_library_models[name]` entry (backend-authoritative), saves/restores `RuntimeParameters` during `switch_preset()`, enriches the `/preset/switch` response with volume/feedback/sensitivity values, and updates the frontend to consume these values and refresh available notes.
 
+**Sound-channel cache silence on preset switch — resolved (2026-04-20, Wave B).** Independent of the planned runtime-state work, preset transitions could silence Strings mode because in-flight debounced `changeSoundChannelValues` / `changeSoundChannelFeedback` writes from the outgoing preset resolved after the refetch and merged stale pitch keys back via `setSoundChannelData(prev => ...)`. Fixed by clearing `soundChannelData` + `soundChannelFeedbackMatrix` to `null` at the top of `loadPreset()` and `switchPreset()` in `usePreset.js`, before the async refetch.
+
+**Sound Channels strings-axis tooltip null + bulk-edit no-op — resolved (2026-04-21, dev-sc-tooltip-rowcol).** Pre-existing bug surfaced after Wave D manual testing. In strings axis, the matrix from `/get_parameter/feedback/output` uses backend output-pitch keys (`"128".."128+N-1"`) while `availableOutputChanels` exposes the shifted `[0..N-1]`. All downstream consumers (canvas hover lookup, `useMatrixHistory.calcChange`, Workbench) indexed by the shifted frontend channel, producing undefined lookups → tooltip rendered `Value: null`, and the pitch-key guard in `calcChange` silently no-op'd Cell/modesVector/modesVectorDrawn edits. Row and column bulk edits in strings axis never reached the backend. Fixed in `useSoundChannels.js` by normalizing strings-axis keys on init (strip 128) and denormalizing on emit (restore 128), so the canvas/history/workbench stay axis-agnostic while the network payload preserves the backend convention. Verified end-to-end: tooltip now shows real values, row/col bulk edit mutates the matrix, modes axis unchanged.
+
+**useMatrixHistory undo crash on rapid edits — resolved (2026-04-21, dev-sc-tooltip-rowcol).** Pre-existing P1-violation latent since the hook was written. `recordChange` used a stale closure for `currentStep` when slicing the history array — in a burst of clicks within one React batch, every call saw the same captured `currentStep`, so `setHistory(prev => [...prev.slice(0, currentStep), change])` produced only one entry (last-write-wins), while `setCurrentStep(prev => prev + 1)` correctly advanced per-call via its functional updater. `currentStep > history.length` left holes; `restoreMatrixAtStep(step-1)` walked past the end → `entry.operation` on undefined → crash. Surfaced only after the strings-axis fix enabled edits that previously no-op'd silently. Fixed by adding `stepRef = useRef(0)` as the synchronous slice-boundary source of truth — read and bumped inside `recordChange` before the setState calls, so per-call boundaries are correct even without rerender. `init`, `restoreMatrixAtStep`, `undo`, `redo` all synchronized via the ref. Defensive clamp in `restoreMatrixAtStep` (`Math.min(step, history.length)` + skip undefined entries) so a future desync cannot crash. Verified: 5-click burst now produces step=len=6 (was step=6/len=2 before), undo/redo cycle through all steps without error, truncation-after-undo works. Applies to all matrix-history consumers (strings/modes SC, feedin, feedback, strings params, modes params, excitation).
+
 See [PRESET_SYSTEM_REVISION_PLAN.md](PRESET_SYSTEM_REVISION_PLAN.md) for full analysis, architecture decision, implementation steps, data flow, edge cases, and verification checklist.
 
 **Files to modify:**
@@ -70,6 +76,8 @@ See [LOGGING.md](../modules/pianoid-cuda/LOGGING.md) for full details and migrat
 | pybind11 bindings + Python lifecycle | Done |
 | Remaining C++ files (~75 statements) | Pending |
 | Python print migration (578 statements) | Planned |
+| `backendServer.py:475` hot-path `print` → `logger.debug` | Done (dev-bprint, 2026-04-20) |
+| `backendServer.py` other request-handler prints (~80 calls across `/set_parameter`, volume, feedback, play, MIDI) | Pending — latent: same break mode if stdout pipe fails, now shielded by global errorhandler (returns JSON 500 with CORS) but still produce empty responses; best migrated to `logger` in the planned sweep |
 
 ---
 
