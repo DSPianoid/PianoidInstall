@@ -248,8 +248,14 @@ public:
 ```
 
 Internal storage is `std::vector<Sint32>` on the CPU. `produce()` performs a
-`cudaMemcpy` from GPU to this buffer. `consume()` provides pointers into the buffer
-for the audio callback to read without copying.
+`cudaMemcpyAsync` from GPU to this buffer on a **dedicated non-blocking CUDA stream**
+(`produce_stream`), then `cudaStreamSynchronize` on that stream. The dedicated stream
+decouples the D→H copy + host wait from the synthesis kernel running on the default
+stream — without it, the default-stream `cudaMemcpy` would implicitly wait for every
+prior default-stream kernel, effectively serialising the producer against synthesis
+and doubling pipeline depth under load. See Fix F5 in the Buffer Underrun
+Investigation. `consume()` provides pointers into the buffer for the audio callback
+to read without copying.
 
 ---
 
@@ -265,7 +271,8 @@ Pianoid::pushCycleAudioToDriver()  (Online regime only)
   |
   v
 LockFreeCircularBuffer::produce(gpu_data)
-  |  cudaMemcpy (GPU → CPU Sint32 buffer)
+  |  cudaMemcpyAsync on produce_stream (GPU → CPU Sint32 buffer)
+  |  cudaStreamSynchronize(produce_stream)  — no synthesis-stream wait
   |  atomic write_position advance
   |
   v

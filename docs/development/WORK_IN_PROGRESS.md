@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-f5-stream | F5: dedicated CUDA stream for CircularBuffer::produce() | [log](logs/dev-f5-stream-2026-04-22-163903.md) | 2026-04-22 |
 
 ---
 
@@ -96,15 +97,32 @@ See [LOGGING.md](../modules/pianoid-cuda/LOGGING.md) for full details and migrat
 
 ## Buffer Underrun Investigation
 
-**Status:** Diagnostic tests implemented. Root cause identified. Fix not yet applied.
+**Status:** Partial fix applied (F5, 2026-04-22, dev-f5-stream). Residual underruns remain — synthesis-kernel budget is the bottleneck at `string_iteration=8`.
 
-In `CircularBuffer.cu:105`, `produce()` releases its mutex **before** `cudaMemcpy`, creating a ~0.5–1.3ms window where the SDL3 callback's `consume()` sees stale `write_position` → empty buffer → underrun. ~12% of synthesis cycles exceed the 1.333ms real-time budget despite GPU using only ~36%.
+Two distinct concerns were identified:
+
+1. **Lock-scope window (pre-existing, latent).** `produce()` releases its mutex before the D→H copy, creating a ~0.5–1.3 ms window where `consume()` can see a stale `write_position`. The F5 fix does not change lock semantics; this concern is unchanged.
+
+2. **Default-stream serialization (F5, fixed).** `produce()` previously did `cudaMemcpy(..., DeviceToHost)` + `cudaDeviceSynchronize()` on the default stream. Both operations waited on all prior default-stream work — including the synthesis kernel launched by `Pianoid::runCycle`. Under load (`string_iteration=8`, synthesis consumes 99.3% of the 1333 µs budget per `analyse-distortion` A1), this effectively doubled pipeline depth and turned any jitter into an underrun. F5 adds a dedicated `cudaStream_t produce_stream` (non-blocking) to `LockFreeCircularBuffer` and switches to `cudaMemcpyAsync` + `cudaStreamSynchronize`. The copy is now isolated from synthesis.
+
+**F5 measured impact** (silent-engine probe, SDL3, Preset_test5, string_iteration=8, 30 s):
+
+| Metric | Pre-fix (analyse-distortion A1) | Post-fix (F5) |
+|--------|---------------------------------|---------------|
+| Underrun rate | ~100% | 33.4% |
+| Max callback interval | — | 16 311 µs |
+| Avg interval | — | 9 996 µs |
+| Stddev | — | 320 µs |
+
+See [logs/dev-f5-stream-2026-04-22-163903.md](logs/dev-f5-stream-2026-04-22-163903.md) for the full measurement, and [probe_f5_silent_engine.py](../../PianoidCore/tests/system/probe_f5_silent_engine.py) for reproduction.
 
 | Task | Status |
 |------|--------|
 | Diagnostic tests | Done |
 | Root cause analysis | Done |
-| Fix `produce()` lock scope in CircularBuffer.cu | Pending |
+| F5 — dedicated CUDA stream for produce() | Done (dev-f5-stream) |
+| Fix `produce()` lock scope | Pending (distinct concern) |
+| Reduce synthesis kernel budget at high `string_iteration` | Pending (remaining 33.4% is synthesis-compute bound) |
 
 See [Testing](TESTING.md) for the test inventory.
 
