@@ -23,11 +23,19 @@ Parse `$ARGUMENTS` for flags:
 ## Critical Rules
 
 1. **Environment ownership** — NEVER rely on servers already running. Always kill stale processes on Pianoid ports (5000, 5001, 3000, 3001) and start fresh with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state — check and fix it yourself. CWD for backend must be `PianoidCore/pianoid_middleware/` for relative paths.
-2. **Documentation first** — before investigating any failure, consult docs (see CLAUDE.md Documentation-First Rule)
-2. **Never blanket-kill processes** — kill by specific PID on specific ports only
-3. **Use correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
-4. **Port-specific cleanup** — `netstat -ano | findstr :<port>` to identify PIDs
-5. **Log everything** — write all diagnostic output to `D:/tmp/diagnose-session.log`
+2. **Documentation first (MANDATORY) for compile + run** — before investigating ANY build or startup failure, read the canonical docs:
+   - `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md` before starting the backend.
+   - `docs/guides/STARTUP_TROUBLESHOOTING.md` on any startup/build failure (covers pip-stale-pyd, debug-variant DLL, locked-pyd traps).
+   - `docs/architecture/BUILD_SYSTEM.md` before any CUDA rebuild.
+   - Canonical CUDA rebuild: `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently returns stale `.pyd`).
+   - `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy — run release first (or `--both`).
+   - Verify rebuild landed: `grep -a "<marker>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`.
+   - On unexpected build/startup failure → invoke `/startup` rather than burning diagnostic phases on ad-hoc fixes.
+   - 2026-04-23 volume-iter investigation burned ~3h exactly this way.
+3. **Never blanket-kill processes** — kill by specific PID on specific ports only
+4. **Use correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
+5. **Port-specific cleanup** — `netstat -ano | findstr :<port>` to identify PIDs
+6. **Log everything** — write all diagnostic output to `D:/tmp/diagnose-session.log`
 
 ## Phase 0: Pre-Run Commit Gate (MANDATORY)
 

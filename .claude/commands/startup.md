@@ -19,14 +19,20 @@ This skill is the single reference for all installation, build, and startup oper
 
 ## Critical Rules
 
-1. **Documentation first** — before investigating source code, read the relevant docs:
+1. **Documentation first (MANDATORY)** — before investigating source code or running any build/startup command, read the relevant docs:
    - `docs/guides/QUICK_START.md` — full installation and startup reference
-   - `docs/guides/STARTUP_TROUBLESHOOTING.md` — known failure modes and fixes
+   - `docs/guides/STARTUP_TROUBLESHOOTING.md` — known failure modes (pip-stale-pyd, debug-variant DLL, locked-pyd traps)
    - `docs/architecture/BUILD_SYSTEM.md` — build pipeline, environment variables, toolchain detection
    - `docs/modules/pianoid-cuda/AUDIO_DRIVERS.md` — driver selection and configuration
-2. **Never blanket-kill processes** — always kill by specific PID, never `taskkill /F /IM python.exe` or `taskkill /F /IM node.exe`
-3. **Use the correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
-4. **Port-specific cleanup** — use `netstat -ano | findstr :<port>` to identify PIDs before killing
+   - `docs/modules/pianoid-middleware/REST_API.md` — `/load_preset` parameters and health checks
+2. **Canonical CUDA rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your changes never land.
+3. **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone does not copy CUDA DLLs; run the release variant first (or `--both`). Missing DLLs surface as import errors that look like build failures.
+4. **Verify the rebuild landed** before trusting any result: `grep -a "<new-string-you-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If your marker is absent, the build did not land.
+5. **Never blanket-kill processes** — always kill by specific PID, never `taskkill /F /IM python.exe` or `taskkill /F /IM node.exe`
+6. **Use the correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
+7. **Port-specific cleanup** — use `netstat -ano | findstr :<port>` to identify PIDs before killing. Pre-start hygiene: kill stale `.pyd` holders (`tasklist //M pianoidCuda.cp312-win_amd64.pyd`) and stale backends on ports 3000/3001/5000/5001.
+
+**Violation consequences** — 2026-04-23 volume-iter investigation: ~3 hours of wrong conclusions from a single stale binary after skipping docs-first on a rebuild.
 
 ## Knowledge Base
 

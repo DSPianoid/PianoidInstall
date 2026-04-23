@@ -17,6 +17,16 @@ Invoke this skill after code changes that affect synthesis, parameters, or UI co
 3. **Every claim is backed by a number** — amplitude, RMS, or ratio. No "should work."
 4. **Screenshot every significant state change** — the user must be able to see what you did.
 
+## Docs-first (MANDATORY) for server startup + rebuilds
+
+A stale binary or stale server makes every measurement in this skill a lie. 2026-04-23 lost ~3h to a silently-stale `.pyd`.
+
+- **Before starting backend/frontend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
+- **Pre-start hygiene** — kill stale `.pyd` holders (`tasklist //M pianoidCuda.cp312-win_amd64.pyd`) and stale backends on ports 3000/3001/5000/5001. Phase 1 already does port cleanup — do NOT skip.
+- **If this test requires a rebuild first** — use `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Never `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently returns stale `.pyd`).
+- **Verify rebuild landed** before measuring: `grep -a "<marker-you-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. Missing marker = stale binary = every "AFTER" number is garbage.
+- **On unexpected server/build failure** — invoke `/startup` rather than burning phases on ad-hoc fixes.
+
 ## Monitoring & Crash Diagnostics
 
 Every test-ui session MUST maintain a diagnostic log to help investigate crashes. The orchestrator (or the agent itself) should be able to retrieve this log after a crash.

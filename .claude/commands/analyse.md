@@ -11,6 +11,16 @@ Deep-dive analysis workflow: audit documentation, verify against source code, up
 
 **CRITICAL: Documentation-first rule applies throughout.** Always check docs before reading source.
 
+## Docs-first (MANDATORY) if the analysis triggers a rebuild
+
+If this analysis requires reproducing behavior, running tests, or rebuilding to verify a finding — the rebuild MUST go through canonical paths. A silently-stale binary invalidates every "I verified this" claim. 2026-04-23 lost ~3h to exactly this.
+
+- **Before any rebuild** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
+- **Canonical CUDA rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently reinstalls STALE `.pyd`).
+- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; run release first (or `--both`).
+- **Verify the rebuild landed** — `grep -a "<marker>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If absent, any conclusion drawn from the rebuild is void.
+- **On unexpected build or server failure** — invoke `/startup` rather than ad-hoc fixes.
+
 ## Arguments
 
 The argument is a system or module name, e.g.:

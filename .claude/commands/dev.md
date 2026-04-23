@@ -16,6 +16,18 @@ Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. 
 
 Do not ship a change that pushes a file past the C4 thresholds without discussing a split first.
 
+## Docs-first (MANDATORY) for compile + run
+
+Every rebuild, install, or server restart starts by reading the canonical docs — NOT by typing `pip install`. Skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
+
+- **Before ANY CUDA build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
+- **Canonical rebuild command** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your edit never lands.
+- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone does NOT copy CUDA DLLs; run release first (or `--both`). Missing DLLs look like import errors, not build errors.
+- **Verify the rebuild landed** — `grep -a "<new-string-you-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If your marker is absent, nothing changed — do NOT run tests.
+- **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. A locked `.pyd` causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks the venv.
+- **Before starting the backend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md`.
+- **On unexpected build or startup failure** — invoke `/startup` rather than troubleshooting blindly. `/startup` is the authoritative reference.
+
 ## Step 0: Initialize Session
 
 ### Generate Agent ID
