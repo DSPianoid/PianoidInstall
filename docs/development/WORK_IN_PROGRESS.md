@@ -35,6 +35,10 @@ Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
 
 - **`play_note_offline_chart_function` — missing `get_string_indices`.** The chart function calls `pianoid.get_string_indices(pitch)` (chartFunctions.py ~line 1529), which does not exist on `Pianoid`. The surrounding try/except swallows the `AttributeError` and leaves `string_oscillation_data = (0, 0)`. Effect: String Osc Max/RMS always display 0 in the note_playback chart. Found during dev-63c2 fix; left out of scope by orchestrator. Likely replacement: `pianoid.sm.get_string_indices(pitch)` or a similar StringMap API — needs a brief code audit before fix.
 
+- **Secondary iter-dependence in spectrum/HF/decay** (2026-04-23, post-volume-iter fix). Peak magnitude is iter-invariant after `dev-volume-iter-fix` (coeff_force dt² fix + preset rescale). However HF content increases ~25dB from iter=4 to iter=12, spectral centroid doubles (1340 → 2687 Hz), init/sust decay rates vary. Likely root cause: `coeff_frequency_decay` (Kernels.cu:139) needs iter compensation. Out of scope for the volume-bug fix. See [VOLUME_ITER_BUG_INVESTIGATION.md](VOLUME_ITER_BUG_INVESTIGATION.md) §"Secondary issue".
+
+- **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [VOLUME_ITER_BUG_INVESTIGATION.md](VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
+
 ---
 
 ## WebSocket Migration — Hybrid REST + Socket.IO
