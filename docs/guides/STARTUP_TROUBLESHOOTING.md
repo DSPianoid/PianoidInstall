@@ -228,16 +228,38 @@ already be built and importable (see the previous symptom).
 
 ### Symptom: Audio driver fails to initialize
 
-**ASIO issues:**
+Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_preset`):
+
+| Code | Driver | Typical use |
+|---|---|---|
+| `4` | ASIO Callback | Lowest latency; requires ASIO device or ASIO4ALL |
+| `3` | SDL3 | Preferred general-purpose driver (if SDL3 was present at build time) |
+| `2` | SDL2 | Universal fallback, works on any system |
+| `1` | ASIO (legacy polling) | Older ASIO path; prefer `4` |
+
+**Recommended fallback chain** when the current driver fails to initialize:
+
+1. **ASIO Callback (4) fails** → try SDL3 (3)
+2. **SDL3 (3) fails** → try SDL2 (2)
+3. **SDL2 (2) fails** → the build likely lacks both SDL variants; rebuild with
+   `build_pianoid_cuda.bat --heavy` after ensuring at least one of SDL2/SDL3 is
+   installed (see [BUILD_SYSTEM.md — Toolchain Requirements](../architecture/BUILD_SYSTEM.md#toolchain-requirements))
+
+**ASIO-specific issues:**
 
 - No ASIO driver installed — install ASIO4ALL or use your audio interface's ASIO driver
 - ASIO device in use by another application (DAW, etc.) — close the other application
-- **Fallback:** switch to SDL2 (`"audio_driver_type": 2`)
+- ASIO sample rate mismatch with the backend — set `"sample_rate": 48` in `/load_preset`
+  to match 48 kHz (the default for most interfaces)
 
-**SDL issues:**
+**SDL-specific issues:**
 
-- SDL DLL not found next to `.pyd` — rebuild with `--heavy`
-- SDL version mismatch — ensure the installed SDL version matches what was used during build
+- `SDL3.dll` or `SDL2.dll` missing next to the installed `.pyd` — the build's DLL deploy
+  step failed or you rebuilt the debug variant without the release DLLs. Rebuild with
+  `./build_pianoid_cuda.bat --heavy --release`. See
+  [Debug variant fails to import](#symptom-debug-variant-fails-to-import-release-loads-instead).
+- SDL version mismatch — ensure the installed SDL version matches what was used during
+  build (check `build_config.json` in `PianoidCore/pianoid_cuda/`)
 
 ### Symptom: Backend starts but no audio output
 

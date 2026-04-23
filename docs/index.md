@@ -119,3 +119,6 @@ interactive latency.
 
 - [guides/QUICK_START.md](guides/QUICK_START.md) — Prerequisites, build steps, and running the
   full stack locally
+- [guides/STARTUP_TROUBLESHOOTING.md](guides/STARTUP_TROUBLESHOOTING.md) — Port conflicts,
+  CUDA runtime issues, build traps (stale pyd, debug-variant DLL), audio driver fallback
+  chain, first-run checklist
