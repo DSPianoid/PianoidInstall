@@ -86,9 +86,10 @@ The main application entry used in production is a separate top-level component 
 | `PitchesModesMatrixCanvas` | `PitchesModesMatrixCanvas.jsx` | Canvas-rendered version of the matrix |
 | `MeasuredMatrix` | `MeasuredMatrix.jsx` | Matrix with measurement overlays |
 | `MatrixTools` | `MatrixTools.jsx` | Toolbar for matrix operations (normalise, scale, reset) |
-| `BarChart` | `BarChart.jsx` | Horizontal bar chart for per-mode or per-pitch values |
-| `BarChartGrid` | `BarChartGrid.jsx` | Grid of bar charts |
-| `BarChartValue` | `BarChartValue.jsx` | Editable numeric bar chart cell |
+| `BarChart` | `BarChart.jsx` | Thin adapter around `DrawableChart` (2026-04-23, Wave 2 of drawable-chart merge). Preserves the legacy `values`/`startZoom`/`endZoom`/`selectedIndex`/`titles`/`onSelect`/`onChange` API so existing call-sites (`RowEditor`, legacy `Deck`) keep working without API churn, and accepts an optional `variant` prop (`"bar" \| "line"`) forwarded to `DrawableChart`. Drag-paint, wheel-adjust-on-selected, click-select, and dark-theme rendering all live inside `DrawableChart`. Log-scale mode (the old `ScaleType` prop) is no longer supported — it was only used by the dead `Deck` module which is not mounted in the mosaic UI |
+| `BarChartGrid` | `BarChartGrid.jsx` | Grid of bar charts (legacy; unused by the mosaic app) |
+| `BarChartValue` | `BarChartValue.jsx` | Legacy per-bucket DOM-fill bar cell. Unreferenced after the Wave 2 `BarChart` rewrite — kept in the tree as a Wave 5 cleanup candidate |
+| `DrawableChart` | `DrawableChart/DrawableChart.jsx` | Shared drawable scalar-per-bucket chart (2026-04-21, Wave 1 of drawable-chart merge). Renders `values[]` on a category x-axis as a line or bar curve (chosen by the `variant` prop), supports drag-to-paint with linear gap-fill, wheel-adjust on the selected bucket, click-select, optional Flat/Smooth toolbar, parent-owned undo/redo. Single concern: render + edit + emit the painted vector. Consumers own `values` and history state. See `docs/proposals/DRAWABLE_CHART_MERGE.md` for the merge plan |
 | `VerticalColumn` | `VerticalColumn.jsx` | Vertical bar column component |
 | `VerticalColumnChart` | `VerticalColumnChart.jsx` | Multi-column vertical chart |
 | `ChartSelector` | `ChartSelector.jsx` | Tabbed selector (Charts / Dynamic / Actions) for chart types from `/graph_names` response |
@@ -99,7 +100,7 @@ The main application entry used in production is a separate top-level component 
 | `PropertyInput` | `PropertyInput.jsx` | Labelled numeric input with validation |
 | `NumericInput` | `NumericInput.jsx` | Standalone numeric input field |
 | `NumInput` | `NumInput/NumInput.js` | MUI-styled numeric input |
-| `RowEditor` | `RowEditor.js` | Editable table row for matrix data |
+| `RowEditor` | `RowEditor.js` | Editable table row for matrix data. Composes `BarChart` (DrawableChart adapter) above a `VirtualPiano` or `ModesRule`. Accepts a `variant` prop (`"bar" \| "line"`) forwarded to the underlying chart — driven from the containing panel's `visualization` setting in `useSettings` |
 | `PitchTools` | `PitchTools.jsx` | Pitch-level action toolbar (play, reset, copy) |
 | `CopyPastMenu` | `CopyPastMenu.jsx` | Copy/paste menu for parameter arrays |
 | `ToolBar` | `ToolBar.jsx` | Main application toolbar |
@@ -219,13 +220,17 @@ Manages all UI configuration state, persisted to `localStorage`. Parameter categ
 |---|---|---|
 | `presetLoadSettings` | `presetLoadSettings` | Path, volume, sample_rate, string_iterations, number_of_modes, use_cuda, audio_driver_type (ASIO=1, SDL=2, ASIO_CALLBACK=4), audio_buffer_size, cycle_iterations, array_size (384/512), debug_mode (0=release, 1=debug build + extraction), listen_to_modes (0=strings, 1=modes) |
 | `virtualPianoSettings` | `virtualPianoSettings` | Key colours, velocity, range display |
-| `modesSettings` | `modesSettings` | Auto-select, decimal places |
-| `stringsSettings` | `stringsSettings` | Auto-select, decimal places |
+| `modesSettings` | `modesSettings` | Auto-select, decimal places, `visualization` (bar/line) |
+| `stringsSettings` | `stringsSettings` | Auto-select, decimal places, `visualization` (bar/line) |
 | `chartSelectorSettings` | `chartSelectorSettings` | Show all parameters toggle |
-| `feedInSettings` | `feedInSettings` | Piano height, modes width |
-| `feedbackSettings` | `feedbackSettings` | Piano height, modes width |
+| `feedInSettings` | `feedInSettings` | Piano height, modes width, `visualization` (bar/line) |
+| `feedbackSettings` | `feedbackSettings` | Piano height, modes width, `visualization` (bar/line) |
+| `soundChannelSettings` | `soundChannelSettings` | Piano height, modes width, aggregate mode, `visualization` (bar/line) |
+| `workbenchSettings` | `workbenchSettings` | `visualization` (bar/line) — governs both the default Workbench pane and every dynamic workbench clone |
 
-Includes `migratePresetSettings()` which renames old parameter keys (`user_1` → `audio_driver_type`, `user_3` → `audio_buffer_size`) in-place in localStorage on first load.
+Includes `migratePresetSettings()` which renames old parameter keys (`user_1` → `audio_driver_type`, `user_3` → `audio_buffer_size`) in-place in localStorage on first load. `loadSetting()` merges stored values on top of current defaults (`{ ...prev, ...parsed }`) so that new fields added to a settings object — such as `visualization` in Wave 2 of the drawable-chart merge — are present even for users whose localStorage predates the field.
+
+**Visualization setting (Wave 2 of drawable-chart merge).** Each panel listed above that renders a drawable chart carries a `visualization` key (`"bar" \| "line"`, default `"bar"`). `ObjectInspector` renders it as a Bar/Line MUI Select via a `PARAMETER_CONFIG` entry. Consumers forward the setting as the `variant` prop to `DrawableChart`: `MeasuredMatrix` reads `settings.visualization` from the containing panel (Feedin/Feedback/Sound Channels), and `PianoidTuner.renderWindowContent` reads `workbenchSettings.visualization` for the Workbench default + dynamic panes. Toggle lives in the Settings gear only, not in the MosaicWindow title bar (user decision Q3 in `docs/proposals/DRAWABLE_CHART_MERGE.md`).
 
 ### `useLayout`
 

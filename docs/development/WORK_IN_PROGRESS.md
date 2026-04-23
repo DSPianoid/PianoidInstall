@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-drawable-bar | Wave 2: migrate BarChart family to DrawableChart + per-panel viz setting | [log](logs/dev-drawable-bar-2026-04-23-104456.md) | 2026-04-23 |
 
 
 ---
