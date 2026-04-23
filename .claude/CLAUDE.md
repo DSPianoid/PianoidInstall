@@ -29,10 +29,14 @@ When the user requests any task that involves the Pianoid frontend interface —
 
 After completing any code change that affects synthesis output — volume, excitation, physical parameters, hammer shape, or any parameter that influences sound — invoke `/test-ui` to verify the change with measured evidence before reporting completion. This applies whether the change is in C++/CUDA, Python middleware, or frontend React code. **Do not claim an audio-affecting feature works without a measured before/after comparison.**
 
+Follow the canonical live-UI procedure in `docs/guides/UI_TESTING.md` — three-process startup, `note_playback` deterministic sound measurement, reverse-order shutdown. Do not improvise.
+
 ## Backend Startup Rule
 
 When the backend server needs to be started and the exact process, preset path, or initialization parameters are unclear, **always consult the documentation first**:
 
+- `docs/guides/UI_TESTING.md` — canonical live-UI startup for tests (launcher + frontend + backend); the launcher-backend-frontend coupling is non-obvious and improvisation causes silent backend kills on APPLY
+- `docs/guides/STARTUP_TROUBLESHOOTING.md` — three-process architecture, zombie-socket diagnosis, port-targeted kills, shutdown sequence
 - `docs/modules/pianoid-middleware/REST_API.md` — `POST /load_preset` payload, `audio_driver_type` values, parameter details
 - `docs/modules/pianoid-middleware/OVERVIEW.md` — startup sequence, component dependencies
 
@@ -65,7 +69,9 @@ Documentation lookup order (stop as soon as you have enough context):
    - Domain model: `pianoid-basic/OVERVIEW.md`
    - Frontend: `pianoid-tunner/OVERVIEW.md`
 5. `D:\repos\PianoidInstall\docs\development\TESTING.md` — test inventory and usage
-6. `D:\repos\PianoidInstall\docs\development\WORK_IN_PROGRESS.md` — active investigations
+6. `D:\repos\PianoidInstall\docs\guides\UI_TESTING.md` — when the task involves live UI verification, launcher/backend/frontend startup, or `/test-ui`
+7. `D:\repos\PianoidInstall\docs\guides\STARTUP_TROUBLESHOOTING.md` — when startup, ports, or shutdown sequencing is involved
+8. `D:\repos\PianoidInstall\docs\development\WORK_IN_PROGRESS.md` — active investigations
 
 Only after the docs don't answer your question may you proceed to source files.
 

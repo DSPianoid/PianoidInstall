@@ -2,6 +2,8 @@
 
 Three-level pytest framework in `PianoidCore/tests/`, organized top-down by integration scope.
 
+For **live UI verification** (browser-driven tests, audio measurement via `/test-ui`), see [UI Testing](../guides/UI_TESTING.md) — it covers the three-process startup, `note_playback` sound measurement, and shutdown sequence.
+
 ## Structure
 
 ```

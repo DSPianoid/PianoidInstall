@@ -2,37 +2,102 @@
 
 This guide covers common failures during installation, building, and startup of the Pianoid system.
 
+For **live UI tests** (agents launching the stack to verify features), use the canonical procedure in [UI Testing](UI_TESTING.md). The sections below cover general startup, build, and port issues.
+
+---
+
+## Three-Process Architecture
+
+The live stack uses **three cooperating processes**. Starting or killing the wrong one produces confusing symptoms (backend resurrection, zombie sockets, preset apply silently killing the backend).
+
+| Process | Port | Role | Parent |
+|---|---|---|---|
+| Node.js launcher | 3001 | Spawns/kills backend (5000) and modal adapter (5001); WebSocket console | `npm run dev` (concurrently) |
+| React dev server | 3000 | Frontend UI | `npm run dev` (concurrently) |
+| Flask backend | 5000 | REST API, CUDA engine, audio playback | Launcher (on APPLY) or manual |
+| Modal adapter | 5001 | Offline modal analysis pipeline | Launcher (on demand) or manual |
+
+**Key coupling**: the frontend's `ensureBackendAndLoadPreset` (PianoidTuner.js:297) runs this guard on every APPLY:
+
+1. Probe `GET http://127.0.0.1:5000/health`.
+2. If the backend responds **but the launcher does not own it** (the frontend's WebSocket to :3001 reports `processRunning=false`) → the frontend calls `/api/kill-stale` on the launcher, which kills the backend by PID on port 5000.
+3. Only then does the frontend call `/api/start-backend` to spawn a fresh backend under launcher supervision.
+
+**Consequence**: if the launcher (port 3001) is down, every APPLY click first kills the backend and then fails because the launcher can't restart it. A backend started manually outside the launcher will be killed on the next APPLY click.
+
+**Rule**: for UI testing, always start the full `npm run dev` (launcher + frontend together) and let the launcher own the backend. Do not start the backend directly via `python backendserver.py` unless you are also willing to bypass the UI (curl-only interaction).
+
 ---
 
 ## Port Conflicts
 
 ### Symptom: "Address already in use" or backend won't start
 
-Another process is occupying port 5000 (backend), 3000 (frontend), or 3001 (launcher).
+Another process is occupying port 5000 (backend), 3000 (frontend), 3001 (launcher), or 5001 (modal adapter).
 
 **Diagnosis:**
 
-```bat
-netstat -ano | findstr :5000
-netstat -ano | findstr :3000
-netstat -ano | findstr :3001
+```bash
+netstat -ano | grep ":5000 "
+netstat -ano | grep ":3000 "
+netstat -ano | grep ":3001 "
+netstat -ano | grep ":5001 "
 ```
 
 **Fix — kill by PID (safe):**
 
-```bat
-:: Find the PID from netstat output, then:
-taskkill /pid <PID> /T /F
+```bash
+# Find the PID from netstat output, then:
+taskkill //F //PID <PID>
 ```
 
-**Fix — use the launcher's kill-stale endpoint:**
+**Fix — use the launcher's kill-stale endpoint (backend + modal only):**
 
 ```bash
 curl -X POST http://localhost:3001/api/kill-stale
 ```
 
+Note: `/api/kill-stale` walks both `netstat -ano` (any TCP state) and `wmic process where CommandLine like '%backendserver.py%'` to also catch orphaned Python processes not yet bound to the port.
+
 !!! warning "Never blanket-kill processes"
-    Do **not** use `taskkill /F /IM python.exe` or `taskkill /F /IM node.exe` — this kills MCP servers, Claude Code, and other unrelated processes. Always kill by specific PID.
+    Do **not** use `taskkill //F //IM python.exe` or `taskkill //F //IM node.exe` — this kills MCP servers, Claude Code, and other unrelated processes. Always kill by specific PID on a specific port.
+
+### Zombie socket diagnosis
+
+This is almost never a kernel-level TCP leak. The usual root cause:
+
+- The port is held by a **launcher child process** that you didn't kill. Killing only the Flask PID leaves the Node launcher parent alive; the launcher immediately respawns the backend (on `/api/start-backend` or on the next APPLY click). Your `taskkill` succeeded but the launcher created a new backend bound to the same port microseconds later.
+- Or the orphan is an un-reaped Python process whose parent Node.js died mid-spawn.
+
+**Diagnosis — find the actual holder:**
+
+```bash
+# Get the PID on the port
+netstat -ano | grep ":5000 "
+# Look up its command line and parent PID
+wmic process where "ProcessId=<PID>" get CommandLine,ParentProcessId /format:list
+# Is the parent the launcher?
+wmic process where "ProcessId=<PARENT>" get CommandLine,Name /format:list
+```
+
+If `ParentProcessId` resolves to a `node.exe` running `server/launcher.js`, that is the launcher — you must kill the launcher (port 3001) before or alongside the backend, otherwise it will keep respawning.
+
+**Fix — kill launcher and backend together (reverse dependency order):**
+
+```bash
+# Order: frontend (3000) → launcher (3001) → modal (5001) → backend (5000)
+for port in 3000 3001 5001 5000; do
+  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    echo "Killing PID $pid on port $port"
+    taskkill //F //PID "$pid"
+  fi
+done
+sleep 2
+netstat -ano | grep -E ":(3000|3001|5000|5001) " && echo "Still in use" || echo "All clear"
+```
+
+Do **not** reboot, and do **not** reach for `netsh interface` resets, until the above has been tried. In practice a kernel TCP-leak never shows up here — the symptom is always a still-alive parent process.
 
 ---
 
@@ -241,6 +306,34 @@ Use this checklist to verify a fresh installation:
 | Launcher console | Terminal running `npm run dev` | Backend spawn/kill events |
 | WebSocket console | `ws://localhost:3001/ws/console` | Real-time backend log stream (from UI) |
 | PianoidLogger | `PianoidCore\pianoid_middleware\logs\` | File-based engine logs (if enabled) |
+
+---
+
+## Live UI Test Startup (agents)
+
+The canonical procedure for agents running `/test-ui` or verifying features in the browser lives in [UI Testing](UI_TESTING.md). Summary:
+
+1. Kill any stale processes on 3000, 3001, 5000, 5001 (port-targeted, never blanket `taskkill //IM`).
+2. `cd PianoidTunner && npm run dev` — starts launcher (3001) + React dev server (3000) together via `concurrently`.
+3. Open `http://localhost:3000`. Click **APPLY** (or POST `/api/start-backend` to :3001). The launcher spawns the backend (5000).
+4. Do **not** start the backend directly with `python backendserver.py` — the frontend will kill it on the next APPLY (see [Three-Process Architecture](#three-process-architecture)).
+
+## Shutdown Sequence
+
+Correct shutdown order is **frontend → launcher → modal → backend** (reverse of startup dependency). The launcher already handles this for its children; you only need manual cleanup if the launcher itself dies.
+
+```bash
+# Graceful backend shutdown (launcher still running)
+curl -X POST http://127.0.0.1:3001/api/stop-backend
+
+# Full teardown (no launcher — port-targeted kills)
+for port in 3000 3001 5001 5000; do
+  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+  [ -n "$pid" ] && [ "$pid" != "0" ] && taskkill //F //PID "$pid"
+done
+```
+
+The launcher has `SIGINT` / `SIGTERM` handlers that `taskkill /T /F` both children on exit (launcher.js:346). Closing the terminal where `npm run dev` runs also triggers cleanup.
 
 ---
 
