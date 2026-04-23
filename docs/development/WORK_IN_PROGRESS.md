@@ -4,7 +4,30 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-f5-stream | F5: dedicated CUDA stream for CircularBuffer::produce() | [log](logs/dev-f5-stream-2026-04-22-163903.md) | 2026-04-22 |
+
+---
+
+## Cycle Profiling Harness
+
+**Location:** `PianoidCore/tests/system/cycle_profile.py`
+**Config:** `PianoidCore/tests/system/configs/cycle_baseline.json`
+
+Measures per-stage cycle timing under configurable iter / mode (idle vs playing) / preset / driver. Captures Stage A (synthesis kernel + device sync), Stage B (regime output: D2H + driver push), and full cycle via `initTimeRecord`/`getTimeRecord` + `getCallbackStats`. Output: JSON with median / p95 / p99 / max per stage plus underrun rate.
+
+Invoke:
+
+    cd PianoidCore
+    .venv/Scripts/python tests/system/cycle_profile.py \
+        --config tests/system/configs/cycle_baseline.json \
+        --output /tmp/cycle.json
+
+Flags: `--iter`, `--mode {idle|playing}`, `--preset`, `--driver`, `--buffer`, `--duration` (override config); `--matrix` (run 2×2 iter×mode); `--downsample-6to5` (opt-in adapter for pre-fac66cb binaries with NUM_BASE_LEVELS=5).
+
+**Findings (2026-04-22):**
+- IversPond_128modes iter=8 idle SDL3: Stage A median ~780 μs across ee068dd (Mar 31) through HEAD — no kernel regression post-Volume-Calibration.
+- 2×2 matrix reveals mode-count-dependent active-cycle cost: Belarus_196modes shows +444 μs per active cycle vs idle; IversPond_128modes does not.
+
+Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
 
 ---
 
