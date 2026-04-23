@@ -1,5 +1,84 @@
 # Pianoid Build System
 
+## Canonical CUDA Rebuild (Read This First)
+
+For **any** change to `.cu`, `.cpp`, `.cuh`, `.h`, or `setup.py` in `pianoid_cuda/`, the
+only reliable rebuild command is:
+
+```bash
+cd D:/repos/PianoidInstall/PianoidCore && ./build_pianoid_cuda.bat --heavy --release
+```
+
+### Why `pip install` directly is not safe
+
+`pip install --force-reinstall --no-cache-dir pianoid_cuda/` is **not equivalent**. It reports
+"Successfully installed", regenerates `.obj` files, invokes `nvcc` — but the final `.pyd`
+is sometimes a cached stale version from pip/setuptools internal build isolation. Even
+`--no-cache-dir` does not bypass it for local-editable CUDA extensions.
+
+`build_pianoid_cuda.bat --heavy` avoids the trap by:
+
+1. Full clean of `pianoid_cuda/build/`, `dist/`, `*.egg-info`, `*.pyd`, `*.obj`
+2. `pip uninstall pianoidCuda`
+3. Explicit `pip cache purge`
+4. Fresh build from scratch
+
+### Post-build verification
+
+After any rebuild, verify the new binary contains your changes by grepping a known
+new string from your edit:
+
+```bash
+grep -a "<some-new-string-from-your-edit>" \
+  PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
+```
+
+Match count must be `> 0`. Zero matches means a stale cached pyd was installed — rebuild
+with `--heavy`.
+
+### Before any rebuild: check for locked files
+
+A running backend or Python process holding the `.pyd` causes `[WinError 5] Access is denied`.
+The uninstall step cannot delete the file, the package ends up uninstalled, and the build
+leaves the venv broken. Check first:
+
+```bash
+tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
+tasklist //M cudart64_12.dll 2>/dev/null | grep python
+taskkill //F //PID <pid>   # only the specific PID — never //IM python.exe
+```
+
+Reference memory (read-only, not for editing):
+`C:/Users/astri/.claude/projects/D--repos-PianoidInstall/memory/feedback_pip_install_stale_pyd.md`.
+
+---
+
+## Venv Location — Always `PianoidCore/.venv/`
+
+The working venv with `pianoidCuda`, `numpy`, Flask and all other dependencies is
+**always** `PianoidCore/.venv/`. The root `PianoidInstall/.venv/` (if present) is empty
+and must not be used.
+
+Symptoms of using the wrong venv: `ImportError: No module named pianoidCuda`,
+`ImportError: No module named Pianoid`, or a build that appears to succeed but
+`pianoidCuda.__file__` resolves outside `PianoidCore/.venv/Lib/site-packages/`.
+
+If `VIRTUAL_ENV` is set to the root venv from a previous activation, the build script
+will install into the wrong place. Always clear it before building:
+
+```bash
+unset VIRTUAL_ENV && cmd //c "D:/repos/PianoidInstall/PianoidCore/build_pianoid_cuda.bat --heavy --release"
+```
+
+Verify after build:
+
+```bash
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+# Must show: .../PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
+```
+
+---
+
 ## Toolchain Requirements
 
 | Component | Version | Purpose |
@@ -284,6 +363,39 @@ Set `PIANOID_USE_DEBUG=1` before starting the server, or pass `use_debug_build=T
 to `initialize_pianoid()`. The middleware aliases `pianoidCuda_debug` as `pianoidCuda`
 via `sys.modules`, so all existing import sites work unchanged.
 
+### Debug variant DLL trap
+
+`PIANOID_BUILD_VARIANT=debug` builds `pianoidCuda_debug.pyd` but **skips the DLL copy
+step** (`setup.py` lines 416–419). Without `cudart64_12.dll` and `SDL3.dll` next to the
+debug pyd, `import pianoidCuda_debug` throws `ImportError: DLL load failed`. The
+middleware's `select_cuda_variant` catches this silently and falls back to release —
+so code edits compiled only into the debug variant appear to have no effect on output.
+
+**Rule:** always rebuild release before (or alongside) debug, so the DLLs land in
+site-packages first:
+
+```bash
+# Build release (copies DLLs)
+./build_pianoid_cuda.bat --heavy --release
+
+# Then build debug (reuses the release DLLs)
+./build_pianoid_cuda.bat --heavy --debug
+
+# Or do both in one call
+./build_pianoid_cuda.bat --heavy --both
+```
+
+**Verify both variants load** after rebuilding debug:
+
+```bash
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; import pianoidCuda_debug; print('OK')"
+```
+
+An `ImportError` on the debug import means the DLLs are missing — rebuild release first.
+
+Reference memory (read-only, not for editing):
+`C:/Users/astri/.claude/projects/D--repos-PianoidInstall/memory/feedback_debug_variant_dll_trap.md`.
+
 ---
 
 ## Environment Variables
@@ -353,37 +465,20 @@ paths in `build_config.json` (`sdl3_dll`, `cuda_home`) may be incorrect.
 is gone. Use `--light` for iterative development; use `--heavy` only when a clean
 rebuild is needed (e.g. after changing `setup.py` or pybind11 bindings).
 
-### Build installs into wrong venv
+### Build installs into wrong venv / `[WinError 5] Access is denied`
 
-The build script activates `%REPO_ROOT%.venv` where `REPO_ROOT` is the directory
-containing the `.bat` file. The correct script is `PianoidCore/build_pianoid_cuda.bat`
-which targets `PianoidCore/.venv/`.
+Both failure modes are covered in the [Canonical CUDA Rebuild](#canonical-cuda-rebuild-read-this-first)
+section at the top of this page — see "Venv Location" and "Before any rebuild: check
+for locked files" respectively.
 
-**Common mistake:** If `VIRTUAL_ENV` is already set (e.g., the root `.venv/` was
-activated earlier), the build script uses that venv instead. Always clear it first:
+### Code changes have no effect after rebuild
 
-```bash
-unset VIRTUAL_ENV
-cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
-```
+Symptom: you edit a `.cu` / `.cpp` file, rebuild, but runtime behavior is unchanged.
 
-**Verify target:** After building, confirm the `.pyd` is in the correct location:
+Most common cause is a stale cached pyd from direct `pip install` — see
+[Canonical CUDA Rebuild](#canonical-cuda-rebuild-read-this-first). Use
+`build_pianoid_cuda.bat --heavy` and run the post-build grep verification.
 
-```bash
-PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
-# Expected: PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
-```
-
-### `[WinError 5] Access is denied` during build
-
-A running Python process (backend server, test runner, previous sub-agent) holds
-`pianoidCuda.pyd` or `cudart64_12.dll` open. The uninstall step cannot delete the file.
-
-**Diagnosis:**
-```bash
-tasklist //M pianoidCuda.cp312-win_amd64.pyd
-tasklist //M cudart64_12.dll
-```
-
-**Fix:** Kill the process holding the file, then rebuild. Only kill by specific PID —
-never use `taskkill //F //IM python.exe` as that kills MCP servers and Claude Code.
+If the grep confirms your string IS in the installed pyd but output still hasn't changed,
+the next suspect is the debug-variant DLL trap — see
+[Debug variant DLL trap](#debug-variant-dll-trap) below.

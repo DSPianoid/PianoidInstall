@@ -125,17 +125,84 @@ cd PianoidCore
 
 At least one of SDL2 or SDL3 must be present. SDL3 is preferred when both are found.
 
-### Symptom: "File in use" error during CUDA build
+### Symptom: "File in use" error (`[WinError 5] Access is denied`) during CUDA build
 
 The `.pyd` file is locked by a running Python process (usually the backend server).
+The uninstall step cannot delete the file and the package ends up uninstalled.
 
-**Fix:**
+**Diagnosis:**
 
-1. Stop the backend: `curl http://localhost:5000/shutdown` or kill the Flask process by PID
-2. Close any Python session that imported `pianoidCuda`
-3. Retry the build
+```bash
+tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
+tasklist //M cudart64_12.dll 2>/dev/null | grep python
+```
 
-### Symptom: Build succeeds but wrong variant loaded
+**Fix:** Kill the specific PID, then rebuild. Never use `taskkill //F //IM python.exe` —
+that kills MCP servers and Claude Code:
+
+```bash
+taskkill //F //PID <pid>
+```
+
+If a launcher is running, `curl -X POST http://localhost:3001/api/stop-backend` is a
+safer alternative. Retry via `build_pianoid_cuda.bat --heavy --release`.
+
+### Symptom: Code changes appear to have no effect after rebuild
+
+You edit a `.cu` / `.cpp` file, rebuild with direct `pip install`, but runtime behavior
+is unchanged. Sabotage tests that should produce silence or distortion produce identical
+output to the baseline.
+
+**Root cause:** `pip install --force-reinstall --no-cache-dir pianoid_cuda/` sometimes
+silently returns a cached stale `.pyd` from setuptools build isolation, even though `.obj`
+files regenerate and `nvcc` runs.
+
+**Fix:** always rebuild via the batch script:
+
+```bash
+cd D:/repos/PianoidInstall/PianoidCore && ./build_pianoid_cuda.bat --heavy --release
+```
+
+**Verify** a known new string from your edit is in the installed binary:
+
+```bash
+grep -a "<some-new-string-from-your-edit>" \
+  PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
+```
+
+Zero matches means a stale pyd was installed. See
+[BUILD_SYSTEM.md — Canonical CUDA Rebuild](../architecture/BUILD_SYSTEM.md#canonical-cuda-rebuild-read-this-first).
+
+### Symptom: Debug variant fails to import / release loads instead
+
+You run with `PIANOID_USE_DEBUG=1` or `"debug_mode": 1`, but log output shows
+`pianoidCuda` (release) was loaded — or you get `ImportError: DLL load failed while
+importing pianoidCuda_debug`.
+
+**Root cause:** `PIANOID_BUILD_VARIANT=debug` rebuild **skips DLL copy**. Without
+`cudart64_12.dll` and `SDL3.dll` next to `pianoidCuda_debug.pyd`, the debug module
+cannot load. The middleware's `select_cuda_variant` catches the ImportError silently
+and falls back to release, so code edits that live only in the debug build appear to
+have zero effect.
+
+**Fix:** always rebuild release before debug, so the DLLs are present:
+
+```bash
+./build_pianoid_cuda.bat --heavy --release   # copies DLLs
+./build_pianoid_cuda.bat --heavy --debug     # reuses DLLs
+# or in one call:
+./build_pianoid_cuda.bat --heavy --both
+```
+
+Verify both variants load:
+
+```bash
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; import pianoidCuda_debug; print('OK')"
+```
+
+See [BUILD_SYSTEM.md — Debug variant DLL trap](../architecture/BUILD_SYSTEM.md#debug-variant-dll-trap).
+
+### Symptom: Build succeeds but wrong variant loaded (normal case)
 
 The middleware loads `pianoidCuda` (release) by default. To use the debug build:
 
@@ -144,7 +211,8 @@ set PIANOID_USE_DEBUG=1
 python backendserver.py
 ```
 
-Or pass `"debug_mode": 1` in the `/load_preset` request body.
+Or pass `"debug_mode": 1` in the `/load_preset` request body. Both variants must
+already be built and importable (see the previous symptom).
 
 ---
 
