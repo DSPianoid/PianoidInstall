@@ -50,26 +50,54 @@ Grid layout (cooperative, one launch per synthesis cycle)
 
 ## Wave Equation: FDTD String Simulation
 
-Each string is modelled as a 1-D stiff vibrating beam. The finite-difference update for
-interior points reads (one sub-step `j` inside the inner loop):
+### Physical model
+
+Each string is modelled as a 1-D stiff vibrating beam with tension, bending stiffness,
+velocity damping, and frequency-dependent (high-frequency) damping. The continuous PDE:
+
+```
+y_tt = (T/ρ) y_xx − (EI/ρ) y_xxxx − γ y_t − γ_HF · ∂(y_xx)/∂t + F/ρ
+```
+
+| Symbol | Meaning |
+|--------|---------|
+| `y(x,t)` | Transverse displacement |
+| `T` | String tension |
+| `ρ` | Linear density (per-unit-length mass) |
+| `EI` | Bending stiffness (`EI ∝ E · r⁴` — Young's modulus × area moment) |
+| `γ` | Velocity damping coefficient |
+| `γ_HF` | Frequency-dependent damping (time-derivative of curvature) |
+| `F(x,t)` | Applied external force (hammer excitation) |
+| `y_xx` | `∂²y/∂x²` (spatial second derivative); `y_xxxx` likewise fourth |
+
+### FDTD discretization
+
+The PDE is solved with an explicit finite-difference scheme. Time is advanced in sub-steps
+of `dt = 1 / (sample_rate × string_iteration)` inside the inner loop; space is discretized
+on a uniform grid of spacing `dx` (set by string geometry). Each outer iteration produces
+one audio sample after `string_iteration` sub-steps.
+
+Interior-point update (one sub-step `j`):
 
 ```
 target  =  shift_0 * s_a[p]
          + shift_b * s_b                    (previous time step)
-         + shift_2 * (s_a[p-2] + s_a[p+2]) (fourth-order spatial stencil — stiffness)
-         + shift_1 * (s_a[p-1] + s_a[p+1]) (second-order spatial stencil — tension)
-         + coeff_frequency_decay * (d3 - d3_1)  (frequency-dependent damping)
-         + s_force_function[n] * coeff_force      (excitation force)
+         + shift_1 * (s_a[p-1] + s_a[p+1]) (2nd-order stencil — tension)
+         + shift_2 * (s_a[p-2] + s_a[p+2]) (4th-order stencil — bending stiffness)
+         + coeff_frequency_decay * (d3 - d3_1)  (HF damping — d/dt of curvature)
+         + s_force_function[n] * coeff_force    (hammer force, per-point)
 ```
 
 Where:
 - `s_a[p]` — displacement at point `p`, time `t`
-- `s_b`    — displacement at point `p`, time `t - dt`
-- `shift_0`, `shift_b`, `shift_1`, `shift_2` — FDTD coefficients derived from tension,
-  density, stiffness, and spatial step `dx` (precomputed by `Kernels.cu::parameterKernel`)
-- `coeff_frequency_decay` — frequency-dependent damping term (proportional to `coeff_gamma`)
-- `coeff_force` — spatial Gaussian profile of the hammer at point `p`
-- `d3 = s_a[p-1] + s_a[p+1] - 2*s_a[p]` — second-difference operator
+- `s_b` — displacement at point `p`, time `t − dt`
+- `d3 = s_a[p−1] + s_a[p+1] − 2·s_a[p]` — discrete second-difference (curvature operator)
+- `shift_0`, `shift_b`, `shift_1`, `shift_2`, `coeff_force`, `coeff_frequency_decay` —
+  per-string FDTD coefficients, precomputed each cycle by `Kernels.cu::parameterKernel`
+  (see the scaling table below).
+- `s_force_function[n]` is the pre-computed Gaussian-sum force time series
+  (see [Excitation System](#excitation-system)); `coeff_force` multiplies it into the
+  per-point update and folds in the per-point hammer shape `hammer[p]`.
 
 **Boundary condition at the bridge (stem):** The stem points are not integrated with the
 wave equation. Instead their displacement is overwritten with the summed mode feedback:
@@ -78,11 +106,77 @@ wave equation. Instead their displacement is overwritten with the summed mode fe
 if (onStem):  target = feedback   // feedback accumulated from all resonance modes
 ```
 
+**Python reference** for both the discretization and coefficient formulas is
+`PianoidBasic/Pianoid/Pitch.py::get_coefficients` (line 294). When GPU and Python disagree,
+Python is authoritative.
+
+### Coefficient scaling table
+
+`iterPerMs = (sample_rate × string_iteration) / 1000 = 1 / (dt · 1000)`, so `1/iterPerMs²
+∝ dt²`. These are the canonical scalings used by `parameterKernel` to produce the update
+coefficients above, each traceable to a Python reference formula for GPU↔Python parity audit.
+
+| Coefficient | Physical meaning | Per-sub-step scaling | GPU source | Python reference |
+|---|---|---|---|---|
+| `coeff_tension` | `(T/ρ) · dt² / dx²` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:133` | `Pitch.py:307` |
+| `coeff_bending` | `(π·E·r⁴ / 4ρ) · dt² / dx⁴` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:135` | `Pitch.py:310` |
+| `coeff_frequency_decay` | HF damping: `γ_HF · 1e12 / (2·dx²)` | **iter-invariant** (disputed — see open issues) | `Kernels.cu:139` | `Pitch.py:321` (`c2dec ∝ 1/(dt·dx²)`) |
+| `dec_curr` | `γ_string · dt + damper` (velocity damping) | `∝ dt` (∝ 1/iter) | `Kernels.cu:141` | `Pitch.py:311` |
+| `coeff_force` | `dt² · dec_inv · hammer[p]` (per-point force coefficient) | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:155–158` | `Pitch.py:319` (`cf = dt² · dec_inv`) |
+| `shift_0` | `(2 + 12·coeff_bending − 2·coeff_tension) · dec_inv` | derived | `Kernels.cu:144` | `Pitch.py:314` |
+| `shift_b` | `(dec_curr − 1) · dec_inv` | derived | `Kernels.cu:148` | `Pitch.py:318` |
+| `shift_1` | `(coeff_tension − 8·coeff_bending) · dec_inv` | derived | `Kernels.cu:145` | `Pitch.py:315` |
+| `shift_2` | `2 · coeff_bending · dec_inv` | derived | `Kernels.cu:146` | `Pitch.py:316` |
+
+`dec_inv = 1 / (1 + dec_curr)`.
+
+`coeff_force` was corrected in commit `6e58413`: previously `∝ dt¹` (in ms units), causing
+the per-sample force integral to scale as `iter` and an audio peak that scaled linearly
+with `string_iteration`. Current formula matches the Python reference `cf = dt² · dec_inv`
+to within 0.3%. See
+[VOLUME_ITER_BUG_INVESTIGATION.md](../../development/VOLUME_ITER_BUG_INVESTIGATION.md).
+
+**Note on `coeff_force` interpretation:** it is the per-point force coefficient
+`dt² · dec_inv · hammer[p]`, *not* a spatial Gaussian. The Gaussian / circular hammer
+profile is in `hammer[p]` (precomputed from `PianoHammer.calculate_hammer_shape()` and
+folded into the coefficient by `parameterKernel` at kernel entry).
+
+### Numerical scheme invariants
+
+- **Per sub-step:** FDTD string update, bridge force accumulation. Runs `string_iteration`
+  times per audio sample.
+- **Per audio sample (outer iteration):** mode ODE update, feedin/feedback reduction,
+  `soundFloat` / `soundInt` emission. Runs `samplesInCycle` times per kernel launch.
+- **Iter-invariant by design:** audio peak, spectral content. Post-fix validation: peak
+  ratio iter=12/iter=4 = 1.011× (target ≤ 1.02×).
+- **Known iter-scaled residual (open issue):** HF content (~25 dB swing iter=4→12),
+  spectral centroid (~2× swing), initial decay rate (±3 dB/s). Traced to
+  `coeff_frequency_decay` missing dt-scaling. See
+  [WORK_IN_PROGRESS.md](../../development/WORK_IN_PROGRESS.md#known-follow-ups).
+
 ---
 
 ## Mode Simulation: Harmonic Oscillator
 
-Each of the 256 resonance modes is a damped harmonic oscillator updated every sub-step.
+### Physical model
+
+Each of the `numModes` (up to 256) soundboard resonance modes is a damped harmonic
+oscillator driven by the aggregated bridge force from all strings. Per mode `n`:
+
+```
+q̈_n + 2 γ_n q̇_n + ω_n² q_n = F_applied(n) / m_n
+```
+
+| Symbol | Meaning | Stored field |
+|--------|---------|--------------|
+| `q_n` | Modal displacement (scalar) | `s_mode` / `mode_1` |
+| `ω_n` | Angular frequency | `mode_omega` (precomputed) |
+| `γ_n` | Modal damping | `mode_dec` (precomputed) |
+| `m_n` | Modal mass | `mode_mass_inv = 1/m_n` (precomputed) |
+| `F_applied(n)` | Summed bridge force from strings to mode n | reduced from `feedin_cycle_matrix` |
+
+### Discrete update
+
 Per-mode state is stored as five rows in `dev_mode_state`:
 
 ```
@@ -93,7 +187,7 @@ mode_state[3 * numModes + modeNo]  — omega coefficient     mode_omega
 mode_state[4 * numModes + modeNo]  — inverse mass          mode_mass_inv
 ```
 
-Update equation (one sample per synthesis cycle sub-step):
+Update equation (runs once per audio sample, inside the outer iteration of `addKernel`):
 
 ```
 result = ( (2*s_mode - mode_1)
@@ -106,8 +200,14 @@ mode_1  = s_mode
 s_mode  = result
 ```
 
-Where `F_applied` is the summed force fed into this mode from all strings for the current
-sub-step, accumulated via `feedin_cycle_matrix` and reduced with `sumArray()`.
+This is an explicit leapfrog-style update of the continuous ODE, with `mode_dec` encoding
+`2γ_n dt` and `mode_omega` encoding `ω_n² dt²` at audio-sample cadence (not sub-step). The
+trailing `(1 - mode_dec)` factor applies a symmetric damping envelope so that the
+decrement is consistent whether `γ_n > 0` increases or decreases the effective mass term.
+
+`F_applied` is the summed force fed into this mode from all strings for the current
+audio sample, accumulated via `feedin_cycle_matrix` and reduced with `sumArray()` (see
+[Feedin: String → Mode](#feedin-string--mode)).
 
 ---
 
@@ -194,25 +294,64 @@ if (onStem):  target = s_feedback[stringInArr]
 
 ### Audio Output
 
-The per-sample audio output is computed from the feedback-driven stem displacement.
-The derivative order is controlled by `cycle_parameters[12]` (`sound_derivative_order`):
+Audio is emitted from virtual "sound strings" that act as soundboard proxies, driven by
+the mode feedback. In the current `Belarus_8band_196modes` layout (22 strings × 384
+array-size grid) these are strings 220–223. They are the strings with `pitch ≥ 128`;
+their excitation is zero (no hammer) and their stem displacement is purely the summed
+mode feedback.
+
+**Output channel mapping** (`MainKernel.cu:200, 482–494`):
 
 ```
-diff_result = feedback - s_b              (1st derivative: velocity)
+outerSoundChannel = parameters[... 24 * arraySize + pointIndex]
+                  = max(pitch - 127, 0)           // assigned in packing
 
-if sound_derivative_order == 1:
-    output = diff_result
-elif sound_derivative_order == 2:
-    output = diff_result - prev_diff      (2nd derivative: acceleration)
-    prev_diff = diff_result               (persisted in sound_prev_diff[channel])
-
-soundInt[sampleIndex] = Sint32(output * main_volume_coeff)
-soundFloat[sampleIndex] = float(output)
+sampleIndex = (outerSoundChannel - 1) * samplesInCycle + main_cycle_index
 ```
 
-The `prev_diff` state is persisted across kernel launches via the `sound_prev_diff`
-global memory buffer (one `real` per output channel). It is loaded at kernel start
-and saved at kernel end.
+Only stem points with `outerSoundChannel > 0` write. The channel index is packed at
+preset load time from `PianoidBasic/Pianoid/Pitch.py:108`:
+
+```python
+packed_physics['outer_sound'] = max(self.pitch - 127, 0)
+```
+
+**Per-sample write** (at audio-sample cadence, `main_cycle_index` ∈ `[0, samplesInCycle)`):
+
+```cpp
+if (outerSoundChannel && isStem) {
+    real diff_result = feedback - s_b;        // 1st derivative (velocity)
+    real output = diff_result;
+    if (soundDerivativeOrder == 2) {
+        output = diff_result - prev_diff;     // 2nd derivative (acceleration)
+        prev_diff = diff_result;              // persist for next sample
+    }
+    soundInt  [sampleIndex] = Sint32(output * main_volume_coefficient);
+    soundFloat[sampleIndex] = float (output);
+}
+```
+
+Where:
+- `feedback = s_feedback[stringInArr]` — summed mode→string feedback reduced from
+  `feedback_cycle_matrix` (MainKernel.cu:461).
+- `s_b` — string displacement at this stem point from the *previous* audio sample (saved
+  at the end of the FDTD inner loop, MainKernel.cu:540).
+- `soundDerivativeOrder` comes from `cycle_parameters[12]`: `1` = velocity (default),
+  `2` = acceleration.
+- `prev_diff` state is persisted across kernel launches via the `sound_prev_diff` global
+  memory buffer (one `real` per output channel). Loaded at kernel start
+  (MainKernel.cu:203–206), saved at kernel end (MainKernel.cu:713–715).
+
+The preset configures exactly 4 output channels in Belarus_8band_196modes, yielding 4 of
+the 22 strings as "sound strings" with `outerSoundChannel` values `1..4` and contributing
+2 stem points each (8 writes per cycle, filling `dev_soundFloat[0..samplesInCycle·4−1]`).
+Full audio chain and empirical verification in
+[VOLUME_ITER_BUG_INVESTIGATION.md](../../development/VOLUME_ITER_BUG_INVESTIGATION.md#audio-path-discovery).
+
+There is also a parallel **mode-direct output path** for listen-to-modes mode
+(`MainKernel.cu:623–630`) that writes `s_mode_applied_force[quarter]` directly when
+`outerSoundModeChannel > 0` — used when `listen_to_modes=1` to tap mode force without going
+through string feedback.
 
 ### sumArray Reduction
 
@@ -245,9 +384,9 @@ One synthesis cycle corresponds to `samplesInCycle` audio samples. The outer loo
 Each iteration contains an inner loop of `soundStep` FDTD sub-steps.
 
 ```
-Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
+Per synthesis cycle (managed by Pianoid::runSynthesisKernel):
 
-  1. Pianoid::launchMainKernel()
+  1. Pianoid::runSynthesisKernel()
        |
        +-- cudaLaunchCooperativeKernel(addKernel, ...)
              |
@@ -269,8 +408,8 @@ Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
              Save string_state (current + previous displacement)
              Save mode_state   (current + previous displacement)
 
-  2. Pianoid::playSoundSamples()   — advance excitation cycle index, push to audio driver
-  3. Pianoid::appendSoundRecords() — optional D2H copy for recording
+  2. Pianoid::pushCycleAudioToDriver()   — advance excitation cycle index, push to audio driver
+     (Online regime only; called from Pianoid::runCycle after synthesis)
 ```
 
 ---
@@ -289,7 +428,7 @@ Per synthesis cycle (managed by Pianoid::executeSynthesisCycle):
        |
   +----+
   |
-  |  +----- executeSynthesisCycle() -----------------------------------------+
+  |  +----- runSynthesisKernel() -------------------------------------------+
   |  |                                                                        |
   |  |  if new_notes_ind > 0:  parameterKernel (update coefficients)         |
   |  |  if new_notes_ind > 1:  gaussKernel (compute force_function)          |
@@ -374,7 +513,7 @@ void addOneString(int stringNo, int velocity);
 
 ### Kernel Trigger: `new_notes_ind`
 
-`launchMainKernel()` checks `new_notes_ind` to decide which kernels to launch:
+`runSynthesisKernel()` checks `new_notes_ind` to decide which kernels to launch:
 
 ```
 new_notes_ind == 0  →  addKernel only (normal synthesis cycle)
@@ -383,7 +522,7 @@ new_notes_ind >  1  →  parameterKernel + gaussKernel + addKernel
                         (gaussKernel grid: noStrings = new_notes_ind - 1)
 ```
 
-`new_notes_ind` is reset to 0 at the end of `launchMainKernel()`.
+`new_notes_ind` is reset to 0 at the end of `runSynthesisKernel()`.
 
 ### gaussKernel — Force Function Computation
 

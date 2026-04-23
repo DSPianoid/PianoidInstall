@@ -26,6 +26,7 @@ PianoidCore/tests/
 └── unit/                # Pure Python, no GPU
     ├── test_channel_assignment.py   # MappingConfig persistence round-trip, _load_mapping_results file priority, ESPRIT response channel filtering
     ├── test_direct_correction.py    # CalibrationController: direct linear correction algorithm, fallback to bisection, edge cases (11 tests)
+    ├── test_event_buffer_backpressure.py # RealTimeEventBuffer back-pressure: setSizeLimit/getSizeLimit, drop-oldest-NOTE_OFF-first policy, fallback to oldest, stats.dropped_event_count (Tranche A / M12, 7 tests)
     ├── test_mic_analyzer.py         # MicAnalyzer: Goertzel spectral measurement, DC removal, harmonics, reference signal comparison (16 tests)
     ├── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints, scenario discovery helpers (`_discover_{npy,roomresponse}_scenarios`)
     ├── test_modal_adapter_apply_route.py # Cross-server `apply_to_preset` wiring: F9 503 on port 5001 preserved, main-server (5000) counterpart route covers 400/404/409 paths (5 tests)
@@ -104,7 +105,7 @@ Key implementation details:
 
 | Test | What it validates |
 |------|-------------------|
-| `TestOnlinePlayback::test_chord_playback` | C major chord via `runOnlinePlayback()` — no profiling, no debug data, auditory evaluation |
+| `TestOnlinePlayback::test_chord_playback` | C major chord via `OnlinePlaybackEngine` (initialize/loadEvents/run) — no profiling, no debug data, auditory evaluation |
 
 Production-safe: no dependency on `PIANOID_DEBUG_DATA`. Plays a 3-second C major chord (C4+E4+G4) through the audio driver with note-off and release tail.
 

@@ -190,17 +190,84 @@ cd PianoidCore
 
 At least one of SDL2 or SDL3 must be present. SDL3 is preferred when both are found.
 
-### Symptom: "File in use" error during CUDA build
+### Symptom: "File in use" error (`[WinError 5] Access is denied`) during CUDA build
 
 The `.pyd` file is locked by a running Python process (usually the backend server).
+The uninstall step cannot delete the file and the package ends up uninstalled.
 
-**Fix:**
+**Diagnosis:**
 
-1. Stop the backend: `curl http://localhost:5000/shutdown` or kill the Flask process by PID
-2. Close any Python session that imported `pianoidCuda`
-3. Retry the build
+```bash
+tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
+tasklist //M cudart64_12.dll 2>/dev/null | grep python
+```
 
-### Symptom: Build succeeds but wrong variant loaded
+**Fix:** Kill the specific PID, then rebuild. Never use `taskkill //F //IM python.exe` —
+that kills MCP servers and Claude Code:
+
+```bash
+taskkill //F //PID <pid>
+```
+
+If a launcher is running, `curl -X POST http://localhost:3001/api/stop-backend` is a
+safer alternative. Retry via `build_pianoid_cuda.bat --heavy --release`.
+
+### Symptom: Code changes appear to have no effect after rebuild
+
+You edit a `.cu` / `.cpp` file, rebuild with direct `pip install`, but runtime behavior
+is unchanged. Sabotage tests that should produce silence or distortion produce identical
+output to the baseline.
+
+**Root cause:** `pip install --force-reinstall --no-cache-dir pianoid_cuda/` sometimes
+silently returns a cached stale `.pyd` from setuptools build isolation, even though `.obj`
+files regenerate and `nvcc` runs.
+
+**Fix:** always rebuild via the batch script:
+
+```bash
+cd D:/repos/PianoidInstall/PianoidCore && ./build_pianoid_cuda.bat --heavy --release
+```
+
+**Verify** a known new string from your edit is in the installed binary:
+
+```bash
+grep -a "<some-new-string-from-your-edit>" \
+  PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
+```
+
+Zero matches means a stale pyd was installed. See
+[BUILD_SYSTEM.md — Canonical CUDA Rebuild](../architecture/BUILD_SYSTEM.md#canonical-cuda-rebuild-read-this-first).
+
+### Symptom: Debug variant fails to import / release loads instead
+
+You run with `PIANOID_USE_DEBUG=1` or `"debug_mode": 1`, but log output shows
+`pianoidCuda` (release) was loaded — or you get `ImportError: DLL load failed while
+importing pianoidCuda_debug`.
+
+**Root cause:** `PIANOID_BUILD_VARIANT=debug` rebuild **skips DLL copy**. Without
+`cudart64_12.dll` and `SDL3.dll` next to `pianoidCuda_debug.pyd`, the debug module
+cannot load. The middleware's `select_cuda_variant` catches the ImportError silently
+and falls back to release, so code edits that live only in the debug build appear to
+have zero effect.
+
+**Fix:** always rebuild release before debug, so the DLLs are present:
+
+```bash
+./build_pianoid_cuda.bat --heavy --release   # copies DLLs
+./build_pianoid_cuda.bat --heavy --debug     # reuses DLLs
+# or in one call:
+./build_pianoid_cuda.bat --heavy --both
+```
+
+Verify both variants load:
+
+```bash
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; import pianoidCuda_debug; print('OK')"
+```
+
+See [BUILD_SYSTEM.md — Debug variant DLL trap](../architecture/BUILD_SYSTEM.md#debug-variant-dll-trap).
+
+### Symptom: Build succeeds but wrong variant loaded (normal case)
 
 The middleware loads `pianoidCuda` (release) by default. To use the debug build:
 
@@ -209,7 +276,8 @@ set PIANOID_USE_DEBUG=1
 python backendserver.py
 ```
 
-Or pass `"debug_mode": 1` in the `/load_preset` request body.
+Or pass `"debug_mode": 1` in the `/load_preset` request body. Both variants must
+already be built and importable (see the previous symptom).
 
 ---
 
@@ -225,16 +293,38 @@ Or pass `"debug_mode": 1` in the `/load_preset` request body.
 
 ### Symptom: Audio driver fails to initialize
 
-**ASIO issues:**
+Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_preset`):
+
+| Code | Driver | Typical use |
+|---|---|---|
+| `4` | ASIO Callback | Lowest latency; requires ASIO device or ASIO4ALL |
+| `3` | SDL3 | Preferred general-purpose driver (if SDL3 was present at build time) |
+| `2` | SDL2 | Universal fallback, works on any system |
+| `1` | ASIO (legacy polling) | Older ASIO path; prefer `4` |
+
+**Recommended fallback chain** when the current driver fails to initialize:
+
+1. **ASIO Callback (4) fails** → try SDL3 (3)
+2. **SDL3 (3) fails** → try SDL2 (2)
+3. **SDL2 (2) fails** → the build likely lacks both SDL variants; rebuild with
+   `build_pianoid_cuda.bat --heavy` after ensuring at least one of SDL2/SDL3 is
+   installed (see [BUILD_SYSTEM.md — Toolchain Requirements](../architecture/BUILD_SYSTEM.md#toolchain-requirements))
+
+**ASIO-specific issues:**
 
 - No ASIO driver installed — install ASIO4ALL or use your audio interface's ASIO driver
 - ASIO device in use by another application (DAW, etc.) — close the other application
-- **Fallback:** switch to SDL2 (`"audio_driver_type": 2`)
+- ASIO sample rate mismatch with the backend — set `"sample_rate": 48` in `/load_preset`
+  to match 48 kHz (the default for most interfaces)
 
-**SDL issues:**
+**SDL-specific issues:**
 
-- SDL DLL not found next to `.pyd` — rebuild with `--heavy`
-- SDL version mismatch — ensure the installed SDL version matches what was used during build
+- `SDL3.dll` or `SDL2.dll` missing next to the installed `.pyd` — the build's DLL deploy
+  step failed or you rebuilt the debug variant without the release DLLs. Rebuild with
+  `./build_pianoid_cuda.bat --heavy --release`. See
+  [Debug variant fails to import](#symptom-debug-variant-fails-to-import-release-loads-instead).
+- SDL version mismatch — ensure the installed SDL version matches what was used during
+  build (check `build_config.json` in `PianoidCore/pianoid_cuda/`)
 
 ### Symptom: Backend starts but no audio output
 

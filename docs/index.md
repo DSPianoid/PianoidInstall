@@ -120,6 +120,8 @@ interactive latency.
 - [guides/QUICK_START.md](guides/QUICK_START.md) — Prerequisites, build steps, and running the
   full stack locally
 - [guides/STARTUP_TROUBLESHOOTING.md](guides/STARTUP_TROUBLESHOOTING.md) — Three-process
-  architecture, port conflicts, zombie-socket diagnosis, shutdown sequence
+  architecture, port conflicts, zombie-socket diagnosis, CUDA runtime issues, build traps
+  (stale pyd, debug-variant DLL), audio driver fallback chain, shutdown sequence,
+  first-run checklist
 - [guides/UI_TESTING.md](guides/UI_TESTING.md) — Canonical live UI test procedure: start
   sequence, interaction patterns, deterministic sound measurement, shutdown

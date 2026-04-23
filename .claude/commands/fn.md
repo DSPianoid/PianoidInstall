@@ -13,6 +13,17 @@ Focused, lightweight workflow for implementing or modifying a single function wi
 
 **When invoked directly by the user:** Suitable for small, self-contained changes where the full `/dev` workflow is overkill. The user is responsible for committing and documentation.
 
+## Docs-first (MANDATORY) for compile + run
+
+Before rebuilding or restarting anything, READ the canonical docs — skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
+
+- **Before ANY build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
+- **Canonical rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — silently reinstalls STALE `.pyd`, your edit never lands.
+- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; run release (or `--both`) first.
+- **Verify the rebuild landed** — `grep -a "<marker-string-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If missing, the build did not land — do NOT test.
+- **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. Locked `.pyd` causes `[WinError 5] Access is denied` → package uninstalled.
+- **When a build or startup fails unexpectedly** — invoke `/startup` instead of ad-hoc troubleshooting.
+
 ## Input Contract
 
 The caller (user or `/dev` agent) MUST provide:

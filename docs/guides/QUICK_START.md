@@ -115,26 +115,42 @@ The build takes 5–15 minutes depending on GPU architecture count. Check `Piano
 
 ### Build individual components
 
-```bat
-cd PianoidInstall\PianoidCore
+```bash
+cd PianoidInstall/PianoidCore
 
-:: PianoidBasic only
-build_pianoid_basic.bat
+# PianoidBasic only
+./build_pianoid_basic.bat
 
-:: CUDA extension — full clean rebuild, both variants
-build_pianoid_cuda.bat --heavy --both
+# CUDA extension — canonical rebuild (full clean, both variants)
+./build_pianoid_cuda.bat --heavy --both
 
-:: CUDA extension — incremental rebuild, release only
-build_pianoid_cuda.bat --light --release
+# CUDA extension — release-only clean rebuild
+./build_pianoid_cuda.bat --heavy --release
+
+# CUDA extension — incremental rebuild (only after confirming no stale pyd)
+./build_pianoid_cuda.bat --light --release
 ```
+
+!!! warning "Always use `build_pianoid_cuda.bat`, not `pip install` directly"
+    `pip install --force-reinstall --no-cache-dir pianoid_cuda/` sometimes silently
+    returns a cached stale `.pyd` even though `.obj` files regenerate. If you change
+    any `.cu` / `.cpp` / `.cuh` / `.h` file, use `build_pianoid_cuda.bat --heavy`.
+    See [BUILD_SYSTEM.md — Canonical CUDA Rebuild](../architecture/BUILD_SYSTEM.md#canonical-cuda-rebuild-read-this-first).
+
+!!! tip "Before rebuilding: check for locked files"
+    A running backend holding `pianoidCuda.pyd` causes `[WinError 5]`. Check first:
+    ```bash
+    tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
+    ```
+    Kill by specific PID only — never `taskkill //F //IM python.exe`.
 
 ### Diagnosing build failures
 
 If the CUDA step fails, run toolchain detection standalone to see what was found/missing:
 
-```bat
-cd PianoidInstall\PianoidCore
-.venv\Scripts\python detect_paths.py --project-root pianoid_cuda --out NUL
+```bash
+cd PianoidInstall/PianoidCore
+.venv/Scripts/python detect_paths.py --project-root pianoid_cuda --out /dev/null
 ```
 
 Common issues:

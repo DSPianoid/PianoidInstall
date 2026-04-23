@@ -61,7 +61,7 @@ for build commands.
 - GPU buffer allocation: `dev_output_data`, `dev_sound_records_ms`, `dev_sound_records` (`DEBUG_OUTPUT` category)
 - Kernel writes: output\_data records 0–9, sound\_records, string\_state snapshots
 - Host D2H copies: `getOutputData()`, `getParameters()`, `getSoundRecords()` (note: `getPianoidState()` is now always active)
-- Per-cycle operations: `appendSoundRecords()`, `dev_output_data` memset
+- Per-cycle operations: `dev_output_data` memset (debug-only kernel writes)
 
 ---
 
@@ -98,12 +98,18 @@ for build commands.
 |--------|--------|
 | `clearRecords()` | Resets `sound_record_index` to 0 and clears the raw sound circular buffer |
 
-### Per-Cycle Recording (called by PlaybackCycleExecutor)
+### Per-Cycle Recording (called from `Pianoid::runCycle`)
 
 | Method | What it does |
 |--------|-------------|
-| `recordCycleAudio()` | Calls `appendSoundRecords()` — GPU kernel copies `dev_sound_records_ms` → `dev_sound_records` at current index |
-| `appendRawSound(name)` | D2H copy from named GPU float buffer → writes to circular buffer at current position |
+| `appendCycleAudioToHostBuffer()` | D2H copy from `dev_soundFloat` → writes to `rawSoundBuffer` (5-second circular host ring) at current position. Called from the Online regime when `record_to_host == true`. |
+
+The `dev_sound_records` archival path was reinstated in C2 (dev-568e,
+`77479ea`, 2026-04-20) — the `copyKernel<<<>>>(dev_sound_records_ms, 0,
+dev_sound_records, ...)` plus `sound_record_index++` now runs inline in
+`Pianoid::runCycle` behind `#ifdef PIANOID_DEBUG_DATA`. Release builds skip
+this entirely. Debug builds once again populate the long-form
+`dev_sound_records` buffer for debug-data chart extraction.
 
 ---
 
@@ -147,7 +153,11 @@ Written by `recordOutputData()` calls in the kernel. Constants defined in `const
 | `SOUND_REC_APPLIED_FORCE` | 2 | `applied_force` (force after hammer processing) |
 | `SOUND_REC_MODE_FORCE` | 3 | `s_mode_applied_force` (force applied to mode) |
 
-Controlled by `sound_record_index` (incremented each cycle by `appendSoundRecords()`). Wraps silently when index exceeds `MAX_SOUND_RECORD_INDEX`.
+Controlled by `sound_record_index`. As of the C8 cleanup (dev-cf56), the advancement
+site (`Pianoid::appendSoundRecords`) is deleted and the index stays at 0. The buffer
+allocation and read path (`getSoundRecords`) remain; the archival write will be
+reinstated inline in `Pianoid::runCycle` under `#ifdef PIANOID_DEBUG_DATA` when
+regime-split C2 lands.
 
 ---
 

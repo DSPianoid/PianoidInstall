@@ -101,16 +101,16 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
           │                → commitStringBatch()
           │                    → cudaMemcpy batch indices to GPU
           │                    → set new_notes_ind (arms gaussKernel)
-          │                → next executeSynthesisCycle():
+          │                → next runSynthesisKernel():
           │                    gaussKernel computes force_function from
           │                    dev_gauss_params_full[string][velocity]
           ├── NOTE_OFF → releaseStrings(indices)
           └── SUSTAIN  → processSustain(pedal_value)
       │
-      PlaybackCycleExecutor.executeCycle(pianoid, record_audio):
-        1. pianoid->executeSynthesisCycle()   → MainKernel GPU launch
-        2. pianoid->manageSoundBuffers()      → push to ring buffer
-        3. pianoid->recordCycleAudio()        → D2H copy (if recording)
+      pianoid->runCycle({CycleRegime::Online, record_to_host=true}):
+        1. runSynthesisKernel()               → MainKernel GPU launch
+        2. appendCycleAudioToHostBuffer()     → rawSoundBuffer 5s ring
+        3. pushCycleAudioToDriver()           → audioDriver->pushSamples
       │
       ▼
   AudioDriver callback → LockFreeCircularBuffer → PCM to OS audio
@@ -165,7 +165,7 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
          ▼
   1. MidiRecord().read_midi(midi_file, reset=True, sustain=True)
   2. midi_record.pack_for_offline_playback(sample_rate, spc) → event_queue
-  3. PlaybackConfig(audio_enabled=False, record_to_buffer=True)
+  3. PlaybackConfig(audio_enabled=False)
   4. With cuda_lock:
      pianoid_cpp.runOfflinePlayback(event_queue, config)
          │
@@ -174,11 +174,10 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
        loop until done:
          processEventsAtCycle(cycle)
            EventQueue.getEventsAtCycle(cycle) → EventDispatcher.dispatch()
-         PlaybackCycleExecutor.executeCycle(pianoid, record_audio=true)
-           1. pianoid->executeSynthesisCycle()    → GPU kernel
-           2. pianoid->manageSoundBuffers()       → no audio driver
-           3. pianoid->recordCycleAudio()         → D2H copy to buffer
-         collectAudio() → recorded_audio_.append()
+         pianoid->runCycle({CycleRegime::Offline, record_to_host=false})
+           1. runSynthesisKernel()                → GPU kernel
+           2. (no output routing — regime structurally skips push + ring)
+         collectAudio() → recorded_audio_.append()   (via getCurrentCycleAudio)
          cycle++
        return PlaybackStats
   5. pianoid_cpp.getRecordedAudio() → float array
@@ -247,10 +246,10 @@ backendserver.py (line 797)
       │                                          │
       │  processEventsAtCycle(cycle):             │
       │    drain both buffers → dispatch events   │
-      │  PlaybackCycleExecutor.executeCycle():    │
-      │    1. executeSynthesisCycle() → GPU       │
-      │    2. manageSoundBuffers()   → ring buf   │
-      │    3. recordCycleAudio()     → D2H copy   │
+      │  pianoid->runCycle({regime, record_host}):│
+      │    1. runSynthesisKernel() → GPU          │
+      │    2. Online: append ring + driver push   │
+      │       Offline: (no output routing)        │
       └──────────────────┬───────────────────────┘
                          │
               ┌──────────┴──────────┐

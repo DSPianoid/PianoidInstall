@@ -5,6 +5,39 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 
+---
+
+## Cycle Profiling Harness
+
+**Location:** `PianoidCore/tests/system/cycle_profile.py`
+**Config:** `PianoidCore/tests/system/configs/cycle_baseline.json`
+
+Measures per-stage cycle timing under configurable iter / mode (idle vs playing) / preset / driver. Captures Stage A (synthesis kernel + device sync), Stage B (regime output: D2H + driver push), and full cycle via `initTimeRecord`/`getTimeRecord` + `getCallbackStats`. Output: JSON with median / p95 / p99 / max per stage plus underrun rate.
+
+Invoke:
+
+    cd PianoidCore
+    .venv/Scripts/python tests/system/cycle_profile.py \
+        --config tests/system/configs/cycle_baseline.json \
+        --output /tmp/cycle.json
+
+Flags: `--iter`, `--mode {idle|playing}`, `--preset`, `--driver`, `--buffer`, `--duration` (override config); `--matrix` (run 2×2 iter×mode); `--downsample-6to5` (opt-in adapter for pre-fac66cb binaries with NUM_BASE_LEVELS=5).
+
+**Findings (2026-04-22):**
+- IversPond_128modes iter=8 idle SDL3: Stage A median ~780 μs across ee068dd (Mar 31) through HEAD — no kernel regression post-Volume-Calibration.
+- 2×2 matrix reveals mode-count-dependent active-cycle cost: Belarus_196modes shows +444 μs per active cycle vs idle; IversPond_128modes does not.
+
+Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
+
+---
+
+## Known Follow-Ups
+
+- **`play_note_offline_chart_function` — missing `get_string_indices`.** The chart function calls `pianoid.get_string_indices(pitch)` (chartFunctions.py ~line 1529), which does not exist on `Pianoid`. The surrounding try/except swallows the `AttributeError` and leaves `string_oscillation_data = (0, 0)`. Effect: String Osc Max/RMS always display 0 in the note_playback chart. Found during dev-63c2 fix; left out of scope by orchestrator. Likely replacement: `pianoid.sm.get_string_indices(pitch)` or a similar StringMap API — needs a brief code audit before fix.
+
+- **Secondary iter-dependence in spectrum/HF/decay** (2026-04-23, post-volume-iter fix). Peak magnitude is iter-invariant after `dev-volume-iter-fix` (coeff_force dt² fix + preset rescale). However HF content increases ~25dB from iter=4 to iter=12, spectral centroid doubles (1340 → 2687 Hz), init/sust decay rates vary. Likely root cause: `coeff_frequency_decay` (Kernels.cu:139) needs iter compensation. Out of scope for the volume-bug fix. See [VOLUME_ITER_BUG_INVESTIGATION.md](VOLUME_ITER_BUG_INVESTIGATION.md) §"Secondary issue".
+
+- **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [VOLUME_ITER_BUG_INVESTIGATION.md](VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
 
 ---
 
@@ -91,15 +124,35 @@ See [LOGGING.md](../modules/pianoid-cuda/LOGGING.md) for full details and migrat
 
 ## Buffer Underrun Investigation
 
-**Status:** Diagnostic tests implemented. Root cause identified. Fix not yet applied.
+**Status:** F5 landed (2026-04-22, dev-f5-stream) but measured **no effect** on underrun rate. Investigation continues — compute-bound, not serialization-bound.
 
-In `CircularBuffer.cu:105`, `produce()` releases its mutex **before** `cudaMemcpy`, creating a ~0.5–1.3ms window where the SDL3 callback's `consume()` sees stale `write_position` → empty buffer → underrun. ~12% of synthesis cycles exceed the 1.333ms real-time budget despite GPU using only ~36%.
+Two concerns were identified pre-F5:
+
+1. **Lock-scope window (pre-existing, latent).** `produce()` releases its mutex before the D→H copy, creating a ~0.5–1.3 ms window where `consume()` can see a stale `write_position`. Not addressed by F5.
+
+2. **Default-stream serialization (F5 hypothesis, refuted by data).** `produce()` used default-stream `cudaMemcpy` + `cudaDeviceSynchronize`. Hypothesis: this implicitly serialised the D→H copy against the synthesis kernel (also on default stream), doubling pipeline depth and turning jitter into underruns. F5 moved produce() to a dedicated `cudaStream_t produce_stream` with `cudaMemcpyAsync` + `cudaStreamSynchronize`. **The A/B data below show this had no observable effect.**
+
+**F5 A/B measurement** (silent-engine probe, SDL3, Preset_test5, `buffer_size=4`, 30 s). Same-harness: revert F5 → rebuild → measure → restore F5 → rebuild → measure.
+
+| Config | Pre-F5 | Post-F5 | Δ |
+|--------|--------|---------|---|
+| `string_iteration=8` | 33.3% underrun, 13 975 µs max | 33.4–35.0% underrun, 16 311–18 123 µs max | within noise |
+| `string_iteration=12` | 110.9% underrun, 18 501 µs max | 110.3% underrun, 21 031 µs max | within noise |
+
+The initial report of "~100% → 33.4%" was a cross-load comparison error — the ~100% came from an analyse-distortion A1 run whose `string_iterations` kwarg (plural) silently dropped and ran at default iter=12, not iter=8. After correction, same-harness A/B shows **no F5 effect** at either load level.
+
+F5 is **kept** on correctness grounds (producer copy should not implicitly block on unrelated default-stream GPU work), but is **not the fix** for distortion. The real lever is synthesis kernel cost (iter=12: 110% = kernel over budget; iter=8: 33% = kernel near budget, OS scheduling tips it over).
+
+See [logs/dev-f5-stream-2026-04-22-163903.md](logs/dev-f5-stream-2026-04-22-163903.md) for the full A/B and [probe_f5_silent_engine.py](../../PianoidCore/tests/system/probe_f5_silent_engine.py) for reproduction (env vars `F5_STRING_ITER`, `F5_DURATION_S`).
 
 | Task | Status |
 |------|--------|
 | Diagnostic tests | Done |
-| Root cause analysis | Done |
-| Fix `produce()` lock scope in CircularBuffer.cu | Pending |
+| Root cause analysis | In progress — serialization refuted, compute-bound hypothesis remains |
+| F5 — dedicated CUDA stream for produce() | Merged, no underrun effect (dev-f5-stream) |
+| Fix `produce()` lock scope | Pending (distinct concern; F5 null result suggests it's also not load-bearing) |
+| Reduce synthesis kernel cost at high `string_iteration` | Pending — now the primary lever |
+| Investigate SDL3 callback jitter (300 µs stddev, 18 ms max on 10 ms cadence) | Pending — OS-scheduling hypothesis |
 
 See [Testing](TESTING.md) for the test inventory.
 

@@ -18,6 +18,18 @@ Example:
 
 ---
 
+## Docs-first (MANDATORY) for every rebuild in every wave
+
+Each spawned sub-agent that rebuilds is subject to the canonical build procedure. The orchestrator MUST reinforce this in every sub-agent prompt — a single stale `.pyd` in any wave contaminates the post-wave test suite. 2026-04-23: ~3h lost to this.
+
+- **Before any sub-agent rebuilds** — the agent must read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
+- **Canonical CUDA rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Reject any sub-agent that falls back to `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently reinstalls STALE `.pyd`).
+- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; release first (or `--both`).
+- **Verify each rebuild landed** before the wave tests run: `grep -a "<marker>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If missing for any wave, mark that wave's tests INVALID and re-run post-rebuild.
+- **On unexpected build or startup failure in a wave** — halt the wave, spawn a `/startup` sub-agent, resume after green. Do NOT try to patch the build from the orchestrator.
+
+---
+
 ## Phase 1: Task Classification
 
 For each task, determine its **layer scope** and **file scope** by reading documentation first (documentation-first rule applies — see CLAUDE.md).

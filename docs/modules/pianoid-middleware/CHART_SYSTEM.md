@@ -201,11 +201,23 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 | `filter_test_function` | Runs CUDA FIR filter test via `FirFilterTest.filter_test()`; can generate test signals or use live sound; saves/loads filter files |
 | `block_output_data_function` | Fetches debug output buffers from CUDA. Records 0–1 from string_states (block-indexed). Records 2–9 from output_data: block-indexed records (2,3,6,7,8) show single block view; string-indexed records (4,5,9) show one chart per string in block. Text fields include block layout info (string IDs, pitches, per-string point counts, total points vs array_size, min/max values) |
 | `profiling_data_function` | Reads CPU/GPU profiling CSV files and charts timing data |
-| `play_mode_chart_function` | Triggers offline mode playback via `0xF1` event, captures mode oscillation and generated sound. Charts are normalized (divided by peak) for display; raw max/RMS values are reported in text fields. Audio playback uses unnormalized data |
-| `play_note_offline_chart_function` | Renders a single note offline, returns audio waveform |
+| `play_mode_chart_function` | Triggers offline mode playback via `0xF1` event, captures mode oscillation and generated sound via `_load_offline_sound_to_result()`. Charts are normalized (divided by peak) for display; raw max/RMS values are reported in text fields. Audio playback uses unnormalized data |
+| `play_note_offline_chart_function` | Renders a single note offline, returns audio waveform via `_load_offline_sound_to_result()` |
 | `test_volume_parameters_function` | Tests volume coefficient calculation |
 | `feedback_diagnostic_function` | Plots feedback coefficients across modes for a pitch |
 | `hammer_shape_function` | Retrieves spatial hammer force profile for a pitch |
 | `hammer_temporal_function` | Retrieves temporal hammer force envelope for a pitch and velocity |
 | `online_midi_playback_chart_function` | Starts MIDI file, waits, captures audio result |
-| `pure_mode_test_function` | Excites a single mode via `exciteMode()` + offline playback. Coupling off: deck matrix zeroed for pure damped oscillator. Coupling on: full string-mode interaction. Normalized output with frequency measurement via zero-crossings |
+| `pure_mode_test_function` | Excites a single mode via `exciteMode()` + offline playback, reads sound via `_load_offline_sound_to_result()`. Coupling off: deck matrix zeroed for pure damped oscillator. Coupling on: full string-mode interaction. Normalized output with frequency measurement via zero-crossings |
+
+**Offline chart sound-readout path.** Offline chart functions render with
+`PlaybackConfig.audio_enabled = False`, which skips `manageSoundBuffers()` in
+`PlaybackCycleExecutor::executeCycle` so nothing reaches the speakers. That same
+skip also bypasses `appendRawSound()`, leaving the `rawSoundBuffer` that
+`PianoidResult.get_sound_from_pianoid()` reads empty. Offline chart functions
+therefore call the local `_load_offline_sound_to_result(pianoid)` helper, which
+reads the offline engine's `getRecordedAudio()` output (populated by
+`OfflinePlaybackEngine::collectAudio()` cycle-by-cycle into channel 0) and writes
+it into `pianoid.result.sound` with shape `(num_channels, N)`. Live/online charts
+(`sound_function`, etc.) continue to use `get_sound_from_pianoid()` — their raw
+buffer is filled normally by `playSoundSamples()`.

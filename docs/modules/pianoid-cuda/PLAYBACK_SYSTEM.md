@@ -102,8 +102,9 @@ The `run()` loop:
    (estimator starts *after* audio init to prevent ~150ms startup drift)
 2. Immediate `syncToCycle(0)` for initial calibration
 3. Calls `processEventsAtCycle(current_cycle)` — drains both sources
-4. Calls `PlaybackCycleExecutor::executeCycle(pianoid_, record_audio)` — synthesis step
-5. CUDA error check: `cudaGetLastError()` after each `executeCycle()`
+4. Calls `pianoid_->runCycle({CycleRegime::Online, /*record_to_host=*/true})` —
+   orchestrated synthesis + driver push + host-buffer ring
+5. CUDA error check: `cudaGetLastError()` after each `runCycle()`
 6. Drift calibration: every cycle for the first 10 cycles (rapid warmup),
    then every 100 cycles (periodic maintenance)
 7. Repeats until `stop()` is called or `max_duration_ms` expires
@@ -130,7 +131,7 @@ class OfflinePlaybackEngine : public IPlaybackEngine {
     std::vector<float>              recorded_audio_;
 
     void processEventsAtCycle(uint32_t cycle);
-    void runCycle();      // PlaybackCycleExecutor::executeCycle(pianoid_, true)
+    void runCycle();      // pianoid_->runCycle({CycleRegime::Offline, false})
     void collectAudio();  // getCurrentCycleAudio() → recorded_audio_
     uint32_t calculateTotalCycles() const;
 
@@ -147,11 +148,60 @@ note release and resonance tails: `decay_cycles = (5 * sample_rate) / samples_pe
 
 ---
 
+## Cycle Orchestration — `Pianoid::runCycle`
+
+**File:** `Pianoid.cu` / `Pianoid.cuh`
+
+`Pianoid::runCycle(const CycleOutput&)` is the single cycle-orchestration entry
+point. Both engines call it. It runs synthesis and routes the output through
+regime-specific primitives — there is one cycle function, one silence gate,
+and two mutually-exclusive output regimes.
+
+```cpp
+enum class CycleRegime : uint8_t {
+    Online,   // synthesis + driver push + (optional) host-buffer ring
+    Offline,  // synthesis only; recording is owned by the offline engine
+};
+
+struct CycleOutput {
+    CycleRegime regime;
+    bool        record_to_host = false;  // Online-only; ignored when Offline.
+};
+
+int runCycle(const CycleOutput& out);
+```
+
+Body:
+1. `runSynthesisKernel()` — GPU kernel launch
+2. `switch(regime)`:
+   - `Online`: if `record_to_host` → `appendCycleAudioToHostBuffer()`;
+              always → `pushCycleAudioToDriver()`
+   - `Offline`: nothing (the offline engine owns recording via `collectAudio`)
+3. `#ifdef PIANOID_DEBUG_DATA`: archive `dev_sound_records_ms` → `dev_sound_records`,
+   advance `sound_record_index`
+
+**Regime exclusivity is the single silence gate.** The prior inner
+`audioOn.load()` check inside `playSoundSamples` and the executor-level
+`audio_enabled` gate inside `PlaybackCycleExecutor::executeCycle` are both
+gone. Offline regime structurally never reaches `pushCycleAudioToDriver` —
+therefore never reaches `LockFreeCircularBuffer::produce` — therefore never
+blocks on the audio back-pressure condvar. Offline is free-running by
+construction.
+
+### Concern-specific primitives
+
+| Primitive | Concern | Called from |
+|-----------|---------|-------------|
+| `pushCycleAudioToDriver()` | FIR filter, channel map, `audioDriver->pushSamples` | Online regime |
+| `appendCycleAudioToHostBuffer()` | D2H copy `dev_soundFloat` → `rawSoundBuffer` (5s ring) | Online regime (when `record_to_host`) |
+| `collectAudio()` (engine-private) | `getCurrentCycleAudio()` → `recorded_audio_[pos]` | Offline engine run loop |
+
 ## PlaybackCycleExecutor
 
 **File:** `PlaybackCycleExecutor.h` / `PlaybackCycleExecutor.cu`
 
-Static utility class eliminating duplicated cycle execution code between the two engines.
+Static utility class that now holds two residual helpers used by the engines
+and `EventDispatcher`:
 
 ```cpp
 class PlaybackCycleExecutor {
@@ -163,26 +213,14 @@ public:
         uint32_t cycle_index
     );
 
-    // Execute one complete synthesis cycle (3-step)
-    // Returns status code: 200 = success
-    static int executeCycle(Pianoid* pianoid, bool record_audio);
-
     // Excite all strings mapped to a MIDI pitch
     static void exciteStringsForPitch(Pianoid* pianoid, int pitch, int velocity);
-
-    // Excite a list of strings with corresponding velocities (uses batch API)
-    static void exciteStringBatch(
-        Pianoid* pianoid,
-        const std::vector<int>& string_indices,
-        const std::vector<int>& velocities
-    );
 };
 ```
 
-`executeCycle()` calls in order:
-1. `pianoid->executeSynthesisCycle()` — GPU kernel launch
-2. `pianoid->manageSoundBuffers()` — audio buffer push
-3. `pianoid->recordCycleAudio()` — D2H copy (if `record_audio == true`)
+`executeCycle` was deleted in C3 — its 3-step orchestration moved to
+`Pianoid::runCycle(CycleOutput)`, and the executor-level `audio_enabled`
+gate collapsed into regime exclusivity.
 
 ---
 
@@ -299,11 +337,16 @@ keyed by target cycle for O(log n) insertion and O(k) range drain.
 ```cpp
 class RealTimeEventBuffer {
 public:
+    static constexpr size_t kDefaultSizeLimit = 10000;
+
     void pushEvent(const PlaybackEvent& event, uint32_t target_cycle); // thread-safe
     std::vector<PlaybackEvent> drainEventsUpTo(uint32_t current_cycle); // thread-safe
     bool   hasPendingEvents() const;   // lock-free
     size_t size() const;               // lock-free
     void   clear();
+
+    void   setSizeLimit(size_t limit); // 0 disables back-pressure
+    size_t getSizeLimit() const;
 
     struct Stats {
         size_t total_events_pushed;
@@ -311,6 +354,7 @@ public:
         size_t peak_buffer_size;
         double avg_insert_latency_us;
         double avg_drain_latency_us;
+        size_t dropped_event_count;    // incremented on back-pressure eviction
     };
     Stats getStats() const;
 };
@@ -319,8 +363,20 @@ public:
 The engine calls `drainEventsUpTo(current_cycle)` once per synthesis cycle to collect all
 events whose `target_cycle <= current_cycle`. Typical insertion latency is under 1 µs.
 
+**Back-pressure (Tranche A / M12):** `pushEvent()` enforces a soft cap (default
+`kDefaultSizeLimit = 10000`). When the buffer reaches the cap at insertion
+time, the oldest pending NOTE_OFF is evicted to make room; if no NOTE_OFF is
+present, the oldest event of any kind is evicted. The new event is then
+inserted. `Stats::dropped_event_count` tracks evictions. Setting
+`size_limit == 0` via `setSizeLimit(0)` disables the policy entirely. The
+policy favours musical integrity — NOTE_ONs and SUSTAINs are retained until
+their counterpart NOTE_OFFs have been evicted, which keeps the engine hearing
+note-ons under extreme producer bursts.
+
 **Threading note:** `pushEvent()` and `drainEventsUpTo()` each use a single
 `std::lock_guard` scope covering both the data operation and statistics update.
+The back-pressure eviction runs inside the same lock as the insert, so no
+additional synchronisation is required.
 
 ---
 
@@ -362,29 +418,43 @@ since large initial drift is expected during audio device startup.
 
 ## Online vs Offline Flow
 
+Two mutually-exclusive output regimes routed through a single orchestrator,
+`Pianoid::runCycle`. Offline structurally never reaches the audio driver.
+
 ```
-ONLINE (real-time)                       OFFLINE (rendering)
-==================================       ==================================
-initialize()                             initialize()
-loadEvents(queue)                        loadEvents(queue)
+ONLINE regime                             OFFLINE regime
+==================================        ==================================
+initialize()                              initialize()
+loadEvents(queue)                         loadEvents(queue)
 setRealTimeBuffer(buffer)  [optional]
-run():                                   run():
-  start CycleTimeEstimator                 calculateTotalCycles()
-  start audio driver                       allocate recorded_audio_
-  loop:                                    loop:
-    cycle = estimator.getCurrentCycle()      processEventsAtCycle(current_cycle_)
-    processEventsAtCycle(cycle)              runCycle()
-      drain EventQueue                         executeSynthesisCycle()
-      drain RealTimeEventBuffer                manageSoundBuffers()
-    executeCycle(pianoid_, record)             recordCycleAudio()
-      executeSynthesisCycle()                collectAudio()
-      manageSoundBuffers()                   current_cycle_++
-      [recordCycleAudio if needed]         end loop
-    wait for next audio callback         exportToWav() [optional]
-  end loop
-  stop audio driver                      return PlaybackStats
+
+run():                                    run():
+  start CycleTimeEstimator                  calculateTotalCycles()
+  start audio driver                        allocate recorded_audio_
+  loop:                                     loop:
+    cycle = estimator.getCurrentCycle()       processEventsAtCycle(current_cycle_)
+    processEventsAtCycle(cycle)               pianoid_->runCycle(
+      drain EventQueue                          {Offline, false})
+      drain RealTimeEventBuffer                   runSynthesisKernel()
+    pianoid_->runCycle(                           (no push, no ring —
+      {Online, record_to_host=true})             free-running)
+      runSynthesisKernel()                    collectAudio()
+      appendCycleAudioToHostBuffer()             getCurrentCycleAudio()
+      pushCycleAudioToDriver()                   → recorded_audio_[pos]
+        → audioDriver->pushSamples           current_cycle_++
+        → LockFreeCircularBuffer::produce   end loop
+    wait for next audio callback            exportToWav() [optional]
+  end loop                                  return PlaybackStats
+  stop audio driver
   return PlaybackStats
 ```
+
+**Key invariant:** the Offline branch of `runCycle`'s switch statement does
+nothing after synthesis. The audio back-pressure condvar
+(`LockFreeCircularBuffer::produce`'s `canProduce.wait`) is reachable only
+through `pushCycleAudioToDriver`, which is called only from the Online
+branch. This is enforced structurally — not by a runtime flag — so no test
+matrix of mixed modes exists.
 
 ---
 
@@ -438,53 +508,20 @@ Also exposed via pybind11, `MidiEventConverter` provides static helpers for crea
 
 ---
 
-## MidiInputListener
+## MIDI Input
 
-**Files:** `MidiInputListener.h` / `MidiInputListener.cpp`
+MIDI input is handled in Python, not C++. The listener thread lives in
+`pianoid_middleware/pianoid.py` (`MIDI_listener_unified`) and uses `rtmidi` from
+Python. It parses incoming MIDI bytes and calls `Pianoid.schedule_event(...)`,
+which pushes `PlaybackEvent` records into the `RealTimeEventBuffer` exposed by
+the C++ engine via pybind11.
 
-C++ MIDI input listener using embedded RtMidi (MIT-licensed). Receives MIDI from a
-hardware controller via RtMidi's callback mode (lowest latency, no polling) and pushes
-events into a `RealTimeEventBuffer` for cycle-accurate dispatch.
+See [`modules/pianoid-middleware/MIDI_SYSTEM.md`](../pianoid-middleware/MIDI_SYSTEM.md)
+for the device-enumeration / event-parsing details, and §6 of
+[`development/PLAYBACK_ARCHITECTURE_REVIEW.md`](../../development/PLAYBACK_ARCHITECTURE_REVIEW.md)
+for the planned migration toward a unified envelope scheduler.
 
-```cpp
-class MidiInputListener {
-public:
-    MidiInputListener(Pianoid* pianoid, RealTimeEventBuffer* buffer);
-    std::vector<std::string> listPorts();
-    void start(int port);
-    void stop();
-    bool isRunning() const;
-    void setCycleEstimator(CycleTimeEstimator* estimator);
-};
-```
+A prior revision of this doc described a C++ `MidiInputListener` class that
+never shipped; the supporting `MidiInputListener.h` / `MidiInputListener.cpp`
+files are not in the source tree. Removed to match reality (Tranche A / M5).
 
-### MIDI Message Handling
-
-| MIDI Message | Action |
-|---|---|
-| NOTE_ON (0x90, vel>0) | `MidiEventConverter::fromMidiBytes` → `RealTimeEventBuffer` |
-| NOTE_OFF (0x80 or vel=0) | `MidiEventConverter::fromMidiBytes` → `RealTimeEventBuffer` |
-| Sustain (CC 64) | Sustain event → `RealTimeEventBuffer` |
-| Volume (CC 7) | Direct `setRuntimeParameters(volume_level)` on `Pianoid` |
-| Deck feedback (CC 74) | Exponential mapping (64→1.0, 127→8.0, 0→0.125) → `setRuntimeParameters` |
-
-Volume and deck feedback bypass the event buffer for immediate effect, matching legacy
-Python listener behavior. Note/sustain events go through the event buffer for
-cycle-accurate scheduling.
-
-### RtMidi Integration
-
-RtMidi is embedded as single-file source (`RtMidi.h` + `RtMidi.cpp`). On Windows it uses
-the WinMM backend (`__WINDOWS_MM__` define, `winmm.lib` already linked). The listener
-uses callback mode — RtMidi calls `midiCallback()` on its internal thread, which converts
-the message and pushes to the thread-safe `RealTimeEventBuffer`.
-
-### Python Binding
-
-```python
-listener = pianoidCuda.MidiInputListener(pianoid_cpp, realtime_buffer)
-listener.setCycleEstimator(engine.getCycleEstimator())
-ports = listener.listPorts()      # ["MIDI Controller 0", ...]
-listener.start(0)                 # Open port 0, begin receiving
-listener.stop()                   # Close port
-```

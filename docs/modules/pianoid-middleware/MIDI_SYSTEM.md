@@ -4,12 +4,20 @@
 
 Two MIDI listener implementations exist:
 
-- **C++ `MidiInputListener`** (recommended) — embedded RtMidi in `pianoid_cuda/`, callback
-  mode for lowest latency, pushes events to `RealTimeEventBuffer`. See
-  [PLAYBACK_SYSTEM.md](../pianoid-cuda/PLAYBACK_SYSTEM.md#midiinputlistener).
-- **Python `MidiListener`** (legacy) — `pianoidMidiListener.py`, polls `rtmidi` at 10ms
-  intervals, maps events via YAML keyboard config. Supports advanced features (mode pad,
-  per-note CC, keyboard configuration utility).
+- **Python `MIDI_listener_unified`** (active) — defined in
+  `pianoid_middleware/pianoid.py`. Uses `rtmidi` via the helper in
+  `pianoidMidiListener.py` to read MIDI bytes, then pushes NOTE / SUSTAIN events
+  to the C++ `RealTimeEventBuffer`. Started automatically by
+  `start_midi_listener_unified()`.
+- **Python `MidiListener`** (legacy) — `pianoidMidiListener.py` class with YAML
+  keyboard config and advanced features (mode pad, per-note CC). Not wired in
+  the current startup path; retained for reference and for the per-note CC
+  handlers that have not yet been migrated to the unified path.
+
+A C++ `MidiInputListener` class was previously planned and documented, but the
+supporting source files were never committed. It has been removed from the docs
+(Tranche A / M5); any low-latency C++ MIDI listener will be re-introduced under
+a future migration step (review §6 M4).
 
 Supporting file:
 - `midi_commands.py` — lower-level `MidiCommand` and `MidiProcessor` classes (command data structure and a command-queue processor)
