@@ -443,11 +443,13 @@ unset VIRTUAL_ENV
 cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
 ```
 
-**Fallback (if bat script fails or for quick iteration):**
-```bash
-cd D:/repos/PianoidInstall/PianoidCore
-.venv/Scripts/python -m pip install --force-reinstall --no-deps pianoid_cuda/
-```
+**If the build fails with exit code `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):**
+
+Do NOT fall back to a manual `pip install --force-reinstall ... pianoid_cuda/` — that silently
+returns a stale cached `.pyd` and your edit never lands. Instead, follow the recovery steps
+documented in
+[`docs/architecture/BUILD_SYSTEM.md` — 0xC0000142 Recovery](../../docs/architecture/BUILD_SYSTEM.md#0xc0000142-recovery-status_dll_init_failed):
+delete `%TEMP%\pip-build-env-*`, `pip cache purge`, then re-run the canonical `build_pianoid_cuda.bat`.
 
 **Post-build verification:**
 ```bash

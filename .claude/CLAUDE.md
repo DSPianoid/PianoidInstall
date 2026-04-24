@@ -109,18 +109,26 @@ tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
 tasklist //M cudart64_12.dll 2>/dev/null | grep python
 ```
 
-**Build pianoidCuda** (always clear `VIRTUAL_ENV` to prevent installing into root `.venv/`):
+**Build pianoidCuda** — always use the canonical `build_pianoid_cuda.bat` script. Details
+and troubleshooting live in **[`docs/architecture/BUILD_SYSTEM.md`](../docs/architecture/BUILD_SYSTEM.md)**;
+do not maintain a competing copy of build commands here. Clear `VIRTUAL_ENV` first so the
+install lands in `PianoidCore/.venv/`, not the root `.venv/`.
 
 ```bash
-# Full rebuild (C++/CUDA changes)
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy"
+# Full rebuild (C++/CUDA changes — release only)
+unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --release"
 
 # Incremental (Python middleware only)
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light --release"
 
-# Fallback (pip direct — when bat script fails)
-cd D:/repos/PianoidInstall/PianoidCore && .venv/Scripts/python -m pip install --force-reinstall --no-deps pianoid_cuda/
+# Both variants (release + debug) when the debug build is needed
+unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both"
 ```
+
+**If the build exits with `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):** do NOT
+substitute a manual `pip install` — it silently reinstalls the stale `.pyd`. Follow the
+recovery steps in
+[`docs/architecture/BUILD_SYSTEM.md` — 0xC0000142 Recovery](../docs/architecture/BUILD_SYSTEM.md#0xc0000142-recovery-status_dll_init_failed).
 
 **Verify** the build installed into the correct venv:
 ```bash
