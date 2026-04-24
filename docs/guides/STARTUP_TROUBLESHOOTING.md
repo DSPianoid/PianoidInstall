@@ -190,6 +190,18 @@ cd PianoidCore
 
 At least one of SDL2 or SDL3 must be present. SDL3 is preferred when both are found.
 
+### Symptom: Build exits with code `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED)
+
+Pip's PEP 517 build-isolation subprocess failed to initialize. `build_pianoid_cuda.bat`
+now detects this specific exit code and prints a recovery hint inline.
+
+**Root cause:** corrupted state in `%TEMP%\pip-build-env-*` or residual env pollution
+from a `vcvars64.bat` wrapper.
+
+**Recovery and detailed troubleshooting:** see
+[BUILD_SYSTEM.md — 0xC0000142 Recovery](../architecture/BUILD_SYSTEM.md#0xc0000142-recovery-status_dll_init_failed)
+and [vcvars wrapper trap](../architecture/BUILD_SYSTEM.md#vcvars-wrapper-trap-do-not-wrap-this-script).
+
 ### Symptom: "File in use" error (`[WinError 5] Access is denied`) during CUDA build
 
 The `.pyd` file is locked by a running Python process (usually the backend server).
