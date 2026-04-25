@@ -29,6 +29,45 @@ Flags: `--iter`, `--mode {idle|playing}`, `--preset`, `--driver`, `--buffer`, `-
 
 **Note (2026-04-24):** The 780 μs / +444 μs figures above were captured against PianoidCore post-`5137240` binary AND PianoidBasic post-`83ac75d` `Mode.py`. The `83ac75d` commit (`PianoidBasic/Pianoid/Mode.py` 3-tuple `pack_modes`) was missing from `origin/dev` until 2026-04-24 — clean rebuilds during that window failed with `mode_state.size() = 1120 > 768` because pre-`83ac75d` `Mode.py` emitted 5-tuple SoA. If you cannot reproduce these timing numbers, verify `git -C PianoidBasic cat-file -t 83ac75d` succeeds locally (and that `Pianoid 0.1.13` is reinstalled into `PianoidCore/.venv/` after pulling).
 
+### Test Environment
+
+Cycle profiling timings are sensitive to hardware (GPU model/clock, CPU IPC, memory speed) and software stack state (CUDA toolkit, driver, MSVC, OS build). Every future profiling run **must** record the host environment so cross-machine comparisons are meaningful.
+
+**Required fields for every profiling report:**
+
+| Field | Capture command (Windows) |
+|---|---|
+| CPU model, cores, threads, base clock | `Get-CimInstance Win32_Processor \| Select Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed` |
+| RAM total + speed | `Get-CimInstance Win32_PhysicalMemory \| Select Manufacturer, Capacity, Speed, PartNumber` |
+| GPU model, VRAM, driver, compute cap | `nvidia-smi --query-gpu=name,memory.total,driver_version,compute_cap --format=csv` |
+| NVIDIA driver / CUDA runtime | `nvidia-smi` (header line: `Driver Version: X.Y` / `CUDA Version: A.B`) |
+| CUDA toolkit (build-time) | `nvcc --version` |
+| OS + build | `Get-CimInstance Win32_OperatingSystem \| Select Caption, Version, BuildNumber` |
+| MSVC version | `ls "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/"` |
+| Python version | `<venv>/Scripts/python --version` |
+| Disk where venv lives | `Get-Partition -DriveLetter X \| Get-Disk \| Select FriendlyName, BusType, MediaType` |
+| Date of measurement | ISO 8601 date |
+
+**Baseline entries:**
+
+| Field | 2026-04-25 baseline (this host) | Apr 22 reference system |
+|---|---|---|
+| CPU | Intel Core i7-9700F @ 3.0 GHz, 8 cores / 8 threads (no SMT) | not recorded |
+| RAM | 32 GB DDR4-2400 (2 × 16 GB Kingston KF3600C16D4/16GX, running 2400 MT/s) | not recorded |
+| GPU | NVIDIA GeForce RTX 4070 SUPER, 12 GB GDDR6X | not recorded |
+| GPU compute capability | 8.9 (Ada Lovelace) | inferred ∈ {8.0, 8.6, 8.9} (per `build_config.json` `cuda_arch_list`) |
+| NVIDIA driver | 560.94 | not recorded |
+| CUDA runtime (driver-side) | 12.6 | not recorded |
+| CUDA toolkit (build-side) | 12.6.20 (`nvcc` built 2024-06-14) | likely 12.x (`build_config.json` structure) |
+| OS | Microsoft Windows 10 Pro 64-bit, build 19045 | Windows (inferred from log usage of `taskkill`, `cmd //c`, `.bat`) |
+| MSVC | VS2022 BuildTools, VC Tools 14.44.35207 | not recorded |
+| Python | 3.12.0 | 3.12 (inferred from venv layout) |
+| Venv disk | tigo SSD 120G (SATA SSD) | not recorded |
+| Other disks | Crucial CT240BX500SSD1 (SATA), FIKWOT FN501 Pro 256GB (NVMe) | n/a |
+| Measurement date | 2026-04-25 | 2026-04-22 |
+
+**Note:** The Apr 22 reference system's hardware specs are not recorded in any archived agent log (searched `dev-ab-d2h`, `dev-volume-iter-fix`, `dev-perftest`, `dev-f5-stream`, `dev-paramsync`). Future profiling sessions should capture the full required-fields table before reporting timing data, so that absolute numbers (not just relative deltas) become comparable across machines. Without hardware data, a 30–35 % Stage A median delta between two systems cannot be classified as code regression vs hardware difference.
+
 Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
 
 ---
