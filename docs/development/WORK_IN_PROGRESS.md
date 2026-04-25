@@ -76,9 +76,9 @@ Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
 
 - **`play_note_offline_chart_function` — missing `get_string_indices`.** The chart function calls `pianoid.get_string_indices(pitch)` (chartFunctions.py ~line 1529), which does not exist on `Pianoid`. The surrounding try/except swallows the `AttributeError` and leaves `string_oscillation_data = (0, 0)`. Effect: String Osc Max/RMS always display 0 in the note_playback chart. Found during dev-63c2 fix; left out of scope by orchestrator. Likely replacement: `pianoid.sm.get_string_indices(pitch)` or a similar StringMap API — needs a brief code audit before fix.
 
-- **Secondary iter-dependence in spectrum/HF/decay** (2026-04-23, post-volume-iter fix). Peak magnitude is iter-invariant after `dev-volume-iter-fix` (coeff_force dt² fix + preset rescale). However HF content increases ~25dB from iter=4 to iter=12, spectral centroid doubles (1340 → 2687 Hz), init/sust decay rates vary. Likely root cause: `coeff_frequency_decay` (Kernels.cu:139) needs iter compensation. Out of scope for the volume-bug fix. See [VOLUME_ITER_BUG_INVESTIGATION.md](VOLUME_ITER_BUG_INVESTIGATION.md) §"Secondary issue".
+- **Secondary iter-dependence in spectrum/HF/decay** (2026-04-23, post-volume-iter fix). Peak magnitude is iter-invariant after `dev-volume-iter-fix` (coeff_force dt² fix + preset rescale). However HF content increases ~25dB from iter=4 to iter=12, spectral centroid doubles (1340 → 2687 Hz), init/sust decay rates vary. Likely root cause: `coeff_frequency_decay` (Kernels.cu:139) needs iter compensation. Out of scope for the volume-bug fix. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Secondary issue".
 
-- **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [VOLUME_ITER_BUG_INVESTIGATION.md](VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
+- **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
 
 ---
 
@@ -394,7 +394,7 @@ A 196-mode preset (`Belarus_8band_196modes.json`) was built from the top 196 sta
 
 Data: `D:/tmp/belarus_78_extended_8band_medium/`
 
-See [EXTENDED_8BAND_PIPELINE_REPORT.md](EXTENDED_8BAND_PIPELINE_REPORT.md) and [BELARUS_PIPELINE_RUN_REPORT.md](BELARUS_PIPELINE_RUN_REPORT.md) for run details.
+See [archive/EXTENDED_8BAND_PIPELINE_REPORT.md](archive/EXTENDED_8BAND_PIPELINE_REPORT.md) and [archive/BELARUS_PIPELINE_RUN_REPORT.md](archive/BELARUS_PIPELINE_RUN_REPORT.md) for run details.
 
 Reference presets:
 - `presets/BaselineBelorus1.json` (196 modes, 4-band, per-mode normalised feedin)
@@ -451,3 +451,19 @@ After ASIO callback driver is stopped, re-initialization fails with "no working 
 | 7-10 | Dead code cleanup | **Done** |
 | 11 | Double mutex in `RealTimeEventBuffer` | **Done** |
 | 14 | No playback integration tests | Pending |
+
+---
+
+## Recently archived
+
+Moved to [archive/](archive/) on 2026-04-25 (`archive-dev-docs`):
+
+| File | Reason |
+|---|---|
+| [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) | Primary bug fixed (Kernels.cu:155 dt² fix + preset rescale, 2026-04-23). Secondary follow-ups still tracked above under Known Follow-Ups. |
+| [archive/PLAYBACK_ARCHITECTURE_REVIEW.md](archive/PLAYBACK_ARCHITECTURE_REVIEW.md) | Research snapshot (2026-04-20). Subsequent cycle orchestration tranches (C1/C2/C3/C8/C10/C11/C12/C13) committed. |
+| [archive/CYCLE_ORCHESTRATION_REFINEMENT.md](archive/CYCLE_ORCHESTRATION_REFINEMENT.md) | All proposed tranches (A/B/C2/C3/F5) committed. |
+| [archive/DISTORTION_INVESTIGATION_CONTEXT.md](archive/DISTORTION_INVESTIGATION_CONTEXT.md) | Briefing snapshot (2026-04-20), precursor to volume-iter — closed. Live distortion concerns now tracked under Buffer Underrun Investigation. |
+| [archive/BELARUS_PIPELINE_RUN_REPORT.md](archive/BELARUS_PIPELINE_RUN_REPORT.md) | One-shot run report (2026-04-07). |
+| [archive/EXTENDED_8BAND_PIPELINE_REPORT.md](archive/EXTENDED_8BAND_PIPELINE_REPORT.md) | One-shot run report (2026-04-07). |
+| [archive/ACOUSTIC_MEASUREMENT_ANALYSIS.md](archive/ACOUSTIC_MEASUREMENT_ANALYSIS.md) | System analysis snapshot (2026-04-06) of mic calibration; implementation listed under Completed Items. |

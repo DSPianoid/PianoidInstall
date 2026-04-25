@@ -134,7 +134,7 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 the per-sample force integral to scale as `iter` and an audio peak that scaled linearly
 with `string_iteration`. Current formula matches the Python reference `cf = dt² · dec_inv`
 to within 0.3%. See
-[VOLUME_ITER_BUG_INVESTIGATION.md](../../development/VOLUME_ITER_BUG_INVESTIGATION.md).
+[VOLUME_ITER_BUG_INVESTIGATION.md](../../development/archive/VOLUME_ITER_BUG_INVESTIGATION.md).
 
 **Note on `coeff_force` interpretation:** it is the per-point force coefficient
 `dt² · dec_inv · hammer[p]`, *not* a spatial Gaussian. The Gaussian / circular hammer
@@ -346,7 +346,7 @@ The preset configures exactly 4 output channels in Belarus_8band_196modes, yield
 the 22 strings as "sound strings" with `outerSoundChannel` values `1..4` and contributing
 2 stem points each (8 writes per cycle, filling `dev_soundFloat[0..samplesInCycle·4−1]`).
 Full audio chain and empirical verification in
-[VOLUME_ITER_BUG_INVESTIGATION.md](../../development/VOLUME_ITER_BUG_INVESTIGATION.md#audio-path-discovery).
+[VOLUME_ITER_BUG_INVESTIGATION.md](../../development/archive/VOLUME_ITER_BUG_INVESTIGATION.md#audio-path-discovery).
 
 There is also a parallel **mode-direct output path** for listen-to-modes mode
 (`MainKernel.cu:623–630`) that writes `s_mode_applied_force[quarter]` directly when

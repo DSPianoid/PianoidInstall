@@ -518,7 +518,7 @@ the C++ engine via pybind11.
 
 See [`modules/pianoid-middleware/MIDI_SYSTEM.md`](../pianoid-middleware/MIDI_SYSTEM.md)
 for the device-enumeration / event-parsing details, and §6 of
-[`development/PLAYBACK_ARCHITECTURE_REVIEW.md`](../../development/PLAYBACK_ARCHITECTURE_REVIEW.md)
+[`development/archive/PLAYBACK_ARCHITECTURE_REVIEW.md`](../../development/archive/PLAYBACK_ARCHITECTURE_REVIEW.md)
 for the planned migration toward a unified envelope scheduler.
 
 A prior revision of this doc described a C++ `MidiInputListener` class that
