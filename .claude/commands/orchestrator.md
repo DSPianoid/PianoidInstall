@@ -633,9 +633,36 @@ An agent is in exactly one of these states:
 1. **Determine state:** Did the agent return (context lost) or is it still alive?
    - If using Agent Teams with SendMessage: agent may still be alive → state = ALIVE
    - If agent returned via Agent tool: context is lost → state = RETURNED
-2. **Relay results** to user via Telegram
-3. **Do NOT release locks, archive logs, or clean WIP** — the agent's work is pending user review
-4. **Wait for user response** (approve, request changes, or reject)
+2. **Run Pre-Handoff Process Hygiene** (see next subsection) — kill stale processes that would poison the user's test
+3. **Relay results** to user via Telegram, noting any processes that were killed
+4. **Do NOT release locks, archive logs, or clean WIP** — the agent's work is pending user review
+5. **Wait for user response** (approve, request changes, or reject)
+
+### Pre-Handoff Process Hygiene (BLOCKING — runs before any "ready to test" message)
+
+Before relaying completion or asking the user to test, verify no stale processes will interfere. The handoff message "ready for your test" must mean *actually* ready — not "ready unless something in the background is stale".
+
+**Scan for stale holders relevant to what the user is about to test:**
+
+| Port / Resource | Process | Check command | Why it matters |
+|---|---|---|---|
+| 3000, 3001 | PianoidTunner frontend (npm/node) | `netstat -ano \| grep -E ":(3000\|3001)"` | Old dev server serves stale JS bundle |
+| 5000 | Main backend | `netstat -ano \| grep ":5000"` | Port collision on restart, or stale backend with old CUDA module |
+| 5001 | Modal adapter backend | `netstat -ano \| grep ":5001"` | Same |
+| 8001 | MkDocs server | `netstat -ano \| grep ":8001"` | Stale doc preview (lower priority) |
+| `pianoidCuda.cp312-win_amd64.pyd` | Any Python holding the CUDA module | `tasklist //M pianoidCuda.cp312-win_amd64.pyd` | Locks rebuild — `[WinError 5] Access is denied` |
+| `cudart64_12.dll` | Any process holding CUDA runtime | `tasklist //M cudart64_12.dll` | Same |
+
+**If any stale holder is found:**
+1. Kill it with `taskkill //F //T //PID <pid>` — the `//T` flag kills child processes too
+2. Re-verify the port/file is free before the handoff message
+3. Include the cleanup in the handoff note: *"Killed stale frontend (PID X) on port 3000. Port is free — ready for your test."*
+
+**Scope the scan to the test at hand** — not every handoff needs every row. For a UI test, check 3000/3001/5000. For a rebuild, check the `.pyd`/`.dll` holders. For a pure doc update, no scan needed.
+
+**Never ask the user** to kill processes themselves. Check and kill yourself, then report what you cleaned.
+
+**Why:** User time is lost when a "ready to test" message is followed by the user discovering a port was held, a bundle was stale, or a .pyd was locked. The orchestrator owns the handoff quality gate.
 
 ### On User Approval
 
