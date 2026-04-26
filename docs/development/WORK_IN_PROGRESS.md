@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-cal-curve-draw | Restore drag-to-paint on Calibration CURVES tab | [log](logs/dev-cal-curve-draw-2026-04-26-164227.md) | 2026-04-26 |
 
 ---
 

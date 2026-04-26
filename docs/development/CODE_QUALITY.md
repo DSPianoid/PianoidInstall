@@ -475,6 +475,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidBasic/Pianoid/StringMap.py` | 686 |
 | `PianoidCore/pianoid_middleware/test_backendserver_audio.py` | 664 |
 | `PianoidCore/pianoid_cuda/AsioAudioInterface.cpp` | 656 |
+| `PianoidTunner/src/components/CurveEditor.jsx` | 655 |
 | `PianoidTunner/src/components/ChartSelector.jsx` | 634 |
 | `PianoidCore/pianoid_middleware/auto_tuner.py` | 607 |
 | `PianoidBasic/Pianoid/StringExcitation.py` | 589 |
