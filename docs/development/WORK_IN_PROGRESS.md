@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-cal-curve-draw | Restore drag-to-paint on Calibration CURVES tab | [log](logs/dev-cal-curve-draw-2026-04-26-164227.md) | 2026-04-26 |
+| dev-vol-sens-default | volume_sensitivity default=10, reset on preset load, no persist | [log](logs/dev-vol-sens-default-2026-04-26-140508.md) | 2026-04-26 |
 
 ---
 

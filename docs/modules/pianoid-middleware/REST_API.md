@@ -466,11 +466,13 @@ Request body:
 ```json
 {
   "volume": 80,
-  "feedback": 64
+  "feedback": 64,
+  "volume_center": 1000.0,
+  "volume_range": 25.0
 }
 ```
 
-`volume`: integer 0–127 (MIDI range). Maps to amplitude coefficient using `max_volume^(level/127)`.
+`volume`: integer 0–127 (MIDI range). Maps to amplitude coefficient using either the legacy formula `max_volume^(level/127)` (when `volume_center == 0`) or the per-session sensitivity formula `volume_center * volume_range^((level-64)/63)` (when `volume_center > 0`).
 
 `feedback` auto-detection:
 - `0.0` — silence (no deck coupling)
@@ -478,6 +480,10 @@ Request body:
 - Outside `1`–`127` (e.g. `2.5`) — used as direct coefficient
 
 Valid coefficient range after mapping: `0.0`–`1000`.
+
+`volume_center` (optional, float): coefficient at level 64. `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
+
+`volume_range` (optional, float): "sensitivity" multiplier. At level 127 the coefficient is `center*range`; at level 0 it is `center/range`. **Default = 10**, matching the C++ `RuntimeParameters` engine default in `Pianoid.cuh`. **Per-session only** — never persisted in preset JSONs, never carried across preset switches; both `volume_range` and `volume_center` are reset to engine defaults inside `pianoid.switch_preset()` (with `volume_level` and `deck_feedback_coefficient` preserved). The frontend mirrors this reset in `usePreset.loadPreset` / `switchPreset` so the UI never displays a stale value. The legacy frontend `localStorage` key `volumeRange` is no longer read.
 
 Response `200`:
 ```json
