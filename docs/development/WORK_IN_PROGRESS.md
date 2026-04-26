@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-cal-clamp-fix | Fix calibration clamp space bug (factor-space clamping) | [log](logs/dev-cal-clamp-fix-2026-04-26-153931.md) | 2026-04-26 |
 
 ---
 
