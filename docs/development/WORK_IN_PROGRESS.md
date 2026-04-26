@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-vol-sens-init | Fix backend volume sensitivity init (UI=10, backend higher) | [log](logs/dev-vol-sens-init-2026-04-26-200342.md) | 2026-04-26 |
 
 ---
 
