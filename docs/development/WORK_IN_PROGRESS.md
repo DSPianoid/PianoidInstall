@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-cal-clamp-fix | Fix calibration clamp space bug (factor-space clamping) | [log](logs/dev-cal-clamp-fix-2026-04-26-153931.md) | 2026-04-26 |
 
 ---
 
@@ -79,6 +80,19 @@ Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
 - **Secondary iter-dependence in spectrum/HF/decay** (2026-04-23, post-volume-iter fix). Peak magnitude is iter-invariant after `dev-volume-iter-fix` (coeff_force dt² fix + preset rescale). However HF content increases ~25dB from iter=4 to iter=12, spectral centroid doubles (1340 → 2687 Hz), init/sust decay rates vary. Likely root cause: `coeff_frequency_decay` (Kernels.cu:139) needs iter compensation. Out of scope for the volume-bug fix. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Secondary issue".
 
 - **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
+
+### Calibration bisection-path audit (deferred)
+
+The factor-space clamp fix (dev-cal-clamp-fix, 2026-04-26) addresses the direct-correction paths in `synthesis_tuner.py` (`_synthesis_correct_once`) and `acoustic_tuner.py` (`acoustic_tune`). The bisection paths in `calibration_controller.py` (`_direct_correct_to_target` at ~line 1060, plus probe-update sites at ~723, ~1160, ~1186) ALSO clamp probe values in absolute-mean space [0.001, 50]. Likely break for any preset with realistic large coefficients. Audit and fix in a future task.
+
+### Calibration REST observability gaps (deferred)
+
+End-to-end verification of calibration writes via REST is blocked by two pre-existing bugs (discovered during dev-cal-clamp-fix verification, 2026-04-26):
+
+- `/get_parameter/gauss_full/{pitch}` reads from cached `excitation.curves` GaussCurve objects via `to_dict()`; `_apply_single_correction` and `_set_amplitude_scale` mutate `levels_matrix` directly. UI reads stale values post-calibration.
+- `/pause_synthesis` transitions state machine to PAUSED but C++ main loop continues spinning. `/synthesis_measure` then fails with "Cannot render offline: Main loop is active".
+
+Either bug should be addressed before live UI verification of calibration is reliable.
 
 ---
 
