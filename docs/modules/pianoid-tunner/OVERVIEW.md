@@ -41,18 +41,9 @@ REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/
 
 ## Application Entry Point
 
-`src/App.js` is the root component. It renders a static toolbar with Load/Save, Reset, and module-toggle buttons, plus a dynamic panel region where individual module components are conditionally mounted based on toggle state. The backend URL is hardcoded as `http://127.0.0.1:5000`.
+`src/index.js` is the bundle entry. It mounts a `<BrowserRouter>` whose root route renders `<PianoidTuner />` (`src/PianoidTuner.js`) — the mosaic-layout shell that owns the entire production UI. Additional Router routes (`/new-window-chart`, `/chart-compare`, `/gauss-demo`, `/drawable-demo`) are demo / pop-out windows.
 
-Top-level modules visible in `App.js`:
-- `Connection.Load` — preset file picker and load/save workflow
-- `Deck` — feedin/feedback matrix editor
-- `Excitation` (`src/modules/Excitation`) — hammer and Gauss parameter editor
-- `Modules.StringModule` — string physical parameter editor
-- `PianoKeyboard` — standalone keyboard display
-- `MidiComponent` — MIDI device status
-- `GaussDemo` — always-visible Gaussian curve preview
-
-The main application entry used in production is a separate top-level component (not App.js) that integrates the mosaic layout; `App.js` represents the original single-file layout.
+A legacy `src/App.js` single-file layout existed as the original prototype, was never wired into `index.js`, and was removed on 2026-04-27 (`dev-ghost-ui-b8bb`, review Phase 1.1) along with its dead-code closure: `modules/Connection.jsx`, `modules/Module.jsx`, `modules/Excitation.jsx`, `modules/Deck.jsx`, `modules/StringModule.jsx`, `modules/MouseEventsExample.jsx`, `components/PianoKeyboard.jsx`, `widgets/ChartStrings.jsx`, and the `modules/drafts/chatr_strings_draft.jsx` orphan (15 files, ~2677 LOC). The deleted closure called ~10 nonexistent `/get_deck_*` / `/set_deck_*` REST endpoints and was the source of two YELLOW C4 entries (Deck.jsx 772, modules/Excitation.jsx 545). The live `components/Excitation.jsx` (the one wired into `<PianoidTuner />`) is unrelated and remains.
 
 ---
 
@@ -62,8 +53,6 @@ The main application entry used in production is a separate top-level component 
 
 | Component | File | Purpose |
 |---|---|---|
-| `PianoKeyboard` | `PianoKeyboard.jsx` | 88-key visual keyboard, key selection, note highlighting |
-| `PianoKey` | `PianoKey.jsx` | Individual key rendering with state colours |
 | `VirtualPiano` | `VirtualPiano.js` | Compact virtual piano with range selection and fixed-velocity mode |
 | `VerticalPiano` | `VerticalPiano.jsx` | Vertically-oriented pitch selector used in matrix views |
 | `MidiComponent` | `MidiComponent.jsx` | MIDI device connection status display |

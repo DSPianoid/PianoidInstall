@@ -468,7 +468,6 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/modal_adapter/routes.py` | 880 |
 | `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 831 |
 | `PianoidCore/pianoid_middleware/modal_adapter/preset_injector.py` | 827 |
-| `PianoidTunner/src/modules/Deck.jsx` | 772 |
 | `PianoidCore/pianoid_cuda/MainKernel.cu` | 762 |
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit_runner.py` | 759 |
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |
@@ -482,7 +481,6 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/esprit_core.py` | 586 |
 | `PianoidBasic/Pianoid/Pitch.py` | 570 |
 | `PianoidTunner/src/components/newWindowChart.jsx` | 557 |
-| `PianoidTunner/src/modules/Excitation.jsx` | 545 |
 | `PianoidCore/pianoid_middleware/synthesis_tuner.py` | 538 |
 | `PianoidTunner/src/components/ToolBar.jsx` | 532 |
 | `PianoidTunner/src/components/Excitation.jsx` | 532 |
@@ -491,6 +489,10 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/test_audio_driver.py` | 514 |
 | `PianoidCore/pianoid_middleware/ChartRegistry.py` | 507 |
 | `PianoidCore/pianoid_cuda/SDL3AudioDriver.cpp` | 506 |
+
+### Recent deletions
+
+- 2026-04-27 (dev-ghost-ui-b8bb, review Phase 1.1) — `PianoidTunner/src/modules/Deck.jsx` (772 LOC YELLOW) and `PianoidTunner/src/modules/Excitation.jsx` (545 LOC YELLOW) deleted as part of the App.js ghost-UI dead-code closure (~2677 LOC across 15 files). The closure was reachable only from `src/App.js`, which `src/index.js` never mounted; the live entry is `<PianoidTuner />`. Two YELLOW entries removed from the table above.
 
 ### Maintenance rule for this list
 
