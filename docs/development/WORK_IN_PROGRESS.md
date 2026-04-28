@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-ghost-ui-b8bb | Delete ghost App.js + dead-code closure in PianoidTunner (review Phase 1.1) | [log](logs/dev-ghost-ui-b8bb-2026-04-27-062035.md) | 2026-04-27 |
 
 ---
 
