@@ -7,6 +7,77 @@
 
 ---
 
+## System-Wide Code Review Cleanup (2026-04-27)
+
+**Status:** In progress — Phase 1.1 done and pushed. Phases 1.2–4 pending.
+
+A `/review system` audit produced a categorized punch list (1 Critical / 9 High / 9 Medium / 8 Low). Full report:
+
+- [reviews/system-review-2026-04-27.md](reviews/system-review-2026-04-27.md)
+
+User-stated focus: structural consistency, API consistency, redundancy, dead code.
+
+### Repo state at handoff (system restart)
+
+All four repos are committed, pushed, and in sync with origin:
+
+| Repo | Branch | HEAD | Notes |
+|---|---|---|---|
+| PianoidCore | dev | `261e865` | Merge feature/fix-volume-sensitivity-backend-init |
+| PianoidBasic | dev | unchanged | (no edits this session) |
+| PianoidTunner | dev | `7dd3e38` | Phase 1.1 ghost-UI removal pushed |
+| PianoidInstall | master | `6b07897` | Phase 2 wrap-up archive + WIP cleanup |
+
+WIP "Active Dev Sessions" table is empty. No outstanding locks. No unpushed commits.
+
+### Prioritized cleanup plan
+
+**Phase 1 — Pure deletions (low risk, high signal)**
+
+| ID | Item | Status |
+|---|---|---|
+| 1.1 | Delete ghost `App.js` + dead-code closure (PianoidTunner) | **Done** — 15 files / 2677 LOC removed; 2 YELLOW C4 entries eliminated (Deck.jsx 772, Excitation.jsx 545); commit `7dd3e38`; log archived at `logs/archive/dev-ghost-ui-b8bb-2026-04-27-062035.md` |
+| 1.2 | Delete `MeasureGenerator.py` (291 LOC, fully unreferenced) and inner `MeasureGenerator` class in `stringMapGenerator.py:326` | Pending |
+| 1.3 | Delete checked-in `PianoidBasic/build/lib/` stale tree (20 .py files); add to `.gitignore` | Pending |
+| 1.4 | Audit `TODO "TEMPORARY!!!"` rot in `pianoid.py:136, 198` — confirm no longer needed and remove | Pending |
+
+**Phase 2 — API / structural straightening (no behavior change intended)**
+
+| ID | Item | Notes |
+|---|---|---|
+| 2.1 | Rename one of the two `MeasurementEngine` classes — `auto_tuner.py:49` (offline render) → `OfflineRenderEngine`; the mic-based one in `measurement_engine.py:46` keeps the canonical name | API consistency |
+| 2.2 | Resolve `/modal/apply_to_preset` signature drift between `backendServer.py:2927` (port 5000, body `{project_name, selected_chains}`) and `routes.py:853` (port 5001, body `{selected_modes}`); two parallel `ModalAdapter` instances with disk-rehydration on each call from main server | API consistency, P1 authority |
+| 2.3 | Replace 4 hardcoded `http://127.0.0.1:5000/...` URLs in `components/Excitation.jsx` with the existing API base helper | API consistency |
+| 2.4 | Drop `dump_coeff_tail` synonym in `parameter_manager.py:79` (N2 violation, same family as the documented `dump_ratio` bug) | Naming consistency |
+| 2.5 | Decide endpoint naming convention (`/preset/list` slash-segmented vs `/load_preset` underscore-flat) and migrate stragglers | API consistency |
+
+**Phase 3 — Layer / concern cleanup**
+
+| ID | Item | Notes |
+|---|---|---|
+| 3.1 | Move PianoidBasic plotting deps (matplotlib/seaborn/librosa) out of the domain model — `chart_animation.py`, `sound_measurements.py` pull plotting deps into 6 model files (C1 layer violation) | Move to a separate dev/tools package |
+| 3.2 | Pull engine lifecycle calls (`_stop_online_engine`, `_restart_online_engine`) out of `chartFunctions.py` (chart concern bleed, P2) | |
+| 3.3 | Cut `chartFunctions.py:4` import from `FirFilterTest.py` (production server depending on a test file) | |
+
+**Phase 4 — God-object splits (each its own `/dev` session, sequential, not parallel)**
+
+| ID | File | LOC | Plan |
+|---|---|---|---|
+| 4.1 | `PianoidCore/pianoid_middleware/backendServer.py` | 2990 (RED, +159 vs baseline) | Split by route group |
+| 4.2 | `PianoidCore/cuda_src/Pianoid.cu` | 2983 (RED, +31) | Split by phase (excitation, propagation, mode, mixing) |
+| 4.3 | `PianoidCore/pianoid_middleware/pianoid.py` | 2547 (RED, +59) | Carve runtime-params + preset-IO sub-modules |
+| 4.4 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2612 (RED, +23) | Split chart-render vs chart-data-fetch |
+| 4.5 | `ModalAdapter` class in `pianoid_middleware/modal_adapter.py` | 2628-line class | Split by pipeline stage |
+| 4.6 | `PianoidTunner/src/hooks/usePreset.js` (1516, +79) and `src/components/NumInput/NumInput.js` (1565, +89) | RED | Split by responsibility |
+
+Pending: dispatch order TBD by user. Phase 4 is heavy and must be triaged one file at a time.
+
+### Open question parked at restart
+
+Awaiting user direction: chain Phase 1.2 + 1.3 + 1.4 (all small, low-risk deletions) into one `/dev` session, or hold and dispatch each individually. Last Telegram message: msg id 1317.
+
+---
+
 ## Cycle Profiling Harness
 
 **Location:** `PianoidCore/tests/system/cycle_profile.py`
