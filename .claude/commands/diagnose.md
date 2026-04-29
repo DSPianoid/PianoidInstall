@@ -9,6 +9,10 @@ argument-hint: <options — e.g. "-fix", "-cli-only", "-skip-mic", or blank for 
 
 Comprehensive health check of the full Pianoid stack. Runs 8 diagnostic phases sequentially, verifying each layer from backend startup through audio output. On failure, either reports to the user or (with `-fix` flag) invokes `/dev` to attempt automated repair.
 
+## Audio Mode: parametric (audio_on by default; audio_off skips Phase 7)
+
+This skill is the **canonical audio_on surface** (strict A1, see `docs/development/TESTING.md`). Phase 7 engages the mic and compares the recorded audio against the synth output via `analyzeCapturedAudioWithReference`. Without a configured speaker→mic loopback (or with `--audio-mode=audio_off`), Phase 7 is skipped and the diagnostic runs in audio_off mode (synth-only checks via offline render and REST).
+
 ## Arguments
 
 Parse `$ARGUMENTS` for flags:
@@ -17,8 +21,10 @@ Parse `$ARGUMENTS` for flags:
 |------|--------|
 | `-fix` | On failure, invoke `/dev` to fix and re-run all diagnostics (up to 3 attempts) |
 | `-cli-only` | Skip phases 8 (frontend UI verification) |
-| `-skip-mic` | Skip phase 7 (microphone recording comparison) |
-| (none) | Interactive diagnostic with user configuration prompts |
+| `--audio-mode=audio_off` | Run in audio_off mode — skip Phase 7 (mic recording comparison). Same effect as the legacy `-skip-mic` alias. |
+| `--audio-mode=audio_on` | Run in audio_on mode — run all phases including Phase 7 mic-vs-synth comparison. Requires `_MIC_LOOPBACK_CONFIGURED=True` and a configured speaker→mic loopback. This is the default when neither flag is given. |
+| `-skip-mic` | Legacy alias for `--audio-mode=audio_off`. Preserved for back-compat; new invocations should use `--audio-mode`. |
+| (none) | Interactive diagnostic. Defaults to `--audio-mode=audio_on` if mic loopback gate is True; otherwise prompts the user. |
 
 ## Critical Rules
 

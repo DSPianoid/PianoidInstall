@@ -38,33 +38,117 @@ PianoidCore/tests/
 ```bash
 cd PianoidCore
 
-# All tests (release variant)
+# Default: audio_off scope (everything that does NOT need a real driver)
+.venv/Scripts/python -m pytest -m "not audio_on and not mic" tests/ -v
+
+# audio_on scope (real driver + mic comparison; needs hardware + loopback)
+.venv/Scripts/python -m pytest -m "audio_on" tests/ -v
+
+# All tests (release variant) — runs audio_on too; auto-skips without audio device
 .venv/Scripts/python -m pytest tests/ -v
 
-# All tests with debug variant (enables PIANOID_DEBUG_DATA extraction)
+# Debug variant (enables PIANOID_DEBUG_DATA extraction)
 PIANOID_USE_DEBUG=1 .venv/Scripts/python -m pytest tests/ -v
 
-# System tests only (requires GPU + audio)
+# System tests only
 .venv/Scripts/python -m pytest tests/system/ -v -s
 
 # Skip slow tests
 .venv/Scripts/python -m pytest tests/ -v -m "not slow"
 
-# Unit tests only (no GPU/audio needed)
+# Unit tests only (auto-tagged audio_off, no GPU needed for many)
 .venv/Scripts/python -m pytest tests/unit/ -v
 ```
 
 The debug variant must be built first (`build_pianoid_cuda.bat --heavy --both`). `conftest.py` reads `PIANOID_USE_DEBUG` and aliases `pianoidCuda_debug` as `pianoidCuda` via `sys.modules`.
 
-## Markers
+## Audio Testing Modes (strict A1)
 
-| Marker | Meaning |
-|--------|---------|
-| `gpu` | Requires NVIDIA GPU with `pianoidCuda` |
-| `audio` | Requires audio hardware (SDL3/ASIO) |
-| `slow` | Takes >30 seconds |
+Two modes — no middle ground. **Driver-on-mic-off is forbidden in tests.**
 
-Tests marked `gpu` or `audio` auto-skip when hardware is unavailable.
+| Mode | Driver | Mic | Verification surface |
+|------|--------|-----|----------------------|
+| `audio_off` (default) | NOT created — `audio_on=False, audio_driver_type=0` | impossible (driver-off ⇒ no mic) | offline buffer (`runOfflinePlayback`, `getRecordedAudio`), `note_playback` chart, REST endpoints with no driver path |
+| `audio_on` | real driver engaged — `audio_on=True, audio_driver_type=2/3/4` | engaged via `startMicCapture` | mic-vs-synth comparison via `assert_synth_reaches_mic` (Goertzel transferRatio) |
+
+Default for every test, fixture, and skill is `audio_off`. A test promotes to `audio_on` only when it has a legitimate reason to engage the real driver (callback timing, ASIO routing, calibration flow), AND it pairs that driver with a mic capture and a synth-vs-mic comparison. A driver-on test that never opens the mic is a contract violation: either add the mic comparison or demote to `audio_off`.
+
+**Why strict A1.** The previous "audio" marker meant "needs a driver", which left a silent middle category — driver active, no mic check, no offline assertions either. Such tests pass on a working build with broken audio routing because nothing on either end of the audio path is observed. Strict A1 closes that gap: every audio_on assertion must end at the mic, and every audio_off assertion must end at an offline buffer.
+
+### Markers
+
+| Marker | Meaning | Hardware gate |
+|--------|---------|---------------|
+| `audio_off` | No driver, no mic. Synth-only checks via offline buffer or REST without driver. Default for unit/integration and most system tests. | none — must run anywhere with GPU |
+| `audio_on` | Real audio driver engaged. Test MUST also engage mic and compare. Without the mic comparison the test does not earn this marker. | audio device required (auto-skip when unavailable) |
+| `mic` | Subclass of `audio_on` — explicit annotation that the test calls `startMicCapture` and asserts on captured frames. Tests carrying `audio_on` and reading from the mic SHOULD also carry `mic` so reviewers can locate them. | audio device required + `_MIC_LOOPBACK_CONFIGURED` (see below) |
+| `gpu` | Requires NVIDIA GPU with `pianoidCuda`. | GPU required |
+| `audio` | Legacy alias of `audio_on`. New tests SHOULD use `audio_on`. Auto-skipped under the same hardware gate. | audio device required |
+| `slow` | Takes >30 seconds. | none |
+
+`tests/conftest.py::pytest_collection_modifyitems` auto-tags every `tests/unit/**` test with `audio_off` and skips `audio` / `audio_on` items when `audio_available()` returns False.
+
+### Fixtures (system tests)
+
+`tests/system/conftest.py` exposes the contract as two session-scoped fixtures:
+
+| Fixture | Mode | Init kwargs |
+|---------|------|-------------|
+| `pianoid_audio_off` | `audio_off` | `audio_on=False, audio_driver_type=0` |
+| `pianoid_audio_on` | `audio_on` | `audio_on=True, audio_driver_type=3` (SDL3) |
+| `performance_pianoid` | back-compat alias of `pianoid_audio_on` (legacy) | — |
+
+A test selects its mode by requesting the matching fixture. Re-using the wrong fixture is the canonical contract bug — `audio_off` tests must NEVER request `pianoid_audio_on`.
+
+### `assert_synth_reaches_mic` — canonical audio_on promotion pattern
+
+`tests/conftest.py::assert_synth_reaches_mic(pianoid, pitch, velocity, ...)` is the goldilocks helper for audio_on tests. It:
+
+1. Starts `startSynthesisCapture()` (host buffer of the kernel output) and `startMicCapture()` simultaneously.
+2. Schedules a NOTE_ON at `pitch`/`velocity`, waits `note_duration_s`, schedules NOTE_OFF, waits `tail_s`.
+3. Stops both captures and calls C++ `analyzeCapturedAudioWithReference` (Goertzel-based per-harmonic energy + transferRatio).
+4. Asserts `capturedFrames > 0`, `rms > 0`, and `transferRatio > transfer_threshold` (default `1e-3`).
+
+Returns the `MicMeasurement` so the caller can do additional asserts on harmonics. Pre-condition: `pianoid` was initialised `audio_on=True` and the realtime engine is running — the helper restarts it idempotently if needed.
+
+To promote a test to audio_on, request `pianoid_audio_on` and call `assert_synth_reaches_mic(...)`. Do NOT write a new mic-comparison helper in a test file — extend the canonical one if more assertion hooks are needed.
+
+### `_MIC_LOOPBACK_CONFIGURED` gate
+
+`tests/system/conftest.py::_MIC_LOOPBACK_CONFIGURED` (boolean) controls whether tests that need a working speaker→mic loopback run on this host. It is hard-coded `False` until the dev box has the loopback configured and verified.
+
+Tests that depend on a loopback (mic actually hears the synth) request the `require_mic_loopback` fixture as their first fixture; the fixture skips the test with a deferred-WIP message when the gate is False. To enable on a verified loopback: flip `_MIC_LOOPBACK_CONFIGURED = True`.
+
+### Markers, fixtures, and the gate together
+
+A canonical audio_on test ends up looking like:
+
+```python
+import pytest
+
+pytestmark = [pytest.mark.gpu, pytest.mark.audio_on, pytest.mark.mic]
+
+
+def test_callback_stats_reach_mic(require_mic_loopback, pianoid_audio_on):
+    from tests.conftest import assert_synth_reaches_mic
+    meas = assert_synth_reaches_mic(pianoid_audio_on, pitch=60, velocity=100)
+    assert meas.transferRatio > 1e-2
+```
+
+A canonical audio_off test:
+
+```python
+import pytest
+
+pytestmark = [pytest.mark.gpu, pytest.mark.audio_off]
+
+
+def test_offline_render_amplitude(pianoid_audio_off):
+    audio = pianoid_audio_off.runOfflinePlayback(...)
+    assert audio.max() > 0
+```
+
+
 
 ## System Tests (implemented)
 

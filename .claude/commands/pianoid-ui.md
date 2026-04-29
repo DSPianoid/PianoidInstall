@@ -9,6 +9,15 @@ argument-hint: <action — e.g. "start", "set tension on C4 to 800", "capture so
 
 Control the Pianoid synthesizer interface through browser automation. Uses the `chrome-devtools` MCP server to launch Chrome, navigate the React frontend, and interact with UI components programmatically.
 
+## Audio Mode: parametric (default audio_off)
+
+This skill is **parametric** with respect to audio mode (strict A1, see `docs/development/TESTING.md`):
+
+- **Default `audio_off`** — parameter editing, viewing, and capturing sound via `note_playback` chart. The audio driver is irrelevant to the captured output (offline render). The "Synth" Chip lights up; the "Audio" Chip stays grey.
+- **`--audio-mode=audio_on`** — opt-in for audible interactive playback. Real audio driver engaged. Use only when the user explicitly wants to hear the sound or when the task involves mic-engaging features (calibration, MicAnalyzer). Requires `_MIC_LOOPBACK_CONFIGURED=True` for any mic-comparison assertion.
+
+The frontend toolbar exposes two MUI Chips signalling lifecycle: **"Synth"** (synthesis kernel running) and **"Audio"** (real driver active). Wait for the "Synth" Chip after APPLY in audio_off; wait for both Chips in audio_on.
+
 ## Critical Rules
 
 1. **NEVER use direct API calls** (`curl`, `fetch` via `evaluate_script`) for actions that should go through the React UI. The UI will not reflect changes and React state gets out of sync. Always interact through UI components (click, fill, press_key).

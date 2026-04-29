@@ -7,6 +7,33 @@
 
 ---
 
+## Audio Testing Modes Enforcement (2026-04-29)
+
+**Status:** C-1 / C-2 / C-3 / C-4 committed. C-6 / C-7 partial: TESTING.md, CLAUDE.md, and 5 skill MDs (test-ui, pianoid-ui, diagnose, dev, fn) updated to enforce strict-A1 audio_on / audio_off binary contract. The full plan is summarised in [TESTING.md](TESTING.md). The /play_keyboard contract change (original C-5) is deferred — see deferred items below.
+
+| Phase | Scope | Commit |
+|---|---|---|
+| C-1 | DEMOTE — driver-off conversions, register markers | `415d130` (PianoidCore) |
+| C-2 | test_performance SPLIT into _audio_off + _audio_on | `acc717b` (PianoidCore) |
+| C-3 | PROMOTE — test_playback / test_asio_multichannel / cycle_profile mic+compare | `a95500a` (PianoidCore) |
+| C-4 | Frontend indicator split — Synth + Audio Chips | `aedb6ff` (PianoidCore) + `f287e57` (PianoidTunner) |
+| C-5 | /play_keyboard contract clarification + deprecation warn | **Deferred** — see below |
+| C-6 / C-7 | TESTING.md, CLAUDE.md, 5 skill MDs | This commit |
+
+### Deferred items
+
+- **TestSynthReachesMic verification** — needs speaker→mic loopback configured on the dev box. Currently skipped via `@pytest.mark.skip(reason="deferred: speaker→mic loopback verification pending")`. Flip `_MIC_LOOPBACK_CONFIGURED=True` in `tests/system/conftest.py` once the loopback is set up; the entire audio_on suite re-enables in lockstep.
+- **`cycle_profile.py --audio-mode=audio_off` variant** — currently exits 1 with a WIP-pointer message ("audio_off variant not yet implemented; use tests/system/test_performance_audio_off.py for offline timing"). Implementing requires a kernel-only timing path in cycle_profile that doesn't engage the driver.
+- **`test_asio_multichannel` tight per-channel transferRatio calibration** — current implementation uses lenient `transfer_threshold=1e-3` per channel. Tight calibration needs a known-good mic-position calibration asset.
+- **`/play_keyboard` mode=online,capture_mic=false strict-A1 ambiguity** — the path engages the driver without a mic. Original C-5 plan was to deprecate this combination with a warning, then remove in follow-up. Deferred per user direction.
+- **F5 callback-stats reproduction** — `probe_f5_silent_engine.py` was demoted to audio_off, so its callback-stats output is no longer meaningful. If a future stream investigation reopens, the probe needs to be promoted to audio_on (with mic loopback) or replaced.
+- **Calibration REST endpoint test coverage** — `/calibrate_volume`, `/measure_rms`, `/equalize_keyboard`, `/tune_note` are the canonical audio_on REST surfaces but have no automated test coverage today. Future audio_on test development should target these.
+- **`pianoid.py:54` debug-variant module-load-order trap** — `select_cuda_variant(use_debug=True)` checks `if "pianoidCuda" in sys.modules`, but `pianoid.py` imports pianoidCuda at module top, so by the time `from pianoid import initialize` returns, the release binary is already loaded and the warning "pianoidCuda already imported -- cannot switch to debug variant" fires. Affects ALL standalone scripts that request `use_debug_build=True` (cycle_baseline.json sets this true). Standalone scripts silently run against the release binary instead. Requires reordering pianoid.py imports — separate /dev session.
+- **`cycle_profile.py --matrix` single-process iter hot-swap** — currently fixed via subprocess fan-out (each combo runs as its own process, single Pianoid each). A future single-process implementation would require a runtime setter for `string_iteration` (currently constructor-only); that requires C++ work and a separate /dev session.
+- **`pianoid.py:1317` `start_realtime_playback_unified()` hardcodes `config.audio_enabled = True`** — discovered during C-4 verification. Loading a preset with `audio_on: 0` still results in `audio_driver_active: true` because this call path overrides the Python-side `pianoid.audioOn` flag. The new tests sidestep this by passing `audio_on=False, audio_driver_type=0` at construction time, but the runtime preset switch path still has this bug. Needs a /dev session to fix.
+
+---
+
 ## System-Wide Code Review Cleanup (2026-04-27)
 
 **Status:** In progress — Phase 1.1 done and pushed. Phases 1.2–4 pending.

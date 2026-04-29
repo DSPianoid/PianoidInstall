@@ -9,6 +9,10 @@ argument-hint: <file path> <function name or description> [--test <test command>
 
 Focused, lightweight workflow for implementing or modifying a single function with clear requirements and test criteria. No branching, no WIP registration, no documentation updates, no commits — those belong to the caller (the `/dev` agent or the user).
 
+## Audio Mode: inherits from caller
+
+This skill inherits its audio mode from the invoker (parent `/dev` session, `/test-ui`, `/diagnose`, or direct user invocation). The caller-supplied `--test <command>` determines whether `audio_on` or `audio_off` markers / fixtures apply. See `docs/development/TESTING.md` for the strict-A1 binary contract.
+
 **When spawned by `/dev`:** The parent agent provides context, requirements, test instructions, and holds module locks. This agent edits code, builds, tests, and reports back. The parent handles everything else.
 
 **When invoked directly by the user:** Suitable for small, self-contained changes where the full `/dev` workflow is overkill. The user is responsible for committing and documentation.

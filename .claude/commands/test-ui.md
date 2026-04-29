@@ -10,6 +10,14 @@ argument-hint: <what to verify — e.g. "excitation volume slider doubles amplit
 End-to-end feature verification using the frontend UI and deterministic sound measurement.
 Invoke this skill after code changes that affect synthesis, parameters, or UI controls.
 
+## Audio Mode: audio_off
+
+This skill operates in **audio_off** mode (strict A1, see `docs/development/TESTING.md`). All measurement happens via `note_playback` deterministic offline render — the audio driver is incidental and the mic is never engaged. Verification is by buffer-vs-buffer comparison, not by audible playback.
+
+For audio_on verification (mic-vs-synth comparison after mic-engaging code changes), use `/diagnose` instead. See the Audio Verification Rule in `.claude/CLAUDE.md`.
+
+The frontend toolbar exposes two MUI Chips that signal lifecycle: **"Synth"** (green when synthesis kernel is running) and **"Audio"** (green when real audio driver is active). The Synth Chip is the readiness signal for this skill; the Audio Chip status is irrelevant to the verification.
+
 ## Principles
 
 1. **All parameter changes go through the UI** — click, fill, press_key. Never use API calls to set parameters.
@@ -164,7 +172,7 @@ If this line is missing from the log, the agent crashed before completing.
 
 4. Open browser, set layout if needed, navigate to `http://localhost:3000`. Log each MCP call.
 
-5. Click **APPLY** → wait for **"Playing"**.
+5. Click **APPLY** → wait for the **"Synth"** Chip in the toolbar to turn green (the strict-A1 readiness signal — synthesis kernel running, GPU initialised). The "Audio" Chip may stay grey: this skill operates in audio_off mode (see Audio Mode below).
 
 6. Select pitch via **Pitch spinbutton** → fill value → press Enter.
 

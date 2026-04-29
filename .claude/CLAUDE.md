@@ -27,7 +27,12 @@ When the user requests any task that involves the Pianoid frontend interface —
 
 ## Audio Verification Rule
 
-After completing any code change that affects synthesis output — volume, excitation, physical parameters, hammer shape, or any parameter that influences sound — invoke `/test-ui` to verify the change with measured evidence before reporting completion. This applies whether the change is in C++/CUDA, Python middleware, or frontend React code. **Do not claim an audio-affecting feature works without a measured before/after comparison.**
+After completing any code change that affects synthesis output — volume, excitation, physical parameters, hammer shape, or any parameter that influences sound — verify the change with measured evidence before reporting completion. **Do not claim an audio-affecting feature works without a measured before/after comparison.**
+
+**Strict A1 mode routing (see `docs/development/TESTING.md` for the binary contract):**
+
+- **Synthesis-output code change** (volume, excitation, physical params, hammer, kernel coefficients, anything that changes the offline-rendered waveform) — invoke `/test-ui` (audio_off mode). Verification surface is the `note_playback` deterministic offline render. The audio driver is irrelevant to the comparison; only the synthesised buffer matters.
+- **Mic-engaging code change** (calibration, `measurement_engine`, `MicAnalyzer`, mic capture path, `assert_synth_reaches_mic`, `/calibrate_volume` family, anything where the test artefact is a mic recording compared against synth) — invoke `/diagnose` with mic Phase 7 enabled (audio_on mode). Requires `_MIC_LOOPBACK_CONFIGURED=True` in `tests/system/conftest.py` and a working speaker→mic loopback.
 
 Follow the canonical live-UI procedure in `docs/guides/UI_TESTING.md` — three-process startup, `note_playback` deterministic sound measurement, reverse-order shutdown. Do not improvise.
 

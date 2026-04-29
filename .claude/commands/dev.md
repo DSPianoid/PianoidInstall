@@ -9,6 +9,15 @@ argument-hint: <task description — bug fix, feature, or refactor>
 
 Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. Follow every step in order. Do not skip steps.
 
+## Audio Verification Routing (strict A1)
+
+When a code change affects sound output and verification is required (per the Audio Verification Rule in `.claude/CLAUDE.md`):
+
+- **Synthesis-output change** (volume, excitation, physical params, hammer shape, kernel coefficients) → invoke `/test-ui` (audio_off mode). Comparison via `note_playback` offline buffer. Most code changes route here.
+- **Mic-engaging change** (calibration, `MicAnalyzer`, `measurement_engine`, mic capture path, `/calibrate_volume` family, `assert_synth_reaches_mic`) → invoke `/diagnose` with mic Phase 7 (audio_on mode). Comparison via mic-vs-synth Goertzel transferRatio. Requires `_MIC_LOOPBACK_CONFIGURED=True` in `tests/system/conftest.py`.
+
+See `docs/development/TESTING.md` for the binary contract details.
+
 **Code principles (anchored in `docs/development/CODE_QUALITY.md`):**
 - **P1 Separation of Authority** — every piece of state has exactly one owner (the sole writer). Before you touch state, name its owner. If your change makes a non-owner write it, you're violating P1.
 - **P2 Separation of Concern** — every module/class/function has one job. Before you widen a module, ask whether the new responsibility is actually the module's concern. If not, put it elsewhere.
