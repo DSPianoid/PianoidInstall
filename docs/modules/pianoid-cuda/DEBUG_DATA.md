@@ -153,11 +153,21 @@ Written by `recordOutputData()` calls in the kernel. Constants defined in `const
 | `SOUND_REC_APPLIED_FORCE` | 2 | `applied_force` (force after hammer processing) |
 | `SOUND_REC_MODE_FORCE` | 3 | `s_mode_applied_force` (force applied to mode) |
 
-Controlled by `sound_record_index`. As of the C8 cleanup (dev-cf56), the advancement
-site (`Pianoid::appendSoundRecords`) is deleted and the index stays at 0. The buffer
-allocation and read path (`getSoundRecords`) remain; the archival write will be
-reinstated inline in `Pianoid::runCycle` under `#ifdef PIANOID_DEBUG_DATA` when
-regime-split C2 lands.
+Controlled by `sound_record_index`. The archival write was reinstated in C2
+(dev-568e, commit `77479ea`, 2026-04-20) and now runs inline in
+`Pianoid::runCycle` behind `#ifdef PIANOID_DEBUG_DATA` (see also
+[Per-Cycle Recording](#per-cycle-recording-called-from-pianoidruncycle) above).
+Debug builds populate `dev_sound_records` and advance `sound_record_index`;
+release builds skip the archival write entirely and `getSoundRecords()`
+returns an empty vector.
+
+> **Debug-build required.** All four `SOUND_REC_*` records — including the
+> mode-indexed records 1 and 3 consumed by `play_mode()` and the chart
+> functions `mode_playback` and `pure_mode_test` (in `chartFunctions.py`) —
+> require `PIANOID_BUILD_VARIANT=debug`. In release builds these chart
+> functions silently produce empty oscillation arrays. Project policy is
+> that these tools are intended for debug-build use; build the debug
+> variant (`build_pianoid_cuda.bat --heavy --both`) before invoking them.
 
 ---
 

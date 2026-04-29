@@ -7,6 +7,27 @@
 
 ---
 
+## Mode Parameter Handling Audit (2026-04-29)
+
+**Status:** Session 1 committed. Sessions 2 and 3 pending.
+
+A `/analyse` audit of mode parameter handling produced a 4-pillar report (math/physics, UI routes, debug tools, improvements). Full plan: 3 /dev sessions.
+
+| Session | Scope | Status |
+|---|---|---|
+| S1 | Bug fixes + doc rot — `/set_mode_parameters` side-effect, `PanoidResult.get_record` axis hardening, DATA_FLOWS / DEBUG_DATA / REST_API / chart_config refresh | **Done** — `8305614` (PianoidCore) + this commit (PianoidInstall) |
+| S2 | `play_mode` becomes a pure mode-excitation trigger; all captured data flows out via `PianoidResult` accessors (mode state record / synth audio / mic audio). Collapse `play_mode_chart_function` + `pure_mode_test_function` into a single chart that builds on `play_mode + PianoidResult` | Pending |
+| S3 | UI/parameter mass/stiffness handling — disable stiffness input; recompute rule (frequency edit → stiffness, keep mass; mass edit → stiffness, keep frequency); decrement editable, damping derived; reconcile GET/SET schemas | Pending |
+
+### Deferred follow-ups
+
+- **`Pianoid::getSoundRecords` buffer-width bug** (`Pianoid.cu:1487`) — hardcodes the host buffer width to `num_strings * NUM_PARAMS_IN_SOUND_RECORD`, but mode-indexed records (record 1 `SOUND_REC_MODE_STATE`, record 3) are written by `modeNo`. Any future preset with `num_modes > num_strings` will overflow the kernel-side write. S1 added Python-side bounds clamping in `PanoidResult.get_record`, but the underlying C++ buffer needs resizing to `max(num_strings, num_modes)`. Requires CUDA work — separate /dev session.
+- **Expose `Pianoid::getModeDisplacements` to Python and the UI** — C++ method already returns `[q, q_prev, dec, omega, mass]` in a single D2H call, no debug build required. No Python wrapper or chart function consumes it today. Would replace the debug-only `record 1` path for release-safe mode inspection. Lower priority since S2 may obviate it via the unified play_mode flow.
+- **0xF1 TEST_MODE_ONLY MIDI status byte** — `EventDispatcher::dispatch` (`EventDispatcher.cu:189`) handles a custom MIDI status `0xF1` for `addModeExcitation`. Not documented in REST_API.md or any event-system doc. Captured in `play_mode_chart_function` but otherwise undocumented. Address in S2's documentation pass or as a standalone doc-only fix.
+- **Math/physics primer** (proposed `docs/modules/pianoid-cuda/MODE_PHYSICS.md`) — covers `frequency↔omega` and `decrement↔dec` discrete mappings, dt asymmetry between string and mode updates, `(1-dec)` damping factor, SoA layout. Currently fragmented across `SYNTHESIS_ENGINE.md` and `Mode.py`. Standalone doc-only task; can be addressed at any time.
+
+---
+
 ## Audio Testing Modes Enforcement (2026-04-29)
 
 **Status:** C-1 / C-2 / C-3 / C-4 committed. C-6 / C-7 partial: TESTING.md, CLAUDE.md, and 5 skill MDs (test-ui, pianoid-ui, diagnose, dev, fn) updated to enforce strict-A1 audio_on / audio_off binary contract. The full plan is summarised in [TESTING.md](TESTING.md). The /play_keyboard contract change (original C-5) is deferred — see deferred items below.

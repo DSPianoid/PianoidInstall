@@ -549,6 +549,11 @@ Response `200`:
 
 Response `416` if `mode_no` is not a valid integer.
 
+> **Debug-build required.** The endpoint returns the mode-state record
+> (`SOUND_REC_MODE_STATE`, record 1) which is populated only in debug builds
+> (`PIANOID_BUILD_VARIANT=debug`); release builds return an empty array
+> silently. See [DEBUG_DATA: Sound Records Buffer](../pianoid-cuda/DEBUG_DATA.md#sound-records-buffer).
+
 ---
 
 ### `POST /play_keyboard`

@@ -200,27 +200,37 @@ POST /get_chart_test { chartType: "note_playback", pitch: 60, velocity: 80, dura
 Browser: POST /play_mode/<mode_no>
          │
          ▼
-backendserver.py (line 797)
+backendserver.py
   ─► pianoid.play_mode(mode_no, simulation=False, reset=True)
-      │                                          pianoid.py:613
+      │                                          pianoid.py:898
       ▼
-  1. self.reset()
+  1. self.reset(debug="pianoid.play_mode")
      ├── pianoid_cpp.resetStringsState()
      ├── send_mode_params_to_CUDA(keep_state=False)
      └── pianoid_cpp.clearRecords()
-  2. mode = self.modes.get(mode_no)
-  3. mode.set_state(volume * velocity, volume * velocity * handicap)
-  4. state = mode.get_state(keep_state=True)
-  5. send_mode_params_to_CUDA(updated_modes={mode_no: state})
-     ├── modes.pack_modes(updated_modes) → mode_state array
-     └── pianoid_cpp.setNewModeParameters(mode_state)
-  6. mode.set_state(0, 0)                        // reset Python state
-     // TODO: DEBUG — proper mode state extracting needed
-  7. time.sleep(length / 1000)                   // blocking wait for synthesis
-     // Known workaround: sleep blocks the calling thread while GPU synthesizes.
-     // Not suitable for concurrent use; only called from REST endpoint.
-  8. get_result_from_pianoid(length)              // fetch audio
-  9. return self.result.get_record(1, mode_no)
+  2. pianoid_cpp.clearRecords()                  // sound_record_index → 0
+  3. Compute initial mode state from volume/velocity:
+       q       = volume * velocity
+       q_prev  = volume * velocity * handicup
+       excite_vel = (q - q_prev) * sample_rate
+  4. pianoid.exciteMode(mode_no, q, excite_vel)
+     ─► Pianoid::exciteMode (Pianoid.cu:1837)
+        ─► _exciteSingleMode (Pianoid.cu:1803)
+            // Writes q, q_prev directly into the WORKING mode_running buffer
+            // via cudaMemcpy:
+            //   dev_mode_running[mode_no]            ← q
+            //   dev_mode_running[numModes + mode_no] ← q - excite_vel*dt
+            // No Python-side mode state, no setNewModeParameters call.
+  5. Wait for synthesis cycles (no blind sleep):
+     if online_engine.isRunning():
+        target = currentCycle + cycles_needed
+        while currentCycle < target: sleep(1ms) until deadline
+     else:
+        time.sleep(length / 1000)                // fallback only
+  6. get_result_from_pianoid(length)              // fetch audio + records
+  7. return self.result.get_record(1, mode_no)[:samples]
+     // Record 1 = SOUND_REC_MODE_STATE (mode-indexed in dev_sound_records).
+     // Populated only in PIANOID_DEBUG_DATA builds; release returns zeros.
 ```
 
 ### Playback Flow Summary Diagram
