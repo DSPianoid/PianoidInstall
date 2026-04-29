@@ -89,7 +89,7 @@ The orchestrator depends on `SendMessage` to keep sub-agents alive across feedba
    - If dependencies are present but still disconnected, instruct user to reload VS Code
 3. Verify inbox queue patch is active:
    - Check `~/.claude/channels/telegram/inbox/` exists
-   - If not, run `python D:/repos/PianoidInstall/tools/apply_telegram_patch.py`
+   - If not, run `python tools/apply_telegram_patch.py`
 4. Clean up stale archive files (older than 7 days):
    ```bash
    mkdir -p ~/.claude/channels/telegram/inbox/archive
@@ -132,10 +132,10 @@ Before accepting tasks, verify the repo invariant and recover orphaned sessions.
 2. **Read `docs/development/WORK_IN_PROGRESS.md`** — list all Active Dev Sessions
 3. **Check git status across all repos:**
    ```bash
-   echo "=== PianoidCore ===" && cd D:/repos/PianoidInstall/PianoidCore && git status --short
-   echo "=== PianoidTunner ===" && cd D:/repos/PianoidInstall/PianoidTunner && git status --short
-   echo "=== PianoidBasic ===" && cd D:/repos/PianoidInstall/PianoidBasic && git status --short
-   echo "=== PianoidInstall ===" && cd D:/repos/PianoidInstall && git status --short
+   echo "=== PianoidCore ===" && cd PianoidCore && git status --short
+   echo "=== PianoidTunner ===" && cd PianoidTunner && git status --short
+   echo "=== PianoidBasic ===" && cd PianoidBasic && git status --short
+   echo "=== PianoidInstall ===" && cd . && git status --short
    ```
 
 4. **Cross-reference:**
@@ -379,7 +379,7 @@ If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mim
 
 3. Transcribe using faster-whisper:
    ```bash
-   cd D:/repos/PianoidInstall/PianoidCore && .venv/Scripts/python D:/repos/PianoidInstall/tools/transcribe_voice.py "<archived_path>"
+   cd PianoidCore && .venv/Scripts/python tools/transcribe_voice.py "<archived_path>"
    ```
    The transcribed text is printed to stdout. Stderr shows timing info.
 
@@ -535,12 +535,12 @@ When spawning a `/test-ui` sub-agent, the orchestrator MUST:
 
 1. **Clear previous session log** before spawning:
    ```bash
-   echo "" > D:/tmp/test-ui-session.log 2>/dev/null
+   echo "" > /tmp/test-ui-session.log 2>/dev/null
    ```
 
 2. **Monitor the agent**. If the test-ui agent fails, crashes, or becomes unresponsive:
-   a. Read the session log: `D:/tmp/test-ui-session.log`
-   b. Read frontend log: `D:/tmp/test-ui-frontend.log` (last 50 lines)
+   a. Read the session log: `/tmp/test-ui-session.log`
+   b. Read frontend log: `/tmp/test-ui-frontend.log` (last 50 lines)
    c. Check process state: `tasklist | grep -iE "python|node|chrome"`
    d. Check port state: `netstat -ano | grep -E ":(3000|3001|5000) "`
 

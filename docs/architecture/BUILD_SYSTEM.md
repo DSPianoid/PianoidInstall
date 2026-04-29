@@ -6,7 +6,7 @@ For **any** change to `.cu`, `.cpp`, `.cuh`, `.h`, or `setup.py` in `pianoid_cud
 only reliable rebuild command is:
 
 ```bash
-cd D:/repos/PianoidInstall/PianoidCore && ./build_pianoid_cuda.bat --heavy --release
+cd PianoidCore && ./build_pianoid_cuda.bat --heavy --release
 ```
 
 ### Supported shells
@@ -167,7 +167,7 @@ If `VIRTUAL_ENV` is set to the root venv from a previous activation, the build s
 will install into the wrong place. Always clear it before building:
 
 ```bash
-unset VIRTUAL_ENV && cmd //c "D:/repos/PianoidInstall/PianoidCore/build_pianoid_cuda.bat --heavy --release"
+unset VIRTUAL_ENV && cmd //c "PianoidCore/build_pianoid_cuda.bat --heavy --release"
 ```
 
 Verify after build:

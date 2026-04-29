@@ -20,7 +20,7 @@ It provides the lowest-latency path from MIDI input to audio output.
 ## Basic Usage
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 .venv\Scripts\python pianoid_middleware\playPianoid.py [preset_path] [options]
 ```
 
@@ -95,7 +95,7 @@ is available. Use SDL3 (`3`) as fallback on systems without ASIO drivers.
 ### Play with the default preset
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 .venv\Scripts\python pianoid_middleware\playPianoid.py
 ```
 

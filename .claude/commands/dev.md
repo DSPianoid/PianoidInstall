@@ -52,7 +52,7 @@ AGENT_ID="dev-$(openssl rand -hex 2)"   # e.g. dev-a3f1
 ### Create Session Log
 
 ```bash
-LOG_FILE="D:/repos/PianoidInstall/docs/development/logs/${AGENT_ID}-$(date +%Y-%m-%d-%H%M%S).md"
+LOG_FILE="docs/development/logs/${AGENT_ID}-$(date +%Y-%m-%d-%H%M%S).md"
 ```
 
 Write the log header:
@@ -147,12 +147,12 @@ Based on the snapshot's commit/stash info:
 
 ```bash
 # If paused via commit on a feature branch:
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 git checkout <branch-name>
 git log --oneline -5   # verify you're on the right branch with the WIP commit
 
 # If paused via stash:
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 git stash list          # find the stash by AGENT_ID in the message
 git stash pop <stash-ref>
 ```
@@ -189,9 +189,9 @@ Based on the snapshot's "What's pending" and "Next steps", jump to the appropria
 
 Read documentation in this order, stopping when you have enough context:
 
-1. `D:\repos\PianoidInstall\docs\index.md` — big picture, module map
-2. `D:\repos\PianoidInstall\docs\architecture\SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
-3. `D:\repos\PianoidInstall\docs\architecture\DATA_FLOWS.md` — trace the relevant data flow
+1. `docs\index.md` — big picture, module map
+2. `docs\architecture\SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
+3. `docs\architecture\DATA_FLOWS.md` — trace the relevant data flow
 4. Drill into the specific module doc:
    - CUDA engine: `docs/modules/pianoid-cuda/*.md`
    - Middleware: `docs/modules/pianoid-middleware/*.md`
@@ -269,7 +269,7 @@ When the task requires a running backend, **start it yourself**. Use `run_in_bac
 
 ```bash
 # Backend server (port 5000) — CWD must be pianoid_middleware for relative preset paths
-cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -u backendserver.py > D:/tmp/backend.log 2>&1
+cd PianoidCore/pianoid_middleware && ../.venv/Scripts/python -u backendserver.py > /tmp/backend.log 2>&1
 ```
 Pass `run_in_background: true` to the Bash tool. Do NOT use shell `&` — it causes the Bash tool to report immediate exit.
 
@@ -281,12 +281,12 @@ sleep 2 && netstat -ano 2>/dev/null | grep ":5000 .*LISTENING" && curl -s http:/
 
 If the port is not listening, read the log to diagnose:
 ```bash
-cat D:/tmp/backend.log
+cat /tmp/backend.log
 ```
 
 **Modal adapter server (port 5001)** — same pattern:
 ```bash
-cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -u modal_adapter/modal_adapter_server.py > D:/tmp/modal_adapter.log 2>&1
+cd PianoidCore/pianoid_middleware && ../.venv/Scripts/python -u modal_adapter/modal_adapter_server.py > /tmp/modal_adapter.log 2>&1
 ```
 
 **Rules:**
@@ -348,7 +348,7 @@ done
 Before any code changes, run the performance test suite and save results:
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 .venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/baseline_perf.log
 ```
 
@@ -368,9 +368,9 @@ If baseline tests fail, report to user and ask whether to proceed.
 
 **Non-trivial changes** (new features, refactors, multi-file edits):
 ```bash
-git -C "D:\repos\PianoidInstall\PianoidCore" checkout dev
-git -C "D:\repos\PianoidInstall\PianoidCore" pull origin dev
-git -C "D:\repos\PianoidInstall\PianoidCore" checkout -b feature/<short-description>
+git -C "PianoidCore" checkout dev
+git -C "PianoidCore" pull origin dev
+git -C "PianoidCore" checkout -b feature/<short-description>
 ```
 
 **Small fixes** (single-file, low risk): work directly on `dev`.
@@ -472,19 +472,19 @@ tasklist //M cudart64_12.dll 2>/dev/null | grep python && echo "WARNING: cudart6
 |--------------|---------------|
 | `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh`, `setup.py` | see below (heavy) |
 | `pianoid_middleware/*.py` only | see below (light) |
-| PianoidBasic `*.py` | `unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_basic.bat"` |
+| PianoidBasic `*.py` | `unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_basic.bat"` |
 | `tests/**` only | No rebuild needed |
 
 **CUDA build (heavy — full rebuild for C++/CUDA changes):**
 ```bash
 unset VIRTUAL_ENV
-cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy"
+cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy"
 ```
 
 **CUDA build (light — incremental for Python-only middleware changes):**
 ```bash
 unset VIRTUAL_ENV
-cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+cmd //c "PianoidCore\build_pianoid_cuda.bat --light"
 ```
 
 **If the build fails with exit code `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):**
@@ -497,7 +497,7 @@ delete `%TEMP%\pip-build-env-*`, `pip cache purge`, then re-run the canonical `b
 
 **Post-build verification:**
 ```bash
-D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
 ```
 Verify the path is inside `PianoidCore/.venv/` (not root `.venv/`).
 
@@ -573,7 +573,7 @@ The test file **persists in the project** — it is not disposable scaffolding. 
 
 4. **Collect results** — when sub-agents complete, read their log files:
    ```bash
-   ls D:/repos/PianoidInstall/docs/development/logs/fn-*.md
+   ls docs/development/logs/fn-*.md
    ```
 
 5. **Incorporate logs** — for each sub-agent, append a summary to THIS agent's log:
@@ -593,7 +593,7 @@ The test file **persists in the project** — it is not disposable scaffolding. 
 
 7. **Clean up sub-agent logs** — after incorporating into the parent log, move fn logs to archive:
    ```bash
-   mv D:/repos/PianoidInstall/docs/development/logs/fn-*.md D:/repos/PianoidInstall/docs/development/logs/archive/
+   mv docs/development/logs/fn-*.md docs/development/logs/archive/
    ```
 
 ### Example: Dev agent prepares test, then spawns sub-agent
@@ -640,7 +640,7 @@ Agent({
 
 Run the same test suite:
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 .venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/postchange_perf.log
 ```
 
@@ -775,13 +775,13 @@ After the user confirms the work is complete and tests pass:
 1. **Merge into dev** for each repo that has a feature branch:
 ```bash
 # Example for PianoidCore
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 git checkout dev
 git merge feature/<name> --no-ff -m "Merge feature/<name> into dev"
 git push origin dev
 
 # Example for PianoidBasic (if changed)
-cd D:\repos\PianoidInstall\PianoidBasic
+cd PianoidBasic
 git checkout dev
 git merge feature/<name> --no-ff -m "Merge feature/<name> into dev"
 git push origin dev
@@ -835,13 +835,13 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
 3. **Final commit** — commit any remaining uncommitted changes:
    ```bash
    # PianoidCore changes
-   cd D:\repos\PianoidInstall\PianoidCore
+   cd PianoidCore
    git add <specific-files>
    git commit -m "[${AGENT_ID}] <type>: <description>"
    ```
    ```bash
    # Documentation changes
-   cd D:\repos\PianoidInstall
+   cd .
    git add docs/ mkdocs.yml
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
@@ -853,8 +853,8 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
 
 5. **Archive log** — move log file to archive:
    ```bash
-   mkdir -p D:/repos/PianoidInstall/docs/development/logs/archive
-   mv "$LOG_FILE" D:/repos/PianoidInstall/docs/development/logs/archive/
+   mkdir -p docs/development/logs/archive
+   mv "$LOG_FILE" docs/development/logs/archive/
    ```
 6. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
 7. **Merge** — proceed to Step 9 if a feature branch was created
@@ -867,7 +867,7 @@ Sequence: **Document → Revert → Release locks → Delete log → Clean WIP**
 2. **Revert uncommitted changes:**
    ```bash
    # Revert only files this agent modified (check the lock registry for the list)
-   cd D:\repos\PianoidInstall\PianoidCore
+   cd PianoidCore
    git checkout -- <file1> <file2> ...
    ```
    If changes were already committed, ask the user whether to revert the commit(s).
@@ -888,7 +888,7 @@ Use this when work is incomplete but needs to be handed off to another session.
 2. **Commit or stash all current changes:**
    ```bash
    # Prefer commit on a feature branch:
-   cd D:\repos\PianoidInstall\PianoidCore
+   cd PianoidCore
    git add <modified-files>
    git commit -m "[${AGENT_ID}] wip: <what's done so far>"
    
@@ -930,13 +930,13 @@ Use this when a dev agent terminated abnormally — no wrap-up (10a), reset (10b
 2. **Check actual state against the log:**
    ```bash
    # What uncommitted changes exist in each repo?
-   cd D:/repos/PianoidInstall/PianoidCore && git status --short
-   cd D:/repos/PianoidInstall/PianoidTunner && git status --short
-   cd D:/repos/PianoidInstall/PianoidBasic && git status --short
-   cd D:/repos/PianoidInstall && git status --short
+   cd PianoidCore && git status --short
+   cd PianoidTunner && git status --short
+   cd PianoidBasic && git status --short
+   cd . && git status --short
    
    # What do the changes look like?
-   cd D:/repos/PianoidInstall/PianoidCore && git diff --stat
+   cd PianoidCore && git diff --stat
    ```
 
 3. **Classify recoverability:**
@@ -1008,15 +1008,15 @@ Use this when an agent was paused (10c) due to a lock conflict and the blocking 
 
 | Resource | Path |
 |----------|------|
-| PianoidCore | `D:\repos\PianoidInstall\PianoidCore` |
-| PianoidBasic | `D:\repos\PianoidInstall\PianoidBasic` |
-| PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` |
+| PianoidCore | `PianoidCore` |
+| PianoidBasic | `PianoidBasic` |
+| PianoidTunner | `PianoidTunner` |
 | Performance tests | `PianoidCore/tests/system/test_performance.py` |
 | Audio driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
-| Documentation | `D:\repos\PianoidInstall\docs/` |
-| Session logs | `D:\repos\PianoidInstall\docs\development\logs/` |
-| Log archive | `D:\repos\PianoidInstall\docs\development\logs\archive/` |
-| Module locks | `D:\repos\PianoidInstall\docs\development\MODULE_LOCKS.md` |
+| Documentation | `docs/` |
+| Session logs | `docs\development\logs/` |
+| Log archive | `docs\development\logs\archive/` |
+| Module locks | `docs\development\MODULE_LOCKS.md` |
 | venv Python | `PianoidCore/.venv/Scripts/python` |
 
 ## Example Usage

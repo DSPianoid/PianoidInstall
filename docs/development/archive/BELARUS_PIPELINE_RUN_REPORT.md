@@ -123,34 +123,34 @@ Per-scenario ESPRIT average: approximately **14 seconds** (for successful `stand
 | File | Path | Size |
 |------|------|------|
 | Measurement data | Belarus ESPRIT v2 recordings (loaded via preset) | -- |
-| Mapping config | `D:/tmp/belarus_78_full_run/modal_adapter/mapping/mapping_config.json` | 312 B |
-| Startup script | `D:/tmp/belarus_78_full_run/start_backend.py` | 320 B |
+| Mapping config | `/tmp/belarus_78_full_run/modal_adapter/mapping/mapping_config.json` | 312 B |
+| Startup script | `/tmp/belarus_78_full_run/start_backend.py` | 320 B |
 
 ### Intermediate Files
 
 | File | Path | Size |
 |------|------|------|
-| ESPRIT metadata | `D:/tmp/belarus_78_full_run/modal_adapter/esprit/metadata.json` | 959 B |
-| ESPRIT scenarios (78 files) | `D:/tmp/belarus_78_full_run/modal_adapter/esprit/scenario_*.json` | 332 KB total |
-| Tracking chains | `D:/tmp/belarus_78_full_run/modal_adapter/tracking/chains.json` | 504 KB |
-| Feedin data (internal) | `D:/tmp/belarus_78_full_run/modal_adapter/feedin/feedin_data.json` | 844 KB |
+| ESPRIT metadata | `/tmp/belarus_78_full_run/modal_adapter/esprit/metadata.json` | 959 B |
+| ESPRIT scenarios (78 files) | `/tmp/belarus_78_full_run/modal_adapter/esprit/scenario_*.json` | 332 KB total |
+| Tracking chains | `/tmp/belarus_78_full_run/modal_adapter/tracking/chains.json` | 504 KB |
+| Feedin data (internal) | `/tmp/belarus_78_full_run/modal_adapter/feedin/feedin_data.json` | 844 KB |
 
 ### Output Files
 
 | File | Path | Size |
 |------|------|------|
-| Tracking results | `D:/tmp/belarus_78_full_run/tracking_results.json` | 272 KB |
-| Feedin results | `D:/tmp/belarus_78_full_run/feedin_results.json` | 620 KB |
-| Stabilization data | `D:/tmp/belarus_78_full_run/stabilization_data.json` | 668 KB |
-| Stabilization diagram | `D:/tmp/stabilization_diagram.png` | 904 KB |
-| Backend log | `D:/tmp/belarus_78_full_run/backend.log` | 28 KB |
-| Plot script | `D:/tmp/belarus_78_full_run/plot_stabilization.py` | 3.6 KB |
-| **Total run directory** | `D:/tmp/belarus_78_full_run/` | **3.3 MB** |
+| Tracking results | `/tmp/belarus_78_full_run/tracking_results.json` | 272 KB |
+| Feedin results | `/tmp/belarus_78_full_run/feedin_results.json` | 620 KB |
+| Stabilization data | `/tmp/belarus_78_full_run/stabilization_data.json` | 668 KB |
+| Stabilization diagram | `/tmp/stabilization_diagram.png` | 904 KB |
+| Backend log | `/tmp/belarus_78_full_run/backend.log` | 28 KB |
+| Plot script | `/tmp/belarus_78_full_run/plot_stabilization.py` | 3.6 KB |
+| **Total run directory** | `/tmp/belarus_78_full_run/` | **3.3 MB** |
 
 ### Directory Structure
 
 ```
-D:/tmp/belarus_78_full_run/
+/tmp/belarus_78_full_run/
   backend.log
   start_backend.py
   plot_stabilization.py
@@ -169,7 +169,7 @@ D:/tmp/belarus_78_full_run/
       mapping_config.json
     output/                                (empty)
 
-D:/tmp/
+/tmp/
   stabilization_diagram.png
 ```
 
@@ -206,7 +206,7 @@ The Telegram MCP plugin, used for monitoring pipeline progress, crashed during t
 
 ## 7. Stabilization Diagram
 
-The stabilization diagram is saved at `D:/tmp/stabilization_diagram.png` (904 KB, 150 DPI).
+The stabilization diagram is saved at `/tmp/stabilization_diagram.png` (904 KB, 150 DPI).
 
 ### What It Shows
 

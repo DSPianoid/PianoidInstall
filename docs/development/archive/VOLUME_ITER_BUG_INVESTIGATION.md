@@ -9,7 +9,7 @@
 
 Audio output peak scaled linearly with `string_iteration` setting. Ratio iter=12/iter=4 = 3.07× (measured, R²=0.9999). Peak at iter=8 baseline = 0.0666; iter=4 = 0.0326; iter=12 = 0.100. Spectrum and envelope also shifted — attack timing invariant but HF content and decay rates iter-dependent.
 
-Baseline data: `D:/tmp/volume_iter_baseline.json`.
+Baseline data: `/tmp/volume_iter_baseline.json`.
 
 ## Root cause
 
@@ -61,7 +61,7 @@ Post-fix iter=4/8/12 probe (Belarus_8band_196modes, pitch=60 vel=63, N=3, offlin
 - **Peak absolute at iter=8 = 0.0663** vs pre-fix 0.0666. Within −0.4%.
 - **Attack iter-invariant**: 3.10 ms across all iter values.
 
-Full verification data: `D:/tmp/h1_full_phase1_verify.json`, `iter_phase1_final.json`.
+Full verification data: `/tmp/h1_full_phase1_verify.json`, `iter_phase1_final.json`.
 
 ## Hypothesis-test arc
 
@@ -83,7 +83,7 @@ Phase 5 sabotage probe (write 0 to soundFloat at MainKernel.cu:493) appeared to 
 
 ### Audio path discovery
 
-Via parameter dump (`D:/tmp/volume_iter_test_b.py`): only strings 220-223 have non-zero `outerSoundChannel` (values 4, 3, 2, 1). These are the "sound pitches" (128-131 per `outer_sound = max(pitch - 127, 0)` in PianoidBasic/Pitch.py:108). Their 2 stem points per string write audio samples via `sampleIndex = (outerSoundChannel - 1) × samplesInCycle + main_cycle_index` → 8 total writes per cycle → fills `dev_soundFloat[0..255]`.
+Via parameter dump (`/tmp/volume_iter_test_b.py`): only strings 220-223 have non-zero `outerSoundChannel` (values 4, 3, 2, 1). These are the "sound pitches" (128-131 per `outer_sound = max(pitch - 127, 0)` in PianoidBasic/Pitch.py:108). Their 2 stem points per string write audio samples via `sampleIndex = (outerSoundChannel - 1) × samplesInCycle + main_cycle_index` → 8 total writes per cycle → fills `dev_soundFloat[0..255]`.
 
 Audio formula at MainKernel.cu:485-494:
 ```cpp
@@ -185,11 +185,11 @@ When GPU and Python disagree, Python is correct. This was the pointer that led t
 
 ## Data artifacts
 
-- `D:/tmp/volume_iter_baseline.json` — pre-fix iter=4/8/12 N=3 measurements.
-- `D:/tmp/volume_iter_isolation.json` — layered probe (bridge_force/mode_state iter² scaling, pre-fix).
-- `D:/tmp/h1_iter_ratio.json` — post-H1-code-fix, pre-rescale iter ratio (1.015× at iter=12/4).
-- `D:/tmp/h1_full_phase1_verify.json` — full Phase 1 battery post-rescale.
-- `D:/tmp/volume_iter_probe.py`, `volume_iter_isolation.py`, `volume_iter_release_probe.py`, `rescale_presets.py` — probe and rescale scripts.
+- `/tmp/volume_iter_baseline.json` — pre-fix iter=4/8/12 N=3 measurements.
+- `/tmp/volume_iter_isolation.json` — layered probe (bridge_force/mode_state iter² scaling, pre-fix).
+- `/tmp/h1_iter_ratio.json` — post-H1-code-fix, pre-rescale iter ratio (1.015× at iter=12/4).
+- `/tmp/h1_full_phase1_verify.json` — full Phase 1 battery post-rescale.
+- `/tmp/volume_iter_probe.py`, `volume_iter_isolation.py`, `volume_iter_release_probe.py`, `rescale_presets.py` — probe and rescale scripts.
 
 ## Cross-references
 

@@ -103,8 +103,8 @@ Compared to original `extended_8band`: Ultra-Low window reduced 12000 to 4000, L
 
 ## Output Location
 
-- **ESPRIT scenarios:** `D:/tmp/belarus_78_extended_8band/modal_adapter/esprit/`
-- **Tracking chains:** `D:/tmp/belarus_78_extended_8band/modal_adapter/tracking/chains.json`
-- **Feedin data:** `D:/tmp/belarus_78_extended_8band/modal_adapter/feedin/feedin_data.json`
-- **Pipeline log:** `D:/tmp/belarus_78_extended_8band/pipeline.log`
-- **Modal adapter log:** `D:/tmp/belarus_78_extended_8band/modal_adapter.log`
+- **ESPRIT scenarios:** `/tmp/belarus_78_extended_8band/modal_adapter/esprit/`
+- **Tracking chains:** `/tmp/belarus_78_extended_8band/modal_adapter/tracking/chains.json`
+- **Feedin data:** `/tmp/belarus_78_extended_8band/modal_adapter/feedin/feedin_data.json`
+- **Pipeline log:** `/tmp/belarus_78_extended_8band/pipeline.log`
+- **Modal adapter log:** `/tmp/belarus_78_extended_8band/modal_adapter.log`

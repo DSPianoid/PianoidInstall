@@ -20,10 +20,10 @@ Analyse, commit, and push all Pianoid repositories to origin. Follow every step 
 
 | Repo | Path | Main Branch |
 |------|------|-------------|
-| PianoidInstall | `D:\repos\PianoidInstall` | `master` |
-| PianoidCore | `D:\repos\PianoidInstall\PianoidCore` | `dev` |
-| PianoidBasic | `D:\repos\PianoidInstall\PianoidBasic` | `dev` |
-| PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` | `dev` |
+| PianoidInstall | `.` | `master` |
+| PianoidCore | `PianoidCore` | `dev` |
+| PianoidBasic | `PianoidBasic` | `dev` |
+| PianoidTunner | `PianoidTunner` | `dev` |
 
 ## Step 1: Full Change Analysis
 
@@ -32,7 +32,7 @@ For each repo, collect:
 ### 1a. Current branch and status
 
 ```bash
-for repo in "D:\repos\PianoidInstall" "D:\repos\PianoidInstall\PianoidCore" "D:\repos\PianoidInstall\PianoidBasic" "D:\repos\PianoidInstall\PianoidTunner"; do
+for repo in "." "PianoidCore" "PianoidBasic" "PianoidTunner"; do
   echo "=== $(basename $repo) ==="
   echo "Branch: $(git -C "$repo" branch --show-current)"
   echo "Status:"
@@ -53,7 +53,7 @@ git -C "$REPO" diff --cached     # staged
 
 Fetch first, then compare with origin:
 ```bash
-for repo in "D:\repos\PianoidInstall" "D:\repos\PianoidInstall\PianoidCore" "D:\repos\PianoidInstall\PianoidBasic" "D:\repos\PianoidInstall\PianoidTunner"; do
+for repo in "." "PianoidCore" "PianoidBasic" "PianoidTunner"; do
   git -C "$repo" fetch origin 2>/dev/null
 done
 ```
@@ -167,10 +167,10 @@ For each repo with uncommitted changes:
 For each repo, push the main branch to origin:
 
 ```bash
-git -C "D:\repos\PianoidInstall" push origin master
-git -C "D:\repos\PianoidInstall\PianoidCore" push origin dev
-git -C "D:\repos\PianoidInstall\PianoidBasic" push origin dev
-git -C "D:\repos\PianoidInstall\PianoidTunner" push origin dev
+git -C "." push origin master
+git -C "PianoidCore" push origin dev
+git -C "PianoidBasic" push origin dev
+git -C "PianoidTunner" push origin dev
 ```
 
 If push fails (e.g., remote has new commits):

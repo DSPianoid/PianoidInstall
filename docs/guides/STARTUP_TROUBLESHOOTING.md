@@ -237,7 +237,7 @@ files regenerate and `nvcc` runs.
 **Fix:** always rebuild via the batch script:
 
 ```bash
-cd D:/repos/PianoidInstall/PianoidCore && ./build_pianoid_cuda.bat --heavy --release
+cd PianoidCore && ./build_pianoid_cuda.bat --heavy --release
 ```
 
 **Verify** a known new string from your edit is in the installed binary:

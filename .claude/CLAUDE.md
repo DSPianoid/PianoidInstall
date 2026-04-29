@@ -21,6 +21,29 @@ When operating in `/orchestrator` mode (the user is on Telegram, not watching th
 - **Bash that opens a TTY/interactive prompt** — anything that expects keyboard input (e.g. `git rebase -i`, `python` REPL, `gcloud auth login`) gates regardless of mode. Avoid; route through the user via the `! <command>` prompt prefix if truly needed.
 - **Some `taskkill` patterns on system PIDs** — observed inconsistently. If `taskkill //F //PID <pid>` prompts, try `//T` (kill tree) or scope by image name (`taskkill //F //IM <name>`).
 
+## Repository Roots & Path Convention
+
+The Pianoid repo lives at different absolute paths on different machines:
+
+| OS | Repo root |
+|----|-----------|
+| Windows | `D:\repos\PianoidInstall` |
+| Linux   | `/media/leonid-astrin/New Volume/repos/PianoidInstall` |
+
+**Convention used throughout these instructions and the docs:**
+
+1. **Use paths relative to the repo root** wherever possible (e.g. `docs/index.md`, `PianoidCore/.venv/`). The reader applies the absolute prefix for their OS.
+2. **Use absolute paths only** when the working directory is unknown or the command is run outside any cwd (background services, MCP server entries, registry-style references).
+3. **OS-specific binaries and scripts** (`.bat`, `.exe`, `tasklist`, `taskkill`, `cmd //c`) are flagged inline and given Linux equivalents wherever a Linux port exists. Build infrastructure that has not been ported to Linux is marked **(Windows only)**.
+4. **Shell snippets assume cwd is the repo root** unless the snippet itself contains a `cd`. When in doubt, prepend `cd <repo-root>` (use the OS-specific value from the table above) before running. Compound commands like `cd PianoidCore/foo && ../.venv/Scripts/python …` chain relative paths from the new cwd, not from the repo root.
+
+**Venv interpreter** — the path differs between OSes:
+
+- Windows: `PianoidCore/.venv/Scripts/python.exe`
+- Linux:   `PianoidCore/.venv/bin/python`
+
+When invoking the venv Python in commands, use the form for the current OS.
+
 ## Auto-Trigger Rules
 
 When the user requests a development task on the Pianoid codebase — bug fix, feature, refactor, optimization, or any code change — automatically invoke the `/dev` skill without waiting for the user to ask for it explicitly. This applies to tasks targeting PianoidCore, PianoidBasic, or PianoidTunner.
@@ -86,20 +109,20 @@ Default preset: `presets/BaselinePreset1.json`. Default initialization settings 
 
 The docs exist precisely to avoid expensive source-code trawling.
 
-Documentation lookup order (stop as soon as you have enough context):
+Documentation lookup order (paths are relative to the repo root — stop as soon as you have enough context):
 
-1. `D:\repos\PianoidInstall\docs\index.md` — module map, entry point
-2. `D:\repos\PianoidInstall\docs\architecture\SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
-3. `D:\repos\PianoidInstall\docs\architecture\DATA_FLOWS.md` — trace the relevant data flow
+1. `docs/index.md` — module map, entry point
+2. `docs/architecture/SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
+3. `docs/architecture/DATA_FLOWS.md` — trace the relevant data flow
 4. Drill into the specific module doc under `docs/modules/`:
    - CUDA engine: `pianoid-cuda/*.md`
    - Middleware: `pianoid-middleware/*.md`
    - Domain model: `pianoid-basic/OVERVIEW.md`
    - Frontend: `pianoid-tunner/OVERVIEW.md`
-5. `D:\repos\PianoidInstall\docs\development\TESTING.md` — test inventory and usage
-6. `D:\repos\PianoidInstall\docs\guides\UI_TESTING.md` — when the task involves live UI verification, launcher/backend/frontend startup, or `/test-ui`
-7. `D:\repos\PianoidInstall\docs\guides\STARTUP_TROUBLESHOOTING.md` — when startup, ports, or shutdown sequencing is involved
-8. `D:\repos\PianoidInstall\docs\development\WORK_IN_PROGRESS.md` — active investigations
+5. `docs/development/TESTING.md` — test inventory and usage
+6. `docs/guides/UI_TESTING.md` — when the task involves live UI verification, launcher/backend/frontend startup, or `/test-ui`
+7. `docs/guides/STARTUP_TROUBLESHOOTING.md` — when startup, ports, or shutdown sequencing is involved
+8. `docs/development/WORK_IN_PROGRESS.md` — active investigations
 
 **High-stakes inference categories (silent inference forbidden).** When a fix or diagnosis depends on any of the following data-model facts, source-code inference alone is NEVER sufficient — the fact MUST have explicit doc support, or the agent MUST measure it against the live engine and write the result to docs *before* using it:
 
@@ -116,13 +139,13 @@ Only after the docs don't answer your question may you proceed to source files.
 
 ## Startup & Build Failure Rule
 
-When the standard startup procedure fails (`start-pianoid.bat`, `npm run dev`, backend crash, port conflict, build failure, missing dependency, audio driver error) — or when any non-standard installation/build/startup procedure is required — automatically invoke the `/startup` skill. This skill consolidates all installation, build, and startup knowledge including toolchain detection, CUDA compilation, server launch, port conflicts, and audio driver troubleshooting.
+When the standard startup procedure fails (`start-pianoid.bat` on Windows / `start-pianoid.sh` on Linux, `npm run dev`, backend crash, port conflict, build failure, missing dependency, audio driver error) — or when any non-standard installation/build/startup procedure is required — automatically invoke the `/startup` skill. This skill consolidates all installation, build, and startup knowledge including toolchain detection, CUDA compilation, server launch, port conflicts, and audio driver troubleshooting.
 
 **Auto-trigger `/startup` when:**
-- `start-pianoid.bat` or `npm run dev` fails
+- The platform launcher (`start-pianoid.bat` / `start-pianoid.sh`) or `npm run dev` fails
 - A build step fails (PianoidBasic, PianoidCuda, frontend npm)
 - `import pianoidCuda` or `import Pianoid` fails
-- Port 3000/3001/5000 is already in use
+- Port 3000 / 3001 / 5000 is already in use
 - Audio driver fails to initialize
 - A fresh installation is needed
 - The user asks about installation, build, or startup procedures
@@ -134,7 +157,7 @@ When encountering import errors, missing modules, wrong Python interpreter, or a
 - `docs/guides/QUICK_START.md` — full installation and startup reference
 - `docs/guides/STARTUP_TROUBLESHOOTING.md` — known failure modes and recovery
 - `docs/architecture/BUILD_SYSTEM.md` — venv location (`PianoidCore/.venv/`), build pipeline, toolchain setup
-- `docs/development/TESTING.md` — correct Python invocation (`cd PianoidCore && .venv/Scripts/python`)
+- `docs/development/TESTING.md` — correct Python invocation
 
 The working venv with all packages (numpy, pianoidCuda, etc.) is always `PianoidCore/.venv/`, **not** the root `.venv/`. Any other venv that appears in the workspace is legacy and must be deleted, never consulted.
 
@@ -144,39 +167,52 @@ The working venv with all packages (numpy, pianoidCuda, etc.) is always `Pianoid
 
 ### Build Commands (Quick Reference)
 
-**Before ANY build:** check for locked `.pyd`/`.dll` files. A locked file causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks everything.
+**Before ANY build:** check for processes that hold native binaries open. A locked file causes the install to fail and leaves the package in a broken state.
 
 ```bash
-# Check for locked files — kill holders BEFORE building
+# Windows — kill holders BEFORE building
 tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
 tasklist //M cudart64_12.dll 2>/dev/null | grep python
+
+# Linux — find processes that have the .so / .pyd loaded
+lsof PianoidCore/.venv/lib/python3.12/site-packages/pianoidCuda*.so 2>/dev/null
 ```
 
-**Build pianoidCuda** — always use the canonical `build_pianoid_cuda.bat` script. Details
+**Build pianoidCuda** — always use the canonical build script. Details
 and troubleshooting live in **[`docs/architecture/BUILD_SYSTEM.md`](../docs/architecture/BUILD_SYSTEM.md)**;
 do not maintain a competing copy of build commands here. Clear `VIRTUAL_ENV` first so the
 install lands in `PianoidCore/.venv/`, not the root `.venv/`.
 
+**Windows** (canonical, tested):
+
 ```bash
 # Full rebuild (C++/CUDA changes — release only)
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --release"
+unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy --release"
 
 # Incremental (Python middleware only)
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light --release"
+unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --light --release"
 
 # Both variants (release + debug) when the debug build is needed
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both"
+unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy --both"
 ```
 
-**If the build exits with `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):** do NOT
+**Linux** — the equivalent shell wrapper is `PianoidCore/build_pianoid_cuda.sh` if it exists; otherwise the build is **not yet ported**. Run `/startup` to confirm and to bootstrap the Linux toolchain.
+
+**If the Windows build exits with `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):** do NOT
 substitute a manual `pip install` — it silently reinstalls the stale `.pyd`. Follow the
 recovery steps in
 [`docs/architecture/BUILD_SYSTEM.md` — 0xC0000142 Recovery](../docs/architecture/BUILD_SYSTEM.md#0xc0000142-recovery-status_dll_init_failed).
 
-**Verify** the build installed into the correct venv:
+**Verify** the build installed into the correct venv (use the OS-specific interpreter path):
+
 ```bash
-D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
-# Must show PianoidCore/.venv/..., NOT root .venv/...
+# Windows
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+
+# Linux
+PianoidCore/.venv/bin/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+
+# Output must point inside PianoidCore/.venv/, NOT the repo-root .venv/
 ```
 
 ## Documentation Links
@@ -189,13 +225,15 @@ Examples:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `D:\repos\PianoidInstall\PianoidCore` |
-| PianoidBasic | `D:\repos\PianoidInstall\PianoidBasic` |
-| PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` |
-| Documentation | `D:\repos\PianoidInstall\docs/` |
-| MkDocs config | `D:\repos\PianoidInstall\mkdocs.yml` |
+All entries are repo-root-relative. Apply the OS-specific repo root from the table at the top of this file.
+
+| Resource | Repo-relative path |
+|----------|--------------------|
+| PianoidCore | `PianoidCore/` |
+| PianoidBasic | `PianoidBasic/` |
+| PianoidTunner | `PianoidTunner/` |
+| Documentation | `docs/` |
+| MkDocs config | `mkdocs.yml` |
 
 ## Frontend UI Standards
 

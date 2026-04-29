@@ -103,7 +103,7 @@ After doc updates, restart the MkDocs dev server so changes are reflected:
 # Kill existing mkdocs process
 tasklist | grep -i mkdocs | awk '{print $2}' | xargs -r kill 2>/dev/null
 # Start fresh (run in background)
-cd D:\repos\PianoidInstall && mkdocs serve -a 0.0.0.0:8001
+cd . && mkdocs serve -a 0.0.0.0:8001
 ```
 
 ### 2.4 Documentation Report
@@ -270,11 +270,11 @@ Test types follow the project convention:
 
 | Resource | Path |
 |----------|------|
-| PianoidCore | `D:\repos\PianoidInstall\PianoidCore` |
-| PianoidBasic | `D:\repos\PianoidInstall\PianoidBasic` |
-| PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` |
-| Documentation | `D:\repos\PianoidInstall\docs/` |
-| MkDocs config | `D:\repos\PianoidInstall\mkdocs.yml` |
+| PianoidCore | `PianoidCore` |
+| PianoidBasic | `PianoidBasic` |
+| PianoidTunner | `PianoidTunner` |
+| Documentation | `docs/` |
+| MkDocs config | `mkdocs.yml` |
 | MkDocs preview | `http://localhost:8001/` |
 
 ## Example Usage

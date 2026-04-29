@@ -127,7 +127,7 @@ Conflict rationale:
 Before wave 1 starts, capture baseline performance (once):
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 .venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/multitask_baseline.log
 ```
 
@@ -233,7 +233,7 @@ After ALL waves complete:
 ### 4.1 Full Test Suite
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 
 # Unit tests
 .venv/Scripts/python -m pytest tests/unit/ -v
@@ -300,10 +300,10 @@ Ask user before each action:
 
 2. **Push to origin** (per repo, ask individually):
    ```bash
-   git -C "D:\repos\PianoidInstall\PianoidCore" push origin <branch>
-   git -C "D:\repos\PianoidInstall\PianoidBasic" push origin <branch>
-   git -C "D:\repos\PianoidInstall\PianoidTunner" push origin <branch>
-   git -C "D:\repos\PianoidInstall" push origin <branch>
+   git -C "PianoidCore" push origin <branch>
+   git -C "PianoidBasic" push origin <branch>
+   git -C "PianoidTunner" push origin <branch>
+   git -C "." push origin <branch>
    ```
 
 3. **Remove any remaining worktree directories**
@@ -314,10 +314,10 @@ Ask user before each action:
 
 | Resource | Path |
 |----------|------|
-| PianoidCore | `D:\repos\PianoidInstall\PianoidCore` |
-| PianoidBasic | `D:\repos\PianoidInstall\PianoidBasic` |
-| PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` |
-| Documentation | `D:\repos\PianoidInstall\docs/` |
+| PianoidCore | `PianoidCore` |
+| PianoidBasic | `PianoidBasic` |
+| PianoidTunner | `PianoidTunner` |
+| Documentation | `docs/` |
 | Performance tests | `PianoidCore/tests/system/test_performance.py` |
 | venv Python | `PianoidCore/.venv/Scripts/python` |
 | Build script | `PianoidCore/build_pianoid_cuda.bat` |

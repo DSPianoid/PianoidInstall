@@ -17,7 +17,7 @@ This skill triggers rebuilds on fetched changes. A broken rebuild leaves a silen
 - **Canonical rebuild** — `build_pianoid_cuda.bat --heavy --release` (or `--light --release` for Python-only). Do NOT fall back to `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — silently reinstalls the STALE `.pyd`.
 - **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; run release first (or `--both`).
 - **Pre-rebuild hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID. A locked `.pyd` causes `[WinError 5] Access is denied` and leaves the package uninstalled.
-- **Verify the rebuild landed** — after each rebuild: `D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"`. Path must be under `PianoidCore/.venv/`, not root `.venv/`.
+- **Verify the rebuild landed** — after each rebuild: `PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"`. Path must be under `PianoidCore/.venv/`, not root `.venv/`.
 - **On rebuild failure** — invoke `/startup` rather than retry blindly.
 
 ## Arguments
@@ -29,10 +29,10 @@ This skill triggers rebuilds on fetched changes. A broken rebuild leaves a silen
 
 ## Repository Locations
 
-- **PianoidInstall**: `D:\repos\PianoidInstall` (branch: `master` — docs, project skills, config)
-- **PianoidCore**: `D:\repos\PianoidInstall\PianoidCore` (branch: `dev`)
-- **PianoidBasic**: `D:\repos\PianoidInstall\PianoidBasic` (branch: `dev`)
-- **PianoidTunner**: `D:\repos\PianoidInstall\PianoidTunner` (branch: `dev`, React/Node.js frontend)
+- **PianoidInstall**: `.` (branch: `master` — docs, project skills, config)
+- **PianoidCore**: `PianoidCore` (branch: `dev`)
+- **PianoidBasic**: `PianoidBasic` (branch: `dev`)
+- **PianoidTunner**: `PianoidTunner` (branch: `dev`, React/Node.js frontend)
 
 ## Workflow
 
@@ -40,10 +40,10 @@ This skill triggers rebuilds on fetched changes. A broken rebuild leaves a silen
 
 For all repos, run:
 ```bash
-git -C "D:\repos\PianoidInstall" status --porcelain | grep -v "^??"
-git -C "D:\repos\PianoidInstall\PianoidCore" status --porcelain
-git -C "D:\repos\PianoidInstall\PianoidBasic" status --porcelain
-git -C "D:\repos\PianoidInstall\PianoidTunner" status --porcelain
+git -C "." status --porcelain | grep -v "^??"
+git -C "PianoidCore" status --porcelain
+git -C "PianoidBasic" status --porcelain
+git -C "PianoidTunner" status --porcelain
 ```
 
 Note: PianoidInstall ignores untracked files (`??`) since nested repos appear as untracked — only modified tracked files block the update.
@@ -54,31 +54,31 @@ Note: PianoidInstall ignores untracked files (`??`) since nested repos appear as
 ### 2. Fetch and Check for Updates
 
 ```bash
-git -C "D:\repos\PianoidInstall" fetch origin
-git -C "D:\repos\PianoidInstall\PianoidCore" fetch origin
-git -C "D:\repos\PianoidInstall\PianoidBasic" fetch origin
-git -C "D:\repos\PianoidInstall\PianoidTunner" fetch origin
+git -C "." fetch origin
+git -C "PianoidCore" fetch origin
+git -C "PianoidBasic" fetch origin
+git -C "PianoidTunner" fetch origin
 ```
 
 **Verify fetch is complete** — for each repo, confirm local `origin/<branch>` matches the remote:
 ```bash
-git -C "D:\repos\PianoidInstall" rev-parse origin/master
-git -C "D:\repos\PianoidInstall\PianoidCore" rev-parse origin/dev
-git -C "D:\repos\PianoidInstall\PianoidBasic" rev-parse origin/dev
-git -C "D:\repos\PianoidInstall\PianoidTunner" rev-parse origin/dev
-git -C "D:\repos\PianoidInstall" ls-remote origin master | cut -f1
-git -C "D:\repos\PianoidInstall\PianoidCore" ls-remote origin dev | cut -f1
-git -C "D:\repos\PianoidInstall\PianoidBasic" ls-remote origin dev | cut -f1
-git -C "D:\repos\PianoidInstall\PianoidTunner" ls-remote origin dev | cut -f1
+git -C "." rev-parse origin/master
+git -C "PianoidCore" rev-parse origin/dev
+git -C "PianoidBasic" rev-parse origin/dev
+git -C "PianoidTunner" rev-parse origin/dev
+git -C "." ls-remote origin master | cut -f1
+git -C "PianoidCore" ls-remote origin dev | cut -f1
+git -C "PianoidBasic" ls-remote origin dev | cut -f1
+git -C "PianoidTunner" ls-remote origin dev | cut -f1
 ```
 If any local `rev-parse` does not match `ls-remote`, run `git fetch origin` again for that repo.
 
 Show pending commits:
 ```bash
-git -C "D:\repos\PianoidInstall" log HEAD..origin/master --oneline
-git -C "D:\repos\PianoidInstall\PianoidCore" log HEAD..origin/dev --oneline
-git -C "D:\repos\PianoidInstall\PianoidBasic" log HEAD..origin/dev --oneline
-git -C "D:\repos\PianoidInstall\PianoidTunner" log HEAD..origin/dev --oneline
+git -C "." log HEAD..origin/master --oneline
+git -C "PianoidCore" log HEAD..origin/dev --oneline
+git -C "PianoidBasic" log HEAD..origin/dev --oneline
+git -C "PianoidTunner" log HEAD..origin/dev --oneline
 ```
 
 If no updates in any repo: report "Already up to date" and exit.
@@ -87,10 +87,10 @@ If no updates in any repo: report "Already up to date" and exit.
 
 Get changed files:
 ```bash
-git -C "D:\repos\PianoidInstall" diff HEAD..origin/master --name-only
-git -C "D:\repos\PianoidInstall\PianoidCore" diff HEAD..origin/dev --name-only
-git -C "D:\repos\PianoidInstall\PianoidBasic" diff HEAD..origin/dev --name-only
-git -C "D:\repos\PianoidInstall\PianoidTunner" diff HEAD..origin/dev --name-only
+git -C "." diff HEAD..origin/master --name-only
+git -C "PianoidCore" diff HEAD..origin/dev --name-only
+git -C "PianoidBasic" diff HEAD..origin/dev --name-only
+git -C "PianoidTunner" diff HEAD..origin/dev --name-only
 ```
 
 **Rebuild Decision Matrix:**
@@ -112,10 +112,10 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" diff HEAD..origin/dev --name-only
 ### 4. Pull Updates
 
 ```bash
-git -C "D:\repos\PianoidInstall" pull origin master
-git -C "D:\repos\PianoidInstall\PianoidCore" pull origin dev
-git -C "D:\repos\PianoidInstall\PianoidBasic" pull origin dev
-git -C "D:\repos\PianoidInstall\PianoidTunner" pull origin dev
+git -C "." pull origin master
+git -C "PianoidCore" pull origin dev
+git -C "PianoidBasic" pull origin dev
+git -C "PianoidTunner" pull origin dev
 ```
 
 ### 4a. Install Project-Level Skills and Settings
@@ -123,7 +123,7 @@ git -C "D:\repos\PianoidInstall\PianoidTunner" pull origin dev
 After pulling PianoidInstall, project-level skills and settings in `.claude/` are automatically updated via git. Report any new or changed files:
 
 ```bash
-git -C "D:\repos\PianoidInstall" diff HEAD@{1}..HEAD --name-only -- .claude/
+git -C "." diff HEAD@{1}..HEAD --name-only -- .claude/
 ```
 
 If any `.claude/commands/*.md` files changed, list them in the report.
@@ -197,7 +197,7 @@ If PianoidTunner was updated or `package.json`/`package-lock.json` changed, ensu
 
 ```bash
 npm install -g npm@latest
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidTunner && npm install"
+cmd //c "cd /d PianoidTunner && npm install"
 ```
 
 ### 5. Rebuild Packages
@@ -206,22 +206,22 @@ cmd //c "cd /d D:\repos\PianoidInstall\PianoidTunner && npm install"
 
 **PianoidBasic** (if changed):
 ```bash
-env -u VIRTUAL_ENV cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_basic.bat"
+env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && PianoidCore\build_pianoid_basic.bat"
 ```
 
 **PianoidCuda Heavy** (if C++/CUDA changed OR `--force-heavy`):
 ```bash
-env -u VIRTUAL_ENV cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both"
+env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && PianoidCore\build_pianoid_cuda.bat --heavy --both"
 ```
 
 **PianoidCuda Light** (if only Python middleware changed):
 ```bash
-env -u VIRTUAL_ENV cmd //c "cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light --both"
+env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && PianoidCore\build_pianoid_cuda.bat --light --both"
 ```
 
 **PianoidTunner** (if `package.json` or `package-lock.json` changed):
 ```bash
-cmd //c "cd /d D:\repos\PianoidInstall\PianoidTunner && npm install"
+cmd //c "cd /d PianoidTunner && npm install"
 ```
 
 **Build failures:** If any build command fails, consult `docs/architecture/BUILD_SYSTEM.md`
@@ -238,7 +238,7 @@ If any source code files (`.py`, `.cu`, `.cpp`, `.h`, `.cuh`, `.tsx`, `.jsx`, `.
 pip show mkdocs-material > /dev/null 2>&1 || pip install mkdocs-material
 ```
 
-2. If source code changed (not just docs), review affected documentation files in `D:\repos\PianoidInstall\docs\` and update them to reflect code changes:
+2. If source code changed (not just docs), review affected documentation files in `docs\` and update them to reflect code changes:
    - `modules/pianoid-cuda/` docs if CUDA files changed
    - `modules/pianoid-middleware/` docs if middleware Python files changed
    - `modules/pianoid-basic/` docs if PianoidBasic files changed
@@ -249,10 +249,10 @@ pip show mkdocs-material > /dev/null 2>&1 || pip install mkdocs-material
 
 3. If documentation was updated, commit to PianoidInstall:
 ```bash
-cd D:\repos\PianoidInstall && git add docs/ && git commit -m "Update documentation to match code changes" && git push origin master
+cd . && git add docs/ && git commit -m "Update documentation to match code changes" && git push origin master
 ```
 
-**Documentation structure** (`D:\repos\PianoidInstall\docs/`):
+**Documentation structure** (`docs/`):
 ```
 docs/
 ├── index.md                          # Entry point
@@ -271,7 +271,7 @@ docs/
 └── guides/QUICK_START.md            # Getting started
 ```
 
-**Browse docs locally:** `cd D:\repos\PianoidInstall && mkdocs serve -a localhost:8001`
+**Browse docs locally:** `cd . && mkdocs serve -a localhost:8001`
 
 ---
 

@@ -513,7 +513,7 @@ Cycle profiling timings are sensitive to hardware (GPU model/clock, CPU IPC, mem
 
 **Note:** The Apr 22 reference system's hardware specs are not recorded in any archived agent log (searched `dev-ab-d2h`, `dev-volume-iter-fix`, `dev-perftest`, `dev-f5-stream`, `dev-paramsync`). Future profiling sessions should capture the full required-fields table before reporting timing data, so that absolute numbers (not just relative deltas) become comparable across machines. Without hardware data, a 30–35 % Stage A median delta between two systems cannot be classified as code regression vs hardware difference.
 
-Consolidates prior ad-hoc probes formerly kept under `D:/tmp/test_cycle_*`.
+Consolidates prior ad-hoc probes formerly kept under `/tmp/test_cycle_*`.
 
 ---
 
@@ -850,7 +850,7 @@ The `extended_8band_medium` pipeline completed all stages on Belarus piano data:
 
 A 196-mode preset (`Belarus_8band_196modes.json`) was built from the top 196 stable modes with per-mode normalized feedin (0–1 range) and per-channel output pitch feedback. The preset produces sound but is quieter than BaselineBelorus1 at higher pitches — likely due to different modal content between 4-band and 8-band extractions.
 
-Data: `D:/tmp/belarus_78_extended_8band_medium/`
+Data: `/tmp/belarus_78_extended_8band_medium/`
 
 See [archive/EXTENDED_8BAND_PIPELINE_REPORT.md](archive/EXTENDED_8BAND_PIPELINE_REPORT.md) and [archive/BELARUS_PIPELINE_RUN_REPORT.md](archive/BELARUS_PIPELINE_RUN_REPORT.md) for run details.
 

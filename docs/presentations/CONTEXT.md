@@ -64,6 +64,6 @@ A closed-loop methodology — FEA design, real-time GPU acoustic preview, physic
 
 ## Generation
 
-- HTML is the source of truth — edit there, regenerate PDF with: `cd PianoidCore && .venv/Scripts/python D:/tmp/gen_pdf_hires.py`
+- HTML is the source of truth — edit there, regenerate PDF with: `cd PianoidCore && .venv/Scripts/python /tmp/gen_pdf_hires.py`
 - PDF generation uses Playwright (chromium) at 1100x619 viewport, 2x device scale, landscape 13.333"x7.5"
 - Marp markdown version (`slides.md` in research/) exists but is deprecated — the HTML version has better visual design

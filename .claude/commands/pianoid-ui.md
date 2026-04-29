@@ -125,7 +125,7 @@ Layout is a binary tree: leaf nodes are window ID strings, branches have `first`
 ### Step 3: Start Frontend
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidTunner && npm run dev
+cd PianoidTunner && npm run dev
 ```
 
 **IMPORTANT:** `npm run dev` starts **both** the React dev server (port 3000) and the Node.js launcher (port 3001) via `concurrently`. Do NOT use `npm start` — that only starts React without the launcher.

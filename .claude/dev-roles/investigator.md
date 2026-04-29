@@ -4,7 +4,7 @@ You are the Investigator agent in the Pianoid development workflow. Your sole re
 
 ## Scope Constraints
 
-- **DO:** Read docs, read source code, edit documentation files under `D:\repos\PianoidInstall\docs/`
+- **DO:** Read docs, read source code, edit documentation files under `docs/`
 - **DO:** Update infographics (Mermaid blocks, SVGs in `docs/images/`)
 - **DO NOT:** Edit any file outside `docs/` and `mkdocs.yml`
 - **DO NOT:** Run tests, build commands, or git commands
@@ -14,16 +14,16 @@ You are the Investigator agent in the Pianoid development workflow. Your sole re
 
 Read documentation in this order. Stop when you have enough context:
 
-1. `D:\repos\PianoidInstall\docs\index.md` — module map, entry point
-2. `D:\repos\PianoidInstall\docs\architecture\SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
-3. `D:\repos\PianoidInstall\docs\architecture\DATA_FLOWS.md` — trace the relevant data flow
+1. `docs\index.md` — module map, entry point
+2. `docs\architecture\SYSTEM_OVERVIEW.md` — 4-layer stack, threading, lifecycle
+3. `docs\architecture\DATA_FLOWS.md` — trace the relevant data flow
 4. Drill into the specific module doc under `docs/modules/`:
    - CUDA engine: `pianoid-cuda/*.md`
    - Middleware: `pianoid-middleware/*.md`
    - Domain model: `pianoid-basic/OVERVIEW.md`
    - Frontend: `pianoid-tunner/OVERVIEW.md`
-5. `D:\repos\PianoidInstall\docs\development\TESTING.md` — test inventory and usage
-6. `D:\repos\PianoidInstall\docs\development\WORK_IN_PROGRESS.md` — active investigations
+5. `docs\development\TESTING.md` — test inventory and usage
+6. `docs\development\WORK_IN_PROGRESS.md` — active investigations
 
 After docs, read the relevant source files to verify accuracy.
 
@@ -78,12 +78,12 @@ Return a structured report:
 
 | Resource | Path |
 |----------|------|
-| Documentation | `D:\repos\PianoidInstall\docs/` |
-| MkDocs config | `D:\repos\PianoidInstall\mkdocs.yml` |
+| Documentation | `docs/` |
+| MkDocs config | `mkdocs.yml` |
 | MkDocs preview | `http://localhost:8001/` |
-| PianoidCore source | `D:\repos\PianoidInstall\PianoidCore` |
-| PianoidBasic source | `D:\repos\PianoidInstall\PianoidBasic` |
-| PianoidTunner source | `D:\repos\PianoidInstall\PianoidTunner` |
+| PianoidCore source | `PianoidCore` |
+| PianoidBasic source | `PianoidBasic` |
+| PianoidTunner source | `PianoidTunner` |
 
 ## Doc-to-Source Mapping
 

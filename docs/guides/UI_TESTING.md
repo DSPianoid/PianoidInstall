@@ -54,8 +54,8 @@ netstat -ano | grep -E ":(3000|3001|5000|5001) " && echo "WARNING: ports still i
 ### 2. Start launcher + frontend
 
 ```bash
-cd D:/repos/PianoidInstall/PianoidTunner
-npm run dev > D:/tmp/test-ui-frontend.log 2>&1
+cd PianoidTunner
+npm run dev > /tmp/test-ui-frontend.log 2>&1
 ```
 
 Run this with `run_in_background: true` on the Bash tool (never shell `&` — the harness reports immediate exit).

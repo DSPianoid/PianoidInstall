@@ -55,7 +55,7 @@ AGENT_ID="fn-$(openssl rand -hex 2)"   # e.g. fn-b7c2
 ### Create Session Log
 
 ```bash
-LOG_FILE="D:/repos/PianoidInstall/docs/development/logs/${AGENT_ID}-$(date +%Y-%m-%d-%H%M%S).md"
+LOG_FILE="docs/development/logs/${AGENT_ID}-$(date +%Y-%m-%d-%H%M%S).md"
 ```
 
 Write the log header:
@@ -135,18 +135,18 @@ fi
 **Build commands:**
 ```bash
 # Heavy (C++/CUDA)
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy"
+unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy"
 
 # Light (Python middleware)
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --light"
+unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --light"
 
 # PianoidBasic
-unset VIRTUAL_ENV && cmd //c "D:\repos\PianoidInstall\PianoidCore\build_pianoid_basic.bat"
+unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_basic.bat"
 ```
 
 **Post-build verification:**
 ```bash
-D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
 ```
 
 Log build result (success/failure, duration).
@@ -156,7 +156,7 @@ Log build result (success/failure, duration).
 Run the `test_command` provided by the caller:
 
 ```bash
-cd D:\repos\PianoidInstall\PianoidCore
+cd PianoidCore
 <test_command> 2>&1 | tee /tmp/${AGENT_ID}_test.log
 ```
 
@@ -227,18 +227,18 @@ If standalone, print a summary to the user:
 
 | Resource | Path |
 |----------|------|
-| PianoidCore | `D:\repos\PianoidInstall\PianoidCore` |
-| PianoidBasic | `D:\repos\PianoidInstall\PianoidBasic` |
-| PianoidTunner | `D:\repos\PianoidInstall\PianoidTunner` |
-| Session logs | `D:\repos\PianoidInstall\docs\development\logs/` |
-| Module locks | `D:\repos\PianoidInstall\docs\development\MODULE_LOCKS.md` |
+| PianoidCore | `PianoidCore` |
+| PianoidBasic | `PianoidBasic` |
+| PianoidTunner | `PianoidTunner` |
+| Session logs | `docs\development\logs/` |
+| Module locks | `docs\development\MODULE_LOCKS.md` |
 | venv Python | `PianoidCore/.venv/Scripts/python` |
 
 ## Example Usage
 
 ### Standalone (user invokes directly)
 ```
-/fn D:/repos/PianoidInstall/PianoidCore/pianoid_middleware/pianoid.py clamp_velocity --test ".venv/Scripts/python -m pytest tests/unit/test_utils.py::test_clamp -v"
+/fn PianoidCore/pianoid_middleware/pianoid.py clamp_velocity --test ".venv/Scripts/python -m pytest tests/unit/test_utils.py::test_clamp -v"
 ```
 
 ### Spawned by /dev agent (via Agent tool)

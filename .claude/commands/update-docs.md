@@ -7,7 +7,7 @@ argument-hint: [architecture|cuda|middleware|basic|tunner|development|all]
 
 # Update Pianoid Documentation
 
-Sync documentation in `D:\repos\PianoidInstall\docs\` with current source code.
+Sync documentation in `docs\` with current source code.
 
 **CRITICAL: Keep all documentation as lean and concise as possible. No filler, no verbose explanations. Prefer tables and code blocks over prose. Every sentence must earn its place.**
 
@@ -31,11 +31,11 @@ Sync documentation in `D:\repos\PianoidInstall\docs\` with current source code.
 If no argument given, scan for uncommitted changes to infer affected sections:
 
 ```bash
-git -C "D:\repos\PianoidInstall\PianoidCore" diff --name-only
-git -C "D:\repos\PianoidInstall\PianoidCore" diff --name-only --cached
-git -C "D:\repos\PianoidInstall\PianoidBasic" diff --name-only
-git -C "D:\repos\PianoidInstall\PianoidTunner" diff --name-only
-git -C "D:\repos\PianoidInstall" diff --name-only
+git -C "PianoidCore" diff --name-only
+git -C "PianoidCore" diff --name-only --cached
+git -C "PianoidBasic" diff --name-only
+git -C "PianoidTunner" diff --name-only
+git -C "." diff --name-only
 ```
 
 **Change → Section mapping:**
@@ -108,20 +108,20 @@ If doc files were added/removed (after user approval):
 
 ```bash
 pip show mkdocs-material > /dev/null 2>&1 || pip install mkdocs-material
-cd D:\repos\PianoidInstall && python -m mkdocs build 2>&1 | grep -c "ERROR"
+cd . && python -m mkdocs build 2>&1 | grep -c "ERROR"
 ```
 
 ### 6. Commit
 
 Ask user before pushing:
 ```bash
-cd D:\repos\PianoidInstall && git add docs/ mkdocs.yml && git commit -m "Update documentation" && git push origin master
+cd . && git add docs/ mkdocs.yml && git commit -m "Update documentation" && git push origin master
 ```
 
 ## Documentation Structure
 
 ```
-D:\repos\PianoidInstall\docs\
+docs\
 ├── index.md                          # Entry point, documentation map
 ├── architecture/
 │   ├── SYSTEM_OVERVIEW.md            # 4-layer architecture
@@ -138,8 +138,8 @@ D:\repos\PianoidInstall\docs\
 └── guides/QUICK_START.md            # Getting started
 ```
 
-**MkDocs config:** `D:\repos\PianoidInstall\mkdocs.yml`
-**Local preview:** `cd D:\repos\PianoidInstall && mkdocs serve -a localhost:8001`
+**MkDocs config:** `mkdocs.yml`
+**Local preview:** `cd . && mkdocs serve -a localhost:8001`
 
 ## Example Usage
 

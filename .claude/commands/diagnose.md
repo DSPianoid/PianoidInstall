@@ -39,9 +39,9 @@ Parse `$ARGUMENTS` for flags:
    - On unexpected build/startup failure → invoke `/startup` rather than burning diagnostic phases on ad-hoc fixes.
    - 2026-04-23 volume-iter investigation burned ~3h exactly this way.
 3. **Never blanket-kill processes** — kill by specific PID on specific ports only
-4. **Use correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
+4. **Use correct venv** — always `PianoidCore/.venv/`, never root `.venv/` or system Python
 5. **Port-specific cleanup** — `netstat -ano | findstr :<port>` to identify PIDs
-6. **Log everything** — write all diagnostic output to `D:/tmp/diagnose-session.log`
+6. **Log everything** — write all diagnostic output to `/tmp/diagnose-session.log`
 
 ## Phase 0: Pre-Run Commit Gate (MANDATORY)
 
@@ -54,7 +54,7 @@ Check all three repos for uncommitted work:
 ```bash
 echo "=== Pre-run commit check ==="
 for repo in PianoidCore PianoidBasic PianoidTunner; do
-  cd D:/repos/PianoidInstall/$repo
+  cd $repo
   status=$(git status --porcelain 2>/dev/null)
   if [ -n "$status" ]; then
     branch=$(git branch --show-current)
@@ -85,7 +85,7 @@ Capture the exact commit hashes for all repos — these go into the report:
 
 ```bash
 for repo in PianoidCore PianoidBasic PianoidTunner PianoidInstall; do
-  cd D:/repos/PianoidInstall/$repo 2>/dev/null || cd D:/repos/PianoidInstall
+  cd $repo 2>/dev/null || cd .
   hash=$(git rev-parse --short HEAD 2>/dev/null)
   branch=$(git branch --show-current 2>/dev/null)
   echo "$repo: $hash ($branch)"
@@ -101,14 +101,14 @@ Store as variables: `commit_core`, `commit_basic`, `commit_tunner`, `commit_inst
 Initialize the diagnostic log at the start:
 
 ```bash
-echo "=== diagnose session started: $(date -Iseconds) ===" > D:/tmp/diagnose-session.log
-echo "Arguments: $ARGUMENTS" >> D:/tmp/diagnose-session.log
-echo "---" >> D:/tmp/diagnose-session.log
+echo "=== diagnose session started: $(date -Iseconds) ===" > /tmp/diagnose-session.log
+echo "Arguments: $ARGUMENTS" >> /tmp/diagnose-session.log
+echo "---" >> /tmp/diagnose-session.log
 ```
 
 Append to this log at every phase transition and after every significant action:
 ```bash
-echo "[$(date -Iseconds)] Phase N: <description> — <PASS|FAIL|SKIP>" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase N: <description> — <PASS|FAIL|SKIP>" >> /tmp/diagnose-session.log
 ```
 
 ---
@@ -245,7 +245,7 @@ Store all answers in variables. Build the full `load_preset` payload from chosen
 
 Log chosen configuration:
 ```bash
-echo "[$(date -Iseconds)] CONFIG: driver=$audio_driver preset=$preset sample_rate=$sample_rate build=$debug_mode string_iter=$string_iterations cycle_iter=$cycle_iterations array_size=$array_size buffer=$audio_buffer_size listen_modes=$listen_to_modes derivative=$sound_derivative_order pitches=$pitches mic=$mic_test" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] CONFIG: driver=$audio_driver preset=$preset sample_rate=$sample_rate build=$debug_mode string_iter=$string_iterations cycle_iter=$cycle_iterations array_size=$array_size buffer=$audio_buffer_size listen_modes=$listen_to_modes derivative=$sound_derivative_order pitches=$pitches mic=$mic_test" >> /tmp/diagnose-session.log
 ```
 
 ---
@@ -255,11 +255,11 @@ echo "[$(date -Iseconds)] CONFIG: driver=$audio_driver preset=$preset sample_rat
 ### 2a: Clean up stale processes
 
 ```bash
-echo "[$(date -Iseconds)] Phase 2a: Cleaning stale processes" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 2a: Cleaning stale processes" >> /tmp/diagnose-session.log
 for port in 5000 3000 3001; do
   pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
   if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "  Killing PID $pid on port $port" >> D:/tmp/diagnose-session.log
+    echo "  Killing PID $pid on port $port" >> /tmp/diagnose-session.log
     taskkill //F //PID "$pid" 2>/dev/null
   fi
 done
@@ -271,10 +271,10 @@ sleep 2
 **IMPORTANT:** The backend must be started from `pianoid_middleware/` directory — preset paths are relative to CWD.
 
 ```bash
-echo "[$(date -Iseconds)] Phase 2b: Starting backend server" >> D:/tmp/diagnose-session.log
-cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python backendserver.py > D:/tmp/diagnose-backend.log 2>&1 &
+echo "[$(date -Iseconds)] Phase 2b: Starting backend server" >> /tmp/diagnose-session.log
+cd PianoidCore/pianoid_middleware && ../.venv/Scripts/python backendserver.py > /tmp/diagnose-backend.log 2>&1 &
 BACKEND_PID=$!
-echo "  Backend PID: $BACKEND_PID" >> D:/tmp/diagnose-session.log
+echo "  Backend PID: $BACKEND_PID" >> /tmp/diagnose-session.log
 ```
 
 ### 2c: Wait for server to respond
@@ -285,7 +285,7 @@ Poll `/ping` for up to 30 seconds:
 for i in $(seq 1 15); do
   resp=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/ping 2>/dev/null)
   if [ "$resp" = "200" ]; then
-    echo "[$(date -Iseconds)] Phase 2c: Server responding on port 5000" >> D:/tmp/diagnose-session.log
+    echo "[$(date -Iseconds)] Phase 2c: Server responding on port 5000" >> /tmp/diagnose-session.log
     break
   fi
   sleep 2
@@ -294,7 +294,7 @@ done
 
 **PASS criteria:** `/ping` returns 200 within 30s — server is accepting connections.
 
-**FAIL criteria:** Server doesn't respond within 30s. Check `D:/tmp/diagnose-backend.log` for traceback.
+**FAIL criteria:** Server doesn't respond within 30s. Check `/tmp/diagnose-backend.log` for traceback.
 
 ---
 
@@ -305,7 +305,7 @@ done
 Use the full parameter set from Phase 1 configuration:
 
 ```bash
-echo "[$(date -Iseconds)] Phase 3a: Loading preset" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 3a: Loading preset" >> /tmp/diagnose-session.log
 load_resp=$(curl -s -X POST http://127.0.0.1:5000/load_preset \
   -H "Content-Type: application/json" \
   -d "{
@@ -326,7 +326,7 @@ load_resp=$(curl -s -X POST http://127.0.0.1:5000/load_preset \
     \"debug_mode\": $debug_mode,
     \"sound_derivative_order\": $sound_derivative_order
   }" 2>/dev/null)
-echo "  load_preset response: $load_resp" >> D:/tmp/diagnose-session.log
+echo "  load_preset response: $load_resp" >> /tmp/diagnose-session.log
 ```
 
 ### 3b: Wait for engine to start
@@ -339,7 +339,7 @@ for i in $(seq 1 30); do
   loaded=$(echo "$h" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('pianoid_loaded',False))" 2>/dev/null)
   gpu=$(echo "$h" | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('lifecycle',{}).get('gpu_initialized',False))" 2>/dev/null)
   if [ "$loaded" = "True" ] && [ "$gpu" = "True" ]; then
-    echo "[$(date -Iseconds)] Phase 3b: Engine loaded, GPU initialized" >> D:/tmp/diagnose-session.log
+    echo "[$(date -Iseconds)] Phase 3b: Engine loaded, GPU initialized" >> /tmp/diagnose-session.log
     break
   fi
   sleep 2
@@ -350,7 +350,7 @@ done
 
 ```bash
 notes=$(curl -s http://127.0.0.1:5000/get_available_notes 2>/dev/null)
-echo "[$(date -Iseconds)] Phase 3c: Available notes: $notes" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 3c: Available notes: $notes" >> /tmp/diagnose-session.log
 ```
 
 ### 3d: Full engine health check
@@ -359,7 +359,7 @@ Now that the preset is loaded and the engine is running, perform the comprehensi
 
 ```bash
 health=$(curl -s http://127.0.0.1:5000/health 2>/dev/null)
-echo "[$(date -Iseconds)] Phase 3d: Post-load health: $health" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 3d: Post-load health: $health" >> /tmp/diagnose-session.log
 ```
 
 Extract and verify all health fields:
@@ -399,7 +399,7 @@ For each test pitch:
 ### 4a: Generate sound via note_playback
 
 ```bash
-echo "[$(date -Iseconds)] Phase 4a: Testing sound generation for pitch $pitch" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 4a: Testing sound generation for pitch $pitch" >> /tmp/diagnose-session.log
 ```
 
 Use `curl` to call `POST /get_chart_test`:
@@ -424,7 +424,7 @@ Save the response and extract `audio_data[0]` (base64 WAV).
 # Run via PianoidCore/.venv/Scripts/python
 import json, base64, wave, io, numpy as np
 
-with open('D:/tmp/diagnose-sound.json') as f:
+with open('/tmp/diagnose-sound.json') as f:
     d = json.load(f)
 
 if not d.get('audio_data') or len(d['audio_data']) == 0:
@@ -502,7 +502,7 @@ Log all values and pass/fail determination.
 
 ```bash
 stats=$(curl -s http://127.0.0.1:5000/playback_stats 2>/dev/null)
-echo "[$(date -Iseconds)] Phase 5: Playback stats: $stats" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 5: Playback stats: $stats" >> /tmp/diagnose-session.log
 ```
 
 ### 5b: Play a burst of notes and measure timing
@@ -575,7 +575,7 @@ This phase verifies end-to-end audio output by comparing mic recordings with and
 
 ```bash
 mic_devices=$(curl -s http://127.0.0.1:5000/mic_devices 2>/dev/null)
-echo "[$(date -Iseconds)] Phase 7a: Mic devices: $mic_devices" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Phase 7a: Mic devices: $mic_devices" >> /tmp/diagnose-session.log
 ```
 
 If no devices found, log and skip with warning.
@@ -699,8 +699,8 @@ Save all values as variables for the report: `noise_rms`, `signal_rms`, `signal_
 ### 8a: Start frontend
 
 ```bash
-echo "[$(date -Iseconds)] Phase 8a: Starting frontend" >> D:/tmp/diagnose-session.log
-cd D:/repos/PianoidInstall/PianoidTunner && npm run dev > D:/tmp/diagnose-frontend.log 2>&1 &
+echo "[$(date -Iseconds)] Phase 8a: Starting frontend" >> /tmp/diagnose-session.log
+cd PianoidTunner && npm run dev > /tmp/diagnose-frontend.log 2>&1 &
 ```
 
 Wait for ports 3000 + 3001 (up to 60s).
@@ -772,7 +772,7 @@ Capture the UI state showing successful playback.
 Run after all phases complete (success or failure):
 
 ```bash
-echo "[$(date -Iseconds)] Cleanup: stopping services" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Cleanup: stopping services" >> /tmp/diagnose-session.log
 
 # Stop backend gracefully
 curl -s -X POST http://127.0.0.1:5000/shutdown 2>/dev/null
@@ -788,12 +788,12 @@ curl -s -X POST http://127.0.0.1:3001/api/stop-backend 2>/dev/null
 for port in 5000 3000 3001; do
   pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
   if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "  Cleanup: killing PID $pid on port $port" >> D:/tmp/diagnose-session.log
+    echo "  Cleanup: killing PID $pid on port $port" >> /tmp/diagnose-session.log
     taskkill //F //PID "$pid" 2>/dev/null
   fi
 done
 
-echo "[$(date -Iseconds)] Cleanup complete" >> D:/tmp/diagnose-session.log
+echo "[$(date -Iseconds)] Cleanup complete" >> /tmp/diagnose-session.log
 ```
 
 ---
@@ -805,7 +805,7 @@ echo "[$(date -Iseconds)] Cleanup complete" >> D:/tmp/diagnose-session.log
 ### Without `-fix` flag
 
 On any phase failure:
-1. Log the full failure details to `D:/tmp/diagnose-session.log`
+1. Log the full failure details to `/tmp/diagnose-session.log`
 2. Continue remaining phases (collect all failures for awareness)
 3. At the end, print a diagnostic report with all results
 4. Relay failures to user with specific error details and suggested fixes
@@ -832,9 +832,9 @@ Fix attempts:
   2. <what was tried> — <result>
   3. <what was tried> — <result>
 
-Log: D:/tmp/diagnose-session.log
-Backend log: D:/tmp/diagnose-backend.log
-Frontend log: D:/tmp/diagnose-frontend.log (if applicable)
+Log: /tmp/diagnose-session.log
+Backend log: /tmp/diagnose-backend.log
+Frontend log: /tmp/diagnose-frontend.log (if applicable)
 
 Please investigate manually or provide more context.
 ```
@@ -843,8 +843,8 @@ Please investigate manually or provide more context.
 
 When re-running after a fix:
 1. Run Cleanup to stop all services
-2. Clear backend and frontend logs (`> D:/tmp/diagnose-backend.log`, etc.)
-3. Log: `echo "[$(date -Iseconds)] === RE-RUN after fix attempt N ===" >> D:/tmp/diagnose-session.log`
+2. Clear backend and frontend logs (`> /tmp/diagnose-backend.log`, etc.)
+3. Log: `echo "[$(date -Iseconds)] === RE-RUN after fix attempt N ===" >> /tmp/diagnose-session.log`
 4. Execute Phases 2–8 in full (same configuration from Phase 1)
 5. If all phases pass, produce the Final Report with a note: "Passed after N fix attempt(s)"
 6. If any phase fails again, loop back to fix (up to 3 total attempts)
@@ -876,7 +876,7 @@ gpu_compute=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/nu
 total_ram=$(wmic OS get TotalVisibleMemorySize /value 2>/dev/null | grep -i total | cut -d= -f2 | tr -d '\r')
 
 # Python version
-python_version=$(D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python --version 2>&1)
+python_version=$(PianoidCore/.venv/Scripts/python --version 2>&1)
 ```
 
 Store all as variables for the report.
@@ -892,7 +892,7 @@ After a successful run (all phases PASS), produce two outputs:
 ### Report Directory
 
 ```
-D:\repos\PianoidInstall\docs\development\diagnostic-reports\
+docs\development\diagnostic-reports\
 ```
 
 Create this directory if it doesn't exist. Do NOT add it to `.gitignore` — reports should be committed.
@@ -1026,7 +1026,7 @@ Write the following to the report file:
 After writing the report file, commit it:
 
 ```bash
-cd D:/repos/PianoidInstall
+cd .
 git add docs/development/diagnostic-reports/
 git commit -m "diagnostic: <date> <hostname> — <PASS|FAIL>"
 ```
@@ -1055,7 +1055,7 @@ Also print a brief summary to the user:
 ╠══════════════════════════════════════════════════════════════╣
 ║ Overall: 7/8 PASS, 0 FAIL, 1 SKIP                           ║
 ║ Report: docs/development/diagnostic-reports/<filename>.md    ║
-║ Log: D:/tmp/diagnose-session.log                             ║
+║ Log: /tmp/diagnose-session.log                             ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
@@ -1070,7 +1070,7 @@ When the `-fix` flag triggers `/dev` to fix a diagnostic failure, the `/dev` inv
 1. **Find the last successful report:**
 
 ```bash
-ls -t D:/repos/PianoidInstall/docs/development/diagnostic-reports/*.md 2>/dev/null | head -5
+ls -t docs/development/diagnostic-reports/*.md 2>/dev/null | head -5
 ```
 
 2. **Read the last successful report** and extract:
@@ -1083,7 +1083,7 @@ ls -t D:/repos/PianoidInstall/docs/development/diagnostic-reports/*.md 2>/dev/nu
 
 ```bash
 # For each repo, diff from last-passing commit to current HEAD
-cd D:/repos/PianoidInstall/PianoidCore
+cd PianoidCore
 git log --oneline <last_passing_commit>..HEAD
 git diff --stat <last_passing_commit>..HEAD
 ```
