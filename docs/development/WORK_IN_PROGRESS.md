@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-mass-rename | Rename `mass`→`mass_inv` across Python/UI/docs (no kernel change, backward-compat) | [log](logs/dev-mass-rename-2026-04-30-115403.md) | 2026-04-30 |
 
 ---
 
