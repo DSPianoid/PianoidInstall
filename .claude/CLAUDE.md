@@ -102,7 +102,9 @@ When encountering import errors, missing modules, wrong Python interpreter, or a
 - `docs/architecture/BUILD_SYSTEM.md` — venv location (`PianoidCore/.venv/`), build pipeline, toolchain setup
 - `docs/development/TESTING.md` — correct Python invocation (`cd PianoidCore && .venv/Scripts/python`)
 
-The working venv with all packages (numpy, pianoidCuda, etc.) is always `PianoidCore/.venv/`, **not** the root `.venv/`.
+The working venv with all packages (numpy, pianoidCuda, etc.) is always `PianoidCore/.venv/`, **not** the root `.venv/`. Any other venv that appears in the workspace is legacy and must be deleted, never consulted.
+
+**Cross-venv binary fetching is forbidden.** If `pianoidCuda` or `pianoidCuda_debug.cp312-win_amd64.pyd` is missing from `PianoidCore/.venv/Lib/site-packages/`, the ONLY acceptable response is to rebuild via `build_pianoid_cuda.bat --heavy --release` (or `--both`). Do NOT copy `.pyd` / `.dll` / wheel files from any other venv into `PianoidCore/.venv/` as a workaround. Cross-fetched binaries are silently stale at the C++ API level and produce attribute-lookup errors at runtime (e.g. `'pianoidCuda_debug.Pianoid' object has no attribute 'runSynthesisKernel'`).
 
 ### Build Commands (Quick Reference)
 

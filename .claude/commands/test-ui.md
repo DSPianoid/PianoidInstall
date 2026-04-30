@@ -32,6 +32,7 @@ A stale binary or stale server makes every measurement in this skill a lie. 2026
 - **Before starting backend/frontend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
 - **Pre-start hygiene** — kill stale `.pyd` holders (`tasklist //M pianoidCuda.cp312-win_amd64.pyd`) and stale backends on ports 3000/3001/5000/5001. Phase 1 already does port cleanup — do NOT skip.
 - **If this test requires a rebuild first** — use `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Never `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently returns stale `.pyd`).
+- **Canonical venv only.** The project's only venv is `PianoidCore/.venv/`. If `pianoidCuda.cp312-win_amd64.pyd` or `pianoidCuda_debug.cp312-win_amd64.pyd` is MISSING from `PianoidCore/.venv/Lib/site-packages/`, **rebuild via `build_pianoid_cuda.bat`** — do NOT copy or fetch the file from any other venv (e.g. a stray root `.venv/`). Cross-venv binaries are silently stale at the C++ API level and produce runtime AttributeError. (2026-04-30 incident: 20-day-old debug pyd cross-fetched from root venv → `'pianoidCuda_debug.Pianoid' object has no attribute 'runSynthesisKernel'`.)
 - **Verify rebuild landed** before measuring: `grep -a "<marker-you-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. Missing marker = stale binary = every "AFTER" number is garbage.
 - **On unexpected server/build failure** — invoke `/startup` rather than burning phases on ad-hoc fixes.
 
