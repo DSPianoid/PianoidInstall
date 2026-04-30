@@ -425,17 +425,30 @@ Classify and dispatch:
 
 2. **Never edit code or read source files in the orchestrator.** The orchestrator is a dispatcher. The moment you start reading source code or editing files, you are doing it wrong. Spawn a sub-agent instead.
 
-3. **ALWAYS spawn agents via Agent Teams (TeamCreate + Agent with team_name).** NEVER use the basic Agent tool without a team. Teams keep agents alive so the orchestrator can send follow-ups via SendMessage. The basic Agent tool kills agents on return — their context is lost forever.
+3. **Use Agent Teams when SendMessage continuation across rounds is genuinely needed; use non-team `Agent(prompt=...)` for one-shot research and bounded tasks.** Non-team agents return their result reliably as a tool result — the orchestrator sees their full report. Team agents stay alive for follow-ups but their messages flow through the team-lead inbox, which has known silent-delivery failure modes (see warning below).
 
-   **Setup:** On orchestrator start, create a team if one doesn't exist:
+   **Decision rule:**
+   - One-shot research, doc lookup, single explore — `Agent(prompt=..., run_in_background: true)` (no team)
+   - Multi-round /dev work where you'll iterate via "fix this additional bug", "adjust X" — Agent Teams
+   - When in doubt for /dev: prefer teams, but be ready to fall back to non-team if SendMessage delivery is unreliable
+
+   **Team setup:** On orchestrator start, create a team if one doesn't exist:
    ```
    TeamCreate({ team_name: "pianoid-dev", description: "Pianoid development team" })
    ```
-   Then spawn all agents with `team_name: "pianoid-dev"` and a `name`:
+   Then spawn team agents with `team_name: "pianoid-dev"` and a `name`:
    ```
    Agent({ team_name: "pianoid-dev", name: "dev-calibration", prompt: "...", run_in_background: true })
    ```
    Follow-ups go via: `SendMessage({ to: "dev-calibration", message: "Fix this additional issue: ..." })`
+
+   **WARNING — Team agent inbox silent-delivery failure mode.** A team agent's `SendMessage` to `team-lead` (the orchestrator) can queue silently in the team-lead inbox file without ever surfacing in the orchestrator's conversation as a tool result or notification. This has caused hours of misdiagnosis as "agent stalled" when the agent actually finished and reported, but the message never arrived.
+
+   **Before declaring a team agent stalled, READ the team-lead inbox file directly:**
+   ```bash
+   python -c "import json,os; p=os.path.expanduser('~/.claude/teams/<team-name>/inboxes/team-lead.json'); print(json.load(open(p)) if os.path.exists(p) else 'no inbox file')"
+   ```
+   If the inbox contains messages from the agent, treat them as authoritative — the agent is alive and reporting; only delivery is broken. For single-shot research where this risk matters more than continuation, use non-team `Agent(prompt=...)` — its return value comes through reliably.
 
 4. **Scope agents broadly, not narrowly.** An agent for "fix bug X in module Y" should be scoped as "fix and debug module Y until user approves." The agent will handle the initial bug, follow-up bugs, UI testing, and iterations — all in one session with full context. Never spawn a new agent for a follow-up bug in the same module.
 
@@ -707,6 +720,14 @@ On startup (Step 1.5) and periodically: scan `docs/development/logs/` for logs t
 2. Report to user via any working channel
 3. Attempt reconnection (see Step 1)
 
+### MCP server stdio drift (long sessions)
+
+Long-running orchestrator sessions can lose the stdio pipe to MCP servers spawned via `npx -y X@latest` (chrome-devtools, context7, google-drive). Symptom: tool calls to those MCPs start failing or hanging mid-session even though Telegram and the Bash sandbox are still healthy. The servers do NOT auto-reconnect.
+
+**Recovery:** instruct the user via Telegram to reload VS Code (orchestrator must be restarted afterward). The MCP server processes respawn fresh on reload.
+
+**Mitigation (one-time, suggest to user):** pin specific versions in `~/.claude.json` `mcpServers` entries (e.g. `npx -y chrome-devtools-mcp@1.4.7` instead of `@latest`). With `@latest`, an `npx` re-resolve mid-session can pull a different binary and break the pipe; pinned versions remove that variable.
+
 ---
 
 ## Session Lifecycle
@@ -759,7 +780,8 @@ The orchestrator is a **dispatcher and communicator**, not a worker.
 | Suggesting "try X and let me know" for any testable behavior | Test it yourself via sub-agent. The orchestrator has full access to browser, REST, and CLI |
 | Spawning narrow single-bug agents for a module under active debugging | Scope agents broadly: "fix and debug this module until user approves." The agent stays alive for follow-up bugs, UI testing, and iteration. SendMessage is NOT available — once an agent returns, its context is lost forever. Design prompts accordingly. |
 | Not verifying agent created session log + acquired locks | The controller agent handles this. If no controller, check within ~2 min that docs/development/logs/dev-*.md exists and MODULE_LOCKS.md has the agent's entry. Kill and respawn if not. SEVERE VIOLATION. |
-| Spawning agents via basic Agent tool (no team) | ALWAYS use Agent Teams (team_name parameter). Basic Agent kills agents on return — context lost forever. |
+| Spawning team agents for one-shot research (e.g. doc lookup, single explore) | Use non-team `Agent(prompt=..., run_in_background: true)` for one-shot work — its return value comes through reliably as a tool result. Reserve team agents for multi-round /dev iteration. |
+| Declaring a team agent stalled without checking team-lead inbox | READ `~/.claude/teams/<team>/inboxes/team-lead.json` first. Team-lead inbox can hold messages that never surface in conversation — silent-delivery is a known failure mode. |
 | Spawning a new agent for a follow-up in the same module | Use SendMessage to the existing team agent — it has the context. Only spawn new if the agent is genuinely dead. |
 | Relying on servers already running | Always kill stale and start fresh with correct venv Python |
 | Checking agent status via output file size | Read the agent's session log in docs/development/logs/ — it's the authoritative record |

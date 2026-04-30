@@ -106,6 +106,8 @@ The working venv with all packages (numpy, pianoidCuda, etc.) is always `Pianoid
 
 **Cross-venv binary fetching is forbidden.** If `pianoidCuda` or `pianoidCuda_debug.cp312-win_amd64.pyd` is missing from `PianoidCore/.venv/Lib/site-packages/`, the ONLY acceptable response is to rebuild via `build_pianoid_cuda.bat --heavy --release` (or `--both`). Do NOT copy `.pyd` / `.dll` / wheel files from any other venv into `PianoidCore/.venv/` as a workaround. Cross-fetched binaries are silently stale at the C++ API level and produce attribute-lookup errors at runtime (e.g. `'pianoidCuda_debug.Pianoid' object has no attribute 'runSynthesisKernel'`).
 
+**MCP server stdio fragility (long sessions).** `~/.claude.json` `mcpServers` entries that use `npx -y X@latest` (chrome-devtools, context7, google-drive) can lose their stdio pipe mid-session in long-running orchestrator runs and do NOT auto-reconnect. Symptom: those MCP tool calls start failing or hanging while Telegram and Bash stay healthy. The only recovery is a VS Code reload (orchestrator must then be restarted). To reduce surprise reloads, pin specific versions in `~/.claude.json` (e.g. `npx -y chrome-devtools-mcp@1.4.7`) instead of `@latest` -- `@latest` lets `npx` re-resolve to a different binary mid-session and break the pipe.
+
 ### Build Commands (Quick Reference)
 
 **Before ANY build:** check for locked `.pyd`/`.dll` files. A locked file causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks everything.
