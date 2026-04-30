@@ -161,31 +161,53 @@ folded into the coefficient by `parameterKernel` at kernel entry).
 ### Physical model
 
 Each of the `numModes` (up to 256) soundboard resonance modes is a damped harmonic
-oscillator driven by the aggregated bridge force from all strings. Per mode `n`:
+oscillator driven by the aggregated bridge force from all strings. The kernel implements
+the form
 
 ```
-q̈_n + 2 γ_n q̇_n + ω_n² q_n = F_applied(n) / m_n
+q̈_n + 2 γ_n q̇_n + ω_n² q_n = mass_inv_n · F_applied(n)
 ```
+
+where `mass_inv_n` is the inverse-mass coefficient stored per mode. In the textbook ODE
+`q̈ + 2γq̇ + ω²q = F/m`, `mass_inv` corresponds to `1/m`. The Python attribute that owns
+this number is named `Mode.mass_inv` (renamed 2026-04-30 from `Mode.mass`). The numerical
+value is unchanged from the pre-rename code; only the identifier was clarified to match
+the kernel's actual usage. See `MODE_PHYSICS.md` (this directory) for the full rename
+note and the calibration history that drives stiffness/damping derivation.
 
 | Symbol | Meaning | Stored field |
 |--------|---------|--------------|
 | `q_n` | Modal displacement (scalar) | `s_mode` / `mode_1` |
-| `ω_n` | Angular frequency | `mode_omega` (precomputed) |
-| `γ_n` | Modal damping | `mode_dec` (precomputed) |
-| `m_n` | Modal mass | `mode_mass_inv = 1/m_n` (precomputed) |
+| `ω_n` | Angular frequency coefficient | `mode_omega` (precomputed) |
+| `γ_n` | Modal damping coefficient | `mode_dec` (precomputed) |
+| `mass_inv_n` | Inverse-mass coefficient (1/m) | `mode_mass_inv` (precomputed; Python: `Mode.mass_inv`) |
 | `F_applied(n)` | Summed bridge force from strings to mode n | reduced from `feedin_cycle_matrix` |
 
 ### Discrete update
 
-Per-mode state is stored as five rows in `dev_mode_state`:
+The mode's **persistent state** is split between two GPU buffers (split since the
+preset-double-buffer refactor; the 5-row layout the legacy doc described no longer
+exists):
+
+- `dev_mode_running` — running scalars `(q, q_prev)`, written every audio sample by the
+  kernel and zeroed by `resetModeRunningState()`. Layout: `[q × N] [q_prev × N]`
+  (2 × N reals, where N is `init_params_.num_modes`, max 256).
+- `dev_mode_state` — TUNABLE config triple `(dec, omega, mass_inv)`, set via
+  `setNewModeParameters` / `updateModeParameters_GRANULAR`, never written by the kernel.
+  Layout: `[dec × N] [omega × N] [mass_inv × N]` (3 × N reals).
 
 ```
-mode_state[0 * numModes + modeNo]  — current displacement  s_mode
-mode_state[1 * numModes + modeNo]  — previous displacement mode_1
-mode_state[2 * numModes + modeNo]  — decrement coefficient mode_dec
-mode_state[3 * numModes + modeNo]  — omega coefficient     mode_omega
-mode_state[4 * numModes + modeNo]  — inverse mass          mode_mass_inv
+dev_mode_running[0 * N + modeNo]  — current displacement   s_mode (q)
+dev_mode_running[1 * N + modeNo]  — previous displacement  mode_1 (q_prev)
+
+dev_mode_state[0 * N + modeNo]    — decrement coefficient  mode_dec
+dev_mode_state[1 * N + modeNo]    — omega coefficient      mode_omega
+dev_mode_state[2 * N + modeNo]    — inverse-mass coefficient mode_mass_inv
 ```
+
+`getModeDisplacements()` (C++ method exposed via pybind) D2H-copies both buffers into a
+single flat list of `5*N` reals laid out as
+`[q × N] [q_prev × N] [dec × N] [omega × N] [mass_inv × N]`.
 
 Update equation (runs once per audio sample, inside the outer iteration of `addKernel`):
 

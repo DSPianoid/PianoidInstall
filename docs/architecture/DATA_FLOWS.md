@@ -400,19 +400,25 @@ parameter_manager.update_parameter(param='mode')
                (only the affected mode is fitted)
       2. With cuda_lock:
          pianoid_cpp.updateModeParameters_GRANULAR(
-             [5], [dec], [omega], [mass])
-           ├── readTunableBuffer("dev_mode_state")  // read 1280 reals from GPU
-           │   (preserves running state/state_1 from GPU, not Python)
-           ├── write dec/omega/mass at offsets [2N+i, 3N+i, 4N+i]
+             [5], [dec], [omega], [mass_inv])
+           ├── readTunableBuffer("dev_mode_state")  // read 3·N reals from GPU
+           │   (config-only; running q/q_prev live in dev_mode_running, not touched)
+           ├── write dec/omega/mass_inv at offsets [i, N+i, 2N+i]
            └── updateTunableParameter("dev_mode_state", full_buffer)
                └── double-buffer swap (async)
 
 Batch path (used by play_mode, init):
   send_mode_params_to_CUDA(updated_modes={...})
-    ├── modes.pack_modes() → mode_state (1280 reals, ~5 KB)
+    ├── modes.pack_modes() → mode_state (3·N reals: [dec×N][omega×N][mass_inv×N])
     └── pianoid_cpp.setNewModeParameters(mode_state)
         └── updateTunableParameter("dev_mode_state", data)
 ```
+
+The `mass_inv` row carries the inverse-mass coefficient (`1/m`) the kernel
+multiplies into the modal forcing term. See
+[MODE_PHYSICS.md](../modules/pianoid-cuda/MODE_PHYSICS.md) for the 2026-04-30
+rename note (Python attribute was previously named `Mode.mass`; numerical
+value is unchanged).
 
 ### 2.4 Deck (Feedin/Feedback) Matrices
 
@@ -573,6 +579,8 @@ backendserver.py: save_preset_route()              (line 288)
      └── model_parameters: mp.pack()
   2. modes.pack_modes_for_preset()                  // Mode.py:336
      └── For each mode: { ID, frequency, decrement } or { ID, mass, stiffness, damping }
+        (NB: preset key remains "mass" for backward compatibility; the value
+         is the inverse-mass coefficient — see MODE_PHYSICS.md)
   3. If listen_to_modes: add mode_sound_channels section
   4. json.dump(preset, file)
   Note: reads Python model state only, NOT GPU memory

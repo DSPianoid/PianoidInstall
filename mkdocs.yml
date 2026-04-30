@@ -33,6 +33,7 @@ nav:
   - CUDA Engine:
     - Overview: modules/pianoid-cuda/OVERVIEW.md
     - Synthesis Engine: modules/pianoid-cuda/SYNTHESIS_ENGINE.md
+    - Mode Physics & Naming: modules/pianoid-cuda/MODE_PHYSICS.md
     - Playback System: modules/pianoid-cuda/PLAYBACK_SYSTEM.md
     - Memory Management: modules/pianoid-cuda/MEMORY_MANAGEMENT.md
     - Audio Drivers: modules/pianoid-cuda/AUDIO_DRIVERS.md
