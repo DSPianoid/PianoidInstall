@@ -15,9 +15,9 @@ A `/analyse` audit of mode parameter handling produced a 4-pillar report (math/p
 
 | Session | Scope | Status |
 |---|---|---|
-| S1 | Bug fixes + doc rot — `/set_mode_parameters` side-effect, `PanoidResult.get_record` axis hardening, DATA_FLOWS / DEBUG_DATA / REST_API / chart_config refresh | **Done** — `8305614` (PianoidCore) + this commit (PianoidInstall) |
-| S2 | `play_mode` becomes a pure mode-excitation trigger; all captured data flows out via `PianoidResult` accessors (mode state record / synth audio / mic audio). Collapse `play_mode_chart_function` + `pure_mode_test_function` into a single chart that builds on `play_mode + PianoidResult` | Pending |
-| S3 | UI/parameter mass/stiffness handling — disable stiffness input; recompute rule (frequency edit → stiffness, keep mass; mass edit → stiffness, keep frequency); decrement editable, damping derived; reconcile GET/SET schemas | Pending |
+| S1 | Bug fixes + doc rot — `/set_mode_parameters` side-effect, `PanoidResult.get_record` axis hardening, DATA_FLOWS / DEBUG_DATA / REST_API / chart_config refresh | **Done** — `8305614` (PianoidCore) + `3ae58fd` (PianoidInstall) |
+| S2 | `play_mode` returns populated `PianoidResult`; new accessors `get_mode_state` / `get_synth_audio` / `get_mic_audio` / `set_mic_audio`; chart functions `play_mode_chart_function` + `pure_mode_test_function` collapsed into one `mode_test_function` with `view_mode` + `coupling` selectors | **Done** — `d48a08e` (PianoidCore) |
+| S3 | UI/parameter mass/stiffness handling — stiffness + damping rendered read-only in `Mode.jsx`; recompute rule enforced: frequency edit → stiffness, keep mass; mass edit → stiffness, keep frequency; decrement edit → damping; client-side optimistic recompute in `usePreset.js`; backend `parameter_manager` strips derived fields; `pack_for_interface('mode')` returns 5 values | **Done** — `5cc05ee` (PianoidBasic) + `8c8bd92` (PianoidCore) + `2656027` (PianoidTunner) |
 
 ### Deferred follow-ups
 
