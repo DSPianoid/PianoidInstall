@@ -196,7 +196,24 @@ unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --light --relea
 unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy --both"
 ```
 
-**Linux** — the equivalent shell wrapper is `PianoidCore/build_pianoid_cuda.sh` if it exists; otherwise the build is **not yet ported**. Run `/startup` to confirm and to bootstrap the Linux toolchain.
+**Linux** (parallel set, ported 2026-05-01):
+
+```bash
+# Full rebuild (C++/CUDA changes — release only)
+PianoidCore/build_pianoid_cuda.sh --heavy --release
+
+# Incremental (Python middleware only)
+PianoidCore/build_pianoid_cuda.sh --light --release
+
+# Both variants (release + debug) when the debug build is needed
+PianoidCore/build_pianoid_cuda.sh --heavy --both
+```
+
+Linux differences vs Windows: ASIO is excluded from the build (Windows-only),
+the produced extension is `pianoidCuda*.so` (not `.pyd`), CUDA libdir is
+`lib64` (not `lib/x64`), and the host compiler is g++ (not MSVC). See
+[`docs/guides/LINUX_BUILD.md`](../docs/guides/LINUX_BUILD.md) for the full
+walkthrough including system-package install.
 
 **If the Windows build exits with `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):** do NOT
 substitute a manual `pip install` — it silently reinstalls the stale `.pyd`. Follow the

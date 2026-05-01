@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 # detect_paths.py - environment autodiscovery for PianoidCore build
 # Pure stdlib, ASCII-only output. Python 3.8+
+# Supports Windows (MSVC + CUDA + SDL2/SDL3 + ASIO) and Linux (gcc + CUDA + SDL2/SDL3).
 import argparse
 import json
 import os
 import re
 import sys
 from pathlib import Path
+
+IS_WINDOWS = sys.platform.startswith("win")
+IS_LINUX = sys.platform.startswith("linux")
 
 
 # -------- helpers --------
@@ -101,14 +105,15 @@ def _find_msvc():
                             return {"msvc_cl": str(cl), "msvc_tools_root": str(Path(tools_root))}
         except Exception:
             pass
-    # Try well-known default
+    # Try well-known defaults — scan all editions (Community, Professional, Enterprise, BuildTools)
     pf = os.environ.get("ProgramFiles") or r"C:\Program Files"
-    base = Path(pf) / "Microsoft Visual Studio" / "2022" / "Community" / "VC" / "Tools" / "MSVC"
-    tools_root = _glob_latest(base, "*")
-    if tools_root:
-        cl = Path(tools_root) / "bin" / "Hostx64" / "x64" / "cl.exe"
-        if cl.exists():
-            return {"msvc_cl": str(cl), "msvc_tools_root": str(Path(tools_root))}
+    for edition in ("Community", "Professional", "Enterprise", "BuildTools"):
+        base = Path(pf) / "Microsoft Visual Studio" / "2022" / edition / "VC" / "Tools" / "MSVC"
+        tools_root = _glob_latest(base, "*")
+        if tools_root:
+            cl = Path(tools_root) / "bin" / "Hostx64" / "x64" / "cl.exe"
+            if cl.exists():
+                return {"msvc_cl": str(cl), "msvc_tools_root": str(Path(tools_root))}
     return {}
 
 
@@ -136,197 +141,29 @@ def _find_windows_sdk():
     return {}
 
 
-def _validate_cuda_home(path):
-    """Verify a CUDA home directory has nvcc.exe, include/, and lib/x64/."""
-    if not path:
-        return None
-    p = Path(path)
-    nvcc = p / "bin" / "nvcc.exe"
-    include = p / "include"
-    lib64 = p / "lib" / "x64"
+def _find_cuda(user_hint=None):
+    cand = None
+    if user_hint:
+        cand = user_hint
+    if not cand:
+        cand = os.environ.get("CUDA_PATH")
+    if not cand:
+        # scan default
+        pf = os.environ.get("ProgramFiles") or r"C:\Program Files"
+        cand = _glob_latest(Path(pf) / "NVIDIA GPU Computing Toolkit" / "CUDA", "v*")
+    if not cand:
+        return {}
+    cuda_home = Path(cand)
+    nvcc = cuda_home / "bin" / "nvcc.exe"
+    include = cuda_home / "include"
+    lib64 = cuda_home / "lib" / "x64"
     if nvcc.exists() and include.exists() and lib64.exists():
         return {
-            "cuda_home": str(p),
+            "cuda_home": str(cuda_home),
             "cuda_nvcc": str(nvcc),
             "cuda_include": str(include),
             "cuda_libdir": str(lib64),
         }
-    return None
-
-
-def _cuda_version_key(path):
-    """Extract a sortable version tuple from a CUDA path like .../v12.6 or .../CUDA/12.6."""
-    name = Path(path).name
-    m = re.match(r"v?(\d+)\.(\d+)", name)
-    if m:
-        return (int(m.group(1)), int(m.group(2)))
-    return (0, 0)
-
-
-def _best_cuda(candidates):
-    """From a list of candidate CUDA home dirs, pick the latest valid one."""
-    valid = []
-    for c in candidates:
-        info = _validate_cuda_home(c)
-        if info:
-            valid.append((c, info))
-    if not valid:
-        return None
-    # sort by version descending, pick latest
-    valid.sort(key=lambda x: _cuda_version_key(x[0]), reverse=True)
-    return valid[0][1]
-
-
-def _find_cuda(user_hint=None):
-    candidates = []
-
-    # Strategy 1: user-provided hint (--cuda flag)
-    if user_hint:
-        log("  [CUDA] Checking user hint: %s" % user_hint)
-        info = _validate_cuda_home(user_hint)
-        if info:
-            log("  [CUDA] Found via user hint: %s" % user_hint)
-            return info
-        log("  [CUDA] User hint invalid (nvcc.exe/include/lib missing)")
-
-    # Strategy 2: CUDA_PATH and CUDA_HOME environment variables
-    for var in ("CUDA_PATH", "CUDA_HOME"):
-        val = os.environ.get(var)
-        if val:
-            log("  [CUDA] Checking %s=%s" % (var, val))
-            candidates.append(val)
-
-    # Strategy 3: CUDA_PATH_V* environment variables (e.g. CUDA_PATH_V12_6)
-    cuda_path_vars = sorted(
-        [k for k in os.environ if re.match(r"^CUDA_PATH_V\d+", k)],
-        reverse=True
-    )
-    for var in cuda_path_vars:
-        val = os.environ.get(var)
-        if val:
-            log("  [CUDA] Checking %s=%s" % (var, val))
-            candidates.append(val)
-
-    # Return early if any env var candidate is valid (prefer CUDA_PATH/CUDA_HOME)
-    for c in candidates:
-        info = _validate_cuda_home(c)
-        if info:
-            log("  [CUDA] Found via environment variable: %s" % c)
-            return info
-
-    # Strategy 4: standard NVIDIA GPU Computing Toolkit location on all drives
-    log("  [CUDA] Scanning standard NVIDIA GPU Computing Toolkit locations...")
-    toolkit_candidates = []
-    pf = os.environ.get("ProgramFiles") or r"C:\Program Files"
-    toolkit_root = Path(pf) / "NVIDIA GPU Computing Toolkit" / "CUDA"
-    if toolkit_root.exists():
-        toolkit_candidates.extend(sorted(toolkit_root.glob("v*"), key=lambda p: p.name, reverse=True))
-    # Also scan other drive letters
-    try:
-        import string
-        for letter in string.ascii_uppercase:
-            drive_pf = Path("%s:\\Program Files" % letter)
-            alt_root = drive_pf / "NVIDIA GPU Computing Toolkit" / "CUDA"
-            if alt_root.exists() and str(alt_root) != str(toolkit_root):
-                toolkit_candidates.extend(sorted(alt_root.glob("v*"), key=lambda p: p.name, reverse=True))
-    except Exception:
-        pass
-    for tc in toolkit_candidates:
-        log("  [CUDA] Checking toolkit path: %s" % tc)
-    result = _best_cuda(toolkit_candidates)
-    if result:
-        log("  [CUDA] Found via standard toolkit location: %s" % result["cuda_home"])
-        return result
-
-    # Strategy 5: find nvcc.exe on PATH
-    log("  [CUDA] Searching for nvcc.exe on PATH...")
-    nvcc_path = which("nvcc")
-    if nvcc_path:
-        log("  [CUDA] Found nvcc on PATH: %s" % nvcc_path)
-        # nvcc is typically at <CUDA_HOME>/bin/nvcc.exe
-        cuda_home = Path(nvcc_path).parent.parent
-        info = _validate_cuda_home(cuda_home)
-        if info:
-            log("  [CUDA] Derived CUDA home from PATH: %s" % cuda_home)
-            return info
-
-    # Strategy 6: Windows registry
-    log("  [CUDA] Checking Windows registry...")
-    try:
-        import winreg
-        reg_key = r"SOFTWARE\NVIDIA Corporation\GPU Computing Toolkit\CUDA"
-        reg_candidates = []
-        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-            try:
-                with winreg.OpenKey(hive, reg_key) as key:
-                    i = 0
-                    while True:
-                        try:
-                            subkey_name = winreg.EnumKey(key, i)
-                            with winreg.OpenKey(key, subkey_name) as subkey:
-                                install_dir, _ = winreg.QueryValueEx(subkey, "InstallDir")
-                                if install_dir:
-                                    log("  [CUDA] Registry entry: %s -> %s" % (subkey_name, install_dir))
-                                    reg_candidates.append(install_dir)
-                            i += 1
-                        except OSError:
-                            break
-            except OSError:
-                pass
-        result = _best_cuda(reg_candidates)
-        if result:
-            log("  [CUDA] Found via Windows registry: %s" % result["cuda_home"])
-            return result
-    except ImportError:
-        log("  [CUDA] winreg not available (non-Windows)")
-
-    # Strategy 7: common alternative locations on all drives
-    log("  [CUDA] Scanning alternative locations...")
-    alt_patterns = [
-        ("CUDA", "v*"),
-        ("NVIDIA\\CUDA", "v*"),
-        ("Program Files\\NVIDIA\\CUDA", "v*"),
-    ]
-    alt_candidates = []
-    try:
-        import string
-        for letter in string.ascii_uppercase:
-            drive = "%s:\\" % letter
-            if not Path(drive).exists():
-                continue
-            for parent, pattern in alt_patterns:
-                search_root = Path(drive) / parent
-                if search_root.exists():
-                    found = sorted(search_root.glob(pattern), key=lambda p: p.name, reverse=True)
-                    for f in found:
-                        log("  [CUDA] Checking alternative: %s" % f)
-                        alt_candidates.append(f)
-    except Exception:
-        pass
-    result = _best_cuda(alt_candidates)
-    if result:
-        log("  [CUDA] Found via alternative location: %s" % result["cuda_home"])
-        return result
-
-    # Strategy 8: 'where nvcc' fallback (Windows-specific)
-    log("  [CUDA] Trying 'where nvcc' fallback...")
-    try:
-        import subprocess
-        out = subprocess.check_output(["where", "nvcc"], encoding="utf-8", errors="ignore",
-                                      stderr=subprocess.DEVNULL)
-        for line in out.strip().splitlines():
-            line = line.strip()
-            if line and Path(line).exists():
-                log("  [CUDA] 'where nvcc' found: %s" % line)
-                cuda_home = Path(line).parent.parent
-                info = _validate_cuda_home(cuda_home)
-                if info:
-                    log("  [CUDA] Derived CUDA home from 'where nvcc': %s" % cuda_home)
-                    return info
-    except Exception:
-        pass
-
-    log("  [CUDA] No valid CUDA installation found")
     return {}
 
 
@@ -342,46 +179,30 @@ def _find_sdl2(user_hint=None):
         if env and Path(env).exists():
             root = Path(env)
         else:
-            # Search in multiple common locations
+            # Scan common locations: system drive root, Program Files, home,
+            # and popular dev directories.
+            bases = []
             candidates = []
-
-            # 1. System drive root (C:\, D:\, etc.)
             sysdrive = os.environ.get("SystemDrive", "C:")
-            candidates.extend(Path(sysdrive + os.sep).glob("SDL2-*"))
-            candidates.append(Path(sysdrive + os.sep) / "SDL2")
-
-            # 2. C:\ drive explicitly (if different from SystemDrive)
-            if sysdrive.upper() != "C:":
-                candidates.extend(Path("C:\\").glob("SDL2-*"))
-                candidates.append(Path("C:\\") / "SDL2")
-
-            # 3. Program Files directories
-            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-            candidates.extend(Path(pf).glob("SDL2-*"))
-            candidates.append(Path(pf) / "SDL2")
-
-            pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-            if pf86 != pf:
-                candidates.extend(Path(pf86).glob("SDL2-*"))
-                candidates.append(Path(pf86) / "SDL2")
-
-            # 4. User's home directory
+            bases.append(Path(sysdrive + os.sep))
+            if sysdrive != "C:":
+                bases.append(Path("C:\\"))
+            pf = os.environ.get("ProgramFiles")
+            if pf:
+                bases.append(Path(pf))
             home = Path.home()
-            candidates.extend(home.glob("SDL2-*"))
-            candidates.append(home / "SDL2")
+            bases.append(home)
+            for dev_dir in ("dev", "Development", "libs", "Libraries", "SDK"):
+                bases.append(Path(sysdrive + os.sep) / dev_dir)
+                bases.append(home / dev_dir)
 
-            # 5. Common development directories
-            for dev_dir in ["dev", "Development", "libs", "Libraries", "SDK"]:
-                for base in [Path(sysdrive + os.sep), Path("C:\\"), home]:
-                    dev_path = base / dev_dir
-                    if dev_path.exists():
-                        candidates.extend(dev_path.glob("SDL2-*"))
-                        candidates.append(dev_path / "SDL2")
+            for base in bases:
+                if base.exists():
+                    candidates.extend(sorted(base.glob("SDL2-*"), key=lambda p: p.name, reverse=True))
+                    candidates.append(base / "SDL2")
 
-            # Find first existing candidate, prefer versioned directories
-            versioned = [p for p in candidates if p.exists() and p.name.startswith("SDL2-")]
-            unversioned = [p for p in candidates if p.exists() and p.name == "SDL2"]
-            root = next(iter(sorted(versioned, key=lambda p: p.name, reverse=True)), None) or next(iter(unversioned), None)
+            root = next((p for p in candidates if p.exists()), None)
+            root = Path(root) if root else None
     if not root:
         return {}
     inc = Path(root) / "include"
@@ -425,46 +246,30 @@ def _find_sdl3(user_hint=None):
         if env and Path(env).exists():
             root = Path(env)
         else:
-            # Search in multiple common locations
+            # Scan common locations: system drive root, Program Files, home,
+            # and popular dev directories.
+            bases = []
             candidates = []
-
-            # 1. System drive root (C:\, D:\, etc.)
             sysdrive = os.environ.get("SystemDrive", "C:")
-            candidates.extend(Path(sysdrive + os.sep).glob("SDL3-*"))
-            candidates.append(Path(sysdrive + os.sep) / "SDL3")
-
-            # 2. C:\ drive explicitly (if different from SystemDrive)
-            if sysdrive.upper() != "C:":
-                candidates.extend(Path("C:\\").glob("SDL3-*"))
-                candidates.append(Path("C:\\") / "SDL3")
-
-            # 3. Program Files directories
-            pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-            candidates.extend(Path(pf).glob("SDL3-*"))
-            candidates.append(Path(pf) / "SDL3")
-
-            pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-            if pf86 != pf:
-                candidates.extend(Path(pf86).glob("SDL3-*"))
-                candidates.append(Path(pf86) / "SDL3")
-
-            # 4. User's home directory
+            bases.append(Path(sysdrive + os.sep))
+            if sysdrive != "C:":
+                bases.append(Path("C:\\"))
+            pf = os.environ.get("ProgramFiles")
+            if pf:
+                bases.append(Path(pf))
             home = Path.home()
-            candidates.extend(home.glob("SDL3-*"))
-            candidates.append(home / "SDL3")
+            bases.append(home)
+            for dev_dir in ("dev", "Development", "libs", "Libraries", "SDK"):
+                bases.append(Path(sysdrive + os.sep) / dev_dir)
+                bases.append(home / dev_dir)
 
-            # 5. Common development directories
-            for dev_dir in ["dev", "Development", "libs", "Libraries", "SDK"]:
-                for base in [Path(sysdrive + os.sep), Path("C:\\"), home]:
-                    dev_path = base / dev_dir
-                    if dev_path.exists():
-                        candidates.extend(dev_path.glob("SDL3-*"))
-                        candidates.append(dev_path / "SDL3")
+            for base in bases:
+                if base.exists():
+                    candidates.extend(sorted(base.glob("SDL3-*"), key=lambda p: p.name, reverse=True))
+                    candidates.append(base / "SDL3")
 
-            # Find first existing candidate, prefer versioned directories
-            versioned = [p for p in candidates if p.exists() and p.name.startswith("SDL3-")]
-            unversioned = [p for p in candidates if p.exists() and p.name == "SDL3"]
-            root = next(iter(sorted(versioned, key=lambda p: p.name, reverse=True)), None) or next(iter(unversioned), None)
+            root = next((p for p in candidates if p.exists()), None)
+            root = Path(root) if root else None
     if not root:
         return {}
     inc = Path(root) / "include"
@@ -506,6 +311,181 @@ def _py_info():
     return {"python_include": str(py_inc), "python_libdir": str(libdir)}
 
 
+# -------- Linux helpers --------
+
+def _find_gcc_linux():
+    """Locate g++ on Linux. Required for nvcc -ccbin."""
+    cxx = which("g++")
+    if cxx:
+        return {"gxx": str(cxx)}
+    # try clang++ as fallback
+    clx = which("clang++")
+    if clx:
+        return {"gxx": str(clx)}
+    return {}
+
+
+def _find_cuda_linux(user_hint=None):
+    """Locate CUDA toolkit on Linux."""
+    cand = None
+    if user_hint:
+        cand = user_hint
+    if not cand:
+        cand = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+    if not cand:
+        # Try `nvcc` on PATH and walk up two levels (bin/nvcc)
+        nvcc = which("nvcc")
+        if nvcc:
+            cand = str(Path(nvcc).resolve().parent.parent)
+    if not cand:
+        # Scan default locations (/usr/local/cuda*, /opt/cuda*).
+        for base in ("/usr/local", "/opt"):
+            cand = _glob_latest(Path(base), "cuda*")
+            if cand:
+                break
+    if not cand:
+        return {}
+    cuda_home = Path(cand)
+    nvcc = cuda_home / "bin" / "nvcc"
+    include = cuda_home / "include"
+    # Linux uses lib64 (CUDA 11+) or lib (older)
+    lib64 = cuda_home / "lib64"
+    if not lib64.exists():
+        lib64 = cuda_home / "lib"
+    if nvcc.exists() and include.exists() and lib64.exists():
+        return {
+            "cuda_home": str(cuda_home),
+            "cuda_nvcc": str(nvcc),
+            "cuda_include": str(include),
+            "cuda_libdir": str(lib64),
+        }
+    return {}
+
+
+def _pkg_config(pkg):
+    """Query pkg-config for cflags/libs of the package. Returns None if pkg-config or pkg not found."""
+    pcb = which("pkg-config")
+    if not pcb:
+        return None
+    import subprocess
+    try:
+        rc = subprocess.run([pcb, "--exists", pkg], capture_output=True)
+        if rc.returncode != 0:
+            return None
+        cflags = subprocess.check_output([pcb, "--cflags", pkg], encoding="utf-8", errors="ignore").strip()
+        libs = subprocess.check_output([pcb, "--libs", pkg], encoding="utf-8", errors="ignore").strip()
+        prefix = subprocess.check_output([pcb, "--variable=prefix", pkg], encoding="utf-8", errors="ignore").strip()
+        # Parse -I and -L flags
+        includes = [tok[2:] for tok in cflags.split() if tok.startswith("-I")]
+        libdirs = [tok[2:] for tok in libs.split() if tok.startswith("-L")]
+        return {"prefix": prefix, "includes": includes, "libdirs": libdirs}
+    except Exception:
+        return None
+
+
+def _find_sdl_linux(version, user_hint=None):
+    """Locate SDL2 or SDL3 on Linux. version is 2 or 3."""
+    pkg = "sdl2" if version == 2 else "sdl3"
+    inc_subdir = "SDL2" if version == 2 else "SDL3"
+    so_pattern = "libSDL{}.so*".format(version)
+    env_var = "SDL{}_DIR".format(version)
+
+    # 1. user hint (root path) -> root/include/SDLn, root/lib
+    root = None
+    if user_hint:
+        root = Path(user_hint)
+        if not root.exists():
+            return {}
+    elif os.environ.get(env_var):
+        cand = Path(os.environ[env_var])
+        if cand.exists():
+            root = cand
+
+    if root:
+        inc = root / "include"
+        inc2 = inc / inc_subdir
+        # lib could be lib64, lib, or lib/x86_64-linux-gnu
+        libdir = None
+        for cand_lib in ("lib64", "lib", "lib/x86_64-linux-gnu"):
+            p = root / cand_lib
+            if p.exists() and any(p.glob(so_pattern)):
+                libdir = p
+                break
+        return {
+            "sdl{}_root".format(version): str(root),
+            "sdl{}_include".format(version): str(inc) if inc.exists() else "",
+            "sdl{}_include_subdir".format(version): str(inc2) if inc2.exists() else "",
+            "sdl{}_libdir".format(version): str(libdir) if libdir else "",
+            "sdl{}_dll".format(version): "",  # No DLL on Linux; runtime loader uses .so
+        }
+
+    # 2. pkg-config
+    pc = _pkg_config(pkg)
+    if pc:
+        prefix = pc["prefix"]
+        includes = pc["includes"]
+        libdirs = pc["libdirs"]
+        sdl_inc = ""
+        sdl_inc2 = ""
+        for inc in includes:
+            if inc.endswith("/" + inc_subdir):
+                sdl_inc2 = inc
+                # include parent
+                sdl_inc = str(Path(inc).parent)
+            elif not sdl_inc:
+                sdl_inc = inc
+        if not sdl_inc and prefix:
+            sdl_inc = str(Path(prefix) / "include")
+        if not sdl_inc2 and sdl_inc and Path(sdl_inc, inc_subdir).exists():
+            sdl_inc2 = str(Path(sdl_inc, inc_subdir))
+        sdl_libdir = libdirs[0] if libdirs else ""
+        if not sdl_libdir and prefix:
+            for cand_lib in ("lib64", "lib", "lib/x86_64-linux-gnu"):
+                p = Path(prefix) / cand_lib
+                if p.exists() and any(p.glob(so_pattern)):
+                    sdl_libdir = str(p)
+                    break
+        return {
+            "sdl{}_root".format(version): prefix or sdl_inc or "",
+            "sdl{}_include".format(version): sdl_inc,
+            "sdl{}_include_subdir".format(version): sdl_inc2,
+            "sdl{}_libdir".format(version): sdl_libdir,
+            "sdl{}_dll".format(version): "",
+        }
+
+    # 3. Distro defaults (Debian/Ubuntu, Fedora, Arch)
+    common_inc_roots = ["/usr/include", "/usr/local/include"]
+    common_lib_roots = [
+        "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib64",
+        "/usr/lib",
+        "/usr/local/lib",
+    ]
+    sdl_inc2 = ""
+    for ir in common_inc_roots:
+        cand = Path(ir) / inc_subdir
+        if cand.exists() and (cand / "SDL.h").exists():
+            sdl_inc2 = str(cand)
+            sdl_inc = ir
+            break
+        # SDL3 uses SDL3/SDL.h convention too
+    if not sdl_inc2:
+        return {}
+    sdl_libdir = ""
+    for lr in common_lib_roots:
+        p = Path(lr)
+        if p.exists() and any(p.glob(so_pattern)):
+            sdl_libdir = str(p)
+            break
+    return {
+        "sdl{}_root".format(version): str(Path(sdl_inc).parent),
+        "sdl{}_include".format(version): sdl_inc,
+        "sdl{}_include_subdir".format(version): sdl_inc2,
+        "sdl{}_libdir".format(version): sdl_libdir,
+        "sdl{}_dll".format(version): "",
+    }
+
+
 def _find_pybind11():
     try:
         import pybind11  # type: ignore
@@ -534,15 +514,32 @@ def _default_arches():
 
 
 def build_config(args):
-    cfg = {}
-    # collect raw data
-    msvc_info = _find_msvc()
-    winsdk_info = _find_windows_sdk()
-    cuda_info = _find_cuda(args.cuda)
-    sdl2_info = _find_sdl2(args.sdl2)
-    sdl3_info = _find_sdl3(getattr(args, 'sdl3', None))
+    # collect raw data — branch by host platform
     py_info = _py_info()
     pybind_info = _find_pybind11()
+
+    if IS_WINDOWS:
+        msvc_info = _find_msvc()
+        winsdk_info = _find_windows_sdk()
+        cuda_info = _find_cuda(args.cuda)
+        sdl2_info = _find_sdl2(args.sdl2)
+        sdl3_info = _find_sdl3(getattr(args, "sdl3", None))
+        gcc_info = {}
+    elif IS_LINUX:
+        msvc_info = {}
+        winsdk_info = {}
+        gcc_info = _find_gcc_linux()
+        cuda_info = _find_cuda_linux(args.cuda)
+        sdl2_info = _find_sdl_linux(2, args.sdl2)
+        sdl3_info = _find_sdl_linux(3, getattr(args, "sdl3", None))
+    else:
+        # Unsupported (macOS, etc.) — fall through with empty info; validate() will report.
+        msvc_info = {}
+        winsdk_info = {}
+        gcc_info = {}
+        cuda_info = {}
+        sdl2_info = {}
+        sdl3_info = {}
 
     # Determine which SDL drivers are available
     sdl2_available = bool(sdl2_info.get("sdl2_root"))
@@ -551,18 +548,24 @@ def build_config(args):
     # Default to SDL3 if available, otherwise SDL2
     default_driver = "SDL3" if sdl3_available else ("SDL2" if sdl2_available else "")
 
+    platform_tag = "windows" if IS_WINDOWS else ("linux" if IS_LINUX else sys.platform)
+
     # Structure the config to match what setup.py expects
     cfg = {
+        # Legacy nested "windows" block kept for back-compat with older setup.py
+        # readers; setup.py now also reads from the flat keys below and skips
+        # this block on non-Windows builds.
         "windows": {
-            "cuda_home": cuda_info.get("cuda_home", ""),
+            "cuda_home": cuda_info.get("cuda_home", "") if IS_WINDOWS else "",
             "visual_studio": {
                 "vc_tools_bin_hostx64_x64": str(Path(msvc_info.get("msvc_cl", "")).parent) if msvc_info.get(
                     "msvc_cl") else ""
             },
             "sdl2": {
-                "base_path": sdl2_info.get("sdl2_root", "")
+                "base_path": sdl2_info.get("sdl2_root", "") if IS_WINDOWS else ""
             }
         },
+        "platform": platform_tag,
         "cuda_arch_list": _default_arches(),
         "project_root": str(Path(args.project_root).resolve()) if args.project_root else str(Path.cwd().resolve()),
 
@@ -587,8 +590,11 @@ def build_config(args):
         "msvc_cl": msvc_info.get("msvc_cl", ""),
         "msvc_tools_root": msvc_info.get("msvc_tools_root", ""),
         "winsdk_root": winsdk_info.get("winsdk_root", ""),
+        "gxx": gcc_info.get("gxx", ""),
         "cuda_home": cuda_info.get("cuda_home", ""),
         "cuda_nvcc": cuda_info.get("cuda_nvcc", ""),
+        "cuda_include": cuda_info.get("cuda_include", ""),
+        "cuda_libdir": cuda_info.get("cuda_libdir", ""),
         "sdl2_root": sdl2_info.get("sdl2_root", ""),
         "sdl3_root": sdl3_info.get("sdl3_root", ""),
         "python_include": py_info.get("python_include", ""),
@@ -634,28 +640,47 @@ def build_config(args):
     cfg["include_dirs"] = includes
     cfg["library_dirs"] = libdirs
 
-    # Set libraries based on default driver
+    # Set libraries based on default driver and platform
     libs = []
     if default_driver == "SDL2":
         libs.append("SDL2")
     elif default_driver == "SDL3":
         libs.append("SDL3")
-    libs.extend(["cudart", "winmm", "ole32", "advapi32"])
+    libs.append("cudart")
+    if IS_WINDOWS:
+        # Windows-specific runtime libs (winmm = MIDI, ole32/advapi32 = COM/ASIO)
+        libs.extend(["winmm", "ole32", "advapi32"])
+    elif IS_LINUX:
+        # POSIX threads + dl for dynamic loading + math for SDL/audio
+        libs.extend(["pthread", "dl", "m"])
     cfg["libraries"] = libs
 
     return cfg
 
 
 def validate(cfg):
-    req = [
-        "msvc_cl",
-        "msvc_tools_root",
-        "winsdk_root",
-        "cuda_home",
-        "cuda_nvcc",
-        "python_include",
-        "python_libdir",
-    ]
+    if IS_WINDOWS:
+        req = [
+            "msvc_cl",
+            "msvc_tools_root",
+            "winsdk_root",
+            "cuda_home",
+            "cuda_nvcc",
+            "python_include",
+            "python_libdir",
+        ]
+    elif IS_LINUX:
+        req = [
+            "gxx",
+            "cuda_home",
+            "cuda_nvcc",
+            "cuda_include",
+            "cuda_libdir",
+            "python_include",
+        ]
+    else:
+        req = ["cuda_home", "cuda_nvcc", "python_include"]
+
     missing = [k for k in req if not cfg.get(k)]
 
     # Require at least one SDL version
@@ -666,18 +691,19 @@ def validate(cfg):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Detect build toolchain for PianoidCore (Windows).")
+    ap = argparse.ArgumentParser(description="Detect build toolchain for PianoidCore (Windows + Linux).")
     ap.add_argument("--out", default="build_config.json", help="Output JSON path (default: build_config.json)")
     ap.add_argument("--cuda", default=None,
-                    help="Hint for CUDA root, e.g. C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x")
-    ap.add_argument("--sdl2", default=None, help="Hint for SDL2 root, e.g. C:\\SDL2-2.30.0")
-    ap.add_argument("--sdl3", default=None, help="Hint for SDL3 root, e.g. C:\\SDL3-3.1.6")
+                    help="Hint for CUDA root (e.g. C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.x or /usr/local/cuda)")
+    ap.add_argument("--sdl2", default=None, help="Hint for SDL2 root")
+    ap.add_argument("--sdl3", default=None, help="Hint for SDL3 root")
     ap.add_argument("--project-root", default=None, help="Root of the project (default: cwd)")
     ap.add_argument("--quiet", action="store_true", help="Print only the summary line")
     args = ap.parse_args()
 
     if not args.quiet:
         log("=== PianoidCore System Configuration Detection ===")
+        log("Platform: %s" % sys.platform)
         log("Checking Python environment...")
         log("  Python version: %s" % sys.version.split()[0])
         log("  Virtual environment: %s" % ("Yes" if sys.prefix != sys.base_prefix else "No"))
@@ -689,14 +715,38 @@ def main():
     if missing:
         if not args.quiet:
             log("")
-            log("Missing required components:")
+            log("ERROR: Missing required components:")
             for k in missing:
                 log("  - %s" % k)
             log("")
+            log("Components found:")
+            if IS_WINDOWS:
+                log("  MSVC cl.exe:  %s" % (cfg.get("msvc_cl") or "NOT FOUND"))
+                log("  WinSDK root:  %s" % (cfg.get("winsdk_root") or "NOT FOUND"))
+            elif IS_LINUX:
+                log("  g++:          %s" % (cfg.get("gxx") or "NOT FOUND"))
+            log("  CUDA home:    %s" % (cfg.get("cuda_home") or "NOT FOUND"))
+            log("  CUDA nvcc:    %s" % (cfg.get("cuda_nvcc") or "NOT FOUND"))
+            log("  SDL2 root:    %s" % (cfg.get("sdl2_root") or "NOT FOUND"))
+            log("  SDL3 root:    %s" % (cfg.get("sdl3_root") or "NOT FOUND"))
+            log("  Python inc:   %s" % (cfg.get("python_include") or "NOT FOUND"))
+            log("")
             log("HINTS")
-            log("  Use flags to provide hints, for example:")
-            log("    python detect_paths.py --cuda \"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\"")
-            log("    python detect_paths.py --sdl2 \"C:\\SDL2-2.30.0\"")
+            if IS_WINDOWS:
+                log("  Use flags to provide hints, for example:")
+                log("    python detect_paths.py --cuda \"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.9\"")
+                log("    python detect_paths.py --sdl2 \"C:\\SDL2-2.30.0\"")
+                log("    python detect_paths.py --sdl3 \"C:\\SDL3-3.2.0\"")
+                log("  Or set environment variables: CUDA_PATH, SDL2_DIR, SDL3_DIR, VCToolsInstallDir")
+            elif IS_LINUX:
+                log("  Install missing packages, for example:")
+                log("    sudo apt install build-essential nvidia-cuda-toolkit libsdl3-dev libsdl2-dev")
+                log("  Or pass hints:")
+                log("    python detect_paths.py --cuda /usr/local/cuda --sdl3 /usr/local")
+                log("  Or set environment variables: CUDA_HOME, SDL3_DIR, SDL2_DIR")
+        else:
+            # Even in quiet mode, print error details so build.log captures them
+            log("ERROR: Missing: %s" % ", ".join(missing))
         # do not write output on failure
         return 2
 
