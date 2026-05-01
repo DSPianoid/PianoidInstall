@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-sdl3-88fa | SDL2 → SDL3 migration of RoomResponse sdl_audio_core (Wave 1+2) | [log](logs/dev-sdl3-88fa-2026-05-01-121758.md) | 2026-05-01 |
 
 ---
 
