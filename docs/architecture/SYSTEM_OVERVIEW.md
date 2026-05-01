@@ -84,6 +84,36 @@ AudioDriver callback thread (SDL/ASIO)
 
 ---
 
+## Frontend ↔ Backend State Discipline
+
+PianoidTunner editor hooks (modes/strings sound channels, deck feedin/feedback,
+string/mode/excitation parameters) follow three architectural principles to
+keep the React-side state coherent with the engine's truth:
+
+1. **Single source of truth = backend.** Every backend-state-changing event
+   (`/load_preset`, `/preset/switch`, `/preset/unload`, future modal-adapter
+   pushes) must trigger frontend re-init. The mechanism is a `presetVersion`
+   counter in `usePreset`; editor hooks subscribe via `useEffect(deps:
+   [presetVersion])` and discard their local history on every bump.
+2. **Granular writes preferred over bulk.** A user editing one row sends ONE
+   per-pitch POST; "Whole Matrix" sends N per-pitch POSTs, never one bulk
+   `/feedback/output` call. Per-cell endpoints are added as needed; today the
+   minimum granularity is per-pitch.
+3. **Imperative emits at the user-action site.** Writes happen inside the
+   click/edit handler, NOT inside a `useEffect` watching state. The Phase A3
+   silence bug (dev-833f, Apr 2026) was a state-watching useEffect re-pushing
+   stale local state after `/load_preset`, undoing the restoration.
+
+**Reference implementation**: `PianoidTunner/src/hooks/useSoundChannels.js`
+(Sound Channels editor, refactored Phase C2). Other editors (string, mode,
+excitation, feedin, feedback panels) still use the speculative-emit pattern —
+tracked as deferred tech debt in `WORK_IN_PROGRESS.md`.
+
+See `project_frontend_state_principles.md` (memory) for the user directive
+and `docs/modules/pianoid-tunner/OVERVIEW.md` for the SC editor's wiring.
+
+---
+
 ## Key Interfaces Between Layers
 
 ### Frontend -> Flask (REST)
