@@ -1,10 +1,24 @@
 # Pianoid Project Instructions
 
+## Orchestrator Sub-Agent Permission Rule (MANDATORY)
+
+When operating in `/orchestrator` mode (the user is on Telegram, not watching the CLI), **every** `Agent` tool call MUST include `mode: "bypassPermissions"`. This is non-negotiable.
+
+**Why:** Permission prompts from sub-agents are rendered only in the local CLI window. The Telegram user cannot see or approve them. Without `bypassPermissions`, any sub-agent tool call that hits an unallowed tool stalls silently — the agent waits, the orchestrator sees an unresponsive teammate, and the user sees nothing. This has burned multiple sessions (chrome-devtools incident, Skill(test-ui) incident on 2026-04-30). Pre-allowing tools in `settings.local.json` is whack-a-mole — every new MCP server, every new deferred tool, every new skill becomes a fresh trap.
+
+**How to apply:**
+- Every `Agent({...})` dispatch from the orchestrator includes `mode: "bypassPermissions"`. No exceptions, including team agents (`team_name: "pianoid-dev"`).
+- This applies to `/dev`, `/analyse`, `/update-docs`, `/test-ui`, `/pianoid-ui`, Explore, general-purpose — all sub-agent types.
+- The orchestrator session itself stays under normal permission rules (the user IS at the CLI for orchestrator output, even if they read it via Telegram). Only sub-agents get bypass.
+- The `/dev` workflow's own safeguards (Step 0 logs, MODULE_LOCKS.md, branch isolation, mandatory pre-Step-10 stop and report) provide the human-in-the-loop checkpoint — `bypassPermissions` removes the harness gate, not the workflow gate.
+
 ## Auto-Trigger Rules
 
 When the user requests a development task on the Pianoid codebase — bug fix, feature, refactor, optimization, or any code change — automatically invoke the `/dev` skill without waiting for the user to ask for it explicitly. This applies to tasks targeting PianoidCore, PianoidBasic, or PianoidTunner.
 
 **This includes transitions from investigation to implementation.** When a conversation starts as research/analysis but the user then approves implementation (e.g., "yes", "implement this", "go ahead"), invoke `/dev` at that point. Do NOT start writing code without the `/dev` workflow just because the earlier part of the conversation was exploratory.
+
+**Investigation → Implementation handoff inside `/dev` (MANDATORY).** Once a `/dev` agent has been spawned, silently switching from "I asked the user a question" or "I formed a hypothesis" to "I built it on my best guess without an answer" is forbidden. If the agent posed a clarifying question (to the orchestrator, to the user, or in its own scratch notes) and a code edit depends on the answer, the agent MUST pause and wait for the answer — not proceed on assumption. The same rule applies to hypotheses generated during diagnosis: a hypothesis is allowed to drive *more measurement*, never to drive *a code edit*, until it has been confirmed by measurement against the docs. Drift from "researching" to "implementing" without an explicit decision point is the failure mode that produced two wrong fixes in dev-833f Phase A/B (SoundChannels silence bug, 2026-04-30) before the third measurement-based diagnosis succeeded.
 
 **CRITICAL: Any edit to `.cu`, `.cpp`, `.cuh`, `.h`, or `setup.py` files MUST go through `/dev`.** These require CUDA builds that only `/dev` handles correctly.
 
@@ -20,6 +34,31 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 - `/fn` can also be invoked directly by the user for small, self-contained changes that don't need the full `/dev` workflow
 - When `/dev` spawns `/fn`, the dev agent writes tests first and hands them to the sub-agent. The tests persist in the project test suite
 - Documentation and commits always stay at the `/dev` (or user) level — `/fn` never commits or updates docs
+
+## Per-Project /dev Rules (MANDATORY)
+
+These rules extend the bundled `/dev` skill behaviour with project-specific safeguards. The bundled `/dev` skill source is not editable from this repo, so any `/dev` agent invoked in PianoidInstall MUST honour the additional rules below — they are part of the contract.
+
+### Pre-implementation Data Model Card (in /dev Step 4)
+
+Before writing the first line of fix code, the `/dev` agent MUST produce a **Data Model Card** in its session log. The card lists every non-trivial data-model fact the fix depends on, with explicit doc support. Format:
+
+| Fact the fix relies on | Doc citation (file + section/anchor) | Inferred-only? (Y/N) |
+|---|---|---|
+
+If any row is marked "inferred-only" (i.e. the agent could not find doc support and is reasoning from source code), the agent **PAUSES** before editing and either (a) routes the question to the orchestrator/user via SendMessage, or (b) closes the doc gap *first* (Task: confirm with measurement against the engine, then write the doc, then proceed with the fix). Source-code-only inference about data-model facts is the failure mode that produced two consecutive wrong diagnoses in dev-833f (Phase A endpoint mismatch, Phase B value-scale mismatch) before the third measurement-based diagnosis succeeded.
+
+**High-stakes fact categories that require doc support, never silent inference:**
+- Axis semantics (which axis is pitch, which is channel, which is mode)
+- Dimension ordering (`[pitch][channel]` vs `[channel][pitch]`, `[mode][pitch]` vs `[pitch][mode]`)
+- Index conventions (0-based vs 1-based; piano pitches 0–127 vs output pitches 128–139; channel indexing offsets)
+- "Stored vs effective" entries (a struct may store N rows but the kernel only consumes K of them; the agent must know K, not N)
+- Unit ranges (0–1 normalised vs raw FFT magnitudes ≈ 1e-4; ms vs samples; MIDI velocity 0–127 vs 0.0–1.0)
+- Transposed views between layers (Python may store row-major while the kernel expects column-major; frontend may shift indices before POST)
+
+### Doc-gap closure (in /dev Step 8)
+
+If during the fix the `/dev` agent uncovers a documentation gap that contributed to the misdiagnosis or to the difficulty of the fix, **closing that gap is part of THIS session, not a deferred follow-up**. The session is not "done" until either (a) the docs are updated to reflect the now-confirmed truth, or (b) a WORK_IN_PROGRESS.md entry is filed with a concrete owner and ETA for closing the gap (and the session log calls out the deferral explicitly). "We learned X, but didn't write it down" is a failed wrap-up.
 
 ## UI Interaction Rule
 
@@ -77,6 +116,17 @@ Documentation lookup order (stop as soon as you have enough context):
 6. `D:\repos\PianoidInstall\docs\guides\UI_TESTING.md` — when the task involves live UI verification, launcher/backend/frontend startup, or `/test-ui`
 7. `D:\repos\PianoidInstall\docs\guides\STARTUP_TROUBLESHOOTING.md` — when startup, ports, or shutdown sequencing is involved
 8. `D:\repos\PianoidInstall\docs\development\WORK_IN_PROGRESS.md` — active investigations
+
+**High-stakes inference categories (silent inference forbidden).** When a fix or diagnosis depends on any of the following data-model facts, source-code inference alone is NEVER sufficient — the fact MUST have explicit doc support, or the agent MUST measure it against the live engine and write the result to docs *before* using it:
+
+- **Axis semantics** — which dimension is "pitch", "channel", "mode", "string", "block"; transposed views (Python row-major vs CUDA column-major; frontend axis-shifted views like the strings-axis 128 offset).
+- **Dimension ordering** — `[pitch][channel]` vs `[channel][pitch]`, `[mode][pitch]` vs `[pitch][mode]`. Reading C++ array syntax `arr[i][j]` is not enough; the *semantic* axes need a doc.
+- **Index conventions** — 0-based vs 1-based; piano pitches `0–127` vs output pitches `128–139`; channel offsets; sentinel values like `-1` for dummy modes or `127` for damper-open.
+- **Stored vs effective entries** — a struct may store N rows but the kernel only consumes K of them (e.g. `string_coefficients[p][c]` is a 140-pitch × num-channels array but only the output-pitch rows 128–N are actually read). The agent must know K, not N.
+- **Unit ranges** — 0–1 normalised vs raw FFT magnitudes (~1e-4); ms vs samples; MIDI velocity 0–127 vs 0.0–1.0; volume_coefficient 0–1 vs decibels; tension N vs N/m².
+- **"Same name, different thing" pairs** — `deck`-the-Python-attribute (per-pitch coupling array) vs `deck`-the-CUDA-buffer (the packed `dev_deck_parameters` matrix); `sound_channel`-the-modes-coupling vs `string_sound_channel`-the-strings-gain; `feedin`/`feedback` between the modes path and the strings path.
+
+If any of these is unclear after reading the docs, the agent measures against the live engine (probes the buffer shape, reads the value back, checks `pack_*` outputs) AND updates the relevant doc — *before* writing the fix code. Skipping this step is what produced the dev-833f Phase A wrong endpoint diagnosis (axis semantics inferred wrong) and the Phase B value-scale wrong diagnosis (unit range inferred wrong). Both were locally coherent reads of the source, both were wrong.
 
 Only after the docs don't answer your question may you proceed to source files.
 
