@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-de72 | Wave B-1: Modal Adapter measurement collection backend | [log](logs/dev-de72-modal-b1-2026-05-01-114407.md) | 2026-05-01 |
 
 ---
 
