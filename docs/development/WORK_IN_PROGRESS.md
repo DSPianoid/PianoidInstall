@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-833f | Investigate Sound Channels panel silence bug (Phase A) | [log](logs/dev-833f-2026-04-30-193055.md) | 2026-04-30 |
 
 ---
 
