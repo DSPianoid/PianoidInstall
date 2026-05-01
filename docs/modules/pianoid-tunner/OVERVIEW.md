@@ -115,6 +115,9 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `ModesRule` | `ModesRule.js` | Modes ruler/axis component |
 | `MatrixTable` | `MatrixTable.js` | Raw HTML table for matrix data |
 | `ContinuousPressButton` | `ContinuousPressButton.js` | Button that fires repeatedly while held |
+| `PresetPanel` | `PresetPanel/PresetPanel.jsx` | Mosaic pane for preset loading + library management. Three sections (see below). The previous monolithic Settings pane was extracted into this dedicated pane (dev-a328, 2026-05-01) |
+| `PaneWithSettings` | `PaneWithSettings.jsx` | Generic HOC that wraps any pane with a portaled gear icon in the MosaicWindow title bar + a `<PaneSettingsDialog>` bound to one settings bucket. Replaces the monolithic Settings pane / central PropertyManager-routing pattern (dev-a328, 2026-05-01) |
+| `PaneSettingsDialog` | `PaneSettingsDialog.jsx` | MUI Dialog wrapping `<ObjectInspector>` for one settings bucket. Snapshots a fresh `PropertyManager` on open; commits via `setSettings(newProps)` AND closes on Apply (the ObjectInspector's internal Apply button is the canonical commit path — DialogActions are intentionally omitted to avoid duplication) |
 
 ---
 
@@ -233,21 +236,39 @@ Manages all UI configuration state, persisted to `localStorage`. Parameter categ
 
 Includes `migratePresetSettings()` which renames old parameter keys (`user_1` → `audio_driver_type`, `user_3` → `audio_buffer_size`) in-place in localStorage on first load. `loadSetting()` merges stored values on top of current defaults (`{ ...prev, ...parsed }`) so that new fields added to a settings object — such as `visualization` in Wave 2 of the drawable-chart merge — are present even for users whose localStorage predates the field.
 
-**Visualization setting (Wave 2 of drawable-chart merge).** Each panel listed above that renders a drawable chart carries a `visualization` key (`"bar" \| "line"`, default `"bar"`). `ObjectInspector` renders it as a Bar/Line MUI Select via a `PARAMETER_CONFIG` entry. Consumers forward the setting as the `variant` prop to `DrawableChart`: `MeasuredMatrix` reads `settings.visualization` from the containing panel (Feedin/Feedback/Sound Channels), and `PianoidTuner.renderWindowContent` reads `workbenchSettings.visualization` for the Workbench default + dynamic panes. Toggle lives in the Settings gear only, not in the MosaicWindow title bar (user decision Q3 in `docs/proposals/DRAWABLE_CHART_MERGE.md`).
+**Visualization setting (Wave 2 of drawable-chart merge).** Each panel listed above that renders a drawable chart carries a `visualization` key (`"bar" \| "line"`, default `"bar"`). `ObjectInspector` renders it as a Bar/Line MUI Select via a `PARAMETER_CONFIG` entry. Consumers forward the setting as the `variant` prop to `DrawableChart`: `MeasuredMatrix` reads `settings.visualization` from the containing panel (Feedin/Feedback/Sound Channels), and `PianoidTuner.renderWindowContent` reads `workbenchSettings.visualization` for the Workbench default + dynamic panes. Toggle lives in the per-pane settings gear only, not in the MosaicWindow title bar (user decision Q3 in `docs/proposals/DRAWABLE_CHART_MERGE.md`).
+
+**Per-pane dialog routing (dev-a328, 2026-05-01).** Pre-refactor, `useSettings` held a transient `propertyManager` (a single `PropertyManager` instance) and an `applySettingsChanges(currentPropertyManagerName)` dispatcher. The legacy Settings pane displayed `<ObjectInspector>` against the active PropertyManager and routed Apply through this dispatcher to the matching bucket setter. Phase 3 of the dev-a328 refactor removed both — every pane now wraps its content in `<PaneWithSettings>` which owns its own dialog state via `usePaneSettingsDialog` and calls the bucket setter directly on Apply (no central router). `useSettings` is now purely a typed-bucket store with localStorage persistence; its return value no longer includes `propertyManager`, `setPropertyManager`, or `applySettingsChanges`.
+
+**Excitation special-case (dev-a328 Phase 3 deferred):** `useSettings` exports no dedicated `excitationSettings` bucket today. The `<PaneWithSettings>` wrapping the Excitation pane routes through `stringsSettings` as a transitional placeholder. This matches pre-refactor behaviour (Excitation's gear was hidden by an explicit `id !== "Excitation"` guard in the inline gear injector). Future enhancement: add a dedicated `excitationSettings` bucket.
 
 ### `useLayout`
 
 Manages the `react-mosaic-component` tile layout tree. The initial layout places the following named panes:
 
 ```
-Settings | Charts / NumInputTest
----------+-----------------------------------------------------
+Preset | Charts / NumInputTest
+-------+-----------------------------------------------------
 MIDI+Strings | Feedin / Feedback | Virtual Piano | Modes
                                                |
                                            Workbench
 ```
 
+(The previous initial layout had `Settings` in the top-left where `Preset` is now. The migration from Settings to Preset is described below.)
+
 Layout is persisted to `localStorage` under `mosaicLayout`. Exposes `handleMaximize(id)` (saves backup, expands one pane to full screen), `handleRestore()` (restores backup), `handleDefaultLayout()` (resets to initial).
+
+**Layout migration walker `mapDeprecatedPaneIds` (dev-a328 Phase 2, 2026-05-01).** Existing users who installed before the Settings→Preset rename have `"Settings"` saved in their `localStorage.mosaicLayout`. The `useState` initialiser pipeline applies two walkers in order:
+
+1. `stripDynamicWorkbenches(node)` — removes `Workbench:*` leaves (their state is not persisted across reloads). Pre-existing behaviour.
+2. `mapDeprecatedPaneIds(node)` — rewrites deprecated leaf IDs to their new equivalents. Currently `PANE_ID_MIGRATION = { Settings: "Preset" }`. Add new entries here as future panes are renamed or split.
+
+The walker is implemented as a two-pass operation (`collectLeafIds` + `mapDeprecatedPaneIdsWith`):
+
+- **Pass 1: collect all leaf IDs into a Set.**
+- **Pass 2: rewrite. If the deprecated leaf's target ID already exists elsewhere in the tree, drop the deprecated leaf (return `null`, pruning it) instead of creating a conflict.**
+
+The duplicate-detection is load-bearing: `react-mosaic-component` does not allow leaves with the same ID and crashes hard with `Duplicate IDs [<id>] detected. Mosaic does not support leaves with the same ID`. The trigger scenario: a user's saved layout already contains both the deprecated leaf (Settings) AND the new leaf (Preset) — for example because the user manually re-added the legacy Settings pane via the Window Layout Manager dialog during the Phase 2 transition. Without de-duplication, the rewrite Settings → Preset would produce two `"Preset"` leaves and crash. With de-duplication, the user's existing Preset pane is preserved and the deprecated Settings leaf is silently dropped.
 
 ### `useCurrentValues`
 
@@ -339,6 +360,16 @@ Used by `usePreset` (note playback with REST fallback) and `useBackendHealth` (l
 
 Manages the set of open/closed mosaic panes and their IDs.
 
+### `usePaneSettingsDialog`
+
+Owns the open/close state for one pane's settings dialog and portals a gear `<IconButton>` into the MosaicWindow's native title bar (`.mosaic-window-controls` ancestor of the pane's root). Lifted from the existing pattern in `modules/ModalAdapter.jsx:60-81` (the canonical reference) and generalised so every consumer pane gets exactly one gear with one tooltip and zero duplication.
+
+Concern (P2): own dialog `open` state + portal the gear; **knows nothing about the settings bucket itself** — caller passes settings + setSettings to `<PaneSettingsDialog>` directly through `<PaneWithSettings>`.
+
+Returns: `{ open, openSettings, closeSettings, gearPortal }`. The `gearPortal` value is wrapped in a `React.Fragment` (NOT a bare `ReactPortal`). This wrap is load-bearing: MUI v6 Box's `propTypes.children` uses the `prop-types` package's `node` validator, which **predates the ReactPortal type and does not recognise `Symbol(react.portal)` as a valid node**. A bare ReactPortal embedded in a Box's `children` array trips `Warning: Failed prop type: Invalid prop \`children\` supplied to ForwardRef(Box)`. Wrapping in a Fragment makes the children look like `[Symbol(react.fragment), Symbol(react.element), ...]` — all valid per the validator. (Same pattern is needed if `modules/ModalAdapter.jsx` is ever updated; it has the same warning today, out of scope for the dev-a328 refactor.)
+
+Coexistence with the (now-removed) inline gear injector: prior to the dev-a328 refactor, `PianoidTuner.renderToolbarControls` injected a generic `<IconButton title="Settings">` into every pane's title bar. While that injector still existed (Phase 1 + Phase 2), `usePaneSettingsDialog` hid it via `display:none` to keep exactly one gear per pane. Phase 3 (commit `b1c5f8e`) removed the injector entirely — every pane now portals its own gear via this hook (or via the ModalAdapter pattern for that one pane).
+
 ---
 
 ## Mosaic Window Management
@@ -346,6 +377,53 @@ Manages the set of open/closed mosaic panes and their IDs.
 The application uses `react-mosaic-component` to implement a tiling window manager. The layout is a binary tree where each leaf node is a string ID (e.g., `"Feedin"`, `"Modes"`, `"Virtual Piano"`) and each internal node specifies a split direction and percentage.
 
 `useLayout` owns the tree and provides helpers to maximize a single pane (replacing the whole tree with the leaf ID string) and restore the previous tree. Layout changes are saved to localStorage on every update.
+
+---
+
+## Preset Panel + Per-Pane Settings Popup Pattern (dev-a328, 2026-05-01)
+
+The Pianoid frontend originally exposed a single monolithic `Settings` mosaic pane. That pane was a generic `<ObjectInspector>` that rotated through 9 different settings buckets (`presetLoadSettings`, `virtualPianoSettings`, `modesSettings`, etc.) — clicking the gear icon on any other pane set `currentPropertyManagerName`, which swapped which bucket the Settings pane displayed. This conflated two concerns: (1) preset loading + initialization parameters, (2) per-pane local UI settings.
+
+The dev-a328 refactor (3 phases, branch `feature/preset-panel-and-popup-settings`, merged into `dev`) split these concerns:
+
+### Preset panel
+
+A dedicated `PresetPanel` mosaic pane (`src/components/PresetPanel/PresetPanel.jsx`) replaces the legacy Settings pane in the default layout. Three sections, top-to-bottom:
+
+1. **Current Preset** — overline header + filename in monospace + Load (file-picker) IconButton + Reload (UTurnRight) IconButton (only visible when a preset has loaded) + a Save-As `<TextField>` paired with a Save IconButton.
+2. **Library** — overline header + Refresh + Add (+) buttons (right-aligned) + a scrollable MUI `<List>` of `libraryPresets` from `usePreset`. Active preset is highlighted (`selected` ListItemButton + bold). Click a row → `switchPreset(name)`. Each non-default row has a trailing Unload IconButton.
+3. **Footer Apply** — full-width primary contained Button. Clicking it bumps `_applyTs` and re-fires the existing `useEffect(() => ensureBackendAndLoadPreset(...), [presetLoadSettings])` cycle.
+
+The pane's title bar carries a portaled gear icon (tooltip "Preset initialization parameters") that opens a `<PaneSettingsDialog>` bound to `presetLoadSettings`. The dialog displays the 17 initialization-parameter fields (path, volume, sample_rate, string_iterations, number_of_modes, use_simulation, Build Mode, Cycle Iterations, start_right_away, audio_on, listen_to_midi, use_cuda, Audio Driver, Audio Buffer Size, Block Size, Listen Mode, Sound Derivative). Apply commits via `setPresetLoadSettings({ ...newProps, _applyTs: Date.now() })` AND closes the dialog.
+
+The top `ToolBar` (`src/components/ToolBar.jsx`) keeps its existing preset-management controls — Save Preset As, library Select dropdown, Add to library, Unload. PresetPanel mirrors them with a richer view (full library list + inline Save-As field + file metadata). Both surfaces are fully equivalent; the user can use either.
+
+### `<PaneWithSettings>` HOC
+
+Every other pane that owns a settings bucket wraps its content in `<PaneWithSettings>`. The HOC takes children + settings + setSettings + title via props:
+
+```jsx
+<PaneWithSettings
+  title="Modes Settings"
+  tooltip="Modes settings"
+  settings={modesSettings}
+  setSettings={setModesSettings}
+>
+  <Modes ... />
+</PaneWithSettings>
+```
+
+The HOC owns one `usePaneSettingsDialog` instance, portals one gear into the MosaicWindow's `.mosaic-window-controls`, and renders one `<PaneSettingsDialog>` at the end of its DOM subtree. Every Pianoid pane that needs settings uses this HOC — **one canonical pattern, no per-pane wrappers**. Phase 3 of the refactor consolidated all 9 panes (Modes, Strings, Excitation, Feedin, Feedback, Sound Channels, Virtual Piano, Charts, Workbench) onto this single HOC. The Modal Adapter pane is the one exception — it has its own bespoke `useLayoutEffect` portal pattern (`modules/ModalAdapter.jsx:60-81`) that pre-dates the refactor and was kept as-is to avoid scope creep.
+
+### Apply contract
+
+Both `PresetPanel`'s footer Apply button and every `<PaneWithSettings>` dialog Apply use the same contract: state is updated optimistically via the bucket setter (`setPresetLoadSettings`/`setModesSettings`/etc.), and downstream effects fire from the state-change. There is NO central `handleApplySettings` dispatcher routing PropertyManager swaps — that pattern was removed in Phase 3.
+
+For `presetLoadSettings`, the Apply path additionally injects an `_applyTs: Date.now()` field. This forces React to see a new object reference even when settings are otherwise identical, so the existing `useEffect(() => ensureBackendAndLoadPreset(...), [presetLoadSettings])` always re-fires. The `_applyTs` field is stripped from the persisted localStorage payload by `useSettings`'s persistence effect.
+
+### State discipline
+
+All bucket state is owned by `useSettings` (sole writer of each bucket). `usePreset` owns library state (`libraryPresets`, `activePreset`). PresetPanel and the HOC consumers are pure controlled components — they dispatch on user clicks and never own persistent state. There are no speculative-emit useEffects watching settings state and posting; all writes are imperative-at-action-site.
 
 ---
 

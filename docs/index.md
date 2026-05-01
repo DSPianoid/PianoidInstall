@@ -104,7 +104,9 @@ interactive latency.
 ### PianoidTunner
 
 - [modules/pianoid-tunner/OVERVIEW.md](modules/pianoid-tunner/OVERVIEW.md) — React component
-  tree, parameter binding, visualization panels, and MIDI input handling
+  tree, parameter binding, visualization panels, MIDI input, the PresetPanel mosaic pane,
+  the per-pane `<PaneWithSettings>` HOC + `usePaneSettingsDialog` hook, and the
+  `mapDeprecatedPaneIds` layout-migration walker
 
 ### Development
 
