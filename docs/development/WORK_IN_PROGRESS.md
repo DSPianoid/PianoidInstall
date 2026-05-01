@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-a328 | PianoidTunner: extract Preset panel + per-panel settings popups | [log](logs/dev-a328-2026-05-01-161631.md) | 2026-05-01 |
 
 ---
 
