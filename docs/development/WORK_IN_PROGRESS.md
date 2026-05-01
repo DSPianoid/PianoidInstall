@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-39c7 | PianoidTunner Excitation pane: wire 4 stretch/shrink toolbar buttons + remove volume/duration sliders | [log](logs/dev-39c7-2026-05-01-203658.md) | 2026-05-01 | Active (resumed 2026-05-01T18:00Z after dev-a328 Phase 3 release) |
 
 ---
 
