@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-b001 | Bug #1 fix: `/load_preset use_simulation=1` crash + close corrected diagnosis | [log](logs/dev-b001-2026-05-01-153539.md) | 2026-05-01 |
 
 ---
 
