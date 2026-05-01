@@ -253,10 +253,19 @@ Parameter details:
 - `max_volume`: float, explicit max volume (new API, takes precedence over `volume`)
 - `start_right_away`: `1`=start in background thread, `2`=start inline (deprecated), `3`=init only no start, `0`=init only
 - `listen_to_modes`: `0`=sound channels carry string bridge displacement, `1`=sound channels carry mode forces (default `1`)
+- `use_simulation`: `0`=normal operation (default, the only supported value); `1`=routes to `pianoid_cuda_placeholder.py`, a vestigial pre-library-API stub that has not been kept in sync with the live `pianoidCuda` API. **`use_simulation=1` is rejected with HTTP `400 FeatureNotSupported`** — the route handler short-circuits before destroying the engine. Fixed in dev-b001 (2026-05-01); pre-fix the request returned HTTP 500 `TypeError: Pianoid.__init__() missing 1 required positional argument: 'strings_in_pitches'` AND destroyed the live engine. See `backendServer.py:load_preset_route` and the deferred WIP follow-up "use_simulation/use_placeholder placeholder is vestigial" for the resurrection or retirement decision.
 
 Response `200`:
 ```json
 {"message": "Preset loaded successfully"}
+```
+
+Response `400` (when `use_simulation=1`):
+```json
+{
+  "error": "FeatureNotSupported",
+  "message": "use_simulation=1 is not currently supported. The placeholder module is out of sync with the live library-API and would crash the engine. Pass use_simulation=0 (the default)."
+}
 ```
 
 ---
