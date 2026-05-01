@@ -25,7 +25,30 @@ ASIO as unavailable and selects SDL3 by default.
 Tested on Ubuntu 24.04, but should work on any modern distro that ships
 Python 3.12, gcc, and a recent NVIDIA driver + CUDA toolkit.
 
-### System packages (Debian/Ubuntu)
+### Automated install — `setup-packages.sh`
+
+The install root ships a `setup-packages.sh` that mirrors the Windows
+`setup-packages.bat` menu. It detects your distro (`apt` / `dnf` / `pacman`
+/ `zypper`), reads the version pins from `setup-config.json`, and installs
+the build toolchain, Python, CUDA, SDL, and Node.js.
+
+```bash
+sudo ./setup-packages.sh             # interactive menu
+sudo ./setup-packages.sh --all       # non-interactive
+sudo ./setup-packages.sh --cuda      # one component at a time
+sudo ./setup-packages.sh --python
+sudo ./setup-packages.sh --sdl
+sudo ./setup-packages.sh --node
+sudo ./setup-packages.sh --build
+```
+
+The script must run as root because it installs system packages. Once it
+finishes, run `./setup-pianoid.sh` (without sudo) to create the venv and
+build the project.
+
+### Manual install — Debian/Ubuntu
+
+If you'd rather install packages directly:
 
 ```bash
 sudo apt update
@@ -42,6 +65,9 @@ sudo apt install -y \
 If `nvidia-cuda-toolkit` is too old or unavailable on your distro, install
 CUDA 12.6+ from NVIDIA's official runfile and export `CUDA_HOME` (the build
 script honours `CUDA_HOME` and `CUDA_PATH`).
+
+If `libsdl3-dev` isn't packaged for your distro yet, `setup-packages.sh`
+will install SDL2 alone and print the source-build steps for SDL3.
 
 ### NVIDIA driver
 
