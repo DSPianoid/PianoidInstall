@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-1564 | Add tools/lock_gpu_clock.bat + tools/unlock_gpu_clock.bat for benchmark determinism | [log](logs/dev-1564-2026-05-01-150950.md) | 2026-05-01 |
 
 ---
 
