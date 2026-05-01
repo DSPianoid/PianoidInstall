@@ -44,31 +44,6 @@ When the user requests a development task on the Pianoid codebase — bug fix, f
 - When `/dev` spawns `/fn`, the dev agent writes tests first and hands them to the sub-agent. The tests persist in the project test suite
 - Documentation and commits always stay at the `/dev` (or user) level — `/fn` never commits or updates docs
 
-## Per-Project /dev Rules (MANDATORY)
-
-These rules extend the bundled `/dev` skill behaviour with project-specific safeguards. The bundled `/dev` skill source is not editable from this repo, so any `/dev` agent invoked in PianoidInstall MUST honour the additional rules below — they are part of the contract.
-
-### Pre-implementation Data Model Card (in /dev Step 4)
-
-Before writing the first line of fix code, the `/dev` agent MUST produce a **Data Model Card** in its session log. The card lists every non-trivial data-model fact the fix depends on, with explicit doc support. Format:
-
-| Fact the fix relies on | Doc citation (file + section/anchor) | Inferred-only? (Y/N) |
-|---|---|---|
-
-If any row is marked "inferred-only" (i.e. the agent could not find doc support and is reasoning from source code), the agent **PAUSES** before editing and either (a) routes the question to the orchestrator/user via SendMessage, or (b) closes the doc gap *first* (Task: confirm with measurement against the engine, then write the doc, then proceed with the fix). Source-code-only inference about data-model facts is the failure mode that produced two consecutive wrong diagnoses in dev-833f (Phase A endpoint mismatch, Phase B value-scale mismatch) before the third measurement-based diagnosis succeeded.
-
-**High-stakes fact categories that require doc support, never silent inference:**
-- Axis semantics (which axis is pitch, which is channel, which is mode)
-- Dimension ordering (`[pitch][channel]` vs `[channel][pitch]`, `[mode][pitch]` vs `[pitch][mode]`)
-- Index conventions (0-based vs 1-based; piano pitches 0–127 vs output pitches 128–139; channel indexing offsets)
-- "Stored vs effective" entries (a struct may store N rows but the kernel only consumes K of them; the agent must know K, not N)
-- Unit ranges (0–1 normalised vs raw FFT magnitudes ≈ 1e-4; ms vs samples; MIDI velocity 0–127 vs 0.0–1.0)
-- Transposed views between layers (Python may store row-major while the kernel expects column-major; frontend may shift indices before POST)
-
-### Doc-gap closure (in /dev Step 8)
-
-If during the fix the `/dev` agent uncovers a documentation gap that contributed to the misdiagnosis or to the difficulty of the fix, **closing that gap is part of THIS session, not a deferred follow-up**. The session is not "done" until either (a) the docs are updated to reflect the now-confirmed truth, or (b) a WORK_IN_PROGRESS.md entry is filed with a concrete owner and ETA for closing the gap (and the session log calls out the deferral explicitly). "We learned X, but didn't write it down" is a failed wrap-up.
-
 ## UI Interaction Rule
 
 When the user requests any task that involves the Pianoid frontend interface — viewing parameters, editing excitation/string/mode parameters, playing notes, capturing sound, or any browser-based interaction — automatically invoke the `/pianoid-ui` skill unless the user explicitly instructs otherwise.

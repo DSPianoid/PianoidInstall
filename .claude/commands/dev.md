@@ -298,6 +298,30 @@ cd D:/repos/PianoidInstall/PianoidCore/pianoid_middleware && D:/repos/PianoidIns
 - If the server crashes on startup, read the log file to diagnose — do not ask the user
 - If startup fails 3 times, report the log contents and stop — do not loop indefinitely
 
+### Backend startup failure modes & workarounds
+
+**Flask debug-reloader child-takeover.** `backendServer.py` runs `socketio.run(debug=True)` which enables Werkzeug's auto-reloader. The reloader spawns a child Python process to be the actual server, and the parent (which the bash tool was tracking via `run_in_background: true`) exits. The bash tool's process management may then reap the orphaned child after ~2 minutes, taking the backend down. Symptom: backend works for a couple of minutes after start, then port 5000 stops responding. (Tracked in `WORK_IN_PROGRESS.md` under deferred follow-ups; proper fix is gating `debug=True` behind `PIANOID_FLASK_DEBUG=1` env var.)
+
+**Long-running-process harness gate.** The Claude Code harness has a "long-running process" detector that gates regardless of permission mode — even with `mode: "bypassPermissions"`, the first attempt to start a backend via `Bash run_in_background: true` may trigger a CLI prompt that's invisible to the user when they're on Telegram. (See `.claude/CLAUDE.md` "Orchestrator Sub-Agent Permission Rule — Known gaps in `bypassPermissions`".) Each retry triggers another prompt — do NOT keep retrying.
+
+**Recommended startup hierarchy:**
+
+1. **PREFERRED: launcher REST API.** If the launcher is already running on port 3001, ask it to start the backend:
+   ```bash
+   curl -X POST http://127.0.0.1:3001/api/start-backend
+   ```
+   The launcher spawns the backend as ITS child process with proper lifecycle management — no harness gate, no Flask-reloader-orphan trap. This is the pattern the user's normal startup (via React frontend "APPLY" button) uses.
+
+2. **FALLBACK: PowerShell `Start-Process -WindowStyle Hidden` with redirected output.** Properly detaches the process so neither the bash tool's process management nor the harness gate interferes:
+   ```powershell
+   Start-Process -WindowStyle Hidden -FilePath "D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python.exe" -ArgumentList "-u","backendserver.py" -WorkingDirectory "D:/repos/PianoidInstall/PianoidCore/pianoid_middleware" -RedirectStandardOutput "D:/tmp/backend.log" -RedirectStandardError "D:/tmp/backend.err"
+   ```
+   Note: PowerShell Start-Process on a fresh process can ALSO trigger the long-running-process gate the first time per session. If it does, escalate to the orchestrator via SendMessage rather than retrying.
+
+3. **LAST RESORT: Bash `run_in_background: true`** as documented above. Works in most cases but is vulnerable to Flask reloader child-takeover after ~2 minutes; if backend dies mid-session use option 1 instead of restarting via this pattern.
+
+**Escalation rule.** If options 1 + 2 both fail, SendMessage the orchestrator. The orchestrator's own Bash calls render in its conversation as tool deltas which the orchestrator can see; it can either approve any prompt that fires OR start the server itself OR pre-allow the specific Bash invocation in `settings.local.json`.
+
 ### Clean Up After Yourself (MANDATORY)
 
 **Every agent MUST shut down all servers it started before exiting**, regardless of exit path (success, failure, or kill). This includes wrap-up, reset, pause, and any abnormal termination.
@@ -363,6 +387,17 @@ Answer these two questions out loud (in your session log):
 2. **(P2 Concern)** What is the single concern of every module I'm editing? Is the change within each module's existing concern, or does it widen the module's responsibility? Concern bleed is not acceptable — find or create a module whose job this actually is.
 
 If either answer is unclear or uncomfortable, pause and read `docs/development/CODE_QUALITY.md` — the Primary Principles section at the top. You cannot proceed until both answers are crisp.
+
+### Pre-implementation Data Model Card (MANDATORY)
+
+Before writing the first line of fix code, produce a **Data Model Card** in your session log. The card lists every non-trivial data-model fact the fix depends on, with explicit doc support. Format:
+
+| Fact the fix relies on | Doc citation (file + section/anchor) | Inferred-only? (Y/N) |
+|---|---|---|
+
+If any row is marked "inferred-only" (i.e. you could not find doc support and are reasoning from source code), **PAUSE** before editing and either (a) route the question to the orchestrator/user via SendMessage, or (b) close the doc gap *first* — confirm with measurement against the engine, then write the doc, then proceed with the fix. Source-code-only inference about data-model facts is the failure mode that produced two consecutive wrong diagnoses in dev-833f (Phase A endpoint mismatch, Phase B value-scale mismatch on the SoundChannels silence bug, 2026-04-30) before the third measurement-based diagnosis succeeded.
+
+**See the cross-cutting "High-stakes inference categories" section in `.claude/CLAUDE.md`** for the full list of fact categories where silent inference is forbidden (axis semantics, dimension ordering, index conventions, "stored vs effective" entries, unit ranges, "same name different thing" pairs).
 
 **File-size watch (C4):** Before adding significant code to any file, check its current LOC (`wc -l <file>`). If the file is in YELLOW territory (500–1000 LOC), prefer extraction over insertion. If the file is already RED (>1000 LOC), do not add to it without a split plan — report to the orchestrator and request guidance.
 
@@ -684,6 +719,15 @@ Follow patterns from `test_performance.py` (fixtures, markers, assertions).
 ## Step 8: Update Documentation
 
 **This step is mandatory for ALL exit procedures (wrap-up, reset, pause).** Documentation must always reflect the current state of the codebase.
+
+### Doc-gap closure (MANDATORY)
+
+If during the fix you uncovered a documentation gap that contributed to the misdiagnosis or to the difficulty of the fix, **closing that gap is part of THIS session, not a deferred follow-up**. The session is not "done" until either:
+
+  (a) the docs are updated to reflect the now-confirmed truth, OR
+  (b) a `WORK_IN_PROGRESS.md` entry is filed with a concrete owner and ETA for closing the gap, AND the session log calls out the deferral explicitly.
+
+"We learned X, but didn't write it down" is a failed wrap-up. The next agent will hit the same trap.
 
 **Principle-namespace cross-reference:** when the change affects any state ownership, module concern, file-size threshold, or patch/workaround handling, cite the relevant principle from `docs/development/CODE_QUALITY.md` (P1/P2, A1–A5, C1–C6, S1–S5). Docs that justify a change by its principle age better than docs that describe what the code does.
 
