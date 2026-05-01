@@ -451,6 +451,66 @@ Sound channels have two coefficient types, selected by `listen_to_modes`:
 | `sound_channel` | modes (`listen_to_modes=1`) | `soundChannelModes.coefficients` | Mode-coupling injected into feedin at `mode_channel_index` (only when `listen_to_modes=True`; zeroed in strings mode) |
 | `string_sound_channel` | strings (`listen_to_modes=0`) | `soundChannelModes.string_coefficients` | Strings-mode gain scaling feedback |
 
+**Deck vs sound-channel — disambiguation block.** Both concepts are per-pitch
+arrays that end up packed into `dev_deck_parameters`, and both are routinely
+called "deck" in casual conversation. They are **not** interchangeable:
+
+- `deck['feedin']` / `deck['feedback']` — length-`num_modes` arrays per pitch.
+  Spatial mode-shape sample at this pitch's bridge position. Governs *which
+  modes* a piano key excites and *how strongly each mode pushes back* on the
+  string. Edited via `/set_parameter/feedin/<pitch>` and
+  `/set_parameter/feedback/<pitch>`.
+- `mode_sound_channels` (a.k.a. SC modes coefficients) — length-`num_channels`
+  array per pitch. Per-pitch coupling injected into feedin slots reserved for
+  mode channels. Used in modes-listen mode (`listen_to_modes=1`) to mix modes
+  into output channels. Edited via `/set_parameter/sound_channel/<pitch>`.
+- `string_sound_channels` (a.k.a. SC strings coefficients) — length-`num_channels`
+  array per pitch. Per-output-pitch gain scaling the strings-path feedback into
+  each audio channel. Used in strings-listen mode (`listen_to_modes=0`).
+  **Only the output-pitch rows `128..127+num_output_channels` are
+  kernel-effective** — see `docs/modules/pianoid-basic/OVERVIEW.md`
+  "Stored vs effective entries". Edited via
+  `/set_parameter/string_sound_channel/<pitch>` (where `<pitch>` is a
+  backend pitch index, i.e. `128 + channel_index`).
+
+Mixing these up was the root of the dev-833f Phase A wrong diagnosis: the
+agent edited `string_coefficients[60]` expecting pitch 60 to change, but
+piano pitches have no `outerSound` channel set in strings mode, so the edit
+was kernel-inert. The correct row for "channel 0" is backend pitch 128.
+
+**Kernel-effective entries** — quick reference:
+
+| Listen mode | Store consulted | Effective rows | Effective columns |
+|---|---|---|---|
+| `listen_to_modes=1` | `coefficients` | piano pitches `0..127` | `[0..num_channels)` |
+| `listen_to_modes=0` | `string_coefficients` | output pitches `128..127+num_output_channels` | `[0..num_channels)` |
+
+```mermaid
+flowchart LR
+    subgraph Frontend
+      SC[SoundChannelsPane]
+    end
+    subgraph "REST (per-pitch POST)"
+      EP1[/set_parameter/sound_channel/&lt;pitch&gt;/]
+      EP2[/set_parameter/string_sound_channel/&lt;pitch&gt;/]
+    end
+    subgraph "Python model (StringMap)"
+      M1[soundChannelModes.coefficients]
+      M2[soundChannelModes.string_coefficients]
+      DP[Pitch.deck feedin/feedback]
+    end
+    subgraph "GPU (dev_deck_parameters)"
+      K[CUDA kernel reads packed matrix]
+    end
+    SC -->|modes axis| EP1 --> M1
+    SC -->|strings axis| EP2 --> M2
+    M1 --> K
+    M2 --> K
+    DP --> K
+    K -->|listen_to_modes=1| OUT1[Output: pitches 0-127 rows]
+    K -->|listen_to_modes=0| OUT2[Output: pitches 128+ rows only]
+```
+
 ```
 React: SoundChannelsPane (backed by useSoundChannels) — user edits coefficients for pitch 60
          │

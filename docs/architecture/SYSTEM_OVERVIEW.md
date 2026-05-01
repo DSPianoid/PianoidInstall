@@ -19,7 +19,13 @@ provides the domain model shared by the middleware and any analysis tooling:
   string_iteration, num_modes, num_channels, etc.)
 - `Pianoid.Mode` / `ModeMap` - Resonance mode objects with frequency, decrement,
   omega, and state vectors
-- `Pianoid.SoundChannels` - Output channel routing coefficients
+- `Pianoid.SoundChannels` - Output channel routing coefficients. Two stores
+  keyed by pitch: `coefficients` (modes path, used when `listen_to_modes=1`)
+  and `string_coefficients` (strings path, used when `listen_to_modes=0`).
+  Despite the per-pitch storage, in strings mode only the output-pitch rows
+  `128..127+num_output_channels` are kernel-effective — each output pitch is
+  isomorphic to one audio output channel. See `docs/modules/pianoid-basic/OVERVIEW.md`
+  "SoundChannels — Stored vs effective entries" for the data-model contract
 - `Pianoid.bytestream_encoding` - Serializes Python objects to flat arrays for CUDA upload
 
 These classes are imported by `pianoid.py` and used to build the parameter arrays

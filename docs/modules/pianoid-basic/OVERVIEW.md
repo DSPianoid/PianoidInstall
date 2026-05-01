@@ -431,18 +431,44 @@ File: `SoundChannels.py`
 
 Two classes manage the coupling between modes/strings and audio output channels.
 
-**`ModeSoundChannels`** — per-pitch coefficients for the mode-based sound output path. Owned by `StringMap.soundChannelModes`.
+**`ModeSoundChannels`** — per-pitch coefficients for the mode-based sound output path. Owned by `StringMap.soundChannelModes`. **Despite the class name, both coefficient stores are keyed by pitch — not channel — and only a subset of rows is consumed by the GPU kernel.** See "Stored vs effective entries" below.
 
-| Attribute | Shape | Description |
-|-----------|-------|-------------|
-| `coefficients` | `{pitchID: ndarray[num_channels]}` | Modes-mode coupling: injected into feedin at `mode_channel_index` slots |
-| `string_coefficients` | `{pitchID: ndarray[num_channels]}` | Strings-mode gain: scales feedback for sound channel strings |
+| Attribute | Stored shape | Description |
+|-----------|--------------|-------------|
+| `coefficients` | `{pitchID: ndarray[num_channels]}` for **all** pitches `0..139` | Modes path: per-pitch mode-coupling coefficients injected into the feedin slots at `mode_channel_index`. Only consulted when `listen_to_modes=1` (modes mode); zeroed in strings mode |
+| `string_coefficients` | `{pitchID: ndarray[num_channels]}` for **all** pitches `0..139` | Strings path: per-pitch gain that scales the mode→string feedback. Only consulted when `listen_to_modes=0` (strings mode) |
+
+#### Stored vs effective entries (high-stakes data-model fact)
+
+The two dicts above are **stored** for every pitch ID `0..139` (legacy Python convenience — `add_pitch` is called for every pitch as the StringMap builds), but the **effective** entries — the ones the CUDA kernel actually consumes — are a strict subset that depends on listen mode.
+
+| Listen mode | Source store | Effective rows | Effective columns |
+|---|---|---|---|
+| `listen_to_modes=1` (modes) | `coefficients` | piano-pitch rows `0..127` (the rows that have non-zero `deck.feedin` and a hammer) | `[0..num_channels)` |
+| `listen_to_modes=0` (strings) | `string_coefficients` | output-pitch rows `128..127+num_output_channels` (the soundboard receivers) | `[0..num_channels)` |
+
+In strings mode the kernel-effective entries are **only** the output-pitch rows. Storing rows for piano pitches 0–127 in `string_coefficients` is harmless but inert — those rows do not influence the synthesised signal because piano pitches have no `outerSound` channel set (see `Pitch.outerSound` and `MainKernel.cu`'s `outerSoundChannel && isStem` guard, documented at `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "Audio Output").
+
+**Practical consequence for fix authors and frontend editors.** The frontend strings-axis editor exposes a row per *output channel* (frontend index `0..N-1` after stripping the 128 offset), not a row per piano pitch. Each backend POST writes the row at backend pitch index `128 + channel_index`, which is the *only* row the kernel reads in strings mode. Editing piano-pitch rows of `string_coefficients` is a no-op at the audio level. Editing piano-pitch rows of `coefficients` (modes mode) is **not** a no-op — those rows feed the modes via the deck. Confusing the two cost dev-833f Phase A a wrong endpoint diagnosis (the agent thought `string_coefficients[60]` would influence pitch-60 output; it would not, because pitch 60 in strings mode has no output channel).
+
+#### "Sound channel" vs "deck" — disambiguation
+
+These two concepts are easy to confuse because both are per-pitch, both are length-`num_modes`-or-`num_channels` arrays, and both end up packed into the GPU `dev_deck_parameters` matrix. They are **not** the same thing:
+
+| Concept | What it is | Where it lives | Per-pitch shape |
+|---|---|---|---|
+| `deck['feedin']` | Spatial mode-shape sample at this pitch's bridge position (string→mode coupling) | `Pitch.deck['feedin']` | `[num_modes]` |
+| `deck['feedback']` | Spatial mode-shape sample at this pitch's bridge position (mode→string coupling, equal to feedin by reciprocity) | `Pitch.deck['feedback']` | `[num_modes]` |
+| `mode_sound_channels` (a.k.a. `coefficients`) | Per-pitch coupling injected into the feedin slots reserved for mode channels — used to mix modes into output channels in modes-listen mode | `StringMap.soundChannelModes.coefficients[pitch]` | `[num_channels]` |
+| `string_sound_channels` (a.k.a. `string_coefficients`) | Per-output-pitch gain scaling the strings-path feedback into each audio channel | `StringMap.soundChannelModes.string_coefficients[pitch]` | `[num_channels]` |
+
+When the kernel reads `dev_deck_parameters`, it sees a single matrix that combines all four. Edit `Pitch.deck` and you change which modes a piano key excites; edit `mode_sound_channels` and you change which output channel hears those modes; edit `string_sound_channels` and you change the per-channel gain on the strings-path output. Mixing these up produces the kind of "no audible change" silence symptom seen in dev-833f.
 
 Key methods:
 
 | Method | Purpose |
 |--------|---------|
-| `add_pitch(pitchID)` | Initialise zero coefficients for both stores |
+| `add_pitch(pitchID)` | Initialise zero coefficients for both stores (called for every pitch 0..139) |
 | `update_coefficients(pitches, target)` | Batch update; `target='mode'` or `'string'` selects which store |
 | `read_from_preset(data)` | Load mode coefficients from preset JSON `mode_sound_channels` section |
 | `read_string_coefficients_from_preset(data)` | Load string coefficients from preset JSON `string_sound_channels` section |
@@ -451,8 +477,8 @@ Key methods:
 **`StringSoundChannels`** — `num_channels × num_modes` matrix (not currently used in the GPU path; reserved for future string-level channel routing).
 
 Preset JSON sections:
-- `mode_sound_channels`: `{pitchID: [ch0, ch1, ...], ...}` — mode coupling coefficients
-- `string_sound_channels`: `{pitchID: [ch0, ch1, ...], ...}` — string gain coefficients (old presets default to `40.0` per channel)
+- `mode_sound_channels`: `{pitchID: [ch0, ch1, ...], ...}` — mode coupling coefficients (modes-listen path)
+- `string_sound_channels`: `{pitchID: [ch0, ch1, ...], ...}` — string gain coefficients (strings-listen path; old presets default to `40.0` per channel). Only the output-pitch rows `128..127+num_output_channels` are kernel-effective
 
 ---
 

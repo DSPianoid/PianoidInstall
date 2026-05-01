@@ -334,8 +334,8 @@ Reads simulation parameters serialized for the frontend.
 | `feedin` | Deck feed-in coupling matrix |
 | `feedback` | Deck feedback coupling matrix |
 | `output` | External sound output parameters (alias for feedback on output pitches) |
-| `sound_channel` | Mode-coupling coefficients per pitch (modes listen mode) |
-| `string_sound_channel` | Strings-mode gain per pitch (strings listen mode) |
+| `sound_channel` | Mode-coupling coefficients per pitch (modes-listen mode `listen_to_modes=1`). Effective rows: piano pitches `0..127` |
+| `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. To set the gain for audio output channel `ch`, POST to `<key_no> = 128 + ch`. See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
 
 `key_no` formats:
 - Integer string: `"57"` — single pitch or mode number

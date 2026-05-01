@@ -375,6 +375,47 @@ There is also a parallel **mode-direct output path** for listen-to-modes mode
 `outerSoundModeChannel > 0` — used when `listen_to_modes=1` to tap mode force without going
 through string feedback.
 
+### Sound-Channel Gain Path (strings mode)
+
+In strings mode (`listen_to_modes=0`), the **per-output-pitch sound-channel
+gain** scales the mode→string feedback before it is written into the output
+buffer. The relevant data is `string_coefficients` (a.k.a.
+`string_sound_channels` in preset JSON), packed into `dev_deck_parameters`
+alongside the regular feedin/feedback entries.
+
+**Kernel-effective rows.** The Python model stores `string_coefficients[p]`
+for every pitch `p ∈ 0..139`, but the kernel only reads the rows where
+`outerSoundChannel > 0` — i.e. the output-pitch rows
+`p = 128..127+num_output_channels`. Piano-pitch rows `0..127` are stored but
+inert in strings mode (the `outerSoundChannel && isStem` guard at
+`MainKernel.cu:344` prevents any write from those rows). This isomorphism —
+**one output pitch ↔ one audio output channel** — is enforced by
+`Pitch.outerSound = max(self.pitch - 127, 0)` at preset-load time
+(PianoidBasic `Pitch.py:108`).
+
+**Per-channel gain semantics.** `string_coefficients[128 + ch][ch]` is the
+gain applied to output channel `ch` from output-pitch `128 + ch` — typically
+the diagonal of the strings-axis matrix. Off-diagonal entries
+(`string_coefficients[128 + ch_a][ch_b]` with `ch_a ≠ ch_b`) describe
+cross-channel mixing of one output pitch's feedback into another channel; in
+the standard 4-channel layout these are usually zero.
+
+**Why this matters for editors and fixes.** A frontend editor that exposes a
+"per-pitch" view of `string_coefficients` and lets the user set rows for piano
+pitches 0–127 will appear to "work" (the POST succeeds, the matrix updates,
+GETs return the new values) but produce zero audible effect — the kernel
+never reads those rows. A frontend editor that correctly indexes by output
+channel and POSTs to backend pitch `128 + channel_index` will work as
+expected. The strings-axis editor in PianoidTunner's SoundChannelsPane
+implements the latter; see `docs/modules/pianoid-tunner/OVERVIEW.md`
+"Strings-axis key normalization".
+
+The data-model contract for `string_coefficients` is documented in
+`docs/modules/pianoid-basic/OVERVIEW.md` "SoundChannels — Stored vs effective
+entries"; the disambiguation between `deck`, `mode_sound_channels`, and
+`string_sound_channels` is in `docs/architecture/DATA_FLOWS.md` §2.4
+"Deck vs sound-channel disambiguation block".
+
 ### sumArray Reduction
 
 `sumArray()` uses a two-level reduction: warp-level `__shfl_down_sync` (32 lanes, ~10
