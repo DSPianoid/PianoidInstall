@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-f99c | Bug #2: in-place /load_preset audio_driver_type=0 crashes engine | [log](logs/dev-f99c-2026-05-01-161646.md) | 2026-05-01 |
 
 ---
 
