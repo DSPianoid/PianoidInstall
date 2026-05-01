@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-modal-b3-1606 | Wave B-3: PianoidTunner Collect panel UI | [log](logs/dev-modal-b3-1606-2026-05-01-151653.md) | 2026-05-01 |
 
 ---
 
