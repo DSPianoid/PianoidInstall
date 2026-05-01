@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-c529 | Bug A: switch_preset stale mp.num_modes (cross-mode-count crash) | [log](logs/dev-c529-2026-05-01-105602.md) | 2026-05-01 |
 
 ---
 
