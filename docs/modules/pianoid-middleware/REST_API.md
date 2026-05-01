@@ -240,9 +240,11 @@ Request body (default initialization settings):
 ```
 
 Parameter details:
-- `audio_driver_type`: `0`=default, `1`=ASIO, `2`=SDL2, `3`=SDL3, `4`=ASIO_CALLBACK
+- `audio_driver_type`: `0`=default (SDL3, hardware-free), `1`=ASIO, `2`=SDL (auto-detect SDL3 if available, else SDL2), `3`=SDL3, `4`=ASIO_CALLBACK
 
-**Audio driver selection rule:** Prefer ASIO Callback (`4`) when an ASIO device is available — it provides the lowest latency. If ASIO is not available (no ASIO driver installed, or running without a dedicated audio interface), use SDL (`2`) as fallback. SDL works on all systems without special drivers
+  Type `0` is pinned to SDL3 with `circular_buffer_chunks=16` — same as type `3`. Historically `0` was a "compile-time default" sentinel that resolved to whichever driver was prioritised in `ACTIVE_AUDIO_DRIVER` (ASIO when both ASIO and SDL3 are compiled in), but left the buffer depth at the ASIO default (`4`). On Windows builds compiled with both drivers this caused SDL3 driver underruns on the second in-place `/load_preset` reload — engine entered `audio_driver_active=false, exception=true` state. Fixed in dev-f99c (2026-05-01); see `pack_initialization_params_for_cuda` in `pianoid_middleware/pianoid.py`.
+
+**Audio driver selection rule:** Prefer ASIO Callback (`4`) when an ASIO device is available — it provides the lowest latency. If ASIO is not available (no ASIO driver installed, or running without a dedicated audio interface), use SDL (`2`) as fallback. SDL works on all systems without special drivers. `0` is the safe default for tests / headless / "no specific audio hardware" callers — equivalent to type `3`.
 - `cycle_iterations`: samples per cycle; must match audio buffer size, minimum 16, default 64
 - `audio_buffer_size`: buffer chunks; `2`=low latency, `4`=balanced, `8`=high stability
 - `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512. When the requested value differs from the preset's native `array_size`, string geometry (`main` and `tail`) is scaled proportionally
