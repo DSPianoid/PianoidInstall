@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-modal-b0-6558 | Wave B-0 Modal Adapter ↔ RoomResponse coexistence smoke + bootstrap | [log](logs/dev-modal-b0-6558-2026-04-30.md) | 2026-04-30 |
 
 ---
 
