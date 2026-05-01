@@ -7,6 +7,16 @@
 
 ---
 
+## Orchestrator Session Pause — 2026-05-01
+
+User paused all work for a computer restart. Full session state captured at:
+
+**[`orchestrator-session-state-2026-05-01.md`](orchestrator-session-state-2026-05-01.md)**
+
+That file contains: today's commits in chronological order, engine bug cluster status (Bug A + Bug #2/#3 fixed; Bug #1 paused with corrected diagnosis), the immediate-resume decision queue (Bug #1 a/b/c/d call), Modal Adapter integration status (B-0/B-1/B-3 landed, B-2/B-4/B-5/Q4 ports deferred), CLAUDE.md/dev.md reorganization details, memory updates, and stack restart instructions. **Resume here after reboot.**
+
+---
+
 ## Mode Parameter Handling Audit (2026-04-29)
 
 **Status:** Session 1 committed. Sessions 2 and 3 pending.
