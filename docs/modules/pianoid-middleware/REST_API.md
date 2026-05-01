@@ -120,6 +120,12 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/projects/export    -- download project as .pianoid-project zip
   /modal/projects/export_info -- preview export size and stage completeness
   /modal/projects/import    -- upload and import .pianoid-project zip
+  /modal/collect/health     -- (B-0) RoomResponse coexistence probe
+  /modal/collect/start      -- (B-1) begin one measurement scenario
+  /modal/collect/status     -- (B-1) active session snapshot
+  /modal/collect/cancel     -- (B-1) cancel active session
+  /modal/collect/results/<sid> -- (B-1) completed-session result + metadata
+  /modal/collect/devices    -- (B-1) enumerate SDL3 input/output devices
 ```
 
 ---
@@ -1795,6 +1801,154 @@ Response `200`:
 ```
 
 If name conflict was resolved, `renamed` is `true` and `name` contains the suffixed name.
+
+---
+
+### Modal Collection Endpoints (port 5001, B-1)
+
+Five new endpoints under `/modal/collect/*` orchestrate one in-flight
+RoomResponse measurement scenario per process. All routes are mounted on
+the modal_adapter_server (port 5001) only — calls to the same paths on
+the main backend (port 5000) return HTTP 503 because the RoomResponse
+bootstrap is not run there. See [MODAL_COLLECTION.md](MODAL_COLLECTION.md)
+for the full architecture.
+
+#### `POST /modal/collect/start`
+
+Begin one measurement scenario. Returns a `session_id` immediately; the
+worker thread runs in background. Poll `/modal/collect/status` for
+progress.
+
+Request body:
+
+```json
+{
+  "scenario_number": 0,
+  "project_dir": "D:/data/myproject",
+  "recorder_config": {
+    "num_measurements": 5,
+    "measurement_interval": 0.5,
+    "computer": "Belarus",
+    "room": "Run1",
+    "sample_rate": 48000,
+    "num_pulses": 5,
+    "volume": 0.65,
+    "input_device_name": "IN 01-08 (BEHRINGER UMC 1820)",
+    "output_device_name": "OUT 1-2 (BEHRINGER UMC 1820)",
+    "multichannel_config": {
+      "enabled": true,
+      "num_channels": 6,
+      "response_channels": [0, 1, 3, 4, 5],
+      "calibration_channel": 2,
+      "reference_channel": 5
+    }
+  }
+}
+```
+
+Only the high-impact keys above are honoured in v1 (per direction Q2).
+Everything else falls back to RoomResponse's bundled `recorderConfig.json`.
+
+Responses:
+
+| Code | Body | When |
+|------|------|------|
+| 200 | `{"session_id": "<12-hex>"}` | Accepted; worker thread spawned |
+| 400 | `{"error": "..."}` | Missing `scenario_number` / `project_dir`, malformed body |
+| 409 | `{"error": "Measurement already running ..."}` | Another session is in flight |
+| 502 | `{"error": "Failed to pause Pianoid synthesis ..."}` | Synchronous-path pause failure (rare; usually surfaces via status `phase=error`) |
+| 503 | `{"error": "RoomResponse unavailable on this server"}` | Bootstrap failed or running on port 5000 |
+
+Pause coordination happens inside the worker thread. If
+`/pause_synthesis` (port 5000) fails or is unreachable, the session
+transitions to `phase=error` without opening the audio device — the
+operator must check status to learn the failure.
+
+#### `GET /modal/collect/status`
+
+Returns the current (or most recent) session snapshot:
+
+```json
+{
+  "session_id": "d0722c397e99",
+  "scenario_number": 0,
+  "project_dir": "D:/data/myproject",
+  "phase": "recording",
+  "progress_pct": 10.0,
+  "started_at": 1777636462.86,
+  "finished_at": null,
+  "error_message": null,
+  "output_paths": []
+}
+```
+
+When no session has ever run on this process, returns `{"phase": "idle"}`.
+
+| Phase | Meaning |
+|-------|---------|
+| `idle` | No session has run |
+| `pausing` | Posting `/pause_synthesis` |
+| `recording` | RoomResponseRecorder + collector running |
+| `saving` | Generating averaged_responses + scenario_N.npy mirror |
+| `resuming` | Posting `/resume_synthesis` |
+| `done` | Success terminal |
+| `cancelled` | Cancellation requested mid-flight |
+| `error` | Pause failed, recording crashed, or save failed (`error_message` populated) |
+
+#### `POST /modal/collect/cancel`
+
+Signals cancellation of the active session via `threading.Event`. The
+worker checks between phases; the final `/resume_synthesis` always fires
+when the engine paused successfully, regardless of cancel/error.
+
+Response: `{"cancelled": true}` if a session was active, `{"cancelled": false}` otherwise.
+
+#### `GET /modal/collect/results/<session_id>`
+
+Returns paths and persisted metadata for a completed session. Sessions
+are kept in memory (last 16 by id) for post-completion polling.
+
+```json
+{
+  "session_id": "d0722c397e99",
+  "scenario_number": 0,
+  "phase": "done",
+  "output_paths": [
+    "D:/data/myproject/B1Demo-Scenario0-Run1/raw_recordings/raw_meas_000.wav",
+    "...",
+    "D:/data/myproject/B1Demo-Scenario0-Run1/averaged_responses/average_ch0.npy",
+    "D:/data/myproject/measurements/scenario_0.npy"
+  ],
+  "session_metadata": {
+    "scenario_name": "B1Demo-Scenario0-Run1",
+    "device_info": { "sdl_version": "3.2.0", "device_counts": { ... } },
+    "measurements": [ ... ]
+  }
+}
+```
+
+| Code | Body | When |
+|------|------|------|
+| 200 | result body | session known |
+| 404 | `{"error": "Unknown session: ..."}` | session_id not in active or recent history |
+
+#### `GET /modal/collect/devices`
+
+Transient SDL3 device probe. The handler does NOT keep an `AudioEngine`
+open across the call — it enumerates and returns.
+
+```json
+{
+  "input_devices":  [{"index": 0, "name": "IN 05 (BEHRINGER UMC 1820)"}, ...],
+  "output_devices": [{"index": 0, "name": "OUT 1-2 (BEHRINGER UMC 1820)"}, ...],
+  "sdl_version": "3.2.0"
+}
+```
+
+| Code | Body | When |
+|------|------|------|
+| 200 | device list | normal |
+| 503 | `{"error": "RoomResponse unavailable"}` | `/modal/collect/health` would also report `available: false` |
 
 ---
 

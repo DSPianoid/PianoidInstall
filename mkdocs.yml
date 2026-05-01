@@ -45,6 +45,7 @@ nav:
     - REST API: modules/pianoid-middleware/REST_API.md
     - MIDI System: modules/pianoid-middleware/MIDI_SYSTEM.md
     - Chart System: modules/pianoid-middleware/CHART_SYSTEM.md
+    - Modal Collection: modules/pianoid-middleware/MODAL_COLLECTION.md
   - PianoidBasic: modules/pianoid-basic/OVERVIEW.md
   - Frontend: modules/pianoid-tunner/OVERVIEW.md
   - Development:

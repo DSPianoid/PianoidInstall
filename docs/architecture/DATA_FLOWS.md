@@ -1159,6 +1159,66 @@ _restart_online_engine()
 
 ---
 
+## 5. Measurement Collection Flow (Modal Adapter, B-1)
+
+The Modal Adapter server (port 5001) can drive a complete RoomResponse
+measurement scenario via REST. The flow shares the audio device with
+Pianoid synthesis (port 5000), so collection always pauses Pianoid for
+the duration of the recording.
+
+```text
+Operator (curl / future Collect panel)
+    │
+    │ POST /modal/collect/start  {scenario_number, project_dir, recorder_config}
+    ▼
+collection_routes.collect_start (modal_adapter_server :5001)
+    │
+    │ MeasurementSession.start() - guards single-active-session, spawns daemon Thread
+    ▼
+MeasurementSession._run (worker thread)
+    │
+    │ phase=pausing
+    │ POST /pause_synthesis @ 127.0.0.1:5000
+    │     -> backendServer.pause_synthesis (backendServer.py:1844)
+    │     -> pianoid.stop_playback()
+    │     -> SDL3AudioDriver::stopPlayback (SDL3AudioDriver.cpp:296-309)
+    │     -> SDL_DestroyAudioStream releases the OS audio device
+    │
+    │ phase=recording
+    │ RoomResponseRecorder.take_record(...) per measurement
+    │ SingleScenarioCollector.collect_scenario_measurements()
+    │   -> writes raw_recordings/, impulse_responses/, room_responses/
+    │
+    │ phase=saving
+    │ generate_averaged_responses_for_scenario(scenario_dir)
+    │   -> writes averaged_responses/average_chN.npy
+    │ Mirror averaged → {project_dir}/measurements/scenario_N.npy
+    │   -> consumed by ModalAdapter._discover_npy_scenarios
+    │
+    │ phase=resuming  (always, on success / cancel / error if pause succeeded)
+    │ POST /resume_synthesis @ 127.0.0.1:5000
+    │
+    ▼
+phase ∈ {done, cancelled, error}
+    │
+    │ Operator polls GET /modal/collect/status, then
+    │ GET /modal/collect/results/<sid> for paths + session_metadata
+    ▼
+Modal Adapter ESPRIT pipeline (existing flow at modal_adapter.py:1244-1346)
+    can now load the new scenario via load_folder / add_folder.
+```
+
+Single-active-session constraint is enforced by an `_active_lock` +
+in-flight `_thread.is_alive()` check in `MeasurementSession`. Concurrent
+`POST /modal/collect/start` returns HTTP 409. The session never opens
+the audio device unless `/pause_synthesis` returns a non-5xx response;
+this is the fail-fast path for shared-device contention with Pianoid.
+
+See [pianoid-middleware/MODAL_COLLECTION.md](../modules/pianoid-middleware/MODAL_COLLECTION.md)
+for the full architecture and recorder-config override schema.
+
+---
+
 ## Thread Safety Model
 
 | Thread | Role | Synchronization |
