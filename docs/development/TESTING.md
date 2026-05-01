@@ -17,6 +17,7 @@ PianoidCore/tests/
 │   ├── test_audio_drivers.py
 │   ├── test_performance.py
 │   ├── test_playback.py
+│   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag
 │   └── test_websocket_integration.py  # WebSocket integration — server startup, WS connection, lifecycle push, play events, parameter updates, REST regression
 ├── integration/         # GPU required, no audio

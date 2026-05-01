@@ -684,7 +684,10 @@ backendserver.py: preset_switch_route()                 (line 345)
          ├── Record completion event, swap buffers
          └── If sync: block until transfer completes
   3. Update compatibility pointers to new working buffer
-  4. Swap Python model: self.sm, self.modes ← _library_models[name]
+  4. Swap Python model: self.sm, self.modes, self.mp ← _library_models[name]
+     (param_manager.{sm,modes,mp} are mirrored too — all three must move
+     together; stale mp.num_modes used to overflow or silently truncate
+     feedback/output reads, fixed 2026-05-01.)
   5. Repack deck from (now correct) Python model → send_deck_params_to_CUDA()
   6. Set run_string_map_kernel_ = true, new_notes_ind = 1
   Playback continues uninterrupted — double-buffer swap is atomic
@@ -698,7 +701,7 @@ backendserver.py: preset_switch_route()                 (line 345)
 | `dev_preset_updating_` | GPU | Staging area for async updates |
 | `preset_gpu_library_[name]` | GPU | Per-preset snapshot (~3.15 MB each) |
 | `preset_library_[name]` | Host | Per-preset host copy (for Python read-back) |
-| `_library_models[name]` | Python | Per-preset domain objects (StringMap, ModeMap) |
+| `_library_models[name]` | Python | Per-preset domain objects (StringMap, ModeMap, ModelParameters) |
 
 #### Known Limitations
 
