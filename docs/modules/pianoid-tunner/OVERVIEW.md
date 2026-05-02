@@ -86,11 +86,8 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `SoundChannelsPane` | `SoundChannelsPane.jsx` | Dual-axis sound channel editor pane (extracted from `PianoidTuner.js`, 2026-04-20 Wave A). Dispatches between two render modes based on `aggregateMode`: **aggregate OFF** → `MeasuredMatrix` (per-channel matrix, axis is `listenToModes`: modes = pitches × channels, coupling into feedin; strings = channels × modes, feedback gain); **aggregate ON** → `SoundChannelsAggregateChart` (single curve, drag-to-edit, dedicated refactor 2026-04-21). Consumes the `useSoundChannels` hook for history/aggregate/fan-out; owns only the render-mode dispatch and display geometry for the matrix path |
 | `SoundChannelsAggregateChart` | `SoundChannelsAggregateChart.jsx` | Thin domain wrapper around `DrawableChart` for the Sound Channels aggregate view (2026-04-23, Wave 3 of drawable-chart merge; previously a 500-LOC standalone editor, now ~175 LOC). Single concern: adapt the aggregate-matrix shape to a flat values-per-bucket vector and translate the painted-vector emit back into an axis-appropriate aggregate-change payload. **Render, drag-paint, Flat, Smooth, undo/redo toolbar, clamp, and dark theme all live in `DrawableChart`.** Data shape handled: **modes axis** → x = pitch (as note name), y = avg coefficient per pitch (hook's `scModesAggMatrix` = `{ pitch: [avg] }`); **strings axis** → x = mode index, y = avg per mode (`scStringsAggMatrix = { averaged: [val_per_mode] }`). Drag emits through `applyAggregateChange` as `pitchesVectorDrawn` (modes axis) or `modesVectorDrawn` (strings axis, with pitch key `"averaged"`); the hook's `fanOutAggregateChangeAxis` expands the delta across the fan-out dimension into one `applyBatchChange` history entry (single undo step per op, same as before). Accepts a `variant` prop (`"line" \| "bar"`) forwarded to `DrawableChart`, driven by `soundChannelSettings.visualization` (default `"line"` per Wave 3, overridable via the Settings gear). Wrapper owns only the pane-level aggregate-toggle (Layers icon) + per-axis caption above the chart; the DrawableChart toolbar (undo/redo + Flat + Smooth + NumInput) renders just below |
 | `ParameterEditor` | `ParameterEditor.jsx` | Generic numeric parameter editor |
-| `PropertyInput` | `PropertyInput.jsx` | Labelled numeric input with validation |
-| `NumericInput` | `NumericInput.jsx` | Standalone numeric input field |
-| `NumInput` | `NumInput/NumInput.js` | MUI-styled numeric input |
+| `NumInput` | `NumInput/NumInput.js` | Canonical numeric editor (cursor-position step + wheel + min/max clamp + in-place min/max/decPlaces editing). Also delegated-to by `ObjectInspector` for every numeric field in every settings popup (dev-f259, 2026-05-01) |
 | `RowEditor` | `RowEditor.js` | Editable table row for matrix data. Composes `BarChart` (DrawableChart adapter) above a `VirtualPiano` or `ModesRule`. Accepts a `variant` prop (`"bar" \| "line"`) forwarded to the underlying chart — driven from the containing panel's `visualization` setting in `useSettings` |
-| `PitchTools` | `PitchTools.jsx` | Pitch-level action toolbar (play, reset, copy) |
 | `CopyPastMenu` | `CopyPastMenu.jsx` | Copy/paste menu for parameter arrays |
 | `ToolBar` | `ToolBar.jsx` | Main application toolbar |
 | `BackendStatusIndicator` | `BackendStatusIndicator.jsx` | Health status badge (healthy/crashed/disconnected) with backend start/stop controls |
@@ -106,7 +103,7 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `ModalResultsView` | `ModalResultsView.jsx` | Stabilization diagram wrapper, collapsible mode chain table, per-mode shape plot, feedin heatmap |
 | `StabilizationDiagram` | `StabilizationDiagram.jsx` | ECharts scatter plot of mode chains with stability coloring, unified zoom system (brush-to-zoom + scroll-wheel zoom with cursor-centered log-aware Y axis, single `viewBounds` state, Reset button for any zoom source), chain paths (visible by default), chain visibility filter (Stable/+Semi/All/Unasgn), heatmap color mode (damping/amplitude), bridge boundary markLine with "Bass \| Treble" label, **selected chain info chips** (mean frequency, mean damping, point count per chain, colored by stability), sub-charts for selected chains (Damp/Amp/MAC/Shape/Proj — independent toggles, zoom-synced X-axis). Shape sub-chart phase-aligns scenarios within each chain (dot product sign flip against reference) for consistent visual comparison. Above the Shape sub-chart, a `ToggleButtonGroup` of channel numbers plus an OFF button lets the user pick an optional anchor channel — when an anchor is set, every displayed curve is multiplied by `1/curve[anchor]` so all curves pass through +1 at that channel (with a `|value| < 1e-12` near-zero guard leaving degenerate curves untouched), a dashed vertical markLine marks the anchor, and the Y-axis label becomes `Shape (norm @ Ch<N>)`. When an anchor is active, Y axis is clipped to the 5th–95th percentile of y-values (padded 10%, rounded to nice tick boundaries, always containing +1) so outlier curves with near-zero at the anchor don't stretch the readable range. Default is OFF (raw unphased, auto-range); toggling the Shape sub-chart off resets the anchor to null. Clicking selects all lines crossing the click area (5% Y-range tolerance) and highlights their corresponding points on the main chart (white diamond, orange glow). Full-bridge chains (`bridge="full"`) render with a gap at the boundary. Shows ESPRIT data as unassigned dots even before tracking. Centralized brush lifecycle via generation counter — `handleBrushSelected` starts with an empty-areas echo guard (prevents feedback loops from ECharts's `brushVisual` -> throttled `brushSelect` re-entry) then runs its body in try/finally so the clear dispatch and generation bump always run on real user events; the lifecycle effect owns cursor re-arm (takeGlobalCursor). Orphaned zrender covers — created when `brushselected` fires mid-drag and ECharts's `BrushController.updateCovers([])` skips `group.remove` due to its `_creatingCover !== oldCover` guard — are swept by `forceRemoveOrphanedCovers()` which walks `inst._componentsViews -> brush view -> _brushController` and removes any `group.children()` entry not tracked in `_covers`. Called from the echo path, the finally block, and the lifecycle effect. Accepts `interactionMode` for editing integration |
 | `StabilizationToolbar` | `StabilizationToolbar.jsx` | MUI ToggleButtonGroup for chain editing modes (select/addPoint/drawChain/connect/break/dissolve) with undo/redo/save/discard buttons |
-| `ObjectInspector` | `ObjectInspector.jsx` | Debug inspector for arbitrary state objects; includes Block Size dropdown (array_size: 256/384/512) in Settings panel |
+| `ObjectInspector` | `ObjectInspector.jsx` | Property-grid renderer for arbitrary settings buckets (one bucket per `<PaneSettingsDialog>` instance). `PARAMETER_CONFIG` declares per-field display name + select-typed enums (Build Mode, Cycle Iterations, Audio Driver, Audio Buffer Size, Block Size, Listen Mode, Sound Derivative). **Numeric fields (`typeof value === "number"` OR `PARAMETER_CONFIG[k].type === "number"`) delegate to `<NumInput>`** for cursor-step / wheel / min-max-clamp behavior (dev-f259, 2026-05-01); booleans and strings keep the legacy `<input type="text">` fallback. |
 | `FileUploader` | `FileUploader.jsx` | File upload widget for preset loading (native OS file picker) |
 | `FolderBrowser` | `FolderBrowser.jsx` | Folder picker using native OS dialog via `POST /open_folder_dialog` (on modal adapter server, port 5001). Uses tkinter subprocess for thread safety. |
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
@@ -260,35 +257,44 @@ The Excitation pane's toolbar exposes four `IconButton`s — Shrink/Stretch × H
 
 **State discipline.** `usePreset` is the sole writer of Gauss state. `excitationSettings` is owned by `useSettings`. The four click handlers are stateless — they READ `settings.stretchStep` + `values` and emit one batch via the existing `onBatchGaussChange` prop. No mirror state, no useEffect watcher, no anchor refs (the previous slider implementation needed `mousedown`-time anchors because the slider held continuous interim state during a drag; a single click does not).
 
-**`stretchStep` editing.** Click the Excitation pane's gear icon (rendered into the MosaicWindow title bar by `usePaneSettingsDialog`) to open the `<PaneSettingsDialog>` for `excitationSettings`. The single field renders as a text input labelled "Stretch / Shrink Step" (via a `PARAMETER_CONFIG.stretchStep.displayName` entry in `ObjectInspector.jsx`); ObjectInspector's existing numeric coercion regex (`/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/`) parses entries like `1.5` to a float. Apply commits via `setExcitationSettings`, persists to `localStorage.excitationSettings`, and the next button click reads the new factor. The Excitation handler guards against non-positive or non-finite values with a fallback to the module-level `DEFAULT_STRETCH_STEP = 1.2` constant.
+**`stretchStep` editing.** Click the Excitation pane's gear icon (rendered into the MosaicWindow title bar by `usePaneSettingsDialog`) to open the `<PaneSettingsDialog>` for `excitationSettings`. The single field renders as a `<NumInput>` labelled "Stretch / Shrink Step" (via a `PARAMETER_CONFIG.stretchStep.displayName` entry + the numeric-delegation rule in `ObjectInspector.jsx`); the user commits a new value with Enter / wheel scroll / arrow buttons. Apply commits via `setExcitationSettings`, persists to `localStorage.excitationSettings`, and the next button click reads the new factor. The Excitation handler guards against non-positive or non-finite values with a fallback to the module-level `DEFAULT_STRETCH_STEP = 1.2` constant.
 
 ### `useLayout`
 
 Manages the `react-mosaic-component` tile layout tree. The initial layout places the following named panes:
 
 ```
-Preset | Charts / NumInputTest
+Preset | Charts
 -------+-----------------------------------------------------
 MIDI+Strings | Feedin / Feedback | Virtual Piano | Modes
                                                |
                                            Workbench
 ```
 
-(The previous initial layout had `Settings` in the top-left where `Preset` is now. The migration from Settings to Preset is described below.)
+(The previous initial layout had `Settings` in the top-left where `Preset` is now. The migration from Settings to Preset is described below. The `NumInputTest` sandbox pane that previously occupied the bottom of the top-right column was removed in dev-f259, 2026-05-01.)
 
 Layout is persisted to `localStorage` under `mosaicLayout`. Exposes `handleMaximize(id)` (saves backup, expands one pane to full screen), `handleRestore()` (restores backup), `handleDefaultLayout()` (resets to initial).
 
-**Layout migration walker `mapDeprecatedPaneIds` (dev-a328 Phase 2, 2026-05-01).** Existing users who installed before the Settings→Preset rename have `"Settings"` saved in their `localStorage.mosaicLayout`. The `useState` initialiser pipeline applies two walkers in order:
+**Layout migration walker `mapDeprecatedPaneIds` (dev-a328 Phase 2, 2026-05-01; extended by dev-f259, 2026-05-01).** Existing users who installed before a pane rename or removal have stale leaf IDs saved in their `localStorage.mosaicLayout`. The `useState` initialiser pipeline applies two walkers in order:
 
 1. `stripDynamicWorkbenches(node)` — removes `Workbench:*` leaves (their state is not persisted across reloads). Pre-existing behaviour.
-2. `mapDeprecatedPaneIds(node)` — rewrites deprecated leaf IDs to their new equivalents. Currently `PANE_ID_MIGRATION = { Settings: "Preset" }`. Add new entries here as future panes are renamed or split.
+2. `mapDeprecatedPaneIds(node)` — rewrites or drops deprecated leaf IDs per the `PANE_ID_MIGRATION` registry. Two policies coexist: `"OldId": "NewId"` (rewrite the leaf, preserving its position) and `"OldId": null` (drop the leaf entirely, parent collapses). Currently:
+
+   ```js
+   const PANE_ID_MIGRATION = {
+     Settings: "Preset",       // dev-a328: monolithic Settings pane → PresetPanel
+     NumInputTest: null,       // dev-f259: sandbox demo pane removed
+   };
+   ```
+
+   The walker uses `Object.prototype.hasOwnProperty` to distinguish "key not in registry" (preserve as-is) from "key explicitly mapped to null" (drop the leaf). Add new entries here as future panes are renamed, split, or removed.
 
 The walker is implemented as a two-pass operation (`collectLeafIds` + `mapDeprecatedPaneIdsWith`):
 
 - **Pass 1: collect all leaf IDs into a Set.**
-- **Pass 2: rewrite. If the deprecated leaf's target ID already exists elsewhere in the tree, drop the deprecated leaf (return `null`, pruning it) instead of creating a conflict.**
+- **Pass 2: rewrite. If the deprecated leaf's target ID already exists elsewhere in the tree, drop the deprecated leaf (return `null`, pruning it) instead of creating a conflict. For null-mapped entries, drop unconditionally.**
 
-The duplicate-detection is load-bearing: `react-mosaic-component` does not allow leaves with the same ID and crashes hard with `Duplicate IDs [<id>] detected. Mosaic does not support leaves with the same ID`. The trigger scenario: a user's saved layout already contains both the deprecated leaf (Settings) AND the new leaf (Preset) — for example because the user manually re-added the legacy Settings pane via the Window Layout Manager dialog during the Phase 2 transition. Without de-duplication, the rewrite Settings → Preset would produce two `"Preset"` leaves and crash. With de-duplication, the user's existing Preset pane is preserved and the deprecated Settings leaf is silently dropped.
+The duplicate-detection is load-bearing: `react-mosaic-component` does not allow leaves with the same ID and crashes hard with `Duplicate IDs [<id>] detected. Mosaic does not support leaves with the same ID`. The trigger scenario: a user's saved layout already contains both the deprecated leaf (Settings) AND the new leaf (Preset) — for example because the user manually re-added the legacy Settings pane via the Window Layout Manager dialog during the Phase 2 transition. Without de-duplication, the rewrite Settings → Preset would produce two `"Preset"` leaves and crash. With de-duplication, the user's existing Preset pane is preserved and the deprecated Settings leaf is silently dropped. Drop-by-null entries (NumInputTest) bypass the existence check and are pruned in all cases — the parent collapses through the standard `!first ? second : !second ? first` fallback in `mapDeprecatedPaneIdsWith`.
 
 ### `useCurrentValues`
 
