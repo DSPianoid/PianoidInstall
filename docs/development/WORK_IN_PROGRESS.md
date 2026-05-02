@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-529b | Mouse-wheel control for Excitation stretch/shrink buttons | [log](logs/dev-529b-2026-05-02-145426.md) | 2026-05-02 | Active |
 
 ---
 
