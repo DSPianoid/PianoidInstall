@@ -236,6 +236,45 @@ install_sdl() {
     echo "  OK SDL packages installed"
 }
 
+check_nvidia_driver() {
+    # CUDA toolkit (nvcc + libcudart) is independent of the kernel driver.
+    # Without the driver Pianoid builds fine but fails at runtime with
+    # "no CUDA-capable device is detected". Warn the user explicitly so they
+    # don't chase phantom build issues.
+    if [[ -e /proc/driver/nvidia/version ]]; then
+        echo "  OK  NVIDIA kernel driver loaded:"
+        head -1 /proc/driver/nvidia/version | sed 's/^/      /'
+        return 0
+    fi
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        echo "  OK  nvidia-smi present"
+        return 0
+    fi
+    echo "  WARN  NVIDIA kernel driver NOT detected (no /proc/driver/nvidia/version)."
+    echo "        The CUDA toolkit installs nvcc/libcudart but does NOT install the"
+    echo "        kernel driver. Pianoid will build successfully but the backend"
+    echo "        will fail at runtime with 'no CUDA-capable device is detected'."
+    echo
+    echo "        Install the driver matching your GPU:"
+    case "$PKG_MANAGER" in
+        apt)
+            echo "          sudo ubuntu-drivers autoinstall   # Ubuntu — auto-detect"
+            echo "          sudo apt install nvidia-driver-560 # or pin a specific version"
+            ;;
+        dnf)
+            echo "          sudo dnf install akmod-nvidia     # Fedora (RPM Fusion)"
+            ;;
+        pacman)
+            echo "          sudo pacman -S nvidia             # Arch"
+            ;;
+        zypper)
+            echo "          sudo zypper install nvidia-glG06  # openSUSE"
+            ;;
+    esac
+    echo "        Reboot after install. Verify with: nvidia-smi"
+    return 1
+}
+
 install_cuda() {
     echo
     echo "[CUDA] Target toolkit version: $CUDA_VERSION"
@@ -282,6 +321,9 @@ install_cuda() {
         echo "  WARN: nvcc not on PATH after install. You may need to add /usr/local/cuda/bin to PATH"
         echo "        and /usr/local/cuda/lib64 to LD_LIBRARY_PATH (or /etc/ld.so.conf.d/)."
     fi
+
+    # The toolkit is independent of the kernel driver — verify both.
+    check_nvidia_driver
 }
 
 install_node() {

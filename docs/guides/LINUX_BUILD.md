@@ -71,8 +71,30 @@ will install SDL2 alone and print the source-build steps for SDL3.
 
 ### NVIDIA driver
 
-The NVIDIA driver must match the CUDA toolkit. `nvidia-smi` should show a
-driver version compatible with the toolkit's CUDA runtime.
+The NVIDIA kernel driver is **separate from the CUDA toolkit** and must be
+installed independently. The toolkit (`nvcc` + `libcudart`) gives you the
+ability to *build* CUDA code; the driver gives you the ability to *run* it.
+Without the driver Pianoid will build successfully but the backend will
+fail at runtime with `RuntimeError: no CUDA-capable device is detected`.
+
+Verify with:
+
+```bash
+nvidia-smi                                # must show your GPU
+cat /proc/driver/nvidia/version           # must list a driver version
+```
+
+Install on Ubuntu:
+
+```bash
+sudo ubuntu-drivers autoinstall           # auto-detect
+# or pin a specific version:
+sudo apt install nvidia-driver-560
+sudo reboot
+```
+
+The driver version must be ≥ the minimum required by your CUDA toolkit
+(CUDA 12.0 needs driver ≥ 525.60.13; CUDA 12.6 needs ≥ 560.x).
 
 ### SDL3
 

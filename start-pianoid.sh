@@ -12,7 +12,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CORE_DIR="$ROOT_DIR/PianoidCore"
 MIDDLEWARE_DIR="$CORE_DIR/pianoid_middleware"
 TUNNER_DIR="$ROOT_DIR/PianoidTunner"
-BACKEND_SCRIPT="$MIDDLEWARE_DIR/backendserver.py"
+BACKEND_SCRIPT="$MIDDLEWARE_DIR/backendServer.py"
 
 echo "========================================================================="
 echo "Starting Pianoid Application (Linux)"
@@ -31,7 +31,7 @@ for D in "$CORE_DIR" "$MIDDLEWARE_DIR" "$TUNNER_DIR"; do
     fi
 done
 if [[ ! -f "$BACKEND_SCRIPT" ]]; then
-    echo "ERROR: backendserver.py not found: $BACKEND_SCRIPT"
+    echo "ERROR: backendServer.py not found: $BACKEND_SCRIPT"
     exit 1
 fi
 if [[ ! -f "$TUNNER_DIR/package.json" ]]; then
