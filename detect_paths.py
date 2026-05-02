@@ -326,7 +326,15 @@ def _find_gcc_linux():
 
 
 def _find_cuda_linux(user_hint=None):
-    """Locate CUDA toolkit on Linux."""
+    """Locate CUDA toolkit on Linux.
+
+    Handles two layouts:
+      1. Standalone toolkit (NVIDIA runfile or /usr/local/cuda*): everything
+         lives under <root>/{bin,include,lib64}.
+      2. Distro package (Debian/Ubuntu nvidia-cuda-toolkit): nvcc at
+         /usr/bin/nvcc, headers in /usr/include, libs in
+         /usr/lib/x86_64-linux-gnu (Debian multiarch) or /usr/lib64 (Fedora).
+    """
     cand = None
     if user_hint:
         cand = user_hint
@@ -347,12 +355,34 @@ def _find_cuda_linux(user_hint=None):
         return {}
     cuda_home = Path(cand)
     nvcc = cuda_home / "bin" / "nvcc"
-    include = cuda_home / "include"
-    # Linux uses lib64 (CUDA 11+) or lib (older)
-    lib64 = cuda_home / "lib64"
-    if not lib64.exists():
-        lib64 = cuda_home / "lib"
-    if nvcc.exists() and include.exists() and lib64.exists():
+
+    # Locate the headers. Standalone toolkit puts them under
+    # <root>/include/cuda_runtime.h. The distro package may keep <root>=/usr,
+    # in which case cuda_runtime.h is directly in /usr/include.
+    candidate_includes = [cuda_home / "include"]
+    candidate_libs = [
+        cuda_home / "lib64",
+        cuda_home / "lib",
+        # Distro multiarch layouts:
+        cuda_home / "lib" / "x86_64-linux-gnu",
+        cuda_home / "lib" / "aarch64-linux-gnu",
+    ]
+
+    include = next(
+        (p for p in candidate_includes if (p / "cuda_runtime.h").exists()),
+        None,
+    )
+
+    # Pick the libdir that actually contains libcudart.so* (handles the
+    # apt-style /usr install where /usr/lib64 doesn't exist).
+    def _has_cudart(p):
+        if not p.exists():
+            return False
+        return any(p.glob("libcudart.so*"))
+
+    lib64 = next((p for p in candidate_libs if _has_cudart(p)), None)
+
+    if nvcc.exists() and include is not None and lib64 is not None:
         return {
             "cuda_home": str(cuda_home),
             "cuda_nvcc": str(nvcc),
