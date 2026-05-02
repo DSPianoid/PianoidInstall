@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-f259 | ObjectInspector → NumInput delegation + delete legacy NumericInput/PropertyInput/PitchTools | [log](logs/dev-f259-2026-05-01-190822.md) | 2026-05-01 | In Progress |
 
 ---
 
