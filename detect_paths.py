@@ -313,16 +313,70 @@ def _py_info():
 
 # -------- Linux helpers --------
 
+def _nvcc_supports_gcc(nvcc_path, gxx_path):
+    """Compile a tiny test through nvcc -ccbin <gxx> and return True on success.
+
+    nvcc enforces a host-compiler version cap in crt/host_config.h; CUDA 12.0
+    rejects gcc >= 13 (the Ubuntu 24.04 default). When that happens, the
+    caller should fall back to a pinned older g++.
+    """
+    import subprocess, tempfile
+    if not nvcc_path or not gxx_path:
+        return False
+    src = b"int main(){return 0;}\n"
+    with tempfile.TemporaryDirectory() as td:
+        srcf = Path(td) / "t.cu"
+        outf = Path(td) / "t.o"
+        srcf.write_bytes(src)
+        try:
+            rc = subprocess.run(
+                [nvcc_path, "-c", str(srcf), "-o", str(outf),
+                 "-ccbin", gxx_path, "--std=c++17"],
+                capture_output=True, timeout=20,
+            )
+            return rc.returncode == 0
+        except Exception:
+            return False
+
+
 def _find_gcc_linux():
-    """Locate g++ on Linux. Required for nvcc -ccbin."""
-    cxx = which("g++")
-    if cxx:
-        return {"gxx": str(cxx)}
-    # try clang++ as fallback
+    """Locate g++ on Linux. Required for nvcc -ccbin.
+
+    Prefers a g++ version that the local nvcc accepts. Older CUDA toolkits
+    (e.g. CUDA 12.0 in Ubuntu 24.04's nvidia-cuda-toolkit) cap the host
+    compiler at gcc 12, while the distro default is gcc 13. We probe
+    available pinned variants (g++-12, g++-11, g++-10, then plain g++) and
+    pick the first one nvcc compiles successfully against.
+    """
+    nvcc = which("nvcc")
+    candidates = []
+    # Pinned versions take priority — they're explicit and match what users
+    # install when nvcc rejects the system default.
+    for cxx in ("g++-12", "g++-11", "g++-10"):
+        p = which(cxx)
+        if p:
+            candidates.append(p)
+    # Then the system default
+    sys_gxx = which("g++")
+    if sys_gxx and sys_gxx not in candidates:
+        candidates.append(sys_gxx)
+    # clang++ as last resort
     clx = which("clang++")
     if clx:
-        return {"gxx": str(clx)}
-    return {}
+        candidates.append(clx)
+
+    if not candidates:
+        return {}
+
+    # If nvcc is available, probe each candidate; otherwise return the first.
+    if nvcc:
+        for cxx in candidates:
+            if _nvcc_supports_gcc(nvcc, cxx):
+                return {"gxx": str(cxx)}
+        # No compatible compiler — return the system default and let setup.py
+        # surface the host_config.h error so the user sees what's wrong.
+        return {"gxx": str(candidates[-1] if sys_gxx else candidates[0])}
+    return {"gxx": str(candidates[0])}
 
 
 def _find_cuda_linux(user_hint=None):
