@@ -259,6 +259,15 @@ The Excitation pane's toolbar exposes four `IconButton`s — Shrink/Stretch × H
 
 **`stretchStep` editing.** Click the Excitation pane's gear icon (rendered into the MosaicWindow title bar by `usePaneSettingsDialog`) to open the `<PaneSettingsDialog>` for `excitationSettings`. The single field renders as a `<NumInput>` labelled "Stretch / Shrink Step" (via a `PARAMETER_CONFIG.stretchStep.displayName` entry + the numeric-delegation rule in `ObjectInspector.jsx`); the user commits a new value with Enter / wheel scroll / arrow buttons. Apply commits via `setExcitationSettings`, persists to `localStorage.excitationSettings`, and the next button click reads the new factor. The Excitation handler guards against non-positive or non-finite values with a fallback to the module-level `DEFAULT_STRETCH_STEP = 1.2` constant.
 
+**Mouse-wheel affordance (dev-529b, 2026-05-02).** Each of the four buttons also responds to the mouse wheel while the cursor is hovering over it — one notch maps to one full click of the equivalent button:
+
+- Wheel **up** on EITHER vertical button (stretch-vertical OR shrink-vertical) → `volume × k` (stretch). Wheel **down** → `volume ÷ k` (shrink). Both buttons in the pair share the same up=stretch / down=shrink mapping.
+- Wheel **up** on EITHER horizontal button → `mu × k` AND `sigma × k`. Wheel **down** → `mu ÷ k` AND `sigma ÷ k`.
+
+Implementation: a small `useAxisWheel(onUp, onDown)` hook in `MatrixTools.jsx` returns a ref that attaches a **native** `wheel` listener via `addEventListener('wheel', handler, { passive: false })` on the IconButton's DOM root inside a `useEffect`. The non-passive flag is load-bearing: React 18 attaches its synthetic `onWheel` listener as PASSIVE at the React root, so calling `e.preventDefault()` on the synthetic event is silently ignored (and in dev emits the "Unable to preventDefault inside passive event listener" warning). The native non-passive listener is the only path that actually suppresses page-scroll while the cursor sits on a button. Page-scroll outside the four buttons is unaffected. The handler routes to the same `onStretchVertical / onShrinkVertical / onStretchHorizontal / onShrinkHorizontal` props the buttons already use — no duplicate scaling logic — so all behaviours documented above (`stretchStep` factor, history coalescing, debounced batch emission) apply identically to wheel events.
+
+By-design caveat: rapid same-axis wheeling within the 300ms `usePreset` debounce window collapses to one batch (each handler reads the same React-state `values` snapshot, so the last wheel event's batch overwrites earlier debounced API calls before they flush). Cross-window wheeling compounds correctly because the React state has updated between debounce windows. Normal user behaviour (one notch at a time) is unaffected.
+
 ### `useLayout`
 
 Manages the `react-mosaic-component` tile layout tree. The initial layout places the following named panes:
