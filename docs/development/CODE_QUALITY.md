@@ -284,6 +284,17 @@ Examples of the principle followed well:
 - Dependency check: CuPy availability detected at startup with clear fallback notification
 - Config validation: invalid channel roles rejected immediately, not during ESPRIT processing
 
+#### S5b. UI Does Not Pre-Clamp Engine-Bound Parameters
+
+The frontend is not the authority on parameter validity for the synthesis engine. **Engine-bound parameter editors must not impose UI-layer min/max clamps that silently destroy user input.** Per dev-c5fd / dev-2706 (2026-05-03): a `volume.max=20` clamp in `GaussEditor.jsx` made every typed value collapse to 20 when real preset volumes are 1e7–1e9. Any value the user typed was silently lost — no error, no feedback, just a wrong value committed to the engine.
+
+The fix is two-layered:
+
+1. **UI layer** — engine-bound NumInput callers (Gauss, Mode, String, Hammer, Deck/Sound-Channel coefficients via ToolBar/MatrixTools) omit `min`/`max`. NumInput defaults to `±Infinity`, making its internal clamp paths no-ops. Hard system bounds (MIDI velocity 0–127, sample_rate, audio_buffer_size, calibration timing windows in TimingBandEditor) keep their explicit `min`/`max` because the value range is a protocol/algorithmic constraint, not a UX guess.
+2. **Backend layer (S5 fail-fast)** — `parameter_manager` should reject catastrophic inputs (mass_inv ≤ 0, sigma ≤ 0, frequency < 0, decrement < 0) with HTTP 400 so the user gets a clear error rather than a silently-NaN engine. (Tracked as a deferred follow-up post-dev-2706.)
+
+The anti-pattern this prevents: "the UI knows better than the user what range is reasonable" — replaces user agency with developer guesses, often based on a single preset's data and stale by the next preset.
+
 ---
 
 ## Naming & Consistency
