@@ -59,6 +59,10 @@ MidiListener (pianoidMidiListener.py)
   listener.get_message() → [status, data1, data2]
   │
   ├── status=144, vel>0 (NOTE_ON)
+  │   └► (Fix-MIDI clamp) velocity = pianoid.apply_fix_velocity(velocity)
+  │       Active backend listener (MIDI_listener_unified) calls
+  │       schedule_event with default apply_fix_velocity=True; legacy
+  │       pianoidMidiListener calls apply_fix_velocity directly.
   │   └► pianoid.add_realtime_event(NOTE_ON, pitch, velocity)
   │
   ├── status=128 or vel=0 (NOTE_OFF)
@@ -119,12 +123,18 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
 ### 1.3 Online Playback — REST API Note Trigger
 
 ```
-Browser: POST /play { pitch: 60, velocity: 100, command: 144, delay_ms: 0 }
+Browser: POST /play { pitch: 60, velocity: 100, command: 144, delay_ms: 0,
+                      source: "midi" | <omitted> }
          │
          ▼
-backendserver.py: (line 698)
+backendserver.py: (line 1124)
   Maps command → EventType (144→NOTE_ON, 128→NOTE_OFF, 176+pitch64→SUSTAIN)
-  ─► pianoid.add_realtime_event(event_type, pitch, velocity, delay_ms)
+  Reads `source` flag — "midi" gates Fix-MIDI clamp via
+  schedule_event(apply_fix_velocity=is_midi_source). Non-MIDI callers
+  (virtual piano, space-bar, Excitation, calibration) omit the flag and
+  pass velocity through.
+  ─► pianoid.schedule_event(command, pitch, velocity, delay_ms,
+                              apply_fix_velocity=is_midi_source)
       │
       ▼  (same path as 1.2 event scheduling)
 ```

@@ -22,6 +22,7 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | Note playback | `play` event (JSON or binary) | Client -> Server |
 | Parameter updates | `set_parameter` event | Client -> Server |
 | Runtime parameters | `set_runtime_parameters` event | Client -> Server |
+| Fix-MIDI velocity | `set_fix_velocity` event | Client -> Server |
 | String excitation | `set_string_excitation` event | Client -> Server |
 | Hammer shape | `set_hammer_shape` event | Client -> Server |
 | Parameter acknowledgment | `param_ack` event | Server -> Client (push) |
@@ -57,7 +58,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /set_string_excitation/<pitch>  -- write single-level excitation curves
   /set_hammer_shape/<pitch>       -- write hammer geometry (delegates to dispatcher)
   /set_mode_parameters      -- write mode parameters
-  /set_velocity/<velocity>  -- fix MIDI velocity
+  /set_fix_velocity         -- enable/disable Fix-MIDI velocity clamp (POST)
+  /get_fix_velocity         -- read current Fix-MIDI clamp state (GET)
   /set_runtime_parameters   -- volume / feedback at runtime
   /play                     -- trigger note on/off
   /play_mode/<mode_no>      -- trigger mode playback
@@ -462,16 +464,92 @@ Response `200`:
 
 ---
 
-### `POST /set_velocity/<velocity>`
+### Fix-MIDI velocity clamp
 
-Fixes MIDI velocity to a constant value. Set to `-1` to disable fixed velocity.
+The Fix-MIDI clamp lets the user pin every incoming MIDI NOTE_ON to a single
+velocity, regardless of how hard the key was pressed. State lives on the
+running engine — runtime/session scope, NOT preset-persisted, NOT reset on
+preset switch, reset to defaults on backend restart (option B per
+dev-bv01 user direction, 2026-05-03).
 
-`velocity`: integer
+**Source-flag protocol.** REST `/play` and WS `play` accept an optional
+`source` field. The clamp applies ONLY when `source == "midi"`. Non-MIDI
+callers (virtual piano, space-bar, Excitation editor, calibration paths)
+omit the flag and preserve their explicit velocity.
+
+**Single canonical helper.** Every clamp goes through
+`Pianoid.apply_fix_velocity(velocity)` — there is no parallel mechanism. The
+helper is called from:
+
+| Ingress | Clamp gate |
+|---|---|
+| REST `POST /play` with `source: "midi"` | `pianoid.apply_fix_velocity` (gated by source flag) |
+| REST `POST /play` without `source` | NOT clamped |
+| WS `play` event with `source: "midi"` | gated by source flag (same as REST) |
+| WS `play` event without `source` | NOT clamped |
+| `Pianoid.schedule_event(...)` (default `apply_fix_velocity=True`) | unconditional clamp for NOTE_ON — used by the unified MIDI listener (`MIDI_listener_unified`, the `listen_to_midi=1` backend path) |
+| Legacy `pianoidMidiListener` `note_on` | calls `apply_fix_velocity` directly |
+| `Pianoid.perform_midi_command(...)` | defaults `apply_fix_velocity=False` — preserves backward compat for NoteTunner calibration / `set_sustain` |
+| `/play_keyboard` (online + offline) | passes `apply_fix_velocity=False` — deterministic diagnostic sweep, never clamped |
+| `/measure_rms`, `/tune_note`, `/calibrate_volume`, `/equalize_keyboard` | NOT clamped — calibration depends on explicit velocity |
+| `/play_mode/<mode_no>` | N/A — uses internal synthesis path, not MIDI velocity |
+| `note_playback` chart (offline render) | NOT clamped — strict-A1 audio_off determinism |
+
+This collapses three pre-refactor parallel mechanisms (`pianoid.fixed_velocity`,
+`pianoid.fixed_level`, frontend `midiPlayNote` JS rewrite) into one canonical
+owner. Closes the listen_to_midi=1 sidestep where the backend MIDI listener
+bypassed the JS clamp.
+
+---
+
+### `POST /set_fix_velocity`
+
+Sets the Fix-MIDI velocity clamp state. Both fields required.
+
+Request body:
+```json
+{"enabled": true, "level": 95}
+```
+
+- `enabled` (bool, required): when `true`, MIDI-source NOTE_ON velocities are
+  clamped to `level`. When `false`, MIDI velocities pass through.
+- `level` (int 0-127, required): the clamped velocity value. `0` is allowed
+  (silent note); `127` is allowed (fortissimo).
 
 Response `200`:
 ```json
-{"Message": "OK"}
+{"message": "OK", "fix_velocity": {"enabled": true, "level": 95}}
 ```
+
+Response `400` cases:
+- `Pianoid not initialized`
+- `Body must be a JSON object`
+- `Both 'enabled' and 'level' are required`
+- `enabled must be bool`
+- `level must be int`
+- `level must be 0-127, got <N>`
+
+Symmetric WS event: `set_fix_velocity` accepts the same payload and emits
+`param_ack` with `{parameter: "fix_velocity", status: "ok", updated: {...}}`.
+
+---
+
+### `GET /get_fix_velocity`
+
+Returns the current Fix-MIDI velocity clamp state. Used by the frontend
+`useFixVelocity` hook on mount and on `presetVersion` bumps to mirror the
+backend state into the UI.
+
+Response `200`:
+```json
+{"enabled": false, "level": 64}
+```
+
+Response `400` if `Pianoid not initialized`.
+
+Defaults at backend start: `{enabled: false, level: 64}` (mf). Defaults
+restore on backend restart only — preset switches preserve the runtime
+state per option B.
 
 ---
 
@@ -526,7 +604,8 @@ Request body (unified format):
   "pitch": 60,
   "velocity": 100,
   "command": 144,
-  "delay_ms": 0.0
+  "delay_ms": 0.0,
+  "source": "midi"
 }
 ```
 
@@ -534,6 +613,10 @@ Request body (unified format):
 - `144` + `velocity > 0` — NOTE_ON
 - `128` or `144` + `velocity == 0` — NOTE_OFF
 - `176`/`177`/`178` + `pitch == 64` — SUSTAIN pedal
+
+`source` field (optional, dev-bv01 2026-05-03):
+- `"midi"` — caller is a MIDI source (frontend WebMIDI hardware via `useMidi.handleMIDIMessage`, future MIDI-router integrations). Backend applies `Pianoid.apply_fix_velocity` to NOTE_ON velocity per the Fix-MIDI velocity clamp contract above.
+- omitted / any other value — non-MIDI source (virtual piano click, space-bar, Excitation editor, calibration). Velocity passes through unchanged regardless of Fix-MIDI state.
 
 Request body (legacy format):
 ```json
