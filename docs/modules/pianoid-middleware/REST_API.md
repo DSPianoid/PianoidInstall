@@ -672,6 +672,25 @@ Request body (unified format):
 - `"midi"` — caller is a MIDI source (frontend WebMIDI hardware via `useMidi.handleMIDIMessage`, future MIDI-router integrations). Backend applies `Pianoid.apply_fix_velocity` to NOTE_ON velocity per the Fix-MIDI velocity clamp contract above.
 - omitted / any other value — non-MIDI source (virtual piano click, space-bar, Excitation editor, calibration). Velocity passes through unchanged regardless of Fix-MIDI state.
 
+**Cross-transport deduplication (dev-md01 2026-05-03).** The handler caches
+the last `(mapped_d1, command)` it scheduled in a single shared module-global
+key (`_last_play_cmd_key` in `backendServer.py`) protected by a thread lock.
+A second call with the same `(mapped_d1, command)` is silently dropped (200
+OK response, but no event is enqueued onto `RealTimeEventBuffer`). The dedup
+state is shared between REST `/play` and WS `play` and is NOT keyed by
+client SID, transport, source flag, or velocity — so a duplicate that
+crosses transports (e.g. `usePreset.playNote` falling back from WS to REST
+during a transient WS reconnect) or comes from a different WS client is
+caught the same as a same-transport duplicate. Distinct events
+(`NOTE_ON 60` then `NOTE_OFF 60`, or `NOTE_ON 60` then `NOTE_ON 61`) pass
+through normally because their `(mapped_d1, command)` keys differ. Pre-fix
+the dedup state was split into `_ws_last_command` (per-SID, WS only) +
+`last_command` (module-global, REST only) which left a gap on cross-transport
+and cross-SID duplicates — the user-visible "MIDI notes sound twice"
+regression. Regression test:
+`tests/system/test_play_dedup.py` (8 cases — same-transport, cross-transport
+both directions, cross-SID, distinct-events sanity).
+
 Request body (legacy format):
 ```json
 {
