@@ -4,8 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-md01 | Fix MIDI double-fire regression — restore deduplication filter | [log](logs/dev-md01-2026-05-03-234854.md) | 2026-05-03 | In Progress |
-| dev-9a47 | Backend parameter safety net (D3-followup from dev-2706) — fail-fast guard for catastrophic engine inputs | [log](logs/dev-9a47-2026-05-03-234941.md) | 2026-05-03 | In Progress |
 
 ---
 
