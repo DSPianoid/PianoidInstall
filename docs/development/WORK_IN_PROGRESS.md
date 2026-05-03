@@ -6,6 +6,7 @@
 |-------|------|-----|---------|--------|
 | dev-529b | Mouse-wheel control for Excitation stretch/shrink buttons | [log](logs/dev-529b-2026-05-02-145426.md) | 2026-05-02 | Active |
 | ~~dev-mv01~~ | Fix MIDI velocity Fix-MIDI checkbox regression — measurement shows wiring intact, paused for user clarification | [log](logs/dev-mv01-2026-05-03-184744.md) | 2026-05-03 | **Paused** |
+| dev-bv01 | Architectural refactor: move Fix-MIDI velocity to backend with source-flag discriminator (locks acquired, implementation underway) | [log](logs/dev-bv01-2026-05-03-165022.md) | 2026-05-03 | Active |
 
 ---
 
