@@ -69,6 +69,30 @@ script honours `CUDA_HOME` and `CUDA_PATH`).
 If `libsdl3-dev` isn't packaged for your distro yet, `setup-packages.sh`
 will install SDL2 alone and print the source-build steps for SDL3.
 
+### Filesystem requirements
+
+The Python venv at `PianoidCore/.venv/` cannot live on a Windows-style
+filesystem (NTFS via ntfs-3g, NTFS via the kernel ntfs3 driver, exFAT,
+FAT32). Two NTFS limitations break pip:
+
+1. **No filenames ending in `.`** — pip writes such paths during wheel
+   install (`python_rtmidi.dist-info` becomes `python_rtmidi.` mid-extract)
+   and crashes with `OSError: [Errno 22] Invalid argument`.
+2. **Symlink reparse points are unreliable** — `python -m venv`'s
+   `bin/python3.12` symlink to `/usr/bin/python3.12` may be stored as a
+   reparse point that ntfs-3g can't read back, breaking the venv.
+
+`setup-pianoid.sh` detects this automatically. When the repo lives on
+`fuseblk` / `ntfs` / `exfat` / `vfat` / `msdos`, it relocates the venv to
+`~/.cache/pianoid-venv-<hash>` (where `<hash>` is a 12-char SHA-1 of the
+repo path, so multiple checkouts get isolated venvs) and creates a symlink
+at `PianoidCore/.venv` pointing to the real venv. All downstream tooling
+(build scripts, the venv-guard in `backendServer.py`, the launcher) keeps
+working unmodified.
+
+If you'd rather host the venv yourself, point `PianoidCore/.venv` at any
+ext4 / btrfs / xfs path before running `setup-pianoid.sh`.
+
 ### NVIDIA driver
 
 The NVIDIA kernel driver is **separate from the CUDA toolkit** and must be
