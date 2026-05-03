@@ -95,6 +95,17 @@ Key methods called by the REST layer:
 
 Owns all parameter packing and GPU transfer operations. Receives `pianoid` (C++ binding), `sm` (StringMap), `modes` (ModeMap), `mp` (ModelParameters), and `cuda_lock`. Created during `initialize_pianoid()`.
 
+**Engine safety net (catastrophic-input gate).** Before any mutation, the
+dispatcher validates incoming parameter values via `validate_engine_param`.
+Catastrophic predicates (`mode.mass_inv <= 0`, `excitation.sigma <= 0`,
+`mode.frequency < 0`, `mode.decrement < 0`) plus a universal NaN/Inf guard
+raise `ParameterRangeError` (a `ValueError` subclass). REST handlers in
+`backendServer.py` catch it and return HTTP 400 with a structured error
+message; WS handlers emit `error` with `code: "parameter_range_error"`.
+The safety net is the canonical engine-correctness gate — the only line of
+defense after dev-2706 removed UI-level value clamps. See REST_API.md
+"Engine safety net" and CODE_QUALITY.md S5b.
+
 All GPU uploads go through `_gpu_upload(method, *args)` which calls `waitForParameterUpdate()` before each upload to ensure the double-buffer is IDLE (prevents silent drops under the DROP_IF_BUSY policy).
 
 Key methods:

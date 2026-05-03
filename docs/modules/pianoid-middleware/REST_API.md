@@ -385,6 +385,11 @@ Response `200`:
 {"message": "OK"}
 ```
 
+Response `400` — engine safety net rejection (see "Engine safety net" below):
+```json
+{"error": "mode.decrement=-1 rejected: decrement must be >= 0 (negative damping causes runaway amplitude)"}
+```
+
 Response `416`:
 ```json
 {"message": "Wrong parameter request"}
@@ -393,6 +398,46 @@ or
 ```json
 "Set parameter route: Internal error in module pianoid.py: <traceback>"
 ```
+
+#### Engine safety net (catastrophic-input rejection)
+
+Per the **S5 fail-fast** principle (`docs/development/CODE_QUALITY.md` S5b),
+`parameter_manager` rejects values that would corrupt engine state with HTTP 400
+*before* any state mutation or GPU upload. The frontend NumInput callers omit
+`min`/`max` clamps for engine-bound parameters (per dev-2706 directive); this
+backend gate is the single line of defense against catastrophic inputs.
+
+| Parameter | Field | Reject when | Reason |
+|-----------|-------|-------------|--------|
+| `mode` | `mass_inv` | `<= 0` | division-by-zero in `Mode.fit_params` (stiffness = (2πf)²/mass_inv) |
+| `excitation` / `gauss` | `sigma` | `<= 0` | division-by-zero in Gaussian `exp(-((t-mu)/sigma)²)` |
+| `mode` | `frequency` | `< 0` | physically meaningless; produces NaN/instability |
+| `mode` | `decrement` | `< 0` | negative damping → exponential amplitude growth → speaker/ear damage |
+| any | any numeric field | NaN, +Inf, -Inf | non-finite values corrupt every parameter type |
+
+Example rejection bodies:
+
+```json
+{"error": "mode.mass_inv=0 rejected: mass_inv must be > 0 (division-by-zero in mode update)"}
+```
+```json
+{"error": "excitation.sigma=-0.01 rejected: sigma must be > 0 (division-by-zero in Gauss exp(-((t-mu)/sigma)^2))"}
+```
+```json
+{"error": "mode.frequency=nan rejected: must be a finite number (NaN/Inf would corrupt engine state)"}
+```
+
+The same predicate set applies to:
+- `POST /set_parameter/mode/<key_no>` (canonical route)
+- `POST /set_parameter/excitation/<key_no>` and `POST /set_parameter/gauss/<key_no>` (sigma)
+- `POST /set_string_excitation/<pitch_no>` (sigma in per-pitch curves)
+- `POST /set_mode_parameters` (legacy route — same mode predicates)
+- WS `set_parameter` and WS `set_string_excitation` (emit `error` with `code: "parameter_range_error"`)
+
+**Range bounds beyond these catastrophic predicates are NOT validated** — values
+the user types flow through to the engine. UX-style range checks (e.g. "volume
+should be < 1e10") were intentionally removed from both UI and backend per
+dev-2706.
 
 ---
 
@@ -418,6 +463,10 @@ Response `200`:
 ```json
 {"message": "String excitation set successfully"}
 ```
+
+Response `400` — see [Engine safety net](#engine-safety-net-catastrophic-input-rejection)
+above. `sigma <= 0` and NaN/Inf in any curve field are rejected before
+`update_pitch_excitation` mutates state.
 
 ---
 
@@ -461,6 +510,11 @@ Response `200`:
 ```json
 {"Message": "OK"}
 ```
+
+Response `400` — see [Engine safety net](#engine-safety-net-catastrophic-input-rejection).
+Mode predicates (`mass_inv <= 0`, `frequency < 0`, `decrement < 0`, NaN/Inf)
+apply here too. Note: this is the legacy mode-update route; new code should
+use `POST /set_parameter/mode/<key_no>`.
 
 ---
 

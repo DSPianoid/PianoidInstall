@@ -291,7 +291,7 @@ The frontend is not the authority on parameter validity for the synthesis engine
 The fix is two-layered:
 
 1. **UI layer** — engine-bound NumInput callers (Gauss, Mode, String, Hammer, Deck/Sound-Channel coefficients via ToolBar/MatrixTools) omit `min`/`max`. NumInput defaults to `±Infinity`, making its internal clamp paths no-ops. Hard system bounds (MIDI velocity 0–127, sample_rate, audio_buffer_size, calibration timing windows in TimingBandEditor) keep their explicit `min`/`max` because the value range is a protocol/algorithmic constraint, not a UX guess.
-2. **Backend layer (S5 fail-fast)** — `parameter_manager` should reject catastrophic inputs (mass_inv ≤ 0, sigma ≤ 0, frequency < 0, decrement < 0) with HTTP 400 so the user gets a clear error rather than a silently-NaN engine. (Tracked as a deferred follow-up post-dev-2706.)
+2. **Backend layer (S5 fail-fast)** — `parameter_manager` rejects catastrophic inputs (mass_inv ≤ 0, sigma ≤ 0, frequency < 0, decrement < 0, plus a universal NaN/Inf guard) with HTTP 400 so the user gets a clear error rather than a silently-NaN engine. Implemented by dev-9a47 (2026-05-03) — see `parameter_manager.py` `validate_engine_param` / `ParameterRangeError` and REST_API.md "Engine safety net (catastrophic-input rejection)". Regression test: `tests/integration/test_parameter_safety_net.py` (43 cases).
 
 The anti-pattern this prevents: "the UI knows better than the user what range is reasonable" — replaces user agency with developer guesses, often based on a single preset's data and stale by the next preset.
 
@@ -457,7 +457,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | Rank | File | LOC | Notes |
 |------|------|-----|-------|
 | 1 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 2952 | CUDA synthesis hub; multiple concerns (kernel orchestration, parameter packing, lifecycle) |
-| 2 | `PianoidCore/pianoid_middleware/backendServer.py` | 2831 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI) |
+| 2 | `PianoidCore/pianoid_middleware/backendServer.py` | 3166 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI) |
 | 3 | `PianoidTunner/src/PianoidTuner.js` | 2793 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state |
 | 4 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
 | 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
@@ -484,6 +484,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |
 | `PianoidBasic/Pianoid/StringMap.py` | 686 |
 | `PianoidCore/pianoid_middleware/test_backendserver_audio.py` | 664 |
+| `PianoidCore/pianoid_middleware/parameter_manager.py` | 659 |
 | `PianoidCore/pianoid_cuda/AsioAudioInterface.cpp` | 656 |
 | `PianoidTunner/src/components/CurveEditor.jsx` | 655 |
 | `PianoidTunner/src/components/ChartSelector.jsx` | 634 |
