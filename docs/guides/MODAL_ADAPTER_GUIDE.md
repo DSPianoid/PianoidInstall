@@ -182,6 +182,70 @@ ESPRIT results, tracking chains) are restored automatically.
 **Create new** -- enter project name + measurement folder path, click **Create**. Measurements
 are imported as combined `.npy` files. Supports RoomResponse per-channel and flat `.npy` formats.
 
+**Import from Zip** -- click the upload button to pick a `.zip` or `.pianoid-project` file.
+The button is **smart-routed**:
+
+- A `.pianoid-project` archive (one previously produced by **Export Project**) is
+  unpacked into the projects base verbatim — same as the legacy import flow.
+- Any other `.zip` is treated as a **measurement-data archive** (RoomResponse scenario
+  folders or flat `.npy`). The zip is streamed to disk, extracted to
+  `D:\modal_measurements\<name>\` (or `$PIANOID_MEASUREMENTS_DIR`), the parent
+  directory containing scenario folders is auto-detected (handles both
+  "scenarios at top of zip" and "scenarios one wrapping dir deep" layouts),
+  and the project is created from that path in one HTTP call. The on-disk
+  extraction is **kept** so you can re-create the project later without
+  re-uploading the zip.
+
+This removes the foot-gun where uploading a measurement-folder zip into the old
+"Import Project" button failed with `Invalid archive: missing manifest.json` —
+the same button now handles both cases. Multi-GB zips upload streamingly
+(Werkzeug spools to disk, no in-memory buffering).
+
+#### Auto-averaging missing `averaged_responses/`
+
+A measurement-data zip often contains scenarios that ship `raw_recordings/` and
+`metadata/` but **no** `averaged_responses/`. The Modal Adapter's ESPRIT consumer
+requires `averaged_responses/average_ch{N}.npy`; without those files the scenario
+is skipped during discovery.
+
+The "Import from Zip" flow runs the canonical `RoomResponseRecorder` averaging
+pipeline on every such scenario during import:
+
+1. Per measurement, extract calibration-channel cycles from `raw_recordings/`
+2. Validate cycles against the per-scenario `calibration_quality_config`
+   (negative-peak amplitude, peak width, precursor / aftershock checks)
+3. Align cycles by negative-peak position (circular shift) and filter by
+   cross-correlation against the highest-energy reference cycle
+4. Apply the same per-cycle shifts to every other channel
+5. Normalize each response channel by the per-cycle calibration negative-peak
+   magnitude (`normalize_by_calibration: true`)
+6. Mean across all surviving cycles, then truncate to `ir_working_length_ms`
+   (default 600 ms) with a Hann fadeout over the last `ir_fade_length_ms`
+
+The pipeline is **idempotent** — pre-existing `averaged_responses/` files are
+never overwritten. The implementation lives in
+`pianoid_middleware/modal_adapter/scenario_averager.py` and re-uses the
+canonical pure-numpy modules from the sibling `RoomResponse` repo
+(`signal_processor.SignalProcessor` + `calibration_validator_v2`).
+
+The response includes an `averaging_summary` field with counts:
+
+```json
+"averaging_summary": {
+  "total_scenarios_examined": 30,
+  "computed": 26,
+  "skipped_existing": 4,
+  "skipped_no_raw": 0,
+  "skipped_no_metadata": 0,
+  "errors": 0,
+  "computed_scenarios": ["PlyWood-Scenario1-Take1", "PlyWood-Scenario3-Take1", "..."]
+}
+```
+
+If the sibling `RoomResponse` repo isn't bootstrapped (CI machines without it),
+each affected scenario falls through with `status: "error"` and a clear
+diagnostic message; pre-averaged scenarios still import successfully.
+
 **Clone** -- click a project name in "Or copy from" to create a copy with the same measurements.
 
 **Channel roles** -- shown after project creation/clone. Assign each measurement channel a role:
@@ -265,6 +329,57 @@ and engine running.
 ## REST API
 
 All modal adapter endpoints are on the modal adapter server (default `http://localhost:5001`).
+
+#### Project Import / Create-from-Zip
+
+Two endpoints accept zip uploads:
+
+```bash
+# Smart-routed: handles both .pianoid-project archives (manifest.json+
+# project.json at the top) and raw measurement-data zips (RoomResponse
+# scenario folders, or flat .npy). Auto-detects layout, auto-extracts
+# measurement zips, returns 201 on success.
+curl -X POST http://localhost:5001/modal/projects/create_from_zip \
+  -F "file=@C:/path/to/measurements.zip" \
+  -F "name=MyProject"
+
+# Legacy: only accepts .pianoid-project archives produced by
+# /modal/projects/export. Returns 400 on a measurement-folder zip
+# ("Invalid archive: missing manifest.json"). Kept for backward
+# compatibility — new clients should prefer create_from_zip.
+curl -X POST http://localhost:5001/modal/projects/import \
+  -F "file=@C:/path/to/exported.pianoid-project" \
+  -F "name=MyProject"
+```
+
+`create_from_zip` form fields:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `file` | yes | -- | Multipart upload, streamed to disk by Werkzeug |
+| `name` | no | zip stem | Project name; conflicts auto-resolved with `_1`, `_2`, ... |
+| `extracted_root` | no | `$PIANOID_MEASUREMENTS_DIR` or `D:\modal_measurements` | Where the un-zipped tree is kept |
+
+201 response body adds two fields beyond the standard `create_project` shape:
+
+```json
+{
+  "name": "PlyWoodTake1",
+  "path": "D:\\modal_projects\\PlyWoodTake1",
+  "num_scenarios": 10,
+  "num_channels": 8,
+  "extracted_path": "D:\\modal_measurements\\PlyWoodTake1",
+  "detected_format": "roomresponse",
+  "renamed": false
+}
+```
+
+`detected_format` is one of `pianoid_project`, `roomresponse`, `flat_npy`.
+
+Errors: 400 on missing file, corrupt zip, or unrecognised layout (no scenario
+folders and no flat `.npy` at top or one level deep). Multi-GB uploads are
+supported; Werkzeug spools to a `SpooledTemporaryFile` so no in-memory
+buffering happens.
 
 #### Status & Progress
 
