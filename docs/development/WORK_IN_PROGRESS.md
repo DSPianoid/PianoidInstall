@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-ir01 | Per-band IR length configurability for modal adapter ESPRIT pipeline | [log](logs/dev-ir01-2026-05-04-212107.md) | 2026-05-04 | In Progress (Step 8) |
 | dev-3st1 | 3-stage nuclei-merge mode tracking algorithm + investigation of why `_merge_split_chains` misses user's high-coverage low-overlap failure case | [log](logs/dev-3st1-2026-05-04-184115.md) | 2026-05-04 | In Progress (Step 1) |
 
 ---
