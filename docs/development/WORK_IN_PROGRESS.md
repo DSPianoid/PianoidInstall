@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-0239 | Diagnose modal-adapter "Import Project" failure for `PlyWoodTake1.zip` (1.2 GB RoomResponse measurement folder) | `logs/dev-0239-2026-05-04.md` | 2026-05-04 | Diagnosed: user-side flow mismatch, awaiting orchestrator/user direction |
 
 ---
 
