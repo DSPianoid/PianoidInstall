@@ -4,6 +4,65 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-ir01 | Per-band IR length configurability for modal adapter ESPRIT pipeline | [log](logs/dev-ir01-2026-05-04-212107.md) | 2026-05-04 | In Progress (Step 8) |
+| dev-3st1 | 3-stage nuclei-merge mode tracking algorithm + investigation of why `_merge_split_chains` misses user's high-coverage low-overlap failure case | [log](logs/dev-3st1-2026-05-04-184115.md) | 2026-05-04 | In Progress (Step 1) |
+
+---
+
+## Per-band IR length follow-ups (2026-05-04, dev-ir01)
+
+**Status:** Per-band `ir_length_ms` plumbing landed in dev-ir01
+(`feature/per-band-ir-length` on PianoidCore + PianoidTunner). The `FrequencyBand`
+dataclass gained `ir_length_ms: Optional[float]`; `process_band` slices the
+input signal to that length BEFORE bandpass + decimation; `EXTENDED_BANDS` got
+new defaults (Ultra-Low 1000ms/dec=4, Low 800ms/dec=4, Low-Mid 600ms/dec=4,
+Mid+Mid-High 400ms/dec=2, High/Upper/Top 400ms/dec=1). The scenario averager
+now accepts `ir_working_length_ms_override` so project creation can size the
+averaged-response files to the longest per-band slice. Project creation also
+persists the full `band_config` to `project.json` and `get_project_state`
+synthesises an `esprit_config` from it for backward-compat hydration. The
+frontend EspritConfig table gained an "IR (ms)" column; the Create Project
+dialog gained an "IR (ms)" override field.
+
+### Deferred follow-ups
+
+1. **Doc update — `docs/guides/MODAL_ADAPTER_GUIDE.md`** (NOT in this PR; the
+   file was locked by dev-3st1 for a parallel mode-tracking algorithm change).
+   Sections to add when the lock releases:
+
+   - **"Per-band IR length"** subsection under "Algorithm Overview" or near
+     "Why Band-Splitting?", explaining the time-vs-decimation trade-off:
+     `df = fs_band / L = 2 / T_total`, so resolution is preserved when you
+     halve decimation AND halve sample count; only thing that changes is the
+     usable Nyquist (anti-alias = `0.4 × fs_band`) which can be sacrificed
+     when band f_max is well below it.
+   - **"Project creation IR length"** subsection in "Project Management",
+     documenting the new `ir_working_length_ms` form field on
+     `POST /modal/projects/create` and `POST /modal/projects/create_from_zip`,
+     defaulting to `max(b.ir_length_ms for b in band_config)` (1000 ms for
+     `extended_8band`).
+   - Update the `extended_8band` band table in the guide if/when the page lists
+     them — drop the `window_length=12000/9600` for Ultra-Low/Low and add the
+     new `decimation` and `ir_length_ms` columns.
+
+2. **Full re-averaging endpoint — `POST /modal/projects/reaverage`** (~50 LOC
+   + tests). Lets the user re-run the averaging step on the current project
+   without re-creating it from the zip. Body: `{ir_working_length_ms: float,
+   force: bool}`. Wraps `_auto_average_scenarios(force=True,
+   ir_working_length_ms_override=...)` against the project's measurement
+   source folder. Required to extend an existing project (e.g. PlyWoodTake1
+   with its current 600 ms files) to the new 1000 ms Ultra-Low default
+   without re-uploading the zip. Out of scope for the dev-ir01 PR per user
+   approval ("force_reaverage flag this PR; full /reaverage endpoint
+   deferred to follow-up").
+
+3. **Pre-existing test failure — `test_run_esprit_delegates_to_sync`**
+   (`tests/unit/test_modal_adapter_state.py::TestEspritRefactor`). Fails on
+   `dev` independently of dev-ir01 — introduced by [dev-0239] in 8b0796f
+   when `_run_esprit_sync` started accepting a `scenario_indices` kwarg the
+   test mock doesn't model. Mock signature needs updating, OR the production
+   code's kwarg signature should be revisited if it changed unintentionally.
+   ~5 LOC test fix. Not blocking any feature.
 
 ---
 
