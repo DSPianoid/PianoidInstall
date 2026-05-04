@@ -4,6 +4,108 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-0239 | Diagnose modal-adapter "Import Project" failure for `PlyWoodTake1.zip` (1.2 GB RoomResponse measurement folder) | `logs/dev-0239-2026-05-04.md` | 2026-05-04 | Diagnosed: user-side flow mismatch, awaiting orchestrator/user direction |
+
+---
+
+## Modal Adapter create_from_zip + auto-averaging (2026-05-04)
+
+**Status:** Landed in dev-0239. Follow-ups deferred per user direction.
+
+The new `POST /modal/projects/create_from_zip` endpoint (multipart upload,
+streamed via Werkzeug) handles both `.pianoid-project` archives and raw
+measurement-data zips in one call. For measurement-data zips it auto-extracts
+to `D:\modal_measurements\<name>\` (or `$PIANOID_MEASUREMENTS_DIR`) and runs
+the canonical RoomResponseRecorder averaging pipeline (validate → align →
+normalize → average → truncate-with-fadeout) on every scenario lacking
+`averaged_responses/`. Idempotent — pre-existing averages are never
+overwritten. Frontend "Import Project" button now smart-routes by file
+extension; success alert reports the averaging breakdown.
+
+**Implementation:** `PianoidCore/pianoid_middleware/modal_adapter/`
+`scenario_averager.py` (new, ~370 LOC) + `modal_adapter.py` +
+`routes.py`; `PianoidTunner/src/hooks/useModalAdapter.js` +
+`src/modules/ModalAdapter.jsx`; `docs/guides/MODAL_ADAPTER_GUIDE.md`.
+
+**Tests:** 27 pass (10 new in `tests/integration/test_scenario_averager.py`,
+17 in `tests/integration/test_modal_create_from_zip.py` of which 2 new).
+
+### Deferred follow-ups
+
+- **Medium #2 — Doc rot in REST API JSON example.** The sample JSON in
+  `docs/guides/MODAL_ADAPTER_GUIDE.md` "REST API → Project Import /
+  Create-from-Zip" block does NOT include the `averaging_summary` field
+  in the `create_from_zip` response example, but the live endpoint
+  always returns it. ~5 LOC doc fix to add the field to the example
+  alongside the existing `name`/`path`/`extracted_path`/`detected_format`
+  keys. Standalone — no code touch required.
+
+- **Medium #3 — Failed-averaging scenarios silently dropped.** When the
+  averager returns `status="error"` for a scenario, that scenario
+  doesn't get `averaged_responses/` written, so the downstream
+  `_discover_roomresponse_scenarios` discovery skips it. The response
+  shape exposes `averaging_summary.errors` (count) and
+  `averaging_summary.failed_scenarios` (list of `{scenario, error}`),
+  but `scenario_indices` only contains the scenarios that DID land in
+  the project. The two are not cross-correlated in the UI — a user
+  could see "Scenarios imported: 28" + "Averaging errors: 2" and not
+  immediately know WHICH scenario indices got dropped. Recommend
+  adding `dropped_due_to_averaging_failure: [scenario_idx_list]` to
+  the response shape (parsed from `failed_scenarios` by mapping
+  scenario folder name → integer via the same regex used by
+  `_extract_scenario_index`). ~10 LOC + 1 test.
+
+- **Medium #4 — `routes.py` is 971 LOC (29 under the project's RED
+  threshold of 1000 LOC).** Adding `create_from_zip` brought it close
+  to the cliff. Plan a split (e.g. `routes_projects.py` for the
+  project lifecycle endpoints, `routes_pipeline.py` for the
+  ESPRIT/tracking/feedin endpoints, `routes.py` keeping the blueprint
+  + shared helpers) BEFORE the next routes-touching session. No
+  immediate user-facing impact; structural debt only.
+
+- **Low #1 — Cross-repo bootstrap probe gap.** `scenario_averager.py`
+  imports `signal_processor` and `calibration_validator_v2` lazily
+  per-scenario. If the sibling RoomResponse repo is at the right path
+  but those specific module names get renamed/moved upstream, every
+  scenario in an import would silently fall through with `status=error`
+  with no aggregated user-visible warning. Could add a one-time probe
+  in `_auto_average_scenarios` that returns a top-level
+  `averaging_unavailable: true` flag + skips the whole walk if neither
+  module is importable. ~15 LOC.
+
+- **Low #2 — No version/contract assertion against RoomResponse.** The
+  averager uses three RoomResponse APIs (`SignalProcessor.average_cycles`,
+  `align_cycles_by_onset`, `normalize_by_calibration`) plus
+  `CalibrationValidatorV2.validate_cycle` and the
+  `validation_results` dict shape. If RoomResponse refactors any of
+  these signatures, the averager errors per-scenario without a clear
+  diagnostic. Could add a smoke import + interface check at
+  modal-adapter-server startup. ~10 LOC.
+
+- **Low #3 — CI without RoomResponse silently skips 4 tests.** The
+  `TestCanonicalPipeline` class in `test_scenario_averager.py` is
+  `@pytest.mark.skipif(not _HAS_ROOMRESPONSE)`. CI machines without
+  the sibling repo will pass with 4 tests skipped. Acceptable today
+  (the canonical-pipeline coverage IS sound on dev boxes), but a
+  future CI hardening pass should either bootstrap RoomResponse on
+  CI or assert the canonical tests aren't skipped.
+
+- **Low #4 — S3 first-hit-rule duplication between
+  `_auto_average_scenarios` and `_detect_measurement_source`.** Both
+  helpers walk root + first-level subdirs looking for the
+  measurement parent. They do agree on ordering today (alphabetical
+  sort), but the duplication is a S3 (no-duplication) violation — a
+  future refactor should extract a single `_walk_for_measurement_root()`
+  helper. ~15 LOC.
+
+- **Low #5 — Multi-line `window.alert` in `ModalAdapter.jsx`.** The
+  success alert builds a multi-line `\n`-separated string for
+  `window.alert`, which renders as a system modal that's hard to
+  copy/paste from. Consistent with the pre-existing pattern in this
+  module (e.g. the "name conflict resolved" alert) so not a regression,
+  but the long-term direction is MUI Snackbar/Alert with a "View
+  details" expand for the averaging summary. Tracked at the
+  module-wide level rather than per-handler.
 
 ---
 
