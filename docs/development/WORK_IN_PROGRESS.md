@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-c969 | Mode-tracking doc rot fix + soft-deprecate `sequential` method | [log](logs/dev-c969-2026-05-04-205656.md) | 2026-05-04 | In Progress |
 
 ---
 
