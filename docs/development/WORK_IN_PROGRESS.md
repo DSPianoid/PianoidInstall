@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-b9dd | Modal Adapter grid-layout mode (MVP, line-mode backward compat, per-chain heatmap, defer bridge-from-grid) | [log](logs/dev-b9dd-2026-05-04-182100.md) | 2026-05-04 | In Progress |
 
 ---
 
