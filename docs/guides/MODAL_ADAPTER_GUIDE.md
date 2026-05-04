@@ -214,15 +214,68 @@ have been removed — the toolbar handles all actions.
 
 ### Project Management
 
-Accessed by clicking the **Project button** in the toolbar.
+The Setup section opens with three action buttons (**Open Project**, **Copy From…**,
+**Import from Zip**), the selected-project info card, and — when the project uses
+grid layout — the processing grid editor. As of dev-8b5f (2026-05-04) the legacy
+inline chip-list UI was replaced by a file-browser dialog and the standalone "New
+Project from folder" form was removed (Import from Zip auto-detects format and
+covers both `.pianoid-project` archives and raw measurement-data zips).
 
-**Open existing** -- click a project chip to load it. All intermediate data (measurements,
-ESPRIT results, tracking chains) are restored automatically.
+**Open Project** -- opens a `ProjectBrowserDialog` with two tabs:
 
-**Create new** -- enter project name + measurement folder path, click **Create**. Measurements
-are imported as combined `.npy` files. Supports RoomResponse per-channel and flat `.npy` formats.
+- **Recent** -- the last 8 opened projects (per-browser, stored in
+  `localStorage` under key `pianoid:modal-adapter:recent-projects`). LRU
+  ordering, most-recent first. Stale entries (projects no longer present
+  on disk) are filtered out automatically.
+- **Browse** -- every project under the projects base directory
+  (default `D:\modal_projects`), with a search filter. Each row shows
+  `N sc · M ch · Linear|Grid R×C · sig N ms` plus a stage badge
+  (`E`/`T`/`F` for ESPRIT/Tracking/Feedin completion). The currently-open
+  project is highlighted with a left border. Per-row icons offer **Export**
+  (download as `.pianoid-project`) and **Delete**.
 
-**Import from Zip** -- click the upload button to pick a `.zip` or `.pianoid-project` file.
+Double-clicking a row, or selecting + clicking **Open**, opens the project.
+All intermediate data (measurements, ESPRIT results, tracking chains) is
+restored automatically and the project is pushed to the Recent list.
+
+**Copy From…** -- same dialog, but the action button reads "Copy" and a
+"New project name" field appears below the project list. The destination
+name is auto-suggested as `{source}_copy` and validated against the
+existing project list before submission. Disabled when no projects exist.
+
+**Selected-project info card** -- once a project is open, a compact info
+card replaces the legacy "Project: name — path" text line. It shows:
+
+| Field | Source |
+|-------|--------|
+| Project name | `project.json` `name` (or folder name) |
+| Scenario count | `project.json.num_scenarios` |
+| Response channel count | Live mirror state (channels with role `response`) |
+| Layout | `mapping_config.json.layout_type` (`Linear` or `Grid R×C`) |
+| Signal length | `project.json.ir_working_length_ms` (preferred) or derived from `scenario_0.npy.shape[0] / sample_rate * 1000` |
+| Project directory | Full path under projects base |
+
+The card includes a **Rename** button that opens a small dialog. Validation
+mirrors the backend (`POST /modal/projects/<old_name>/rename`):
+
+- Allowed characters: letters, digits, dot, underscore, hyphen, space
+- New name must differ from the current name
+- New name must not collide with an existing project (HTTP 409 surfaced
+  inline in the dialog)
+
+When renaming the open project, backend retargets in-memory state in place
+(no close/reopen cycle); the front-end recent list is updated to point at
+the new name.
+
+**Processing Grid** -- when `layout_type == "grid"`, the
+`GridLayoutEditor` (rows / cols / spacing / cell mask, with All On / All
+Off / Invert bulk buttons) renders directly in the Project subpanel body
+beneath the info card. It is no longer hidden inside the settings-gear
+accordion. For `line` layout the editor does not render — switch to grid
+via the LINE/GRID layout selector in the settings panel (gear icon) to
+reveal it.
+
+**Import from Zip** -- click the button to pick a `.zip` or `.pianoid-project` file.
 The button is **smart-routed**:
 
 - A `.pianoid-project` archive (one previously produced by **Export Project**) is
@@ -285,8 +338,6 @@ The response includes an `averaging_summary` field with counts:
 If the sibling `RoomResponse` repo isn't bootstrapped (CI machines without it),
 each affected scenario falls through with `status: "error"` and a clear
 diagnostic message; pre-averaged scenarios still import successfully.
-
-**Clone** -- click a project name in "Or copy from" to create a copy with the same measurements.
 
 **Channel roles** -- shown after project creation/clone. Assign each measurement channel a role:
 
@@ -407,6 +458,69 @@ and engine running.
 ## REST API
 
 All modal adapter endpoints are on the modal adapter server (default `http://localhost:5001`).
+
+#### List Projects
+
+```bash
+curl http://localhost:5001/modal/projects
+```
+
+Returns the projects-base directory, the currently-open project name (or
+`null`), and a list of every project under that base. Each project row
+includes the `project.json` metadata plus three fields derived by the
+backend (extended in dev-8b5f for the Project subpanel info card):
+
+```json
+{
+  "projects_base": "D:\\modal_projects",
+  "current_project": "PlyWoodTake1",
+  "projects": [
+    {
+      "name": "PlyWoodTake1",
+      "path": "D:\\modal_projects\\PlyWoodTake1",
+      "num_scenarios": 30,
+      "num_channels": 8,
+      "sample_rate": 48000.0,
+      "scenario_indices": [0, 1, ..., 29],
+      "has_esprit": true,
+      "has_tracking": true,
+      "has_feedin": false,
+      "layout_type": "grid",
+      "grid_shape": [4, 6],
+      "signal_length_ms": 600.0
+    }
+  ]
+}
+```
+
+`layout_type` and `grid_shape` are read from the per-project
+`mapping_config.json`; defaults are `"line"` / `null` for projects with no
+mapping_config yet. `signal_length_ms` prefers `project.json.ir_working_length_ms`
+(persisted by the create-from-zip path), falling back to a
+`scenario_first.shape[0] / sample_rate * 1000` derivation via
+`np.load(..., mmap_mode="r")` (no full array load).
+
+#### Rename Project
+
+```bash
+curl -X POST http://localhost:5001/modal/projects/MyOldName/rename \
+  -H "Content-Type: application/json" \
+  -d '{"new_name": "MyNewName"}'
+```
+
+Renames a project on disk. Validation:
+
+| Status | Cause |
+|--------|-------|
+| `200` | Success — body: `{old_name, new_name, path, was_current}` |
+| `400` | `new_name` missing/empty, identical to `old_name`, or contains characters outside `[A-Za-z0-9._\- ]` |
+| `404` | Source project does not exist |
+| `409` | A project with `new_name` already exists |
+
+When renaming the currently-open project, the backend retargets in-memory
+state (`_project_dir`, `_current_project`) atomically — no close/reopen
+cycle is required, and pipeline state (loaded measurements, ESPRIT
+results, tracking chains) stays in memory.
 
 #### Project Import / Create-from-Zip
 
