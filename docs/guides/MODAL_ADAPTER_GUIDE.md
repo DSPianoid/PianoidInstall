@@ -144,8 +144,8 @@ measurements. The layout type is stored on `MappingConfig` and persisted to
 
 | Layout | Description | Pitch derivation? | Tracking method |
 |--------|-------------|-------------------|-----------------|
-| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | sliding_window or sequential |
-| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | sliding_window only (sequential explicitly raises `NotImplementedError`) |
+| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | `sliding_window` (default) or `sequential` (DEPRECATED — emits `DeprecationWarning`) |
+| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | `sliding_window` only (sequential explicitly raises `NotImplementedError`) |
 
 For grid layout, the project schema gains four extra fields on `MappingConfig`:
 
@@ -336,8 +336,23 @@ Mode tracking links detected modes across scenarios into **chains** — sequence
 physical mode observed at different piano keys. Tracking runs on ALL processed scenarios
 (accumulated across ESPRIT runs), not just the current selection.
 
-**Parameters** (in settings panel when Tracking is active): Freq Tolerance % (default 0.02),
-Max Gap (default 3).
+**Algorithm:** Two methods are available — see
+[`MODE_TRACKING_REDESIGN.md`](../development/MODE_TRACKING_REDESIGN.md) for the full design.
+
+- `sliding_window` (**default, recommended**) — adaptive frequency-window clustering with
+  MAC-based hierarchical agglomeration. Layout-agnostic (works for both `line` and `grid`).
+- `sequential` — **DEPRECATED as of 2026-05-04.** Per-bridge Hungarian assignment with
+  MAC-verified cost function. Only supported for `layout_type="line"` (raises
+  `NotImplementedError` on `grid`). Emits a `DeprecationWarning` on use. Will be removed
+  in a future release; use `sliding_window` instead.
+
+**Parameters** (in settings panel when Tracking is active): the editable fields **Freq
+Tolerance %** (default `0.03`) and **Max Gap** (default `5`) drive the sequential
+method's `freq_tol_pct` and `max_gap` (see
+[`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters)).
+For the default sliding-window method, these two fields have no effect — the
+sliding-window parameters (`sw_*`) live in `TrackingConfig` source defaults and are not
+exposed in the UI.
 
 **Stabilization diagram** — scatter plot. Colors: green=stable, yellow=semi-stable,
 orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
@@ -741,10 +756,18 @@ This usually indicates measurement quality issues or incorrect ESPRIT parameters
 
 ### Tracking Finds Too Few / Too Many Chains
 
-- **Too few**: Lower the `freq_tol_pct` (e.g. from 0.02 to 0.03) to allow more frequency
-  variation, or increase `max_gap` to tolerate more missing scenarios
-- **Too many**: Raise `freq_tol_pct` to be stricter about frequency matching, or filter by
-  stability and coverage in the mode table
+These hints apply to the deprecated `sequential` method's `freq_tol_pct` / `max_gap`
+parameters (the only tracking knobs exposed in the UI). The default `sliding_window`
+method uses different parameters (`sw_*` in `TrackingConfig`) that are not UI-editable
+— see [`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters).
+
+- **Too few chains** (mode is being broken into multiple short fragments): **raise**
+  `freq_tol_pct` (e.g. from current default `0.03` up to `0.05`) so adjacent scenarios
+  with slightly different frequencies stay in the same chain; or **raise** `max_gap`
+  (current default `5`) to tolerate more missing scenarios before a chain closes.
+- **Too many chains** (spurious noise modes appearing): **lower** `freq_tol_pct` (e.g.
+  from `0.03` down to `0.02`) to be stricter about frequency matching, or filter by
+  stability and coverage in the mode table.
 
 ### Apply to Preset Fails
 

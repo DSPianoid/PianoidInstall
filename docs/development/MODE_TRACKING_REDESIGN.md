@@ -16,6 +16,29 @@ documented in
 session re-read this doc and noted the "not yet implemented" status as stale; the
 status was corrected as part of that PR's documentation hygiene step.
 
+!!! warning "Default tracking method is `sliding_window`. The `sequential` method is DEPRECATED (2026-05-04)."
+
+    The default value of `TrackingConfig.tracking_method` is **`"sliding_window"`** — this is the
+    only method that is layout-agnostic (works for both `line` and `grid`) and the only method
+    that will be maintained going forward.
+
+    The legacy **`"sequential"`** method (per-bridge Hungarian assignment described in
+    [§ 4.2–4.4](#42-matching-criteria) below) is **soft-deprecated as of 2026-05-04 (dev-c969)**:
+
+    - `EspritRunner.run_tracking(config=TrackingConfig(tracking_method="sequential"))` emits a
+      `DeprecationWarning` on every call.
+    - The sequential method already raises `NotImplementedError` for `layout_type != "line"`
+      (added by dev-b9dd grid-layout PR — see [`MODE_TRACKING_GRID_LAYOUT.md`](MODE_TRACKING_GRID_LAYOUT.md)).
+    - The implementation is kept working for line-mode users who explicitly opt in, but it
+      is scheduled for **hard removal in a future release** once no downstream code complains
+      for ~one release cycle. See `WORK_IN_PROGRESS.md` follow-up.
+
+    New code MUST use `tracking_method="sliding_window"` (the default — pass nothing to get it).
+    Existing test fixtures that still call `track_modes_along_bridge(..., config=TrackingConfig(tracking_method="sequential"))`
+    directly do **not** trigger the warning (the warning fires at the user-facing
+    `EspritRunner.run_tracking()` dispatcher, not at the inner pure function), so suite hygiene is
+    preserved while end-user code is told.
+
 ---
 
 ## 1. Problem Statement
@@ -204,7 +227,7 @@ if not (f_lo <= det.frequency <= f_hi):
     return INFINITY  # hard reject
 ```
 
-Default `freq_envelope_margin = 0.05` (5% beyond observed range). This prevents a chain from suddenly jumping to a completely different frequency region.
+Default `freq_envelope_margin = 0.08` (8% beyond observed range; was 0.05 in the original design). This prevents a chain from suddenly jumping to a completely different frequency region.
 
 **Trend-aware continuity** — extrapolate the chain's recent frequency trend and compute deviation:
 
@@ -231,7 +254,7 @@ where (a, b) = weighted_least_squares(s_i, f_i, weights=exp(-lambda * (s_K - s_i
 
 With `lambda = 0.3` providing exponential recency weighting.
 
-Default parameters: `freq_tol_pct = 0.02` (2% per scenario step), `trend_window = 3`.
+Default parameters: `freq_tol_pct = 0.03` (3% per scenario step; was 0.02 in the original design), `trend_window = 3`.
 
 #### Secondary: MAC verification
 
@@ -245,7 +268,7 @@ C_mac = 1.0 - mac_val  # 0 for identical, 1 for orthogonal
 ```
 
 MAC serves two roles:
-- **Hard rejection** (`mac_reject_threshold = 0.3`): shapes that are clearly orthogonal cannot be the same mode, regardless of frequency proximity. This prevents chain swaps at frequency crossings.
+- **Hard rejection** (`mac_reject_threshold = 0.15` in current source; was 0.3 in the original design — see [Hardcoded constants](#hardcoded-constants) for the freq-adaptive relaxation above 500 Hz that explains the lowered base value): shapes that are clearly orthogonal cannot be the same mode, regardless of frequency proximity. This prevents chain swaps at frequency crossings.
 - **Soft penalty** in the cost function: higher MAC reduces cost, helping disambiguate close-frequency candidates.
 
 When mode shapes are unavailable (e.g., loaded from old project data without `.npy` files), the MAC terms are zeroed and matching relies on frequency alone.
@@ -295,7 +318,7 @@ These are normalized so that a "perfect" match (zero frequency deviation, MAC = 
 | Cutoff | Condition | Effect |
 |--------|-----------|--------|
 | Frequency envelope | `det.frequency` outside `[f_lo, f_hi]` | Infinite cost |
-| MAC rejection | `mac_val < 0.3` | Infinite cost |
+| MAC rejection | `mac_val < effective_mac_reject` (base 0.15, freq-adaptive — see [Hardcoded constants](#hardcoded-constants)) | Infinite cost |
 | Maximum cost | `cost > 2.0` | Not assigned (starts new chain) |
 
 ### 4.3 Assignment
@@ -361,7 +384,7 @@ if chain._gap_counter > max_gap:
     chain.close()
 ```
 
-Default `max_gap = 5` (in scenario-index units, not step counts). This allows a mode to disappear for up to 5 scenario positions before the chain closes.
+Default `max_gap = 5` (in scenario-index units, not step counts). This allows a mode to disappear for up to 5 scenario positions before the chain closes. (The original §7 table mistakenly said 3 — that was a doc typo from day one; the §4.4 value of 5 was always correct and matches source.)
 
 #### Reference state maintenance
 
@@ -385,11 +408,11 @@ On closure, `finalize()` computes summary statistics (mean frequency, range, dri
 
 #### Chain merging for split chains
 
-After all scenarios are processed, `_merge_split_chains()` (existing, lines 223-296) runs with enhanced criteria:
+After all scenarios are processed, `_merge_split_chains()` (now at `mode_tracking.py:932-1029` as of 2026-05-04) runs with enhanced criteria:
 
-- Frequency proximity (existing)
-- Non-overlapping scenario ranges (existing)
-- **New: MAC between reference shapes** — if both chain segments have reference shapes, require `MAC > 0.5` for merge. This prevents merging chains that happen to have similar frequencies but are actually different modes.
+- Frequency proximity — `freq_diff / ref_freq < freq_tol_pct * 2` (chain mean) and `< freq_tol_pct * 3` (junction)
+- Non-overlapping scenario ranges (line layout only — skipped for `layout_type="grid"` since scenario_index is an opaque cell ID without 1-D ordering)
+- **MAC between reference shapes — hardcoded threshold `MAC > 0.5`** (`mode_tracking.py:1015`). This is **NOT exposed in `TrackingConfig`** — see [Hardcoded constants](#hardcoded-constants). Prevents merging chains that happen to have similar frequencies but are actually different physical modes.
 
 ### 4.5 Post-processing
 
@@ -537,42 +560,168 @@ New public fields: `quality`, `cross_bridge_match`, `bridge`.
 
 #### `TrackingConfig` (new)
 
+The dataclass below shows current defaults as of 2026-05-04 (synced from
+`pianoid_middleware/modal_adapter/esprit/mode_tracking.py:64-132`). Several values
+drifted from the original 2026-04-14 design during calibration on the Belarus dataset
+— the most consequential are flagged inline. The sliding-window section was added
+post-design (the original document only covered the sequential method).
+
 ```python
 @dataclass
 class TrackingConfig:
-    # Frequency matching
-    freq_tol_pct: float = 0.02           # per-step relative tolerance
-    freq_envelope_margin: float = 0.05    # range gate extension beyond observed envelope
-    trend_window: int = 3                 # number of recent detections for trend fit
+    # --- Method / layout selectors (added post-design, see deprecation notice above) ---
+    tracking_method: str = "sliding_window"  # "sliding_window" | "sequential" (DEPRECATED)
+    layout_type: str = "line"                # "line" | "grid" (sequential rejects "grid")
+
+    # ============================================================
+    # Sequential method parameters (Hungarian)
+    # ============================================================
+    # --- Frequency matching ---
+    freq_tol_pct: float = 0.03           # per-step relative tolerance (was 0.02 in design; raised during Belarus calibration)
+    freq_envelope_margin: float = 0.08   # range gate extension beyond observed envelope (was 0.05 in design)
+    trend_window: int = 3                # number of recent detections for trend fit
     trend_decay: float = 0.3             # exponential weight decay for trend fit
 
-    # MAC
-    mac_reject_threshold: float = 0.3     # hard reject below this
+    # --- MAC ---
+    mac_reject_threshold: float = 0.15   # hard reject below this (was 0.3 in design; **lowered on calibration**, see freq-adaptive note below)
     mac_weight: float = 0.5              # weight in cost function
 
-    # Shape drift
-    max_shape_drift_rate: float = 0.15    # per scenario step (at lowest frequencies)
+    # --- Shape drift ---
+    max_shape_drift_rate: float = 0.15   # per scenario step (at lowest frequencies)
     shape_drift_freq_relax: float = 2.0  # relaxation factor: at 1000 Hz, tolerance = base * (1 + this)
-    shape_drift_weight: float = 0.3       # weight in cost function
+    shape_drift_weight: float = 0.3      # weight in cost function
 
-    # Cost
+    # --- Cost ---
     freq_weight: float = 1.0
     max_cost: float = 2.0                # above this, no assignment
     no_assign_cost: float = 3.0          # dummy cost for unmatched padding
 
-    # Chain management
-    max_gap: int = 5                     # in scenario-index units
-    reference_shape_alpha: float = 0.3    # EMA update rate for reference shape
+    # --- Chain management ---
+    max_gap: int = 5                     # in scenario-index units (was 3 in §7 of design — typo; §4.4 had 5)
+    reference_shape_alpha: float = 0.3   # EMA update rate for reference shape
 
-    # Post-processing
-    coverage_threshold: float = 0.50      # minimum coverage for "stable"
-    splitter_freq_tol: float = 0.02       # frequency tolerance for splitter detection
-    splitter_mac_threshold: float = 0.7   # MAC threshold for splitter detection
-    cross_bridge_freq_tol: float = 0.03   # frequency tolerance for cross-bridge matching
+    # ============================================================
+    # Sliding-window method parameters (post-design addition)
+    # ============================================================
+    sw_width_pct: float = 0.05           # window half-width as fraction of center freq
+    sw_min_width: float = 5.0            # minimum window half-width (Hz), dominates at low freq
+    sw_mac_threshold: float = 0.4        # MAC cut for hierarchical clustering (freq-adaptive — see prose)
+    sw_min_detections: int = 3           # minimum detections per cluster
+    sw_freq_margin: float = 0.80         # cluster freq range must be < margin * window_width
+    sw_min_cluster_scenarios: int = 3    # cluster must span at least this many distinct scenarios
+
+    # ============================================================
+    # Post-processing (shared by both methods)
+    # ============================================================
+    coverage_threshold: float = 0.50     # minimum coverage for "stable"
+    splitter_freq_tol: float = 0.02      # frequency tolerance for splitter detection
+    splitter_mac_threshold: float = 0.7  # MAC threshold for splitter detection
+    cross_bridge_freq_tol: float = 0.03  # frequency tolerance for cross-bridge matching
     cross_bridge_mac_threshold: float = 0.5
 ```
 
 All parameters are global (same for both bridges). Per-bridge overrides are not needed because the physical properties are similar on both bridges; only the scenario ranges differ.
+
+#### Hardcoded constants NOT exposed via `TrackingConfig` {#hardcoded-constants}
+
+Several behaviour-affecting numbers are baked into the implementation rather than into
+`TrackingConfig`. They are documented here so callers know what they are — and what they
+are not — when interpreting tracking output:
+
+##### Sequential cost function — freq-adaptive MAC rejection
+
+In `_compute_cost()` (`mode_tracking.py:411-418`), the configured
+`mac_reject_threshold` (default **0.15**) is **only** used as-is when the chain's last
+frequency is at or below 500 Hz. Above 500 Hz, MAC reliability degrades (5 accelerometer
+channels under-resolve high-frequency mode shapes), so the threshold relaxes linearly:
+
+```python
+freq_ref = max(chain._last_freq, 50.0)
+if freq_ref > 500.0:
+    relax = max(0.33, 1.0 - 0.67 * (freq_ref - 500.0) / 1000.0)
+    effective_mac_reject = config.mac_reject_threshold * relax
+else:
+    effective_mac_reject = config.mac_reject_threshold
+```
+
+Practically: at 500 Hz the threshold is 0.15. At 1500 Hz it is 0.05. The `0.33` floor
+keeps the minimum at `0.33 * 0.15 = 0.0495` — only genuinely orthogonal shapes are
+rejected at high frequencies. This relaxation is **NOT configurable** — change the
+constants in source if you need different behaviour.
+
+##### Sliding-window MAC threshold — freq-adaptive
+
+In `_sw_mac_threshold()` (`mode_tracking.py:480-492`), the configured
+`sw_mac_threshold` (default **0.4**) applies as-is at or below 500 Hz, then relaxes
+linearly toward a floor of **0.20** by 3000 Hz:
+
+```python
+def _sw_mac_threshold(freq, config):
+    base = config.sw_mac_threshold
+    if freq <= 500.0:
+        return base
+    floor = 0.20
+    relaxed = base - (base - floor) * min(1.0, (freq - 500.0) / 2500.0)
+    return max(floor, relaxed)
+```
+
+Same rationale as the sequential cost function — MAC degrades at high frequencies. The
+floor (`0.20`) and the relaxation slope (`(freq - 500.0) / 2500.0`) are **NOT
+configurable**.
+
+##### Sliding-window combined distance weights
+
+In `_track_sliding_window()` (`mode_tracking.py:586-597`), the pairwise hierarchical
+clustering distance combines normalised frequency distance and `(1 - MAC)` with
+**hardcoded weights**:
+
+```python
+w_freq = 0.4   # frequency distance weight
+w_mac = 0.6    # MAC distance weight
+# distance = w_freq * |f_i - f_j| / window_width + w_mac * (1 - MAC)
+```
+
+These are NOT in `TrackingConfig`. They were tuned on the Belarus dataset to bias
+toward MAC similarity slightly more than frequency distance within a window. Edit the
+source if you need different weighting.
+
+The corresponding cluster-cut threshold (`mode_tracking.py:605`) is also hardcoded:
+
+```python
+cut = w_freq * 0.3 + w_mac * (1.0 - effective_mac_thresh)
+```
+
+i.e. the cut is "≤ 30% of window width AND MAC ≥ effective_mac_thresh on average".
+
+##### Chain merging gate
+
+In `_merge_split_chains()` (`mode_tracking.py:1015`), two chain segments must have
+reference-shape MAC > **0.5** to merge — this gate prevents merging chains that happen
+to have similar frequencies but different physical shapes. **NOT configurable** in
+`TrackingConfig`. The frequency tolerance for the merge gate uses
+`config.freq_tol_pct * 2` (chain-mean proximity) and `config.freq_tol_pct * 3` (junction
+continuity).
+
+##### Sequential vs sliding-window — structural difference
+
+The two methods use fundamentally different cost/distance structures. This affects how
+config tuning translates between methods:
+
+| Aspect | Sequential (`_compute_cost`) | Sliding-window (`_track_sliding_window`) |
+|---|---|---|
+| Comparison unit | (chain, candidate) pair, scenario-by-scenario | (det_i, det_j) pairwise within a frequency window |
+| Frequency cost | quadratic on trend-extrapolation deviation, scaled by `freq_tol_pct * step_size` | linear on `|f_i - f_j| / window_width`, hardcoded weight 0.4 |
+| MAC cost | `1 - mac_val`, weighted by `mac_weight` (config) | `1 - mac_val`, hardcoded weight 0.6 |
+| Shape drift cost | separate `c_shape` term, weighted by `shape_drift_weight` | folded into MAC term — no separate drift penalty |
+| Hard rejects | freq envelope OR MAC < `effective_mac_reject` (freq-adaptive) | only fcluster cut threshold + frequency-window membership |
+| Assignment | Hungarian (one-to-one per scenario step) | hierarchical clustering with `linkage(method='average')` |
+| Layout support | `"line"` only (raises `NotImplementedError` on `"grid"`) | layout-agnostic |
+
+So: tweaking `freq_tol_pct` does not affect the sliding-window method at all. Tweaking
+`sw_width_pct` does not affect the sequential method. Tweaking `mac_reject_threshold`
+only affects sequential. The two methods are independent algorithms that happen to share
+the same `TrackingConfig` container; only `coverage_threshold`, `splitter_*`,
+`cross_bridge_*` are genuinely shared.
 
 #### `TrackingResult` (new)
 
@@ -721,25 +870,50 @@ The tracking stage produces:
 
 ## 7. Configuration Parameters
 
-All parameters live in `TrackingConfig`. Summary with rationale:
+All parameters live in `TrackingConfig`. Defaults below are synced to source as of
+2026-05-04. **Do not** rely on the historical defaults in earlier revisions of this
+document — they were the original design proposals and several were retuned during
+calibration on the Belarus dataset. The drift markers (***changed***) flag values that
+differ from the original 2026-04-14 design.
+
+### Sequential method (DEPRECATED — see callout at top of doc)
+
+| Parameter | Default (current source) | Original design | Rationale |
+|-----------|--------------------------|-----------------|-----------|
+| `freq_tol_pct` | **0.03** ***changed*** | 0.02 | Per-step relative tolerance; raised to 0.03 during Belarus calibration (allows ~1.5 Hz drift at 50 Hz, ~15 Hz at 500 Hz) |
+| `freq_envelope_margin` | **0.08** ***changed*** | 0.05 | Range gate extension beyond observed envelope; raised to 0.08 to accommodate edge-of-bridge drift on Belarus data |
+| `trend_window` | 3 | 3 | 3 points gives a trend line without overfitting; degrades gracefully to 1-point |
+| `trend_decay` | 0.3 | 0.3 | Moderate recency weighting; recent points matter more but old points stabilise |
+| `mac_reject_threshold` | **0.15** ***changed*** | 0.3 | Hard reject below this. Lowered from 0.3 during calibration — combined with the freq-adaptive relaxation above 500 Hz (see [Hardcoded constants](#hardcoded-constants)), the effective value is 0.15 below 500 Hz and as low as 0.05 at 1500 Hz |
+| `mac_weight` | 0.5 | 0.5 | Half the weight of frequency — MAC is informative but limited with 5 channels |
+| `max_shape_drift_rate` | 0.15 | 0.15 | Empirical: adjacent scenarios on Belarus data show MAC > 0.85 for well-tracked modes |
+| `shape_drift_freq_relax` | 2.0 | 2.0 | At 1000 Hz, effective max-drift = base * (1 + 2.0 * (1000-50)/950) ≈ 3x base |
+| `shape_drift_weight` | 0.3 | 0.3 | Lower than MAC weight — drift rate is a softer criterion |
+| `freq_weight` | 1.0 | 1.0 | Frequency is the primary criterion — full weight |
+| `max_cost` | 2.0 | 2.0 | Roughly: 2x the "normal" cost threshold; allows imperfect but plausible matches |
+| `no_assign_cost` | 3.0 | 3.0 | Must exceed `max_cost` so Hungarian prefers not assigning over forced bad matches |
+| `max_gap` | **5** ***changed*** | 3 (§7 of original design — typo; §4.4 already had 5) | Scenario-index units; ~5 positions of missing data before chain closes. The original §7 default was wrong from day one — §4.4 correctly said 5 |
+| `reference_shape_alpha` | 0.3 | 0.3 | EMA balance: responsive to real drift, robust to single-scenario noise |
+
+### Sliding-window method (DEFAULT — added post-design)
+
+These parameters did not exist in the original design (only the sequential method was specified).
 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
-| `freq_tol_pct` | 0.02 | 2% matches current default; allows ~1 Hz drift at 50 Hz, ~10 Hz at 500 Hz |
-| `freq_envelope_margin` | 0.05 | 5% beyond observed range prevents false matches while accommodating edge cases |
-| `trend_window` | 3 | 3 points gives a trend line without overfitting; degrades gracefully to 1-point |
-| `trend_decay` | 0.3 | Moderate recency weighting; recent points matter more but old points stabilize |
-| `mac_reject_threshold` | 0.3 | Orthogonal modes have MAC near 0; 0.3 is conservative (allows noisy matches) |
-| `mac_weight` | 0.5 | Half the weight of frequency — MAC is informative but limited with 5 channels |
-| `max_shape_drift_rate` | 0.15 | Empirical: adjacent scenarios on Belarus data show MAC > 0.85 for well-tracked modes |
-| `shape_drift_weight` | 0.3 | Lower than MAC weight — drift rate is a softer criterion |
-| `freq_weight` | 1.0 | Frequency is the primary criterion — full weight |
-| `max_cost` | 2.0 | Roughly: 2x the "normal" cost threshold; allows imperfect but plausible matches |
-| `no_assign_cost` | 3.0 | Must exceed `max_cost` so Hungarian prefers not assigning over forced bad matches |
-| `max_gap` | 5 | In scenario-index units; ~5 positions of missing data before chain closes |
-| `reference_shape_alpha` | 0.3 | EMA balance: responsive to real drift, robust to single-scenario noise |
+| `sw_width_pct` | 0.05 | Window half-width as fraction of center freq — captures ~5% mode drift per window |
+| `sw_min_width` | 5.0 Hz | Minimum window half-width; dominates at low frequencies where 5% of e.g. 60 Hz is only 3 Hz |
+| `sw_mac_threshold` | 0.4 | MAC cut for hierarchical clustering (freq-adaptive — see [Hardcoded constants](#hardcoded-constants)) |
+| `sw_min_detections` | 3 | Minimum detections per cluster — prevents singleton/doubleton "clusters" |
+| `sw_freq_margin` | 0.80 | Cluster freq range must be < 80% of window width — keeps clusters tight inside their window |
+| `sw_min_cluster_scenarios` | 3 | Cluster must span ≥ 3 distinct scenarios; one-scenario "clusters" are noise |
+
+### Post-processing (shared)
+
+| Parameter | Default | Rationale |
+|-----------|---------|-----------|
 | `coverage_threshold` | 0.50 | Physical modes should appear in most scenarios; below 50% is unreliable |
-| `splitter_freq_tol` | 0.02 | Same as tracking tolerance — splitters are within one tracking tolerance of each other |
+| `splitter_freq_tol` | 0.02 | Same scale as original tracking tolerance — splitters are within one tracking tolerance of each other |
 | `splitter_mac_threshold` | 0.7 | Higher than reject threshold — splitters must be genuinely similar, not just non-orthogonal |
 | `cross_bridge_freq_tol` | 0.03 | Slightly relaxed — frequency can shift more between separate bridges |
 | `cross_bridge_mac_threshold` | 0.5 | Moderate — mode shapes at the bridge boundary may differ somewhat between structures |

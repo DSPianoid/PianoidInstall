@@ -4,6 +4,64 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-c969 | Mode-tracking doc rot fix + soft-deprecate `sequential` method | [log](logs/dev-c969-2026-05-04-205656.md) | 2026-05-04 | In Progress |
+
+---
+
+## Mode-Tracking `sequential` method follow-ups (2026-05-04, dev-c969)
+
+**Status:** Soft deprecation landed in dev-c969. The implementation is kept working for
+line-mode users who explicitly opt in (`TrackingConfig(tracking_method="sequential",
+layout_type="line")`); `EspritRunner.run_tracking()` emits a `DeprecationWarning` when
+that path is taken. The default `sliding_window` method is unchanged.
+
+### Hard removal — schedule one release cycle out
+
+After ~one release cycle of the soft deprecation (target: dev-c969 + 1 month, i.e. on
+or after 2026-06-04), if no downstream code or external project has complained, perform
+the **hard removal** in a follow-up `/dev` session. Removal scope:
+
+1. **Source** — `pianoid_middleware/modal_adapter/esprit/mode_tracking.py`:
+   - Remove the `_run_tracking_sequential` branch in
+     `track_modes_along_bridge()` (currently L745-896, ~150 LOC). The dispatcher
+     becomes `_track_sliding_window`-only.
+   - Remove the sequential-only `TrackingConfig` fields: `freq_tol_pct`,
+     `freq_envelope_margin`, `trend_window`, `trend_decay`, `mac_reject_threshold`,
+     `mac_weight`, `max_shape_drift_rate`, `shape_drift_freq_relax`,
+     `shape_drift_weight`, `freq_weight`, `max_cost`, `no_assign_cost`, `max_gap`,
+     `reference_shape_alpha`. Or keep them as no-op shims for backward-compat at
+     `TrackingConfig(...)` construction sites — TBD by removal-PR author.
+   - Remove `_compute_cost`, `extrapolate_frequency`, `_merge_split_chains`,
+     `match_chains_cross_bridge`, `merge_cross_bridge_chains` (all sequential-only).
+   - Remove the `tracking_method` selector entirely (only one method left).
+2. **Source** — `esprit_runner.py`:
+   - Remove `_run_tracking_sequential` (and its `DeprecationWarning`).
+   - Inline `_run_tracking_sliding_window` into `run_tracking` directly.
+3. **Tests** — `tests/unit/test_mode_tracking.py`:
+   - Remove the entire `TestSequentialDeprecation` class.
+   - Remove all tests that specify `tracking_method="sequential"` (test_sequential_*,
+     SEQ shorthand at L30, etc.) — roughly half the file, currently ~500 LOC.
+4. **Docs** — `MODE_TRACKING_REDESIGN.md`:
+   - Either retire the doc entirely (it becomes pure historical curiosity) or trim it
+     to just the sliding-window section. The cost-function design § 4.2-4.4 is
+     sequential-only.
+   - Update `MODAL_ADAPTER_GUIDE.md`'s tracking-method table to drop the second column
+     and remove the "DEPRECATED" callout.
+5. **Frontend** — check `PianoidTunner` for any UI control exposing `tracking_method`
+   selection. If present, hide / default-pin to `sliding_window`. The `freq_tol_pct`
+   and `max_gap` UI fields become dead — either remove them or repurpose for documenting
+   `sw_*` parameters.
+
+**Pre-removal verification checklist** (run before scheduling the hard-removal `/dev`):
+
+- `pytest tests/unit/test_mode_tracking.py tests/integration/test_modal_adapter_e2e.py`
+  on a recent dev branch — confirm no test still depends on sequential output values
+  for correctness (only deprecation-warning suppression should remain).
+- `git log --since="2026-05-04" --grep="sequential" --grep="tracking_method=\"sequential\""`
+  in PianoidCore + PianoidTunner — look for downstream code adopting sequential after
+  the deprecation.
+- Search downstream Pianoid forks / external integrations (if any tracked) for
+  `tracking_method="sequential"`.
 
 ---
 
