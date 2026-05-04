@@ -9,7 +9,10 @@ preserved as the historical design rationale.
 For the current behaviour, read the source plus the layout-type extensions
 documented in
 [`MODE_TRACKING_GRID_LAYOUT.md`](MODE_TRACKING_GRID_LAYOUT.md) (2-D grid layout,
-2026-05-04, dev-b9dd).
+2026-05-04, dev-b9dd) AND the third tracking method documented in
+[`MODE_TRACKING_NUCLEI_MERGE.md`](MODE_TRACKING_NUCLEI_MERGE.md) (3-stage
+nuclei-merge algorithm + sliding-window post-merge wire-up, 2026-05-04,
+dev-3st1).
 
 **Original date:** 2026-04-14
 **Implementation landed pre-2026-05-04** — confirmed when the dev-b9dd grid layout
@@ -702,26 +705,29 @@ to have similar frequencies but different physical shapes. **NOT configurable** 
 `config.freq_tol_pct * 2` (chain-mean proximity) and `config.freq_tol_pct * 3` (junction
 continuity).
 
-##### Sequential vs sliding-window — structural difference
+##### Sequential vs sliding-window vs nuclei-merge — structural difference
 
-The two methods use fundamentally different cost/distance structures. This affects how
+The three methods use fundamentally different cost/distance structures. This affects how
 config tuning translates between methods:
 
-| Aspect | Sequential (`_compute_cost`) | Sliding-window (`_track_sliding_window`) |
-|---|---|---|
-| Comparison unit | (chain, candidate) pair, scenario-by-scenario | (det_i, det_j) pairwise within a frequency window |
-| Frequency cost | quadratic on trend-extrapolation deviation, scaled by `freq_tol_pct * step_size` | linear on `|f_i - f_j| / window_width`, hardcoded weight 0.4 |
-| MAC cost | `1 - mac_val`, weighted by `mac_weight` (config) | `1 - mac_val`, hardcoded weight 0.6 |
-| Shape drift cost | separate `c_shape` term, weighted by `shape_drift_weight` | folded into MAC term — no separate drift penalty |
-| Hard rejects | freq envelope OR MAC < `effective_mac_reject` (freq-adaptive) | only fcluster cut threshold + frequency-window membership |
-| Assignment | Hungarian (one-to-one per scenario step) | hierarchical clustering with `linkage(method='average')` |
-| Layout support | `"line"` only (raises `NotImplementedError` on `"grid"`) | layout-agnostic |
+| Aspect | Sequential (`_compute_cost`) | Sliding-window (`_track_sliding_window`) | Nuclei-merge (3-stage) |
+|---|---|---|---|
+| Comparison unit | (chain, candidate) pair, scenario-by-scenario | (det_i, det_j) pairwise within a frequency window | Stage 1: same as sliding-window (tighter knobs); Stage 2: (nucleus_i, nucleus_j) pair-level; Stage 3: (chain, stray-detection) pair-level |
+| Frequency cost | quadratic on trend-extrapolation deviation, scaled by `freq_tol_pct * step_size` | linear on `|f_i - f_j| / window_width`, hardcoded weight 0.4 | Stage 2: `1 - freq_diff_pct / nm_merge_max_freq_diff_pct` (linear, configurable); Stage 3: normalised by `freq_envelope_margin` |
+| MAC cost | `1 - mac_val`, weighted by `mac_weight` (config) | `1 - mac_val`, hardcoded weight 0.6 | Stage 2: `mac_val` as score component, weighted by `nm_merge_w_mac`; Stage 3: `1 - mac_val`, weighted by `nm_stray_w_mac` |
+| Shape drift cost | separate `c_shape` term, weighted by `shape_drift_weight` | folded into MAC term — no separate drift penalty | not used (shape drift implicit in cluster MAC consistency) |
+| Damping handling | not used in cost | not used | HARD GATE only (`nm_merge_max_damping_diff_pct`); per-spec: damping uncertainty 10-30% is too noisy for a soft cost |
+| Coverage / overlap | not used | not used | Stage 2 weighted score; full coverage×overlap matrix (HIGH+LOW=merge, LOW+HIGH=reject, HIGH+HIGH=NEVER, LOW+LOW=merge if freq+MAC tight) |
+| Hard rejects | freq envelope OR MAC < `effective_mac_reject` (freq-adaptive) | only fcluster cut threshold + frequency-window membership | Stage 1: nm_nucleus_mac_threshold (HIGH); Stage 2: freq, MAC, damping, HIGH+HIGH; Stage 3: freq envelope, MAC, no-displacement |
+| Assignment | Hungarian (one-to-one per scenario step) | hierarchical clustering with `linkage(method='average')` | Stage 1: hierarchical clustering (high-MAC); Stage 2: greedy pair-merge by descending score; Stage 3: per-stray lowest-cost chain |
+| Layout support | `"line"` only (raises `NotImplementedError` on `"grid"`) | layout-agnostic | layout-agnostic |
+| User's high-coverage low-overlap large-drift failure case | not addressed (per-bridge tracking; bridge boundary breaks the chain) | not addressed (greedy peeling splits across windows; `_merge_split_chains` 6% gate too tight even with the wire-up) | **ADDRESSES** (Stage 2 explicit cov×ovl matrix; configurable `nm_merge_max_freq_diff_pct` allows arbitrary drift) |
 
 So: tweaking `freq_tol_pct` does not affect the sliding-window method at all. Tweaking
 `sw_width_pct` does not affect the sequential method. Tweaking `mac_reject_threshold`
-only affects sequential. The two methods are independent algorithms that happen to share
-the same `TrackingConfig` container; only `coverage_threshold`, `splitter_*`,
-`cross_bridge_*` are genuinely shared.
+only affects sequential.  Tweaking `nm_*` only affects nuclei_merge.  The three methods
+are independent algorithms that happen to share the same `TrackingConfig` container;
+only `coverage_threshold`, `splitter_*`, `cross_bridge_*` are genuinely shared.
 
 #### `TrackingResult` (new)
 

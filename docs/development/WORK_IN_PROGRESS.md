@@ -4,7 +4,8 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-3st1 | 3-stage nuclei-merge mode tracking algorithm + investigation of why `_merge_split_chains` misses user's high-coverage low-overlap failure case | [log](logs/dev-3st1-2026-05-04-184115.md) | 2026-05-04 | In Progress (Step 1) |
+| dev-3st1 | 3-stage nuclei-merge mode tracking algorithm + frontend MAC threshold UI + nuclei view toggle + bundled GPU-status fix | [log](logs/dev-3st1-2026-05-04-184115.md) | 2026-05-04 | Awaiting user approval (Phase A + Phase B implementation complete; Step 9 merge pending) |
+| dev-irfx | Investigate user reports re per-band IR length feature: signal length not visible, no prompt for averaging length. Likely needs modal-adapter restart + UX review. | [log](logs/dev-irfx-2026-05-04-192629.md) | 2026-05-04 | In Progress (Step 0) |
 
 ---
 

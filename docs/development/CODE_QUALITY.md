@@ -355,8 +355,8 @@ The system produces output even when components are degraded:
 
 | Failure | Degradation | User Notification |
 |---------|-------------|-------------------|
-| GPU unavailable | CPU fallback (slower) | Warning in UI |
-| CuPy not installed | NumPy ESPRIT (CPU only) | GPU status indicator |
+| GPU unavailable | CPU fallback (slower) | GPU status indicator in modal-adapter ESPRIT panel ("GPU: not available" / "unreachable" / "checking…"); dev-3st1 fixed the previously-broken one-shot fetch. |
+| CuPy not installed | NumPy ESPRIT (CPU only) | Same GPU status indicator as above |
 | ASIO driver fails | SDL fallback (higher latency) | Audio driver status |
 | WebSocket disconnected | REST fallback (higher debounce) | Connection indicator |
 
