@@ -144,8 +144,8 @@ measurements. The layout type is stored on `MappingConfig` and persisted to
 
 | Layout | Description | Pitch derivation? | Tracking method |
 |--------|-------------|-------------------|-----------------|
-| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | `sliding_window` (default), `nuclei_merge` (3-stage, opt-in — see [`MODE_TRACKING_NUCLEI_MERGE.md`](../development/MODE_TRACKING_NUCLEI_MERGE.md)), or `sequential` (DEPRECATED — emits `DeprecationWarning`) |
-| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | `sliding_window` or `nuclei_merge` (both layout-agnostic; sequential raises `NotImplementedError`) |
+| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | `nuclei_merge` (default since dev-d773 2026-05-05 — see [`MODE_TRACKING_NUCLEI_MERGE.md`](../development/MODE_TRACKING_NUCLEI_MERGE.md)), `sliding_window` (legacy), or `sequential` (DEPRECATED — emits `DeprecationWarning`) |
+| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | `nuclei_merge` (default) or `sliding_window` (both layout-agnostic; sequential raises `NotImplementedError`) |
 
 For grid layout, the project schema gains four extra fields on `MappingConfig`:
 
@@ -389,32 +389,37 @@ physical mode observed at different piano keys. Tracking runs on ALL processed s
 
 **Algorithm:** Three methods are available — see
 [`MODE_TRACKING_REDESIGN.md`](../development/MODE_TRACKING_REDESIGN.md) for the
-default-method design and
+historical design and
 [`MODE_TRACKING_NUCLEI_MERGE.md`](../development/MODE_TRACKING_NUCLEI_MERGE.md)
-for the 3-stage opt-in method.
+for the 3-stage default method.
 
-- `sliding_window` (**default, recommended**) — adaptive frequency-window clustering with
-  MAC-based hierarchical agglomeration. Layout-agnostic (works for both `line` and `grid`).
-  As of dev-3st1 (2026-05-04), runs `_merge_split_chains` post-step (always-on; the
-  `sw_post_merge` config field defaults to `True`).
-- `nuclei_merge` — **opt-in** 3-stage algorithm: nuclei detection (HIGH-MAC sliding window) →
-  weighted nuclei merging (full coverage × overlap matrix; damping is HARD GATE only) →
-  stray-point assignment.  Addresses the high-coverage / low-overlap / large-frequency-drift
-  failure case that `sliding_window`'s narrow `_merge_split_chains` 6 % gate cannot
-  catch.  Layout-agnostic.  Returns intermediate Stage-1 nuclei via the
-  `nuclei_stage_chains` field for the stab-diagram nuclei view toggle.
+- `nuclei_merge` (**default since dev-d773, 2026-05-05; recommended**) — 3-stage algorithm:
+  nuclei detection (HIGH-MAC sliding window) → weighted nuclei merging (full coverage ×
+  overlap matrix; damping is HARD GATE only) → stray-point assignment.  Addresses the
+  over-broad-cluster failure mode where the previous default's greedy peeling produced a
+  "junk drawer" cluster (chain 7 in `tmp8c7q0lu0` — 8 detections, R²=0.10 freq smoothness,
+  shape_consistency 0.626) that should have had its coherent sub-cluster merged with a
+  neighbouring tight cluster.  Also resolves the high-coverage / low-overlap / large-
+  frequency-drift case that `sliding_window`'s narrow `_merge_split_chains` 6 % gate cannot
+  catch.  Layout-agnostic (works for both `line` and `grid`).  Returns intermediate Stage-1
+  nuclei via the `nuclei_stage_chains` field for the stab-diagram nuclei view toggle.
+- `sliding_window` — **legacy default** (was the default before dev-d773; still available
+  via explicit `tracking_method="sliding_window"`). Adaptive frequency-window clustering
+  with MAC-based hierarchical agglomeration.  Layout-agnostic.  As of dev-3st1 (2026-05-04),
+  runs `_merge_split_chains` post-step (always-on; the `sw_post_merge` config field
+  defaults to `True`).  Use this when you want the legacy behaviour or for comparison.
 - `sequential` — **DEPRECATED as of 2026-05-04.** Per-bridge Hungarian assignment with
   MAC-verified cost function. Only supported for `layout_type="line"` (raises
   `NotImplementedError` on `grid`). Emits a `DeprecationWarning` on use. Will be removed
-  in a future release; use `sliding_window` or `nuclei_merge` instead.
+  in a future release; use `nuclei_merge` (default) or `sliding_window` (explicit) instead.
 
 **Parameters** (in settings panel when Tracking is active): the editable fields **Freq
 Tolerance %** (default `0.03`) and **Max Gap** (default `5`) drive the sequential
 method's `freq_tol_pct` and `max_gap` (see
 [`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters)).
-For the default sliding-window method, these two fields have no effect — the
+For the legacy `sliding_window` method, these two fields have no effect — the
 sliding-window parameters (`sw_*`) live in `TrackingConfig` source defaults and are
-exposed via the EspritConfig advanced UI rows.  For the opt-in `nuclei_merge` method,
+exposed via the EspritConfig advanced UI rows.  For the **default** `nuclei_merge` method,
 the per-stage MAC thresholds (`nm_nucleus_mac_threshold`, `nm_merge_min_mac`,
 `nm_stray_min_mac`) AND all stage weights and score thresholds are surfaced as
 editable rows in the same panel — see
@@ -886,9 +891,10 @@ This usually indicates measurement quality issues or incorrect ESPRIT parameters
 ### Tracking Finds Too Few / Too Many Chains
 
 These hints apply to the deprecated `sequential` method's `freq_tol_pct` / `max_gap`
-parameters (the only tracking knobs exposed in the UI). The default `sliding_window`
-method uses different parameters (`sw_*` in `TrackingConfig`) that are not UI-editable
-— see [`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters).
+parameters (the only tracking knobs exposed as legacy UI fields). The default
+`nuclei_merge` method exposes its `nm_*` knobs as separate UI rows.  The legacy
+`sliding_window` method uses different parameters (`sw_*` in `TrackingConfig`) that are
+not UI-editable — see [`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters).
 
 - **Too few chains** (mode is being broken into multiple short fragments): **raise**
   `freq_tol_pct` (e.g. from current default `0.03` up to `0.05`) so adjacent scenarios

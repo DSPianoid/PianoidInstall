@@ -282,4 +282,84 @@ All 21 nuclei tests + 51 existing `test_mode_tracking.py` tests
 | Frontend nuclei-view toggle in `StabilizationDiagram.jsx` | Phase B (this PR) | Uses `/modal/tracking_results` `nuclei_stage_chains` field |
 | Persist `nuclei_stage_chains` to disk in `tracking/chains.json` | Deferred | Would survive backend restart for nuclei view; currently nuclei live only in memory between `run_tracking` and `/tracking_results` GET |
 | Live-data validation on Belarus + PlyWoodTake1 | Deferred | No dataset access in dev session; needs manual run + chain count comparison |
-| Promote `nuclei_merge` to default `tracking_method` | Deferred | Stays opt-in until validated against multiple datasets |
+| Promote `nuclei_merge` to default `tracking_method` | **Done — dev-d773 (2026-05-05)** | See § 8 "Default Promotion" below |
+
+---
+
+## 8. Default Promotion (dev-d773, 2026-05-05)
+
+**Status:** Default `TrackingConfig.tracking_method` changed from `"sliding_window"` to
+`"nuclei_merge"`.
+
+### Trigger
+
+User-reported failure case in `tmp8c7q0lu0` (4×6 grid) — chain 7 + chain 8 near 50 Hz:
+
+- Chain 7 (sliding_window output): 8 detections, freq 48.21–51.02 Hz (2.62 Hz drift),
+  R²=0.10 (very poor freq smoothness), shape_consistency 0.626, 5.9% damping
+  (suspiciously high).  Looks like a "junk drawer" cluster — the over-broad freq window
+  admitted multiple distinct things whose averaged reference shape is "soup".
+- Chain 8 (sliding_window output): 4 detections, freq 49.80–50.46 Hz (tight),
+  shape_consistency 0.609, 0.13% damping (normal piano-mode territory).
+- Whole-chain MAC(c7_ref, c8_ref) = 0.199 — fails the `_merge_split_chains` MAC > 0.5
+  hardcoded gate, so sliding_window leaves them as TWO separate chains.
+- Max single-pair MAC across the 32 c7×c8 detection pairs = 0.424 — meaning at least
+  SOME of chain 7's detections ARE shape-similar to chain 8 individually.
+- User's verbatim observation: "Chain 7 is not coherent, but there are at least one
+  coherent cluster inside c7 that is very close to c8.  Fix the algorithm."
+
+### Why the default switch addresses it
+
+- **Stage 1 high MAC threshold (0.7)** refuses to admit chain 7's mixed shapes as a
+  single cohesive nucleus.  Only genuinely cohesive detection subsets survive Stage 1 —
+  which means chain 7's "junk drawer" either splits into multiple smaller nuclei or
+  fails to form any nucleus at all (its detections become Stage-3 strays).
+- **Stage 3 stray-point assignment** routes each leftover detection to whichever
+  surviving chain has the lowest cost match (subject to `nm_stray_min_mac=0.4` hard
+  gate).  Detections shape-similar to chain 8 should attach to chain 8's chain rather
+  than getting glued into the over-broad c7.
+
+### Caveat on validation
+
+The dev-d773 session could NOT construct a synthetic regression test that demonstrates
+nuclei_merge resolves the chain-7+8 case differently from sliding_window.  Three
+attempts are documented in
+[`logs/dev-d773-2026-05-05-002518.md`](logs/dev-d773-2026-05-05-002518.md) "Honest
+assessment of regression test scope".  The fundamental reason: in any synthetic case
+where junk shapes mutually agree (so they cluster together in sliding_window), the
+junk-averaged MAC against the sub-cluster naturally HAS to be higher than the
+sub-cluster's MAC against ChainA — that's the math that produces the over-broad cluster
+in the first place.  The real Belarus data must have an asymmetry in shape MACs that we
+cannot reproduce without the live dataset.
+
+**Validation that DID run:**
+
+- All 73 mode-tracking tests pass (72 existing + 1 new default-assertion test).
+- The known nuclei_merge win case (`TestUserFailureCase` — high-coverage low-overlap
+  large-freq-drift) still validates.
+- One existing test (`test_modal_adapter_grid_layout::test_default_tracking_method_unchanged`)
+  was updated to assert the new default with explanatory comment.
+- No regression elsewhere in the suite (485/485 unit tests passing on the changed
+  modules; 2 pre-existing unrelated failures unchanged).
+
+**Validation NOT performed (future follow-up):**
+
+- Manual re-run of tracking on `tmp8c7q0lu0` post-merge to confirm whether nuclei_merge
+  actually produces a better chain decomposition.  If it doesn't, the user may need
+  the deferred Option B (sub-cluster-aware merge step) as a follow-up — see
+  `WORK_IN_PROGRESS.md` dev-d773 deferred follow-ups.
+
+### Backward-compatibility impact
+
+- Existing callers that pass `TrackingConfig()` (no explicit `tracking_method`) now get
+  nuclei_merge instead of sliding_window.  Chain IDs and counts will likely differ on
+  the same input data — by design.
+- Existing callers that pass `TrackingConfig(tracking_method="sliding_window")`
+  explicitly are unaffected.
+- Saved tracking results on disk (`tracking/chains.json` per project) are NOT
+  invalidated — they remain readable.  But re-running tracking on the same project
+  will produce different chain_ids / counts because of the algorithm switch.
+- Frontend chain selector (dev-c807, in flight) needs no code change — it operates on
+  whatever chains the backend serves.  User selections persist within a single tracking
+  run; they are invalidated by re-running tracking (this is true regardless of the
+  algorithm switch — re-running tracking always invalidates chain_ids).

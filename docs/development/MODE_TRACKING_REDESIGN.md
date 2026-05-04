@@ -19,11 +19,30 @@ dev-3st1).
 session re-read this doc and noted the "not yet implemented" status as stale; the
 status was corrected as part of that PR's documentation hygiene step.
 
-!!! warning "Default tracking method is `sliding_window`. The `sequential` method is DEPRECATED (2026-05-04)."
+!!! warning "Default tracking method is `nuclei_merge` (changed 2026-05-05, dev-d773). The `sequential` method is DEPRECATED (2026-05-04)."
 
-    The default value of `TrackingConfig.tracking_method` is **`"sliding_window"`** — this is the
-    only method that is layout-agnostic (works for both `line` and `grid`) and the only method
-    that will be maintained going forward.
+    The default value of `TrackingConfig.tracking_method` was changed from
+    **`"sliding_window"`** to **`"nuclei_merge"`** in dev-d773 (2026-05-05), based on a user-
+    reported failure case in `tmp8c7q0lu0` (4×6 grid) where the sliding-window method produced
+    an over-broad "junk drawer" cluster (chain 7) that should have had its coherent sub-cluster
+    merged with the neighbouring tight cluster (chain 8). See
+    [`MODE_TRACKING_NUCLEI_MERGE.md`](MODE_TRACKING_NUCLEI_MERGE.md) § "Default Promotion".
+
+    The currently-supported tracking methods:
+
+    - **`"nuclei_merge"`** (default, dev-d773): three-stage layout-agnostic algorithm —
+      Stage 1 finds cohesive nuclei via a tighter sliding-window pass with HIGH MAC threshold
+      (0.7); Stage 2 merges nuclei via a coverage×overlap×freq×MAC weighted score with damping
+      as a hard gate; Stage 3 assigns leftover detections to the best matching merged chain.
+      Resolves the over-broad-cluster failure mode that motivated the default change.  See
+      [`MODE_TRACKING_NUCLEI_MERGE.md`](MODE_TRACKING_NUCLEI_MERGE.md) for the algorithm details
+      and tunable knobs (`nm_*` fields on `TrackingConfig`).
+    - **`"sliding_window"`** (was the default; still available via explicit
+      `tracking_method="sliding_window"`): adaptive frequency-window clustering with MAC-based
+      hierarchical agglomeration.  Layout-agnostic, simpler than nuclei_merge, but susceptible
+      to the over-broad-cluster failure mode when shapes drift gradually within a frequency
+      window.  Use this when you want the legacy behaviour or for comparison.
+    - **`"sequential"`** (DEPRECATED, line-only): see deprecation notice below.
 
     The legacy **`"sequential"`** method (per-bridge Hungarian assignment described in
     [§ 4.2–4.4](#42-matching-criteria) below) is **soft-deprecated as of 2026-05-04 (dev-c969)**:
@@ -36,7 +55,7 @@ status was corrected as part of that PR's documentation hygiene step.
       is scheduled for **hard removal in a future release** once no downstream code complains
       for ~one release cycle. See `WORK_IN_PROGRESS.md` follow-up.
 
-    New code MUST use `tracking_method="sliding_window"` (the default — pass nothing to get it).
+    New code MUST use `tracking_method="nuclei_merge"` (the default — pass nothing to get it).
     Existing test fixtures that still call `track_modes_along_bridge(..., config=TrackingConfig(tracking_method="sequential"))`
     directly do **not** trigger the warning (the warning fires at the user-facing
     `EspritRunner.run_tracking()` dispatcher, not at the inner pure function), so suite hygiene is

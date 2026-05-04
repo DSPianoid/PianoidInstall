@@ -7,6 +7,52 @@
 | dev-irfx | Investigate user reports re per-band IR length feature — diagnosis complete (backend serves correct data; complaint A is restart issue; complaint B is real UX gap in Create-dialog field). UX patch deferred pending dev-3st1 lock release on EspritConfig.jsx + ModalAdapter.jsx. | [log](logs/dev-irfx-2026-05-04-192629.md) | 2026-05-04 | Diagnosis complete, superseded by dev-uxp5 |
 | dev-uxp5 | Three small frontend UX patches in PianoidTunner: IR(ms) column width clip (P1), nuclei view selection state hygiene (P4), clear tracking_options on method change (P5). P2+P3 dropped per coordinator scope reduction (Project subpanel refactor by dev-8b5f removed the Create dialog). | [log](logs/dev-uxp5-2026-05-04-194744.md) | 2026-05-04 | Pushed; alive for follow-ups |
 | dev-8b5f | Refactor Project subpanel in Modal Adapter UI: ProjectBrowserDialog (Recent + Browse) for Open/Copy From; ProjectInfoCard with Rename; remove separate New Project (Import covers all); GridLayoutEditor unrooted from settings accordion. Backend: extended /modal/projects with layout_type+grid_shape+signal_length_ms; new POST /modal/projects/<old_name>/rename. Tests: 18 backend + 30 frontend (48/48 frontend total). | [log](logs/dev-8b5f-2026-05-04-195337.md) | 2026-05-04 | Pushed; alive for follow-ups |
+| dev-c807 | Modal Adapter tracking results UI batch: 5 bugs + 2 features (heatmap missing points, square grid, chain export selector, manual connect, hover/header annotations, unfreeze Tracking settings post-ESPRIT) | [log](logs/dev-c807-2026-05-05-001346.md) | 2026-05-04 | In Progress |
+| dev-d773 | Mode tracking — switched default `tracking_method` from `sliding_window` to `nuclei_merge` (Option C from planning report; per user pick). Addresses tmp8c7q0lu0 chain 7 + chain 8 over-broad-cluster failure. 1 LOC + doc updates + 1 test mod + 1 new test. **Caveat:** could not synthesize a regression test that demonstrates the chain-7+8 case actually resolves on synthetic data without the live Belarus dataset — see log "Honest assessment". Manual validation on `tmp8c7q0lu0` post-merge is a follow-up. | [log](logs/dev-d773-2026-05-05-002518.md) | 2026-05-04 | Awaiting commit approval |
+
+---
+
+## Mode-Tracking default switch follow-ups (2026-05-05, dev-d773)
+
+**Status:** `TrackingConfig.tracking_method` default changed from `sliding_window` →
+`nuclei_merge` (PianoidCore `feature/dev-d773-subcluster-merge`). Existing tests
+preserved by adding explicit `tracking_method="sliding_window"` where the test depended
+on the old default; one test (`test_modal_adapter_grid_layout::test_default_tracking_method_unchanged`)
+was renamed to assert the new default.  See
+[`MODE_TRACKING_NUCLEI_MERGE.md` § 8 "Default Promotion"](MODE_TRACKING_NUCLEI_MERGE.md#8-default-promotion-dev-d773-2026-05-05).
+
+### Deferred follow-ups
+
+1. **Manual live-data validation on `tmp8c7q0lu0`.** The dev-d773 session could not
+   construct a synthetic regression test that demonstrates nuclei_merge resolves the
+   chain-7+8 case differently from sliding_window (three attempts documented in
+   [`logs/dev-d773-2026-05-05-002518.md`](logs/dev-d773-2026-05-05-002518.md) "Honest
+   assessment").  The fundamental issue: in any synthetic case where junk shapes
+   mutually agree (so they cluster together in sliding_window), the junk-averaged MAC
+   against the sub-cluster must be HIGHER than the sub-cluster's MAC against the clean
+   chain — that's the math producing the over-broad cluster in the first place.  The
+   real Belarus data must have an asymmetry we can't reproduce without it.
+
+   **Action:** Re-run `/modal/run_tracking` on `tmp8c7q0lu0` post-merge with default
+   `TrackingConfig()` and compare chain decomposition against the analyst's recorded
+   sliding_window output (chain 7 + chain 8 separated near 50 Hz).  If nuclei_merge
+   produces the same problematic 2-chain split, the chain-7+8 issue is NOT resolved by
+   the default switch alone — escalate to Option B (sub-cluster-aware merge) as the
+   actual fix.
+
+2. **Live-data validation on Belarus + PlyWoodTake1.**  The previous default
+   (sliding_window) was calibrated on Belarus; switching the default to nuclei_merge
+   may produce different chain counts / coverage on Belarus too.  No regression in the
+   synthetic test suite (485 unit tests pass), but real-data validation is needed
+   before declaring the change "good for all datasets."  Originally listed as
+   deferred in `MODE_TRACKING_NUCLEI_MERGE.md` § 7 — still pending.
+
+3. **Frontend default UI surface.**  EspritConfig's tracking-method dropdown default
+   selection should also switch to `nuclei_merge` to match the backend default.  If it
+   still defaults to `sliding_window` post-merge, frontend users get a different
+   default than backend callers — a discrepancy worth fixing.  Verify post-merge
+   whether the dropdown picks up the backend default automatically (via a `/modal/...`
+   bootstrap call) or hard-codes `sliding_window` in the frontend source.
 
 ---
 
