@@ -136,6 +136,46 @@ into the project as combined `.npy` files — the original source is not needed 
 
 ---
 
+## Layout Types
+
+Each project has a **layout type** that describes the spatial arrangement of its
+measurements. The layout type is stored on `MappingConfig` and persisted to
+`mapping_config.json`.
+
+| Layout | Description | Pitch derivation? | Tracking method |
+|--------|-------------|-------------------|-----------------|
+| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | sliding_window or sequential |
+| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | sliding_window only (sequential explicitly raises `NotImplementedError`) |
+
+For grid layout, the project schema gains four extra fields on `MappingConfig`:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `layout_type` | `"line" \| "grid"` | Layout selector |
+| `grid_shape` | `[n_rows, n_cols]` | Bounding-box dimensions |
+| `grid_spacing_mm` | float | Square cell spacing (dx = dy) |
+| `cell_mask` | `bool[n_rows][n_cols]` | True where the cell is populated |
+| `point_coordinates` | `{scenario_index: [x_mm, y_mm]}` | Physical coordinate per populated cell, row-major |
+
+Pre-grid `mapping_config.json` files (no `layout_type`, no grid fields) load as
+`layout_type="line"` — fully backward compatible.
+
+The grid editor is a small MUI table inside the Setup section's settings panel. It lets
+the user set rows / cols / spacing, click cells to toggle populated/empty, and offers
+bulk shape buttons (All On / All Off / Invert). Scenario indices are auto-assigned in
+row-major order over populated cells. Per-chain amplitude is visualised as a 2-D heatmap
+above the stabilization diagram in the Tracking section (see "Tracking Section" below).
+
+The grid layout terminates at the tracking visualisation step in this PR — no Apply / no
+preset injection. See [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md)
+for the deferred future work that closes the loop.
+
+Algorithmic deltas for grid mode (extrapolate_frequency degradation, merge_split_chains
+no-op, sequential method rejection) are documented in
+[`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
+
+---
+
 ## UI Sections
 
 The panel uses a **compact toolbar** instead of tabs. All navigation and actions are in a
@@ -299,8 +339,16 @@ physical mode observed at different piano keys. Tracking runs on ALL processed s
 **Parameters** (in settings panel when Tracking is active): Freq Tolerance % (default 0.02),
 Max Gap (default 3).
 
-**Stabilization diagram** — scatter plot (X=scenario, Y=frequency). Colors: green=stable,
-yellow=semi-stable, orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
+**Stabilization diagram** — scatter plot. Colors: green=stable, yellow=semi-stable,
+orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
+
+- Line layout: X-axis is `Scenario`. The bass/treble bridge boundary is shown as a
+  dashed red line.
+- Grid layout: X-axis is `Grid point index` (cell IDs are not 1-D-positional). The
+  bridge-boundary marker is hidden. **A per-chain 2-D heatmap inset renders above the
+  stabilization diagram showing the selected chain's amplitude at every populated grid
+  cell** — transparent for cells with no detection. See
+  [`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
 
 **Mode chains table** — collapsible (hidden by default to maximize diagram space). Sortable
 columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
@@ -381,6 +429,46 @@ folders and no flat `.npy` at top or one level deep). Multi-GB uploads are
 supported; Werkzeug spools to a `SpooledTemporaryFile` so no in-memory
 buffering happens.
 
+#### Set Mapping (line or grid layout)
+
+```bash
+# Line layout (default)
+curl -X POST http://localhost:5001/modal/mapping \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel_roles": {"0": "force", "1": "response", "2": "response"},
+    "skipped_channels": [],
+    "channel_to_sound": {},
+    "excitation_to_pitch": {"0": 21, "1": 22},
+    "bridge_boundary": 28,
+    "pitch_offset": 21,
+    "layout_type": "line"
+  }'
+
+# Grid layout — 3x3 bounding box, 8 populated cells (one missing corner)
+curl -X POST http://localhost:5001/modal/mapping \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel_roles": {"0": "response", "1": "response"},
+    "skipped_channels": [],
+    "channel_to_sound": {},
+    "excitation_to_pitch": {},
+    "layout_type": "grid",
+    "grid_shape": [3, 3],
+    "grid_spacing_mm": 10.0,
+    "cell_mask": [[true,true,true],[true,true,true],[true,true,false]],
+    "point_coordinates": {
+      "0": [0,0], "1": [10,0], "2": [20,0],
+      "3": [0,10], "4": [10,10], "5": [20,10],
+      "6": [0,20], "7": [10,20]
+    }
+  }'
+```
+
+For grid layout: `excitation_to_pitch` is empty (no pitch derivation in this PR). The
+`bridge_boundary` and `pitch_offset` fields are ignored. Validation enforces
+`cell_mask.sum() == len(point_coordinates)`.
+
 #### Status & Progress
 
 ```bash
@@ -435,6 +523,20 @@ curl http://localhost:5001/modal/mode_shape/5
 ```
 
 Response includes `pitches`, `magnitudes`, `bridge_labels`, and `frequency`.
+
+#### Grid Heatmap for a Single Chain (grid layout only)
+
+```bash
+# Per-cell amplitude data for chain 5 in grid mode
+curl http://localhost:5001/modal/grid_heatmap/5
+```
+
+Returns `chain_id`, `frequency`, `stability`, `grid_shape`, `grid_spacing_mm`, and a
+`cells` array of `{row, col, scenario_index, x_mm, y_mm, amplitude}`. Cells with no
+detection for this chain have `amplitude: null`. Errors with 400 when the project is
+not in grid layout, when the chain_id is out of range, or when no tracking has been run.
+Used by the `GridHeatmapInset` component above the stabilization diagram. See
+[`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md) for details.
 
 #### Mode Preview (Decaying Sinewave Parameters)
 

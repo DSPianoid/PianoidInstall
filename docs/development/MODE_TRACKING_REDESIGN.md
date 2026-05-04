@@ -1,7 +1,20 @@
 # Mode Tracking Algorithm Redesign
 
-**Status:** Design document (not yet implemented)
-**Date:** 2026-04-14
+**Status:** **Implemented.** `TrackingConfig` + `TrackingResult` dataclasses,
+sliding-window clustering, sequential Hungarian assignment, splitter
+detection, cross-bridge matching, and chain quality scoring are all live in
+`pianoid_middleware/modal_adapter/esprit/mode_tracking.py`. This document is
+preserved as the historical design rationale.
+
+For the current behaviour, read the source plus the layout-type extensions
+documented in
+[`MODE_TRACKING_GRID_LAYOUT.md`](MODE_TRACKING_GRID_LAYOUT.md) (2-D grid layout,
+2026-05-04, dev-b9dd).
+
+**Original date:** 2026-04-14
+**Implementation landed pre-2026-05-04** — confirmed when the dev-b9dd grid layout
+session re-read this doc and noted the "not yet implemented" status as stale; the
+status was corrected as part of that PR's documentation hygiene step.
 
 ---
 

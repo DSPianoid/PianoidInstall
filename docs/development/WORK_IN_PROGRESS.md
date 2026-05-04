@@ -4,6 +4,83 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-b9dd | Modal Adapter grid-layout mode (MVP, line-mode backward compat, per-chain heatmap, defer bridge-from-grid) | [log](logs/dev-b9dd-2026-05-04-182100.md) | 2026-05-04 | In Progress |
+
+---
+
+## Modal Adapter Grid Layout MVP follow-ups (2026-05-04)
+
+**Status:** Landed in dev-b9dd (`feature/modal-adapter-grid-layout`). High #1 (P1
+contract validator on `point_coordinates` keys) was folded in before commit. The
+following findings from the same /review pass were deferred per user direction.
+
+### High (waived for this PR — schedule before next touch)
+
+- **C4 RED file growth (waived).** Five already-RED files grew further this PR:
+  - `pianoid_middleware/modal_adapter/modal_adapter.py` 2981 → 3106 LOC
+  - `PianoidTunner/src/hooks/useModalAdapter.js` 1378 → 1479 LOC
+  - `PianoidTunner/src/modules/ModalAdapter.jsx` 1133 → 1242 LOC (1211 from grid + 31 from accordion)
+  - `pianoid_middleware/modal_adapter/esprit/mode_tracking.py` 1215 → 1269 LOC
+  - `PianoidTunner/src/components/StabilizationDiagram.jsx` 2231 → 2252 LOC
+
+  Pre-existing debt; user explicitly waived for this PR. **Schedule:** before the
+  next feature touching ANY of these files, extract one helper:
+  - **Recommended first split:** `get_grid_heatmap_data` → new
+    `pianoid_middleware/modal_adapter/grid_heatmap.py` (~120 LOC out of `modal_adapter.py`)
+  - **Recommended second split:** `useModalAdapter.js` grid-mode state +
+    setters + `getGridHeatmap` fetcher → new `useGridLayout.js` hook (~150 LOC out)
+
+### Medium (deferred follow-ups)
+
+- **Heatmap error visibility.** `useModalAdapter.js:getGridHeatmap` and
+  `GridHeatmapInset.jsx` swallow backend error messages — heatmap shows generic
+  "no data" for everything (no tracking, wrong layout, chain out of range,
+  network error). Surface the backend error string. ~10 LOC fix in both files.
+
+- **Grid cell keyboard a11y.** Cells in `GridLayoutEditor.jsx:241-269` aren't
+  keyboard-accessible (no `tabIndex`, `role="button"`, `aria-label`,
+  `onKeyDown`). Add per project Frontend UI Standards in `.claude/CLAUDE.md`
+  (the "Accessibility Baseline" section explicitly requires keyboard nav for
+  all interactive elements).
+
+- **Bulk shape buttons have no undo.** All On / All Off / Invert wipes the
+  entire mask in one click — easy to lose a carefully-painted custom shape.
+  Add a local undo stack OR a confirmation step.
+
+- **Component-semantics fix.** `GridLayoutEditor.jsx:195-199` uses
+  `<ToggleButtonGroup exclusive>` for action buttons (All On / All Off /
+  Invert) — semantically these are independent actions, should be
+  `<ButtonGroup>` not `<ToggleButtonGroup>`. The component renders correctly
+  but the DOM/a11y semantics are wrong.
+
+### Low (cleanups)
+
+- **S3 — row-major-cell-walk duplication.** Six instances of the row-major
+  walk over `cell_mask` populated cells across frontend + backend
+  (`GridLayoutEditor.jsx`, `useModalAdapter.js`, `modal_adapter.py`,
+  `mapping.py`, the new `_validate_grid_layout`, and the GRID-button init in
+  `ModalAdapter.jsx`). Extract a `populated_cells_in_row_major(cell_mask)`
+  helper on each side of the wire.
+
+- **A4 — frontend default grid params inlined.** The "switch to GRID"
+  initializer in `ModalAdapter.jsx:583-616` hardcodes `[4, 4]` shape +
+  `10mm` spacing + all-cells-populated. Either codify in `MappingConfig`
+  module-level constants (preferred — single source of truth) OR document.
+
+- **Test gap — line-mode payload bit-identicality.** No test asserts that
+  `submitChannelMapping` for `layout_type="line"` produces a JSON payload
+  bit-identical to the pre-grid contract. Add a small HTTP-payload roundtrip
+  test in `tests/integration/test_modal_pipeline_payload.py` to lock in the
+  backward-compat guarantee.
+
+### Cosmetic note (not from this PR)
+
+- **Pre-existing `Box children` PropType warning.** The browser console fires
+  a `Warning: Failed prop type: Invalid prop 'children' supplied to
+  ForwardRef(Box), expected a ReactNode. at ModalAdapter` warning on every
+  Modal Adapter render. Verified to predate this PR (fires before any new
+  code path executes on first page load). Track separately if it bothers
+  anyone — not a regression introduced by grid layout.
 
 ---
 
