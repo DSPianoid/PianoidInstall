@@ -310,6 +310,7 @@ information in one step:
 | **Source file** | (none) | Picker accepts `.zip` or `.pianoid-project`. Required. |
 | **Project name** | filename stem | Auto-derived from the picked file's name with the standard `.zip` / `.pianoid-project` suffix stripped. Editable. Backend auto-suffixes `_1`, `_2`, ... on collision. |
 | **Signal length (ms)** | `1000` | Numeric override for `ir_working_length_ms`. Truncates the averaged response to this duration with a Hann fadeout over the last `ir_fade_length_ms`. Hidden when the picked file is a `.pianoid-project` archive (length determined by archive). |
+| **Quality threshold** (dev-cp02) | `0.1` | Effective Signal Length QC threshold — the env_diff/env_signal ratio gate beyond which the signal is considered no longer reproducible. UI range `0.05` (strict, 5% noise floor) – `0.5` (permissive, 50% noise floor); backend gate is `(0, 1)`. Lower = stricter. Forwarded as `qc_threshold` form field on `POST /modal/projects/create_from_zip` and persisted into each scenario's `effective_signal_length.json` v2. Hidden for `.pianoid-project` archives. |
 | **Averaging mode** | `Re-average from raw (overwrite)` | Radio: **Re-average** maps to `force_reaverage=true` (always re-runs the canonical averager from `raw_recordings/`, overwriting `averaged_responses/`); **Keep existing** maps to `force_reaverage=false` (preserves existing averages, only computes for scenarios that lack them). Hidden for `.pianoid-project` archives. |
 
 The button is **smart-routed** based on the picked file:
@@ -350,16 +351,40 @@ the frontend fetches the project's QC summary
 `summary.global_min_t_eff_ms < requested signal_length_ms`, the
 `EffectiveSignalLengthRerunDialog` opens with:
 
-- A warning explaining how much shorter the reproducible duration is
-  (`global_min_t_eff_ms` value, threshold, envelope method).
-- A suggested re-run length: `floor(global_min_t_eff_ms / 50) * 50` —
+- A **substandard-scenarios summary** (dev-cp02): how many of the project's
+  scenarios reached the requested length, how many fell short, the median
+  T_eff among the failing scenarios, and the worst single scenario's
+  T_eff with its name. Format example with 30 scenarios:
+
+  ```
+  QC summary across 30 scenarios:
+  • 5 scenarios reached the requested length (T_eff ≥ 1000 ms)
+  • 25 scenarios fell short:
+      median T_eff (failing): 180 ms
+      min T_eff: 53 ms (PlyWood-Scenario23-Take1)
+  ```
+
+  All client-computed from `summary.per_scenario_min_t_eff_ms` (already
+  in the QC summary payload — no extra backend calls).
+
+- A threshold/method footnote (`Threshold: env_diff/env_signal ≥ 10%
+  (sustained), method: hilbert, split-half jackknife.`).
+
+- A suggested re-run length: **`floor(median_failing / 50) * 50`** —
   rounded DOWN to the nearest 50 ms for a cleaner number, never below 50.
+  Switched from `floor(global_min / 50) * 50` to median-based in dev-cp02
+  because the post-qc02 algorithm exposed scenarios with T_eff ≈ 0 ms
+  (e.g. PlyWoodTake1 Sc 5 residual zero) that would have collapsed the
+  suggestion to 50 ms — useless. The median of failing scenarios is a
+  representative target for the substandard population.
+
 - Three actions: **Keep current N ms** (close the dialog, leave project
   as-is — the QC chip on ProjectInfoCard still flags it), **Show details**
-  (expand a per-scenario / per-channel T_eff table), and **Re-run with N ms**
-  (calls `POST /modal/projects/<n>/reaverage` with the suggested length;
-  the backend re-runs the averager with `force=true`, refreshes QC, and
-  persists the new `ir_working_length_ms` to `project.json`).
+  (expand a per-scenario / per-channel T_eff table sorted worst-first),
+  and **Re-run with N ms** (calls `POST /modal/projects/<n>/reaverage`
+  with the suggested length AND the user's original `qc_threshold`
+  preserved; the backend re-runs the averager with `force=true`, refreshes
+  QC, and persists the new `ir_working_length_ms` to `project.json`).
 
 The follow-up prompt only fires when the user picked the "Re-average from
 raw" mode AND a numeric `ir_working_length_ms` was set — "Keep existing"
