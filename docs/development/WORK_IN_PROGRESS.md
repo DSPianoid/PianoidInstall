@@ -11,6 +11,7 @@
 | dev-d773 | Mode tracking — switched default `tracking_method` from `sliding_window` to `nuclei_merge` (Option C from planning report; per user pick). Addresses tmp8c7q0lu0 chain 7 + chain 8 over-broad-cluster failure. 1 LOC + doc updates + 1 test mod + 1 new test. **Caveat:** could not synthesize a regression test that demonstrates the chain-7+8 case actually resolves on synthetic data without the live Belarus dataset — see log "Honest assessment". Manual validation on `tmp8c7q0lu0` post-merge is a follow-up. | [log](logs/dev-d773-2026-05-05-002518.md) | 2026-05-04 | Committed + merged locally; awaiting batch push |
 | dev-qc01 | Scenario Averager Quality Control — split-half jackknife per channel per scenario; compute Effective Signal Length (T_eff) where envelope-of-difference exceeds threshold of envelope-of-signal; warn when band ir_length_ms exceeds T_eff. Algorithm in scenario_averager (~370 LOC + 15 tests), modal_adapter QC accessors (~210 LOC), REST endpoints `/modal/projects/<name>/effective_signal_length` GET+POST, EspritConfig warning UI (Alert + per-row icons + "Eff signal: N ms" chip + 4 frontend tests), docs (MODAL_ADAPTER_GUIDE QC subsection + REST_API endpoint docs). PianoidCore merge SHA `77614cf`, PianoidTunner merge SHA `7e20493` (clean conflict resolution against dev-07b4's skip_start_ms column on EspritConfig.jsx). 28/28 averager + 11/11 EspritConfig + 66/66 Tunner suite + 154/154 modal_adapter regression. | [log](logs/dev-qc01-2026-05-05-startup.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-07b4 | Per-band `skip_start_ms` for ESPRIT pipeline — trims forcing-transient + Butterworth `sosfiltfilt` settling region from start of each band's signal AFTER bandpass + decimation. Additive `Optional[float]` field on `FrequencyBand` dataclass; per-band defaults on EXTENDED_BANDS only (STANDARD_BANDS stays None). UI: "Skip (ms)" column in per-band table. PianoidCore merge SHA `01ffd95`, PianoidTunner merge SHA `7f6a0b1`, PianoidInstall docs SHA `1dbc5cf`. 15 backend tests + 7 frontend tests pass; no regressions on existing 107 modal-adapter tests. Coordinated with dev-qc01 on overlapping files (band_processing.py was mine; EspritConfig.jsx + MODAL_ADAPTER_GUIDE.md changes additive on top of qc01's commits). | [log](logs/dev-07b4-2026-05-05-070507.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
+| dev-cp01 | Streamlined Create Project flow: single popup dialog (file name + averaging mode keep/overwrite + signal length) for both folder-based and zip-based project creation. Subsumes Bug B (project name = `tmpXXX`) + Bug C (IR(ms) ignored due to averaging idempotency). Adds Effective Signal Length QC display to ProjectInfoCard (deferred from dev-qc01) + a follow-up rerun prompt when any channel's T_eff is shorter than the requested signal length, via new `POST /modal/projects/<n>/reaverage` endpoint (closes deferred dev-ir01 follow-up #2). 6 LOC backend route fix for Bug B + ~85 LOC scenario_averager auto-promote (Bug C) + ~135 LOC reaverage adapter method + 2 NEW frontend dialogs (CreateProjectDialog ~280 LOC + EffectiveSignalLengthRerunDialog ~290 LOC) + ProjectInfoCard QC chip & popover (~165 LOC) + ~70 LOC useModalAdapter hook helpers. 23 new tests (12 backend + 11 frontend). 196/197 backend pass (1 pre-existing skip), 89/89 frontend pass. | [log](logs/dev-cp01-2026-05-05-create-streamline.md) | 2026-05-05 | Step 9 — committed + merged locally; awaiting batch push |
 
 ---
 
@@ -94,16 +95,17 @@ dialog gained an "IR (ms)" override field.
      them — drop the `window_length=12000/9600` for Ultra-Low/Low and add the
      new `decimation` and `ir_length_ms` columns.
 
-2. **Full re-averaging endpoint — `POST /modal/projects/reaverage`** (~50 LOC
-   + tests). Lets the user re-run the averaging step on the current project
-   without re-creating it from the zip. Body: `{ir_working_length_ms: float,
-   force: bool}`. Wraps `_auto_average_scenarios(force=True,
-   ir_working_length_ms_override=...)` against the project's measurement
-   source folder. Required to extend an existing project (e.g. PlyWoodTake1
-   with its current 600 ms files) to the new 1000 ms Ultra-Low default
-   without re-uploading the zip. Out of scope for the dev-ir01 PR per user
-   approval ("force_reaverage flag this PR; full /reaverage endpoint
-   deferred to follow-up").
+2. **Full re-averaging endpoint — `POST /modal/projects/reaverage`**
+   ✅ **LANDED in dev-cp01 (2026-05-05)** as
+   `POST /modal/projects/<name>/reaverage`. Body:
+   `{ir_working_length_ms: float (optional), force: bool (default true)}`.
+   Wraps `ensure_averaged_responses_for_parent(force=True,
+   ir_working_length_ms_override=...)` against the project's resolved
+   measurement source folder. Persists the new `ir_working_length_ms`
+   to `project.json`, refreshes QC. Used by the
+   `EffectiveSignalLengthRerunDialog` follow-up prompt. See
+   `docs/guides/MODAL_ADAPTER_GUIDE.md` "REST endpoints" under the
+   Effective Signal Length QC section.
 
 3. **Pre-existing test failure — `test_run_esprit_delegates_to_sync`**
    (`tests/unit/test_modal_adapter_state.py::TestEspritRefactor`). Fails on

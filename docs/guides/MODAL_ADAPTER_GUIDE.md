@@ -232,11 +232,20 @@ have been removed — the toolbar handles all actions.
 ### Project Management
 
 The Setup section opens with three action buttons (**Open Project**, **Copy From…**,
-**Import from Zip**), the selected-project info card, and — when the project uses
+**Create Project…**), the selected-project info card, and — when the project uses
 grid layout — the processing grid editor. As of dev-8b5f (2026-05-04) the legacy
 inline chip-list UI was replaced by a file-browser dialog and the standalone "New
-Project from folder" form was removed (Import from Zip auto-detects format and
+Project from folder" form was removed (Create Project auto-detects format and
 covers both `.pianoid-project` archives and raw measurement-data zips).
+
+**dev-cp01 (2026-05-05) streamlined the create flow.** The legacy "Import from
+Zip" button (which exposed an inline `IR(ms)` field next to it and skipped
+straight to upload-on-click) was replaced by a single popup dialog that gathers
+all create-time fields up-front: file, project name, signal length, averaging
+mode. Post-create, an Effective Signal Length QC follow-up prompt offers to
+re-run averaging at a measurement-supported length when QC reports
+`global_min_t_eff_ms < requested signal_length_ms` (see "Create Project Dialog"
+below).
 
 **Open Project** -- opens a `ProjectBrowserDialog` with two tabs:
 
@@ -292,8 +301,18 @@ accordion. For `line` layout the editor does not render — switch to grid
 via the LINE/GRID layout selector in the settings panel (gear icon) to
 reveal it.
 
-**Import from Zip** -- click the button to pick a `.zip` or `.pianoid-project` file.
-The button is **smart-routed**:
+**Create Project…** -- click to open `CreateProjectDialog` (dev-cp01,
+2026-05-05). The dialog collects the four pieces of create-time
+information in one step:
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| **Source file** | (none) | Picker accepts `.zip` or `.pianoid-project`. Required. |
+| **Project name** | filename stem | Auto-derived from the picked file's name with the standard `.zip` / `.pianoid-project` suffix stripped. Editable. Backend auto-suffixes `_1`, `_2`, ... on collision. |
+| **Signal length (ms)** | `1000` | Numeric override for `ir_working_length_ms`. Truncates the averaged response to this duration with a Hann fadeout over the last `ir_fade_length_ms`. Hidden when the picked file is a `.pianoid-project` archive (length determined by archive). |
+| **Averaging mode** | `Re-average from raw (overwrite)` | Radio: **Re-average** maps to `force_reaverage=true` (always re-runs the canonical averager from `raw_recordings/`, overwriting `averaged_responses/`); **Keep existing** maps to `force_reaverage=false` (preserves existing averages, only computes for scenarios that lack them). Hidden for `.pianoid-project` archives. |
+
+The button is **smart-routed** based on the picked file:
 
 - A `.pianoid-project` archive (one previously produced by **Export Project**) is
   unpacked into the projects base verbatim — same as the legacy import flow.
@@ -304,12 +323,48 @@ The button is **smart-routed**:
   "scenarios at top of zip" and "scenarios one wrapping dir deep" layouts),
   and the project is created from that path in one HTTP call. The on-disk
   extraction is **kept** so you can re-create the project later without
-  re-uploading the zip.
+  re-uploading the zip (use `POST /modal/projects/<n>/reaverage` to extend).
 
 This removes the foot-gun where uploading a measurement-folder zip into the old
 "Import Project" button failed with `Invalid archive: missing manifest.json` —
 the same button now handles both cases. Multi-GB zips upload streamingly
 (Werkzeug spools to disk, no in-memory buffering).
+
+**dev-cp01 Bug B fix.** When the route caller (curl, legacy frontend) omits the
+`name` form field, the route now derives the project name from the upload's
+original filename (`request.files['file'].filename`) rather than the Werkzeug
+temp filename. Previously, projects ended up named `tmpXXXXXX` on disk in this
+case. The dialog always sends an explicit `name`; the route fix is defence-in-
+depth.
+
+**dev-cp01 Bug C fix.** When the requested `ir_working_length_ms` exceeds the
+on-disk pre-averaged length of any scenario, the averager auto-promotes
+`force=true` per-scenario for those scenarios. Without this fix the
+idempotency short-circuit silently honoured the shorter pre-averaged file,
+ignoring the requested length. Scenarios already at (or longer than) the
+requested length remain on the fast path (no needless re-averaging).
+
+**Effective Signal Length follow-up prompt.** When the create call returns,
+the frontend fetches the project's QC summary
+(`GET /modal/projects/<n>/effective_signal_length`). If
+`summary.global_min_t_eff_ms < requested signal_length_ms`, the
+`EffectiveSignalLengthRerunDialog` opens with:
+
+- A warning explaining how much shorter the reproducible duration is
+  (`global_min_t_eff_ms` value, threshold, envelope method).
+- A suggested re-run length: `floor(global_min_t_eff_ms / 50) * 50` —
+  rounded DOWN to the nearest 50 ms for a cleaner number, never below 50.
+- Three actions: **Keep current N ms** (close the dialog, leave project
+  as-is — the QC chip on ProjectInfoCard still flags it), **Show details**
+  (expand a per-scenario / per-channel T_eff table), and **Re-run with N ms**
+  (calls `POST /modal/projects/<n>/reaverage` with the suggested length;
+  the backend re-runs the averager with `force=true`, refreshes QC, and
+  persists the new `ir_working_length_ms` to `project.json`).
+
+The follow-up prompt only fires when the user picked the "Re-average from
+raw" mode AND a numeric `ir_working_length_ms` was set — "Keep existing"
+mode opts the user out of the QC truncation suggestion, since they
+explicitly asked to preserve the existing averages.
 
 #### Auto-averaging missing `averaged_responses/`
 
@@ -481,6 +536,20 @@ cannot be retroactively QC'd.
   scenario folder names; without it every scenario the project has
   raw_recordings for is recomputed. Returns the same payload as GET
   plus `recomputed_scenarios` (count) and `averaging_summary`.
+- `POST /modal/projects/<name>/reaverage` (dev-cp01, 2026-05-05) —
+  re-runs the canonical averager on every scenario of an existing
+  project against its already-resolved measurement source folder
+  (the on-disk extracted tree from import time). Body:
+  `{ "ir_working_length_ms": float (optional), "force": bool (default true) }`.
+  Persists the new `ir_working_length_ms` to `project.json` so
+  `open_project` and the ProjectInfoCard reflect the new length.
+  Returns the same payload as the QC GET endpoint plus
+  `averaging_summary` and `ir_working_length_ms`. Used by the
+  EffectiveSignalLengthRerunDialog to extend or shorten an existing
+  project without re-uploading the source zip. Errors:
+  - `404` — project does not exist
+  - `400` — project has no resolvable measurement source folder
+    (raw_recordings pruned), or `ir_working_length_ms` is non-numeric
 
 **Default values are tuned for impulse-response measurements:**
 
@@ -803,8 +872,11 @@ curl -X POST http://localhost:5001/modal/projects/import \
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `file` | yes | -- | Multipart upload, streamed to disk by Werkzeug |
-| `name` | no | zip stem | Project name; conflicts auto-resolved with `_1`, `_2`, ... |
+| `name` | no | upload filename stem (dev-cp01 Bug B fix) or zip-on-disk stem | Project name; conflicts auto-resolved with `_1`, `_2`, ... |
 | `extracted_root` | no | `$PIANOID_MEASUREMENTS_DIR` or `D:\modal_measurements` | Where the un-zipped tree is kept |
+| `band_config` | no | -- | JSON-encoded list of `FrequencyBand`-shaped dicts to persist as project default |
+| `ir_working_length_ms` | no | `max(b.ir_length_ms for b in band_config)` when `band_config` set, else metadata-derived | Truncation length applied to the averaged response (ms) |
+| `force_reaverage` | no | `false` | Re-run the averager on every scenario even if `averaged_responses/` already exists. Required when raising `ir_working_length_ms` on a project whose pre-existing averages are too short — but as of dev-cp01 the averager auto-promotes `force=true` per-scenario in that case (Bug C fix), so `force_reaverage=true` is only needed to overwrite at the same/shorter length. |
 
 201 response body adds two fields beyond the standard `create_project` shape:
 
