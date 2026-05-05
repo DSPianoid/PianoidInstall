@@ -293,6 +293,32 @@ When renaming the open project, backend retargets in-memory state in place
 (no close/reopen cycle); the front-end recent list is updated to point at
 the new name.
 
+The same Rename dialog is also available **per-row in the
+ProjectBrowserDialog Browse tab** as of dev-db2e — click the pencil icon
+next to any project row. Useful when you want to rename a project
+without opening it first.
+
+**Delete project** -- the trash icon on the info card (and per-row in
+the ProjectBrowserDialog Browse tab) opens a `DeleteProjectDialog`
+(dev-db2e). The dialog confirms:
+
+- Project directory path that will be removed
+- Optional checkbox: **also delete the extracted measurements folder**
+  (default OFF). The checkbox is auto-disabled when:
+    - the project has no `measurement_source` recorded in `project.json`
+      (legacy projects), OR
+    - the recorded `measurement_source` lives **outside** the canonical
+      extracted-root (`$PIANOID_MEASUREMENTS_DIR` or
+      `D:\modal_measurements`) — protects user-curated source folders
+      from accidental destruction.
+- A "currently-open project" note when the project being deleted is the
+  active one (backend closes it first, then removes the directory).
+
+The recent-projects list is cleaned up automatically on successful
+delete. See `POST /modal/projects/delete` (REST API) for the response
+shape including `deleted_measurements`, `measurements_path`, and
+`measurements_skipped_reason`.
+
 **Processing Grid** -- when `layout_type == "grid"`, the
 `GridLayoutEditor` (rows / cols / spacing / cell mask, with All On / All
 Off / Invert bulk buttons) renders directly in the Project subpanel body
@@ -931,6 +957,53 @@ When renaming the currently-open project, the backend retargets in-memory
 state (`_project_dir`, `_current_project`) atomically — no close/reopen
 cycle is required, and pipeline state (loaded measurements, ESPRIT
 results, tracking chains) stays in memory.
+
+#### Delete Project
+
+```bash
+# Default: delete only the project directory under projects_base.
+curl -X POST http://localhost:5001/modal/projects/delete \
+  -H "Content-Type: application/json" \
+  -d '{"name": "MyProject"}'
+
+# dev-db2e: also delete the extracted measurements folder (when it
+# lives under the canonical extracted-root).
+curl -X POST http://localhost:5001/modal/projects/delete \
+  -H "Content-Type: application/json" \
+  -d '{"name": "MyProject", "delete_measurements": true}'
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | yes | — | Project name (folder name under `projects_base`) |
+| `delete_measurements` | no | `false` | When true, also `rmtree` the project's `measurement_source` — but ONLY when that path lives under `$PIANOID_MEASUREMENTS_DIR` (default `D:\modal_measurements`). User-curated source folders outside this canonical root are silently kept. |
+
+200 response body:
+
+```json
+{
+  "message": "Deleted project 'MyProject'",
+  "deleted_measurements": true,
+  "measurements_path": "D:\\modal_measurements\\MyProject",
+  "measurements_skipped_reason": null
+}
+```
+
+`measurements_skipped_reason` (string) explains why optional measurements
+deletion was skipped — possible values:
+
+- `"no measurement_source recorded in project.json"` — legacy project
+- `"measurement_source path does not exist: <path>"` — already gone
+- `"measurement_source is not under canonical extracted-root (<root>)"`
+  — safety guard refused to delete a user-curated path
+- `"rmtree failed: <error>"` — filesystem error during the optional
+  delete (the project directory was still removed first)
+
+When deleting the currently-open project, the backend closes it first
+(`reset()` + `_current_project = None` + `_project_dir = None`) before
+the rmtree. The optional measurements rmtree happens AFTER the project
+rmtree so a measurements failure cannot leave a half-state where the
+project directory still exists.
 
 #### Project Import / Create-from-Zip
 
