@@ -10,7 +10,7 @@ set "ROOT_DIR=%~dp0"
 set "CORE_DIR=%ROOT_DIR%PianoidCore"
 set "MIDDLEWARE_DIR=%CORE_DIR%\pianoid_middleware"
 set "TUNNER_DIR=%ROOT_DIR%PianoidTunner"
-set "BACKEND_SCRIPT=%MIDDLEWARE_DIR%\backendserver.py"
+set "BACKEND_SCRIPT=%MIDDLEWARE_DIR%\backendServer.py"
 
 echo Root directory: %ROOT_DIR%
 echo PianoidCore:   %CORE_DIR%
@@ -33,7 +33,7 @@ if not exist "%MIDDLEWARE_DIR%" (
 )
 
 if not exist "%BACKEND_SCRIPT%" (
-    echo ERROR: backendserver.py not found: %BACKEND_SCRIPT%
+    echo ERROR: backendServer.py not found: %BACKEND_SCRIPT%
     goto :error
 )
 
@@ -50,14 +50,20 @@ if not exist "%TUNNER_DIR%\package.json" (
 echo   OK  All directories and files found
 echo.
 
-rem Check if virtual environment exists
-if not exist "%CORE_DIR%\.venv" (
-    echo ERROR: Python virtual environment not found.
+rem Check if virtual environment exists.
+rem Honour PIANOID_VENV_DIR if set (Linux NTFS-relocation case); default to PianoidCore\.venv on Windows.
+if defined PIANOID_VENV_DIR (
+    set "VENV_DIR=%PIANOID_VENV_DIR%"
+) else (
+    set "VENV_DIR=%CORE_DIR%\.venv"
+)
+if not exist "%VENV_DIR%" (
+    echo ERROR: Python virtual environment not found at %VENV_DIR%.
     echo Please run setup-pianoid.bat first.
     goto :error
 )
 
-echo   OK  Python virtual environment found
+echo   OK  Python virtual environment found at %VENV_DIR%
 echo.
 
 rem Check if node_modules exists
@@ -116,7 +122,7 @@ echo   :: Terminal 1 - Backend
 echo   cd %CORE_DIR%
 echo   .venv\Scripts\activate.bat
 echo   cd pianoid_middleware
-echo   python backendserver.py
+echo   python backendServer.py
 echo.
 echo   :: Terminal 2 - Frontend
 echo   cd %TUNNER_DIR%

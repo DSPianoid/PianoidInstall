@@ -85,13 +85,25 @@ FAT32). Two NTFS limitations break pip:
 `setup-pianoid.sh` detects this automatically. When the repo lives on
 `fuseblk` / `ntfs` / `exfat` / `vfat` / `msdos`, it relocates the venv to
 `~/.cache/pianoid-venv-<hash>` (where `<hash>` is a 12-char SHA-1 of the
-repo path, so multiple checkouts get isolated venvs) and creates a symlink
-at `PianoidCore/.venv` pointing to the real venv. All downstream tooling
-(build scripts, the venv-guard in `backendServer.py`, the launcher) keeps
-working unmodified.
+repo path, so multiple checkouts get isolated venvs) and writes the
+relocated path to `PianoidCore/.venv-pointer` (gitignored, per-machine
+state). All build/start scripts (`build_pianoid_cuda.{bat,sh}`,
+`build_pianoid_basic.{bat,sh}`, `start-pianoid.{bat,sh}`,
+`setup-pianoid.bat`) resolve the venv via:
 
-If you'd rather host the venv yourself, point `PianoidCore/.venv` at any
-ext4 / btrfs / xfs path before running `setup-pianoid.sh`.
+1. `PIANOID_VENV_DIR` env var (highest priority — set inside `setup-pianoid.sh`
+   so subprocess builds inherit it)
+2. `PianoidCore/.venv-pointer` file content
+3. `PianoidCore/.venv` (default — what fresh ext4/btrfs/xfs installs use)
+
+The previous design — a working-tree symlink at `PianoidCore/.venv` — was
+removed because the symlink target is a Linux path that breaks every Windows
+tool when the same checkout is shared with a Windows machine. The new design
+keeps the working tree free of platform-specific symlinks.
+
+If you'd rather host the venv yourself: either set `PIANOID_VENV_DIR=/your/path`
+in your shell before invoking the scripts, or place a `PianoidCore/.venv` directory
+(or symlink to one) on any POSIX filesystem before running `setup-pianoid.sh`.
 
 ### NVIDIA driver
 

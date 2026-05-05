@@ -40,12 +40,21 @@ if [[ ! -f "$TUNNER_DIR/package.json" ]]; then
 fi
 echo "  OK  All directories and files found"
 
-if [[ ! -d "$CORE_DIR/.venv" ]]; then
-    echo "ERROR: Python virtual environment not found at $CORE_DIR/.venv"
+# Resolve venv location — see "Venv resolver" pattern (PIANOID_VENV_DIR env var,
+# then $CORE_DIR/.venv-pointer file, then default $CORE_DIR/.venv).
+if [[ -n "${PIANOID_VENV_DIR:-}" ]]; then
+    VENV_DIR="$PIANOID_VENV_DIR"
+elif [[ -f "$CORE_DIR/.venv-pointer" ]]; then
+    VENV_DIR="$(head -n 1 "$CORE_DIR/.venv-pointer")"
+else
+    VENV_DIR="$CORE_DIR/.venv"
+fi
+if [[ ! -d "$VENV_DIR" ]]; then
+    echo "ERROR: Python virtual environment not found at $VENV_DIR"
     echo "Run setup-pianoid.sh first."
     exit 1
 fi
-echo "  OK  Python virtual environment found"
+echo "  OK  Python virtual environment found at $VENV_DIR"
 
 if [[ ! -d "$TUNNER_DIR/node_modules" ]]; then
     echo "ERROR: node_modules not found in PianoidTunner"

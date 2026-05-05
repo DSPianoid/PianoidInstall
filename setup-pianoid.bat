@@ -63,7 +63,13 @@ echo Python version:
 python --version
 echo.
 
-set "VENV_DIR=%CORE_DIR%\.venv"
+rem Honour PIANOID_VENV_DIR if set (used by Linux NTFS-relocation logic);
+rem default to PianoidCore\.venv on Windows.
+if defined PIANOID_VENV_DIR (
+    set "VENV_DIR=%PIANOID_VENV_DIR%"
+) else (
+    set "VENV_DIR=%CORE_DIR%\.venv"
+)
 
 if not exist "%VENV_DIR%" (
     echo Creating virtual environment at %VENV_DIR% ...

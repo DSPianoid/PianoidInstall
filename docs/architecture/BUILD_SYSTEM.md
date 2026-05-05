@@ -177,6 +177,29 @@ PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__fil
 # Must show: .../PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd
 ```
 
+### `PIANOID_VENV_DIR` — relocation override (Linux NTFS only)
+
+On Windows the venv always lives at `PianoidCore/.venv/`. On Linux, when the
+repo is checked out on an NTFS / exFAT / vfat filesystem (which can't host a
+Python venv reliably — see [LINUX_BUILD.md](../guides/LINUX_BUILD.md#filesystem-requirements)),
+`setup-pianoid.sh` relocates the venv to `~/.cache/pianoid-venv-<hash>` and
+records the path in `PianoidCore/.venv-pointer` (gitignored, per-machine state).
+
+All build/start scripts (`build_pianoid_cuda.{bat,sh}`,
+`build_pianoid_basic.{bat,sh}`, `start-pianoid.{bat,sh}`, `setup-pianoid.bat`)
+resolve the venv via:
+
+1. `PIANOID_VENV_DIR` env var (highest priority)
+2. `PianoidCore/.venv-pointer` file content
+3. `PianoidCore/.venv` (default)
+
+On Windows, levels 1 and 2 are normally absent so behaviour falls through to
+the default unchanged. There is no need to set `PIANOID_VENV_DIR` on Windows.
+
+The previous Linux design — a working-tree symlink at `PianoidCore/.venv` —
+was removed because the symlink target is a Linux path that breaks every
+Windows tool when the same checkout is opened on Windows.
+
 ---
 
 ## Toolchain Requirements

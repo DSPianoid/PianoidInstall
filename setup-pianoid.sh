@@ -50,46 +50,55 @@ fi
 PY_MAJ_MIN=$("$PY_BIN" -c "import sys;print('%d.%d'%sys.version_info[:2])")
 echo "Python: $PY_BIN ($PY_MAJ_MIN)"
 
-VENV_DIR="$CORE_DIR/.venv"
-
+# Venv location.
+#
 # Some filesystems can't host a Python venv reliably:
 #   - NTFS (mount type "fuseblk" via ntfs-3g, or "ntfs" via kernel ntfs3)
 #     rejects filenames ending in '.' (Windows API restriction). pip writes
 #     such paths during wheel install (e.g. 'python_rtmidi.dist-info' temp
 #     names) and crashes mid-install with EINVAL.
 #   - exFAT lacks POSIX symlink support entirely.
-# Detect and relocate the venv to $HOME/.cache (assumed ext4) when the repo
-# lives on one of these filesystems, then symlink PianoidCore/.venv at the
-# expected location so all downstream tooling keeps working unmodified.
+#
+# When the repo lives on one of these filesystems, the venv is relocated to
+# $HOME/.cache/pianoid-venv-<hash>. The path is exported as PIANOID_VENV_DIR
+# so all downstream scripts pick it up via the venv-resolver pattern (each
+# build/start script checks PIANOID_VENV_DIR, then $CORE_DIR/.venv-pointer,
+# then defaults to $CORE_DIR/.venv).
+#
+# No symlink is created in the working tree — symlinks pointing at Linux
+# paths break when the same checkout is opened on Windows.
+DEFAULT_VENV_DIR="$CORE_DIR/.venv"
+POINTER_FILE="$CORE_DIR/.venv-pointer"
+
 CORE_FS="$(stat -f -c '%T' "$CORE_DIR" 2>/dev/null || echo unknown)"
 case "$CORE_FS" in
     fuseblk|ntfs|exfat|msdos|vfat)
         # Hash the repo path so multiple checkouts get isolated venvs.
         REPO_HASH=$(echo -n "$ROOT_DIR" | sha1sum | cut -c1-12)
-        ALT_VENV="$HOME/.cache/pianoid-venv-$REPO_HASH"
+        VENV_DIR="$HOME/.cache/pianoid-venv-$REPO_HASH"
         echo "Repo is on '$CORE_FS' (POSIX-incompatible for Python venv);"
-        echo "relocating venv to $ALT_VENV (with symlink at $VENV_DIR)."
-        if [[ -L "$VENV_DIR" ]]; then
-            # Already a symlink — refresh target if stale
-            CURRENT=$(readlink "$VENV_DIR")
-            if [[ "$CURRENT" != "$ALT_VENV" ]]; then
-                rm -f "$VENV_DIR"
-            fi
-        elif [[ -d "$VENV_DIR" ]]; then
-            # Real dir on NTFS — must remove (it's broken anyway)
-            echo "  Removing broken venv at $VENV_DIR ..."
-            rm -rf "$VENV_DIR"
+        echo "relocating venv to $VENV_DIR."
+        # Clean stale on-disk markers at $DEFAULT_VENV_DIR (legacy symlink or
+        # broken venv from earlier installs).
+        if [[ -L "$DEFAULT_VENV_DIR" || -d "$DEFAULT_VENV_DIR" || -e "$DEFAULT_VENV_DIR" ]]; then
+            echo "  Removing legacy $DEFAULT_VENV_DIR (was symlink or broken venv)..."
+            rm -rf "$DEFAULT_VENV_DIR"
         fi
-        mkdir -p "$(dirname "$ALT_VENV")"
-        if [[ ! -d "$ALT_VENV" ]]; then
-            echo "Creating venv at $ALT_VENV ..."
-            "$PY_BIN" -m venv "$ALT_VENV"
-        fi
-        if [[ ! -e "$VENV_DIR" ]]; then
-            ln -s "$ALT_VENV" "$VENV_DIR"
+        # Persist the relocated path so subsequent invocations of build/start
+        # scripts find the venv without requiring PIANOID_VENV_DIR in the user shell.
+        printf '%s\n' "$VENV_DIR" > "$POINTER_FILE"
+        export PIANOID_VENV_DIR="$VENV_DIR"
+        mkdir -p "$(dirname "$VENV_DIR")"
+        if [[ ! -d "$VENV_DIR" ]]; then
+            echo "Creating venv at $VENV_DIR ..."
+            "$PY_BIN" -m venv "$VENV_DIR"
         fi
         ;;
     *)
+        VENV_DIR="$DEFAULT_VENV_DIR"
+        # No relocation needed — clean any stale pointer file from a previous
+        # NTFS-relocation run on a now-different filesystem.
+        rm -f "$POINTER_FILE"
         if [[ ! -d "$VENV_DIR" ]]; then
             echo "Creating virtual environment at $VENV_DIR ..."
             # --copies makes the venv interpreter a real file (not a symlink to
