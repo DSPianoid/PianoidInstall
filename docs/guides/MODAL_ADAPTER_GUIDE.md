@@ -166,6 +166,23 @@ bulk shape buttons (All On / All Off / Invert). Scenario indices are auto-assign
 row-major order over populated cells. Per-chain amplitude is visualised as a 2-D heatmap
 above the stabilization diagram in the Tracking section (see "Tracking Section" below).
 
+**Grid-vs-scenarios consistency** (dev-c807 Bug 2). The grid's populated-cell count MUST
+agree with the project's scenario count — `point_coordinates` keys are the contiguous
+range `0..N-1` and `_per_scenario_results` is keyed by the same ESPRIT scenario indices.
+When the two disagree (e.g. the project has 30 scenarios but the grid only covers 24
+cells), detections at scenarios outside the grid are silently dropped from the per-chain
+heatmap. The UI surfaces the mismatch in three places:
+
+1. **Inline warning Alert** in the GridLayoutEditor body, visible while editing.
+2. **Save-time confirmation Dialog** when the user clicks Save Mapping with a mismatch —
+   the user must explicitly choose "Save anyway" or "Cancel".
+3. **Mismatch Chip** on the ProjectInfoCard (`<cells> cells / <scenarios> scenarios`),
+   so the inconsistency stays visible at the project level after save.
+
+Saving with a mismatch is allowed (some workflows intentionally measure more scenarios
+than the grid covers), but the user has been warned. Existing projects with an already-
+saved mismatch keep their state; the chip is the only retroactive surface for them.
+
 The grid layout terminates at the tracking visualisation step in this PR — no Apply / no
 preset injection. See [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md)
 for the deferred future work that closes the loop.
@@ -613,6 +630,14 @@ the per-stage MAC thresholds (`nm_nucleus_mac_threshold`, `nm_merge_min_mac`,
 editable rows in the same panel — see
 [`MODE_TRACKING_NUCLEI_MERGE.md` § 2](../development/MODE_TRACKING_NUCLEI_MERGE.md#2-three-stage-pipeline).
 
+**Settings freeze rules.** Channel Mapping and Band Configuration are locked once ESPRIT
+has been run (their values shape the extraction so changing them post-extraction would
+silently invalidate per-scenario results). Tracking-section inputs (Tracking Method,
+Freq Tolerance, Max Gap, the `nm_*` MAC threshold rows) and the Grid Layout editor
+**stay editable after ESPRIT finishes** (dev-c807 Bug 7) — they only freeze WHILE ESPRIT
+or tracking is actively running. This lets users retune tracking parameters and re-run
+`/tracking` against the cached extraction without going through Reset.
+
 **Stabilization diagram** — scatter plot. Colors: green=stable, yellow=semi-stable,
 orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
 
@@ -621,8 +646,44 @@ orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
 - Grid layout: X-axis is `Grid point index` (cell IDs are not 1-D-positional). The
   bridge-boundary marker is hidden. **A per-chain 2-D heatmap inset renders above the
   stabilization diagram showing the selected chain's amplitude at every populated grid
-  cell** — transparent for cells with no detection. See
+  cell** — transparent for cells with no detection. The heatmap container holds an
+  `aspectRatio: nCols / nRows` constraint so cells render as squares regardless of
+  pane width (dev-c807 Bug 3). See
   [`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
+
+**Per-point hover annotation** — hovering a point on the stabilization diagram surfaces
+`Scenario N · Freq F Hz · Chain ID (stability) — K scenarios · Damping D` (dev-c807
+Feature 6). The "K scenarios" field is the chain's `detection_count`, exposing chain
+richness at-a-glance without opening the mode-chains table.
+
+**Stability summary chips** — above the diagram, one chip per stability category showing
+`<category> <count> (Av. Sc. <avg>)` where `Av. Sc.` is the rounded mean of
+`detection_count` across chains in that category (dev-c807 Feature 6). Example layout:
+`weak 139 (Av. Sc. 7) · semi-stable 75 (Av. Sc. 14) · stable 77 (Av. Sc. 20)`. Lets the
+user gauge cluster quality per category at a glance.
+
+**Export selection toolbar** — sits between the summary chips and the diagram (dev-c807
+Feature 4). One-click bulk-action chips for managing the export set (= `selectedChains`
+that drives Apply to Preset):
+
+- `+ <stability> (count)` / `−` paired buttons per stability category — add/remove all
+  chains in that category to/from the export set in one click. Includes a
+  `+ spurious (count)` and `− spurious` pair so the user can quickly include OR purge
+  spurious modes without manual toggling.
+- `+ Coverage ≥ 50%` — add every chain whose coverage is at least 50% to the set
+  (high-quality preset candidates).
+- `All` / `Clear` — bulk select all chains / clear the set entirely.
+- Trailing counter: `<selected>/<total> in export set`.
+
+The toolbar mutates the same `selectedChains` state already consumed by Apply to Preset
+— **no new endpoint, no new payload format**. The mode chains table (collapsed by default,
+see below) still works for one-by-one curation.
+
+**Manual chain editing** — the chain-editor click handlers (`addPoint`, `connectChains`,
+`breakChain`) match a clicked point against chain detections within ±1 scenario index of
+the rounded pixel-to-data position (dev-c807 Bug 5). The earlier exact-only match
+silently no-op'd on grid layouts and on zoomed-out views where the pixel snap could land
+one cell off from the actual detection.
 
 **Mode chains table** — collapsible (hidden by default to maximize diagram space). Sortable
 columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
