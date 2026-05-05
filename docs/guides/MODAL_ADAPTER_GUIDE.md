@@ -820,6 +820,16 @@ Freq Tolerance, Max Gap, the `nm_*` MAC threshold rows) and the Grid Layout edit
 or tracking is actively running. This lets users retune tracking parameters and re-run
 `/tracking` against the cached extraction without going through Reset.
 
+**Lock-state visual feedback (dev-md04 Bug 2).** The toolbar Settings gear icon stays a
+gear at all times — it does not swap to a Lock icon when ESPRIT has run (the previous
+behaviour was misleading because the panel still opens fully, and Tracking + Grid Layout
+fields stay editable). Lock state is communicated exclusively by per-section "🔒 Locked"
+Chips inside Channel Mapping and Band Configuration accordion summaries — those sections
+also `disabled`-prop their fields, so the visual + behavioural cues stay aligned. The
+panel-wide opacity dim and the top-of-panel "ESPRIT has started — Settings locked"
+banner were also removed for the same reason: they implied the entire panel was
+read-only when only two sections actually were.
+
 **Stabilization diagram** — scatter plot. Colors: green=stable, yellow=semi-stable,
 orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
 
@@ -830,7 +840,13 @@ orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
   stabilization diagram showing the selected chain's amplitude at every populated grid
   cell** — transparent for cells with no detection. The heatmap container holds an
   `aspectRatio: nCols / nRows` constraint so cells render as squares regardless of
-  pane width (dev-c807 Bug 3). See
+  pane width (dev-c807 Bug 3). The heatmap header now includes a
+  `(N populated / M total cells)` summary so users see at-a-glance that low-coverage
+  chains legitimately render fewer points than there are grid cells (dev-md04 Bug 1) —
+  e.g. a chain with 6 detections on a 5×6 grid shows `6 / 30 cells`, not "the heatmap
+  is broken". The inset can be toggled on/off via the **Heatmap** button in the chart
+  sub-toggle row (next to Damp/Amp/MAC/Shape/Proj — dev-md04 Bug 3); only visible on
+  grid-layout projects. See
   [`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
 
 **Per-point hover annotation** — hovering a point on the stabilization diagram surfaces
@@ -866,6 +882,18 @@ see below) still works for one-by-one curation.
 the rounded pixel-to-data position (dev-c807 Bug 5). The earlier exact-only match
 silently no-op'd on grid layouts and on zoomed-out views where the pixel snap could land
 one cell off from the actual detection.
+
+**Connect (multi-chain merge)** — selects 2+ chains and merges them all into the first
+selected chain in a single batch operation (dev-md04 Bug 4). Detections at scenarios
+shared by multiple chains are taken from the later-selected chain (deterministic
+conflict resolution). The previous version (a) refused to merge whenever any scenario
+was shared between chains — but in real grid-layout data overlap is the norm, so users
+saw "nothing happened" because the rejection toast cleared after 3 s; (b) called the
+pairwise `mergeChains` helper in a JS for-loop, which closed over stale React state and
+silently lost all but the last merge for ≥3-chain selections. The fix (`mergeChainsMany`
+in `useChainEditor.js`) commits every merge in a single `setEditedChains` call, and
+the Connect button surfaces a non-blocking info toast when overlap is detected
+("Merged N chains into chain X (shared scenarios overwritten by later chains)").
 
 **Mode chains table** — collapsible (hidden by default to maximize diagram space). Sortable
 columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
