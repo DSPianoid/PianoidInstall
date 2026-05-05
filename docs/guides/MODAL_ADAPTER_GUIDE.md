@@ -339,6 +339,147 @@ If the sibling `RoomResponse` repo isn't bootstrapped (CI machines without it),
 each affected scenario falls through with `status: "error"` and a clear
 diagnostic message; pre-averaged scenarios still import successfully.
 
+#### Effective Signal Length QC (split-half jackknife)
+
+**Added in dev-qc01 (2026-05-05).** Every time the auto-averager runs the
+canonical pipeline on a scenario, it ALSO performs a split-half
+reproducibility check per response channel:
+
+1. Take all surviving per-measurement cycle stacks (one entry per
+   measurement that contributed at least one aligned cycle to the
+   canonical mean).
+2. Randomly partition them into two halves of size N/2 each, using a
+   deterministic seed `hash(scenario_name) & 0xFFFF` so reruns
+   reproduce the same split.
+3. Average each half independently with `signal_processor.average_cycles`
+   (same primitive used by the canonical mean — the two halves go
+   through the SAME alignment/normalisation pipeline output).
+4. Compute `diff(t) = signal_A(t) − signal_B(t)`.
+5. Compute Hilbert envelopes of `signal_full(t)` and `diff(t)`,
+   smoothed with a 5 ms uniform window.
+6. Find the first sample where `env_diff[t] / env_signal[t] ≥ 0.1`
+   AND the ratio stays above for ≥ 10 ms (sustained-crossing gate).
+   That sample is the **Effective Signal Length** (`T_eff`).
+7. The QC step runs on the FULL pre-truncation mean, not the
+   fadeout-shaped truncated array — the fadeout would mask the
+   noise tail and produce a falsely-late T_eff.
+
+**Why split-half?** A single mean hides per-measurement variance.
+Halving the dataset two ways and averaging each half independently
+preserves the signal (both halves contain the deterministic response)
+while exposing the noise (each half sees a different random sample of
+measurement-to-measurement drift, drift that would otherwise cancel in
+the full mean). The point at which the noise envelope grows to a fixed
+fraction of the signal envelope is the operational definition of
+"the signal is no longer reliably reproducible past here."
+
+**Output.** Per-scenario JSON written to
+`<scenario>/averaged_responses/effective_signal_length.json`:
+
+```json
+{
+  "version": 1,
+  "scenario_name": "PlyWood-Scenario3-Take1",
+  "qc_status": "computed",
+  "split_seed": 12345,
+  "envelope_method": "hilbert",
+  "smoothing_ms": 5.0,
+  "threshold": 0.1,
+  "sustained_ms": 10.0,
+  "calibration_channel": 0,
+  "response_channels": [1, 2, 3],
+  "n_measurements_total": 18,
+  "n_measurements_kept": 18,
+  "n_measurements_per_half_a": 9,
+  "n_measurements_per_half_b": 9,
+  "sample_rate": 48000,
+  "per_channel_t_eff_ms": {"0": null, "1": 920.5, "2": 880.0, "3": 905.2},
+  "per_channel_t_eff_samples": {"0": null, "1": 44184, "2": 42240, "3": 43450},
+  "per_channel_detail": { /* full QC dict per channel */ },
+  "scenario_min_t_eff_ms": 880.0
+}
+```
+
+**`qc_status` values:**
+
+| Status | Meaning |
+|---|---|
+| `computed` | Split-half ran successfully; per-channel T_eff is populated. |
+| `skipped_too_few_measurements` | Fewer than 4 surviving measurements after validate/align — split-half needs at least 2 per half. T_eff is `null` everywhere. |
+| `skipped_no_response_channels` | Only the calibration channel was present (rare data-shape error). |
+
+**`per_channel_t_eff_ms` semantics:**
+
+- `null` for the calibration channel — ALWAYS skipped because the
+  calibration signal is a sharp impulse (not a decaying response), so
+  envelope-ratio noise analysis is meaningless on it.
+- `null` for response channels when the signal is reproducible across
+  the full duration (no sustained crossing) — no truncation needed.
+- Numeric value: T_eff in milliseconds. Beyond this point the noise
+  envelope exceeds 10% of the signal envelope.
+
+**Aggregation across channels per scenario:** `scenario_min_t_eff_ms`
+is `min(per-channel T_eff)` across response channels — the most
+pessimistic value, since one bad channel makes the whole scenario
+unreliable past that point. `null` when every channel was either
+skipped or fully reproducible.
+
+**Aggregation across scenarios per project:** the project-level summary
+(`global_min_t_eff_ms` in the `effective_signal_length_summary` field of
+each project's `/modal/projects` entry) is `min(scenario_min_t_eff_ms)`
+across every scenario that produced QC. This is the canonical "longest
+per-band `ir_length_ms` safely supported on every scenario × response
+channel in this project."
+
+**Frontend warning surface.** The ESPRIT settings panel
+(`EspritConfig.jsx`) reads the project's QC summary on mount and shows:
+
+- An **orange Alert** above the band table when one or more bands
+  request `ir_length_ms` exceeding `global_min_t_eff_ms`.
+- A **per-row warning icon** (with tooltip) next to each offending
+  band's IR (ms) input.
+- A **"Eff signal: N ms"** caption next to the band-count showing the
+  current project's measured T_eff (or "Eff signal: full" when every
+  channel is reproducible across the full duration).
+
+**Backward compatibility.** Projects whose `averaged_responses/` were
+generated BEFORE dev-qc01 lack the QC json. The frontend interprets
+this as "QC unavailable" and does NOT show any warning. To populate QC
+for a legacy project, POST to
+`/modal/projects/<name>/effective_signal_length` (no body) — this
+re-runs the canonical averager with `force=True`, which rewrites
+`average_ch*.npy` AND writes the QC json. Raw recordings must still be
+on disk; legacy projects whose source was pruned to averages-only
+cannot be retroactively QC'd.
+
+**REST endpoints.**
+
+- `GET /modal/projects` includes `effective_signal_length_summary` per
+  project (or `null` when QC is unavailable). Roll-up only — for the
+  per-channel and per-scenario detail use the next endpoint.
+- `GET /modal/projects/<name>/effective_signal_length` returns the
+  full per-scenario detail map (every QC json under one envelope).
+- `POST /modal/projects/<name>/effective_signal_length` recomputes QC.
+  Body `{ "scenarios": [...] }` (optional) restricts to specific
+  scenario folder names; without it every scenario the project has
+  raw_recordings for is recomputed. Returns the same payload as GET
+  plus `recomputed_scenarios` (count) and `averaging_summary`.
+
+**Default values are tuned for impulse-response measurements:**
+
+| Parameter | Default | Rationale |
+|---|---|---|
+| `threshold` | 0.1 | env_diff/env_signal ratio ≥ 0.1 ≈ -20 dB SNR per split |
+| `smoothing_ms` | 5.0 | Suppresses single-sample envelope spikes |
+| `sustained_ms` | 10.0 | A real noise tail is sustained; transient envelope spikes are not |
+| `envelope_method` | `"hilbert"` | Standard analytic-signal envelope; `"rms"` is also accepted |
+
+These are NOT exposed as project config in v1 — change them in
+`pianoid_middleware/modal_adapter/scenario_averager.py` (constants
+`QC_DEFAULT_THRESHOLD`, `QC_DEFAULT_SMOOTHING_MS`,
+`QC_DEFAULT_SUSTAINED_MS`, `QC_DEFAULT_ENVELOPE_METHOD`) and re-run
+the averager. Frontend exposure of these knobs is a deferred follow-up.
+
 **Channel roles** -- shown after project creation/clone. Assign each measurement channel a role:
 
 | Role | Description |

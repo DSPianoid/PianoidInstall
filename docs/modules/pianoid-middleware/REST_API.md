@@ -122,6 +122,9 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/projects/export    -- download project as .pianoid-project zip
   /modal/projects/export_info -- preview export size and stage completeness
   /modal/projects/import    -- upload and import .pianoid-project zip
+  /modal/projects/<name>/effective_signal_length -- (dev-qc01) per-scenario per-channel
+                                                    Effective Signal Length QC (GET) +
+                                                    recompute (POST)
   /modal/collect/health     -- (B-0) RoomResponse coexistence probe
   /modal/collect/start      -- (B-1) begin one measurement scenario
   /modal/collect/status     -- (B-1) active session snapshot
@@ -1968,6 +1971,77 @@ Response `200`:
 ```
 
 If name conflict was resolved, `renamed` is `true` and `name` contains the suffixed name.
+
+---
+
+### Effective Signal Length QC (dev-qc01)
+
+Per-scenario per-channel reproducibility check (split-half jackknife).
+The averager runs this every time it computes a canonical mean — see
+[`MODAL_ADAPTER_GUIDE.md` § Effective Signal Length QC](../../guides/MODAL_ADAPTER_GUIDE.md#effective-signal-length-qc-split-half-jackknife)
+for algorithm details.
+
+#### `GET /modal/projects/<name>/effective_signal_length`
+
+Returns the QC roll-up + per-scenario per-channel detail for one project.
+
+Response `200`:
+```json
+{
+  "project_name": "PlyWoodTake1",
+  "summary": {
+    "n_scenarios_total": 30,
+    "n_scenarios_with_qc": 30,
+    "n_scenarios_without_qc": 0,
+    "global_min_t_eff_ms": 880.0,
+    "per_channel_min_t_eff_ms": {"1": 905.2, "2": 880.0, "3": 920.5},
+    "per_scenario_min_t_eff_ms": {
+      "PlyWood-Scenario0-Take1": 905.2,
+      "PlyWood-Scenario1-Take1": 880.0
+    },
+    "threshold": 0.1,
+    "envelope_method": "hilbert"
+  },
+  "per_scenario": {
+    "PlyWood-Scenario0-Take1": { /* full effective_signal_length.json content */ }
+  }
+}
+```
+
+`summary` is `null` when no QC files exist anywhere under the project's
+measurement source (e.g. legacy projects whose `averaged_responses/`
+predate dev-qc01). `404` when the named project doesn't exist.
+
+#### `POST /modal/projects/<name>/effective_signal_length`
+
+Recomputes QC for one project. Re-runs the canonical averager on each
+target scenario with `force=True` — the QC step rewrites
+`effective_signal_length.json`. Raw recordings must still be on disk.
+
+Body (optional):
+```json
+{ "scenarios": ["PlyWood-Scenario3-Take1", "PlyWood-Scenario7-Take1"] }
+```
+
+Without `scenarios`, every scenario the project has access to is
+recomputed.
+
+Response `200`:
+```json
+{
+  "project_name": "PlyWoodTake1",
+  "summary": { /* as above */ },
+  "per_scenario": { /* as above */ },
+  "recomputed_scenarios": 2,
+  "averaging_summary": {
+    "computed": 2,
+    "qc_computed": 2,
+    "qc_min_t_eff_ms_per_scenario": {"PlyWood-Scenario3-Take1": 905.2}
+  }
+}
+```
+
+`404` when project doesn't exist; `400` when `scenarios` is not a list.
 
 ---
 
