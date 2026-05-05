@@ -124,7 +124,8 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/projects/import    -- upload and import .pianoid-project zip
   /modal/projects/<name>/effective_signal_length -- (dev-qc01) per-scenario per-channel
                                                     Effective Signal Length QC (GET) +
-                                                    recompute (POST)
+                                                    recompute (POST). dev-qc02 added
+                                                    qc_threshold body field (default 0.1).
   /modal/collect/health     -- (B-0) RoomResponse coexistence probe
   /modal/collect/start      -- (B-1) begin one measurement scenario
   /modal/collect/status     -- (B-1) active session snapshot
@@ -2018,13 +2019,21 @@ Recomputes QC for one project. Re-runs the canonical averager on each
 target scenario with `force=True` — the QC step rewrites
 `effective_signal_length.json`. Raw recordings must still be on disk.
 
-Body (optional):
+Body (all optional):
 ```json
-{ "scenarios": ["PlyWood-Scenario3-Take1", "PlyWood-Scenario7-Take1"] }
+{
+  "scenarios": ["PlyWood-Scenario3-Take1", "PlyWood-Scenario7-Take1"],
+  "qc_threshold": 0.1
+}
 ```
 
-Without `scenarios`, every scenario the project has access to is
-recomputed.
+- `scenarios`: list of scenario folder names. Without it, every
+  scenario the project has access to is recomputed.
+- `qc_threshold` (dev-qc02): env_diff/env_signal ratio gate, must be in
+  `(0, 1)`. Default 0.1. Persisted into each scenario's
+  `effective_signal_length.json` so the next reader knows which
+  threshold the QC was computed with. Useful for sweeping the threshold
+  to find a setting suited to the project's noise characteristics.
 
 Response `200`:
 ```json
@@ -2041,7 +2050,8 @@ Response `200`:
 }
 ```
 
-`404` when project doesn't exist; `400` when `scenarios` is not a list.
+`404` when project doesn't exist; `400` when `scenarios` is not a list
+or `qc_threshold` is not numeric / out of range.
 
 ---
 

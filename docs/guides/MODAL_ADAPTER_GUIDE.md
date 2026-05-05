@@ -413,64 +413,126 @@ diagnostic message; pre-averaged scenarios still import successfully.
 
 #### Effective Signal Length QC (split-half jackknife)
 
-**Added in dev-qc01 (2026-05-05).** Every time the auto-averager runs the
-canonical pipeline on a scenario, it ALSO performs a split-half
-reproducibility check per response channel:
+**Schema v1 introduced in dev-qc01 (2026-05-05). Schema v2 in dev-qc02
+(2026-05-05) — corrects the split level (cycle-level instead of
+measurement-level) and adds `qc_threshold` to the persisted JSON.**
+The auto-averager performs a split-half reproducibility check per
+response channel every time it runs:
 
-1. Take all surviving per-measurement cycle stacks (one entry per
-   measurement that contributed at least one aligned cycle to the
-   canonical mean).
-2. Randomly partition them into two halves of size N/2 each, using a
-   deterministic seed `hash(scenario_name) & 0xFFFF` so reruns
-   reproduce the same split.
-3. Average each half independently with `signal_processor.average_cycles`
-   (same primitive used by the canonical mean — the two halves go
-   through the SAME alignment/normalisation pipeline output).
-4. Compute `diff(t) = signal_A(t) − signal_B(t)`.
-5. Compute Hilbert envelopes of `signal_full(t)` and `diff(t)`,
+1. Run the canonical preprocessing on ALL surviving cycles together
+   (extract → validate → align-by-onset → calibration-normalize),
+   producing a single pooled stack of aligned-normalized cycles per
+   channel. Per-cycle alignment uses the per-cycle calibration
+   onset, so all cycles across all measurements share the same
+   onset reference.
+2. Pool every channel's surviving cycles into one stack
+   (`pooled_cycles_per_channel[c]` shape `(N_cycles, T)`). All cycles
+   in the pool went through the SAME canonical pipeline output —
+   no per-subset alignment / normalisation differences.
+3. Per channel, randomly partition the cycle indices into two halves
+   using a deterministic seed `hash(scenario_name) & 0xFFFF` so
+   reruns reproduce the same split. (v1 partitioned MEASUREMENTS,
+   not cycles — v2 fix.)
+4. Average each half: `signal_A = mean(pool[half_A])`,
+   `signal_B = mean(pool[half_B])`.
+5. Compute `diff(t) = signal_A(t) − signal_B(t)`.
+6. Compute Hilbert envelopes of `signal_full(t)` and `diff(t)`,
    smoothed with a 5 ms uniform window.
-6. Find the first sample where `env_diff[t] / env_signal[t] ≥ 0.1`
-   AND the ratio stays above for ≥ 10 ms (sustained-crossing gate).
-   That sample is the **Effective Signal Length** (`T_eff`).
-7. The QC step runs on the FULL pre-truncation mean, not the
+7. Find the first sample where `env_diff[t] / env_signal[t] ≥ qc_threshold`
+   (default 0.1) AND the ratio stays above for ≥ 10 ms (sustained-
+   crossing gate). That sample is the **Effective Signal Length**
+   (`T_eff`).
+8. The QC step runs on the FULL pre-truncation mean, not the
    fadeout-shaped truncated array — the fadeout would mask the
    noise tail and produce a falsely-late T_eff.
 
-**Why split-half?** A single mean hides per-measurement variance.
-Halving the dataset two ways and averaging each half independently
-preserves the signal (both halves contain the deterministic response)
-while exposing the noise (each half sees a different random sample of
-measurement-to-measurement drift, drift that would otherwise cancel in
-the full mean). The point at which the noise envelope grows to a fixed
-fraction of the signal envelope is the operational definition of
-"the signal is no longer reliably reproducible past here."
+**Why split-half on cycles, not measurements?** A measurement-level
+split (v1) leaves per-measurement processing artefacts in `env_diff`:
+each measurement's `align_cycles_by_onset` picks its own highest-
+energy reference cycle, then the correlation filter drops cycles
+based on similarity to that per-measurement reference. The surviving
+cycles from measurement K aren't statistically independent of the
+reference for measurement K. When the split places whole measurements
+on opposite sides, that per-measurement reference variance leaks into
+`env_diff` and biases T_eff downward.
+
+A cycle-level split (v2) draws each half from the same canonical
+pool, so both halves see the same alignment and normalisation
+output. The remaining variance in `env_diff` is genuine cycle-to-
+cycle measurement noise — exactly what we want to compare against
+the signal envelope.
+
+Empirical impact on `PlyWoodTake1_1` (30 scenarios) when switching
+from v1 → v2:
+
+| Metric | v1 (measurement-split) | v2 (cycle-split) |
+|---|---|---|
+| Median scenario T_eff | 56.8 ms | **135.6 ms** |
+| Max scenario T_eff | 199.7 ms | **287.4 ms** |
+| Scenarios at T_eff = 0 ms | 2 (Sc 12, 23) | 1 (Sc 5) |
+| Best-case channel rms_diff_pct | 4-5% | 4-5% |
+| Worst-case channel rms_diff_pct | 16-17% | 8-9% |
+
+(Sc 5's residual T_eff = 0 is a deferred follow-up — appears to be
+genuine cycle-to-cycle variance on one channel, not an algorithmic
+artefact. See `WORK_IN_PROGRESS.md` dev-qc02 entry.)
+
+**Why split-half (general)?** A single mean hides per-measurement
+variance. Halving the dataset two ways and averaging each half
+independently preserves the signal (both halves contain the
+deterministic response) while exposing the noise (each half sees a
+different random sample of cycle-to-cycle variance, variance that
+would otherwise cancel in the full mean). The point at which the
+noise envelope grows to a fixed fraction of the signal envelope is
+the operational definition of "the signal is no longer reliably
+reproducible past here."
 
 **Output.** Per-scenario JSON written to
 `<scenario>/averaged_responses/effective_signal_length.json`:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "scenario_name": "PlyWood-Scenario3-Take1",
   "qc_status": "computed",
   "split_seed": 12345,
   "envelope_method": "hilbert",
   "smoothing_ms": 5.0,
   "threshold": 0.1,
+  "qc_threshold": 0.1,
   "sustained_ms": 10.0,
   "calibration_channel": 0,
   "response_channels": [1, 2, 3],
   "n_measurements_total": 18,
   "n_measurements_kept": 18,
-  "n_measurements_per_half_a": 9,
-  "n_measurements_per_half_b": 9,
+  "n_cycles_per_channel": {"0": 90, "1": 90, "2": 90, "3": 90},
+  "n_cycles_per_half_a": 45,
+  "n_cycles_per_half_b": 45,
   "sample_rate": 48000,
   "per_channel_t_eff_ms": {"0": null, "1": 920.5, "2": 880.0, "3": 905.2},
   "per_channel_t_eff_samples": {"0": null, "1": 44184, "2": 42240, "3": 43450},
-  "per_channel_detail": { /* full QC dict per channel */ },
+  "per_channel_detail": { /* full QC dict per channel + n_cycles_total/half_a/half_b */ },
   "scenario_min_t_eff_ms": 880.0
 }
 ```
+
+**Schema-v1 → v2 field changes (dev-qc02):**
+
+- Removed: `n_measurements_per_half_a`, `n_measurements_per_half_b`
+  (the algorithm no longer splits at measurement level).
+- Added: `n_cycles_per_channel` (dict `{channel_idx_str: n_cycles}`),
+  `n_cycles_per_half_a`, `n_cycles_per_half_b` — describe the
+  cycle-level partition that actually produced T_eff.
+- Added: `qc_threshold` (explicit alias of the existing `threshold`
+  field — frontend should prefer reading `qc_threshold`). Records
+  whichever threshold was supplied via REST `qc_threshold` form/body
+  field, or the module default 0.1 if omitted.
+
+**Schema readers must accept either v1 or v2.** Existing v1 JSON on
+disk (created before dev-qc02) stays readable — the v2 fields will
+simply be missing on v1 files. Re-run the averager (force=True) or
+hit `POST /modal/projects/<n>/effective_signal_length` to upgrade
+existing projects to v2 numbers.
 
 **`qc_status` values:**
 

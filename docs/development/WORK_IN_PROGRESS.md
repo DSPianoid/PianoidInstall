@@ -12,6 +12,77 @@
 | dev-qc01 | Scenario Averager Quality Control — split-half jackknife per channel per scenario; compute Effective Signal Length (T_eff) where envelope-of-difference exceeds threshold of envelope-of-signal; warn when band ir_length_ms exceeds T_eff. Algorithm in scenario_averager (~370 LOC + 15 tests), modal_adapter QC accessors (~210 LOC), REST endpoints `/modal/projects/<name>/effective_signal_length` GET+POST, EspritConfig warning UI (Alert + per-row icons + "Eff signal: N ms" chip + 4 frontend tests), docs (MODAL_ADAPTER_GUIDE QC subsection + REST_API endpoint docs). PianoidCore merge SHA `77614cf`, PianoidTunner merge SHA `7e20493` (clean conflict resolution against dev-07b4's skip_start_ms column on EspritConfig.jsx). 28/28 averager + 11/11 EspritConfig + 66/66 Tunner suite + 154/154 modal_adapter regression. | [log](logs/dev-qc01-2026-05-05-startup.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-07b4 | Per-band `skip_start_ms` for ESPRIT pipeline — trims forcing-transient + Butterworth `sosfiltfilt` settling region from start of each band's signal AFTER bandpass + decimation. Additive `Optional[float]` field on `FrequencyBand` dataclass; per-band defaults on EXTENDED_BANDS only (STANDARD_BANDS stays None). UI: "Skip (ms)" column in per-band table. PianoidCore merge SHA `01ffd95`, PianoidTunner merge SHA `7f6a0b1`, PianoidInstall docs SHA `1dbc5cf`. 15 backend tests + 7 frontend tests pass; no regressions on existing 107 modal-adapter tests. Coordinated with dev-qc01 on overlapping files (band_processing.py was mine; EspritConfig.jsx + MODAL_ADAPTER_GUIDE.md changes additive on top of qc01's commits). | [log](logs/dev-07b4-2026-05-05-070507.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-cp01 | Streamlined Create Project flow: single popup dialog (file name + averaging mode keep/overwrite + signal length) for both folder-based and zip-based project creation. Subsumes Bug B (project name = `tmpXXX`) + Bug C (IR(ms) ignored due to averaging idempotency). Adds Effective Signal Length QC display to ProjectInfoCard (deferred from dev-qc01) + a follow-up rerun prompt when any channel's T_eff is shorter than the requested signal length, via new `POST /modal/projects/<n>/reaverage` endpoint (closes deferred dev-ir01 follow-up #2). 6 LOC backend route fix for Bug B + ~85 LOC scenario_averager auto-promote (Bug C) + ~135 LOC reaverage adapter method + 2 NEW frontend dialogs (CreateProjectDialog ~280 LOC + EffectiveSignalLengthRerunDialog ~290 LOC) + ProjectInfoCard QC chip & popover (~165 LOC) + ~70 LOC useModalAdapter hook helpers. 23 new tests (12 backend + 11 frontend). 196/197 backend pass (1 pre-existing skip), 89/89 frontend pass. | [log](logs/dev-cp01-2026-05-05-create-streamline.md) | 2026-05-05 | Step 9 — committed + merged locally; awaiting batch push |
+| dev-qc02 | Fix algorithmic bug in dev-qc01's split-half QC: replace measurement-level split with cycle-level split (schema v2). `scenario_averager.py` now pools all aligned-normalized cycles per channel into one stack, then partitions cycles (not measurements) into two random halves using deterministic seed `hash(scenario_name) & 0xFFFF`. Eliminates per-measurement coupling artefacts (reference-cycle selection variance, correlation-filter survivor bias) that were biasing T_eff downward. Also threads `qc_threshold` through REST chain (`create_project_from_zip` + `reaverage` + `effective_signal_length` POST) — default 0.1, persisted into per-scenario JSON. Empirical: median scenario_min_t_eff_ms 56.8→135.6 ms on PlyWoodTake1_1; max 199.7→287.4 ms; user's failing Sc 23 fully recovers (0→53.5 ms); 1 residual zero (Sc 5) deferred — see follow-up below. PianoidCore feature SHA `1d1a8ef`, merge SHA `43cf005`. 38/38 averager + 238/238 modal_adapter regression. Charts: `dev-qc02-fix-good-scenario.png` (Sc 19, clean threshold crossing) + `dev-qc02-fix-bad-scenario.png` (Sc 5, divergent halves from t=0). | [log](logs/dev-qc02-2026-05-05-startup.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
+
+---
+
+## Effective Signal Length QC follow-ups (2026-05-05, dev-qc02)
+
+**Status:** Cycle-level split (schema v2) shipped on PianoidCore
+`feature/dev-qc02-qc-correct-sequence`. Median scenario T_eff on
+PlyWoodTake1_1 went from 56.8 ms → 135.6 ms. Two of dev-qc01's three
+zero-T_eff scenarios fully recovered; one residual remains.
+
+### Deferred follow-ups
+
+1. **Scenario 5 residual zero on PlyWoodTake1_1.** After the cycle-level
+   split fix, Sc 5's worst response channel still gives `T_eff = 0.0 ms`
+   while every other scenario gives ≥ 17 ms. Symptom from
+   `dev-qc02-fix-bad-scenario.png`: in the time-domain overlay, half_A
+   and half_B traces visibly diverge from the very first sample —
+   they share the same impulse onset shape but their amplitudes differ
+   immediately. The diff envelope is right at the 10% threshold from
+   t=0, so the algorithm correctly fires at sample 0.
+
+   This appears to be **genuine cycle-to-cycle measurement variance**
+   on this scenario specifically — not an algorithmic artefact. Compare
+   with Sc 19 (`dev-qc02-fix-good-scenario.png`) which shows clean
+   trace overlap until ~150 ms.
+
+   **Investigation actions for the follow-up agent:**
+
+   - Look at the raw per-cycle calibration peaks for Sc 5: are some
+     cycles clipping or showing very different impact strengths than
+     others? Inspect `accumulated_cycles[1]` (the worst channel) for
+     intra-cycle amplitude variance.
+   - Check whether the validator/correlation filter is letting through
+     marginal-quality cycles for this scenario. The accept/reject
+     boundary may need tightening for impact-strength outliers.
+   - Compare Sc 5's `n_cycles_per_channel` against the rest. If Sc 5
+     has significantly fewer surviving cycles, the per-half mean has
+     less noise rejection — but our pre-existing `n_kept_measurements`
+     stats showed Sc 5 surviving 10/10 measurements which is the best
+     in the project, so this is unlikely.
+   - If the cycles are genuinely heterogeneous, the right fix may be
+     a **stricter cycle-validation threshold** (in
+     `calibration_quality_config`) or a **cycle outlier-rejection step**
+     in the canonical pipeline (e.g. drop cycles whose normalised peak
+     differs from the median by > 3σ before averaging). Both touch
+     RoomResponse signal_processor / validator code, so this is a
+     larger investigation than dev-qc02 scope allowed.
+
+2. **Threshold + aggregation tuning.** The dev-qc02 algorithm fix
+   improves median T_eff substantially but doesn't yet hit the user's
+   "300-600 ms" target on real data (current median 135.6 ms). User
+   approved deferring this to a follow-up. Options to evaluate:
+
+   - Loosen threshold from 0.1 to 0.15-0.25 (better matches signal
+     decay vs noise floor in real impulse-response data; the
+     `qc_threshold` field is already plumbed through REST so this can
+     be tuned per-project without code changes).
+   - Replace `min`-aggregation with `median` or `25th percentile` so
+     a single noisy channel doesn't collapse the project value.
+   - Add a "global noise floor" mode where T_eff is defined as
+     "first sample where env_signal[t] < K × global_noise_estimate"
+     instead of point-wise ratio.
+
+   See dev-qc01 diagnosis report for details on each option.
+
+3. **Frontend UI changes.** dev-qc02 backend exposes `qc_threshold` via
+   REST but no UI surface. Per orchestrator dispatch plan, dev-cp01 (or
+   a follow-up) will add: a threshold input field to CreateProjectDialog;
+   improved warning text in EspritConfig listing how many scenarios are
+   substandard + their T_eff range. Backend is ready when frontend is.
 
 ---
 
