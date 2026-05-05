@@ -501,7 +501,9 @@ Supports range input (e.g. `0-10, 20, 30-40`), shift-click for ranges, All/None 
 **Band preset** -- `standard_4band` (faster) or `extended_8band` (higher resolution). GPU
 checkbox enables CuPy-accelerated extraction. Click **Show Advanced** for the per-band table
 with editable fields (name, f_min, f_max, filter_order, decimation, exp_factor, model_order,
-window_length).
+window_length, **ir_length_ms**, **skip_start_ms**). The last two are per-band overrides
+that default to `None` for `standard_4band` (legacy: use full averaged signal, no skip)
+and to per-band values for `extended_8band` (see "Per-band IR length and start-skip" below).
 
 **Run ESPRIT** -- click the **Play** button in the toolbar (with ESPRIT selected) to process
 selected scenarios one at a time. Each scenario runs synchronously on the modal adapter
@@ -521,6 +523,51 @@ from ESPRIT through Apply.
 **Window Length** (advanced, visible when band details are expanded) -- Override the automatic
 window length calculation. Leave empty for automatic sizing based on sample rate and band
 parameters.
+
+#### Per-band IR length and start-skip
+
+The advanced per-band table exposes two related per-band overrides that
+let each band trade time-window length and start-pollution against
+frequency resolution and SNR:
+
+- **IR (ms)** (`ir_length_ms`, dev-ir01 2026-05-04) — truncates the
+  averaged signal to this many milliseconds **BEFORE** bandpass +
+  decimation. The relation `df = fs_band / L = 2 / T_total` means
+  frequency resolution is preserved when you halve decimation AND halve
+  sample count; only the usable Nyquist (anti-alias = `0.4 * fs_band`)
+  changes. Lower bands need more time samples (longer IR) for fine
+  frequency resolution at low f; higher bands can use shorter IRs
+  (less GPU memory, faster ESPRIT). Empty = use the full averaged signal.
+- **Skip (ms)** (`skip_start_ms`, dev-07b4 2026-05-05) — discards the
+  first N milliseconds of each band's signal **AFTER** bandpass +
+  decimation + preemphasis (LAST step before metadata). Removes two
+  pollution sources at once: the **forcing-function transient** (hammer
+  impact decaying, which ESPRIT otherwise fits as wide-band high-damping
+  ghost modes) and the **Butterworth `sosfiltfilt` zero-edge-state
+  settling region** (`~10*order/(2*pi*f_min)` seconds at the start).
+  Empty = no skip.
+
+`extended_8band` ships with the following per-band defaults
+(`(ir_length_ms, skip_start_ms)`):
+
+| Band      | f_min  | f_max  | dec | IR (ms) | Skip (ms) |
+|-----------|--------|--------|-----|---------|-----------|
+| Ultra-Low | 30     | 100    | 4   | 1000    | **50**    |
+| Low       | 80     | 200    | 4   | 800     | **30**    |
+| Low-Mid   | 180    | 400    | 4   | 600     | **15**    |
+| Mid       | 350    | 700    | 2   | 400     | **5**     |
+| Mid-High  | 600    | 1200   | 2   | 400     | 0         |
+| High      | 1000   | 2500   | 1   | 400     | 0         |
+| Upper     | 2000   | 4500   | 1   | 400     | 0         |
+| Top       | 4000   | 6000   | 1   | 400     | 0         |
+
+Skip defaults carry ~2-3x margin over the rough Butterworth settling
+estimate to also cover the dominant hammer-impact transient. Top 5 bands
+are 0 because at `f_min >= 600 Hz` the pollution region is sub-millisecond
+and rounds to zero samples post-decimation. `standard_4band` leaves both
+fields `None` for every band (fast first-pass; no per-band tuning).
+See [`SKIP_START_MS_RATIONALE.md`](../development/SKIP_START_MS_RATIONALE.md)
+for the design notes and Allemang & Brown reference.
 
 ### Tracking Section
 
