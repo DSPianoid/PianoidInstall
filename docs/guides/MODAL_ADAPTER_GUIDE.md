@@ -1106,6 +1106,39 @@ mapping `layout_type`:
   visualised live by the existing `StabilizationDiagram` and per-chain
   heatmap views.
 
+**Channel-to-receiver mapping fallback** (dev-6c54c87f decka-fix):
+
+The receiver assignment in `decka_coeff.txt` follows this priority:
+
+1. `mapping.channel_to_sound` when populated -- explicit map set via the
+   Apply panel's "Sound output mapping" sub-section.
+2. **Fallback:** when `channel_to_sound` is empty (the user has run
+   tracking but never visited the Apply-panel mapping step), the export
+   derives a contiguous mapping from `mapping.response_channels`:
+   the first response channel becomes receiver `0`, the second becomes
+   receiver `1`, and so on, up to `NUM_RECEIVERS=16`. Trailing channels
+   beyond the 16-receiver limit are dropped with a warning.
+
+Mirror of the original `Merge_res_New.py` line 253-256 fallback
+(`if all_selected_r_indices is None: present = list(range(NUM_RECEIVERS))`),
+adapted to the Pianoid Modal Adapter's role-based channel model.
+
+**Mode-shape array layout** (subtle but important):
+
+Per `esprit_runner.py:194`, ESPRIT signals are pre-filtered to
+response-only channels before extraction. The resulting `mode_shape`
+array length therefore equals `len(response_channels)`, NOT
+`num_channels`. Index `0` of the array corresponds to the **first**
+response channel (e.g. measurement-channel index `1` when channel `0`
+is the force). The export's `decka_coeff` packing translates amplitude
+indices through `response_channels` to the original measurement-channel
+indices before applying the `channel_to_receiver` lookup.
+
+The sidecar `stitched_results.json` echoes the resolved mapping under
+`channel_to_receiver` (and `selected_r_indices` for backwards
+compatibility with consumers that read the original Stage-2 metadata)
+so users can verify which receiver each response channel landed on.
+
 ---
 
 ## REST API
