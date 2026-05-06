@@ -819,26 +819,37 @@ channel reports a short T_eff:
     consuming?" with the signed signal traces as contextual
     background. yZoomAnchor: zero-bottom (matches the literal axis
     floor).
-- **Zoom controls** (dev-qcdiff follow-up #2 — anchor rule) —
-  - **Horizontal zoom is slider-only.** The visible X-axis slider
-    below the chart (drag handles to crop the time range) is the
-    sole horizontal control surface. Mouse wheel does NOT zoom X;
-    no toolbox rect-zoom; no inline X-zoom buttons. This makes
-    the slider the canonical place to set the visible time window.
+- **Zoom controls** (dev-qcdiff follow-up #2 + #4 — anchor rule +
+  X persistence) —
+  - **Horizontal zoom is slider-only AND persists across view
+    switches.** The visible X-axis slider below the chart (drag
+    handles to crop the time range) is the sole horizontal control
+    surface. Mouse wheel does NOT zoom X; no toolbox rect-zoom; no
+    inline X-zoom buttons. The user's slider drag is **persisted in
+    React state** (`xDataZoomWindow`) and re-applied on every
+    re-render — including view-mode switches — so the same time
+    window stays visible as the user toggles Curves → Difference →
+    Envelopes → … to inspect a specific event across views. The
+    Reset Zoom button wipes this persistence in addition to issuing
+    `dispatchAction({type:"restore"})`.
   - **Vertical zoom by Step+/Step− buttons** in the panel toolbar
-    follows a strict per-view ANCHOR rule (no pan along axis):
-    - **zero-bottom** views (*Envelopes*, *Ratio*) — non-negative
-      quantities. Bottom of axis pinned to 0; only the top edge
-      scales. Each Step+ click multiplies the top edge by 0.7;
-      Step− divides by 0.7.
+    follows a strict per-view ANCHOR rule (no pan along axis), and
+    is intentionally **NOT persisted** — each view has its own
+    anchor and resets on switch:
+    - **zero-bottom** views (*Envelopes*, *Ratio*, *All-combined*) —
+      non-negative quantities (or, in All-combined's case, a
+      literal zero-based axis). Bottom of axis pinned to 0; only
+      the top edge scales. Each Step+ click multiplies the top
+      edge by 0.7; Step− divides by 0.7.
     - **zero-center** views (*Curves*, *Difference*, *Combined*) —
       signed quantities. Axis is symmetric around 0; both edges
       scale together preserving |y|=|y|. Each Step+ click
       multiplies the half-range by 0.7; Step− divides by 0.7.
     `shift+wheel` also zooms Y (free-form, no anchor) as a
     power-user shortcut alongside the buttons.
-  - **Reset Zoom** IconButton restores both axes to full range.
-  - **Implementation note** — the dispatch uses ECharts'
+  - **Reset Zoom** IconButton restores both axes to full range AND
+    wipes the persisted X window.
+  - **Implementation note** — the Y dispatch uses ECharts'
     `dataZoomIndex: 0` (the Y `inside` component) with
     `startValue`/`endValue` (data-space). An earlier design used
     `yAxisIndex: [0, 1]` — that property is NOT recognised by
@@ -846,6 +857,13 @@ channel reports a short T_eff:
     out to ALL dataZoom components, including the X-axis slider,
     which moved the visible time window as a side-effect. Live-
     verified against ECharts 5.5.0.
+  - **X-persistence implementation** — both dataZoom components
+    carry stable `id`s (`qcYInside`, `qcXSlider`). A `datazoom`
+    event listener on the chart reads the X slider's current
+    `start`/`end` from `inst.getOption().dataZoom` (looked up by
+    id, robust to event-payload variation) and writes them to
+    React state. The X slider's option re-reads this state on
+    every render, so view switches preserve the user's selection.
 - **Mutable threshold** — Slider [0.05, 0.50] step 0.01 + paired
   monospace numeric input. Default = the project's persisted
   `qc_threshold` (0.10 unless overridden at create time).
@@ -1047,6 +1065,89 @@ and rounds to zero samples post-decimation. `standard_4band` leaves both
 fields `None` for every band (fast first-pass; no per-band tuning).
 See [`SKIP_START_MS_RATIONALE.md`](../development/SKIP_START_MS_RATIONALE.md)
 for the design notes and Allemang & Brown reference.
+
+#### Per-band fade-in and tail fade-out
+
+Two additional per-band fields shape the *amplitude envelope* of each
+band's signal independently of all other bands. Both apply inside
+`process_band` and operate on the post-decimation, post-skip signal.
+They sit alongside `IR (ms)` and `Skip (ms)` in the EspritConfig
+advanced table.
+
+- **Start fade (ms)** (`start_fade_ms`, dev-esrt 2026-05-06) — a
+  half-Hann window over the FIRST `round(start_fade_ms * fs_band / 1000)`
+  samples (`np.hanning(2N)[:N]`, ramping from 0 up to ~1). Eliminates
+  the step discontinuity introduced by `skip_start_ms > 0`. Without
+  this fade-in, the implicit `0 → x[0]` jump at the new sample 0 of
+  the post-skip signal generates `1/f` spectral leakage that overlaps
+  the ESPRIT analysis band. **Measurement on real PlyWoodTake1_1
+  averaged_responses (4 scenarios × 4 low bands)** found the
+  `|x[0]| / peak` ratio at the cut routinely 30–95 %, peaking at
+  95 % for the Low band on Scenario0 — the worst-case `0 → peak` step
+  is essentially the most spectrally costly discontinuity possible.
+  Only meaningful when `skip_start_ms > 0`; bands without a skip
+  carry a natural zero onset (impulse-response reference) and a
+  fade-in would corrupt early-time mode information. Empty = no
+  fade-in. See `band_processing.py` `process_band` and
+  `tests/unit/test_band_processing_end_fade.py` for the contract.
+
+- **End fade (ms)** (`end_fade_ms`, dev-esrt 2026-05-06) — a half-Hann
+  window over the LAST `round(end_fade_ms * fs_band / 1000)` samples
+  (`np.hanning(2N)[N:]`, ramping from ~1 down to 0 — last sample is
+  exactly zero). Suppresses tail-noise contribution to ESPRIT mode
+  estimation, layered on top of the project-wide scenario-level Hann
+  fade applied during the `averaged_responses/` averaging step (see
+  `scenario_averager.py` `ir_fade_length_ms`, default 20 ms across
+  every scenario). The scenario fade is **shared across all bands**;
+  the per-band end fade lets each band tune its own
+  resolution-vs-tail-noise trade-off independently. Empty = no
+  per-band tail fade.
+
+Application order inside `process_band` (each step optional via
+field=None / 0):
+
+```
+ir_length_ms slice → bandpass → preemphasis → decimation
+                                            → skip_start_ms (start trim)
+                                            → start_fade_ms (fade-in)
+                                            → end_fade_ms   (fade-out)
+```
+
+`extended_8band` ships with the following per-band defaults
+(`(start_fade_ms, end_fade_ms)`):
+
+| Band      | f_min  | f_max  | Skip (ms) | Start fade (ms) | End fade (ms) |
+|-----------|--------|--------|-----------|-----------------|---------------|
+| Ultra-Low | 30     | 100    | 50        | **10**          | **20**        |
+| Low       | 80     | 200    | 30        | **10**          | **20**        |
+| Low-Mid   | 180    | 400    | 15        | **5**           | **15**        |
+| Mid       | 350    | 700    | 5         | **2**           | **10**        |
+| Mid-High  | 600    | 1200   | 0         | None            | **10**        |
+| High      | 1000   | 2500   | 0         | None            | **5**         |
+| Upper     | 2000   | 4500   | 0         | None            | **5**         |
+| Top       | 4000   | 6000   | 0         | None            | **5**         |
+
+`start_fade_ms` defaults are ~20–40 % of the corresponding
+`skip_start_ms` — long enough to smoothly cover the cut, short enough
+to leave most of the post-skip signal untouched. Mid-High through Top
+are `None` because they don't carry a skip (no discontinuity to mask).
+`end_fade_ms` defaults follow the lower-bands-need-longer-fades
+pattern (`[20, 20, 15, 10, 10, 5, 5, 5]` ms): low-frequency cycles
+are longer so more tail material can be safely tapered without losing
+mode information; high-frequency cycles are shorter so the tail
+fade-out must be more conservative.
+
+`standard_4band` leaves both fields `None` on every band — fast
+first-pass preset with no per-band envelope shaping; relies on the
+project-wide scenario fade alone.
+
+**Frontend lock semantics.** Both new columns inherit the existing
+"Settings freeze rules" (Channel Mapping + Band Configuration are
+locked once ESPRIT has been run on any scenario; both fade fields
+are part of Band Configuration). `standard_4band` users can flip a
+single band to add fade-in or fade-out via the Advanced expander,
+which sets `preset = "custom"` and persists the per-band override
+into the project's persisted band config.
 
 ### Tracking Section
 
