@@ -412,15 +412,24 @@ the frontend fetches the project's QC summary
   - **Show details** — expands a per-scenario / per-channel T_eff
     table sorted worst-first (unchanged from dev-cp02).
   - **Go Back** — closes the EffSigLen dialog AND reopens the
-    `CreateProjectDialog` with the **signal-length field
-    pre-populated to the suggested value** (other fields keep their
-    factory defaults). The user can then manually adjust + click
-    Create again. Replaces the former in-place "Re-run with N ms"
+    `CreateProjectDialog` with the user's **entire prior Create
+    attempt restored** (file, project name, averaging mode, quality
+    threshold), with the signal-length field adjusted to the
+    EffSigLen-suggested value. The user only needs to edit what
+    they want changed — typically just confirm the new signal length
+    by clicking Create. Replaces the former in-place "Re-run with N ms"
     action — the user now drives a fresh Create call rather than
     triggering a hidden reaverage. The previous Create attempt's
     project remains in their project list (backend auto-suffixes the
     new name on collision); the user can delete the original via the
-    project browser if not needed.
+    project browser if not needed. Implementation detail (dev-cp02
+    followup #3): `ModalAdapter` keeps a `lastCreateAttempt` snapshot
+    of the prior dialog state when opening the EffSigLen prompt;
+    `CreateProjectDialog` accepts a richer `initialState` prop that
+    pre-populates every editable field on open. The browser-held
+    `File` object survives the round-trip via component state (DOM
+    `<input type="file">` cannot be programmatically reset, but the
+    JS `File` reference is enough to re-submit without re-picking).
 
 The follow-up prompt only fires when the user picked the "Re-average from
 raw" mode AND a numeric `ir_working_length_ms` was set — "Keep existing"
