@@ -264,6 +264,20 @@ Double-clicking a row, or selecting + clicking **Open**, opens the project.
 All intermediate data (measurements, ESPRIT results, tracking chains) is
 restored automatically and the project is pushed to the Recent list.
 
+**dev-037a (2026-05-06) — auto-start on click.** When the user clicks
+**Open Project** while the modal-adapter backend (port 5001) is not
+running, the click handler now calls `useModalAdapter.ensureModalServer()`
+first — which probes `GET /health`, and if that fails POSTs
+`/api/start-modal-adapter` on the launcher (port 3001), then polls
+`/health` every 500 ms until the server is alive (up to 10 s). The button
+shows a spinner and "Starting…" label during the wait. Once the server
+is up, the dialog opens with a populated `projectList` (refreshed by the
+hook's existing `serverRunning` off→on transition effect; see [P1: Single source of truth — projectList]). Previously the user had to start the
+modal-adapter backend manually via the toolbar status chip, then re-click
+Open Project to see a non-empty list. The chip-driven manual start
+remains available for users who prefer to pre-warm the backend (e.g.
+right after launching the stack).
+
 **Copy From…** -- same dialog, but the action button reads "Copy" and a
 "New project name" field appears below the project list. The destination
 name is auto-suggested as `{source}_copy` and validated against the
