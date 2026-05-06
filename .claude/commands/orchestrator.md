@@ -757,6 +757,14 @@ When the user asks to "review open devs", "go over open devs one by one", or sim
 
 5. **Verify Phase 2 before moving on.** After each "close" approval: wait for agent's Phase 2 completion → confirm log archived to `logs/archive/`, WIP row removed from Active Dev Sessions, no push happened. Only then advance.
 
+   **CRITICAL — handle dead-agent case:** If the agent process has already returned (no longer alive — `SendMessage` returns "no active task" or similar), the orchestrator MUST do Phase 2 directly using its own meta-config edit rights:
+   - `git mv docs/development/logs/dev-XXXX-*.md docs/development/logs/archive/`
+   - Remove the agent's row from `WORK_IN_PROGRESS.md` Active Dev Sessions
+   - Release any orphan locks in `MODULE_LOCKS.md` belonging to that agent
+   - Commit on PianoidInstall master with `[orchestrator] chore: Phase 2 cleanup for dev-XXXX (agent returned earlier)`
+
+   **Never skip Phase 2 just because the agent process is gone.** This is the failure mode that produced ~10 zombie WIP entries on 2026-05-06: user said "close, next" → orchestrator relayed but the agents had already returned → SendMessage was a no-op → no Phase 2 ever happened → WIP rotted. The skill update of 2026-05-06 makes orchestrator-direct cleanup explicit so this cannot recur.
+
 6. **Repeat from step 3** for the next agent.
 
 7. **Report queue empty.** When all agents are reviewed, send one Telegram summary: which agents were closed, which kept alive with what new tasks. This is the only "list them all" moment in the procedure.
@@ -773,9 +781,11 @@ When the user asks to "review open devs", "go over open devs one by one", or sim
 |---------|------------------|
 | Listing all alive agents in one Telegram message | One at a time. User's standing directive: "don't list them all" — list dumps overwhelm and break the close/keep cadence. |
 | Closing an agent's Phase 2 without verifying log archive + WIP row removal | Always verify each Phase 2 outcome — orphan logs and stale WIP rows are recoverable but easier to prevent. |
+| Sending "close" via SendMessage to a returned agent and assuming Phase 2 happened | SendMessage to a dead agent is a no-op. Verify the agent is alive BEFORE relying on it for Phase 2. If dead, orchestrator does Phase 2 directly (`git mv` log + remove WIP row + release locks + commit). |
 | Spawning a sub-agent to "fetch dev-log status" | Orchestrator reads its own `docs/development/logs/dev-*.md` files directly — they are docs. A sub-agent for this is wasteful. |
 | Skipping the Pending Decision line | Every queue-review item asks for a specific user action. Without an explicit question, "ok" is ambiguous. |
 | Advancing to the next agent before receiving the user's directive on the current one | Strictly sequential — user's "one by one" directive. Concurrent reviews fragment the conversation. |
+| Telling the user "agent closed" when only the SendMessage was sent (no Phase 2 actually performed) | Phase 2 means the log is in `archive/` AND the WIP row is gone — verify both before reporting closure. Until then say "close-out in progress." |
 
 ---
 
