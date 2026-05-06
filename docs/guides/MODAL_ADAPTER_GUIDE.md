@@ -703,13 +703,27 @@ channel reports a short T_eff:
   - *Curves* — overlay `signal_a` (half-A mean, blue) and
     `signal_b` (half-B mean, orange). Where the two diverge is
     where the underlying measurement noise exceeds reproducibility.
-  - *Difference* — `signal_a − signal_b` raw diff plus its
-    smoothed envelope `env_diff`.
+  - *Difference* (dev-qcdiff revision) — `signal_a − signal_b`
+    raw diff (purple), its smoothed envelope `env_diff` (pink), and
+    `env_signal` (the full-signal envelope, dashed grey) overlaid as
+    a **scale reference**. The reference trace anchors the Y-axis to
+    the source signal envelope (~0.12 on a typical IR) so the diff
+    appears as the small ripple it actually is. Without it the Y-axis
+    auto-scales to the diff range only (~0.005), inflating the diff
+    visually to fill the chart and misleading users into reading
+    "the diff is huge" when in fact it's ~5% of the signal.
   - *Ratio* — `env_diff / env_signal` time series with the
     threshold drawn as a horizontal dotted line. The first
     sustained crossing is T_eff.
-  - *Combined* — dual y-axis: signals on left, ratio on right.
-    Threshold + T_eff markers visible on the same plot.
+  - *Combined* (dev-qccmb / dev-qcdiff revision) — `signal_a`
+    (blue), `signal_b` (orange), and `signal_a − signal_b` (purple)
+    overlaid on a SINGLE shared Y-axis. The earlier dual-axis design
+    (signals on left, diff on right, dev-qccmb 2026-05-06) misled
+    users by auto-scaling the diff so its pixel-height matched the
+    signals despite representing ~1/18 the amplitude. The shared
+    axis tells the truth at-a-glance: when halves agree, the diff
+    is a small flat line near zero. Use the Y-zoom buttons (Step+/
+    Step−) to drill into diff detail when needed.
 - **Mouse interaction** — wheel zooms X, Shift+wheel zooms Y,
   drag pans. Reset-zoom IconButton restores the full view.
 - **Mutable threshold** — Slider [0.05, 0.50] step 0.01 + paired
