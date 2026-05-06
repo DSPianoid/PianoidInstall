@@ -627,6 +627,55 @@ channel in this project."
   current project's measured T_eff (or "Eff signal: full" when every
   channel is reproducible across the full duration).
 
+**Interactive QC inspection panel (dev-3151, 2026-05-06).** A
+collapsible Accordion ("Averaging Quality Inspection") under the
+Setup section of the Modal Adapter UI surfaces the underlying QC
+curves so the user can investigate WHY a particular scenario or
+channel reports a short T_eff:
+
+- **Scenario + channel selectors** — pick any scenario × response
+  channel pair (calibration channel is hidden — QC isn't meaningful
+  on it).
+- **Four view modes:**
+  - *Curves* — overlay `signal_a` (half-A mean, blue) and
+    `signal_b` (half-B mean, orange). Where the two diverge is
+    where the underlying measurement noise exceeds reproducibility.
+  - *Difference* — `signal_a − signal_b` raw diff plus its
+    smoothed envelope `env_diff`.
+  - *Ratio* — `env_diff / env_signal` time series with the
+    threshold drawn as a horizontal dotted line. The first
+    sustained crossing is T_eff.
+  - *Combined* — dual y-axis: signals on left, ratio on right.
+    Threshold + T_eff markers visible on the same plot.
+- **Mouse interaction** — wheel zooms X, Shift+wheel zooms Y,
+  drag pans. Reset-zoom IconButton restores the full view.
+- **Mutable threshold** — Slider [0.05, 0.50] step 0.01 + paired
+  monospace numeric input. Default = the project's persisted
+  `qc_threshold` (0.10 unless overridden at create time).
+  Threshold sweeps recompute T_eff client-side against the cached
+  ratio array (no backend round-trip per slider tick).
+- **Readouts** — T_eff at the slider's threshold (with the
+  persisted T_eff at the project's threshold shown in parentheses
+  for comparison); ratio at the very last sample plus the median
+  over the trailing 50 ms (more robust against single-sample edge
+  effects); cycle counts (total / half_a / half_b).
+
+The panel is **read-only**: changing the threshold slider does NOT
+modify any persisted state. The persisted
+`effective_signal_length.json` remains the source of truth for the
+project-level warning surface (EspritConfig). To change the
+persisted threshold, use the Quality Threshold field at project
+create time or POST to `/effective_signal_length` with a
+`qc_threshold` body field (dev-qc02).
+
+The panel re-runs the canonical pipeline on demand (~1-2 s on first
+request per scenario) via the new
+[`GET /modal/projects/<n>/qc_curves`](#interactive-qc-curves-endpoint-dev-3151)
+endpoint. The backend caches the per-scenario POOLED CYCLES (not
+the per-channel curves) in an LRU capped at 16 entries, so channel
+switches against the same scenario hit the cache (~280 ms vs
+~670 ms cold on a typical 1-second 8-channel scenario).
+
 **Backward compatibility.** Projects whose `averaged_responses/` were
 generated BEFORE dev-qc01 lack the QC json. The frontend interprets
 this as "QC unavailable" and does NOT show any warning. To populate QC
@@ -663,6 +712,37 @@ cannot be retroactively QC'd.
   - `404` — project does not exist
   - `400` — project has no resolvable measurement source folder
     (raw_recordings pruned), or `ir_working_length_ms` is non-numeric
+
+#### Interactive QC curves endpoint (dev-3151)
+
+- `GET /modal/projects/<name>/qc_curves?scenario=<sname>&channel=<idx>[&qc_threshold=<float>]`
+  (dev-3151, 2026-05-06) — returns the time-domain QC curves for one
+  (project, scenario, channel) tuple. Backs the
+  [Interactive QC inspection panel](#interactive-qc-inspection-panel-dev-3151-2026-05-06).
+  Re-runs the canonical pipeline on the scenario's `raw_recordings/`
+  to produce `signal_a` (half-A mean), `signal_b` (half-B mean),
+  `signal_full` (canonical full mean), `signal_diff` (a − b),
+  `env_signal` + `env_diff` (smoothed Hilbert envelopes), and
+  `ratio` (env_diff / env_signal, safe-divided). Optional
+  `qc_threshold` query param overrides the env_diff/env_signal ratio
+  gate ONLY for the server-side `t_eff_ms` field in the response —
+  the panel mutates the threshold client-side via its own
+  recompute on the returned `ratio` array, so most calls omit it.
+  Per-process LRU cached on `(project, scenario)` for the SLOW part
+  (cycle pooling); channel switches inside the same scenario reuse
+  the pool.
+
+  Response payload schema is documented in
+  [`docs/modules/pianoid-middleware/REST_API.md` `/qc_curves`](../modules/pianoid-middleware/REST_API.md#get-modalprojectsnamesqc_curves).
+
+  Errors:
+  - `400` — invalid channel (calibration channel, non-integer,
+    non-response), invalid `qc_threshold` (non-numeric or outside
+    `(0, 1)`), or missing required query params.
+  - `404` — project, scenario, or scenario raw_recordings not
+    found; too few cycles surviving for split-half (< 4).
+  - `500` — canonical pipeline crash (RoomResponse import failure,
+    unexpected error).
 
 **Default values are tuned for impulse-response measurements:**
 

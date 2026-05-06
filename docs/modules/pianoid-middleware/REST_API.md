@@ -126,6 +126,10 @@ On startup, the server runs a stale process check: finds any PID listening on th
                                                     Effective Signal Length QC (GET) +
                                                     recompute (POST). dev-qc02 added
                                                     qc_threshold body field (default 0.1).
+  /modal/projects/<name>/qc_curves -- (dev-3151) interactive QC curves for one
+                                      (scenario, channel) — signal_a / signal_b /
+                                      env_signal / env_diff / ratio + T_eff at the
+                                      requested threshold. Backs QCVisualizationPanel.
   /modal/collect/health     -- (B-0) RoomResponse coexistence probe
   /modal/collect/start      -- (B-1) begin one measurement scenario
   /modal/collect/status     -- (B-1) active session snapshot
@@ -2207,6 +2211,103 @@ Response `200`:
 
 `404` when project doesn't exist; `400` when `scenarios` is not a list
 or `qc_threshold` is not numeric / out of range.
+
+#### `GET /modal/projects/<name>/qc_curves`
+
+Return time-domain QC curves for one (project, scenario, channel)
+tuple — backs the interactive
+[`QCVisualizationPanel`](../../guides/MODAL_ADAPTER_GUIDE.md#interactive-qc-inspection-panel-dev-3151-2026-05-06)
+panel (dev-3151, 2026-05-06).
+
+Re-runs the canonical pipeline (extract → validate → align →
+normalize → pool cycles → split-half → average each half → compute
+envelopes) on the scenario's `raw_recordings/` and returns the
+arrays the panel needs to render: `signal_a`, `signal_b`,
+`signal_full`, `signal_diff`, `env_signal`, `env_diff`, `ratio` —
+plus T_eff at the requested threshold and ratio-at-end statistics.
+
+The persisted `effective_signal_length.json` is NOT modified — this
+is a read-only introspection. The persisted T_eff (computed at
+averaging time) remains the source of truth for the project-level
+warning surface (EspritConfig).
+
+Per-process LRU cache on `(project, scenario)` (the slow part is
+the cycle pool; the per-channel split + average + envelope is
+~50 ms on cached pool). Cap 16 entries.
+
+**Query params:**
+
+- `scenario` (required, string): scenario folder name
+  (e.g. `"PlyWood-Scenario3-Take1"`).
+- `channel` (required, int): response channel index. Must NOT be
+  the calibration channel.
+- `qc_threshold` (optional, float in `(0, 1)`): override the
+  env_diff/env_signal ratio gate ONLY for the server-side
+  `t_eff_ms` field in the response payload. The panel mutates
+  threshold client-side via its own recompute against the returned
+  `ratio` array, so most calls omit this. Default = the module
+  default (0.1).
+
+Response `200`:
+```json
+{
+  "project_name": "PlyWoodTake1",
+  "scenario_name": "PlyWood-Scenario3-Take1",
+  "channel": 1,
+  "sample_rate": 48000,
+  "qc_threshold": 0.1,
+  "smoothing_ms": 5.0,
+  "sustained_ms": 10.0,
+  "envelope_method": "hilbert",
+  "cal_ch": 0,
+  "response_channels": [1, 2, 3],
+  "n_cycles_total": 90,
+  "n_cycles_half_a": 45,
+  "n_cycles_half_b": 45,
+  "split_seed": 12345,
+  "signal_length_samples": 48000,
+  "signal_length_ms": 1000.0,
+  "time_ms":     [0.0, 0.0208, 0.0417, "..."],
+  "signal_a":    ["..."],
+  "signal_b":    ["..."],
+  "signal_full": ["..."],
+  "signal_diff": ["..."],
+  "env_signal":  ["..."],
+  "env_diff":    ["..."],
+  "ratio":       ["..."],
+  "t_eff_ms": 87.4,
+  "t_eff_samples": 4195,
+  "ratio_at_end": 0.234,
+  "ratio_end_window_ms": 50.0,
+  "ratio_end_median": 0.221
+}
+```
+
+All time-series arrays have length `signal_length_samples` (T).
+The `ratio` field is the safe-divided `env_diff / max(env_signal,
+1e-12)`. `t_eff_ms` is `null` when no sustained crossing exists at
+the requested threshold (the signal is reproducible across the full
+duration). `ratio_at_end` is the very last sample's ratio;
+`ratio_end_median` is the median over the trailing 50 ms — more
+robust against single-sample edge effects.
+
+**Errors:**
+
+- `400` — missing `scenario` or `channel` query param; non-integer
+  channel; channel is the calibration channel; channel is not in
+  the scenario's response-channels set; non-numeric or
+  out-of-range `qc_threshold`.
+- `404` — project does not exist; scenario folder not found under
+  the project's measurement source; scenario lacks `raw_recordings/`;
+  too few cycles surviving validation/alignment for split-half
+  (< 4 cycles).
+- `500` — canonical pipeline crash (RoomResponse not available,
+  unexpected error).
+
+**Payload size:** ~8 MB raw on a typical 48000-sample (1 s) signal
+× 8 numeric series × 8 bytes per float64 ≈ ~3 MB gzipped. ECharts
+handles this without issue; the LRU cache makes channel switches
+~280 ms (vs ~670 ms cold).
 
 ---
 
