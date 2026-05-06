@@ -106,6 +106,9 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/measurement_info   -- measurement metadata
   /modal/mapping            -- set excitation-to-pitch mapping
   /modal/esprit_config      -- GET/POST ESPRIT config (persists to config.json)
+  /modal/band_presets       -- GET built-in + user-saved band preset listing
+  /modal/band_presets/save  -- POST save current band config as named user preset
+  /modal/band_presets/<n>   -- DELETE remove a user-saved band preset
   /modal/gpu_status         -- check CuPy GPU availability
   /modal/run_esprit         -- launch ESPRIT extraction (background)
   /modal/status             -- poll ESPRIT progress
@@ -1642,6 +1645,80 @@ Response `200`:
 #### `GET /modal/band_presets`
 
 Return available band preset configurations (standard_4band, extended_8band) with per-band parameters.
+
+**dev-esrt Phase 3 (2026-05-06):** the response also includes user-saved
+named presets loaded from `<projects_base>/.user_band_presets.json`
+(see `POST /modal/band_presets/save` below). User presets are merged
+into the same flat `{name: [<band dicts>]}` dict as built-ins, plus a
+top-level sentinel field `_user_preset_names: [<name>, ...]` so the
+frontend can identify user-saved entries (for italics + delete
+affordance) without a hardcoded built-in list. The leading underscore
+signals "metadata, not a preset entry" — frontend iterators must skip
+this key when listing dropdown options.
+
+Per-band fields per entry: `name`, `f_min`, `f_max`, `filter_order`,
+`decimation`, `exp_factor`, `model_order`, `window_length`,
+`ir_length_ms`, `skip_start_ms`, `start_fade_ms`, `end_fade_ms`. See
+[`MODAL_ADAPTER_GUIDE.md` § Per-band fade-in and tail fade-out](../../guides/MODAL_ADAPTER_GUIDE.md#per-band-fade-in-and-tail-fade-out)
+for the per-field semantics.
+
+#### `POST /modal/band_presets/save`
+
+dev-esrt Phase 3 (2026-05-06). Save the supplied bands as a named user
+preset (cross-project; reusable from any project under the same
+`projects_base`).
+
+Request body:
+```json
+{ "name": "MyBass", "bands": [<band dict>, <band dict>, ...] }
+```
+
+The `name` is validated and canonicalised:
+- Stripped of leading/trailing whitespace.
+- Non-empty after stripping.
+- Length ≤ 64 characters.
+- Not in the reserved set `{standard_4band, extended_8band, custom}`.
+- Free of control / format / unassigned characters (Unicode categories
+  `Cc` / `Cf` / `Cn`).
+
+Bands list must be a non-empty list of dicts with the standard band
+field shape (same as the entries returned by `GET /modal/band_presets`).
+
+**Idempotent**: a name collision overwrites silently. The frontend
+layers a confirm-replace dialog on top for UX, but the backend stays
+idempotent so retries / parallel saves don't surprise.
+
+Storage: written atomically to
+`<projects_base>/.user_band_presets.json` via temp-file + `os.replace`.
+
+Response `200`:
+```json
+{ "message": "saved", "name": "MyBass" }
+```
+
+Response `400` on invalid name or empty bands list:
+```json
+{ "error": "Preset name 'extended_8band' is reserved by the built-in preset registry. Reserved names: ['custom', 'extended_8band', 'standard_4band']." }
+```
+
+#### `DELETE /modal/band_presets/<path:name>`
+
+dev-esrt Phase 3 (2026-05-06). Remove a named user preset. The name
+is stripped of leading/trailing whitespace before lookup. Built-in
+presets cannot be deleted (the user file does not contain them — DELETE
+on a built-in name returns 404, the same as DELETE on any non-existent
+name). Atomically rewrites the user presets file via temp-file +
+`os.replace`.
+
+Response `200`:
+```json
+{ "message": "deleted", "name": "MyBass" }
+```
+
+Response `404` when not found:
+```json
+{ "error": "preset 'Nonexistent' not found" }
+```
 
 ---
 

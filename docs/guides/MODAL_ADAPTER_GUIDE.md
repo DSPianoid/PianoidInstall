@@ -1190,6 +1190,114 @@ dirty. There is no `beforeunload` warning — closing the page or
 opening another project without saving DOES discard the in-memory
 edits (consistent with the Channel Mapping behaviour).
 
+#### User-saved band presets (cross-project)
+
+dev-esrt Phase 3 (2026-05-06). Lets the user save the current band
+configuration as a NAMED preset, reusable across all projects in the
+same projects-base directory. Saved presets appear in the Band Preset
+dropdown alongside the built-in `standard_4band` / `extended_8band` /
+`Custom` options.
+
+**Storage.** User presets live in
+`<projects_base>/.user_band_presets.json` — a sibling to project
+directories. The file format is a flat JSON dict
+`{name: [<band dict>, ...], ...}`. The path is computed against
+`ModalAdapter._projects_base` (default `D:\modal_projects`,
+configurable via the `PIANOID_PROJECTS_DIR` env var or
+`POST /modal/projects/set_base`). This sibling-to-projects layout
+reuses the existing `projects_base` infrastructure (no new
+user-config root, no Windows/Linux home-dir surprises), survives
+PianoidInstall reinstalls, and follows the user's data location if
+they relocate `projects_base`. Module:
+`pianoid_middleware/modal_adapter/user_band_presets.py`. Atomic
+writes via temp-file + `os.replace`.
+
+**Naming validation.** A preset name must be:
+
+- Non-empty after `.strip()` (the stripped name is the canonical
+  name written to disk).
+- Length ≤ 64 characters.
+- Not in the reserved set `{"standard_4band", "extended_8band",
+  "custom"}`.
+- Free of control / format / unassigned characters (Unicode
+  categories `Cc`, `Cf`, `Cn`) — protects the dropdown rendering
+  against accidentally-pasted invisibles like zero-width joiners,
+  BOM markers, U+202E, etc.
+
+Validation lives in `validate_preset_name`; backend rejects with
+HTTP 400 `{"error": "..."}` when invalid. The frontend layers the
+same checks in the dialog so the user gets immediate feedback
+without a round-trip.
+
+**REST endpoints.**
+
+- `GET /modal/band_presets` — extended response carries the user
+  presets merged in alongside built-ins, plus a top-level
+  `_user_preset_names: [<name>, ...]` sentinel array so the
+  frontend can identify which entries are user-saved (for italics +
+  inline delete affordance) without needing a hardcoded built-in
+  list. The leading underscore signals "metadata, not a preset
+  entry"; the back-fill helper iterates the dict but skips this key
+  by name.
+- `POST /modal/band_presets/save` — body `{name, bands}`. Returns
+  `{message: "saved", name: <canonical>}`. **Idempotent**: a name
+  collision overwrites silently. The frontend layers a
+  confirm-replace dialog ON TOP of this for UX, but the backend
+  stays idempotent so retries / parallel saves don't surprise.
+- `DELETE /modal/band_presets/<path:name>` — removes a single user
+  preset. Returns `{message: "deleted", name}` or 404 when not
+  found. Built-in presets cannot be deleted (DELETE on a built-in
+  name returns 404 — same as DELETE on any non-existent name).
+
+**Run-time consumption.** User presets do NOT need to register in
+the Python `BAND_PRESETS` dict for run-time correctness. The
+frontend always sends the explicit `bands` list when launching
+ESPRIT (`POST /modal/run_esprit` body) — the preset name is just a
+label. So user presets only need to flow through the listing
+endpoint to populate the dropdown; once the user selects one, the
+bands array is pushed verbatim into config and sent verbatim on
+`/run_esprit`.
+
+**Frontend UX.** Three additions to `EspritConfig.jsx`:
+
+- **"Save as preset…" button** next to the Band Preset dropdown.
+  Visible only when an `onSaveBandPreset` callback is wired (i.e.
+  the new feature is plumbed through) AND the form isn't locked
+  (Settings freeze rules respect — locked once ESPRIT has been run
+  on any scenario). Opens a Dialog with a name input + Save / Cancel.
+- **Dropdown layout**: built-in entries → `<Divider />` → "Custom" →
+  `<Divider />` → user-saved entries (italicised). The second
+  divider auto-disappears when the user-preset list is empty.
+  User-preset names are joined to the listing by the
+  `_user_preset_names` sentinel.
+- **Inline delete affordance** (`×` icon) on each user-preset row,
+  revealed via `opacity: 0 → 1` on hover (NOT `visibility: hidden`,
+  so the affordance stays in the a11y tree at all times — screen
+  readers and keyboard users can still find it). Click triggers a
+  confirm-delete dialog; confirm calls `onDeleteBandPreset(name)`.
+  CRITICAL: the icon's `onClick` calls `e.stopPropagation()` to
+  prevent the parent `<Select>` `onChange` from firing on the row
+  click — without this, clicking `×` would BOTH delete the preset
+  AND switch the dropdown value to it.
+
+When the user deletes the currently-selected user preset, the
+dropdown falls back to `extended_8band` so it doesn't end up
+pointing at a missing entry. Bands stay unchanged so the user
+doesn't lose work.
+
+**Confirm-replace** behaviour: when the user types a name that
+already exists in the user-preset list, the in-dialog Save handler
+shows a second confirm-replace dialog before posting — UX safeguard
+against accidental overwrites (the backend itself overwrites
+silently for idempotency).
+
+**Hook callbacks.** `useModalAdapter` exports two new callbacks
+(`saveBandPreset(name)` + `deleteBandPreset(name)`) and a
+`refreshBandPresets()` helper. Both POST/DELETE callbacks call
+`refreshBandPresets()` after success so the dropdown picks up the
+change immediately without needing a full `syncFromBackend`
+round-trip.
+
 ### Tracking Section
 
 Mode tracking links detected modes across scenarios into **chains** — sequences of the same
