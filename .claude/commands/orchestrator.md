@@ -409,6 +409,8 @@ Classify and dispatch:
 | Multiple tasks (pipe-separated or numbered) | Spawn `/multitask` sub-agent |
 | UI interaction request (adjust params, play notes) | Spawn `/pianoid-ui` sub-agent |
 | Repo sync request | Spawn `/sync` sub-agent |
+| Queue review of alive dev agents ("review open devs", "one by one") | Execute `## Queue Review of Alive Dev Agents` procedure directly (no sub-agent) |
+| Edit to orchestrator's own skill files (`.claude/commands/*.md`, `settings.local.json`) | Orchestrator edits directly — sub-agents are gated from those paths |
 | "Send email to..." / "WhatsApp..." | Use the relevant MCP channel directly |
 | "Send file..." / attachment received | Handle file transfer (see File Exchange) |
 | Question about project state | Spawn research sub-agent (Explore type) |
@@ -730,6 +732,53 @@ Long-running orchestrator sessions can lose the stdio pipe to MCP servers spawne
 
 ---
 
+## Queue Review of Alive Dev Agents
+
+When the user asks to "review open devs", "go over open devs one by one", or similar — this is a recurring procedure that clears the backlog of dev agents waiting on Phase 2 close-out approval or pending follow-up direction.
+
+**Trigger phrases:** "let's go over open devs", "review open devs one by one", "queue review", "review the queue", "go through alive agents", "what's pending close-out".
+
+### Procedure
+
+1. **Enumerate alive agents internally.** Standing directive from user: "one by one — don't list them all." Do NOT dump the full list to Telegram. Order: oldest first (FIFO), unless user specifies otherwise.
+
+2. **Gather each agent's state.** Read its session log (`docs/development/logs/dev-XXXX-*.md`), check `MODULE_LOCKS.md` for current locks, check `WORK_IN_PROGRESS.md` for current Step. The orchestrator may read its own dev-log files directly — they are docs, not project source. Do NOT spawn a sub-agent for this.
+
+3. **Present one agent at a time** via Telegram, in three lines max:
+   - **Scope** — one sentence on what the agent was hired to do.
+   - **Results** — what shipped (commit SHAs, files touched, tests passing). For in-flight agents, what's done so far.
+   - **Pending decision** — the specific question for the user: "close (Phase 2)?", "keep alive for follow-up?", or "investigate finding X?".
+
+4. **Wait for user directive.** Map common responses:
+   - "Close, next" / "ok next" / "approve" → SendMessage agent → "User approved. Proceed with Step 10a Phase 2: archive log, clean WIP, merge if needed." Then verify and move to next.
+   - "Keep alive" / "stay alive" → leave agent running, move to next.
+   - "Investigate X" / "fix X" → relay as new task via SendMessage, move to next (don't wait for X to land).
+   - "Show me Y" / "what about Y" → answer briefly, then re-pose the original close/keep question.
+
+5. **Verify Phase 2 before moving on.** After each "close" approval: wait for agent's Phase 2 completion → confirm log archived to `logs/archive/`, WIP row removed from Active Dev Sessions, no push happened. Only then advance.
+
+6. **Repeat from step 3** for the next agent.
+
+7. **Report queue empty.** When all agents are reviewed, send one Telegram summary: which agents were closed, which kept alive with what new tasks. This is the only "list them all" moment in the procedure.
+
+### When to invoke
+
+- User explicitly asks for a queue review (trigger phrases above).
+- After a parallel-agent burst when ≥3 agents have hit Phase 1 (good hygiene to clear backlog before accepting new work).
+- Before `/orchestrator stop` / "done for now" — close cleanly to avoid orphan WIP entries.
+
+### Anti-patterns
+
+| Mistake | Correct Approach |
+|---------|------------------|
+| Listing all alive agents in one Telegram message | One at a time. User's standing directive: "don't list them all" — list dumps overwhelm and break the close/keep cadence. |
+| Closing an agent's Phase 2 without verifying log archive + WIP row removal | Always verify each Phase 2 outcome — orphan logs and stale WIP rows are recoverable but easier to prevent. |
+| Spawning a sub-agent to "fetch dev-log status" | Orchestrator reads its own `docs/development/logs/dev-*.md` files directly — they are docs. A sub-agent for this is wasteful. |
+| Skipping the Pending Decision line | Every queue-review item asks for a specific user action. Without an explicit question, "ok" is ambiguous. |
+| Advancing to the next agent before receiving the user's directive on the current one | Strictly sequential — user's "one by one" directive. Concurrent reviews fragment the conversation. |
+
+---
+
 ## Session Lifecycle
 
 ### Constraints
@@ -749,8 +798,8 @@ On `/orchestrator stop` or user saying "stop" / "done for now":
 
 ## What the Orchestrator Does NOT Do
 
-- **Read source files** — spawn a sub-agent
-- **Edit code** — spawn `/dev` sub-agent
+- **Read project source files** — spawn a sub-agent
+- **Edit project code** (PianoidCore, PianoidTunner, PianoidBasic, docs) — spawn `/dev` or `/update-docs`
 - **Run builds or tests** — spawn a sub-agent
 - **Analyze architecture** — spawn `/analyse` sub-agent
 - **Long research** — spawn an Explore agent
@@ -759,15 +808,27 @@ On `/orchestrator stop` or user saying "stop" / "done for now":
 - **Spawn a new agent when an existing one has the context** — use `SendMessage`
 - **Declare work complete without user approval** — keep the agent alive
 
-The orchestrator is a **dispatcher and communicator**, not a worker.
+## What the Orchestrator MAY Do Directly
+
+The orchestrator IS allowed to edit its own meta-config and read its own state — sub-agents are harness-gated from these paths and cannot do the edit, so dispatching to a sub-agent is not an option:
+
+- **Edit slash-command skill files** in `.claude/commands/*.md` (orchestrator skill itself, other commands)
+- **Edit `.claude/settings.local.json`** (permission allowlists, env vars)
+- **Read `docs/development/logs/dev-*.md`** session logs (its own coordination state)
+- **Read `MODULE_LOCKS.md` and `WORK_IN_PROGRESS.md`** (its own tracking files)
+- **Read `~/.claude/teams/*/inboxes/*.json`** (team inbox files for delivery diagnosis)
+
+Skill-doc edits should still be deliberate: confirm the change with the user first if the edit is non-trivial (>10 lines, behavioral rule changes), and never alter another orchestrator's behavior without an explicit user directive.
+
+The orchestrator is a **dispatcher and communicator** for project work, but it owns its own meta-config.
 
 ### Anti-Patterns (learned from incidents)
 
 | Mistake | Correct Approach |
 |---------|-----------------|
-| Reading source files to "quickly check" something | Spawn Explore agent or ask sub-agent |
-| Editing code directly because "it's just one line" | Spawn `/dev` sub-agent — even for one line. SEVERE VIOLATION — no exceptions |
-| Making a "quick fix" directly after noticing a problem | Always spawn /dev. The orchestrator's "quick fix" was wrong AND bypassed logging/locking |
+| Reading project source files to "quickly check" something | Spawn Explore agent or ask sub-agent. Exception: orchestrator's own meta-config (`.claude/commands/*.md`, settings.local.json, dev-log files) is direct-edit/read territory. |
+| Editing project code directly because "it's just one line" | Spawn `/dev` sub-agent — even for one line. SEVERE VIOLATION for project code. Skill-file edits in `.claude/commands/` are NOT project code and may be done directly. |
+| Making a "quick fix" to project code directly after noticing a problem | Always spawn /dev. The orchestrator's "quick fix" was wrong AND bypassed logging/locking |
 | Spawning fresh agent after research agent found context | `SendMessage` to continue the same agent |
 | Reporting task complete before user confirms | Wait for explicit approval on Telegram |
 | Giving agent raw instructions instead of a skill | Always invoke `/dev`, `/analyse`, etc. |
