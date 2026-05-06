@@ -917,6 +917,76 @@ and engine running.
 !!! warning "Save your preset first"
     Applying modes modifies the in-memory preset. Save before applying to enable revert.
 
+### Export to Text Files (dev-6c54c87f)
+
+The Apply panel includes an **Export to Text Files** sub-panel that writes
+the same modal-extraction results into the 5 fixed-name text files that the
+external RoomResponse-based consumer expects. This is the runtime equivalent
+of the standalone `Merge_res_New.py` script in the RoomResponse repository,
+adapted to consume already-aggregated mode chains directly from the Modal
+Adapter (no separate per-band JSON dump required).
+
+**Files written** (all tab-separated, `%.6f` formatting):
+
+| File | Shape | Description |
+|------|-------|-------------|
+| `Ci_coef_cos.txt` | 11264 x 1 | Packed mode-shape coefficients `ci[nn = note//2, k + ni*128]` for `ni = note%2`, flattened row-major |
+| `omega_coef.txt` | 128 x 1 | Mode frequencies in Hz (raw, not `2*pi`-multiplied) |
+| `Q_coeff_Q.txt` | 128 x 1 | Q values: `Q = 1 / (2*zeta)`, with sentinel `BIGQ = 1e6` when zeta <= 0 |
+| `Q_coeff_E.txt` | 128 x 1 | Damping ratio zeta directly |
+| `decka_coeff.txt` | 128 x 16 | Per-mode receiver amplitudes, phase-aligned to the strongest receiver per mode |
+| `stitched_results.json` | sidecar | Same data in JSON form for inspection / re-use |
+
+When fewer than 128 chains are exported the remaining slots are padded with
+placeholder modes (`f = 1000.0 Hz, zeta = 1.0, zero shape`) so the consumer
+always sees a fixed-size 128-mode array.
+
+**Approximation strategy** is selected automatically based on the project's
+mapping `layout_type`:
+
+* `line` (1-D bridge) -> linear `scipy.interpolate.interp1d` along the
+  scenario index axis, with `fill_value="extrapolate"` for cells outside
+  the measured range (matches the original `Merge_res_New.py` behaviour).
+* `grid` (2-D rectangular) -> planar `z = a*x + b*y + c` least-squares fit
+  via `np.linalg.lstsq` on the populated cells' `(x_mm, y_mm, value)`
+  tuples. Populated cells keep their measured values exactly; only the
+  empty cells get the planar evaluation. With fewer than 3 populated
+  cells the fit falls back to the cell mean.
+
+**UI controls** (Apply panel, "Export to Text Files" sub-panel):
+
+* **Output folder** -- optional free-text path. Default =
+  `{project}/modal_adapter/export_text/`. The path is forwarded to the
+  backend as-is and the directory is created if missing.
+* **Export all chains** -- checkbox override. When unchecked (default),
+  the export uses the same `selectedChains` set the Apply panel uses
+  (the user's curated subset). When checked, all tracked chains are
+  exported.
+* **Export to Text Files** -- triggers the export. Disabled when no
+  project is open, no chains are tracked, or the selected-chain set
+  is empty (with the override off).
+* **Copy folder path** -- after a successful export, copies the output
+  folder path to the clipboard so the user can paste it into Explorer
+  or Finder. (Browsers cannot directly invoke an OS file manager.)
+
+**Differences from `Merge_res_New.py`:**
+
+* No standalone Stage-1 (`results_{low}_{high}.json` band aggregation) --
+  the Modal Adapter's `_tracked_chains` already provides aggregated
+  per-chain detections. Stage 2's stitching/dedup loop is replaced by
+  reading directly from the aggregated chains, sorted by frequency.
+* Signed mode shapes are computed from the chain detections' complex
+  `mode_shape` arrays via reference-projection (the same approach
+  `feedin_extractor.extract_from_mode_shapes` uses), rather than
+  re-projecting from raw per-band JSON.
+* Receiver-channel mapping uses the project's `MappingConfig.channel_to_sound`
+  rather than the hard-coded `selected_r_indices` shipped in the original
+  band JSON. Force / reference channels (per `channel_roles`) are excluded
+  from the projection automatically.
+* The matplotlib `ModeViewer` step is dropped -- the same data is already
+  visualised live by the existing `StabilizationDiagram` and per-chain
+  heatmap views.
+
 ---
 
 ## REST API

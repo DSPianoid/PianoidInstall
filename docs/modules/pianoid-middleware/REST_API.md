@@ -1808,6 +1808,71 @@ Responses:
 
 ---
 
+#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f)
+
+Write the 5 RoomResponse-format text files (`Ci_coef_cos.txt`, `omega_coef.txt`,
+`Q_coeff_Q.txt`, `Q_coeff_E.txt`, `decka_coeff.txt`) plus a
+`stitched_results.json` sidecar to disk. This is the runtime port of the
+`Merge_res_New.py` Stage-2 generator from the RoomResponse repository,
+adapted to consume already-aggregated mode chains directly from the Modal
+Adapter's `_tracked_chains`.
+
+The named project must be the currently-open project — the export reads
+the in-memory `_tracked_chains` and `_mapping`, so opening a different
+project first is required (`POST /modal/projects/<name>/open`).
+
+Request body (all fields optional):
+
+```json
+{
+  "output_dir": "D:/some/path",
+  "selected_chains": [0, 2, 5, 7]
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `output_dir` | `{project}/modal_adapter/export_text/` | Absolute path. Created if missing. |
+| `selected_chains` | `null` (= all chains) | List of chain_ids to export. Pass the user's curated `selectedChains` set to match the Apply panel's behaviour, or omit to export all. |
+
+200 response body:
+
+```json
+{
+  "message": "Exported 6 text files to D:/.../export_text (12 modes + 116 placeholders)",
+  "output_dir": "D:/.../modal_adapter/export_text",
+  "files": {
+    "Ci_coef_cos.txt": "D:/.../Ci_coef_cos.txt",
+    "omega_coef.txt":  "D:/.../omega_coef.txt",
+    "Q_coeff_Q.txt":   "D:/.../Q_coeff_Q.txt",
+    "Q_coeff_E.txt":   "D:/.../Q_coeff_E.txt",
+    "decka_coeff.txt": "D:/.../decka_coeff.txt",
+    "stitched_results.json": "D:/.../stitched_results.json"
+  },
+  "n_modes_exported": 12,
+  "n_modes_padded":   116,
+  "approximation":    "linear"
+}
+```
+
+`approximation` is either `"linear"` (line layout — uses `scipy.interpolate.interp1d`)
+or `"planar"` (grid layout — uses `np.linalg.lstsq` on `(x, y, value)` tuples
+to fit `z = a*x + b*y + c`). The choice is auto-determined by the project's
+`mapping.layout_type`.
+
+Error responses:
+
+| Status | Cause |
+|--------|-------|
+| `400` | `name` is not the currently-open project |
+| `400` | `selected_chains` is not a list of integers |
+| `400` (RuntimeError → 409) | No tracked chains (run mode tracking first), or no mapping set |
+| `500` | Unexpected error |
+
+See [`MODAL_ADAPTER_GUIDE.md` — Export to Text Files](../../guides/MODAL_ADAPTER_GUIDE.md#export-to-text-files-dev-6c54c87f) for the full file format spec, the linear-vs-planar approximation choice, and the UI workflow.
+
+---
+
 #### `POST /modal/cancel`
 
 Cancel a running ESPRIT extraction.
