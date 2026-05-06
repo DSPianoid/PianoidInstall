@@ -418,7 +418,7 @@ the frontend fetches the project's QC summary
   suggestion to 50 ms — useless. The median of failing scenarios is a
   representative target for the substandard population.
 
-- Three actions (revised in dev-cp02 followup #2):
+- Three actions (revised in dev-cp02 followup #2 + #4):
   - **Proceed** — closes the dialog and leaves the project at the
     requested length. The Eff sig chip on ProjectInfoCard still surfaces
     the warning at the project level, so the user can revisit later.
@@ -431,19 +431,38 @@ the frontend fetches the project's QC summary
     threshold), with the signal-length field adjusted to the
     EffSigLen-suggested value. The user only needs to edit what
     they want changed — typically just confirm the new signal length
-    by clicking Create. Replaces the former in-place "Re-run with N ms"
-    action — the user now drives a fresh Create call rather than
-    triggering a hidden reaverage. The previous Create attempt's
-    project remains in their project list (backend auto-suffixes the
-    new name on collision); the user can delete the original via the
-    project browser if not needed. Implementation detail (dev-cp02
-    followup #3): `ModalAdapter` keeps a `lastCreateAttempt` snapshot
-    of the prior dialog state when opening the EffSigLen prompt;
-    `CreateProjectDialog` accepts a richer `initialState` prop that
-    pre-populates every editable field on open. The browser-held
-    `File` object survives the round-trip via component state (DOM
-    `<input type="file">` cannot be programmatically reset, but the
-    JS `File` reference is enough to re-submit without re-picking).
+    by clicking Create.
+  - **Cancel** (X / Escape / backdrop click) — distinct from Proceed
+    in dev-cp02 followup #4. The user explicitly abandons the retry;
+    the speculatively-created project is **deleted on disk** (with
+    extracted measurements via `deleteProject(name,
+    delete_measurements=true)`) so orphans don't accumulate. A Snackbar
+    confirms "Cancelled: deleted speculatively-created project …".
+
+  When the user accepts Go Back and resubmits the Create dialog, the
+  ModalAdapter handler picks one of four backend ops based on what
+  changed since the prior successful Create (dev-cp02 followup #4):
+
+  | What changed | Backend op | Why |
+  |---|---|---|
+  | Nothing (just signal length adjusted via the suggestion) | `POST /modal/projects/<n>/reaverage` | Re-run averaging on existing on-disk tree. Skip zip re-upload and re-extract. |
+  | Project name only (file unchanged) | `POST /modal/projects/<old>/rename` then `reaverage` | Reuse on-disk artifacts (raw_recordings, averaged_responses); just relabel and re-run averaging at the new length. |
+  | File changed (different zip) | `POST /modal/projects/delete` (with `delete_measurements=true`) then `POST /modal/projects/create_from_zip` | Clean up the orphan project + extracted folder, then full Create with the new file. |
+  | (Dialog cancelled — see above) | `POST /modal/projects/delete` (with `delete_measurements=true`) | User abandoned the retry; clean up the speculatively-created project. |
+
+  The `reaverageProject` and `rename + reaverage` paths re-fire the
+  EffSigLen prompt on completion (the new shorter length might still
+  be too long for some scenarios — user gets another chance to
+  shorten further). Implementation: `ModalAdapter` stashes
+  `{file, name, signalLengthMs, averagingMode, qcThreshold,
+  createdProjectName, priorNumScenarios}` in `lastCreateAttempt` when
+  opening the EffSigLen prompt; the Create dialog's submit handler
+  reads `createdProjectName` to detect "Go Back retry" mode and
+  reference-compares the resubmitted File against the stashed File to
+  pick the right backend op. The browser-held `File` object survives
+  the round-trip via component state (DOM `<input type="file">`
+  cannot be programmatically reset, but the JS `File` reference is
+  enough to re-submit without re-picking).
 
 The follow-up prompt only fires when the user picked the "Re-average from
 raw" mode AND a numeric `ir_working_length_ms` was set — "Keep existing"
