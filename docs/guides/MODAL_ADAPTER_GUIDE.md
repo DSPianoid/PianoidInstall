@@ -407,8 +407,11 @@ the frontend fetches the project's QC summary
   All client-computed from `summary.per_scenario_min_t_eff_ms` (already
   in the QC summary payload — no extra backend calls).
 
-- A threshold/method footnote (`Threshold: env_diff/env_signal ≥ 10%
-  (sustained), method: hilbert, split-half jackknife.`).
+- A threshold/method footnote (`Threshold: env_diff/env_signal < 10%
+  (last sustained), method: hilbert + 20 ms Gaussian smooth,
+  split-half jackknife.`). Inverted direction (`<` vs the v1/v2 `≥`)
+  to match v3 last-crossing semantics — see "Schema-v2 → v3 changes"
+  below.
 
 - A suggested signal length: **`floor(median_failing / 50) * 50`** —
   rounded DOWN to the nearest 50 ms for a cleaner number, never below 50.
@@ -529,7 +532,10 @@ diagnostic message; pre-averaged scenarios still import successfully.
 
 **Schema v1 introduced in dev-qc01 (2026-05-05). Schema v2 in dev-qc02
 (2026-05-05) — corrects the split level (cycle-level instead of
-measurement-level) and adds `qc_threshold` to the persisted JSON.**
+measurement-level) and adds `qc_threshold` to the persisted JSON.
+Schema v3 in dev-qcthr (2026-05-06) — replaces "uniform 5 ms smoothing
++ first-crossing" with "Gaussian 20 ms smoothing + last-crossing"
+detection (see "Schema-v2 → v3 changes" below).**
 The auto-averager performs a split-half reproducibility check per
 response channel every time it runs:
 
@@ -550,15 +556,50 @@ response channel every time it runs:
 4. Average each half: `signal_A = mean(pool[half_A])`,
    `signal_B = mean(pool[half_B])`.
 5. Compute `diff(t) = signal_A(t) − signal_B(t)`.
-6. Compute Hilbert envelopes of `signal_full(t)` and `diff(t)`,
-   smoothed with a 5 ms uniform window.
-7. Find the first sample where `env_diff[t] / env_signal[t] ≥ qc_threshold`
-   (default 0.1) AND the ratio stays above for ≥ 10 ms (sustained-
-   crossing gate). That sample is the **Effective Signal Length**
-   (`T_eff`).
-8. The QC step runs on the FULL pre-truncation mean, not the
+6. Compute the **signal envelope** = Hilbert magnitude of
+   `signal_full(t)`, then Gaussian-smoothed with σ = 20 ms (v3).
+   This smoothing is heavy enough to flatten cycle-level ripple, so
+   the result is "almost monotonically decreasing" — a clean trace
+   of the IR decay shape (see boundary handling note below).
+7. Compute the **diff envelope** = Hilbert magnitude of `diff(t)`,
+   smoothed with the same Gaussian σ. Because `diff` is dominated by
+   uncorrelated cycle-to-cycle noise, this trace is "relatively
+   stable" — a slow drift around the noise floor.
+8. Find the **last** sample index `t` where
+   `env_diff[t] / env_signal[t] < qc_threshold` (default 0.1) AND
+   the ratio has stayed below for the preceding `sustained_ms`
+   (default 10 ms = trailing-window gate that prevents a single noise
+   spike from defining `T_eff`). That sample is the **Effective
+   Signal Length** (`T_eff`). The recording is reliable up to `T_eff`
+   and unreliable thereafter. `null` is returned only when no
+   sustained-below window exists at all (the recording was
+   unreliable from sample 0).
+9. The QC step runs on the FULL pre-truncation mean, not the
    fadeout-shaped truncated array — the fadeout would mask the
    noise tail and produce a falsely-late T_eff.
+
+**Why last-crossing, not first-crossing? (dev-qcthr)** The diff
+envelope routinely dips back below threshold AFTER the noise has
+started dominating (cycle-to-cycle noise is bursty, not monotonic).
+First-crossing answered "when does the noise envelope FIRST exceed
+10 % of signal" — but the noise can return to compliance briefly
+after that, and the truly meaningful boundary is "when does the
+agreement fail PERMANENTLY." Last-crossing scans backwards for the
+last sample where the trailing 10 ms window is still all-below
+threshold; that is the operationally useful "the recording is good
+up to here" boundary.
+
+**Boundary handling.** Hilbert magnitude has a well-known
+boundary-build-up artefact at finite-signal endpoints (the
+analytic-signal FFT pretends the input is periodic, so a
+discontinuity between the last and first sample raises `|H[N-1]|`
+to arbitrary values). The Gaussian smoother uses `mode="reflect"`
+to mirror the decaying tail across the boundary so the artefact
+does not propagate into the smoothed envelope and falsely extend
+`T_eff` to the very last sample. (Hit during dev-qcthr verification
+on `PlyWoodTake11/Sc14/ch5`: `mode="nearest"` gave `t_eff = 999.98 ms`
+on a signal that decayed by ~250 ms; `mode="reflect"` gives
+`t_eff = 207 ms`.)
 
 **Why split-half on cycles, not measurements?** A measurement-level
 split (v1) leaves per-measurement processing artefacts in `env_diff`:
@@ -606,12 +647,14 @@ reproducible past here."
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "scenario_name": "PlyWood-Scenario3-Take1",
   "qc_status": "computed",
   "split_seed": 12345,
   "envelope_method": "hilbert",
-  "smoothing_ms": 5.0,
+  "smoothing_ms": 20.0,
+  "smoothing_kind": "gaussian",
+  "t_eff_definition": "last_sustained_below_threshold",
   "threshold": 0.1,
   "qc_threshold": 0.1,
   "sustained_ms": 10.0,
@@ -642,11 +685,33 @@ reproducible past here."
   whichever threshold was supplied via REST `qc_threshold` form/body
   field, or the module default 0.1 if omitted.
 
-**Schema readers must accept either v1 or v2.** Existing v1 JSON on
-disk (created before dev-qc02) stays readable — the v2 fields will
-simply be missing on v1 files. Re-run the averager (force=True) or
-hit `POST /modal/projects/<n>/effective_signal_length` to upgrade
-existing projects to v2 numbers.
+**Schema-v2 → v3 field changes (dev-qcthr):**
+
+- `version` bumped to `3`.
+- `smoothing_ms` default changed from `5.0` (uniform-window width)
+  to `20.0` (Gaussian σ). Number is the same field but the unit
+  semantics depend on `smoothing_kind`.
+- Added: `smoothing_kind` — `"gaussian"` (new default) or
+  `"uniform"` (legacy v1/v2 behaviour, still selectable for
+  backward-compat). For `"uniform"`, `smoothing_ms` is the full
+  window width; for `"gaussian"`, it is the Gaussian sigma.
+- Added: `t_eff_definition` — algorithm tag, currently
+  `"last_sustained_below_threshold"`. Frontends and downstream
+  readers should branch on this string when interpreting `t_eff_ms`
+  alongside `version`.
+- The semantics of `t_eff_ms` changed: now the LAST sample of
+  sustained agreement (was the FIRST sample of sustained
+  disagreement). The downstream meaning ("the recording is reliable
+  up to this many ms") is preserved — frontend warning surfaces
+  (`EspritConfig.jsx`'s "Eff signal: N ms" caption,
+  EffectiveSignalLengthRerunDialog's truncation prompt, ProjectInfo
+  card's QC chip) continue to work unchanged.
+
+**Schema readers must accept v1, v2, or v3.** Existing v1/v2 JSON on
+disk stays readable — the newer fields will simply be missing on
+older files. Re-run the averager (force=True) or hit
+`POST /modal/projects/<n>/effective_signal_length` to upgrade
+existing projects to v3 numbers.
 
 **`qc_status` values:**
 
@@ -656,15 +721,22 @@ existing projects to v2 numbers.
 | `skipped_too_few_measurements` | Fewer than 4 surviving measurements after validate/align — split-half needs at least 2 per half. T_eff is `null` everywhere. |
 | `skipped_no_response_channels` | Only the calibration channel was present (rare data-shape error). |
 
-**`per_channel_t_eff_ms` semantics:**
+**`per_channel_t_eff_ms` semantics (v3 last-crossing):**
 
 - `null` for the calibration channel — ALWAYS skipped because the
   calibration signal is a sharp impulse (not a decaying response), so
   envelope-ratio noise analysis is meaningless on it.
-- `null` for response channels when the signal is reproducible across
-  the full duration (no sustained crossing) — no truncation needed.
-- Numeric value: T_eff in milliseconds. Beyond this point the noise
-  envelope exceeds 10% of the signal envelope.
+- `null` for response channels ONLY when no sustained-below window
+  exists at all (i.e. `env_diff/env_signal ≥ threshold` from sample
+  0 — the recording was unreliable from the start). v1/v2
+  semantically returned `null` here AND when the signal was reliable
+  to the end; v3 separates the two: an end-to-end reliable signal
+  reports `t_eff_ms ≈ signal_length_ms` (the trailing-window
+  condition holds at the very last sample).
+- Numeric value: T_eff in milliseconds — the last sample where the
+  trailing 10 ms of the noise-envelope-to-signal-envelope ratio is
+  still under threshold. Beyond this point the agreement is no
+  longer reliable.
 
 **Aggregation across channels per scenario:** `scenario_min_t_eff_ms`
 is `min(per-channel T_eff)` across response channels — the most
@@ -839,18 +911,21 @@ cannot be retroactively QC'd.
 
 **Default values are tuned for impulse-response measurements:**
 
-| Parameter | Default | Rationale |
+| Parameter | Default (v3) | Rationale |
 |---|---|---|
 | `threshold` | 0.1 | env_diff/env_signal ratio ≥ 0.1 ≈ -20 dB SNR per split |
-| `smoothing_ms` | 5.0 | Suppresses single-sample envelope spikes |
-| `sustained_ms` | 10.0 | A real noise tail is sustained; transient envelope spikes are not |
+| `smoothing_kind` | `"gaussian"` | Preserves IR decay shape, suppresses cycle-level ripple far better than uniform smoothing of comparable cost |
+| `smoothing_ms` | 20.0 | Gaussian σ in ms. Produces a near-monotonically-decreasing signal envelope on real IR data (~70 % decreasing pairs vs ~50 % for uniform 5 ms) |
+| `sustained_ms` | 10.0 | Trailing-window length; a real noise tail is sustained, transient envelope spikes are not |
 | `envelope_method` | `"hilbert"` | Standard analytic-signal envelope; `"rms"` is also accepted |
+| `t_eff_definition` | `"last_sustained_below_threshold"` | Tag — current algorithm is last-crossing (was first-crossing in v1/v2) |
 
-These are NOT exposed as project config in v1 — change them in
+These are NOT exposed as project config — change them in
 `pianoid_middleware/modal_adapter/scenario_averager.py` (constants
 `QC_DEFAULT_THRESHOLD`, `QC_DEFAULT_SMOOTHING_MS`,
-`QC_DEFAULT_SUSTAINED_MS`, `QC_DEFAULT_ENVELOPE_METHOD`) and re-run
-the averager. Frontend exposure of these knobs is a deferred follow-up.
+`QC_DEFAULT_SMOOTHING_KIND`, `QC_DEFAULT_SUSTAINED_MS`,
+`QC_DEFAULT_ENVELOPE_METHOD`, `QC_T_EFF_DEFINITION`) and re-run the
+averager. Frontend exposure of these knobs is a deferred follow-up.
 
 **Channel roles** -- shown after project creation/clone. Assign each measurement channel a role:
 
