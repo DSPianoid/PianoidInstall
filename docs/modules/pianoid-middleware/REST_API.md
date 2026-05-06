@@ -1760,7 +1760,7 @@ Return frequency + damping for rendering decaying sinewave (uses existing `excit
 
 #### `POST /modal/chains/save`
 
-Replace tracked chains with manually edited version. Re-indexes chain IDs 0..N-1, invalidates feedin data (must re-run feedin after edits), persists to disk.
+Replace tracked chains with manually edited version. Re-indexes chain IDs 0..N-1, invalidates feedin data (must re-run feedin after edits), persists to disk. **Legacy bulk-replace path** kept for backward compatibility — prefer the granular per-op endpoints below for new code (they capture undo snapshots and recompute derived stats per chain).
 
 Request:
 ```json
@@ -1773,6 +1773,96 @@ Response `200`:
 ```json
 { "saved": 42, "data_status": { "measurements": true, "mapping": true, ... } }
 ```
+
+---
+
+#### Granular chain mutation endpoints (dev-md06)
+
+All seven endpoints mutate `_tracked_chains` directly, push a snapshot onto the in-memory undo stack BEFORE mutating, recompute derived stats on touched chains (`frequency_mean`, `frequency_range`, `frequency_drift`, `damping_mean`, `detection_count`, `coverage`, `stability`), drop empty chains, re-index `chain_id` sequentially, invalidate feedin (`_feedin_data = None`, `_applied = False`), persist `chains.json` (carrying forward `params`, `cross_bridge_matches`, `splitter_reports` from the prior file; bumping `summary.edit_count`; recording `summary.last_action`), and bump `data_status.tracked_chains_version`. The `quality` field on each chain is NOT recomputed (requires the rotated reference shape from tracking) — consumers should treat it as stale-after-edit until the next `run_tracking`.
+
+All responses include `chains` (the canonical post-mutation list) and `data_status`. Op-specific fields are noted per endpoint.
+
+##### `POST /modal/chains/merge`
+
+Merge source chains into target chain. Detection conflicts at shared scenarios: source-order wins (later sources overwrite earlier; target's existing detection is overwritten by any source). Source chains are deleted; remaining chains are re-indexed.
+
+Request: `{"target_chain_id": int, "source_chain_ids": [int, ...]}`
+
+Response: `{"merged_chain_id": int, "chains": [...], "data_status": {...}}` — `merged_chain_id` is the merged target's NEW (post-re-index) chain_id.
+
+Errors: `400` on empty `source_chain_ids`, target in source list, or unknown id.
+
+##### `POST /modal/chains/add_point`
+
+Add a single detection to a chain at a given scenario. Existing detection at that scenario on this chain is overwritten. Cross-chain duplicate validation (same scenario+frequency on a different chain) is the frontend's responsibility — backend accepts any detection unconditionally.
+
+Request: `{"chain_id": int, "scenario_index": int, "detection": {"frequency": float, "damping_ratio": float?, "amplitude": float?, "shape": [...]?, "mode_shape": [[r,i], ...]?}}`
+
+Response: `{"chain_id": int, "chains": [...], "data_status": {...}}`
+
+##### `POST /modal/chains/remove_point`
+
+Remove a single detection from a chain. If this empties the chain, the chain itself is deleted. Silently no-op if the detection is not present (no error, no version bump, no undo snapshot).
+
+Request: `{"chain_id": int, "scenario_index": int}`
+
+Response: `{"removed_chain_id": int, "chains": [...], "data_status": {...}}`
+
+##### `POST /modal/chains/create`
+
+Create a new chain from a list of points. The new chain's id is assigned during re-index (it ends up at position N).
+
+Request: `{"points": [{"scenario_index": int, "frequency": float, "damping_ratio": float?, ...}, ...]}`
+
+Response: `{"new_chain_id": int, "chains": [...], "data_status": {...}}`
+
+Errors: `400` on empty `points` list or any point missing `scenario_index` / `frequency`.
+
+##### `POST /modal/chains/break`
+
+Split a chain at a given scenario into two chains. Detections at scenario ≤ split point stay with the original chain id; detections after the split form a NEW chain (assigned during re-index). Errors if the split would empty either side (i.e. split at the first or last scenario).
+
+Request: `{"chain_id": int, "scenario_index": int}`
+
+Response: `{"left_chain_id": int, "right_chain_id": int, "chains": [...], "data_status": {...}}`
+
+##### `POST /modal/chains/dissolve`
+
+Remove all detections inside a (frequency, scenario) box. Empty chains after dissolution are deleted.
+
+Request: `{"freq_min": float, "freq_max": float, "scenario_min": int|null, "scenario_max": int|null}` — `scenario_min`/`max` of `null` mean unbounded on that side.
+
+Response: `{"dissolve_warning": bool, "chains": [...], "data_status": {...}}` — `dissolve_warning` is `true` if any chain lost > 50% of its detections.
+
+##### `POST /modal/chains/delete`
+
+Delete one or more entire chains by id. Idempotent — silently ignores ids that aren't present (no error). If no ids actually delete, returns without bumping version or capturing an undo snapshot.
+
+Request: `{"chain_ids": [int, ...]}`
+
+Response: `{"deleted": int, "chains": [...], "data_status": {...}}`
+
+##### `POST /modal/chains/undo` and `POST /modal/chains/redo`
+
+Step backward / forward through the in-memory chain edit history. Undo stack capped at 30 entries. Each mutation endpoint pushes a snapshot (and clears the redo stack); undo pops from undo + pushes current to redo; redo pops from redo + pushes current to undo. Both re-persist `chains.json` and bump `tracked_chains_version`.
+
+Snapshots are dropped on `run_tracking` (chain set rebuilt — old IDs no longer match), on project switch (new chain set), and on `reset`. They do NOT survive server restart.
+
+Request: empty body (`{}` accepted, also no body).
+
+Response: `{"chains": [...], "data_status": {...}}`.
+
+Errors: `400` `{"error": "nothing to undo"}` (or "nothing to redo") when the corresponding stack is empty. Frontend should gate the toolbar buttons on `data_status.chain_undo_available` / `chain_redo_available` so users can't trigger this.
+
+---
+
+#### `data_status` fields added by dev-md06
+
+The `data_status` payload (returned in every chain-mutation response, `/modal/project_state`, `/modal/data_status`) includes:
+
+- `chain_undo_available: bool` — true iff the in-memory undo snapshot stack is non-empty.
+- `chain_redo_available: bool` — true iff the in-memory redo snapshot stack is non-empty.
+- `tracked_chains_version: int` — monotonic counter, bumped on every backend change to `_tracked_chains` (run_tracking, project load, every chain mutation, undo, redo, reset). Frontend cache effects (e.g. `GridHeatmapInset` fetch useEffect) include this in their deps so they re-fetch automatically when the backend chain set changes — fixes the post-merge stale-heatmap class of bugs (dev-md06 Bug A) where the cache key on the heatmap (chain_id) didn't move even though the backend chain contents did.
 
 ---
 

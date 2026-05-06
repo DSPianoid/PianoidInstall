@@ -820,6 +820,15 @@ Freq Tolerance, Max Gap, the `nm_*` MAC threshold rows) and the Grid Layout edit
 or tracking is actively running. This lets users retune tracking parameters and re-run
 `/tracking` against the cached extraction without going through Reset.
 
+**Re-tracking resets the editor (dev-md06 Bug B).** A second `Run Tracking` click on the
+same project rebuilds chains from scratch on the backend (and clears the
+in-memory chain edit history — the snapshot stack's IDs would no longer match). The
+backend bumps `tracked_chains_version`; the frontend's effect keyed on that counter
+clears the local stabilization-diagram cache and resets `editedChains` to `null` so the
+init effect re-fires with the fresh chain set. Without this, the stab-diagram +
+chain-data table would keep showing pre-retrack assignments because the previous init
+effect was gated on `editedChains === null`.
+
 **Lock-state visual feedback (dev-md04 Bug 2).** The toolbar Settings gear icon stays a
 gear at all times — it does not swap to a Lock icon when ESPRIT has run (the previous
 behaviour was misleading because the panel still opens fully, and Tracking + Grid Layout
@@ -883,17 +892,47 @@ the rounded pixel-to-data position (dev-c807 Bug 5). The earlier exact-only matc
 silently no-op'd on grid layouts and on zoomed-out views where the pixel snap could land
 one cell off from the actual detection.
 
+**Backend-owned chain composition (dev-md06).** Every action that changes the chain set
+— add point, remove point, create chain, merge (Connect), break, dissolve, delete — now
+goes through a dedicated REST endpoint on the modal adapter (`POST /modal/chains/<op>`).
+The frontend `useChainEditor` hook is a thin proxy: it calls the endpoint, then replaces
+`editedChains` with the canonical chains list returned by the backend. There is no
+client-side mutation buffer, no `Save` button, no `isDirty` flag. The Save and Discard
+icons have been removed from the stabilization-diagram toolbar.
+
+This fixes the post-merge stale-heatmap bug (dev-md06 Bug A): the heatmap reads from
+`/modal/grid_heatmap/<chain_id>` which sources from backend `_tracked_chains`. Before
+dev-md06, merge was a frontend-only mutation of `editedChains`, so the backend chain
+set was unchanged until the user clicked Save — the heatmap would show pre-merge data
+even though the stab-diagram showed the merged chain. Routing every mutation through
+the backend means the heatmap's data source is always in sync.
+
+**Heatmap cache invalidation.** The `data_status` payload now carries a monotonic
+`tracked_chains_version` counter, bumped on every backend chain change (run_tracking,
+project load, every mutation, undo, redo, reset). `useModalAdapter` mirrors this into
+React state and forwards it to `GridHeatmapInset` as a prop — included in the
+`useEffect` deps so the heatmap refetches whenever the backend chain set changes, even
+when the selected `chainId` is unchanged (the case that caused Bug A: merge target
+keeps its id, useEffect deps unchanged, no refetch).
+
 **Connect (multi-chain merge)** — selects 2+ chains and merges them all into the first
-selected chain in a single batch operation (dev-md04 Bug 4). Detections at scenarios
-shared by multiple chains are taken from the later-selected chain (deterministic
-conflict resolution). The previous version (a) refused to merge whenever any scenario
-was shared between chains — but in real grid-layout data overlap is the norm, so users
-saw "nothing happened" because the rejection toast cleared after 3 s; (b) called the
-pairwise `mergeChains` helper in a JS for-loop, which closed over stale React state and
-silently lost all but the last merge for ≥3-chain selections. The fix (`mergeChainsMany`
-in `useChainEditor.js`) commits every merge in a single `setEditedChains` call, and
-the Connect button surfaces a non-blocking info toast when overlap is detected
-("Merged N chains into chain X (shared scenarios overwritten by later chains)").
+selected chain in a single backend operation (`POST /modal/chains/merge`). The backend
+combines detections from all sources into the target, deletes the sources, re-indexes
+remaining chain IDs sequentially 0..N-1, and returns the merged target's NEW chain_id
+in the response (`merged_chain_id` field). The frontend updates `selectedChains` to
+match. Detections at scenarios shared by multiple chains are taken from the
+later-selected source (deterministic conflict resolution).
+
+**Backend chain edit history (dev-md06)** — the modal adapter holds an in-memory
+snapshot stack (capped at 30 entries) of pre-mutation chain states. Every mutation
+endpoint pushes a snapshot before mutating; `POST /modal/chains/undo` pops it and
+restores. `POST /modal/chains/redo` reapplies the most recently undone state. Both
+re-persist `chains.json` and bump `tracked_chains_version`. The Undo / Redo toolbar
+buttons are gated on `data_status.chain_undo_available` /
+`chain_redo_available` (mirrors of the snapshot-stack lengths) which arrive via
+`syncFromBackend`. Snapshots are dropped on `run_tracking` (chain set rebuilt from
+scratch — old IDs no longer match), on project switch (new chain set), and on
+`reset`. They are NOT persisted across server restart.
 
 **Mode chains table** — collapsible (hidden by default to maximize diagram space). Sortable
 columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
