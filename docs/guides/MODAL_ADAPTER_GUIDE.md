@@ -975,9 +975,12 @@ Both controls are forwarded to the backend as query params on
 The heatmap refetches automatically whenever either control changes.
 
 **Per-point hover annotation** — hovering a point on the stabilization diagram surfaces
-`Scenario N · Freq F Hz · Chain ID (stability) — K scenarios · Damping D` (dev-c807
-Feature 6). The "K scenarios" field is the chain's `detection_count`, exposing chain
-richness at-a-glance without opening the mode-chains table.
+`Scenario N · Freq F Hz · Chain ID (stability) — K scenarios · MAC: 0.xxx · Damping D`
+(dev-c807 Feature 6). The "K scenarios" field is the chain's `detection_count`, exposing
+chain richness at-a-glance. The `MAC: 0.xxx` field is the chain's
+`quality.shape_consistency` — mean pairwise MAC across the chain's detections, computed
+backend-side in `mode_tracking.compute_chain_quality` and shipped on every chain. Renders
+as `MAC: —` when the chain has no shape data (very short chains or shape-less detections).
 
 **Stability summary chips** — above the diagram, one chip per stability category showing
 `<category> <count> (Av. Sc. <avg>)` where `Av. Sc.` is the rounded mean of
