@@ -6,10 +6,8 @@
 |-------|------|-----|---------|--------|
 | dev-irfx | Investigate user reports re per-band IR length feature — diagnosis complete (backend serves correct data; complaint A is restart issue; complaint B is real UX gap in Create-dialog field). UX patch deferred pending dev-3st1 lock release on EspritConfig.jsx + ModalAdapter.jsx. | [log](logs/dev-irfx-2026-05-04-192629.md) | 2026-05-04 | Diagnosis complete, superseded by dev-uxp5 |
 | dev-d773 | Mode tracking — switched default `tracking_method` from `sliding_window` to `nuclei_merge` (Option C from planning report; per user pick). Addresses tmp8c7q0lu0 chain 7 + chain 8 over-broad-cluster failure. 1 LOC + doc updates + 1 test mod + 1 new test. **Caveat:** could not synthesize a regression test that demonstrates the chain-7+8 case actually resolves on synthetic data without the live Belarus dataset — see log "Honest assessment". Manual validation on `tmp8c7q0lu0` post-merge is a follow-up. | [log](logs/dev-d773-2026-05-05-002518.md) | 2026-05-04 | Committed + merged locally; awaiting batch push |
-| dev-qc01 | Scenario Averager Quality Control — split-half jackknife per channel per scenario; compute Effective Signal Length (T_eff) where envelope-of-difference exceeds threshold of envelope-of-signal; warn when band ir_length_ms exceeds T_eff. Algorithm in scenario_averager (~370 LOC + 15 tests), modal_adapter QC accessors (~210 LOC), REST endpoints `/modal/projects/<name>/effective_signal_length` GET+POST, EspritConfig warning UI (Alert + per-row icons + "Eff signal: N ms" chip + 4 frontend tests), docs (MODAL_ADAPTER_GUIDE QC subsection + REST_API endpoint docs). PianoidCore merge SHA `77614cf`, PianoidTunner merge SHA `7e20493` (clean conflict resolution against dev-07b4's skip_start_ms column on EspritConfig.jsx). 28/28 averager + 11/11 EspritConfig + 66/66 Tunner suite + 154/154 modal_adapter regression. | [log](logs/dev-qc01-2026-05-05-startup.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-cp01 | Streamlined Create Project flow: single popup dialog (file name + averaging mode keep/overwrite + signal length) for both folder-based and zip-based project creation. Subsumes Bug B (project name = `tmpXXX`) + Bug C (IR(ms) ignored due to averaging idempotency). Adds Effective Signal Length QC display to ProjectInfoCard (deferred from dev-qc01) + a follow-up rerun prompt when any channel's T_eff is shorter than the requested signal length, via new `POST /modal/projects/<n>/reaverage` endpoint (closes deferred dev-ir01 follow-up #2). 6 LOC backend route fix for Bug B + ~85 LOC scenario_averager auto-promote (Bug C) + ~135 LOC reaverage adapter method + 2 NEW frontend dialogs (CreateProjectDialog ~280 LOC + EffectiveSignalLengthRerunDialog ~290 LOC) + ProjectInfoCard QC chip & popover (~165 LOC) + ~70 LOC useModalAdapter hook helpers. 23 new tests (12 backend + 11 frontend). 196/197 backend pass (1 pre-existing skip), 89/89 frontend pass. | [log](logs/dev-cp01-2026-05-05-create-streamline.md) | 2026-05-05 | Step 9 — committed + merged locally; awaiting batch push |
 | dev-cp02 | UI follow-up to dev-cp01 + dev-qc02: (A) Quality threshold numeric field added to CreateProjectDialog (default 0.1, UI range 0.05-0.5 step 0.01, backend gate (0,1)), wired to importProject as `qc_threshold` form field + preserved across the rerun follow-up via reaverageProject; (B) EffectiveSignalLengthRerunDialog enhanced with substandard-scenario count + median T_eff (failing) + min T_eff with scenario name; suggested rerun length switched from `floor(global_min/50)*50` (pessimistic, collapsed to 50 ms when any scenario T_eff ≈ 0) to `floor(median_failing/50)*50` (representative of failing population). 4 files changed (~140 LOC) + 11 new tests + 4 updated tests. PianoidTunner-only; backend `qc_threshold` REST plumbing was landed by dev-qc02. 100/100 frontend pass. | [log](logs/dev-cp02-2026-05-05-qc-threshold-ui.md) | 2026-05-05 | Step 9 — committed + merged locally; awaiting batch push |
-| dev-qc02 | Fix algorithmic bug in dev-qc01's split-half QC: replace measurement-level split with cycle-level split (schema v2). `scenario_averager.py` now pools all aligned-normalized cycles per channel into one stack, then partitions cycles (not measurements) into two random halves using deterministic seed `hash(scenario_name) & 0xFFFF`. Eliminates per-measurement coupling artefacts (reference-cycle selection variance, correlation-filter survivor bias) that were biasing T_eff downward. Also threads `qc_threshold` through REST chain (`create_project_from_zip` + `reaverage` + `effective_signal_length` POST) — default 0.1, persisted into per-scenario JSON. Empirical: median scenario_min_t_eff_ms 56.8→135.6 ms on PlyWoodTake1_1; max 199.7→287.4 ms; user's failing Sc 23 fully recovers (0→53.5 ms); 1 residual zero (Sc 5) deferred — see follow-up below. PianoidCore feature SHA `1d1a8ef`, merge SHA `43cf005`. 38/38 averager + 238/238 modal_adapter regression. Charts: `dev-qc02-fix-good-scenario.png` (Sc 19, clean threshold crossing) + `dev-qc02-fix-bad-scenario.png` (Sc 5, divergent halves from t=0). | [log](logs/dev-qc02-2026-05-05-startup.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-3151 | Interactive Averaging Quality visualization panel for Modal Adapter UI. New `GET /modal/projects/<n>/qc_curves` endpoint returns signal_a / signal_b / signal_full / signal_diff / env_signal / env_diff / ratio per (scenario, channel) on demand, with per-scenario LRU pool cache (channel switches ~280 ms vs ~670 ms cold). Pipeline split into `pool_scenario_cycles()` (slow) + `compute_qc_curves_for_channel()` (cheap on cached pool). New frontend `QCVisualizationPanel` (Accordion under Setup) with scenario+channel selectors, four view modes (Curves / Difference / Ratio / Combined), ECharts mouse-wheel zoom (X + Shift+wheel Y), mutable threshold slider [0.05, 0.50] with frontend recompute of T_eff (`recomputeTEffSamples` mirrors backend `_find_effective_signal_length`), T_eff vertical marker on chart, ratio-at-end readout (last sample + trailing 50 ms median). PianoidCore feature SHA `b999792`, merge SHA `f75262d`; PianoidTunner feature SHA `a2cad90`, merge SHA `6478f48`. **Tests:** 8/8 RoomResponse-independent backend tests + 7 RoomResponse-dependent skipped (same skip pattern as the 38 averager tests); 13/13 new frontend tests; 38/38 averager regression + 212/213 modal_adapter regression (1 pre-existing TestEspritRefactor failure) + 182/182 frontend total post-rebase. Coordinated parallel-additive merge against dev-md05 + dev-6c54c87f + dev-md06 (rebased clean — zero conflicts; their changes touched chain composition / Bug A/B / export-text-tool, my changes are net-additive QC introspection). Docs: MODAL_ADAPTER_GUIDE.md QC subsection extended with the inspection panel + new endpoint reference; REST_API.md documents `/qc_curves` schema. | [log](logs/dev-3151-2026-05-05-183248.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-md04 | Live Modal Adapter Tracking UI bug batch (4 bugs): (1) heatmap header now shows "(N populated / M total cells)" for coverage clarity — backend was correct, chain 12 genuinely has only 6 detections of 30 grid cells; (2) Settings toolbar gear icon no longer swaps to Lock — section-level "Locked" Chips already exist on the actually-locked sections (Channel Mapping, Band Configuration); (3) HEATMAP toggle button added alongside DAMP/AMP/MAC/SHAPE/PROJ in chart sub-toggle row; (4) chain CONNECT — live chrome-devtools confirmed root cause was a 3 s rejection toast on scenario overlap that vanished before users read it, plus a stale-state bug for ≥3 chain selections. New `mergeChainsMany` helper does the merge in a single setState; overlap is now an info toast not a block. PianoidTunner merge SHA `e429a53`. 6 files / +263 / -33 LOC; 6 new frontend tests, 138/138 passing; 197/198 backend regression check (1 pre-existing unrelated failure). **Note: dev-md04's Bug 1 diagnosis was wrong — see dev-md05 for the actual fix.** | [log](logs/dev-md04-2026-05-05-162500.md) | 2026-05-05 | Committed + merged locally; awaiting batch push |
 | dev-6c54c87f | Port RoomResponse Stage-2 text-export tool (`Merge_res_New.py`) into Modal Adapter. New module `modal_adapter/external_export.py` (port of merge_res), new REST endpoint `POST /modal/projects/<n>/export_text`, new UI export button in Apply panel, revised approximation: linear `interp1d` for 1D bridge layouts, planar `lstsq` plane fit for 2D grid layouts. PARALLEL-ADDITIVE branch off dev tip; coordination with dev-md06 (heavy mods on shared files, unmerged) + dev-3151 (stashed) — all my edits are net-additive (new file / new method / new route / new hook export / new JSX block / new doc section). **Follow-up 2026-05-06T18:00Z — decka-fix:** user reported `decka_coeff.txt` all zeros on real PlyWoodTake1_4 export. Two bugs found + fixed in `external_export.py`: (1) empty `mapping.channel_to_sound` made the decka loop a no-op — fallback derives a contiguous receiver mapping from `mapping.response_channels`; (2) ESPRIT pre-filters signals to response-only channels (esprit_runner.py:194), so `mode_shape` array indices are response-list positions, not measurement-channel indices — fix translates amps_idx through `response_channels` to the measurement-channel index before the channel_to_receiver lookup. Sidecar JSON now exposes `channel_to_receiver` + populated `selected_r_indices`. Validated offline against the user's actual 275-chain project: decka non-zero went from `0/2048` → `896/2048 (= 128 modes × 7 response channels)`. PianoidCore feature SHA `d6d6110`, merge SHA `d444549`. 4 new tests, 36/36 passing. **Live PID still runs old code** — needs modal adapter restart to pick up the fix. | [log](logs/dev-6c54c87f-2026-05-06-144408.md) | 2026-05-06 | Committed + merged locally; awaiting modal adapter restart for live verification |
@@ -28,41 +26,109 @@ zero-T_eff scenarios fully recovered; one residual remains.
 
 ### Deferred follow-ups
 
-1. **Scenario 5 residual zero on PlyWoodTake1_1.** After the cycle-level
-   split fix, Sc 5's worst response channel still gives `T_eff = 0.0 ms`
-   while every other scenario gives ≥ 17 ms. Symptom from
-   `dev-qc02-fix-bad-scenario.png`: in the time-domain overlay, half_A
-   and half_B traces visibly diverge from the very first sample —
-   they share the same impulse onset shape but their amplitudes differ
-   immediately. The diff envelope is right at the 10% threshold from
-   t=0, so the algorithm correctly fires at sample 0.
+1. **Scenario 5 residual zero on PlyWoodTake1_1 — ROOT CAUSE
+   IDENTIFIED 2026-05-06 (dev-qc02 close-out investigation).**
 
-   This appears to be **genuine cycle-to-cycle measurement variance**
-   on this scenario specifically — not an algorithmic artefact. Compare
-   with Sc 19 (`dev-qc02-fix-good-scenario.png`) which shows clean
-   trace overlap until ~150 ms.
+   **Symptom.** After the cycle-level split fix, Sc 5's worst response
+   channel still gives `T_eff = 0.0 ms` while every other scenario
+   recovered to ≥ 17 ms. Chart `dev-qc02-fix-bad-scenario.png` shows
+   half_A and half_B diverging in amplitude from t=0.
 
-   **Investigation actions for the follow-up agent:**
+   **Root cause.** The averager's raw-file regex
+   `_ch(\d+)\.npy` (`scenario_averager.py:_list_raw_files_per_channel`)
+   over-matches: it picks up two distinct artefact types living in the
+   same `raw_recordings/` folder:
 
-   - Look at the raw per-cycle calibration peaks for Sc 5: are some
-     cycles clipping or showing very different impact strengths than
-     others? Inspect `accumulated_cycles[1]` (the worst channel) for
-     intra-cycle amplitude variance.
-   - Check whether the validator/correlation filter is letting through
-     marginal-quality cycles for this scenario. The accept/reject
-     boundary may need tightening for impact-strength outliers.
-   - Compare Sc 5's `n_cycles_per_channel` against the rest. If Sc 5
-     has significantly fewer surviving cycles, the per-half mean has
-     less noise rejection — but our pre-existing `n_kept_measurements`
-     stats showed Sc 5 surviving 10/10 measurements which is the best
-     in the project, so this is unlikely.
-   - If the cycles are genuinely heterogeneous, the right fix may be
-     a **stricter cycle-validation threshold** (in
-     `calibration_quality_config`) or a **cycle outlier-rejection step**
-     in the canonical pipeline (e.g. drop cycles whose normalised peak
-     differs from the median by > 3σ before averaging). Both touch
-     RoomResponse signal_processor / validator code, so this is a
-     larger investigation than dev-qc02 scope allowed.
+   - `raw_<scenario>_NNN_<ts>_chN.npy` — canonical multi-pulse
+     measurements (~364800 samples = `cycle_samples × num_pulses` + extra)
+   - `room_raw_<scenario>_NNN_<ts>_room_chN.npy` — single-pulse
+     "room response" snippets (~28800 samples) generated by a
+     different downstream consumer.
+
+   When the averager treats a `room_raw_*` file as a measurement,
+   `extract_cycles` zero-pads the 28800 samples to 240000 and reshapes
+   into 5 cycles of 48000 samples each. Cycles 1-4 are pure zeros
+   (fail validation as "Weak negative pulse"); cycle 0 may or may not
+   pass depending on the negative-peak-width-samples gate. On Sc 5,
+   cycle 0 of all 5 `room_raw_` files passes (width=4 samples, just
+   above the 0.07 ms = 3.36-sample threshold). On Sc 19, cycle 0
+   fails (width=2 samples, below threshold) — that's why Sc 19 is
+   clean.
+
+   The 5 surviving `room_raw_` cycle-0 entries pollute Sc 5's pool
+   with cycles whose response amplitude is ~50 % LARGER than the
+   canonical cycles (peaks 0.220-0.228 vs 0.144-0.153) — calibration
+   normalisation does not equalise this because the snippets come
+   from a different acquisition path. The cycle-level random split
+   distributes these 5 outlier cycles asymmetrically between half_A
+   (3 outliers) and half_B (2 outliers), producing the systematic
+   amplitude offset visible in the chart from t=0.
+
+   **Evidence.**
+
+   - 80 raw files total in Sc 5: 40 are `raw_*` (5 measurements ×
+     8 channels) and 40 are `room_raw_*` (same shape, different file
+     stem prefix and signal length).
+   - The measurement loop (`ensure_averaged_responses` lines 690-746)
+     runs `extract_cycles` on each file, so the zero-padded
+     `room_raw_*` cycles enter the canonical pipeline alongside real
+     measurements.
+   - Per-measurement validation outcomes for Sc 5:
+     measurements 0-4 (`raw_*`): 4/5 cycles pass per measurement;
+     measurements 5-9 (`room_raw_*`): only cycle 0 passes (rest are
+     padded silence).
+   - Cycle-pool peak-amplitude bimodal distribution: 20 cycles at
+     ~0.148 ± 0.005 (canonical) + 5 cycles at ~0.222 ± 0.005
+     (room_raw outliers).
+   - Compared against Sc 19 (T_eff=160 ms, clean): identical file
+     mix, but Sc 19's `room_raw_*` cycle 0 fails validation on the
+     `negative_peak_width_samples` gate, so no outliers enter the
+     pool.
+
+   **Classification.** This is a **file-type-confusion bug in the
+   averager's discovery logic**, not a hardware fault, signal-quality
+   issue, or QC algorithm bug. The QC step is correctly flagging a
+   real problem (the pool contains heterogeneous cycles); the bug is
+   that the heterogeneity should never have entered the pool.
+
+   **Proposed fix scope: SMALL** (~5-15 LOC).
+
+   Tighten `_list_raw_files_per_channel` in
+   `pianoid_middleware/modal_adapter/scenario_averager.py:129` so it
+   only matches the canonical `raw_*_chN.npy` pattern and excludes
+   `room_raw_*`-prefixed files. Two options:
+
+   - **(A) Anchor the regex on the start prefix:**
+     `re.compile(r'^raw_.*_ch(\d+)\.npy$', re.IGNORECASE)` —
+     drops `room_raw_*` cleanly; keeps every legitimate
+     `raw_<anything>_chN.npy` file.
+
+   - **(B) Use file-size sanity check** — compute
+     `expected_samples = cycle_samples × num_pulses` from metadata,
+     then skip any file whose `np.load(..., mmap_mode='r').shape[0]`
+     is < `expected_samples × 0.5`. More robust against future file-
+     prefix variations but needs metadata available before file
+     enumeration; the current code reads metadata AFTER file
+     enumeration so this requires a small refactor.
+
+   Recommend **(A)** — minimal change, stable contract, matches the
+   live RoomResponse recorder's actual filename convention.
+
+   **Tests required:** new fixture mixing `raw_*` and `room_raw_*`
+   files in `raw_recordings/`; assert the averager picks up only the
+   canonical files and Sc 5's QC produces a non-zero T_eff after
+   the fix.
+
+   **Validation plan post-fix:** re-run the averager on
+   PlyWoodTake1_1 with `force=True`, expect Sc 5's
+   `scenario_min_t_eff_ms` to land in the ~50-200 ms range (in
+   line with the other 29 scenarios) and the new
+   `qc_global_min_t_eff_ms` to no longer be 0.
+
+   **Charts archived:** `dev-qc02-fix-good-scenario.png`,
+   `dev-qc02-fix-bad-scenario.png` — kept in
+   `docs/development/logs/` (not archived) as visual evidence for
+   the follow-up agent.
 
 2. **Threshold + aggregation tuning.** The dev-qc02 algorithm fix
    improves median T_eff substantially but doesn't yet hit the user's
