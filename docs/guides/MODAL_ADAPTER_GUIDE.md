@@ -771,7 +771,7 @@ channel reports a short T_eff:
 - **Scenario + channel selectors** — pick any scenario × response
   channel pair (calibration channel is hidden — QC isn't meaningful
   on it).
-- **Five view modes:**
+- **Six view modes:**
   - *Curves* — overlay `signal_a` (half-A mean, blue) and
     `signal_b` (half-B mean, orange). Where the two diverge is
     where the underlying measurement noise exceeds reproducibility.
@@ -803,6 +803,22 @@ channel reports a short T_eff:
     axis tells the truth at-a-glance: when halves agree, the diff
     is a small flat line near zero. Use the Y-zoom buttons (Step+/
     Step−) to drill into diff detail when needed.
+  - *All-combined* (dev-qcdiff follow-up #3) — every trace at once
+    on a literally **zero-based** Y axis (`yAxis.min = 0`):
+    - signed signals (`signal_a` blue, `signal_b` orange,
+      `signal_a − signal_b` purple) at thinner stroke + reduced
+      opacity (background context role)
+    - envelopes (`env_signal` blue solid, `env_diff` purple solid)
+      at standard width + full opacity (foreground primary role)
+
+    Per the user's explicit choice, signed signals visually clip at
+    `y=0`: only their positive lobes render. The data is NOT
+    rectified or shifted — the negative half is simply outside the
+    rendered Y range. This view exists to evaluate "how much of the
+    signal envelope budget is the half-A vs half-B disagreement
+    consuming?" with the signed signal traces as contextual
+    background. yZoomAnchor: zero-bottom (matches the literal axis
+    floor).
 - **Zoom controls** (dev-qcdiff follow-up #2 — anchor rule) —
   - **Horizontal zoom is slider-only.** The visible X-axis slider
     below the chart (drag handles to crop the time range) is the
