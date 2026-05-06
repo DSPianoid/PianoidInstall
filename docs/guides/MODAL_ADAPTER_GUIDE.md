@@ -803,17 +803,33 @@ channel reports a short T_eff:
     axis tells the truth at-a-glance: when halves agree, the diff
     is a small flat line near zero. Use the Y-zoom buttons (Step+/
     Step−) to drill into diff detail when needed.
-- **Zoom controls** (dev-qcdiff follow-up — slider/button rule) —
+- **Zoom controls** (dev-qcdiff follow-up #2 — anchor rule) —
   - **Horizontal zoom is slider-only.** The visible X-axis slider
     below the chart (drag handles to crop the time range) is the
     sole horizontal control surface. Mouse wheel does NOT zoom X;
     no toolbox rect-zoom; no inline X-zoom buttons. This makes
     the slider the canonical place to set the visible time window.
-  - **Vertical zoom by Step+/Step− buttons** in the panel toolbar:
-    each click scales the visible Y-range by 0.7 (Step+) or 1/0.7
-    (Step−) around the current midpoint — pure scale, never a pan.
-    `shift+wheel` also zooms Y as a power-user shortcut.
+  - **Vertical zoom by Step+/Step− buttons** in the panel toolbar
+    follows a strict per-view ANCHOR rule (no pan along axis):
+    - **zero-bottom** views (*Envelopes*, *Ratio*) — non-negative
+      quantities. Bottom of axis pinned to 0; only the top edge
+      scales. Each Step+ click multiplies the top edge by 0.7;
+      Step− divides by 0.7.
+    - **zero-center** views (*Curves*, *Difference*, *Combined*) —
+      signed quantities. Axis is symmetric around 0; both edges
+      scale together preserving |y|=|y|. Each Step+ click
+      multiplies the half-range by 0.7; Step− divides by 0.7.
+    `shift+wheel` also zooms Y (free-form, no anchor) as a
+    power-user shortcut alongside the buttons.
   - **Reset Zoom** IconButton restores both axes to full range.
+  - **Implementation note** — the dispatch uses ECharts'
+    `dataZoomIndex: 0` (the Y `inside` component) with
+    `startValue`/`endValue` (data-space). An earlier design used
+    `yAxisIndex: [0, 1]` — that property is NOT recognised by
+    ECharts' `dataZoom` action and the dispatch silently fanned
+    out to ALL dataZoom components, including the X-axis slider,
+    which moved the visible time window as a side-effect. Live-
+    verified against ECharts 5.5.0.
 - **Mutable threshold** — Slider [0.05, 0.50] step 0.01 + paired
   monospace numeric input. Default = the project's persisted
   `qc_threshold` (0.10 unless overridden at create time).
