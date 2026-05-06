@@ -699,7 +699,7 @@ channel reports a short T_eff:
 - **Scenario + channel selectors** — pick any scenario × response
   channel pair (calibration channel is hidden — QC isn't meaningful
   on it).
-- **Four view modes:**
+- **Five view modes:**
   - *Curves* — overlay `signal_a` (half-A mean, blue) and
     `signal_b` (half-B mean, orange). Where the two diverge is
     where the underlying measurement noise exceeds reproducibility.
@@ -712,6 +712,13 @@ channel reports a short T_eff:
     auto-scales to the diff range only (~0.005), inflating the diff
     visually to fill the chart and misleading users into reading
     "the diff is huge" when in fact it's ~5% of the signal.
+  - *Envelopes* (dev-qcdiff follow-up) — `env_signal` (solid blue)
+    and `env_diff` (solid purple) on a single signal-scale Y-axis.
+    Dedicated inspection surface for the two smoothed envelopes the
+    threshold algorithm operates on (env_signal × threshold defines
+    the noise budget; env_diff measures the actual half-A vs half-B
+    deviation). The T_eff vertical marker carries through so the
+    user can see where env_diff approaches its budget.
   - *Ratio* — `env_diff / env_signal` time series with the
     threshold drawn as a horizontal dotted line. The first
     sustained crossing is T_eff.
@@ -724,8 +731,17 @@ channel reports a short T_eff:
     axis tells the truth at-a-glance: when halves agree, the diff
     is a small flat line near zero. Use the Y-zoom buttons (Step+/
     Step−) to drill into diff detail when needed.
-- **Mouse interaction** — wheel zooms X, Shift+wheel zooms Y,
-  drag pans. Reset-zoom IconButton restores the full view.
+- **Zoom controls** (dev-qcdiff follow-up — slider/button rule) —
+  - **Horizontal zoom is slider-only.** The visible X-axis slider
+    below the chart (drag handles to crop the time range) is the
+    sole horizontal control surface. Mouse wheel does NOT zoom X;
+    no toolbox rect-zoom; no inline X-zoom buttons. This makes
+    the slider the canonical place to set the visible time window.
+  - **Vertical zoom by Step+/Step− buttons** in the panel toolbar:
+    each click scales the visible Y-range by 0.7 (Step+) or 1/0.7
+    (Step−) around the current midpoint — pure scale, never a pan.
+    `shift+wheel` also zooms Y as a power-user shortcut.
+  - **Reset Zoom** IconButton restores both axes to full range.
 - **Mutable threshold** — Slider [0.05, 0.50] step 0.01 + paired
   monospace numeric input. Default = the project's persisted
   `qc_threshold` (0.10 unless overridden at create time).
