@@ -1149,6 +1149,47 @@ single band to add fade-in or fade-out via the Advanced expander,
 which sets `preset = "custom"` and persists the per-band override
 into the project's persisted band config.
 
+**Hydration back-fill (dev-esrt 2026-05-06).** When a project's
+persisted `esprit_config` was saved BEFORE a per-band field was added
+(e.g. pre-Phase-1 saves lack `start_fade_ms` / `end_fade_ms`), the
+band objects loaded from disk lack the new keys. Without back-fill,
+the EspritConfig advanced table renders the new column as empty
+placeholders for every row — to the user this looks "broken — defaults
+missing" because the EXTENDED preset SHOULD ship with non-null values.
+The frontend hook `useModalAdapter` back-fills missing keys at
+hydration time by joining each saved band to the matching default-
+preset entry on `name`. When the saved preset is `"custom"` (the
+typical case — set by `EspritConfig.handlePresetChange` whenever the
+user edits any field) or unknown, the back-fill falls back to the
+built-in `extended_8band` preset for name matching. Bands the user
+invented from scratch (no name match in any preset) remain
+un-back-filled. The persisted JSON stays in its old shape; React
+state gets back-filled at load time. On the next "Save Settings"
+click, the now-fully-populated band list writes back to disk,
+transparently completing the migration. The pattern is
+field-agnostic: any future band field added to `EXTENDED_BANDS`
+is back-filled the same way without a schema-version bump. Helpers
+exported from `useModalAdapter.js`: `backFillBandDefaults(band, def)`
+and `backFillBandsList(bands, presetName, presetMap)`. See
+`tests/useModalAdapter.bandBackfill.test.jsx` for the full contract.
+
+**Save Settings dirty UX (dev-esrt 2026-05-06).** The Band
+Configuration accordion's "Save Settings" button mirrors the
+Channel Mapping pattern: the button text changes to "Save Settings *"
+and switches from outlined-inherit to contained-primary variant when
+the user has unsaved edits. The dirty flag is owned by
+`useModalAdapter` (`espritConfigDirty`), flipped to `true` only by
+the user-driven `setEspritConfig` (now routed through the
+`stageEspritConfig` wrapper that mirrors `stageChannelRoles` etc.),
+and reset to `false` at end of `syncFromBackend`, on `resetAll`,
+and after a successful `saveEspritConfig` POST (via the post-save
+sync). Auto-load paths inside the hook (`syncFromBackend`,
+bandPresets-hydrate, `resetAll`) call the internal raw
+`setEspritConfig` directly to avoid spuriously marking the form
+dirty. There is no `beforeunload` warning — closing the page or
+opening another project without saving DOES discard the in-memory
+edits (consistent with the Channel Mapping behaviour).
+
 ### Tracking Section
 
 Mode tracking links detected modes across scenarios into **chains** — sequences of the same
