@@ -1762,6 +1762,65 @@ Return frequency + damping for rendering decaying sinewave (uses existing `excit
 
 ---
 
+#### `GET /modal/grid_heatmap/<chain_id>` <a id="per-chain-grid-heatmap"></a>
+
+Per-chain 2-D amplitude data for the grid-layout heatmap inset. Requires
+`layout_type='grid'` mapping; raises 400 on line-layout projects.
+
+Optional query params (dev-md07):
+
+- `approximation`: `"none"` (default) | `"linear"` | `"planar"`. With
+  `"none"`, empty cells get `amplitude: null` (frontend renders
+  transparent). With `"planar"`, empty cells are filled by a 2-D plane
+  fit (`z = a*x + b*y + c` via `np.linalg.lstsq` on the populated
+  cells' `(x_mm, y_mm, value)` tuples — same algorithm
+  [`external_export.approximate_planar`](#export-to-text-files-dev-6c54c87f)
+  uses for the text-export tool); originally-measured cells keep their
+  exact value (the planar fit only fills holes); falls back to the
+  cell-wise mean with < 3 measured cells. `"linear"` is reserved for
+  future 1-D heatmap use; in grid layout it falls back to `"planar"`
+  and the response echoes `approximation: "planar"`.
+- `smoothing`: `float` in `[0.0, 10.0]` (default `0.0`). Gaussian σ in
+  cells, applied via `scipy.ndimage.gaussian_filter` AFTER any
+  approximation fill. Smoothing acts only on cells that already have a
+  value — to fill empty cells the user must also pick an approximation.
+  Out-of-range values are clipped (not rejected) so raw URL queries
+  never 400.
+
+Response (`200`):
+```json
+{
+  "chain_id": 5,
+  "frequency": 432.7,
+  "stability": "stable",
+  "grid_shape": [4, 6],
+  "grid_spacing_mm": 25.0,
+  "approximation": "planar",
+  "smoothing": 0.5,
+  "cells": [
+    {
+      "row": 0, "col": 0,
+      "scenario_index": 0,
+      "x_mm": 0.0, "y_mm": 0.0,
+      "amplitude": 0.83,
+      "is_measured": true
+    },
+    ...
+  ]
+}
+```
+
+The top-level `approximation` and `smoothing` fields echo what the
+backend actually applied (may differ from request: `"linear"` →
+`"planar"`, `smoothing=100` → clipped to `10.0`). `is_measured`
+distinguishes originally-measured cells (`true`) from filled cells
+(`false`) so the frontend can render them with different emphasis. With
+default `approximation="none"` and `smoothing=0.0`, the response is
+byte-compatible with the pre-dev-md07 contract aside from the two echo
+fields and the new per-cell `is_measured` boolean.
+
+---
+
 #### `POST /modal/chains/save`
 
 Replace tracked chains with manually edited version. Re-indexes chain IDs 0..N-1, invalidates feedin data (must re-run feedin after edits), persists to disk. **Legacy bulk-replace path** kept for backward compatibility — prefer the granular per-op endpoints below for new code (they capture undo snapshots and recompute derived stats per chain).

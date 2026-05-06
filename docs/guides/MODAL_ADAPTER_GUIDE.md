@@ -938,6 +938,42 @@ orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
   grid-layout projects. See
   [`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
 
+**Heatmap + shape side-by-side layout (dev-md07).** When BOTH the
+**Heatmap** and **Shape** toggles are active in the chart-sub-toggle row,
+the heatmap inset moves from its default above-scatter slot into a 30/70
+horizontal row below the scatter chart, side-by-side with the SHAPE
+sub-chart (heatmap left, shape right). This pairs the spatial and
+spectral views of the selected chain on a single visual line. When SHAPE
+is off, the heatmap returns to its above-scatter slot. When HEATMAP is
+off, the shape sub-chart renders full-width below the scatter as before.
+
+**Heatmap fill + smoothing controls (dev-md07).** A controls subrow
+appears immediately below the chart-sub-toggle row whenever the HEATMAP
+toggle is on (and the project is grid layout):
+
+- **Heatmap fill**: ToggleButtonGroup with `None` / `Linear` / `Planar`.
+  - `None` (default) — empty cells render transparent, exact pre-dev-md07
+    behaviour.
+  - `Linear` — reserved API for future 1-D heatmap use; in grid layout it
+    falls back to `Planar`.
+  - `Planar` — empty cells get filled by a 2-D plane fit
+    (`z = a*x + b*y + c` via `np.linalg.lstsq` on populated `(x_mm, y_mm,
+    value)` tuples). Same algorithm
+    [`external_export.approximate_planar`](../modules/pianoid-middleware/REST_API.md#export-to-text-files-dev-6c54c87f)
+    uses for the text-export tool, so the heatmap visualisation matches
+    the export at-a-glance. Originally-measured cells are written back
+    verbatim — the planar fit only fills holes.
+- **Smooth σ**: Slider 0–2 step 0.1 (Gaussian σ in cells). Backend applies
+  `scipy.ndimage.gaussian_filter` to the (possibly filled) grid AFTER the
+  approximation pass. Smoothing acts only on cells that already have a
+  value — to fill empty cells the user must ALSO pick an approximation.
+  At σ = 0 (default) smoothing is disabled.
+
+Both controls are forwarded to the backend as query params on
+`GET /modal/grid_heatmap/<chain_id>?approximation=...&smoothing=...`
+(see [REST_API.md](../modules/pianoid-middleware/REST_API.md#per-chain-grid-heatmap)).
+The heatmap refetches automatically whenever either control changes.
+
 **Per-point hover annotation** — hovering a point on the stabilization diagram surfaces
 `Scenario N · Freq F Hz · Chain ID (stability) — K scenarios · Damping D` (dev-c807
 Feature 6). The "K scenarios" field is the chain's `detection_count`, exposing chain
@@ -949,22 +985,64 @@ richness at-a-glance without opening the mode-chains table.
 `weak 139 (Av. Sc. 7) · semi-stable 75 (Av. Sc. 14) · stable 77 (Av. Sc. 20)`. Lets the
 user gauge cluster quality per category at a glance.
 
-**Export selection toolbar** — sits between the summary chips and the diagram (dev-c807
-Feature 4). One-click bulk-action chips for managing the export set (= `selectedChains`
-that drives Apply to Preset):
+**Chart selection vs export selection (dev-md07).** The frontend now
+holds two independent chain-selection populations:
 
-- `+ <stability> (count)` / `−` paired buttons per stability category — add/remove all
-  chains in that category to/from the export set in one click. Includes a
-  `+ spurious (count)` and `− spurious` pair so the user can quickly include OR purge
-  spurious modes without manual toggling.
-- `+ Coverage ≥ 50%` — add every chain whose coverage is at least 50% to the set
-  (high-quality preset candidates).
-- `All` / `Clear` — bulk select all chains / clear the set entirely.
-- Trailing counter: `<selected>/<total> in export set`.
+- **chart selection** — chains the user clicks/highlights in the
+  stabilization diagram. Drives blue path/point styling, the per-chain
+  sub-charts (Damp/Amp/MAC/Shape/Proj), the GridHeatmapInset chainId,
+  the Connect / Dissolve buttons, and the Apply-panel "Delete selected"
+  button. Pure visual focus — never round-trips to the backend. Mutated
+  by clicks in the diagram.
 
-The toolbar mutates the same `selectedChains` state already consumed by Apply to Preset
-— **no new endpoint, no new payload format**. The mode chains table (collapsed by default,
-see below) still works for one-by-one curation.
+- **export selection** — the curated set of chains that drives **Apply
+  to Preset** (`POST /modal/apply_to_preset selected_chains`) AND **Export
+  to Text Files** (`POST /modal/projects/<n>/export_text selected_chains`).
+  Mutated by the per-stability bulk +/- buttons in the toolbar below, the
+  ModeTable checkbox column, and the new "+ Add selected" / "− Remove
+  selected" buttons described next.
+
+Both populations start empty and are pruned together whenever the
+backend chain set changes (merge / delete / dissolve / undo / redo /
+run_tracking / project switch) — keyed on the same
+`tracked_chains_version` counter dev-md06 introduced for heatmap
+freshness. This guards against post-mutation stale-id leaks.
+
+**Export selection toolbar** — sits between the summary chips and the
+diagram (dev-c807 Feature 4 + dev-md07 split). One-click bulk-action
+buttons for managing the export selection:
+
+- `+ <stability> (count)` / `−` paired buttons per stability category —
+  add/remove all chains in that category to/from the export set in one
+  click. Includes a `+ spurious (count)` and `− spurious` pair so the
+  user can quickly include OR purge spurious modes without manual
+  toggling.
+- `+ Coverage ≥ 50%` — add every chain whose coverage is at least 50% to
+  the set (high-quality preset candidates).
+- **`+ Add selected (n)`** (dev-md07) — adds the chart-selected chains
+  (the ones the user has highlighted by clicking in the diagram) to the
+  export set. The `(n)` shows the count of chart-selected chains NOT
+  already in the export set, so the user sees the actual additive
+  effect before clicking.
+- **`− Remove selected (n)`** (dev-md07) — removes the chart-selected
+  chains FROM the export set. The `(n)` shows the count of
+  chart-selected chains currently in the export set (= the count the
+  click will drop).
+- `All` / `Clear` — populate export selection with every chain / clear
+  it entirely.
+- Trailing counter: `<exportSelection>/<total> in export set`. The
+  ModalResultsView header above also shows both populations explicitly:
+  `N chains · M in export · K highlighted`.
+
+The toolbar **never** mutates the chart selection — its only effect is
+on the export set. Symmetrically, clicking points in the diagram only
+changes the chart selection. The two populations are bridged
+exclusively by the explicit `+ Add selected` / `− Remove selected`
+buttons.
+
+The mode chains table (collapsed by default, see below) mutates the
+**export** set via its checkbox column — the table is the row-by-row
+counterpart to the bulk toolbar buttons.
 
 **Manual chain editing** — the chain-editor click handlers (`addPoint`, `connectChains`,
 `breakChain`) match a clicked point against chain detections within ±1 scenario index of
@@ -1014,9 +1092,13 @@ buttons are gated on `data_status.chain_undo_available` /
 scratch — old IDs no longer match), on project switch (new chain set), and on
 `reset`. They are NOT persisted across server restart.
 
-**Mode chains table** — collapsible (hidden by default to maximize diagram space). Sortable
-columns: Freq, Damping, Stability, Detections, Coverage %, Drift. Filters: stability, frequency
-range, min coverage. Stable and semi-stable chains are auto-selected.
+**Mode chains table** — collapsible (hidden by default to maximize
+diagram space). Sortable columns: Freq, Damping, Stability, Detections,
+Coverage %, Drift. Filters: stability, frequency range, min coverage.
+The checkbox column mutates the **export** selection (per the
+dev-md07 chart-vs-export split above); chains are NOT auto-selected on
+load — the user picks which chains belong in the export set, either
+row-by-row in the table or via the bulk-action toolbar above.
 
 ### Apply Section (Feedin & Apply)
 
