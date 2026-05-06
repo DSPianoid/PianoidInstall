@@ -396,7 +396,7 @@ the frontend fetches the project's QC summary
 - A threshold/method footnote (`Threshold: env_diff/env_signal ≥ 10%
   (sustained), method: hilbert, split-half jackknife.`).
 
-- A suggested re-run length: **`floor(median_failing / 50) * 50`** —
+- A suggested signal length: **`floor(median_failing / 50) * 50`** —
   rounded DOWN to the nearest 50 ms for a cleaner number, never below 50.
   Switched from `floor(global_min / 50) * 50` to median-based in dev-cp02
   because the post-qc02 algorithm exposed scenarios with T_eff ≈ 0 ms
@@ -404,18 +404,39 @@ the frontend fetches the project's QC summary
   suggestion to 50 ms — useless. The median of failing scenarios is a
   representative target for the substandard population.
 
-- Three actions: **Keep current N ms** (close the dialog, leave project
-  as-is — the QC chip on ProjectInfoCard still flags it), **Show details**
-  (expand a per-scenario / per-channel T_eff table sorted worst-first),
-  and **Re-run with N ms** (calls `POST /modal/projects/<n>/reaverage`
-  with the suggested length AND the user's original `qc_threshold`
-  preserved; the backend re-runs the averager with `force=true`, refreshes
-  QC, and persists the new `ir_working_length_ms` to `project.json`).
+- Three actions (revised in dev-cp02 followup #2):
+  - **Proceed** — closes the dialog and leaves the project at the
+    requested length. The Eff sig chip on ProjectInfoCard still surfaces
+    the warning at the project level, so the user can revisit later.
+    Replaces the former "Keep current N ms" button.
+  - **Show details** — expands a per-scenario / per-channel T_eff
+    table sorted worst-first (unchanged from dev-cp02).
+  - **Go Back** — closes the EffSigLen dialog AND reopens the
+    `CreateProjectDialog` with the **signal-length field
+    pre-populated to the suggested value** (other fields keep their
+    factory defaults). The user can then manually adjust + click
+    Create again. Replaces the former in-place "Re-run with N ms"
+    action — the user now drives a fresh Create call rather than
+    triggering a hidden reaverage. The previous Create attempt's
+    project remains in their project list (backend auto-suffixes the
+    new name on collision); the user can delete the original via the
+    project browser if not needed.
 
 The follow-up prompt only fires when the user picked the "Re-average from
 raw" mode AND a numeric `ir_working_length_ms` was set — "Keep existing"
 mode opts the user out of the QC truncation suggestion, since they
 explicitly asked to preserve the existing averages.
+
+**Post-create Snackbar (dev-cp02 followup #2).** The post-create summary
+("Project Foo created. 30 scenarios imported. ...") is now rendered as
+an MUI dark-themed Snackbar at bottom-center of the Modal Adapter pane,
+6 s auto-hide, dismissible. This replaces the previous `window.alert()`
+that triggered Chrome's native "Confirm action on localhost:3000"
+system-notification styling. Severity is `success` (or `warning` when
+at least one scenario failed averaging — `summary.errors > 0`); for
+`.pianoid-project` archive imports a brief `info` Snackbar reports the
+import. Errors during the import itself are surfaced through the
+existing `setError` → inline Alert pattern (unchanged).
 
 #### Auto-averaging missing `averaged_responses/`
 
