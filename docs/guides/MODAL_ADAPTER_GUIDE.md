@@ -1342,6 +1342,18 @@ the per-stage MAC thresholds (`nm_nucleus_mac_threshold`, `nm_merge_min_mac`,
 editable rows in the same panel — see
 [`MODE_TRACKING_NUCLEI_MERGE.md` § 2](../development/MODE_TRACKING_NUCLEI_MERGE.md#2-three-stage-pipeline).
 
+As of dev-robust (2026-05-07) the default `nuclei_merge` per-fragment
+aggregations (`frequency_mean`, `frequency_range`, `damping_mean`,
+`_reference_shape`) use outlier-robust estimators (MAD-clipped means,
+percentile range, iterative MAC-filter shape mean). The damping hard
+gate `nm_merge_max_damping_diff_pct` was raised from 1.0 (100%) to 1.5
+(150%) at the same time. Both changes are paired and validated on
+`PlyWoodTake1_grid` to fix a Stage-1 + Stage-2 fragmentation bug in
+boundary-aligned configs — see
+[`MODE_TRACKING_NUCLEI_MERGE.md` § 6 "Robust per-fragment statistics"](../development/MODE_TRACKING_NUCLEI_MERGE.md#6-robust-per-fragment-statistics-dev-robust-2026-05-07).
+The master switch `nm_robust_stats` defaults to `True`; flip it (with
+the gate restored to 1.0) for legacy / regression behaviour.
+
 **Settings freeze rules.** Channel Mapping and Band Configuration are locked once ESPRIT
 has been run (their values shape the extraction so changing them post-extraction would
 silently invalidate per-scenario results). Tracking-section inputs (Tracking Method,

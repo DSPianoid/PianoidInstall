@@ -116,7 +116,7 @@ Knobs:
 |---|---|---|
 | `nm_merge_max_freq_diff_pct` | 0.05 | only consider nuclei within this freq diff |
 | `nm_merge_min_mac` | 0.5 | MAC HARD GATE (any merge requires MAC ≥ this) |
-| `nm_merge_max_damping_diff_pct` | 1.0 | damping HARD GATE (>100% diff = reject) |
+| `nm_merge_max_damping_diff_pct` | 1.5 | damping HARD GATE (>150% diff = reject — raised from 1.0 by dev-robust 2026-05-07; see § 6 "Robust per-fragment statistics") |
 | `nm_merge_w_coverage` | 0.4 | weight on combined coverage component |
 | `nm_merge_w_overlap` | 0.4 | weight on overlap penalty (subtractive) |
 | `nm_merge_w_freq` | 0.1 | weight on freq proximity component |
@@ -242,7 +242,158 @@ Set to `False` to opt out (regression-test-only scenario).
 
 ---
 
-## 6. Test Coverage
+## 6. Robust per-fragment statistics (dev-robust, 2026-05-07)
+
+**Status:** Default behaviour as of 2026-05-07. Master switch
+`TrackingConfig.nm_robust_stats = True`; flip to `False` for legacy
+arithmetic-mean / min-max aggregations (regression testing, emergency
+rollback).
+
+### Why
+
+Naïve aggregations (`sum / N`, `min`, `max`) propagate a single ESPRIT
+outlier detection — common with low-decimation Ultra-Low-band ESPRIT
+which has noisy damping estimates — straight into the per-fragment
+statistics that drive Stage-2 hard gates. Result: two fragments of the
+SAME physical mode get rejected on damping difference because one
+fragment captured a 5–15× damping outlier from a single bad ESPRIT
+estimate, even though every other detection in both fragments agrees.
+
+The fragmentation root cause is the Stage-1 window-grid alignment
+(documented in
+[`logs/dev-grid-stage1-fragmentation-analysis.md`](logs/dev-grid-stage1-fragmentation-analysis.md)).
+The propagation root cause is the per-fragment statistic aggregation,
+covered here. Together they produced the dev-grid skip=15 reproducible
+production bug — two final chains for a single 60 Hz physical mode on
+~33% of typical Ultra-Low band configs (see
+[`logs/dev-grid-stage1-fragmentation-followup.md`](logs/dev-grid-stage1-fragmentation-followup.md)
+§ A).
+
+### Susceptible aggregations + estimator choices
+
+| Statistic | Site | Estimator | Default param |
+|---|---|---|---|
+| `frequency_mean` | `ModeChain.finalize` | MAD-clipped mean | `c=3.0` (clean Gaussian-like) |
+| `frequency_range` | `ModeChain.finalize` | percentile (lo, hi) | `10/90` (n>=5 only) |
+| `damping_mean` | `ModeChain.finalize` | MAD-clipped mean | `c=2.5` (heavy outliers) |
+| `_reference_shape` | `_detect_nuclei`, `_merge_nuclei_pairwise`, `_assign_strays` | iterative MAC-filter mean | `mac_threshold=0.5`, `max_iter=3` |
+
+Per-statistic rationale (full discussion in
+[`logs/dev-grid-robust-stats-analysis.md`](logs/dev-grid-robust-stats-analysis.md)
+§ Step 2):
+
+- **Frequency MAD c=3.0.** ESPRIT frequencies of the same mode across
+  scenarios cluster tightly (0.05–0.3 Hz spread on a 60 Hz mode); true
+  outliers are 1–2 Hz away and clearly separable. c=3 is the standard
+  99.7%-coverage choice for approximately Gaussian data — for clean
+  inputs the robust mean equals the arithmetic mean.
+- **Damping MAD c=2.5.** Damping outliers are LARGE (3–10× median).
+  c=2.5 cleanly separates them; c=3 may keep moderate outliers.
+  MAD-clip + mean (not median outright) keeps the useful width
+  information after outliers are removed.
+- **Frequency range 10/90 percentile.** `min`/`max` ARE the outliers.
+  Direct trimming via percentiles is the obvious answer. 10/90 (not
+  5/95) gives ~3 samples on each tail for stable estimates at typical
+  N=8–30 detections.
+- **Reference shape iterative MAC filter.** Per-component trimming of
+  complex vectors destroys vector geometry. Geometric median (Weiszfeld)
+  is correct in principle but expensive. The iterative MAC filter
+  re-uses the same MAC machinery already in the pipeline:
+  `mean ← arithmetic mean → MAC each shape vs mean → drop MAC < 0.5 →
+  recompute mean → repeat ≤ 3 times`. Always retains ≥ 3 shapes
+  (degenerate otherwise — falls back to top-3 by MAC).
+
+### Damping-gate band
+
+Robust damping mean alone is insufficient on the dev-grid skip=15
+case: it drops the bug-case ratio from 237.9% to 104.5%, still over
+the 100% gate. The combined fix raises `nm_merge_max_damping_diff_pct`
+from `1.0` (100%) to `1.5` (150%). Sweep on the prototype dataset:
+
+| gate | skip=15 (bug) | skip=20 | skip=25 | skip=50 (different modes 59.10 + 60.72 Hz) |
+|---:|---:|---:|---:|---:|
+| 100% | **2 chains (bug)** | 1 | 1 | 2 (correctly distinct) |
+| 120% | 1 (FIXED) | 1 | 1 | 2 (kept distinct) |
+| **150%** | **1 (FIXED, recommended)** | **1** | **1** | **2 (kept distinct)** |
+| 200% | 1 | 1 | 1 | 2 (kept distinct) |
+| 300% | 1 | 1 | 1 | **1 (FALSE merge)** |
+
+**Safe band: 120–200%.** 150% chosen for margin — it merges the
+boundary-aligned fragments while keeping genuinely distinct modes
+separate. False merges only appear at gates ≥ 300%.
+
+### Configuration
+
+| Field | Default | Role |
+|---|---|---|
+| `nm_robust_stats` | `True` | Master switch: True → robust path, False → legacy naïve path |
+| `nm_robust_freq_mad_c` | `3.0` | MAD clip multiplier for `frequency_mean` |
+| `nm_robust_damping_mad_c` | `2.5` | MAD clip multiplier for `damping_mean` |
+| `nm_robust_range_lo_pct` | `10.0` | lower percentile for `frequency_range` |
+| `nm_robust_range_hi_pct` | `90.0` | upper percentile for `frequency_range` |
+| `nm_robust_shape_mac_threshold` | `0.5` | MAC inlier threshold for iterative shape mean |
+| `nm_robust_shape_max_iter` | `3` | max iterations of MAC outlier filter |
+| `nm_merge_max_damping_diff_pct` | `1.5` (was `1.0`) | Damping HARD GATE — see safe band table above |
+
+### Production validation evidence (PlyWoodTake1_grid skip=15)
+
+End-to-end run of `track_modes_nuclei_merge` on the live dataset at
+the boundary-aligned `skip_start_ms=15.0` case:
+
+| Path | 60 Hz chains | Detections | damping_mean |
+|---|---|---|---|
+| Legacy (`nm_robust_stats=False`, gate=100%) | **2** | 8 + 11 | 1.140% / 0.607% |
+| Robust (default, gate=150%) | **1** | 19 | 0.456% |
+
+The single merged chain holds the same 19 detections that the legacy
+path split into two fragments. Validation matches dev-grid's prototype
+result exactly (research notes Step 4a). Captured in
+`tests/system/test_robust_stats_e2e.py` — auto-skipped when the
+PlyWoodTake1_grid dataset is not on the test machine.
+
+### Backwards compatibility
+
+- Default flip from naïve → robust changes Stage-1 nucleus
+  `frequency_mean` / `frequency_range` / `damping_mean` /
+  `_reference_shape` for any chain whose detections include outliers.
+  Clean datasets (no outliers) get bit-identical results because all
+  inliers stay in the MAD-clipped set and the mean equals the
+  arithmetic mean. The shape filter retains all shapes when MACs are
+  uniformly above 0.5.
+- The `nm_merge_max_damping_diff_pct` raise from 1.0 → 1.5 is paired
+  with the robust mean. Used together they merge the dev-grid
+  fragments without false-merging genuinely distinct modes (validated
+  on PlyWoodTake1_grid; second-dataset validation is recommended
+  before deploying to production datasets with densely-packed modes).
+- Set `nm_robust_stats=False` AND `nm_merge_max_damping_diff_pct=1.0`
+  to recover pre-2026-05-07 behaviour exactly. The legacy path is
+  preserved as a regression-test safety net (covered by
+  `tests/unit/test_mode_tracking_robust_integration.py
+  ::test_robust_false_keeps_fragments_separate`).
+
+### Research lineage
+
+This production change was originally implemented and validated as a
+research-only prototype by dev-grid. Production code was untouched
+during the research phase. Files referenced (research-only, NOT shipped
+to production):
+
+- `tools/grid_search/robust_stats.py` — original prototype helpers
+- `tools/grid_search/mode_tracking_robust.py` — full prototype
+  replacement of `track_modes_nuclei_merge`
+- `tools/grid_search/run_robust_eval.py`,
+  `tools/grid_search/debug_robust_gate_sweep.py` — measurement
+  harnesses
+
+dev-robust translated the prototype into production code (new
+`pianoid_middleware/modal_adapter/esprit/_robust_stats.py` module,
+plumbed into `mode_tracking.py` + `mode_tracking_nuclei.py`) preserving
+the prototype's public API surface (estimator names + parameters) so
+the research artefacts remain valid validation references.
+
+---
+
+## 7. Test Coverage
 
 `PianoidCore/tests/unit/test_mode_tracking.py`:
 
@@ -269,12 +420,55 @@ Set to `False` to opt out (regression-test-only scenario).
 - `TestGridLayoutSupport` — 1 smoke test: nuclei_merge does not raise
   on `layout_type="grid"`.
 
-All 21 nuclei tests + 51 existing `test_mode_tracking.py` tests
-(including 3 new wire-up tests) pass.
+All 22 nuclei tests + 53 existing `test_mode_tracking.py` tests
+(including 3 wire-up tests) pass.
+
+`PianoidCore/tests/unit/test_robust_stats.py` (dev-robust, 2026-05-07):
+
+- `TestRobustMeanMad` — 11 cases covering empty / single-element /
+  three-element fallbacks, all-equal degenerate, symmetric clean
+  inputs, single-outlier clip, realistic damping outlier (replays the
+  dev-grid scenario-11 5.19% outlier), two-sided outlier clip,
+  numpy-array input, and the `c` clip multiplier effect.
+- `TestRobustRange` — 7 cases covering empty / n<5 fallback (`min`,
+  `max`), symmetric clean within bounds, single outlier excluded,
+  monotonicity, n=5 boundary path, custom (25, 75) percentiles.
+- `TestRobustShapeMean` — 9 cases covering empty / single / two-shape
+  arithmetic-mean fallbacks, clean-similar all-inliers, single
+  orthogonal outlier filtered, ≥3 shape retention guarantee, NaN /
+  all-zero shape handled as MAC=0, max_iter respected, complex
+  output dtype.
+
+`PianoidCore/tests/unit/test_mode_tracking_robust_integration.py`
+(dev-robust, 2026-05-07):
+
+- `TestRobustStatsIntegration` — 4 cases: synthetic dataset reproducing
+  the dev-grid skip=15 boundary-aligned + damping-outlier pattern
+  (Stage-1 fragments BOTH paths into 2 nuclei). With
+  `nm_robust_stats=True` Stage-2 merges the fragments into a single
+  16-detection chain. With `nm_robust_stats=False` and
+  `nm_merge_max_damping_diff_pct=1.0` Stage-2 keeps the fragments
+  separate (legacy regression safety net). Clean-dataset sanity check
+  produces identical results on both paths. Default-config sanity check
+  pins `nm_robust_stats=True` and `nm_merge_max_damping_diff_pct=1.5`.
+
+`PianoidCore/tests/system/test_robust_stats_e2e.py` (dev-robust,
+2026-05-07):
+
+- `TestRobustStatsE2E::test_skip15_60hz_mode_emits_single_chain_with_robust`
+  — production end-to-end validation. Loads PlyWoodTake1_grid via the
+  dev-grid harness `tools/grid_search/grid_search_ultra_low.py`, runs
+  ESPRIT on the Ultra-Low band at `skip_start_ms=15.0`, runs production
+  `track_modes_nuclei_merge` with default config. Asserts a single
+  60 Hz chain emitted (pre-fix: 2 chains). Auto-skipped when the
+  dataset or the harness module is missing.
+
+All new tests (32 in total) pass alongside the 75 pre-existing
+mode-tracking tests.
 
 ---
 
-## 7. Out of Scope (future work)
+## 8. Out of Scope (future work)
 
 | Item | Status | Notes |
 |---|---|---|
@@ -286,7 +480,7 @@ All 21 nuclei tests + 51 existing `test_mode_tracking.py` tests
 
 ---
 
-## 8. Default Promotion (dev-d773, 2026-05-05)
+## 9. Default Promotion (dev-d773, 2026-05-05)
 
 **Status:** Default `TrackingConfig.tracking_method` changed from `"sliding_window"` to
 `"nuclei_merge"`.
