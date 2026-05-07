@@ -204,6 +204,46 @@ executes on the main thread. The frontend drives the per-scenario loop, sending
 one `POST /modal/run_esprit` per scenario. Before ESPRIT starts, the frontend
 pauses synthesis on port 5000 (`POST /pause_synthesis`) to free GPU resources.
 
+### Audio-driver coordination — preset load vs. modal-adapter measurement (dev-mastop, 2026-05-07)
+
+The Pianoid main backend (5000) and the Modal Adapter (5001) both touch the
+same audio device:
+
+- **Pianoid main backend** opens the audio driver (SDL3 / SDL2 / ASIO) on
+  every `POST /load_preset` — `load_preset` always destroys any existing
+  engine instance and re-initialises (which re-opens the driver).
+- **Modal Adapter** opens the audio device only DURING measurement
+  collection — `MeasurementSession._invoke_collection` constructs a
+  `RoomResponseRecorder` that holds the SDL3 device for the duration of
+  the scenario, then releases it on completion / cancel / error.
+
+Windows grants exclusive ownership to one application at a time, so the
+two backends cannot both hold the device. The legacy half of this
+contract is `MeasurementSession._pause_backend` → `POST /pause_synthesis`
+(the MA tells Pianoid to free the driver before recording). The
+preset-load direction is enforced as a frontend pre-flight in
+`PianoidTuner.js → ensureBackendAndLoadPreset`:
+
+1. If `useBackendProcess` reports `modalRunning === true`, the frontend
+   POSTs `/api/stop-modal-adapter` on the launcher and `await`s.
+2. The launcher's `gracefulShutdown(modalProcess, 5001)` posts
+   `http://127.0.0.1:5001/shutdown`, polls process liveness for up to
+   3 s, then `taskkill /T /F` as fallback. The HTTP response only
+   returns once the MA process has exited, so the OS has reclaimed any
+   audio device handle by then.
+3. `modal_adapter_server.shutdown()` calls
+   `MeasurementSession.cancel_and_wait(timeout=5.0)` BEFORE scheduling
+   SIGTERM, so the recorder's audio-device handle is released
+   deterministically (rather than relying on OS-level process-death
+   cleanup, which races the next `/load_preset` call).
+4. After the MA stop completes, `ensureBackendAndLoadPreset` continues
+   its existing flow (probe `/health` on 5000, kill stale, start backend
+   if needed, `POST /load_preset`).
+
+The pre-flight runs on **every** preset load — not just when starting a
+fresh backend — because every `/load_preset` re-opens the audio driver
+on the running backend too.
+
 ---
 
 ## Threading Model

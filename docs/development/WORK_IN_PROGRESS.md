@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mastop | Stop Modal Adapter (port 5001) before Pianoid preset load — close MA's audio driver before Pianoid main backend opens its own | [dev-mastop-2026-05-07-184337.md](logs/dev-mastop-2026-05-07-184337.md) | 2026-05-07T18:43Z | Step 1b — locks acquired |
 
 ---
 

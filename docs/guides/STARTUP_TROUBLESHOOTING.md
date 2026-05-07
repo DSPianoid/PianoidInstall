@@ -345,6 +345,38 @@ Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_pres
 3. Check Windows audio output device — ensure the correct playback device is selected in Windows Sound settings
 4. Try playing a note: `curl -X POST http://localhost:5000/play -H "Content-Type: application/json" -d '{"pitch": 60, "velocity": 100}'`
 
+### Symptom: Pianoid loads preset but audio is silent / distorted right after running a Modal Adapter measurement
+
+The Modal Adapter (port 5001) opens the SDL3 audio device during a
+measurement scenario. If the user starts a Pianoid preset load while MA
+still owns the device, both backends fight for exclusive ownership and
+the result is silent or distorted output.
+
+**Auto-fix in place (dev-mastop, 2026-05-07):** the frontend's
+`ensureBackendAndLoadPreset` (PianoidTuner.js) checks
+`useBackendProcess.modalRunning` on every preset load. When MA is up, it
+POSTs `/api/stop-modal-adapter` on the launcher and `await`s before
+opening the Pianoid audio driver. The launcher's `gracefulShutdown` calls
+MA's `/shutdown`, which calls `MeasurementSession.cancel_and_wait()` to
+release the recorder's audio handle BEFORE process exit. See
+[SYSTEM_OVERVIEW.md — Audio-driver coordination](../architecture/SYSTEM_OVERVIEW.md#audio-driver-coordination--preset-load-vs-modal-adapter-measurement-dev-mastop-2026-05-07).
+
+**Manual recovery if the auto-fix fails** (e.g. launcher down, frontend
+not reachable):
+
+```bash
+# Stop MA via the launcher (preferred — cleanest audio-device release)
+curl -X POST http://127.0.0.1:3001/api/stop-modal-adapter
+
+# Or kill MA directly by port (if launcher is unreachable)
+pid=$(netstat -ano 2>/dev/null | grep ':5001 .*LISTENING' | awk '{print $NF}' | head -1)
+[ -n "$pid" ] && [ "$pid" != "0" ] && taskkill //F //PID "$pid"
+
+# Then re-load the preset (or restart the backend)
+curl -X POST http://127.0.0.1:3001/api/stop-backend
+curl -X POST http://127.0.0.1:3001/api/start-backend
+```
+
 ---
 
 ## Frontend Startup Failures
