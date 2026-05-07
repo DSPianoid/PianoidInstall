@@ -846,7 +846,7 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
 4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
-5. **Pre-handoff process hygiene (MANDATORY when handing off to user testing).** If the change you just shipped is going to be tested by the user (any UI change, any backend behavior change, any change that the user will exercise via browser or REST), you MUST close all running server instances and restart fresh BEFORE reporting "ready to test". This eliminates the entire class of "user reports same bug after fix landed" caused by stale frontend bundles, stale backend Python modules, or HMR connections that dropped when the dev server restarted.
+5. **Pre-handoff process hygiene (MANDATORY).** Always leave a CLEAR environment before reporting "ready to test". Kill all running server instances. **Do NOT restart unless explicitly instructed to.** The user prefers to start fresh manually so their browser tab is guaranteed to bind to a known-new bundle on first connect (no HMR ghost state, no stale dev-server cache, no chance the orchestrator's restart timing misaligns with the user's hard-refresh).
 
    **Procedure:**
    ```bash
@@ -860,16 +860,15 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
    sleep 2
    # Verify clear
    netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000|5001) " && echo "WARN: ports still in use" || echo "All Pianoid ports clear"
-
-   # Then restart the canonical stack from scratch via the launcher API or start-pianoid.bat
-   # so the user has a known-good environment for re-testing.
    ```
 
-   **Then in your Phase 1 report:** include the new PIDs serving on 3000 / 5001 / etc. so the user (and orchestrator) can verify they are testing against the post-fix code, not a stale bundle.
+   **Then in your Phase 1 report:** confirm all 4 Pianoid ports are clear, list which PIDs were killed, state explicitly that the stack is DOWN and the user should start fresh.
 
-   **Why this is mandatory:** documented incident on 2026-05-07 — dev-bandui shipped a hydration-race fix; CRA dev server was restarted as a side effect; the user's open browser tab kept running the pre-fix bundle on a dropped HMR connection; user reported "Same" bug after fix landed → 30 minutes of misdirected investigation before the agent re-verified that the fix actually worked and the user just needed a hard-refresh against a freshly-started server. Restarting the stack at handoff makes the post-fix bundle the only one available, and any cached browser tab that fails to refresh will get a server error (visible) instead of an out-of-date page (silent).
+   **Restart only when the user explicitly says so** (e.g. "restart the stack", "bring it up", "run start-pianoid.bat"). The orchestrator may also instruct you to restart in cases where the user is on Telegram and can't run the launcher themselves — in that case spawn detached background processes via `Start-Process -WindowStyle Hidden` (Bash run_in_background hits the long-running-process gate).
 
-   **Skip this step ONLY** if the change is documentation-only or research-only with no user-runtime impact. When in doubt, restart.
+   **Why kill-but-don't-restart is the default:** documented incident on 2026-05-07 — multiple iterations of dev-bandui fixes; the agent restarted the stack as a side effect of "ready to test" handoffs; user's browser tab kept connecting to whichever bundle the agent last started, leading to ambiguity about which fix was being tested; user repeatedly reported "Same" bug. Resolution: agent always leaves clean (DOWN) state; user manually runs `npm run dev` / `start-pianoid.bat` and hard-refreshes — guarantees a fresh server-tab binding.
+
+   **Skip this step ONLY** if the change is documentation-only or research-only with no user-runtime impact. When in doubt, kill (do not restart).
 
 **STOP HERE.** Report changes to the orchestrator/user and wait for approval. Do NOT proceed to Phase 2 until explicitly told to.
 
