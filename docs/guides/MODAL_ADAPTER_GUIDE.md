@@ -1678,6 +1678,7 @@ Adapter (no separate per-band JSON dump required).
 | `Q_coeff_Q.txt` | 128 x 1 | Q values: `Q = 1 / (2*zeta)`, with sentinel `BIGQ = 1e6` when zeta <= 0 |
 | `Q_coeff_E.txt` | 128 x 1 | Damping ratio zeta directly |
 | `decka_coeff.txt` | 128 x 16 | Per-mode receiver amplitudes, phase-aligned to the strongest receiver per mode |
+| `mode_amplitudes.csv` | n_modes x (2*n_scenarios) + 1 header row | Per-(mode, scenario) **complex** amplitudes split into two columns per scenario (`re`, `im`). See "Complex amplitudes CSV" below. |
 | `stitched_results.json` | sidecar | Same data in JSON form for inspection / re-use |
 
 When fewer than 128 chains are exported the remaining slots are padded with
@@ -1762,6 +1763,46 @@ The sidecar `stitched_results.json` echoes the resolved mapping under
 `channel_to_receiver` (and `selected_r_indices` for backwards
 compatibility with consumers that read the original Stage-2 metadata)
 so users can verify which receiver each response channel landed on.
+
+**Complex amplitudes CSV** (dev-camp 2026-05-07):
+
+`mode_amplitudes.csv` is an **additive** export written alongside the 5
+fixed-name `.txt` files and the JSON sidecar. Unlike `decka_coeff.txt`
+(which is per-mode x per-receiver and collapses the imaginary part by
+phase-aligning to the strongest receiver), this file preserves the full
+**complex amplitude per (chain, scenario)** so consumers can inspect the
+per-mode signal amplitude at every excitation point with phase intact.
+
+Layout:
+
+* **Rows**: one row per chain, in the same order the rest of the bundle
+  uses (the user's selected-chains set, sorted by `frequency_mean`).
+  Row index is implicit (no `mode_idx` column) -- matches the
+  headerless-row convention of the sibling `.txt` files.
+* **Columns**: `0_re, 0_im, 1_re, 1_im, ..., (N-1)_re, (N-1)_im` where
+  `N = num_scenarios` in the project. The integer `k` in `k_re`/`k_im`
+  is the **positional index** in the canonical sorted scenario list
+  (the same list that goes into `stitched_results["names"]`), NOT the
+  folder-name-derived scenario index. To map back to folder-derived
+  scenario indices, read `stitched_results["names"][k]`.
+* **Missing detections**: cells where the chain has no detection at the
+  given scenario are written as `0.000000, 0.000000`.
+* **Format**: standard CSV (comma separator), `%.6f` formatting, header
+  row first. Unlike the `.txt` siblings (tab-separated, no header), this
+  file uses the conventional CSV idiom.
+* **Length**: only the **effective** modes are written (no placeholder
+  rows of zeros). For a project with 30 chains exported, the CSV has
+  `1 + 30` lines, not `1 + 128`.
+
+Computation: each (chain, scenario) value is the complex inner product
+`<shape, conj(ref)>` where `shape` is the detection's per-channel
+complex `mode_shape` (restricted to response channels) and `ref` is the
+chain's reference shape -- the unit-normalised mean of all the chain's
+per-detection shapes. This is the same projection
+`extract_signed_shapes_per_chain` uses for `decka_coeff` packing,
+except the imaginary part is preserved instead of being collapsed via
+`np.real(...)`. Magnitude tells you how much of the mode is present at
+that scenario; phase tells you the bridge sign-flip pattern.
 
 ---
 

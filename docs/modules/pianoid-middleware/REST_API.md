@@ -2038,11 +2038,12 @@ Responses:
 
 ---
 
-#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f)
+#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f, extended dev-camp 2026-05-07)
 
 Write the 5 RoomResponse-format text files (`Ci_coef_cos.txt`, `omega_coef.txt`,
 `Q_coeff_Q.txt`, `Q_coeff_E.txt`, `decka_coeff.txt`) plus a
-`stitched_results.json` sidecar to disk. This is the runtime port of the
+`stitched_results.json` sidecar AND a `mode_amplitudes.csv`
+(per-(mode, scenario) complex amplitudes) to disk. This is the runtime port of the
 `Merge_res_New.py` Stage-2 generator from the RoomResponse repository,
 adapted to consume already-aggregated mode chains directly from the Modal
 Adapter's `_tracked_chains`.
@@ -2069,7 +2070,7 @@ Request body (all fields optional):
 
 ```json
 {
-  "message": "Exported 6 text files to D:/.../export_text (12 modes + 116 placeholders)",
+  "message": "Exported 7 text files to D:/.../export_text (12 modes + 116 placeholders)",
   "output_dir": "D:/.../modal_adapter/export_text",
   "files": {
     "Ci_coef_cos.txt": "D:/.../Ci_coef_cos.txt",
@@ -2077,7 +2078,8 @@ Request body (all fields optional):
     "Q_coeff_Q.txt":   "D:/.../Q_coeff_Q.txt",
     "Q_coeff_E.txt":   "D:/.../Q_coeff_E.txt",
     "decka_coeff.txt": "D:/.../decka_coeff.txt",
-    "stitched_results.json": "D:/.../stitched_results.json"
+    "stitched_results.json": "D:/.../stitched_results.json",
+    "mode_amplitudes.csv": "D:/.../mode_amplitudes.csv"
   },
   "n_modes_exported": 12,
   "n_modes_padded":   116,
@@ -2089,6 +2091,14 @@ Request body (all fields optional):
 or `"planar"` (grid layout — uses `np.linalg.lstsq` on `(x, y, value)` tuples
 to fit `z = a*x + b*y + c`). The choice is auto-determined by the project's
 `mapping.layout_type`.
+
+`mode_amplitudes.csv` (dev-camp 2026-05-07) is an additive companion to
+the 5 fixed-name `.txt` files. It holds the per-(mode, scenario) complex
+amplitudes -- one row per chain, columns
+`0_re, 0_im, 1_re, 1_im, ..., (N-1)_re, (N-1)_im` where `N` is the
+number of scenarios. Cells with no detection write `0.000000, 0.000000`.
+Only the effective modes are written (no placeholder rows). See
+[`MODAL_ADAPTER_GUIDE.md` — Complex amplitudes CSV](../../guides/MODAL_ADAPTER_GUIDE.md#export-to-text-files-dev-6c54c87f).
 
 Error responses:
 
