@@ -570,3 +570,35 @@ cannot reproduce without the live dataset.
   whatever chains the backend serves.  User selections persist within a single tracking
   run; they are invalidated by re-running tracking (this is true regardless of the
   algorithm switch — re-running tracking always invalidates chain_ids).
+
+### Frontend completion (dev-nucl-default, 2026-05-07)
+
+The dev-d773 change updated the backend `TrackingConfig` dataclass only.  Several
+adjacent default-setting paths still referenced the old `"sliding_window"` default and
+in one case (the frontend payload constructor) made `"sliding_window"` outright
+unreachable from the UI:
+
+| Location | dev-d773 | dev-nucl-default fix |
+|---|---|---|
+| `mode_tracking.py:102` `TrackingConfig.tracking_method` | `nuclei_merge` | unchanged |
+| `mode_tracking.py:855-862` `track_modes_along_bridge` docstring | said "(default)" on sliding_window | rewritten — nuclei_merge listed first as default |
+| `routes.py:42` `DEFAULT_TRACKING_PARAMS` (used by `GET /modal/defaults`) | no `tracking_method` key | added `'tracking_method': 'nuclei_merge'` |
+| `routes.py:1590-1594` `/modal/defaults` response payload | `tracking_params_default` did not include `tracking_method` | now includes the key so the frontend mirror cannot drift |
+| `routes.py:1045-1049` `/modal/run_tracking` docstring | said "defaults to sliding_window" | updated to nuclei_merge |
+| `modal_adapter.py:3335-3340` `run_tracking` docstring | "(default for line+grid)" beside sliding_window | updated to nuclei_merge |
+| `modal_adapter.py:3383-3393` grid-rejects-sequential fallback | hardcoded fallback to `"sliding_window"` | now reads the dataclass default at runtime — auto-tracks future flips |
+| `esprit_runner.py:418-432` log message | hardcoded `[sliding_window, ...]` | now logs `config.tracking_method` |
+| `useModalAdapter.js:32` `DEFAULT_TRACKING_PARAMS.tracking_method` | `'sliding_window'` | `'nuclei_merge'` |
+| `useModalAdapter.js:1567-1582` runTracking payload constructor | stripped the field when method `=== 'sliding_window'` (made sliding_window unreachable) | always sends the explicit method |
+| `ModalAdapter.jsx:1017` Select fallback | `\|\| "sliding_window"` | `\|\| "nuclei_merge"` |
+| `ModalAdapter.jsx:1025-1027` MenuItem labels | "(default)" tagged on sliding_window | "(default)" tag moved to nuclei_merge |
+
+Two new regression tests guard the new contract:
+
+- `tests/unit/test_modal_adapter_grid_layout.py::TestModalDefaultsEndpointAdvertisesNucleiMerge`
+  — locks the `/modal/defaults` response payload AND asserts
+  `DEFAULT_TRACKING_PARAMS["tracking_method"]` matches the dataclass default.
+- `PianoidTunner/src/hooks/__tests__/useModalAdapter.trackingDefault.test.jsx`
+  — verifies the runTracking payload constructor sends `tracking_method` for the
+  default state, for an explicit `"sliding_window"` selection (the previously-
+  unreachable case), and for an explicit `"nuclei_merge"` selection.

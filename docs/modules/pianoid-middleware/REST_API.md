@@ -1420,7 +1420,8 @@ Response `200`:
   "tracking_params_default": {
     "bridge_boundary": 28,
     "freq_tol_pct": 0.02,
-    "max_gap": 3
+    "max_gap": 3,
+    "tracking_method": "nuclei_merge"
   },
   "esprit_config_default": {
     "band_preset": "extended_8band",
@@ -1435,6 +1436,8 @@ Response `200`:
 ```
 
 `bridge_boundary` and `pitch_offset` are top-level aliases into `tracking_params_default` (kept flat for the most common frontend consumers).
+
+`tracking_method` is mirrored from the backend `TrackingConfig` dataclass default — currently `"nuclei_merge"` (since dev-d773, 2026-05-05). The frontend `useModalAdapter.js` overlays this onto its hardcoded `DEFAULT_TRACKING_PARAMS` on mount so a future flip of the backend default propagates without a frontend code change.
 
 ---
 
@@ -1769,11 +1772,17 @@ Request body:
 {
   "bridge_boundary": 28,
   "freq_tol_pct": 0.02,
-  "max_gap": 3
+  "max_gap": 3,
+  "tracking_method": "nuclei_merge",
+  "tracking_options": {}
 }
 ```
 
-Response `200`: tracked chains with stability classification and summary.
+`tracking_method` (optional) — one of `"nuclei_merge"` (default since dev-d773, 2026-05-05), `"sliding_window"` (legacy), or `"sequential"` (DEPRECATED). When omitted, the backend uses the `TrackingConfig` dataclass default. The frontend always sends an explicit value to avoid divergence between the dropdown selection and the backend's effective method (dev-nucl-default, 2026-05-07).
+
+`tracking_options` (optional) — dict of overrides applied to `TrackingConfig` fields by name (e.g. `{"nm_nucleus_mac_threshold": 0.7}`). Unknown keys are ignored with a backend log warning.
+
+Response `200`: tracked chains with stability classification and summary. Includes `nuclei_stage_chains` (Stage-1 nucleus snapshot) when `tracking_method == "nuclei_merge"` — empty list otherwise.
 
 ---
 
