@@ -4,6 +4,8 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-mastop | Stop Modal Adapter (port 5001) before Pianoid preset load — close MA's audio driver before Pianoid main backend opens its own | [dev-mastop-2026-05-07-184337.md](logs/dev-mastop-2026-05-07-184337.md) | 2026-05-07T18:43Z | Step 1b — locks acquired |
+| dev-nucl-default | Audit + complete the dev-d773 default-promotion of `tracking_method` to `nuclei_merge`. dev-d773 only flipped the backend dataclass; the frontend `DEFAULT_TRACKING_PARAMS.tracking_method` was still `'sliding_window'` AND the runTracking payload constructor stripped the field on `'sliding_window'` → `'sliding_window'` was unreachable from the UI. Backend (PianoidCore `fc71c8b`/`2f59572`) + frontend (PianoidTunner `afff565`/`c9b1fe7`) + docs (PianoidInstall `5bc2704`) all merged to dev/master. Live test of `/modal/defaults` returns `tracking_method: "nuclei_merge"` in `tracking_params_default`. | [dev-nucl-default-2026-05-07-153201.md](logs/dev-nucl-default-2026-05-07-153201.md) | 2026-05-07T15:32Z | Phase 1 complete — committed, merged, locks released, ports cleared. Phase 2 (close-out) pending orchestrator. |
 
 ---
 
