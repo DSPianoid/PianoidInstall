@@ -463,6 +463,19 @@ All 22 nuclei tests + 53 existing `test_mode_tracking.py` tests
   60 Hz chain emitted (pre-fix: 2 chains). Auto-skipped when the
   dataset or the harness module is missing.
 
+`PianoidCore/tests/system/test_extended_bands_e2e.py` (dev-bands,
+2026-05-07):
+
+- `TestExtendedBandsE2E::test_ultra_low_new_defaults_60hz_single_chain`
+  — production end-to-end validation. Loads PlyWoodTake1_grid via the
+  dev-grid harness, runs ESPRIT on the Ultra-Low band with the new
+  `EXTENDED_BANDS[0]` defaults (dec=8, ir=600 ms, skip=40 ms,
+  start_fade=20 ms, end_fade=20 ms with universal "after" semantic),
+  runs production `track_modes_nuclei_merge` with default config.
+  Asserts the 60 Hz mode emits a single chain with ≥12 detections.
+  Pins the dev-grid grid-search outcome into the production test
+  suite. Auto-skipped when the dataset or harness is missing.
+
 All new tests (32 in total) pass alongside the 75 pre-existing
 mode-tracking tests.
 

@@ -1047,16 +1047,40 @@ frequency resolution and SNR:
 `extended_8band` ships with the following per-band defaults
 (`(ir_length_ms, skip_start_ms)`):
 
-| Band      | f_min  | f_max  | dec | IR (ms) | Skip (ms) |
-|-----------|--------|--------|-----|---------|-----------|
-| Ultra-Low | 30     | 100    | 4   | 1000    | **50**    |
-| Low       | 80     | 200    | 4   | 800     | **30**    |
-| Low-Mid   | 180    | 400    | 4   | 600     | **15**    |
-| Mid       | 350    | 700    | 2   | 400     | **5**     |
-| Mid-High  | 600    | 1200   | 2   | 400     | 0         |
-| High      | 1000   | 2500   | 1   | 400     | 0         |
-| Upper     | 2000   | 4500   | 1   | 400     | 0         |
-| Top       | 4000   | 6000   | 1   | 400     | 0         |
+| Band      | f_min  | f_max  | dec   | IR (ms) | Skip (ms) |
+|-----------|--------|--------|-------|---------|-----------|
+| Ultra-Low | 30     | 100    | **8** | **600** | **40**    |
+| Low       | 80     | 200    | **8** | **400** | **30**    |
+| Low-Mid   | 180    | 400    | 4     | 600     | **15**    |
+| Mid       | 350    | 700    | 2     | 400     | **5**     |
+| Mid-High  | 600    | 1200   | 2     | 400     | 0         |
+| High      | 1000   | 2500   | 1     | 400     | 0         |
+| Upper     | 2000   | 4500   | 1     | 400     | 0         |
+| Top       | 4000   | 6000   | 1     | 400     | 0         |
+
+Ultra-Low + Low retuned dev-bands (2026-05-07) per dev-grid's
+grid-search analysis on PlyWoodTake1_grid (700 ms project, 30
+scenarios) and Belarus (900 ms project, 78 scenarios):
+
+- **decimation 4 → 8** for both Ultra-Low and Low. dev-grid Phase B
+  cascade + low_step4_dec.json: dec=8 produces equivalent (within
+  noise floor) coverage and aggregate-detection counts at ~2× faster
+  ESPRIT. P (P1 Authority) Owner of `decimation` is the band-config
+  table; this is a value change, not an ownership change.
+- **Ultra-Low ir 1000 → 600 ms** (P2 Concern): per-channel `t_eff`
+  median is 280 ms and p90 is 613 ms on PlyWoodTake1_grid; analysing
+  beyond 600 ms feeds noise into ESPRIT and produces fragmented
+  Stage-1 nuclei that the dev-grid analysis confirmed are
+  fragmentation artifacts, not new physical modes
+  (`docs/development/logs/dev-grid-deep-analysis.md`). The 600 ms
+  cap is the strongest physically-justified change.
+- **Low ir 800 → 400 ms**: same noise-tail rationale; the Low band's
+  decay envelopes settle into noise faster than Ultra-Low so the
+  cap is tighter.
+- **Ultra-Low skip 50 → 40 ms**: skip ∈ [25, 50] is statistically
+  equivalent at the noise floor (dev-grid S2 axis sweep — no skip
+  value within that range produced a >2σ Q change vs subset-resampling
+  noise); 40 sits centrally and matches the Low / Low-Mid scaling.
 
 Skip defaults carry ~2-3x margin over the rough Butterworth settling
 estimate to also cover the dominant hammer-impact transient. Top 5 bands
@@ -1091,8 +1115,10 @@ advanced table.
   fade-in. See `band_processing.py` `process_band` and
   `tests/unit/test_band_processing_end_fade.py` for the contract.
 
-- **End fade (ms)** (`end_fade_ms`, dev-esrt 2026-05-06) — a half-Hann
-  window over the LAST `round(end_fade_ms * fs_band / 1000)` samples
+- **End fade (ms)** (`end_fade_ms`, dev-esrt 2026-05-06; **semantic
+  changed dev-bands 2026-05-07** — see "Universal 'after' end-fade
+  semantic" below) — a half-Hann window over the LAST
+  `round(end_fade_ms * fs_band / 1000)` samples
   (`np.hanning(2N)[N:]`, ramping from ~1 down to 0 — last sample is
   exactly zero). Suppresses tail-noise contribution to ESPRIT mode
   estimation, layered on top of the project-wide scenario-level Hann
@@ -1103,14 +1129,59 @@ advanced table.
   resolution-vs-tail-noise trade-off independently. Empty = no
   per-band tail fade.
 
+#### Universal "after" end-fade semantic (dev-bands 2026-05-07)
+
+When `ir_length_ms` is set, the input slice is **extended past the
+`ir_length_ms` cut by `end_fade_ms`** so the fade window taps the
+*additional* samples and the kept-core ir region is left unfaded:
+
+```
+            <─ kept-core ir ──> <─ extension ─>
+input ──┬───────────────────────────────────────┬── ...
+        │                                        │
+       skip                                    skip + ir + fade
+                              cut_out
+                                ↑
+                  half-Hann ramp DOWN starts here
+                  (ramps over the extension only;
+                   kept-core stays at full amplitude)
+```
+
+The previous "before" semantic ramped the LAST `end_fade_ms` of the
+KEPT-core (eating into the very mode information ESPRIT was meant
+to fit). dev-grid's grid-search analysis showed this caused
+measurable Stage-1 fragmentation when boundary-aligned modes
+straddled the affected window. Switching to "after" leaves the full
+kept-core ir intact AND still suppresses the bandpass-edge ringing
+that motivated the per-band fade in the first place.
+
+When `ir_length_ms` is `None` (legacy `STANDARD_BANDS` and any
+custom band that omits the IR cap), the fade is applied to the
+last `end_fade_ms` of the available signal — there is no defined
+`cut_out` to extend past, so the legacy behaviour is preserved.
+
+When the recording is too short to supply the full extension, the
+input is zero-padded at original-fs to exactly `ir + end_fade` ms
+before bandpass — the kept-core ir region remains intact and the
+fade tapers down through the zero-pad region. The post-skip output
+length is therefore deterministic at
+`(ir_length_ms - skip_start_ms + end_fade_ms) * fs_band / 1000`
+samples regardless of recording length.
+
+See `tests/unit/test_band_processing_after_fade.py` for the
+contract (sample count, kept-core invariance, tail taper shape,
+zero-pad fallback).
+
 Application order inside `process_band` (each step optional via
 field=None / 0):
 
 ```
-ir_length_ms slice → bandpass → preemphasis → decimation
-                                            → skip_start_ms (start trim)
-                                            → start_fade_ms (fade-in)
-                                            → end_fade_ms   (fade-out)
+ir + end_fade slice → bandpass → preemphasis → decimation
+                                              → skip_start_ms (start trim)
+                                              → start_fade_ms (fade-in)
+                                              → end_fade_ms   (fade-out;
+                                                 universal "after" — taps
+                                                 the extension only)
 ```
 
 `extended_8band` ships with the following per-band defaults
@@ -1118,7 +1189,7 @@ ir_length_ms slice → bandpass → preemphasis → decimation
 
 | Band      | f_min  | f_max  | Skip (ms) | Start fade (ms) | End fade (ms) |
 |-----------|--------|--------|-----------|-----------------|---------------|
-| Ultra-Low | 30     | 100    | 50        | **10**          | **20**        |
+| Ultra-Low | 30     | 100    | **40**    | **20**          | **20**        |
 | Low       | 80     | 200    | 30        | **10**          | **20**        |
 | Low-Mid   | 180    | 400    | 15        | **5**           | **15**        |
 | Mid       | 350    | 700    | 5         | **2**           | **10**        |
@@ -1126,6 +1197,12 @@ ir_length_ms slice → bandpass → preemphasis → decimation
 | High      | 1000   | 2500   | 0         | None            | **5**         |
 | Upper     | 2000   | 4500   | 0         | None            | **5**         |
 | Top       | 4000   | 6000   | 0         | None            | **5**         |
+
+dev-bands (2026-05-07) bumped Ultra-Low `start_fade_ms` from 10 to 20
+to match the new "after" `end_fade_ms` scale and to track the lower
+`skip_start_ms` (40 ms) — the fade-in ramp covers ~50 % of the
+post-skip pollution region rather than 20 %, eliminating residual
+1/f leakage from the discontinuity at the new sample 0.
 
 `start_fade_ms` defaults are ~20–40 % of the corresponding
 `skip_start_ms` — long enough to smoothly cover the cut, short enough
