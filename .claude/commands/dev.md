@@ -846,6 +846,30 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
 4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+5. **Pre-handoff process hygiene (MANDATORY when handing off to user testing).** If the change you just shipped is going to be tested by the user (any UI change, any backend behavior change, any change that the user will exercise via browser or REST), you MUST close all running server instances and restart fresh BEFORE reporting "ready to test". This eliminates the entire class of "user reports same bug after fix landed" caused by stale frontend bundles, stale backend Python modules, or HMR connections that dropped when the dev server restarted.
+
+   **Procedure:**
+   ```bash
+   # Kill ALL Pianoid-port processes
+   for port in 5000 5001 3000 3001; do
+     pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+     if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+       taskkill //F //PID "$pid" 2>/dev/null
+     fi
+   done
+   sleep 2
+   # Verify clear
+   netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000|5001) " && echo "WARN: ports still in use" || echo "All Pianoid ports clear"
+
+   # Then restart the canonical stack from scratch via the launcher API or start-pianoid.bat
+   # so the user has a known-good environment for re-testing.
+   ```
+
+   **Then in your Phase 1 report:** include the new PIDs serving on 3000 / 5001 / etc. so the user (and orchestrator) can verify they are testing against the post-fix code, not a stale bundle.
+
+   **Why this is mandatory:** documented incident on 2026-05-07 — dev-bandui shipped a hydration-race fix; CRA dev server was restarted as a side effect; the user's open browser tab kept running the pre-fix bundle on a dropped HMR connection; user reported "Same" bug after fix landed → 30 minutes of misdirected investigation before the agent re-verified that the fix actually worked and the user just needed a hard-refresh against a freshly-started server. Restarting the stack at handoff makes the post-fix bundle the only one available, and any cached browser tab that fails to refresh will get a server error (visible) instead of an out-of-date page (silent).
+
+   **Skip this step ONLY** if the change is documentation-only or research-only with no user-runtime impact. When in doubt, restart.
 
 **STOP HERE.** Report changes to the orchestrator/user and wait for approval. Do NOT proceed to Phase 2 until explicitly told to.
 
