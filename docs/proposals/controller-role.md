@@ -10,6 +10,14 @@
 
 Promote the controller from a stub mention to a first-class **read-only compliance monitor**, spawned **once per orchestrator session at orchestrator startup** and kept alive for the full session lifetime. The controller never edits source, never spawns or kills agents, never messages the user — it watches `MODULE_LOCKS.md`, `WORK_IN_PROGRESS.md`, `docs/development/logs/`, and `git status` and sends graduated alerts (warn → escalate → halt) to the orchestrator. The orchestrator retains all authority for user communication and dispatch.
 
+The controller has **three complementary monitoring paths**:
+
+1. **Per-event invariant checks** (Sections 5a–5d, 5e, 8a–8c): catches workflow violations the moment a watched log file is updated. Examples: late Step 0, unlocked dirty file, premature Phase 2, missing build verification.
+2. **Periodic 30-min sweep** (Section 8d, supported by failure-mode catalogue Section 12): catches agents that **stopped advancing** — the dominant stall pattern is a tool call that triggered a CLI permission prompt invisible to the Telegram user (per CLAUDE.md "Known gaps in `bypassPermissions`"). The sweep reads each agent's session log for unmatched `[BASH-CALL]` / `[MCP-CALL]` markers and classifies the stall by the catalogue.
+3. **Continuous sliding-window scan** (Section 8e): catches agents that **investigate in the wrong order** — specifically, dev agents who skip the CLAUDE.md "Documentation-First Rule (MANDATORY)" by grepping/reading source code without consulting `docs/` first. The scan slides over each agent's `[READ]`/`[GREP]` marker stream and flags windows where N=3 source-reads occurred with no preceding doc consultation.
+
+Together the three paths close the gap: every category of agent failure either produces a log event (per-event), produces silence (periodic), or produces a *sequence* of events that violates an investigative-order rule (sliding-window). The controller catches all three.
+
 The only existing references in `orchestrator.md` (`:455` and `:782`) are forward-pointers to a "Controller Agent" section that does not exist. This proposal fills that gap.
 
 **Lifecycle rationale (permanent-for-session vs bounded-by-dev-agents).** Both models work; the proposal chooses permanent-for-session because (1) the bounded model creates a race window between "last dev agent CLOSED" exit and the next dispatch, during which orchestrator-initiated edits (e.g., `/update-docs` triggered after a `/review` finding) would be unwatched and the lock-invariant can drift; (2) avoiding that race forces the orchestrator to track controller-state on every dispatch, adding complexity to the very decision the user said is currently unclear; (3) the controller is event-driven (Monitor-subscriptions on agent log files), so its idle context cost is one slot, not active tokens — the efficiency advantage of the bounded model is mostly theoretical. Simpler invariant beats marginal savings when the goal is clarity.
@@ -77,7 +85,26 @@ The **controller** is a permanent, read-only sub-agent of the orchestrator. It e
 
 ## 5. Responsibilities — Concrete Checks
 
-The controller enforces invariants from two different rule sources: **(1) the orchestrator's own anti-patterns table at `orchestrator.md:765-795`** (covered in Section 3 above; mapped here in 5a–5c), and **(2) the `/dev` skill's own discipline rules** (covered in Section 5d below; many of these are not in the orchestrator table because they govern the dev agent's internal workflow rather than the orchestrator's dispatch decisions). Section 5d cites `dev.md` line numbers for traceability.
+The controller enforces invariants along **four functional axes**:
+
+| Axis | Section | Catches | Detection mode |
+|---|---|---|---|
+| Per-agent lifecycle | 5a | Step-0 SLA, locks, commit prefix, premature Phase 2 | event-driven (Monitor on log file) |
+| Cross-agent | 5b | overlapping locks, sequential nvcc, untracked dirty files | event-driven + file-update of `MODULE_LOCKS.md` / `git status` |
+| Workflow-specific | 5c | multitask wave honesty, fn parent-lock inheritance, auto-trigger compliance | event-driven |
+| Dev anti-patterns | 5d | the 24 dev-discipline checks | event-driven |
+| **Stale-agent + permission-stall** | **Section 8d (mechanism) + Section 12 (failure-mode catalogue)** | **agents that stopped advancing — long-running bash, TTY-blocking, system-PID taskkill, MCP OAuth gates** | **periodic 30-min sweep** |
+| **Documentation-First rule** | **Section 8e (algorithm) + Section 5d "Documentation-First skipped" row** | **agents grepping/reading source code without first consulting `docs/` — per CLAUDE.md "Documentation-First Rule (MANDATORY)"** | **continuous, event-driven (sliding window over `[READ]`/`[GREP]` markers)** |
+
+Axes 5a–5d catch *what the agent did wrong* (substantive workflow violations) on the **event-driven** path. The stale-agent axis catches *what the agent stopped doing* — silence with no violation produced — on a **periodic-sweep** path. The Documentation-First axis catches *how the agent investigates* — the order in which it consults docs vs. source — on a **continuous sliding-window** path over the `[READ]`/`[GREP]` marker stream. The three paths are complementary:
+
+- The event-driven path can never detect "agent has been silent for 30 minutes" because there is no event.
+- The periodic path can never detect a same-second invariant break because it only fires every 30 min.
+- The continuous sliding-window path is event-driven but evaluates over a *sequence* of recent events, not a single one — distinct from the per-event invariant checks in 5a–5d.
+
+Together they close the coverage: every category of agent failure either produces a log event (caught in 5a–5d), produces silence (caught by Section 8d's periodic sweep classifying patterns from the Section 12 catalogue), or produces a *sequence* of events that violates an investigative-order rule (caught by Section 8e's sliding-window scan).
+
+**Two rule sources feed 5a–5d:** **(1) the orchestrator's own anti-patterns table at `orchestrator.md:765-795`** (covered in Section 3 above; mapped here in 5a–5c), and **(2) the `/dev` skill's own discipline rules** (covered in Section 5d below; many of these are not in the orchestrator table because they govern the dev agent's internal workflow rather than the orchestrator's dispatch decisions). Section 5d cites `dev.md` line numbers for traceability.
 
 ### 5a. Per-agent lifecycle invariants
 
@@ -115,6 +142,12 @@ These are violations of `/dev`-specific discipline. They are NOT in the orchestr
 | WIP entry MUST be added to `## Active Dev Sessions` table | `dev.md:75-89` ("Register in WIP") | **Tier-1** at +120s, **Tier-2** at +300s | Read `WORK_IN_PROGRESS.md`, grep for agent-id |
 | Each step MUST be logged BEFORE starting (not after) | `dev.md:73` ("Logging rule: Log each step to your session log as you start it") | **Tier-1** if a `git status` change appears under the agent's name with no corresponding step entry in its log | Diff log entries vs git activity |
 | Recovered/restarted agents MUST reuse the original ID | `dev.md:50-50` (Agent ID persistence) + `:921` ("MUST reuse the original agent's ID") | **Tier-1 warn** when a fresh agent ID appears with task description matching a Paused entry | Cross-ref WIP "Paused" entries vs new dev-* IDs |
+
+**Step 1 — Understand Context (`dev.md:188-237`) — and the cross-cutting Documentation-First Rule**
+
+| Rule | Source | Severity | Detection |
+|---|---|---|---|
+| **Documentation-First skipped** — every investigation phase must consult `docs/` BEFORE grepping or reading source files | `.claude/CLAUDE.md` "Documentation-First Rule (MANDATORY)" + `dev.md:188-201` (Step 1 docs-first lookup order) | **Tier-1** first occurrence per session (warn — agent may have missed it). **Tier-2** if it recurs in the same session (escalate — pattern of skipping docs). The check is intentionally lenient because the agent may consult its own training/memory without a fresh read; the goal is to catch the *pattern* of grep-first behaviour, not isolated cases | Sliding-window scan over `[READ]` / `[GREP]` markers. See **Section 8e** for the full algorithm, exemptions, and windowing parameters. Detection requires checks 39 + 40 (READ/GREP marker discipline) to be in place |
 
 **Step 1b — Environment Control (`dev.md:239-344`)**
 
@@ -190,7 +223,7 @@ These are violations of `/dev`-specific discipline. They are NOT in the orchestr
 |---|---|---|---|
 | Synthesis-output change → `/test-ui` audio_off; mic-engaging change → `/diagnose` audio_on | `dev.md:14-17` + CLAUDE.md "Audio Verification Rule" | **Tier-2 escalate** on wrong mode (e.g., calibration change verified via `/test-ui` instead of `/diagnose`) | Inspect agent's verification choice vs touched-file class |
 
-**Coverage summary.** 24 dev-discipline checks total: 4 Step 0, 4 Step 1b, 7 Step 4, 4 Step 4b, 3 Step 5/6, 1 Step 7, 3 Step 8, 5 Step 10, 1 Step 9, 1 cross-cutting audio. Combined with the 9 orchestrator-anti-pattern checks from Section 3, the controller's invariant catalogue is **33 distinct checks**.
+**Coverage summary.** 25 dev-discipline checks total: 4 Step 0, 1 Step 1 (Documentation-First skipped — added in this revision), 4 Step 1b, 7 Step 4, 4 Step 4b, 3 Step 5/6, 1 Step 7, 3 Step 8, 5 Step 10, 1 Step 9, 1 cross-cutting audio. Combined with the 9 orchestrator-anti-pattern checks from Section 3, plus the 4 stale-monitoring + Documentation-First helper checks (34–37, 38–40 in Section 5e.2), the controller's invariant catalogue is **34 distinct numbered checks** (1–37 in 5e.2 with check 38–40 being the Documentation-First trio; one of those is a status row, so substantively 39 actionable checks).
 
 **Detection limitations.** Several checks rely on grep-style pattern matching of agent log entries (e.g., "did this agent log a Data Model Card before its first edit?"). The agents are well-behaved logging citizens by design (`dev.md:73` makes it mandatory), so log-pattern checks are reliable in practice but not adversarially robust. A few checks (like blanket `taskkill //F //IM python.exe`) are heuristic — they catch the common form but a sufficiently determined misuse can evade. For high-stakes invariants (lock-before-edit, sequential nvcc, no overlapping locks), detection uses ground-truth file-system state (`git status`, `MODULE_LOCKS.md`) rather than log patterns. Section 5e proposes explicit markers to upgrade many of these grep-based checks to direct signal reads.
 
@@ -258,12 +291,19 @@ For each anti-pattern check from Sections 5a–5d, this table records the signal
 | 29 | 10c pause snapshot present (5d Step 10) | `## Pause Snapshot — <ISO>` section in log | Already structured per `dev.md:899-909` | *MARKER:* `[STEP-10C-PAUSE] {ts}` line at start of pause procedure. Snapshot section format is already enforced |
 | 30 | 10e restart-after-lock log section (5d Step 10) | `## Restart After Lock Conflict — <ISO>` section in log | Already structured per `dev.md:996-1003` | *MARKER:* `[STEP-10E-RESTART] {ts} blocking_agent=<id>`. Restart section format is already enforced |
 | 31 | Feature branch must merge to dev (5d Step 9) | `git log dev..feature/*` per repo at CLOSED | Direct git read | *None* (direct git read) |
-| 32 | (orchestrator AP, Section 3) Reading source files in orchestrator | Orchestrator's tool-use record | Inaccessible to a sub-agent — orchestrator's own conversation is its own | *None on dev.md side.* Remains heuristic — controller catches the consequence (unlocked dirty file, check 8) not the act. **Open question:** see Section 15 |
+| 32 | (orchestrator AP, Section 3) Reading source files in orchestrator | Orchestrator's tool-use record | Inaccessible to a sub-agent — orchestrator's own conversation is its own | *None on dev.md side.* Remains heuristic — controller catches the consequence (unlocked dirty file, check 8) not the act. **Open question:** see Section 17 |
 | 33 | (orchestrator AP, Section 3) Skipping post-completion verification | Orchestrator log of approval-relay actions | Orchestrator does not maintain its own session log today | *MARKER (orchestrator-side, not dev.md):* orchestrator should `SendMessage(to: "controller", "approval-relayed agent=<id>")` after each user-approval forward. Controller uses this as the gate for check 27 |
+| 34 | **Stale-agent detection: Bash call without return** (cross-cutting; primary stall pattern) | Paired markers around every Bash invocation; unmatched call = agent never returned, almost-certain permission stall | Free-form Bash logs only — no current convention captures the stall pattern | *MARKER (paired):* `[BASH-CALL] {ts} {command_summary}` BEFORE every Bash invocation; `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>` AFTER. Controller's stall scan (Section 8d) flags any unmatched `[BASH-CALL]` after 30 min as Tier-2, after 60 min as Tier-3 |
+| 35 | **Stale-agent detection: MCP call without return** (cross-cutting; secondary stall pattern) | Paired markers around every MCP tool invocation; unmatched call = MCP server hung or auth-flow gating | Free-form — agents do not log MCP calls today | *MARKER (paired):* `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<...>` BEFORE; `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>` AFTER. Controller's stall scan flags unmatched `[MCP-CALL]` per same tier rules as check 34 |
+| 36 | **Discipline: every potentially-gating tool call must be marker-wrapped** (5d Step 0 / Step 1b — new rule) | Any Bash or MCP invocation in agent log without a preceding paired `*-CALL` marker | None (rule does not exist today) | *DISCIPLINE:* dev.md adds: "Before every `Bash` invocation, emit `[BASH-CALL] {ts} {first 80 chars of command}`. Before every MCP tool invocation, emit `[MCP-CALL] {ts} ...`. Pair with `[BASH-RETURN]` / `[MCP-RETURN]` on completion. Failure to emit is itself a Tier-2 violation — the controller cannot detect stalls without these markers." |
+| 37 | **Suspicious-pattern Bash detection** (cross-cutting; preventive) | `[BASH-CALL]` text matches a known-gating pattern (long-running starter, TTY-opening, taskkill on system PIDs) | Free-form | Falls out of (34) once `[BASH-CALL]` exists. Controller maintains a known-gates list (Section 12 catalogue) and flags `[BASH-CALL]` matches with **Tier-2 preemptive** *before* the call goes silent — gives orchestrator a chance to redirect the agent (e.g., "use PowerShell Start-Process instead of cmd //c start") |
+| 38 | **Documentation-First rule violation** (cross-cutting; per CLAUDE.md "Documentation-First Rule (MANDATORY)") | A sliding window of the agent's last N=3 `[READ]`/`[GREP]` events, restricted to source-file targets (anything outside `docs/`), with no preceding doc-read in the same window | Free-form Read/Grep tool calls only — no current convention captures whether a docs read preceded a source-file dive | *MARKER (paired with check 39):* once `[READ]`/`[GREP]` markers exist, the algorithm in Section 8e classifies each window. **Tier-1 first occurrence per session** (warn — agent may have missed it); **Tier-2 if it recurs in the same session** (escalate — pattern of skipping docs). Exemptions in Section 8e for syntactic/mechanical tasks, doc-internal navigation, and step-1 doc-read carryover |
+| 39 | **Discipline: every Read / Grep / Glob must be marker-wrapped** (5d Step 1 — new rule, parallel to check 36) | Any `Read`/`Grep`/`Glob` tool invocation without a preceding `[READ]` or `[GREP]` marker | None (rule does not exist today) | *DISCIPLINE:* dev.md adds: "Before every `Read` invocation, emit `[READ] {ts} path=<path>`. Before every `Grep`/`Glob` invocation, emit `[GREP] {ts} pattern=<pattern> path=<path>`." Failure to emit is a Tier-2 violation — the controller cannot enforce Documentation-First (check 38) without these markers |
+| 40 | **Documentation-First check is now reliably catchable** (cross-reference; flips Section 5e.7 entry) | Same as 38, but stated as a status note — the check moves from "un-checkable, pending dev-side discipline" to "checkable" once markers from row 39 are emitted | n/a (status row, no separate signal) | n/a — check 38 covers the actual enforcement |
 
 #### 5e.3. Proposed marker catalogue (consolidated)
 
-The improvements above propose 24 distinct marker tokens. Names follow the team-lead's canonical conventions (literal bracketed tags, space-separated key=value, easy to grep):
+The improvements above propose 30 distinct marker tokens. Names follow the team-lead's canonical conventions (literal bracketed tags, space-separated key=value, easy to grep):
 
 | Marker | Where emitted | What it captures | Used by check(s) |
 |---|---|---|---|
@@ -296,8 +336,14 @@ The improvements above propose 24 distinct marker tokens. Names follow the team-
 | `[STEP-10B-RESET] {ts} phase=<start\|done>` | Step 10b boundaries | Reset completeness | 28 |
 | `[STEP-10C-PAUSE] {ts}` | Start of Step 10c | Pause start marker | 29 |
 | `[STEP-10E-RESTART] {ts} blocking_agent=<id>` | Start of Step 10e | Restart-after-lock marker | 30 |
+| `[BASH-CALL] {ts} {command_summary}` | Before every Bash invocation; command_summary is first 80 chars (escaped) | Bash-call boundary | 34, 36, 37 |
+| `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>` | After every Bash return | Bash-return boundary | 34, 36 |
+| `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<...>` | Before every MCP tool invocation | MCP-call boundary | 35, 36 |
+| `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>` | After every MCP tool return | MCP-return boundary | 35, 36 |
+| `[READ] {ts} path=<path>` | Before every `Read` tool invocation on a project file | Read operation log; feeds Documentation-First compliance check | 38, 40 |
+| `[GREP] {ts} pattern=<pattern> path=<path>` | Before every `Grep` / `Glob` tool invocation on project files | Grep/Glob operation log; feeds Documentation-First compliance check | 38, 40 |
 
-(That's 24 distinct markers including the 3 added in this revision: `[STEP-0-COMPLETE]`, `[LOCK ACQUIRED]`, `[LOCK RELEASED]`. The build / regression / Phase-1/2 / reset triplets are conceptually one boundary each but use distinct tags for grep simplicity.)
+(That's 30 distinct markers: 24 from the original catalogue + 3 from the lifecycle revision (`[STEP-0-COMPLETE]`, `[LOCK ACQUIRED]`, `[LOCK RELEASED]`) + 4 from the stale-monitoring revision (`[BASH-CALL]`, `[BASH-RETURN]`, `[MCP-CALL]`, `[MCP-RETURN]`) + 2 from this revision (`[READ]`, `[GREP]`) for Documentation-First enforcement. Total minus the lifecycle 3 and the docs-first 2 = 25 in original-plus-stale; with all extensions = 30. The build / regression / Phase-1/2 / reset triplets are conceptually one boundary each but use distinct tags for grep simplicity.)
 
 **Every marker traces to at least one row in 5e.2 — no "just-in-case" markers.**
 
@@ -327,16 +373,23 @@ The agent already has `$(date +%Y-%m-%d-%H%M%S)` in scope (used at Step 0 line 5
 
 #### 5e.6. Implementation cost and backwards compatibility
 
-- **Total new dev.md lines:** ~50–60 (one paragraph in the Step 0 "Logging rule" block, plus per-Step marker requirements at the relevant Step sections).
-- **Per-agent runtime cost:** negligible — markers are bash `echo`-equivalent lines appended to a file the agent already writes to.
+- **Total new dev.md lines:** ~100–130 (Step 0 logging-rule paragraph, per-Step marker requirements, Bash/MCP discipline for stale monitoring, READ/GREP discipline for Documentation-First enforcement).
+- **Per-agent runtime cost:** negligible — markers are bash `echo`-equivalent lines appended to a file the agent already writes to. Three pairs add to log size: `[BASH-CALL]`/`[BASH-RETURN]` ~2 lines per Bash invocation; `[MCP-CALL]`/`[MCP-RETURN]` ~2 lines per MCP call; `[READ]`/`[GREP]` ~1 line per file read or grep. For a typical dev session (~50–100 Bash + ~30 reads + ~20 greps) that's 200–300 extra lines, well below the log size where readability suffers.
 - **Backwards compatibility:** existing dev session logs (in `logs/archive/`) lack these markers. The controller treats their absence in archived logs as expected; only logs newer than a `controller_marker_baseline_date` (configurable in `dev.md`, default = the date the marker convention is added) are checked against the marker rules.
 
-#### 5e.7. Anti-patterns that remain hard to check reliably
+#### 5e.7. Anti-patterns whose checkability is partial or pending
 
-Two checks could not be made fully reliable through dev-side logging alone — flagged for Section 15 (Open Questions):
+After the additions in this revision, **two previously un-checkable patterns become reliably catchable**:
 
-- **Check 32 (orchestrator self-reads source files):** the orchestrator's tool-use is in its own conversation context, not in any file the controller can read. The controller catches the consequence (unlocked dirty file via check 8 + `[LOCK ACQUIRED]` divergence) but cannot detect the act. Open question 5 in Section 15.
-- **Check 33 (orchestrator skipping post-completion verification):** requires an orchestrator-side log of approval-relay actions. Today the orchestrator does not maintain its own session log — the proposed `SendMessage(to: "controller", "approval-relayed agent=<id>")` marker substitutes for one. Open question 6 in Section 15.
+1. **Stale-agent pattern** — through the `[BASH-CALL]`/`[BASH-RETURN]` and `[MCP-CALL]`/`[MCP-RETURN]` pairs (checks 34–37) consumed by the periodic-monitor scan in Section 8d.
+2. **Documentation-First rule violations** — through the `[READ]`/`[GREP]` markers (checks 38–40) consumed by the sliding-window check in Section 8e.
+
+The two remaining limitations are both orchestrator-side, not dev-side:
+
+- **Check 32 (orchestrator self-reads source files):** the orchestrator's own tool-use is in its conversation context, not in any file the controller can read. *Partial path:* if the orchestrator extends the same `[BASH-CALL]` / `[MCP-CALL]` / `[READ]` / `[GREP]` discipline to its own session log (Section 17 open question 5), the controller would also detect orchestrator-side suspicious operations. Until then, the controller catches the consequence (unlocked dirty file via check 8 + `[LOCK ACQUIRED]` divergence) but cannot detect the read itself. Open question 5 in Section 17.
+- **Check 33 (orchestrator skipping post-completion verification):** requires an orchestrator-side log of approval-relay actions. Today the orchestrator does not maintain its own session log — the proposed `SendMessage(to: "controller", "approval-relayed agent=<id>")` marker substitutes for one. Open question 6 in Section 17.
+
+A *third* honest limitation is worth naming: **the Documentation-First check has unavoidable false positives.** The dev agent can legitimately consult docs *mentally* — its training already includes recent reads, and re-reading is wasteful — without producing a `[READ]` marker. The controller cannot see "memory." The check is therefore set to **Tier-1 first occurrence per session** (warn, not halt), graduating to Tier-2 only on a recurring pattern. See Section 8e for exemptions that further reduce false-positive rate.
 
 ---
 
@@ -432,6 +485,100 @@ Then the controller archives its own log to `logs/archive/` and exits.
 
 (Inter-session note: between the last dev agent's CLOSED and the next dispatch, the controller stays alive but enters a quiet state — pulses drop to 15 minutes, watch list goes empty. It does not produce a summary at that point, only at session end.)
 
+### 8d. Periodic stale-agent monitoring (30-min cadence)
+
+The event-driven model in Sections 8a–8c catches violations the moment a watched log file is updated. It does NOT catch agents that simply STOP writing — for example, agents stuck on a CLI permission prompt that the Telegram user cannot see. This sub-section adds a periodic stale-check, complementary to (not replacing) the event-driven loop.
+
+**Cadence.** Every 30 minutes of wall-clock time, the controller runs a stale-agent scan across every agent on its watch list. The 30-minute number is the user-specified default; see Section 17 (Open Questions) for the cadence-tuning question.
+
+**Per-agent procedure.** For each agent on the watch list:
+
+1. Read the agent's session log file in full (or the last ~50 lines if the file is large).
+2. Identify the **last log line** (any non-blank, non-pure-whitespace line) and its **timestamp**. Timestamps come from:
+   - Step heading line: `### Step N: <Name> — <ISO 8601 UTC>` (per Section 5e.5)
+   - Marker line: `[BASH-CALL] {ts} ...`, `[BUILD STARTED] {ts} ...`, `[STEP-10A-PHASE-1] {ts} ...`, etc.
+   - If the last line has no embedded timestamp, fall back to the file's mtime — but flag this as a logging-discipline issue (Tier-1).
+3. Classify the **last-entry type**:
+   - **Normal narration / step heading** — the agent was in the middle of described work
+   - **Unmatched tool-call marker** — the agent emitted `[BASH-CALL]` or `[MCP-CALL]` but no matching `[BASH-RETURN]` / `[MCP-RETURN]` followed (per Section 5e.3 the markers are paired)
+   - **Final marker** — `[STEP-10A-PHASE-1]`, `[STEP-10A-PHASE-2]`, `[STEP-10B-RESET ... phase=done]` etc. — agent reached an exit point and may legitimately be idle awaiting orchestrator follow-up
+4. Compute the **stall duration**: `now - last_entry_timestamp`.
+5. Apply the decision matrix:
+
+| Last-entry age | Last-entry type | Tier | Suspicion score |
+|---|---|---|---|
+| < 30 min | any | none — agent is active | n/a |
+| 30–60 min | normal narration / step heading | T1 — informational ping to orchestrator | low |
+| 30–60 min | final marker (Phase 1 / 2 / Reset done / Pause) | none — legitimately idle pending orchestrator | n/a |
+| 30–60 min | unmatched `[BASH-CALL]` or `[MCP-CALL]` marker | **T2 — likely permission stall, escalate** | **high** |
+| > 60 min | normal narration / step heading | T3 — assume stalled, halt-and-investigate | medium |
+| > 60 min | final marker | T1 — orchestrator should follow up; agent is waiting | low |
+| > 60 min | unmatched `[BASH-CALL]` or `[MCP-CALL]` marker | **T3 — almost-certain permission stall, immediate halt** | **highest** |
+
+**Output.** Periodic-monitor scan finishes with a single SendMessage to orchestrator listing each candidate stalled agent:
+
+```
+SendMessage(to: "team-lead", summary: "Stale-agent scan", message: "Stale-agent scan at HH:MM:
+  Active agents: dev-md01, dev-9a47
+  Stalled candidates:
+    - dev-md01: last entry [BASH-CALL] 2026-05-05T12:30:22Z 'cmd //c start-pianoid.bat' (52 min ago)
+                Type: unmatched BASH-CALL — Tier-2 likely permission stall (suspicion: high)
+                Recommended: check CLI for pending prompt; if visible, approve. Else kill+respawn.
+    - dev-9a47: last entry '### Step 4: Edit Code' (38 min ago)
+                Type: normal narration — Tier-1 informational
+                Recommended: orchestrator may probe via SendMessage to confirm progress.
+  No-issue agents: 0")
+```
+
+If no candidates: a single one-line "Stale-agent scan: 2 agents active, no stalls."
+
+**Coordination with the rest of the controller (Section 10 boundary).** The controller does NOT try to wake the agent. It does not Bash, does not killtask, does not auto-respawn. It reports candidates to the orchestrator, which decides:
+
+- If the orchestrator can see the CLI prompt directly (some prompts surface as harness deltas), it approves there.
+- If the orchestrator cannot see it, it tells the user via Telegram: "Check the CLI window for a pending permission prompt on agent dev-XXXX. Last attempted operation: `<command>`."
+- If user/orchestrator can't recover, the orchestrator kills the agent (TaskStop) and respawns with adjusted approach (e.g., switch from `cmd //c start-pianoid.bat` to `PowerShell Start-Process -WindowStyle Hidden` per CLAUDE.md known-gap workaround).
+
+This boundary keeps controller as the *detector* and orchestrator as the *actor* — same separation as Section 10 already documents for invariant violations.
+
+### 8e. Documentation-First compliance check
+
+The CLAUDE.md "Documentation-First Rule (MANDATORY)" requires dev agents to consult `docs/` BEFORE grepping/reading source code, **every time** they need to understand something — at session start, mid-task, during debugging, or when a new question arises. This sub-section spec's how the controller enforces the rule using the `[READ]` and `[GREP]` markers from Section 5e.3.
+
+**Cadence.** Continuous — the check runs in the event-driven loop. Whenever a dev-agent's log gains a new `[READ]` or `[GREP]` line, the controller re-evaluates the trailing window for that agent.
+
+**Per-event procedure.** When `[READ] {ts} path=<path>` or `[GREP] {ts} pattern=<...> path=<path>` is observed:
+
+1. **Classify the target.**
+   - **Doc-read** — `path` starts with `docs/` (any sub-tree). This SATISFIES the Documentation-First rule and resets the docs-skipping counter for that investigation phase.
+   - **Source-read** — `path` is in `PianoidCore/`, `PianoidBasic/`, `PianoidTunner/`, or `tests/` and is NOT under `docs/`. This is a candidate for a Documentation-First skip.
+   - **Doc-internal navigation** — `Grep` whose `pattern` starts with `^# ` (markdown headings) AND whose `path` is `docs/`, OR `Glob` whose pattern is restricted to `docs/`. SATISFIES — counts as doc consultation.
+   - **Other** — `path` is `.claude/`, `tools/`, `.git/`, etc. NEUTRAL — doesn't satisfy or violate; ignored by the windowing.
+
+2. **Identify the investigation phase.** Phases are bounded by Step heading entries in dev.md. The relevant phases:
+   - **Phase: Step 1 (Understand Context)** — primary docs-first phase. The agent should ALREADY have consulted docs in this step before any source-file read.
+   - **Phase: Step 5 (Test) / Step 6 (Debug) / Step 7 (Verify)** — secondary docs-first phases. CLAUDE.md "ESPECIALLY during debugging" directive applies; the agent should re-consult relevant module docs before grepping source.
+   - **Phase: Step 0 / Step 1b / Step 2 / Step 3 / Step 4 (Edit) / Step 8 / Step 9 / Step 10*** — outside the docs-first investigation phases. Source reads here are presumed to follow earlier doc consultation; check is suppressed.
+
+3. **Apply the windowing rule.** Within each in-scope investigation phase, maintain a sliding window over the last **N=3** non-NEUTRAL events for that agent. The default N=3 is the user-suggested value — see Section 17 open question 8 for the windowing-parameter discussion.
+   - If all three events are source-reads with NO doc-read or doc-internal-navigation in the window: **VIOLATION**.
+   - If at least one event in the window is a doc-read or doc-internal-navigation: COMPLIANT.
+
+4. **Apply exemptions** before flagging:
+   - **Exemption A — syntactic/mechanical task.** If the agent's task description (from its log header `Task:` field or orchestrator dispatch payload) matches a known-mechanical pattern (`rename ... to ...`, `replace X with Y everywhere`, `move file`, `update import paths`, `lint fix`, etc.), Documentation-First does not apply — exempt.
+   - **Exemption B — Step-1 doc-read carryover.** If the agent's Step 1 produced one or more `[READ] path=docs/...` markers and the current investigation phase is the SAME Step 1 (still in progress), no further doc-read is required; the carryover satisfies the rule. (Subsequent phases reset.)
+   - **Exemption C — single-source-file deep-dive.** If the agent has already produced ONE doc-read in this phase and is now reading the specific source file the doc pointed to, that's expected drilling-down. Exempt for the next 5 source-reads of THAT file (heuristic — drilling-down on one file is doc-faithful; jumping to unrelated source files is not).
+
+5. **Classify severity.**
+   - **First violation in session** → **Tier-1 warn** (informational ping to orchestrator: "dev-XXXX may have skipped docs-first at <ts>; last 3 reads were source-only with no preceding doc consultation in this phase").
+   - **Recurring violation in same session** (≥2 violations across investigation phases) → **Tier-2 escalate** (controller SendMessages both orchestrator AND dev agent: "Pattern of skipping Documentation-First detected. Stop and re-read the relevant module doc before continuing.").
+   - **Never Tier-3** — this check is intentionally lenient because of the false-positive caveat in Section 5e.7.
+
+**Output.** Per-event evaluation; alerts emitted only when a violation fires (not on every compliant event). Format identical to Section 8b violation alerts, with the additional `phase=<step-N>`, `last_3_reads=<list>`, and `last_doc_read=<ts or "none in phase">` fields.
+
+**Why this works.** The Documentation-First rule is *behavioural*, not *structural* — there's no file the controller can read that says "this agent consulted docs." The only signal is the agent's tool-call sequence. By making `[READ]` / `[GREP]` markers mandatory (check 39), the controller turns a behavioural rule into a structurally-checkable one, modulo the irreducible false positives of mental-consultation (acknowledged in 5e.7).
+
+**Coordination with the rest of the controller (Section 10 boundary).** Same as 8d: controller detects, reports; orchestrator decides what to do (probe agent, ask user to confirm docs were consulted mentally, instruct agent to re-consult). Controller does not auto-pause or auto-redirect.
+
 ---
 
 ## 9. Violation Handling — Graduated Response
@@ -457,7 +604,9 @@ Boundary contract:
 | Approving user requests | Orchestrator only |
 | Reading lock/WIP/log files | Either |
 | Detecting invariant violations | Controller (primary), orchestrator (fallback if no controller) |
+| **Detecting stalled agents (periodic 30-min sweep, Section 8d)** | **Controller** |
 | Acting on violations (e.g., relaying to user, instructing dev agent to stop) | Orchestrator |
+| **Acting on stale-agent reports (approve CLI prompt, kill+respawn, tell user via Telegram)** | **Orchestrator** |
 | Repo `git status` health checks | Either; controller does periodically, orchestrator does at Step 1.5 |
 | Final compliance summary | Controller |
 | Final session summary to the user | Orchestrator (may quote the controller's summary) |
@@ -489,18 +638,25 @@ Controller initializes:
   - Empty watch list at this point
     |
     v
-Controller event loop (event-driven, NOT polling):
+Controller event loop (mostly event-driven, with one periodic tick):
   - Wakes on:
       * SendMessage from orchestrator ("new agent dispatched", "suppress", "query",
         "session ending")
       * Monitor notification (a watched log file gained a line)
       * Pulse timer (5 min when ≥1 dev agent alive; 15 min idle / empty
         watch list)
+      * **Stale-agent scan timer (30 min, cadence per Section 8d)** — wakes
+        the controller even if no log file activity has occurred; this is
+        what catches agents stuck on a CLI permission prompt (no log line
+        produced because the gating tool call never returned)
   - On wake:
       * Update watch list if new dispatch
       * Re-scan locks + WIP + git status if relevant
       * Cross-reference against active invariants (Section 5a-5d, signals
         per Section 5e)
+      * On 30-min stale-scan tick: read every active agent's log, classify
+        last-entry per Section 8d decision matrix, send stale-agent report
+        if any candidates found
       * Send pulses / alerts as needed
   - Between wakes: idle, near-zero token usage
     |
@@ -530,15 +686,105 @@ Controller:
 On next /orchestrator start, a fresh controller is spawned.
 ```
 
-**Cross-session.** Each orchestrator session gets its own controller. A VS Code reload, `/orchestrator stop`/`start` cycle, or harness restart drops the existing controller and the new orchestrator instance spawns a fresh one. State (watch list, alert history, suppressions) is intentionally not persisted across sessions — Section 17 codifies this as a non-goal.
+**Cross-session.** Each orchestrator session gets its own controller. A VS Code reload, `/orchestrator stop`/`start` cycle, or harness restart drops the existing controller and the new orchestrator instance spawns a fresh one. State (watch list, alert history, suppressions) is intentionally not persisted across sessions — Section 18 codifies this as a non-goal.
 
 ---
 
-## 12. Concrete Spawn Pattern
+## 12. Stale-Agent Failure Modes Catalogue
+
+The user's msg 1707 named the dominant cause of stalls: "user confirmation request sent directly to CLI bypassing orchestrator." This section catalogues the known specific patterns that produce this failure, drawn from `.claude/CLAUDE.md` "Orchestrator Sub-Agent Permission Rule — Known gaps in `bypassPermissions`" and from incident history. Each entry includes the controller flag the periodic stale-scan (Section 8d) uses to recognize it, plus the recommended mitigation the orchestrator should apply.
+
+### 12a. Long-running Bash starters
+
+**Pattern.** Commands that spawn detached/long-running children (`cmd //c start-pianoid.bat`, `cmd //c start *.exe`, npm dev server foreground) trigger the harness's "long-running process" detector regardless of `bypassPermissions`. Dev agent emits the call and waits forever for the gate.
+
+**Example incidents.**
+- `dev-modal-b3` 2026-05-01 — backend startup via `cmd //c start-pianoid.bat`, gated, agent silent.
+- `dev-833f` 2026-04-30 (Phase A) — chrome-devtools session loss after permission prompt invisible to Telegram user.
+
+**Controller flag (via Section 8d).** Unmatched `[BASH-CALL] {ts} cmd //c start*` (or any pattern in the long-running-starter list below) older than 30 min → Tier-2; older than 60 min → Tier-3. Also: pre-emptive Tier-2 the moment `[BASH-CALL]` is emitted if its command_summary matches the pattern (per check 37, 5e.2).
+
+**Long-running-starter pattern list (controller pre-emptive matcher):**
+- `cmd //c start*` (Windows start command)
+- `cmd //c *start-pianoid.bat*`
+- `cmd //c npm run dev*`
+- `npm run dev*` (foreground, no `&` or background)
+- `python *backendserver.py*` without `run_in_background: true` flag
+- Any command containing `Start-Process` without `-WindowStyle Hidden`
+
+**Mitigation.** Orchestrator instructs agent (or respawns) to use the CLAUDE.md-documented workaround:
+```
+PowerShell Start-Process -WindowStyle Hidden -FilePath ... -RedirectStandardOutput ...
+```
+or, for backend, the launcher REST API (`POST /api/start-backend` on port 3001).
+
+### 12b. TTY-opening Bash
+
+**Pattern.** Bash commands that expect interactive keyboard input (`git rebase -i`, `git add -i`, `python` REPL with no `-c`/script, `gcloud auth login`, `npm init` without `-y`). Always gates regardless of permission mode. Should never be invoked in agent context.
+
+**Controller flag (pre-emptive, check 37).** `[BASH-CALL]` text matches forbidden-pattern list:
+- `git rebase -i*`
+- `git add -i*`
+- `python` (bare, no script arg)
+- `gcloud auth login*`
+- `aws configure` (interactive prompt)
+- Any command piping into a `read`/prompting interactive program
+
+**Mitigation.** Orchestrator instructs the agent to use a non-interactive equivalent (e.g., `git rebase HEAD~3` non-interactive form, or pipe an answer file). For genuinely interactive operations, route via the `! <command>` prefix (user runs in their CLI directly, output lands in conversation).
+
+### 12c. taskkill on system / high PIDs
+
+**Pattern.** `taskkill //F //PID <high-PID>` or `taskkill //F //IM <name>` on certain processes triggers UAC / harness gate. The exact trigger is inconsistent — observed cases involve PIDs in the system process range or processes owned by services.
+
+**Example incident.** Discovery context in `.claude/CLAUDE.md`: "Some `taskkill` patterns on system PIDs — observed inconsistently."
+
+**Controller flag.** `[BASH-CALL] {ts} taskkill //F //PID <high-pid>` followed by no `[BASH-RETURN]` for 5+ min. Pre-emptive flag is harder here (the gate is inconsistent), so primary detection is via Section 8d unmatched-call scan.
+
+**Mitigation.** Orchestrator instructs agent to scope kills by image name (`taskkill //F //IM <name>`) where possible, or use `//T` (kill tree) which sometimes succeeds where bare PID fails. Last resort: orchestrator runs the kill in its own context (its bash calls render as deltas the orchestrator can see).
+
+### 12d. MCP re-auth flows
+
+**Pattern.** Some MCP servers gate when their session expires and they need to call out to a browser for re-auth. Examples:
+- `mcp__claude_ai_Google_Calendar__authenticate` / `mcp__claude_ai_Gmail__authenticate` — port 8000 OAuth flow
+- `mcp__plugin_telegram_telegram__*` — `grammy` package re-init when bot token changes
+- `mcp__chrome-devtools__*` — stdio pipe loss requires VS Code reload (per CLAUDE.md known issue)
+
+**Controller flag.** `[MCP-CALL] {ts} server=<name> tool=*authenticate*` or `tool=*auth_init*` followed by no `[MCP-RETURN]` for 2+ min — auth flows that take longer than that are stalled. Pre-emptive flag: any `[MCP-CALL]` to a tool name matching `*auth*|*authenticate*|*init*|*pair*` triggers immediate Tier-1 informational ("agent is opening an auth flow — orchestrator should be ready to relay user-side action").
+
+**Mitigation.** Orchestrator tells the user via Telegram: "Agent dev-XXXX needs OAuth re-auth for <server>. Please open the URL in your CLI and complete the flow, then send 'continue'." Once user confirms via Telegram, orchestrator SendMessages the agent to retry.
+
+### 12e. Other harness-gated operations (catch-all)
+
+CLAUDE.md "Known gaps" subsection lists categories beyond the above. As they're discovered, append to this catalogue. Currently:
+
+- **`Bash run_in_background: true` first-call-of-session.** Sometimes triggers the long-running-process gate even with `bypassPermissions` (the gate decision is harness-internal). Per CLAUDE.md, escalate to orchestrator if first-attempt fails — do NOT retry.
+- **MCP server stdio drift in long sessions.** Servers spawned via `npx -y X@latest` (chrome-devtools, context7, google-drive) can lose stdio mid-session. Symptom: their tool calls hang — this is a stale `[MCP-CALL]` in the same form as 12d but a different remediation (VS Code reload, not user OAuth). Controller flag is the same; orchestrator distinguishes by the server name + the absence of an auth flow in the call.
+
+### 12f. Pattern matching reference
+
+The controller maintains an in-memory list of known-gating patterns, used by check 37 (pre-emptive flag) and Section 8d (post-stall classification). Initial list (drawn from the catalogue above):
+
+| Class | Regex / pattern (against `[BASH-CALL]` command_summary) |
+|---|---|
+| Long-running starter | `^cmd //c\s+(start\|.*start-pianoid)`; `^npm run dev`; `Start-Process(?!.*-WindowStyle Hidden)` |
+| TTY-opening | `git rebase -i`; `git add -i`; `^python\s*$`; `gcloud auth login`; `aws configure\b` |
+| taskkill suspicious | `taskkill //F //PID \d{4,}` (4+ digit PIDs are suspicious) |
+| Long-running-process flag-dependent | `Bash run_in_background: true` (first occurrence per session) |
+
+| Class | Regex (against `[MCP-CALL]` `tool=` field) |
+|---|---|
+| Auth flow | `.*auth.*\|.*authenticate.*\|.*init.*\|.*pair.*` |
+| Browser-dependent | `chrome-devtools__*` (susceptible to stdio drift) |
+
+The list is evolving — each new failure mode discovered should be added to this section and to the controller's pattern list.
+
+---
+
+## 13. Concrete Spawn Pattern
 
 The controller is spawned **once, at orchestrator startup, as part of Step 1.5 (Repo Health Check)** — before any dev dispatch is possible. This separates controller-spawn from dev-spawn entirely; dev dispatches just send a notification.
 
-### 12a. Initial spawn (orchestrator startup, runs once)
+### 13a. Initial spawn (orchestrator startup, runs once)
 
 ```javascript
 // Inside orchestrator Step 1.5, after the health check completes:
@@ -568,6 +814,7 @@ Agent({
 
   Invariants to enforce — see proposal at docs/proposals/controller-role.md
   sections 5a, 5b, 5c, 5d, and 9. Signal/marker conventions per Section 5e.
+  Stale-agent monitoring per Section 8d + failure-mode catalogue Section 12.
   Tier-1 warn, Tier-2 escalate, Tier-3 halt with the SendMessage patterns
   from Section 8.
 
@@ -581,7 +828,7 @@ Agent({
 })
 ```
 
-### 12b. Per-dispatch notification (every /dev, /multitask, /update-docs, /review etc.)
+### 13b. Per-dispatch notification (every /dev, /multitask, /update-docs, /review etc.)
 
 ```javascript
 // Send BEFORE spawning the dev agent so controller is armed for Step 0 timer
@@ -608,7 +855,7 @@ Agent({
 
 For non-`/dev` dispatches (`/update-docs`, `/review`, `/test-ui`, etc.) the same notification pattern applies — controller still wants to know, even though many invariants will not apply to those agents (commit prefix, MODULE_LOCKS row). The controller filters its checks based on the `Skill: /...` field in the notification.
 
-### 12c. Session-end notification
+### 13c. Session-end notification
 
 ```javascript
 // Inside /orchestrator stop graceful-shutdown handler:
@@ -622,7 +869,7 @@ SendMessage({
 
 ---
 
-## 13. Worked Example — 2-Dev-Agent Session With Controller
+## 14. Worked Example — 2-Dev-Agent Session With Controller
 
 Scenario: orchestrator was started 30 minutes earlier — controller is alive, watch list empty, pulses idle (15 min). User now dispatches "Fix MIDI dedup AND add backend parameter safety net". Orchestrator decides to run both in parallel because the conflict matrix says they're file-disjoint.
 
@@ -737,13 +984,13 @@ A second value the worked example illustrates: between T+45 and T+90 the control
 
 ---
 
-## 14. Edits Required to Existing Skills
+## 15. Edits Required to Existing Skills
 
 Read-only proposal. Patches not written. Below is the change list with one-line summaries — to be implemented by the user (orchestrator-level Edit) per the sub-agent permission constraint documented in the user's auto-memory `feedback_subagent_perms.md`.
 
 | File | Section / Line | One-line change |
 |---|---|---|
-| `.claude/commands/orchestrator.md` | After `:455` (the existing "Controller agent" reference in the CRITICAL RULES list) | Insert a full "## Controller Agent" section spanning ~100 lines: definition, lifecycle (permanent-for-session), spawn pattern, invariant list (orchestrator anti-patterns + dev anti-patterns), signal/marker conventions, tier rules, suppression mechanism. Pull from sections 4, 5a–5e, 9, 11, 12 of this proposal. |
+| `.claude/commands/orchestrator.md` | After `:455` (the existing "Controller agent" reference in the CRITICAL RULES list) | Insert a full "## Controller Agent" section spanning ~120 lines: definition, lifecycle (permanent-for-session), spawn pattern, invariant list (orchestrator anti-patterns + dev anti-patterns), signal/marker conventions, stale-agent monitoring (Section 8d) + failure-mode catalogue (Section 12), tier rules, suppression mechanism. Pull from sections 4, 5a–5e, 8d, 9, 11, 12, 13 of this proposal. |
 | `.claude/commands/orchestrator.md` | Step 1.5 ("Repo Health Check and Session Recovery") | Add a final bullet: "**Spawn the controller** as the last action of Step 1.5. Single Agent call, run_in_background, bypassPermissions. The controller initializes by reading the same lock/WIP/log state Step 1.5 just verified. Spawn happens once per orchestrator session — not per dispatch." |
 | `.claude/commands/orchestrator.md` | Step 3 "Spawning Sub-Agents" | Add rule 6: "Per-dispatch controller notification — every Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, etc.) is preceded by `SendMessage(to: 'controller', ...)` with the agent ID, skill, task, and expected file scope. The controller filters its checks based on the skill field." |
 | `.claude/commands/orchestrator.md` | Step 3 / "Graceful shutdown" section | Add: "Before exiting, send `SendMessage(to: 'controller', 'session ending')` so it produces a final summary and archives its own log." |
@@ -760,7 +1007,7 @@ Read-only proposal. Patches not written. Below is the change list with one-line 
 | File | Section / Line | One-line change |
 |---|---|---|
 | `.claude/commands/dev.md` | "Logging Rule" block at `:104-114` | Replace `### Step N: <Step Name> — <HH:MM>` with `### Step N: <Step Name> — <ISO 8601 UTC>` (e.g. `2026-05-05T12:30:22Z`). One-line bash hint: `$(date -u +%Y-%m-%dT%H:%M:%SZ)`. **Section 5e.5** covers the rationale (day-boundary disambiguation for checks 1, 2, 9, 20, 21, 27). |
-| `.claude/commands/dev.md` | New "## Marker Convention" block immediately after "Logging Rule" at `:104` | Add a ~25-line block listing the 24 marker tokens (Section 5e.3 table), the format rules (Section 5e.4: own line, square brackets, key=value space-separated, additive to step headings), and the backwards-compat note (Section 5e.6: archived logs lacking markers are exempt). |
+| `.claude/commands/dev.md` | New "## Marker Convention" block immediately after "Logging Rule" at `:104` | Add a ~30-line block listing the 28 marker tokens (Section 5e.3 table — including `[BASH-CALL]`/`[BASH-RETURN]`/`[MCP-CALL]`/`[MCP-RETURN]` for stale-agent detection), the format rules (Section 5e.4: own line, square brackets, key=value space-separated, additive to step headings), and the backwards-compat note (Section 5e.6: archived logs lacking markers are exempt). |
 | `.claude/commands/dev.md` | Step 0 "Initialize Session" (`:40-114`) | After agent has created log file + WIP entry + (if any) acquired locks, the FIRST line under `## Actions` MUST be `[STEP-0-COMPLETE] {ISO 8601 UTC}`. Marker for check 1. |
 | `.claude/commands/dev.md` | Step 1b "Kill Stale Processes" (`:243-264`) | After the `taskkill //F //PID` block, add: "Log each kill as `[STEP-1B-KILL] port=<N> pid=<N>`." Marker for check 4. |
 | `.claude/commands/dev.md` | Step 1b "Start Servers With Correct Venv" (`:266-300`) | At the top of the Rules list, add: "Before first venv invocation, log `[STEP-1B-VENV-CHECK] interpreter=<absolute path>`." After successful server start, log `[SERVER-START] role=<backend\|frontend\|adapter> port=<N> pid=<N>`. Markers for checks 5, 6, 7. |
@@ -780,31 +1027,37 @@ Read-only proposal. Patches not written. Below is the change list with one-line 
 | `.claude/commands/dev.md` | Step 10b (`:862-879`) | Wrap reset in `[STEP-10B-RESET] {ts} phase=start` / `[STEP-10B-RESET] {ts} phase=done` pair. Marker for check 28. |
 | `.claude/commands/dev.md` | Step 10c (`:881-914`) | At start of pause procedure: `[STEP-10C-PAUSE] {ts}`. Marker for check 29. |
 | `.claude/commands/dev.md` | Step 10e (`:976-1005`) | At start of restart procedure: `[STEP-10E-RESTART] {ts} blocking_agent=<id>`. Marker for check 30. |
-| `.claude/commands/orchestrator.md` | Existing `Conflict Resolution Policy` / `Relaying Questions and Fixes` sections (`:236-300`, `:565-571`) | After relaying user approval to a dev agent, log `SendMessage(to: "controller", "approval-relayed agent=<id>")`. Provides the gating signal for check 27. (Orchestrator-side marker, not a dev.md addition — listed here for completeness; see Section 15 open question 6 for the alternative of a structured orchestrator log file.) |
+| `.claude/commands/dev.md` | New "## Bash & MCP Discipline" subsection in Step 1b (cross-cutting — applies to all subsequent steps) | Mandate the four paired markers. Before EVERY `Bash` invocation: `[BASH-CALL] {ts} {first 80 chars of command, escaped}`. After return: `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>`. Before EVERY MCP tool call: `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<...>`. After: `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>`. Failure to emit is a Tier-2 violation (check 36). The controller's stale-agent monitoring (Section 8d) depends on these pairs. Adds ~20 lines to dev.md. |
+| `.claude/commands/dev.md` | New "## Read & Grep Discipline" subsection in Step 1 (Understand Context — applies to all investigation phases: Step 1, Step 5, Step 6, Step 7) | Mandate the two paired markers. Before EVERY `Read` invocation on a project file: `[READ] {ts} path=<path>`. Before EVERY `Grep`/`Glob` on project files: `[GREP] {ts} pattern=<pattern> path=<path>`. Failure to emit is a Tier-2 violation (check 39). The controller's Documentation-First check (Section 8e) and the catch-all coverage of Section 5e.7 limitation 32 depend on these markers. Adds ~15 lines to dev.md. |
+| `.claude/commands/dev.md` | Step 1 (Understand Context) preamble (`:188-201`) | Add reference to Section 8e: "A controller is monitoring this — the `[READ]`/`[GREP]` discipline above feeds the Documentation-First compliance check. Skipping `docs/` and going straight to source greps in this step (or in Steps 5/6/7) is detected as a Tier-1 (first occurrence) or Tier-2 (recurring) violation. Exemptions: syntactic/mechanical tasks; doc-internal navigation; deep-dive on a specific source file the doc pointed to." Adds ~5 lines to dev.md. |
+| `.claude/commands/orchestrator.md` | New "## Stalled Agent Recovery" subsection (after Conflict Resolution Policy at `:236-300` or in the Anti-Patterns area near `:765`) | Document the protocol when controller reports a stalled agent (Section 8d output). Steps: (1) read the stale-scan report; (2) for each candidate, attempt to identify the gating tool from the unmatched `[BASH-CALL]` / `[MCP-CALL]` marker; (3) check Section 12 catalogue for the failure mode; (4) apply mitigation per 12a–12e (e.g., user prompt for OAuth; respawn with PowerShell Start-Process for long-running starters); (5) if recoverable inline (orchestrator can see the prompt), approve directly; (6) if not, kill the agent (TaskStop) and respawn with adjusted approach. Adds ~30 lines to orchestrator.md. |
+| `.claude/commands/orchestrator.md` | Existing `Conflict Resolution Policy` / `Relaying Questions and Fixes` sections (`:236-300`, `:565-571`) | After relaying user approval to a dev agent, log `SendMessage(to: "controller", "approval-relayed agent=<id>")`. Provides the gating signal for check 27. (Orchestrator-side marker, not a dev.md addition — listed here for completeness; see Section 17 open question 6 for the alternative of a structured orchestrator log file.) |
 | `.claude/commands/multitask.md` | Phase 3.3a (Spawn Sub-Agents in Parallel) | Add: "Before each wave's spawns, send `SendMessage(to: 'controller', ...)` for every agent in the wave with the wave plan and conflict matrix. The controller pre-arms cross-agent invariant checks for the named file scopes." |
 | `.claude/commands/fn.md` | Step 0 / Step 2 (Lock check) | Add: "The controller verifies parent-lock inheritance: if `target_file` is not in `held_locks` and no `parent_agent` is set, it is a Tier-2 escalate. Always verify before editing." |
+| `.claude/commands/fn.md` | Step 1 / Step 3 / Step 4 (any Bash, MCP, Read, or Grep invocation) | Same Bash/MCP/Read/Grep discipline as the dev.md rows above: emit `[BASH-CALL]` / `[BASH-RETURN]` / `[MCP-CALL]` / `[MCP-RETURN]` / `[READ]` / `[GREP]` markers. fn agents are also monitored by the controller's stale-scan AND Documentation-First check. Adds ~15 lines to fn.md. |
 
-Total estimated effort: ~150 lines of new/changed text in `orchestrator.md`, ~80 lines in `dev.md` (5 explanatory notes + ~60 lines of marker rules across the Step sections + 1 timestamp-format change + the `[STEP-0-COMPLETE]` and `[LOCK ACQUIRED]`/`[LOCK RELEASED]` rules), ~5 lines each in `multitask.md` and `fn.md`. Achievable in 2-3 hours of orchestrator-level editing.
+Total estimated effort: ~180 lines of new/changed text in `orchestrator.md` (controller agent section + stalled-agent recovery), ~120 lines in `dev.md` (5 explanatory notes + ~95 lines of marker rules + 1 timestamp-format change + Bash/MCP discipline + Read/Grep discipline + Step 1 docs-first reference + the `[STEP-0-COMPLETE]` and `[LOCK ACQUIRED]`/`[LOCK RELEASED]` rules), ~5 lines in `multitask.md`, ~20 lines in `fn.md` (lock-check note + Bash/MCP/Read/Grep discipline). Achievable in 3–4 hours of orchestrator-level editing.
 
 ---
 
-## 15. Implementation Order
+## 16. Implementation Order
 
 If this proposal is approved:
 
-1. **Land the dev.md marker convention block** (Logging Rule + Marker Convention sections). Without this, the controller has no reliable signals to read — every other change depends on it.
-2. **Land the dev.md per-Step marker requirements** (the ~20 rows in Section 14's logging-additions sub-table, including the high-leverage `[STEP-0-COMPLETE]` and `[LOCK ACQUIRED]`/`[LOCK RELEASED]` markers). Each Step section gets its specific markers; agents start emitting them on the next session.
-3. **Land the orchestrator.md "Controller Agent" section.** Largest change; everything else references it. Defines the role, spawn pattern, signal/marker conventions, tier rules.
+1. **Land the dev.md marker convention block** (Logging Rule + Marker Convention sections, including the cross-cutting `[BASH-CALL]`/`[BASH-RETURN]`, `[MCP-CALL]`/`[MCP-RETURN]`, and `[READ]`/`[GREP]` discipline subsections). Without this, the controller has no reliable signals to read — every other change depends on it. The four Bash/MCP markers are load-bearing for the 4th axis (stale-agent monitoring, Section 8d + Section 12). The two Read/Grep markers are load-bearing for the 5th axis (Documentation-First, Section 8e).
+2. **Land the dev.md per-Step marker requirements** (the ~24 rows in Section 15's logging-additions sub-table, including the high-leverage `[STEP-0-COMPLETE]` / `[LOCK ACQUIRED]` / `[LOCK RELEASED]`, the Bash/MCP discipline, and the Read/Grep discipline). Each Step section gets its specific markers; agents start emitting them on the next session.
+3. **Land the orchestrator.md "Controller Agent" section.** Largest change; everything else references it. Defines the role, spawn pattern, the FIVE axes (5a–5d substantive event-driven + Section 8d/12 periodic stale-agent + Section 8e continuous Documentation-First), signal/marker conventions, tier rules.
 4. **Add the spawn pattern to Step 3 + Step 1.5 of orchestrator.md.** Once the orchestrator can spawn a controller and notify it on dispatch, the system is operational at minimum-viable level.
-5. **Add the dev.md / multitask.md / fn.md compliance notes** (the explanatory rows in Section 14). These are hints for the dev agents about controller existence; the controller works without them but the dev agents will be confused by Tier-2 messages otherwise.
-6. **Update Anti-Patterns table** in orchestrator.md.
-7. **Live-test on a 2-agent /multitask session.** Pick a low-risk pair (one /dev, one /update-docs) to validate spawn, marker emission, pulse, summary, and archive.
+5. **Land the orchestrator.md "Stalled Agent Recovery" subsection** (per Section 15 row, mapped to Section 8d coordination protocol + Section 12 catalogue). Without this, the controller's stall-scan output has no documented receiver protocol on the orchestrator side.
+6. **Add the dev.md / multitask.md / fn.md compliance notes** (the explanatory rows in Section 15, including the Step 1 docs-first reference and the fn.md Read/Grep discipline). These are hints for the dev agents about controller existence; the controller works without them but the dev agents will be confused by Tier-2 messages otherwise.
+7. **Update Anti-Patterns table** in orchestrator.md.
+8. **Live-test on a 2-agent /multitask session.** Pick a low-risk pair (one /dev, one /update-docs) to validate spawn, marker emission, pulse, summary, and archive. Add a stall-injection test (e.g., dev agent runs `cmd //c start-pianoid.bat` directly without backgrounding, or invokes an MCP tool with a stale OAuth) to validate the 4th-axis stale-scan + recovery protocol. Add a docs-first injection test (dev agent grep'ing source files for an architectural question without consulting `docs/` first) to validate the 5th-axis Documentation-First check.
 
-The marker convention (Step 1) lands FIRST because adding markers to dev.md does not break anything if no controller is reading them — they are just extra log lines. The controller (Step 3) cannot reliably enforce checks without them. Reverse order would force an interim "best-effort grep" mode that's harder to verify.
+The marker convention (Step 1) lands FIRST because adding markers to dev.md does not break anything if no controller is reading them — they are just extra log lines. The controller (Step 3) cannot reliably enforce checks without them. Reverse order would force an interim "best-effort grep" mode that's harder to verify. Stalled Agent Recovery (Step 5) follows the controller spawn (Step 4) because the receiver protocol depends on the controller existing; until it does, the orchestrator's existing ad-hoc kill/respawn behaviour is the fallback. The Documentation-First check (5th axis) is enabled automatically once Steps 1+2 land — no separate Step 5e implementation needed; the controller's algorithm in Section 8e simply reads the Read/Grep markers as they arrive.
 
 ---
 
-## 16. Open Questions
+## 17. Open Questions
 
 (Lifecycle is settled — see TL;DR and Section 4 for the permanent-for-session decision and rationale. The questions below are the remaining open items.)
 
@@ -813,11 +1066,13 @@ The marker convention (Step 1) lands FIRST because adding markers to dev.md does
 3. **Tier-3 enforcement strength.** Today the proposal says "advisory" message to dev agents — they can ignore the SendMessage. Should Tier-3 instead trigger an orchestrator-side automatic Step 10c pause via SendMessage to the violating agent? Proposal: keep advisory; orchestrator owns enforcement decisions. Auto-pause from controller would blur the boundary in Section 10.
 4. **Notification scope for non-/dev dispatches.** Section 6 says the orchestrator notifies the controller on every dispatch including `/sync`, `/test-ui`, `/pianoid-ui`. This catches accidental source edits but adds notification volume. Alternative: notify only on `/dev`, `/multitask`, `/fn`, `/update-docs`, `/review` — i.e., skills that *can* edit project state. Proposal: notify all (current text), reconsider if telemetry shows the non-editing skills generate noise.
 5. **Detecting orchestrator self-reads of source files (check 32).** The orchestrator's tool-use record is in its own conversation context, inaccessible to the controller. Today the controller catches the consequence (unlocked dirty file via check 8 + `[LOCK ACQUIRED]` divergence) but not the read itself. Options: (a) accept the gap and rely on consequence-detection; (b) require the orchestrator to write its own session log under `docs/development/logs/orchestrator-<session-id>-...md` capturing every Read/Bash tool call against project paths — a substantial new convention. Proposal: option (a). Option (b) is heavier than the failure mode warrants.
-6. **Orchestrator-side approval-relay marker (check 33).** The proposal asks the orchestrator to `SendMessage(to: "controller", "approval-relayed agent=<id>")` after each user-approval forward. This is the gating signal for check 27 (no premature Phase 2). Without it, the controller has to read the team-lead inbox file to detect approval relays — works today but ties controller correctness to inbox-file format stability. Should the orchestrator also write the approval-relay action to a structured log file, separate from the SendMessage? Proposal: SendMessage is sufficient; revisit if inbox format changes. Both options addressed in Section 14's orchestrator.md edit row.
+6. **Orchestrator-side approval-relay marker (check 33).** The proposal asks the orchestrator to `SendMessage(to: "controller", "approval-relayed agent=<id>")` after each user-approval forward. This is the gating signal for check 27 (no premature Phase 2). Without it, the controller has to read the team-lead inbox file to detect approval relays — works today but ties controller correctness to inbox-file format stability. Should the orchestrator also write the approval-relay action to a structured log file, separate from the SendMessage? Proposal: SendMessage is sufficient; revisit if inbox format changes. Both options addressed in Section 15's orchestrator.md edit row.
+7. **Stale-agent scan cadence (30-min default, tunable).** Section 8d defaults to a 30-min cadence per the user's specification. This is a tunable trade-off: shorter cadence catches stalls faster but increases controller wakeups (still cheap, but adds log noise per pulse); longer cadence accepts more dead-time before a stalled agent is reported. Proposal: 30 min as user-specified; revisit if telemetry shows that (a) most stalls produce visible alerts before 30 min via other channels, in which case bump to 60 min; or (b) stalls cluster around well-known patterns where a pre-emptive check (Section 5e.2 row 37 with the Section 12 pattern catalogue) catches them within seconds, making the 30-min sweep less load-bearing.
+8. **Documentation-First windowing parameter (N=3 default, tunable).** Section 8e uses a sliding window of the last N=3 non-NEUTRAL `[READ]`/`[GREP]` events to decide whether the agent is grep-first vs docs-first. The user suggested N=3 as the default. Trade-offs: smaller N (e.g., 2) is more sensitive — flags faster but with more false positives; larger N (e.g., 5) is more lenient — fewer false positives but lets a few source-only reads through. Alternative model: time-window (e.g., last 2 minutes of investigation phase) instead of event-window (last 3 events). Proposal: keep N=3 event-window — easier for the controller to reason about and matches the user's intuition. Revisit if (a) telemetry shows persistent false-positive rate >20% on otherwise-compliant sessions, in which case bump to N=5; or (b) agents start gaming the window (e.g., one cheap doc-read followed by 100 source-reads), in which case switch to time-windowed.
 
 ---
 
-## 17. Non-Goals
+## 18. Non-Goals
 
 This proposal does NOT:
 
@@ -827,3 +1082,5 @@ This proposal does NOT:
 - Add new tools or MCP servers — controller uses existing harness primitives.
 - Persist state across orchestrator sessions — each `/orchestrator start` gets a fresh controller.
 - Block agents — all enforcement is advisory; orchestrator decides actions.
+- **Auto-recover stalled agents.** The 4th axis (Section 8d periodic stale-scan + Section 12 catalogue) detects stalls and reports them; it never invokes `TaskStop`, never respawns, never auto-approves CLI permission prompts, never opens browser tabs to complete OAuth flows. Recovery is the orchestrator's job per the failure-mode-specific protocol in Section 8d / Section 12. This boundary is intentional: granting recovery authority to the controller would require it to also have actor-level permissions (Bash, TaskStop), which would expand its surface area beyond the read-only-monitor design and reintroduce the ambiguity Section 10 was designed to eliminate.
+- **Run more often than every 30 minutes for stall detection.** The cadence is deliberate: shorter intervals create false positives on slow legitimate work (large CUDA build, full pytest, npm cold install — all in F8). Sub-30-min stall sweeps produce noise faster than they catch real stalls. Pre-emptive flagging on the moment of `[BASH-CALL]` against the suspicious-pattern regex (Section 12.6) is the controller's fast-path for catching stalls early; the 30-min sweep is the slow-path safety net.
