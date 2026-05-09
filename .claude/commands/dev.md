@@ -110,6 +110,14 @@ Add a reference to `docs/development/WORK_IN_PROGRESS.md` under `## Active Dev S
 
 Append rows for new agents; do not replace existing entries from other agents.
 
+### Step 0 Completion Marker
+
+Once the log file exists, the WIP entry is added, and (if any) initial locks are acquired, emit `[STEP-0-COMPLETE] 2026-05-05T12:30:22Z` as the FIRST line under `## Actions` in your session log. The controller computes `spawn → STEP-0-COMPLETE` delta:
+- Tier-1 warn if Step 0 takes longer than 120 seconds
+- Tier-2 escalate if Step 0 takes longer than 300 seconds
+
+These are not new requirements — they are the existing Step 0 rules with explicit timing. A controller is always active in orchestrator-driven sessions and watches every dev agent's session log.
+
 ### Check for Paused or Stale Sessions
 
 Before starting new work, check for existing sessions:
@@ -128,10 +136,97 @@ If **stale** sessions exist (no "Paused" marker, but log files remain from crash
 After completing each step below, append a timestamped entry to the log file:
 
 ```markdown
-### Step N: <Step Name> — <HH:MM>
+### Step N: <Step Name> — 2026-05-05T12:30:22Z
 - <what was done: files read, commands run, decisions made>
 - <outcomes, metrics, errors encountered>
 ```
+
+Step heading timestamps use **ISO 8601 UTC** (`$(date -u +%Y-%m-%dT%H:%M:%SZ)`), not local `HH:MM`. The earlier `HH:MM` form is ambiguous across day boundaries — a step that began at 23:50 and was logged again at 00:10 cannot be ordered without a date. The controller's invariant checks (Step-0 SLA, debug-iteration counts, Phase-1/2 ordering) require unambiguous timestamps.
+
+Keep entries concise — bullet points, not prose. The log is a breadcrumb trail, not a narrative.
+
+### Marker Convention
+
+In addition to step headings, dev agents emit explicit **markers** at action boundaries. Markers are short bracketed tags written on their own line in the session log; they supplement (do not replace) step headings and structured sections like `## Data Model Card` and `## Pause Snapshot`. The controller reads these markers to enforce workflow invariants reliably without grep-style heuristics.
+
+**Format rules:**
+- Each marker appears on its own line at column 0
+- Starts with `[MARKER NAME]` in square brackets — spaces or hyphens inside the brackets are both accepted
+- When a marker carries a timestamp, the timestamp follows the closing bracket: `[BUILD STARTED] 2026-05-05T12:30:22Z mode=heavy variant=release`
+- Fields use `key=value`; values containing spaces are quoted (`name="my file.py"`); multiple fields are space-separated
+- Emitted by the agent's own `Edit`/`Write` to the session log file — no special tooling required
+- Coexists with existing narrative entries; markers are additive
+
+**Catalogue (each step section below specifies which markers to emit and when):**
+
+| Marker | Where emitted | What it captures |
+|---|---|---|
+| `[STEP-0-COMPLETE] {ts}` | First line under `## Actions` once log + WIP + locks set | Step-0 SLA gate |
+| `[LOCK ACQUIRED] {file}` | When adding a file to lock row | Lock-acquire intent |
+| `[LOCK RELEASED] {file}` | When removing a file from lock row | Lock-release intent |
+| `[STEP-1B-KILL] port=<N> pid=<N>` | Step 1b before any port-scoped `taskkill` | Port-scoped kill |
+| `[STEP-1B-VENV-CHECK] interpreter=<path>` | Step 1b once before first venv use | Confirms venv interpreter |
+| `[SERVER-START] role=<r> port=<N> pid=<N>` | After starting a server | Server lifecycle start |
+| `[SERVER-STOP] port=<N> pid=<N>` | At cleanup or exit | Server lifecycle end |
+| `[DMC-COMPLETE]` | End of Data Model Card section | Card complete signal |
+| `[EDIT] file=<path>` | After each Edit/Write batch on a source file | Edit operation log |
+| `[FILE-LOC] <path> before=<N> after=<N>` | After edit batch on a file | C4 threshold tracking |
+| `[BUILD-PRECHECK] holders=<...>` | Before any build invocation | Pre-build hygiene |
+| `[BUILD STARTED] {ts} mode=<m> variant=<v>` | Before build invocation | Canonical build start |
+| `[BUILD OK] {ts} duration=<s> marker=<s> verified=<y\|n>` | On build success | Build success + verification |
+| `[BUILD FAILED] {ts} code=<N> error_summary=<one-line>` | On build failure | Build failure |
+| `[TEST-WRITTEN] path=<...>` | Before fn-spawn | Test exists before sub-agent |
+| `[FN-SPAWNED] id=<...> target=<...>` | At fn-spawn | fn-spawn record |
+| `[FN-RESULT] id=<...> status=<ok\|fail>` | After fn-results incorporated | fn-completion record |
+| `[BASELINE-TEST] {ts} result=<pass\|fail> ...` | After Step 2 | Baseline ran before Step 4 |
+| `[REGRESSION-CHECK] {ts} ... verdict=<v>` | After Step 5 | Post-change perf summary |
+| `[REGRESSION-DETECTED] {ts} file=<f> metric=<m> delta=<d>` | After Step 5 if verdict=fail | Per-metric regression record |
+| `[STEP-6-DEBUG iter=<N>]` | Each debug iteration | Debug-iteration counter |
+| `[VERIFY-INVOKE] skill=<...> mode=<...>` | Step 7 audio verification | Mode-routing record |
+| `[STEP-8-COMPLETE] {ts} docs_touched=<...>` | End of Step 8 | Doc update done |
+| `[DOC-GAP] description=<...> resolution=<...>` | Step 8 if gap found | Doc-gap closure record |
+| `[STEP-10A-PHASE-1] {ts} commit=<sha>` | Step 10a Phase 1 complete | Phase 1 boundary |
+| `[STEP-10A-PHASE-2] {ts}` | Step 10a Phase 2 start | Phase 2 boundary |
+| `[STEP-10B-RESET] {ts} phase=<start\|done>` | Step 10b boundaries | Reset completeness |
+| `[STEP-10C-PAUSE] {ts}` | Start of Step 10c | Pause start marker |
+| `[STEP-10E-RESTART] {ts} blocking_agent=<id>` | Start of Step 10e | Restart-after-lock marker |
+| `[BASH-CALL] {ts} {cmd_summary}` | Before every Bash invocation | Bash-call boundary |
+| `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>` | After every Bash return | Bash-return boundary |
+| `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<...>` | Before every MCP tool invocation | MCP-call boundary |
+| `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>` | After every MCP tool return | MCP-return boundary |
+| `[READ] {ts} path=<path>` | Before every `Read` on a project file | Read operation log |
+| `[GREP] {ts} pattern=<pattern> path=<path>` | Before every `Grep`/`Glob` on project files | Grep/Glob operation log |
+
+**Backwards compatibility.** Archived dev session logs predating this convention lack these markers — that's expected. Only new sessions are subject to the marker rules.
+
+### Bash & MCP Discipline (cross-cutting)
+
+Applies to **every** step that runs `Bash` or invokes an MCP tool. Without these markers, the controller cannot detect agents that stalled on a CLI permission prompt invisible to the Telegram user (the dominant stall pattern per `.claude/CLAUDE.md` "Known gaps in `bypassPermissions`").
+
+- **Before every `Bash` invocation:** emit `[BASH-CALL] {ts} {first 80 chars of command, escaped}` to the session log
+- **After every `Bash` return:** emit `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>`
+- **Before every MCP tool invocation:** emit `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<first 80 chars>`
+- **After every MCP tool return:** emit `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>`
+
+The pairs are **load-bearing** — an unmatched `[BASH-CALL]` or `[MCP-CALL]` older than 30 minutes is the controller's primary signal that the agent has stalled (Tier-2). Older than 60 minutes is Tier-3.
+
+Failure to emit these markers is itself a Tier-2 violation — the controller cannot enforce stall detection or pre-emptive gating-pattern flagging without them.
+
+### Read & Grep Discipline (cross-cutting)
+
+Applies to **every** investigation phase: Step 1 (Understand Context), Step 5 (Test), Step 6 (Debug), Step 7 (Verify). Without these markers, the controller cannot enforce the CLAUDE.md "Documentation-First Rule (MANDATORY)".
+
+- **Before every `Read` invocation on a project file:** emit `[READ] {ts} path=<path>`
+- **Before every `Grep`/`Glob` invocation on project files:** emit `[GREP] {ts} pattern=<pattern> path=<path>`
+
+The controller maintains a sliding window over the last 3 non-NEUTRAL events (per agent, per investigation phase). Three source-reads with no preceding doc-read in the window is a violation: Tier-1 first occurrence per session, Tier-2 if it recurs.
+
+Exemptions (the controller suppresses violations under these conditions):
+- Syntactic / mechanical tasks (rename, replace, move file, lint fix)
+- Doc-internal navigation (`Grep` on markdown headings within `docs/`, `Glob` restricted to `docs/`)
+- Single-source-file deep-dive after a doc-read pointed to it (next 5 reads of THAT file are exempt)
+
+Failure to emit these markers is itself a Tier-2 violation.
 
 Keep entries concise — bullet points, not prose. The log is a breadcrumb trail, not a narrative.
 
@@ -222,6 +317,8 @@ Read documentation in this order, stopping when you have enough context:
 5. Read the actual source files identified from the docs
 6. Check `docs/development/WORK_IN_PROGRESS.md` for related ongoing work
 
+**Documentation-First compliance (controller-monitored).** The `[READ]` / `[GREP]` discipline above feeds the controller's Documentation-First compliance check. Skipping `docs/` and going straight to source greps in this step (or in Steps 5/6/7) is detected as a Tier-1 warn (first occurrence per session) or Tier-2 escalate (recurring). Exemptions: syntactic/mechanical tasks; doc-internal navigation; deep-dive on a specific source file the doc pointed to.
+
 ### Check Module Locks and Repo Cleanliness
 
 **Invariant: Every module file is either committed+clean OR locked by an editing agent.** Violations of this invariant are urgent.
@@ -285,6 +382,8 @@ netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000|5001) " && echo "WARNING: p
 
 **This applies every time** — even if you think nothing is running. Previous sub-agents or user sessions may have left orphaned processes. Distorted sound is the #1 symptom of skipping this step.
 
+**Markers (MANDATORY):** for each port-scoped kill above, emit `[STEP-1B-KILL] port=<N> pid=<N>` to the session log. The **absence** of `[STEP-1B-KILL]` markers around a `taskkill` invocation is the controller's smoking gun for blanket-kill (`taskkill //F //IM python.exe` / `node.exe`), which is a Tier-3 halt.
+
 ### Start Servers With Correct Venv
 
 When the task requires a running backend, **start it yourself**. Use `run_in_background: true` on the Bash tool (NOT shell `&`) so the process survives:
@@ -312,11 +411,13 @@ cd PianoidCore/pianoid_middleware && ../.venv/Scripts/python -u modal_adapter/mo
 ```
 
 **Rules:**
+- Before the first venv invocation in this session, emit `[STEP-1B-VENV-CHECK] interpreter=<absolute path>` (e.g., `interpreter=D:/repos/PianoidInstall/PianoidCore/.venv/Scripts/python.exe`). The controller flags any subsequent `python` Bash call lacking the matching prefix as a Tier-2 violation.
 - Always use `PianoidCore/.venv/Scripts/python`, NEVER system Python (`C:\Python312\python.exe`)
 - Always set CWD to `pianoid_middleware/` before starting — preset paths are relative
 - Always use `run_in_background: true` on the Bash tool, NOT shell `&`
 - Always redirect output to a log file for diagnostics
 - Always verify with port check + endpoint test after startup
+- After successful server start, emit `[SERVER-START] role=<backend\|frontend\|adapter> port=<N> pid=<N>`. After shutdown (in any exit path), emit a matching `[SERVER-STOP] port=<N> pid=<N>`. The controller verifies every START has a matching STOP before the agent transitions to CLOSED.
 - If the server crashes on startup, read the log file to diagnose — do not ask the user
 - If startup fails 3 times, report the log contents and stop — do not loop indefinitely
 
@@ -386,6 +487,8 @@ Record these metrics from the output:
 
 If baseline tests fail, report to user and ask whether to proceed.
 
+**Marker (MANDATORY):** after baseline tests pass, emit `[BASELINE-TEST] 2026-05-05T12:30:22Z result=<pass\|fail> perf_log=/tmp/baseline_perf.log gpu_mean_ms=<N> sound_corr=<N>`. The controller alerts if Step 4 edit markers appear without a preceding `[BASELINE-TEST] result=pass` (Tier-1 warn).
+
 ## Step 3: Branch (if needed)
 
 **Non-trivial changes** (new features, refactors, multi-file edits):
@@ -412,10 +515,12 @@ If either answer is unclear or uncomfortable, pause and read `docs/development/C
 
 ### Pre-implementation Data Model Card (MANDATORY)
 
-Before writing the first line of fix code, produce a **Data Model Card** in your session log. The card lists every non-trivial data-model fact the fix depends on, with explicit doc support. Format:
+Before writing the first line of fix code, produce a **Data Model Card** in your session log. The card lists every non-trivial data-model fact the fix depends on, with explicit doc support. Format the heading literally as `## Data Model Card — 2026-05-05T12:30:22Z` (ISO 8601 UTC). Table format:
 
 | Fact the fix relies on | Doc citation (file + section/anchor) | Inferred-only? (Y/N) |
 |---|---|---|
+
+After the table, emit `[DMC-COMPLETE]` on its own line to mark the card complete. The controller searches for this marker before any `[EDIT]` line targeting source files; missing or out-of-order DMC is a Tier-2 escalate.
 
 If any row is marked "inferred-only" (i.e. you could not find doc support and are reasoning from source code), **PAUSE** before editing and either (a) route the question to the orchestrator/user via SendMessage, or (b) close the doc gap *first* — confirm with measurement against the engine, then write the doc, then proceed with the fix. Source-code-only inference about data-model facts is the failure mode that produced two consecutive wrong diagnoses in dev-833f (Phase A endpoint mismatch, Phase B value-scale mismatch on the SoundChannels silence bug, 2026-04-30) before the third measurement-based diagnosis succeeded.
 
@@ -442,6 +547,8 @@ Rules:
 - The lock file itself is not locked — multiple agents may add/remove their own rows
 - **Lock-before-edit invariant:** Before writing to ANY file not already in your lock list, you MUST first add it to `MODULE_LOCKS.md`. Update your lock row to include the new file. Check for conflicts (another agent holding that file) before proceeding. This applies even when scope expands mid-session — **never edit an unlocked file.**
 
+**Lock markers (MANDATORY):** when adding a file to your lock row, emit `[LOCK ACQUIRED] {file}`. When removing, emit `[LOCK RELEASED] {file}`. The controller cross-references these markers against `MODULE_LOCKS.md` reads — divergence (marker says acquired but file row absent, or marker says released but row still present) is a Tier-2 escalate. The controller detects unlocked dirty files within seconds via `git status` sweeps — not at Step 10a's audit. Treat lock-before-edit as a hard precondition, not a wrap-up reconciliation.
+
 ### Multi-Stage Session Management
 
 When a task involves multiple stages or scope expands during implementation:
@@ -466,6 +573,8 @@ When a task involves multiple stages or scope expands during implementation:
 - Reuse existing helpers — grep before writing
 - Match existing patterns in the file (naming, indentation, error handling)
 
+**Edit markers (MANDATORY):** after each batch of `Edit`/`Write` calls on a tracked source file, emit `[EDIT] file=<path>`. After you finish editing a file, run `wc -l <path>` and emit `[FILE-LOC] <path> before=<N> after=<N>` (use the pre-edit LOC from the lock-acquisition snapshot). The controller flags threshold crosses (`before<500 && after>=500` or `before<1000 && after>=1000`) as Tier-1 warn — these correspond to C4 YELLOW and RED transitions and require updating `CODE_QUALITY.md` God Objects list in Step 8.
+
 **Rebuild after edits:**
 
 Before building, consult `docs/architecture/BUILD_SYSTEM.md` for build pipeline details, venv handling, and troubleshooting.
@@ -487,6 +596,8 @@ fi
 # Also check cudart DLL
 tasklist //M cudart64_12.dll 2>/dev/null | grep python && echo "WARNING: cudart64_12.dll locked — kill holder first"
 ```
+
+**Pre-build marker (MANDATORY):** after running the precheck above, emit `[BUILD-PRECHECK] holders=<comma-separated-pids or "none">` to the session log. The controller alerts if `[BUILD STARTED]` appears without a preceding `[BUILD-PRECHECK]` (Tier-2 escalate).
 
 **Build commands:** The build script MUST be invoked from `PianoidCore/` using its own `.venv`. Clear `VIRTUAL_ENV` first to prevent the script from installing into the wrong venv (see `docs/architecture/BUILD_SYSTEM.md` — the script uses `%REPO_ROOT%.venv`).
 
@@ -522,6 +633,13 @@ delete `%TEMP%\pip-build-env-*`, `pip cache purge`, then re-run the canonical `b
 PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
 ```
 Verify the path is inside `PianoidCore/.venv/` (not root `.venv/`).
+
+**Build markers (MANDATORY):** wrap each build invocation in a marker triple.
+- **Before** the build: `[BUILD STARTED] 2026-05-05T12:30:22Z mode=<heavy\|light> variant=<release\|debug>`
+- **On success:** `[BUILD OK] 2026-05-05T12:30:55Z duration=<seconds> marker=<grep-string-used-to-verify> verified=<yes\|no>`
+- **On failure:** `[BUILD FAILED] 2026-05-05T12:30:55Z code=<exit-code> error_summary=<one-line>`
+
+The controller alerts if Step 5 begins without a preceding `[BUILD OK] verified=yes` (Tier-1 warn). Any `pip install ... pianoid_cuda/` invocation lacking a paired `[BUILD STARTED]` is the canonical-build-script violation (Tier-2 escalate).
 
 ## Step 4b: Delegate to `/fn` Sub-Agents (preferred)
 
@@ -572,7 +690,14 @@ The test file **persists in the project** — it is not disposable scaffolding. 
 
 2. **Verify locks** — all target files must be in this agent's lock list (acquired in Step 4). The sub-agent inherits locks from the parent; it does NOT acquire its own.
 
+   The controller verifies `/fn` parent-lock inheritance — fn-spawned edits must land on files in the parent dev agent's lock list. New files require the parent to retroactively add them to its own lock row before the fn agent edits, or the controller will Tier-3 halt.
+
 3. **Spawn** — use the `Agent` tool. Independent sub-agents can be spawned in parallel (single message, multiple Agent calls). Use `run_in_background: true` for parallel spawns.
+
+   **Markers (MANDATORY):**
+   - Before the spawn: emit `[TEST-WRITTEN] path=<test-file>` (the test the parent prepared in the section above). The controller compares ordering — `[FN-SPAWNED]` without a preceding `[TEST-WRITTEN]` is a Tier-1 warn.
+   - At the spawn: emit `[FN-SPAWNED] id=<fn-XXXX> target=<file>`.
+   - After the fn results are incorporated into the parent log: emit `[FN-RESULT] id=<fn-XXXX> status=<ok\|fail>`. Step 5 entry in the parent log without all `[FN-RESULT]` lines having `status=ok` (or an explicit `[FN-RETRY]` / `[FN-INLINE-FALLBACK]` follow-up) is a Tier-2 escalate.
 
    ```
    Agent({
@@ -685,6 +810,8 @@ Compare against baseline and print a table:
 - GPU p99 increase > 20%
 - Underrun count increase > 50%
 
+**Markers (MANDATORY):** after the comparison table, emit `[REGRESSION-CHECK] 2026-05-05T12:30:22Z gpu_mean_delta_pct=<N> sound_corr=<N> verdict=<pass\|warn\|fail>`. On `verdict=fail`, also emit `[REGRESSION-DETECTED] 2026-05-05T12:30:22Z file=<path> metric=<name> delta=<value>` per offending metric. The controller alerts if `[REGRESSION-DETECTED]` is followed by `[STEP-10A-PHASE-1]` without an intervening `[STEP-6-DEBUG]` marker (Tier-2 escalate — regression triggers debug, not commit).
+
 ## Step 6: Debug (if tests fail)
 
 **Build failures:** If a build command fails (linker errors, missing libraries, DLL issues),
@@ -701,6 +828,8 @@ Iterative loop (max 5 iterations):
 6. Repeat until all pass
 
 After 5 failed iterations, stop and report findings to the user. Do not keep looping.
+
+**Marker (MANDATORY):** at the start of each debug iteration, emit `[STEP-6-DEBUG iter=<N>]` on its own line (in addition to the `### Step 6: Debug iteration N — <ISO timestamp>` step heading). The controller counts iterations: warn at iter 6, escalate at iter 8.
 
 ## Step 7: Feature-Specific Testing (new features only)
 
@@ -723,6 +852,8 @@ Changes that require `/test-ui`:
 - Physical string parameters (tension, damping, etc.)
 - Hammer shape changes
 - Any new UI control that sends data to the synthesis engine
+
+**Marker (MANDATORY):** when invoking `/test-ui` or `/diagnose`, emit `[VERIFY-INVOKE] skill=<test-ui\|diagnose> mode=<audio_off\|audio_on>` to the session log. The controller cross-references the chosen mode against the agent's edited file list (synthesis-output vs mic-engaging classification per `.claude/CLAUDE.md` "Audio Verification Rule"). Wrong mode (e.g., calibration change verified via `/test-ui` instead of `/diagnose`) is a Tier-2 escalate.
 
 ### 7b: Automated Tests
 
@@ -786,6 +917,10 @@ SVG style rules:
 
 **Never add new ASCII art diagrams.** Replace existing ASCII diagrams with Mermaid or SVG
 when you are already editing that section.
+
+**Markers (MANDATORY):**
+- At the end of Step 8, emit `[STEP-8-COMPLETE] 2026-05-05T12:30:22Z docs_touched=<comma-separated-paths or "none">`. The controller alerts if `[STEP-10A-PHASE-1]`, `[STEP-10B-RESET]`, or `[STEP-10C-PAUSE]` appears without a preceding `[STEP-8-COMPLETE]` (Tier-2 escalate — Step 8 is mandatory for ALL exit procedures).
+- If the session identified a doc gap, emit `[DOC-GAP] description=<one-line> resolution=<doc-edit\|wip-deferred> ref=<file-or-wip-anchor>`. The controller flags log entries that mention "doc gap" / "should be documented" if no doc edit or WIP entry follows before commit (Tier-1 warn).
 
 ## Step 9: Merge Feature Branch to Dev
 
@@ -867,7 +1002,7 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
    git add docs/ mkdocs.yml
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
-4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`
+4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`. Emit `[LOCK RELEASED] {file}` for each.
 5. **Pre-handoff process hygiene (MANDATORY).** Always leave a CLEAR environment before reporting "ready to test". Kill all running server instances. **Do NOT restart unless explicitly instructed to.** The user prefers to start fresh manually so their browser tab is guaranteed to bind to a known-new bundle on first connect (no HMR ghost state, no stale dev-server cache, no chance the orchestrator's restart timing misaligns with the user's hard-refresh).
 
    **Procedure:**
@@ -892,21 +1027,27 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
 
    **Skip this step ONLY** if the change is documentation-only or research-only with no user-runtime impact. When in doubt, kill (do not restart).
 
-**STOP HERE.** Report changes to the orchestrator/user and wait for approval. Do NOT proceed to Phase 2 until explicitly told to.
+6. **Phase 1 marker** — emit `[STEP-10A-PHASE-1] 2026-05-05T12:30:22Z commit=<sha>` (use the most recent commit SHA from `git rev-parse HEAD`).
+
+**STOP HERE.** Report changes to the orchestrator/user and wait for approval. Do NOT proceed to Phase 2 until explicitly told to. The controller cross-references `git log` against the orchestrator's approval-relay messages — Phase 2 actions (log archive, WIP cleanup) appearing before an approval-relay trigger Tier-2 escalate.
 
 #### Phase 2: User-approved (only after explicit approval)
 
-5. **Archive log** — move log file to archive:
+Emit `[STEP-10A-PHASE-2] 2026-05-05T12:30:22Z` as the first action of Phase 2. The Phase-2 timestamp must follow the orchestrator's approval-relay timestamp; the controller flags out-of-order Phase-2 starts as Tier-2 escalate.
+
+7. **Archive log** — move log file to archive:
    ```bash
    mkdir -p docs/development/logs/archive
    mv "$LOG_FILE" docs/development/logs/archive/
    ```
-6. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
-7. **Merge** — proceed to Step 9 if a feature branch was created
+8. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
+9. **Merge** — proceed to Step 9 if a feature branch was created
 
 ### 10b: Reset (failed implementation)
 
 Sequence: **Document → Revert → Release locks → Delete log → Clean WIP**
+
+**Markers (MANDATORY):** wrap the reset in a pair: `[STEP-10B-RESET] 2026-05-05T12:30:22Z phase=start` at the beginning, `[STEP-10B-RESET] 2026-05-05T12:30:55Z phase=done` after all four actions complete. Between the markers the controller verifies all four actions happened; partial completion at `phase=done` (e.g., locks released but log not deleted) is the violation (Tier-2 escalate).
 
 1. **Verify Step 8 is done** — document what was attempted and why it failed (in WIP or relevant doc)
 2. **Revert uncommitted changes:**
@@ -926,6 +1067,8 @@ Sequence: **Document → Revert → Release locks → Delete log → Clean WIP**
 ### 10c: Pause (freeze for handoff)
 
 Sequence: **Document → Commit/stash → Snapshot → Release locks → Update WIP**
+
+**Marker (MANDATORY):** at the start of the pause procedure, emit `[STEP-10C-PAUSE] 2026-05-05T12:30:22Z`. The `## Pause Snapshot` section format below remains as already specified.
 
 Use this when work is incomplete but needs to be handed off to another session.
 
@@ -1022,6 +1165,8 @@ Use this when a dev agent terminated abnormally — no wrap-up (10a), reset (10b
 Use this when an agent was paused (10c) due to a lock conflict and the blocking lock has been released. The restarted agent must account for changes made by the agent that held the lock.
 
 **The restarting agent MUST reuse the original agent's ID.**
+
+**Marker (MANDATORY):** at the start of the restart procedure, emit `[STEP-10E-RESTART] 2026-05-05T12:30:22Z blocking_agent=<id-of-agent-that-held-the-lock>`. The `## Restart After Lock Conflict` section format below remains as already specified. The controller flags previously-paused agents that resume without the marker as Tier-1 warn.
 
 #### Restart procedure
 

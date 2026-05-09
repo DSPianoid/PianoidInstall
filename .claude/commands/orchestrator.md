@@ -177,6 +177,100 @@ When unlocked dirty files are found:
 3. If user says investigate → spawn an Explore agent to determine what made the changes
 4. Do NOT accept new tasks that touch the dirty files until resolved
 
+### Spawn the Controller (LAST action of Step 1.5)
+
+After the health check completes and before exiting Step 1.5, **spawn the controller agent**. Single Agent call, run_in_background, bypassPermissions. The controller initializes by reading the same lock/WIP/log state Step 1.5 just verified. Spawn happens once per orchestrator session — not per dispatch. See the "Controller Agent" section below for the full spawn template.
+
+---
+
+## Controller Agent
+
+The orchestrator runs alongside a permanent **controller agent** for the full session. The controller is a read-only compliance monitor: it watches `MODULE_LOCKS.md`, `WORK_IN_PROGRESS.md`, dev-agent session logs, and `git status` and reports graduated alerts (warn → escalate → halt) to the orchestrator. It never edits source, never spawns or kills agents, never messages the user.
+
+See the full proposal at `docs/proposals/controller-role.md` for the complete invariant catalogue, marker conventions, and tier rules.
+
+### Lifecycle
+
+- **Spawned once** at orchestrator startup, as the last action of Step 1.5
+- **Lives** for the full orchestrator session (event-driven, near-zero idle cost)
+- **Exits** when the orchestrator sends `SendMessage(to: "controller", "session ending")`
+- **Singleton:** at most one controller per orchestrator session
+
+### Spawn template
+
+```javascript
+Agent({
+  team_name: "pianoid-dev",
+  name: "controller",
+  subagent_type: "general-purpose",
+  run_in_background: true,
+  mode: "bypassPermissions",
+  description: "Compliance controller for this orchestrator session",
+  prompt: `Run as the dev pipeline controller for this orchestrator session.
+
+  Your job is to monitor /dev, /multitask, /fn, and any other dispatches for
+  workflow compliance. You are read-only on project source — never use Edit
+  or Write on PianoidCore, PianoidBasic, PianoidTunner, or any docs/ file.
+  You may write only to your own session log at
+  docs/development/logs/controller-<id>-<timestamp>.md.
+
+  Initial actions:
+    1. Generate controller ID: ctrl-$(openssl rand -hex 2)
+    2. Create your session log
+    3. Read docs/development/MODULE_LOCKS.md, WORK_IN_PROGRESS.md
+    4. Glob docs/development/logs/dev-*.md (non-archive) to enumerate any
+       pre-existing active sessions (e.g., orphaned from a prior orchestrator)
+    5. Subscribe via Monitor to each pre-existing dev-agent log file (if any)
+    6. Send initial pulse to team-lead — confirms boot, may report orphans
+
+  Invariants to enforce — see docs/proposals/controller-role.md sections 5a,
+  5b, 5c, 5d (substantive event-driven), 8d + 12 (periodic 30-min stale-agent
+  scan), 8e (continuous Documentation-First sliding-window scan), and 9 (tier
+  rules). Signal/marker conventions per Section 5e.
+
+  STAY ALIVE until orchestrator sends "session ending". Do not exit on your
+  own. Wake events: SendMessage from team-lead, Monitor notifications, pulse
+  timer (5 min when ≥1 dev agent alive; 15 min idle), stale-agent scan timer
+  (30 min).`
+})
+```
+
+### What the controller monitors
+
+The controller enforces invariants along **five functional axes**:
+
+1. **Per-agent lifecycle** (Step-0 SLA, locks, commit prefix, premature Phase 2) — event-driven via `Monitor` on agent log files
+2. **Cross-agent** (overlapping locks, sequential nvcc, untracked dirty files) — event-driven on `MODULE_LOCKS.md` / `git status`
+3. **Workflow-specific** (multitask wave honesty, fn parent-lock inheritance, auto-trigger compliance) — event-driven
+4. **Stale-agent + permission-stall** (agents stuck on a CLI permission prompt invisible to the Telegram user — the dominant stall pattern per CLAUDE.md "Known gaps in `bypassPermissions`") — periodic 30-minute sweep over unmatched `[BASH-CALL]` / `[MCP-CALL]` markers
+5. **Documentation-First rule** (per CLAUDE.md "Documentation-First Rule (MANDATORY)") — continuous sliding-window scan over `[READ]` / `[GREP]` markers; flags agents grepping/reading source code without first consulting `docs/`
+
+### Tier rules
+
+| Tier | Trigger | Controller action |
+|---|---|---|
+| **Tier-1 (warn)** | Late Step 0 by 2 min; commit missing `[agent-id]` prefix; soft-convention break first occurrence | `SendMessage` to team-lead only |
+| **Tier-2 (escalate)** | Late Step 0 by 5 min; agent edited unlocked file; premature Phase 2; `/fn` agent edited file outside parent's lock; unmatched `[BASH-CALL]` 30+ min | `SendMessage` to team-lead AND to dev agent ("pause edits and check with orchestrator") |
+| **Tier-3 (halt)** | Two agents on same lock; unlocked dirty source file; concurrent `--heavy` builds; unmatched `[BASH-CALL]` 60+ min | `SendMessage` to team-lead with "HALT" prefix; SendMessage to ALL alive dev agents |
+
+The orchestrator decides what to act on. The controller does not block, kill, or auto-recover.
+
+### Suppression mechanism
+
+Some invariants legitimately need to be relaxed for a specific session (e.g., a doc-only `/dev` agent). The orchestrator can `SendMessage(to: "controller", message: "suppress: <invariant>")` for the remainder of the session. Suppressions reset when the controller exits.
+
+### Per-dispatch notification
+
+**Every** Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, /test-ui, etc.) is preceded by a `SendMessage` to the controller with the agent ID, skill, task, and expected file scope. The controller filters its checks based on the skill field. See Step 3 "Spawning Sub-Agents" rule 6 below for the canonical pattern.
+
+### Session-end notification
+
+On `/orchestrator stop` or graceful shutdown, send `SendMessage(to: "controller", "session ending")`. The controller produces a final session summary, sends it to team-lead, archives its own log, and exits.
+
+### Fallback when no controller exists
+
+If the controller spawn fails at Step 1.5 (agent-team capacity exhausted, harness gate, or mid-session crash without re-spawn), the orchestrator's existing checks at the Anti-Patterns table row "Not verifying agent created session log + acquired locks" are the fallback. Controller failure is itself a Tier-2 issue but does NOT block dev work — the orchestrator re-attempts spawn at the next Step 1.5 opportunity.
+
 ---
 
 ## Dev Agent Rules Reference
@@ -454,11 +548,29 @@ Classify and dispatch:
 
 4. **Scope agents broadly, not narrowly.** An agent for "fix bug X in module Y" should be scoped as "fix and debug module Y until user approves." The agent will handle the initial bug, follow-up bugs, UI testing, and iterations — all in one session with full context. Never spawn a new agent for a follow-up bug in the same module.
 
-5. **Controller agent.** The team should include a permanent controller agent whose job is to monitor /dev workflow compliance. See "Controller Agent" section below.
+5. **Controller agent.** The team includes a permanent controller agent spawned at orchestrator startup (Step 1.5) and alive for the full session. See the "Controller Agent" section above for the spawn template, lifecycle, and tier rules.
 
-5. **Never let dev agents auto-commit.** Dev agents must STOP before Step 10 (wrap-up/commit) and report their changes. The orchestrator relays the report to the user. Only after explicit user approval does the orchestrator instruct the agent to proceed with Step 10.
+6. **Per-dispatch controller notification.** Every Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, /test-ui, /pianoid-ui, /analyse, /diagnose, /sync) MUST be preceded by a `SendMessage` to the controller. Send BEFORE spawning the agent so the controller is armed for the Step-0 SLA timer:
+
+   ```
+   SendMessage({
+     to: "controller",
+     summary: "New agent dispatched",
+     message: "Add dev-<new-id> to watch list.
+               Skill: /dev
+               Task: <one-line>
+               Expected file scope (best guess): <list>
+               Spawn timestamp: <ISO 8601 UTC>"
+   })
+   ```
+
+   Then spawn the agent as today. The controller filters its checks based on the `Skill:` field. Even non-editing skills (`/test-ui`, `/pianoid-ui`) are notified — this catches accidental source mutations during their execution.
+
+7. **Never let dev agents auto-commit.** Dev agents must STOP before Step 10 (wrap-up/commit) and report their changes. The orchestrator relays the report to the user. Only after explicit user approval does the orchestrator instruct the agent to proceed with Step 10.
 
    The only exception is if the user explicitly says "commit without asking" or "auto-wrap-up" for a specific task.
+
+8. **Approval-relay marker (controller gate signal).** After relaying user approval to a dev agent, also send `SendMessage(to: "controller", "approval-relayed agent=<id>")`. This is the gating signal the controller uses to detect premature Phase 2 actions (Phase 2 markers in the agent log preceding the approval-relay timestamp are a Tier-2 escalate).
 
 **Include in every sub-agent prompt:**
 1. The user's exact request (quoted)
@@ -816,6 +928,7 @@ On `/orchestrator stop` or user saying "stop" / "done for now":
 1. List any active sub-agents still running
 2. Warn user about in-progress work
 3. Send final status summary via Telegram
+4. **Notify the controller:** `SendMessage(to: "controller", "session ending")`. The controller produces a final compliance summary, sends it to team-lead, archives its own log, and exits.
 
 ---
 
@@ -863,7 +976,9 @@ The orchestrator is a **dispatcher and communicator** for project work, but it o
 | Asking user to check browser console, hard-refresh, or verify UI behavior | Spawn /test-ui or /dev agent with chrome-devtools MCP to test yourself — NEVER ask user to debug UI |
 | Suggesting "try X and let me know" for any testable behavior | Test it yourself via sub-agent. The orchestrator has full access to browser, REST, and CLI |
 | Spawning narrow single-bug agents for a module under active debugging | Scope agents broadly: "fix and debug this module until user approves." The agent stays alive for follow-up bugs, UI testing, and iteration. SendMessage is NOT available — once an agent returns, its context is lost forever. Design prompts accordingly. |
-| Not verifying agent created session log + acquired locks | The controller agent handles this. If no controller, check within ~2 min that docs/development/logs/dev-*.md exists and MODULE_LOCKS.md has the agent's entry. Kill and respawn if not. SEVERE VIOLATION. |
+| Not verifying agent created session log + acquired locks | Controller (always alive once orchestrator is running, spawned at Step 1.5) handles this via the Step-0 SLA invariant. If controller-spawn fails at Step 1.5, fallback to orchestrator polling check at +2min, +5min that `docs/development/logs/dev-*.md` exists and `MODULE_LOCKS.md` has the agent's entry. Kill and respawn if not. SEVERE VIOLATION. |
+| Dispatching an agent without notifying the controller | Every Agent dispatch is preceded by `SendMessage(to: "controller", ...)` with the agent ID, skill, task, and expected file scope (Step 3 rule 6). The controller cannot enforce Step-0 SLA on agents it does not know about. SEVERE. |
+| Declaring a dev agent stalled without checking the controller's stale-scan output | The controller runs a 30-minute periodic stale-agent scan and reports candidates with their last marker (`[BASH-CALL]`, `[MCP-CALL]`, narrative, or final marker). Read the controller's most recent stale-scan SendMessage before declaring stalled — see "Stalled Agent Recovery" subsection below. |
 | Spawning team agents for one-shot research (e.g. doc lookup, single explore) | Use non-team `Agent(prompt=..., run_in_background: true)` for one-shot work — its return value comes through reliably as a tool result. Reserve team agents for multi-round /dev iteration. |
 | Declaring a team agent stalled without checking team-lead inbox | READ `~/.claude/teams/<team>/inboxes/team-lead.json` first. Team-lead inbox can hold messages that never surface in conversation — silent-delivery is a known failure mode. |
 | Spawning a new agent for a follow-up in the same module | Use SendMessage to the existing team agent — it has the context. Only spawn new if the agent is genuinely dead. |
@@ -877,3 +992,54 @@ The orchestrator is a **dispatcher and communicator** for project work, but it o
 | Accepting tasks while repo has unlocked dirty files | Resolve inconsistency first — this is urgent |
 | Letting dev agent auto-commit without user approval | Always instruct agents to stop before Step 10; relay report; wait for explicit approval |
 | Sending hold message after agent completes | Send "stop before Step 10" in the initial spawn prompt, not reactively |
+
+---
+
+## Stalled Agent Recovery
+
+When the controller reports a stalled-agent candidate via its 30-minute periodic stale-scan, follow this recovery protocol. The controller is the **detector**; the orchestrator is the **actor**.
+
+### 1. Read the controller's stale-scan report
+
+The controller's report names each candidate, its last log entry, the entry type, and a tier classification:
+
+```
+Stalled candidates:
+  - dev-md01: last entry [BASH-CALL] 2026-05-05T12:30:22Z 'cmd //c start-pianoid.bat' (52 min ago)
+              Type: unmatched BASH-CALL — Tier-2 likely permission stall (suspicion: high)
+              Recommended: check CLI for pending prompt; if visible, approve. Else kill+respawn.
+```
+
+### 2. Identify the gating tool from the unmatched marker
+
+For unmatched `[BASH-CALL]` or `[MCP-CALL]` markers, the command/tool name is the smoking gun. Match against the failure-mode catalogue in `docs/proposals/controller-role.md` Section 12:
+
+| Pattern in last marker | Class | Reference |
+|---|---|---|
+| `cmd //c start*`, `cmd //c *start-pianoid.bat*`, `npm run dev*`, `Start-Process` without `-WindowStyle Hidden` | Long-running starter | Section 12a |
+| `git rebase -i*`, `git add -i*`, `^python\s*$`, `gcloud auth login*`, `aws configure` | TTY-opening | Section 12b |
+| `taskkill //F //PID <high-PID>` | taskkill on system PIDs | Section 12c |
+| MCP `tool=*authenticate*\|*auth_init*\|*pair*` | MCP re-auth flow | Section 12d |
+| `chrome-devtools__*` MCP tools | Browser-dependent MCP stdio drift | Section 12e |
+
+### 3. Apply mitigation per pattern
+
+- **Long-running starter** — instruct agent (or respawn) to use `PowerShell Start-Process -WindowStyle Hidden -RedirectStandardOutput ...` per `.claude/CLAUDE.md` known-gap workaround. For backend, prefer the launcher REST API (`POST http://127.0.0.1:3001/api/start-backend`).
+- **TTY-opening** — instruct agent to use the non-interactive equivalent (e.g., `git rebase HEAD~3` non-interactive, pipe an answer file). For genuinely interactive operations, route via the `! <command>` prefix so the user runs it directly in the CLI.
+- **taskkill on system PIDs** — instruct agent to scope by image name (`taskkill //F //IM <name>`) where possible, or `//T` (kill tree). Last resort: orchestrator runs the kill in its own context (its bash calls render as deltas the orchestrator can see).
+- **MCP re-auth** — tell the user via Telegram: "Agent dev-XXXX needs OAuth re-auth for <server>. Please open the URL in your CLI and complete the flow, then send 'continue'." Once user confirms, `SendMessage` the agent to retry.
+- **Chrome-devtools / MCP stdio drift** — instruct the user via Telegram to reload VS Code (orchestrator must be restarted afterward). The MCP server processes respawn fresh on reload.
+
+### 4. Recovery actions in order of preference
+
+1. **Inline recovery** — if the orchestrator can see the gating prompt directly (some prompts surface as harness deltas), approve there.
+2. **User-side recovery** — if the orchestrator cannot see the prompt, tell the user via Telegram: "Check the CLI window for a pending permission prompt on agent dev-XXXX. Last attempted operation: `<command>`."
+3. **Kill + respawn with adjusted approach** — if neither user nor orchestrator can recover, `TaskStop` the agent and respawn with the mitigation pattern from Section 12 (e.g., switch from `cmd //c start-pianoid.bat` to `PowerShell Start-Process -WindowStyle Hidden`). The respawned agent reuses the original agent ID per the persistence rule. Run Post-Kill Cleanup before respawn (release locks, archive log, clean WIP).
+
+### 5. Notify controller after recovery
+
+On successful recovery: `SendMessage(to: "controller", "stall recovered: agent=<id> action=<inline\|user-prompt\|kill-respawn>")`. The controller updates its watch list and resumes normal monitoring.
+
+### Boundary
+
+The controller never invokes `TaskStop`, never respawns, never auto-approves CLI prompts, never opens browser tabs to complete OAuth flows. Recovery authority lives entirely with the orchestrator — granting it to the controller would expand its surface area beyond the read-only-monitor design.

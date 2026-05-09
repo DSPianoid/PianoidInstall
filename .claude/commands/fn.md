@@ -85,6 +85,19 @@ After each step, append a timestamped entry:
 
 Keep entries terse — this log will be incorporated into the parent's log.
 
+### Marker Discipline (cross-cutting)
+
+`/fn` agents are monitored by the same controller as `/dev` agents. Apply the same marker discipline as the parent dev agent:
+
+- **Before every `Bash` invocation:** emit `[BASH-CALL] {ts} {first 80 chars of command, escaped}` to the session log
+- **After every `Bash` return:** emit `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>`
+- **Before every MCP tool invocation:** emit `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<...>`
+- **After every MCP tool return:** emit `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>`
+- **Before every `Read` invocation on a project file:** emit `[READ] {ts} path=<path>`
+- **Before every `Grep`/`Glob` invocation on project files:** emit `[GREP] {ts} pattern=<pattern> path=<path>`
+
+The `[BASH-CALL]` / `[MCP-CALL]` pairs feed the controller's stale-agent monitoring (an unmatched call older than 30 minutes is a Tier-2 stall). The `[READ]` / `[GREP]` markers feed the Documentation-First compliance check. Failure to emit is itself a Tier-2 violation.
+
 ## Step 1: Read Context
 
 Read the files specified in `context_files` (if any) and the `target_file` itself.
@@ -110,6 +123,8 @@ Implement the function according to `function_spec` and `requirements`.
 - No speculative features
 
 **Lock check:** If `held_locks` is provided, verify that `target_file` is in the list. If not, and a `parent_agent` exists, **stop and report** — the parent must acquire the lock first. If standalone (no parent), check `docs/development/MODULE_LOCKS.md` directly and acquire a lock if needed.
+
+The controller verifies parent-lock inheritance: if `target_file` is not in `held_locks` and no `parent_agent` is set, that's a Tier-2 escalate. Always verify before editing.
 
 Log the edit: what changed, line numbers, rationale.
 

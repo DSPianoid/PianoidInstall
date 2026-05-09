@@ -153,6 +153,8 @@ For each task in the wave, spawn a sub-agent using the **Agent tool**:
 - **Different-repo tasks** → spawn Agent normally (no worktree needed, repos are separate). The sub-agent invokes `/dev <task-description>` directly.
 - **DOCS-only tasks** → invoke `/update-docs <scope>` instead of `/dev`.
 
+**Controller notification (MANDATORY).** Before each wave's spawns, send `SendMessage(to: "controller", ...)` for every agent in the wave with the wave plan and conflict matrix. The controller pre-arms cross-agent invariant checks for the named file scopes. Notification format: `"Add <agent-id> to watch list. Skill: /dev. Task: <one-line>. Wave: <N>. Expected file scope: <list>. Conflict matrix: <pairs>. Spawn timestamp: <ISO>"`.
+
 **All sub-agents for a wave are spawned in a SINGLE message** (parallel Agent tool calls). Use `run_in_background: true` if there are other tasks to coordinate.
 
 **CRITICAL safety constraints during parallel execution:**
