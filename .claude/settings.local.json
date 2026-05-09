@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read",
+      "Edit",
+      "Edit(.claude/commands/**)",
+      "Write",
+      "Write(.claude/commands/**)",
+      "Glob",
+      "Grep",
+      "Agent",
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "Skill",
+      "Skill(*)",
+      "Monitor",
+      "ToolSearch",
+      "SendMessage",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskList",
+      "TaskGet",
+      "TaskOutput",
+      "TaskStop",
+      "TeamCreate",
+      "EnterWorktree",
+      "ExitWorktree",
+      "PushNotification",
+      "RemoteTrigger",
+      "mcp__plugin_telegram_telegram__reply",
+      "mcp__plugin_telegram_telegram__download_attachment",
+      "mcp__plugin_telegram_telegram__react",
+      "mcp__plugin_telegram_telegram__edit_message",
+      "mcp__chrome-devtools__*",
+      "mcp__context7__*",
+      "mcp__ide__*"
+    ]
+  }
+}
