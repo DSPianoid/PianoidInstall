@@ -5,8 +5,6 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-mch | Phase A multichannel-Hankel — wire use_multichannel as opt-in UI toggle (default false) | [log](logs/dev-mch-2026-05-09-152956.md) | 2026-05-09 | Done (merged) |
-| dev-mabug | Modal Adapter Create+Copy bug fixes (user-typed name preserved on extraction dir collision; Copy From carries mapping but skips ESPRIT artifacts) | [log](logs/dev-mabug-2026-05-09-182700.md) | 2026-05-09 | Done (merged) |
-| dev-prophy | Enforce one-doc-per-topic in `docs/proposals/`; archive superseded/prep/research docs; update dev/analyse/update-docs/orchestrator skills | [log](logs/dev-prophy-2026-05-09-184514.md) | 2026-05-09 | Done (local merge, no push) |
 
 ---
 
