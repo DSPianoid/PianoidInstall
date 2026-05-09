@@ -118,7 +118,12 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/projects           -- list projects, current project, projects_base
   /modal/projects/create    -- create project with optional measurement_source
   /modal/projects/open      -- open existing project
-  /modal/projects/copy      -- copy measurements from existing project
+  /modal/projects/copy      -- clean-clone: copy measurements + mapping
+                               from an existing project but reset all
+                               analysis output (ESPRIT/tracking/feedin/
+                               applied) so the user can re-run the
+                               pipeline with different parameters.
+                               dev-mabug.
   /modal/projects/delete    -- delete project
   /modal/projects/add_measurements -- add measurements to current project
   /modal/projects/set_base  -- set projects base directory
@@ -2193,15 +2198,50 @@ Request body:
 
 #### `POST /modal/projects/copy`
 
-Copy measurements from an existing project into a new project.
+Create a new project by cloning the raw measurement data and channel
+mapping from an existing project. dev-mabug (2026-05-09) reaffirmed
+the **clean-clone** contract: ESPRIT results, tracking chains, feedin
+data, the applied flag, and any cached export artifacts are all
+**reset** in the destination so the user can immediately re-run the
+pipeline with different ESPRIT parameters.
 
 Request body:
 ```json
 {
   "source": "piano_A",
-  "destination": "piano_A_copy"
+  "name": "piano_A_copy"
 }
 ```
+
+Both `source` and `name` are required (HTTP 400 if either is missing).
+`source` must already exist as a project; `name` must NOT already
+exist (HTTP 500 with `ValueError` surfaced to the response if it
+does).
+
+What the destination carries from the source:
+
+- `measurements/scenario_*.npy` (raw scenario arrays, byte-identical)
+- `modal_adapter/mapping/mapping_config.json` (channel roles, grid
+  layout, pitch_offset, bridge_boundary, cell_mask)
+- From `project.json`: `sample_rate`, `num_scenarios`, `num_channels`,
+  `scenario_indices`, `measurement_source`, `band_config`,
+  `ir_working_length_ms`, `extracted_path`
+
+What the destination resets:
+
+- `modal_adapter/esprit/`, `modal_adapter/tracking/`,
+  `modal_adapter/feedin/` — empty stage directories
+- `modal_adapter/output/applied.json` — not carried (applied=False)
+- `modal_adapter/export_text/` — not carried
+- `project.json.created` is reset to "now"; `copied_from` is set to
+  `source` for provenance
+
+Response: the destination project's `open_project` envelope (the
+adapter opens the new project before returning so the frontend sees
+it loaded with measurements + mapping in memory).
+
+See `ModalAdapter.copy_project` and the integration tests in
+`tests/integration/test_modal_copy_project.py`.
 
 ---
 

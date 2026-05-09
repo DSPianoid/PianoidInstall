@@ -283,6 +283,33 @@ right after launching the stack).
 name is auto-suggested as `{source}_copy` and validated against the
 existing project list before submission. Disabled when no projects exist.
 
+The Copy From contract (dev-mabug, 2026-05-09) is a **clean clone**:
+the destination project carries the raw measurement data and channel
+mapping from the source but **none** of the analysis pipeline output.
+The user can immediately edit ESPRIT parameters and re-run the pipeline
+against the same measurement data without first having to wipe locked
+settings.
+
+| Carried over | Reset / not carried |
+|--------------|---------------------|
+| `measurements/scenario_*.npy` (raw scenario arrays) | `modal_adapter/esprit/` (config + per-scenario results) |
+| `modal_adapter/mapping/mapping_config.json` (channel roles, grid layout, pitch_offset, bridge_boundary, cell_mask) | `modal_adapter/tracking/` (chains.json + edits + history) |
+| From `project.json`: `sample_rate`, `num_scenarios`, `num_channels`, `scenario_indices`, `measurement_source`, `band_config`, `ir_working_length_ms`, `extracted_path` | `modal_adapter/feedin/` (feedin_data.json) |
+|  | `modal_adapter/output/applied.json` (applied flag) |
+|  | `modal_adapter/export_text/` (cached text export artifacts) |
+|  | `project.json.created` (reset to "now"); `copied_from` records the source name for provenance |
+
+`band_config` (the per-band ESPRIT *parameters*) is a measurement-side
+default and is carried over so the destination opens with the same
+parameter defaults the user configured for the source — they can edit
+before re-running. ESPRIT *results* (frequencies, mode shapes,
+metadata) are not carried.
+
+A legacy source project that lacks `mapping_config.json` (pre-mapping
+era) copies cleanly with no mapping in the destination — the user
+configures channel mapping in the destination just as they would on a
+fresh project. See `POST /modal/projects/copy` (REST API).
+
 **Selected-project info card** -- once a project is open, a compact info
 card replaces the legacy "Project: name — path" text line. It shows:
 
@@ -348,7 +375,7 @@ information in one step:
 | Field | Default | Notes |
 |-------|---------|-------|
 | **Source file** | (none) | Picker accepts `.zip` or `.pianoid-project`. Required. |
-| **Project name** | filename stem | Auto-derived from the picked file's name with the standard `.zip` / `.pianoid-project` suffix stripped. Editable. Backend auto-suffixes `_1`, `_2`, ... on collision. |
+| **Project name** | filename stem | Auto-derived from the picked file's name with the standard `.zip` / `.pianoid-project` suffix stripped. Editable. The user-typed name is preserved end-to-end (dev-mabug, 2026-05-09 fix): a collision with a previously-extracted measurements directory now suffixes the **internal extraction directory only** (`<extracted_root>/<name>_1`), never the project name. The project name is only ever auto-suffixed (`<name>_p1`) when the projects-base itself already has a project with that name — i.e. you really did try to create two projects with the same name. |
 | **Signal length (ms)** | `1000` | Numeric override for `ir_working_length_ms`. Truncates the averaged response to this duration with a Hann fadeout over the last `ir_fade_length_ms`. Hidden when the picked file is a `.pianoid-project` archive (length determined by archive). |
 | **Quality threshold** (dev-cp02) | `0.1` | Effective Signal Length QC threshold — the env_diff/env_signal ratio gate beyond which the signal is considered no longer reproducible. UI range `0.05` (strict, 5% noise floor) – `0.5` (permissive, 50% noise floor); backend gate is `(0, 1)`. Lower = stricter. Forwarded as `qc_threshold` form field on `POST /modal/projects/create_from_zip` and persisted into each scenario's `effective_signal_length.json` v2. Hidden for `.pianoid-project` archives. |
 | **Averaging mode** | `Re-average from raw (overwrite)` | Radio: **Re-average** maps to `force_reaverage=true` (always re-runs the canonical averager from `raw_recordings/`, overwriting `averaged_responses/`); **Keep existing** maps to `force_reaverage=false` (preserves existing averages, only computes for scenarios that lack them). Hidden for `.pianoid-project` archives. |

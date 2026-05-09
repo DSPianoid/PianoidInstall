@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-mch | Phase A multichannel-Hankel — wire use_multichannel as opt-in UI toggle (default false) | [log](logs/dev-mch-2026-05-09-152956.md) | 2026-05-09 | Done (merged) |
+| dev-mabug | Modal Adapter Create+Copy bug fixes (user-typed name preserved on extraction dir collision; Copy From carries mapping but skips ESPRIT artifacts) | [log](logs/dev-mabug-2026-05-09-182700.md) | 2026-05-09 | Done (merged) |
 
 ---
 
