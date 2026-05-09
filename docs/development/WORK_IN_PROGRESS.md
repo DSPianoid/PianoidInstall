@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-malock | Modal Adapter — fresh new project shows Channel Mapping settings as Locked from the start (grid layout) | [log](logs/dev-malock-2026-05-09-221342.md) | 2026-05-09 | In Progress |
 | dev-mch | Phase A multichannel-Hankel — wire use_multichannel as opt-in UI toggle (default false) | [log](logs/dev-mch-2026-05-09-152956.md) | 2026-05-09 | Done (merged) |
 
 ---
