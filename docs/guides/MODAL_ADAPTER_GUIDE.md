@@ -310,6 +310,18 @@ era) copies cleanly with no mapping in the destination — the user
 configures channel mapping in the destination just as they would on a
 fresh project. See `POST /modal/projects/copy` (REST API).
 
+**Frontend post-copy refresh.** After the Copy From REST call returns,
+`useModalAdapter.copyProject` awaits `syncFromBackend()`,
+`fetchScenarioInfo()`, and clears `selectedScenarios` — mirroring the
+`openProject` flow. The `fetchScenarioInfo()` step (added in the
+dev-mabug follow-up, 2026-05-09) repopulates the per-scenario
+`processed` mirror from the destination's empty
+`per_scenario_results`, so the Scenarios picker grid renders every
+scenario with the unprocessed background (`action.hover`) on the very
+first frame instead of leaking the source view's all-green
+`success.light` highlights until the next pipeline action triggers
+another fetch.
+
 **Selected-project info card** -- once a project is open, a compact info
 card replaces the legacy "Project: name — path" text line. It shows:
 
