@@ -1015,11 +1015,59 @@ from ESPRIT through Apply.
 
 - **GPU** -- Use GPU-accelerated ESPRIT (recommended, much faster)
 - **TLS** -- Use Total Least Squares variant of ESPRIT
-- **Multichannel** -- Process multiple channels jointly
+- **Multichannel Hankel (experimental)** -- *Advanced section.* Build the
+  ESPRIT Hankel matrix from all response channels jointly (stack mode,
+  shape `(L * n_channels, K)`) instead of from the first response channel
+  alone (`(L, K)`). Default **off**; opt-in per project. See
+  [Multichannel Hankel toggle](#multichannel-hankel-toggle-experimental)
+  below for the trade-off.
 
 **Window Length** (advanced, visible when band details are expanded) -- Override the automatic
 window length calculation. Leave empty for automatic sizing based on sample rate and band
 parameters.
+
+#### Multichannel Hankel toggle (experimental)
+
+Lives in the Advanced section of EspritConfig (next to the band table).
+Wired through end-to-end as of dev-mch (2026-05-09) Phase A — payload key
+`use_multichannel` flows from the EspritConfig form ->
+`hooks/useModalAdapter.js` `runEsprit` -> `POST /modal/run_esprit` body ->
+`EspritRunner.run_single_point` -> `esprit_modal_identification` ->
+`_build_hankel`.
+
+**When to enable.** Turn the toggle on when the production single-channel
+path (the lowest-numbered response channel) sits near a node of one or more
+target modes, so its pole estimates are noisy / fragmented. The
+multichannel-stack Hankel uses the SVD subspace argument to recover those
+modes via the `sqrt(n_channels)` SNR boost. The **PlyWoodTake1_grid** dataset
+is the textbook case: production single-channel ch1 fits the 75 Hz mode at
+cohesion 0.69, multichannel boosts it to 0.94 and increases per-target
+detection count by ~33 % (Q +38 %).
+
+**When to leave it off.** When the default first-response-channel sits at
+an antinode of every target mode, single-channel is already strong and the
+multichannel SVD can crowd target modes out of the fixed `model_order`
+budget. The **Belarus** dataset is the cautionary case: at the current
+default `model_order=8`, multichannel loses the 89 Hz mode entirely (22
+detections -> 0). Bumping `model_order` (heuristic:
+`ceil(model_order_single * sqrt(n_channels))`) restores it — Phase B
+experiment, not yet codified into UI.
+
+**Trade-off summary.**
+
+| Aspect | use_multichannel = false (default) | use_multichannel = true |
+|---|---|---|
+| Hankel rows | `L` (window length) | `L * n_channels` |
+| SVD runtime | baseline | ~10x slower per-band on Ultra-Low |
+| Mode coverage when ref-channel is near a node | poor | recovered |
+| Risk of dropping a mode at fixed `model_order` | low | high (bump `model_order` if needed) |
+
+The full empirical evidence — datasets, scenarios, Q noise floor, channel
+rotation — is in
+[`docs/proposals/multichannel-hankel-experiment-2026-05-08.md`](../proposals/multichannel-hankel-experiment-2026-05-08.md).
+Phase B (model_order auto-bump) is tracked in WIP; the experiment harness
+in `PianoidCore/tools/grid_search/experiment_multichannel_hankel_phase_b.py`
+will inform whether the default flips.
 
 #### Per-band IR length and start-skip
 

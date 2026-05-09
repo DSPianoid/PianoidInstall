@@ -4,6 +4,38 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-mch | Phase A multichannel-Hankel — wire use_multichannel as opt-in UI toggle (default false) | [log](logs/dev-mch-2026-05-09-152956.md) | 2026-05-09 | In Progress |
+
+---
+
+## Multichannel Hankel — Phase B follow-ups (dev-mch, 2026-05-09)
+
+**Phase A status:** Wired through end-to-end. `use_multichannel` flows
+EspritConfig (Advanced section) -> `useModalAdapter.runEsprit` payload ->
+`POST /modal/run_esprit` -> `EspritRunner.run_single_point` ->
+`esprit_modal_identification` -> `_build_hankel`. Default `false` (no
+behaviour change for existing projects). PlyWood-like users opt in via the
+toggle; Belarus-like users keep the default.
+
+**Phase B (deferred — owned by parallel multichannel experiment):**
+
+1. **`model_order` sweep with multichannel.** Re-run the multichannel
+   harness on Belarus while sweeping `model_order ∈ {8, 12, 18, 24, 32}`
+   with the heuristic `model_order_multi = ceil(model_order_single *
+   sqrt(n_channels))`. If `model_order=18` recovers the Belarus 89 Hz mode
+   under multichannel, promote `use_multichannel=True` as the default in a
+   separate PR with the `model_order` auto-bump baked into the runner.
+   Harness scaffolding is at
+   `PianoidCore/tools/grid_search/experiment_multichannel_hankel_phase_b.py`.
+
+2. **Sanity check on the extra chains.** PlyWood multichannel found 9
+   chains vs single-channel's 2; a follow-up should confirm the extra
+   chains are real modes (per-chain cohesion stayed >0.92 in the experiment
+   so this is suspected-real not suspected-spurious — but not yet verified).
+
+See
+[`docs/proposals/multichannel-hankel-experiment-2026-05-08.md`](proposals/multichannel-hankel-experiment-2026-05-08.md)
+for the Phase A/B sequencing rationale.
 
 ---
 
