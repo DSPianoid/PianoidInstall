@@ -789,6 +789,19 @@ When the user asks to "review open devs", "go over open devs one by one", or sim
 
 ---
 
+## Folder Taxonomy Enforcement
+
+When dispatching an `/analyse`, `/review`, or any agent that produces written output, instruct the agent in the dispatch prompt to file its artefacts under the canonical paths (full table in `.claude/commands/dev.md`):
+
+- Proposals / plans / analyses -> `docs/proposals/<topic>-<YYYY-MM-DD>.md`
+- Reviews / audits -> `docs/development/reviews/<scope>-review-<YYYY-MM-DD>.md`
+- Diagnostic snippets -> `docs/development/diagnostics/<agent-id>-<purpose>.<ext>`
+- Standalone screenshots -> `docs/development/screenshots/<agent-id>-<view>.png`
+
+`docs/development/logs/` is exclusively for agent session logs (`dev-XXXX-...md`, `fn-XXXX-...md`). If a stale non-session-log file is found there during a periodic scan, treat it as a hygiene issue and dispatch a `/dev` agent to relocate it via `git mv` (do NOT delete history).
+
+When reviewing returned artefacts before relaying to Telegram, verify the path matches the taxonomy. Reject and re-dispatch if an agent saved a proposal under `logs/`.
+
 ## Session Lifecycle
 
 ### Constraints

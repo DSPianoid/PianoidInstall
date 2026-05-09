@@ -38,6 +38,20 @@ The argument is a system or module name, e.g.:
 
 Or any other subsystem the user names. Scope the analysis to the named system.
 
+## Documentation Folder Taxonomy (MANDATORY)
+
+When `/analyse` produces a written artefact (proposal, analysis, review, diagnostic snippet), route it to the canonical location - never to `docs/development/logs/` (that folder is for agent session logs only).
+
+| Artefact | Folder |
+|----------|--------|
+| Refactor proposal, design analysis, plan, planning doc | `docs/proposals/` |
+| Code review, system review, audit | `docs/development/reviews/` |
+| Diagnostic snippet (`.py`, `.js`, `.html`) | `docs/development/diagnostics/` |
+| Standalone screenshot | `docs/development/screenshots/` |
+| Long-lived architecture / module / guide doc | `docs/architecture/` / `docs/modules/` / `docs/guides/` |
+
+Naming: `<topic>-<YYYY-MM-DD>.md` for proposals; `<scope>-review-<YYYY-MM-DD>.md` for reviews. The full taxonomy lives in `.claude/commands/dev.md` - the Phase 4 report and any saved proposal MUST be filed under `docs/proposals/`.
+
 ## Phase 1: Documentation Audit
 
 ### 1.1 Identify Relevant Docs

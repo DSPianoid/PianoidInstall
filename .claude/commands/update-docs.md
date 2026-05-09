@@ -118,6 +118,20 @@ Ask user before pushing:
 cd . && git add docs/ mkdocs.yml && git commit -m "Update documentation" && git push origin master
 ```
 
+## Documentation Folder Taxonomy
+
+When updating docs, respect the canonical folder layout (single source of truth in `.claude/commands/dev.md`):
+
+- `docs/development/logs/` - agent session logs ONLY
+- `docs/development/logs/archive/` - completed sessions
+- `docs/proposals/` - proposals, plans, design analyses
+- `docs/development/reviews/` - code/system reviews and audits
+- `docs/development/diagnostics/` - diagnostic snippets/scripts
+- `docs/development/screenshots/` - standalone UI screenshots
+- `docs/architecture/`, `docs/guides/`, `docs/modules/` - long-lived reference docs
+
+Never move agent session logs out of `docs/development/logs/`. Never deposit non-session-log artefacts into it. If a stray plan / review / diagnostic appears under `logs/`, file an issue or relocate via `git mv` to the correct folder.
+
 ## Documentation Structure
 
 ```
