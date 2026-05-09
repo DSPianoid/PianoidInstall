@@ -5,7 +5,6 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-mch | Phase A multichannel-Hankel — wire use_multichannel as opt-in UI toggle (default false) | [log](logs/dev-mch-2026-05-09-152956.md) | 2026-05-09 | Done (merged) |
-| dev-mchphb | Phase B multichannel-Hankel — per-band use_multichannel + auto-bump (UX option B), backend safety-net | [log](logs/dev-mchphb-2026-05-09-164357.md) | 2026-05-09 | Done (merged) |
 
 ---
 
