@@ -525,7 +525,7 @@ extension; success alert reports the averaging breakdown.
 
 User paused all work for a computer restart. Full session state captured at:
 
-**[`orchestrator-session-state-2026-05-01.md`](orchestrator-session-state-2026-05-01.md)**
+**[`orchestrator-session-state-2026-05-01.md`](archive/orchestrator-session-state-2026-05-01.md)**
 
 That file contains: today's commits in chronological order, engine bug cluster status (Bug A + Bug #2/#3 fixed; Bug #1 paused with corrected diagnosis), the immediate-resume decision queue (Bug #1 a/b/c/d call), Modal Adapter integration status (B-0/B-1/B-3 landed, B-2/B-4/B-5/Q4 ports deferred), CLAUDE.md/dev.md reorganization details, memory updates, and stack restart instructions. **Resume here after reboot.**
 
@@ -768,7 +768,7 @@ Flask-SocketIO backend + socket.io-client frontend. Note playback via WebSocket 
 
 Tests: 30/30 pass (20 unit in `test_websocket.py`, 10 integration in `test_websocket_integration.py`).
 
-See [WEBSOCKET_MIGRATION_ANALYSIS.md](WEBSOCKET_MIGRATION_ANALYSIS.md) for full analysis and implementation details.
+See [WEBSOCKET_MIGRATION_ANALYSIS.md](archive/WEBSOCKET_MIGRATION_ANALYSIS.md) for full analysis and implementation details.
 
 ---
 
@@ -881,7 +881,7 @@ See [Testing](TESTING.md) for the test inventory.
 
 **Status:** All phases complete (Phase 1–5) + UI refactoring (2026-04-11).
 
-See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md) for full architecture decisions, 5-phase implementation plan, and risk analysis.
+See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](archive/INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md) for full architecture decisions, 5-phase implementation plan, and risk analysis.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
@@ -974,7 +974,7 @@ See [INTERACTIVE_STABILIZATION_DIAGRAM_PLAN.md](INTERACTIVE_STABILIZATION_DIAGRA
 
 **Status:** All implementation complete (2026-04-06 to 2026-04-09). Browser verification pending.
 
-See [MODAL_ADAPTER_REDESIGN_PLAN.md](MODAL_ADAPTER_REDESIGN_PLAN.md) for full plan, commit references, and architecture details.
+See [MODAL_ADAPTER_REDESIGN_PLAN.md](archive/MODAL_ADAPTER_REDESIGN_PLAN.md) for full plan, commit references, and architecture details.
 
 ### Phase 1: Independent Stages + Full Pipeline (6 waves)
 

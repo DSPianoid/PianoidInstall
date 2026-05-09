@@ -184,4 +184,4 @@ specific bridge-curve interaction model.
 - Modal Adapter user guide:
   [`MODAL_ADAPTER_GUIDE.md`](../../guides/MODAL_ADAPTER_GUIDE.md)
 - Pipeline architecture:
-  [`MODAL_ADAPTER_REDESIGN_PLAN.md`](../MODAL_ADAPTER_REDESIGN_PLAN.md)
+  [`MODAL_ADAPTER_REDESIGN_PLAN.md`](../archive/MODAL_ADAPTER_REDESIGN_PLAN.md)
