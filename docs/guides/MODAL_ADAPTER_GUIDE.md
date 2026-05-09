@@ -1015,59 +1015,114 @@ from ESPRIT through Apply.
 
 - **GPU** -- Use GPU-accelerated ESPRIT (recommended, much faster)
 - **TLS** -- Use Total Least Squares variant of ESPRIT
-- **Multichannel Hankel (experimental)** -- *Advanced section.* Build the
+- **Multichannel Hankel** -- *Per-band, advanced table column.* Build the
   ESPRIT Hankel matrix from all response channels jointly (stack mode,
   shape `(L * n_channels, K)`) instead of from the first response channel
-  alone (`(L, K)`). Default **off**; opt-in per project. See
-  [Multichannel Hankel toggle](#multichannel-hankel-toggle-experimental)
-  below for the trade-off.
+  alone (`(L, K)`). Configured **per band** via the "Multi-ch" Checkbox in
+  the band table. EXTENDED_BANDS ships ON for low-frequency bands
+  (Ultra-Low, Low, Low-Mid) where the quality gain is largest and the
+  per-band runtime cost is most affordable, OFF for higher bands. See
+  [Multichannel Hankel per-band toggle](#multichannel-hankel-per-band-toggle)
+  below for the trade-off and the auto-bump UX.
 
 **Window Length** (advanced, visible when band details are expanded) -- Override the automatic
 window length calculation. Leave empty for automatic sizing based on sample rate and band
 parameters.
 
-#### Multichannel Hankel toggle (experimental)
+#### Multichannel Hankel per-band toggle
 
-Lives in the Advanced section of EspritConfig (next to the band table).
-Wired through end-to-end as of dev-mch (2026-05-09) Phase A — payload key
-`use_multichannel` flows from the EspritConfig form ->
-`hooks/useModalAdapter.js` `runEsprit` -> `POST /modal/run_esprit` body ->
-`EspritRunner.run_single_point` -> `esprit_modal_identification` ->
-`_build_hankel`.
+Per-band column in the EspritConfig advanced table (Phase B / dev-mchphb,
+2026-05-09). The `use_multichannel` flag is set on each band individually,
+not globally. The dev-mch Phase A global toggle was replaced because the
+multichannel cost/quality trade-off is genuinely per-band: the quality
+gain from `sqrt(n_channels)` SNR boost matters most on low-frequency
+bands (where modes are sparser and easier to lose), while the per-band
+runtime cost (~10–20× the single-channel baseline) is most affordable on
+those same low bands (where `ir_length_ms` is shorter so the absolute
+slowdown is smallest).
 
-**When to enable.** Turn the toggle on when the production single-channel
-path (the lowest-numbered response channel) sits near a node of one or more
-target modes, so its pole estimates are noisy / fragmented. The
-multichannel-stack Hankel uses the SVD subspace argument to recover those
-modes via the `sqrt(n_channels)` SNR boost. The **PlyWoodTake1_grid** dataset
-is the textbook case: production single-channel ch1 fits the 75 Hz mode at
-cohesion 0.69, multichannel boosts it to 0.94 and increases per-target
-detection count by ~33 % (Q +38 %).
+**Default split** (EXTENDED_BANDS, Phase B 2026-05-09):
 
-**When to leave it off.** When the default first-response-channel sits at
-an antinode of every target mode, single-channel is already strong and the
-multichannel SVD can crowd target modes out of the fixed `model_order`
-budget. The **Belarus** dataset is the cautionary case: at the current
-default `model_order=8`, multichannel loses the 89 Hz mode entirely (22
-detections -> 0). Bumping `model_order` (heuristic:
-`ceil(model_order_single * sqrt(n_channels))`) restores it — Phase B
-experiment, not yet codified into UI.
+| Band       | mo  | use_multichannel | Rationale                                     |
+|------------|-----|------------------|-----------------------------------------------|
+| Ultra-Low  | 8   | ON               | Belarus 89 Hz / PlyWood 75 Hz recovery        |
+| Low        | 12  | ON               | Same regime; mo bumps to 27 at N=5            |
+| Low-Mid    | 25  | ON               | mo bumps to 50 (capped) at N=5                |
+| Mid        | 35  | OFF              | Mid+ runtime cost outweighs quality gain      |
+| Mid-High   | 45  | OFF              | Modes are well-separated; single-channel OK   |
+| High       | 50  | OFF              | "                                             |
+| Upper      | 50  | OFF              | "                                             |
+| Top        | 50  | OFF              | "                                             |
 
-**Trade-off summary.**
+STANDARD_BANDS leaves every band at `null` (treated as OFF — the legacy
+preset stays conservative).
 
-| Aspect | use_multichannel = false (default) | use_multichannel = true |
+**UX option B (write-back auto-bump).** When the user toggles a band's
+"Multi-ch" Checkbox from OFF → ON, the EspritConfig form **auto-bumps
+that band's `model_order` cell** by writing the formula
+`min(ceil(mo × √min(N_response, 5)), 50)` back into the visible cell. The
+cell flashes amber for ~2.5 s so the change is visible. The user can
+manually override the bumped value afterward; manually editing the cell
+clears the auto-bump marker so the backend safety-net behaves as if the
+caller chose the value deliberately.
+
+Toggling OFF → ON: writes the bumped value, sets
+`multichannel_mo_was_auto_bumped=true` on the band.
+
+Toggling ON → OFF: leaves `model_order` unchanged (preserves any manual
+edits the user made post-bump). The marker stays True so a subsequent
+re-toggle ON does not double-apply the formula.
+
+Channel-mapping change while a band is ON: does NOT auto-recompute
+`model_order` (would silently surprise the user). Re-toggle the band to
+re-apply the formula at the new N.
+
+**Auto-bump rule.** Mirrors the empirical Phase B finding (see
+[`docs/proposals/multichannel-hankel-phase-b-2026-05-09.md`](../proposals/multichannel-hankel-phase-b-2026-05-09.md) §4.2):
+
+```
+bumped_mo = min(ceil(mo × sqrt(min(n_response_channels, 5))), 50)
+```
+
+The `min(N, 5)` cap encodes the "PlyWood at N=8 fragments at the
+un-capped formula (mo=23) — capping at N=5 (mo=18) keeps the coherent
+single-chain extraction" empirical result. The `min(…, 50)` cap protects
+against tracker hangs on degenerate inputs at very high mo.
+
+**Backend safety-net.** `band_merging.merge_multiband_results` applies
+the SAME formula as a safety-net for CLI / REST callers that send
+`use_multichannel=true` without pre-bumping. The marker
+`multichannel_mo_was_auto_bumped` on the band tells the safety-net
+whether to skip (frontend-bumped) or apply (raw caller value). When the
+safety-net bumps, an INFO log line records the band name + old/new mo so
+the bump is visible to operators.
+
+**When the per-band ON setting helps most.** When the production
+single-channel path (the lowest-numbered response channel) sits near a
+node of one or more target modes in the band, so its pole estimates are
+noisy / fragmented. The multichannel-stack Hankel uses the SVD subspace
+argument to recover those modes via the `sqrt(n_channels)` SNR boost.
+The **PlyWoodTake1_grid** dataset is the textbook case: production
+single-channel ch1 fits the 75 Hz mode at cohesion 0.69, multichannel
+boosts it to 0.94 and increases per-target detection count by ~33 % (Q
++38 %).
+
+**Trade-off summary (per-band).**
+
+| Aspect | use_multichannel = false | use_multichannel = true |
 |---|---|---|
 | Hankel rows | `L` (window length) | `L * n_channels` |
-| SVD runtime | baseline | ~10x slower per-band on Ultra-Low |
+| SVD runtime | baseline | ~10–20× slower for that band |
+| `model_order` automatically | unchanged | bumped via formula above |
 | Mode coverage when ref-channel is near a node | poor | recovered |
-| Risk of dropping a mode at fixed `model_order` | low | high (bump `model_order` if needed) |
+| Risk of dropping a mode at fixed `model_order` | low | mitigated by auto-bump |
 
 The full empirical evidence — datasets, scenarios, Q noise floor, channel
-rotation — is in
-[`docs/proposals/multichannel-hankel-experiment-2026-05-08.md`](../proposals/multichannel-hankel-experiment-2026-05-08.md).
-Phase B (model_order auto-bump) is tracked in WIP; the experiment harness
-in `PianoidCore/tools/grid_search/experiment_multichannel_hankel_phase_b.py`
-will inform whether the default flips.
+rotation, model_order sweep — is in
+[`docs/proposals/multichannel-hankel-experiment-2026-05-08.md`](../proposals/multichannel-hankel-experiment-2026-05-08.md)
+(Phase A) and
+[`docs/proposals/multichannel-hankel-phase-b-2026-05-09.md`](../proposals/multichannel-hankel-phase-b-2026-05-09.md)
+(Phase B — auto-bump rule + EXTENDED_BANDS default split).
 
 #### Per-band IR length and start-skip
 
