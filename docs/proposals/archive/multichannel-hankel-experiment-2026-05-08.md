@@ -1,5 +1,7 @@
 # Multichannel Hankel ESPRIT Experiment
 
+> **STATUS — ARCHIVED 2026-05-09 by dev-prophy.** Phase A wired through end-to-end by `dev-mch`; Phase B follow-up (`docs/proposals/archive/multichannel-hankel-phase-b-2026-05-09.md`) implemented by `dev-mchphb` 2026-05-09. Both phases are now historical; no further proposal work expected. Retained for empirical-evidence reference. User-facing doc: [`docs/guides/MODAL_ADAPTER_GUIDE.md` § Multichannel Hankel per-band toggle](../../guides/MODAL_ADAPTER_GUIDE.md#multichannel-hankel-per-band-toggle).
+
 **Date:** 2026-05-08
 **Author:** /analyse agent (light research experiment)
 **Trigger:** ESPRIT per-channel timing analysis 2026-05-08, Section 5.4 follow-up.

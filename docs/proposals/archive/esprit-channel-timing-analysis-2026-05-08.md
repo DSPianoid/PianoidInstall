@@ -1,5 +1,7 @@
 # ESPRIT Per-Channel Timing Analysis
 
+> **STATUS — ARCHIVED 2026-05-09 by dev-prophy.** Research Q&A — answered the user's question on per-channel timing in ESPRIT (relative alignment matters; it IS preserved end-to-end; no fix needed). No future-work proposal flowed from this; archived as research history. Tangentially referenced by the multichannel-Hankel Phase A experiment (also archived).
+
 **Date:** 2026-05-08
 **Read-only investigation** — no code edits.
 **User question (verbatim):** *"All channels in the measurements dataset are

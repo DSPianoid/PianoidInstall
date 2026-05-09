@@ -6,6 +6,7 @@
 |-------|------|-----|---------|--------|
 | dev-mch | Phase A multichannel-Hankel — wire use_multichannel as opt-in UI toggle (default false) | [log](logs/dev-mch-2026-05-09-152956.md) | 2026-05-09 | Done (merged) |
 | dev-mabug | Modal Adapter Create+Copy bug fixes (user-typed name preserved on extraction dir collision; Copy From carries mapping but skips ESPRIT artifacts) | [log](logs/dev-mabug-2026-05-09-182700.md) | 2026-05-09 | Done (merged) |
+| dev-prophy | Enforce one-doc-per-topic in `docs/proposals/`; archive superseded/prep/research docs; update dev/analyse/update-docs/orchestrator skills | [log](logs/dev-prophy-2026-05-09-184514.md) | 2026-05-09 | Done (local merge, no push) |
 
 ---
 
@@ -35,8 +36,8 @@ toggle; Belarus-like users keep the default.
    so this is suspected-real not suspected-spurious — but not yet verified).
 
 See
-[`docs/proposals/multichannel-hankel-experiment-2026-05-08.md`](proposals/multichannel-hankel-experiment-2026-05-08.md)
-for the Phase A/B sequencing rationale.
+[`docs/proposals/archive/multichannel-hankel-experiment-2026-05-08.md`](proposals/archive/multichannel-hankel-experiment-2026-05-08.md)
+for the Phase A/B sequencing rationale (archived 2026-05-09 by dev-prophy after Phase B implementation).
 
 ---
 

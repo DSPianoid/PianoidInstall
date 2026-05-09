@@ -1105,7 +1105,7 @@ Channel-mapping change while a band is ON: does NOT auto-recompute
 re-apply the formula at the new N.
 
 **Auto-bump rule.** Mirrors the empirical Phase B finding (see
-[`docs/proposals/multichannel-hankel-phase-b-2026-05-09.md`](../proposals/multichannel-hankel-phase-b-2026-05-09.md) §4.2):
+[`docs/proposals/archive/multichannel-hankel-phase-b-2026-05-09.md`](../proposals/archive/multichannel-hankel-phase-b-2026-05-09.md) §4.2 — archived 2026-05-09 after implementation):
 
 ```
 bumped_mo = min(ceil(mo × sqrt(min(n_response_channels, 5))), 50)
@@ -1146,10 +1146,11 @@ boosts it to 0.94 and increases per-target detection count by ~33 % (Q
 
 The full empirical evidence — datasets, scenarios, Q noise floor, channel
 rotation, model_order sweep — is in
-[`docs/proposals/multichannel-hankel-experiment-2026-05-08.md`](../proposals/multichannel-hankel-experiment-2026-05-08.md)
+[`docs/proposals/archive/multichannel-hankel-experiment-2026-05-08.md`](../proposals/archive/multichannel-hankel-experiment-2026-05-08.md)
 (Phase A) and
-[`docs/proposals/multichannel-hankel-phase-b-2026-05-09.md`](../proposals/multichannel-hankel-phase-b-2026-05-09.md)
-(Phase B — auto-bump rule + EXTENDED_BANDS default split).
+[`docs/proposals/archive/multichannel-hankel-phase-b-2026-05-09.md`](../proposals/archive/multichannel-hankel-phase-b-2026-05-09.md)
+(Phase B — auto-bump rule + EXTENDED_BANDS default split). Both archived
+2026-05-09 by dev-prophy after implementation completed.
 
 #### Per-band IR length and start-skip
 

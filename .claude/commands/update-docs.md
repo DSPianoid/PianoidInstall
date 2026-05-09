@@ -124,7 +124,8 @@ When updating docs, respect the canonical folder layout (single source of truth 
 
 - `docs/development/logs/` - agent session logs ONLY
 - `docs/development/logs/archive/` - completed sessions
-- `docs/proposals/` - proposals, plans, design analyses
+- `docs/proposals/` - currently-active design proposals (one doc per topic — see "One-doc-per-topic" rule in `.claude/commands/dev.md`)
+- `docs/proposals/archive/` - superseded / preparation / research / implemented proposal docs
 - `docs/development/reviews/` - code/system reviews and audits
 - `docs/development/diagnostics/` - diagnostic snippets/scripts
 - `docs/development/screenshots/` - standalone UI screenshots

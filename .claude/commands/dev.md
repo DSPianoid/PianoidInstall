@@ -59,6 +59,8 @@ Every doc artefact a `/dev` session produces (or moves) belongs in exactly one c
 3. Plan / proposal output written to disk (Step 4 deferral, design doc, refactor analysis) -> `docs/proposals/`. Reference it from the session log via relative path.
 4. Diagnostic `.py` / `.js` / `.html` artefacts produced during investigation -> `docs/development/diagnostics/`, prefixed with the agent ID for traceability.
 
+**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When you produce a NEW proposal that supersedes an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When proposal work fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Once a proposal has been fully implemented, archive it too — `docs/proposals/` is for *future-work* designs, not historical records.
+
 ## Step 0: Initialize Session
 
 ### Generate Agent ID

@@ -906,9 +906,12 @@ When the user asks to "review open devs", "go over open devs one by one", or sim
 When dispatching an `/analyse`, `/review`, or any agent that produces written output, instruct the agent in the dispatch prompt to file its artefacts under the canonical paths (full table in `.claude/commands/dev.md`):
 
 - Proposals / plans / analyses -> `docs/proposals/<topic>-<YYYY-MM-DD>.md`
+- Superseded / preparation / research / implemented proposal docs -> `docs/proposals/archive/<topic>-<YYYY-MM-DD>.md`
 - Reviews / audits -> `docs/development/reviews/<scope>-review-<YYYY-MM-DD>.md`
 - Diagnostic snippets -> `docs/development/diagnostics/<agent-id>-<purpose>.<ext>`
 - Standalone screenshots -> `docs/development/screenshots/<agent-id>-<view>.png`
+
+**One-doc-per-topic in `docs/proposals/` (MANDATORY).** The proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. When dispatching an agent that will produce a NEW proposal that supersedes or extends an existing one, instruct the agent to archive the prior version (`git mv` to `docs/proposals/archive/`) BEFORE adding the new one. When reviewing returned artefacts, reject and re-dispatch if you find two docs covering the same topic in `docs/proposals/`, or if a research Q&A or preparation analysis was filed in `docs/proposals/` rather than `docs/proposals/archive/`. Once a proposal has been fully implemented, archive it as part of the implementation `/dev` agent's wrap-up. The full rule lives in `.claude/commands/dev.md` ("Documentation Folder Taxonomy").
 
 `docs/development/logs/` is exclusively for agent session logs (`dev-XXXX-...md`, `fn-XXXX-...md`). If a stale non-session-log file is found there during a periodic scan, treat it as a hygiene issue and dispatch a `/dev` agent to relocate it via `git mv` (do NOT delete history).
 

@@ -2,12 +2,12 @@
 
 **Mode:** Read-only analysis. No code changes.
 **Author:** `/analyse` (orchestrator-spawned, this revision)
-**Supersedes:** `docs/proposals/midi-system-refactoring-plan-2026-05-08.md`
-**Inputs (read in order, treated as ground truth):**
-1. `docs/proposals/midi-input-relocation-analysis-2026-05-08.md` — frontend → backend ingress relocation, latency budget, port-ownership traps
-2. `docs/proposals/kernel-midi-batch-investigation-2026-05-08.md` — per-cycle batch coalescence bug (Option A, ~30 LOC)
-3. `docs/proposals/midi-system-refactoring-plan-2026-05-08.md` — original 5-phase consolidated plan with 11 batched decisions
-4. `docs/proposals/esprit-channel-timing-analysis-2026-05-08.md` — context only (separate measurement-domain refactor)
+**Supersedes:** `docs/proposals/archive/midi-system-refactoring-plan-2026-05-08.md` (archived 2026-05-09 by dev-prophy under one-doc-per-topic enforcement)
+**Inputs (read in order, treated as ground truth — all archived to `docs/proposals/archive/` 2026-05-09):**
+1. `docs/proposals/archive/midi-input-relocation-analysis-2026-05-08.md` — frontend → backend ingress relocation, latency budget, port-ownership traps
+2. `docs/proposals/archive/kernel-midi-batch-investigation-2026-05-08.md` — per-cycle batch coalescence bug (Option A, ~30 LOC)
+3. `docs/proposals/archive/midi-system-refactoring-plan-2026-05-08.md` — original 5-phase consolidated plan with 11 batched decisions
+4. `docs/proposals/archive/esprit-channel-timing-analysis-2026-05-08.md` — context only (separate measurement-domain refactor; research Q&A, no implementation needed)
 5. Live source: `EventDispatcher.cu`, `OnlinePlaybackEngine.cu`, `RealTimeEventBuffer.cu`, `PlaybackEvent.h`, `AddArraysWithCUDA.cpp` (pybind surface), `pianoid.py`, `backendServer.py`, `chartFunctions.py`, `useMidi.js`, `PianoidTuner.js`
 
 **User direction (verbatim):** "Let's review online playback system systematically and make sure that the plan reflects correct structure. 1) On kernel level: single event flow feeding events into the running synthesis cycle. Make sure that there is only one unified path to accept all kinds of events from all sources. Make sure that events are processed in batches, up to 64 events per synthesis cycle. 2) c++ level has two pathes: getting midi commands from its own midi listener or from backend. Make sure that API is highly consolidated: one path to get notes and minimal number of other pathes to get other types of commands (if any). 3) backend level: make sure that all event sources (internal midi listener, UI midi calls, space/virtual keyboard/measurement/testing etc) are treated uniformly without functionality duplication and with clear authority separation. 4) UI level: make sure that in case UI does not receive midi itself it has a way to get timely notifications of the active note (last played note) id. Consider making this notification switchable (user case: switch off extra communication to decrease latency - play - switch back on to continue tunning). Also consider optional relaying completely on c++ midi listener with the notifications flowing bottom up."
@@ -763,10 +763,14 @@ The original plan correctly fixes the two acute defects (kernel chord-drop, fron
 
 ## Appendix — Cross-references
 
-- Original consolidated plan: `docs/proposals/midi-system-refactoring-plan-2026-05-08.md`
-- MIDI input relocation analysis: `docs/proposals/midi-input-relocation-analysis-2026-05-08.md`
-- Kernel batch investigation: `docs/proposals/kernel-midi-batch-investigation-2026-05-08.md`
-- Esprit channel timing analysis (out of scope for this plan): `docs/proposals/esprit-channel-timing-analysis-2026-05-08.md`
+### Investigation history (archived under `docs/proposals/archive/` 2026-05-09 by dev-prophy)
+
+- Original consolidated plan: `docs/proposals/archive/midi-system-refactoring-plan-2026-05-08.md`
+- MIDI input relocation analysis: `docs/proposals/archive/midi-input-relocation-analysis-2026-05-08.md`
+- Kernel batch investigation: `docs/proposals/archive/kernel-midi-batch-investigation-2026-05-08.md`
+- Esprit channel timing analysis (out of scope for this plan): `docs/proposals/archive/esprit-channel-timing-analysis-2026-05-08.md`
+
+### Code references
 - Pybind surface: `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp:529-815`
 - EventDispatcher: `PianoidCore/pianoid_cuda/EventDispatcher.cu`
 - OnlinePlaybackEngine drain: `PianoidCore/pianoid_cuda/OnlinePlaybackEngine.cu:218-259`

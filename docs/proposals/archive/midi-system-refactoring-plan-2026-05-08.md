@@ -1,10 +1,12 @@
 # MIDI System Refactoring — Consolidated Plan (2026-05-08)
 
+> **STATUS — ARCHIVED 2026-05-09 by dev-prophy.** Superseded by `docs/proposals/midi-system-refactoring-plan-revised-2026-05-08.md` (revised after 4-layer architectural review surfaced TEST_*-event interleave bug, Layer-2 pybind surface fragmentation, and Layer-3 ingress facade gap). Retained for investigation history.
+
 **Mode:** Read-only synthesis. No code changes.
 **Author:** `/analyse` (orchestrator-spawned)
 **Inputs:**
-- `docs/proposals/midi-input-relocation-analysis-2026-05-08.md` (frontend → backend ingress relocation)
-- `docs/proposals/kernel-midi-batch-investigation-2026-05-08.md` (per-cycle batch coalescence bug)
+- `docs/proposals/archive/midi-input-relocation-analysis-2026-05-08.md` (frontend → backend ingress relocation; archived 2026-05-09)
+- `docs/proposals/archive/kernel-midi-batch-investigation-2026-05-08.md` (per-cycle batch coalescence bug; archived 2026-05-09)
 - `docs/modules/pianoid-middleware/MIDI_SYSTEM.md`, `docs/architecture/SYSTEM_OVERVIEW.md`
 
 **User goal (verbatim):** "Make consolidated plan for the midi system refactoring"

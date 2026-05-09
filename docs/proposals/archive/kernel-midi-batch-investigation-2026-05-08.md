@@ -1,5 +1,7 @@
 # Kernel MIDI Batch Investigation — 2026-05-08
 
+> **STATUS — ARCHIVED 2026-05-09 by dev-prophy.** Preparation investigation that fed into `docs/proposals/midi-system-refactoring-plan-revised-2026-05-08.md`. The canonical plan has absorbed the Option A fix proposal (and broadened it to also handle the TEST_MODE_ONLY commit-interleave). Retained for investigation history.
+
 **Author:** /analyse sub-agent
 **Mode:** Read-only investigation (no code edits)
 **Scope:** Why the synthesis kernel processes only one MIDI command per cycle when the architecture was designed to drain a bunch.

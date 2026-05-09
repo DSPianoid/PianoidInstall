@@ -1,5 +1,7 @@
 # MIDI Input Relocation Analysis — 2026-05-08
 
+> **STATUS — ARCHIVED 2026-05-09 by dev-prophy.** Preparation analysis that fed into `docs/proposals/midi-system-refactoring-plan-revised-2026-05-08.md`. The canonical plan has absorbed the conclusions of this doc; retained for investigation history.
+
 **Mode:** Read-only analysis. No code changes.
 **Author:** `/analyse` (orchestrator-spawned)
 **Goal:** Move the tuning-mode MIDI input path off the frontend (Web MIDI → REST/WS) so MIDI presses no longer pay the browser-round-trip latency, while keeping the frontend informed of the last note pressed for parameter editing.
