@@ -37,6 +37,28 @@ Every rebuild, install, or server restart starts by reading the canonical docs �
 - **Before starting the backend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md`.
 - **On unexpected build or startup failure** — invoke `/startup` rather than troubleshooting blindly. `/startup` is the authoritative reference.
 
+## Documentation Folder Taxonomy (MANDATORY)
+
+Every doc artefact a `/dev` session produces (or moves) belongs in exactly one canonical location. Mixing types in `docs/development/logs/` makes orchestrator log scans noisy and breaks the "every log = one agent" invariant. Follow this taxonomy:
+
+| Folder | Contents | Naming |
+|--------|----------|--------|
+| `docs/development/logs/` | Agent session logs ONLY - one file per `/dev` (or `/fn`) session | `dev-XXXX-YYYY-MM-DD-HHMMSS.md` |
+| `docs/development/logs/archive/` | Completed agents' session logs (moved here at Step 10 wrap-up) | same naming |
+| `docs/proposals/` | Refactor proposals, design analyses, plans, planning docs not yet implemented | `<topic>-<YYYY-MM-DD>.md` |
+| `docs/development/reviews/` | Code reviews, system reviews, audits | `<scope>-review-<YYYY-MM-DD>.md` |
+| `docs/development/diagnostics/` | Diagnostic snippets, troubleshooting scripts (`.py`, `.js`, etc.) | `<agent-id>-<purpose>.<ext>` |
+| `docs/development/screenshots/` | Standalone UI screenshots not referenced from a session log | `<agent-id>-<view>.png` |
+| `docs/architecture/` | Long-lived architecture docs | UPPER_CASE.md |
+| `docs/guides/` | User-facing guides | UPPER_CASE.md |
+| `docs/modules/` | Module-specific reference docs | per-module subfolder |
+
+**Rules:**
+1. Never write a non-session-log file into `docs/development/logs/`. Plans, proposals, reviews, and diagnostic snippets go to the correct folder above.
+2. Screenshots referenced from a session log stay in `docs/development/logs/` (next to the log that cites them); standalone screenshots go to `docs/development/screenshots/`.
+3. Plan / proposal output written to disk (Step 4 deferral, design doc, refactor analysis) -> `docs/proposals/`. Reference it from the session log via relative path.
+4. Diagnostic `.py` / `.js` / `.html` artefacts produced during investigation -> `docs/development/diagnostics/`, prefixed with the agent ID for traceability.
+
 ## Step 0: Initialize Session
 
 ### Generate Agent ID
