@@ -4,6 +4,8 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-midi-p0 | MIDI Refactor W1 P0 — Python ingress (default port 0, GET /midi/ports, POST /midi/select_port, emit-callback injection) | [log](logs/dev-midi-p0-2026-05-09-221255.md) | 2026-05-09 | In Progress |
+| dev-midi-p1 | MIDI Refactor W1 P1 — CUDA kernel single-envelope batch + TEST_* merge + MAX_EVENTS_PER_CYCLE cap | [log](logs/dev-midi-p1-2026-05-09-221341.md) | 2026-05-09 | In Progress |
 
 ---
 

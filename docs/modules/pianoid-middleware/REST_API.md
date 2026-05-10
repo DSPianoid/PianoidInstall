@@ -29,6 +29,7 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | Lifecycle state | `lifecycle` event | Server -> Client (push) |
 | Calibration progress | `calibration` event | Server -> Client (push) |
 | MIDI playback progress | `midi_progress` event | Server -> Client (push) |
+| Inbound MIDI events | `midi_note_event` event | Server -> Client (push) |
 | Engine errors | `engine_error` event | Server -> Client (push) |
 | Latency measurement | `ping_ws` / `pong_ws` | Bidirectional |
 
@@ -241,6 +242,7 @@ Request body (default initialization settings):
 {
   "path": "presets/BaselinePreset1.json",
   "listen_to_midi": 0,
+  "midi_port": 0,
   "use_simulation": 0,
   "debug_mode": 0,
   "audio_driver_type": 4,
@@ -272,6 +274,8 @@ Parameter details:
 - `start_right_away`: `1`=start in background thread, `2`=start inline (deprecated), `3`=init only no start, `0`=init only
 - `listen_to_modes`: `0`=sound channels carry string bridge displacement, `1`=sound channels carry mode forces (default `1`)
 - `use_simulation`: `0`=normal operation (default, the only supported value); `1`=routes to `pianoid_cuda_placeholder.py`, a vestigial pre-library-API stub that has not been kept in sync with the live `pianoidCuda` API. **`use_simulation=1` is rejected with HTTP `400 FeatureNotSupported`** — the route handler short-circuits before destroying the engine. Fixed in dev-b001 (2026-05-01); pre-fix the request returned HTTP 500 `TypeError: Pianoid.__init__() missing 1 required positional argument: 'strings_in_pitches'` AND destroyed the live engine. See `backendServer.py:load_preset_route` and the deferred WIP follow-up "use_simulation/use_placeholder placeholder is vestigial" for the resurrection or retirement decision.
+- `listen_to_midi`: `0`=do not start the unified MIDI listener thread (default); `1`=start the unified `MIDI_listener_unified` thread that routes inbound rtmidi messages through `Pianoid.schedule_event(...)` for cycle-aligned dispatch. The listener defaults to rtmidi port `0` (decision A1 — see `GET /midi/ports`). Phase 2 of the MIDI refactor (`docs/proposals/midi-implementation-plan.md` W3) will flip the launcher default to `1` and add `POST /midi/start` / `POST /midi/stop` for hot-toggle.
+- `midi_port` (optional, default `0`): rtmidi input-port index used when `listen_to_midi=1`. Use `GET /midi/ports` to enumerate available ports before posting. Use `POST /midi/select_port` to change ports in place without restarting the backend.
 
 Response `200`:
 ```json
@@ -841,6 +845,96 @@ Response `200`:
 ---
 
 ## MIDI Endpoints
+
+### `GET /midi/ports`
+
+Returns the list of available rtmidi input ports as observed at the moment of the call. Stateless — works even before `/load_preset` has initialized a `pianoid` instance, because the implementation opens a transient `rtmidi.MidiIn()` to read the port table.
+
+Use this to populate a port-picker UI before posting `listen_to_midi=1` to `/load_preset` or before calling `POST /midi/select_port`.
+
+Response `200`:
+```json
+{
+  "ports": ["VMini 0", "MIDIIN2 (VMini) 1"],
+  "active_port": 0,
+  "listening": true
+}
+```
+
+- `ports`: ordered list of rtmidi port names; the array index is the canonical port id used by `midi_port` (in `/load_preset`) and by `POST /midi/select_port`.
+- `active_port`: the port currently held open by the unified MIDI listener, or `null` when the listener is not running.
+- `listening`: `true` when the unified listener thread is alive (i.e. `/load_preset` was called with `listen_to_midi=1`).
+
+Response `500`:
+```json
+{"error": "MidiPortsFailed", "message": "<rtmidi exception text>"}
+```
+
+---
+
+### `POST /midi/select_port`
+
+Switches the running unified MIDI listener to a different rtmidi input port without stopping or restarting the listener thread. The listener loop closes the previously-opened port and opens the new one at the start of its next iteration (typically within ~10 ms), preserving cycle-aligned dispatch for any in-flight `schedule_event` calls.
+
+Request body:
+```json
+{"port": 1}
+```
+
+- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`.
+
+Response `200`:
+```json
+{"port": 1, "name": "MIDIIN2 (VMini) 1"}
+```
+
+Response `400` — bad request body:
+```json
+{"error": "BadRequest", "message": "Missing or non-integer \"port\" field."}
+```
+
+Response `400` — out of range:
+```json
+{
+  "error": "PortOutOfRange",
+  "message": "Port 9 not in range 0..1",
+  "ports": ["VMini 0", "MIDIIN2 (VMini) 1"]
+}
+```
+
+Response `400` — no MIDI hardware:
+```json
+{"error": "NoMidiPorts", "message": "No MIDI input ports available"}
+```
+
+Response `409` — listener not running:
+```json
+{
+  "error": "ListenerNotRunning",
+  "message": "Unified MIDI listener is not running. Pass listen_to_midi=1 to /load_preset."
+}
+```
+
+(Phase 2 of the MIDI refactor will add `POST /midi/start` / `POST /midi/stop` so callers can hot-toggle the listener without re-issuing `/load_preset`.)
+
+---
+
+### Socket.IO `midi_note_event` (server -> client)
+
+Pushed by the unified MIDI listener thread for every observed inbound MIDI byte (NOTE_ON / NOTE_OFF / CC / pitch wheel / sustain). Wired in `backendServer.py` via the `emit_midi_note_event` helper that is constructor-injected into the `Pianoid` instance per W1 Phase 0 decision A2.
+
+Payload:
+```json
+{"command": 144, "pitch": 60, "velocity": 100}
+```
+
+- `command`: raw MIDI status byte (`128`=NOTE_OFF, `144`=NOTE_ON, `176`-`179`=CC, `224`=pitch wheel).
+- `pitch`: MIDI data1 (pitch for notes; controller index for CCs).
+- `velocity`: MIDI data2 (velocity for notes; controller value for CCs).
+
+Phase 0 broadcasts unconditionally whenever the listener thread is alive (`listen_to_midi=1` was passed to `/load_preset`). Phase 2 (W3) will add a switchable broadcast (`POST /midi/broadcast {"enabled": false}`) so the frontend can suppress the stream when not needed (e.g., during calibration).
+
+---
 
 ### `GET /get_available_notes`
 

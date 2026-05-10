@@ -7,12 +7,14 @@ Two MIDI listener implementations exist:
 - **Python `MIDI_listener_unified`** (active) — defined in
   `pianoid_middleware/pianoid.py`. Uses `rtmidi` via the helper in
   `pianoidMidiListener.py` to read MIDI bytes, then pushes NOTE / SUSTAIN events
-  to the C++ `RealTimeEventBuffer`. Started automatically by
-  `start_midi_listener_unified()`.
+  to the C++ `RealTimeEventBuffer`. Started by `start_midi_listener_unified(midi_port=0)`
+  (default port 0 — decision A1 of the MIDI refactor revised plan).
 - **Python `MidiListener`** (legacy) — `pianoidMidiListener.py` class with YAML
   keyboard config and advanced features (mode pad, per-note CC). Not wired in
   the current startup path; retained for reference and for the per-note CC
-  handlers that have not yet been migrated to the unified path.
+  handlers that have not yet been migrated to the unified path. The class also
+  serves as the rtmidi adapter used by `MIDI_listener_unified` (which
+  constructs it with `parent=Pianoid` and uses `select_port` / `get_message`).
 
 A C++ `MidiInputListener` class was previously planned and documented, but the
 supporting source files were never committed. It has been removed from the docs
@@ -70,22 +72,72 @@ Supporting file:
 
 ---
 
+## Unified ingress (W1 Phase 0)
+
+The unified ingress path uses two surfaces, both wired in `pianoid.py`:
+
+### `Pianoid.__init__(*, emit_midi_callback=None, ...)`
+
+`emit_midi_callback` is a keyword-only constructor parameter (decision A2 — inject the callback explicitly at construction; do **not** rely on dynamic introspection or try/except imports). Signature `(command: int, pitch: int, velocity: int) -> None`. Invoked from the unified MIDI listener thread AFTER `schedule_event` has handed the event to the cycle-aligned `RealTimeEventBuffer`, so callback latency does not block audio. The default in standalone Pianoid usage is `None` (no broadcast). When the backend constructs Pianoid via `pianoid.initialize(...)`, `backendServer.py` injects `emit_midi_note_event` — a thin wrapper around `socketio.emit('midi_note_event', {command, pitch, velocity})` — so Socket.IO clients receive every observed inbound MIDI byte. Phase 2 (W3) will add a broadcast on/off toggle without changing the listener.
+
+### `Pianoid.start_realtime_playback(with_midi_listener=False, midi_port=0)`
+
+`midi_port` is the rtmidi input-port index opened when `with_midi_listener=True`. Default `0` (A1). The same `midi_port` argument is propagated through `start_realtime_playback_unified` and `start_midi_listener_unified` to `MIDI_listener_unified` itself.
+
+### `Pianoid.list_midi_ports()`
+
+Stateless rtmidi probe — opens a transient `rtmidi.MidiIn()`, reads `get_ports()`, discards. Safe before `init_pianoid` and from any thread. Backs `GET /midi/ports`.
+
+### `Pianoid.request_port_switch(new_port)`
+
+Queues an in-place port switch consumed by the listener thread at the top of its next iteration. Returns `True` if the request was queued (listener alive); `False` if no listener is running. Backs `POST /midi/select_port`. The thread serialises the close + reopen under `_midi_port_lock` so concurrent `request_port_switch` calls always result in a well-defined final port state and never leak file descriptors. `_midi_active_port` reflects the currently-open port (or `None`).
+
+### Listener thread loop
+
+```
+listener = MidiListener(parent=self)
+listener.select_port(midi_port)           # initial port (default 0)
+
+while self.listen and not self.exception:
+    pending = consume(_midi_port_request)  # in-place switch request
+    if pending: listener.select_port(pending)
+
+    msg = listener.get_message()
+    if msg is None: continue
+    status, data1, data2 = msg[0][:3]
+    self.schedule_event(status, data1, data2)        # cycle-aligned dispatch
+
+    if self._emit_midi_callback is not None:
+        self._emit_midi_callback(status, data1, data2)  # Phase 2 broadcast hook
+```
+
+The loop exits cleanly when `self.listen` is set False or `self.exception` is raised; the rtmidi port is closed on exit so the OS releases it for the next listener start.
+
+---
+
 ## MidiListener Class
 
 **File:** `pianoidMidiListener.py`
 
-### Constructor: `__init__(self, parent=None)`
+### Constructor: `__init__(self, parent=None, open_port_index=None)`
 
-- `parent`: the `Pianoid` orchestrator instance. If `None`, uses full pitch range 21–108.
-- Opens MIDI port 0 via `rtmidi.MidiIn`.
-- Reads the device name from the first available port and calls `set_keyboard(keyboard_name)` to load the YAML config.
+- `parent`: the `Pianoid` orchestrator instance, or `None` for standalone use. When `None` the listener uses the full piano pitch range 21–108 and skips YAML keyboard config loading — suitable for the unified ingress path that does not need YAML-based action dispatch.
+- `open_port_index`: when a non-negative int, the constructor immediately opens that rtmidi input port and (if `parent` was provided) loads the YAML keyboard config matching the port's device name. When `None` (default), no port is opened — callers must invoke `select_port(idx)` explicitly. This avoids the previous double-open in `__init__` and lets the unified ingress decide port selection at runtime.
+
+### Port management methods
+
+- `print_ports()` — prints the rtmidi input-port table.
+- `ports` property — returns the rtmidi input-port name list (live read).
+- `select_port(port_index)` — closes any previously-open port, opens `port_index`, loads the matching YAML keyboard config when `parent` was provided. Raises `RuntimeError` if no ports are available or the index is out of range.
+- `get_message()` — thin wrapper around `rtmidi.MidiIn.get_message()`; returns the `(data, delta_time)` tuple or `None` when no message is pending.
+- `stop()` — closes the open port (if any) and stops the C++ application when `parent` was provided.
 
 ### Core Methods
 
 | Method | Description |
 |--------|-------------|
-| `start()` | Main polling loop. Runs while `pianoid.isApplicationRunning()`. Reads messages at 10 ms intervals, dispatches via `perform_action`, sends note events to CUDA. |
-| `stop()` | Closes MIDI port and calls `pianoid.pianoid.stopApplication(True)`. |
+| `start()` | Main polling loop (legacy YAML-keyboard path). Runs while `pianoid.isApplicationRunning()`. Reads messages at 10 ms intervals, dispatches via `perform_action`, sends note events to CUDA. Caller must have invoked `select_port(idx)` first; the constructor no longer opens port 0 implicitly. |
+| `stop()` | Closes MIDI port (when one is open) and, if `parent` was provided, calls `pianoid.pianoid.stopApplication(True)`. |
 | `set_keyboard(keyboard_name)` | Looks up keyboard name in `KEYBOARD_CONFIG` dict, loads YAML config via `read_config()`. |
 | `read_config(file_name, pitches_in_preset)` | Parses YAML keyboard config into `self.keyboard_config` and `self.commands_dict`. Handles pitch values: integer, `"any"` (0–127), or `"range"` (pitch-indexed range). |
 | `save_config()` | Writes current `keyboard_config` back to the YAML file. |
