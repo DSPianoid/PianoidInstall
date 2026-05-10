@@ -563,7 +563,8 @@ void commitStringBatch();
 //   1. cudaMemcpy: string_gauss_param_indices → dev_gauss_param_indices
 //   2. cudaMemcpy: string_excitation_params   → dev_string_excitation_params
 //   3. Set new_notes_ind = noStrings_in_GP + 1
-//   4. Execute pending mode excitation if staged
+//   4. Execute pending mode excitation if staged (drains
+//      pending_mode_excitation_index → _exciteSingleMode)
 ```
 
 Single-string convenience wrapper:
@@ -573,6 +574,70 @@ void addOneString(int stringNo, int velocity);
 // Equivalent to beginStringBatch() + addStringToBatch() + commitStringBatch()
 // for a single string
 ```
+
+#### Single-Envelope-per-Cycle Invariant (mandatory for engines)
+
+**The batch envelope is opened ONCE per synthesis cycle by the playback engine,
+NOT once per event.** The dispatcher's per-event handlers stage into the
+buffer; only the cycle-level commit fires the GPU transfer.
+
+```
+ONE synthesis cycle:
+    pianoid->beginStringBatch();        // engine — opens envelope (if any
+                                        //          excitation events in
+                                        //          this cycle)
+    for event in events_for_this_cycle: // engine — preserves insertion order
+        dispatcher.dispatch(event);     // dispatcher — staging only
+                                        //   NOTE_ON / NOTE_OFF →
+                                        //     PlaybackCycleExecutor::stageStringsForPitch
+                                        //     (calls addStringToBatch per string,
+                                        //     no commit)
+                                        //   TEST_STRING_ONLY → addStringToBatch
+                                        //   TEST_MODE_ONLY → addModeExcitation
+                                        //     (sets pending_mode_excitation_*)
+                                        //   PARAM_UPDATE_* / SUSTAIN: routed to
+                                        //     independent paths (do not touch
+                                        //     noStrings_in_GP / new_notes_ind)
+    pianoid->commitStringBatch();       // engine — closes envelope: ONE GPU
+                                        //          transfer, ONE parameterKernel +
+                                        //          ONE gaussKernel grid spanning
+                                        //          ALL strings staged this cycle
+```
+
+**Why this invariant exists:** `commitStringBatch` is destructive — it
+sets `new_notes_ind = noStrings_in_GP + 1` and the next call to
+`beginStringBatch` resets `noStrings_in_GP = 0`. Calling commit per
+event means each commit overwrites the prior one's
+`new_notes_ind` and host-side staging buffers, and only the LAST
+event's strings ever reach `gaussKernel`. The bug history is in
+`docs/proposals/kernel-midi-batch-investigation-2026-05-08.md`.
+
+**`exciteStringsForPitch` vs `stageStringsForPitch`:**
+
+| Helper | Opens begin/commit? | Used by |
+|---|---|---|
+| `PlaybackCycleExecutor::exciteStringsForPitch(pianoid, pitch, vel)` | YES (own envelope) | One-shot single-event callers (legacy REST `/play` direct hits) |
+| `PlaybackCycleExecutor::stageStringsForPitch(pianoid, pitch, vel)` | NO (engine owns envelope) | Multi-event per-cycle drain in `OnlinePlaybackEngine` / `OfflinePlaybackEngine` |
+
+The dispatcher's `handleNoteOn` / `handleNoteOff` use the staging
+variant. `EventDispatcher::dispatchBatch(events)` is the canonical
+per-cycle entry point: it inspects events for excitation work, opens
+`beginStringBatch` if any is present, dispatches all events, then
+closes with `commitStringBatch`. The `has_excitation` predicate
+avoids forcing a `parameterKernel` launch every idle cycle (a
+commit with zero strings still sets `new_notes_ind = 1` which
+triggers parameterKernel).
+
+#### Per-cycle event cap
+
+`MAX_EVENTS_PER_CYCLE = 256` (declared in `constants.h`) limits the
+number of events the engine drains per cycle. Excess events are
+silently dropped from the tail of the cycle's event vector;
+`OnlinePlaybackEngine::EngineStats::dropped_events_per_cycle_overflow`
+counts the drops for diagnostics. Production traffic stays well
+below this cap — overflow is a signal that something upstream
+(typically a runaway test harness or a wedged producer) is flooding
+the per-cycle drain.
 
 ### Kernel Trigger: `new_notes_ind`
 

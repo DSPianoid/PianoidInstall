@@ -94,6 +94,10 @@ struct EngineStats {
     uint32_t scheduled_events;
     double   avg_event_latency_ms;
     uint32_t calibration_count;
+    uint32_t dropped_events_per_cycle_overflow;  // events dropped at the
+                                                 // per-cycle drain because
+                                                 // a single cycle exceeded
+                                                 // MAX_EVENTS_PER_CYCLE = 256
 };
 ```
 
@@ -102,6 +106,12 @@ The `run()` loop:
    (estimator starts *after* audio init to prevent ~150ms startup drift)
 2. Immediate `syncToCycle(0)` for initial calibration
 3. Calls `processEventsAtCycle(current_cycle)` — drains both sources
+   into a single `all_events` vector (rt events first, then queue events,
+   preserving insertion order); caps at `MAX_EVENTS_PER_CYCLE = 256`
+   (overflow counted in `EngineStats::dropped_events_per_cycle_overflow`);
+   calls `dispatcher_->dispatchBatch(all_events)` so all same-cycle
+   excitations ride ONE begin/commit envelope (see `EventDispatcher`
+   below).
 4. Calls `pianoid_->runCycle({CycleRegime::Online, /*record_to_host=*/true})` —
    orchestrated synthesis + driver push + host-buffer ring
 5. CUDA error check: `cudaGetLastError()` after each `runCycle()`
@@ -200,21 +210,33 @@ construction.
 
 **File:** `PlaybackCycleExecutor.h` / `PlaybackCycleExecutor.cu`
 
-Static utility class that now holds two residual helpers used by the engines
-and `EventDispatcher`:
+Static utility class with three helpers used by the engines and
+`EventDispatcher`:
 
 ```cpp
 class PlaybackCycleExecutor {
 public:
-    // Dispatch all events at given cycle from the queue
+    // Drain the queue's events for one cycle and dispatch them through
+    // EventDispatcher::dispatchBatch (which opens the per-cycle envelope
+    // — see EventDispatcher below). Caps at MAX_EVENTS_PER_CYCLE (excess
+    // dropped from the tail).
     static void processEvents(
         EventQueue& queue,
         EventDispatcher& dispatcher,
         uint32_t cycle_index
     );
 
-    // Excite all strings mapped to a MIDI pitch
+    // Excite all strings mapped to a MIDI pitch — single-event commit
+    // path. Opens its own beginStringBatch/commitStringBatch envelope.
+    // Use only for one-shot callers; multi-event drains use
+    // stageStringsForPitch under the engine's outer envelope.
     static void exciteStringsForPitch(Pianoid* pianoid, int pitch, int velocity);
+
+    // Stage strings mapped to a MIDI pitch — staging-only (no envelope).
+    // Used by EventDispatcher::handleNoteOn / handleNoteOff. Caller must
+    // open Pianoid::beginStringBatch before and Pianoid::commitStringBatch
+    // after the dispatch loop.
+    static void stageStringsForPitch(Pianoid* pianoid, int pitch, int velocity);
 };
 ```
 
@@ -298,6 +320,25 @@ Derived event types add typed fields:
 - `ParameterUpdateEvent` — adds `param_type`, `string_index`, `value`
 - `TestModeEvent` — adds `reset_before_play`, `disable_feedback`, `target_index`
 
+#### `data` field bit-layouts (decoded by `EventDispatcher`)
+
+| EventType | Bits 63..32 | Bits 31..16 | Bits 15..0 |
+|---|---|---|---|
+| `NOTE_ON` / `NOTE_OFF` | unused | unused | `(pitch << 8)` \| `velocity` |
+| `SUSTAIN` | unused | unused | `value & 0x7F` (raw MIDI CC, 0–127) |
+| `PARAM_UPDATE_SINGLE` / `PARAM_UPDATE_BATCH` | bits 63..56=`param_type`, bits 55..40=`string_index`, bits 39..32=unused | (continued) | bits 31..0=IEEE-754 `float` value |
+| `TEST_STRING_ONLY` | bit 63=`reset_flag`, bits 62..32=unused | unused | `target_index` (string index, NOT pitch) |
+| `TEST_MODE_ONLY` | unused | bits 23..16=`velocity` | `mode_index` |
+| `RESET_STATE` / `TOGGLE_FEEDBACK` | unused | unused | unused |
+
+`TEST_STRING_ONLY`'s `target_index` selects a physical string by index
+(0..num_strings−1), NOT a MIDI pitch. The handler stages it via
+`Pianoid::addStringToBatch` at velocity 64; if `reset_flag` is set, the
+running string state is reset BEFORE staging. `TEST_MODE_ONLY` stages
+mode excitation: displacement = `1e-5 × velocity / 127`, velocity =
+`displacement × 0.4`; the cycle-level commit drains the staged mode
+via `_exciteSingleMode`. Both are staging-only — no per-event commit.
+
 ---
 
 ## EventDispatcher
@@ -323,6 +364,21 @@ public:
     void dispatchBatch(const std::vector<PlaybackEvent>& events);
 };
 ```
+
+**Per-cycle envelope contract.** `dispatchBatch(events)` is the canonical
+per-cycle entry point. It scans `events` for excitation events
+(`NOTE_ON`, `NOTE_OFF`, `TEST_STRING_ONLY`, `TEST_MODE_ONLY`); if any
+are present, it opens `Pianoid::beginStringBatch`, runs each event's
+handler (which stages without committing), then closes
+`Pianoid::commitStringBatch` — so all same-cycle excitations land in
+ONE GPU transfer (one `parameterKernel` + one `gaussKernel` grid
+spanning every staged string). See SYNTHESIS_ENGINE.md
+"Single-Envelope-per-Cycle Invariant" for why this matters.
+
+`dispatch(event)` is the per-event entry point retained for one-shot
+callers (legacy REST `/play` direct hits). It does NOT open an
+envelope — the staged work hits the kernel only when something else
+calls `commitStringBatch` (typically the next engine cycle).
 
 ---
 

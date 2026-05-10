@@ -95,21 +95,34 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
         ▼
   OnlinePlaybackEngine.run() loop (C++):
     each cycle:
-      events = realtime_buffer.drainEventsUpTo(current_cycle)
-      for event in events:
-        EventDispatcher.dispatch(event)
-          │
-          ├── NOTE_ON  → exciteStringsForPitch(pianoid, pitch, velocity)
-          │                → beginStringBatch()
-          │                → addStringToBatch(stringNo, velocity)  × N strings
-          │                → commitStringBatch()
-          │                    → cudaMemcpy batch indices to GPU
-          │                    → set new_notes_ind (arms gaussKernel)
-          │                → next runSynthesisKernel():
-          │                    gaussKernel computes force_function from
-          │                    dev_gauss_params_full[string][velocity]
-          ├── NOTE_OFF → releaseStrings(indices)
-          └── SUSTAIN  → processSustain(pedal_value)
+      all_events  = realtime_buffer.drainEventsUpTo(current_cycle)  // RT first
+      all_events += event_queue.getEventsAtCycle(current_cycle)     // queue second
+      cap         = MAX_EVENTS_PER_CYCLE = 256                       (constants.h)
+      if all_events.size() > cap:
+        engine_stats.dropped_events_per_cycle_overflow += overflow
+        all_events.resize(cap)
+      EventDispatcher.dispatchBatch(all_events):
+        │
+        ├── if any event is NOTE_ON / NOTE_OFF / TEST_*:
+        │     pianoid.beginStringBatch()           (envelope opens — ONCE per cycle)
+        │
+        ├── for event in all_events: EventDispatcher.dispatch(event)
+        │     ├── NOTE_ON  → stageStringsForPitch(pitch, velocity)   (no commit)
+        │     ├── NOTE_OFF → stageStringsForPitch(pitch, 0)          (damper close)
+        │     ├── SUSTAIN  → processSustain(pedal_value)              (own GPU path)
+        │     ├── PARAM_*  → updateSingleStringParameter_NEW(...)     (own GPU path)
+        │     ├── TEST_STRING_ONLY → addStringToBatch(target_idx, 64)
+        │     └── TEST_MODE_ONLY   → addModeExcitation(...)            (stages
+        │                            pending_mode_excitation_*; NO mid-loop commit)
+        │
+        └── if envelope opened:
+              pianoid.commitStringBatch()           (envelope closes — ONE GPU
+                                                     commit; sets new_notes_ind;
+                                                     drains pending mode excitation;
+                                                     next runSynthesisKernel
+                                                     launches ONE gaussKernel grid
+                                                     spanning ALL strings staged
+                                                     this cycle)
       │
       pianoid->runCycle({CycleRegime::Online, record_to_host=true}):
         1. runSynthesisKernel()               → MainKernel GPU launch
@@ -183,7 +196,12 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
      initialize(pianoid*, config) → loadEvents(queue) → run():
        loop until done:
          processEventsAtCycle(cycle)
-           EventQueue.getEventsAtCycle(cycle) → EventDispatcher.dispatch()
+           PlaybackCycleExecutor.processEvents(queue, dispatcher, cycle):
+             events = queue.getEventsAtCycle(cycle)
+             if events.size() > MAX_EVENTS_PER_CYCLE: events.resize(...)
+             EventDispatcher.dispatchBatch(events)
+               (per-cycle envelope: same single beginStringBatch /
+                commitStringBatch contract as the online drain — see §1.2)
          pianoid->runCycle({CycleRegime::Offline, record_to_host=false})
            1. runSynthesisKernel()                → GPU kernel
            2. (no output routing — regime structurally skips push + ring)
