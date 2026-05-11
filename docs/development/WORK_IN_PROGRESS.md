@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-msmt | Phase 1 Modal Adapter Measurement-entity refactor (data model + REST + migration) | [log](logs/dev-msmt-2026-05-11-141141.md) | 2026-05-11 | Phase 1 Wrap-up — awaiting Gate 2 sign-off |
 
 ---
 
