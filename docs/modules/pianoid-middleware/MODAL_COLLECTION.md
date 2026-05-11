@@ -210,6 +210,140 @@ curl http://127.0.0.1:5001/modal/collect/status
 curl http://127.0.0.1:5001/modal/collect/results/d0722c397e99
 ```
 
+## Phase 1 — Measurement Entity (dev-msmt, 2026-05-11)
+
+**Status:** Phase 1 of the Modal Adapter Measurement-entity refactor
+landed on PianoidCore `feature/dev-msmt-phase1-measurement-entity`.
+See the proposal §1–§5 + §6 Phase 1 for the authoritative spec:
+[`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md).
+
+Phase 1 promotes **Measurement** to a first-class backend entity. The
+legacy `/modal/collect/*` surface (Wave B-1, documented above) is
+**kept alive during the Phase 1 transition window** per N8 — Phase 2
+ships the frontend cutover and deletes it with 410 Gone wrappers.
+
+### Measurement Entity Surface
+
+Four new modules under `pianoid_middleware.modal_adapter`:
+
+| File | Purpose |
+|------|---------|
+| `measurement_entity.py` | `Measurement` dataclass + JSON schemas (manifest + 5 setup files) + slug normalisation (N1) + lock semantics (N4) |
+| `measurement_catalog.py` | `MeasurementCatalog` — list / lookup / create / delete with reverse-project-lookup (N6) |
+| `measurement_routes.py` | 12 REST endpoints under `/modal/measurements/*` |
+| `migrate_to_measurement_entity.py` | v1->v2 migration CLI (dry-run / apply / verify / rollback) with per-project rollback tarballs |
+
+Filesystem layout (per proposal §2.2):
+
+```
+{measurements_base}/             # default D:\modal_measurements, override via $PIANOID_MEASUREMENTS_DIR
+  {measurement_id}/              # = globally unique display name (N1)
+    measurement.json             # manifest
+    setup/
+      audio_config.json
+      impulse_config.json
+      series_config.json
+      mapping_config.json
+      calibration_criteria.json
+    scenarios/
+      {scenario_name}/           # e.g. PlyWood-Scenario0-Take1
+        raw_recordings/
+        impulse_responses/
+        averaged_responses/
+        room_responses/
+        metadata/
+    setup_test/
+      latest.json                # N3 — single-latest, overwritten per run
+      latest.wav
+    locks/
+      acquisition.lock           # N4 — auto-written after first scenario
+```
+
+Project entity gains four new fields in v2 schema (`schema_version: 2`):
+- `measurement_id` — parent Measurement (N1 unique name)
+- `measurement_path` — absolute path (cross-machine portability per N2)
+- `measurement_snapshot` — deep-copy of parent's setup at branch time (N5 — frozen)
+- `averaging` — `ir_working_length_ms`, `ir_fade_length_ms`, `force_reaverage`, `qc_threshold`
+
+### REST Endpoints
+
+**Measurement entity (new in Phase 1, port 5001):**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/modal/measurements`                                      | Create new Measurement. Body: `{measurement_id, sample_rate?, audio_config?, impulse_config?, series_config?, mapping_config?, calibration_criteria?}`. Returns 201 + summary. 409 on duplicate (N1), 422 invalid slug |
+| GET    | `/modal/measurements`                                      | List all Measurement summaries |
+| GET    | `/modal/measurements/<id>`                                 | Full manifest + inline setup/* + scenarios list. 404 if missing |
+| PATCH  | `/modal/measurements/<id>/audio_config`                    | Update audio_config (423 Locked if `acquisition.lock` exists per N4) |
+| PATCH  | `/modal/measurements/<id>/impulse_config`                  | Same (423 if locked) |
+| PATCH  | `/modal/measurements/<id>/series_config`                   | Same (423 if locked) |
+| PATCH  | `/modal/measurements/<id>/mapping_config`                  | Same (423 if locked) |
+| PATCH  | `/modal/measurements/<id>/calibration_criteria`            | Always allowed even when locked (analysis-time gate per N4) |
+| POST   | `/modal/measurements/<id>/setup_test`                      | Run Setup Test (Phase 1 stub — Phase 2 wires `signal_processor.validate_calibration_quality`). Overwrites `setup_test/latest.*` per N3 |
+| GET    | `/modal/measurements/<id>/setup_test`                      | Fetch latest Setup Test report (404 if never run) |
+| POST   | `/modal/measurements/<id>/unlock`                          | Manual unlock-with-warning per N4. Body: `{confirm: true}` required. 400 without confirm |
+| DELETE | `/modal/measurements/<id>`                                 | Delete. 409 with `{linked_projects: [...]}` if any Project references this Measurement (N6, no force flag) |
+
+**Project endpoints (Phase 1 additions):**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/modal/projects`                                          | v2 Create — body `{name, measurement_id, band_config?}`. Snapshots parent's setup at create time per N5. URL-param `?measurement=<id>` is an alternative. 404 unknown measurement, 409 name collision |
+| POST   | `/modal/projects/<old>/branch`                             | Branch sibling Project — body `{new_name, inherit_band_config?}`. Snapshots parent at branch time (can differ from source if parent was unlocked+edited). 409 if source is v1 (no measurement_id) |
+
+**Existing project endpoints unchanged** during Phase 1: `/modal/projects/create`, `/modal/projects/open`, `/modal/projects/copy`, `/modal/projects/delete`, `/modal/projects/<n>/rename`, `/modal/projects/<n>/reaverage`, etc.
+
+### Migration Script
+
+```bash
+# Dry-run (default) — print plan, no writes
+python -m pianoid_middleware.modal_adapter.migrate_to_measurement_entity \
+    --mode dry-run \
+    [--projects-base D:\modal_projects] \
+    [--measurements-base D:\modal_measurements] \
+    [--project NAME]  # repeatable; default = all projects
+
+# Apply — write rollback tarball, upgrade Measurement layout in-place, upgrade project.json to v2
+python -m ... --mode apply
+
+# Verify — confirm v2 invariants hold
+python -m ... --mode verify
+
+# Rollback — restore project.json + modal_adapter/ from tarball
+python -m ... --mode rollback --project NAME
+```
+
+The migrator refuses to touch:
+- Projects already at `schema_version: 2` (status=`already_v2`)
+- v1 projects with no `measurement_source` (status=`will_skip`)
+- v1 projects whose `measurement_source` points outside `measurements_base` (status=`will_skip` — never modifies external paths)
+- v1 projects whose `measurement_source` directory does not exist (status=`will_skip`)
+
+Status codes from `--mode apply`: exits 0 on success-only; exits 1 if any project errored.
+
+### Setup Test (Phase 1 stub)
+
+Per spec §6, the actual `signal_processor.validate_calibration_quality`
+wiring lands in **Phase 2** alongside the UI that consumes it. Phase 1
+ships the **endpoint surface** (request/response shapes, N3
+single-latest retention, criteria iteration) returning
+`overall: "not_implemented"` and `verdict: "not_implemented"` per
+criterion. The audio-device probe is wired but does not actually emit
+a calibration impulse.
+
+### Locks and N4
+
+- Auto-lock after first successful scenario (`record_scenario` writes `locks/acquisition.lock` if `num_scenarios` transitions 0->1)
+- Migrated Measurements are sealed at apply time (`reason: "migration_v1_to_v2"` in the lock body) — re-collection requires explicit unlock
+- `setup/*` writes are rejected with `MeasurementLockedError` -> 423 Locked
+- `setup/calibration_criteria.json` is exempt (analysis-time gate)
+- `POST /unlock {confirm: true}` is always available; lock auto-fires again on the next successful scenario
+
+### Cross-Links
+
+- Proposal: [`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md) — authoritative spec, all 16 decisions baked in
+- Tests: 133 cases across `tests/unit/test_measurement_entity.py` (56), `tests/unit/test_measurement_catalog.py` (22), `tests/integration/test_measurement_routes.py` (25), `tests/integration/test_project_v2_branch.py` (13), `tests/integration/test_migration_to_measurement.py` (17)
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)

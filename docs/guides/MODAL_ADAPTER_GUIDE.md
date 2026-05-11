@@ -5,6 +5,34 @@ presets for the Pianoid engine. It extracts vibrational modes (frequencies, damp
 spatial shapes) from measurement data using the ESPRIT algorithm, tracks them across excitation
 points, computes feedin coupling coefficients, and injects the results into the active preset.
 
+## Measurement vs Project (Phase 1+, dev-msmt 2026-05-11)
+
+The Modal Adapter splits work into two entities:
+
+| Entity | Owns | Lifetime |
+|--------|------|----------|
+| **Measurement** | Raw `.wav` recordings + audio device + impulse + series + mapping + calibration criteria — i.e. what was physically captured | Created once per acquisition session; setup auto-seals after the first scenario (N4) |
+| **Project** | ESPRIT band config, tracking config, feedin extraction, applied state — i.e. analysis decisions made against a Measurement | One or many per Measurement; each Project freezes a snapshot of the parent's setup at branch time (N5) |
+
+Reasons for the split (per the
+[Measurement-entity proposal](../proposals/modal-adapter-measurement-entity-2026-05-10.md)):
+
+- **Disk efficiency** — one set of raw `.wav` files supports many ESPRIT experiments instead of one set per experiment.
+- **Provenance clarity** — re-running ESPRIT with different bands does NOT require touching acquisition state.
+- **Safety** — Measurements auto-lock after the first scenario; existing Projects keep their frozen snapshot of parent setup, so unlock+edit on the parent is safe for existing analysis.
+
+On disk:
+
+```
+D:\modal_measurements\<measurement_id>\        # acquisition entity
+D:\modal_projects\<project_name>\              # analysis entity
+```
+
+The override env var `$PIANOID_MEASUREMENTS_DIR` redirects the measurement base (e.g. for tests).
+See [`docs/modules/pianoid-middleware/MODAL_COLLECTION.md` § Phase 1 — Measurement Entity](../modules/pianoid-middleware/MODAL_COLLECTION.md#phase-1--measurement-entity-dev-msmt-2026-05-11) for the on-disk layout, REST surface, and migration script details.
+
+**Phase 1 transition window.** Legacy `/modal/collect/*` endpoints stay alive during Phase 1 with unchanged behaviour; the v2 Measurement-entity surface ships alongside. Phase 2 will retire the v1 endpoints (410 Gone) and complete the frontend cutover.
+
 ## Architecture
 
 The Modal Adapter runs as a **separate Flask server** (`modal_adapter_server.py`, port 5001)

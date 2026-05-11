@@ -1029,6 +1029,44 @@ declaring Phase 0 fully signed off.
 
 ### Phase 1 — Data Model + REST (~2 weeks, Gate 2)
 
+> **Phase 1 IMPLEMENTED at dev-msmt (2026-05-11).** Branch
+> `feature/dev-msmt-phase1-measurement-entity` on PianoidCore.
+> See session log
+> [`docs/development/logs/dev-msmt-2026-05-11-141141.md`](../development/logs/dev-msmt-2026-05-11-141141.md)
+> for implementation decisions. Notable scope deltas vs the original
+> Phase 1 plan:
+>
+> - **Belarus migration deferred / out of scope.** Belarus raw data
+>   lives under `D:/repos/RoomResponse/piano/` (outside
+>   `measurements_base`), and the migrator deliberately refuses to
+>   touch paths outside its base directory. Per user direction
+>   2026-05-11 the 3 Belarus-prefixed projects on this machine were
+>   instead **safety-tarballed and deleted** (tarballs in
+>   `D:/tmp/Belarus8D*_pre_dev-msmt_deletion.tar.gz`); the user opted
+>   to reprocess Belarus from scratch in Phase 2+ rather than carry
+>   v1 state forward.
+> - **N8 transition window — Q4-B interpretation.** Legacy
+>   `/modal/collect/*` endpoints remain literally unchanged
+>   (no synthetic Measurement creation). Phase 2 deletes them with
+>   410 Gone wrappers per N8.
+> - **Setup Test backend wiring is a Phase 1 stub** (per spec §6 — full
+>   `signal_processor.validate_calibration_quality` integration lands
+>   in Phase 2). The endpoint surface + N3 single-latest retention +
+>   report schema are complete.
+> - **Migration verified on real data:** 3 PlyWood projects (PlyWoodTake1_7,
+>   PlyWoodTake1_7_copy, PlyWoodTake1_long) migrated successfully;
+>   ESPRIT chains survive (295 chains loaded post-migration on
+>   PlyWoodTake1_7). Belarus byte-equal verification deferred to
+>   Phase 2 once user re-acquires Belarus data through the new flow.
+> - Tests: 132 new tests across 5 files (55 unit + 22 unit + 25
+>   integration + 13 integration + 17 integration), 0 failures.
+>   188/189 total modal-adapter tests pass (1 POSIX-only test skipped
+>   on Windows host).
+>
+> **Gate 2 (Belarus) is deferred** — superseded by the user's
+> "reprocess from scratch" decision. Gate 2 (PlyWood) signed off via
+> the verification block in the dev-msmt session log.
+
 **Scope.**
 - Implement `MeasurementSession` rework: split into `Measurement` (entity
   manager) + `CollectionSession` (in-flight acquisition).
