@@ -7,15 +7,16 @@
 
 ---
 
-## Phase 0 RR-port (dev-rrport, 2026-05-10) — COMMITTED
+## Phase 0 RR-port (dev-rrport, 2026-05-10) — CLOSED, Gate 1 APPROVED
 
 **Status:** Phase 0 of the Modal Adapter Measurement-entity refactor
 ([proposal](proposals/modal-adapter-measurement-entity-2026-05-10.md))
-landed on PianoidCore `dev` at 2026-05-10 / 2026-05-11:
+landed on PianoidCore `dev` at 2026-05-10 / 2026-05-11 and was
+**approved at Gate 1 by the orchestrator on 2026-05-11**:
 
 - PianoidCore feature SHA: `4c30f68`
 - PianoidCore merge SHA: `47f57dc`
-- PianoidInstall docs SHA: (see this commit)
+- PianoidInstall docs SHA: `93e48fd`
 - Branch `feature/dev-rrport-phase0-rrport` retained on PianoidCore for
   reference.
 
@@ -27,13 +28,9 @@ tree moved into `PianoidCore/sdl_audio_core/` and wired into
 verified end-to-end. 7 new sanity tests + all pre-existing modal_collection
 / scenario_averager / qc_curves / modal_create_from_zip tests pass.
 
-**Phase 0 Gate 1 sign-off (Belarus byte-equal end-to-end) is DEFERRED.**
-The dev-rrport agent delivered the build + unit/integration layer. The
-live measurement against a reference run requires hardware (mic +
-speaker loopback in the Belarus configuration) and is the gating step
-for full Phase 0 sign-off before Phase 1 begins.
+Phase 1 (Data Model + REST) is unblocked.
 
-See [`dev-rrport-2026-05-10-232416.md`](logs/active/dev-rrport-2026-05-10-232416.md)
+See [`dev-rrport-2026-05-10-232416.md`](logs/archive/dev-rrport-2026-05-10-232416.md)
 for the per-issue decisions and full session log.
 
 ---
