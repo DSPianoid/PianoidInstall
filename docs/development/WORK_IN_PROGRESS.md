@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-midi-p1 | MIDI Refactor W1 P1 — CUDA kernel single-envelope batch + TEST_* merge + MAX_EVENTS_PER_CYCLE cap | [log](logs/dev-midi-p1-2026-05-09-221341.md) | 2026-05-09 | In Progress |
 
 ---
 
