@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-midi-p2 | MIDI W3 Phase 2 — backend ingress activation | [log](logs/dev-midi-p2-2026-05-11-130628.md) | 2026-05-11 | In Progress |
 
 ---
 
