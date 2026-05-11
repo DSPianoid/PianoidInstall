@@ -1112,10 +1112,26 @@ the migrated data with byte-equal results to pre-migration.
 >   410 Gone + streaming `messages` ring buffer + active-session probe
 >   endpoint + tests + docs. See branch
 >   `feature/dev-msmtui-phase2a-backend-cutover` on PianoidCore.
-> - **Phase 2b — Frontend Collection UX (PENDING).** 5-section Collection
->   subpanel + shared `<SetupTest>` component + Unlock-with-warning UI +
->   C4 split of `ModalAdapter.jsx` / `useModalAdapter.js` + frontend
->   tests. Gate 3 sign-off after 2b lands.
+> - **Phase 2b — Frontend Collection UX (IMPLEMENTED at dev-msmtui-fe,
+>   2026-05-11).** Branch
+>   `feature/dev-msmtui-fe-phase2b-frontend-collection` on PianoidTunner.
+>   Replaced legacy `<CollectPanel>` with `<CollectionSubpanel>` (5
+>   collapsible Accordion sections + per-section Save + lock UI),
+>   `<MeasurementSelector>` top-row picker (GET/POST /modal/measurements
+>   with N1 409 surfacing), shared `<SetupTestPanel>` used in 3 surfaces
+>   (Audio Devices, Impulse, pre-flight `<SetupTestBanner>`),
+>   `<UnlockMeasurementDialog>` with verbatim N4/N5 copy. Three new
+>   v2-scoped hooks (`useMeasurementCatalog`, `useMeasurementSetup`,
+>   `useSetupTest`). C4 split of `useModalAdapter.js` (2348 → 1742 LOC,
+>   -606) extracted constants + bandHelpers + chain mutations + server
+>   lifecycle + project CRUD into `hooks/modalAdapter/*`. Legacy
+>   `useMeasurementCollection` rewritten as a throwing 410-Gone stub +
+>   smoke test; legacy `<CollectPanel>` deleted. **43 new Phase 2b
+>   tests, all green; 389/389 PianoidTunner tests pass.** Note: deeper
+>   `ModalAdapter.jsx` panel-extract (Setup/Tracking/Apply body splits)
+>   deferred to Phase 2c when Project subpanel slim-down naturally
+>   reshapes the Setup section. Gate 3 sign-off pending UI smoke
+>   verification (live-stack `/test-ui` not run by this agent).
 > - **Phase 2c — Project subpanel slim + streaming log + branch
 >   (PENDING).** Slim Project subpanel + `<CollectionLog>` component +
 >   remaining 410 Gone for `/copy` + `/create_from_zip` + per-Measurement
@@ -1124,10 +1140,10 @@ the migrated data with byte-equal results to pre-migration.
 > The original combined-scope is retained below for historical reference.
 
 **Scope (original — split during execution).**
-- Build the new `<CollectionSubpanel>` with five sections (§4.1). *(Phase 2b)*
+- Build the new `<CollectionSubpanel>` with five sections (§4.1). *(Phase 2b — DONE)*
 - Build the ONE `<SetupTest>` shared component used in Sections B + C
-  + the pre-flight banner (Q4 + Q5). *(Phase 2b)*
-- Build the `<CalibrationCriteriaEditor>` (Section E). *(Phase 2b)*
+  + the pre-flight banner (Q4 + Q5). *(Phase 2b — DONE as `<SetupTestPanel>` + `<SetupTestBanner>` thin wrapper)*
+- Build the `<CalibrationCriteriaEditor>` (Section E). *(Phase 2b — DONE as `CalibrationCriteriaSection.jsx` with add/remove rows + Reset to defaults)*
 - Wire the Setup Test backend endpoint (`POST /modal/measurements/{id}/setup_test`)
   end-to-end through `signal_processor.validate_calibration_quality`,
   with N3 single-latest overwrite semantics. **DONE in Phase 2a** — see
@@ -1139,9 +1155,9 @@ the migrated data with byte-equal results to pre-migration.
   alignment/cycle-level metrics and computes channel-level metrics
   directly from the recorded raw signal).
 - Move the `MappingEditor` from Setup subpanel to Collection > General;
-  leave a read-only "Inspect mapping in Collection →" link in Setup. *(Phase 2b)*
+  leave a read-only "Inspect mapping in Collection →" link in Setup. *(Phase 2b — `MappingEditor` instance now in `GeneralSection.jsx`; legacy Setup-subpanel mapping editor stays in place pending Phase 2c full Setup-panel rework — see Phase 2b implementation notes)*
 - Add the **Unlock with warning** button to the Collection subpanel
-  header (N4). *(Phase 2b)*
+  header (N4). *(Phase 2b — DONE as `<UnlockMeasurementDialog>` + persistent header button when `acquisition_locked === true`; verbatim N4/N5 copy)*
 - **N8 hard cutover.** Delete the v1 `/modal/collect/*` legacy wrappers
   in the same commit that ships the new frontend. Replace each with a
   `410 Gone` handler pointing at the v2 endpoint. Frontend stops calling
@@ -1150,7 +1166,7 @@ the migrated data with byte-equal results to pre-migration.
   /collect/health` also retired to 410; `/modal/measurements/active_session`
   added as the single legacy survivor per §3.4 line 670). Frontend
   half pending in Phase 2b.
-- Frontend dual-mode (v1+v2) code-path is removed in this phase. *(Phase 2b)*
+- Frontend dual-mode (v1+v2) code-path is removed in this phase. *(Phase 2b — DONE: legacy `<CollectPanel>` deleted; `useMeasurementCollection` rewritten as throwing 410-Gone stub with smoke test verifying any leftover import call surfaces immediately rather than silently calling dead endpoints)*
 
 **Gate 3 — sign-off.** UI smoke test via `/test-ui` (audio_off mode for
 UX, audio_on Phase 7 for the Setup Test end-to-end):

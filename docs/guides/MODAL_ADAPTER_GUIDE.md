@@ -31,7 +31,11 @@ D:\modal_projects\<project_name>\              # analysis entity
 The override env var `$PIANOID_MEASUREMENTS_DIR` redirects the measurement base (e.g. for tests).
 See [`docs/modules/pianoid-middleware/MODAL_COLLECTION.md` § Phase 1 — Measurement Entity](../modules/pianoid-middleware/MODAL_COLLECTION.md#phase-1--measurement-entity-dev-msmt-2026-05-11) for the on-disk layout, REST surface, and migration script details.
 
-**Phase 1 transition window.** Legacy `/modal/collect/*` endpoints stay alive during Phase 1 with unchanged behaviour; the v2 Measurement-entity surface ships alongside. Phase 2 will retire the v1 endpoints (410 Gone) and complete the frontend cutover.
+**Phase 2a (backend cutover).** Legacy `/modal/collect/*` endpoints have been retired with HTTP 410 Gone. The single survivor is `GET /modal/measurements/active_session` (global session probe with messages ring buffer). See [MODAL_COLLECTION.md § v1 surface RETIRED](../modules/pianoid-middleware/MODAL_COLLECTION.md#v1-surface--retired-at-phase-2a-dev-msmtui-2026-05-11) for the replacement table. The Setup Test endpoint `POST /modal/measurements/<id>/setup_test` is wired end-to-end through `setup_test_engine.py`.
+
+**Phase 2b (frontend Collection UX, dev-msmtui-fe 2026-05-11).** The legacy `<CollectPanel>` (B-3, v1 `/modal/collect/*` surface) has been replaced by `<CollectionSubpanel>` — a 5-section Measurement setup editor with a shared `<SetupTestPanel>` (3 surfaces) and an Unlock-with-warning button (N4). See [§ Collection Subpanel (Phase 2b)](#collection-subpanel-phase-2b) below for the UX.
+
+**Phase 2c (still pending).** Per-Measurement collection endpoints `/modal/measurements/<id>/collect/*` (start/cancel/status/results/devices), the Project subpanel slim-down + branching UI, and the `<CollectionLog>` streaming-log component.
 
 ## Architecture
 
@@ -256,6 +260,54 @@ From left to right:
 
 Settings and individual Run/Apply buttons that were previously inside each section body
 have been removed — the toolbar handles all actions.
+
+### Collection Subpanel (Phase 2b)
+
+When the user clicks the **Collect** pipeline button (top toolbar), the panel
+renders `<CollectionSubpanel>` (`PianoidTunner/src/modules/panels/CollectionSubpanel.jsx`).
+This subpanel is the entry point for **Measurement** acquisition and replaced
+the legacy `<CollectPanel>` (B-3 wave) at Phase 2b ship.
+
+**Top row.** A `<MeasurementSelector>` Select dropdown lists every Measurement
+on disk (from `GET /modal/measurements`) plus a `New Measurement` button that
+opens a minimal create dialog (just the name field — N1 globally-unique IDs).
+When the selected Measurement is locked (`acquisition_locked === true`), an
+**Acquisition locked** chip plus an **Unlock with warning** button (N4) appear
+on the right.
+
+**Pre-flight banner (Setup Test surface #3).** A persistent banner above the
+sections renders the latest Setup Test report (`GET /modal/measurements/<id>/setup_test`):
+green for `pass`, yellow for `warn` (with a "Proceed anyway" affordance), red
+for `fail`, or "no test yet" for a fresh Measurement. The banner shares the
+ONE `<SetupTestPanel>` component used in the Audio Devices and Impulse sections
+(N3 single-latest retention guarantees all three surfaces stay in sync).
+
+**5 collapsible sections** (MUI Accordion, per section: Save Settings button +
+lock chip when applicable):
+
+| Section | What it edits | Endpoint | 423 if locked |
+|---|---|---|---|
+| A — General | Measurement ID (read-only N1), layout (line/grid), channel mapping editor, grid editor | `PATCH /modal/measurements/<id>/mapping_config` | yes |
+| B — Audio Devices | input/output device, multichannel_config (16 fields), Setup Test surface #1 | `PATCH /modal/measurements/<id>/audio_config` | yes |
+| C — Impulse | impulse_form (sine / square / voice_coil), pulse params, voice-coil sub-block, Setup Test surface #2 | `PATCH /modal/measurements/<id>/impulse_config` | yes |
+| D — Series | num_pulses, cycle_duration_ms, recording_mode (per-Measurement N7), derived calculations | `PATCH /modal/measurements/<id>/series_config` | yes |
+| E — Calibration Quality Criteria | editable rule table (add/remove rows, threshold + applies_to + fail_action), Reset to defaults | `PATCH /modal/measurements/<id>/calibration_criteria` | **NO — lock-exempt** (analysis-time gate per N4) |
+
+**Unlock dialog copy** (verbatim per proposal §4.1 N4 + N5):
+> Unlocking this Measurement allows you to edit the audio device, impulse, series, or mapping setup, OR to record additional scenarios. Existing Projects branched from this Measurement keep their snapshot and are unaffected. Newly-branched Projects will see the edits made after unlock. Continue?
+
+**Start Collection button.** Currently rendered disabled with "Phase 2c" tooltip.
+The per-Measurement `/collect/*` endpoints ship in Phase 2c.
+
+**Architecture notes (Phase 2b):**
+- The 3-surface SetupTest reuse is enforced by passing the SAME `useSetupTest`
+  hook instance down to both Section B, Section C, and the pre-flight Banner.
+  A run from any surface updates all three displays simultaneously.
+- Channel mapping in Section A calls the **measurement-scoped** PATCH endpoint
+  (not the project-scoped `/modal/mapping`). The legacy mapping editor in
+  the Setup subpanel stays in place; Phase 2c will convert it to read-only.
+- The Audio Devices Select fields are TextField placeholders; per-Measurement
+  device enumeration (`GET /modal/measurements/<id>/devices`) is Phase 2c.
 
 ### Project Management
 

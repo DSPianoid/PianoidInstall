@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-msmtui-fe | Phase 2b Modal Adapter frontend: 5-section Collection + SetupTest + Unlock + C4 split of useModalAdapter.js | [log](logs/dev-msmtui-fe-2026-05-11-183353.md) | 2026-05-11 | Awaiting Phase-1 wrap-up approval (Step 10a Phase 1 complete) |
 
 ---
 
