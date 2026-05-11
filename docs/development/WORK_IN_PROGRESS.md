@@ -4,6 +4,47 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-midi-p2 | MIDI W3 Phase 2 — backend ingress activation | [log](logs/dev-midi-p2-2026-05-11-130628.md) | 2026-05-11 | In Progress |
+
+---
+
+## build_pianoid_cuda.bat — bash invocation breaks `%~dp0` (dev-midi-p2, 2026-05-11)
+
+**Symptom.** Calling
+`cmd //c "PianoidCore\\build_pianoid_cuda.bat --light --release"` from Git Bash
+(the standard CLAUDE.md `--heavy`/`--light` invocation pattern) makes the
+script's `%~dp0` resolve to `D:\repos\PianoidInstall\` instead of
+`D:\repos\PianoidInstall\PianoidCore\`. As a result `PROJECT_DIR =
+%REPO_ROOT%pianoid_cuda` becomes `D:\repos\PianoidInstall\pianoid_cuda`
+(no `PianoidCore\`) and the script aborts at "[ERROR] Folder not found:
+D:\repos\PianoidInstall\pianoid_cuda". A minimal replica bat in the same
+directory (test_dp0.bat with `setlocal EnableExtensions EnableDelayedExpansion`
++ `%~dp0` echo) resolves correctly under the same invocation — so the
+trigger appears to be something specific to build_pianoid_cuda.bat
+(arg-parsing loop, venv activate.bat side-effect, or its early
+operations) clobbering the script-relative path before line 53.
+
+**Workaround.** Invoke from PowerShell with PianoidCore as cwd:
+```powershell
+$env:VIRTUAL_ENV = $null
+Set-Location D:\repos\PianoidInstall\PianoidCore
+cmd /c ".\build_pianoid_cuda.bat --light --release"
+```
+This produced the expected behaviour every time (REPO_ROOT correct, venv
+python picked up, build succeeded). Same bat, same args — only the
+invoking shell differs.
+
+**Why it matters.** CLAUDE.md "Build Commands (Quick Reference)" instructs
+dev agents to use `unset VIRTUAL_ENV && cmd //c "PianoidCore\\build_pianoid_cuda.bat --heavy --release"` on Windows. Every agent following that instruction
+from Bash hits this and burns ~10 minutes diagnosing before falling back to
+PowerShell. Worth either:
+  (a) Add a "if `%~dp0` looks wrong, abort with diagnostic" guard at the top
+      of build_pianoid_cuda.bat.
+  (b) Update CLAUDE.md to recommend the PowerShell invocation for Bash-driven
+      dev agents (or both).
+
+**Owner / ETA.** Not allocated. Filed as a doc/infra deferral by dev-midi-p2
+during Phase 2 work.
 
 ---
 

@@ -133,6 +133,17 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
   AudioDriver callback → LockFreeCircularBuffer → PCM to OS audio
 ```
 
+**Listener lifecycle (W3 Phase 2):** the unified listener starts by default
+with the engine — the frontend ships `listen_to_midi: 1` in
+`useSettings.js` (existing users keep their saved value). The backend
+honours `PIANOID_LISTEN_TO_MIDI=0|1` as an override during `/load_preset`
+processing. After the engine is up, callers hot-toggle via
+`POST /midi/start` and `POST /midi/stop` without rebooting the synthesis
+engine — both endpoints are idempotent and call
+`Pianoid.start_midi_listener_unified` / `Pianoid.stop_midi_listener`
+respectively. See `docs/modules/pianoid-middleware/MIDI_SYSTEM.md`
+"Runtime lifecycle (W3 Phase 2)".
+
 ### 1.3 Online Playback — REST API Note Trigger
 
 ```

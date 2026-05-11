@@ -115,6 +115,37 @@ The loop exits cleanly when `self.listen` is set False or `self.exception` is ra
 
 ---
 
+## Runtime lifecycle (W3 Phase 2)
+
+The Phase 2 ingress-activation milestone added two backend knobs and a runtime helper that let the listener be (a) on by default for tuning sessions and (b) hot-toggled at any time without rebooting the synthesis engine.
+
+### Default-on at startup
+
+| Surface | What it does | How to override |
+|---|---|---|
+| Frontend `useSettings.js` `DEFAULT_SETTINGS.listen_to_midi` | Fresh installs ship with `1` so the listener starts with the engine. | Existing users keep their saved value. Toggle in the Settings panel (also writes to localStorage). |
+| Backend env var `PIANOID_LISTEN_TO_MIDI` | Read inside `/load_preset` per request. `"0"` or `"1"` overrides the request body's `listen_to_midi`. | Set the env var before launching the backend (e.g. `set PIANOID_LISTEN_TO_MIDI=0` for headless tests that don't want rtmidi noise). |
+| `/load_preset` request body `listen_to_midi` | Final fallback when the env var is unset. | Use the frontend toggle (default 1) or supply any value via curl. |
+
+Precedence (highest → lowest): env-var override → request body → backend default (=0 if `listen_to_midi` is missing from the request entirely, but the frontend always sends a value).
+
+### Runtime control endpoints
+
+`POST /midi/start` and `POST /midi/stop` flip the listener on / off without re-issuing `/load_preset` (which would destroy and rebuild the GPU engine). Both are idempotent. See `REST_API.md` for the full request / response schemas.
+
+| Endpoint | Effect | Backed by |
+|---|---|---|
+| `POST /midi/start {"port": N}` | If listener is idle, calls `Pianoid.start_midi_listener_unified(midi_port=N)`. If running, returns current state — does NOT re-spawn (would race for the rtmidi port). | `pianoid.start_midi_listener_unified` |
+| `POST /midi/stop` | If listener is running, calls `Pianoid.stop_midi_listener()` — sets `self.listen = False`, joins `_midi_thread` (1 s timeout). If idle, returns current state. | `pianoid.stop_midi_listener` (Phase 2 addition) |
+
+### `Pianoid.stop_midi_listener(join_timeout=1.0)`
+
+Idempotent helper added in Phase 2. Mirrors the stop sequence already used by `Pianoid.stop_playback()` (set `self.listen = False`, join the thread) but **does not** stop the synthesis engine or audio driver — it only releases the rtmidi port and reaps the listener thread. Returns `True` when a running listener was stopped, `False` when nothing was running. Backs `POST /midi/stop`.
+
+The emit callback (`_emit_midi_callback`, constructor-injected in Phase 0) is read **once at thread startup** (`pianoid.py:1511` captures the slot value into the loop-local `emit_callback` variable). A restart picks up whatever the slot holds at that moment; Phase 3's broadcast on/off toggle will replace the slot-capture with a per-iteration read against a flag (see refactor plan).
+
+---
+
 ## MidiListener Class
 
 **File:** `pianoidMidiListener.py`
