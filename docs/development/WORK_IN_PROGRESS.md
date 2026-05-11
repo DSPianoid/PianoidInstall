@@ -4,7 +4,68 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-msmtui-fe | Phase 2b Modal Adapter frontend: 5-section Collection + SetupTest + Unlock + C4 split of useModalAdapter.js | [log](logs/dev-msmtui-fe-2026-05-11-183353.md) | 2026-05-11 | Awaiting Phase-1 wrap-up approval (Step 10a Phase 1 complete) |
+
+---
+
+## Phase 2b Modal Adapter Frontend Collection UX (dev-msmtui-fe, 2026-05-11) — CLOSED, Gate 3 APPROVED
+
+**Status:** Phase 2b of the Modal Adapter Measurement-entity refactor
+([proposal](proposals/modal-adapter-measurement-entity-2026-05-10.md))
+landed on PianoidTunner `dev` at 2026-05-11 and was **approved at Gate 3
+by the orchestrator on 2026-05-11**:
+
+- PianoidTunner feature SHA: `9aa9403`
+- PianoidTunner merge SHA: `5c43447`
+- PianoidInstall docs SHA: `f56f765` (+ session-log addendum `ff51f97`)
+- Branch `feature/dev-msmtui-fe-phase2b-frontend-collection` retained on
+  PianoidTunner for reference.
+
+What landed:
+
+1. **`<CollectionSubpanel>` replaces legacy `<CollectPanel>`.** New
+   `modules/panels/CollectionSubpanel.jsx` orchestrator + 5 collapsible
+   Accordion sections under `modules/panels/collection/`: General /
+   Audio Devices / Impulse / Series / Calibration Quality Criteria.
+   Each section: per-section Save Settings button + lock-aware UI
+   (423 surfaced as "unlock to edit"). Calibration Quality Criteria is
+   lock-exempt per N4 (analysis-time gate).
+2. **Shared `<SetupTestPanel>` in 3 surfaces (Q4/Q5).** ONE component
+   used in Audio Devices section + Impulse section + pre-flight
+   `<SetupTestBanner>` (compact mode). Single `useSetupTest` hook
+   instance owns the report state at the subpanel level so a Run from
+   any surface updates all 3 displays simultaneously.
+3. **Unlock-with-warning UI (N4 + N5).** `<UnlockMeasurementDialog>`
+   with verbatim N4/N5 copy, persistent header button when
+   `acquisition_locked === true`. POST `/modal/measurements/<id>/unlock`
+   `{confirm: true}`.
+4. **C4 split of `useModalAdapter.js` (2348 → 1742 LOC, −606).**
+   Extracted 5 cohesive sub-modules into `hooks/modalAdapter/`:
+   `constants.js` (53), `bandHelpers.js` (142), `useChainMutations.js`
+   (123), `useServerLifecycle.js` (101), `useProjectCRUD.js` (342).
+   Pure-helper re-exports preserved for back-compat (EspritConfig + 53
+   useModalAdapter tests + 14 ChainEditor/ModalAdapter tests unchanged
+   + green).
+5. **3 new measurement-scoped hooks.** `useMeasurementCatalog` (list /
+   create / delete via GET/POST/DELETE `/modal/measurements`),
+   `useMeasurementSetup` (read manifest + PATCH each setup section,
+   423-aware), `useSetupTest` (POST/GET `/setup_test`).
+6. **Legacy retirement.** `components/CollectPanel.jsx` DELETED (was
+   427 LOC). `hooks/useMeasurementCollection.js` rewritten as throwing
+   410-Gone deprecation stub + smoke test.
+7. **Tests.** 43 new Phase 2b tests across 7 suites, all green.
+   PianoidTunner total: 389 passing across 35 suites; 0 regressions.
+8. **Docs.** `docs/guides/MODAL_ADAPTER_GUIDE.md` gained a new
+   "Collection Subpanel (Phase 2b)" section. Proposal annotated with
+   Phase 2a/2b/2c split note + per-deliverable DONE markers in the
+   Phase 2 detail section.
+
+Phase 2c (per-Measurement `/collect/*` backend endpoints, per-Measurement
+device enumeration, Project subpanel slim-down + branching, `<CollectionLog>`
+streaming-log, `/copy` + `/create_from_zip` 410-Gone cutover, deeper
+`ModalAdapter.jsx` panel-extracts) is unblocked.
+
+See [`dev-msmtui-fe-2026-05-11-183353.md`](logs/archive/dev-msmtui-fe-2026-05-11-183353.md)
+for the per-step session log (archived at close-out).
 
 ---
 
