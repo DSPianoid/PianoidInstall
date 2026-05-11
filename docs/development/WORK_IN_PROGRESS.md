@@ -48,8 +48,8 @@ Phase 2b (frontend Collection UX) is unblocked. The user-visible
 Gate 3 commit will land after Phase 2b ships the 5-section subpanel,
 shared `<SetupTest>` component, and Unlock-with-warning UI.
 
-See [`dev-msmtui-2026-05-11-143943.md`](logs/dev-msmtui-2026-05-11-143943.md)
-for the per-step session log.
+See [`dev-msmtui-2026-05-11-143943.md`](logs/archive/dev-msmtui-2026-05-11-143943.md)
+for the per-step session log (archived at close-out).
 
 ---
 
