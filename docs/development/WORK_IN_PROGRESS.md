@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-msmtui-fc | Phase 2c Modal Adapter wrap (per-Measurement collect endpoints + Project subpanel rework + CollectionLog + 410 cutovers + routes.py split) | [log](logs/dev-msmtui-fc-2026-05-11-192602.md) | 2026-05-11 | **STEP 10A PHASE 1 — awaiting Gate 4 sign-off** |
 
 ---
 

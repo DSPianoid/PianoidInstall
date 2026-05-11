@@ -1,20 +1,25 @@
 # Modal Adapter Measurement Collection
 
-**Status (Phase 2a, dev-msmtui, 2026-05-11):** The legacy v1
-`/modal/collect/*` REST surface (Wave B-1) has been **retired to HTTP
-410 Gone** as part of the Modal Adapter Measurement-entity refactor
-proposal §3.4 (N8 hard cutover). The acquisition orchestrator
+**Status (Phase 2c, dev-msmtui-fc, 2026-05-11):** The per-Measurement
+collect endpoints have shipped. Combined with Phase 2a's v1 retirement
++ Phase 2b's frontend Collection UX, the Measurement-entity refactor's
+backend acquisition surface is complete; only Phase 3 (light SDL3.dll
+share) and Phase 4 (streaming-messages polish) remain.
+
+The legacy v1 `/modal/collect/*` REST surface (Wave B-1) is **retired
+to HTTP 410 Gone** as part of the Modal Adapter Measurement-entity
+refactor proposal §3.4 (N8 hard cutover). The acquisition orchestrator
 (`MeasurementSession` in `collection_engine.py`) is unchanged and is
-still the engine behind:
+the engine behind every Phase 2 endpoint:
 
 - **Setup Test** — `POST /modal/measurements/<id>/setup_test` (Phase 2a
   shipping; runs ONE calibration impulse cycle, validates against the
   Measurement's `calibration_criteria.json`, overwrites
   `setup_test/latest.{json,wav}` per N3).
 - **Per-Measurement collect** — `POST /modal/measurements/<id>/collect/*`
-  (Phase 2c, NOT yet shipped — Phase 2a closes the legacy v1 surface in
-  the same commit that ships Setup Test wiring, leaving the v2 collect
-  surface for the follow-up sub-phase).
+  + `GET /modal/measurements/<id>/devices` (Phase 2c — see
+  [§ Phase 2c Per-Measurement Collect Endpoints](#phase-2c-per-measurement-collect-endpoints-dev-msmtui-fc-2026-05-11)
+  below).
 
 The single legacy survivor of the v1 retirement (per proposal §3.4 line
 670) is the global probe:
@@ -506,17 +511,152 @@ What landed:
    `_SessionState.measurement_id` so the global probe can route the UI
    to the parent Measurement when a session is in flight.
 
-What's NOT yet landed (Phase 2b/2c):
+What's NOT yet landed (Phase 2b/2c — outdated, see Phase 2c section below):
 
 - Frontend Collection subpanel (5 sections + shared `<SetupTest>` +
-  Unlock-with-warning + `<CollectionLog>` — Phase 2b).
+  Unlock-with-warning + `<CollectionLog>` — Phase 2b). **Done at Phase 2b.**
 - Per-Measurement collection endpoints `/modal/measurements/<id>/collect/*`
-  (start/cancel/status/results/devices — Phase 2c).
+  (start/cancel/status/results/devices — Phase 2c). **Done at Phase 2c.**
 - Retirement of `/modal/projects/copy` and `/modal/projects/create_from_zip`
-  (depends on the Phase 2b frontend branch flow — Phase 2c).
+  (depends on the Phase 2b frontend branch flow — Phase 2c). **Done at Phase 2c.**
+
+## Phase 2c Per-Measurement Collect Endpoints (dev-msmtui-fc, 2026-05-11)
+
+Five new acquisition endpoints + two device-enumeration endpoints landed
+on top of Phase 1's `/modal/measurements/*` surface:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/modal/measurements/<id>/collect/start` | Start a single scenario session |
+| GET  | `/modal/measurements/<id>/collect/status` | Per-Measurement session snapshot incl. `messages` ring buffer |
+| POST | `/modal/measurements/<id>/collect/cancel` | Cancel in-flight scenario |
+| GET  | `/modal/measurements/<id>/collect/results/<sid>` | Fetch completed scenario result |
+| GET  | `/modal/measurements/<id>/devices` | Enumerate SDL3 devices, with the Measurement's currently-selected input/output echoed back |
+| GET  | `/modal/measurements/devices` | Unscoped alias for the Create-Measurement flow (no measurement_id yet) |
+
+All five collect routes are Measurement-scoped: cross-Measurement
+status reads return `{phase: "idle"}` (the Measurement looks idle from
+its perspective even when a session is active on a different
+Measurement). Cross-Measurement cancel returns 409 with the active
+Measurement id. Cross-Measurement results lookup returns 404.
+
+### Setup file → recorder_config stitching
+
+The `MeasurementSession.start()` API takes a flat
+`recorder_config_overrides` dict in the legacy recorder schema. The new
+endpoints stitch the Phase 2 `setup/audio_config.json` +
+`setup/impulse_config.json` + `setup/series_config.json` files into the
+legacy schema via `_build_recorder_config_from_measurement(measurement)`
+in `collection_engine.py`. Unit conversions handled there:
+
+| Phase 2 setup field (ms) | Legacy recorder_config (s) |
+|---|---|
+| `impulse_config.pulse_duration_ms` | `pulse_duration` (×0.001) |
+| `impulse_config.pulse_fade_ms` | `pulse_fade` (×0.001) |
+| `series_config.cycle_duration_ms` | `cycle_duration` (×0.001) |
+
+Other fields pass through unchanged (units already match):
+`audio_config.input_device` → `input_device`, `series_config.num_pulses` →
+`num_pulses`, `series_config.volume` → `volume`, etc. The
+`multichannel_config` block is deep-copied to prevent caller-mutation
+back-leak.
+
+The `voice_coil_config` sub-block in `setup/impulse_config.json` is
+forward-looking — the current in-tree recorder does not consume it
+(voice_coil-mode parameters are hardcoded). The stitching helper reads
+it but does not propagate; if/when the recorder gains
+`voice_coil_config` support, extend the helper.
+
+### Per-call overrides
+
+The endpoint handler layers any caller-supplied
+`recorder_config_overrides` field ON TOP of the stitched setup, so a
+per-scenario override still wins. Per-scenario metadata fields
+(`description`, `computer`, `room`) are read from the request body —
+they don't live in `setup/*` (which is per-Measurement). Defaults:
+`room=measurement_id`, `description="Measurement {id} scenario {N}"`.
+
+### Single-active rule + auto-lock (N4)
+
+`MeasurementSession` enforces a single-active session per process (the
+audio device is exclusive). A second `/collect/start` while a session
+is in flight returns 409 with `code=session_in_flight`. On the FIRST
+successful scenario completion of an unlocked Measurement,
+`acquisition.lock` auto-fires (N4 — handled by the session's finalize
+step, out of scope for the route itself).
+
+### Devices endpoints
+
+`GET /modal/measurements/<id>/devices` returns:
+
+```json
+{
+    "input_devices": [{"index": 0, "name": "MOTU UltraLite-mk5 (1)"}, ...],
+    "output_devices": [{"index": 1, "name": "MOTU UltraLite-mk5 (2)"}, ...],
+    "sdl_version": "3.2.0",
+    "current_input": 3,
+    "current_input_name": "MOTU UltraLite-mk5 (1)",
+    "current_output": 1,
+    "current_output_name": "MOTU UltraLite-mk5 (2)"
+}
+```
+
+`current_*` are read from the Measurement's `setup/audio_config.json`
+so the frontend Audio Devices Select dropdowns can pre-select the right
+entry. The unscoped alias `/modal/measurements/devices` returns the same
+shape with `current_*` set to `null` (no Measurement context).
+
+`SDL3` not importable → 503 with `code=stack_unavailable`.
+
+### routes.py C4 split (Phase 2c)
+
+The monolithic `routes.py` (1842 LOC, C4-RED) was split into a
+`routes/` package per proposal Phase 2c § routes.py split. Now:
+
+| Module | LOC | Concern |
+|---|---|---|
+| `routes/__init__.py` | 148 | Blueprint + register_*_routes calls + 2 survivor routes |
+| `routes/_helpers.py` | 129 | Shared helpers (get_adapter, get_pianoid, error_response, ...) |
+| `routes/project_routes.py` | 547 | /projects/* family + 410 Gone for /copy + /create_from_zip |
+| `routes/preset_routes.py` | 107 | /band_presets/* |
+| `routes/build_routes.py` | 112 | /data_status, /project_state, /gpu_status, /status, /defaults |
+| `routes/chains_routes.py` | 296 | /chains/* + /stabilization_diagram + /grid_heatmap + /mode_shape + /mode_preview + /channel_mapping |
+| `routes/pipeline_routes.py` | 381 | /run_pipeline, /run_esprit, /run_tracking, /run_feedin + adapter state |
+
+Backwards-compat shims (legacy underscore-prefixed names like
+`_get_adapter`) remain on `routes/__init__.py` so the 16 existing
+test imports keep working unchanged.
+
+### `/modal/projects/copy` + `/create_from_zip` retired (N8)
+
+Both endpoints now return `410 Gone` with the same JSON body shape as
+the v1 collect retirement (Phase 2a):
+
+```json
+{
+    "error": "endpoint_retired",
+    "retired_at": "v2",
+    "phase": "Phase 2c",
+    "replacement": "/modal/projects/<old>/branch",
+    "doc": "docs/proposals/modal-adapter-measurement-entity-2026-05-10.md#34-endpoints-removed--hard-cutover-at-phase-2-n8"
+}
+```
+
+The frontend `useProjectCRUD.copyProject` helper is now a throwing stub
+that surfaces the breakage at the call site (instead of silently
+issuing a 410 round trip). `useProjectCRUD.importProject` retains
+support for `.pianoid-project` archives (the export/import round trip
+is unchanged) but throws on any other zip type.
+
+The underlying `ModalAdapter.copy_project()` and
+`ModalAdapter.create_project_from_zip()` Python methods remain in place
+for direct callers (tests, scripts, REST replacements) until a
+follow-on session retires them.
 
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
 - [pianoid-middleware OVERVIEW: Measurement Stack (Phase 0 RR-port)](OVERVIEW.md#measurement-stack-phase-0-rr-port-dev-rrport-2026-05-10)
 - [REST_API.md: Modal Collection Endpoints](REST_API.md#modal-collection-endpoints-port-5001-b-1)
+- [Proposal §3.4 N8 hard cutover](../../proposals/modal-adapter-measurement-entity-2026-05-10.md#34-endpoints-removed--hard-cutover-at-phase-2-n8)
+- [MODAL_ADAPTER_GUIDE.md § Project Management (Phase 2c rework)](../../guides/MODAL_ADAPTER_GUIDE.md#project-management)

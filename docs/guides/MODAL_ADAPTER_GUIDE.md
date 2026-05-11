@@ -296,23 +296,85 @@ lock chip when applicable):
 **Unlock dialog copy** (verbatim per proposal §4.1 N4 + N5):
 > Unlocking this Measurement allows you to edit the audio device, impulse, series, or mapping setup, OR to record additional scenarios. Existing Projects branched from this Measurement keep their snapshot and are unaffected. Newly-branched Projects will see the edits made after unlock. Continue?
 
-**Start Collection button.** Currently rendered disabled with "Phase 2c" tooltip.
-The per-Measurement `/collect/*` endpoints ship in Phase 2c.
+**Start Collection button.** **WIRED at Phase 2c (dev-msmtui-fc, 2026-05-11).**
+Click → POST `/modal/measurements/<id>/collect/start` with `scenario_number=0`
+(scenario number is auto-incremented by the backend; the body knob lets the
+caller force a specific number for re-record). The button switches to a
+**Cancel ({phase})** stop-button while a session is in flight (active phase
+chip shown alongside). On the FIRST successful scenario completion of an
+unlocked Measurement, `acquisition.lock` is auto-written by the backend (N4).
 
-**Architecture notes (Phase 2b):**
+**Streaming acquisition log (`<CollectionLog>` — Phase 2c §4.3).** Below
+the Start/Cancel button, a fixed-height (200 px) monospace scroll region
+renders the messages ring buffer polled at 1000 ms from
+`GET /modal/measurements/<id>/collect/status`. Each line: `[HH:MM:SS] [src] msg`
+with a level chip (info / warn / error / debug — color-coded). Auto-scroll
+to bottom unless the user has scrolled up; "▼ Jump to latest" button reappears
+when sticky is off. Level filter (toggle group) hides unselected levels.
+Clear button empties the buffer. Buffer is bounded to 1000 entries
+client-side (backend ring buffer is 256 — proposal §3.3).
+
+**Audio Devices Section** — **Select dropdowns wired at Phase 2c (dev-msmtui-fc).**
+The TextField "device ordinal" placeholders shipped in Phase 2b are now
+real MUI Select dropdowns populated by `GET /modal/measurements/<id>/devices`
+on mount (with a Refresh icon button to re-probe). The endpoint also returns
+`current_input` / `current_output` from the Measurement's `setup/audio_config.json`
+so the Selects pre-fill correctly. SDL version is read live from the same
+endpoint payload.
+
+**Architecture notes (Phase 2b + Phase 2c):**
 - The 3-surface SetupTest reuse is enforced by passing the SAME `useSetupTest`
   hook instance down to both Section B, Section C, and the pre-flight Banner.
   A run from any surface updates all three displays simultaneously.
 - Channel mapping in Section A calls the **measurement-scoped** PATCH endpoint
   (not the project-scoped `/modal/mapping`). The legacy mapping editor in
   the Setup subpanel stays in place; Phase 2c will convert it to read-only.
-- The Audio Devices Select fields are TextField placeholders; per-Measurement
-  device enumeration (`GET /modal/measurements/<id>/devices`) is Phase 2c.
+- Phase 2c per-Measurement collect endpoints (`/collect/start` /
+  `/status` / `/cancel` / `/results/<sid>` / `/devices`) wire through
+  the existing `MeasurementSession` singleton (one in-flight scenario
+  per process) with `measurement_id` context — see
+  [`pianoid-middleware/MODAL_COLLECTION.md`](../modules/pianoid-middleware/MODAL_COLLECTION.md)
+  for the route-level inventory + setup/* → recorder_config stitching
+  via `_build_recorder_config_from_measurement`.
 
 ### Project Management
 
-The Setup section opens with three action buttons (**Open Project**, **Copy From…**,
-**Create Project…**), the selected-project info card, and — when the project uses
+> **Phase 2c update (dev-msmtui-fc, 2026-05-11) — Project subpanel rework.**
+> The Setup section was reshaped per
+> [proposal §4.2](../proposals/modal-adapter-measurement-entity-2026-05-10.md#42-project-subpanel--slim-down--branching).
+> Three buttons now: **Open Project**, **Branch from this Project**, plus a
+> persistent **Parent Measurement card** at the top when the active project
+> carries a `measurement_id` reference (Phase 1 schema). The legacy
+> **Copy From…** + **Create Project…** buttons are GONE per N8 hard cutover —
+> Projects are now created by branching from a Measurement (Collection
+> subpanel → "+ New Project from this Measurement"). The slim subpanel
+> implementation lives in
+> `PianoidTunner/src/modules/panels/ProjectSubpanel.jsx`; ModalAdapter.jsx
+> shrunk by 814 LOC (2312 → 1498) as a result.
+>
+> **Branch flow.** Click "Branch from this Project" → small dialog asking
+> for a new project name + an "Inherit band_config from this project"
+> checkbox (default ON). Submit → POST `/modal/projects/<source>/branch`
+> → backend snapshots the parent Measurement's CURRENT setup at branch
+> time (N5) and creates a sibling Project pointing at the same
+> `measurement_id`. ESPRIT / tracking / feedin caches start empty.
+> The frontend opens the destination immediately and emits a success
+> snackbar. On error (collision, 404, etc.) the dialog stays open with
+> an inline Alert + an error snackbar.
+>
+> **Parent Measurement card.** Renders when `currentProject.measurement_id`
+> is set. Shows the parent's name + scenario count + channel count +
+> layout + lock chip, and an **Inspect setup →** button that switches the
+> Modal Adapter section selector to **Collection** with the parent
+> Measurement pre-selected — the user can review or edit setup/* and
+> (after explicit unlock) record additional scenarios on the parent.
+>
+> The legacy text below describes the pre-Phase-2c surface for historical
+> context. Subsections marked `(LEGACY — removed Phase 2c)` no longer
+> describe shipping behaviour.
+
+The Setup section opens with three action buttons (**Open Project**, **Copy From…** *(LEGACY — removed Phase 2c)*,
+**Create Project…** *(LEGACY — removed Phase 2c)*), the selected-project info card, and — when the project uses
 grid layout — the processing grid editor. As of dev-8b5f (2026-05-04) the legacy
 inline chip-list UI was replaced by a file-browser dialog and the standalone "New
 Project from folder" form was removed (Create Project auto-detects format and

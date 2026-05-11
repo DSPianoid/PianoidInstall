@@ -1133,9 +1133,50 @@ the migrated data with byte-equal results to pre-migration.
 >   reshapes the Setup section. Gate 3 sign-off pending UI smoke
 >   verification (live-stack `/test-ui` not run by this agent).
 > - **Phase 2c — Project subpanel slim + streaming log + branch
->   (PENDING).** Slim Project subpanel + `<CollectionLog>` component +
->   remaining 410 Gone for `/copy` + `/create_from_zip` + per-Measurement
->   `/collect/*` v2 routes.
+>   (IMPLEMENTED at dev-msmtui-fc, 2026-05-11).** Backend half on
+>   PianoidCore branch
+>   `feature/dev-msmtui-fc-phase2c` (commit SHA recorded at Phase 1
+>   handoff). Frontend half on PianoidTunner branch
+>   `feature/dev-msmtui-fc-phase2c` (same SHA scheme). What landed:
+>
+>   - **Backend `routes.py` C4 split** — 1842 LOC monolith (RED) split
+>     into 7-file `routes/` package, every sub-file ≤ 547 LOC.
+>     `routes.py` retired; orchestration moved to `routes/__init__.py`.
+>     Backwards-compat shims preserve legacy underscore-prefixed names
+>     for the 16 existing test imports.
+>   - **`_build_recorder_config_from_measurement` stitching helper** in
+>     `collection_engine.py` — bridges Phase 2 `setup/audio_config.json`
+>     + `setup/impulse_config.json` + `setup/series_config.json` into
+>     the legacy recorder schema with ms→s unit conversions.
+>   - **5 per-Measurement collect endpoints** + 2 device-enumeration
+>     endpoints in `measurement_routes.py`. All Measurement-scoped
+>     (cross-Measurement reads return idle / 404 / 409).
+>   - **410 Gone for `/modal/projects/copy` + `/create_from_zip`** per
+>     N8 hard cutover. The frontend `useProjectCRUD.copyProject` helper
+>     is now a throwing stub.
+>   - **Frontend `<ProjectSubpanel>` extraction** —
+>     `PianoidTunner/src/modules/panels/ProjectSubpanel.jsx` (~860
+>     LOC). The legacy Setup section in `ModalAdapter.jsx` (lines
+>     1154-1966 pre-Phase-2c, ~810 LOC) deleted, including the
+>     `CreateProjectDialog` mount + `EffectiveSignalLengthRerunDialog`
+>     chain + Copy-From button. ModalAdapter.jsx shrunk from 2312 to
+>     1498 LOC (RED → YELLOW).
+>   - **Parent Measurement card + Branch UI** at the top of the new
+>     ProjectSubpanel — POST `/modal/projects/<src>/branch` per §4.2.
+>   - **`<CollectionLog>` streaming-log component** in
+>     `src/modules/panels/collection/CollectionLog.jsx` — 1000 ms
+>     polling per Q3, deduped on `ts`, level filter, auto-scroll +
+>     "Jump to latest" button, 1000-entry client-side bound.
+>   - **Audio Devices Section Select dropdowns** wired to
+>     `/devices` endpoint (replaces Phase 2b TextField placeholders).
+>   - **Start Collection button wired** in `<CollectionSubpanel>` —
+>     POST `/collect/start` with cancel + active phase chip.
+>   - **Tests:** 33 new backend tests + 21 new frontend tests
+>     (CollectionLog 9 + ProjectSubpanel 12). All 220 backend +
+>     409 frontend tests pass.
+>   - **Docs:** this annotation + MODAL_ADAPTER_GUIDE Project
+>     Management rewrite + new MODAL_COLLECTION § Phase 2c
+>     Per-Measurement Collect Endpoints.
 >
 > The original combined-scope is retained below for historical reference.
 
