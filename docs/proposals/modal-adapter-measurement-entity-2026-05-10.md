@@ -1102,23 +1102,55 @@ the migrated data with byte-equal results to pre-migration.
 
 ### Phase 2 — Collection UX (~1.5 weeks, Gate 3)
 
-**Scope.**
-- Build the new `<CollectionSubpanel>` with five sections (§4.1).
+> **Phase 2 split into 2a/2b/2c during execution (dev-msmtui sub-phase
+> decomposition, 2026-05-11).** The original scope was too large for a
+> single /dev session that cannot run `/test-ui`. Path B
+> (sub-decomposition) was adopted:
+>
+> - **Phase 2a — Backend cutover (IMPLEMENTED at dev-msmtui, 2026-05-11).**
+>   Setup Test backend wiring + v1 `/modal/collect/*` hard cutover to
+>   410 Gone + streaming `messages` ring buffer + active-session probe
+>   endpoint + tests + docs. See branch
+>   `feature/dev-msmtui-phase2a-backend-cutover` on PianoidCore.
+> - **Phase 2b — Frontend Collection UX (PENDING).** 5-section Collection
+>   subpanel + shared `<SetupTest>` component + Unlock-with-warning UI +
+>   C4 split of `ModalAdapter.jsx` / `useModalAdapter.js` + frontend
+>   tests. Gate 3 sign-off after 2b lands.
+> - **Phase 2c — Project subpanel slim + streaming log + branch
+>   (PENDING).** Slim Project subpanel + `<CollectionLog>` component +
+>   remaining 410 Gone for `/copy` + `/create_from_zip` + per-Measurement
+>   `/collect/*` v2 routes.
+>
+> The original combined-scope is retained below for historical reference.
+
+**Scope (original — split during execution).**
+- Build the new `<CollectionSubpanel>` with five sections (§4.1). *(Phase 2b)*
 - Build the ONE `<SetupTest>` shared component used in Sections B + C
-  + the pre-flight banner (Q4 + Q5).
-- Build the `<CalibrationCriteriaEditor>` (Section E).
+  + the pre-flight banner (Q4 + Q5). *(Phase 2b)*
+- Build the `<CalibrationCriteriaEditor>` (Section E). *(Phase 2b)*
 - Wire the Setup Test backend endpoint (`POST /modal/measurements/{id}/setup_test`)
   end-to-end through `signal_processor.validate_calibration_quality`,
-  with N3 single-latest overwrite semantics.
+  with N3 single-latest overwrite semantics. **DONE in Phase 2a** — see
+  `pianoid_middleware/modal_adapter/setup_test_engine.py`. Note: the
+  actual per-criterion measurement uses a dispatch table keyed by
+  `criterion_id` rather than a single `validate_calibration_quality`
+  call (the spec's wording was a placeholder for the analyser; the
+  implementation calls `CalibrationValidatorV2.validate_cycle` for the
+  alignment/cycle-level metrics and computes channel-level metrics
+  directly from the recorded raw signal).
 - Move the `MappingEditor` from Setup subpanel to Collection > General;
-  leave a read-only "Inspect mapping in Collection →" link in Setup.
+  leave a read-only "Inspect mapping in Collection →" link in Setup. *(Phase 2b)*
 - Add the **Unlock with warning** button to the Collection subpanel
-  header (N4).
+  header (N4). *(Phase 2b)*
 - **N8 hard cutover.** Delete the v1 `/modal/collect/*` legacy wrappers
   in the same commit that ships the new frontend. Replace each with a
   `410 Gone` handler pointing at the v2 endpoint. Frontend stops calling
-  the v1 surface in this same release.
-- Frontend dual-mode (v1+v2) code-path is removed in this phase.
+  the v1 surface in this same release. **Backend half DONE in Phase 2a**
+  (`collection_routes.py` rewritten to 410 handlers; `routes.py
+  /collect/health` also retired to 410; `/modal/measurements/active_session`
+  added as the single legacy survivor per §3.4 line 670). Frontend
+  half pending in Phase 2b.
+- Frontend dual-mode (v1+v2) code-path is removed in this phase. *(Phase 2b)*
 
 **Gate 3 — sign-off.** UI smoke test via `/test-ui` (audio_off mode for
 UX, audio_on Phase 7 for the Setup Test end-to-end):

@@ -1,10 +1,32 @@
 # Modal Adapter Measurement Collection
 
-**Status (Wave B-1):** REST surface for measurement collection is in place.
-The Modal Adapter server (port 5001) can run a complete measurement
-scenario via REST, end-to-end, with no manual steps. A curl-only operator
-can: configure a scenario → start collection → monitor status → fetch the
-resulting averaged IR. The frontend Collect panel is deferred to Wave B-3.
+**Status (Phase 2a, dev-msmtui, 2026-05-11):** The legacy v1
+`/modal/collect/*` REST surface (Wave B-1) has been **retired to HTTP
+410 Gone** as part of the Modal Adapter Measurement-entity refactor
+proposal §3.4 (N8 hard cutover). The acquisition orchestrator
+(`MeasurementSession` in `collection_engine.py`) is unchanged and is
+still the engine behind:
+
+- **Setup Test** — `POST /modal/measurements/<id>/setup_test` (Phase 2a
+  shipping; runs ONE calibration impulse cycle, validates against the
+  Measurement's `calibration_criteria.json`, overwrites
+  `setup_test/latest.{json,wav}` per N3).
+- **Per-Measurement collect** — `POST /modal/measurements/<id>/collect/*`
+  (Phase 2c, NOT yet shipped — Phase 2a closes the legacy v1 surface in
+  the same commit that ships Setup Test wiring, leaving the v2 collect
+  surface for the follow-up sub-phase).
+
+The single legacy survivor of the v1 retirement (per proposal §3.4 line
+670) is the global probe:
+
+```
+GET /modal/measurements/active_session
+```
+
+which returns the current (or most-recent) `MeasurementSession`
+snapshot, including the streaming-messages ring buffer (Q8) and the
+parent `measurement_id` field. See [§ Phase 2a Backend Cutover](#phase-2a-backend-cutover-dev-msmtui-2026-05-11)
+below.
 
 **Phase 0 RR-port (dev-rrport, 2026-05-10):** the recorder, dataset
 collector, signal processor, calibration validator, and SDL3 audio
@@ -144,23 +166,42 @@ also already supported by `_discover_roomresponse_scenarios`
 
 ## REST API
 
-All five endpoints are mounted under `/modal/collect/*` on the
-**modal_adapter_server only (port 5001)**. The main backend (port 5000)
-exposes only the health probe; collection routes return HTTP 503 there
-because the in-tree measurement stack is not probed (and the audio
-device cannot be opened twice in the same process anyway).
+### v1 surface — RETIRED at Phase 2a (dev-msmtui, 2026-05-11)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET    | `/modal/collect/health`           | In-tree measurement-stack probe (sdl_audio_core + measurement.recorder importable). Pre-Phase-0 this was the RR sys.path bootstrap probe. |
-| POST   | `/modal/collect/start`            | Begin one scenario |
-| GET    | `/modal/collect/status`           | Active session snapshot |
-| POST   | `/modal/collect/cancel`           | Cancel active session |
-| GET    | `/modal/collect/results/<sid>`    | Fetch completed-session result |
-| GET    | `/modal/collect/devices`          | Enumerate SDL3 audio devices |
+All six legacy endpoints under `/modal/collect/*` were retired to **HTTP
+410 Gone** in the same commit that wired the real Setup Test backend
+(Phase 2a). Per proposal §3.4 (N8 hard cutover policy), no compatibility
+wrappers are maintained — clients that still call these paths receive
+the structured 410 body below and must migrate.
 
-See [REST_API.md](REST_API.md#modal-collection-endpoints-port-5001-b-1) for
-request/response schemas.
+| Method | Retired path | Replacement |
+|--------|--------------|-------------|
+| GET    | `/modal/collect/health`           | None — health is reflected by import-time logs from the modal_adapter_server (the in-tree measurement stack imports at process start). |
+| POST   | `/modal/collect/start`            | `POST /modal/measurements/<id>/collect/start` (Phase 2c) |
+| GET    | `/modal/collect/status`           | `GET /modal/measurements/active_session` (Phase 2a — global probe, the single legacy survivor) |
+| POST   | `/modal/collect/cancel`           | `POST /modal/measurements/<id>/collect/cancel` (Phase 2c) |
+| GET    | `/modal/collect/results/<sid>`    | `GET /modal/measurements/<id>/collect/results/<sid>` (Phase 2c) |
+| GET    | `/modal/collect/devices`          | `GET /modal/measurements/<id>/devices` (Phase 2c) — per-Measurement; an unscoped `/modal/measurements/devices` alias is planned for the Create-Measurement flow |
+
+Every retired path returns the standard 410 body:
+
+```json
+{
+  "error": "endpoint_retired",
+  "retired_at": "v2",
+  "phase": "Phase 2a",
+  "replacement": "/modal/measurements/<id>/collect/start",
+  "doc": "docs/proposals/modal-adapter-measurement-entity-2026-05-10.md#34-endpoints-removed--hard-cutover-at-phase-2-n8"
+}
+```
+
+### v2 surface — Measurement-entity
+
+See [Phase 1 — Measurement Entity](#phase-1--measurement-entity-dev-msmt-2026-05-11)
+below for the `/modal/measurements/*` REST surface (Phase 1 shipped the
+endpoints; Phase 2a (this commit) wires the Setup Test endpoint to its
+real implementation; Phase 2c will ship the per-Measurement
+`/collect/*` family).
 
 ## Recorder Configuration Overrides (v1)
 
@@ -184,31 +225,58 @@ All others fall back to the vendored
 
 Full schema viewer (every recorderConfig.json key) is deferred to Wave B-2.
 
-## Curl-Only End-to-End Example
+## Curl-Only End-to-End Example (Phase 2a — Setup Test wired)
 
 ```bash
-# 1. Confirm the modal adapter server has the in-tree measurement stack ready
-curl http://127.0.0.1:5001/modal/collect/health
-# {"available":true,"sdl_version":"3.2.0","error":null,"room_response_path":null}
-# (room_response_path is now always null after the Phase 0 in-tree port)
+# 1. List measurements (Phase 1)
+curl http://127.0.0.1:5001/modal/measurements
+# {"measurements":[...]}
 
-# 2. List audio devices
-curl http://127.0.0.1:5001/modal/collect/devices
-
-# 3. Start a scenario
-curl -X POST http://127.0.0.1:5001/modal/collect/start \
+# 2. Create a Measurement (Phase 1)
+curl -X POST http://127.0.0.1:5001/modal/measurements \
   -H "Content-Type: application/json" \
-  -d '{"scenario_number":0,"project_dir":"D:/data/myproject",
-       "recorder_config":{"num_measurements":5,
-         "computer":"Belarus","room":"Run1"}}'
-# {"session_id":"d0722c397e99"}
+  -d '{"measurement_id":"Belarus-2026-05-11"}'
 
-# 4. Poll progress
-curl http://127.0.0.1:5001/modal/collect/status
+# 3. Configure the audio + impulse + series setup (Phase 1)
+curl -X PATCH http://127.0.0.1:5001/modal/measurements/Belarus-2026-05-11/audio_config \
+  -H "Content-Type: application/json" \
+  -d '{"sample_rate":48000,"input_device":-1,"output_device":-1,
+       "multichannel_config":{"enabled":true,"num_channels":6,
+         "calibration_channel":0,"reference_channel":1,
+         "response_channels":[2,3,4,5]}}'
 
-# 5. Fetch results
-curl http://127.0.0.1:5001/modal/collect/results/d0722c397e99
+# 4. Run Setup Test (Phase 2a — real wiring)
+curl -X POST http://127.0.0.1:5001/modal/measurements/Belarus-2026-05-11/setup_test
+# {"overall":"pass","schema_version":1,"tested_at":"2026-05-11T15:00:00Z",
+#  "results":[...],"recording_path":"setup_test/latest.wav","error":null}
+
+# 5. Poll the global active-session probe to follow Setup Test progress
+curl http://127.0.0.1:5001/modal/measurements/active_session
+# {"phase":"done","measurement_id":"Belarus-2026-05-11",
+#  "session_id":"setup-test-12345678",
+#  "messages":[{"ts":"...","level":"info","src":"setup_test",
+#               "msg":"Starting Setup Test cycle"}, ...]}
+
+# 6. Start a real scenario (Phase 2c — NOT YET SHIPPED at Phase 2a)
+# curl -X POST http://127.0.0.1:5001/modal/measurements/Belarus-2026-05-11/collect/start ...
 ```
+
+The v1 example below is preserved for archive only — every endpoint
+in it now returns 410 Gone.
+
+<details>
+<summary>Legacy v1 curl flow — RETIRED at Phase 2a (returns 410)</summary>
+
+```bash
+# Each of these returns HTTP 410 with a structured body since Phase 2a:
+curl http://127.0.0.1:5001/modal/collect/health         # 410 Gone
+curl http://127.0.0.1:5001/modal/collect/devices        # 410 Gone (use /modal/measurements/<id>/devices)
+curl -X POST http://127.0.0.1:5001/modal/collect/start  # 410 Gone (use /modal/measurements/<id>/collect/start)
+curl http://127.0.0.1:5001/modal/collect/status         # 410 Gone (use /modal/measurements/active_session)
+curl http://127.0.0.1:5001/modal/collect/results/abc    # 410 Gone (use /modal/measurements/<id>/collect/results/<sid>)
+curl -X POST http://127.0.0.1:5001/modal/collect/cancel # 410 Gone (use /modal/measurements/<id>/collect/cancel)
+```
+</details>
 
 ## Phase 1 — Measurement Entity (dev-msmt, 2026-05-11)
 
@@ -279,7 +347,7 @@ Project entity gains four new fields in v2 schema (`schema_version: 2`):
 | PATCH  | `/modal/measurements/<id>/series_config`                   | Same (423 if locked) |
 | PATCH  | `/modal/measurements/<id>/mapping_config`                  | Same (423 if locked) |
 | PATCH  | `/modal/measurements/<id>/calibration_criteria`            | Always allowed even when locked (analysis-time gate per N4) |
-| POST   | `/modal/measurements/<id>/setup_test`                      | Run Setup Test (Phase 1 stub — Phase 2 wires `signal_processor.validate_calibration_quality`). Overwrites `setup_test/latest.*` per N3 |
+| POST   | `/modal/measurements/<id>/setup_test`                      | Run Setup Test — wired through `SetupTestEngine` (Phase 2a, dev-msmtui, 2026-05-11). Pauses synth, captures one calibration cycle, validates against `setup/calibration_criteria.json`, overwrites `setup_test/latest.*` per N3. 502 on pause failure, 500 on engine crash. |
 | GET    | `/modal/measurements/<id>/setup_test`                      | Fetch latest Setup Test report (404 if never run) |
 | POST   | `/modal/measurements/<id>/unlock`                          | Manual unlock-with-warning per N4. Body: `{confirm: true}` required. 400 without confirm |
 | DELETE | `/modal/measurements/<id>`                                 | Delete. 409 with `{linked_projects: [...]}` if any Project references this Measurement (N6, no force flag) |
@@ -321,15 +389,83 @@ The migrator refuses to touch:
 
 Status codes from `--mode apply`: exits 0 on success-only; exits 1 if any project errored.
 
-### Setup Test (Phase 1 stub)
+### Setup Test (Phase 2a — real wiring, dev-msmtui, 2026-05-11)
 
-Per spec §6, the actual `signal_processor.validate_calibration_quality`
-wiring lands in **Phase 2** alongside the UI that consumes it. Phase 1
-ships the **endpoint surface** (request/response shapes, N3
-single-latest retention, criteria iteration) returning
-`overall: "not_implemented"` and `verdict: "not_implemented"` per
-criterion. The audio-device probe is wired but does not actually emit
-a calibration impulse.
+Phase 1 shipped the endpoint surface only (`overall: "not_implemented"`).
+Phase 2a (this commit) replaces the stub with the real implementation:
+`SetupTestEngine` in
+`pianoid_middleware/modal_adapter/setup_test_engine.py`.
+
+Flow on `POST /modal/measurements/<id>/setup_test`:
+
+1. Pause Pianoid synthesis (`POST /pause_synthesis @ 5000`). On failure
+   the route returns **502 Bad Gateway** with `code: "pause_failed"`;
+   the audio device is never opened.
+2. Stitch the Measurement's `setup/{audio,impulse,series,mapping}_config.json`
+   into a single recorder cfg via `build_recorder_config()`.
+3. Construct `RoomResponseRecorder` (in-tree port from Phase 0) and
+   invoke `take_record(mode='calibration', save_files=False)` for one
+   calibration cycle — NO scenario folder, NO averaging, NO N4 auto-lock.
+4. Evaluate each `setup/calibration_criteria.json` entry against the
+   measured signal. The default 5 criteria each dispatch to a
+   per-criterion measurement function (`_measure_for_criterion`) and
+   per-criterion comparison (`_criterion_passes` — `>=` for "_min"
+   criteria, `<=` for "_max" criteria). Criteria whose target channels
+   aren't configured surface as `verdict: "not_applicable"` and don't
+   escalate the overall.
+5. Reduce: `overall = fail` if any `fail_action="fail"` criterion failed;
+   else `warn` if any `fail_action="warn"` failed; else `pass`.
+6. Resume Pianoid synthesis (`POST /resume_synthesis @ 5000`).
+7. Write the report to `setup_test/latest.json` and the calibration
+   channel as mono 16-bit PCM to `setup_test/latest.wav` (N3 overwrite).
+
+Report shape (proposal §2.5 lines 512-535):
+
+```json
+{
+  "schema_version": 1,
+  "tested_at": "2026-05-11T15:00:00Z",
+  "overall": "pass",                          
+  "results": [
+    {
+      "criterion_id": "calibration_correlation_min",
+      "channel": "calibration",
+      "measured": 0.92,
+      "threshold": 0.85,
+      "verdict": "pass",
+      "fail_action": "fail"
+    }
+  ],
+  "recording_path": "setup_test/latest.wav",
+  "error": null
+}
+```
+
+The `error` field is only populated if the engine itself crashed
+(recorder import failure, missing multichannel config, etc.) — in that
+case `overall = "fail"` and the report is still persisted so the UI
+sees the same surface as a "real" fail.
+
+### Streaming progress messages (Phase 2a — Q8)
+
+`MeasurementSession` carries a `messages: List[Dict]` ring buffer (cap
+100, FIFO eviction) and an `emit_message(level, src, msg)` thread-safe
+appender. Lifecycle messages are emitted at every phase transition by
+both the regular session (pausing → recording → saving → resuming →
+done/error/cancelled) and the Setup Test engine (Starting → Pause OK →
+Invoking recorder → Setup Test complete -> overall=...). Messages are
+surfaced via:
+
+```
+GET /modal/measurements/active_session
+```
+
+returning the snapshot (phase, measurement_id, session_id,
+progress_pct, started_at, finished_at, error_message, output_paths,
+messages). Used by the Phase 2b `<CollectionLog>` frontend component
+to render a rolling log.
+
+When idle: `{phase: "idle", measurement_id: null, session_id: null, messages: []}`.
 
 ### Locks and N4
 
@@ -342,7 +478,42 @@ a calibration impulse.
 ### Cross-Links
 
 - Proposal: [`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md) — authoritative spec, all 16 decisions baked in
-- Tests: 133 cases across `tests/unit/test_measurement_entity.py` (56), `tests/unit/test_measurement_catalog.py` (22), `tests/integration/test_measurement_routes.py` (25), `tests/integration/test_project_v2_branch.py` (13), `tests/integration/test_migration_to_measurement.py` (17)
+- Tests (Phase 1 baseline): 133 cases across `tests/unit/test_measurement_entity.py` (56), `tests/unit/test_measurement_catalog.py` (22), `tests/integration/test_measurement_routes.py` (25), `tests/integration/test_project_v2_branch.py` (13), `tests/integration/test_migration_to_measurement.py` (17)
+- Tests (Phase 2a additions, dev-msmtui): +28 cases (test_measurement_routes.py setup_test class expanded from 4 stub tests to 8 real-wiring tests; +20 cases in new `tests/integration/test_setup_test_engine.py`; +8 cases in new `tests/integration/test_v1_collect_410.py`; `test_modal_collection_b1.py` refactored from 10 v1-HTTP tests to 11 direct MeasurementSession tests including 2 new streaming-message tests). Net Phase 2a total: 68 integration tests in the measurement collection + setup-test surface, all green.
+
+## Phase 2a Backend Cutover (dev-msmtui, 2026-05-11)
+
+**Status:** Phase 2a of the Modal Adapter Measurement-entity refactor
+landed on PianoidCore `feature/dev-msmtui-phase2a-backend-cutover`.
+See proposal §6 Phase 2 + §2.5 + §3.4 for the authoritative spec:
+[`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md).
+
+What landed:
+
+1. **Setup Test wired end-to-end** — see [§ Setup Test (Phase 2a)](#setup-test-phase-2a--real-wiring-dev-msmtui-2026-05-11)
+   above. New module `setup_test_engine.py` (~840 LOC) owns the
+   one-shot calibration capture + criteria reduction.
+2. **v1 `/modal/collect/*` hard cutover to 410 Gone** — see [§ v1 surface
+   — RETIRED at Phase 2a](#v1-surface--retired-at-phase-2a-dev-msmtui-2026-05-11)
+   above. Six legacy endpoints retired; the single survivor is the
+   global `GET /modal/measurements/active_session` probe.
+3. **Streaming progress messages (Q8)** — see [§ Streaming progress
+   messages](#streaming-progress-messages-phase-2a--q8) above.
+   `MeasurementSession._SessionState` carries a `messages` ring buffer
+   (cap 100) populated by `emit_message()` at every lifecycle phase
+   transition. Surfaced verbatim via the active_session probe.
+4. **MeasurementSession.start accepts `measurement_id`** — sets the
+   `_SessionState.measurement_id` so the global probe can route the UI
+   to the parent Measurement when a session is in flight.
+
+What's NOT yet landed (Phase 2b/2c):
+
+- Frontend Collection subpanel (5 sections + shared `<SetupTest>` +
+  Unlock-with-warning + `<CollectionLog>` — Phase 2b).
+- Per-Measurement collection endpoints `/modal/measurements/<id>/collect/*`
+  (start/cancel/status/results/devices — Phase 2c).
+- Retirement of `/modal/projects/copy` and `/modal/projects/create_from_zip`
+  (depends on the Phase 2b frontend branch flow — Phase 2c).
 
 ## Cross-Links
 

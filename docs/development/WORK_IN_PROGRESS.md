@@ -7,6 +7,52 @@
 
 ---
 
+## Phase 2a Modal Adapter Backend Cutover (dev-msmtui, 2026-05-11) — CLOSED
+
+**Status:** Phase 2a of the Modal Adapter Measurement-entity refactor
+([proposal](proposals/modal-adapter-measurement-entity-2026-05-10.md))
+landed on PianoidCore `dev` at 2026-05-11. Awaiting Gate 3 sign-off
+which requires Phase 2b (frontend Collection UX) to also land.
+
+- PianoidCore feature SHA: `925b1c8`
+- PianoidCore merge SHA: `0176b7e`
+- Branch `feature/dev-msmtui-phase2a-backend-cutover` retained.
+
+What landed:
+
+1. **Setup Test wired end-to-end.** New module
+   `pianoid_middleware/modal_adapter/setup_test_engine.py` (~840 LOC).
+   Replaces Phase 1 stub. `POST /modal/measurements/<id>/setup_test`
+   now pauses synth -> captures one calibration cycle via
+   `RoomResponseRecorder.take_record(mode='calibration')` ->
+   evaluates per-criterion -> reduces overall (pass/warn/fail) ->
+   resumes synth -> writes `setup_test/latest.{json,wav}` (N3).
+2. **v1 `/modal/collect/*` hard cutover to HTTP 410 Gone (N8).** Six
+   endpoints retired (start, status, cancel, results, devices, health).
+   New `GET /modal/measurements/active_session` is the single legacy
+   survivor per proposal sec 3.4.
+3. **Streaming progress messages (Q8).** `MeasurementSession` gains
+   a 100-entry ring buffer of `{ts, level, src, msg}` entries +
+   `emit_message()` API + `measurement_id` field. Surfaced via the
+   active_session probe.
+4. **Tests.** 33 new integration tests across `test_setup_test_engine.py`
+   (NEW, 20), `test_v1_collect_410.py` (NEW, 8), expanded
+   `test_measurement_routes.py::TestSetupTest` (+4 cases),
+   `test_modal_collection_b1.py` (+2 streaming tests). Full
+   Phase 1+2a surface: 175 passed, 1 skipped.
+5. **Docs.** `docs/modules/pianoid-middleware/MODAL_COLLECTION.md`
+   marks v1 surface RETIRED + documents Setup Test/streaming flow.
+   Proposal annotated with Phase 2a/2b/2c split note.
+
+Phase 2b (frontend Collection UX) is unblocked. The user-visible
+Gate 3 commit will land after Phase 2b ships the 5-section subpanel,
+shared `<SetupTest>` component, and Unlock-with-warning UI.
+
+See [`dev-msmtui-2026-05-11-143943.md`](logs/dev-msmtui-2026-05-11-143943.md)
+for the per-step session log.
+
+---
+
 ## Phase 0 RR-port (dev-rrport, 2026-05-10) — CLOSED, Gate 1 APPROVED
 
 **Status:** Phase 0 of the Modal Adapter Measurement-entity refactor
