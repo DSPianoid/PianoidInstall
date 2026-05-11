@@ -968,18 +968,47 @@ v1 projects auto-migrate at server start (with the rollback tarball).
 
 ### Phase 0 — Pre-Port (~1 week, Gate 1)
 
+> **Phase 0 IMPLEMENTED at dev-rrport (2026-05-10).** Branch
+> `feature/dev-rrport-phase0-rrport` on PianoidCore + matching docs PR
+> on PianoidInstall. See session log
+> [`docs/development/logs/active/dev-rrport-2026-05-10-232416.md`](../development/logs/active/dev-rrport-2026-05-10-232416.md)
+> for the per-issue decisions (notably: ported a 7th file
+> `calibration_validator_v2.py` not in the original scope; vendored
+> `recorderConfig.json` as `default_recorderConfig.json`; reused
+> pianoid_cuda's `build_config.json` for sdl_audio_core).
+> **Gate 1 sign-off (Belarus byte-equal end-to-end) is deferred** —
+> the unit/integration test layer passes; the live measurement
+> comparison against a reference run requires hardware and is out of
+> scope for the dev-rrport agent's deliverable.
+
 **Scope.**
 - Move `RoomResponseRecorder.py` (1457 LOC), `DatasetCollector.py` (995 LOC),
   `signal_processor.py` (594 LOC), `MicTesting.py` (177 LOC),
   `generate_missing_averages.py` (217 LOC), `multichannel_filename_utils.py`
   (264 LOC subset) into
   `PianoidCore/pianoid_middleware/modal_adapter/measurement/`.
+- **Implementation note (dev-rrport):** also ported
+  `calibration_validator_v2.py` (749 LOC) as the 7th file →
+  `measurement/calibration_validator.py`. Required because
+  `scenario_averager.py` and three test files lazy-imported this module
+  from RR's `sys.path`.
 - Move `RoomResponse/sdl_audio_core/` (the C++ pybind11 module source —
   ~3200 LOC C++ + ~510 LOC bindings) into `PianoidCore/sdl_audio_core/`.
 - Wire `sdl_audio_core` into `build_pianoid_cuda.bat` so it builds and
   installs alongside `pianoidCuda` into `PianoidCore/.venv/Lib/site-packages/`.
+  Implemented as a `:build_sdl_audio_core` subroutine that copies
+  `pianoid_cuda/build_config.json` → `sdl_audio_core/build_config.json`
+  before pip install, so sdl_audio_core's `setup.py` stays byte-identical
+  to its RR upstream copy.
 - Update `collection_engine._default_*_factory` imports to point at
   `.measurement.recorder` / `.collector` / `.averager`.
+  **Implementation note:** also rewired
+  `collection_engine._load_default_recorder_config` to read the vendored
+  `measurement/default_recorderConfig.json` (was previously
+  `D:/repos/RoomResponse/recorderConfig.json`); rewired three lazy
+  imports in `scenario_averager.py`; rewired the in-process bootstrap
+  probe in `modal_adapter_server.py`; dropped the bootstrap call from
+  `tools/grid_search/belarus_reextract.py`.
 - Delete `_room_response_bootstrap.py` shim, the
   `bootstrap_roomresponse()` call, and the `PIANOID_ROOMRESPONSE_PATH`
   env var.
@@ -991,6 +1020,12 @@ collect one scenario via the in-tree recorder; compare the resulting
 `averaged_responses/average_chN.npy` against a reference run from the
 pre-port cross-repo recorder. Byte-equal (or numpy-close within float
 tolerance). Three runs, no regressions in synthesis perf benchmarks.
+
+**Gate 1 status (dev-rrport, 2026-05-10):**
+Build / unit / integration test layer passes — see the dev-rrport
+session log for build SHAs and test counts. The live byte-equal Belarus
+comparison is deferred (requires hardware) and is the gating step for
+declaring Phase 0 fully signed off.
 
 ### Phase 1 — Data Model + REST (~2 weeks, Gate 2)
 

@@ -1,11 +1,35 @@
 # Modal Adapter Measurement Collection
 
 **Status (Wave B-1):** REST surface for measurement collection is in place.
-The Modal Adapter server (port 5001) can run a complete RoomResponse
-measurement scenario via REST, end-to-end, with no manual steps. A
-curl-only operator can: configure a scenario → start collection → monitor
-status → fetch the resulting averaged IR. The frontend Collect panel
-is deferred to Wave B-3.
+The Modal Adapter server (port 5001) can run a complete measurement
+scenario via REST, end-to-end, with no manual steps. A curl-only operator
+can: configure a scenario → start collection → monitor status → fetch the
+resulting averaged IR. The frontend Collect panel is deferred to Wave B-3.
+
+**Phase 0 RR-port (dev-rrport, 2026-05-10):** the recorder, dataset
+collector, signal processor, calibration validator, and SDL3 audio
+extension are no longer pulled from the sibling `D:/repos/RoomResponse/`
+repo at runtime. They are now vendored in-tree:
+
+| In-tree module | Origin |
+|----------------|--------|
+| `pianoid_middleware.modal_adapter.measurement.recorder` | RR `RoomResponseRecorder.py` |
+| `pianoid_middleware.modal_adapter.measurement.dataset_collector` | RR `DatasetCollector.py` |
+| `pianoid_middleware.modal_adapter.measurement.missing_averages` | RR `generate_missing_averages.py` |
+| `pianoid_middleware.modal_adapter.measurement.mic_testing` | RR `MicTesting.py` |
+| `pianoid_middleware.modal_adapter.measurement.signal_processor` | RR `signal_processor.py` |
+| `pianoid_middleware.modal_adapter.measurement.filename_utils` | RR `multichannel_filename_utils.py` |
+| `pianoid_middleware.modal_adapter.measurement.calibration_validator` | RR `calibration_validator_v2.py` |
+| `pianoid_middleware.modal_adapter.measurement.default_recorderConfig.json` | RR `recorderConfig.json` (Belarus default) |
+| `PianoidCore/sdl_audio_core/` (built by `build_pianoid_cuda.bat`) | RR `sdl_audio_core/` |
+
+The `_room_response_bootstrap.py` shim and the `PIANOID_ROOMRESPONSE_PATH`
+env var have been deleted. `GET /modal/collect/health` now returns the
+status of an in-tree import probe rather than a sibling-repo discovery
+probe — the response shape is unchanged for frontend compatibility.
+
+See [`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md)
+§ Phase 0 for the rationale.
 
 ## Architecture
 
@@ -21,9 +45,10 @@ is deferred to Wave B-3.
                                             |          |                     |
                                             |  thread  |                     |
                                             |          v                     |
-                                            |  RoomResponseRecorder          |
-                                            |  + SingleScenarioCollector     |
-                                            |  + generate_missing_averages   |
+                                            |  measurement.RoomResponseRecorder      |
+                                            |  + measurement.SingleScenarioCollector |
+                                            |  + measurement.generate_averaged_...   |
+                                            |  (vendored in-tree, Phase 0)           |
                                             +-----------+--------------------+
                                                         |
                                                         |  pause / resume
@@ -121,13 +146,13 @@ also already supported by `_discover_roomresponse_scenarios`
 
 All five endpoints are mounted under `/modal/collect/*` on the
 **modal_adapter_server only (port 5001)**. The main backend (port 5000)
-exposes only the B-0 health probe; collection routes return
-HTTP 503 there because RoomResponse is not bootstrapped in the synthesis
-process.
+exposes only the health probe; collection routes return HTTP 503 there
+because the in-tree measurement stack is not probed (and the audio
+device cannot be opened twice in the same process anyway).
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET    | `/modal/collect/health`           | (Wave B-0) RoomResponse coexistence probe |
+| GET    | `/modal/collect/health`           | In-tree measurement-stack probe (sdl_audio_core + measurement.recorder importable). Pre-Phase-0 this was the RR sys.path bootstrap probe. |
 | POST   | `/modal/collect/start`            | Begin one scenario |
 | GET    | `/modal/collect/status`           | Active session snapshot |
 | POST   | `/modal/collect/cancel`           | Cancel active session |
@@ -140,7 +165,10 @@ request/response schemas.
 ## Recorder Configuration Overrides (v1)
 
 Per user direction Q2, only the high-impact keys are accepted in v1.
-All others fall back to RoomResponse's bundled `recorderConfig.json`.
+All others fall back to the vendored
+`pianoid_middleware/modal_adapter/measurement/default_recorderConfig.json`
+(Phase 0 RR-port, dev-rrport 2026-05-10 — was previously read from
+`D:/repos/RoomResponse/recorderConfig.json`).
 
 | Override key | Type | Effect |
 |---|---|---|
@@ -159,9 +187,10 @@ Full schema viewer (every recorderConfig.json key) is deferred to Wave B-2.
 ## Curl-Only End-to-End Example
 
 ```bash
-# 1. Confirm the modal adapter server has RoomResponse available
+# 1. Confirm the modal adapter server has the in-tree measurement stack ready
 curl http://127.0.0.1:5001/modal/collect/health
-# {"available":true,"sdl_version":"3.2.0",...}
+# {"available":true,"sdl_version":"3.2.0","error":null,"room_response_path":null}
+# (room_response_path is now always null after the Phase 0 in-tree port)
 
 # 2. List audio devices
 curl http://127.0.0.1:5001/modal/collect/devices
@@ -184,5 +213,5 @@ curl http://127.0.0.1:5001/modal/collect/results/d0722c397e99
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
-- [pianoid-middleware OVERVIEW: RoomResponse Bootstrap (Wave B-0)](OVERVIEW.md#roomresponse-bootstrap-wave-b-0)
+- [pianoid-middleware OVERVIEW: Measurement Stack (Phase 0 RR-port)](OVERVIEW.md#measurement-stack-phase-0-rr-port-dev-rrport-2026-05-10)
 - [REST_API.md: Modal Collection Endpoints](REST_API.md#modal-collection-endpoints-port-5001-b-1)
