@@ -139,3 +139,24 @@ PianoidTunner dev tip: b1c2364 (merge of feature/dev-impulse-chart)
 [LOCK RELEASED] PianoidTunner/src/modules/panels/collection/SeriesSection.jsx
 [LOCK RELEASED] PianoidTunner/src/modules/panels/collection/ImpulseShapeChart.jsx
 
+5. Kill ports + verify clear:
+
+[BASH-CALL] 2026-05-12T16:02:00Z netstat sweep + taskkill on Pianoid ports
+[BASH-RETURN] 2026-05-12T16:02:00Z exit_code=0
+Killed PIDs 80588 (port 5001 — modal_adapter_server) + 83700 (port 3000 — CRA dev server) + 81620 (port 3001 — launcher). All four Pianoid ports verified clear (no LISTENING processes).
+
+**Final SHAs:**
+- PianoidCore dev tip: `0553910` (merge of feature/dev-impulse-chart)
+  - Feature commit: `1f4e019`
+- PianoidTunner dev tip: `b1c2364` (merge of feature/dev-impulse-chart)
+  - Feature commit: `990116b`
+- PianoidInstall (docs) HEAD: `dbe8717` ([dev-impulse-chart] docs: bundled Collection UX polish + lock release)
+
+[STEP-10A-PHASE-1] 2026-05-12T16:02:00Z commit=dbe8717
+
+**STOP HERE.** Phase 1 wrap-up done. Stack DOWN — user starts fresh
+manually via `start-pianoid.bat` to test the new chart + the volume
+relocation + the recording_mode removal end-to-end on hydrated
+PlyWood projects.
+
+
