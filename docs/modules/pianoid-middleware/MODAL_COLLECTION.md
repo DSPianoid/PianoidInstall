@@ -557,15 +557,33 @@ in `collection_engine.py`. Unit conversions handled there:
 
 Other fields pass through unchanged (units already match):
 `audio_config.input_device` → `input_device`, `series_config.num_pulses` →
-`num_pulses`, `series_config.volume` → `volume`, etc. The
-`multichannel_config` block is deep-copied to prevent caller-mutation
-back-leak.
+`num_pulses`, etc. The `multichannel_config` block is deep-copied to
+prevent caller-mutation back-leak.
+
+**`volume` (dev-impulse-chart, 2026-05-12).** Relocated from
+`series_config.json` to `impulse_config.json`. The stitcher reads
+`impulse_config.volume` first; if absent (pre-relocation Measurement),
+it falls back to `series_config.volume`. Frontend ImpulseSection
+implements the same precedence so the field surfaces correctly for
+legacy configs, and writes only to impulse_config — the migration
+happens on the next user-driven Save.
+
+**`recording_mode` removed (dev-impulse-chart, 2026-05-12).** The
+field was previously surfaced from `series_config` into the recorder
+cfg. After removal, the stitcher silently ignores it on legacy
+configs — real acquisition is always `"standard"`. SetupTestEngine
+continues to invoke `recorder.take_record(mode='calibration', ...)`
+directly; that internal constant is unaffected.
 
 The `voice_coil_config` sub-block in `setup/impulse_config.json` is
 forward-looking — the current in-tree recorder does not consume it
 (voice_coil-mode parameters are hardcoded). The stitching helper reads
 it but does not propagate; if/when the recorder gains
-`voice_coil_config` support, extend the helper.
+`voice_coil_config` support, extend the helper. The Impulse-section
+ECharts preview (`ImpulseShapeChart.jsx`) currently renders the
+recorder's actual voice_coil formula (square pulse + simple ramp
+pull-back), NOT the spec sub-block — when the recorder catches up
+with the spec, the chart needs an update in lock-step.
 
 ### Per-call overrides
 

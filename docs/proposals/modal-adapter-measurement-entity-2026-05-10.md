@@ -324,6 +324,7 @@ Phase 1 lands.
   "pulse_fade_ms": 0.1,
   "pulse_smoothing_ms": 0.0,
   "invert_polarity": false,
+  "volume": 0.4,                       // 0.0–1.0; recorder scales waveform by ``volume * 0.3``
   "voice_coil_config": {
     "init_pos_ms": 0.0,
     "init_pos_amplitude": -0.1,
@@ -335,6 +336,17 @@ Phase 1 lands.
 }
 ```
 
+> **`volume` (dev-impulse-chart, 2026-05-12).** Relocated from
+> `series_config.json` to `impulse_config.json` because volume scales
+> the impulse amplitude at generation time inside
+> `recorder._generate_single_pulse` (every form multiplies the waveform
+> by `volume * 0.3`); it is a property of the impulse, not the series
+> timing. Legacy `series_config.json` files with `volume` are honoured
+> as a backward-compat fallback by the stitchers (impulse_config wins
+> when both are present). The `0.3` headroom multiplier is hardcoded
+> in the recorder and is reflected in the Impulse-section ECharts
+> preview so the user sees the actual played amplitude.
+
 #### 2.3.4 `setup/series_config.json`
 
 ```json
@@ -343,26 +355,36 @@ Phase 1 lands.
   "num_pulses": 8,                     // pulses per cycle
   "cycle_duration_ms": 100.0,
   "record_extra_time_ms": 200.0,
-  "volume": 0.4,
   "num_measurements": 5,               // pulse-cycles per scenario
   "measurement_interval_s": 0.5,
-  "recording_mode": "standard",        // standard | calibration — per-Measurement, applies to all scenarios (N7)
   "averaging_start_cycle": 2
 }
 ```
 
+> **dev-impulse-chart, 2026-05-12 — schema deltas.** Two fields removed
+> from `series_config.json` after Phase 2c sign-off:
+>
+> - **`volume` moved to `impulse_config.json` (§2.3.3).** Volume scales the
+>   impulse amplitude at generation time (recorder line: `pulse * volume * 0.3`);
+>   it semantically belongs to the impulse, not to the series timing.
+>   Legacy `series_config.json` files with `volume` are still honoured
+>   by the stitchers as a backward-compat fallback (impulse_config wins
+>   when both are present). The frontend ImpulseSection reads from
+>   impulse_config first, falls back to series_config for legacy
+>   Measurements, and writes back to impulse_config on Save — the
+>   migration happens naturally on the next user edit.
+> - **`recording_mode` removed entirely.** Q4+Q5 of this proposal merged
+>   calibration testing into the unified `<SetupTest>` framework
+>   (Phase 2a). Real acquisition is always `"standard"` mode;
+>   calibration sweeps go through `SetupTestEngine`, which invokes
+>   `recorder.take_record(mode='calibration', save_files=False)`
+>   directly — the internal constant survives; the user field does not.
+>   N7 (per-Measurement recording_mode policy) is moot now.
+>
 > **Note on averaging.** The `averaging_start_cycle` field is acquisition-side
 > only (it controls which raw cycles enter the recorder's per-cycle alignment
 > step before the per-cycle data is written to disk). Project-time averaging
 > (§2.4) is a separate pass that reads the per-cycle recordings.
->
-> **Note on `recording_mode` (N7).** This field is set ONCE per Measurement
-> at creation time and applies to every scenario in the Measurement. The
-> backend rejects any per-scenario override at `start` time. To collect a
-> calibration sweep against the same physical setup, create a separate
-> Measurement explicitly tagged `recording_mode: "calibration"` — the two
-> Measurements can share Project lineage via the branching UI (§4.2) but
-> are first-class siblings on disk.
 
 #### 2.3.5 `setup/calibration_criteria.json`
 

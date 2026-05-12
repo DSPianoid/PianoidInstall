@@ -289,8 +289,8 @@ lock chip when applicable):
 |---|---|---|---|
 | A — General | Measurement ID (read-only N1), layout (line/grid), channel mapping editor, grid editor | `PATCH /modal/measurements/<id>/mapping_config` | yes |
 | B — Audio Devices | input/output device, multichannel_config (16 fields), Setup Test surface #1 | `PATCH /modal/measurements/<id>/audio_config` | yes |
-| C — Impulse | impulse_form (sine / square / voice_coil), pulse params, voice-coil sub-block, Setup Test surface #2 | `PATCH /modal/measurements/<id>/impulse_config` | yes |
-| D — Series | num_pulses, cycle_duration_ms, recording_mode (per-Measurement N7), derived calculations | `PATCH /modal/measurements/<id>/series_config` | yes |
+| C — Impulse | impulse_form (sine / square / voice_coil), pulse params, **volume** (relocated from Series at dev-impulse-chart 2026-05-12), voice-coil sub-block, **configured-impulse ECharts preview** (live frontend math; matches the recorder formula 1:1), Setup Test surface #2 | `PATCH /modal/measurements/<id>/impulse_config` | yes |
+| D — Series | num_pulses, cycle_duration_ms, record_extra_time_ms, num_measurements, measurement_interval_s, averaging_start_cycle, derived calculations. **`volume` MOVED to Impulse + `recording_mode` REMOVED at dev-impulse-chart 2026-05-12.** | `PATCH /modal/measurements/<id>/series_config` | yes |
 | E — Calibration Quality Criteria | editable rule table (add/remove rows, threshold + applies_to + fail_action), Reset to defaults | `PATCH /modal/measurements/<id>/calibration_criteria` | **NO — lock-exempt** (analysis-time gate per N4) |
 
 **Unlock dialog copy** (verbatim per proposal §4.1 N4 + N5):
@@ -322,7 +322,64 @@ on mount (with a Refresh icon button to re-probe). The endpoint also returns
 so the Selects pre-fill correctly. SDL version is read live from the same
 endpoint payload.
 
-**Architecture notes (Phase 2b + Phase 2c):**
+**Impulse Section — Configured-impulse ECharts preview (dev-impulse-chart, 2026-05-12).**
+A new `<ImpulseShapeChart>` ECharts plot sits inside the Impulse section,
+right below the form fields and above the Save Settings button. The chart
+re-runs its math live on every param edit (no debounce, no backend
+round-trip — the recorder formula is pure deterministic JS). The
+component lives at
+`PianoidTunner/src/modules/panels/collection/ImpulseShapeChart.jsx`
+and replicates `recorder._generate_single_pulse` 1:1:
+
+- **sine**: `sin(2π·f·t)` with linear fade-in over the first
+  `pulse_fade_ms` and linear fade-out over the last `pulse_fade_ms`,
+  scaled by `volume * 0.3`.
+- **square**: constant 1.0 with the same linear fade envelope,
+  scaled by `volume * 0.3`.
+- **voice_coil**: constant 1.0 over the full pulse EXCEPT the trailing
+  `fade_samples` window, which the recorder overwrites with zeros for
+  the first `fade_samples // 3` samples followed by a linear ramp
+  from `-0.5 → 0` for the remaining samples. Scaled by `volume * 0.3`.
+
+The chart's y-axis spans `[-0.4, +0.4]` so the user can see the
+`volume * 0.3` headroom relative to the recorder's full-scale output
+(at `volume=1.0` the peak hits `0.3`, never `1.0`).
+
+`invert_polarity` flips the entire waveform sign — visible immediately
+in the preview.
+
+**Note: voice_coil parameter mismatch.** The Phase 2 `voice_coil_config`
+sub-block (`init_pos_ms` / `positive_ms` / `gap_ms` / `negative_ms` /
+`pullback_amplitude` / `init_pos_amplitude`) is forward-looking — the
+in-tree recorder does NOT consume those fields today (voice_coil mode
+is hardcoded to the simpler ramp pull-back described above). The
+chart matches the recorder's actual current behaviour, not the spec.
+When a future change wires the sub-block through to the recorder,
+both the recorder code AND `generateImpulseShape` need to update
+together.
+
+**Impulse Section — `volume` (relocated from Series, dev-impulse-chart 2026-05-12).**
+Volume is now a Section C field with range 0.0–1.0. The recorder
+scales every form by `volume * 0.3` headroom (hardcoded constant in
+`recorder._generate_single_pulse`). Backwards-compat: legacy
+Measurements that still keep `volume` in `series_config.json` are
+honoured by the stitching helpers as a fallback (impulse_config wins
+when both are present), and the ImpulseSection UI displays the legacy
+series value when impulse_config has no `volume` key. The next Save
+writes only to impulse_config, completing the migration.
+
+**Series Section — `recording_mode` removed (dev-impulse-chart 2026-05-12).**
+The Standard/Calibration radio block + its accordion-header chip are
+gone. Q4+Q5 of the proposal merged calibration testing into the
+unified `<SetupTest>` framework (Phase 2a — see `setup_test_engine.py`).
+Real acquisition is always `"standard"`; calibration sweeps go through
+`SetupTestEngine`, which invokes
+`recorder.take_record(mode='calibration', save_files=False)` directly
+— the internal constant survives; the user field does not. Legacy
+`series_config.json` files with `recording_mode` are silently stripped
+on next Save.
+
+**Architecture notes (Phase 2b + Phase 2c + dev-impulse-chart):**
 - The 3-surface SetupTest reuse is enforced by passing the SAME `useSetupTest`
   hook instance down to both Section B, Section C, and the pre-flight Banner.
   A run from any surface updates all three displays simultaneously.
