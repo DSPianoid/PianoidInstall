@@ -275,6 +275,35 @@ When the selected Measurement is locked (`acquisition_locked === true`), an
 **Acquisition locked** chip plus an **Unlock with warning** button (N4) appear
 on the right.
 
+**Auto-select on project open (dev-impulse-chart, 2026-05-12).** The
+"selected Measurement" state is lifted from `<CollectionSubpanel>` up
+to `<ModalAdapter>` so that whenever the active Project changes (open,
+branch, switch), an effect in ModalAdapter looks up the project's
+`measurement_id` from the cached projectList and auto-sets the
+Measurement Select to that ID. The user no longer has to hand-pick
+the parent Measurement to populate the 5 sections — opening
+`PlyWoodTake1_7_copy` (which links `measurement_id: PlyWoodTake1_7`)
+puts the Collection panel in the populated state immediately. Legacy
+v1 projects with no `measurement_id` clear the selection (the
+empty-state "Select or create a Measurement" placeholder is shown).
+Resolution failures (Measurement folder moved/deleted) surface via
+the existing manifest-fetch error path in `useMeasurementSetup` —
+the auto-select doesn't gate on Measurement existence.
+
+**`mountedRef` remount fix (dev-impulse-chart, 2026-05-12).** The
+Measurement Select stayed disabled forever after the user toggled
+the Modal Adapter pane via the Window Layout Manager checkbox.
+Root cause: `useMeasurementCatalog`, `useMeasurementSetup`, and
+`useSetupTest` all initialised `useRef(true)` but never re-set
+`mountedRef.current = true` on remount. When the mosaic remounted
+the pane, the previous instance's cleanup `mountedRef.current = false`
+survived into the new instance via the persisted ref object, so the
+in-flight `refresh()`'s `finally` block short-circuited
+`setIsLoading(false)` — leaving the Select's `disabled={isLoading}`
+gate stuck true. The one-line fix `mountedRef.current = true` inside
+the mount effect (alongside the cleanup) restores correct lifecycle
+across all three hooks.
+
 **Pre-flight banner (Setup Test surface #3).** A persistent banner above the
 sections renders the latest Setup Test report (`GET /modal/measurements/<id>/setup_test`):
 green for `pass`, yellow for `warn` (with a "Proceed anyway" affordance), red
