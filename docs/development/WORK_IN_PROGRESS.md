@@ -4,8 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-msmtui-fc | Phase 2c Modal Adapter wrap (per-Measurement collect endpoints + Project subpanel rework + CollectionLog + 410 cutovers + routes.py split) | [log](logs/dev-msmtui-fc-2026-05-11-192602.md) | 2026-05-11 | **STEP 10A PHASE 1 — awaiting Gate 4 sign-off** |
-| dev-impulse-chart | Bundled Collection UX polish (impulse-shape chart + volume relocation Series→Impulse + recording_mode removal) | [log](logs/dev-impulse-chart-2026-05-12-174225.md) | 2026-05-12 | **STEP 10A PHASE 1 — awaiting sign-off** |
 
 ---
 
