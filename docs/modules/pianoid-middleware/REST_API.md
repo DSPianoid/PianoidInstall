@@ -967,6 +967,17 @@ Response 500 — listener start failed (rtmidi exception, thread creation failur
 {"error": "MidiStartFailed", "message": "<exception text>"}
 ```
 
+Response 400 — port acquisition failed asynchronously (W4 Phase 3 fix D):
+```json
+{
+  "error": "PortOpenFailed",
+  "message": "Failed to acquire MIDI port; another process may hold it.",
+  "port": 0
+}
+```
+
+The listener thread opens the rtmidi port inside `MIDI_listener_unified` (async, not in the request handler). If the port is held by another process (a Werkzeug debug-reloader sibling, a stale backend, or any other MIDI consumer), rtmidi raises and the thread bails. The handler sleeps 50 ms then re-reads `_midi_active_port` — if still `None` and `self.listen` has flipped back to False (fix C), the open failed and 400 is returned instead of falsely-true 200.
+
 ---
 
 ### `POST /midi/stop`
@@ -996,20 +1007,69 @@ Response 500 — stop failed:
 
 ---
 
+### `GET /midi/broadcast`
+
+Return the current state of the W4 Phase 3 broadcast gate. The gate controls whether the unified MIDI listener's per-event emit callback forwards `midi_note_event` Socket.IO messages to clients. Default is `true` on every fresh `Pianoid` init (matches the W3 Phase 2 default). Independent of the listener-running state — the gate is still readable when the listener is stopped (in which case no events flow anyway).
+
+Response 200:
+```json
+{"enabled": true}
+```
+
+Response 400 — preset not loaded:
+```json
+{"error": "PianoidNotInitialized"}
+```
+
+---
+
+### `POST /midi/broadcast`
+
+Toggle the W4 Phase 3 broadcast gate. The toggle takes effect on the very next inbound MIDI byte — the listener thread is not stopped, restarted, or otherwise touched. Useful for suppressing the per-event Socket.IO stream during calibration runs, heavy-load synthesis tests, or any other workload where the `midi_note_event` chatter is undesirable.
+
+Request body:
+```json
+{"enabled": false}
+```
+
+- `enabled` (bool, required): truthy enables broadcast (default on every fresh init); falsy suppresses the stream.
+
+Response 200:
+```json
+{"enabled": false}
+```
+
+Response 400 — preset not loaded:
+```json
+{"error": "PianoidNotInitialized"}
+```
+
+Response 400 — missing field:
+```json
+{"error": "BadRequest", "message": "Missing \"enabled\" field."}
+```
+
+---
+
 ### Socket.IO `midi_note_event` (server -> client)
 
-Pushed by the unified MIDI listener thread for every observed inbound MIDI byte (NOTE_ON / NOTE_OFF / CC / pitch wheel / sustain). Wired in `backendServer.py` via the `emit_midi_note_event` helper that is constructor-injected into the `Pianoid` instance per W1 Phase 0 decision A2.
+Pushed by the unified MIDI listener thread for every observed inbound MIDI byte that survives the two filters in `emit_midi_note_event` (W4 Phase 3). Wired in `backendServer.py` via the helper that is constructor-injected into the `Pianoid` instance per W1 Phase 0 decision A2.
 
-Payload:
+Two filters apply on every invocation:
+
+1. **Note-only filter.** Only NOTE_OFF (status `128`-`143`, channels 0-15) and NOTE_ON (status `144`-`159`, channels 0-15) are forwarded. CC (including sustain CC#64), program-change, pitch-wheel, aftertouch, and sysex are silently dropped — they have no place on a "last note pressed" indicator stream. (Sustain still drives synthesis via `schedule_event(...)`; the drop is on the emit path only.)
+2. **Broadcast on/off gate.** When `GET /midi/broadcast` reports `{"enabled": false}`, no emit happens. The gate is per-event (read live from the running `pianoid` instance), so toggling via `POST /midi/broadcast` takes effect on the very next inbound byte.
+
+Payload (when both filters pass):
 ```json
 {"command": 144, "pitch": 60, "velocity": 100}
 ```
 
-- `command`: raw MIDI status byte (`128`=NOTE_OFF, `144`=NOTE_ON, `176`-`179`=CC, `224`=pitch wheel).
-- `pitch`: MIDI data1 (pitch for notes; controller index for CCs).
-- `velocity`: MIDI data2 (velocity for notes; controller value for CCs).
+- `command`: raw MIDI status byte in `128`..`159` (NOTE_OFF / NOTE_ON, channels 0-15).
+- `pitch`: MIDI data1 (pitch).
+- `velocity`: MIDI data2 (velocity; `0` on NOTE_ON encodes the running-status NOTE_OFF convention used by some hardware).
 
-Broadcast is unconditional whenever the listener thread is alive — start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default) or `POST /midi/start` (runtime). Phase 3 (W4) will add a switchable broadcast (`POST /midi/broadcast {"enabled": false}`) so the frontend can suppress the stream when not needed (e.g., during calibration).
+Start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default) or `POST /midi/start` (runtime). Stop the chatter without stopping synthesis via `POST /midi/broadcast {"enabled": false}` (W4 Phase 3).
 
 ---
 

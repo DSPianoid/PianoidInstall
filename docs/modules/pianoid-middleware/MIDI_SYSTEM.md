@@ -142,7 +142,32 @@ Precedence (highest → lowest): env-var override → request body → backend d
 
 Idempotent helper added in Phase 2. Mirrors the stop sequence already used by `Pianoid.stop_playback()` (set `self.listen = False`, join the thread) but **does not** stop the synthesis engine or audio driver — it only releases the rtmidi port and reaps the listener thread. Returns `True` when a running listener was stopped, `False` when nothing was running. Backs `POST /midi/stop`.
 
-The emit callback (`_emit_midi_callback`, constructor-injected in Phase 0) is read **once at thread startup** (`pianoid.py:1511` captures the slot value into the loop-local `emit_callback` variable). A restart picks up whatever the slot holds at that moment; Phase 3's broadcast on/off toggle will replace the slot-capture with a per-iteration read against a flag (see refactor plan).
+The emit callback (`_emit_midi_callback`, constructor-injected in Phase 0) is captured once at thread startup (`pianoid.py:1533`) into a loop-local `emit_callback` variable. W4 Phase 3 added the broadcast on/off gate inside the helper itself (not inside the loop-local capture): the helper reads `pianoid.get_midi_broadcast_enabled()` per call, so the toggle takes effect on the next inbound byte without restarting the listener thread.
+
+---
+
+## Broadcast on/off gate (W4 Phase 3)
+
+The W4 Phase 3 milestone added a runtime broadcast toggle to suppress the `midi_note_event` Socket.IO stream without stopping the listener thread or synthesis engine. Two new filters live in `backendServer.emit_midi_note_event(...)`:
+
+1. **Note-only filter.** Only NOTE_OFF (status `128`-`143`) and NOTE_ON (status `144`-`159`) survive. CC (sustain CC#64 included), program-change, pitch-wheel, aftertouch, and sysex are dropped — they have no place on a "last note pressed" indicator stream. Sustain still drives synthesis via `schedule_event(...)`; the drop is on the emit path only.
+2. **Broadcast on/off gate.** Reads `pianoid.get_midi_broadcast_enabled()` per call. Default `True` on every fresh `Pianoid` init (so existing behaviour is preserved). Falsy short-circuits the emit. Toggled via `POST /midi/broadcast {"enabled": bool}` — see `REST_API.md`.
+
+### State location
+
+The flag lives on the running `Pianoid` instance (`self._midi_broadcast_enabled`, default `True`, atomic bool, no lock — single bool read/write is atomic in CPython and a one-cycle race is harmless). This makes the backend the **single source of truth** for both `listening` and `enabled`.
+
+### Frontend ownership
+
+The frontend (`PianoidTunner/src/components/MidiComponent.jsx`) bootstraps state from `GET /midi/ports` and `GET /midi/broadcast` on mount and on `presetVersion` bumps, then issues optimistic POSTs on toggle (mirroring the `useFixVelocity` pattern). The user-facing surface in the MIDI pane has three control rows:
+
+- **Listener row** — start/stop button (`POST /midi/start` / `POST /midi/stop`), listening chip, port select (`POST /midi/select_port`), refresh ports button.
+- **Broadcast row** — Switch wired to `POST /midi/broadcast`; chip shows current state.
+- **Command-display log** — subscribes to the `midi_note_event` Socket.IO stream and shows the most recent 200 events (when broadcast is OFF, this stream stops too — log idles).
+
+`useMidi.js` is the React hook that owns `midiKeysDown`, `midiLastKeyDown`, `midiLastKeyUp`, and `midiIsConnected` state for the rest of the frontend (virtual-piano highlight in `PianoidTuner.js:1433+`, pitch auto-select at line 1394, toolbar status pill at line 2360). Web MIDI is feature-flagged off (`ENABLE_WEB_MIDI = false`); the hook subscribes to the same `midi_note_event` Socket.IO stream and populates the same shape, so the consumers continue to work without modification when the backend listener owns ingress.
+
+`useSettings.js` adds `midi_broadcast_enabled: true` to `DEFAULT_SETTINGS.presetLoadSettings`. This is a UI preference for fresh installs only — the canonical source remains the backend, which bootstraps via `GET /midi/broadcast` on every preset load. Existing users keep their stored value via the migration block.
 
 ---
 
