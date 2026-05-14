@@ -324,6 +324,7 @@ Phase 1 lands.
   "pulse_fade_ms": 0.1,
   "pulse_smoothing_ms": 0.0,
   "invert_polarity": false,
+  "volume": 0.4,                       // 0.0–1.0; recorder scales waveform by ``volume * 0.3``
   "voice_coil_config": {
     "init_pos_ms": 0.0,
     "init_pos_amplitude": -0.1,
@@ -335,6 +336,17 @@ Phase 1 lands.
 }
 ```
 
+> **`volume` (dev-impulse-chart, 2026-05-12).** Relocated from
+> `series_config.json` to `impulse_config.json` because volume scales
+> the impulse amplitude at generation time inside
+> `recorder._generate_single_pulse` (every form multiplies the waveform
+> by `volume * 0.3`); it is a property of the impulse, not the series
+> timing. Legacy `series_config.json` files with `volume` are honoured
+> as a backward-compat fallback by the stitchers (impulse_config wins
+> when both are present). The `0.3` headroom multiplier is hardcoded
+> in the recorder and is reflected in the Impulse-section ECharts
+> preview so the user sees the actual played amplitude.
+
 #### 2.3.4 `setup/series_config.json`
 
 ```json
@@ -343,26 +355,36 @@ Phase 1 lands.
   "num_pulses": 8,                     // pulses per cycle
   "cycle_duration_ms": 100.0,
   "record_extra_time_ms": 200.0,
-  "volume": 0.4,
   "num_measurements": 5,               // pulse-cycles per scenario
   "measurement_interval_s": 0.5,
-  "recording_mode": "standard",        // standard | calibration — per-Measurement, applies to all scenarios (N7)
   "averaging_start_cycle": 2
 }
 ```
 
+> **dev-impulse-chart, 2026-05-12 — schema deltas.** Two fields removed
+> from `series_config.json` after Phase 2c sign-off:
+>
+> - **`volume` moved to `impulse_config.json` (§2.3.3).** Volume scales the
+>   impulse amplitude at generation time (recorder line: `pulse * volume * 0.3`);
+>   it semantically belongs to the impulse, not to the series timing.
+>   Legacy `series_config.json` files with `volume` are still honoured
+>   by the stitchers as a backward-compat fallback (impulse_config wins
+>   when both are present). The frontend ImpulseSection reads from
+>   impulse_config first, falls back to series_config for legacy
+>   Measurements, and writes back to impulse_config on Save — the
+>   migration happens naturally on the next user edit.
+> - **`recording_mode` removed entirely.** Q4+Q5 of this proposal merged
+>   calibration testing into the unified `<SetupTest>` framework
+>   (Phase 2a). Real acquisition is always `"standard"` mode;
+>   calibration sweeps go through `SetupTestEngine`, which invokes
+>   `recorder.take_record(mode='calibration', save_files=False)`
+>   directly — the internal constant survives; the user field does not.
+>   N7 (per-Measurement recording_mode policy) is moot now.
+>
 > **Note on averaging.** The `averaging_start_cycle` field is acquisition-side
 > only (it controls which raw cycles enter the recorder's per-cycle alignment
 > step before the per-cycle data is written to disk). Project-time averaging
 > (§2.4) is a separate pass that reads the per-cycle recordings.
->
-> **Note on `recording_mode` (N7).** This field is set ONCE per Measurement
-> at creation time and applies to every scenario in the Measurement. The
-> backend rejects any per-scenario override at `start` time. To collect a
-> calibration sweep against the same physical setup, create a separate
-> Measurement explicitly tagged `recording_mode: "calibration"` — the two
-> Measurements can share Project lineage via the branching UI (§4.2) but
-> are first-class siblings on disk.
 
 #### 2.3.5 `setup/calibration_criteria.json`
 
@@ -968,18 +990,47 @@ v1 projects auto-migrate at server start (with the rollback tarball).
 
 ### Phase 0 — Pre-Port (~1 week, Gate 1)
 
+> **Phase 0 IMPLEMENTED at dev-rrport (2026-05-10).** Branch
+> `feature/dev-rrport-phase0-rrport` on PianoidCore + matching docs PR
+> on PianoidInstall. See session log
+> [`docs/development/logs/active/dev-rrport-2026-05-10-232416.md`](../development/logs/active/dev-rrport-2026-05-10-232416.md)
+> for the per-issue decisions (notably: ported a 7th file
+> `calibration_validator_v2.py` not in the original scope; vendored
+> `recorderConfig.json` as `default_recorderConfig.json`; reused
+> pianoid_cuda's `build_config.json` for sdl_audio_core).
+> **Gate 1 sign-off (Belarus byte-equal end-to-end) is deferred** —
+> the unit/integration test layer passes; the live measurement
+> comparison against a reference run requires hardware and is out of
+> scope for the dev-rrport agent's deliverable.
+
 **Scope.**
 - Move `RoomResponseRecorder.py` (1457 LOC), `DatasetCollector.py` (995 LOC),
   `signal_processor.py` (594 LOC), `MicTesting.py` (177 LOC),
   `generate_missing_averages.py` (217 LOC), `multichannel_filename_utils.py`
   (264 LOC subset) into
   `PianoidCore/pianoid_middleware/modal_adapter/measurement/`.
+- **Implementation note (dev-rrport):** also ported
+  `calibration_validator_v2.py` (749 LOC) as the 7th file →
+  `measurement/calibration_validator.py`. Required because
+  `scenario_averager.py` and three test files lazy-imported this module
+  from RR's `sys.path`.
 - Move `RoomResponse/sdl_audio_core/` (the C++ pybind11 module source —
   ~3200 LOC C++ + ~510 LOC bindings) into `PianoidCore/sdl_audio_core/`.
 - Wire `sdl_audio_core` into `build_pianoid_cuda.bat` so it builds and
   installs alongside `pianoidCuda` into `PianoidCore/.venv/Lib/site-packages/`.
+  Implemented as a `:build_sdl_audio_core` subroutine that copies
+  `pianoid_cuda/build_config.json` → `sdl_audio_core/build_config.json`
+  before pip install, so sdl_audio_core's `setup.py` stays byte-identical
+  to its RR upstream copy.
 - Update `collection_engine._default_*_factory` imports to point at
   `.measurement.recorder` / `.collector` / `.averager`.
+  **Implementation note:** also rewired
+  `collection_engine._load_default_recorder_config` to read the vendored
+  `measurement/default_recorderConfig.json` (was previously
+  `D:/repos/RoomResponse/recorderConfig.json`); rewired three lazy
+  imports in `scenario_averager.py`; rewired the in-process bootstrap
+  probe in `modal_adapter_server.py`; dropped the bootstrap call from
+  `tools/grid_search/belarus_reextract.py`.
 - Delete `_room_response_bootstrap.py` shim, the
   `bootstrap_roomresponse()` call, and the `PIANOID_ROOMRESPONSE_PATH`
   env var.
@@ -992,7 +1043,51 @@ collect one scenario via the in-tree recorder; compare the resulting
 pre-port cross-repo recorder. Byte-equal (or numpy-close within float
 tolerance). Three runs, no regressions in synthesis perf benchmarks.
 
+**Gate 1 status (dev-rrport, 2026-05-10):**
+Build / unit / integration test layer passes — see the dev-rrport
+session log for build SHAs and test counts. The live byte-equal Belarus
+comparison is deferred (requires hardware) and is the gating step for
+declaring Phase 0 fully signed off.
+
 ### Phase 1 — Data Model + REST (~2 weeks, Gate 2)
+
+> **Phase 1 IMPLEMENTED at dev-msmt (2026-05-11).** Branch
+> `feature/dev-msmt-phase1-measurement-entity` on PianoidCore.
+> See session log
+> [`docs/development/logs/dev-msmt-2026-05-11-141141.md`](../development/logs/dev-msmt-2026-05-11-141141.md)
+> for implementation decisions. Notable scope deltas vs the original
+> Phase 1 plan:
+>
+> - **Belarus migration deferred / out of scope.** Belarus raw data
+>   lives under `D:/repos/RoomResponse/piano/` (outside
+>   `measurements_base`), and the migrator deliberately refuses to
+>   touch paths outside its base directory. Per user direction
+>   2026-05-11 the 3 Belarus-prefixed projects on this machine were
+>   instead **safety-tarballed and deleted** (tarballs in
+>   `D:/tmp/Belarus8D*_pre_dev-msmt_deletion.tar.gz`); the user opted
+>   to reprocess Belarus from scratch in Phase 2+ rather than carry
+>   v1 state forward.
+> - **N8 transition window — Q4-B interpretation.** Legacy
+>   `/modal/collect/*` endpoints remain literally unchanged
+>   (no synthetic Measurement creation). Phase 2 deletes them with
+>   410 Gone wrappers per N8.
+> - **Setup Test backend wiring is a Phase 1 stub** (per spec §6 — full
+>   `signal_processor.validate_calibration_quality` integration lands
+>   in Phase 2). The endpoint surface + N3 single-latest retention +
+>   report schema are complete.
+> - **Migration verified on real data:** 3 PlyWood projects (PlyWoodTake1_7,
+>   PlyWoodTake1_7_copy, PlyWoodTake1_long) migrated successfully;
+>   ESPRIT chains survive (295 chains loaded post-migration on
+>   PlyWoodTake1_7). Belarus byte-equal verification deferred to
+>   Phase 2 once user re-acquires Belarus data through the new flow.
+> - Tests: 132 new tests across 5 files (55 unit + 22 unit + 25
+>   integration + 13 integration + 17 integration), 0 failures.
+>   188/189 total modal-adapter tests pass (1 POSIX-only test skipped
+>   on Windows host).
+>
+> **Gate 2 (Belarus) is deferred** — superseded by the user's
+> "reprocess from scratch" decision. Gate 2 (PlyWood) signed off via
+> the verification block in the dev-msmt session log.
 
 **Scope.**
 - Implement `MeasurementSession` rework: split into `Measurement` (entity
@@ -1029,23 +1124,112 @@ the migrated data with byte-equal results to pre-migration.
 
 ### Phase 2 — Collection UX (~1.5 weeks, Gate 3)
 
-**Scope.**
-- Build the new `<CollectionSubpanel>` with five sections (§4.1).
+> **Phase 2 split into 2a/2b/2c during execution (dev-msmtui sub-phase
+> decomposition, 2026-05-11).** The original scope was too large for a
+> single /dev session that cannot run `/test-ui`. Path B
+> (sub-decomposition) was adopted:
+>
+> - **Phase 2a — Backend cutover (IMPLEMENTED at dev-msmtui, 2026-05-11).**
+>   Setup Test backend wiring + v1 `/modal/collect/*` hard cutover to
+>   410 Gone + streaming `messages` ring buffer + active-session probe
+>   endpoint + tests + docs. See branch
+>   `feature/dev-msmtui-phase2a-backend-cutover` on PianoidCore.
+> - **Phase 2b — Frontend Collection UX (IMPLEMENTED at dev-msmtui-fe,
+>   2026-05-11).** Branch
+>   `feature/dev-msmtui-fe-phase2b-frontend-collection` on PianoidTunner.
+>   Replaced legacy `<CollectPanel>` with `<CollectionSubpanel>` (5
+>   collapsible Accordion sections + per-section Save + lock UI),
+>   `<MeasurementSelector>` top-row picker (GET/POST /modal/measurements
+>   with N1 409 surfacing), shared `<SetupTestPanel>` used in 3 surfaces
+>   (Audio Devices, Impulse, pre-flight `<SetupTestBanner>`),
+>   `<UnlockMeasurementDialog>` with verbatim N4/N5 copy. Three new
+>   v2-scoped hooks (`useMeasurementCatalog`, `useMeasurementSetup`,
+>   `useSetupTest`). C4 split of `useModalAdapter.js` (2348 → 1742 LOC,
+>   -606) extracted constants + bandHelpers + chain mutations + server
+>   lifecycle + project CRUD into `hooks/modalAdapter/*`. Legacy
+>   `useMeasurementCollection` rewritten as a throwing 410-Gone stub +
+>   smoke test; legacy `<CollectPanel>` deleted. **43 new Phase 2b
+>   tests, all green; 389/389 PianoidTunner tests pass.** Note: deeper
+>   `ModalAdapter.jsx` panel-extract (Setup/Tracking/Apply body splits)
+>   deferred to Phase 2c when Project subpanel slim-down naturally
+>   reshapes the Setup section. Gate 3 sign-off pending UI smoke
+>   verification (live-stack `/test-ui` not run by this agent).
+> - **Phase 2c — Project subpanel slim + streaming log + branch
+>   (IMPLEMENTED at dev-msmtui-fc, 2026-05-11).** Backend half on
+>   PianoidCore branch
+>   `feature/dev-msmtui-fc-phase2c` (commit SHA recorded at Phase 1
+>   handoff). Frontend half on PianoidTunner branch
+>   `feature/dev-msmtui-fc-phase2c` (same SHA scheme). What landed:
+>
+>   - **Backend `routes.py` C4 split** — 1842 LOC monolith (RED) split
+>     into 7-file `routes/` package, every sub-file ≤ 547 LOC.
+>     `routes.py` retired; orchestration moved to `routes/__init__.py`.
+>     Backwards-compat shims preserve legacy underscore-prefixed names
+>     for the 16 existing test imports.
+>   - **`_build_recorder_config_from_measurement` stitching helper** in
+>     `collection_engine.py` — bridges Phase 2 `setup/audio_config.json`
+>     + `setup/impulse_config.json` + `setup/series_config.json` into
+>     the legacy recorder schema with ms→s unit conversions.
+>   - **5 per-Measurement collect endpoints** + 2 device-enumeration
+>     endpoints in `measurement_routes.py`. All Measurement-scoped
+>     (cross-Measurement reads return idle / 404 / 409).
+>   - **410 Gone for `/modal/projects/copy` + `/create_from_zip`** per
+>     N8 hard cutover. The frontend `useProjectCRUD.copyProject` helper
+>     is now a throwing stub.
+>   - **Frontend `<ProjectSubpanel>` extraction** —
+>     `PianoidTunner/src/modules/panels/ProjectSubpanel.jsx` (~860
+>     LOC). The legacy Setup section in `ModalAdapter.jsx` (lines
+>     1154-1966 pre-Phase-2c, ~810 LOC) deleted, including the
+>     `CreateProjectDialog` mount + `EffectiveSignalLengthRerunDialog`
+>     chain + Copy-From button. ModalAdapter.jsx shrunk from 2312 to
+>     1498 LOC (RED → YELLOW).
+>   - **Parent Measurement card + Branch UI** at the top of the new
+>     ProjectSubpanel — POST `/modal/projects/<src>/branch` per §4.2.
+>   - **`<CollectionLog>` streaming-log component** in
+>     `src/modules/panels/collection/CollectionLog.jsx` — 1000 ms
+>     polling per Q3, deduped on `ts`, level filter, auto-scroll +
+>     "Jump to latest" button, 1000-entry client-side bound.
+>   - **Audio Devices Section Select dropdowns** wired to
+>     `/devices` endpoint (replaces Phase 2b TextField placeholders).
+>   - **Start Collection button wired** in `<CollectionSubpanel>` —
+>     POST `/collect/start` with cancel + active phase chip.
+>   - **Tests:** 33 new backend tests + 21 new frontend tests
+>     (CollectionLog 9 + ProjectSubpanel 12). All 220 backend +
+>     409 frontend tests pass.
+>   - **Docs:** this annotation + MODAL_ADAPTER_GUIDE Project
+>     Management rewrite + new MODAL_COLLECTION § Phase 2c
+>     Per-Measurement Collect Endpoints.
+>
+> The original combined-scope is retained below for historical reference.
+
+**Scope (original — split during execution).**
+- Build the new `<CollectionSubpanel>` with five sections (§4.1). *(Phase 2b — DONE)*
 - Build the ONE `<SetupTest>` shared component used in Sections B + C
-  + the pre-flight banner (Q4 + Q5).
-- Build the `<CalibrationCriteriaEditor>` (Section E).
+  + the pre-flight banner (Q4 + Q5). *(Phase 2b — DONE as `<SetupTestPanel>` + `<SetupTestBanner>` thin wrapper)*
+- Build the `<CalibrationCriteriaEditor>` (Section E). *(Phase 2b — DONE as `CalibrationCriteriaSection.jsx` with add/remove rows + Reset to defaults)*
 - Wire the Setup Test backend endpoint (`POST /modal/measurements/{id}/setup_test`)
   end-to-end through `signal_processor.validate_calibration_quality`,
-  with N3 single-latest overwrite semantics.
+  with N3 single-latest overwrite semantics. **DONE in Phase 2a** — see
+  `pianoid_middleware/modal_adapter/setup_test_engine.py`. Note: the
+  actual per-criterion measurement uses a dispatch table keyed by
+  `criterion_id` rather than a single `validate_calibration_quality`
+  call (the spec's wording was a placeholder for the analyser; the
+  implementation calls `CalibrationValidatorV2.validate_cycle` for the
+  alignment/cycle-level metrics and computes channel-level metrics
+  directly from the recorded raw signal).
 - Move the `MappingEditor` from Setup subpanel to Collection > General;
-  leave a read-only "Inspect mapping in Collection →" link in Setup.
+  leave a read-only "Inspect mapping in Collection →" link in Setup. *(Phase 2b — `MappingEditor` instance now in `GeneralSection.jsx`; legacy Setup-subpanel mapping editor stays in place pending Phase 2c full Setup-panel rework — see Phase 2b implementation notes)*
 - Add the **Unlock with warning** button to the Collection subpanel
-  header (N4).
+  header (N4). *(Phase 2b — DONE as `<UnlockMeasurementDialog>` + persistent header button when `acquisition_locked === true`; verbatim N4/N5 copy)*
 - **N8 hard cutover.** Delete the v1 `/modal/collect/*` legacy wrappers
   in the same commit that ships the new frontend. Replace each with a
   `410 Gone` handler pointing at the v2 endpoint. Frontend stops calling
-  the v1 surface in this same release.
-- Frontend dual-mode (v1+v2) code-path is removed in this phase.
+  the v1 surface in this same release. **Backend half DONE in Phase 2a**
+  (`collection_routes.py` rewritten to 410 handlers; `routes.py
+  /collect/health` also retired to 410; `/modal/measurements/active_session`
+  added as the single legacy survivor per §3.4 line 670). Frontend
+  half pending in Phase 2b.
+- Frontend dual-mode (v1+v2) code-path is removed in this phase. *(Phase 2b — DONE: legacy `<CollectPanel>` deleted; `useMeasurementCollection` rewritten as throwing 410-Gone stub with smoke test verifying any leftover import call surfaces immediately rather than silently calling dead endpoints)*
 
 **Gate 3 — sign-off.** UI smoke test via `/test-ui` (audio_off mode for
 UX, audio_on Phase 7 for the Setup Test end-to-end):

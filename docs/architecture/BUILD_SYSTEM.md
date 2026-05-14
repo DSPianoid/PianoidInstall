@@ -235,7 +235,7 @@ build_pianoid_cuda.bat
   [1] Clean artifacts (.egg-info, build/, dist/, *.pyd, *.obj)
   [2] pip uninstall pianoidCuda
   [3] pip cache purge
-  [4] detect_paths.py  -->  build_config.json
+  [4] detect_paths.py  -->  pianoid_cuda/build_config.json
   [5] pip install --upgrade pip setuptools wheel
   [6] pip install --force-reinstall PianoidCore/pianoid_cuda/
         |
@@ -252,9 +252,90 @@ build_pianoid_cuda.bat
   pianoidCuda.pyd + pianoidCuda_debug.pyd  (importable from .venv)
         |
         v
+  [SAC] Build sdl_audio_core (Phase 0 RR-port, dev-rrport 2026-05-10)
+    [SAC 1/3] copy pianoid_cuda/build_config.json
+              -> sdl_audio_core/build_config.json
+    [SAC 2/3] pip uninstall sdl_audio_core
+    [SAC 3/3] pip install --force-reinstall PianoidCore/sdl_audio_core/
+        |
+        v
+    setup.py (sdl_audio_core/setup.py — vendored verbatim from
+              D:/repos/RoomResponse/sdl_audio_core/)
+      pybind11 + MSVC build  -->  sdl_audio_core.cp312-win_amd64.pyd
+      copy  SDL3.dll  next to the installed .pyd
+        |
+        v
+  sdl_audio_core/sdl_audio_core.cp312-win_amd64.pyd (importable from .venv)
+        |
+        v
 (optional) npm install / npm run build
   (React frontend, separate from Python build)
 ```
+
+### sdl_audio_core build (Phase 0 RR-port)
+
+`sdl_audio_core` is a pybind11 C++ extension that provides the SDL3-based
+input/output audio engine used by the modal-adapter measurement subsystem
+(`pianoid_middleware/modal_adapter/measurement/recorder.py`). Source tree
+lives at `PianoidCore/sdl_audio_core/`, vendored from
+`D:/repos/RoomResponse/sdl_audio_core/` in Phase 0 of the Modal Adapter
+Measurement-entity refactor (proposal:
+[`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../proposals/modal-adapter-measurement-entity-2026-05-10.md)).
+
+Build is now a subroutine of `build_pianoid_cuda.bat` (subroutine
+`:build_sdl_audio_core` at the end of the script). It runs unconditionally
+after the pianoidCuda variant build(s) complete, on every invocation
+including `--light`. Strategy:
+
+1. **Reuse pianoid_cuda's `build_config.json`.** The script copies
+   `pianoid_cuda/build_config.json` to `sdl_audio_core/build_config.json`
+   immediately before pip install. `sdl_audio_core/setup.py` (byte-identical
+   to its RR upstream copy — zero source divergence) reads
+   `Path(__file__).parent / "build_config.json"`, finds it, and consumes
+   the same `include_dirs`/`library_dirs`/`libraries`/`sdl3_root` keys
+   that `detect_paths.py` already populated. No second toolchain detection.
+
+2. **Pre-build lock check.** Mirrors pianoid_cuda's check — if a Python
+   process is holding `sdl_audio_core.cp312-win_amd64.pyd`, the script
+   aborts with a clear error. Kill the holder by PID, retry. **Never** use
+   `taskkill //F //IM python.exe` (kills MCP servers, Claude Code, etc.).
+
+3. **SDL3.dll deployment.** RR's upstream `setup.py` does not copy
+   `SDL3.dll` next to the installed `.pyd`. The Pianoid build script does,
+   using the `sdl3_dll` path from `build_config.json`. Without this,
+   `import sdl_audio_core` fails with `ImportError: DLL load failed` on
+   any machine that doesn't already have `SDL3.dll` on `PATH`.
+
+**Verify both extensions load** after a build:
+
+```bash
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; import sdl_audio_core; print('OK')"
+```
+
+A failure here on `sdl_audio_core` usually means the `SDL3.dll` deploy
+step failed silently — check `PianoidCore/build.log` for the `[SAC]` lines
+and confirm `sdl3_dll` resolves to a real file in `build_config.json`.
+
+### sdl_audio_core source-dir shadow trap
+
+Because `PianoidCore/sdl_audio_core/` ships with an `__init__.py` (vendored
+verbatim from RR), launching Python from inside `PianoidCore/` as cwd will
+import the **source directory as a stub package** instead of the installed
+`.pyd`. Symptom: `sdl_audio_core.AudioEngine.get_sdl_version` is bound to
+a stub function `_not_loaded` and any call raises a confusing
+`'function' object has no attribute 'get_sdl_version'` or
+`ImportError: SDL Audio Core not loaded`.
+
+This does NOT affect production: `PianoidTunner/server/launcher.js` sets
+`WORKING_DIR = PianoidCore/pianoid_middleware`, where the shadow does not
+fire. Pytest also rewrites `sys.path` such that the installed package
+wins. The trap only fires for ad-hoc developer commands like
+`cd PianoidCore && python -c "import sdl_audio_core"`.
+
+If you hit it, either `cd` out of `PianoidCore/` first, or set
+`PYTHONPATH= python -c "..."` to force a clean import. Avoid editing the
+vendored `__init__.py` — keeping it byte-identical to its RR upstream
+copy is the Phase 0 zero-divergence contract.
 
 ---
 

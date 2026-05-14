@@ -7,6 +7,142 @@
 
 ---
 
+## Phase 2b Modal Adapter Frontend Collection UX (dev-msmtui-fe, 2026-05-11) — CLOSED, Gate 3 APPROVED
+
+**Status:** Phase 2b of the Modal Adapter Measurement-entity refactor
+([proposal](proposals/modal-adapter-measurement-entity-2026-05-10.md))
+landed on PianoidTunner `dev` at 2026-05-11 and was **approved at Gate 3
+by the orchestrator on 2026-05-11**:
+
+- PianoidTunner feature SHA: `9aa9403`
+- PianoidTunner merge SHA: `5c43447`
+- PianoidInstall docs SHA: `f56f765` (+ session-log addendum `ff51f97`)
+- Branch `feature/dev-msmtui-fe-phase2b-frontend-collection` retained on
+  PianoidTunner for reference.
+
+What landed:
+
+1. **`<CollectionSubpanel>` replaces legacy `<CollectPanel>`.** New
+   `modules/panels/CollectionSubpanel.jsx` orchestrator + 5 collapsible
+   Accordion sections under `modules/panels/collection/`: General /
+   Audio Devices / Impulse / Series / Calibration Quality Criteria.
+   Each section: per-section Save Settings button + lock-aware UI
+   (423 surfaced as "unlock to edit"). Calibration Quality Criteria is
+   lock-exempt per N4 (analysis-time gate).
+2. **Shared `<SetupTestPanel>` in 3 surfaces (Q4/Q5).** ONE component
+   used in Audio Devices section + Impulse section + pre-flight
+   `<SetupTestBanner>` (compact mode). Single `useSetupTest` hook
+   instance owns the report state at the subpanel level so a Run from
+   any surface updates all 3 displays simultaneously.
+3. **Unlock-with-warning UI (N4 + N5).** `<UnlockMeasurementDialog>`
+   with verbatim N4/N5 copy, persistent header button when
+   `acquisition_locked === true`. POST `/modal/measurements/<id>/unlock`
+   `{confirm: true}`.
+4. **C4 split of `useModalAdapter.js` (2348 → 1742 LOC, −606).**
+   Extracted 5 cohesive sub-modules into `hooks/modalAdapter/`:
+   `constants.js` (53), `bandHelpers.js` (142), `useChainMutations.js`
+   (123), `useServerLifecycle.js` (101), `useProjectCRUD.js` (342).
+   Pure-helper re-exports preserved for back-compat (EspritConfig + 53
+   useModalAdapter tests + 14 ChainEditor/ModalAdapter tests unchanged
+   + green).
+5. **3 new measurement-scoped hooks.** `useMeasurementCatalog` (list /
+   create / delete via GET/POST/DELETE `/modal/measurements`),
+   `useMeasurementSetup` (read manifest + PATCH each setup section,
+   423-aware), `useSetupTest` (POST/GET `/setup_test`).
+6. **Legacy retirement.** `components/CollectPanel.jsx` DELETED (was
+   427 LOC). `hooks/useMeasurementCollection.js` rewritten as throwing
+   410-Gone deprecation stub + smoke test.
+7. **Tests.** 43 new Phase 2b tests across 7 suites, all green.
+   PianoidTunner total: 389 passing across 35 suites; 0 regressions.
+8. **Docs.** `docs/guides/MODAL_ADAPTER_GUIDE.md` gained a new
+   "Collection Subpanel (Phase 2b)" section. Proposal annotated with
+   Phase 2a/2b/2c split note + per-deliverable DONE markers in the
+   Phase 2 detail section.
+
+Phase 2c (per-Measurement `/collect/*` backend endpoints, per-Measurement
+device enumeration, Project subpanel slim-down + branching, `<CollectionLog>`
+streaming-log, `/copy` + `/create_from_zip` 410-Gone cutover, deeper
+`ModalAdapter.jsx` panel-extracts) is unblocked.
+
+See [`dev-msmtui-fe-2026-05-11-183353.md`](logs/archive/dev-msmtui-fe-2026-05-11-183353.md)
+for the per-step session log (archived at close-out).
+
+---
+
+## Phase 2a Modal Adapter Backend Cutover (dev-msmtui, 2026-05-11) — CLOSED
+
+**Status:** Phase 2a of the Modal Adapter Measurement-entity refactor
+([proposal](proposals/modal-adapter-measurement-entity-2026-05-10.md))
+landed on PianoidCore `dev` at 2026-05-11. Awaiting Gate 3 sign-off
+which requires Phase 2b (frontend Collection UX) to also land.
+
+- PianoidCore feature SHA: `925b1c8`
+- PianoidCore merge SHA: `0176b7e`
+- Branch `feature/dev-msmtui-phase2a-backend-cutover` retained.
+
+What landed:
+
+1. **Setup Test wired end-to-end.** New module
+   `pianoid_middleware/modal_adapter/setup_test_engine.py` (~840 LOC).
+   Replaces Phase 1 stub. `POST /modal/measurements/<id>/setup_test`
+   now pauses synth -> captures one calibration cycle via
+   `RoomResponseRecorder.take_record(mode='calibration')` ->
+   evaluates per-criterion -> reduces overall (pass/warn/fail) ->
+   resumes synth -> writes `setup_test/latest.{json,wav}` (N3).
+2. **v1 `/modal/collect/*` hard cutover to HTTP 410 Gone (N8).** Six
+   endpoints retired (start, status, cancel, results, devices, health).
+   New `GET /modal/measurements/active_session` is the single legacy
+   survivor per proposal sec 3.4.
+3. **Streaming progress messages (Q8).** `MeasurementSession` gains
+   a 100-entry ring buffer of `{ts, level, src, msg}` entries +
+   `emit_message()` API + `measurement_id` field. Surfaced via the
+   active_session probe.
+4. **Tests.** 33 new integration tests across `test_setup_test_engine.py`
+   (NEW, 20), `test_v1_collect_410.py` (NEW, 8), expanded
+   `test_measurement_routes.py::TestSetupTest` (+4 cases),
+   `test_modal_collection_b1.py` (+2 streaming tests). Full
+   Phase 1+2a surface: 175 passed, 1 skipped.
+5. **Docs.** `docs/modules/pianoid-middleware/MODAL_COLLECTION.md`
+   marks v1 surface RETIRED + documents Setup Test/streaming flow.
+   Proposal annotated with Phase 2a/2b/2c split note.
+
+Phase 2b (frontend Collection UX) is unblocked. The user-visible
+Gate 3 commit will land after Phase 2b ships the 5-section subpanel,
+shared `<SetupTest>` component, and Unlock-with-warning UI.
+
+See [`dev-msmtui-2026-05-11-143943.md`](logs/archive/dev-msmtui-2026-05-11-143943.md)
+for the per-step session log (archived at close-out).
+
+---
+
+## Phase 0 RR-port (dev-rrport, 2026-05-10) — CLOSED, Gate 1 APPROVED
+
+**Status:** Phase 0 of the Modal Adapter Measurement-entity refactor
+([proposal](proposals/modal-adapter-measurement-entity-2026-05-10.md))
+landed on PianoidCore `dev` at 2026-05-10 / 2026-05-11 and was
+**approved at Gate 1 by the orchestrator on 2026-05-11**:
+
+- PianoidCore feature SHA: `4c30f68`
+- PianoidCore merge SHA: `47f57dc`
+- PianoidInstall docs SHA: `93e48fd`
+- Branch `feature/dev-rrport-phase0-rrport` retained on PianoidCore for
+  reference.
+
+What landed: 7 RR Python modules vendored under
+`pianoid_middleware/modal_adapter/measurement/`, sdl_audio_core source
+tree moved into `PianoidCore/sdl_audio_core/` and wired into
+`build_pianoid_cuda.bat`, `_room_response_bootstrap.py` shim deleted,
+`recorderConfig.json` vendored as `default_recorderConfig.json`. Build
+verified end-to-end. 7 new sanity tests + all pre-existing modal_collection
+/ scenario_averager / qc_curves / modal_create_from_zip tests pass.
+
+Phase 1 (Data Model + REST) is unblocked.
+
+See [`dev-rrport-2026-05-10-232416.md`](logs/archive/dev-rrport-2026-05-10-232416.md)
+for the per-issue decisions and full session log.
+
+---
+
 ## build_pianoid_cuda.bat — bash invocation breaks `%~dp0` (dev-midi-p2, 2026-05-11)
 
 **Symptom.** Calling

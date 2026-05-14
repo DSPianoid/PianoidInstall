@@ -5,6 +5,38 @@ presets for the Pianoid engine. It extracts vibrational modes (frequencies, damp
 spatial shapes) from measurement data using the ESPRIT algorithm, tracks them across excitation
 points, computes feedin coupling coefficients, and injects the results into the active preset.
 
+## Measurement vs Project (Phase 1+, dev-msmt 2026-05-11)
+
+The Modal Adapter splits work into two entities:
+
+| Entity | Owns | Lifetime |
+|--------|------|----------|
+| **Measurement** | Raw `.wav` recordings + audio device + impulse + series + mapping + calibration criteria — i.e. what was physically captured | Created once per acquisition session; setup auto-seals after the first scenario (N4) |
+| **Project** | ESPRIT band config, tracking config, feedin extraction, applied state — i.e. analysis decisions made against a Measurement | One or many per Measurement; each Project freezes a snapshot of the parent's setup at branch time (N5) |
+
+Reasons for the split (per the
+[Measurement-entity proposal](../proposals/modal-adapter-measurement-entity-2026-05-10.md)):
+
+- **Disk efficiency** — one set of raw `.wav` files supports many ESPRIT experiments instead of one set per experiment.
+- **Provenance clarity** — re-running ESPRIT with different bands does NOT require touching acquisition state.
+- **Safety** — Measurements auto-lock after the first scenario; existing Projects keep their frozen snapshot of parent setup, so unlock+edit on the parent is safe for existing analysis.
+
+On disk:
+
+```
+D:\modal_measurements\<measurement_id>\        # acquisition entity
+D:\modal_projects\<project_name>\              # analysis entity
+```
+
+The override env var `$PIANOID_MEASUREMENTS_DIR` redirects the measurement base (e.g. for tests).
+See [`docs/modules/pianoid-middleware/MODAL_COLLECTION.md` § Phase 1 — Measurement Entity](../modules/pianoid-middleware/MODAL_COLLECTION.md#phase-1--measurement-entity-dev-msmt-2026-05-11) for the on-disk layout, REST surface, and migration script details.
+
+**Phase 2a (backend cutover).** Legacy `/modal/collect/*` endpoints have been retired with HTTP 410 Gone. The single survivor is `GET /modal/measurements/active_session` (global session probe with messages ring buffer). See [MODAL_COLLECTION.md § v1 surface RETIRED](../modules/pianoid-middleware/MODAL_COLLECTION.md#v1-surface--retired-at-phase-2a-dev-msmtui-2026-05-11) for the replacement table. The Setup Test endpoint `POST /modal/measurements/<id>/setup_test` is wired end-to-end through `setup_test_engine.py`.
+
+**Phase 2b (frontend Collection UX, dev-msmtui-fe 2026-05-11).** The legacy `<CollectPanel>` (B-3, v1 `/modal/collect/*` surface) has been replaced by `<CollectionSubpanel>` — a 5-section Measurement setup editor with a shared `<SetupTestPanel>` (3 surfaces) and an Unlock-with-warning button (N4). See [§ Collection Subpanel (Phase 2b)](#collection-subpanel-phase-2b) below for the UX.
+
+**Phase 2c (still pending).** Per-Measurement collection endpoints `/modal/measurements/<id>/collect/*` (start/cancel/status/results/devices), the Project subpanel slim-down + branching UI, and the `<CollectionLog>` streaming-log component.
+
 ## Architecture
 
 The Modal Adapter runs as a **separate Flask server** (`modal_adapter_server.py`, port 5001)
@@ -229,10 +261,206 @@ From left to right:
 Settings and individual Run/Apply buttons that were previously inside each section body
 have been removed — the toolbar handles all actions.
 
+### Collection Subpanel (Phase 2b)
+
+When the user clicks the **Collect** pipeline button (top toolbar), the panel
+renders `<CollectionSubpanel>` (`PianoidTunner/src/modules/panels/CollectionSubpanel.jsx`).
+This subpanel is the entry point for **Measurement** acquisition and replaced
+the legacy `<CollectPanel>` (B-3 wave) at Phase 2b ship.
+
+**Top row.** A `<MeasurementSelector>` Select dropdown lists every Measurement
+on disk (from `GET /modal/measurements`) plus a `New Measurement` button that
+opens a minimal create dialog (just the name field — N1 globally-unique IDs).
+When the selected Measurement is locked (`acquisition_locked === true`), an
+**Acquisition locked** chip plus an **Unlock with warning** button (N4) appear
+on the right.
+
+**Auto-select on project open (dev-impulse-chart, 2026-05-12).** The
+"selected Measurement" state is lifted from `<CollectionSubpanel>` up
+to `<ModalAdapter>` so that whenever the active Project changes (open,
+branch, switch), an effect in ModalAdapter looks up the project's
+`measurement_id` from the cached projectList and auto-sets the
+Measurement Select to that ID. The user no longer has to hand-pick
+the parent Measurement to populate the 5 sections — opening
+`PlyWoodTake1_7_copy` (which links `measurement_id: PlyWoodTake1_7`)
+puts the Collection panel in the populated state immediately. Legacy
+v1 projects with no `measurement_id` clear the selection (the
+empty-state "Select or create a Measurement" placeholder is shown).
+Resolution failures (Measurement folder moved/deleted) surface via
+the existing manifest-fetch error path in `useMeasurementSetup` —
+the auto-select doesn't gate on Measurement existence.
+
+**`mountedRef` remount fix (dev-impulse-chart, 2026-05-12).** The
+Measurement Select stayed disabled forever after the user toggled
+the Modal Adapter pane via the Window Layout Manager checkbox.
+Root cause: `useMeasurementCatalog`, `useMeasurementSetup`, and
+`useSetupTest` all initialised `useRef(true)` but never re-set
+`mountedRef.current = true` on remount. When the mosaic remounted
+the pane, the previous instance's cleanup `mountedRef.current = false`
+survived into the new instance via the persisted ref object, so the
+in-flight `refresh()`'s `finally` block short-circuited
+`setIsLoading(false)` — leaving the Select's `disabled={isLoading}`
+gate stuck true. The one-line fix `mountedRef.current = true` inside
+the mount effect (alongside the cleanup) restores correct lifecycle
+across all three hooks.
+
+**Pre-flight banner (Setup Test surface #3).** A persistent banner above the
+sections renders the latest Setup Test report (`GET /modal/measurements/<id>/setup_test`):
+green for `pass`, yellow for `warn` (with a "Proceed anyway" affordance), red
+for `fail`, or "no test yet" for a fresh Measurement. The banner shares the
+ONE `<SetupTestPanel>` component used in the Audio Devices and Impulse sections
+(N3 single-latest retention guarantees all three surfaces stay in sync).
+
+**5 collapsible sections** (MUI Accordion, per section: Save Settings button +
+lock chip when applicable):
+
+| Section | What it edits | Endpoint | 423 if locked |
+|---|---|---|---|
+| A — General | Measurement ID (read-only N1), layout (line/grid), channel mapping editor, grid editor | `PATCH /modal/measurements/<id>/mapping_config` | yes |
+| B — Audio Devices | input/output device, multichannel_config (16 fields), Setup Test surface #1 | `PATCH /modal/measurements/<id>/audio_config` | yes |
+| C — Impulse | impulse_form (sine / square / voice_coil), pulse params, **volume** (relocated from Series at dev-impulse-chart 2026-05-12), voice-coil sub-block, **configured-impulse ECharts preview** (live frontend math; matches the recorder formula 1:1), Setup Test surface #2 | `PATCH /modal/measurements/<id>/impulse_config` | yes |
+| D — Series | num_pulses, cycle_duration_ms, record_extra_time_ms, num_measurements, measurement_interval_s, averaging_start_cycle, derived calculations. **`volume` MOVED to Impulse + `recording_mode` REMOVED at dev-impulse-chart 2026-05-12.** | `PATCH /modal/measurements/<id>/series_config` | yes |
+| E — Calibration Quality Criteria | editable rule table (add/remove rows, threshold + applies_to + fail_action), Reset to defaults | `PATCH /modal/measurements/<id>/calibration_criteria` | **NO — lock-exempt** (analysis-time gate per N4) |
+
+**Unlock dialog copy** (verbatim per proposal §4.1 N4 + N5):
+> Unlocking this Measurement allows you to edit the audio device, impulse, series, or mapping setup, OR to record additional scenarios. Existing Projects branched from this Measurement keep their snapshot and are unaffected. Newly-branched Projects will see the edits made after unlock. Continue?
+
+**Start Collection button.** **WIRED at Phase 2c (dev-msmtui-fc, 2026-05-11).**
+Click → POST `/modal/measurements/<id>/collect/start` with `scenario_number=0`
+(scenario number is auto-incremented by the backend; the body knob lets the
+caller force a specific number for re-record). The button switches to a
+**Cancel ({phase})** stop-button while a session is in flight (active phase
+chip shown alongside). On the FIRST successful scenario completion of an
+unlocked Measurement, `acquisition.lock` is auto-written by the backend (N4).
+
+**Streaming acquisition log (`<CollectionLog>` — Phase 2c §4.3).** Below
+the Start/Cancel button, a fixed-height (200 px) monospace scroll region
+renders the messages ring buffer polled at 1000 ms from
+`GET /modal/measurements/<id>/collect/status`. Each line: `[HH:MM:SS] [src] msg`
+with a level chip (info / warn / error / debug — color-coded). Auto-scroll
+to bottom unless the user has scrolled up; "▼ Jump to latest" button reappears
+when sticky is off. Level filter (toggle group) hides unselected levels.
+Clear button empties the buffer. Buffer is bounded to 1000 entries
+client-side (backend ring buffer is 256 — proposal §3.3).
+
+**Audio Devices Section** — **Select dropdowns wired at Phase 2c (dev-msmtui-fc).**
+The TextField "device ordinal" placeholders shipped in Phase 2b are now
+real MUI Select dropdowns populated by `GET /modal/measurements/<id>/devices`
+on mount (with a Refresh icon button to re-probe). The endpoint also returns
+`current_input` / `current_output` from the Measurement's `setup/audio_config.json`
+so the Selects pre-fill correctly. SDL version is read live from the same
+endpoint payload.
+
+**Impulse Section — Configured-impulse ECharts preview (dev-impulse-chart, 2026-05-12).**
+A new `<ImpulseShapeChart>` ECharts plot sits inside the Impulse section,
+right below the form fields and above the Save Settings button. The chart
+re-runs its math live on every param edit (no debounce, no backend
+round-trip — the recorder formula is pure deterministic JS). The
+component lives at
+`PianoidTunner/src/modules/panels/collection/ImpulseShapeChart.jsx`
+and replicates `recorder._generate_single_pulse` 1:1:
+
+- **sine**: `sin(2π·f·t)` with linear fade-in over the first
+  `pulse_fade_ms` and linear fade-out over the last `pulse_fade_ms`,
+  scaled by `volume * 0.3`.
+- **square**: constant 1.0 with the same linear fade envelope,
+  scaled by `volume * 0.3`.
+- **voice_coil**: constant 1.0 over the full pulse EXCEPT the trailing
+  `fade_samples` window, which the recorder overwrites with zeros for
+  the first `fade_samples // 3` samples followed by a linear ramp
+  from `-0.5 → 0` for the remaining samples. Scaled by `volume * 0.3`.
+
+The chart's y-axis spans `[-0.4, +0.4]` so the user can see the
+`volume * 0.3` headroom relative to the recorder's full-scale output
+(at `volume=1.0` the peak hits `0.3`, never `1.0`).
+
+`invert_polarity` flips the entire waveform sign — visible immediately
+in the preview.
+
+**Note: voice_coil parameter mismatch.** The Phase 2 `voice_coil_config`
+sub-block (`init_pos_ms` / `positive_ms` / `gap_ms` / `negative_ms` /
+`pullback_amplitude` / `init_pos_amplitude`) is forward-looking — the
+in-tree recorder does NOT consume those fields today (voice_coil mode
+is hardcoded to the simpler ramp pull-back described above). The
+chart matches the recorder's actual current behaviour, not the spec.
+When a future change wires the sub-block through to the recorder,
+both the recorder code AND `generateImpulseShape` need to update
+together.
+
+**Impulse Section — `volume` (relocated from Series, dev-impulse-chart 2026-05-12).**
+Volume is now a Section C field with range 0.0–1.0. The recorder
+scales every form by `volume * 0.3` headroom (hardcoded constant in
+`recorder._generate_single_pulse`). Backwards-compat: legacy
+Measurements that still keep `volume` in `series_config.json` are
+honoured by the stitching helpers as a fallback (impulse_config wins
+when both are present), and the ImpulseSection UI displays the legacy
+series value when impulse_config has no `volume` key. The next Save
+writes only to impulse_config, completing the migration.
+
+**Series Section — `recording_mode` removed (dev-impulse-chart 2026-05-12).**
+The Standard/Calibration radio block + its accordion-header chip are
+gone. Q4+Q5 of the proposal merged calibration testing into the
+unified `<SetupTest>` framework (Phase 2a — see `setup_test_engine.py`).
+Real acquisition is always `"standard"`; calibration sweeps go through
+`SetupTestEngine`, which invokes
+`recorder.take_record(mode='calibration', save_files=False)` directly
+— the internal constant survives; the user field does not. Legacy
+`series_config.json` files with `recording_mode` are silently stripped
+on next Save.
+
+**Architecture notes (Phase 2b + Phase 2c + dev-impulse-chart):**
+- The 3-surface SetupTest reuse is enforced by passing the SAME `useSetupTest`
+  hook instance down to both Section B, Section C, and the pre-flight Banner.
+  A run from any surface updates all three displays simultaneously.
+- Channel mapping in Section A calls the **measurement-scoped** PATCH endpoint
+  (not the project-scoped `/modal/mapping`). The legacy mapping editor in
+  the Setup subpanel stays in place; Phase 2c will convert it to read-only.
+- Phase 2c per-Measurement collect endpoints (`/collect/start` /
+  `/status` / `/cancel` / `/results/<sid>` / `/devices`) wire through
+  the existing `MeasurementSession` singleton (one in-flight scenario
+  per process) with `measurement_id` context — see
+  [`pianoid-middleware/MODAL_COLLECTION.md`](../modules/pianoid-middleware/MODAL_COLLECTION.md)
+  for the route-level inventory + setup/* → recorder_config stitching
+  via `_build_recorder_config_from_measurement`.
+
 ### Project Management
 
-The Setup section opens with three action buttons (**Open Project**, **Copy From…**,
-**Create Project…**), the selected-project info card, and — when the project uses
+> **Phase 2c update (dev-msmtui-fc, 2026-05-11) — Project subpanel rework.**
+> The Setup section was reshaped per
+> [proposal §4.2](../proposals/modal-adapter-measurement-entity-2026-05-10.md#42-project-subpanel--slim-down--branching).
+> Three buttons now: **Open Project**, **Branch from this Project**, plus a
+> persistent **Parent Measurement card** at the top when the active project
+> carries a `measurement_id` reference (Phase 1 schema). The legacy
+> **Copy From…** + **Create Project…** buttons are GONE per N8 hard cutover —
+> Projects are now created by branching from a Measurement (Collection
+> subpanel → "+ New Project from this Measurement"). The slim subpanel
+> implementation lives in
+> `PianoidTunner/src/modules/panels/ProjectSubpanel.jsx`; ModalAdapter.jsx
+> shrunk by 814 LOC (2312 → 1498) as a result.
+>
+> **Branch flow.** Click "Branch from this Project" → small dialog asking
+> for a new project name + an "Inherit band_config from this project"
+> checkbox (default ON). Submit → POST `/modal/projects/<source>/branch`
+> → backend snapshots the parent Measurement's CURRENT setup at branch
+> time (N5) and creates a sibling Project pointing at the same
+> `measurement_id`. ESPRIT / tracking / feedin caches start empty.
+> The frontend opens the destination immediately and emits a success
+> snackbar. On error (collision, 404, etc.) the dialog stays open with
+> an inline Alert + an error snackbar.
+>
+> **Parent Measurement card.** Renders when `currentProject.measurement_id`
+> is set. Shows the parent's name + scenario count + channel count +
+> layout + lock chip, and an **Inspect setup →** button that switches the
+> Modal Adapter section selector to **Collection** with the parent
+> Measurement pre-selected — the user can review or edit setup/* and
+> (after explicit unlock) record additional scenarios on the parent.
+>
+> The legacy text below describes the pre-Phase-2c surface for historical
+> context. Subsections marked `(LEGACY — removed Phase 2c)` no longer
+> describe shipping behaviour.
+
+The Setup section opens with three action buttons (**Open Project**, **Copy From…** *(LEGACY — removed Phase 2c)*,
+**Create Project…** *(LEGACY — removed Phase 2c)*), the selected-project info card, and — when the project uses
 grid layout — the processing grid editor. As of dev-8b5f (2026-05-04) the legacy
 inline chip-list UI was replaced by a file-browser dialog and the standalone "New
 Project from folder" form was removed (Create Project auto-detects format and
