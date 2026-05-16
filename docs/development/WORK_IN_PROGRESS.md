@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-toggle-ui | Convert binary preset-load params from float inputs to MUI Switch toggles | [log](logs/dev-toggle-ui-2026-05-15-210253.md) | 2026-05-15 | In Progress |
+| dev-startup-configs | Named, multiple, switchable startup configs + JSON export/import | [log](logs/dev-startup-configs-2026-05-16-100013.md) | 2026-05-16 | Awaiting commit approval (Step 9 done, holding before Step 10) |
 
 ---
 
