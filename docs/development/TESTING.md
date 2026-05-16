@@ -12,10 +12,15 @@ PianoidCore/tests/
 ├── pytest.ini           # Configuration
 ├── fixtures/            # Reference data (e.g. reference_c4_preset_test5.npy)
 ├── system/              # Full stack — GPU + audio hardware
-│   ├── conftest.py      # Session-scoped Pianoid with SDL3 audio
+│   ├── conftest.py      # Session Pianoid fixtures: pianoid_audio_off / pianoid_audio_on; module-scoped pianoid_midi_engine (dedicated running-engine instance)
 │   ├── test_asio_multichannel.py
 │   ├── test_audio_drivers.py
+│   ├── test_backend_midi_ingress.py   # MIDI W5/P4 — backend ingress: emit_midi_note_event broadcast gate + note-only filter, broadcast switchability, schedule_event dispatch + chord stress (audio_off)
+│   ├── test_kernel_midi_batch.py      # MIDI W1/P1 — per-cycle kernel batch envelope: same-cycle chords, NOTE_ON+NOTE_OFF, TEST_* interleave, MAX_EVENTS_PER_CYCLE cap (audio_off)
+│   ├── midi_latency.py                # MIDI W5/P4 — schedule_event dispatch-latency measurement (standalone script + one pytest test asserting the Gate-3 budget)
 │   ├── test_performance.py
+│   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off)
+│   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
 │   ├── test_playback.py
 │   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag

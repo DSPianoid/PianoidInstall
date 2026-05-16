@@ -51,35 +51,46 @@ threading.Thread → long_running_procedure()
 
 ### 1.2 Online Playback — MIDI Hardware Device
 
+MIDI ingress is **backend-owned** (W1-W4 MIDI refactor). The browser no longer
+opens a Web MIDI port; the backend `MIDI_listener_unified` thread owns the
+rtmidi port and is the single producer of hardware-MIDI events. The frontend
+is a passive subscriber to the `midi_note_event` Socket.IO stream (used only
+for the on-screen "last note pressed" indicator — never to drive synthesis).
+
 ```
 MIDI Controller (keyboard)
-  │ rtmidi port 0
+  │ rtmidi input port (default 0; GET /midi/ports, POST /midi/select_port)
   ▼
-MidiListener (pianoidMidiListener.py)
+MIDI_listener_unified  (pianoid.py — backend listener thread)
   listener.get_message() → [status, data1, data2]
   │
-  ├── status=144, vel>0 (NOTE_ON)
-  │   └► (Fix-MIDI clamp) velocity = pianoid.apply_fix_velocity(velocity)
-  │       Active backend listener (MIDI_listener_unified) calls
-  │       schedule_event with default apply_fix_velocity=True; legacy
-  │       pianoidMidiListener calls apply_fix_velocity directly.
-  │   └► pianoid.add_realtime_event(NOTE_ON, pitch, velocity)
+  ├──(1)──► schedule_event(status, data1, data2)        // cycle-aligned dispatch
+  │           ├── 144 vel>0  → EventType.NOTE_ON
+  │           │     Fix-MIDI clamp: velocity = apply_fix_velocity(velocity)
+  │           │     (default apply_fix_velocity=True on this unified path;
+  │           │      REST /play & WS play gate the clamp on source=="midi")
+  │           ├── 128 / 144 vel=0 → EventType.NOTE_OFF
+  │           ├── 176 data1=64    → EventType.SUSTAIN (pedal_value)
+  │           └── decoded PlaybackEvent → realtime_buffer.pushEvent(...)
+  │                                       (see "Event scheduling" below)
   │
-  ├── status=128 or vel=0 (NOTE_OFF)
-  │   └► pianoid.add_realtime_event(NOTE_OFF, pitch, 0)
-  │
-  ├── status=176, data1=64 (SUSTAIN PEDAL)
-  │   └► pianoid.add_realtime_event(SUSTAIN, pedal_value, 0)
-  │
-  ├── CC 7 (MAIN VOLUME)
-  │   └► pianoid.set_volume_level(velocity)
-  │       └► pianoid.setRuntimeParameters(RuntimeParameters(level))
-  │           └► cudaMemcpy → dev_main_volume_coeff
-  │
-  └── CC 74 (DECK FEEDBACK)
-      └► pianoid.set_deck_feedback_coefficient(coeff)
-          exp mapping: CC=64→1.0, CC=127→8.0, CC=0→0.125
+  └──(2)──► emit_callback(status, data1, data2)          // AFTER dispatch — never
+              = backendServer.emit_midi_note_event          blocks audio
+                ├── note-only filter: drop everything except status 128-159
+                │     (CC incl. sustain, program-change, pitch-wheel, sysex,
+                │      real-time are dropped — sustain still drives synthesis
+                │      via leg (1); only the indicator stream is filtered)
+                └── broadcast gate: pianoid.get_midi_broadcast_enabled()?
+                      True  → socketio.emit('midi_note_event',
+                                            {command, pitch, velocity})
+                                → frontend useMidi.js subscriber → indicator
+                      False → suppressed (POST /midi/broadcast {enabled:false})
 ```
+
+`schedule_event` is the single MIDI entry point — the listener calls it for
+every inbound byte. CC#7 (main volume) and CC#74 (deck feedback) are handled
+by the legacy `pianoidMidiListener` YAML-keyboard path, not the unified
+listener; the unified path routes only NOTE_ON / NOTE_OFF / sustain.
 
 **Event scheduling** (`add_realtime_event`, pianoid.py:1111):
 
