@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-startup-configs | Named, multiple, switchable startup configs + JSON export/import | [log](logs/dev-startup-configs-2026-05-16-100013.md) | 2026-05-16 | Awaiting commit approval (Step 9 done, holding before Step 10) |
 
 ---
 
