@@ -4,6 +4,8 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-cal-twice | Fix Calibrate Synthesis double-run (full keyboard pass runs twice) | [log](logs/dev-cal-twice-2026-05-15-175457.md) | 2026-05-15 | In Progress |
+| dev-toggle-ui | Convert binary preset-load params from float inputs to MUI Switch toggles | [log](logs/dev-toggle-ui-2026-05-15-210253.md) | 2026-05-15 | In Progress |
 
 ---
 
