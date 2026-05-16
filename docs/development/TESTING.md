@@ -31,6 +31,7 @@ PianoidCore/tests/
     ├── test_mic_analyzer.py         # MicAnalyzer: Goertzel spectral measurement, DC removal, harmonics, reference signal comparison (16 tests)
     ├── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints, scenario discovery helpers (`_discover_{npy,roomresponse}_scenarios`)
     ├── test_modal_adapter_apply_route.py # Cross-server `apply_to_preset` wiring: F9 503 on port 5001 preserved, main-server (5000) counterpart route covers 400/404/409 paths (5 tests)
+    ├── test_play_listen_gate_regression.py # REST/WS `/play` must reach the EventQueue while the MIDI listener runs — guards the W4-P3 gate regression (5 tests)
     └── test_project_export_import.py # Project export/import: zip creation, manifest validation, sanitisation, round-trip, name conflict resolution
 ```
 
