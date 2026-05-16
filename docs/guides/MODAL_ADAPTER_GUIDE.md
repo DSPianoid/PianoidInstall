@@ -176,7 +176,7 @@ measurements. The layout type is stored on `MappingConfig` and persisted to
 
 | Layout | Description | Pitch derivation? | Tracking method |
 |--------|-------------|-------------------|-----------------|
-| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | `nuclei_merge` (default since dev-d773 2026-05-05 — see [`MODE_TRACKING_NUCLEI_MERGE.md`](../development/MODE_TRACKING_NUCLEI_MERGE.md)), `sliding_window` (legacy), or `sequential` (DEPRECATED — emits `DeprecationWarning`) |
+| `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | `nuclei_merge` (default since dev-d773 2026-05-05), `sliding_window` (legacy), or `sequential` (DEPRECATED — emits `DeprecationWarning`). See the "Tracking Section" below for the behaviour of each method. |
 | `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | `nuclei_merge` (default) or `sliding_window` (both layout-agnostic; sequential raises `NotImplementedError`) |
 
 For grid layout, the project schema gains four extra fields on `MappingConfig`:
@@ -219,9 +219,21 @@ The grid layout terminates at the tracking visualisation step in this PR — no 
 preset injection. See [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md)
 for the deferred future work that closes the loop.
 
-Algorithmic deltas for grid mode (extrapolate_frequency degradation, merge_split_chains
-no-op, sequential method rejection) are documented in
-[`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
+Algorithmic deltas for grid mode versus line mode:
+
+- **`sequential` method rejection** — the deprecated `sequential` tracking method raises
+  `NotImplementedError` for `layout_type="grid"`; only `nuclei_merge` (default) and
+  `sliding_window` run on a grid (both are layout-agnostic).
+- **`_merge_split_chains` no-op** — the `sliding_window` post-step that merges
+  bridge-split chains is skipped on grid layouts (there is no bass/treble bridge split
+  to reconcile).
+- **`extrapolate_frequency` degradation** — frequency extrapolation across missing
+  scenarios falls back to nearest-neighbour on a grid because `scenario_index` is an
+  opaque cell ID, not a 1-D bridge position.
+
+The original grid-layout design rationale (dev-b9dd, 2026-05-04) is preserved as
+historical design notes in
+[`archive/MODE_TRACKING_GRID_LAYOUT.md`](../development/archive/MODE_TRACKING_GRID_LAYOUT.md).
 
 ---
 
@@ -1752,11 +1764,13 @@ Mode tracking links detected modes across scenarios into **chains** — sequence
 physical mode observed at different piano keys. Tracking runs on ALL processed scenarios
 (accumulated across ESPRIT runs), not just the current selection.
 
-**Algorithm:** Three methods are available — see
-[`MODE_TRACKING_REDESIGN.md`](../development/MODE_TRACKING_REDESIGN.md) for the
-historical design and
-[`MODE_TRACKING_NUCLEI_MERGE.md`](../development/MODE_TRACKING_NUCLEI_MERGE.md)
-for the 3-stage default method.
+**Algorithm:** Three methods are available — the `nuclei_merge` default, the legacy
+`sliding_window`, and the deprecated `sequential` — all described in full below. The
+original design rationale for these methods is preserved as historical design notes in
+[`archive/MODE_TRACKING_REDESIGN.md`](../development/archive/MODE_TRACKING_REDESIGN.md)
+(core algorithm choices) and
+[`archive/MODE_TRACKING_NUCLEI_MERGE.md`](../development/archive/MODE_TRACKING_NUCLEI_MERGE.md)
+(the 3-stage method).
 
 - `nuclei_merge` (**default since dev-d773, 2026-05-05; recommended**) — 3-stage algorithm:
   nuclei detection (HIGH-MAC sliding window) → weighted nuclei merging (full coverage ×
@@ -1779,16 +1793,15 @@ for the 3-stage default method.
   in a future release; use `nuclei_merge` (default) or `sliding_window` (explicit) instead.
 
 **Parameters** (in settings panel when Tracking is active): the editable fields **Freq
-Tolerance %** (default `0.03`) and **Max Gap** (default `5`) drive the sequential
-method's `freq_tol_pct` and `max_gap` (see
-[`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters)).
+Tolerance %** (default `0.03`) and **Max Gap** (default `5`) drive the deprecated
+sequential method's `freq_tol_pct` and `max_gap` fields on `TrackingConfig`.
 For the legacy `sliding_window` method, these two fields have no effect — the
 sliding-window parameters (`sw_*`) live in `TrackingConfig` source defaults and are
 exposed via the EspritConfig advanced UI rows.  For the **default** `nuclei_merge` method,
 the per-stage MAC thresholds (`nm_nucleus_mac_threshold`, `nm_merge_min_mac`,
 `nm_stray_min_mac`) AND all stage weights and score thresholds are surfaced as
-editable rows in the same panel — see
-[`MODE_TRACKING_NUCLEI_MERGE.md` § 2](../development/MODE_TRACKING_NUCLEI_MERGE.md#2-three-stage-pipeline).
+editable rows in the same panel — one editable row per stage of the 3-stage pipeline
+described above.
 
 As of dev-robust (2026-05-07) the default `nuclei_merge` per-fragment
 aggregations (`frequency_mean`, `frequency_range`, `damping_mean`,
@@ -1797,8 +1810,7 @@ percentile range, iterative MAC-filter shape mean). The damping hard
 gate `nm_merge_max_damping_diff_pct` was raised from 1.0 (100%) to 1.5
 (150%) at the same time. Both changes are paired and validated on
 `PlyWoodTake1_grid` to fix a Stage-1 + Stage-2 fragmentation bug in
-boundary-aligned configs — see
-[`MODE_TRACKING_NUCLEI_MERGE.md` § 6 "Robust per-fragment statistics"](../development/MODE_TRACKING_NUCLEI_MERGE.md#6-robust-per-fragment-statistics-dev-robust-2026-05-07).
+boundary-aligned configs.
 The master switch `nm_robust_stats` defaults to `True`; flip it (with
 the gate restored to 1.0) for legacy / regression behaviour.
 
@@ -1845,8 +1857,7 @@ orange=weak, gray=spurious. Blue=selected. Click points to view mode shapes.
   e.g. a chain with 6 detections on a 5×6 grid shows `6 / 30 cells`, not "the heatmap
   is broken". The inset can be toggled on/off via the **Heatmap** button in the chart
   sub-toggle row (next to Damp/Amp/MAC/Shape/Proj — dev-md04 Bug 3); only visible on
-  grid-layout projects. See
-  [`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md).
+  grid-layout projects.
 
 **Heatmap + shape side-by-side layout (dev-md07).** When BOTH the
 **Heatmap** and **Shape** toggles are active in the chart-sub-toggle row,
@@ -2451,8 +2462,7 @@ Returns `chain_id`, `frequency`, `stability`, `grid_shape`, `grid_spacing_mm`, a
 `cells` array of `{row, col, scenario_index, x_mm, y_mm, amplitude}`. Cells with no
 detection for this chain have `amplitude: null`. Errors with 400 when the project is
 not in grid layout, when the chain_id is out of range, or when no tracking has been run.
-Used by the `GridHeatmapInset` component above the stabilization diagram. See
-[`MODE_TRACKING_GRID_LAYOUT.md`](../development/MODE_TRACKING_GRID_LAYOUT.md) for details.
+Used by the `GridHeatmapInset` component above the stabilization diagram.
 
 #### Mode Preview (Decaying Sinewave Parameters)
 
@@ -2661,7 +2671,7 @@ These hints apply to the deprecated `sequential` method's `freq_tol_pct` / `max_
 parameters (the only tracking knobs exposed as legacy UI fields). The default
 `nuclei_merge` method exposes its `nm_*` knobs as separate UI rows.  The legacy
 `sliding_window` method uses different parameters (`sw_*` in `TrackingConfig`) that are
-not UI-editable — see [`MODE_TRACKING_REDESIGN.md` § 7](../development/MODE_TRACKING_REDESIGN.md#7-configuration-parameters).
+not UI-editable.
 
 - **Too few chains** (mode is being broken into multiple short fragments): **raise**
   `freq_tol_pct` (e.g. from current default `0.03` up to `0.05`) so adjacent scenarios

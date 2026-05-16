@@ -141,8 +141,8 @@ PianoidTunner/src/components/
 └── ...
 
 docs/
-├── development/MODE_TRACKING_GRID_LAYOUT.md   # CURRENT — extend
-└── modules/pianoid-middleware/MAPPING.md      # NEW (or extend OVERVIEW)
+├── development/archive/MODE_TRACKING_GRID_LAYOUT.md   # historical design notes
+└── modules/pianoid-middleware/MAPPING.md              # NEW (or extend OVERVIEW)
 ```
 
 ---
@@ -179,8 +179,8 @@ specific bridge-curve interaction model.
 
 - MVP implementation: `feature/modal-adapter-grid-layout` branch, dev-b9dd
   session log
-- Algorithm details for grid tracking:
-  [`MODE_TRACKING_GRID_LAYOUT.md`](../MODE_TRACKING_GRID_LAYOUT.md)
+- Algorithm details for grid tracking (historical design notes):
+  [`MODE_TRACKING_GRID_LAYOUT.md`](../archive/MODE_TRACKING_GRID_LAYOUT.md)
 - Modal Adapter user guide:
   [`MODAL_ADAPTER_GUIDE.md`](../../guides/MODAL_ADAPTER_GUIDE.md)
 - Pipeline architecture:

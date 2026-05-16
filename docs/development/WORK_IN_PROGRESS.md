@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-midi-p4 | MIDI W5/Phase 4 — validation gate (tests + latency + fixture + docs) | [log](logs/dev-midi-p4-2026-05-16-151322.md) | 2026-05-16 | In Progress |
 
 ---
 
@@ -367,7 +368,7 @@ zero-T_eff scenarios fully recovered; one residual remains.
 preserved by adding explicit `tracking_method="sliding_window"` where the test depended
 on the old default; one test (`test_modal_adapter_grid_layout::test_default_tracking_method_unchanged`)
 was renamed to assert the new default.  See
-[`MODE_TRACKING_NUCLEI_MERGE.md` § 8 "Default Promotion"](MODE_TRACKING_NUCLEI_MERGE.md#8-default-promotion-dev-d773-2026-05-05).
+[`archive/MODE_TRACKING_NUCLEI_MERGE.md` § 8 "Default Promotion"](archive/MODE_TRACKING_NUCLEI_MERGE.md#8-default-promotion-dev-d773-2026-05-05).
 
 ### Deferred follow-ups
 
@@ -495,10 +496,10 @@ the **hard removal** in a follow-up `/dev` session. Removal scope:
    - Remove the entire `TestSequentialDeprecation` class.
    - Remove all tests that specify `tracking_method="sequential"` (test_sequential_*,
      SEQ shorthand at L30, etc.) — roughly half the file, currently ~500 LOC.
-4. **Docs** — `MODE_TRACKING_REDESIGN.md`:
-   - Either retire the doc entirely (it becomes pure historical curiosity) or trim it
-     to just the sliding-window section. The cost-function design § 4.2-4.4 is
-     sequential-only.
+4. **Docs** — `archive/MODE_TRACKING_REDESIGN.md` (archived 2026-05-16, docs-modetrack-streamline):
+   - Already retired to the archive as historical design rationale. The cost-function
+     design § 4.2-4.4 is sequential-only; no further action needed beyond the archival
+     unless the hard-removal author wants to trim it.
    - Update `MODAL_ADAPTER_GUIDE.md`'s tracking-method table to drop the second column
      and remove the "DEPRECATED" callout.
 5. **Frontend** — check `PianoidTunner` for any UI control exposing `tracking_method`
