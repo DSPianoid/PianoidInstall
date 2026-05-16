@@ -500,6 +500,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidTunner/src/components/CalibrationPanel.jsx` | 518 |
 | `PianoidCore/pianoid_cuda/setup.py` | 516 |
 | `PianoidCore/pianoid_middleware/test_audio_driver.py` | 514 |
+| `PianoidTunner/src/hooks/useSettings.js` | 514 |
 | `PianoidCore/pianoid_middleware/ChartRegistry.py` | 507 |
 | `PianoidCore/pianoid_cuda/SDL3AudioDriver.cpp` | 506 |
 
