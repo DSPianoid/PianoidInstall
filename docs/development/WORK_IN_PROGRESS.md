@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-midi-p4 | MIDI W5/Phase 4 — validation gate (tests + latency + fixture + docs) | [log](logs/dev-midi-p4-2026-05-16-151322.md) | 2026-05-16 | In Progress |
+| dev-drawable-finish | Drawable Chart Merge — finish Wave 2/3 deletions + Wave 4 (Perception) + Wave 5 (cleanup) | [log](logs/dev-drawable-finish-2026-05-16-211806.md) | 2026-05-16 | In Progress |
 
 ---
 
@@ -181,6 +181,18 @@ PowerShell. Worth either:
 
 **Owner / ETA.** Not allocated. Filed as a doc/infra deferral by dev-midi-p2
 during Phase 2 work.
+
+---
+
+## `test_sound_output_quality` slow `soundTone` autocorrelation (dev-midi-p4, 2026-05-16)
+
+**Observation.** `tests/system/test_performance_audio_off.py::TestSoundOutputQuality::test_sound_output_quality` can exceed the pytest per-test timeout on a busy machine. The hang is in `pianoid_middleware/SoundFeatures.py:soundTone()` — it runs a `while` loop calling `pandas.Series.autocorr(i)` (each call O(n) over the full series) for up to `len(sound)/2` lags, i.e. O(n²) over the ~144k-sample C4 render.
+
+**Not a regression.** The render is deterministic; the test passes when the CPU is idle and times out when many processes compete (observed during W5/Phase-4 validation, with several GPU test processes + MCP servers running). dev-midi-p4 verified `TestSoundRegression`, `TestGpuCycleTiming`, `TestTimingDistribution` all pass — only `test_sound_output_quality` is affected.
+
+**Suggested fix (deferred — out of W5/Phase-4 scope, `SoundFeatures.py` is not a MIDI file).** Replace the per-lag `pandas.autocorr` loop with a single vectorised autocorrelation (`numpy.correlate` / FFT-based `scipy.signal.correlate`), then pick the period from the result. One O(n log n) pass instead of O(n²) lag-by-lag.
+
+**Owner / ETA.** Not allocated. Filed by dev-midi-p4 during Phase 4 validation.
 
 ---
 
