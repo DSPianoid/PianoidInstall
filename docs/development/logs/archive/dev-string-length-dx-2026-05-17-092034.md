@@ -4,7 +4,7 @@
 - **Task:** Review the `length` parameter in string parameters. It should affect the `dx` value: `dx = length / p_full` (p_full = total number of string points). Investigate whether this invariant holds; fix if violated.
 - **Started:** 2026-05-17T09:20:34Z
 - **Plan file:** None
-- **Status:** Investigation complete — awaiting team-lead decision (no code change recommended)
+- **Status:** Complete — fix landed (PianoidCore dev `6ecb46a`, PianoidInstall master `2fdf165`)
 
 ## Actions
 
@@ -237,3 +237,14 @@ Doc note: `PARAMETER_SYSTEM.md` granular-API section does not mention that geome
 [LOCK RELEASED] PianoidCore/tests/integration/test_length_dx_propagation.py
 [LOCK RELEASED] docs/development/CODE_QUALITY.md
 [BASH-CALL] 2026-05-17T11:08:00Z git add docs/* + commit (PianoidInstall master)
+[BASH-RETURN] 2026-05-17T11:08:30Z duration_ms=12000 exit_code=0
+- PianoidInstall docs commit: `2fdf165` (master).
+- STEP-10A-PHASE-1 markers:
+[STEP-10A-PHASE-1] 2026-05-17T11:08:30Z commit=2fdf165
+
+### Step 10a Phase 2 — 2026-05-17T11:09:00Z
+[STEP-10A-PHASE-2] 2026-05-17T11:09:00Z
+- team-lead instruction bundled Phase 1 + Phase 2 + push (user approved "commit and push everything").
+- `git mv` this session log → `docs/development/logs/archive/`.
+- Removed `dev-string-length-dx` row from `WORK_IN_PROGRESS.md` Active Dev Sessions; cleared the now-resolved "CODE_QUALITY.md C4 figure stale" follow-up block (the figure was corrected in the docs commit).
+- Phase-2 commit + push next.

@@ -4,23 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-string-length-dx | Fix: granular `length` edit must recompute + send `dx` to GPU | [log](logs/dev-string-length-dx-2026-05-17-092034.md) | 2026-05-17 | Awaiting review (pre-commit) |
-
----
-
-## CODE_QUALITY.md C4 figure stale for `parameter_manager.py` (dev-string-length-dx, 2026-05-17)
-
-**Deferred — lock conflict.** `dev-string-length-dx`'s fix added +12 LOC to
-`PianoidCore/pianoid_middleware/parameter_manager.py` (497 → 509), crossing the C4
-YELLOW threshold (500). The "Current Known God Objects" YELLOW table in
-`docs/development/CODE_QUALITY.md` already lists this file but at a **stale 659 LOC** —
-the file has since been trimmed to 497 (now 509 after the fix). The entry should read
-**509**, not 659. `dev-string-length-dx` could not edit `CODE_QUALITY.md` — it is locked
-by `dev-cursor-drift`, which is itself editing the God Objects list.
-
-**Owner / ETA:** `dev-cursor-drift` to correct the `parameter_manager.py` figure to 509
-as part of its own `CODE_QUALITY.md` edit (it already holds the lock), OR a follow-up
-doc pass once that lock releases. Trivial one-cell change.
 
 ---
 
