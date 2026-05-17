@@ -4,7 +4,23 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-cursor-drift | Fix NumInput caret drift — single useLayoutEffect restore + digit-anchored exponent caret + Jest test | [log](logs/dev-cursor-drift-2026-05-17-114553.md) | 2026-05-17 | In Progress |
+| dev-string-length-dx | Fix: granular `length` edit must recompute + send `dx` to GPU | [log](logs/dev-string-length-dx-2026-05-17-092034.md) | 2026-05-17 | Awaiting review (pre-commit) |
+
+---
+
+## CODE_QUALITY.md C4 figure stale for `parameter_manager.py` (dev-string-length-dx, 2026-05-17)
+
+**Deferred — lock conflict.** `dev-string-length-dx`'s fix added +12 LOC to
+`PianoidCore/pianoid_middleware/parameter_manager.py` (497 → 509), crossing the C4
+YELLOW threshold (500). The "Current Known God Objects" YELLOW table in
+`docs/development/CODE_QUALITY.md` already lists this file but at a **stale 659 LOC** —
+the file has since been trimmed to 497 (now 509 after the fix). The entry should read
+**509**, not 659. `dev-string-length-dx` could not edit `CODE_QUALITY.md` — it is locked
+by `dev-cursor-drift`, which is itself editing the God Objects list.
+
+**Owner / ETA:** `dev-cursor-drift` to correct the `parameter_manager.py` figure to 509
+as part of its own `CODE_QUALITY.md` edit (it already holds the lock), OR a follow-up
+doc pass once that lock releases. Trivial one-cell change.
 
 ---
 
@@ -850,7 +866,7 @@ WIP "Active Dev Sessions" table is empty. No outstanding locks. No unpushed comm
 | 4.3 | `PianoidCore/pianoid_middleware/pianoid.py` | 2547 (RED, +59) | Carve runtime-params + preset-IO sub-modules |
 | 4.4 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2612 (RED, +23) | Split chart-render vs chart-data-fetch |
 | 4.5 | `ModalAdapter` class in `pianoid_middleware/modal_adapter.py` | 2628-line class | Split by pipeline stage |
-| 4.6 | `PianoidTunner/src/hooks/usePreset.js` (1516, +79) and `src/components/NumInput/NumInput.js` (1565, +89) | RED | Split by responsibility |
+| 4.6 | `PianoidTunner/src/hooks/usePreset.js` (1516, +79) and `src/components/NumInput/NumInput.js` (1537 as of 2026-05-17 cursor-drift fix; was 1565) | RED | Split by responsibility |
 
 Pending: dispatch order TBD by user. Phase 4 is heavy and must be triaged one file at a time.
 
@@ -983,15 +999,19 @@ See [PRESET_SYSTEM_REVISION_PLAN.md](PRESET_SYSTEM_REVISION_PLAN.md) for full an
 
 ---
 
-## NumInput Bidirectional Data Flow — Cursor Drift on Rapid Stepping
+## NumInput Bidirectional Data Flow — Cursor Drift on Rapid Stepping (CLOSED 2026-05-17)
 
-**Status:** Partially fixed. Core bidirectional issues resolved; cursor drift during rapid arrow/wheel remains.
+**Status:** CLOSED. The cursor-drift open issue was resolved by `dev-cursor-drift`
+on PianoidTunner branch `feature/cursor-drift-fix` (2026-05-17): the three
+competing caret-restore mechanisms were collapsed to the single `useLayoutEffect`,
+and digit-anchored exponent-caret math (`anchorExponentCaret`) was added so an
+exponent digit rollover no longer drifts the caret. Regression coverage:
+`PianoidTunner/src/components/__tests__/numinput-cursor.test.jsx` (5 tests).
 
-Seven issues were fixed in `NumInput.js`, `PropertyInput.jsx`, and `usePreset.js` to stabilize the digital input components when connected to the live backend. The remaining open issue is cursor position drift during rapid arrow key or scroll wheel stepping — caused by React's controlled input pattern resetting the cursor on each render cycle.
-
-See [DIGITAL_INPUT_ANALYSIS.md](DIGITAL_INPUT_ANALYSIS.md) for full root cause analysis, fixes applied, and potential solutions for the cursor drift.
-
-**Branch:** `feature/fix-bidirectional-input` in PianoidTunner
+The earlier bidirectional-data-flow stabilization (`feature/fix-bidirectional-input`)
+is long since merged to `dev`. See
+[DIGITAL_INPUT_ANALYSIS.md](DIGITAL_INPUT_ANALYSIS.md) (reconciled 2026-05-17) for
+the full record.
 
 ---
 
