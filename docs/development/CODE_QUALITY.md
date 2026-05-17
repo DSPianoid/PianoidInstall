@@ -463,10 +463,10 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
 | 6 | `PianoidCore/pianoid_middleware/pianoid.py` | 2488 | Main synthesis orchestrator; preset loading + parameter routing + playback + more |
 | 7 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2231 | Stabilization diagram — data prep + ECharts config + interaction + sub-panels |
-| 8 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1476 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns |
+| 8 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1537 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns. (2026-05-17 cursor-drift fix trimmed it 1565→1537; still RED — full split is the open numinput-inventory rec #4.) |
 | 9 | `PianoidTunner/src/hooks/usePreset.js` | 1437 | Preset hook — WS + REST + debounce + optimistic UI + available notes |
 | 10 | `PianoidTunner/src/hooks/useModalAdapter.js` | 1356 | Modal adapter hook — REST + WS + project state + ESPRIT triggers |
-| 11 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1303 | Calibration — direct correction + bisection + sequence + I/O |
+| 11 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1324 | Calibration — direct correction + bisection + sequence + I/O |
 | 12 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/mode_tracking.py` | 1215 | Mode tracking — proposals + assignment + lifecycle + scoring |
 | 13 | `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu` | 1122 | GPU memory manager — allocation + pooling + tracking |
 | 14 | `PianoidTunner/src/modules/ModalAdapter.jsx` | 1077 | Modal adapter page — layout + multi-pane config + top-level state |
@@ -484,7 +484,6 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |
 | `PianoidBasic/Pianoid/StringMap.py` | 686 |
 | `PianoidCore/pianoid_middleware/test_backendserver_audio.py` | 664 |
-| `PianoidCore/pianoid_middleware/parameter_manager.py` | 659 |
 | `PianoidCore/pianoid_cuda/AsioAudioInterface.cpp` | 656 |
 | `PianoidTunner/src/components/CurveEditor.jsx` | 655 |
 | `PianoidTunner/src/components/ChartSelector.jsx` | 634 |
@@ -493,12 +492,15 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/esprit_core.py` | 586 |
 | `PianoidBasic/Pianoid/Pitch.py` | 570 |
 | `PianoidTunner/src/components/newWindowChart.jsx` | 557 |
+| `PianoidCore/pianoid_middleware/pianoidMidiListener.py` | 541 |
 | `PianoidCore/pianoid_middleware/synthesis_tuner.py` | 538 |
 | `PianoidTunner/src/components/ToolBar.jsx` | 532 |
 | `PianoidTunner/src/components/Excitation.jsx` | 532 |
 | `PianoidTunner/src/components/CalibrationPanel.jsx` | 518 |
 | `PianoidCore/pianoid_cuda/setup.py` | 516 |
 | `PianoidCore/pianoid_middleware/test_audio_driver.py` | 514 |
+| `PianoidTunner/src/hooks/useSettings.js` | 514 |
+| `PianoidCore/pianoid_middleware/parameter_manager.py` | 509 |
 | `PianoidCore/pianoid_middleware/ChartRegistry.py` | 507 |
 | `PianoidCore/pianoid_cuda/SDL3AudioDriver.cpp` | 506 |
 

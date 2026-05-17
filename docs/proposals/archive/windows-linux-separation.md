@@ -1,6 +1,6 @@
 # Windows / Linux Track Separation Proposal
 
-**Status:** Draft for review (dev-3b60, 2026-05-05)
+**Status:** FULLY IMPLEMENTED — F1-F4 all landed (F1-F3 commit `7dcc69d`, dev-3b60, 2026-05-05; F4 dev-winlinux-f4, 2026-05-17). Archived.
 **Driver request:** "Propose clear separation between windows and Linux tracks. Make sure both of them are functioning correctly."
 **Scope:** Build/install/startup machinery in PianoidInstall + PianoidCore
 
@@ -131,6 +131,12 @@ Recommendation: **Option A** — cleanest. Both `build_pianoid_cuda.{bat,sh}` al
 Trivial one-liner. Three references in the `.bat` (lines 13, 36, 119).
 
 ### F4. Document the cross-platform shell wrapper invariant (priority: low)
+
+**Status: DONE** — dev-winlinux-f4, 2026-05-17. Added a `## Cross-Platform
+Shell Wrappers` section to `docs/architecture/BUILD_SYSTEM.md` containing the
+invariant plus a self-contained sibling-pairs table (the table was inlined
+into the build doc rather than referenced here, so the build doc does not
+depend on this now-archived proposal).
 
 Add to `docs/architecture/BUILD_SYSTEM.md`:
 
@@ -314,10 +320,11 @@ Do NOT bundle these into one commit — each is independently reviewable and rev
 
 ## 11. Acceptance
 
-This proposal is a recommendation, not a plan of record. Awaiting user decisions on:
-- F1 (replicate `.gitattributes`): proceed?
-- F2 (move venv relocation runtime): proceed? Option A/B/C?
-- F3 (fix `start-pianoid.bat` casing): proceed?
-- F4 (document invariant): proceed?
+All four recommended fixes were accepted and have landed:
+- F1 (replicate `.gitattributes` to the 3 sub-repos): DONE — commit `7dcc69d` (dev-3b60, 2026-05-05).
+- F2 (move venv relocation runtime — Option A, `PIANOID_VENV_DIR` env var): DONE — commit `7dcc69d` (dev-3b60, 2026-05-05).
+- F3 (fix `start-pianoid.bat` casing): DONE — commit `7dcc69d` (dev-3b60, 2026-05-05).
+- F4 (document the cross-platform shell-wrapper invariant in `BUILD_SYSTEM.md`): DONE — dev-winlinux-f4, 2026-05-17.
 
-If accepted, will be tracked under `docs/development/WORK_IN_PROGRESS.md` and broken into per-fix dev sessions.
+This proposal is fully implemented and archived. The Section 4 naming/file-layout
+convention and the F4 invariant now live in `docs/architecture/BUILD_SYSTEM.md`.

@@ -135,6 +135,21 @@ efficient than calling the single-string API N times.
 Both methods return `false` if the parameter name is not found or if the async update
 pipeline drops the request (governed by `UpdatePolicy`).
 
+### Derived parameters must be sent explicitly (granular path)
+
+The granular path sends **only** the parameters present in the incoming update dict —
+it does **not** repack via `PhysicalParameters.pack()`. The bulk path *does* repack, so
+`pack()` recomputes every derived value (notably `dx = length / p_main`) automatically.
+
+This asymmetry matters for **geometry-derived** parameters. `length` (main-section
+physical length, metres) is *not* a GPU parameter — only `dx` (index 7) is. When `length`
+changes on the granular path, the middleware must **recompute `dx` and add it to the
+update dict itself**; otherwise the GPU `dx` slot keeps its stale preset-load value and
+the edit has no audible effect. `ParameterManager.update_pitch_physical_params_GRANULAR`
+does this: on a `length` edit it injects `params['dx'] = pitch.geometry.dx()` so the
+upload loop sends `updateMultiStringParameter_NEW("dx", ...)`. See
+`docs/architecture/DATA_FLOWS.md` §2.1.
+
 ---
 
 ## Bulk API (Preset-Based)

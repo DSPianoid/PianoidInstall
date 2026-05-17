@@ -48,7 +48,7 @@ The component is **fully synchronous** internally — no debounce. Edits commit 
 ### Known issues / TODOs / dead code
 
 - `NumInput.js:60-62`, `176-178`, `1102-1104`: empty `useEffect`s left as placeholders ("No logs needed", "intentionally empty"). Cosmetic noise.
-- Dual cursor-restoration paths: `pendingCursorRef` + `useLayoutEffect` (modern, lines 184-189) co-exists with `setTimeout(..., 0)` based `preserveCursorPosition` (legacy, lines 541-562, 622-627). One should probably be removed once the modern path is verified safe.
+- ~~Dual cursor-restoration paths: `pendingCursorRef` + `useLayoutEffect` (modern, lines 184-189) co-exists with `setTimeout(..., 0)` based `preserveCursorPosition` (legacy, lines 541-562, 622-627). One should probably be removed once the modern path is verified safe.~~ **RESOLVED 2026-05-17 (dev-cursor-drift):** the legacy `setTimeout` `preserveCursorPosition` path and the `requestAnimationFrame` path added later by `d27770a` were both removed; the single `useLayoutEffect` is now the sole caret-restore mechanism. See `DIGITAL_INPUT_ANALYSIS.md` "Cursor Position Drift — RESOLVED".
 - The Apply-button branch (`handleApplyClick`, lines 997-1032) builds a synthetic Enter event — works, but a shared `commitValue()` helper would dedupe the Enter handler.
 - The sign-flip case for exponent step at "right after sign" returns `0` (lines 451-453, 477-479) — special-cased and not obvious.
 

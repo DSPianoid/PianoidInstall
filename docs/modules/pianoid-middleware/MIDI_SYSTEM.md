@@ -171,6 +171,35 @@ The frontend (`PianoidTunner/src/components/MidiComponent.jsx`) bootstraps state
 
 ---
 
+## Validation (W5 Phase 4)
+
+The W5 Phase 4 gate closed Sequence A of the MIDI refactor with a regression
+suite covering every layer the W1-W4 waves touched. All tests render through
+the deterministic offline path (`runOfflinePlayback`, audio_off) or drive the
+ingress contract directly — no audio driver, no hardware MIDI port.
+
+| Test file | Layer | What it locks down |
+|---|---|---|
+| `tests/system/test_kernel_midi_batch.py` | CUDA kernel (W1 Phase 1) | Per-cycle batch envelope: same-cycle 2-/12-note chords, NOTE_ON+NOTE_OFF, NOTE_ON+TEST_STRING_ONLY, NOTE_ON+TEST_MODE_ONLY, 300-event `MAX_EVENTS_PER_CYCLE` overflow. |
+| `tests/system/test_backend_midi_ingress.py` | Middleware ingress (W1 P0 / W3 P2 / W4 P3) | `emit_midi_note_event` note-only filter (16 channels; CC / program-change / pitch-wheel / sysex dropped), broadcast switchability (off → no `socketio.emit`, on → resumes), `schedule_event` dispatch incl. a 4-note × 20-rep chord stress with 0 drops. |
+| `tests/system/midi_latency.py` | Ingress hot path | Dispatch-leg latency: `schedule_event` median / 95p / 99p over 2000 events + a 4-note chord-burst measurement. Standalone (`python tests/system/midi_latency.py`) or one pytest test asserting the Gate 3 budget (median < 7 ms, 99p < 12 ms). |
+
+**Latency legs.** The press-to-sound path has three legs: (1) rtmidi hardware
+poll pickup, (2) `schedule_event` → `RealTimeEventBuffer.pushEvent`, (3) cycle
+drain → kernel → audio out. `midi_latency.py` measures leg 2 — the only leg
+the refactor changed and the only one deterministically measurable without
+audio hardware. Leg 1 needs a physical MIDI keyboard or a `loopMIDI` virtual
+cable (rtmidi's Windows winmm backend has no programmatic virtual port), so it
+is a manual sign-off item. Leg 3 is fixed engine geometry
+(`samples_per_cycle / sample_rate`).
+
+**TEST_MODE_ONLY coverage.** The same-cycle NOTE_ON + TEST_MODE_ONLY tests
+self-skip when the `TEST_MODE_ONLY` EventType is not pybind-bound — it is
+C++-only until Sequence B / Phase 5 binds it. The kernel-level fix is still
+exercised through the C++ offline path; only the Python-driven variant skips.
+
+---
+
 ## MidiListener Class
 
 **File:** `pianoidMidiListener.py`

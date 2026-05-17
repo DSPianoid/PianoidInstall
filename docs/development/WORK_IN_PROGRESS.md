@@ -183,6 +183,18 @@ during Phase 2 work.
 
 ---
 
+## `test_sound_output_quality` slow `soundTone` autocorrelation (dev-midi-p4, 2026-05-16)
+
+**Observation.** `tests/system/test_performance_audio_off.py::TestSoundOutputQuality::test_sound_output_quality` can exceed the pytest per-test timeout on a busy machine. The hang is in `pianoid_middleware/SoundFeatures.py:soundTone()` — it runs a `while` loop calling `pandas.Series.autocorr(i)` (each call O(n) over the full series) for up to `len(sound)/2` lags, i.e. O(n²) over the ~144k-sample C4 render.
+
+**Not a regression.** The render is deterministic; the test passes when the CPU is idle and times out when many processes compete (observed during W5/Phase-4 validation, with several GPU test processes + MCP servers running). dev-midi-p4 verified `TestSoundRegression`, `TestGpuCycleTiming`, `TestTimingDistribution` all pass — only `test_sound_output_quality` is affected.
+
+**Suggested fix (deferred — out of W5/Phase-4 scope, `SoundFeatures.py` is not a MIDI file).** Replace the per-lag `pandas.autocorr` loop with a single vectorised autocorrelation (`numpy.correlate` / FFT-based `scipy.signal.correlate`), then pick the period from the result. One O(n log n) pass instead of O(n²) lag-by-lag.
+
+**Owner / ETA.** Not allocated. Filed by dev-midi-p4 during Phase 4 validation.
+
+---
+
 ## Multichannel Hankel — Phase B follow-ups (dev-mch, 2026-05-09)
 
 **Phase A status:** Wired through end-to-end. `use_multichannel` flows
@@ -367,7 +379,7 @@ zero-T_eff scenarios fully recovered; one residual remains.
 preserved by adding explicit `tracking_method="sliding_window"` where the test depended
 on the old default; one test (`test_modal_adapter_grid_layout::test_default_tracking_method_unchanged`)
 was renamed to assert the new default.  See
-[`MODE_TRACKING_NUCLEI_MERGE.md` § 8 "Default Promotion"](MODE_TRACKING_NUCLEI_MERGE.md#8-default-promotion-dev-d773-2026-05-05).
+[`archive/MODE_TRACKING_NUCLEI_MERGE.md` § 8 "Default Promotion"](archive/MODE_TRACKING_NUCLEI_MERGE.md#8-default-promotion-dev-d773-2026-05-05).
 
 ### Deferred follow-ups
 
@@ -495,10 +507,10 @@ the **hard removal** in a follow-up `/dev` session. Removal scope:
    - Remove the entire `TestSequentialDeprecation` class.
    - Remove all tests that specify `tracking_method="sequential"` (test_sequential_*,
      SEQ shorthand at L30, etc.) — roughly half the file, currently ~500 LOC.
-4. **Docs** — `MODE_TRACKING_REDESIGN.md`:
-   - Either retire the doc entirely (it becomes pure historical curiosity) or trim it
-     to just the sliding-window section. The cost-function design § 4.2-4.4 is
-     sequential-only.
+4. **Docs** — `archive/MODE_TRACKING_REDESIGN.md` (archived 2026-05-16, docs-modetrack-streamline):
+   - Already retired to the archive as historical design rationale. The cost-function
+     design § 4.2-4.4 is sequential-only; no further action needed beyond the archival
+     unless the hard-removal author wants to trim it.
    - Update `MODAL_ADAPTER_GUIDE.md`'s tracking-method table to drop the second column
      and remove the "DEPRECATED" callout.
 5. **Frontend** — check `PianoidTunner` for any UI control exposing `tracking_method`
@@ -837,7 +849,7 @@ WIP "Active Dev Sessions" table is empty. No outstanding locks. No unpushed comm
 | 4.3 | `PianoidCore/pianoid_middleware/pianoid.py` | 2547 (RED, +59) | Carve runtime-params + preset-IO sub-modules |
 | 4.4 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2612 (RED, +23) | Split chart-render vs chart-data-fetch |
 | 4.5 | `ModalAdapter` class in `pianoid_middleware/modal_adapter.py` | 2628-line class | Split by pipeline stage |
-| 4.6 | `PianoidTunner/src/hooks/usePreset.js` (1516, +79) and `src/components/NumInput/NumInput.js` (1565, +89) | RED | Split by responsibility |
+| 4.6 | `PianoidTunner/src/hooks/usePreset.js` (1516, +79) and `src/components/NumInput/NumInput.js` (1537 as of 2026-05-17 cursor-drift fix; was 1565) | RED | Split by responsibility |
 
 Pending: dispatch order TBD by user. Phase 4 is heavy and must be triaged one file at a time.
 
@@ -970,15 +982,19 @@ See [PRESET_SYSTEM_REVISION_PLAN.md](PRESET_SYSTEM_REVISION_PLAN.md) for full an
 
 ---
 
-## NumInput Bidirectional Data Flow — Cursor Drift on Rapid Stepping
+## NumInput Bidirectional Data Flow — Cursor Drift on Rapid Stepping (CLOSED 2026-05-17)
 
-**Status:** Partially fixed. Core bidirectional issues resolved; cursor drift during rapid arrow/wheel remains.
+**Status:** CLOSED. The cursor-drift open issue was resolved by `dev-cursor-drift`
+on PianoidTunner branch `feature/cursor-drift-fix` (2026-05-17): the three
+competing caret-restore mechanisms were collapsed to the single `useLayoutEffect`,
+and digit-anchored exponent-caret math (`anchorExponentCaret`) was added so an
+exponent digit rollover no longer drifts the caret. Regression coverage:
+`PianoidTunner/src/components/__tests__/numinput-cursor.test.jsx` (5 tests).
 
-Seven issues were fixed in `NumInput.js`, `PropertyInput.jsx`, and `usePreset.js` to stabilize the digital input components when connected to the live backend. The remaining open issue is cursor position drift during rapid arrow key or scroll wheel stepping — caused by React's controlled input pattern resetting the cursor on each render cycle.
-
-See [DIGITAL_INPUT_ANALYSIS.md](DIGITAL_INPUT_ANALYSIS.md) for full root cause analysis, fixes applied, and potential solutions for the cursor drift.
-
-**Branch:** `feature/fix-bidirectional-input` in PianoidTunner
+The earlier bidirectional-data-flow stabilization (`feature/fix-bidirectional-input`)
+is long since merged to `dev`. See
+[DIGITAL_INPUT_ANALYSIS.md](DIGITAL_INPUT_ANALYSIS.md) (reconciled 2026-05-17) for
+the full record.
 
 ---
 

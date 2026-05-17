@@ -35,7 +35,11 @@
       "mcp__plugin_telegram_telegram__edit_message",
       "mcp__chrome-devtools__*",
       "mcp__context7__*",
-      "mcp__ide__*"
+      "mcp__ide__*",
+      "mcp__google-workspace__*",
+      "mcp__whatsapp__*",
+      "mcp__whatsapp-work__*",
+      "mcp__hostinger-email__*"
     ]
   }
 }

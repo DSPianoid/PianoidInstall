@@ -153,6 +153,44 @@ Reference memory (read-only, not for editing):
 
 ---
 
+## Cross-Platform Shell Wrappers
+
+Pianoid's build/install/launch machinery is delivered as **sibling `.bat`/`.sh`
+pairs** — one Windows batch script and one Linux shell script per function.
+Each pair is maintained as a single logical unit.
+
+> **Invariant:** Every Windows `.bat` shell wrapper has a Linux `.sh` sibling
+> with identical step structure, identical flags, and identical exit
+> semantics. When editing one, audit the other for divergence — a
+> platform-agnostic change (a new flag, a renamed target, a reordered step)
+> MUST be mirrored in the sibling. The two diverge only where the OS
+> genuinely differs (NTFS venv relocation, `lsof` vs `tasklist` for lock
+> detection, `cmd //c` vs direct shell invocation).
+
+### The sibling pairs
+
+| Function | Windows | Linux |
+|---|---|---|
+| Install system packages | `setup-packages.bat` | `setup-packages.sh` |
+| Install Pianoid (venv + builds) | `setup-pianoid.bat` | `setup-pianoid.sh` |
+| Launch full stack | `start-pianoid.bat` | `start-pianoid.sh` |
+| Build PianoidBasic wheel | `PianoidCore/build_pianoid_basic.bat` | `PianoidCore/build_pianoid_basic.sh` |
+| Build PianoidCuda extension | `PianoidCore/build_pianoid_cuda.bat` | `PianoidCore/build_pianoid_cuda.sh` |
+
+The repo-root `build_pianoid_basic.bat` / `build_pianoid_cuda.bat` are thin
+launcher wrappers; the canonical build pair is the one under `PianoidCore/`.
+
+Windows-only and Linux-only scripts (bootstrap installers, distro
+package-manager logic) have no sibling by design — see the per-platform
+breakdown in [`docs/proposals/archive/windows-linux-separation.md`](../proposals/archive/windows-linux-separation.md).
+
+This invariant exists because the `.bat`/`.sh` pair model relies on developer
+discipline: there is no build-time check that the two stay in sync, so a
+fix applied to one and forgotten in the other silently rots the other
+platform's track.
+
+---
+
 ## Venv Location — Always `PianoidCore/.venv/`
 
 The working venv with `pianoidCuda`, `numpy`, Flask and all other dependencies is

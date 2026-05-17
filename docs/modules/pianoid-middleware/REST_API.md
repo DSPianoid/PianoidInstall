@@ -733,6 +733,26 @@ Response `200`:
 
 Response `417` if pianoid is in exception state.
 
+**Coexistence with the MIDI listener (dev-midi-play 2026-05-15).** `POST /play`
+and WS `play` schedule notes **regardless of whether the unified MIDI listener
+is running** (`listen_to_midi=1` / `POST /midi/start`). UI-originated play —
+on-screen virtual piano, space-bar hotkey, Excitation editor, calibration —
+and inbound hardware MIDI coexist: both routes converge on the thread-safe
+`Pianoid.schedule_event(...)` → `RealTimeEventBuffer`, which serialises
+concurrent producers (see [MIDI System](MIDI_SYSTEM.md)). There is no
+exclusive-ownership lock between the two paths.
+
+A legacy `if pianoid.listen` short-circuit used to drop every `/play` (and WS
+`play`) request while the listener thread was alive — returning `200 OK` but
+enqueueing nothing. It was a relic of the pre-unified `MidiListener` design
+where the listener owned the engine exclusively; the W4 Phase 3 frontend MIDI
+panel (which lets the user start the listener at runtime) exposed it as a
+regression — the on-screen keyboard and space-bar fell silent whenever MIDI
+listening was on. The gate was removed (CODE_QUALITY.md **P1**: the play
+path's admission authority is the lifecycle state `PLAYBACK_ACTIVE`, enforced
+inside `schedule_event` — not the unrelated listener flag). Regression test:
+`tests/unit/test_play_listen_gate_regression.py`.
+
 ---
 
 ### `POST /play_mode/<mode_no>`
@@ -1452,9 +1472,16 @@ Response `200` (in progress):
   },
   "corrections": {
     "48": {"3": 1.23}
-  }
+  },
+  "step": "calibrate_synthesis",
+  "message": "Synthesis cal: pitch 57 (10/84)",
+  "clipping_pass": false
 }
 ```
+
+- `step`: name of the current pipeline step (e.g. `calibrate_synthesis`, `calibrate_acoustic`). `null` before the first progress emission.
+- `message`: human-readable progress message for the current step.
+- `clipping_pass`: `true` while `calibrate_synthesis` is running its **second sweep**. The synthesis step is single-pass, but when it detects that pitches would clip it reduces the target level and re-runs every pitch — so `progress` legitimately restarts `0.0 → 1.0` a second time. The frontend uses this flag to label the rerun ("Pass 2/2: clipping correction") instead of showing what looks like an unexplained restart. Reset to `false` at the start of each calibration and once the step completes.
 
 ---
 
