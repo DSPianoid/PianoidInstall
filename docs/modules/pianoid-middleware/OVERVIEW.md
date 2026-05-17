@@ -90,6 +90,52 @@ Key methods called by the REST layer:
 - `load_preset_to_library(path, preset_name)` — loads a preset JSON into the GPU library without activating it
 - `switch_preset(preset_name, async_switch)` — switches the active preset via double-buffer swap
 - `get_library_presets()` / `get_active_preset()` / `unload_preset(preset_name)` — preset library management
+- `load_deck_from_txt(preset_path, num_modes)` — overlay `Ci_coef_cos.txt` / `Ci_coef_str.txt` / `Ci_str_out.txt` modes coefficients from an FPGA preset directory onto the live `StringMap` deck (feedin / feedback / sound_coefficients), leaving excitation untouched
+- `load_excitation_from_fpga_preset(preset_path, main_volume, apply_ind_vol, apply_ind_mult)` — overlay `exp_all.txt` + `ind_vol_0..4.txt` + `ind_mult_0..4.txt` Gauss excitation parameters from an FPGA preset directory onto the live `StringMap` excitation block. See **Loading FPGA presets** below
+
+### Loading FPGA presets
+
+FPGA preset dumps (e.g. `PresetsFromFpga/Bl_Apr_19/`) hold the excitation
+source in `exp_all.txt` (per-Gauss-component `mu`, `sigma`, `volume` for
+5 velocity levels × 88 piano pitches × 5 Gauss components) plus two
+per-(pitch, level) coefficient files: `ind_vol_0..4.txt` (volume multiplier)
+and `ind_mult_0..4.txt` (time-scale coefficient).
+[Schema details](../../proposals/fpga-preset-excitation-loader-2026-05-17.md).
+
+`Pianoid.load_excitation_from_fpga_preset()` decodes those files and writes
+the resulting `(5, 4, 5)` Gauss matrix into each pitch's
+`ExcitationParameters.levels_matrix` (5-level FPGA data is auto-migrated to
+the framework's 6-level base and extrapolated to 128 levels).
+
+The loader does **not** touch deck modes, sound channels, physics, or
+ESPRIT-side data — it only updates the excitation block. To replace deck
+coefficients, call `load_deck_from_txt()` separately.
+
+**Volume calibration.** FPGA volumes are dimensionless (range
+`[-0.6, 0.4]`); framework presets carry CUDA-side excitation amplitudes
+in `[1e7, 1e10]`. The `main_volume` argument is a scalar applied to the
+FPGA volume slot before `ind_vol` multiplication. For the Belarus preset
+family, `main_volume = 8.35e9` produces a per-pitch median |volume| of
+~3.08e8, matching the source `Belarus_8band_196modes.json` median
+(3.18e8) within 3%.
+
+**Skipped pitches.** FPGA covers MIDI 21..108 (A0..C8, 88 keys). If the
+host preset omits any of those pitches (e.g. Belarus omits 21, 22, 107,
+108), the loader silently skips them — only pitches present in the live
+`StringMap.pitches` dict are wired.
+
+**Known quirk: `ind_vol` row 88.** The FPGA `ind_vol_*.txt` files have
+128 lines each (FPGA-addressed); rows 0..87 are real per-piano-key data
+and row 88 (1-indexed file line 89) carries an off-by-one artifact value
+the loader silently drops via the `[:88, :]` slice. Rows 89+ are zero
+padding.
+
+**Building a new preset.** `tools/generate_belarus_fpga_preset.py` shows
+the canonical recipe: load a base preset JSON, instantiate `Pianoid` with
+it, call `load_excitation_from_fpga_preset(...)`, then `save_preset(...)`
+to a new path. The result (`presets/Belarus_8band_196modes_FPGAexc.json`)
+keeps Belarus modes / deck / sound channels intact and only swaps in the
+FPGA Gauss parameters.
 
 ### `ParameterManager` (parameter_manager.py)
 
