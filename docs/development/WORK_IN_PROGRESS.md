@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-drawable-finish | Drawable Chart Merge — finish Wave 2/3 deletions + Wave 4 (Perception) + Wave 5 (cleanup) | [log](logs/dev-drawable-finish-2026-05-16-211806.md) | 2026-05-16 | In Progress |
 
 ---
 
