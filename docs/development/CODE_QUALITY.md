@@ -463,7 +463,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
 | 6 | `PianoidCore/pianoid_middleware/pianoid.py` | 2488 | Main synthesis orchestrator; preset loading + parameter routing + playback + more |
 | 7 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2231 | Stabilization diagram — data prep + ECharts config + interaction + sub-panels |
-| 8 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1476 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns |
+| 8 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1537 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns. (2026-05-17 cursor-drift fix trimmed it 1565→1537; still RED — full split is the open numinput-inventory rec #4.) |
 | 9 | `PianoidTunner/src/hooks/usePreset.js` | 1437 | Preset hook — WS + REST + debounce + optimistic UI + available notes |
 | 10 | `PianoidTunner/src/hooks/useModalAdapter.js` | 1356 | Modal adapter hook — REST + WS + project state + ESPRIT triggers |
 | 11 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1324 | Calibration — direct correction + bisection + sequence + I/O |

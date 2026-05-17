@@ -1,5 +1,15 @@
 # Digital Input Component — Bidirectional Data Flow Analysis
 
+> **Reconciled 2026-05-17 by dev-cursor-drift.** This doc was first written
+> 2026-03-25 against `NumInput.js` commit `c6701a4`. Two reworks have landed
+> since: `PianoidTunner@d27770a` (2026-04-22, caret-restore refactor) and the
+> `feature/cursor-drift-fix` branch (2026-05-17 — collapsed the three competing
+> caret-restore mechanisms to one and added digit-anchored exponent-caret math).
+> The "Cursor Position Drift" section below has been rewritten to the post-fix
+> truth; the older stale narrative was removed. The fresh deep investigation
+> that drove the fix is archived at
+> `docs/proposals/archive/cursor-drift-analysis-2026-05-17.md`.
+
 ## Problem Statement
 
 The digital input components (primarily `NumInput`) work correctly in sandbox mode (frontend-only, no backend), but fail when connected to the live backend with bidirectional data flow. This document traces the root causes and records fixes applied.
@@ -10,10 +20,14 @@ The digital input components (primarily `NumInput`) work correctly in sandbox mo
 
 | Component | File | Role |
 |-----------|------|------|
-| **NumInput** | `src/components/NumInput/NumInput.js` | Primary numeric editor (~1500 lines), deferred-commit pattern |
-| **PropertyInput** | `src/components/PropertyInput.jsx` | Slider + number input, reactive pattern |
+| **NumInput** | `src/components/NumInput/NumInput.js` | Primary numeric editor (1537 LOC), deferred-commit pattern |
 | **Strings** | `src/components/Strings.jsx` | String parameter grid, consumes NumInput |
 | **usePreset** | `src/hooks/usePreset.js` | Data layer — optimistic updates + debounced API calls |
+
+> `PropertyInput.jsx` (the slider + number reactive component) was **deleted**
+> by dev-f259 on 2026-05-02 along with five other dead components — see the
+> RESOLVED note in `docs/development/reviews/numinput-inventory-2026-05-01.md`.
+> Fix 4 below is retained as a historical record only.
 
 ---
 
@@ -51,34 +65,59 @@ The exponential equivalence check used `Math.abs(a - b) < Number.EPSILON`, which
 
 ---
 
-## Open Issue: Cursor Position Drift During Rapid Changes
+## Cursor Position Drift — RESOLVED (2026-05-17, `feature/cursor-drift-fix`)
 
-**Status:** Partially mitigated, not fully resolved.
+**Status:** Resolved. Single caret-restore mechanism + digit-anchored exponent caret.
 
-### Problem
+### Original problem
 
-When arrow keys or scroll wheel are used rapidly on any NumInput field (decimal or exponential), the cursor drifts to the end of the input. For exponential fields, this causes the cursor to land in the exponent part, so subsequent steps change the exponent instead of the intended mantissa digit.
+When arrow keys or the scroll wheel were used on a NumInput field, the caret
+could drift away from the digit being edited. For exponential fields the caret
+landed in the wrong part of the exponent, so subsequent steps changed the wrong
+power of ten.
 
-### Root Cause
+### Root cause (as finally diagnosed)
 
-React's controlled input pattern: when `setDisplayValue(newString)` triggers a re-render, React sets `input.value = newString` on the DOM element, which causes the browser to reset the cursor to end-of-string. Each arrow press triggers **two** render cycles — one from local state (`setDisplayValue`) and one from the parent re-rendering after `onChange`. The second render resets the cursor after any restoration from the first.
+React's controlled-input pattern resets the caret to end-of-string whenever
+`setDisplayValue(newString)` re-renders the `<input>`. An arrow step triggers
+**two** commits — one from `setDisplayValue`, one from the parent re-rendering
+after `onChange`. The original code tried to fix this with **three** competing
+caret-restore mechanisms — a `useLayoutEffect`, a legacy `setTimeout`-based
+`preserveCursorPosition`, and (after `d27770a`) a `requestAnimationFrame` inside
+`scheduleCursorRestore`. They fired at different times relative to the React
+commit; whichever ran last won, which is the structural fragility behind
+"drift under rapid input". Separately, the exponent-step path saved the caret
+as a **raw character offset**: when an exponent digit rolled over (`e+9` →
+`e+10`) the display string changed length, so re-applying the same integer
+offset put the caret on a different logical digit.
 
-### Mitigations Applied
+### The fix
 
-1. **`pendingCursorRef`** — A persistent ref set by arrow/wheel handlers with the desired cursor position. A `useLayoutEffect` (synchronous, post-DOM) restores the cursor on every render while the ref is set.
-2. **`updateDisplayValue` guard** — When `pendingCursorRef` is active, skips the `preserveCursorPosition` setTimeout chain that would overwrite the position from a competing render.
-3. **Deliberate clear** — `pendingCursorRef` is cleared only on user-initiated actions: typing, clicking, blur, Enter, Escape.
+1. **One caret-restore mechanism.** The legacy `setTimeout`
+   `preserveCursorPosition`, the inline `setTimeout` in `handleInputChange`, and
+   the `requestAnimationFrame` half of `scheduleCursorRestore` were all removed.
+   The single `useLayoutEffect` is now the **sole** writer of the post-render
+   caret — it runs synchronously after *every* commit (including the parent
+   re-render), so it alone correctly survives the two-commit step sequence.
+   `scheduleCursorRestore` is now a one-line `pendingCursorRef` setter.
+2. **Digit-anchored exponent caret.** New helper `anchorExponentCaret(oldDisplay,
+   newDisplay, oldCaret)` recomputes the caret offset so it stays on the same
+   exponent digit *counted from the end of the exponent's numeric part* — the
+   digit the next step is meant to act on — even when a rollover changes the
+   string length. It is applied at all four exponent-step sites (wheel,
+   ArrowUp/Down, ▲ button, ▼ button).
+3. **Regression test.** `src/components/__tests__/numinput-cursor.test.jsx`
+   (5 tests) covers decimal-field caret stability, exponential-field caret
+   stability across a `9 → 10` exponent rollover, and no-drift when a debounced
+   parent re-render arrives after a step.
 
-These mitigations reduce drift significantly but do not fully eliminate it under rapid input. The fundamental issue is that React's reconciliation can produce more render cycles than the `useLayoutEffect` can keep up with during sustained rapid key repeat.
+This satisfies **P1 (Separation of Authority)** from `CODE_QUALITY.md` — the
+caret position now has exactly one writer (`useLayoutEffect` reading
+`pendingCursorRef`) instead of three racing writers.
 
-### Potential Full Solutions (not yet implemented)
-
-| Approach | Trade-off |
-|----------|-----------|
-| **Uncontrolled input** — Use `defaultValue` + `ref` instead of `value` prop, sync on commit only | Eliminates cursor reset entirely; requires rewrite of display sync logic |
-| **Debounce onChange** — Delay parent notification during stepping, commit on pause | Reduces render cycles; undo history lags behind display |
-| **requestAnimationFrame loop** — Continuously restore cursor while stepping is active | Robust but adds per-frame overhead |
-| **onKeyDown rate limiting** — Ignore arrow repeats faster than render cycle | Limits max step rate but guarantees stability |
+`pendingCursorRef` is still cleared only by deliberate user actions (typing,
+click, blur, Enter/Escape, native arrow/Home/End navigation), so a programmatic
+restore never fights a genuine user caret move.
 
 ---
 
@@ -86,25 +125,22 @@ These mitigations reduce drift significantly but do not fully eliminate it under
 
 ### NumInput State Machine
 
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle: IDLE (not editing)
+    Idle: displayValue = f(value prop)
+    Editing: EDITING (isEditing = true)
+    Editing: displayValue = user's text
+    Editing: onChange NOT called
+    Idle --> Editing: user types
+    Editing --> Idle: Enter / Apply\ncommit — onChange(value)
+    Editing --> Idle: Blur / Escape\ndiscard — revert to prop
 ```
-                      ┌─────────────────────────┐
-                      │    IDLE (not editing)    │
-                      │  displayValue = f(prop)  │
-                      └────────┬────────────────┘
-                               │ user types
-                               ▼
-                      ┌─────────────────────────┐
-                      │   EDITING (isEditing)    │
-                      │  displayValue = user's   │
-                      │  onChange NOT called      │
-                      └──┬──────────┬───────────┘
-                         │          │
-                   Enter/Apply    Blur/Escape
-                         │          │
-                         ▼          ▼
-                   onChange(val)   REVERT to prop
-                   commit edit    discard edit
-```
+
+Arrow / wheel steps do not enter the EDITING state — they commit immediately via
+`onChange` and arm `pendingCursorRef` for the single `useLayoutEffect` to restore
+the caret after the resulting re-renders.
 
 ### Data Flow: User → Engine
 
