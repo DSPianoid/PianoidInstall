@@ -484,7 +484,6 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |
 | `PianoidBasic/Pianoid/StringMap.py` | 686 |
 | `PianoidCore/pianoid_middleware/test_backendserver_audio.py` | 664 |
-| `PianoidCore/pianoid_middleware/parameter_manager.py` | 659 |
 | `PianoidCore/pianoid_cuda/AsioAudioInterface.cpp` | 656 |
 | `PianoidTunner/src/components/CurveEditor.jsx` | 655 |
 | `PianoidTunner/src/components/ChartSelector.jsx` | 634 |
@@ -501,6 +500,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_cuda/setup.py` | 516 |
 | `PianoidCore/pianoid_middleware/test_audio_driver.py` | 514 |
 | `PianoidTunner/src/hooks/useSettings.js` | 514 |
+| `PianoidCore/pianoid_middleware/parameter_manager.py` | 509 |
 | `PianoidCore/pianoid_middleware/ChartRegistry.py` | 507 |
 | `PianoidCore/pianoid_cuda/SDL3AudioDriver.cpp` | 506 |
 

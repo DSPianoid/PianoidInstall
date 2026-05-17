@@ -251,6 +251,23 @@ Validates that `pack_pitch_feedin()` respects the `listen_to_modes` flag when in
 | `TestEndToEndZeroedFeedinProducesSound::test_regular_modes_negligible_vs_sound_channel_modes` | Regular modes have negligible displacement from cross-coupling |
 | `TestStringsModeSilenceOnZeroedFeedin::test_strings_mode_zeroed_feedin_produces_silence` | Strings mode + zeroed feedin + pack_deck → silence (fix validation) |
 
+### test_length_dx_propagation.py
+
+Regression test: editing a string's physical `length` through the granular
+parameter-update path must change the synthesised sound. `length` (metres) is not a GPU
+parameter — only the derived `dx = length / p_main` is — and the granular path does not
+repack via `pack()`, so `dx` must be recomputed and re-sent explicitly. Before the fix,
+a `length` edit updated only the Python model and left the GPU `dx` slot stale (no
+audible change). Verification surface: deterministic offline render.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestLengthDxPropagation::test_dx_invariant_holds` | `StringGeometry.dx() == length / p_main` for the test pitch (sanity) |
+| `TestLengthDxPropagation::test_length_change_changes_sound` | A `length` edit via `update_pitch_physical_params_GRANULAR` changes the offline-rendered waveform well above the engine's render-to-render noise floor (~2.3% RMS); a +20% length edit moves it ~135% RMS |
+| `TestLengthDxPropagation::test_length_change_is_reversible` | Restoring `length` restores the sound to within a few multiples of the noise floor — `dx` tracks `length` in both directions, no hysteresis |
+
+Note: the offline engine is not bit-exact across consecutive renders (`resetStringsState()` does not zero all carried state — mode `q/q_prev`, excitation cycle index, `sound_prev_diff` persist), giving a ~2.3% render-to-render RMS noise floor. Thresholds are set relative to that measured floor.
+
 ### test_modal_pipeline_payload.py
 
 Regression tests for finding F1 (Modal Adapter review, Wave 1) — payload key alignment between frontend `ModalAdapter.jsx` and backend `/modal/run_pipeline`. ESPRIT/tracking/feedin stages are stubbed so the test runs without real measurement data.

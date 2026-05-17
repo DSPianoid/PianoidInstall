@@ -372,6 +372,18 @@ C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
   Next MainKernel launch reads updated values from dev_preset_working_
 ```
 
+**`length` → `dx` derivation (granular path).** `length` (main-section physical
+length, metres) is *not* a GPU parameter — the kernel consumes only the spatial step
+`dx` (`dev_physical_parameters` index 7), where `dx = length / p_main`
+(`StringGeometry.dx()`). The granular path sends only the parameters present in the
+incoming dict, so a `length` edit must explicitly carry the recomputed `dx`.
+`ParameterManager.update_pitch_physical_params_GRANULAR` handles this: on a `length`
+edit it calls `pitch.geometry.set_length(L)`, then injects `params['dx'] =
+pitch.geometry.dx()` so the upload loop sends `updateMultiStringParameter_NEW("dx",
+…)`. Without that injection the GPU `dx` slot keeps its stale preset-load value and the
+edit produces no audible change. (The bulk path `update_pitch_physical_params` is not
+affected — it repacks via `PhysicalParameters.pack()`, which always recomputes `dx`.)
+
 ### 2.2 Excitation Parameters (Base-Levels Path)
 
 Excitation parameters use a base-levels upload path. Python sends only the 6 fixed

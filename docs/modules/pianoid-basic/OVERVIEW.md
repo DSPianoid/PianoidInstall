@@ -118,7 +118,7 @@ Key methods:
 
 ### StringGeometry
 
-File: `StringBlock.py`
+File: `StringState.py`
 
 Describes the spatial discretisation of one piano string. A string has three sections: **main** (speaking length), **tail** (beyond the bridge), and a 2-point **stem** (`STEM_LENGTH = 2`).
 
