@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-cursor-drift | Fix NumInput caret drift — single useLayoutEffect restore + digit-anchored exponent caret + Jest test | [log](logs/dev-cursor-drift-2026-05-17-114553.md) | 2026-05-17 | In Progress |
 
 ---
 
