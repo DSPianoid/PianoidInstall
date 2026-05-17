@@ -4,7 +4,7 @@
 - **Task:** Complete Drawable Chart Merge — finish outstanding Wave 2/3 deletions, execute Wave 4 (Perception) and Wave 5 (cleanup)
 - **Started:** 2026-05-16T18:18:06Z
 - **Plan file:** docs/proposals/DRAWABLE_CHART_MERGE.md
-- **Status:** In Progress
+- **Status:** Complete
 
 ## Actions
 
@@ -192,3 +192,22 @@ This log has interleaved entries from several runs of dev-drawable-finish (the a
 [LOCK RELEASED] PianoidTunner/src/components/SoundChannelsAggregateChart.jsx
 [LOCK RELEASED] PianoidTunner/src/components/SoundChannelsPane.jsx
 [LOCK RELEASED] docs/modules/pianoid-tunner/OVERVIEW.md
+- Note on MODULE_LOCKS.md: the dev-drawable-finish lock row existed only in the working tree (the prior session was at the pre-Step-10 STOP — locks were never committed). Removing the row from the working tree restored MODULE_LOCKS.md to its HEAD state (empty table) → zero diff, nothing to stage. Lock release is complete.
+- PianoidInstall docs commit (master): `8d5bcd9` — OVERVIEW.md (PCE row removed) + session log (first commit) + archived proposal. 3 files, +523 −4.
+
+### Step 10a Phase 1 complete — 2026-05-17T (continuation)
+- All work committed. Locks released. No servers were started by this continuation session (Step-10-only recovery — no build, no backend) so no process hygiene needed.
+
+[STEP-10A-PHASE-1] 2026-05-17T commit=8d5bcd9
+
+### Step 10a Phase 2 — 2026-05-17T (continuation)
+[STEP-10A-PHASE-2] 2026-05-17T
+- Step 10 commit recovery authorized by team-lead in the continuation brief. Proceeding with Phase 2: archive this log + clear the WIP row.
+- Phase 2 commit on PianoidInstall master: archive session log to logs/archive/, remove the dev-drawable-finish row from WORK_IN_PROGRESS.md.
+- Final commit SHAs: PianoidTunner refactor `51cf771`, PianoidTunner dev merge `aae4ed5`, PianoidInstall docs `8d5bcd9`, PianoidInstall Phase 2 archive `21fc08d`.
+
+### Lock-before-write discipline gap — `docs/proposals/DRAWABLE_CHART_MERGE.md` — 2026-05-17T (continuation)
+- Team-lead sent a supplement AFTER the Step 10 commits were already done + pushed: `docs/proposals/DRAWABLE_CHART_MERGE.md` should have been added to the dev-drawable-finish MODULE_LOCKS.md row BEFORE the `git mv` (= filesystem `mv` + `git add`) that archived it. The archiving move is a governed write; lock-before-write applies to docs the same as source.
+- **What actually happened:** the proposal was archived (filesystem `mv` to `docs/proposals/archive/` + `git add`) and committed in `8d5bcd9` without a preceding lock-row entry for it. The lock-before-write ordering was NOT satisfied for that one file. This is recorded honestly rather than hidden.
+- **Why no retroactive fix:** the write is already committed + pushed across 4 commits. Adding then immediately removing a lock row now would not make the past write lock-ordered (the controller's check concerns ordering at write time, which cannot be changed after the fact). Reverting 4 pushed commits to re-do the sequence is far more disruptive than the gap. The correct response is disclosure, not theatre.
+- Process note for future Step-10 recoveries: when a proposal slated for archival is still untracked (`??`), treat the archival `git add` as a write that needs a lock row first — even though the row is removed minutes later at Phase 2.
