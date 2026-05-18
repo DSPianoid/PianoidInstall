@@ -782,7 +782,9 @@ backendserver.py: preset_load_to_library_route()       (line 319)
      ├── Pack all sections into contiguous buffer (~759,040 reals)
      ├── Store in preset_library_ (host-side hash map)
      └── cudaMalloc + cudaMemcpy(H2D) → preset_gpu_library_ (GPU-resident)
-  5. Store Python domain objects (sm, modes, mp) in _library_models dict
+  5. Register a read-only `original` entry in the PresetLibrary registry —
+     PresetEntry{sm, modes, mp, kind="original", source=name, path}
+     (replaces the former _library_models dict — working-copy model below)
 ```
 
 #### Switch Preset
@@ -795,9 +797,13 @@ backendserver.py: preset_switch_route()                 (line 345)
   ─► pianoid.switch_preset(name, async_switch=False)     // pianoid.py:2116
          │
          ▼
-  1. pianoid.saveActiveToLibrary()                        // D2D: working → library
+  0. pianoid.waitForParameterUpdate()                      // drain in-flight update
+     (else switchPreset is silently dropped under DROP_IF_BUSY)
+  1. pianoid.saveActiveToLibrary() — ONLY if the active entry is a `working`
+     copy (working-copy model, Leak 1):                    // D2D: working → library
      └── cudaMemcpy(D2D) dev_preset_working_ → preset_gpu_library_[active]
-         (preserves live parameter edits for later recall)
+         (preserves a working copy's live edits; an `original` is never
+          written back so it stays pristine)
   2. pianoid.switchPreset(name, async=False)               // C++ Pianoid.cu
      └── memory_manager_.switchPreset(name, async)
          ├── Find preset in preset_gpu_library_ (mutex-protected)
@@ -806,12 +812,14 @@ backendserver.py: preset_switch_route()                 (line 345)
          ├── Record completion event, swap buffers
          └── If sync: block until transfer completes
   3. Update compatibility pointers to new working buffer
-  4. Swap Python model: self.sm, self.modes, self.mp ← _library_models[name]
+  4. Swap Python model: self.sm, self.modes, self.mp ← PresetLibrary entry
      (param_manager.{sm,modes,mp} are mirrored too — all three must move
      together; stale mp.num_modes used to overflow or silently truncate
      feedback/output reads, fixed 2026-05-01.)
   5. Repack deck from (now correct) Python model → send_deck_params_to_CUDA()
-  6. Set run_string_map_kernel_ = true, new_notes_ind = 1
+  6. Restore the global volume/feedback surface (volume_level,
+     deck_feedback_coefficient, volume_center, volume_range snapshotted
+     and re-applied — switching is loudness-neutral)
   Playback continues uninterrupted — double-buffer swap is atomic
 ```
 

@@ -960,13 +960,23 @@ See [WEBSOCKET_MIGRATION_ANALYSIS.md](archive/WEBSOCKET_MIGRATION_ANALYSIS.md) f
 
 ---
 
-## Preset System Revision — Per-Preset Runtime State & Complete Switch
+## Preset System Revision — Per-Preset Runtime State & Complete Switch (SUPERSEDED 2026-05-18)
 
-**Status:** Planned. Implementation pending.
+**Status:** SUPERSEDED by the Preset Working-Copy Model (dev-bfe2, 2026-05-18).
+The per-preset `runtime` dict design below was the original proposal; the
+user instead chose **global library-wide** volume/feedback. The revalidation
+review confirmed `switch_preset` already snapshots/restores volume/feedback,
+so "global" aligned with current behaviour and no per-preset `runtime` dict
+was needed. The still-valid quick wins (the missing `getAvailableNotes()`
+after switch, the `switchingRef` concurrency guard) were folded into the
+working-copy task and implemented. See
+[`docs/proposals/preset-working-copy-model-2026-05-17.md`](../proposals/preset-working-copy-model-2026-05-17.md)
+(the superseding proposal) and the archived original at
+[`docs/proposals/archive/preset-system-revision-plan-2026-04-09.md`](../proposals/archive/preset-system-revision-plan-2026-04-09.md).
 
 Volume and feedback are global runtime parameters that persist across preset switches — switching from a loud preset A to quiet B and back loses A's volume/feedback settings. Additionally, available notes are not refreshed after switch (stale keyboard), the frontend MIDI feedback slider position is lost (lossy reverse mapping from coefficient), and rapid `[`/`]` key presses can interleave switch requests.
 
-The fix adds a `runtime` dict to each `_library_models[name]` entry (backend-authoritative), saves/restores `RuntimeParameters` during `switch_preset()`, enriches the `/preset/switch` response with volume/feedback/sensitivity values, and updates the frontend to consume these values and refresh available notes.
+The original fix added a `runtime` dict to each `_library_models[name]` entry (backend-authoritative), saved/restored `RuntimeParameters` during `switch_preset()`, enriched the `/preset/switch` response with volume/feedback/sensitivity values, and updated the frontend to consume these values and refresh available notes. **This per-preset design was dropped** — see the superseded status above.
 
 **Sound-channel cache silence on preset switch — resolved (2026-04-20, Wave B).** Independent of the planned runtime-state work, preset transitions could silence Strings mode because in-flight debounced `changeSoundChannelValues` / `changeSoundChannelFeedback` writes from the outgoing preset resolved after the refetch and merged stale pitch keys back via `setSoundChannelData(prev => ...)`. Fixed by clearing `soundChannelData` + `soundChannelFeedbackMatrix` to `null` at the top of `loadPreset()` and `switchPreset()` in `usePreset.js`, before the async refetch.
 
@@ -974,12 +984,16 @@ The fix adds a `runtime` dict to each `_library_models[name]` entry (backend-aut
 
 **useMatrixHistory undo crash on rapid edits — resolved (2026-04-21, dev-sc-tooltip-rowcol).** Pre-existing P1-violation latent since the hook was written. `recordChange` used a stale closure for `currentStep` when slicing the history array — in a burst of clicks within one React batch, every call saw the same captured `currentStep`, so `setHistory(prev => [...prev.slice(0, currentStep), change])` produced only one entry (last-write-wins), while `setCurrentStep(prev => prev + 1)` correctly advanced per-call via its functional updater. `currentStep > history.length` left holes; `restoreMatrixAtStep(step-1)` walked past the end → `entry.operation` on undefined → crash. Surfaced only after the strings-axis fix enabled edits that previously no-op'd silently. Fixed by adding `stepRef = useRef(0)` as the synchronous slice-boundary source of truth — read and bumped inside `recordChange` before the setState calls, so per-call boundaries are correct even without rerender. `init`, `restoreMatrixAtStep`, `undo`, `redo` all synchronized via the ref. Defensive clamp in `restoreMatrixAtStep` (`Math.min(step, history.length)` + skip undefined entries) so a future desync cannot crash. Verified: 5-click burst now produces step=len=6 (was step=6/len=2 before), undo/redo cycle through all steps without error, truncation-after-undo works. Applies to all matrix-history consumers (strings/modes SC, feedin, feedback, strings params, modes params, excitation).
 
-See [PRESET_SYSTEM_REVISION_PLAN.md](PRESET_SYSTEM_REVISION_PLAN.md) for full analysis, architecture decision, implementation steps, data flow, edge cases, and verification checklist.
+The archived original analysis is at
+[`docs/proposals/archive/preset-system-revision-plan-2026-04-09.md`](../proposals/archive/preset-system-revision-plan-2026-04-09.md);
+the implemented superseding design is
+[`docs/proposals/preset-working-copy-model-2026-05-17.md`](../proposals/preset-working-copy-model-2026-05-17.md).
 
-**Files to modify:**
-- `PianoidCore/pianoid_middleware/pianoid.py` — `switch_preset()`, `load_preset_to_library()`, `init_pianoid()`, new helpers
-- `PianoidCore/pianoid_middleware/backendServer.py` — `/preset/switch` response, `/set_runtime_parameters` sync
-- `PianoidTunner/src/hooks/usePreset.js` — `switchPreset()` consume runtime state, add `getAvailableNotes()`, concurrency guard
+**Files that were modified (working-copy task, dev-bfe2):**
+- `PianoidCore/pianoid_middleware/pianoid.py` — `switch_preset()`, `load_preset_to_library()`, `init_pianoid()`, `spawn_working_copy()`, `promote_working_copy()`, `_assert_active_editable()`
+- `PianoidCore/pianoid_middleware/preset_library.py` — new `PresetLibrary` registry class
+- `PianoidCore/pianoid_middleware/backendServer.py` — `/preset/*` working-copy endpoints, `preset_read_only` 409 mapping
+- `PianoidTunner/src/hooks/usePreset.js` — library records, `spawnWorkingCopy`/`promoteWorkingCopy`, `getAvailableNotes()` after switch, `switchingRef` concurrency guard
 
 ---
 
