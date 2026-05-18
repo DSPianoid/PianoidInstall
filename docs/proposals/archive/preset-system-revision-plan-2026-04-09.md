@@ -1,5 +1,15 @@
 # Preset System Revision — Per-Preset Runtime State & Complete Switch
 
+> **ARCHIVED 2026-05-19 — superseded by
+> [`docs/proposals/preset-working-copy-model-2026-05-17.md`](../preset-working-copy-model-2026-05-17.md).**
+> This plan's "Case 9" question (per-preset vs global volume/feedback runtime
+> state) was resolved by the user as **global library-wide** and merged into
+> the working-copy model task (dev-bfe2). Its two still-valid quick wins — the
+> missing `getAvailableNotes()` after a preset switch and the `switchingRef`
+> concurrency guard — were folded into that proposal (§5.9) and implemented.
+> The per-preset `runtime` dict / `feedback_midi` design here is NOT
+> implemented (the user chose global). Kept for historical context only.
+
 ## Problem Statement
 
 The preset switching system has several gaps that break the user experience when working with multiple presets in the GPU library:
