@@ -391,6 +391,17 @@ Reads simulation parameters serialized for the frontend.
 For `mode`, `feedin`, `feedback`, `output`: `key_no` is treated as a mode number range.
 For all other parameters: `key_no` is treated as a pitch number range.
 
+**`string` parameter — `length` unit.** For `parameter == string` (and `physics`),
+the `length` field is the main-section physical length in **metres**
+(`p_main * dx`), *not* the FDTD block count. `PhysicalParameters.pack()` stores
+`p_main()` (the unitless block/discretisation-point count) in that slot; the
+serializer multiplies by `dx` so the endpoint reports metres — the same unit the
+`combined` branch reports and the same unit `geometry.set_length()` expects. A
+`length` value POSTed back via `set_parameter/string` is therefore interpreted as
+metres, making the GET→edit→POST round-trip unit-consistent. (Returning the raw
+block count here previously made the granular path upload `dx ≈ 1.0 m`, an ~84-141x
+error that diverged the FDTD solver — fixed in `cce4270`.)
+
 Response `200`: parameter payload (structure depends on parameter type)
 
 Response `416`:

@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-bfe2 | Preset working-copy model: edit-isolation bug + read-only originals + spawn/label working copies (PLAN-FIRST) | [log](logs/dev-bfe2-2026-05-17-192401.md) | 2026-05-17 | In Progress |
 
 ---
 
