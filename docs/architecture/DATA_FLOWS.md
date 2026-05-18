@@ -823,12 +823,51 @@ backendserver.py: preset_switch_route()                 (line 345)
 | `dev_preset_updating_` | GPU | Staging area for async updates |
 | `preset_gpu_library_[name]` | GPU | Per-preset snapshot (~3.15 MB each) |
 | `preset_library_[name]` | Host | Per-preset host copy (for Python read-back) |
-| `_library_models[name]` | Python | Per-preset domain objects (StringMap, ModeMap, ModelParameters) |
+| `PresetLibrary` (`preset_library.py`) | Python | Entry registry — per-entry `PresetEntry{sm, modes, mp, kind, source, path}`. Replaces the former bare `_library_models` dict (working-copy model, 2026-05-18). |
+
+#### Working-Copy Model (2026-05-18)
+
+A library entry has a **kind**: `original` (a read-only snapshot of an
+on-disk preset) or `working` (an editable copy spawned from an original).
+The `PresetLibrary` class owns the registry; `Pianoid` keeps the C++
+binding and delegates bookkeeping to it.
+
+- **Edit isolation.** `switch_preset` calls `saveActiveToLibrary()` ONLY
+  when the active entry is a `working` copy — switching away from an
+  `original` never writes live edits back, so originals stay pristine.
+  Working/original entries hold deep-copied, non-shared Python domain
+  objects, so a parameter edit mutates only the active working copy.
+- **Read-only enforcement.** `Pianoid._assert_active_editable()` guards
+  all six parameter-edit facades (`update_parameter`,
+  `apply_parameter_request`, `update_pitch_physical_params[_GRANULAR]`,
+  `update_pitch_excitation`, `update_mode_params`) and raises
+  `PresetReadOnlyError` (→ HTTP 409 `preset_read_only`) when an original
+  is active. Runtime-parameter writes (volume/feedback) are exempt.
+- **Init.** `init_pianoid` registers the loaded preset as a read-only
+  `original` and auto-spawns one `working` copy, which is activated.
+- **Spawn / promote.** `spawn_working_copy(source)` deep-copies a source
+  entry's *current* state into a new auto-labelled `<original> (working N)`
+  GPU slot. `promote_working_copy(name)` atomically overwrites the source
+  original's on-disk JSON with the working copy's model, then rebuilds the
+  original's in-memory model + GPU slot.
+- **Unload.** Any entry is unloadable as long as one preset remains; the
+  active preset is switched away from first; an original left with no
+  working copies gets one auto-spawned (`PresetLibrary.remove` + `Pianoid.
+  unload_preset`).
+- **Global runtime state.** Volume, feedback and volume sensitivity
+  (`volume_center`/`volume_range`) are one library-wide configuration —
+  `switch_preset` snapshots and restores all of them, so switching is
+  loudness-neutral. They are not per-preset and not stored in `PresetEntry`.
+
+REST: `GET /preset/list` returns `{name, kind, source, path}` records;
+`POST /preset/spawn_working_copy {source}` and `POST /preset/promote
+{name}` are the new endpoints.
 
 #### Known Limitations
 
 - **Async switch hardcoded to sync:** `preset_switch_route()` always passes `async_switch=False`, blocking the Flask thread until GPU transfer completes (~0.1ms with D2D).
-- **No duplicate detection on load:** `loadPresetToLibrary` throws if a preset name already exists. To update a preset, unload first then reload.
+- **No duplicate detection on load:** `loadPresetToLibrary` throws if a preset name already exists. To update a preset slot, unload first then reload — `promote_working_copy` does exactly this to refresh an original's slot.
+- **switch_preset waits for double-buffer IDLE:** `switch_preset` calls `waitForParameterUpdate()` before `switchPreset`, because the C++ `switchPreset` is silently dropped under `DROP_IF_BUSY` if a parameter update is still in flight.
 
 ### 2.9 Parameter Read Path (GET)
 
