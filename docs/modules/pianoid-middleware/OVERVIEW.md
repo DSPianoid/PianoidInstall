@@ -91,7 +91,7 @@ Key methods called by the REST layer:
 - `switch_preset(preset_name, async_switch)` — switches the active preset via double-buffer swap
 - `get_library_presets()` / `get_active_preset()` / `unload_preset(preset_name)` — preset library management
 - `load_deck_from_txt(preset_path, num_modes)` — overlay `Ci_coef_cos.txt` / `Ci_coef_str.txt` / `Ci_str_out.txt` modes coefficients from an FPGA preset directory onto the live `StringMap` deck (feedin / feedback / sound_coefficients), leaving excitation untouched
-- `load_excitation_from_fpga_preset(preset_path, main_volume, apply_ind_vol, apply_ind_mult)` — overlay `exp_all.txt` + `ind_vol_0..4.txt` + `ind_mult_0..4.txt` Gauss excitation parameters from an FPGA preset directory onto the live `StringMap` excitation block. See **Loading FPGA presets** below
+- `load_excitation_from_fpga_preset(preset_path, main_volume, apply_ind_vol, apply_ind_mult, volume_sign_handling)` — overlay `exp_all.txt` + `ind_vol_0..4.txt` + `ind_mult_0..4.txt` Gauss excitation parameters from an FPGA preset directory onto the live `StringMap` excitation block. See **Loading FPGA presets** below
 
 ### Loading FPGA presets
 
@@ -111,13 +111,43 @@ The loader does **not** touch deck modes, sound channels, physics, or
 ESPRIT-side data — it only updates the excitation block. To replace deck
 coefficients, call `load_deck_from_txt()` separately.
 
-**Volume calibration.** FPGA volumes are dimensionless (range
-`[-0.6, 0.4]`); framework presets carry CUDA-side excitation amplitudes
-in `[1e7, 1e10]`. The `main_volume` argument is a scalar applied to the
-FPGA volume slot before `ind_vol` multiplication. For the Belarus preset
-family, `main_volume = 8.35e9` produces a per-pitch median |volume| of
-~3.08e8, matching the source `Belarus_8band_196modes.json` median
-(3.18e8) within 3%.
+**Volume sign semantics (`volume_sign_handling`).** The FPGA dump's slot-2
+volume is signed — Gauss component index 2 carries a negative volume in
+every (pitch, level) cell; other components are mostly positive. The CUDA
+kernel (`pianoid_cuda/gaussTest.cu` line 87) consumes `g_vol` *without*
+per-component clipping, so negative volume produces a subtractive Gauss
+contribution (anti-bell shaping). This is the FPGA renderer's native
+behavior. The loader exposes three handling modes:
+
+| `volume_sign_handling` | Behavior | When to use |
+|---|---|---|
+| `"raw"` (default) | Pass slot-2 values through unchanged | Kernel-faithful FPGA reproduction; preserves subtractive Gauss components |
+| `"abs"` | Apply `np.abs()` to the final volume slot | Generating a framework-native preset where every Gauss component must be additive (matches hand-tuned conventions like Belarus) |
+| `"clip"` | Apply `np.maximum(0, ...)` to the final volume slot | Silences negative-volume Gauss components entirely (drops them rather than mirroring or preserving) |
+
+`"raw"` is the loader default; `"abs"` is recommended for generating
+framework-native presets from FPGA dumps. Invalid mode strings raise
+`ValueError`.
+
+**Volume scale (`main_volume`).** `main_volume` is a scalar multiplier
+applied to the volume slot before `ind_vol` multiplication. The FPGA
+dump's native volume range is roughly `[-0.6, 0.4]` (dimensionless). Use
+`main_volume=1.0` (loader default) to keep FPGA-native units and rely on
+downstream `set_volume` / CUDA-side scaling for loudness. Higher values
+pre-scale into the framework's CUDA amplitude range (~1e7-1e9) if a
+self-contained preset is desired.
+
+> **Calibration history note.** An earlier iteration of this loader
+> defaulted to `main_volume = 8.35e9`, picked to make the per-pitch median
+> |volume| match `Belarus_8band_196modes.json`'s median (3.18e8).
+> Subsequent slot-mapping audit (dev-fpga-exc Phase 2, 2026-05-06) showed
+> that Belarus is structurally a *hand-tuned* preset with **constant**
+> mu/sigma across all pitches and a single per-pitch volume coefficient
+> applied to 3 fixed-shape Gauss components, while the FPGA dump has
+> per-pitch varying mu/sigma. The "median match" was a coincidence, not
+> structural correspondence — there is no canonical "match Belarus"
+> calibration constant. The default reverted to `1.0` and loudness became
+> the caller's downstream concern.
 
 **Skipped pitches.** FPGA covers MIDI 21..108 (A0..C8, 88 keys). If the
 host preset omits any of those pitches (e.g. Belarus omits 21, 22, 107,
@@ -130,12 +160,20 @@ and row 88 (1-indexed file line 89) carries an off-by-one artifact value
 the loader silently drops via the `[:88, :]` slice. Rows 89+ are zero
 padding.
 
+**Known quirk: Gauss component 1 ≡ Gauss component 4.** In both the FPGA
+dump and existing framework presets like Belarus, Gauss component index 4
+is structurally identical to Gauss component index 1 (same mu, sigma,
+volume — 97.3% identity in FPGA `Bl_Apr_19`; in Belarus both are always
+volume=0). This is an expected artifact of the 5-slot Gauss-bank layout
+and the loader does not deduplicate or warn about it.
+
 **Building a new preset.** `tools/generate_belarus_fpga_preset.py` shows
 the canonical recipe: load a base preset JSON, instantiate `Pianoid` with
-it, call `load_excitation_from_fpga_preset(...)`, then `save_preset(...)`
+it, call `load_excitation_from_fpga_preset(...)` with
+`main_volume=1.0` + `volume_sign_handling="abs"`, then `save_preset(...)`
 to a new path. The result (`presets/Belarus_8band_196modes_FPGAexc.json`)
 keeps Belarus modes / deck / sound channels intact and only swaps in the
-FPGA Gauss parameters.
+FPGA Gauss parameters with all-positive volumes in FPGA-native units.
 
 ### `ParameterManager` (parameter_manager.py)
 

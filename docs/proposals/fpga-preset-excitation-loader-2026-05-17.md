@@ -2,10 +2,14 @@
 
 **Date:** 2026-05-17
 **Status:** IMPLEMENTED — see `Pianoid.load_excitation_from_fpga_preset()`
-in `PianoidCore/pianoid_middleware/pianoid.py` (dev-fpga-exc, 2026-05-06).
+in `PianoidCore/pianoid_middleware/pianoid.py` (dev-fpga-exc Phase 1, 2026-05-06).
+**Revised after slot-mapping audit (dev-fpga-exc Phase 2, 2026-05-06)** —
+see [Revision after slot-mapping audit](#revision-after-slot-mapping-audit-2026-05-06)
+section at the bottom for corrected findings.
 Generated preset: `PianoidCore/pianoid_middleware/presets/Belarus_8band_196modes_FPGAexc.json`
-(`main_volume = 8.35e9`, picks median |volume| 3.08e8 ≈ Belarus median 3.18e8).
-Production loader tests: `PianoidCore/tests/unit/test_fpga_excitation_loader.py` (15 tests).
+(`main_volume = 1.0`, `volume_sign_handling = "abs"` — FPGA-native scale,
+all-positive volumes).
+Production loader tests: `PianoidCore/tests/unit/test_fpga_excitation_loader.py` (21 tests).
 Preset generation recipe: `PianoidCore/tools/generate_belarus_fpga_preset.py`.
 See **Loading FPGA presets** in [middleware OVERVIEW](../modules/pianoid-middleware/OVERVIEW.md#loading-fpga-presets).
 **Author:** orchestrator sub-agent (sub-agent of `/analyse`)
@@ -374,3 +378,115 @@ Force_vozb.txt     : shape (5, 8, 256), non-zero levels = [3, 4]
   -- this is a rendered force WAVEFORM, NOT per-pitch parameters.
      Use exp_all.txt for the canonical excitation source.
 ```
+
+---
+
+## Revision after slot-mapping audit (2026-05-06)
+
+The Phase 1 implementation landed `main_volume = 8.35e9` (picked to match
+the `Belarus_8band_196modes.json` median |volume| of 3.18e8) with all
+slot-2 negatives passed through as kernel-side signed volumes. Two
+user concerns prompted a re-audit:
+
+1. "Volume cannot be negative" — physically true for the framework's
+   hand-tuned presets, but the FPGA dump's slot 2 is structurally signed.
+2. "Most probably parameters are mixed up" — suspicion that the slot
+   identification `(slot 0 = mu_enc, slot 1 = sigma, slot 2 = volume)`
+   was wrong.
+
+### Findings from the audit
+
+**Slot mapping was correct, but the per-component clipping story was
+wrong, and the "calibrate to Belarus" story was a coincidence.**
+
+1. **Slot identification is correct (high confidence).**
+   `slot 0 = mu_encoded` decoded via `1.28/sqrt(raw)` → mu_ms in
+   [0.18, 3.83] (all positive). `slot 1 = sigma` direct → [0.045, 0.488]
+   ms (all positive, matches plausible Gauss-width range). `slot 2 = vol`
+   signed → [-0.556, 0.420]. No axis permutation produces a cleaner
+   structure.
+
+2. **Negatives in slot 2 are structural, not random.** 100% of negative
+   slot-2 cells are concentrated in Gauss component index 2 (Gauss 2's
+   volume is always negative across all 440 (level, pitch) cells). Gauss
+   0 is mostly zero (88% of cells). Gauss 1 and Gauss 4 are identical
+   in 97.3% of cells (a duplicate — see "Known quirk: Gauss 1 ≡ Gauss 4"
+   in middleware OVERVIEW).
+
+3. **CUDA kernel handles signed g_vol natively as subtractive
+   contribution.** Inspected `pianoid_cuda/gaussTest.cu` lines 83-87:
+   `s2exp = max(exp(...) - g_shift, 0); result += s2exp * g_vol;`
+   The clip is at the *shift* step, not the *volume* step. A negative
+   `g_vol` produces a subtractive Gauss contribution that is then summed
+   into the result without clipping. The PianoidBasic Python preview's
+   `cut_negative=True` flag clips per-component (giving silenced
+   components for negative volume), but **the CUDA path does not** — so
+   the rendered sound is different from the Python preview when signs
+   matter.
+
+4. **Force_vozb is NOT a per-pitch reconstruction reference.** The
+   proposal claimed it held rendered waveforms for 8 different pitches;
+   in fact all 8 slots at L=3 are *identical* (the same single-Gauss bell)
+   and L=4 has 6 identical + 2 zero slots. Each waveform is a perfect
+   single Gaussian (curve_fit error ~5e-7 of peak):
+   - L=3: mu=4.000 ms, sigma=0.562 ms, vol=0.05
+   - L=4: mu=4.013 ms, sigma=0.424 ms, vol=0.305
+   It is a fixed reference test signal, not a reconstruction of
+   exp_all parameters. Slot-mapping cannot be validated against it.
+
+5. **Belarus is structurally different from FPGA (rejects the
+   "calibrate to Belarus" frame).** Belarus pitch volumes are 100%
+   non-negative, mu/sigma are *constant across all 84 pitches* (only
+   1-2 unique values per gauss at L=127), and all 3 active gauss have
+   identical per-pitch volume spread ratio (277.37x). Belarus is a
+   hand-tuned preset with global mu/sigma + one per-pitch volume
+   coefficient applied to 3 fixed-shape Gauss components. The FPGA dump
+   has per-pitch varying mu/sigma — a fundamentally different model.
+   "Median match at main_volume=8.35e9" was a coincidence, not
+   structural correspondence. There is no canonical "calibrate to
+   Belarus" constant.
+
+### Implementation changes (dev-fpga-exc Phase 2 commit)
+
+- **New parameter** `volume_sign_handling: str = "raw"` on
+  `Pianoid.load_excitation_from_fpga_preset`. Accepts `"raw"` (default,
+  kernel-faithful subtractive Gauss), `"abs"` (forces additive Gauss for
+  framework-native presets), `"clip"` (silences negative components).
+  Invalid mode strings raise `ValueError`.
+
+- **Loader default `main_volume` reverted to `1.0`** (FPGA-native
+  units). The "calibrate to Belarus" target was rejected as meaningless.
+  Downstream `set_volume` / CUDA-side scaling handles loudness.
+
+- **Generated preset regenerated** with `main_volume = 1.0` and
+  `volume_sign_handling = "abs"`. The resulting per-pitch |volume|
+  median is 3.69e-2, range [1.23e-2, 3.19e0] — FPGA-native scale
+  preserved, all-positive. This is the user-visible new file at
+  `presets/Belarus_8band_196modes_FPGAexc.json`.
+
+- **Test count**: 21 (was 15 in Phase 1). Dropped the
+  "Belarus-comparable order of magnitude" assertion as no longer
+  meaningful; added 7 new tests for `volume_sign_handling` semantics
+  (`raw` preserves negatives; `abs` produces all-positive matching
+  `np.abs(raw)`; `clip` produces all-non-negative with zeros where raw
+  was negative; `raw` is the default; `clip` differs from `abs`;
+  invalid mode raises `ValueError`).
+
+### Open questions that REMAIN open
+
+- **Where do Belarus's per-pitch volume coefficients come from?** Not
+  derivable from any current FPGA dump. Likely a separate
+  hand-calibration pass on a different (older) FPGA export with a
+  different convention. Out of scope for this proposal.
+
+- **What does the FPGA renderer do with negative g_vol?** Likely
+  consistent with the CUDA kernel's behavior (subtractive Gauss), but
+  not confirmed by reading FPGA-side code. The `"raw"` mode trusts
+  that this is intentional shaping; the `"abs"` mode bypasses the
+  question entirely.
+
+- **Are Gauss components 0 and 4 "spare" hardware slots?** Gauss 0
+  is silent in 88% of cells and Gauss 4 == Gauss 1 in 97.3%. The
+  effective active count is 3 (Gauss 1, 2, 3) — matching Belarus's
+  active count. Whether this is intentional schema design or a
+  hardware-layer leftover is unknown.
