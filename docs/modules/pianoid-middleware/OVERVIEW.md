@@ -93,6 +93,8 @@ Key methods called by the REST layer:
 - `promote_working_copy(working_name)` — overwrites a working copy's source original's on-disk JSON, refreshes the in-memory original
 - `get_library_presets()` / `get_active_preset()` / `unload_preset(preset_name)` — preset library management (`get_library_presets` returns entry records)
 - `_assert_active_editable()` — raises `PresetReadOnlyError` when an `original` is active; called by all parameter-edit facades
+- `load_deck_from_txt(preset_path, num_modes)` — overlay `Ci_coef_cos.txt` / `Ci_coef_str.txt` / `Ci_str_out.txt` modes coefficients from an FPGA preset directory onto the live `StringMap` deck (feedin / feedback / sound_coefficients), leaving excitation untouched
+- `load_excitation_from_fpga_preset(preset_path, main_volume, apply_ind_vol, apply_ind_mult, volume_sign_handling)` — overlay `exp_all.txt` + `ind_vol_0..4.txt` + `ind_mult_0..4.txt` Gauss excitation parameters from an FPGA preset directory onto the live `StringMap` excitation block. See **Loading FPGA presets** below
 
 ### `PresetLibrary` (preset_library.py)
 
@@ -111,6 +113,88 @@ reuse), `deepcopy_models`, `remove` (last-preset guard), `replace_models`,
 `PresetReadOnlyError` (edit-on-original; a subclass). See
 [REST_API.md — Preset Library Endpoints](REST_API.md#preset-library-endpoints)
 and [DATA_FLOWS.md §2.8](../../architecture/DATA_FLOWS.md).
+
+### Loading FPGA presets
+
+FPGA preset dumps (e.g. `PresetsFromFpga/Bl_Apr_19/`) hold the excitation
+source in `exp_all.txt` (per-Gauss-component `mu`, `sigma`, `volume` for
+5 velocity levels × 88 piano pitches × 5 Gauss components) plus two
+per-(pitch, level) coefficient files: `ind_vol_0..4.txt` (volume multiplier)
+and `ind_mult_0..4.txt` (time-scale coefficient).
+[Schema details](../../proposals/fpga-preset-excitation-loader-2026-05-17.md).
+
+`Pianoid.load_excitation_from_fpga_preset()` decodes those files and writes
+the resulting `(5, 4, 5)` Gauss matrix into each pitch's
+`ExcitationParameters.levels_matrix` (5-level FPGA data is auto-migrated to
+the framework's 6-level base and extrapolated to 128 levels).
+
+The loader does **not** touch deck modes, sound channels, physics, or
+ESPRIT-side data — it only updates the excitation block. To replace deck
+coefficients, call `load_deck_from_txt()` separately.
+
+**Volume sign semantics (`volume_sign_handling`).** The FPGA dump's slot-2
+volume is signed — Gauss component index 2 carries a negative volume in
+every (pitch, level) cell; other components are mostly positive. The CUDA
+kernel (`pianoid_cuda/gaussTest.cu` line 87) consumes `g_vol` *without*
+per-component clipping, so negative volume produces a subtractive Gauss
+contribution (anti-bell shaping). This is the FPGA renderer's native
+behavior. The loader exposes three handling modes:
+
+| `volume_sign_handling` | Behavior | When to use |
+|---|---|---|
+| `"raw"` (default) | Pass slot-2 values through unchanged | Kernel-faithful FPGA reproduction; preserves subtractive Gauss components |
+| `"abs"` | Apply `np.abs()` to the final volume slot | Generating a framework-native preset where every Gauss component must be additive (matches hand-tuned conventions like Belarus) |
+| `"clip"` | Apply `np.maximum(0, ...)` to the final volume slot | Silences negative-volume Gauss components entirely (drops them rather than mirroring or preserving) |
+
+`"raw"` is the loader default; `"abs"` is recommended for generating
+framework-native presets from FPGA dumps. Invalid mode strings raise
+`ValueError`.
+
+**Volume scale (`main_volume`).** `main_volume` is a scalar multiplier
+applied to the volume slot before `ind_vol` multiplication. The FPGA
+dump's native volume range is roughly `[-0.6, 0.4]` (dimensionless). Use
+`main_volume=1.0` (loader default) to keep FPGA-native units and rely on
+downstream `set_volume` / CUDA-side scaling for loudness. Higher values
+pre-scale into the framework's CUDA amplitude range (~1e7-1e9) if a
+self-contained preset is desired.
+
+> **Calibration history note.** An earlier iteration of this loader
+> defaulted to `main_volume = 8.35e9`, picked to make the per-pitch median
+> |volume| match `Belarus_8band_196modes.json`'s median (3.18e8).
+> Subsequent slot-mapping audit (dev-fpga-exc Phase 2, 2026-05-06) showed
+> that Belarus is structurally a *hand-tuned* preset with **constant**
+> mu/sigma across all pitches and a single per-pitch volume coefficient
+> applied to 3 fixed-shape Gauss components, while the FPGA dump has
+> per-pitch varying mu/sigma. The "median match" was a coincidence, not
+> structural correspondence — there is no canonical "match Belarus"
+> calibration constant. The default reverted to `1.0` and loudness became
+> the caller's downstream concern.
+
+**Skipped pitches.** FPGA covers MIDI 21..108 (A0..C8, 88 keys). If the
+host preset omits any of those pitches (e.g. Belarus omits 21, 22, 107,
+108), the loader silently skips them — only pitches present in the live
+`StringMap.pitches` dict are wired.
+
+**Known quirk: `ind_vol` row 88.** The FPGA `ind_vol_*.txt` files have
+128 lines each (FPGA-addressed); rows 0..87 are real per-piano-key data
+and row 88 (1-indexed file line 89) carries an off-by-one artifact value
+the loader silently drops via the `[:88, :]` slice. Rows 89+ are zero
+padding.
+
+**Known quirk: Gauss component 1 ≡ Gauss component 4.** In both the FPGA
+dump and existing framework presets like Belarus, Gauss component index 4
+is structurally identical to Gauss component index 1 (same mu, sigma,
+volume — 97.3% identity in FPGA `Bl_Apr_19`; in Belarus both are always
+volume=0). This is an expected artifact of the 5-slot Gauss-bank layout
+and the loader does not deduplicate or warn about it.
+
+**Building a new preset.** `tools/generate_belarus_fpga_preset.py` shows
+the canonical recipe: load a base preset JSON, instantiate `Pianoid` with
+it, call `load_excitation_from_fpga_preset(...)` with
+`main_volume=1.0` + `volume_sign_handling="abs"`, then `save_preset(...)`
+to a new path. The result (`presets/Belarus_8band_196modes_FPGAexc.json`)
+keeps Belarus modes / deck / sound channels intact and only swaps in the
+FPGA Gauss parameters with all-positive volumes in FPGA-native units.
 
 ### `ParameterManager` (parameter_manager.py)
 
