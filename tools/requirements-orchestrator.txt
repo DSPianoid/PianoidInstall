@@ -1,0 +1,27 @@
+# Orchestrator-tool dependencies
+# ------------------------------
+# These packages are NOT part of the Pianoid application (PianoidCore /
+# PianoidBasic / PianoidTunner) and are absent from every setup.py /
+# pyproject.toml. They support the /orchestrator skill's helper scripts in
+# this tools/ directory.
+#
+# Install target: PianoidCore/.venv/  (the canonical Pianoid venv — the same
+# interpreter tools/transcribe_voice.py runs under). They are pure-Python /
+# pre-built wheels and do NOT require build_pianoid_cuda.bat.
+#
+# Reinstall after a venv rebuild:
+#   PianoidCore/.venv/Scripts/python.exe -m pip install -r tools/requirements-orchestrator.txt   # Windows
+#   PianoidCore/.venv/bin/python        -m pip install -r tools/requirements-orchestrator.txt    # Linux
+#
+# Rationale for this file: faster-whisper was originally installed unpinned
+# (commit cb519b9, 2026-03-31) and was silently dropped by a later venv
+# rebuild because nothing recorded it. This file is the durable pin so STT
+# survives the next rebuild.
+
+# Speech-to-text — transcribes inbound Telegram voice messages.
+# Used by: tools/transcribe_voice.py
+# Pulls: ctranslate2, tokenizers, huggingface-hub, av (PyAV), onnxruntime.
+# PyAV bundles its own ffmpeg, so OGG/OPUS decoding needs no system ffmpeg.
+# Whisper model weights are cached under ~/.cache/huggingface/hub/ and are
+# downloaded on first run — not managed by pip.
+faster-whisper==1.2.1
