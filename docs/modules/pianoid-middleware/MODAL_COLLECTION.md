@@ -963,6 +963,62 @@ Status codes:
   permission-denied while enumerating.
 - 404 — path does not exist or is not a directory.
 
+## Canonical v1+v2 project-scenarios resolution (dev-maimport round 5, 2026-05-19)
+
+Backend methods that need to walk a Project's scenario data on disk
+must NEVER reinvent the v1-only candidate list — use
+`ModalAdapter._resolve_project_scenarios_path(meta)` instead.
+
+**Why:** the modal_adapter is going through a v1 → v2 schema migration.
+v1 projects persist `extracted_path` (set by the retired
+`create_from_zip` flow) or `measurement_source` (set by the v1
+`create_project(source=...)` flow). v2 projects persist
+`measurement_path` + `measurement_id` (set by
+`create_project_from_measurement` + Branch).
+Methods that only check the v1 fields silently return empty data
+for v2 projects — round 5 found 4 such sites in `modal_adapter.py`
+alone (round 4 already fixed one in `open_project`).
+**`_resolve_project_scenarios_path` is the one true place where this
+resolution lives.** Consumers pass the project.json dict, get back
+the absolute scenarios-parent path (or None for orphans).
+
+**Canonical field-check order** (priority high → low):
+
+| Order | Field | Path computed | Schema |
+|-------|-------|---------------|--------|
+| 1 | `meta["extracted_path"]` | (directly the scenarios-parent) | v1 — `create_from_zip` |
+| 2 | `meta["measurement_source"]` | (directly the scenarios-parent) | v1 — `create_project(source=...)` |
+| 3 | `meta["measurement_path"]` | `<measurement_path>/scenarios` | v2 — `create_project_from_measurement`, Branch |
+| 4 | `meta["measurement_id"]` | `<$PIANOID_MEASUREMENTS_DIR>/<measurement_id>/scenarios` | v2 — cross-machine fallback when the absolute `measurement_path` is stale (e.g. project moved between machines with different base dirs) |
+
+Each candidate is validated (`os.path.isdir` AND
+`_dir_has_roomresponse_scenarios` — at least one sub-folder with
+`averaged_responses/`) before commitment. Returns the first candidate
+that resolves, or `None` if no candidate is reachable — caller treats
+`None` as "scenarios unavailable, surface a friendly 'No data' /
+'Re-import' prompt" rather than silently loading from a wrong root.
+
+**Consumers as of round 5** (every site that touches project scenarios):
+
+| Method | Use | Behaviour when resolver returns None |
+|--------|-----|--------------------------------------|
+| `_scenario_folders_for_project` | QC summary / scenario-name lookup | Returns `[]` → QC panel shows "No QC curves available" |
+| `get_qc_curves` (fallback path) | Per-channel QC curve fetch | Raises `FileNotFoundError("Scenario X not found... have: [])` |
+| `reaverage_project` | Re-run the averager on existing source | Raises `ValueError(no resolvable measurement source)` |
+| `_load_v2_scenarios_from_parent_measurement` | v2 open-project fallback (round 4) | Logs warning, leaves `_measurements` empty (downstream pipeline 409 surfaces the user-friendly recovery prompt) |
+
+`delete_project` is a special case (not a consumer): it explicitly
+reads `meta["measurement_source"]` to decide whether to rmtree the
+extracted Measurement folder. For v2 projects, that field is null
+by design (the parent Measurement is shared across siblings —
+N6 invariant) so deletion routes the user through
+`DELETE /modal/measurements/<id>` instead of cascading from the
+Project delete.
+
+**Adding a new method that needs the scenarios path?** Call the
+helper. Do not reinvent the candidate list. The next time someone
+adds a v3 schema field, only the helper needs to change.
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
