@@ -859,17 +859,59 @@ mounts under `/modal/fs/*`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/modal/fs/roots` | Returns suggested starting roots (measurements base, home, repo root, drive roots on Windows). |
+| GET | `/modal/fs/roots` | Returns suggested starting roots: named roots (measurements base, home, repo root) + every drive enumerated dynamically per request. |
 | GET | `/modal/fs/list?path=<abs>` | Lists one directory (dirs first, then files). |
 
-**Security: allowed-root allowlist.** Both endpoints refuse paths
-that are not under at least one of the suggested roots — request for
-`C:\Windows\System32` (or any other system path outside the allowlist)
-returns HTTP 403 with `code: "outside_allowed_roots"` and the
-`allowed_roots` array. This blocks misclicks and provides a small
-hardening layer against path-traversal abuse.
+### Dynamic drive enumeration (portable / removable drives)
 
-`GET /modal/fs/roots` response:
+Drive roots in `GET /modal/fs/roots` are enumerated **dynamically on
+every request** so a portable / removable drive plugged in AFTER the
+modal-adapter server started shows up on the next call. The frontend's
+Refresh icon in the tree picker re-fetches this endpoint (in addition
+to re-fetching the current path listing) so users can plug in their
+drive and click Refresh without restarting the backend.
+
+**Windows.** Uses `ctypes.windll.kernel32.GetLogicalDrives()` (returns
+a 32-bit bitmask where bit N is set if drive `chr(ord('A')+N):`
+exists) plus `GetDriveTypeW(path)` per present drive to map the drive
+type. No new Python dependency — `ctypes` is in the stdlib.
+
+| Windows drive-type code | `kind` value | Notes |
+|---|---|---|
+| 0 (UNKNOWN) | `drive_unknown` | rare; surfaced as-is |
+| 1 (NO_ROOT_DIR) | — | filtered out (stale enumeration entry) |
+| 2 (REMOVABLE) | `drive_removable` | USB sticks, SD cards, portable HDDs (THIS is what the "I want to import from the portable drive" case maps to) |
+| 3 (FIXED) | `drive_fixed` | internal HDD/SSD |
+| 4 (REMOTE) | `drive_network` | mounted network shares |
+| 5 (CDROM) | `drive_cdrom` | optical / virtual ISO |
+| 6 (RAMDISK) | `drive_ramdisk` | rare |
+
+**Linux.** No cheap drive-type API exists — best-effort scan of
+`/proc/mounts` filtered for the conventional removable-mount parents
+(`/media`, `/mnt`, `/run/media`). Root filesystem `/` is always
+included first with `kind: "drive_fixed"`. Any matching mount point
+is tagged `kind: "drive_removable"`. When `/proc/mounts` is
+unavailable, falls back to listing direct children of the three
+removable parents.
+
+### Security: dynamic allowlist
+
+Both endpoints refuse paths that are not under at least one
+returned root — request for `C:\Windows\System32` (or any system
+path outside the allowlist) returns HTTP 403 with
+`code: "outside_allowed_roots"` and the `allowed_roots` array.
+
+**The allowlist follows the dynamic enumeration** — any drive root
+the enumeration surfaces (including a freshly-plugged portable
+drive) is allowed, plus the named roots. This is the explicit
+relaxation made in dev-maimport's follow-up (2026-05-19): the
+previous hardcoded allowlist (`C:\`, `D:\` only) refused requests
+under a portable drive at `E:\` because it wasn't on the static
+list. The dynamic enumeration removes the hardcoding without
+opening the door to arbitrary system paths — only paths that
+descend from a discovered drive root are accepted.
+
+### `GET /modal/fs/roots` response
 
 ```json
 {
@@ -880,15 +922,18 @@ hardening layer against path-traversal abuse.
      "is_dir": true, "kind": "home"},
     {"name": "D:\\repos\\PianoidInstall", "path": "D:\\repos\\PianoidInstall",
      "is_dir": true, "kind": "repo_root"},
-    {"name": "C:\\", "path": "C:\\", "is_dir": true, "kind": "drive"},
-    {"name": "D:\\", "path": "D:\\", "is_dir": true, "kind": "drive"}
+    {"name": "C:\\", "path": "C:\\", "is_dir": true, "kind": "drive_fixed"},
+    {"name": "D:\\", "path": "D:\\", "is_dir": true, "kind": "drive_fixed"},
+    {"name": "E:\\", "path": "E:\\", "is_dir": true, "kind": "drive_removable"}
   ]
 }
 ```
 
-`kind` values: `measurements_base`, `home`, `repo_root`, `drive`.
-The frontend uses `kind` to render friendly chip labels
-("Measurements", "Home", "Repo", drive letter).
+`kind` values: `measurements_base`, `home`, `repo_root`,
+`drive_fixed`, `drive_removable`, `drive_network`, `drive_cdrom`,
+`drive_ramdisk`, `drive_unknown`. The frontend uses `kind` to render
+friendly chip labels and colour-codes removable (secondary) and
+network (info) chips for at-a-glance distinction.
 
 `GET /modal/fs/list?path=D:/modal_measurements` response:
 
@@ -913,8 +958,9 @@ Status codes:
 
 - 200 — listing returned.
 - 400 — missing or blank `path` query parameter.
-- 403 — path outside the allowed-root allowlist, or permission-denied
-  while enumerating.
+- 403 — path outside the allowed-root allowlist (the response body's
+  `allowed_roots` includes every dynamically discovered drive), or
+  permission-denied while enumerating.
 - 404 — path does not exist or is not a directory.
 
 ## Cross-Links
