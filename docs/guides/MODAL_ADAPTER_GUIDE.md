@@ -551,6 +551,82 @@ round-trip-via-export-zip flow is needed again.
   (entry point: `import_folder_as_measurement(...)`; unit-conversion mapper:
   `session_metadata_to_setup_configs(...)`).
 
+### Creating an ESPRIT Project from a Measurement (dev-maimport round 3)
+
+Closes the Phase 2c gap: the legacy `<CreateProjectDialog>` (zip
+upload + EffectiveSignalLengthRerunDialog chain) was retired at N8
+hard cutover, but the replacement "+ New Project from this
+Measurement" button was never shipped. The orphaned `createProject()`
+hook in `useProjectCRUD.js` stayed but had no UI caller — every
+attempt to create a fresh Project hit a chicken-and-egg dead end
+because "Branch from this Project" needs an existing Project to
+branch from. dev-maimport round 3 (2026-05-19) ships the missing
+button + the v2 create flow.
+
+**Entry point.** Click **`+ New Project from this Measurement`**
+(primary-coloured, rocket icon) on the Collection subpanel header
+row, right of the `Import…` button. **Disabled when no Measurement
+is selected** — pick a Measurement from the dropdown first.
+
+**Dialog: `<CreateProjectFromMeasurementDialog>`.**
+
+| Field | Default | Notes |
+|---|---|---|
+| **Project name** | `<measurement_id>_p1` (auto-derived, increments to `_p2`, `_p3`, ... on existing-name collision) | Editable. Client-side collision check against the projectList. |
+| **Signal length (ms)** | `1000` | Numeric input. Currently informational — the v2 `POST /modal/projects` endpoint does NOT accept it; reaverage parity follow-on. |
+| **Quality threshold** | `0.1` | Range 0.05 (strict) – 0.5 (permissive). Currently informational — same caveat as signal length. |
+| **Run ESPRIT immediately after creation** | ON | When checked, after the Project opens the dialog calls `runEsprit()` so the user lands on the Project subpanel with ESPRIT already in flight. Uncheck to review band config before running. |
+
+**Backend call.** Submit hits `POST /modal/projects` (v2) with body
+`{name, measurement_id}`. The backend's
+`create_project_from_measurement()` method snapshots the parent
+Measurement's `setup/*` JSON files into `project.json.measurement_snapshot`
+(N5 — frozen at create time) and writes the v2 schema with
+`measurement_id`, `measurement_path`, and the standard `averaging`
+defaults. The new Project starts with empty ESPRIT / tracking /
+feedin caches.
+
+**Post-create flow.**
+
+1. `createProjectFromMeasurement(name, measurement_id)` resolves → 201.
+2. Dialog calls `onOpenProject(name)` → frontend `openProject()` hook
+   POSTs `/modal/projects/open` and syncs the project state.
+3. Dialog calls `onSwitchToProject()` → ModalAdapter's
+   `setActiveSection("setup")` switches the pipeline view from
+   Collection to Project, so the user immediately sees the new
+   Project's info card + scenario picker + ESPRIT controls.
+4. If "Run ESPRIT immediately" was checked → fire-and-forget
+   `onRunEsprit()` so the extraction kicks off without blocking the
+   dialog close. ESPRIT progress + result are surfaced by the Project
+   subpanel's existing live-progress UI.
+
+**Error surfaces.** All inline `<Alert>`:
+
+| Condition | Response | Display |
+|---|---|---|
+| Name collision (N1) | 409 | "A Project named X already exists. Choose a different name." |
+| Measurement deleted between open and submit | 404 | "Measurement X not found on the backend." |
+| Bad slug | 422 | "Invalid project name: ..." |
+| Backend crashed | 500 | "Create failed: ..." |
+| Hook never resolved | thrown | "Create failed: ..." |
+
+**Why is signal length / qc threshold collected but not yet wired?**
+The v2 `POST /modal/projects` endpoint (which links Project ↔
+Measurement) does not accept averaging knobs — those live on the
+separate `POST /modal/projects/<n>/reaverage` route. The dialog
+collects the values for UX parity with the legacy
+`<CreateProjectDialog>` (which let the user set them at create
+time). A follow-on can wire a follow-up `reaverage` call when the
+user picked a non-default value. The defaults match the backend's
+silent defaults, so the typical "click Create with defaults" flow is
+unaffected.
+
+**See also:**
+- Frontend dialog: `PianoidTunner/src/components/CreateProjectFromMeasurementDialog.jsx`
+- v2 hook: `PianoidTunner/src/hooks/modalAdapter/useProjectCRUD.js::createProjectFromMeasurement`
+- Backend route: `POST /modal/projects` in `pianoid_middleware/modal_adapter/routes/project_routes.py`
+- Backend method: `ModalAdapter.create_project_from_measurement` in `modal_adapter.py`
+
 ### Project Management
 
 > **Phase 2c update (dev-msmtui-fc, 2026-05-11) — Project subpanel rework.**

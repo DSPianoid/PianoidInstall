@@ -4,7 +4,46 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-maimport | Add Import path to Measurement subpanel (zip + folder) | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
+| dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
+
+---
+
+## Discovered defect — v2 Project scenarios not auto-loaded from parent Measurement (dev-maimport round 3, 2026-05-19)
+
+**Symptom.** A fresh v2 Project created via `POST /modal/projects` (the
+endpoint behind the new "+ New Project from this Measurement" button)
+opens with an empty in-memory `_measurements` dict. Running ESPRIT on
+that just-opened Project returns `409 {"error": "No measurements loaded"}`
+because `ModalAdapter.open_project` only walks
+`<project>/measurements/scenario_*.npy` — it does not fall back to the
+parent Measurement's `scenarios/<scenario>/averaged_responses/average_ch*.npy`
+when `<project>/measurements/` is empty (which is the steady state for
+v2 Projects, since v2 deliberately does NOT duplicate scenario data
+into the project tree).
+
+**Scope.** Pre-existing — affects both:
+- the new "+ New Project from this Measurement" flow (dev-maimport)
+- the existing "Branch from this Project" flow (dev-msmtui-fc) — same
+  `create_project_from_measurement` codepath
+
+NOT introduced by dev-maimport — confirmed by inspecting `branch_project`
+(`modal_adapter.py:1579`) which already had this shape.
+
+**Workaround for users today.** After clicking "+ New Project from this
+Measurement", the Project subpanel's existing "Add More Scenarios"
+folder picker can be pointed at
+`D:\modal_measurements\<measurement_id>\scenarios` and clicked to load
+the data. ESPRIT then runs as normal.
+
+**Owner / ETA:** unassigned. Cleanest fix is `open_project` to detect
+v2 + empty `measurements/` and fall back to walking the parent
+Measurement's `scenarios/` directory via the existing
+`_discover_roomresponse_scenarios` helper. Tracked here as a deferred
+follow-up because it's larger than the dev-maimport scope and affects
+the Branch flow equally.
+
+**Discovery:** dev-maimport round 3 live test
+([log](logs/dev-maimport-2026-05-19-135147.md) § Step 7 round 3).
 
 ---
 
