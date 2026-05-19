@@ -652,6 +652,16 @@ new_notes_ind >  1  →  parameterKernel + gaussKernel + addKernel
 
 `new_notes_ind` is reset to 0 at the end of `runSynthesisKernel()`.
 
+`new_notes_ind` is a **kernel-launch mailbox**, not owned domain state: it is
+*raised* by excitation events (`commitStringBatch` / `addOneString` in
+`Pianoid_excitation.cu`), by preset switch (`switchPreset` in
+`Pianoid_presets.cu`), and by sustain (`processSustain` in
+`Pianoid_synthesis.cu`), and *drained* to 0 by the single consumer
+`runSynthesisKernel` (`Pianoid_synthesis.cu`). Multiple producers raising a
+flag that one documented consumer drains is an accepted pattern — its
+authority is "the kernel-launch trigger," not a piece of model state any one
+module owns.
+
 ### gaussKernel — Force Function Computation
 
 **File:** `gaussTest.cu`

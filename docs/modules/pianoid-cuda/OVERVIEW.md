@@ -55,11 +55,33 @@ layer can control synthesis without any awareness of GPU internals.
 ## Key Classes
 
 ### Pianoid
-**File:** `Pianoid.cuh` / `Pianoid.cu`
+**Header:** `Pianoid.cuh` (single class declaration)
+**Implementation:** `Pianoid.cu` + 6 sibling `Pianoid_*.cu` modules
 
 The central facade. Owns all GPU buffer pointers, the `UnifiedGpuMemoryManager`, the active
 `AudioDriverInterface`, and the `PianoidProfiler`. Callers interact exclusively through this
-class. Key responsibilities:
+class.
+
+The `Pianoid` class is **one class with one header**, but its member-function
+implementation is split across seven translation units (the 2026-05-19
+`Pianoid.cu` god-object split — proposal
+[`pianoid-cu-split-proposal-2026-05-19.md`](../../proposals/pianoid-cu-split-proposal-2026-05-19.md)).
+Each file owns one responsibility:
+
+| File | Owns |
+|------|------|
+| `Pianoid.cu` | The `Pianoid` object lifecycle + GPU-memory lifecycle (ctor/dtor, `devMemoryInit`, filter config, `initParameters`, GPU/app/audio-driver lifecycle, offline-playback + profiling facade shims) |
+| `Pianoid_parameters.cu` | The live parameter-update authority — bulk + granular updates, volume calc |
+| `Pianoid_presets.cu` | The preset-library policy — load / switch / save / unload / list |
+| `Pianoid_excitation.cu` | Excitation staging — the begin/add/commit batch envelope, mode excitation |
+| `Pianoid_synthesis.cu` | The synthesis cycle — `runCycle`, `runSynthesisKernel`, the cycle audio-output stage |
+| `Pianoid_calibration.cu` | The semi-offline calibration mode — engine-loop/audio-driver decoupling + reference capture |
+| `Pianoid_debug.cu` | GPU state extraction (device-to-host copies) |
+
+`Pianoid_internal.cuh` is a shared (non-module) preamble: the `CUDA_LAUNCH*`
+macros, the `PIANOID_ENABLE_PROFILING` define, and the common include block.
+
+Key responsibilities:
 
 - GPU memory initialisation via `devMemoryInit()`
 - Synthesis cycle execution via `runSynthesisKernel()`

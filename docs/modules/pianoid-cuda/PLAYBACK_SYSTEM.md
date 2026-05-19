@@ -534,6 +534,19 @@ Legacy wrappers delegate to `stop_playback()`:
 | `stop_unified_playback()` | None (direct delegate) | Legacy callers |
 | `pause_playback()` | None (direct delegate) | Legacy callers |
 
+### Loop-control flag — `shouldContinueLoop_`
+
+The engine loop in `OnlinePlaybackEngine` reads the `Pianoid` flag
+`shouldContinueLoop_` to decide whether to keep cycling. **`Pianoid::beginMainLoop()`
+/ `endMainLoop()` (inline setters in `Pianoid.cuh`) are the single
+write-interface for that flag** — nothing writes the raw atomic directly. Two
+groups call those setters: the lifecycle path (`startApplication` /
+`stopApplication` in `Pianoid.cu`) and the semi-offline calibration path
+(`restartOnlineEngine` / `stopEngineKeepAudio` in `Pianoid_calibration.cu`).
+Both are *callers of the owner's interface*, not independent writers — so the
+flag has a single, documented write surface even though it is touched from two
+modules.
+
 ---
 
 ## Pybind11 Binding Coverage
