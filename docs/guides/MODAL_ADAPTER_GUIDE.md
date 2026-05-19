@@ -599,16 +599,35 @@ feedin caches.
    `onRunEsprit()` so the extraction kicks off without blocking the
    dialog close. ESPRIT progress + result are surfaced by the Project
    subpanel's existing live-progress UI.
+5. **Round 7 (dev-maimport, 2026-05-19) — dialog is a transactional
+   2-step affair:** after submit the dialog STAYS OPEN and shows a
+   result panel describing what happened (success / partial / error).
+   The user MUST click OK to dismiss. Cancel is hidden in result mode.
+   This replaces the round-5 "close on success, stay open on error"
+   pattern with a uniform "always stay open until OK" pattern — no
+   more "dialog flashed and closed before I could read the error".
 
-**Error surfaces.** All inline `<Alert>`:
+**Result panel states (round 7):**
 
-| Condition | Response | Display |
-|---|---|---|
-| Name collision (N1) | 409 | "A Project named X already exists. Choose a different name." |
-| Measurement deleted between open and submit | 404 | "Measurement X not found on the backend." |
-| Bad slug | 422 | "Invalid project name: ..." |
-| Backend crashed | 500 | "Create failed: ..." |
-| Hook never resolved | thrown | "Create failed: ..." |
+| Kind | Icon | When | Action |
+|---|---|---|---|
+| **Success** (green ✓) | `CheckCircleOutlineIcon` | create + open + (optional) ESPRIT-fire all succeeded | summary lists scenarios / channels / ESPRIT-kicked-off note |
+| **Partial** (yellow ⚠) | `WarningAmberIcon` | create succeeded but later step failed (open returned null or threw; ESPRIT fire-call sync-threw) | summary names the failed step + recovery hint ("Try opening it manually from the Project subpanel.") |
+| **Error** (red ✗) | `ErrorOutlineIcon` | create itself failed (409 / 404 / 422 / 500 / network) | summary names the HTTP cause + recovery hint |
+
+In every case the panel ends with "Click OK to dismiss this dialog."
+and the single OK button is the only action.
+
+**Error surfaces (consumed by the result panel):**
+
+| Condition | Response | Result-panel kind | Display |
+|---|---|---|---|
+| Name collision (N1) | 409 | error | "A Project named X already exists. Choose a different name and click Create again." |
+| Measurement deleted between open and submit | 404 | error | "Measurement X not found on the backend." |
+| Bad slug | 422 | error | "Invalid project name: ..." |
+| Backend crashed | 500 | error | "Create failed: ..." |
+| Open returned null (swallowed error) | partial | partial | "Project X created. ...but opening it returned no data. ..." |
+| Open threw | partial | partial | "Project X created. ...but opening it failed: <message>. ..." |
 
 **Why is signal length / qc threshold collected but not yet wired?**
 The v2 `POST /modal/projects` endpoint (which links Project ↔

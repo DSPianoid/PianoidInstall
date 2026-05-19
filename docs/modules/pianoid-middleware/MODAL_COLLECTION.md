@@ -1019,6 +1019,70 @@ Project delete.
 helper. Do not reinvent the candidate list. The next time someone
 adds a v3 schema field, only the helper needs to change.
 
+## Validation is recording-stage only (dev-maimport round 7, 2026-05-19)
+
+**Architectural principle (locked by user direction, 2026-05-19):**
+
+> Validation should be applied at the recording stage ONLY. Should
+> not be reapplied to the imported measurements. Only averaging
+> quality check.
+
+In code this means a sharp split between two pipelines:
+
+| Pipeline | Module / function | Validation? | What runs |
+|---|---|---|---|
+| **Recording stage** | `scenario_averager.ensure_averaged_responses` (and the recorder itself in `measurement/recorder.py`) | YES — `CalibrationValidatorV2.validate_cycle()` runs per cycle; failures are excluded from the averaged outputs that get written to `averaged_responses/average_ch{N}.npy` | calibration validation → align by onset → normalise by calibration → average → truncate → write `average_ch*.npy` + `effective_signal_length.json` |
+| **Analysis stage** | `scenario_averager.pool_scenario_cycles` (consumed by `get_qc_curves` / the Setup-subpanel's `<QCVisualizationPanel>`) | **NO** — cycles are accepted as-is regardless of recording-stage validation outcome | extract cycles → (skip validation; synthesise all-valid result list) → align by onset → normalise by calibration → pool → per-channel split-half QC (the "averaging quality check") |
+
+**Why this matters.** When a Measurement is imported (or re-opened on
+a different machine, or its source dataset uses a
+`calibration_quality_config` schema the in-tree validator doesn't
+recognise), re-running per-cycle validation at analysis time would
+incorrectly reject valid cycles. The cycles have already passed
+whatever validation the original recorder enforced — that decision is
+baked into the recording artefact. The analysis stage only needs to
+re-pool the cycles (same canonical align + normalise as the recorder)
+and run the new "averaging quality check" (split-half reproducibility)
+that wasn't available at recording time.
+
+**Where the principle is enforced.** `pool_scenario_cycles` (in
+`scenario_averager.py`) synthesises a fake `validation_results` list
+where every cycle is marked `calibration_valid: True`. This is the
+minimal-surface-area implementation that preserves the
+`SignalProcessor` contract (which is shared with the recording path)
+while opting the QC compute path out of the validator. **Do not add
+calls to `CalibrationValidatorV2` in the analysis path** — if you
+need to add one, you're working on the recording stage and should
+extend `ensure_averaged_responses` instead.
+
+**Failure modes the principle resolves:**
+
+- v1: source `calibration_quality_config` uses a schema the
+  in-tree `CalibrationValidatorV2` doesn't recognise → every cycle
+  failed validation → 0 cycles survived → 404 "only 1 cycles
+  survived (need ≥ 4 for split-half)". Round 7 unblocks this.
+- v2: project re-opened on a different machine where the validator
+  thresholds drift between versions → cycles that passed at
+  recording time fail at re-open time → QC display empty. Round 7
+  unblocks this.
+- v3: imported Measurement where the recording-time validator
+  wasn't even available — only the averaged outputs exist. Round 7
+  treats this case identically to the canonical case.
+
+**Tests covering the principle** (in
+`tests/integration/test_measurement_import.py::TestRound7ValidationSkipAtAnalysisStage`):
+
+- `test_pool_synthesises_all_valid_validation_results` — pool
+  produces non-zero cycles per response channel on clean data
+- `test_pool_does_not_invoke_validator` — source-inspection guard
+  that catches a future accidental re-add of `validator.validate_cycle`
+- `test_recording_stage_averager_still_uses_validator` — guard
+  against over-eager refactoring that strips validation from the
+  recording side too
+- `test_pool_succeeds_when_calibration_quality_config_has_unknown_schema` — direct repro of the user's blocked PlyWood
+  dataset; cycles flow through the pool regardless of the source's
+  unsupported `calibration_quality_config` keys
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
