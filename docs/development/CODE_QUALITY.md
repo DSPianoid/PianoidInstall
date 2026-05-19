@@ -479,6 +479,8 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/modal_adapter/routes.py` | 880 |
 | `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 831 |
 | `PianoidCore/pianoid_middleware/modal_adapter/preset_injector.py` | 827 |
+| `PianoidCore/pianoid_middleware/modal_adapter/measurement_routes.py` | 975 | (dev-maimport, 2026-05-19 — was 807 YELLOW; +168 LOC adding probe/import_folder/unzip_helper endpoints — still YELLOW, P2-split candidate is "carve import endpoints into measurement_import_routes.py"). |
+| `PianoidCore/pianoid_middleware/modal_adapter/measurement_import.py` | 644 | (dev-maimport, 2026-05-19 — new module; shared by REST + future CLI use. P1/P2 clean — single concern, single owner.) |
 | `PianoidCore/pianoid_cuda/MainKernel.cu` | 762 |
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit_runner.py` | 759 |
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |

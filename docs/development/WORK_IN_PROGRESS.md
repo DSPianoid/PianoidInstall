@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-maimport | Add Import path to Measurement subpanel (zip + folder) | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 
 ---
 

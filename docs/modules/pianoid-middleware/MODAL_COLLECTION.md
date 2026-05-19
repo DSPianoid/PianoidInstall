@@ -671,6 +671,252 @@ The underlying `ModalAdapter.copy_project()` and
 for direct callers (tests, scripts, REST replacements) until a
 follow-on session retires them.
 
+## Measurement Import endpoints (dev-maimport, 2026-05-19)
+
+Three new endpoints back the Measurement Import dialog
+(see [`MODAL_ADAPTER_GUIDE.md` § Measurement Import](../../guides/MODAL_ADAPTER_GUIDE.md#measurement-import-dev-maimport)).
+They live on the same `modal_bp` blueprint as the rest of
+`/modal/measurements/*` and reuse the v2 entity machinery — the
+`MeasurementCatalog`, `Measurement.create()`, `setup/*` write paths,
+and the slug-normalisation rules (N1). Shared implementation:
+`pianoid_middleware/modal_adapter/measurement_import.py`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/modal/measurements/probe` | Sniff a server-side path and report its layout / setup-config availability. No writes. |
+| POST | `/modal/measurements/import_folder` | Create a new Measurement by copying or moving an existing folder. |
+| POST | `/modal/measurements/unzip_helper` | Extract a raw measurement zip into `<measurements_base>/_staging/<name>_<TS>/`. The frontend then hands the returned `extracted_path` to `import_folder` — single unified flow. |
+
+### `POST /modal/measurements/probe`
+
+```bash
+curl -X POST http://127.0.0.1:5001/modal/measurements/probe \
+  -H "Content-Type: application/json" \
+  -d '{"source_path": "D:/modal_measurements/PlyWoodTake1_7"}'
+```
+
+Response (always 200; the `format` field encodes "unknown" cases):
+
+```json
+{
+  "format": "v2_measurement",
+  "scenarios_parent": "D:\\modal_measurements\\PlyWoodTake1_7\\scenarios",
+  "scenarios_detected": 30,
+  "num_channels": 8,
+  "sample_rate": 48000,
+  "has_metadata": true
+}
+```
+
+Format values:
+
+- `roomresponse` — scenario sub-folders carry `raw_recordings/` or
+  `averaged_responses/` directly under the picked path (or one
+  wrapping directory below).
+- `v2_measurement` — the picked path IS a Measurement directory
+  (has `measurement.json` + `scenarios/` sub-dir). The detector
+  auto-descends into `scenarios/` so the user can pick a Measurement
+  root and the import path still works.
+- `flat_npy` — flat directory of `scenario_*.npy` files. (Reserved;
+  the current import flow only ships the scenario-folder layouts.)
+- `unknown` — nothing recognisable. The `reason` field explains why.
+
+`has_metadata: true` means the first scenario has
+`metadata/session_metadata.json` available for `setup/*` auto-fill.
+When `false`, the import will use module defaults regardless of the
+`apply_source_config` flag.
+
+### `POST /modal/measurements/import_folder`
+
+```bash
+curl -X POST http://127.0.0.1:5001/modal/measurements/import_folder \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_path": "D:/modal_measurements/PlyWoodTake1_7",
+    "measurement_id": "PlyWoodTake1_7_imported",
+    "apply_source_config": true,
+    "copy_or_move": "copy"
+  }'
+```
+
+Body fields:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `source_path` | yes | — | Absolute path to the source folder (scenarios parent, wrapper dir, or v2 root). |
+| `measurement_id` | yes | — | New Measurement name (normalised per N1; 409 on collision; 422 on bad slug). |
+| `apply_source_config` | no | `true` | When `true` and the first scenario has metadata, populate `setup/*.json` from the captured `recorder_config`. When `false`, use module defaults. |
+| `copy_or_move` | no | `"copy"` | `"copy"` (safe) or `"move"` (faster, mutates source). |
+
+Response 201 body adds these extras to the standard `Measurement.summary()`:
+
+```json
+{
+  "measurement_id": "PlyWoodTake1_7_imported",
+  "measurement_path": "D:\\modal_measurements\\PlyWoodTake1_7_imported",
+  "num_scenarios": 30,
+  "num_channels": 8,
+  "sample_rate": 48000,
+  "acquisition_locked": false,
+  "created": "2026-05-19T15:34:58Z",
+  "scenarios_imported": 30,
+  "source_config_applied": true,
+  "detected_format": "v2_measurement",
+  "source_path": "D:\\modal_measurements\\PlyWoodTake1_7",
+  "scenarios_parent": "D:\\modal_measurements\\PlyWoodTake1_7\\scenarios"
+}
+```
+
+**D3 — imports stay unlocked** (orchestrator decision, dev-maimport
+2026-05-19). The N4 auto-lock that fires after the first internally-
+captured scenario is **NOT** applied on import. This keeps the
+Measurement extensible — the user can add more scenarios or edit
+`setup/*` immediately after import. The user can still manually lock
+from the Collection subpanel header once they're done. The CLI
+migration path (`migrate_to_measurement_entity.py`) keeps its
+existing auto-lock-on-apply behaviour (`reason: "migration_v1_to_v2"`)
+unchanged.
+
+Status codes:
+
+- 201 — created.
+- 400 — malformed body, unknown source format, or bad
+  `copy_or_move` value.
+- 409 — `measurement_id` already exists (N1). Body includes
+  `code: "duplicate"`.
+- 422 — invalid `measurement_id` slug.
+- 500 — unexpected error.
+
+### `POST /modal/measurements/unzip_helper`
+
+```bash
+curl -X POST http://127.0.0.1:5001/modal/measurements/unzip_helper \
+  -F "file=@D:/path/to/measurements.zip" \
+  -F "base_name=PlyWoodFresh"
+```
+
+Extracts the upload into `<measurements_base>/_staging/<base_name>_<YYYYMMDD-HHMMSS>/`
+and runs the same layout-detection helper used by the Folder tab.
+Returns 200 with:
+
+```json
+{
+  "extracted_path": "D:\\modal_measurements\\_staging\\PlyWoodFresh_20260519-153012\\Inner",
+  "staging_root": "D:\\modal_measurements\\_staging\\PlyWoodFresh_20260519-153012",
+  "detected_format": "roomresponse",
+  "scenarios_detected": 30
+}
+```
+
+The frontend dialog then transparently POSTs `import_folder` with
+`source_path = extracted_path` — same unified flow as picking an
+existing folder.
+
+Status codes:
+
+- 200 — extraction succeeded.
+- 400 — missing file / unzip failed / unknown layout after extraction.
+- 500 — unexpected error.
+
+### `session_metadata.json` → `setup/*` mapping
+
+`measurement_import.session_metadata_to_setup_configs()` translates
+the captured `recorder_config` blob into the four Measurement setup
+files. Mirror image of `collection_engine._build_recorder_config_from_measurement`
+(which goes the other way). Unit conversions applied:
+
+| Source field (recorder_config) | Target setup field | Conversion |
+|---|---|---|
+| `sample_rate` (Hz) | `audio_config` manifest + `Measurement.sample_rate` | none |
+| `input_device` / `output_device` (int) | `audio_config.input_device` / `.output_device` | none |
+| `input_device_name` / `output_device_name` (str) | `audio_config.input_device_name` / `.output_device_name` | none |
+| `multichannel_config.*` (object) | `audio_config.multichannel_config.*` | keys copied verbatim (`enabled`, `num_channels`, `channel_names`, `calibration_channel`, `reference_channel`, `response_channels`, `normalize_by_calibration`, `alignment_correlation_threshold`, `alignment_target_onset_position`) |
+| `impulse_form` (str) | `impulse_config.impulse_form` | none |
+| `pulse_duration` (seconds) | `impulse_config.pulse_duration_ms` | × 1000 |
+| `pulse_frequency` (Hz) | `impulse_config.pulse_frequency_hz` | none |
+| `pulse_fade` (seconds) | `impulse_config.pulse_fade_ms` | × 1000 |
+| `pulse_smoothing_ms` (ms) | `impulse_config.pulse_smoothing_ms` | none |
+| `invert_polarity` (bool) | `impulse_config.invert_polarity` | none |
+| `volume` (0..1) | `impulse_config.volume` | none |
+| `num_pulses` (int) | `series_config.num_pulses` | none |
+| `cycle_duration` (seconds) | `series_config.cycle_duration_ms` | × 1000 |
+| `series_config.record_extra_time_ms` (ms) | `series_config.record_extra_time_ms` | none |
+| `series_config.averaging_start_cycle` (int) | `series_config.averaging_start_cycle` | none |
+| `num_measurements` (int) | `series_config.num_measurements` | none |
+| `measurement_interval` (seconds) | `series_config.measurement_interval_s` | none |
+| (no source) | `mapping_config` | `default_mapping_config()` |
+| (no source — `calibration_quality_config` is a runtime gate, not a Measurement-level rule list) | `calibration_criteria` | `default_calibration_criteria()` |
+
+Missing fields fall through to the matching `default_*_config()`
+value — every output is default-shaped, so consumers see a valid
+schema even when the source metadata is sparse or absent.
+
+## Filesystem List endpoints (dev-maimport, 2026-05-19)
+
+Backs the server-side directory tree picker in the Measurement Import
+dialog. Lives in `pianoid_middleware/modal_adapter/fs_routes.py`,
+mounts under `/modal/fs/*`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/modal/fs/roots` | Returns suggested starting roots (measurements base, home, repo root, drive roots on Windows). |
+| GET | `/modal/fs/list?path=<abs>` | Lists one directory (dirs first, then files). |
+
+**Security: allowed-root allowlist.** Both endpoints refuse paths
+that are not under at least one of the suggested roots — request for
+`C:\Windows\System32` (or any other system path outside the allowlist)
+returns HTTP 403 with `code: "outside_allowed_roots"` and the
+`allowed_roots` array. This blocks misclicks and provides a small
+hardening layer against path-traversal abuse.
+
+`GET /modal/fs/roots` response:
+
+```json
+{
+  "roots": [
+    {"name": "D:\\modal_measurements", "path": "D:\\modal_measurements",
+     "is_dir": true, "kind": "measurements_base"},
+    {"name": "C:\\Users\\astri", "path": "C:\\Users\\astri",
+     "is_dir": true, "kind": "home"},
+    {"name": "D:\\repos\\PianoidInstall", "path": "D:\\repos\\PianoidInstall",
+     "is_dir": true, "kind": "repo_root"},
+    {"name": "C:\\", "path": "C:\\", "is_dir": true, "kind": "drive"},
+    {"name": "D:\\", "path": "D:\\", "is_dir": true, "kind": "drive"}
+  ]
+}
+```
+
+`kind` values: `measurements_base`, `home`, `repo_root`, `drive`.
+The frontend uses `kind` to render friendly chip labels
+("Measurements", "Home", "Repo", drive letter).
+
+`GET /modal/fs/list?path=D:/modal_measurements` response:
+
+```json
+{
+  "path": "D:\\modal_measurements",
+  "parent": "D:\\",
+  "entries": [
+    {"name": "PlyWoodTake1_7", "path": "D:\\modal_measurements\\PlyWoodTake1_7",
+     "is_dir": true},
+    {"name": "readme.txt", "path": "D:\\modal_measurements\\readme.txt",
+     "is_dir": false, "size": 142}
+  ]
+}
+```
+
+Entry ordering: directories first (case-insensitive sort by name),
+then files (case-insensitive sort by name). `parent` is `null` only
+when `path` is at the filesystem root.
+
+Status codes:
+
+- 200 — listing returned.
+- 400 — missing or blank `path` query parameter.
+- 403 — path outside the allowed-root allowlist, or permission-denied
+  while enumerating.
+- 404 — path does not exist or is not a directory.
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)

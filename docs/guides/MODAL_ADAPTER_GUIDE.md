@@ -283,6 +283,9 @@ the legacy `<CollectPanel>` (B-3 wave) at Phase 2b ship.
 **Top row.** A `<MeasurementSelector>` Select dropdown lists every Measurement
 on disk (from `GET /modal/measurements`) plus a `New Measurement` button that
 opens a minimal create dialog (just the name field — N1 globally-unique IDs).
+The selector also carries an **Import…** button (dev-maimport, 2026-05-19) that
+opens the Measurement Import dialog described in
+[§ Measurement Import (dev-maimport)](#measurement-import-dev-maimport) below.
 When the selected Measurement is locked (`acquisition_locked === true`), an
 **Acquisition locked** chip plus an **Unlock with warning** button (N4) appear
 on the right.
@@ -434,6 +437,119 @@ on next Save.
   [`pianoid-middleware/MODAL_COLLECTION.md`](../modules/pianoid-middleware/MODAL_COLLECTION.md)
   for the route-level inventory + setup/* → recorder_config stitching
   via `_build_recorder_config_from_measurement`.
+
+### Measurement Import (dev-maimport)
+
+The Measurement Import dialog (dev-maimport, 2026-05-19) creates a new
+Measurement from an existing dataset on disk — an unpacked RoomResponse
+folder OR a raw measurement `.zip`. It replaces the (orphaned, removed
+at Phase 2c) "Create Project from raw recordings" flow and lives on the
+**Measurement** side of the entity split. A Project is then branched
+from the new Measurement via the existing Project subpanel flow.
+
+**Entry point.** Click the **Import…** button next to "+ New
+Measurement" in the top-row `<MeasurementSelector>` (Collection
+subpanel header). Opens `<MeasurementImportDialog>`.
+
+**Two tabs, one unified flow.**
+
+| Tab | What you pick | Backend path |
+|---|---|---|
+| **Folder** | A server-side directory via the tree picker (`<ServerFolderPicker>`). No upload. | `POST /modal/measurements/import_folder` with the resolved absolute path |
+| **Raw .zip** | A `.zip` file from the browser. Auto-extracted server-side to `<measurements_base>/_staging/<name>_<TS>/`. Then continues as if the user had picked the staged folder. | `POST /modal/measurements/unzip_helper` (extract) → `POST /modal/measurements/import_folder` (import) |
+
+**Server-side folder tree picker (D2 = (a), no upload).** The Folder
+tab renders a `<List>` + `<Collapse>` directory navigator backed by
+`GET /modal/fs/list?path=<abs>` (the modal-adapter server enumerates
+its OWN filesystem). The browser never uploads folders. Suggested
+starting roots come from `GET /modal/fs/roots`: the measurements base,
+the user's home directory, the repo root, and every fixed drive on
+Windows. Paths outside this allowlist are refused with HTTP 403.
+Rationale: Pianoid is local-only (Flask binds 127.0.0.1), so the
+backend already has direct disk access — uploading multi-GB measurement
+folders through the browser just to learn the path wastes RAM and
+fails on large datasets.
+
+**Format detection panel.** As soon as the user picks a folder (or the
+zip finishes extracting), the dialog calls `POST /modal/measurements/probe`
+and shows chips for:
+
+- **Format** — `roomresponse` (scenarios contain `raw_recordings/` or
+  `averaged_responses/`), `v2_measurement` (the source is itself a
+  Measurement directory — the picker auto-descends into `scenarios/`),
+  or `unknown` (no recognisable layout — submit is disabled).
+- **Scenarios** detected.
+- **Channels** + **Sample rate** (from the first scenario's
+  `metadata/session_metadata.json` when available, else from the
+  `average_ch*.npy` file count).
+- **Config in source** — `yes (will auto-apply)` when the first
+  scenario carries `metadata/session_metadata.json`, else `no
+  (defaults will be used)`.
+
+**Apply source config checkbox (default ON).** When checked AND the
+source has `metadata/session_metadata.json`, the dialog asks the
+backend to populate the four Measurement setup files
+(`audio_config.json`, `impulse_config.json`, `series_config.json`,
+`mapping_config.json`) by translating the captured `recorder_config`
+blob into the v2 schema. Unit conversions are handled in
+`measurement_import.session_metadata_to_setup_configs`
+(`pulse_duration` seconds → ms, `cycle_duration` seconds → ms, etc.).
+When unchecked, OR when the source has no metadata, the four files
+are written with `default_*_config()` payloads. The checkbox is
+auto-disabled (with a "defaults will be used" caption) when probe
+reports `has_metadata: false`.
+
+**Calibration criteria** always default. The Measurement entity's
+default 5-criterion starter set (§2.3.5 of the proposal) is written;
+the source's `calibration_quality_config` (which is a recorder
+runtime gate, not a Measurement-level rule list) is intentionally NOT
+ported — operators tune calibration criteria after import.
+
+**Imported Measurements stay UNLOCKED (D3 — orchestrator decision,
+2026-05-19).** Unlike the auto-lock that fires after the first
+internally-captured scenario (N4), an import leaves
+`locks/acquisition.lock` absent. This is deliberate: the user
+typically wants to extend the imported Measurement (add more
+scenarios, edit setup) without an explicit unlock-with-warning step.
+Standard manual lock control still applies — the user can lock from
+the Collection subpanel header once they're done editing.
+
+**Rejected: `.pianoid-project` archives (D1 = (c)).** Project
+archives are not Measurement archives — they ship `manifest.json` +
+`project.json` + an entire `modal_adapter/` analysis pipeline subtree,
+none of which maps cleanly to a Measurement's
+`measurement.json` + `setup/*` shape. The Folder tab's tree picker
+only lists directories, so this case can only arise when the user
+picks a `.pianoid-project` file in the Raw .zip tab; the file-input
+handler detects the extension up-front and shows an inline
+`<Alert severity="error">`:
+
+> This file is a Project archive, not a Measurement. Project import
+> is not exposed in this dialog. For raw measurement data, use the
+> Folder tab or a raw .zip.
+
+The orphaned `importProject()` hook in `useProjectCRUD.js` remains
+unused — Project-archive import is no longer exposed in the UI. A
+future Project-side Import button could pick it up if the
+round-trip-via-export-zip flow is needed again.
+
+**Error surfaces.** All standard inline `<Alert>` messages:
+
+| Condition | Source | Display |
+|---|---|---|
+| name already taken (N1, 409) | backend response | "A Measurement named X already exists. Choose a different name." + helper text on the name field (client-side `existingIds` prop avoids the round-trip) |
+| bad slug (422) | backend response | "Invalid measurement_id: ..." (rare — the name field auto-derives a valid stem) |
+| unknown source format (400) | probe panel + submit guard | the probe `reason` field surfaces the warning; submit disabled until user picks a recognisable folder |
+| zip extraction failed | unzip_helper response | "Zip extraction failed: ..." (the staging directory is left in place for inspection) |
+
+**See also:**
+- Endpoint reference + curl examples:
+  [`pianoid-middleware/MODAL_COLLECTION.md` § Measurement Import endpoints](../modules/pianoid-middleware/MODAL_COLLECTION.md#measurement-import-endpoints-dev-maimport-2026-05-19)
+- Server-side filesystem listing:
+  [`pianoid-middleware/MODAL_COLLECTION.md` § Filesystem List endpoints](../modules/pianoid-middleware/MODAL_COLLECTION.md#filesystem-list-endpoints-dev-maimport-2026-05-19)
+- Shared module: `pianoid_middleware/modal_adapter/measurement_import.py`
+  (entry point: `import_folder_as_measurement(...)`; unit-conversion mapper:
+  `session_metadata_to_setup_configs(...)`).
 
 ### Project Management
 
@@ -620,9 +736,15 @@ accordion. For `line` layout the editor does not render — switch to grid
 via the LINE/GRID layout selector in the settings panel (gear icon) to
 reveal it.
 
-**Create Project…** -- click to open `CreateProjectDialog` (dev-cp01,
-2026-05-05). The dialog collects the four pieces of create-time
-information in one step:
+**Create Project…** *(LEGACY — removed at Phase 2c hard cutover N8;
+the dialog no longer mounts. The historical description below is kept
+for context only. The current path to create an analysis Project from
+raw recordings is: (1) Import the dataset as a Measurement via
+[§ Measurement Import (dev-maimport)](#measurement-import-dev-maimport)
+above, (2) branch a Project from that Measurement via the Project
+subpanel's "Branch from this Project" button.)* -- click to open
+`CreateProjectDialog` (dev-cp01, 2026-05-05). The dialog collects the
+four pieces of create-time information in one step:
 
 | Field | Default | Notes |
 |-------|---------|-------|
@@ -2304,13 +2426,25 @@ project directory still exists.
 
 #### Project Import / Create-from-Zip
 
+> **Phase 2c update (dev-maimport, 2026-05-19).** `POST /modal/projects/create_from_zip`
+> is retired (HTTP 410 Gone). For raw measurement-data zips, the
+> replacement is the Measurement Import dialog
+> (`POST /modal/measurements/unzip_helper` → `POST /modal/measurements/import_folder`) —
+> see [`MODAL_COLLECTION.md` § Measurement Import endpoints](../modules/pianoid-middleware/MODAL_COLLECTION.md#measurement-import-endpoints-dev-maimport-2026-05-19).
+> `POST /modal/projects/import` (`.pianoid-project` archives only) is
+> still wired on the backend but is not currently surfaced anywhere in
+> the UI; its frontend hook (`importProject` in
+> `useProjectCRUD.js`) is orphaned. The legacy text below is preserved
+> for historical context — neither of the two curl invocations matches
+> the live surface anymore.
+
 Two endpoints accept zip uploads:
 
 ```bash
-# Smart-routed: handles both .pianoid-project archives (manifest.json+
-# project.json at the top) and raw measurement-data zips (RoomResponse
-# scenario folders, or flat .npy). Auto-detects layout, auto-extracts
-# measurement zips, returns 201 on success.
+# RETIRED Phase 2c (HTTP 410 Gone). Was: smart-routed import that
+# handled both .pianoid-project archives (manifest.json+ project.json
+# at the top) and raw measurement-data zips (RoomResponse scenario
+# folders, or flat .npy).
 curl -X POST http://localhost:5001/modal/projects/create_from_zip \
   -F "file=@C:/path/to/measurements.zip" \
   -F "name=MyProject"
