@@ -1194,6 +1194,89 @@ gap.
 - `TestRound8ScenarioLoadingGap` (2 tests): gap captured + surfaced;
   cleared on project switch
 
+## Round 10 — PATCH /modal/measurements/<id>/<section> response shape (dev-maimport, 2026-05-20)
+
+Backend route + frontend hook were both contributing to a silent-
+data-corruption bug that affected **all 5 setup sections**
+(audio_config, impulse_config, series_config, mapping_config,
+calibration_criteria). User-visible symptom: "I cannot modify
+grid and channel role parameters, settings are open but don't
+persist on save".
+
+**Root cause:** pre-round-10, `_patch_setup` returned only
+`{"ok": True, "updated": <section>}` — an acknowledgement shape
+with no section payload. The frontend hook's response-mirror logic
+`useMeasurementSetup.js:116` had a fallback chain
+`res?.data?.[section] || res?.data || body` whose middle clause
+`|| res?.data` captured the ack object (truthy) and stored it as
+the section's canonical shape in `manifest.setup[section]`. Next
+render showed garbage. Next save merged the user's edit into the
+`{ok, updated}` shell and PATCHed back to disk → eventual on-disk
+corruption like `{"ok": true, "updated": "mapping", "channel_roles": {...}}`
+(missing layout_type, bridge_boundary, etc.).
+
+**Fix (both sites, defense in depth):**
+
+Backend (`measurement_routes.py::_patch_setup`): after a successful
+`write_setup_config`, re-reads the file from disk via
+`read_setup_config` and includes the full canonical body in the
+response under the section-name key:
+
+```json
+{
+  "ok": true,
+  "updated": "mapping",
+  "mapping_config": { ...full canonical 7-key body... }
+}
+```
+
+The section-name key uses the long form (`audio_config` /
+`impulse_config` / `series_config` / `mapping_config` /
+`calibration_criteria`) — same form the URL path uses + the
+frontend's `manifest.setup[section]` keys against.
+
+Frontend (`useMeasurementSetup.js`): fallback chain reduced from
+3 alternatives to 2 — `res?.data?.[section] || body`. The middle
+`|| res?.data` clause that captured the ack shape is GONE.
+Response-section-payload wins (round-10 backend always provides
+it); falls back to the canonical request body if any future
+endpoint doesn't follow the new contract. The ack wrapper can
+NEVER be captured.
+
+**Why both sites?** The backend fix eliminates the ambiguity that
+invited the bug — any client following the new contract is safe.
+The frontend fix protects against any future endpoint that
+returns acknowledgement-only responses without a section payload
+(defensive). Both ~3-5 LOC, no overlap.
+
+**Tests** (round-trip GET-after-PATCH coverage for all 5 sections):
+
+Backend (`tests/integration/test_measurement_routes.py::TestRound10PatchResponseCarriesSavedBody`, +3 tests):
+- `test_patch_response_contains_full_saved_body` — each of 5
+  sections: PATCH a body, response carries `<section_key>` with
+  the FULL post-merge content
+- `test_patch_then_get_returns_same_shape` — PATCH then GET, on-
+  disk has canonical shape (no `ok`/`updated` leaked into section)
+- `test_repeated_patch_preserves_canonical_shape` — 3x progressive
+  PATCH, final state == 3rd body verbatim (directly reproduces
+  the user's failure mode)
+
+Frontend (`src/hooks/__tests__/useMeasurementSetup.test.jsx`, +3 tests):
+- "mirrors the section payload from response into manifest.setup"
+- "CRITICAL: pre-round-10 corruption pattern — ack-only response
+  must NOT pollute manifest" (directly reproduces the bug — if
+  backend hypothetically returns ack-only, the hook MUST fall
+  back to body, never capture the ack)
+- "repeated PATCH preserves canonical shape" (frontend regression
+  guard)
+
+**Damage repair on user's data:** scanned all 26 Measurements in
+`D:\modal_measurements` for the corruption signature (presence
+of `ok` or `updated` keys at top level of any setup file). After
+round 10: 0 corrupted files remain. User's `PlyWoodSmallGrid`
+mapping_config was already repaired by the round-10 diagnostic-
+phase PATCH (canonical 7-key body) before code fix landed.
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
