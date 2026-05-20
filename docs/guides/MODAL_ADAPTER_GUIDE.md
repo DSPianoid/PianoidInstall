@@ -607,6 +607,18 @@ feedin caches.
    pattern with a uniform "always stay open until OK" pattern — no
    more "dialog flashed and closed before I could read the error".
 
+6. **Round 8 (dev-maimport, 2026-05-19) — switch-to-Setup + ESPRIT-fire
+   DEFERRED to OK click:** the round-7 implementation invoked
+   `onSwitchToProject()` inside `handleSubmit`, which flipped
+   `ModalAdapter.activeSection` to "setup" → unmounted
+   `<CollectionSubpanel>` (which OWNS the dialog open state) →
+   destroyed the dialog mid-render so the result panel was never
+   visible. Round 8 defers BOTH `onSwitchToProject()` AND
+   `onRunEsprit()` from `handleSubmit` to `handleOk` (the OK-button
+   handler). Dialog stays mounted under "collect" until user clicks
+   OK; then switch + ESPRIT fire in batched-update order with the
+   dialog close. Result panel persists until explicit dismissal.
+
 **Result panel states (round 7):**
 
 | Kind | Icon | When | Action |

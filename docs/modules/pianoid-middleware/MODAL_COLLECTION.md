@@ -1083,6 +1083,117 @@ extend `ensure_averaged_responses` instead.
   dataset; cycles flow through the pool regardless of the source's
   unsupported `calibration_quality_config` keys
 
+## Round 8 — mapping_config import + ESPRIT defensive errors (dev-maimport, 2026-05-19)
+
+Three related backend changes that close a class of "silent 0-mode"
+failures in the analysis pipeline.
+
+### 1. mapping_config port from source session_metadata
+
+`import_folder_as_measurement` (round 1) reads each source scenario's
+`metadata/session_metadata.json` and ports the `recorder_config` blob
+into the four Measurement `setup/*` config files. **Round 8 extends
+this to populate `setup/mapping_config.json::channel_roles`** from
+`recorder_config.multichannel_config.calibration_channel` +
+`recorder_config.multichannel_config.response_channels`. Pre-round-8
+the mapping always defaulted to empty `channel_roles: {}` regardless
+of source — every imported Measurement opened with no response
+channels assigned, and ESPRIT silently produced 0 modes.
+
+Field-by-field mapping:
+
+| Source field (in `multichannel_config`) | Mapping role |
+|---|---|
+| `calibration_channel` (int) | `channel_roles[<idx>] = "reference"` |
+| `response_channels` (list of int) | `channel_roles[<each idx>] = "response"` |
+| (channels not in either field) | absent from `channel_roles` — effectively unassigned |
+
+Why `reference` for the calibration channel? `modal_adapter/mapping.py`'s
+canonical role enum is `force / reference / response` — there is no
+`calibration` role. `reference` is semantically correct: the
+calibration channel provides the reference signal used to normalize
+the response channels, exactly what `reference_channels` is for in
+the mapping module.
+
+**Migration note for measurements created BEFORE round 8** (incl. via
+the legacy "+ New Measurement" empty-create UI followed by manual
+scenario population): their `setup/mapping_config.json` was generated
+with empty `channel_roles` and is NOT auto-upgraded by round 8 — only
+fresh imports via `import_folder_as_measurement` get the mapping
+port. **Path forward: re-import the source folder as a new
+Measurement** (e.g. `PlyWood` → `PlyWood_r8`). A "re-derive mapping
+from session_metadata" UI helper for legacy Measurements is a deferred
+follow-up; if you've accumulated state attached to the legacy
+Measurement (Projects, ESPRIT runs) the simpler short-term fix is to
+hand-edit `setup/mapping_config.json` to match the source's
+multichannel_config.
+
+### 2. `_run_esprit_sync` defensive error on empty response_channels
+
+Pre-round-8, ESPRIT silently "succeeded" (`state=done, message=Complete`)
+with 0 modes per scenario when the mapping had no `response`-roled
+channels — the runner happily processed an empty channel list. User
+saw "ESPRIT runs too fast" with no diagnostic, leading to ~3 rounds
+of mis-diagnosis. Round 8 fails fast:
+
+```python
+if not response_channels:
+    raise RuntimeError(
+        "No response channels configured in mapping. Edit the "
+        "project's mapping_config.json (or the Setup subpanel's "
+        "channel-roles editor) to mark at least one channel as "
+        "'response'. Current channel_roles: {...}"
+    )
+```
+
+The `POST /modal/run_esprit` route then returns `state: error` with
+this message in the body, which the frontend surfaces inline. Same
+fail-fast applies when `_mapping` is None at all (different error
+message: "Mapping not set" / "Mapping not configured").
+
+### 3. Scenario-loading-gap surface
+
+When `_load_v2_scenarios_from_parent_measurement` (round-4 fallback)
+walks the parent Measurement's `scenarios/` directory, scenarios that
+lack `averaged_responses/` are silently filtered out by
+`_discover_roomresponse_scenarios`. Pre-round-8 the user saw
+"`num_scenarios: 2`" when the disk had 3 scenarios, with no
+explanation. Round 8 captures the gap on `self._scenario_loading_gap`
+and surfaces it in `/modal/project_state.measurement_info`:
+
+```json
+{
+  "measurement_info": {
+    "num_scenarios": 2,
+    "num_channels": 8,
+    "sample_rate": 48000,
+    "scenario_loading_gap": {
+      "total_on_disk": 3,
+      "loaded": 2,
+      "excluded": [
+        {"scenario_name": "PlyWood-Scenario6-LG",
+         "reason": "no averaged_responses"}
+      ]
+    }
+  }
+}
+```
+
+The frontend's Project info panel renders an inline warning Alert
+listing the excluded scenarios with their reasons. State is reset by
+`reset()` so opening a different project doesn't leak the previous
+gap.
+
+**Tests** (in `tests/integration/test_measurement_import.py`):
+
+- `TestRound8MappingConfigImport` (5 tests): calibration→reference,
+  response→response, missing→default, partial-coverage, end-to-end
+  on-disk round-trip mirroring user's PlyWood shape
+- `TestRound8EspritEmptyChannelsError` (2 tests): empty-mapping +
+  force-only-mapping both raise clear errors
+- `TestRound8ScenarioLoadingGap` (2 tests): gap captured + surfaced;
+  cleared on project switch
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
