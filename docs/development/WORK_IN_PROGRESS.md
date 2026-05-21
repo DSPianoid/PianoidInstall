@@ -8,6 +8,64 @@
 
 ---
 
+## ~~Heatmap smoothing mutated the matrix server-side~~ — RESOLVED dev-maimport round 24 (2026-05-17)
+
+**Status: RESOLVED.** Closed in dev-maimport round 24.
+PianoidCore commit `93afae4` / merge `9b6a7dd`.
+PianoidTunner commit `2808ed3` / merge `42f4be5`.
+
+**The bug.** `GET /modal/grid_heatmap/<chain_id>?smoothing=N` ran
+`scipy.ndimage.gaussian_filter` server-side on the per-cell amplitudes
+and returned the SMOOTHED value in `cells[i].amplitude`. The frontend
+heatmap tooltip showed those smoothed numbers as if they were
+measurements ("amplitude: 4.123e-02") at any non-zero slider value.
+The user's contract — "the underlying matrix must stay inviolate;
+smoothing is a RENDERING concern" — was silently violated.
+
+The companion `approximation="planar"` parameter had the same shape
+of bug (fills empty cells via `np.linalg.lstsq` planar fit, returns
+extrapolated values in originally-empty cells without flagging them
+as fabricated to the consumer beyond the `is_measured` boolean).
+
+**The fix (round 24).** Backend `VisualizationService.get_grid_heatmap_data`:
+- DELETE the Pass-3 gaussian smoothing block (was `visualization_service.py:301-319`).
+- DELETE the Pass-2 planar approximation block (was `visualization_service.py:284-299`).
+- ACCEPT `smoothing` and `approximation` query params for URL-compat
+  but silently ignore them. Echo fields always report `0.0` / `"none"`.
+- Per-cell `amplitude` is now byte-identical to the raw scenario
+  detection amplitude regardless of any params. Empty cells stay null.
+
+Frontend `GridHeatmapInset.jsx`:
+- New `SmoothingOverlay` sub-component — sibling `<canvas>` absolutely
+  positioned over the ECharts heatmap plot area. Paints a bilinearly-
+  interpolated image of the cell colors using the SAME visualMap
+  palette ECharts uses. NaN propagation: any source cell null →
+  pixel transparent (empty cells stay white). Pointer-events disabled
+  so ECharts owns the tooltip surface — tooltip continues to show the
+  TRUE measured amplitude.
+- `useEffect` no longer depends on `smoothing` / `approximation`; slider
+  drags repaint the overlay canvas without a backend round-trip.
+- `useModalAdapter.getGridHeatmap` no longer forwards either param.
+
+Slider in `StabilizationDiagram.jsx` relabelled "Smooth σ" → "Visual
+smoothing" (range 0..2 preserved).
+
+**Round-24 invariants (tested):**
+- backend `cells[i].amplitude` unchanged across `smoothing ∈ {0, 2, 10, 100}`
+- backend `cells[i].amplitude` unchanged across `approximation ∈ {"none","linear","planar"}`
+- empty cells stay `null` regardless of param combination
+- frontend hook calls axios.get with chainId only — no params
+- frontend slider drags do NOT trigger refetch
+- overlay canvas exists in the DOM with `pointer-events: none`
+
+Test count delta: backend +8 round-24 tests (TestGridHeatmapApproximationAndSmoothing
+class restructured — same 9-test footprint but every assertion inverted
+to enforce the new no-op contract). Frontend +6 new hook-level tests
+(`useModalAdapter.getGridHeatmap.test.jsx`) + 4 inverted existing tests
+in `GridHeatmapInset.test.jsx` + 1 new overlay-canvas test.
+
+---
+
 ## ~~Round-15 validation-rejection blocker — 87 of 92 user scenarios rejected at averaging~~ — RESOLVED dev-maimport round 18 (2026-05-21)
 
 **Status: RESOLVED.** Closed in dev-maimport round 18.
