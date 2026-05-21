@@ -8,6 +8,66 @@
 
 ---
 
+## ~~Round-15 validation-rejection blocker — 87 of 92 user scenarios rejected at averaging~~ — RESOLVED dev-maimport round 18 (2026-05-21)
+
+**Status: RESOLVED.** Closed in dev-maimport round 18.
+PianoidCore commit `070d836` / merge `3c07c8b`.
+
+**The blocker.** User's `PlyWoodLGtemp1` Measurement contains 92
+scenarios; 87 use raw_recordings whose ``calibration_quality_config``
+uses an older schema (``double_hit_*``, ``backfront_*`` fields) that
+the in-tree V3 ``CalibrationValidatorV2.from_config`` doesn't
+recognize. ``from_config`` silently falls back to V3 defaults — and
+the user's narrow-spike calibration pulses violate those defaults
+on multiple criteria (peak width < 0.3 ms, first-positive ratio
+> 0.3, precursor ratio > 0.2). Result: 100% per-cycle rejection at
+the averaging stage → ``STATUS_ERROR`` "All cycles failed
+validation/alignment" for 87 of 92 scenarios. Only 5 with pre-
+existing ``averaged_responses/`` survived (idempotency-skipped).
+
+User read this as "create project doesn't work" — the dialog
+succeeded with HTTP 201 but produced a project that loaded only 5
+scenarios out of 92.
+
+**Fix.** Removed per-cycle validation from
+``scenario_averager.ensure_averaged_responses`` entirely (the
+project-creation averaging path). Validation now runs at the
+RECORDING stage only (``collection_engine`` /
+``measurement_session``). Extends the principle round 7 locked in
+for the analysis-stage QC path (``pool_scenario_cycles``) to the
+recording-stage averager too. The user's locked principle:
+
+> "Validation should be applied at the recording stage ONLY. Should
+> not be reapplied to the imported measurements. Only averaging
+> quality check."
+
+**Code change** (commit `070d836`):
+* Removed ``CalibrationValidatorV2`` + ``QualityThresholds`` imports
+  from ``ensure_averaged_responses``
+* Removed ``calibration_quality_config`` config fetch
+* Removed ``validator = CalibrationValidatorV2(...)`` instantiation
+* Replaced per-cycle ``validate_cycle`` loop with synthesized
+  all-valid ``validation_results`` (identical shape to round 7's
+  pool_scenario_cycles synthesis)
+
+**Live verification** on user's PlyWoodLGtemp1 (private backend on
+port 5500): POST `/modal/projects` → HTTP 201 in 414s. Results:
+  - `computed: 91` (vs round-17 pre-fix: 0)
+  - `errors: 0` (vs 91)
+  - `skipped_existing: 1` (preserves idempotency)
+  - `qc_computed: 91` (vs 0; QC now runs on every scenario)
+  - `num_scenarios: 92` loaded (vs 5)
+  - `scenario_loading_gap.excluded: []` (vs 87 entries)
+
+**Tests.** +3 in `tests/integration/test_scenario_averager.py`
+(`TestRound18NoValidationInAveraging`). 1 inverted in
+`test_measurement_import.py` (`test_recording_stage_averager_*`
+flipped to assert the validator is NOT called). 374/375 backend
+tests pass — only failure is the pre-existing dev-0239 mock
+signature issue.
+
+---
+
 ## modal_adapter.py split — Wave 1 LANDED 2026-05-21
 
 **Status: Wave 1 SHIPPED.** Per `docs/proposals/modal-adapter-split-2026-05-21.md`.
