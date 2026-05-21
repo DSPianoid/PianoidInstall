@@ -456,15 +456,15 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 
 | Rank | File | LOC | Notes |
 |------|------|-----|-------|
-| 1 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 2952 | CUDA synthesis hub; multiple concerns (kernel orchestration, parameter packing, lifecycle) |
-| 2 | `PianoidCore/pianoid_middleware/backendServer.py` | 3166 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI) |
-| 3 | `PianoidTunner/src/PianoidTuner.js` | 2793 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state |
-| 4 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
-| 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
-| 6 | `PianoidCore/pianoid_middleware/pianoid.py` | 2488 | Main synthesis orchestrator; preset loading + parameter routing + playback + more |
+| 1 | `PianoidCore/pianoid_middleware/backendServer.py` | 3553 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI). +112 at dev-bfe2 (preset working-copy endpoints, 2026-05-18) |
+| 2 | `PianoidCore/pianoid_middleware/pianoid.py` | 3177 | Main synthesis orchestrator; preset loading + parameter routing + playback + more. +182 at dev-bfe2 (working-copy spawn/promote/guard methods, 2026-05-18) — the `PresetLibrary` registry data structure was carved out to `preset_library.py`, but the orchestration methods correctly stay here; the file remains RED and a deeper preset-IO carve-out is still open (WIP §4.3) |
+| 3 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 2952 | CUDA synthesis hub; multiple concerns (kernel orchestration, parameter packing, lifecycle) |
+| 4 | `PianoidTunner/src/PianoidTuner.js` | 2793 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state |
+| 5 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
+| 6 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
 | 7 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2231 | Stabilization diagram — data prep + ECharts config + interaction + sub-panels |
 | 8 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1537 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns. (2026-05-17 cursor-drift fix trimmed it 1565→1537; still RED — full split is the open numinput-inventory rec #4.) |
-| 9 | `PianoidTunner/src/hooks/usePreset.js` | 1437 | Preset hook — WS + REST + debounce + optimistic UI + available notes |
+| 9 | `PianoidTunner/src/hooks/usePreset.js` | 1514 | Preset hook — WS + REST + debounce + optimistic UI + available notes + library records / spawn / promote (dev-bfe2, 2026-05-18) |
 | 10 | `PianoidTunner/src/hooks/useModalAdapter.js` | 1356 | Modal adapter hook — REST + WS + project state + ESPRIT triggers |
 | 11 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1324 | Calibration — direct correction + bisection + sequence + I/O |
 | 12 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/mode_tracking.py` | 1215 | Mode tracking — proposals + assignment + lifecycle + scoring |

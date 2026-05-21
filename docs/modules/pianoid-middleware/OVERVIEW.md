@@ -86,12 +86,33 @@ Key methods called by the REST layer:
 - `update_parameter(parameter, values, pitches, modes)` — applies parameter updates from POST
 - `get_chart_for_frontend(chartType, **kwargs)` — delegates to `ChartGenerator`
 - `perform_frontend_command(action_type, **kwargs)` — delegates to `ActionPerformer`
-- `save_preset(path)` / `reset()` / `destroyPianoid()`
-- `load_preset_to_library(path, preset_name)` — loads a preset JSON into the GPU library without activating it
-- `switch_preset(preset_name, async_switch)` — switches the active preset via double-buffer swap
-- `get_library_presets()` / `get_active_preset()` / `unload_preset(preset_name)` — preset library management
+- `save_preset(path, sm=None, modes=None, mp=None)` / `reset()` / `destroyPianoid()` — `save_preset` defaults to the live model; promote passes a working copy's model. Atomic temp-file write.
+- `load_preset_to_library(path, preset_name)` — loads a preset JSON into the GPU library as a read-only `original` entry
+- `switch_preset(preset_name, async_switch)` — switches the active preset via double-buffer swap; saves live edits back only when leaving a `working` copy
+- `spawn_working_copy(source_name, activate=True)` — deep-copies a source entry's current state into a new auto-labelled `working` copy
+- `promote_working_copy(working_name)` — overwrites a working copy's source original's on-disk JSON, refreshes the in-memory original
+- `get_library_presets()` / `get_active_preset()` / `unload_preset(preset_name)` — preset library management (`get_library_presets` returns entry records)
+- `_assert_active_editable()` — raises `PresetReadOnlyError` when an `original` is active; called by all parameter-edit facades
 - `load_deck_from_txt(preset_path, num_modes)` — overlay `Ci_coef_cos.txt` / `Ci_coef_str.txt` / `Ci_str_out.txt` modes coefficients from an FPGA preset directory onto the live `StringMap` deck (feedin / feedback / sound_coefficients), leaving excitation untouched
 - `load_excitation_from_fpga_preset(preset_path, main_volume, apply_ind_vol, apply_ind_mult, volume_sign_handling)` — overlay `exp_all.txt` + `ind_vol_0..4.txt` + `ind_mult_0..4.txt` Gauss excitation parameters from an FPGA preset directory onto the live `StringMap` excitation block. See **Loading FPGA presets** below
+
+### `PresetLibrary` (preset_library.py)
+
+Owns the host-side preset library registry for the **working-copy model**.
+Each entry is a `PresetEntry` carrying the domain objects (`sm`, `modes`,
+`mp`) plus metadata: `kind` (`original` = read-only on-disk snapshot /
+`working` = editable copy), `source` (the originating original), and `path`
+(on-disk JSON for originals). Replaces the bare `_library_models` dict that
+previously lived on `Pianoid` — carved out to keep that C4-RED god object from
+widening further (P2). Makes no GPU calls; `Pianoid` keeps the C++ binding and
+delegates registry bookkeeping. Key methods: `register_original` /
+`register_working`, `kind_of` / `source_of` / `is_editable`,
+`working_copies_of`, `next_working_label` (the `(working N)` indexer with gap
+reuse), `deepcopy_models`, `remove` (last-preset guard), `replace_models`,
+`records_for_api`. Raises `PresetLibraryError` (structural violations) and
+`PresetReadOnlyError` (edit-on-original; a subclass). See
+[REST_API.md — Preset Library Endpoints](REST_API.md#preset-library-endpoints)
+and [DATA_FLOWS.md §2.8](../../architecture/DATA_FLOWS.md).
 
 ### Loading FPGA presets
 

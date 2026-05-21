@@ -85,10 +85,12 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /calibration_params       -- GET/POST perception curves, timing bands, level multipliers
   /mic_devices              -- list microphone input devices
   /set_mic_device           -- select microphone input device
-  /preset/list              -- list loaded presets + active preset
-  /preset/load              -- load preset to GPU library (no activation)
+  /preset/list              -- list library entry records + active preset
+  /preset/load              -- load preset to GPU library as a read-only original
   /preset/switch            -- switch active preset (double-buffer swap)
   /preset/unload            -- remove preset from GPU library
+  /preset/spawn_working_copy -- spawn an editable working copy from an entry
+  /preset/promote           -- promote a working copy onto its original's JSON file
 ```
 
 ### modal_adapter_server.py (port 5001)
@@ -390,6 +392,17 @@ Reads simulation parameters serialized for the frontend.
 
 For `mode`, `feedin`, `feedback`, `output`: `key_no` is treated as a mode number range.
 For all other parameters: `key_no` is treated as a pitch number range.
+
+**`string` parameter — `length` unit.** For `parameter == string` (and `physics`),
+the `length` field is the main-section physical length in **metres**
+(`p_main * dx`), *not* the FDTD block count. `PhysicalParameters.pack()` stores
+`p_main()` (the unitless block/discretisation-point count) in that slot; the
+serializer multiplies by `dx` so the endpoint reports metres — the same unit the
+`combined` branch reports and the same unit `geometry.set_length()` expects. A
+`length` value POSTed back via `set_parameter/string` is therefore interpreted as
+metres, making the GET→edit→POST round-trip unit-consistent. (Returning the raw
+block count here previously made the granular path upload `dx ≈ 1.0 m`, an ~84-141x
+error that diverged the FDTD solver — fixed in `cce4270`.)
 
 Response `200`: parameter payload (structure depends on parameter type)
 
@@ -1205,17 +1218,31 @@ Response `200`:
 
 ## Preset Library Endpoints
 
+The preset library follows the **working-copy model** (2026-05-18). Every
+library entry has a **kind**: `original` (a read-only snapshot of an on-disk
+preset) or `working` (an editable copy spawned from an original). Parameter
+edits are rejected while an `original` is active — see the `preset_read_only`
+409 below. See [DATA_FLOWS.md §2.8 "Working-Copy Model"](../../architecture/DATA_FLOWS.md).
+
 ### `GET /preset/list`
 
-Returns all presets currently loaded in the GPU preset library and the active preset name. Requires a loaded pianoid instance.
+Returns the preset library entry records and the active preset name. Requires
+a loaded pianoid instance.
 
 Response `200`:
 ```json
 {
-  "presets": ["default", "Steinway", "Bluthner"],
-  "active": "default"
+  "presets": [
+    { "name": "Steinway",            "kind": "original", "source": "Steinway", "path": "presets/Steinway.json" },
+    { "name": "Steinway (working 1)", "kind": "working",  "source": "Steinway", "path": null }
+  ],
+  "active": "Steinway (working 1)"
 }
 ```
+
+Each record: `name`, `kind` (`original`|`working`), `source` (the originating
+original's name; an original's `source` is itself), `path` (on-disk JSON path
+for originals, `null` for working copies).
 
 Response `400` if pianoid not initialized.
 
@@ -1223,26 +1250,18 @@ Response `400` if pianoid not initialized.
 
 ### `POST /preset/load`
 
-Loads a preset JSON file into the GPU preset library without activating it. The preset is parsed, packed into flat arrays, and stored in host memory ready for instant GPU transfer via `/preset/switch`.
+Loads a preset JSON file into the GPU preset library as a read-only `original`
+entry, without activating it.
 
 Request body:
 ```json
-{
-  "path": "presets/Steinway_256modes.json",
-  "name": "Steinway"
-}
+{ "path": "presets/Steinway_256modes.json", "name": "Steinway" }
 ```
 
 - `path`: path to preset JSON file (relative to middleware working directory)
 - `name`: unique identifier for this preset in the library
 
-Response `200`:
-```json
-{
-  "message": "Preset loaded as Steinway",
-  "presets": ["default", "Steinway"]
-}
-```
+Response `200`: `{ "message": "...", "presets": [<records>] }`
 
 Response `400` if `path` or `name` missing.
 Response `500` if preset already exists in library or file not found.
@@ -1251,51 +1270,99 @@ Response `500` if preset already exists in library or file not found.
 
 ### `POST /preset/switch`
 
-Switches the active synthesis parameters to a named preset from the GPU library. Uses the double-buffered swap mechanism — the new preset is uploaded to the staging buffer via `cudaMemcpyAsync` and pointer-swapped atomically, so playback continues without glitches.
+Switches the active synthesis parameters to a named preset from the GPU
+library. Double-buffered atomic swap — playback continues without glitches.
 
-Request body:
-```json
-{
-  "name": "Steinway"
-}
-```
+Switching away from a `working` copy first saves its live edits back to its
+slot; switching away from an `original` never writes back (originals stay
+pristine). Volume / feedback / volume-sensitivity are global library-wide and
+are preserved across the switch.
 
-Response `200`:
-```json
-{
-  "message": "Switched to Steinway",
-  "active": "Steinway"
-}
-```
+Request body: `{ "name": "Steinway (working 1)" }`
+
+Response `200`: `{ "message": "...", "active": "<name>" }`
 
 Response `400` if `name` missing.
 Response `500` if preset not found in library.
 
-**Note:** Currently uses `async_switch=False` (synchronous), blocking until the GPU transfer completes.
+**Note:** uses `async_switch=False` (synchronous).
+
+---
+
+### `POST /preset/spawn_working_copy`
+
+Spawns a new editable `working` copy from an existing library entry. The copy
+duplicates the source's *current* state (live edits included) and is
+auto-labelled `<original> (working N)`.
+
+Request body: `{ "source": "Steinway" }`
+
+Response `200`:
+```json
+{
+  "message": "Spawned working copy Steinway (working 2)",
+  "name": "Steinway (working 2)",
+  "presets": [<records>],
+  "active": "<active name>"
+}
+```
+
+Response `400` if `source` missing.
+Response `409` (`PresetLibraryError`) if `source` is not a library entry.
+
+---
+
+### `POST /preset/promote`
+
+Promotes a `working` copy: atomically overwrites its source original's on-disk
+JSON file with the working copy's current model (permanent — survives restart),
+then refreshes the in-memory original. **Destructive** — overwrites a file on
+disk; the frontend confirms before calling this.
+
+Request body: `{ "name": "Steinway (working 2)" }`
+
+Response `200`: `{ "message": "...", "original": "Steinway", "presets": [<records>] }`
+
+Response `400` if `name` missing.
+Response `409` (`PresetLibraryError`) if `name` is not a working copy, or its
+original has no on-disk path.
 
 ---
 
 ### `POST /preset/unload`
 
-Removes a preset from the GPU library, freeing host memory.
+Removes a preset from the GPU library. Any entry — including the boot preset —
+is unloadable as long as at least one preset remains loaded. When the unloaded
+entry is active, the engine switches to a replacement first; when an `original`
+is left with no working copies, a fresh one is auto-spawned.
 
-Request body:
-```json
-{
-  "name": "Steinway"
-}
-```
+Request body: `{ "name": "Steinway (working 1)" }`
 
-Response `200`:
-```json
-{
-  "message": "Preset Steinway unloaded",
-  "presets": ["default"]
-}
-```
+Response `200`: `{ "message": "...", "presets": [<records>], "active": "<active name>" }`
 
 Response `400` if `name` missing.
-Response `500` if preset not found or is the active preset.
+Response `409` (`PresetLibraryError`) if this would unload the last preset.
+
+---
+
+### Read-only enforcement — `preset_read_only` 409
+
+Parameter-edit endpoints (`POST /set_parameter/*`, `POST /set_string_excitation/*`,
+`POST /set_hammer_shape/*`, `POST /set_mode_parameters`) reject writes while a
+read-only `original` is the active preset. The orchestrator guard
+`Pianoid._assert_active_editable()` raises `PresetReadOnlyError`, which the
+dedicated error handler maps to:
+
+```
+HTTP 409
+{ "error": "PresetReadOnlyError",
+  "message": "Preset '<name>' is read-only. Spawn a working copy to edit.",
+  "code": "preset_read_only" }
+```
+
+The matching WebSocket handlers emit an `error` event with
+`code: "preset_read_only"`. Runtime-parameter writes (`/set_runtime_parameters`
+— volume / feedback) are **exempt**: they are global, not preset-block edits.
 
 ---
 
