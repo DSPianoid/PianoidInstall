@@ -8,6 +8,55 @@
 
 ---
 
+## ~~Round-9 deferred defect — `run_esprit` ignores `esprit/config.json`~~ — RESOLVED dev-maimport round 16 (2026-05-21)
+
+**Status: RESOLVED.** Closed in dev-maimport round 16 (commit on
+`feature/dev-maimport-import` → merged to PianoidCore `dev`; see commit SHA
+in the round-16 transcript / merge log).
+
+**The defect (round-9 finding, S-5 in the round-15 code review).**
+`POST /modal/run_esprit` with an empty body — or with only `scenario_indices`
+and no `bands` key — silently ignored the saved `esprit/config.json` and
+fell back to `EspritRunner`'s hardcoded `extended_8band` defaults. A user
+who saved a custom band_config via `POST /modal/esprit_config` and then
+re-ran ESPRIT without re-sending the bands got the wrong analysis with no
+warning. The docstring of `get_esprit_config` had already declared
+`esprit/config.json` the single source of truth (round 8) but
+`_run_esprit_sync` never read it. Frontend masked the bug because the
+React form always re-sent the bands; REST API consumers + the proposed
+Wave 2 `EspritOrchestrator` would have hit it.
+
+**Fix.** Single-block insertion in
+`pianoid_middleware/modal_adapter/modal_adapter.py::_run_esprit_sync`
+(around line 3631). When `esprit_params` is empty or missing the `bands`
+key, the function calls `self.get_esprit_config()` and merges the saved
+dict into `esprit_params` with **caller fields winning over disk fields**.
+Merge order:
+- Empty body `{}` → saved config used verbatim
+- Body with explicit `bands` → body wins (no fallback)
+- Body with only `scenario_indices` etc. → saved bands + body's other fields
+
+**Tests.** 6 new tests in `tests/integration/test_esprit_config_sot.py`
+(`TestEspritConfigSotFallback`):
+- `test_run_esprit_loads_from_disk_when_body_empty`
+- `test_run_esprit_body_overrides_disk_config`
+- `test_run_esprit_body_partial_merges_with_disk_defaults`
+- `test_run_esprit_no_disk_config_no_body_passes_empty_to_runner`
+- `test_run_esprit_scenario_indices_only_body_still_loads_disk_bands`
+- `test_run_esprit_with_no_project_open_no_fallback`
+
+203 backend tests pass across the related suites (was 197 → +6). Zero
+regressions.
+
+**Why this had to ship before Wave 1 of the modal_adapter split**
+(per `docs/proposals/modal-adapter-split-2026-05-21.md` §10 risk #3 /
+OQ4=before-Wave-1): fixing the SoT gap during Wave 2's
+`EspritOrchestrator` extraction would entangle the bug fix with the
+refactor — bisection becomes harder if the fix introduces a regression.
+Shipping as standalone round 16 keeps Wave 2 a pure mechanical move.
+
+---
+
 ## ~~Discovered defect — v2 Project scenarios not auto-loaded from parent Measurement~~ — RESOLVED dev-maimport round 4 (2026-05-19)
 
 **Status: RESOLVED.** Closed in dev-maimport round 4

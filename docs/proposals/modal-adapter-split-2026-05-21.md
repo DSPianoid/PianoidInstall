@@ -572,8 +572,7 @@ Once `ProjectContext` lands in Wave 1, every subsequent module reads/writes its 
 `_run_esprit_sync` currently ignores `esprit/config.json` (REST callers must put bands in body). Fixing it during Wave 2 entangles the bug fix with the refactor — bisection becomes harder if the fix introduces a regression.
 
 **Mitigation:**
-- Ship the fix as **round 16** (standalone PR on `feature/dev-maimport-import` → merge to dev) BEFORE Wave 1 dispatches. Wave 2 then refactors a working `_run_esprit_sync` rather than a working+fixing one.
-- If round-16 fix surfaces additional bugs (e.g. config schema mismatch), those land as round-16-followup, also pre-Wave-2.
+- ~~Ship the fix as **round 16** (standalone PR on `feature/dev-maimport-import` → merge to dev) BEFORE Wave 1 dispatches.~~ **Shipped 2026-05-21 — see WORK_IN_PROGRESS.md "Round-9 deferred defect" entry.** `_run_esprit_sync` now merges saved `esprit/config.json` into `esprit_params` when `bands` key absent (caller fields win over disk). 6 new tests in `tests/integration/test_esprit_config_sot.py`, 203 backend tests passing. Wave 1 may dispatch.
 
 ### Risk 4: Other modules touching modal_adapter.py mid-refactor
 
@@ -668,10 +667,10 @@ Populated as each wave ships. Empty at proposal time.
 
 | Wave | Status | Branch | PR / Merge SHA | LOC moved | LOC remaining in modal_adapter.py | Tests post-wave | Date | Notes |
 |---|---|---|---|---|---|---|---|---|
-| Pre-wave: round 16 (run_esprit config.json bug) | Pending | TBD | TBD | — | 5,599 (no change) | TBD | TBD | Standalone fix before Wave 1 |
-| Wave 1: ProjectContext + ScenarioLoader + VisualizationService | Pending | TBD | TBD | ~500 | ~5,100 | TBD | TBD | — |
-| Wave 2: EspritOrchestrator + TrackingOrchestrator + ApplyService | Pending | TBD | TBD | ~1,500 | ~3,600 | TBD | TBD | — |
-| Wave 3: ProjectStore + ChainEditor + facade rewrite + CODE_QUALITY §C4.1 | Pending | TBD | TBD | ~3,200 | ~400 | TBD | TBD | — |
+| Pre-wave: round 16 (run_esprit `esprit/config.json` SoT bug) | **Shipped** | `feature/dev-maimport-import` | (SHA in this round's merge — see WORK_IN_PROGRESS.md round-16 entry) | +50 (pure bug fix; SoT fallback block in `_run_esprit_sync`) | 5,649 (+50 from fallback block + comments) | +6 new (`test_esprit_config_sot.py`); 203 backend pass | 2026-05-21 | Closes round-9 deferred per §10 risk #3; cleared the way for Wave 2 |
+| Wave 1: ProjectContext + ScenarioLoader + VisualizationService | Pending | TBD | TBD | ~500 | ~5,150 | TBD | TBD | — |
+| Wave 2: EspritOrchestrator + TrackingOrchestrator + ApplyService | Pending | TBD | TBD | ~1,500 | ~3,650 | TBD | TBD | — |
+| Wave 3: ProjectStore + ChainEditor + facade rewrite + CODE_QUALITY §C4.1 | Pending | TBD | TBD | ~3,200 | ~450 | TBD | TBD | — |
 
 ---
 
