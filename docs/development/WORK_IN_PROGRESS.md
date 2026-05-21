@@ -8,6 +8,64 @@
 
 ---
 
+## ~~Round-26 heatmap smoothing contaminated white cells~~ — RESOLVED dev-maimport round 27 (2026-05-17)
+
+**Status: RESOLVED.** Closed in dev-maimport round 27.
+PianoidTunner commit `ffae98b` / merge `e03de8a`.
+
+**The round-26 follow-up bug.** Round 26 replaced the bilinear NaN-
+propagation overlay with a pairwise-border anti-aliasing algorithm that
+should have left white cells untouched. User reported "the border
+between two white cells gets colored when they are next to two colored
+cells". Two compounded faults:
+
+1. **Geometry source wrong (CRITICAL).** Round 26 used
+   `instance.convertToPixel({xAxisIndex:0, yAxisIndex:0}, [0,0])` and
+   `[nCols, nRows]` to derive the plot rect. On an ECharts category
+   axis, `convertToPixel({xAxisIndex:0}, [0])` returns the CENTER of
+   category 0 (the tick), NOT the LEFT edge of cell 0. The resulting
+   plotRect was off by half a cell on every side; the canvas's
+   internal cellW was wrong by 1/N; every painted stripe landed in a
+   visually-wrong cell — including bleeding into white cells.
+2. **1-pixel bleed from floor/ceil rounding (SECONDARY).** Round 26's
+   `Math.floor(r*cellH)` for row r's top and `Math.ceil((r+1)*cellH)`
+   for row r's bottom let row r's stripe extend 1 pixel into row r+1
+   when cellH was fractional. That 1-pixel-tall bleed sat at the
+   X-range of the stripe — also where two adjacent white cells in
+   row r+1 met. User saw a thin colored line at the top of row r+1.
+
+**The fix (round 27, frontend-only).** Three changes:
+
+- **Change A (CRITICAL):** switch `EChartsWithOverlay.computePlotRect`
+  to `instance.getModel().getComponent('grid', 0).coordinateSystem.getRect()`.
+  Returns the true plot bbox `{x, y, width, height}` directly, no
+  category-axis semantics. `convertToPixel` kept as fallback only if
+  `getRect` is unreachable (defensive — stable API since ECharts 3.x).
+- **Change B (DEFENSIVE):** `computeBorderPaintOps` uses `Math.round`
+  consistently for cell edges (precomputed `rowEdges` / `colEdges`
+  arrays — adjacent cells share the same integer pixel) and zone
+  bounds (border position snapped to nearest integer, zone half-width
+  rounded on both sides).
+- **Change C (CONTAINMENT):** each op is clipped to the two-cell pair's
+  combined bounds via the precomputed `colEdges` / `rowEdges`. At
+  smoothing=2 this is a no-op under the current slider range (0..2)
+  but codifies "an op CANNOT paint outside the two-cell pair area"
+  as a hard invariant for future slider expansions.
+
+**Hypothesis verification.** Temporarily reverted `GridHeatmapInset.jsx`
+to round-26 via `git stash` and ran the round-27 test suite against
+the buggy code: 3 tests failed (`adjacent rows' stripes meet at the
+same y at fractional cellH`, `adjacent columns' stripes meet at the
+same x at fractional cellW`, `prefers getRect() over convertToPixel`).
+After `git stash pop`, all 38 GridHeatmapInset tests passed. Confirms
+both Change A and Change B were necessary.
+
+Test count delta: +12 round-27 tests (5 no-bleed + 5 white-cell
+intrusion + 2 prefer-getRect). Full frontend suite 54/660. Zero
+regressions.
+
+---
+
 ## ~~Heatmap smoothing mutated the matrix server-side~~ — RESOLVED dev-maimport round 24 (2026-05-17)
 
 **Status: RESOLVED.** Closed in dev-maimport round 24.
