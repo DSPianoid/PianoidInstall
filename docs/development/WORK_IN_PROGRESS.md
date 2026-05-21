@@ -8,6 +8,27 @@
 
 ---
 
+## modal_adapter.py split — Wave 1 LANDED 2026-05-21
+
+**Status: Wave 1 SHIPPED.** Per `docs/proposals/modal-adapter-split-2026-05-21.md`.
+
+Wave 1 extracted `ProjectContext` + `ScenarioLoader` + `VisualizationService`
+from the 5,649-LOC `modal_adapter.py` god-object. Result: 4,782 LOC
+(-867 / -15%) in one PR. 23 facade methods replaced with 1-line
+delegations; 25 instance-state fields moved to `ProjectContext` (with
+backward-compat property shims on the facade for legacy `self._foo`
+access). REST surface + tests unchanged.
+
+PianoidCore commit `71ddf22` / merge `f591603`.
+PianoidInstall doc commit (CODE_QUALITY.md §C4.1 facade policy +
+proposal implementation log row): see this commit.
+
+Wave 2 (EspritOrchestrator + TrackingOrchestrator + ApplyService) +
+Wave 3 (ProjectStore + ChainEditor + facade rewrite) follow. **User
+will live-test Wave 1 before Wave 2 dispatches.**
+
+---
+
 ## ~~Round-9 deferred defect — `run_esprit` ignores `esprit/config.json`~~ — RESOLVED dev-maimport round 16 (2026-05-21)
 
 **Status: RESOLVED.** Closed in dev-maimport round 16 (commit on

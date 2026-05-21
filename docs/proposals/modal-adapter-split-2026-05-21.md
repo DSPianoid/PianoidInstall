@@ -667,10 +667,10 @@ Populated as each wave ships. Empty at proposal time.
 
 | Wave | Status | Branch | PR / Merge SHA | LOC moved | LOC remaining in modal_adapter.py | Tests post-wave | Date | Notes |
 |---|---|---|---|---|---|---|---|---|
-| Pre-wave: round 16 (run_esprit `esprit/config.json` SoT bug) | **Shipped** | `feature/dev-maimport-import` | (SHA in this round's merge — see WORK_IN_PROGRESS.md round-16 entry) | +50 (pure bug fix; SoT fallback block in `_run_esprit_sync`) | 5,649 (+50 from fallback block + comments) | +6 new (`test_esprit_config_sot.py`); 203 backend pass | 2026-05-21 | Closes round-9 deferred per §10 risk #3; cleared the way for Wave 2 |
-| Wave 1: ProjectContext + ScenarioLoader + VisualizationService | Pending | TBD | TBD | ~500 | ~5,150 | TBD | TBD | — |
-| Wave 2: EspritOrchestrator + TrackingOrchestrator + ApplyService | Pending | TBD | TBD | ~1,500 | ~3,650 | TBD | TBD | — |
-| Wave 3: ProjectStore + ChainEditor + facade rewrite + CODE_QUALITY §C4.1 | Pending | TBD | TBD | ~3,200 | ~450 | TBD | TBD | — |
+| Pre-wave: round 16 (run_esprit `esprit/config.json` SoT bug) | **Shipped** | `feature/dev-maimport-import` | commit `9ef3ffe` / merge `09ca972` | +50 (pure bug fix; SoT fallback block in `_run_esprit_sync`) | 5,649 (+50 from fallback block + comments) | +6 new (`test_esprit_config_sot.py`); 203 backend pass | 2026-05-21 | Closes round-9 deferred per §10 risk #3; cleared the way for Wave 2 |
+| Wave 1: ProjectContext + ScenarioLoader + VisualizationService | **Shipped** | `feature/dev-maimport-import` | commit `71ddf22` / merge `f591603` | -867 (5,649 → 4,782); 23 methods + 25 state fields extracted | **4,782** (RED, but -15% in one PR) | 371/372 pass (1 pre-existing failure documented in WIP); zero new regressions; live-verified against user's PlyWoodLGtemp1_p1 | 2026-05-21 | CODE_QUALITY §C4.1 facade policy + LOC table landed in same PianoidInstall commit |
+| Wave 2: EspritOrchestrator + TrackingOrchestrator + ApplyService | Pending | TBD | TBD | ~1,500 | ~3,300 | TBD | TBD | — |
+| Wave 3: ProjectStore + ChainEditor + facade rewrite + CODE_QUALITY §C4.1 | Pending | TBD | TBD | ~3,200 | ~450 | TBD | TBD | Final facade collapse |
 
 ---
 
