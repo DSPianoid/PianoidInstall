@@ -538,14 +538,20 @@ Legacy wrappers delegate to `stop_playback()`:
 
 The engine loop in `OnlinePlaybackEngine` reads the `Pianoid` flag
 `shouldContinueLoop_` to decide whether to keep cycling. **`Pianoid::beginMainLoop()`
-/ `endMainLoop()` (inline setters in `Pianoid.cuh`) are the single
-write-interface for that flag** — nothing writes the raw atomic directly. Two
-groups call those setters: the lifecycle path (`startApplication` /
-`stopApplication` in `Pianoid.cu`) and the semi-offline calibration path
-(`restartOnlineEngine` / `stopEngineKeepAudio` in `Pianoid_calibration.cu`).
-Both are *callers of the owner's interface*, not independent writers — so the
-flag has a single, documented write surface even though it is touched from two
-modules.
+/ `endMainLoop()` (inline setters in `Pianoid.cuh`) are the intended
+write-interface for that flag.** Two groups call those setters: the lifecycle
+path (`startApplication` / `stopApplication` in `Pianoid.cu`) and the
+semi-offline calibration path (`restartOnlineEngine` / `stopEngineKeepAudio`
+in `Pianoid_calibration.cu`). Both are *callers of the owner's interface*, not
+independent writers.
+
+There is one pre-existing exception: `Pianoid::shutdownGpu()` (`Pianoid.cu`)
+writes the atomic directly with `shouldContinueLoop_.store(false)` rather than
+calling `endMainLoop()`. This predates the split (it was already in the
+lifecycle section) and is functionally equivalent — `endMainLoop()` does the
+same `store(false)` — but it bypasses the interface. Routing it through
+`endMainLoop()` would make the write surface fully uniform; that is a
+one-line follow-up, not part of the structural split.
 
 ---
 
