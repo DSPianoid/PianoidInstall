@@ -6,4 +6,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-maimport | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py`, `PianoidCore/pianoid_middleware/modal_adapter/measurement_import.py`, `PianoidCore/pianoid_middleware/modal_adapter/scenario_averager.py`, `PianoidCore/pianoid_middleware/modal_adapter/measurement_routes.py`, `PianoidCore/pianoid_middleware/modal_adapter/import_session.py` (NEW round 30), `PianoidCore/tests/integration/test_round30_import_session.py` (NEW round 30), `PianoidTunner/src/components/MeasurementImportDialog.jsx` (round 30 — TO BE DELETED), `PianoidTunner/src/components/AddScenariosToMeasurementDialog.jsx` (round 30 — TO BE DELETED), `PianoidTunner/src/components/ImportScenariosDialog.jsx` (NEW round 30), `PianoidTunner/src/hooks/useImportSession.js` (NEW round 30), `PianoidTunner/src/components/__tests__/ImportScenariosDialog.test.jsx` (NEW round 30), `PianoidTunner/src/components/CollectionSubpanel.jsx` (round 30 — mount-point swap), `PianoidTunner/src/components/MeasurementsManagementDialog.jsx` (round 30 — mount-point swap), `PianoidTunner/src/components/CreateProjectFromMeasurementDialog.jsx` (round 30 — Q6 polling wiring) | 2026-05-22T18:00:00Z | Round 30 — consolidate Import dialogs, polling progress, scenario selection, conflict resolution |
+<!-- dev-maimport round 30 lock RELEASED on 2026-05-22 after commits
+     PianoidCore f1b5197 + PianoidTunner 9778416 landed on
+     feature/dev-maimport-import. Held files: measurement_import.py,
+     measurement_routes.py, modal_adapter.py, scenario_averager.py,
+     routes/project_routes.py, NEW import_session.py, NEW
+     test_round30_import_session.py (PianoidCore); NEW
+     ImportScenariosDialog.jsx, NEW useImportSession.js, NEW
+     ImportScenariosDialog.test.jsx, DELETED
+     MeasurementImportDialog.jsx + tests, DELETED
+     AddScenariosToMeasurementDialog.jsx + tests, MeasurementSelector.jsx
+     (comment-only), MeasurementsManagementDialog.jsx,
+     CollectionSubpanel.jsx, useProjectCRUD.js,
+     CreateProjectFromMeasurementDialog.jsx (PianoidTunner). -->
+
