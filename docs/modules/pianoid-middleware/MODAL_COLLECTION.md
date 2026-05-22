@@ -671,6 +671,612 @@ The underlying `ModalAdapter.copy_project()` and
 for direct callers (tests, scripts, REST replacements) until a
 follow-on session retires them.
 
+## Measurement Import endpoints (dev-maimport, 2026-05-19)
+
+Three new endpoints back the Measurement Import dialog
+(see [`MODAL_ADAPTER_GUIDE.md` § Measurement Import](../../guides/MODAL_ADAPTER_GUIDE.md#measurement-import-dev-maimport)).
+They live on the same `modal_bp` blueprint as the rest of
+`/modal/measurements/*` and reuse the v2 entity machinery — the
+`MeasurementCatalog`, `Measurement.create()`, `setup/*` write paths,
+and the slug-normalisation rules (N1). Shared implementation:
+`pianoid_middleware/modal_adapter/measurement_import.py`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/modal/measurements/probe` | Sniff a server-side path and report its layout / setup-config availability. No writes. |
+| POST | `/modal/measurements/import_folder` | Create a new Measurement by copying or moving an existing folder. |
+| POST | `/modal/measurements/unzip_helper` | Extract a raw measurement zip into `<measurements_base>/_staging/<name>_<TS>/`. The frontend then hands the returned `extracted_path` to `import_folder` — single unified flow. |
+
+### `POST /modal/measurements/probe`
+
+```bash
+curl -X POST http://127.0.0.1:5001/modal/measurements/probe \
+  -H "Content-Type: application/json" \
+  -d '{"source_path": "D:/modal_measurements/PlyWoodTake1_7"}'
+```
+
+Response (always 200; the `format` field encodes "unknown" cases):
+
+```json
+{
+  "format": "v2_measurement",
+  "scenarios_parent": "D:\\modal_measurements\\PlyWoodTake1_7\\scenarios",
+  "scenarios_detected": 30,
+  "num_channels": 8,
+  "sample_rate": 48000,
+  "has_metadata": true
+}
+```
+
+Format values:
+
+- `roomresponse` — scenario sub-folders carry `raw_recordings/` or
+  `averaged_responses/` directly under the picked path (or one
+  wrapping directory below).
+- `v2_measurement` — the picked path IS a Measurement directory
+  (has `measurement.json` + `scenarios/` sub-dir). The detector
+  auto-descends into `scenarios/` so the user can pick a Measurement
+  root and the import path still works.
+- `flat_npy` — flat directory of `scenario_*.npy` files. (Reserved;
+  the current import flow only ships the scenario-folder layouts.)
+- `unknown` — nothing recognisable. The `reason` field explains why.
+
+`has_metadata: true` means the first scenario has
+`metadata/session_metadata.json` available for `setup/*` auto-fill.
+When `false`, the import will use module defaults regardless of the
+`apply_source_config` flag.
+
+### `POST /modal/measurements/import_folder`
+
+```bash
+curl -X POST http://127.0.0.1:5001/modal/measurements/import_folder \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_path": "D:/modal_measurements/PlyWoodTake1_7",
+    "measurement_id": "PlyWoodTake1_7_imported",
+    "apply_source_config": true,
+    "copy_or_move": "copy"
+  }'
+```
+
+Body fields:
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `source_path` | yes | — | Absolute path to the source folder (scenarios parent, wrapper dir, or v2 root). |
+| `measurement_id` | yes | — | New Measurement name (normalised per N1; 409 on collision; 422 on bad slug). |
+| `apply_source_config` | no | `true` | When `true` and the first scenario has metadata, populate `setup/*.json` from the captured `recorder_config`. When `false`, use module defaults. |
+| `copy_or_move` | no | `"copy"` | `"copy"` (safe) or `"move"` (faster, mutates source). |
+
+Response 201 body adds these extras to the standard `Measurement.summary()`:
+
+```json
+{
+  "measurement_id": "PlyWoodTake1_7_imported",
+  "measurement_path": "D:\\modal_measurements\\PlyWoodTake1_7_imported",
+  "num_scenarios": 30,
+  "num_channels": 8,
+  "sample_rate": 48000,
+  "acquisition_locked": false,
+  "created": "2026-05-19T15:34:58Z",
+  "scenarios_imported": 30,
+  "source_config_applied": true,
+  "detected_format": "v2_measurement",
+  "source_path": "D:\\modal_measurements\\PlyWoodTake1_7",
+  "scenarios_parent": "D:\\modal_measurements\\PlyWoodTake1_7\\scenarios"
+}
+```
+
+**D3 — imports stay unlocked** (orchestrator decision, dev-maimport
+2026-05-19). The N4 auto-lock that fires after the first internally-
+captured scenario is **NOT** applied on import. This keeps the
+Measurement extensible — the user can add more scenarios or edit
+`setup/*` immediately after import. The user can still manually lock
+from the Collection subpanel header once they're done. The CLI
+migration path (`migrate_to_measurement_entity.py`) keeps its
+existing auto-lock-on-apply behaviour (`reason: "migration_v1_to_v2"`)
+unchanged.
+
+Status codes:
+
+- 201 — created.
+- 400 — malformed body, unknown source format, or bad
+  `copy_or_move` value.
+- 409 — `measurement_id` already exists (N1). Body includes
+  `code: "duplicate"`.
+- 422 — invalid `measurement_id` slug.
+- 500 — unexpected error.
+
+### `POST /modal/measurements/unzip_helper`
+
+```bash
+curl -X POST http://127.0.0.1:5001/modal/measurements/unzip_helper \
+  -F "file=@D:/path/to/measurements.zip" \
+  -F "base_name=PlyWoodFresh"
+```
+
+Extracts the upload into `<measurements_base>/_staging/<base_name>_<YYYYMMDD-HHMMSS>/`
+and runs the same layout-detection helper used by the Folder tab.
+Returns 200 with:
+
+```json
+{
+  "extracted_path": "D:\\modal_measurements\\_staging\\PlyWoodFresh_20260519-153012\\Inner",
+  "staging_root": "D:\\modal_measurements\\_staging\\PlyWoodFresh_20260519-153012",
+  "detected_format": "roomresponse",
+  "scenarios_detected": 30
+}
+```
+
+The frontend dialog then transparently POSTs `import_folder` with
+`source_path = extracted_path` — same unified flow as picking an
+existing folder.
+
+Status codes:
+
+- 200 — extraction succeeded.
+- 400 — missing file / unzip failed / unknown layout after extraction.
+- 500 — unexpected error.
+
+### `session_metadata.json` → `setup/*` mapping
+
+`measurement_import.session_metadata_to_setup_configs()` translates
+the captured `recorder_config` blob into the four Measurement setup
+files. Mirror image of `collection_engine._build_recorder_config_from_measurement`
+(which goes the other way). Unit conversions applied:
+
+| Source field (recorder_config) | Target setup field | Conversion |
+|---|---|---|
+| `sample_rate` (Hz) | `audio_config` manifest + `Measurement.sample_rate` | none |
+| `input_device` / `output_device` (int) | `audio_config.input_device` / `.output_device` | none |
+| `input_device_name` / `output_device_name` (str) | `audio_config.input_device_name` / `.output_device_name` | none |
+| `multichannel_config.*` (object) | `audio_config.multichannel_config.*` | keys copied verbatim (`enabled`, `num_channels`, `channel_names`, `calibration_channel`, `reference_channel`, `response_channels`, `normalize_by_calibration`, `alignment_correlation_threshold`, `alignment_target_onset_position`) |
+| `impulse_form` (str) | `impulse_config.impulse_form` | none |
+| `pulse_duration` (seconds) | `impulse_config.pulse_duration_ms` | × 1000 |
+| `pulse_frequency` (Hz) | `impulse_config.pulse_frequency_hz` | none |
+| `pulse_fade` (seconds) | `impulse_config.pulse_fade_ms` | × 1000 |
+| `pulse_smoothing_ms` (ms) | `impulse_config.pulse_smoothing_ms` | none |
+| `invert_polarity` (bool) | `impulse_config.invert_polarity` | none |
+| `volume` (0..1) | `impulse_config.volume` | none |
+| `num_pulses` (int) | `series_config.num_pulses` | none |
+| `cycle_duration` (seconds) | `series_config.cycle_duration_ms` | × 1000 |
+| `series_config.record_extra_time_ms` (ms) | `series_config.record_extra_time_ms` | none |
+| `series_config.averaging_start_cycle` (int) | `series_config.averaging_start_cycle` | none |
+| `num_measurements` (int) | `series_config.num_measurements` | none |
+| `measurement_interval` (seconds) | `series_config.measurement_interval_s` | none |
+| (no source) | `mapping_config` | `default_mapping_config()` |
+| (no source — `calibration_quality_config` is a runtime gate, not a Measurement-level rule list) | `calibration_criteria` | `default_calibration_criteria()` |
+
+Missing fields fall through to the matching `default_*_config()`
+value — every output is default-shaped, so consumers see a valid
+schema even when the source metadata is sparse or absent.
+
+## Filesystem List endpoints (dev-maimport, 2026-05-19)
+
+Backs the server-side directory tree picker in the Measurement Import
+dialog. Lives in `pianoid_middleware/modal_adapter/fs_routes.py`,
+mounts under `/modal/fs/*`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/modal/fs/roots` | Returns suggested starting roots: named roots (measurements base, home, repo root) + every drive enumerated dynamically per request. |
+| GET | `/modal/fs/list?path=<abs>` | Lists one directory (dirs first, then files). |
+
+### Dynamic drive enumeration (portable / removable drives)
+
+Drive roots in `GET /modal/fs/roots` are enumerated **dynamically on
+every request** so a portable / removable drive plugged in AFTER the
+modal-adapter server started shows up on the next call. The frontend's
+Refresh icon in the tree picker re-fetches this endpoint (in addition
+to re-fetching the current path listing) so users can plug in their
+drive and click Refresh without restarting the backend.
+
+**Windows.** Uses `ctypes.windll.kernel32.GetLogicalDrives()` (returns
+a 32-bit bitmask where bit N is set if drive `chr(ord('A')+N):`
+exists) plus `GetDriveTypeW(path)` per present drive to map the drive
+type. No new Python dependency — `ctypes` is in the stdlib.
+
+| Windows drive-type code | `kind` value | Notes |
+|---|---|---|
+| 0 (UNKNOWN) | `drive_unknown` | rare; surfaced as-is |
+| 1 (NO_ROOT_DIR) | — | filtered out (stale enumeration entry) |
+| 2 (REMOVABLE) | `drive_removable` | USB sticks, SD cards, portable HDDs (THIS is what the "I want to import from the portable drive" case maps to) |
+| 3 (FIXED) | `drive_fixed` | internal HDD/SSD |
+| 4 (REMOTE) | `drive_network` | mounted network shares |
+| 5 (CDROM) | `drive_cdrom` | optical / virtual ISO |
+| 6 (RAMDISK) | `drive_ramdisk` | rare |
+
+**Linux.** No cheap drive-type API exists — best-effort scan of
+`/proc/mounts` filtered for the conventional removable-mount parents
+(`/media`, `/mnt`, `/run/media`). Root filesystem `/` is always
+included first with `kind: "drive_fixed"`. Any matching mount point
+is tagged `kind: "drive_removable"`. When `/proc/mounts` is
+unavailable, falls back to listing direct children of the three
+removable parents.
+
+### Security: dynamic allowlist
+
+Both endpoints refuse paths that are not under at least one
+returned root — request for `C:\Windows\System32` (or any system
+path outside the allowlist) returns HTTP 403 with
+`code: "outside_allowed_roots"` and the `allowed_roots` array.
+
+**The allowlist follows the dynamic enumeration** — any drive root
+the enumeration surfaces (including a freshly-plugged portable
+drive) is allowed, plus the named roots. This is the explicit
+relaxation made in dev-maimport's follow-up (2026-05-19): the
+previous hardcoded allowlist (`C:\`, `D:\` only) refused requests
+under a portable drive at `E:\` because it wasn't on the static
+list. The dynamic enumeration removes the hardcoding without
+opening the door to arbitrary system paths — only paths that
+descend from a discovered drive root are accepted.
+
+### `GET /modal/fs/roots` response
+
+```json
+{
+  "roots": [
+    {"name": "D:\\modal_measurements", "path": "D:\\modal_measurements",
+     "is_dir": true, "kind": "measurements_base"},
+    {"name": "C:\\Users\\astri", "path": "C:\\Users\\astri",
+     "is_dir": true, "kind": "home"},
+    {"name": "D:\\repos\\PianoidInstall", "path": "D:\\repos\\PianoidInstall",
+     "is_dir": true, "kind": "repo_root"},
+    {"name": "C:\\", "path": "C:\\", "is_dir": true, "kind": "drive_fixed"},
+    {"name": "D:\\", "path": "D:\\", "is_dir": true, "kind": "drive_fixed"},
+    {"name": "E:\\", "path": "E:\\", "is_dir": true, "kind": "drive_removable"}
+  ]
+}
+```
+
+`kind` values: `measurements_base`, `home`, `repo_root`,
+`drive_fixed`, `drive_removable`, `drive_network`, `drive_cdrom`,
+`drive_ramdisk`, `drive_unknown`. The frontend uses `kind` to render
+friendly chip labels and colour-codes removable (secondary) and
+network (info) chips for at-a-glance distinction.
+
+`GET /modal/fs/list?path=D:/modal_measurements` response:
+
+```json
+{
+  "path": "D:\\modal_measurements",
+  "parent": "D:\\",
+  "entries": [
+    {"name": "PlyWoodTake1_7", "path": "D:\\modal_measurements\\PlyWoodTake1_7",
+     "is_dir": true},
+    {"name": "readme.txt", "path": "D:\\modal_measurements\\readme.txt",
+     "is_dir": false, "size": 142}
+  ]
+}
+```
+
+Entry ordering: directories first (case-insensitive sort by name),
+then files (case-insensitive sort by name). `parent` is `null` only
+when `path` is at the filesystem root.
+
+Status codes:
+
+- 200 — listing returned.
+- 400 — missing or blank `path` query parameter.
+- 403 — path outside the allowed-root allowlist (the response body's
+  `allowed_roots` includes every dynamically discovered drive), or
+  permission-denied while enumerating.
+- 404 — path does not exist or is not a directory.
+
+## Canonical v1+v2 project-scenarios resolution (dev-maimport round 5, 2026-05-19)
+
+Backend methods that need to walk a Project's scenario data on disk
+must NEVER reinvent the v1-only candidate list — use
+`ModalAdapter._resolve_project_scenarios_path(meta)` instead.
+
+**Why:** the modal_adapter is going through a v1 → v2 schema migration.
+v1 projects persist `extracted_path` (set by the retired
+`create_from_zip` flow) or `measurement_source` (set by the v1
+`create_project(source=...)` flow). v2 projects persist
+`measurement_path` + `measurement_id` (set by
+`create_project_from_measurement` + Branch).
+Methods that only check the v1 fields silently return empty data
+for v2 projects — round 5 found 4 such sites in `modal_adapter.py`
+alone (round 4 already fixed one in `open_project`).
+**`_resolve_project_scenarios_path` is the one true place where this
+resolution lives.** Consumers pass the project.json dict, get back
+the absolute scenarios-parent path (or None for orphans).
+
+**Canonical field-check order** (priority high → low):
+
+| Order | Field | Path computed | Schema |
+|-------|-------|---------------|--------|
+| 1 | `meta["extracted_path"]` | (directly the scenarios-parent) | v1 — `create_from_zip` |
+| 2 | `meta["measurement_source"]` | (directly the scenarios-parent) | v1 — `create_project(source=...)` |
+| 3 | `meta["measurement_path"]` | `<measurement_path>/scenarios` | v2 — `create_project_from_measurement`, Branch |
+| 4 | `meta["measurement_id"]` | `<$PIANOID_MEASUREMENTS_DIR>/<measurement_id>/scenarios` | v2 — cross-machine fallback when the absolute `measurement_path` is stale (e.g. project moved between machines with different base dirs) |
+
+Each candidate is validated (`os.path.isdir` AND
+`_dir_has_roomresponse_scenarios` — at least one sub-folder with
+`averaged_responses/`) before commitment. Returns the first candidate
+that resolves, or `None` if no candidate is reachable — caller treats
+`None` as "scenarios unavailable, surface a friendly 'No data' /
+'Re-import' prompt" rather than silently loading from a wrong root.
+
+**Consumers as of round 5** (every site that touches project scenarios):
+
+| Method | Use | Behaviour when resolver returns None |
+|--------|-----|--------------------------------------|
+| `_scenario_folders_for_project` | QC summary / scenario-name lookup | Returns `[]` → QC panel shows "No QC curves available" |
+| `get_qc_curves` (fallback path) | Per-channel QC curve fetch | Raises `FileNotFoundError("Scenario X not found... have: [])` |
+| `reaverage_project` | Re-run the averager on existing source | Raises `ValueError(no resolvable measurement source)` |
+| `_load_v2_scenarios_from_parent_measurement` | v2 open-project fallback (round 4) | Logs warning, leaves `_measurements` empty (downstream pipeline 409 surfaces the user-friendly recovery prompt) |
+
+`delete_project` is a special case (not a consumer): it explicitly
+reads `meta["measurement_source"]` to decide whether to rmtree the
+extracted Measurement folder. For v2 projects, that field is null
+by design (the parent Measurement is shared across siblings —
+N6 invariant) so deletion routes the user through
+`DELETE /modal/measurements/<id>` instead of cascading from the
+Project delete.
+
+**Adding a new method that needs the scenarios path?** Call the
+helper. Do not reinvent the candidate list. The next time someone
+adds a v3 schema field, only the helper needs to change.
+
+## Validation is recording-stage only (dev-maimport round 7, 2026-05-19)
+
+**Architectural principle (locked by user direction, 2026-05-19):**
+
+> Validation should be applied at the recording stage ONLY. Should
+> not be reapplied to the imported measurements. Only averaging
+> quality check.
+
+In code this means a sharp split between two pipelines:
+
+| Pipeline | Module / function | Validation? | What runs |
+|---|---|---|---|
+| **Recording stage** | `scenario_averager.ensure_averaged_responses` (and the recorder itself in `measurement/recorder.py`) | YES — `CalibrationValidatorV2.validate_cycle()` runs per cycle; failures are excluded from the averaged outputs that get written to `averaged_responses/average_ch{N}.npy` | calibration validation → align by onset → normalise by calibration → average → truncate → write `average_ch*.npy` + `effective_signal_length.json` |
+| **Analysis stage** | `scenario_averager.pool_scenario_cycles` (consumed by `get_qc_curves` / the Setup-subpanel's `<QCVisualizationPanel>`) | **NO** — cycles are accepted as-is regardless of recording-stage validation outcome | extract cycles → (skip validation; synthesise all-valid result list) → align by onset → normalise by calibration → pool → per-channel split-half QC (the "averaging quality check") |
+
+**Why this matters.** When a Measurement is imported (or re-opened on
+a different machine, or its source dataset uses a
+`calibration_quality_config` schema the in-tree validator doesn't
+recognise), re-running per-cycle validation at analysis time would
+incorrectly reject valid cycles. The cycles have already passed
+whatever validation the original recorder enforced — that decision is
+baked into the recording artefact. The analysis stage only needs to
+re-pool the cycles (same canonical align + normalise as the recorder)
+and run the new "averaging quality check" (split-half reproducibility)
+that wasn't available at recording time.
+
+**Where the principle is enforced.** `pool_scenario_cycles` (in
+`scenario_averager.py`) synthesises a fake `validation_results` list
+where every cycle is marked `calibration_valid: True`. This is the
+minimal-surface-area implementation that preserves the
+`SignalProcessor` contract (which is shared with the recording path)
+while opting the QC compute path out of the validator. **Do not add
+calls to `CalibrationValidatorV2` in the analysis path** — if you
+need to add one, you're working on the recording stage and should
+extend `ensure_averaged_responses` instead.
+
+**Failure modes the principle resolves:**
+
+- v1: source `calibration_quality_config` uses a schema the
+  in-tree `CalibrationValidatorV2` doesn't recognise → every cycle
+  failed validation → 0 cycles survived → 404 "only 1 cycles
+  survived (need ≥ 4 for split-half)". Round 7 unblocks this.
+- v2: project re-opened on a different machine where the validator
+  thresholds drift between versions → cycles that passed at
+  recording time fail at re-open time → QC display empty. Round 7
+  unblocks this.
+- v3: imported Measurement where the recording-time validator
+  wasn't even available — only the averaged outputs exist. Round 7
+  treats this case identically to the canonical case.
+
+**Tests covering the principle** (in
+`tests/integration/test_measurement_import.py::TestRound7ValidationSkipAtAnalysisStage`):
+
+- `test_pool_synthesises_all_valid_validation_results` — pool
+  produces non-zero cycles per response channel on clean data
+- `test_pool_does_not_invoke_validator` — source-inspection guard
+  that catches a future accidental re-add of `validator.validate_cycle`
+- `test_recording_stage_averager_still_uses_validator` — guard
+  against over-eager refactoring that strips validation from the
+  recording side too
+- `test_pool_succeeds_when_calibration_quality_config_has_unknown_schema` — direct repro of the user's blocked PlyWood
+  dataset; cycles flow through the pool regardless of the source's
+  unsupported `calibration_quality_config` keys
+
+## Round 8 — mapping_config import + ESPRIT defensive errors (dev-maimport, 2026-05-19)
+
+Three related backend changes that close a class of "silent 0-mode"
+failures in the analysis pipeline.
+
+### 1. mapping_config port from source session_metadata
+
+`import_folder_as_measurement` (round 1) reads each source scenario's
+`metadata/session_metadata.json` and ports the `recorder_config` blob
+into the four Measurement `setup/*` config files. **Round 8 extends
+this to populate `setup/mapping_config.json::channel_roles`** from
+`recorder_config.multichannel_config.calibration_channel` +
+`recorder_config.multichannel_config.response_channels`. Pre-round-8
+the mapping always defaulted to empty `channel_roles: {}` regardless
+of source — every imported Measurement opened with no response
+channels assigned, and ESPRIT silently produced 0 modes.
+
+Field-by-field mapping:
+
+| Source field (in `multichannel_config`) | Mapping role |
+|---|---|
+| `calibration_channel` (int) | `channel_roles[<idx>] = "reference"` |
+| `response_channels` (list of int) | `channel_roles[<each idx>] = "response"` |
+| (channels not in either field) | absent from `channel_roles` — effectively unassigned |
+
+Why `reference` for the calibration channel? `modal_adapter/mapping.py`'s
+canonical role enum is `force / reference / response` — there is no
+`calibration` role. `reference` is semantically correct: the
+calibration channel provides the reference signal used to normalize
+the response channels, exactly what `reference_channels` is for in
+the mapping module.
+
+**Migration note for measurements created BEFORE round 8** (incl. via
+the legacy "+ New Measurement" empty-create UI followed by manual
+scenario population): their `setup/mapping_config.json` was generated
+with empty `channel_roles` and is NOT auto-upgraded by round 8 — only
+fresh imports via `import_folder_as_measurement` get the mapping
+port. **Path forward: re-import the source folder as a new
+Measurement** (e.g. `PlyWood` → `PlyWood_r8`). A "re-derive mapping
+from session_metadata" UI helper for legacy Measurements is a deferred
+follow-up; if you've accumulated state attached to the legacy
+Measurement (Projects, ESPRIT runs) the simpler short-term fix is to
+hand-edit `setup/mapping_config.json` to match the source's
+multichannel_config.
+
+### 2. `_run_esprit_sync` defensive error on empty response_channels
+
+Pre-round-8, ESPRIT silently "succeeded" (`state=done, message=Complete`)
+with 0 modes per scenario when the mapping had no `response`-roled
+channels — the runner happily processed an empty channel list. User
+saw "ESPRIT runs too fast" with no diagnostic, leading to ~3 rounds
+of mis-diagnosis. Round 8 fails fast:
+
+```python
+if not response_channels:
+    raise RuntimeError(
+        "No response channels configured in mapping. Edit the "
+        "project's mapping_config.json (or the Setup subpanel's "
+        "channel-roles editor) to mark at least one channel as "
+        "'response'. Current channel_roles: {...}"
+    )
+```
+
+The `POST /modal/run_esprit` route then returns `state: error` with
+this message in the body, which the frontend surfaces inline. Same
+fail-fast applies when `_mapping` is None at all (different error
+message: "Mapping not set" / "Mapping not configured").
+
+### 3. Scenario-loading-gap surface
+
+When `_load_v2_scenarios_from_parent_measurement` (round-4 fallback)
+walks the parent Measurement's `scenarios/` directory, scenarios that
+lack `averaged_responses/` are silently filtered out by
+`_discover_roomresponse_scenarios`. Pre-round-8 the user saw
+"`num_scenarios: 2`" when the disk had 3 scenarios, with no
+explanation. Round 8 captures the gap on `self._scenario_loading_gap`
+and surfaces it in `/modal/project_state.measurement_info`:
+
+```json
+{
+  "measurement_info": {
+    "num_scenarios": 2,
+    "num_channels": 8,
+    "sample_rate": 48000,
+    "scenario_loading_gap": {
+      "total_on_disk": 3,
+      "loaded": 2,
+      "excluded": [
+        {"scenario_name": "PlyWood-Scenario6-LG",
+         "reason": "no averaged_responses"}
+      ]
+    }
+  }
+}
+```
+
+The frontend's Project info panel renders an inline warning Alert
+listing the excluded scenarios with their reasons. State is reset by
+`reset()` so opening a different project doesn't leak the previous
+gap.
+
+**Tests** (in `tests/integration/test_measurement_import.py`):
+
+- `TestRound8MappingConfigImport` (5 tests): calibration→reference,
+  response→response, missing→default, partial-coverage, end-to-end
+  on-disk round-trip mirroring user's PlyWood shape
+- `TestRound8EspritEmptyChannelsError` (2 tests): empty-mapping +
+  force-only-mapping both raise clear errors
+- `TestRound8ScenarioLoadingGap` (2 tests): gap captured + surfaced;
+  cleared on project switch
+
+## Round 10 — PATCH /modal/measurements/<id>/<section> response shape (dev-maimport, 2026-05-20)
+
+Backend route + frontend hook were both contributing to a silent-
+data-corruption bug that affected **all 5 setup sections**
+(audio_config, impulse_config, series_config, mapping_config,
+calibration_criteria). User-visible symptom: "I cannot modify
+grid and channel role parameters, settings are open but don't
+persist on save".
+
+**Root cause:** pre-round-10, `_patch_setup` returned only
+`{"ok": True, "updated": <section>}` — an acknowledgement shape
+with no section payload. The frontend hook's response-mirror logic
+`useMeasurementSetup.js:116` had a fallback chain
+`res?.data?.[section] || res?.data || body` whose middle clause
+`|| res?.data` captured the ack object (truthy) and stored it as
+the section's canonical shape in `manifest.setup[section]`. Next
+render showed garbage. Next save merged the user's edit into the
+`{ok, updated}` shell and PATCHed back to disk → eventual on-disk
+corruption like `{"ok": true, "updated": "mapping", "channel_roles": {...}}`
+(missing layout_type, bridge_boundary, etc.).
+
+**Fix (both sites, defense in depth):**
+
+Backend (`measurement_routes.py::_patch_setup`): after a successful
+`write_setup_config`, re-reads the file from disk via
+`read_setup_config` and includes the full canonical body in the
+response under the section-name key:
+
+```json
+{
+  "ok": true,
+  "updated": "mapping",
+  "mapping_config": { ...full canonical 7-key body... }
+}
+```
+
+The section-name key uses the long form (`audio_config` /
+`impulse_config` / `series_config` / `mapping_config` /
+`calibration_criteria`) — same form the URL path uses + the
+frontend's `manifest.setup[section]` keys against.
+
+Frontend (`useMeasurementSetup.js`): fallback chain reduced from
+3 alternatives to 2 — `res?.data?.[section] || body`. The middle
+`|| res?.data` clause that captured the ack shape is GONE.
+Response-section-payload wins (round-10 backend always provides
+it); falls back to the canonical request body if any future
+endpoint doesn't follow the new contract. The ack wrapper can
+NEVER be captured.
+
+**Why both sites?** The backend fix eliminates the ambiguity that
+invited the bug — any client following the new contract is safe.
+The frontend fix protects against any future endpoint that
+returns acknowledgement-only responses without a section payload
+(defensive). Both ~3-5 LOC, no overlap.
+
+**Tests** (round-trip GET-after-PATCH coverage for all 5 sections):
+
+Backend (`tests/integration/test_measurement_routes.py::TestRound10PatchResponseCarriesSavedBody`, +3 tests):
+- `test_patch_response_contains_full_saved_body` — each of 5
+  sections: PATCH a body, response carries `<section_key>` with
+  the FULL post-merge content
+- `test_patch_then_get_returns_same_shape` — PATCH then GET, on-
+  disk has canonical shape (no `ok`/`updated` leaked into section)
+- `test_repeated_patch_preserves_canonical_shape` — 3x progressive
+  PATCH, final state == 3rd body verbatim (directly reproduces
+  the user's failure mode)
+
+Frontend (`src/hooks/__tests__/useMeasurementSetup.test.jsx`, +3 tests):
+- "mirrors the section payload from response into manifest.setup"
+- "CRITICAL: pre-round-10 corruption pattern — ack-only response
+  must NOT pollute manifest" (directly reproduces the bug — if
+  backend hypothetically returns ack-only, the hook MUST fall
+  back to body, never capture the ack)
+- "repeated PATCH preserves canonical shape" (frontend regression
+  guard)
+
+**Damage repair on user's data:** scanned all 26 Measurements in
+`D:\modal_measurements` for the corruption signature (presence
+of `ok` or `updated` keys at top level of any setup file). After
+round 10: 0 corrupted files remain. User's `PlyWoodSmallGrid`
+mapping_config was already repaired by the round-10 diagnostic-
+phase PATCH (canonical 7-key body) before code fix landed.
+
 ## Cross-Links
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)

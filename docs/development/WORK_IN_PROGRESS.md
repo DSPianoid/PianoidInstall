@@ -4,7 +4,76 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-reconcile | Divergence reconciliation: merge origin/master + origin/dev into Pianoid.cu-split branches, rebuild, test | [log](logs/dev-reconcile-2026-05-22-114019.md) | 2026-05-22 | In Progress |
+
+---
+
+## ~~Discovered defect — v2 Project scenarios not auto-loaded from parent Measurement~~ — RESOLVED dev-maimport round 4 (2026-05-19)
+
+**Status: RESOLVED.** Closed in dev-maimport round 4
+([commit on `feature/dev-maimport-import` → merged to PianoidCore `dev`]).
+See [`logs/dev-maimport-2026-05-19-135147.md`](logs/dev-maimport-2026-05-19-135147.md)
+§ Phase 1 RE-OPENED round 4 for the full implementation summary.
+
+**Fix.** Added `ModalAdapter._load_v2_scenarios_from_parent_measurement()`
+helper + an else-branch in `open_project()` that fires when the
+project's `measurements/` directory yields zero scenarios AND
+`project.json` carries `measurement_id`. The helper resolves the
+parent's `scenarios/` directory (preferring `measurement_path` from
+the project meta, falling back to `$PIANOID_MEASUREMENTS_DIR/<id>/scenarios`)
+and loads via the existing `_discover_roomresponse_scenarios` helper.
+When the parent is unreachable (drive unplugged / deleted), the
+fallback emits a warning log and leaves `_measurements` empty —
+downstream pipeline actions then surface the same recoverable
+"No measurements loaded" 409 the user already knows.
+
+**Both affected flows fixed:**
+- "+ New Project from this Measurement" button (dev-maimport round 3)
+- "Branch from this Project" button (dev-msmtui-fc) — same
+  `create_project_from_measurement` codepath; the fallback fires
+  for branched projects too (verified by
+  `test_branch_project_also_loads_scenarios_via_v2_fallback`).
+
+**Tests added (round 4, 5 new in `tests/integration/test_measurement_import.py::TestV2OpenProjectScenarioLoading`):**
+- `test_open_v2_project_loads_scenarios_from_parent_measurement`
+- `test_run_esprit_on_v2_project_succeeds_without_add_measurements`
+- `test_open_v2_project_with_missing_parent_leaves_measurements_empty`
+- `test_open_v2_project_idempotent_when_project_tree_has_scenarios`
+- `test_branch_project_also_loads_scenarios_via_v2_fallback`
+
+**Live verification (round 4):** end-to-end on real
+`D:\modal_measurements\PlyWoodTake1_7` (30 scenarios / 8 channels):
+fresh Measurement import → `POST /modal/projects` (v2) → 201 →
+`POST /modal/projects/open` → 200 → `POST /modal/run_esprit` (NO
+add_measurements call) → **HTTP 200 `{"message":"Complete","state":"done"}`**.
+ESPRIT result: 30 scenarios processed, 146 modes in first scenario,
+4,178 modes top-level merged, 4,237 raw modes summed across all
+scenarios — identical numbers to the round-3 manual-workaround run.
+
+**Original report follows for context.**
+
+**Symptom.** A fresh v2 Project created via `POST /modal/projects` (the
+endpoint behind the new "+ New Project from this Measurement" button)
+opens with an empty in-memory `_measurements` dict. Running ESPRIT on
+that just-opened Project returns `409 {"error": "No measurements loaded"}`
+because `ModalAdapter.open_project` only walks
+`<project>/measurements/scenario_*.npy` — it does not fall back to the
+parent Measurement's `scenarios/<scenario>/averaged_responses/average_ch*.npy`
+when `<project>/measurements/` is empty (which is the steady state for
+v2 Projects, since v2 deliberately does NOT duplicate scenario data
+into the project tree).
+
+**Scope.** Pre-existing — affects both:
+- the new "+ New Project from this Measurement" flow (dev-maimport)
+- the existing "Branch from this Project" flow (dev-msmtui-fc) — same
+  `create_project_from_measurement` codepath
+
+NOT introduced by dev-maimport — confirmed by inspecting `branch_project`
+(`modal_adapter.py:1579`) which already had this shape.
+
+**Discovery:** dev-maimport round 3 live test
+([log](logs/dev-maimport-2026-05-19-135147.md) § Step 7 round 3).
 
 ---
 

@@ -283,6 +283,9 @@ the legacy `<CollectPanel>` (B-3 wave) at Phase 2b ship.
 **Top row.** A `<MeasurementSelector>` Select dropdown lists every Measurement
 on disk (from `GET /modal/measurements`) plus a `New Measurement` button that
 opens a minimal create dialog (just the name field — N1 globally-unique IDs).
+The selector also carries an **Import…** button (dev-maimport, 2026-05-19) that
+opens the Measurement Import dialog described in
+[§ Measurement Import (dev-maimport)](#measurement-import-dev-maimport) below.
 When the selected Measurement is locked (`acquisition_locked === true`), an
 **Acquisition locked** chip plus an **Unlock with warning** button (N4) appear
 on the right.
@@ -434,6 +437,226 @@ on next Save.
   [`pianoid-middleware/MODAL_COLLECTION.md`](../modules/pianoid-middleware/MODAL_COLLECTION.md)
   for the route-level inventory + setup/* → recorder_config stitching
   via `_build_recorder_config_from_measurement`.
+
+### Measurement Import (dev-maimport)
+
+The Measurement Import dialog (dev-maimport, 2026-05-19) creates a new
+Measurement from an existing dataset on disk — an unpacked RoomResponse
+folder OR a raw measurement `.zip`. It replaces the (orphaned, removed
+at Phase 2c) "Create Project from raw recordings" flow and lives on the
+**Measurement** side of the entity split. A Project is then branched
+from the new Measurement via the existing Project subpanel flow.
+
+**Entry point.** Click the **Import…** button next to "+ New
+Measurement" in the top-row `<MeasurementSelector>` (Collection
+subpanel header). Opens `<MeasurementImportDialog>`.
+
+**Two tabs, one unified flow.**
+
+| Tab | What you pick | Backend path |
+|---|---|---|
+| **Folder** | A server-side directory via the tree picker (`<ServerFolderPicker>`). No upload. | `POST /modal/measurements/import_folder` with the resolved absolute path |
+| **Raw .zip** | A `.zip` file from the browser. Auto-extracted server-side to `<measurements_base>/_staging/<name>_<TS>/`. Then continues as if the user had picked the staged folder. | `POST /modal/measurements/unzip_helper` (extract) → `POST /modal/measurements/import_folder` (import) |
+
+**Server-side folder tree picker (D2 = (a), no upload).** The Folder
+tab renders a `<List>` + `<Collapse>` directory navigator backed by
+`GET /modal/fs/list?path=<abs>` (the modal-adapter server enumerates
+its OWN filesystem). The browser never uploads folders. Suggested
+starting roots come from `GET /modal/fs/roots`: the measurements base,
+the user's home directory, the repo root, and every fixed drive on
+Windows. Paths outside this allowlist are refused with HTTP 403.
+Rationale: Pianoid is local-only (Flask binds 127.0.0.1), so the
+backend already has direct disk access — uploading multi-GB measurement
+folders through the browser just to learn the path wastes RAM and
+fails on large datasets.
+
+**Format detection panel.** As soon as the user picks a folder (or the
+zip finishes extracting), the dialog calls `POST /modal/measurements/probe`
+and shows chips for:
+
+- **Format** — `roomresponse` (scenarios contain `raw_recordings/` or
+  `averaged_responses/`), `v2_measurement` (the source is itself a
+  Measurement directory — the picker auto-descends into `scenarios/`),
+  or `unknown` (no recognisable layout — submit is disabled).
+- **Scenarios** detected.
+- **Channels** + **Sample rate** (from the first scenario's
+  `metadata/session_metadata.json` when available, else from the
+  `average_ch*.npy` file count).
+- **Config in source** — `yes (will auto-apply)` when the first
+  scenario carries `metadata/session_metadata.json`, else `no
+  (defaults will be used)`.
+
+**Apply source config checkbox (default ON).** When checked AND the
+source has `metadata/session_metadata.json`, the dialog asks the
+backend to populate the four Measurement setup files
+(`audio_config.json`, `impulse_config.json`, `series_config.json`,
+`mapping_config.json`) by translating the captured `recorder_config`
+blob into the v2 schema. Unit conversions are handled in
+`measurement_import.session_metadata_to_setup_configs`
+(`pulse_duration` seconds → ms, `cycle_duration` seconds → ms, etc.).
+When unchecked, OR when the source has no metadata, the four files
+are written with `default_*_config()` payloads. The checkbox is
+auto-disabled (with a "defaults will be used" caption) when probe
+reports `has_metadata: false`.
+
+**Calibration criteria** always default. The Measurement entity's
+default 5-criterion starter set (§2.3.5 of the proposal) is written;
+the source's `calibration_quality_config` (which is a recorder
+runtime gate, not a Measurement-level rule list) is intentionally NOT
+ported — operators tune calibration criteria after import.
+
+**Imported Measurements stay UNLOCKED (D3 — orchestrator decision,
+2026-05-19).** Unlike the auto-lock that fires after the first
+internally-captured scenario (N4), an import leaves
+`locks/acquisition.lock` absent. This is deliberate: the user
+typically wants to extend the imported Measurement (add more
+scenarios, edit setup) without an explicit unlock-with-warning step.
+Standard manual lock control still applies — the user can lock from
+the Collection subpanel header once they're done editing.
+
+**Rejected: `.pianoid-project` archives (D1 = (c)).** Project
+archives are not Measurement archives — they ship `manifest.json` +
+`project.json` + an entire `modal_adapter/` analysis pipeline subtree,
+none of which maps cleanly to a Measurement's
+`measurement.json` + `setup/*` shape. The Folder tab's tree picker
+only lists directories, so this case can only arise when the user
+picks a `.pianoid-project` file in the Raw .zip tab; the file-input
+handler detects the extension up-front and shows an inline
+`<Alert severity="error">`:
+
+> This file is a Project archive, not a Measurement. Project import
+> is not exposed in this dialog. For raw measurement data, use the
+> Folder tab or a raw .zip.
+
+The orphaned `importProject()` hook in `useProjectCRUD.js` remains
+unused — Project-archive import is no longer exposed in the UI. A
+future Project-side Import button could pick it up if the
+round-trip-via-export-zip flow is needed again.
+
+**Error surfaces.** All standard inline `<Alert>` messages:
+
+| Condition | Source | Display |
+|---|---|---|
+| name already taken (N1, 409) | backend response | "A Measurement named X already exists. Choose a different name." + helper text on the name field (client-side `existingIds` prop avoids the round-trip) |
+| bad slug (422) | backend response | "Invalid measurement_id: ..." (rare — the name field auto-derives a valid stem) |
+| unknown source format (400) | probe panel + submit guard | the probe `reason` field surfaces the warning; submit disabled until user picks a recognisable folder |
+| zip extraction failed | unzip_helper response | "Zip extraction failed: ..." (the staging directory is left in place for inspection) |
+
+**See also:**
+- Endpoint reference + curl examples:
+  [`pianoid-middleware/MODAL_COLLECTION.md` § Measurement Import endpoints](../modules/pianoid-middleware/MODAL_COLLECTION.md#measurement-import-endpoints-dev-maimport-2026-05-19)
+- Server-side filesystem listing:
+  [`pianoid-middleware/MODAL_COLLECTION.md` § Filesystem List endpoints](../modules/pianoid-middleware/MODAL_COLLECTION.md#filesystem-list-endpoints-dev-maimport-2026-05-19)
+- Shared module: `pianoid_middleware/modal_adapter/measurement_import.py`
+  (entry point: `import_folder_as_measurement(...)`; unit-conversion mapper:
+  `session_metadata_to_setup_configs(...)`).
+
+### Creating an ESPRIT Project from a Measurement (dev-maimport round 3)
+
+Closes the Phase 2c gap: the legacy `<CreateProjectDialog>` (zip
+upload + EffectiveSignalLengthRerunDialog chain) was retired at N8
+hard cutover, but the replacement "+ New Project from this
+Measurement" button was never shipped. The orphaned `createProject()`
+hook in `useProjectCRUD.js` stayed but had no UI caller — every
+attempt to create a fresh Project hit a chicken-and-egg dead end
+because "Branch from this Project" needs an existing Project to
+branch from. dev-maimport round 3 (2026-05-19) ships the missing
+button + the v2 create flow.
+
+**Entry point.** Click **`+ New Project from this Measurement`**
+(primary-coloured, rocket icon) on the Collection subpanel header
+row, right of the `Import…` button. **Disabled when no Measurement
+is selected** — pick a Measurement from the dropdown first.
+
+**Dialog: `<CreateProjectFromMeasurementDialog>`.**
+
+| Field | Default | Notes |
+|---|---|---|
+| **Project name** | `<measurement_id>_p1` (auto-derived, increments to `_p2`, `_p3`, ... on existing-name collision) | Editable. Client-side collision check against the projectList. |
+| **Signal length (ms)** | `1000` | Numeric input. Currently informational — the v2 `POST /modal/projects` endpoint does NOT accept it; reaverage parity follow-on. |
+| **Quality threshold** | `0.1` | Range 0.05 (strict) – 0.5 (permissive). Currently informational — same caveat as signal length. |
+| **Run ESPRIT immediately after creation** | ON | When checked, after the Project opens the dialog calls `runEsprit()` so the user lands on the Project subpanel with ESPRIT already in flight. Uncheck to review band config before running. |
+
+**Backend call.** Submit hits `POST /modal/projects` (v2) with body
+`{name, measurement_id}`. The backend's
+`create_project_from_measurement()` method snapshots the parent
+Measurement's `setup/*` JSON files into `project.json.measurement_snapshot`
+(N5 — frozen at create time) and writes the v2 schema with
+`measurement_id`, `measurement_path`, and the standard `averaging`
+defaults. The new Project starts with empty ESPRIT / tracking /
+feedin caches.
+
+**Post-create flow.**
+
+1. `createProjectFromMeasurement(name, measurement_id)` resolves → 201.
+2. Dialog calls `onOpenProject(name)` → frontend `openProject()` hook
+   POSTs `/modal/projects/open` and syncs the project state.
+3. Dialog calls `onSwitchToProject()` → ModalAdapter's
+   `setActiveSection("setup")` switches the pipeline view from
+   Collection to Project, so the user immediately sees the new
+   Project's info card + scenario picker + ESPRIT controls.
+4. If "Run ESPRIT immediately" was checked → fire-and-forget
+   `onRunEsprit()` so the extraction kicks off without blocking the
+   dialog close. ESPRIT progress + result are surfaced by the Project
+   subpanel's existing live-progress UI.
+5. **Round 7 (dev-maimport, 2026-05-19) — dialog is a transactional
+   2-step affair:** after submit the dialog STAYS OPEN and shows a
+   result panel describing what happened (success / partial / error).
+   The user MUST click OK to dismiss. Cancel is hidden in result mode.
+   This replaces the round-5 "close on success, stay open on error"
+   pattern with a uniform "always stay open until OK" pattern — no
+   more "dialog flashed and closed before I could read the error".
+
+6. **Round 8 (dev-maimport, 2026-05-19) — switch-to-Setup + ESPRIT-fire
+   DEFERRED to OK click:** the round-7 implementation invoked
+   `onSwitchToProject()` inside `handleSubmit`, which flipped
+   `ModalAdapter.activeSection` to "setup" → unmounted
+   `<CollectionSubpanel>` (which OWNS the dialog open state) →
+   destroyed the dialog mid-render so the result panel was never
+   visible. Round 8 defers BOTH `onSwitchToProject()` AND
+   `onRunEsprit()` from `handleSubmit` to `handleOk` (the OK-button
+   handler). Dialog stays mounted under "collect" until user clicks
+   OK; then switch + ESPRIT fire in batched-update order with the
+   dialog close. Result panel persists until explicit dismissal.
+
+**Result panel states (round 7):**
+
+| Kind | Icon | When | Action |
+|---|---|---|---|
+| **Success** (green ✓) | `CheckCircleOutlineIcon` | create + open + (optional) ESPRIT-fire all succeeded | summary lists scenarios / channels / ESPRIT-kicked-off note |
+| **Partial** (yellow ⚠) | `WarningAmberIcon` | create succeeded but later step failed (open returned null or threw; ESPRIT fire-call sync-threw) | summary names the failed step + recovery hint ("Try opening it manually from the Project subpanel.") |
+| **Error** (red ✗) | `ErrorOutlineIcon` | create itself failed (409 / 404 / 422 / 500 / network) | summary names the HTTP cause + recovery hint |
+
+In every case the panel ends with "Click OK to dismiss this dialog."
+and the single OK button is the only action.
+
+**Error surfaces (consumed by the result panel):**
+
+| Condition | Response | Result-panel kind | Display |
+|---|---|---|---|
+| Name collision (N1) | 409 | error | "A Project named X already exists. Choose a different name and click Create again." |
+| Measurement deleted between open and submit | 404 | error | "Measurement X not found on the backend." |
+| Bad slug | 422 | error | "Invalid project name: ..." |
+| Backend crashed | 500 | error | "Create failed: ..." |
+| Open returned null (swallowed error) | partial | partial | "Project X created. ...but opening it returned no data. ..." |
+| Open threw | partial | partial | "Project X created. ...but opening it failed: <message>. ..." |
+
+**Why is signal length / qc threshold collected but not yet wired?**
+The v2 `POST /modal/projects` endpoint (which links Project ↔
+Measurement) does not accept averaging knobs — those live on the
+separate `POST /modal/projects/<n>/reaverage` route. The dialog
+collects the values for UX parity with the legacy
+`<CreateProjectDialog>` (which let the user set them at create
+time). A follow-on can wire a follow-up `reaverage` call when the
+user picked a non-default value. The defaults match the backend's
+silent defaults, so the typical "click Create with defaults" flow is
+unaffected.
+
+**See also:**
+- Frontend dialog: `PianoidTunner/src/components/CreateProjectFromMeasurementDialog.jsx`
+- v2 hook: `PianoidTunner/src/hooks/modalAdapter/useProjectCRUD.js::createProjectFromMeasurement`
+- Backend route: `POST /modal/projects` in `pianoid_middleware/modal_adapter/routes/project_routes.py`
+- Backend method: `ModalAdapter.create_project_from_measurement` in `modal_adapter.py`
 
 ### Project Management
 
@@ -620,9 +843,15 @@ accordion. For `line` layout the editor does not render — switch to grid
 via the LINE/GRID layout selector in the settings panel (gear icon) to
 reveal it.
 
-**Create Project…** -- click to open `CreateProjectDialog` (dev-cp01,
-2026-05-05). The dialog collects the four pieces of create-time
-information in one step:
+**Create Project…** *(LEGACY — removed at Phase 2c hard cutover N8;
+the dialog no longer mounts. The historical description below is kept
+for context only. The current path to create an analysis Project from
+raw recordings is: (1) Import the dataset as a Measurement via
+[§ Measurement Import (dev-maimport)](#measurement-import-dev-maimport)
+above, (2) branch a Project from that Measurement via the Project
+subpanel's "Branch from this Project" button.)* -- click to open
+`CreateProjectDialog` (dev-cp01, 2026-05-05). The dialog collects the
+four pieces of create-time information in one step:
 
 | Field | Default | Notes |
 |-------|---------|-------|
@@ -2304,13 +2533,25 @@ project directory still exists.
 
 #### Project Import / Create-from-Zip
 
+> **Phase 2c update (dev-maimport, 2026-05-19).** `POST /modal/projects/create_from_zip`
+> is retired (HTTP 410 Gone). For raw measurement-data zips, the
+> replacement is the Measurement Import dialog
+> (`POST /modal/measurements/unzip_helper` → `POST /modal/measurements/import_folder`) —
+> see [`MODAL_COLLECTION.md` § Measurement Import endpoints](../modules/pianoid-middleware/MODAL_COLLECTION.md#measurement-import-endpoints-dev-maimport-2026-05-19).
+> `POST /modal/projects/import` (`.pianoid-project` archives only) is
+> still wired on the backend but is not currently surfaced anywhere in
+> the UI; its frontend hook (`importProject` in
+> `useProjectCRUD.js`) is orphaned. The legacy text below is preserved
+> for historical context — neither of the two curl invocations matches
+> the live surface anymore.
+
 Two endpoints accept zip uploads:
 
 ```bash
-# Smart-routed: handles both .pianoid-project archives (manifest.json+
-# project.json at the top) and raw measurement-data zips (RoomResponse
-# scenario folders, or flat .npy). Auto-detects layout, auto-extracts
-# measurement zips, returns 201 on success.
+# RETIRED Phase 2c (HTTP 410 Gone). Was: smart-routed import that
+# handled both .pianoid-project archives (manifest.json+ project.json
+# at the top) and raw measurement-data zips (RoomResponse scenario
+# folders, or flat .npy).
 curl -X POST http://localhost:5001/modal/projects/create_from_zip \
   -F "file=@C:/path/to/measurements.zip" \
   -F "name=MyProject"
