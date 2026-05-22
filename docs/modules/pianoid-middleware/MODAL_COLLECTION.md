@@ -641,6 +641,12 @@ The monolithic `routes.py` (1842 LOC, C4-RED) was split into a
 | `routes/chains_routes.py` | 296 | /chains/* + /stabilization_diagram + /grid_heatmap + /mode_shape + /mode_preview + /channel_mapping |
 | `routes/pipeline_routes.py` | 381 | /run_pipeline, /run_esprit, /run_tracking, /run_feedin + adapter state |
 
+`GET /gpu_status` returns `gpu_available` from a CuPy `import` probe — it is
+`true` only when `cupy-cuda12x` is installed in `PianoidCore/.venv` (pinned in
+`requirements.txt`; not a transitive dep, so venv rebuilds can drop it). Without
+it, ESPRIT degrades to CPU and now logs a `WARNING` rather than failing silently
+(dev-5dd4, 2026-05-22). See [MODAL_ADAPTER_GUIDE § Architecture](../../guides/MODAL_ADAPTER_GUIDE.md#architecture).
+
 Backwards-compat shims (legacy underscore-prefixed names like
 `_get_adapter`) remain on `routes/__init__.py` so the 16 existing
 test imports keep working unchanged.

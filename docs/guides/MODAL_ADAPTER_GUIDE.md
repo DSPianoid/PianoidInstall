@@ -44,6 +44,15 @@ from the main Pianoid backend (port 5000). This separation is required because C
 operations (used by ESPRIT) deadlock in non-main threads — the modal adapter server runs
 single-threaded (`threaded=False`) so ESPRIT executes on the main thread.
 
+> **GPU acceleration requires `cupy-cuda12x` in `PianoidCore/.venv`.** It is **not** a
+> transitive dependency of anything else, so `--heavy` venv rebuilds and fresh venvs silently
+> drop it — and ESPRIT then degrades to CPU. Since dev-5dd4 (2026-05-22) the fallback is
+> **loud**: `esprit_core._to_gpu_or_cpu` and `band_merging._free_gpu_memory` log a `WARNING`
+> (with the exception type) when GPU was requested (`use_gpu=True`) but CuPy is unavailable,
+> instead of swallowing the reason in a bare `print`/`pass`. `cupy-cuda12x` is pinned in
+> `requirements.txt`; `GET /modal/gpu_status` reports `gpu_available: true` once it imports.
+> Install with `PianoidCore/.venv/Scripts/python -m pip install cupy-cuda12x` (CUDA 12.x).
+
 | Server | Port | Role |
 |--------|------|------|
 | `backendServer.py` | 5000 | Pianoid synthesis, parameter editing, playback |

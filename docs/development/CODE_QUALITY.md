@@ -501,19 +501,19 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 |------|------|-----|-------|
 | 1 | `PianoidCore/pianoid_middleware/backendServer.py` | 3553 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI). +112 at dev-bfe2 (preset working-copy endpoints, 2026-05-18) |
 | 2 | `PianoidCore/pianoid_middleware/pianoid.py` | 3177 | Main synthesis orchestrator; preset loading + parameter routing + playback + more. +182 at dev-bfe2 (working-copy spawn/promote/guard methods, 2026-05-18) — the `PresetLibrary` registry data structure was carved out to `preset_library.py`, but the orchestration methods correctly stay here; the file remains RED and a deeper preset-IO carve-out is still open (WIP §4.3) |
-| 3 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 2952 | CUDA synthesis hub; multiple concerns (kernel orchestration, parameter packing, lifecycle) |
-| 4 | `PianoidTunner/src/PianoidTuner.js` | 2793 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state |
-| 5 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
-| 6 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
-| 7 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2231 | Stabilization diagram — data prep + ECharts config + interaction + sub-panels |
-| 8 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1537 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns. (2026-05-17 cursor-drift fix trimmed it 1565→1537; still RED — full split is the open numinput-inventory rec #4.) |
-| 9 | `PianoidTunner/src/hooks/usePreset.js` | 1514 | Preset hook — WS + REST + debounce + optimistic UI + available notes + library records / spawn / promote (dev-bfe2, 2026-05-18) |
-| 10 | `PianoidTunner/src/hooks/useModalAdapter.js` | 1356 | Modal adapter hook — REST + WS + project state + ESPRIT triggers |
-| 11 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1324 | Calibration — direct correction + bisection + sequence + I/O |
-| 12 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/mode_tracking.py` | 1215 | Mode tracking — proposals + assignment + lifecycle + scoring |
-| 13 | `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu` | 1122 | GPU memory manager — allocation + pooling + tracking |
-| 14 | `PianoidTunner/src/modules/ModalAdapter.jsx` | 1077 | Modal adapter page — layout + multi-pane config + top-level state |
-| 15 | `PianoidCore/pianoid_cuda/asio.h` | 1070 | Vendor header — third-party; excluded from refactor unless re-homed |
+| 3 | `PianoidTunner/src/PianoidTuner.js` | 2793 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state |
+| 4 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
+| 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
+| 6 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2231 | Stabilization diagram — data prep + ECharts config + interaction + sub-panels |
+| 7 | `PianoidTunner/src/components/NumInput/NumInput.js` | 1537 | Numeric input — should not be this large; likely mixes edit, step, scroll, display concerns. (2026-05-17 cursor-drift fix trimmed it 1565→1537; still RED — full split is the open numinput-inventory rec #4.) |
+| 8 | `PianoidTunner/src/hooks/usePreset.js` | 1514 | Preset hook — WS + REST + debounce + optimistic UI + available notes + library records / spawn / promote (dev-bfe2, 2026-05-18) |
+| 9 | `PianoidTunner/src/hooks/useModalAdapter.js` | 1356 | Modal adapter hook — REST + WS + project state + ESPRIT triggers |
+| 10 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1324 | Calibration — direct correction + bisection + sequence + I/O |
+| 11 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/mode_tracking.py` | 1215 | Mode tracking — proposals + assignment + lifecycle + scoring |
+| 12 | `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu` | 1122 | GPU memory manager — allocation + pooling + tracking |
+| 13 | `PianoidTunner/src/modules/ModalAdapter.jsx` | 1077 | Modal adapter page — layout + multi-pane config + top-level state |
+| 14 | `PianoidCore/pianoid_cuda/asio.h` | 1070 | Vendor header — third-party; excluded from refactor unless re-homed |
+| 15 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 1041 | CUDA synthesis facade — the `Pianoid` object lifecycle + GPU-memory lifecycle. Was rank 3 at 2952 LOC; split phases 0-8 (dev-cbd5, 2026-05-19) extracted 6 substantive modules (`Pianoid_presets/_debug/_calibration/_excitation/_parameters/_synthesis.cu`). Barely over the RED line — drops below 1000 after the deferred phase R relocates the ~10 thin audio-driver wrappers into the audio-driver subsystem (proposal `pianoid-cu-split-proposal-2026-05-19.md`). |
 | 16 | `PianoidCore/pianoid_middleware/modal_adapter/collection_engine.py` | 1014 | MeasurementSession lifecycle + recorder/collector factory wiring + averaging dispatch. Crossed RED at dev-liveproc-w1 Wave 1 (2026-05-22, +51 LOC for the live-processing `on_scenario_done` callback plumbing — minimal addition that pushed 963→1014). Split deferred to modal_adapter-split Wave 3 (proposal §Q12 explicitly plans facade-level rework that will absorb / partition this module). Do NOT add further code to this file without a split plan. |
 
 ### YELLOW flags (500–1000 LOC — Medium-severity structural findings)
@@ -529,10 +529,12 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit_runner.py` | 759 |
 | `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |
 | `PianoidBasic/Pianoid/StringMap.py` | 686 |
+| `PianoidCore/pianoid_cuda/Pianoid_parameters.cu` | 667 |
 | `PianoidCore/pianoid_middleware/test_backendserver_audio.py` | 664 |
 | `PianoidCore/pianoid_cuda/AsioAudioInterface.cpp` | 656 |
 | `PianoidTunner/src/components/CurveEditor.jsx` | 655 |
 | `PianoidTunner/src/components/ChartSelector.jsx` | 634 |
+| `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu` | 622 |
 | `PianoidCore/pianoid_middleware/auto_tuner.py` | 607 |
 | `PianoidBasic/Pianoid/StringExcitation.py` | 589 |
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/esprit_core.py` | 586 |

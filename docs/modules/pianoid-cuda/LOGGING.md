@@ -135,7 +135,7 @@ Three logging statements were identified on the synthesis hot path (firing every
 
 | File | Original | Fix |
 |------|----------|-----|
-| `Pianoid.cu:1934` | `std::cout << "Launchmainkernel..."` every cycle with active notes | Replaced with `PLOG()` (file-only) |
+| `Pianoid_synthesis.cu` (`runSynthesisKernel`) | `std::cout << "Launchmainkernel..."` every cycle with active notes | Replaced with `PLOG()` (file-only). The synthesis hot path moved out of `Pianoid.cu` into `Pianoid_synthesis.cu` in the 2026-05-19 Pianoid.cu split. |
 | `SDL3AudioDriver.cpp:207` | `printf("WARNING: SDL3 requested %d chunks...")` per callback | Replaced with `PLOG_WARN()` |
 | `CycleTimeEstimator.cu:117` | `std::cout << "Initial calibration..."` during warmup | Replaced with `PLOG_INIT()` |
 
