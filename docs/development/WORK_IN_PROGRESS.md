@@ -5,7 +5,6 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
-| dev-ce07 | Wave-2 update integration — merge origin [dev-maimport] Wave-2 into local reconciled branches + rebuild | [log](logs/dev-ce07-2026-05-22-150648.md) | 2026-05-22 | In Progress |
 
 ---
 
