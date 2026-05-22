@@ -5,14 +5,46 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
+| dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
 
 ---
 
-## Live Measurement + Processing Flow — DESIGN ROUND (live-processing-design, 2026-05-22)
+## Live Measurement + Processing Flow — Wave 1 IN PROGRESS (live-processing-design, 2026-05-22)
 
-**Status:** Proposal authored; awaiting user review + 12-question lock before any Wave 1
-dispatch. Tag: `[live-processing-design]`. Doc:
+**Status:** **Q1-Q12 locked by user** (Q1=C subprocess worker, overrides proposal-recommended
+model D; all other Qs per proposal defaults). Wave 1 (plumbing + CuPy probe gate) implemented
+by dev-liveproc-w1 — see session
+[log](logs/dev-liveproc-w1-2026-05-22-144937.md). Tag: `[live-processing-design]`. Doc:
 [`docs/proposals/live-processing-flow-2026-05-22.md`](../proposals/live-processing-flow-2026-05-22.md).
+
+**Wave 1 deliverables landed:**
+- NEW `live_processing_subprocess.py` (480 LOC) — persistent subprocess worker, IPC Job/Result
+  dataclasses, CUPY_PROBE_OPERATION handler, parent-side supervisor with crash respawn
+- NEW `live_processing_orchestrator.py` (241 LOC) — skeleton with state machine constants,
+  `handle_scenario_done(measurement_id, scenario_number, scenario_subdir)` callback target,
+  enabled-gate + state-transition + worker.start() ensure. Does NOT register on
+  MeasurementSession yet (Wave 2 wires facade).
+- `project_context.py` +5 fields + 2 locks + `record_live_processing_error()` helper +
+  `LIVE_PROCESSING_ERRORS_MAX=50` constant
+- `collection_engine.py` `MeasurementSession.__init__(on_scenario_done=None)` plumbed +
+  guarded try/except invocation in `_run()` between `_finalize_outputs` and
+  `_set_phase("resuming")` per proposal §Q3. Production constructors leave the param as
+  None → ZERO runtime change (callback branch skipped). **C4 RED THRESHOLD CROSSED**
+  (963 → 1014 LOC); recorded in CODE_QUALITY.md "Current Known God Objects" rank 16. Split
+  deferred to modal_adapter-split Wave 3.
+- 4 new test files under `tests/integration/modal_adapter/` (29 tests, all passing).
+- **CuPy probe gate PASSES** — subprocess + CuPy round-trip verified (Q1=C foundation
+  validated). Wave 2 dispatch unblocked.
+
+**Wave 2 (NOT YET DISPATCHED):**
+- Wire facade to register `LiveProcessingOrchestrator.handle_scenario_done` on
+  MeasurementSession at construction time
+- Add `submit_async` + parent-side result drain to SubprocessWorker
+- Implement RUN_ESPRIT_OPERATION + RUN_TRACKING_OPERATION handlers in the worker
+- Frontend toggle in CollectionSubpanel header + status chip + status panel in ProjectSubpanel
+- Extend `/collect/status` payload with `live_processing` block
+
+**Wave 3 (NOT YET DISPATCHED):** cancellation, retry, persistence, error UX polish.
 
 **Scope.** Build a live "record-and-process" pipeline where the user has both a
 Measurement and a Project open; each newly recorded scenario triggers
