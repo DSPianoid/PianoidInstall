@@ -8,6 +8,40 @@
 
 ---
 
+## Live Measurement + Processing Flow — DESIGN ROUND (live-processing-design, 2026-05-22)
+
+**Status:** Proposal authored; awaiting user review + 12-question lock before any Wave 1
+dispatch. Tag: `[live-processing-design]`. Doc:
+[`docs/proposals/live-processing-flow-2026-05-22.md`](../proposals/live-processing-flow-2026-05-22.md).
+
+**Scope.** Build a live "record-and-process" pipeline where the user has both a
+Measurement and a Project open; each newly recorded scenario triggers
+`EspritOrchestrator.run_esprit(scenario_indices=[N])` + `TrackingOrchestrator.run_tracking()`
+on the recording thread (post-`_finalize_outputs`, pre-`_set_phase("resuming")`); user
+sees the stab diagram + chain list update as they record.
+
+**Architectural decisions surfaced (Q1..Q12).** Threading model (process-on-recording-thread
+with CuPy probe gate; fallback to drain-on-Flask-main), concurrency safety (hybrid per-field
+locks + rebind-and-grab for full replacements; explicit lock on `tracked_chains_version`),
+trigger mechanism (in-process `on_scenario_done` callback on `MeasurementSession`), tracking
+re-run cadence (per-scenario initially), FE update channel (extend existing `/collect/status`
+polling — no SocketIO on port 5001), Project lifecycle (single Project; N5 frozen-snapshot
+intact), cancellation semantics, failure handling (never blocks recording; surfaced via
+status + retry button), data-model changes (5 new `ProjectContext` fields + 2 locks +
+`live_processing` block in `project.json`), UX shape (toggle chip in CollectionSubpanel
+header + status panel in ProjectSubpanel Setup), persistence, Wave-3 coordination.
+
+**Estimated implementation scope.** ~3,200 LOC across three waves: Wave 1 plumbing + CuPy
+probe gate (~1,000 LOC), Wave 2 happy path (~1,500 LOC), Wave 3 error handling + UX polish
+(~700 LOC). Each wave is independently demoable.
+
+**No blockers found.** N5 frozen-snapshot contract is compatible with live processing
+(snapshot covers setup, not scenario data). Wave 2 orchestrators (shipped 2026-05-17) are
+already structured to accept `scenario_indices=[N]` for incremental ESPRIT. CuPy
+non-main-thread risk identified — mitigated via Wave-1 probe gate.
+
+---
+
 ## ~~Round-26 heatmap smoothing contaminated white cells~~ — RESOLVED dev-maimport round 27 (2026-05-17)
 
 **Status: RESOLVED.** Closed in dev-maimport round 27.
