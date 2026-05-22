@@ -42,10 +42,10 @@ In Claude Code, install the official Telegram plugin:
 Or, if using VS Code extension, go to the plugins marketplace and install "Telegram".
 
 The plugin files land in:
-- **Marketplace:** `~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram/`
-- **Cache (runtime copy):** `~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4/`
+- **Marketplace (durable, version-less):** `~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram/`
+- **Cache (runtime copy, versioned):** `~/.claude/plugins/cache/claude-plugins-official/telegram/<ver>/` (`<ver>` is the installed plugin version, e.g. `0.0.6`)
 
-On restart, the cache is overwritten from the marketplace copy.
+On restart, the cache is rebuilt from the marketplace copy. **This is why all patches must target the marketplace copy** — a patch applied only to the versioned cache silently reverts on the next restart.
 
 ## Step 2: Configure the Bot Token
 
@@ -123,6 +123,101 @@ Messages are backed up to disk before the MCP notification is attempted.
 3. Check that a file was created in `~/.claude/channels/telegram/inbox/`
 4. Reply from Claude Code to confirm two-way communication
 
+## Voice I/O Setup (optional)
+
+The orchestrator supports **two-way voice** on top of the text channel:
+
+- **STT (speech-to-text):** transcribe inbound Telegram voice notes so you can dictate tasks.
+- **TTS (text-to-speech):** send replies back as Telegram voice notes.
+
+Both are optional — the text channel works without them. Set up STT and TTS independently.
+
+### STT — Transcribe Inbound Voice
+
+When a `<channel>` message carries `attachment_kind="voice"`, the orchestrator downloads the
+`.ogg` and transcribes it via `tools/transcribe_voice.py` (uses `faster-whisper`, `small`
+model, CUDA). The transcript prints to stdout.
+
+**Install** (into the project venv, same interpreter the orchestrator tools use):
+
+```bash
+# From the repo root
+PianoidCore/.venv/Scripts/pip install -r tools/requirements-orchestrator.txt   # Windows
+PianoidCore/.venv/bin/pip install -r tools/requirements-orchestrator.txt       # Linux
+```
+
+`faster-whisper` is pinned in `tools/requirements-orchestrator.txt`. The `small` Whisper model
+(~480 MB) auto-downloads to the HuggingFace cache on first transcription — no manual download.
+If a venv rebuild drops the package, re-run the install above.
+
+**Run** (the orchestrator skill's "Voice Message Detection" flow already wires this in):
+
+```bash
+PianoidCore/.venv/Scripts/python tools/transcribe_voice.py "<abs-path-to.ogg>"   # Windows
+PianoidCore/.venv/bin/python      tools/transcribe_voice.py "<abs-path-to.ogg>"  # Linux
+```
+
+### TTS — Send Voice Notes
+
+Generate speech with `tools/tts_voice.py` (edge-tts → MP3 → ffmpeg → OGG/Opus), then attach
+the produced `.ogg` to a reply. The plugin's voice patch (below) makes Telegram render it as a
+playable voice note rather than a document.
+
+**Install dependencies:**
+
+```bash
+# edge-tts (Microsoft neural voices) — into the project venv
+PianoidCore/.venv/Scripts/pip install edge-tts          # Windows
+PianoidCore/.venv/bin/pip install edge-tts              # Linux
+
+# ffmpeg (Opus encoder) — Windows via WinGet; tts_voice.py also auto-resolves the WinGet path
+winget install Gyan.FFmpeg                               # Windows
+sudo apt install ffmpeg                                  # Linux
+```
+
+**The helper** lives at `tools/tts_voice.py` (beside `transcribe_voice.py` — the repo is the
+canonical source). It prints the absolute path of the produced `.ogg` as the last line of
+stdout:
+
+```bash
+py -3 tools/tts_voice.py "Hello, this is a test."
+py -3 tools/tts_voice.py --voice en-GB-RyanNeural "Some text"
+echo "piped text" | py -3 tools/tts_voice.py
+```
+
+The orchestrator captures that path and sends it via `reply(files:["<...>.ogg"])`.
+
+### Apply the Voice Patch (sendVoice)
+
+By default the plugin sends every non-image file as a *document*. The voice patch teaches the
+file-send handler to send `.ogg`/`.oga`/`.opus` files as Telegram **voice notes** via
+`bot.api.sendVoice`. Like the inbox-queue patch, it must target the **marketplace** copy so it
+survives cache rebuilds.
+
+Apply the patch:
+
+```bash
+python tools/apply_telegram_voice_patch.py
+```
+
+Confirm it landed:
+
+```bash
+python tools/apply_telegram_voice_patch.py --check    # prints "APPLIED", exits 0
+```
+
+The applier is idempotent (re-running is a no-op), backs up the marketplace `server.ts` to
+`server.ts.bak` before the first apply, and verifies both hunks landed before writing. The raw
+diff is mirrored at `tools/server.ts.voicepatch.diff` for reference.
+
+After patching, reload Claude Code (VS Code: `Ctrl+Shift+P` > "Developer: Reload Window").
+
+> **Re-apply after every plugin update.** A Telegram plugin update overwrites the marketplace
+> `server.ts` with the upstream (unpatched) version. Re-run `python
+> tools/apply_telegram_voice_patch.py` (and `tools/apply_telegram_patch.py` for the inbox
+> queue) after any plugin update. Both are idempotent, so re-running when already patched is
+> harmless.
+
 ## Known Issues (Windows)
 
 ### Missing Plugin Dependencies (node_modules)
@@ -134,15 +229,15 @@ Messages are backed up to disk before the MCP notification is attempted.
 **Diagnosis:**
 
 ```bash
-ls ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4/node_modules/
+ls ~/.claude/plugins/cache/claude-plugins-official/telegram/<ver>/node_modules/
 ```
 
-If this directory is empty or missing, dependencies were never installed.
+(`<ver>` is the installed plugin version directory — e.g. `0.0.6`.) If this directory is empty or missing, dependencies were never installed.
 
 **Fix:**
 
 ```bash
-cd ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4
+cd ~/.claude/plugins/cache/claude-plugins-official/telegram/<ver>
 bun install
 ```
 
@@ -191,6 +286,13 @@ Then reload VS Code to spawn a fresh pair.
 |---|---|
 | `~/.claude/channels/telegram/.env` | Bot token |
 | `~/.claude/channels/telegram/access.json` | Access policy and allowlist |
-| `~/.claude/channels/telegram/inbox/` | Backup message queue (patch) |
-| `~/.claude/plugins/marketplaces/.../telegram/server.ts` | Plugin source (patch here) |
-| `~/.claude/plugins/cache/.../telegram/0.0.4/server.ts` | Runtime copy (overwritten on restart) |
+| `~/.claude/channels/telegram/inbox/` | Backup message queue (inbox patch) |
+| `~/.claude/plugins/marketplaces/.../telegram/server.ts` | Plugin source — **patch target** (durable, version-less) |
+| `~/.claude/plugins/marketplaces/.../telegram/server.ts.bak` | Backup of the marketplace source (created by the voice applier before first apply) |
+| `~/.claude/plugins/cache/.../telegram/<ver>/server.ts` | Runtime copy (rebuilt from marketplace on restart; `<ver>` e.g. `0.0.6`) |
+| `tools/apply_telegram_patch.py` | Applies the inbox-queue patch to the marketplace `server.ts` (idempotent, `--check`) |
+| `tools/apply_telegram_voice_patch.py` | Applies the voice-note (`sendVoice`) patch to the marketplace `server.ts` (idempotent, `--check`) |
+| `tools/server.ts.voicepatch.diff` | Reference raw diff for the voice patch |
+| `tools/tts_voice.py` | TTS helper — text → OGG/Opus voice note (edge-tts + ffmpeg) |
+| `tools/transcribe_voice.py` | STT helper — inbound voice `.ogg` → transcript (faster-whisper) |
+| `tools/requirements-orchestrator.txt` | Pinned orchestrator deps (incl. `faster-whisper` for STT) |

@@ -6,6 +6,7 @@
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
+| dev-voice-docs | Orchestrator voice-I/O durability + setup docs (track tts_voice.py, durable marketplace voice-patch applier, TELEGRAM_CHANNEL_SETUP.md voice section, mkdocs nav) | [log](logs/dev-voice-docs-2026-05-22-230352.md) | 2026-05-22 | In Progress |
 
 ---
 
