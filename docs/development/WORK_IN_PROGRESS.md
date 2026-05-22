@@ -5,7 +5,34 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
-| dev-reconcile | Divergence reconciliation: merge origin/master + origin/dev into Pianoid.cu-split branches, rebuild, test | [log](logs/dev-reconcile-2026-05-22-114019.md) | 2026-05-22 | In Progress |
+
+---
+
+## Deferred doc-gap — CUDA build invocation under the Bash/MSYS layer (dev-reconcile, 2026-05-22)
+
+**Owner:** next build-system / docs touch. **ETA:** next `/dev` session that edits BUILD_SYSTEM.md or `.claude/CLAUDE.md` build commands.
+
+**Gap.** The canonical command in `docs/architecture/BUILD_SYSTEM.md` + `.claude/CLAUDE.md`
+— `unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy --release"` run
+from the repo root — **fails under the Claude Code Bash tool's MSYS/Git-bash layer**. The
+batch sets `REPO_ROOT=%~dp0` (its own dir), but MSYS rewrites the `cmd //c` path argument so
+`%~dp0` loses the `PianoidCore\` component → `PROJECT_DIR=D:\repos\PianoidInstall\pianoid_cuda`
+(missing `PianoidCore\`) → `[ERROR] Folder not found`, and it activates system Python instead
+of the venv. Reproduced deterministically across repo-root-relative and absolute-path bash
+invocations on 2026-05-22 (PianoidCore confirmed NOT a junction).
+
+**Reliable invocation (works):** drive the batch through **PowerShell** (no MSYS path
+translation), setting cwd to PianoidCore so `%~dp0` resolves correctly:
+
+```powershell
+$env:VIRTUAL_ENV = $null
+& cmd.exe /c "cd /d D:\repos\PianoidInstall\PianoidCore && .\build_pianoid_cuda.bat --heavy --release"
+```
+
+**Resolution options for the next session:** (a) add this PowerShell form to BUILD_SYSTEM.md
+as the "from the Claude Code Bash tool" invocation, OR (b) harden the batch to canonicalize
+`REPO_ROOT` via `pushd "%~dp0"` so cwd-independent invocation is robust. Not fixed in this
+session (reconciliation scope; build-system edit deferred to avoid widening this merge).
 
 ---
 
