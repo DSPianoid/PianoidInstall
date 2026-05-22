@@ -2183,25 +2183,33 @@ Return frequency + damping for rendering decaying sinewave (uses existing `excit
 Per-chain 2-D amplitude data for the grid-layout heatmap inset. Requires
 `layout_type='grid'` mapping; raises 400 on line-layout projects.
 
-Optional query params (dev-md07):
+Per-cell `amplitude` is the **raw measured value** for that scenario
+under this chain (or `null` when no detection exists). The matrix is
+returned UNCHANGED — no smoothing, no approximation, no fill. The
+frontend renders smoothing as a pure-visual overlay over the unmodified
+matrix (see PianoidTunner `GridHeatmapInset.jsx` for the overlay-canvas
+implementation).
 
-- `approximation`: `"none"` (default) | `"linear"` | `"planar"`. With
-  `"none"`, empty cells get `amplitude: null` (frontend renders
-  transparent). With `"planar"`, empty cells are filled by a 2-D plane
-  fit (`z = a*x + b*y + c` via `np.linalg.lstsq` on the populated
-  cells' `(x_mm, y_mm, value)` tuples — same algorithm
-  [`external_export.approximate_planar`](#export-to-text-files-dev-6c54c87f)
-  uses for the text-export tool); originally-measured cells keep their
-  exact value (the planar fit only fills holes); falls back to the
-  cell-wise mean with < 3 measured cells. `"linear"` is reserved for
-  future 1-D heatmap use; in grid layout it falls back to `"planar"`
-  and the response echoes `approximation: "planar"`.
-- `smoothing`: `float` in `[0.0, 10.0]` (default `0.0`). Gaussian σ in
-  cells, applied via `scipy.ndimage.gaussian_filter` AFTER any
-  approximation fill. Smoothing acts only on cells that already have a
-  value — to fill empty cells the user must also pick an approximation.
-  Out-of-range values are clipped (not rejected) so raw URL queries
-  never 400.
+Optional query params — **all DEPRECATED no-ops as of round 24 (dev-maimport,
+2026-05-17)**. They are accepted (parseable / valid-shape values stay
+200) but produce no side effects:
+
+- `approximation`: `"none"` (default) | `"linear"` | `"planar"`. **Round 24:
+  silently ignored.** Pre-round-24 it filled empty cells via a 2-D
+  planar `np.linalg.lstsq` fit; that fill is now removed because it
+  injected extrapolated values into cells that had no measurement. A
+  future server-side approximation feature will be its own separate
+  round with a fresh API design. Echo field always reports `"none"`.
+- `smoothing`: `float` (default `0.0`). **Round 24: silently ignored.**
+  Pre-round-24 it applied `scipy.ndimage.gaussian_filter` server-side,
+  rewriting every populated cell's amplitude with the smoothed value
+  (so the frontend tooltip displayed fabricated numbers as if they
+  were measurements — the round-24 user directive
+  reversed this). Smoothing is now a pure-rendering concern handled
+  client-side by an overlay `<canvas>` with bilinear interpolation
+  that leaves the underlying matrix and tooltip untouched. Echo field
+  always reports `0.0`. Garbage (non-numeric) values still 400 — the
+  parameter is type-checked even though it has no effect.
 
 Response (`200`):
 ```json
@@ -2211,8 +2219,8 @@ Response (`200`):
   "stability": "stable",
   "grid_shape": [4, 6],
   "grid_spacing_mm": 25.0,
-  "approximation": "planar",
-  "smoothing": 0.5,
+  "approximation": "none",
+  "smoothing": 0.0,
   "cells": [
     {
       "row": 0, "col": 0,
@@ -2226,14 +2234,12 @@ Response (`200`):
 }
 ```
 
-The top-level `approximation` and `smoothing` fields echo what the
-backend actually applied (may differ from request: `"linear"` →
-`"planar"`, `smoothing=100` → clipped to `10.0`). `is_measured`
-distinguishes originally-measured cells (`true`) from filled cells
-(`false`) so the frontend can render them with different emphasis. With
-default `approximation="none"` and `smoothing=0.0`, the response is
-byte-compatible with the pre-dev-md07 contract aside from the two echo
-fields and the new per-cell `is_measured` boolean.
+`is_measured` mirrors `amplitude != null` — round 24 keeps it on the
+payload for the frontend to render measured-vs-empty cells distinctly
+(empty cells now stay white / transparent regardless of any query
+params the caller passes). Pre-round-24 callers that sent
+`approximation="planar"&smoothing=2.0` will get the same response as a
+no-param request — see "Round 24 deprecation" note above.
 
 ---
 

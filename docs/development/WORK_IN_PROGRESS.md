@@ -37,6 +37,252 @@ session (reconciliation scope; build-system edit deferred to avoid widening this
 
 ---
 
+## ~~Round-26 heatmap smoothing contaminated white cells~~ — RESOLVED dev-maimport round 27 (2026-05-17)
+
+**Status: RESOLVED.** Closed in dev-maimport round 27.
+PianoidTunner commit `ffae98b` / merge `e03de8a`.
+
+**The round-26 follow-up bug.** Round 26 replaced the bilinear NaN-
+propagation overlay with a pairwise-border anti-aliasing algorithm that
+should have left white cells untouched. User reported "the border
+between two white cells gets colored when they are next to two colored
+cells". Two compounded faults:
+
+1. **Geometry source wrong (CRITICAL).** Round 26 used
+   `instance.convertToPixel({xAxisIndex:0, yAxisIndex:0}, [0,0])` and
+   `[nCols, nRows]` to derive the plot rect. On an ECharts category
+   axis, `convertToPixel({xAxisIndex:0}, [0])` returns the CENTER of
+   category 0 (the tick), NOT the LEFT edge of cell 0. The resulting
+   plotRect was off by half a cell on every side; the canvas's
+   internal cellW was wrong by 1/N; every painted stripe landed in a
+   visually-wrong cell — including bleeding into white cells.
+2. **1-pixel bleed from floor/ceil rounding (SECONDARY).** Round 26's
+   `Math.floor(r*cellH)` for row r's top and `Math.ceil((r+1)*cellH)`
+   for row r's bottom let row r's stripe extend 1 pixel into row r+1
+   when cellH was fractional. That 1-pixel-tall bleed sat at the
+   X-range of the stripe — also where two adjacent white cells in
+   row r+1 met. User saw a thin colored line at the top of row r+1.
+
+**The fix (round 27, frontend-only).** Three changes:
+
+- **Change A (CRITICAL):** switch `EChartsWithOverlay.computePlotRect`
+  to `instance.getModel().getComponent('grid', 0).coordinateSystem.getRect()`.
+  Returns the true plot bbox `{x, y, width, height}` directly, no
+  category-axis semantics. `convertToPixel` kept as fallback only if
+  `getRect` is unreachable (defensive — stable API since ECharts 3.x).
+- **Change B (DEFENSIVE):** `computeBorderPaintOps` uses `Math.round`
+  consistently for cell edges (precomputed `rowEdges` / `colEdges`
+  arrays — adjacent cells share the same integer pixel) and zone
+  bounds (border position snapped to nearest integer, zone half-width
+  rounded on both sides).
+- **Change C (CONTAINMENT):** each op is clipped to the two-cell pair's
+  combined bounds via the precomputed `colEdges` / `rowEdges`. At
+  smoothing=2 this is a no-op under the current slider range (0..2)
+  but codifies "an op CANNOT paint outside the two-cell pair area"
+  as a hard invariant for future slider expansions.
+
+**Hypothesis verification.** Temporarily reverted `GridHeatmapInset.jsx`
+to round-26 via `git stash` and ran the round-27 test suite against
+the buggy code: 3 tests failed (`adjacent rows' stripes meet at the
+same y at fractional cellH`, `adjacent columns' stripes meet at the
+same x at fractional cellW`, `prefers getRect() over convertToPixel`).
+After `git stash pop`, all 38 GridHeatmapInset tests passed. Confirms
+both Change A and Change B were necessary.
+
+Test count delta: +12 round-27 tests (5 no-bleed + 5 white-cell
+intrusion + 2 prefer-getRect). Full frontend suite 54/660. Zero
+regressions.
+
+---
+
+## ~~Heatmap smoothing mutated the matrix server-side~~ — RESOLVED dev-maimport round 24 (2026-05-17)
+
+**Status: RESOLVED.** Closed in dev-maimport round 24.
+PianoidCore commit `93afae4` / merge `9b6a7dd`.
+PianoidTunner commit `2808ed3` / merge `42f4be5`.
+
+**The bug.** `GET /modal/grid_heatmap/<chain_id>?smoothing=N` ran
+`scipy.ndimage.gaussian_filter` server-side on the per-cell amplitudes
+and returned the SMOOTHED value in `cells[i].amplitude`. The frontend
+heatmap tooltip showed those smoothed numbers as if they were
+measurements ("amplitude: 4.123e-02") at any non-zero slider value.
+The user's contract — "the underlying matrix must stay inviolate;
+smoothing is a RENDERING concern" — was silently violated.
+
+The companion `approximation="planar"` parameter had the same shape
+of bug (fills empty cells via `np.linalg.lstsq` planar fit, returns
+extrapolated values in originally-empty cells without flagging them
+as fabricated to the consumer beyond the `is_measured` boolean).
+
+**The fix (round 24).** Backend `VisualizationService.get_grid_heatmap_data`:
+- DELETE the Pass-3 gaussian smoothing block (was `visualization_service.py:301-319`).
+- DELETE the Pass-2 planar approximation block (was `visualization_service.py:284-299`).
+- ACCEPT `smoothing` and `approximation` query params for URL-compat
+  but silently ignore them. Echo fields always report `0.0` / `"none"`.
+- Per-cell `amplitude` is now byte-identical to the raw scenario
+  detection amplitude regardless of any params. Empty cells stay null.
+
+Frontend `GridHeatmapInset.jsx`:
+- New `SmoothingOverlay` sub-component — sibling `<canvas>` absolutely
+  positioned over the ECharts heatmap plot area. Paints a bilinearly-
+  interpolated image of the cell colors using the SAME visualMap
+  palette ECharts uses. NaN propagation: any source cell null →
+  pixel transparent (empty cells stay white). Pointer-events disabled
+  so ECharts owns the tooltip surface — tooltip continues to show the
+  TRUE measured amplitude.
+- `useEffect` no longer depends on `smoothing` / `approximation`; slider
+  drags repaint the overlay canvas without a backend round-trip.
+- `useModalAdapter.getGridHeatmap` no longer forwards either param.
+
+Slider in `StabilizationDiagram.jsx` relabelled "Smooth σ" → "Visual
+smoothing" (range 0..2 preserved).
+
+**Round-24 invariants (tested):**
+- backend `cells[i].amplitude` unchanged across `smoothing ∈ {0, 2, 10, 100}`
+- backend `cells[i].amplitude` unchanged across `approximation ∈ {"none","linear","planar"}`
+- empty cells stay `null` regardless of param combination
+- frontend hook calls axios.get with chainId only — no params
+- frontend slider drags do NOT trigger refetch
+- overlay canvas exists in the DOM with `pointer-events: none`
+
+Test count delta: backend +8 round-24 tests (TestGridHeatmapApproximationAndSmoothing
+class restructured — same 9-test footprint but every assertion inverted
+to enforce the new no-op contract). Frontend +6 new hook-level tests
+(`useModalAdapter.getGridHeatmap.test.jsx`) + 4 inverted existing tests
+in `GridHeatmapInset.test.jsx` + 1 new overlay-canvas test.
+
+---
+
+## ~~Round-15 validation-rejection blocker — 87 of 92 user scenarios rejected at averaging~~ — RESOLVED dev-maimport round 18 (2026-05-21)
+
+**Status: RESOLVED.** Closed in dev-maimport round 18.
+PianoidCore commit `070d836` / merge `3c07c8b`.
+
+**The blocker.** User's `PlyWoodLGtemp1` Measurement contains 92
+scenarios; 87 use raw_recordings whose ``calibration_quality_config``
+uses an older schema (``double_hit_*``, ``backfront_*`` fields) that
+the in-tree V3 ``CalibrationValidatorV2.from_config`` doesn't
+recognize. ``from_config`` silently falls back to V3 defaults — and
+the user's narrow-spike calibration pulses violate those defaults
+on multiple criteria (peak width < 0.3 ms, first-positive ratio
+> 0.3, precursor ratio > 0.2). Result: 100% per-cycle rejection at
+the averaging stage → ``STATUS_ERROR`` "All cycles failed
+validation/alignment" for 87 of 92 scenarios. Only 5 with pre-
+existing ``averaged_responses/`` survived (idempotency-skipped).
+
+User read this as "create project doesn't work" — the dialog
+succeeded with HTTP 201 but produced a project that loaded only 5
+scenarios out of 92.
+
+**Fix.** Removed per-cycle validation from
+``scenario_averager.ensure_averaged_responses`` entirely (the
+project-creation averaging path). Validation now runs at the
+RECORDING stage only (``collection_engine`` /
+``measurement_session``). Extends the principle round 7 locked in
+for the analysis-stage QC path (``pool_scenario_cycles``) to the
+recording-stage averager too. The user's locked principle:
+
+> "Validation should be applied at the recording stage ONLY. Should
+> not be reapplied to the imported measurements. Only averaging
+> quality check."
+
+**Code change** (commit `070d836`):
+* Removed ``CalibrationValidatorV2`` + ``QualityThresholds`` imports
+  from ``ensure_averaged_responses``
+* Removed ``calibration_quality_config`` config fetch
+* Removed ``validator = CalibrationValidatorV2(...)`` instantiation
+* Replaced per-cycle ``validate_cycle`` loop with synthesized
+  all-valid ``validation_results`` (identical shape to round 7's
+  pool_scenario_cycles synthesis)
+
+**Live verification** on user's PlyWoodLGtemp1 (private backend on
+port 5500): POST `/modal/projects` → HTTP 201 in 414s. Results:
+  - `computed: 91` (vs round-17 pre-fix: 0)
+  - `errors: 0` (vs 91)
+  - `skipped_existing: 1` (preserves idempotency)
+  - `qc_computed: 91` (vs 0; QC now runs on every scenario)
+  - `num_scenarios: 92` loaded (vs 5)
+  - `scenario_loading_gap.excluded: []` (vs 87 entries)
+
+**Tests.** +3 in `tests/integration/test_scenario_averager.py`
+(`TestRound18NoValidationInAveraging`). 1 inverted in
+`test_measurement_import.py` (`test_recording_stage_averager_*`
+flipped to assert the validator is NOT called). 374/375 backend
+tests pass — only failure is the pre-existing dev-0239 mock
+signature issue.
+
+---
+
+## modal_adapter.py split — Wave 1 LANDED 2026-05-21
+
+**Status: Wave 1 SHIPPED.** Per `docs/proposals/modal-adapter-split-2026-05-21.md`.
+
+Wave 1 extracted `ProjectContext` + `ScenarioLoader` + `VisualizationService`
+from the 5,649-LOC `modal_adapter.py` god-object. Result: 4,782 LOC
+(-867 / -15%) in one PR. 23 facade methods replaced with 1-line
+delegations; 25 instance-state fields moved to `ProjectContext` (with
+backward-compat property shims on the facade for legacy `self._foo`
+access). REST surface + tests unchanged.
+
+PianoidCore commit `71ddf22` / merge `f591603`.
+PianoidInstall doc commit (CODE_QUALITY.md §C4.1 facade policy +
+proposal implementation log row): see this commit.
+
+Wave 2 (EspritOrchestrator + TrackingOrchestrator + ApplyService) +
+Wave 3 (ProjectStore + ChainEditor + facade rewrite) follow. **User
+will live-test Wave 1 before Wave 2 dispatches.**
+
+---
+
+## ~~Round-9 deferred defect — `run_esprit` ignores `esprit/config.json`~~ — RESOLVED dev-maimport round 16 (2026-05-21)
+
+**Status: RESOLVED.** Closed in dev-maimport round 16 (commit on
+`feature/dev-maimport-import` → merged to PianoidCore `dev`; see commit SHA
+in the round-16 transcript / merge log).
+
+**The defect (round-9 finding, S-5 in the round-15 code review).**
+`POST /modal/run_esprit` with an empty body — or with only `scenario_indices`
+and no `bands` key — silently ignored the saved `esprit/config.json` and
+fell back to `EspritRunner`'s hardcoded `extended_8band` defaults. A user
+who saved a custom band_config via `POST /modal/esprit_config` and then
+re-ran ESPRIT without re-sending the bands got the wrong analysis with no
+warning. The docstring of `get_esprit_config` had already declared
+`esprit/config.json` the single source of truth (round 8) but
+`_run_esprit_sync` never read it. Frontend masked the bug because the
+React form always re-sent the bands; REST API consumers + the proposed
+Wave 2 `EspritOrchestrator` would have hit it.
+
+**Fix.** Single-block insertion in
+`pianoid_middleware/modal_adapter/modal_adapter.py::_run_esprit_sync`
+(around line 3631). When `esprit_params` is empty or missing the `bands`
+key, the function calls `self.get_esprit_config()` and merges the saved
+dict into `esprit_params` with **caller fields winning over disk fields**.
+Merge order:
+- Empty body `{}` → saved config used verbatim
+- Body with explicit `bands` → body wins (no fallback)
+- Body with only `scenario_indices` etc. → saved bands + body's other fields
+
+**Tests.** 6 new tests in `tests/integration/test_esprit_config_sot.py`
+(`TestEspritConfigSotFallback`):
+- `test_run_esprit_loads_from_disk_when_body_empty`
+- `test_run_esprit_body_overrides_disk_config`
+- `test_run_esprit_body_partial_merges_with_disk_defaults`
+- `test_run_esprit_no_disk_config_no_body_passes_empty_to_runner`
+- `test_run_esprit_scenario_indices_only_body_still_loads_disk_bands`
+- `test_run_esprit_with_no_project_open_no_fallback`
+
+203 backend tests pass across the related suites (was 197 → +6). Zero
+regressions.
+
+**Why this had to ship before Wave 1 of the modal_adapter split**
+(per `docs/proposals/modal-adapter-split-2026-05-21.md` §10 risk #3 /
+OQ4=before-Wave-1): fixing the SoT gap during Wave 2's
+`EspritOrchestrator` extraction would entangle the bug fix with the
+refactor — bisection becomes harder if the fix introduces a regression.
+Shipping as standalone round 16 keeps Wave 2 a pure mechanical move.
+
+---
+
 ## ~~Discovered defect — v2 Project scenarios not auto-loaded from parent Measurement~~ — RESOLVED dev-maimport round 4 (2026-05-19)
 
 **Status: RESOLVED.** Closed in dev-maimport round 4

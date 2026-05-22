@@ -188,6 +188,49 @@ These thresholds apply to the source file's total LOC as measured by `wc -l` on 
 - A YELLOW flag is a Medium finding. It must be discussed, even if the conclusion is "keep it as-is for now because X."
 - A new file that starts over 500 lines is a red flag on arrival — it was already two files before it was written.
 
+#### C4.1. Modal Adapter Facade Policy (post-Wave-1 of the split)
+
+**Wave 1 of the modal-adapter split landed 2026-05-21** (see
+[`docs/proposals/modal-adapter-split-2026-05-21.md`](../proposals/modal-adapter-split-2026-05-21.md)).
+After the 3-wave migration completes, `ModalAdapter` is a thin facade
+over 7 service modules.
+
+**New methods MUST NOT be added to `ModalAdapter` in `modal_adapter.py`.**
+Add to the relevant focused module instead:
+
+| Concern | Module |
+|---|---|
+| Project lifecycle (create/open/copy/branch/delete/rename/export/import) | `ProjectStore` (Wave 3) |
+| Measurement loading (scenario discovery, npy/roomresponse) | `ScenarioLoader` (Wave 1 — landed) |
+| ESPRIT pipeline (config, threaded run, results) | `EspritOrchestrator` (Wave 2) |
+| Mode tracking + feedin extraction | `TrackingOrchestrator` (Wave 2) |
+| Chain editing (merge/split/undo/redo) | `ChainEditor` (Wave 3) |
+| Visualization (stab diagram, heatmap, mode shape) | `VisualizationService` (Wave 1 — landed) |
+| Apply to preset + QC roll-up | `ApplyService` (Wave 2) |
+
+The facade exists only to compose existing public API for REST routes.
+The only exception is **REST-shape delegation methods** — when a new
+REST route needs a new entry point, `ModalAdapter.foo()` may be added
+IF its body is a single delegation call to a service method (`return
+self._service.foo(...)`). A REST-delegation method that contains
+business logic is a violation.
+
+**Enforcement:** any PR that adds an instance method to `ModalAdapter`
+with a body longer than 3 lines (excluding docstring) must justify
+why the logic belongs in the facade vs a service. The reviewer applies
+§C4 even though the facade itself is now below 5,000 LOC — the file's
+RED status persists until all 3 waves land AND a follow-up review
+formally relaxes the rule.
+
+**Post-Wave-1 LOC tracking (2026-05-21):**
+
+| File | LOC | Status | Notes |
+|---|---|---|---|
+| `modal_adapter.py` | 4,782 | RED (down from 5,649) | -867 from extracting 23 methods + 25 state fields |
+| `project_context.py` | 195 | < 500 | ProjectContext dataclass + helpers |
+| `scenario_loader.py` | 820 | YELLOW | Largest extracted module; sub-split candidate if growth continues |
+| `visualization_service.py` | 330 | < 500 | Pure-read viz |
+
 #### C5. Structural Consistency
 
 - Every REST endpoint follows the same pattern: validate → process → respond with consistent JSON structure
