@@ -2458,6 +2458,64 @@ See [`MODAL_ADAPTER_GUIDE.md` — Export to Text Files](../../guides/MODAL_ADAPT
 
 ---
 
+#### `POST /modal/projects/<name>/tracking_report` (dev-f116)
+
+Render a per-mode tracking-results **PDF** for the export set and write
+it to disk. One page per mode (frequency range, damping, MAC, stability =
+scenario count, heatmap, mode-shape chart) plus a summary cover page.
+Read-only — does not modify project state.
+
+The named project must be the currently-open project (the report reads
+the in-memory `_tracked_chains` and `_mapping`).
+
+Request body (all fields optional):
+
+```json
+{
+  "selected_chains": [0, 2, 5, 7],
+  "smoothing": 1.5,
+  "output_dir": "D:/some/path"
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `selected_chains` | `null` (= all chains) | The export set — list of chain_ids to include. Pass the frontend's curated `exportSelection` set. |
+| `smoothing` | `1.5` | Heatmap blend strength (0–2). Replicates the on-screen `GridHeatmapInset` pairwise-border blend (`σ * cellWidth / 4` stripe half-width); the measured matrix is not mutated. |
+| `output_dir` | the **project directory root** (`{projects_base}/{name}/`) | Absolute path. Created if missing. The PDF is named `{name}_tracking_report.pdf`. |
+
+200 response body:
+
+```json
+{
+  "message": "Tracking report written for 8 modes",
+  "pdf_path": "D:/modal_projects/PlyWood_p2/PlyWood_p2_tracking_report.pdf",
+  "n_modes": 8,
+  "layout_type": "grid",
+  "smoothing": 1.5
+}
+```
+
+Per-mode fields are read straight from the serialized chain dict:
+frequency range = `frequency_range`, damping = `damping_mean`, MAC =
+`quality.shape_consistency`, stability = `detection_count`. The heatmap
+is the per-chain grid amplitude (grid layout) or a per-scenario amplitude
+strip (line layout); the shape chart is the per-detection `shape`
+spatial pattern. Rendered with matplotlib `PdfPages` (no new dependency).
+
+Error responses:
+
+| Status | Cause |
+|--------|-------|
+| `400` | `name` is not the currently-open project |
+| `400` | `selected_chains` is not a list of integers, or `smoothing` is not a number |
+| `400` | No tracked chains (run mode tracking first), no mapping set, or the export set selects no existing chains |
+| `500` | Unexpected error |
+
+See [`MODAL_ADAPTER_GUIDE.md` — Tracking Report (PDF)](../../guides/MODAL_ADAPTER_GUIDE.md#tracking-report-pdf-dev-f116) for the report layout and the heatmap-smoothing parity note.
+
+---
+
 #### `POST /modal/cancel`
 
 Cancel a running ESPRIT extraction.
