@@ -514,6 +514,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | 13 | `PianoidTunner/src/modules/ModalAdapter.jsx` | 1077 | Modal adapter page — layout + multi-pane config + top-level state |
 | 14 | `PianoidCore/pianoid_cuda/asio.h` | 1070 | Vendor header — third-party; excluded from refactor unless re-homed |
 | 15 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 1041 | CUDA synthesis facade — the `Pianoid` object lifecycle + GPU-memory lifecycle. Was rank 3 at 2952 LOC; split phases 0-8 (dev-cbd5, 2026-05-19) extracted 6 substantive modules (`Pianoid_presets/_debug/_calibration/_excitation/_parameters/_synthesis.cu`). Barely over the RED line — drops below 1000 after the deferred phase R relocates the ~10 thin audio-driver wrappers into the audio-driver subsystem (proposal `pianoid-cu-split-proposal-2026-05-19.md`). |
+| 16 | `PianoidCore/pianoid_middleware/modal_adapter/collection_engine.py` | 1014 | MeasurementSession lifecycle + recorder/collector factory wiring + averaging dispatch. Crossed RED at dev-liveproc-w1 Wave 1 (2026-05-22, +51 LOC for the live-processing `on_scenario_done` callback plumbing — minimal addition that pushed 963→1014). Split deferred to modal_adapter-split Wave 3 (proposal §Q12 explicitly plans facade-level rework that will absorb / partition this module). Do NOT add further code to this file without a split plan. |
 
 ### YELLOW flags (500–1000 LOC — Medium-severity structural findings)
 

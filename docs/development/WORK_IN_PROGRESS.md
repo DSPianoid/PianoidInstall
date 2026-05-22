@@ -5,6 +5,72 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
+| dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
+
+---
+
+## Live Measurement + Processing Flow — Wave 1 IN PROGRESS (live-processing-design, 2026-05-22)
+
+**Status:** **Q1-Q12 locked by user** (Q1=C subprocess worker, overrides proposal-recommended
+model D; all other Qs per proposal defaults). Wave 1 (plumbing + CuPy probe gate) implemented
+by dev-liveproc-w1 — see session
+[log](logs/dev-liveproc-w1-2026-05-22-144937.md). Tag: `[live-processing-design]`. Doc:
+[`docs/proposals/live-processing-flow-2026-05-22.md`](../proposals/live-processing-flow-2026-05-22.md).
+
+**Wave 1 deliverables landed:**
+- NEW `live_processing_subprocess.py` (480 LOC) — persistent subprocess worker, IPC Job/Result
+  dataclasses, CUPY_PROBE_OPERATION handler, parent-side supervisor with crash respawn
+- NEW `live_processing_orchestrator.py` (241 LOC) — skeleton with state machine constants,
+  `handle_scenario_done(measurement_id, scenario_number, scenario_subdir)` callback target,
+  enabled-gate + state-transition + worker.start() ensure. Does NOT register on
+  MeasurementSession yet (Wave 2 wires facade).
+- `project_context.py` +5 fields + 2 locks + `record_live_processing_error()` helper +
+  `LIVE_PROCESSING_ERRORS_MAX=50` constant
+- `collection_engine.py` `MeasurementSession.__init__(on_scenario_done=None)` plumbed +
+  guarded try/except invocation in `_run()` between `_finalize_outputs` and
+  `_set_phase("resuming")` per proposal §Q3. Production constructors leave the param as
+  None → ZERO runtime change (callback branch skipped). **C4 RED THRESHOLD CROSSED**
+  (963 → 1014 LOC); recorded in CODE_QUALITY.md "Current Known God Objects" rank 16. Split
+  deferred to modal_adapter-split Wave 3.
+- 4 new test files under `tests/integration/modal_adapter/` (29 tests, all passing).
+- **CuPy probe gate PASSES** — subprocess + CuPy round-trip verified (Q1=C foundation
+  validated). Wave 2 dispatch unblocked.
+
+**Wave 2 (NOT YET DISPATCHED):**
+- Wire facade to register `LiveProcessingOrchestrator.handle_scenario_done` on
+  MeasurementSession at construction time
+- Add `submit_async` + parent-side result drain to SubprocessWorker
+- Implement RUN_ESPRIT_OPERATION + RUN_TRACKING_OPERATION handlers in the worker
+- Frontend toggle in CollectionSubpanel header + status chip + status panel in ProjectSubpanel
+- Extend `/collect/status` payload with `live_processing` block
+
+**Wave 3 (NOT YET DISPATCHED):** cancellation, retry, persistence, error UX polish.
+
+**Scope.** Build a live "record-and-process" pipeline where the user has both a
+Measurement and a Project open; each newly recorded scenario triggers
+`EspritOrchestrator.run_esprit(scenario_indices=[N])` + `TrackingOrchestrator.run_tracking()`
+on the recording thread (post-`_finalize_outputs`, pre-`_set_phase("resuming")`); user
+sees the stab diagram + chain list update as they record.
+
+**Architectural decisions surfaced (Q1..Q12).** Threading model (process-on-recording-thread
+with CuPy probe gate; fallback to drain-on-Flask-main), concurrency safety (hybrid per-field
+locks + rebind-and-grab for full replacements; explicit lock on `tracked_chains_version`),
+trigger mechanism (in-process `on_scenario_done` callback on `MeasurementSession`), tracking
+re-run cadence (per-scenario initially), FE update channel (extend existing `/collect/status`
+polling — no SocketIO on port 5001), Project lifecycle (single Project; N5 frozen-snapshot
+intact), cancellation semantics, failure handling (never blocks recording; surfaced via
+status + retry button), data-model changes (5 new `ProjectContext` fields + 2 locks +
+`live_processing` block in `project.json`), UX shape (toggle chip in CollectionSubpanel
+header + status panel in ProjectSubpanel Setup), persistence, Wave-3 coordination.
+
+**Estimated implementation scope.** ~3,200 LOC across three waves: Wave 1 plumbing + CuPy
+probe gate (~1,000 LOC), Wave 2 happy path (~1,500 LOC), Wave 3 error handling + UX polish
+(~700 LOC). Each wave is independently demoable.
+
+**No blockers found.** N5 frozen-snapshot contract is compatible with live processing
+(snapshot covers setup, not scenario data). Wave 2 orchestrators (shipped 2026-05-17) are
+already structured to accept `scenario_indices=[N]` for incremental ESPRIT. CuPy
+non-main-thread risk identified — mitigated via Wave-1 probe gate.
 
 ---
 
