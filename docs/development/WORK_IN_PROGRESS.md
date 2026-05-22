@@ -4,8 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-
-_No active dev sessions._
+| dev-reconcile | Divergence reconciliation: merge origin/master + origin/dev into Pianoid.cu-split branches, rebuild, test | [log](logs/dev-reconcile-2026-05-22-114019.md) | 2026-05-22 | In Progress |
 
 ---
 
