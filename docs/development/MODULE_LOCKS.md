@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-preset-bugs | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/useHotkeys.js`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-23T12:08:00Z | Fix 4 preset-library bugs (record-vs-string selector/cycling crash #4/#3, editor-history isolation leak #1, switch coalescing #2) |
 <!-- dev-voice-docs lock RELEASED 2026-05-22 at Step 10a Phase 1 commit (voice-I/O durability + setup docs). Held: tools/tts_voice.py, tools/apply_telegram_voice_patch.py, tools/server.ts.voicepatch.diff (all new), docs/guides/TELEGRAM_CHANNEL_SETUP.md, mkdocs.yml. -->
 <!-- dev-maimport round 30 lock RELEASED on 2026-05-22 after commits
      PianoidCore f1b5197 + PianoidTunner 9778416 landed on

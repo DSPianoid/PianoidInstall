@@ -6,6 +6,7 @@
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
+| dev-preset-bugs | Fix 4 preset-library bugs (working-copy isolation leak, intermittent switch, toolbar selector wiring, React child-object crash) — all 4 fixed on PianoidTunner `feature/preset-library-bugs` (99bed57 + b7af146), 676/676 Jest green; awaiting user live-verify of #1/#2 | [log](logs/dev-preset-bugs-2026-05-23-150115.md) | 2026-05-23 | In Progress |
 
 ---
 

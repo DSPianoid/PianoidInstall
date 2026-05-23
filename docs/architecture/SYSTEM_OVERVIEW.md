@@ -111,9 +111,23 @@ keep the React-side state coherent with the engine's truth:
    stale local state after `/load_preset`, undoing the restoration.
 
 **Reference implementation**: `PianoidTunner/src/hooks/useSoundChannels.js`
-(Sound Channels editor, refactored Phase C2). Other editors (string, mode,
-excitation, feedin, feedback panels) still use the speculative-emit pattern —
-tracked as deferred tech debt in `WORK_IN_PROGRESS.md`.
+(Sound Channels editor, refactored Phase C2).
+
+The string / mode / excitation / feedin / feedback editor histories in
+`PianoidTuner.js` follow Principle 1 as of dev-preset-bugs (2026-05-23): each
+history re-initialises from fresh backend data on every `presetVersion` change.
+The re-init is keyed on `presetVersion` via a per-editor `*InitVersionRef`, NOT
+on the `parametersOf*` / matrix object identity — the per-editor change handlers
+also call `setParametersOf*` / `setFeed*` on a user edit, so re-initialising on
+identity would wipe the in-progress undo stack mid-edit. On the re-init render a
+`skip*SyncRef` is armed so the editor's speculative back-sync effect does NOT
+re-POST the freshly-seeded values to the engine (real edits / undo / redo leave
+the ref false and still propagate). Before this fix these editors were
+initialised once and never re-seeded, so a working copy's edits leaked into the
+next preset shown after a switch, and the back-sync re-POSTed that stale state
+onto the switched-to preset (the working-copy "isolation leak" — same class as
+the Phase A3 silence bug). The backend preset library was never the cause: it
+deep-copies domain objects per entry (see DATA_FLOWS §2.8 "Edit isolation").
 
 See `project_frontend_state_principles.md` (memory) for the user directive
 and `docs/modules/pianoid-tunner/OVERVIEW.md` for the SC editor's wiring.
