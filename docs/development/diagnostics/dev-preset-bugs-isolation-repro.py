@@ -126,14 +126,37 @@ def main():
         print(f"[B] tension on B after spawn-from-original = {b_t} "
               f"({'LEAK!!! B contains A edits (USER BUG REPRODUCED)' if leak_into_B else 'OK pristine'})")
 
+        # 7. LATE-DEBOUNCED-WRITE hypothesis (round-2): the frontend does NOT
+        #    cancel the per-pitch debounced /set_parameter write on a preset
+        #    switch. If A's edit was still pending when the user switched+spawned,
+        #    the debounce fires ~300ms later and POSTs onto whatever is active NOW
+        #    (copy B). Simulate that late write landing while B is active.
+        late_landed = False
+        if not leak_into_B:
+            print(f"\n[late] simulating A's stale debounced write firing while {b_name!r} active...")
+            payload_late = dict(pristine_payload)
+            payload_late["tension"] = SENTINEL
+            sc, body = set_tension(PITCH, {str(PITCH): payload_late})
+            if sc != 200:
+                sc, body = set_tension(PITCH, {**payload_late})
+            b_t2, _ = read_tension(PITCH)
+            late_landed = abs(b_t2 - SENTINEL) < 1.0
+            print(f"[late] late /set_parameter status={sc}; tension on B now={b_t2} "
+                  f"({'LEAK PATH CONFIRMED — stale debounced write lands on B' if late_landed else 'rejected/no-effect'})")
+
         print("\n================ VERDICT ================")
-        print(f"  edit landed on A:            {edit_landed}")
-        print(f"  leak into ORIGINAL:          {leak_into_original}")
-        print(f"  leak into fresh copy B:      {leak_into_B}")
+        print(f"  edit landed on A:                 {edit_landed}")
+        print(f"  leak into ORIGINAL:               {leak_into_original}")
+        print(f"  leak into fresh copy B (on spawn):{leak_into_B}")
+        print(f"  late debounced write lands on B:  {late_landed}")
         if leak_into_B or leak_into_original:
-            print("  => ISOLATION BUG REPRODUCED at the backend (REST) level.")
+            print("  => ISOLATION BUG REPRODUCED at the backend (REST) level on spawn/switch.")
+        elif late_landed:
+            print("  => Spawn/switch backend isolation OK, BUT a stale debounced /set_parameter")
+            print("     write CAN land on the newly-active copy. If the frontend doesn't cancel")
+            print("     pending debounced writes on a preset transition, THIS is the leak path.")
         else:
-            print("  => Backend isolation is CORRECT via REST. Bug is frontend-only.")
+            print("  => Backend isolation CORRECT and late-write rejected. Leak is elsewhere in FE.")
         print("=========================================")
     finally:
         # cleanup my own working copies; land on the original first

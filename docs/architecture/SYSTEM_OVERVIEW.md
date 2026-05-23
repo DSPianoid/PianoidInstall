@@ -109,6 +109,16 @@ keep the React-side state coherent with the engine's truth:
    click/edit handler, NOT inside a `useEffect` watching state. The Phase A3
    silence bug (dev-833f, Apr 2026) was a state-watching useEffect re-pushing
    stale local state after `/load_preset`, undoing the restoration.
+4. **Cancel pending writes on a preset transition.** Per-pitch editor writes are
+   *debounced* (50 ms WS / 300 ms REST) and target the **active** preset by URL
+   (`/set_parameter/...` — no preset in the path; the backend uses whatever is
+   active). `switchPreset` therefore calls `cancelPendingParamWrites()` BEFORE
+   the `/preset/switch` POST, so an edit scheduled against the preset being left
+   cannot fire after the switch and land on the switched-to preset. This was the
+   working-copy "isolation leak" (dev-preset-bugs #1, May 2026): the backend
+   library deep-copies per entry and was never the cause; the leak was a stale
+   in-flight client write surviving the transition. Global runtime writes
+   (volume/feedback) are library-wide and are NOT cancelled.
 
 **Reference implementation**: `PianoidTunner/src/hooks/useSoundChannels.js`
 (Sound Channels editor, refactored Phase C2).
