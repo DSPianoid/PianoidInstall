@@ -471,11 +471,11 @@ If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mim
    ```
    Use the archived path for transcription.
 
-3. Transcribe using faster-whisper:
+3. Transcribe using faster-whisper (run from the **repo root** — the script lives in repo-root `tools/`, not under `PianoidCore/`):
    ```bash
-   cd PianoidCore && .venv/Scripts/python tools/transcribe_voice.py "<archived_path>"
+   PianoidCore/.venv/Scripts/python.exe tools/transcribe_voice.py "<archived_path>"
    ```
-   The transcribed text is printed to stdout. Stderr shows timing info.
+   The transcribed text is printed to stdout; stderr shows timing info. (Linux: `PianoidCore/.venv/bin/python`.)
 
 4. Acknowledge to the user:
    ```
@@ -485,6 +485,24 @@ If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mim
 5. Process the transcribed text as if the user had typed it (continue to classification below).
 
 **First-run note:** The `small` model (~500MB) downloads automatically on first use. Pre-download with `--preload` flag if needed.
+
+### Voice Output (TTS) — replying with a voice note
+
+The orchestrator can reply in spoken audio, not just text. Use this when the user sends voice (mirror their modality), for short status pings, or on explicit request ("reply by voice").
+
+1. Generate the audio with the TTS helper (edge-tts → OGG/Opus). Canonical helper is `tools/tts_voice.py` (run from the repo root):
+   ```bash
+   py -3 tools/tts_voice.py "Your spoken message here"
+   ```
+   It prints the absolute `.ogg` path as the **last** line of stdout.
+2. Send that `.ogg` as a Telegram voice note:
+   ```
+   mcp__plugin_telegram_telegram__reply(chat_id=<id>, files=["<printed .ogg path>"])
+   ```
+   The Telegram plugin's `server.ts` voice patch routes `.ogg`/`.oga`/`.opus` through `sendVoice` (a playable waveform bubble) instead of `sendDocument`. **If a sent `.ogg` arrives as a plain file attachment instead of a voice bubble, the patch is not active** — re-apply it (see durability note).
+3. **Dual-output rule still applies:** when replying by voice, also send the same content as text via `reply` so the CLI terminal and the user's chat history both have a readable copy. Voice is an addition to text, never a replacement.
+
+**Patch durability (check on a fresh session / after any plugin update).** The voice patch must live on the Telegram plugin's **marketplace** copy — the volatile cache copy is rebuilt from it on every reload, so patching only the cache silently reverts. It is applied + re-applied via `python tools/apply_telegram_voice_patch.py` (idempotent, marker-guarded, backs up `server.ts.bak`; mirrors `tools/apply_telegram_patch.py`; `--check` reports state). If voice notes stop rendering as bubbles: run `python tools/apply_telegram_voice_patch.py --check`; if not applied, run it without `--check` and reload. Full STT+TTS setup + the re-apply procedure: `docs/guides/TELEGRAM_CHANNEL_SETUP.md` § Voice I/O Setup.
 
 ### Text Message Classification
 
@@ -699,6 +717,7 @@ When a Telegram message has `attachment_file_id`:
 When a sub-agent produces a file (screenshot, report, etc.):
 1. Use `mcp__plugin_telegram_telegram__reply` with `files: ["/absolute/path"]`
 2. Images render as inline photos; other types as document attachments
+3. `.ogg`/`.oga`/`.opus` files render as **voice notes** (playable waveform bubble) when the `server.ts` voice patch is active — see "Voice Output (TTS)" above. Generate them with `tools/tts_voice.py`.
 
 ### Cross-channel file transfer
 
