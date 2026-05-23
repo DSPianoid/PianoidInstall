@@ -6,7 +6,6 @@
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
-| dev-preset-bugs | Step 10e re-engage: preset #1 isolation leak STILL persists after merge (984434a). MEASURE-FIRST — capture [#1-trace] in fresh tab before any edit. Branch feature/preset-1-leak-trace off dev | [log](logs/dev-preset-bugs-2026-05-23-184309.md) | 2026-05-23 | In Progress |
 
 ---
 
@@ -15,34 +14,45 @@
 **Separate from the now-fixed ensureBackend mount-race.** A backend started via the launcher
 (`POST /api/start-backend`) — or loaded via REST into it — dies as a **process** ~30-60s later,
 with NO ensureBackend stale-kill (console: `:5000` socket.io "closed before connection
-established"; PID confirmed gone). The launcher (`:3001`) stays alive. Repeatedly observed during
-dev-preset-bugs Step 10e; it blocks agent-driven multi-step live measurement from a chrome-devtools
-tab (every Refresh→switch sequence gets killed mid-action). **Candidates:** launcher process reaping
-(health-check kill), Flask debug-reloader child-takeover (see `.claude/CLAUDE.md` "Flask
-debug-reloader child-takeover"), or a backend crash under launcher supervision. **Likely specific to
-the mid-session launcher-API-spawn path, NOT the user's normal `npm run dev` startup.** Owner: TBD.
-Escalate only if the user's normal-startup backend also dies mid-test. Diagnosis detail in the
-dev-preset-bugs Step 10e [log](logs/dev-preset-bugs-2026-05-23-184309.md).
+established"; PID confirmed gone). The launcher (`:3001`) stays alive. Originally observed during
+dev-preset-bugs Step 10e earlier rounds.
+
+**UPDATE (Step 10e round, 2026-05-23) — largely RESOLVED / re-characterised.** Starting the backend
+via **PowerShell `Start-Process -WindowStyle Hidden`** (NOT the launcher API, NOT `Bash
+run_in_background`) yields a backend that **survives >150s** (verified by a survival monitor) and
+through a fresh-tab MOUNT (the Finding A mount-race fix's load-directly branch protects it). So the
+"30-60s death" was the **launcher-API-spawn / `run_in_background` reaping path**, not an inherent
+backend crash. The ONE remaining death mode is expected-by-design: a PowerShell-spawned backend is
+NOT launcher-owned, so the frontend's `ensureBackend` orphan-cleanup **correctly kills it on a tab
+RELOAD** once the launcher status resolves (`processRunning=false`). Mitigation for agent live work:
+start via PowerShell `Start-Process`, drive in a FRESH tab (mount-protected), and do NOT reload that
+tab; or accept the kill and restart. The user's normal `npm run dev` is unaffected (launcher owns its
+backend). Owner: closed for practical purposes; reopen only if a launcher-owned backend dies. Detail
+in the dev-preset-bugs Step 10e [log](logs/dev-preset-bugs-2026-05-23-184309.md).
 
 ---
 
-## Deferred follow-up — Preset working-copy isolation (#1) LIVE re-verify (dev-preset-bugs, 2026-05-23)
+## Deferred follow-up — Preset working-copy isolation (#1) ROOT-CAUSED + FIXED, awaiting user approval (dev-preset-bugs, 2026-05-23)
 
-All 4 preset-library bugs fixed and **merged to PianoidTunner `dev`** (user-approved merge `984434a`;
-commits 99bed57 / b7af146 / bbe8638; `--no-ff`, local, NOT pushed; feature branch
-`feature/preset-library-bugs` kept as a safety net). **#2 (intermittent switch), #3 (toolbar selector
-+ `[`/`]` cycling), #4 (React crash) are user-VERIFIED.** **#1 (working-copy isolation leak):** fix
-merged and confirmed present in the served `:3000` bundle, but the **live re-verification is still
-PENDING** the user's fresh post-restart, hard-refreshed test (earlier "still leaks" report is most
-likely a stale browser bundle — HMR on a hook change is unreliable). Jest: 60 suites / 677 tests green.
+**#2 / #3 / #4 user-VERIFIED** and merged to PianoidTunner `dev` (`984434a`). **#1 (working-copy
+isolation leak): ROOT CAUSE FOUND + FIX VERIFIED live (round 10e).** The persisting leak was a STRINGS
+back-sync dependency-array bug: its speculative back-sync effect listed `parametersOfStrings` (+
+`changeParametersOfStrings`, useCallback-bound to the same state), so it fired on the switch render
+where `parametersOf*` is already NEW but `presetVersion` (and the re-init that arms `skipStringsSyncRef`)
+has not bumped yet — re-POSTing the stale edit onto the new/spawned preset AND corrupting local
+`parametersOfStrings` that the later re-init re-seeded from. Fix: fire the back-sync ONLY on a history
+change (`[stringsHistory.values, stringsHistory.lastAppliedChange]`), matching modes/excitation which
+never leaked. Measured live (differing values): spawn-from-original carried tension=5000 onto the new
+working copy (backend slot + displayed field) before the fix; 650 (clean) after, on both. A real edit
+still reaches the backend post-fix. Full Jest 61 suites / 681 tests green.
 
-**Owner / next step:** on the next stack startup, hard-refresh (Ctrl+Shift+R) and re-run the #1 repro
-(load → edit working copy #1 → switch to read-only original → spawn working copy #2 → copy#2 must
-equal the original). Leak gone → done. Persists → implement the **in-flight WebSocket guard** (round-2
-`cancelPendingParamWrites` cancels the *scheduled* debounce but cannot recall an *already-emitted*
-in-flight SocketIO `set_parameter`; fix likely tags writes with their intended preset + a backend
-guard ignoring writes whose target ≠ active preset — re-scope before editing). Full diagnosis + trace
-points in the archived session [log](logs/archive/dev-preset-bugs-2026-05-23-150115.md).
+**State:** fix committed `908a6c5` on **`feature/preset-1-leak-trace`** (NOT merged); docs/log/
+screenshot on root master `e3d2677`. Stack down. **Owner / next step:** the user does a fresh hard-
+refreshed test of the spawn/switch repro on this branch; on approval, merge `feature/preset-1-leak-
+trace` → PianoidTunner `dev` (NOTE: also carries the Finding A mount-race fix `06cf96b` + `0d31856`).
+Earlier "in-flight WebSocket guard" hypothesis is SUPERSEDED — the round-2 `cancelPendingParamWrites`
+was working correctly; the leak was the strings dep-array, not an in-flight WS write. Full diagnosis +
+before/after in the session [log](logs/dev-preset-bugs-2026-05-23-184309.md).
 
 ---
 

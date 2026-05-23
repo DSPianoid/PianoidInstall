@@ -6,7 +6,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-preset-bugs | `PianoidTunner/src/hooks/usePreset.js`, `PianoidTunner/src/hooks/useSoundChannels.js`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/useBackendProcess.js` | 2026-05-23T15:43:30Z | Step 10e: fix ensureBackend mount-race (Finding A) + trace/fix preset #1 (branch feature/preset-1-leak-trace) |
+<!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10e wrap-up. Held: usePreset.js,
+     useSoundChannels.js, PianoidTuner.js, useBackendProcess.js on feature/preset-1-leak-trace.
+     Finding A (mount-race) committed 06cf96b + 0d31856. #1 string-param working-copy leak FIXED +
+     live-verified (strings back-sync dep-array: drop parametersOfStrings + changeParametersOfStrings)
+     committed 908a6c5; docs/log/screenshot on root master e3d2677. [#1-trace] stripped (0 markers).
+     Full Jest 61/681 PASS. Stack DOWN (3000/3001/5000/5001 clear). NOT merged — branch awaits the
+     user's test + approval. -->
+| <!-- (none active) --> | | | |
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10a wrap-up (user-approved merge). Held:
      ToolBar.jsx, useHotkeys.js, PianoidTuner.js, usePreset.js — all committed on
      feature/preset-library-bugs (99bed57, b7af146, bbe8638) and MERGED to PianoidTunner `dev` via
