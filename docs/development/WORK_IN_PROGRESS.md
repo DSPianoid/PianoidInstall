@@ -6,6 +6,23 @@
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
+| dev-preset-bugs | Step 10e re-engage: preset #1 isolation leak STILL persists after merge (984434a). MEASURE-FIRST — capture [#1-trace] in fresh tab before any edit. Branch feature/preset-1-leak-trace off dev | [log](logs/dev-preset-bugs-2026-05-23-184309.md) | 2026-05-23 | In Progress |
+
+---
+
+## Deferred follow-up — Launcher-spawned backend dies ~30-60s after spawn (found dev-preset-bugs, 2026-05-23)
+
+**Separate from the now-fixed ensureBackend mount-race.** A backend started via the launcher
+(`POST /api/start-backend`) — or loaded via REST into it — dies as a **process** ~30-60s later,
+with NO ensureBackend stale-kill (console: `:5000` socket.io "closed before connection
+established"; PID confirmed gone). The launcher (`:3001`) stays alive. Repeatedly observed during
+dev-preset-bugs Step 10e; it blocks agent-driven multi-step live measurement from a chrome-devtools
+tab (every Refresh→switch sequence gets killed mid-action). **Candidates:** launcher process reaping
+(health-check kill), Flask debug-reloader child-takeover (see `.claude/CLAUDE.md` "Flask
+debug-reloader child-takeover"), or a backend crash under launcher supervision. **Likely specific to
+the mid-session launcher-API-spawn path, NOT the user's normal `npm run dev` startup.** Owner: TBD.
+Escalate only if the user's normal-startup backend also dies mid-test. Diagnosis detail in the
+dev-preset-bugs Step 10e [log](logs/dev-preset-bugs-2026-05-23-184309.md).
 
 ---
 

@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-preset-bugs | `PianoidTunner/src/hooks/usePreset.js`, `PianoidTunner/src/hooks/useSoundChannels.js`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/useBackendProcess.js` | 2026-05-23T15:43:30Z | Step 10e: fix ensureBackend mount-race (Finding A) + trace/fix preset #1 (branch feature/preset-1-leak-trace) |
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10a wrap-up (user-approved merge). Held:
      ToolBar.jsx, useHotkeys.js, PianoidTuner.js, usePreset.js — all committed on
      feature/preset-library-bugs (99bed57, b7af146, bbe8638) and MERGED to PianoidTunner `dev` via
