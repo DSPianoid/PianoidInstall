@@ -6,7 +6,7 @@
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
-| dev-preset-bugs | Fix 4 preset-library bugs (working-copy isolation leak, intermittent switch, toolbar selector wiring, React child-object crash) — all 4 fixed on PianoidTunner `feature/preset-library-bugs` (99bed57 + b7af146), 676/676 Jest green; awaiting user live-verify of #1/#2 | [log](logs/dev-preset-bugs-2026-05-23-150115.md) | 2026-05-23 | In Progress |
+| ~~dev-preset-bugs~~ | Fix 4 preset-library bugs. #2/#3/#4 VERIFIED FIXED (user). #1 isolation: 2 fixes committed (b7af146 history re-init, bbe8638 debounced-write cancel) on PianoidTunner `feature/preset-library-bugs` (also 99bed57); bbe8638 confirmed in served :3000 bundle; live re-verify of #1 interrupted by user clean-down. Resume: hard-refresh + re-test #1 → if gone wrap(10a), else implement in-flight-WS guard. 677/677 Jest green. **Do NOT merge branch.** | [log](logs/dev-preset-bugs-2026-05-23-150115.md) | 2026-05-23 | **Paused** |
 
 ---
 
