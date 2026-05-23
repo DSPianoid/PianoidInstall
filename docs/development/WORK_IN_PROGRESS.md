@@ -6,7 +6,27 @@
 |-------|------|-----|---------|--------|
 | dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
 | dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
-| ~~dev-preset-bugs~~ | Fix 4 preset-library bugs. #2/#3/#4 VERIFIED FIXED (user). #1 isolation: 2 fixes committed (b7af146 history re-init, bbe8638 debounced-write cancel) on PianoidTunner `feature/preset-library-bugs` (also 99bed57); bbe8638 confirmed in served :3000 bundle; live re-verify of #1 interrupted by user clean-down. Resume: hard-refresh + re-test #1 → if gone wrap(10a), else implement in-flight-WS guard. 677/677 Jest green. **Do NOT merge branch.** | [log](logs/dev-preset-bugs-2026-05-23-150115.md) | 2026-05-23 | **Paused** |
+
+---
+
+## Deferred follow-up — Preset working-copy isolation (#1) LIVE re-verify (dev-preset-bugs, 2026-05-23)
+
+All 4 preset-library bugs fixed and **merged to PianoidTunner `dev`** (merge `0cc3a58`; commits
+99bed57 / b7af146 / bbe8638; NOT pushed; feature branch `feature/preset-library-bugs` kept as a
+safety net). **#2 (intermittent switch), #3 (toolbar selector + `[`/`]` cycling), #4 (React crash)
+are user-VERIFIED.** **#1 (working-copy isolation leak)**: fix merged and confirmed present in the
+served `:3000` bundle, but the **live re-verification is still PENDING** the user's fresh
+post-restart, hard-refreshed test (the earlier "still leaks" report is most likely a stale browser
+bundle — HMR on a hook change is unreliable). Jest: 60 suites / 677 tests green.
+
+**Owner / next step:** on the next stack startup, hard-refresh (Ctrl+Shift+R) and re-run the #1
+repro (load → edit working copy #1 → switch to read-only original → spawn working copy #2 → copy#2
+must equal the original). If the leak is gone → done. If it persists → implement the **in-flight
+WebSocket guard** (the round-2 `cancelPendingParamWrites` cancels the *scheduled* debounce but
+cannot recall an *already-emitted* in-flight SocketIO `set_parameter`; fix likely needs writes
+tagged with their intended preset + a backend guard ignoring writes whose target ≠ active preset —
+re-scope before editing). Full diagnosis + trace points are in the archived session
+[log](logs/archive/dev-preset-bugs-2026-05-23-150115.md).
 
 ---
 
