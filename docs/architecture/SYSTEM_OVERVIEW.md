@@ -139,6 +139,27 @@ onto the switched-to preset (the working-copy "isolation leak" — same class as
 the Phase A3 silence bug). The backend preset library was never the cause: it
 deep-copies domain objects per entry (see DATA_FLOWS §2.8 "Edit isolation").
 
+A follow-up (dev-preset-bugs 10e, 2026-05-23) found the `skip*SyncRef` guard
+alone was not sufficient for the **strings** editor: its back-sync effect also
+listed `parametersOfStrings` (and `changeParametersOfStrings`, which is
+`useCallback([parametersOfStrings])` so its identity tracks the same state) in
+its dependency array. `switchPreset` re-fetches `parametersOf*` (sets the NEW
+data) several awaited GETs BEFORE it bumps `presetVersion`, so there is an
+intermediate render where params are new but the version (and thus the re-init +
+`skip*SyncRef` arming) has not happened yet. On that render the strings back-sync
+fired, diffed the STILL-stale history against the new params, re-POSTed the prior
+copy's edit onto the switched-to / freshly-spawned preset, AND corrupted the
+local `parametersOfStrings` via the optimistic `setParametersOfStrings` — which
+the later `presetVersion` re-init then re-seeded from. The fix: the back-sync
+effects must fire ONLY on a history change (`[*History.values, …]`), never on a
+`parametersOf*` change. The modes and excitation back-syncs already excluded
+`parametersOf*` from their deps (which is why they did not leak); strings now
+matches them. Measured: spawn-from-original carried a 5000 tension edit onto the
+new working copy (backend slot + displayed field) before the fix, 650 (clean)
+after. Verification is the live spawn/switch repro (no PianoidTuner unit test
+exists for this 2700-line component); the `useValuesHistory.reinit` test pins the
+`init()` re-seed invariant the fix relies on.
+
 See `project_frontend_state_principles.md` (memory) for the user directive
 and `docs/modules/pianoid-tunner/OVERVIEW.md` for the SC editor's wiring.
 
