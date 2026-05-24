@@ -221,3 +221,65 @@ reads the offline engine's `getRecordedAudio()` output (populated by
 it into `pianoid.result.sound` with shape `(num_channels, N)`. Live/online charts
 (`sound_function`, etc.) continue to use `get_sound_from_pianoid()` — their raw
 buffer is filled normally by `playSoundSamples()`.
+
+---
+
+## Optional `render_hints` — richer chart rendering (dev-ratiochart, 2026-05-24)
+
+The frontend chart renderer (`newWindowChart.jsx`, via `src/utils/chartOption.js`)
+historically rendered every chart's numeric arrays with one rigid ECharts option:
+x-axis = array index `0..N-1`, a single `type:"line"` series, value y-axis,
+`dataZoom` inside+slider, default tooltip. That is still the default.
+
+A chart function MAY now opt into richer rendering by including an optional
+top-level **`render_hints`** key in its response — a list **parallel to `data`**
+(one entry per chart; entry `null`/absent = default rendering for that chart).
+The renderer's `buildChartOption()` reads it. **Every field is optional and
+additive; a chart that omits `render_hints` renders byte-identical to before.**
+This is the contract a backend chart function emits to drive the enriched view
+(introduced for the CFL stability ratio-vs-pitch chart).
+
+`render_hints[i]` fields:
+
+| Field | Type | Effect |
+|-------|------|--------|
+| `x_axis_values` | `any[]` | Explicit x-axis category labels (e.g. pitch numbers / note names) — replaces the default `0..N-1` index axis. Length should match the chart's data array. |
+| `x_axis_name` | string | X-axis title. |
+| `y_axis_name` | string | Y-axis title. |
+| `series_type` | string | `"line"` (default) or `"scatter"`. |
+| `threshold` | `{value:number, label?:string, color?:string}` | Renders a horizontal **markLine** at `value` (dashed, silent, labelled). Used for the CFL stability limit (`value = cfl_limit = 1`). |
+| `point_styles` | `Array<{color?:string, symbol?:string}>` | Per-point styling. **Length MUST equal the data array** (a mismatch is ignored and the chart falls back to a uniform series — fail-safe, never blanks). Supplying a `symbol` gives a **non-colour cue** alongside `color` so stable/unstable points are distinguishable without relying on colour (accessibility). |
+| `point_meta` | `Array<object>` | Per-point metadata merged into the tooltip (e.g. `{stable:true}`). |
+| `tooltip_fields` | `string[]` | Ordered `point_meta` keys to surface in the tooltip; defaults to all keys. |
+
+When `point_meta` or `x_axis_values` is present, the renderer attaches a custom
+`tooltip` (axis-trigger) showing the x label + value + selected meta fields;
+otherwise ECharts' built-in tooltip is used (legacy behaviour, unchanged).
+
+**Example response fragment** (one chart, CFL stability ratio vs pitch):
+
+```json
+{
+  "data": [[0.42, 0.88, 1.35, 0.61]],
+  "chart_headers": ["CFL Stability Ratio"],
+  "render_hints": [{
+    "x_axis_values": ["A0", "A#0", "B0", "C1"],
+    "x_axis_name": "Pitch", "y_axis_name": "CFL ratio",
+    "series_type": "scatter",
+    "threshold": {"value": 1.0, "label": "CFL limit"},
+    "point_styles": [
+      {"color": "#26a69a", "symbol": "circle"},
+      {"color": "#26a69a", "symbol": "circle"},
+      {"color": "#ef5350", "symbol": "diamond"},
+      {"color": "#26a69a", "symbol": "circle"}
+    ],
+    "point_meta": [{"stable": true}, {"stable": true}, {"stable": false}, {"stable": true}],
+    "tooltip_fields": ["stable"]
+  }]
+}
+```
+
+The backend `chartFunctions.py` function that emits this for the CFL ratio data
+(sourced from `GET /get_parameter/stability_ratio`'s underlying getters) is the
+deferred **Part 2** of this work — see `docs/development/WORK_IN_PROGRESS.md`.
+The transform + back-compat are covered by `src/utils/__tests__/chartOption.test.js`.

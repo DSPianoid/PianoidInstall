@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-cfl | Courant/CFL stability guard: derive+document CFL_LIMIT (von-Neumann), parameterKernel per-string ratio + R1 reject (shadow-coeff fallback), middleware REST per-string ratio extraction + 4xx on reject | [log](logs/dev-cfl-2026-05-24-092641.md) | 2026-05-24 | In Progress |
+| dev-ratiochart | PianoidTunner CFL stability ratio-vs-pitch chart (ECharts pane, consumes `GET /get_parameter/stability_ratio/<key_no>`) — deferred companion to dev-cfl | [log](logs/dev-ratiochart-2026-05-24-184903.md) | 2026-05-24 | In Progress |
 
 ---
 
@@ -17,11 +18,25 @@ bound in `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / 
 
 Two follow-ups, both **explicitly out of scope** for this task (flagged, not built):
 
-1. **UI ratio-vs-pitch plot.** The per-string CFL ratio is now extractable
-   (`GET /get_parameter/stability_ratio/all`) — the analyst-plottable deliverable the user asked for. A
-   built-in PianoidTunner chart (ratio vs pitch) was deferred per the task spec ("UI plotting is OUT OF
-   SCOPE for now"). No clean trivial in-place chart site was found; would be a small ECharts pane if wanted.
-   Owner: future frontend `/dev` if the user requests it.
+1. **UI ratio-vs-pitch plot — IN PROGRESS (dev-ratiochart, 2026-05-24).** The per-string CFL ratio is
+   extractable via `GET /get_parameter/stability_ratio/all`. User chose **option B**: surface the chart
+   through the STANDARD chart mechanism (selectable like other charts), which required first extending the
+   generic renderer (it could only draw a uniform line on an array-index x-axis — no pitch axis / threshold
+   line / stable coloring). Split into two parts:
+   - **Part 1 — DONE (frontend renderer enhancement).** On PianoidTunner branch `feature/cfl-stability-chart`.
+     Extracted `newWindowChart.jsx` option-building into pure `src/utils/chartOption.js` `buildChartOption()`
+     + added an OPT-IN `render_hints` channel (explicit x-axis, threshold markLine, per-point color+symbol,
+     tooltip metadata). Every field optional → hint-less charts render byte-identical. Contract documented in
+     `docs/modules/pianoid-middleware/CHART_SYSTEM.md` "Optional render_hints". Verified by
+     `src/utils/__tests__/chartOption.test.js` (12 tests: 5 back-compat + 7 contract); full Jest 62/693 PASS,
+     0 regressions. Committed on the feature branch, NOT merged (awaits user test + approval).
+   - **Part 2 — PENDING, BLOCKED on CFL guard merge.** A `chartFunctions.py` `cfl_stability_ratio_function`
+     + `chart_config.json` entry that reads the per-pitch ratio/flag (via dev-cfl's `getStringStabilityRatios()`
+     / `getStringStableFlags()`) and emits the `render_hints` Part 1 consumes (pitch x-axis, threshold at
+     `cfl_limit=1`, stable=teal/circle vs unstable=red/diamond, `{stable}` tooltip meta). **Why blocked:**
+     (a) those getters live ONLY on the UNMERGED `feature/cfl-stability-guard`; (b) editing PianoidCore now
+     collides with dev-cfl holding its working tree for the Phase 2 merge. Owner: dev-ratiochart; starts once
+     the CFL guard is merged to PianoidCore `dev` (branch off the updated `dev`, getters present).
 
 2. **`dx` granular update path returns false ("Failed to batch update dx").** While building a guard
    validation script, a direct granular `dx` edit via `update_pitch_physical_params_GRANULAR(pitch, dx=…)`
