@@ -156,6 +156,117 @@ folded into the coefficient by `parameterKernel` at kernel entry).
 
 ---
 
+## FDTD Stability (CFL / Courant) Bound
+
+The interior-point update above is an **explicit** finite-difference scheme, so it is only
+*conditionally* stable: the per-string coefficients must satisfy a von-Neumann (CFL / Courant)
+bound, or the displacement field grows without bound each step → `Inf`/`NaN`. This section
+records the **derived, measurement-confirmed** bound. It is the load-bearing fact for any
+stability guard on these coefficients (a guard must use the *correct* bound — see the warning
+at the end about the historically-drafted `coeff_tension + 4·coeff_bending` form, which is
+**wrong**).
+
+### Von-Neumann derivation
+
+Substitute a single Fourier mode `u^n_p = g^n · e^{i θ p}` (θ = `k·dx` ∈ `[0, π]`, `g` the
+per-step amplification factor) into the homogeneous update (drop the forcing term — linear
+stability). The spatial operators become:
+
+| Stencil term | Fourier image |
+|---|---|
+| `s_a[p−1] + s_a[p+1]` | `2·cos θ` |
+| `s_a[p−2] + s_a[p+2]` | `2·cos 2θ` |
+| `d3 = s_a[p−1]+s_a[p+1]−2·s_a[p]` | `−2·(1 − cos θ)` |
+
+This yields a characteristic quadratic in `g`:
+
+```
+g² − A(θ)·g − B0(θ) = 0
+  A(θ)  = shift_0 + 2·shift_1·cos θ + 2·shift_2·cos 2θ + coeff_frequency_decay·(−2)(1 − cos θ)
+  B0(θ) = shift_b + coeff_frequency_decay·2·(1 − cos θ)
+```
+
+With the **core** coefficients (velocity damping `dec_curr = 0`, HF damping
+`coeff_frequency_decay = 0`): `shift_b = −1`, so `B0 = +1` and the quadratic is
+`g² − A·g + 1 = 0`. Its two roots multiply to `1`, so they lie on the unit circle (|g| ≤ 1)
+**iff `|A(θ)| ≤ 2`** for every θ. (`|A| > 2` ⇒ real roots, one `> 1` ⇒ exponential blow-up.)
+
+### The bound (closed form, with `B = coeff_bending`, `T = coeff_tension`)
+
+The binding wavenumber is the **Nyquist mode θ = π** (`cos θ = −1`, `cos 2θ = 1`), where
+
+```
+A(π) = (2 + 12B − 2T) + 2(T − 8B)(−1) + 2(2B)(1) = 2 + 32B − 4T
+```
+
+Applying `−2 ≤ A(π) ≤ 2` gives the **two-sided stability box**:
+
+```
+8·coeff_bending  ≤  coeff_tension  ≤  1 + 8·coeff_bending
+```
+
+- **Upper edge — the CFL limit:** `coeff_tension − 8·coeff_bending ≤ 1`. The classic
+  tension-Courant bound (`coeff_tension ≤ 1` at `B = 0`), *relaxed* by bending stiffness.
+  **`CFL_LIMIT = 1`** and the stability ratio is `(coeff_tension − 8·coeff_bending) / 1`.
+- **Lower edge:** `coeff_tension ≥ 8·coeff_bending` — tension must dominate bending at the
+  grid scale, or the Nyquist mode self-amplifies even for small `coeff_tension`.
+
+### Damping terms (measured)
+
+| Term | Effect on the bound | Why |
+|---|---|---|
+| Velocity damping `dec_curr` | **No change** | `A` and `B0` both scale by `dec_inv`, so the `\|g\| ≤ 1` condition is invariant in `dec_curr`. Confirmed: upper edge `T_upper = 1.08` for all `dec_curr ∈ [0, 2]` at `B = 0.01`. |
+| HF damping `coeff_frequency_decay` | **Tightens** (lowers the ceiling) | Adds a `−2(1−cosθ)` term to `A`. Confirmed: at `B = 0.01`, `coeff_frequency_decay = 0.1` drops `T_upper` 1.08 → 0.88. ⇒ ignoring it in a guard is *conservative* (the undamped bound is the loosest). |
+
+### Measurement validation
+
+The bound was confirmed by computing the **exact amplification factor** `max_θ |g(θ)|` of the
+real scheme coefficients (roots of the characteristic quadratic) — a direct numerical
+measurement of stability, not an assertion:
+
+- Along the upper boundary the invariant `(coeff_tension − 8·coeff_bending)` equals
+  `1.000000` to 6 digits for `coeff_bending ∈ [0, 0.1]` (the entire physically-relevant range;
+  it drifts only at `B ≥ 0.15`, where a higher-order interior-θ term takes over — far outside
+  any real preset).
+- Boundary crossing at `B = 0`: `coeff_tension = 0.99, 1.00` → `|g| = 1.0` (stable);
+  `coeff_tension = 1.01` → `|g| = 1.22` (diverges).
+- A 29×19 grid over `(T, B)` matches the analytic box to within boundary-discretisation
+  (15 edge cells); the box **is** the stability region.
+
+Derivation + validation scripts: `docs/development/diagnostics/dev-cfl-*.py`
+(`dev-cfl-vonneumann-derivation.py`, `dev-cfl-region-map.py`, `dev-cfl-upper-boundary.py`,
+`dev-cfl-failure-direction.py`). A live-engine NaN cross-check
+(`dev-cfl-live-bound-validation.py`) is staged for the implementation phase (it needs a
+clean GPU; the cooperative-grid `addKernel` cannot launch reliably under heavy GPU
+contention).
+
+### Real-preset regime, and the `length→dx` regression
+
+For `Belarus_8band_196modes` (88 pitches, via the authoritative
+`Pitch.get_coefficients`): `coeff_tension ∈ [0, 0.046]` — a ~20× margin under the upper
+CFL edge — and `coeff_bending ∈ [−0.0047, 0]` (this preset stores Young's modulus negative).
+The engine normally sits **far from the upper CFL edge**.
+
+The `length→dx` regression (`a558cb3`, fixed in `cce4270`) did **not** fail by exceeding the
+upper bound. A wrong-unit `length` made `dx` ~84–196× too **large**; since
+`coeff_tension ∝ 1/dx²` and `coeff_bending ∝ 1/dx⁴`, `T` and `B` collapsed toward **0**, where
+the recurrence degenerates to `g² − 2g + 1 = 0` — a **defective double root at |g| = 1** that
+produces *polynomial* (not exponential) drift: the "noise that grows and persists" symptom.
+This degenerate end is caught by `isfinite` checks (when `dx`/`coeff_ro`/`iterPerMs` go to
+`0`/`NaN`/`Inf`) plus the lower edge, **not** by any upper `(coeff_tension ± k·coeff_bending) ≤ 1`
+test.
+
+> **WARNING — do not use `coeff_tension + 4·coeff_bending ≤ 1` as a stability criterion.**
+> An early draft of the stability-guard proposal used that form. It is **mathematically wrong**
+> for this scheme: the bending term's sign is **minus** and its coefficient is **8**, not `+4`.
+> Tested against the exact `|g|` over a 551-cell `(T, B)` grid, `(T + 4B) ≤ 1` mismatches true
+> stability in **298 cells** — it both *passes* unstable parameter sets (e.g. `T = 0.39,
+> B = 0.05`: `T + 4B = 0.59` ≤ 1 but `|g| = 1.22`, diverges) and *rejects* stable ones (e.g.
+> `T = 0.85, B = 0.10`: `T + 4B = 1.25` > 1 but `|g| = 1.0`, stable). The correct ratio is
+> `(coeff_tension − 8·coeff_bending) / CFL_LIMIT` with `CFL_LIMIT = 1`.
+
+---
+
 ## Mode Simulation: Harmonic Oscillator
 
 ### Physical model

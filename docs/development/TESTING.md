@@ -21,6 +21,7 @@ PianoidCore/tests/
 │   ├── test_performance.py
 │   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off)
 │   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
+│   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard (dev-cfl) — baseline-stable, unstable-tension REJECTED-not-NaN, ratio matches (T−8B) physics, no false-positive, middleware ValueError→400, stability_ratio pack_for_interface extraction (audio_off)
 │   ├── test_playback.py
 │   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag

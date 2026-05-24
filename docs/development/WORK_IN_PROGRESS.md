@@ -4,8 +4,33 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
-| dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
+| dev-cfl | Courant/CFL stability guard: derive+document CFL_LIMIT (von-Neumann), parameterKernel per-string ratio + R1 reject (shadow-coeff fallback), middleware REST per-string ratio extraction + 4xx on reject | [log](logs/dev-cfl-2026-05-24-092641.md) | 2026-05-24 | In Progress |
+
+---
+
+## Deferred follow-up — CFL stability guard: UI plotting + dx-granular update quirk (dev-cfl, 2026-05-24)
+
+**CFL stability guard is IMPLEMENTED + verified** (kernel R1 reject + shadow fallback + per-string flag,
+host getters, middleware REST extraction + 4xx; 6 system tests pass; no synth regression). On
+`feature/cfl-stability-guard` (PianoidCore), awaiting the user's test + approval before merge. Derivation +
+bound in `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound".
+
+Two follow-ups, both **explicitly out of scope** for this task (flagged, not built):
+
+1. **UI ratio-vs-pitch plot.** The per-string CFL ratio is now extractable
+   (`GET /get_parameter/stability_ratio/all`) — the analyst-plottable deliverable the user asked for. A
+   built-in PianoidTunner chart (ratio vs pitch) was deferred per the task spec ("UI plotting is OUT OF
+   SCOPE for now"). No clean trivial in-place chart site was found; would be a small ECharts pane if wanted.
+   Owner: future frontend `/dev` if the user requests it.
+
+2. **`dx` granular update path returns false ("Failed to batch update dx").** While building a guard
+   validation script, a direct granular `dx` edit via `update_pitch_physical_params_GRANULAR(pitch, dx=…)`
+   logged `WARNING: Failed to batch update dx` (the GPU upload was dropped) — so a raw-`dx` granular edit
+   may not reach the engine. The `tension` knob works fine (used for the guard tests), and the normal
+   `length`→`dx` path is the supported route (raw `dx` is not a frontend-exposed editable). This is a
+   pre-existing middleware quirk, NOT introduced by the guard, and did not block the task. Owner: open;
+   investigate if a raw-`dx` granular edit is ever needed (likely an async DROP_IF_BUSY without a
+   waitForParameterUpdate, or `dx` not surviving `set_param`).
 
 ---
 

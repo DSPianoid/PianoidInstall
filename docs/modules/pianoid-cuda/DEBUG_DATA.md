@@ -83,6 +83,8 @@ for build commands.
 |--------|---------|------|---------------|-------|
 | `getPianoidState()` | `vector<real>` | 2 × total_points | `dev_string_state` | Always |
 | `getModeDisplacements()` | `vector<real>` | num_modes × 5 | `dev_mode_running` (q, q_prev) + `dev_mode_state` (dec, omega, mass_inv) | Always |
+| `getStringStabilityRatios()` | `vector<real>` | num_strings | `dev_string_stability_ratio` | Always |
+| `getStringStableFlags()` | `vector<int>` | num_strings | `dev_string_stable_flag` | Always |
 | `getOutputData()` | `vector<real>` | 10 × num_strings × array_size | `dev_output_data` | `PIANOID_DEBUG_DATA` |
 | `getParameters()` | `vector<real>` | total_points × POINT_PARAMETERS_NO | `dev_parameters` | `PIANOID_DEBUG_DATA` |
 | `fetchExcitation(stringNo, cycleIdx)` | `vector<real>` | total_steps [× EXCITATION_FACTOR] | `dev_force_function` | Always |

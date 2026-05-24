@@ -499,8 +499,8 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 
 | Rank | File | LOC | Notes |
 |------|------|-----|-------|
-| 1 | `PianoidCore/pianoid_middleware/backendServer.py` | 3553 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI). +112 at dev-bfe2 (preset working-copy endpoints, 2026-05-18) |
-| 2 | `PianoidCore/pianoid_middleware/pianoid.py` | 3177 | Main synthesis orchestrator; preset loading + parameter routing + playback + more. +182 at dev-bfe2 (working-copy spawn/promote/guard methods, 2026-05-18) — the `PresetLibrary` registry data structure was carved out to `preset_library.py`, but the orchestration methods correctly stay here; the file remains RED and a deeper preset-IO carve-out is still open (WIP §4.3) |
+| 1 | `PianoidCore/pianoid_middleware/backendServer.py` | 3553 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI). +112 at dev-bfe2 (preset working-copy endpoints, 2026-05-18). dev-cfl (2026-05-24) added a single allowlist token (`stability_ratio` in `parse_range`) — no structural change |
+| 2 | `PianoidCore/pianoid_middleware/pianoid.py` | 3250 | Main synthesis orchestrator; preset loading + parameter routing + playback + more. +182 at dev-bfe2 (working-copy spawn/promote/guard methods, 2026-05-18); +~30 at dev-cfl (2026-05-24, `pack_for_interface` `stability_ratio` extraction branch). The `PresetLibrary` registry data structure was carved out to `preset_library.py`, but the orchestration methods correctly stay here; the file remains RED and a deeper preset-IO carve-out is still open (WIP §4.3) |
 | 3 | `PianoidTunner/src/PianoidTuner.js` | 2793 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state |
 | 4 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
 | 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2589 | Chart generation for many chart types; natural split by chart family |
@@ -513,7 +513,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | 12 | `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu` | 1122 | GPU memory manager — allocation + pooling + tracking |
 | 13 | `PianoidTunner/src/modules/ModalAdapter.jsx` | 1077 | Modal adapter page — layout + multi-pane config + top-level state |
 | 14 | `PianoidCore/pianoid_cuda/asio.h` | 1070 | Vendor header — third-party; excluded from refactor unless re-homed |
-| 15 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 1041 | CUDA synthesis facade — the `Pianoid` object lifecycle + GPU-memory lifecycle. Was rank 3 at 2952 LOC; split phases 0-8 (dev-cbd5, 2026-05-19) extracted 6 substantive modules (`Pianoid_presets/_debug/_calibration/_excitation/_parameters/_synthesis.cu`). Barely over the RED line — drops below 1000 after the deferred phase R relocates the ~10 thin audio-driver wrappers into the audio-driver subsystem (proposal `pianoid-cu-split-proposal-2026-05-19.md`). |
+| 15 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 1080 | CUDA synthesis facade — the `Pianoid` object lifecycle + GPU-memory lifecycle. Was rank 3 at 2952 LOC; split phases 0-8 (dev-cbd5, 2026-05-19) extracted 6 substantive modules (`Pianoid_presets/_debug/_calibration/_excitation/_parameters/_synthesis.cu`). +39 at dev-cfl (2026-05-24, register + zero-init the 3 always-active CFL OUTPUT buffers). Over the RED line — drops below 1000 after the deferred phase R relocates the ~10 thin audio-driver wrappers into the audio-driver subsystem (proposal `pianoid-cu-split-proposal-2026-05-19.md`). |
 | 16 | `PianoidCore/pianoid_middleware/modal_adapter/collection_engine.py` | 1014 | MeasurementSession lifecycle + recorder/collector factory wiring + averaging dispatch. Crossed RED at dev-liveproc-w1 Wave 1 (2026-05-22, +51 LOC for the live-processing `on_scenario_done` callback plumbing — minimal addition that pushed 963→1014). Split deferred to modal_adapter-split Wave 3 (proposal §Q12 explicitly plans facade-level rework that will absorb / partition this module). Do NOT add further code to this file without a split plan. |
 
 ### YELLOW flags (500–1000 LOC — Medium-severity structural findings)
@@ -521,7 +521,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | File | LOC |
 |------|-----|
 | `PianoidCore/pianoid_middleware/modal_adapter/routes.py` | 880 |
-| `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 831 |
+| `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 852 |
 | `PianoidCore/pianoid_middleware/modal_adapter/preset_injector.py` | 827 |
 | `PianoidCore/pianoid_middleware/modal_adapter/measurement_routes.py` | 975 | (dev-maimport, 2026-05-19 — was 807 YELLOW; +168 LOC adding probe/import_folder/unzip_helper endpoints — still YELLOW, P2-split candidate is "carve import endpoints into measurement_import_routes.py"). |
 | `PianoidCore/pianoid_middleware/modal_adapter/measurement_import.py` | 644 | (dev-maimport, 2026-05-19 — new module; shared by REST + future CLI use. P1/P2 clean — single concern, single owner.) |

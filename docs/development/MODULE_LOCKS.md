@@ -6,6 +6,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-cfl locks RELEASED 2026-05-24 at Step 10a Phase 1 commit. Held (CFL stability guard):
+     Kernels.cu, Kernels.cuh, constants.h, Pianoid.cu, Pianoid.cuh, Pianoid_synthesis.cu,
+     Pianoid_parameters.cu, Pianoid_debug.cu, AddArraysWithCUDA.cpp, Pianoid_internal.cuh (locked
+     precautionarily, not edited), pianoid.py, parameter_manager.py, backendServer.py,
+     tests/system/test_cfl_stability_guard.py. Committed on feature/cfl-stability-guard (PianoidCore
+     2a37faa); docs/diagnostics/log on root master. NOT merged — branch awaits the user's test + approval. -->
+| <!-- (none active) --> | | | |
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10e wrap-up. Held: usePreset.js,
      useSoundChannels.js, PianoidTuner.js, useBackendProcess.js on feature/preset-1-leak-trace.
      Finding A (mount-race) committed 06cf96b + 0d31856. #1 string-param working-copy leak FIXED +
