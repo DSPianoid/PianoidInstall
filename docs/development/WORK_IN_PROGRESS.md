@@ -4,7 +4,13 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-modal-mass-p2 | Phase 2 Modal Mass — SDOF circle-fit + MDOF RFP + relative m_n/m_1 + mass-normalised shapes + actuator-grid residue heatmap | [log](logs/dev-modal-mass-p2-2026-05-24-125547.md) | 2026-05-24 | In Progress |
+
+<!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
+     merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
+     merged to dev on PianoidCore + PianoidTunner; docs commit on
+     PianoidInstall master. Locks released, log archived to
+     logs/archive/dev-modal-mass-p2-2026-05-24-125547.md. Feature
+     branches kept for traceability. Pushed to origin. -->
 
 <!-- dev-frf-q-phase01 COMPLETED 2026-05-24 (Step 10a Phase 1).
      Phase 0 + Phase 1 of Modal Mass + Q-factor implementation merged
