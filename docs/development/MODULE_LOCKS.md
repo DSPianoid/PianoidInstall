@@ -6,7 +6,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-frf-q-phase01 | `PianoidCore/pianoid_middleware/modal_adapter/project_context.py`, `PianoidCore/pianoid_middleware/modal_adapter/esprit_runner.py`, `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py`, `PianoidCore/pianoid_middleware/modal_adapter/apply_service.py`, `PianoidCore/pianoid_middleware/modal_adapter/frf_orchestrator.py` (NEW), `PianoidCore/pianoid_middleware/modal_adapter/qc/__init__.py` (NEW), `PianoidCore/pianoid_middleware/modal_adapter/qc/log_decrement_xcheck.py` (NEW), `PianoidCore/pianoid_middleware/modal_adapter/routes/pipeline_routes.py`, `PianoidTunner/src/components/ModalResultsView.jsx`, `PianoidCore/tests/integration/modal_adapter/test_frf_orchestrator.py` (NEW), `PianoidCore/tests/integration/modal_adapter/test_qc_log_decrement.py` (NEW), `PianoidCore/tests/integration/modal_adapter/test_quality_factor_surface.py` (NEW), `PianoidTunner/src/components/__tests__/ModalResultsView.qColumn.test.jsx` (NEW) | 2026-05-24T10:58:30Z | Modal Mass + Q-factor Phase 0 + Phase 1: Q surfacing, Hilbert log-dec, FrfOrchestrator + raw_recordings H1 + force window + NPZ persistence + REST endpoints + data_status |
+<!-- dev-frf-q-phase01 locks RELEASED 2026-05-24 at Step 10a Phase 1.
+     Phase 0 + Phase 1 of Modal Mass + Q-factor improvement plan
+     committed on feature/dev-frf-q-phase01 + merged to dev on both
+     repos. PianoidCore: 9c35c4f → ddbf997 (merge). PianoidTunner:
+     3f41819 → c472997 (merge). PianoidInstall docs: 07508e4. NOT
+     pushed (awaits user verification). -->
+
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10e wrap-up. Held: usePreset.js,
      useSoundChannels.js, PianoidTuner.js, useBackendProcess.js on feature/preset-1-leak-trace.
      Finding A (mount-race) committed 06cf96b + 0d31856. #1 string-param working-copy leak FIXED +

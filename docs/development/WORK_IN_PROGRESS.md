@@ -4,7 +4,17 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-frf-q-phase01 | Modal Mass + Q-factor Phase 0 + Phase 1 (Q surfacing, Hilbert log-dec, FrfOrchestrator, raw_recordings H1, force windowing, coherence, persistence, REST, data_status) | [log](logs/dev-frf-q-phase01-2026-05-24-135524.md) | 2026-05-24 | Active |
+
+**Currently no active dev sessions.**
+
+<!-- dev-frf-q-phase01 COMPLETED 2026-05-24 (Step 10a Phase 1).
+     Phase 0 + Phase 1 of Modal Mass + Q-factor implementation merged
+     to dev on PianoidCore (ddbf997) + PianoidTunner (c472997).
+     PianoidInstall docs commit 07508e4 on master. Locks released.
+     NOT pushed — awaits user verification on the user's measurement
+     data. Session log will be archived to logs/archive/ at Phase 2
+     after user approval. -->
+
 
 ---
 
