@@ -4,8 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-
-**Currently no active dev sessions.**
+| dev-modal-mass-p2 | Phase 2 Modal Mass — SDOF circle-fit + MDOF RFP + relative m_n/m_1 + mass-normalised shapes + actuator-grid residue heatmap | [log](logs/dev-modal-mass-p2-2026-05-24-125547.md) | 2026-05-24 | In Progress |
 
 <!-- dev-frf-q-phase01 COMPLETED 2026-05-24 (Step 10a Phase 1).
      Phase 0 + Phase 1 of Modal Mass + Q-factor implementation merged

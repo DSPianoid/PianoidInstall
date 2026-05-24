@@ -133,6 +133,18 @@ On startup, the server runs a stale process check: finds any PID listening on th
                                Q cross-check; flags chains where Q_logdec
                                disagrees with Q_esprit beyond threshold
                                (default 30%)
+  /modal/run_modal_mass     -- (Phase 2, dev-modal-mass-p2) per-chain residue
+                               extraction (SDOF circle-fit + MDOF RFP) +
+                               SVD dual-unit-max inversion -> per-mode
+                               relative modal mass + mass-normalised
+                               shapes. Q6 gate: requires >=8 scenarios
+                               with FRF persisted.
+  /modal/modal_mass/summary -- (Phase 2) project-level modal-mass index
+                               (chain count, m_rel/m_abs, reference mode)
+  /modal/modal_mass/mode/<chain_id> -- (Phase 2) per-chain payload (shapes
+                               + per-(scenario, channel) residues)
+  /modal/modal_mass         -- (Phase 2, DELETE) invalidate modal mass —
+                               remove persisted files + clear cache
   /modal/projects           -- list projects, current project, projects_base
   /modal/projects/create    -- create project with optional measurement_source
   /modal/projects/open      -- open existing project
@@ -2346,16 +2358,204 @@ Return the persisted log-decrement cross-check payload (or
 
 ---
 
+### Stage 5c: Modal Mass extraction (dev-modal-mass-p2, Phase 2)
+
+The Modal Mass stage was added in 2026-05-24 as the second half of the
+Modal Mass + Q-factor improvement plan. It consumes the FRF output of
+Stage 5b plus the tracked-chain set from Stage 4 to extract per-mode
+relative modal mass + mass-normalised mode shapes.
+
+See [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md)
+§5.2.1 + §5.2.3 + §6 Phase 2 for the design.
+
+**Pipeline.** Per tracked chain `n`:
+
+1. Detect MDOF clusters by frequency proximity (user decision C —
+   `|f_i - f_j| < 3 · max(BW_i, BW_j)`, cluster cap = 4 modes; chains
+   beyond the cap get `fit_method = "low_density_unresolved"`).
+2. For each `(scenario_i, response_channel_c)` in the chain's
+   `detections`, run the SDOF Kennedy-Pancu circle-fit (singleton
+   cluster) or the MDOF RFP joint LS fit (cluster of 2-4) on the
+   persisted FRF `H1_ch<c>` in the band `f_n ± 3·ζ_n·f_n`. Returns
+   `R_n^{i,c}` (complex) + `fit_quality ∈ [0, 1]`.
+3. Build the residue tensor `R[n, a, s]` where `a` is the
+   populated-grid-cell index (0..A-1, per
+   `MappingConfig.point_coordinates`) and `s` is the response-channel
+   axis. Missing `(actuator, channel)` entries are NaN.
+4. Per chain, invert the rank-1 residue matrix via SVD under the
+   **dual-unit-max convention** (`max|φ_a| = max|φ_s| = 1`): the
+   leftover scale equals `1/m_n` at the joint peak by the physics, so
+   `m_n = 1 / (σ_0 · max|u_0| · max|v_0|)`.
+5. Reference-mode selection (user decision B): lowest-freq chain with
+   `fit_quality_overall > 0.7 AND coverage >= 0.5`. Fallback: refuse
+   to normalise, emit `reference_mode_warning`, raw `m_absolute` still
+   stored per chain.
+
+**Q6 gate (user decision E):** `POST /modal/run_modal_mass` requires
+≥ 8 scenarios with FRF persisted; otherwise returns `422` with
+`InsufficientDataError`. `GET /modal/modal_mass/summary` is
+unconstrained — returns whatever was last persisted regardless of
+the current scenario count.
+
+**Units note (relative only per Q2).** H1 from Stage 5b is in
+dimensionless `response_voltage / force_voltage` (raw ADC, no sensor
+calibration applied). The recovered `m_n` is in
+"internally-consistent voltage-ratio units" — NOT kg. The
+user-meaningful output is `m_relative = m_n / m_ref`. Absolute SI
+calibration is deferred per proposal §5.5.1.
+
+#### `POST /modal/run_modal_mass`
+
+Run the modal-mass extraction across all tracked chains. Synchronous
+(per-chain fit is bounded — dozens of chains finish in a few seconds
+total). Reads FRF NPZ files on disk; writes per-chain JSON +
+`modal_mass/index.json`.
+
+Request body: none (empty `{}`).
+
+Response `200`: same shape as `GET /modal/modal_mass/summary`.
+
+Response `422` (Q6 gate trips):
+```json
+{
+  "error": "Modal mass requires ≥ 8 scenarios with FRF persisted; have 3. Run FRF on more scenarios first."
+}
+```
+
+Other errors (`400`):
+
+- `"No tracked chains"` — run ESPRIT + tracking first
+- `"Modal mass requires a grid-layout mapping"` — line-layout project
+- `"Mapping has no response channels"` — set channel roles first
+
+---
+
+#### `GET /modal/modal_mass/summary`
+
+Return the project-level modal-mass summary (light meta only — no
+shape arrays). Safe to call before any modal-mass run
+(`available: false` then). Unconstrained by Q6 gate per user
+decision E.
+
+Response `200` (after a run):
+```json
+{
+  "available": true,
+  "stale": false,
+  "computed_at": "2026-05-24T12:34:56.789012+00:00",
+  "chain_count": 42,
+  "scenario_count": 12,
+  "reference_mode_chain_id": 4,
+  "reference_mode_warning": null,
+  "config": {
+    "min_scenarios_for_modal_mass": 8,
+    "ref_mode_fit_quality_min": 0.7,
+    "ref_mode_coverage_min": 0.5,
+    "mdof_cluster_cap": 4,
+    "cluster_bw_mult": 3.0,
+    "response_channels": [1, 2, 3, 4, 5, 6, 7],
+    "actuator_count": 12
+  },
+  "chains": [
+    {
+      "chain_id": 4,
+      "frequency_hz": 42.2,
+      "fit_method": "mdof",
+      "m_absolute": 8.87e-6,
+      "m_relative": 1.0,
+      "fit_quality_overall": 0.77,
+      "is_reference_mode": true,
+      "has_file": true
+    }
+  ]
+}
+```
+
+`stale=true` when FRF, ESPRIT, or scenarios re-ran since the last
+modal-mass run; the frontend renders a "STALE" badge on the Modal
+Mass tab.
+
+---
+
+#### `GET /modal/modal_mass/mode/<int:chain_id>`
+
+Return one chain's full modal-mass payload (residues + shapes +
+mass-normalised variants + per-(scenario, channel) detail). Used by
+the Modal Mass tab's per-chain drilldown.
+
+Response `200`:
+```json
+{
+  "chain_id": 4,
+  "frequency_hz": 42.2,
+  "damping_ratio": 0.0051,
+  "quality_factor": 98.0,
+  "coverage": 0.95,
+  "fit_method": "mdof",
+  "cluster_chain_ids": [3, 4, 5],
+  "m_absolute": 8.87e-6,
+  "m_relative": 1.0,
+  "shape_actuator": [
+    { "index": 0, "real": 0.92, "imag": 0.0 },
+    { "index": 1, "real": 0.45, "imag": 0.01 }
+  ],
+  "shape_response": [
+    { "index": 0, "real": 0.78, "imag": 0.02 }
+  ],
+  "shape_actuator_mass_normalised": [
+    { "index": 0, "real": 309.4, "imag": 0.0 }
+  ],
+  "shape_response_mass_normalised": [
+    { "index": 0, "real": 262.0, "imag": 6.7 }
+  ],
+  "per_scenario_residues": {
+    "0": {
+      "1": { "real": 0.024, "imag": 0.012, "fit_quality": 0.72 }
+    }
+  },
+  "fit_quality_overall": 0.77,
+  "is_reference_mode": true
+}
+```
+
+Both shape arrays are SPARSE — actuator cells with no valid residue
+extraction are absent from the list (NOT serialised as `NaN`). The
+frontend iterates the list and uses `index` to position each entry
+on the actuator grid.
+
+Returns `404` when the chain has no persisted modal-mass payload.
+
+---
+
+#### `DELETE /modal/modal_mass`
+
+Invalidate modal mass for the current project: remove persisted
+`modal_mass/chain_*.json` + `modal_mass/index.json` and clear the
+in-memory cache. Mirrors the FRF invalidate flow.
+
+Response `200`:
+```json
+{
+  "message": "Invalidated modal mass: removed 42 files",
+  "deleted_files": ["chain_0.json", "chain_1.json", "index.json"]
+}
+```
+
+---
+
 ### Data Status surface extensions
 
 `GET /modal/data_status` payload was extended in Phase 1 with three
-new keys (additive, no breaking change):
+new keys (additive, no breaking change), and again in Phase 2 with
+two more:
 
 | Key | Type | Meaning |
 |---|---|---|
 | `frf` | bool | True when at least one scenario has FRF persisted |
 | `frf_stale` | bool | True when ESPRIT re-run / scenario re-load happened since the last FRF run |
 | `qc_log_decrement` | bool | True when the Hilbert log-decrement cross-check has been computed for the current project |
+| `modal_mass` | bool | (Phase 2) True when at least one chain has modal-mass persisted |
+| `modal_mass_stale` | bool | (Phase 2) True when FRF / ESPRIT / scenarios re-ran since the last modal-mass run |
 
 Per-chain dicts (returned by `GET /modal/tracking_results`) gained
 two additive fields:

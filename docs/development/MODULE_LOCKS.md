@@ -4,6 +4,15 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-modal-mass-p2 locks RELEASED 2026-05-24 at Step 10a Phase 1.
+     Phase 2 of Modal Mass + Q-factor improvement plan committed on
+     feature/dev-modal-mass-p2 (PianoidCore + PianoidTunner) + docs
+     commit on master (PianoidInstall). NOT merged to dev yet —
+     awaits user verification (Phase 2 wrap-up). Files: 4 PianoidCore
+     orchestration files (modal_mass_orchestrator.py NEW + 3 facade
+     edits), modal_mass/ kernels (3 NEW), 4 test files (NEW), 4
+     PianoidTunner files (ModalMassPanel + useModalMass NEW +
+     ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 <!-- dev-frf-q-phase01 locks RELEASED 2026-05-24 at Step 10a Phase 1.

@@ -840,13 +840,62 @@ interpretation of mode locations + heights becomes calibrated against the input 
 
 ### Phase 2 — Modal mass extraction (the second half of the proposal)
 
-| # | Improvement | LOC est. | Effort | Depends on |
-|---|---|---|---|---|
-| 2a | `residue_extractor.py` (LS multi-mode fit + circle-fit cross-check) | 600 BE | M-L | Phase 1 |
-| 2b | Per-chain relative modal mass + uncertainty | 200 BE | S | 2a |
-| 2c | Mass-normalised mode shapes (toggle in UI) | 100 BE + 100 FE | S | 2b |
-| 2d | Cross-scenario residue heatmap (actuator-grid view) | 400 FE | M | 2a |
-| 2e | (Optional) Absolute modal mass IF `calibration_channel_si_per_count` set | 50 BE + 80 FE | S | 2b + user-side calibration |
+| # | Improvement | LOC est. | Effort | Depends on | Status (2026-05-24) |
+|---|---|---|---|---|---|
+| 2a | Residue extraction kernels: `circle_fit.py` (SDOF Kennedy-Pancu, ~200 LOC) + `rfp_fit.py` (MDOF RFP joint LS, ~200 LOC) | 600 BE | M-L | Phase 1 | **SHIPPED** (dev-modal-mass-p2, kernels under `pianoid_middleware/modal_adapter/modal_mass/`; orchestrator-side wiring in `modal_mass_orchestrator.py`) |
+| 2b | Per-chain relative modal mass via SVD dual-unit-max inversion (`shape_inversion.py`) + `modal_mass_orchestrator.py` (cluster detection, ref-mode selection, persistence) | 200 BE | S | 2a | **SHIPPED** (dev-modal-mass-p2; per-chain `m_absolute` + `m_relative` persisted; uncertainty deferred — current pipeline returns single-best-fit per chain, future LS-covariance work tracked in Phase 3) |
+| 2c | Mass-normalised mode shapes (toggle in UI) | 100 BE + 100 FE | S | 2b | **SHIPPED** (dev-modal-mass-p2; backend emits `shape_*_mass_normalised` arrays per chain; frontend `ModalMassPanel` exposes a Raw \| Mass-normalised ToggleButtonGroup) |
+| 2d | Cross-scenario residue display (actuator-grid view) | 400 FE | M | 2a | **PARTIAL** (dev-modal-mass-p2; ECharts 1-D heatmap of `\|φ_actuator\|` per populated cell + per-(scenario, channel) residue magnitude table. 2-D GridHeatmapInset reuse deferred — current backend payload doesn't embed grid coordinates; that's a follow-on if the 1-D strip view is not enough) |
+| 2e | (Optional) Absolute modal mass IF `calibration_channel_si_per_count` set | 50 BE + 80 FE | S | 2b + user-side calibration | **NOT YET** (deferred per Q2 = Relative-only) |
+
+**Implementation notes (dev-modal-mass-p2, 2026-05-24):**
+
+- **Kernel physics correction.** The original Round-1 `shape_inversion`
+  kernel used `m_n = 1/max|response_shape|` which is an arbitrary
+  per-mode normalisation that varies with the random extremes of the
+  response shape — failed `m_relative` recovery by ~30 % on synthetic
+  data. Round-2 rework adopts the **dual-unit-max convention** (both
+  `max|φ_a| = max|φ_s| = 1` per mode); under this convention
+  `R_n[peak_a, peak_s] = 1·1/m_n = 1/m_n`, equivalently
+  `m_n = 1 / (σ_0 · max|u_0| · max|v_0|)` from the rank-1 SVD. Test
+  fixture rewritten so both shapes are unit-max — kernel now recovers
+  masses_true = [1, 2, 4] within 5 % synthetic-data tolerance.
+- **H1 unit audit.** H1 from Phase 1's FRF orchestrator is in
+  dimensionless `response_voltage / force_voltage` (raw ADC, no
+  sensor calibration). The recovered `m_n` is in
+  "internally-consistent voltage-ratio units" — NOT kg. The
+  user-meaningful output is `m_relative = m_n / m_ref` which cancels
+  the per-channel sensor-sensitivity scaling. Absolute SI modal mass
+  requires a future user-side calibration (proposal §5.5.1).
+- **REST surface.** Four new endpoints under `/modal/modal_mass/*`:
+  `POST /modal/run_modal_mass`, `GET /modal/modal_mass/summary`,
+  `GET /modal/modal_mass/mode/<chain_id>`, `DELETE /modal/modal_mass`.
+  Documented at
+  [`REST_API.md` § Stage 5c](../modules/pianoid-middleware/REST_API.md#stage-5c-modal-mass-extraction-dev-modal-mass-p2-phase-2).
+  Q6 ≥ 8 scenarios gate fires on POST only (422 response); GET
+  unconstrained.
+- **Persistence.** Per-chain JSON at
+  `<project>/modal_adapter/modal_mass/chain_<id>.json` + project-level
+  `modal_mass/index.json`. Hydrated on project open via
+  `load_intermediate('modal_mass')`.
+- **Live verification.** On `PlyWoodLGtemp1` with 12 scenarios →
+  126 tracked chains → 126 modal-mass chains in 12 s. Reference mode
+  chain 4 @ 42.2 Hz (`fit_quality=0.77 > 0.7` gate, `coverage=0.95`);
+  `m_relative` spread `[0.013, 23.62]` (median 0.21). Most low-`f`
+  SDOF chains have `fit_quality = 0` because their narrow band has
+  fewer than `MIN_FIT_BINS = 8` (circle-fit refuses rather than
+  inventing) — the trustworthy chains (~40-50 of 126) have
+  `fit_quality ∈ [0.5, 0.9]`. This is the correct fail-fast
+  behaviour; the frontend renders fit_quality colour-coding so the
+  user can spot low-quality chains.
+- **Frontend.** New "Modal Mass" tab in `ModalAdapter.jsx`
+  (PIPELINE_SECTIONS extended to 5: collect / setup / tracking /
+  modal_mass / apply). Hook `useModalMass.js` wraps the 4 REST
+  endpoints. Panel `ModalMassPanel.jsx` renders the bar chart of
+  m_n/m_ref + click-to-drilldown detail (actuator shape strip,
+  response-sensor strip, per-(scenario, channel) residue table)
+  + Raw \| Mass-normalised toggle + Run \| Invalidate buttons. 11
+  new Jest tests pass; full 673-test suite green.
 
 **Demo:** new "Modal Mass" subpanel showing `m_n / m_1` bars with uncertainty;
 selecting a chain reveals a grid heatmap of its residue across all actuator
