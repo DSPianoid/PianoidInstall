@@ -21,6 +21,53 @@
 
 ---
 
+## Deferred follow-up — Launcher-spawned backend dies ~30-60s after spawn (found dev-preset-bugs, 2026-05-23)
+
+**Separate from the now-fixed ensureBackend mount-race.** A backend started via the launcher
+(`POST /api/start-backend`) — or loaded via REST into it — dies as a **process** ~30-60s later,
+with NO ensureBackend stale-kill (console: `:5000` socket.io "closed before connection
+established"; PID confirmed gone). The launcher (`:3001`) stays alive. Originally observed during
+dev-preset-bugs Step 10e earlier rounds.
+
+**UPDATE (Step 10e round, 2026-05-23) — largely RESOLVED / re-characterised.** Starting the backend
+via **PowerShell `Start-Process -WindowStyle Hidden`** (NOT the launcher API, NOT `Bash
+run_in_background`) yields a backend that **survives >150s** (verified by a survival monitor) and
+through a fresh-tab MOUNT (the Finding A mount-race fix's load-directly branch protects it). So the
+"30-60s death" was the **launcher-API-spawn / `run_in_background` reaping path**, not an inherent
+backend crash. The ONE remaining death mode is expected-by-design: a PowerShell-spawned backend is
+NOT launcher-owned, so the frontend's `ensureBackend` orphan-cleanup **correctly kills it on a tab
+RELOAD** once the launcher status resolves (`processRunning=false`). Mitigation for agent live work:
+start via PowerShell `Start-Process`, drive in a FRESH tab (mount-protected), and do NOT reload that
+tab; or accept the kill and restart. The user's normal `npm run dev` is unaffected (launcher owns its
+backend). Owner: closed for practical purposes; reopen only if a launcher-owned backend dies. Detail
+in the dev-preset-bugs Step 10e [log](logs/dev-preset-bugs-2026-05-23-184309.md).
+
+---
+
+## Deferred follow-up — Preset working-copy isolation (#1) ROOT-CAUSED + FIXED, awaiting user approval (dev-preset-bugs, 2026-05-23)
+
+**#2 / #3 / #4 user-VERIFIED** and merged to PianoidTunner `dev` (`984434a`). **#1 (working-copy
+isolation leak): ROOT CAUSE FOUND + FIX VERIFIED live (round 10e).** The persisting leak was a STRINGS
+back-sync dependency-array bug: its speculative back-sync effect listed `parametersOfStrings` (+
+`changeParametersOfStrings`, useCallback-bound to the same state), so it fired on the switch render
+where `parametersOf*` is already NEW but `presetVersion` (and the re-init that arms `skipStringsSyncRef`)
+has not bumped yet — re-POSTing the stale edit onto the new/spawned preset AND corrupting local
+`parametersOfStrings` that the later re-init re-seeded from. Fix: fire the back-sync ONLY on a history
+change (`[stringsHistory.values, stringsHistory.lastAppliedChange]`), matching modes/excitation which
+never leaked. Measured live (differing values): spawn-from-original carried tension=5000 onto the new
+working copy (backend slot + displayed field) before the fix; 650 (clean) after, on both. A real edit
+still reaches the backend post-fix. Full Jest 61 suites / 681 tests green.
+
+**State:** fix committed `908a6c5` on **`feature/preset-1-leak-trace`** (NOT merged); docs/log/
+screenshot on root master `e3d2677`. Stack down. **Owner / next step:** the user does a fresh hard-
+refreshed test of the spawn/switch repro on this branch; on approval, merge `feature/preset-1-leak-
+trace` → PianoidTunner `dev` (NOTE: also carries the Finding A mount-race fix `06cf96b` + `0d31856`).
+Earlier "in-flight WebSocket guard" hypothesis is SUPERSEDED — the round-2 `cancelPendingParamWrites`
+was working correctly; the leak was the strings dep-array, not an in-flight WS write. Full diagnosis +
+before/after in the session [log](logs/dev-preset-bugs-2026-05-23-184309.md).
+
+---
+
 ## Live Measurement + Processing Flow — Wave 1 IN PROGRESS (live-processing-design, 2026-05-22)
 
 **Status:** **Q1-Q12 locked by user** (Q1=C subprocess worker, overrides proposal-recommended

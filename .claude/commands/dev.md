@@ -361,7 +361,9 @@ After both checks, summarize to the user:
 
 ## Step 1b: Environment Control (MANDATORY)
 
-**You own the environment. NEVER ask the user to start/stop servers, check processes, or verify what's running. NEVER rely on servers already running. Always take full control.**
+**You own the environment AND the full operational loop. NEVER ask the user to start/stop servers, check processes, refresh/close browser tabs, run captures, paste console logs, or drive the repro/test for you. NEVER rely on servers already running. Always take full control.**
+
+**When you hit an operational blocker — a server won't start or won't stay up, a tab needs a fresh load, the backend keeps dropping — the answer is ALWAYS a documented procedure, NEVER offloading the step to the user.** A persistent operational blocker means you haven't found or applied the right documented procedure yet — not that the task needs the user. The most common trap: the backend won't stay up because it was started via Bash / `cmd` / `run_in_background`, which (a) hits the harness long-running-process permission gate that prompts even under `bypassPermissions` (so the process just looks "stuck"), and (b) gets reaped / Flask-reloader-orphaned after ~30–120 s. The documented fix is `Start-Process -WindowStyle Hidden` with redirected output (or the launcher REST API) — see the startup hierarchy below + `docs/guides/UI_TESTING.md` / `docs/guides/STARTUP_TROUBLESHOOTING.md`. Solve it; do not escalate it to the user.
 
 ### Kill Stale Processes
 
@@ -451,7 +453,7 @@ cd PianoidCore/pianoid_middleware && ../.venv/Scripts/python -u modal_adapter/mo
 
 ### Clean Up After Yourself (MANDATORY)
 
-**Every agent MUST shut down all servers it started before exiting**, regardless of exit path (success, failure, or kill). This includes wrap-up, reset, pause, and any abnormal termination.
+**Full clearance before every handoff (MANDATORY).** Every agent MUST leave the environment fully cleared when it exits — regardless of exit path (wrap-up, reset, pause, or any abnormal termination). Full clearance means **(a) all Pianoid servers down** — nothing left listening on ports 3000/3001/5000/5001 — and **(b) your working tree clean** — every change committed, stashed, or reverted, with temporary debug/instrumentation **reverted** (never committed), and your locks released. The user must always receive a clean, ready-to-restart slate; a running server OR a dirty tree at handoff is a severe violation. (Exception: if the orchestrator has told you a concurrent agent is actively using the stack, shut down only what you started, leave its servers up, and report the rest to the orchestrator — which owns the final all-down sweep.)
 
 ```bash
 # Graceful shutdown of servers started by this agent
@@ -465,9 +467,10 @@ done
 ```
 
 **Rules:**
-- If you started a backend (port 5000/5001) or frontend (port 3000/3001), you MUST stop it before returning
-- Include cleanup in ALL exit paths: Step 10a (wrap-up), Step 10b (reset), Step 10c (pause), and error/exception paths
-- The user should never have to clean up after an agent — leaving stale processes is a severe violation
+- The sweep above kills every listener on 3000/3001/5000/5001 — at handoff, ALL Pianoid servers come down, not only the ones you started (unless the orchestrator flagged a concurrent agent still using the stack)
+- Your working tree must be clean at handoff: commit or stash real work, and **revert** temporary debug/instrumentation rather than committing it — a dirty tree is not a clean handoff
+- Include clearance in ALL exit paths: Step 10a (wrap-up), Step 10b (reset), Step 10c (pause), and error/exception paths
+- The user should never have to clean up after an agent — leaving stale processes OR uncommitted changes is a severe violation
 - If the agent used chrome-devtools to open a browser, close the page before exiting
 
 ## Step 2: Baseline Performance Test
@@ -931,7 +934,7 @@ when you are already editing that section.
 **This step is mandatory when a feature branch was created in Step 3.** Unmerged feature
 branches break other systems that install from `dev`.
 
-After the user confirms the work is complete and tests pass:
+**Default: merge only after the user has tested the fix on the feature branch and approved it.** Per the standing handoff default (Step 10a Phase 1: stack down, repo left on the feature branch), the user runs their OWN live test first — a passing agent test is NOT approval. Only after the user confirms the fix works and approves the merge:
 
 1. **Merge into dev** for each repo that has a feature branch:
 ```bash

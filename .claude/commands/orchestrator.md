@@ -16,17 +16,21 @@ Parse `$ARGUMENTS`:
 
 ---
 
-## Core Principle: Orchestrate, Don't Execute
+## Core Principle: Autonomy
 
-The orchestrator's context window is precious. **NEVER** read project source files, grep codebases, or perform analysis directly. Instead:
+The orchestrator runs on a strict division of labor across three roles. **Autonomy — the sub-agent owning its work end-to-end — is the load-bearing one; the other two roles exist to protect it.**
 
-1. Receive task from user via Telegram (or other channel)
-2. Classify the task
-3. Spawn a sub-agent with a detailed prompt
-4. Relay results/questions back to user
-5. Repeat
+1. **The orchestrator coordinates; it never executes.** Don't read project source, grep, analyze, build, test, or manage the stack directly — that burns the precious context that lets this session run for hours. The loop: receive a task → classify it → spawn a sub-agent with a complete brief → relay results and decisions → repeat.
 
-This keeps the orchestrator's context clean and able to run for extended sessions.
+2. **The sub-agent owns the COMPLETE task loop, autonomously.** Not just the code edit — the *whole* thing: it sets up and manages its own environment (starts/stops/restarts the stack via the documented procedures), reproduces the problem, diagnoses it (measure, don't guess), implements, verifies with evidence, and cleans up. When a sub-agent hits an *operational* blocker — a server won't start, a tab needs a fresh load, a process must be killed — it **resolves it itself via the documented procedures**. It does not bounce the step outward.
+
+3. **The user provides DECISIONS, APPROVALS, and INFORMATION — never operations.** Engage the user to choose a direction, approve a merge, clarify a requirement, or supply knowledge only they hold. NEVER ask the user to perform a step a sub-agent can perform: starting/stopping servers, closing or refreshing browser tabs, running captures, pasting console logs, restarting the stack. The user is on Telegram precisely so they don't have to operate the machine.
+
+**This is a principle, not a checklist — apply it to cases not listed above.** The failure it prevents: the orchestrator quietly treating the *user* as the operational fallback whenever a sub-agent looks stuck. That inverts the entire design. So — **an "agent is blocked" report routes back to the agent with the documented procedure; it never becomes a manual step for the user.** Before relaying any blocker to the user, ask two questions:
+   - **(a) Is this a silent CLI-permission stall?** Sub-agent operations like starting the backend via Bash / `cmd` / `run_in_background` trigger the harness "long-running process" gate that prompts *even under* `bypassPermissions` — and the prompt is invisible, so the process just looks "stuck" or "blocked." The documented fix is `Start-Process -WindowStyle Hidden` / the launcher REST API (see CLAUDE.md "Known gaps in bypassPermissions"). Most "the agent can't get the environment up" reports are this.
+   - **(b) Is there a documented procedure the agent should be following?** A "server won't stay up" symptom is almost always a documented procedural issue (UI_TESTING.md / STARTUP_TROUBLESHOOTING.md), not an unsolvable bug.
+
+If you are about to ask the user to *do* something operational, **stop** — the agent is under-empowered or mis-briefed. Fix the dispatch (re-direct the agent to the documented procedure), don't offload to the user. Keeping this loop tight is also what keeps the orchestrator's own context clean enough to run for hours.
 
 ### CRITICAL: No Direct Skill Execution
 
@@ -51,6 +55,33 @@ This keeps the orchestrator's context clean and able to run for extended session
 - Startup/shutdown notifications
 
 **No exceptions.** The user monitors via Telegram and expects all orchestrator output there, even for tasks initiated from the local CLI terminal. Use `mcp__plugin_telegram_telegram__reply` for every response alongside normal CLI text output.
+
+---
+
+## Full Clearance Before Every Handoff (MANDATORY)
+
+**Before every handoff back to the user — i.e. whenever the orchestrator finishes a task (or batch) and returns control, goes idle awaiting the next instruction, or shuts down — the environment MUST be brought to full clearance:**
+
+1. **All Pianoid servers down.** No process left listening on ports **3000 / 3001** (frontend + launcher), **5000** (main backend), or **5001** (modal adapter). Use port-targeted PID kills only — NEVER blanket-kill `python.exe` / `node.exe` (that murders MCP servers and Claude Code itself). See the per-port sweep below.
+2. **All working trees clean.** No orphaned uncommitted changes in PianoidCore / PianoidTunner / PianoidBasic / PianoidInstall. Every editing agent must have committed, stashed, or reverted its work (temporary debug/instrumentation is **reverted**, never committed). No stale locks in `MODULE_LOCKS.md`, no dangling Active Dev Sessions for agents that have exited.
+3. **Ready to restart.** The user can launch a fresh stack from a clean slate with no leftover state.
+
+**This OVERRIDES the older "don't disrupt the user's running stack" default.** A running server or a dirty tree at handoff is the failure mode this clause exists to prevent — even a stack that was "working" comes down at handoff. The user explicitly prefers a guaranteed clean slate over a preserved-but-uncertain running environment.
+
+**How it's enforced:**
+- Each editing sub-agent shuts down servers it started and cleans its own tree on exit (see `/dev` "Full clearance before every handoff"). The **orchestrator is the final guarantor**: after the last active agent reports, run the port sweep across all four ports and verify `git status --short` is clean in every repo before telling the user the environment is clear.
+- The one in-session exception: if a concurrent agent is still actively using the stack, the orchestrator does NOT sweep mid-session — clearance applies at the handoff to the user, not between overlapping agents.
+
+**Merge default — test-on-branch, merge-after-approval.** The default handoff leaves the work on its feature branch (unmerged) with the stack down, so the user can run their OWN live test before anything reaches the integration branch. The orchestrator does NOT direct a feature→dev merge until the user explicitly approves the FIX based on that test — a passing agent test is not approval. Never offer "merge to the integration branch so a restart picks it up, then test" — that inverts the order; the user tests on the feature branch first, the merge follows approval. (PianoidTunner's integration branch is `dev`, not `master`; root PianoidInstall is on `master`.) Merging and pushing are separate decisions — never push unless the user asks.
+
+```powershell
+# Port-targeted full-clearance sweep (run before declaring the environment clear)
+foreach ($port in 3000,3001,5000,5001) {
+  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -Expand OwningProcess -Unique |
+    ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+}
+```
 
 ---
 
@@ -471,11 +502,11 @@ If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mim
    ```
    Use the archived path for transcription.
 
-3. Transcribe using faster-whisper:
+3. Transcribe using faster-whisper (run from the **repo root** — the script lives in repo-root `tools/`, not under `PianoidCore/`):
    ```bash
-   cd PianoidCore && .venv/Scripts/python tools/transcribe_voice.py "<archived_path>"
+   PianoidCore/.venv/Scripts/python.exe tools/transcribe_voice.py "<archived_path>"
    ```
-   The transcribed text is printed to stdout. Stderr shows timing info.
+   The transcribed text is printed to stdout; stderr shows timing info. (Linux: `PianoidCore/.venv/bin/python`.)
 
 4. Acknowledge to the user:
    ```
@@ -485,6 +516,24 @@ If the inbound `<channel>` tag contains `attachment_file_id` and `attachment_mim
 5. Process the transcribed text as if the user had typed it (continue to classification below).
 
 **First-run note:** The `small` model (~500MB) downloads automatically on first use. Pre-download with `--preload` flag if needed.
+
+### Voice Output (TTS) — replying with a voice note
+
+The orchestrator can reply in spoken audio, not just text. Use this when the user sends voice (mirror their modality), for short status pings, or on explicit request ("reply by voice").
+
+1. Generate the audio with the TTS helper (edge-tts → OGG/Opus). Canonical helper is `tools/tts_voice.py` (run from the repo root):
+   ```bash
+   py -3 tools/tts_voice.py "Your spoken message here"
+   ```
+   It prints the absolute `.ogg` path as the **last** line of stdout.
+2. Send that `.ogg` as a Telegram voice note:
+   ```
+   mcp__plugin_telegram_telegram__reply(chat_id=<id>, files=["<printed .ogg path>"])
+   ```
+   The Telegram plugin's `server.ts` voice patch routes `.ogg`/`.oga`/`.opus` through `sendVoice` (a playable waveform bubble) instead of `sendDocument`. **If a sent `.ogg` arrives as a plain file attachment instead of a voice bubble, the patch is not active** — re-apply it (see durability note).
+3. **Dual-output rule still applies:** when replying by voice, also send the same content as text via `reply` so the CLI terminal and the user's chat history both have a readable copy. Voice is an addition to text, never a replacement.
+
+**Patch durability (check on a fresh session / after any plugin update).** The voice patch must live on the Telegram plugin's **marketplace** copy — the volatile cache copy is rebuilt from it on every reload, so patching only the cache silently reverts. It is applied + re-applied via `python tools/apply_telegram_voice_patch.py` (idempotent, marker-guarded, backs up `server.ts.bak`; mirrors `tools/apply_telegram_patch.py`; `--check` reports state). If voice notes stop rendering as bubbles: run `python tools/apply_telegram_voice_patch.py --check`; if not applied, run it without `--check` and reload. Full STT+TTS setup + the re-apply procedure: `docs/guides/TELEGRAM_CHANNEL_SETUP.md` § Voice I/O Setup.
 
 ### Text Message Classification
 
@@ -699,6 +748,7 @@ When a Telegram message has `attachment_file_id`:
 When a sub-agent produces a file (screenshot, report, etc.):
 1. Use `mcp__plugin_telegram_telegram__reply` with `files: ["/absolute/path"]`
 2. Images render as inline photos; other types as document attachments
+3. `.ogg`/`.oga`/`.opus` files render as **voice notes** (playable waveform bubble) when the `server.ts` voice patch is active — see "Voice Output (TTS)" above. Generate them with `tools/tts_voice.py`.
 
 ### Cross-channel file transfer
 
@@ -929,9 +979,10 @@ When reviewing returned artefacts before relaying to Telegram, verify the path m
 
 On `/orchestrator stop` or user saying "stop" / "done for now":
 1. List any active sub-agents still running
-2. Warn user about in-progress work
-3. Send final status summary via Telegram
-4. **Notify the controller:** `SendMessage(to: "controller", "session ending")`. The controller produces a final compliance summary, sends it to team-lead, archives its own log, and exits.
+2. Warn user about in-progress work; let each active agent finish its own clean exit (commit/stash/revert, release locks) — never leave an agent's tree dirty
+3. **Bring the environment to full clearance** (see "Full Clearance Before Every Handoff"): sweep all four ports (3000/3001/5000/5001) down and verify `git status --short` is clean in every repo
+4. Send final status summary via Telegram, explicitly confirming the environment is fully cleared
+5. **Notify the controller:** `SendMessage(to: "controller", "session ending")`. The controller produces a final compliance summary, sends it to team-lead, archives its own log, and exits.
 
 ---
 

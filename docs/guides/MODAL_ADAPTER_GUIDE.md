@@ -2106,32 +2106,45 @@ spectral views of the selected chain on a single visual line. When SHAPE
 is off, the heatmap returns to its above-scatter slot. When HEATMAP is
 off, the shape sub-chart renders full-width below the scatter as before.
 
-**Heatmap fill + smoothing controls (dev-md07).** A controls subrow
-appears immediately below the chart-sub-toggle row whenever the HEATMAP
-toggle is on (and the project is grid layout):
+**Heatmap fill + smoothing controls (dev-md07; semantics revised round
+24, dev-maimport 2026-05-17).** A controls subrow appears immediately
+below the chart-sub-toggle row whenever the HEATMAP toggle is on (and the
+project is grid layout):
 
 - **Heatmap fill**: ToggleButtonGroup with `None` / `Linear` / `Planar`.
-  - `None` (default) — empty cells render transparent, exact pre-dev-md07
-    behaviour.
-  - `Linear` — reserved API for future 1-D heatmap use; in grid layout it
-    falls back to `Planar`.
-  - `Planar` — empty cells get filled by a 2-D plane fit
-    (`z = a*x + b*y + c` via `np.linalg.lstsq` on populated `(x_mm, y_mm,
-    value)` tuples). Same algorithm
-    [`external_export.approximate_planar`](../modules/pianoid-middleware/REST_API.md#export-to-text-files-dev-6c54c87f)
-    uses for the text-export tool, so the heatmap visualisation matches
-    the export at-a-glance. Originally-measured cells are written back
-    verbatim — the planar fit only fills holes.
-- **Smooth σ**: Slider 0–2 step 0.1 (Gaussian σ in cells). Backend applies
-  `scipy.ndimage.gaussian_filter` to the (possibly filled) grid AFTER the
-  approximation pass. Smoothing acts only on cells that already have a
-  value — to fill empty cells the user must ALSO pick an approximation.
-  At σ = 0 (default) smoothing is disabled.
+  **As of round 24 this control is a deprecated no-op** — empty cells
+  always stay transparent. The pre-round-24 planar-fill code (which wrote
+  extrapolated values into originally-empty cells) was removed because it
+  mutated the measured matrix. The control is retained for UI/URL compat;
+  any selection behaves like `None`.
+- **Smooth σ**: Slider 0–2 step 0.1. **This is a pure client-side
+  rendering control — NOT a backend filter.** The slider value drives a
+  *pairwise-border anti-aliasing blend* painted on an overlay `<canvas>`
+  over the ECharts heatmap (`GridHeatmapInset.jsx`): for each border
+  shared by two non-null cells, a gradient stripe of half-width
+  `σ * cellWidth / 4` is drawn from one cell's colour to the other.
+  Null/empty cells stay white (their borders are never painted). At σ = 0
+  (default) no overlay is painted and the raw pixelated heatmap shows
+  through. **The underlying per-cell amplitude matrix is never mutated**
+  — the tooltip and any exported data always show the true measured
+  values regardless of the smoothing dialled in.
 
-Both controls are forwarded to the backend as query params on
-`GET /modal/grid_heatmap/<chain_id>?approximation=...&smoothing=...`
-(see [REST_API.md](../modules/pianoid-middleware/REST_API.md#per-chain-grid-heatmap)).
-The heatmap refetches automatically whenever either control changes.
+The backend `GET /modal/grid_heatmap/<chain_id>` always returns the raw
+measured-amplitude matrix; `approximation` and `smoothing` query params
+are **accepted but ignored** (echoed back as `"none"` / `0.0`) since
+round 24 — see
+[`visualization_service.get_grid_heatmap_data`](../modules/pianoid-middleware/REST_API.md#per-chain-grid-heatmap)
+and the round-24 rationale there. The frontend therefore no longer
+forwards either param (the request URL is bare); the heatmap refetches
+only when the chain or backend chain set changes, while smoothing-slider
+drags repaint the overlay client-side with no round-trip.
+
+> **Tracking-report parity (dev-f116, 2026-05-22).** The
+> [Tracking Report PDF](#tracking-report-pdf-dev-f116) re-implements this
+> exact client-side border-blend (same `σ * cellWidth / 4` half-width,
+> same palette, same null-cell-stays-white rule) in
+> `report_generator.py` so the PDF heatmap matches the on-screen heatmap
+> at the chosen smoothing (default 1.5).
 
 **Per-point hover annotation** — hovering a point on the stabilization diagram surfaces
 `Scenario N · Freq F Hz · Chain ID (stability) — K scenarios · MAC: 0.xxx · Damping D`
@@ -2423,6 +2436,47 @@ per-detection shapes. This is the same projection
 except the imaginary part is preserved instead of being collapsed via
 `np.real(...)`. Magnitude tells you how much of the mode is present at
 that scenario; phase tells you the bridge sign-flip pattern.
+
+### Tracking Report (PDF) (dev-f116)
+
+The Apply panel also includes a **Tracking Report (PDF)** sub-panel that
+renders a per-mode PDF summary of the tracking results for the **export
+set** (the curated chain selection — the same set Apply-to-Preset and
+Export-to-Text use). It is a read-only reporting view; it does not modify
+any project state.
+
+**Contents.** A summary **cover page** (project metadata + a per-mode
+table of frequency range / damping / MAC / stability) followed by **one
+page per mode**, each showing:
+
+| Field | Source (serialized chain dict) |
+|-------|--------------------------------|
+| Frequency range | `frequency_range` `[lo, hi]` Hz (+ `frequency_drift`) |
+| Damping | `damping_mean` (dimensionless zeta) |
+| MAC | `quality.shape_consistency` (mean pairwise MAC across the chain's detections) |
+| Stability | `detection_count` — **the number of scenarios in the chain's tracking chain** (plus the `stability` classification string and `coverage`) |
+| Heatmap | grid layout: per-cell amplitude (`get_grid_heatmap_data`) rendered with the on-screen smoothing blend; **line layout: per-scenario amplitude strip** (`det.amplitude` vs scenario) |
+| Shape chart | per-detection `det.shape` (per-channel signed magnitudes), one phase-aligned curve per scenario — mirrors the stab-diagram SHAPE sub-chart |
+
+**Heatmap smoothing.** The grid heatmap is rendered with the **same
+client-side pairwise-border blend** the live `GridHeatmapInset` uses (see
+[Heatmap fill + smoothing controls](#heatmap-fill--smoothing-controls-dev-md07-semantics-revised-round-24-dev-maimport-2026-05-17)),
+default **σ = 1.5**, so the PDF matches the on-screen view. Empty cells
+stay white; the measured matrix is never mutated.
+
+**Output location.** The PDF is written to the **project directory root**
+(`{projects_base}/{project_name}/{project_name}_tracking_report.pdf`) —
+alongside the project, where the other generated outputs live. (An
+explicit `output_dir` can override this.)
+
+**Implementation.** `modal_adapter/report_generator.py` —
+`ReportGenerator`, a stateless read-only service over `ProjectContext`
+(reuses `VisualizationService.get_grid_heatmap_data` for the grid cells).
+Rendered with **matplotlib `PdfPages`** (no new dependency). The facade
+delegates via `ModalAdapter.generate_tracking_report`; the REST surface
+is `POST /modal/projects/<name>/tracking_report` (see below). The
+frontend button lives in the Apply panel next to **Export to Text Files**
+and calls the `useModalAdapter` `generateTrackingReport` hook method.
 
 ---
 
