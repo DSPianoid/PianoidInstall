@@ -4,8 +4,20 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-maimport | Add Import path to Measurement subpanel (zip + folder) + dynamic drives + +New Project button | [log](logs/dev-maimport-2026-05-19-135147.md) | 2026-05-19 | In Progress |
-| dev-liveproc-w1 | Wave 1 Live Measurement+Processing Flow (subprocess worker + CuPy probe gate + LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback plumbed) | [log](logs/dev-liveproc-w1-2026-05-22-144937.md) | 2026-05-22 | In Progress |
+
+**Currently no active dev sessions.**
+
+<!-- Closed 2026-05-24:
+     dev-maimport (started 2026-05-19) — round 30 + earlier (Measurement Import dialog, +New Project,
+     scenario import consolidation, etc.) merged into dev + pushed. Final commits: PianoidCore
+     f1b5197 → merge 9593009; PianoidTunner 9778416 → merge e60e1a4; PianoidInstall a14e548 → e2c335b.
+     Session log archived to logs/archive/dev-maimport-2026-05-19-135147.md.
+
+     dev-liveproc-w1 (started 2026-05-22) — Wave 1 (subprocess worker + CuPy probe gate +
+     LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback
+     plumbed) merged into dev + pushed. Final commits: PianoidCore bf0e16b → merge 9593009.
+     Wave 2 not yet dispatched; feature/dev-liveproc-w1 branch preserved on PianoidCore.
+     Session log archived to logs/archive/dev-liveproc-w1-2026-05-22-144937.md. -->
 
 ---
 
