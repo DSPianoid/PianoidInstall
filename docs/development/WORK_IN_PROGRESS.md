@@ -7,6 +7,51 @@
 
 **Currently no active dev sessions.**
 
+---
+
+## Modal Mass + Q-Factor — Improvement Plan built on force channel (2026-05-24)
+
+**Status:** RESEARCH PROPOSAL — awaiting user decision on Q1–Q8 before any implementation.
+
+**Doc:** [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md).
+**Supersedes the §6 rollout** of [`modal-mass-q-factor-measurement-techniques-2026-05-13.md`](../proposals/modal-mass-q-factor-measurement-techniques-2026-05-13.md)
+(but NOT its physics — the 2026-05-13 stepped-sine / mass-loading / random catalogue stays
+valid; this plan adds a Phase 0 + Phase 1 + Phase 2 underneath it that exploit data the
+recorder already captures).
+
+**Headline.** The calibration ("force") channel that lives in `average_ch0.npy` is
+currently used for cycle alignment + per-cycle peak normalisation, then dropped from
+every downstream analysis (ESPRIT explicitly filters it out via
+`response_channels`). The plan promotes it to the input X(f) in a proper spectral-
+domain FRF `H(f) = Y(f)/X(f)`, which unlocks: per-mode Q from half-power BW + log-
+decrement (cross-validating ESPRIT's pole estimate), per-mode RELATIVE modal mass via
+SDOF curve-fit / circle-fit residue extraction, mass-normalised mode shapes, and a
+new per-scenario excitation-strength QC. No new measurement hardware, no new
+excitation type, no operator burden — all from data already on disk.
+
+**Three-phase rollout (improvement plan §6):**
+
+- **Phase 0 (~3-5 days, ~500 LOC):** Surface Q per chain, persist per-cycle force
+  peak, log-decrement Q cross-check. All free QC from existing data.
+- **Phase 1 (~3-4 weeks, ~1500 LOC):** `FrfOrchestrator` + FRF persistence stage +
+  coherence γ² + per-scenario FRF inspector + Q-from-FRF half-power bandwidth.
+- **Phase 2 (~3-4 weeks, ~1400 LOC):** `ResidueExtractor` + relative modal mass per
+  chain + mass-normalised mode-shape display + cross-scenario residue heatmap.
+
+**Blocker for ABSOLUTE modal mass (in kg):** no SI calibration constant exists in
+`setup/audio_config.json` for the calibration channel. Relative `m_n / m_1` is fully
+extractable from existing data; absolute SI requires either a one-time mass-loading
+campaign OR a reference-hammer calibration constant.
+
+**Open questions for user (Q1–Q8):** see proposal §7. Highlights: (Q1) FRF compute
+from raw_recordings vs averaged_responses given the existing peak-normalisation?
+(Q2) Relative-only or absolute SI modal mass priority? (Q5) Is the force-channel
+sensor co-located with one of the response-channel sensors (enables driving-point
+shortcut)?
+
+<!-- End modal-mass-q-factor-improvement-plan-2026-05-24 entry -->
+
+
 <!-- Closed 2026-05-24:
      dev-maimport (started 2026-05-19) — round 30 + earlier (Measurement Import dialog, +New Project,
      scenario import consolidation, etc.) merged into dev + pushed. Final commits: PianoidCore
