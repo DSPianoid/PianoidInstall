@@ -118,6 +118,21 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/results            -- get extraction results
   /modal/apply_to_preset    -- inject modes into active preset
   /modal/cancel             -- cancel running extraction
+  /modal/run_frf            -- (Phase 1, dev-frf-q-phase01) spectral FRF
+                               extraction with hammer-impact force window
+                               from raw_recordings/ per scenario
+  /modal/frf/summary        -- (Phase 1) project-level FRF index + per-scenario
+                               metadata (lightweight, safe before any run)
+  /modal/frf/scenario/<idx> -- (Phase 1) per-scenario FRF arrays serialised
+                               for the frontend (frequencies + per-channel
+                               magnitude_db / magnitude_abs / phase_deg /
+                               coherence)
+  /modal/frf                -- (Phase 1, DELETE) invalidate FRF — remove
+                               persisted files + clear in-memory state
+  /modal/qc/log_decrement   -- (Phase 0c) GET + POST Hilbert log-decrement
+                               Q cross-check; flags chains where Q_logdec
+                               disagrees with Q_esprit beyond threshold
+                               (default 30%)
   /modal/projects           -- list projects, current project, projects_base
   /modal/projects/create    -- create project with optional measurement_source
   /modal/projects/open      -- open existing project
@@ -2142,6 +2157,213 @@ Response `200`: per-pitch feedin coefficients, sound coefficients, measured/inte
 #### `GET /modal/feedin_results`
 
 Return per-pitch feedin and sound coefficients.
+
+---
+
+### Stage 5b: FRF + Q Cross-check (dev-frf-q-phase01, Phase 0 + Phase 1)
+
+The FRF (Frequency Response Function) stage was added in 2026-05-24 as
+the first half of the Modal Mass + Q-factor improvement plan. It
+promotes the calibration / force channel from "alignment timing" to
+the input `X(f)` in a proper spectral-domain `H(f) = Y(f) / X(f)`
+using the clean H1 estimator on raw per-cycle data.
+
+See [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md)
+for the full design rationale.
+
+**Hammer-impact force window (user Q5 directive).** The force/calibration
+sensor is mounted on the hammer itself (not co-located with response
+sensors), so the recorded force signal contains the main impact peak
+PLUS post-impact hammer bounce + recoil + ringdown. Only the main
+impulse represents true input force into the structure. Before FFT,
+the force is windowed to `[peak - W_pre, peak + W_post]` (default
+0.5 ms + 4.5 ms = 5 ms total centred on the negative-peak impact).
+Defaults are tunable per project via the `config` body field on
+`POST /modal/run_frf`.
+
+#### `POST /modal/run_frf`
+
+Compute FRF for the requested scenarios (synchronous; per-scenario
+~tens-of-ms). Bypasses `normalize_by_calibration` and works directly
+on `raw_recordings/raw_*_chN.npy` so the H1 estimator is not
+double-normalised (see proposal §4.2).
+
+Request body:
+```json
+{
+  "scenario_indices": [100, 101, 102],
+  "config": {
+    "force_window_pre_ms": 0.5,
+    "force_window_post_ms": 4.5
+  }
+}
+```
+
+Both fields are optional — `scenario_indices=null` processes every
+loaded scenario; `config` falls back to the module defaults.
+
+Response `200`: same shape as `GET /modal/frf/summary`.
+
+---
+
+#### `GET /modal/frf/summary`
+
+Return the project-level FRF index. Lightweight — no heavy arrays.
+Safe to call before any FRF run (`available: false` then).
+
+Response `200` (after a run):
+```json
+{
+  "available": true,
+  "stale": false,
+  "computed_at": "2026-05-24T11:49:20.459820+00:00",
+  "scenario_count": 1,
+  "config": {
+    "force_window_pre_ms": 0.5,
+    "force_window_post_ms": 4.5,
+    "calibration_channel": 0,
+    "response_channels": [1, 2, 3, 4, 5, 6, 7]
+  },
+  "scenarios": [
+    { "scenario_index": 100, "has_npz": true }
+  ]
+}
+```
+
+`stale=true` when an ESPRIT re-run or scenario re-load happened
+since the last FRF run; the frontend renders a "FRF needs re-run"
+badge in that state (Q8 dirty-flag flow).
+
+---
+
+#### `GET /modal/frf/scenario/<int:scenario_idx>`
+
+Return one scenario's FRF arrays serialised as plain JSON lists for
+the frontend. Reads back the persisted
+`<project>/modal_adapter/frf/scenario_<N>.npz`.
+
+Response `200`:
+```json
+{
+  "scenario_index": 100,
+  "frequencies": [0.0, 1.0, 2.0, "..."],
+  "n_cycles_used": 120,
+  "force_window": {
+    "peak_sample_median": 0.0,
+    "w_pre_ms": 0.5,
+    "w_post_ms": 4.5
+  },
+  "channels": {
+    "ch1": {
+      "channel": 1,
+      "magnitude_db": ["..."],
+      "magnitude_abs": ["..."],
+      "phase_deg": ["..."],
+      "coherence": ["..."]
+    }
+  }
+}
+```
+
+Coherence `γ²(f) = |G_xy|² / (G_xx · G_yy) ∈ [0, 1]` is a per-frequency
+quality metric — values close to 1 mean the FRF estimate is
+trustworthy at that bin, values << 1 mean the response is dominated
+by input-uncorrelated noise. The frontend can gray-out / hatch
+regions where coherence < 0.7.
+
+Returns `404` if the scenario has no persisted FRF.
+
+---
+
+#### `DELETE /modal/frf`
+
+Invalidate FRF for the current project: remove persisted
+`frf/scenario_*.npz` + `frf/index.json` and clear the in-memory cache.
+Drives the Q8 user-opt-in dirty-flag flow.
+
+Response `200`:
+```json
+{
+  "message": "Invalidated FRF: removed 5 files",
+  "deleted_files": ["scenario_100.npz", "index.json", "..."]
+}
+```
+
+---
+
+#### `POST /modal/qc/log_decrement`
+
+Run the Hilbert log-decrement Q cross-check against the current
+tracked chains (Phase 0c). Bandpass-filters the averaged IR around
+each chain's mode frequency, computes the Hilbert envelope, fits
+the slope of `log(envelope)` to recover `ζ = -slope / ω_n`, and
+compares `Q_logdec = 1/(2ζ)` against ESPRIT's `Q_esprit` per chain.
+
+Request body (optional):
+```json
+{
+  "disagreement_threshold": 0.30
+}
+```
+
+`disagreement_threshold` is the relative tolerance
+`|Q_logdec - Q_esprit| / Q_esprit` above which the chain is flagged
+as suspicious (default 0.30 = 30%).
+
+Response `200`:
+```json
+{
+  "computed_at": "2026-05-24T...",
+  "disagreement_threshold": 0.30,
+  "chain_count": 42,
+  "per_chain": {
+    "0": {
+      "chain_id": 0,
+      "frequency_hz": 200.05,
+      "Q_esprit": 100.0,
+      "Q_logdec": 102.4,
+      "disagreement_ratio": 0.024,
+      "disagreement_flag": false,
+      "reason": "ok",
+      "samples_used": 4759
+    }
+  }
+}
+```
+
+`reason` is one of: `"ok"`, `"no_damping"`, `"out_of_band"`,
+`"insufficient_samples"`, `"fit_failed"`, `"bad_envelope"`,
+`"no_measurements"`.
+
+Persisted to `<project>/modal_adapter/qc/log_decrement.json`.
+
+---
+
+#### `GET /modal/qc/log_decrement`
+
+Return the persisted log-decrement cross-check payload (or
+`{"available": false, "per_chain": {}}` when no cross-check has run).
+
+---
+
+### Data Status surface extensions
+
+`GET /modal/data_status` payload was extended in Phase 1 with three
+new keys (additive, no breaking change):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `frf` | bool | True when at least one scenario has FRF persisted |
+| `frf_stale` | bool | True when ESPRIT re-run / scenario re-load happened since the last FRF run |
+| `qc_log_decrement` | bool | True when the Hilbert log-decrement cross-check has been computed for the current project |
+
+Per-chain dicts (returned by `GET /modal/tracking_results`) gained
+two additive fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `quality_factor` | number \| null | `1 / (2 · damping_mean)` — surfaces the Q-factor per chain. `null` when `damping_mean` is degenerate. |
+| `detections[<sc>].quality_factor` | number \| null | Per-detection Q, same formula on `damping_ratio`. |
 
 ---
 

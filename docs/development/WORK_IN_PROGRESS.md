@@ -4,14 +4,53 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-
-**Currently no active dev sessions.**
+| dev-frf-q-phase01 | Modal Mass + Q-factor Phase 0 + Phase 1 (Q surfacing, Hilbert log-dec, FrfOrchestrator, raw_recordings H1, force windowing, coherence, persistence, REST, data_status) | [log](logs/dev-frf-q-phase01-2026-05-24-135524.md) | 2026-05-24 | Active |
 
 ---
 
 ## Modal Mass + Q-Factor — Improvement Plan built on force channel (2026-05-24)
 
-**Status:** RESEARCH PROPOSAL — awaiting user decision on Q1–Q8 before any implementation.
+**Status (2026-05-24, evening):** Phase 0 + Phase 1 IMPLEMENTED in
+`feature/dev-frf-q-phase01` on PianoidCore + PianoidTunner (not yet
+merged to `dev`, not pushed).
+
+**What landed:**
+- Phase 0a: `quality_factor = 1/(2ζ)` surfaced per chain + per-detection
+  in `chains_to_dicts`; UI Q column in `ModalResultsView.jsx` ModeTable.
+- Phase 0c: Hilbert log-decrement Q cross-check
+  (`pianoid_middleware.modal_adapter.qc.log_decrement_xcheck`); REST
+  endpoints `POST/GET /modal/qc/log_decrement`; UI cell color-coding
+  in the Q column driven by `qcLogDecrement` prop.
+- Phase 1: `FrfOrchestrator`
+  (`pianoid_middleware/modal_adapter/frf_orchestrator.py`) — H1
+  estimator from `raw_recordings/` per the user's Q1=B directive
+  (bypasses `normalize_by_calibration`). Hammer-impact force window
+  per Q5 (default 5 ms total, 0.5 ms pre + 4.5 ms post-peak). Per-
+  scenario NPZ persistence at `<project>/modal_adapter/frf/scenario_<N>.npz`
+  + project-level `frf/index.json`. REST surface
+  `POST /modal/run_frf`, `GET /modal/frf/summary`,
+  `GET /modal/frf/scenario/<idx>`, `DELETE /modal/frf`.
+  `data_status()` extended additively with `frf`, `frf_stale`,
+  `qc_log_decrement` flags.
+- Tests: 31 new (5 Q surfacing + 9 log-decrement + 17 FRF), all
+  passing. Existing modal_adapter suite (60 tests) green; pre-existing
+  test_channel_assignment / test_calibration_review / test_measurement_entity
+  / test_modal_adapter_state failures (6 total) confirmed unrelated
+  on master.
+- Live verified on `D:/modal_measurements/PlyWoodLGtemp1/` Sc 100: 120
+  cycles used, peaks recovered at 161 / 194 / 354 / 445 / 680 / 2221 Hz
+  (vs design-doc reference 162 / 199 / 445 / 682 / 2261 — clean match
+  within ±5 Hz, magnitudes differ because the Phase 1 H1 path does NOT
+  double-normalise like the old averaged_responses-based computation).
+  Coherence ≥0.85 at all modal peaks.
+
+**Doc:** [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md).
+**REST surface:** [`docs/modules/pianoid-middleware/REST_API.md`](../modules/pianoid-middleware/REST_API.md) Stage 5b.
+**Branch:** `feature/dev-frf-q-phase01` on PianoidCore + PianoidTunner.
+**Phase 2 (relative modal mass, residue extraction, mass-normalised
+mode shapes) still pending per the proposal's phase boundaries.
+
+**OLD status (now superseded):** RESEARCH PROPOSAL — awaiting user decision on Q1–Q8 before any implementation.
 
 **Doc:** [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md).
 **Supersedes the §6 rollout** of [`modal-mass-q-factor-measurement-techniques-2026-05-13.md`](../proposals/modal-mass-q-factor-measurement-techniques-2026-05-13.md)

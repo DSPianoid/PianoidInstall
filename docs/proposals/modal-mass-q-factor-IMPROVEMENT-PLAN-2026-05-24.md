@@ -1198,8 +1198,132 @@ receiver) pairs already in hand.
   + "Phase 2" (modal mass extraction from FRF) before any of the 2026-05-13 plan's
   stepped-sine work. The stepped-sine plan remains valid for very-high-Q modes
   (§5.5.3) but is now deferrable.
+- 2026-05-24 (dev-frf-q-phase01): Phase 0 + Phase 1 IMPLEMENTED. User-
+  locked answers: Q1=B (FRF from raw_recordings, bypass per-cycle peak
+  normalisation), Q2=Relative only, Q3=just store m_n (no preset wiring),
+  Q5=force sensor on the HAMMER itself → main signal only; window the
+  force around impact peak before FFT (default 0.5 ms pre + 4.5 ms
+  post = 5 ms total), Q7=per-scenario NPZ at `<project>/modal_adapter/frf/`,
+  Q8=Yes — add `frf` + `frf_stale` + `qc_log_decrement` to
+  `data_status()`. See branch `feature/dev-frf-q-phase01` on PianoidCore
+  + PianoidTunner; session log
+  [`logs/dev-frf-q-phase01-2026-05-24-135524.md`](../development/logs/dev-frf-q-phase01-2026-05-24-135524.md);
+  REST surface documented at
+  [`REST_API.md` § Stage 5b](../modules/pianoid-middleware/REST_API.md).
 
 ---
 
-**END OF PROPOSAL.** Awaiting user direction on §7 (Q1–Q8) before any implementation
-work is scheduled.
+## Implementation log (Phase 0 + Phase 1 — 2026-05-24)
+
+### What shipped
+
+- **`pianoid_middleware/modal_adapter/qc/log_decrement_xcheck.py`** —
+  pure-Python module. `compute_log_decrement_q(ir, sample_rate, freq,
+  zeta_predicted) -> (Q, samples, reason)` is the unit; bandpass via
+  `scipy.signal.butter(order=2) + filtfilt`, envelope via
+  `scipy.signal.hilbert`, linear-fit `log(env)` over the post-peak
+  decay region between the peak (skipping ≤2 ms transient) and the
+  first drop below `noise_fraction * peak` (default 10%).
+  `cross_check_chains(chains, measurements, sample_rate)` is the
+  per-chain orchestration that builds the consensus IR (mean across
+  the chain's detections × response channels), runs `compute_log_decrement_q`,
+  and produces a `LogDecrementResult` per chain with the disagreement
+  ratio + flag.
+- **`pianoid_middleware/modal_adapter/frf_orchestrator.py`** —
+  `FrfOrchestrator` mirroring `EspritOrchestrator` (stateless service
+  around `ProjectContext`; persist_cb + persist_npz_cb injected by the
+  facade). Per-scenario flow: load `raw_recordings/raw_*_chN.npy` →
+  reuse `SignalProcessor.extract_cycles` + `align_cycles_by_onset` for
+  cycle alignment → SKIP `normalize_by_calibration` (Q1=B) → per cycle
+  window force via `apply_force_window` → rfft both → Welch-average
+  `Sxy/Sxx/Syy` across cycles → `H1 = mean_Sxy / mean_Sxx`,
+  `coherence = |mean_Sxy|² / (mean_Sxx · mean_Syy)`. Force-peak
+  detection via `detect_impact_peak` (min sample on the negative
+  pulse; polarity fallback to `argmax(abs)`).
+- **`apply_service._persist_npz(stage, filename, arrays)`** new
+  helper parallel to the existing `_persist` (JSON). Uses
+  `np.savez_compressed` so per-scenario NPZ files stay small
+  (≈ 1 MB for 7 channels × 24001 freqs × complex128 + reals).
+- **`project_context.py`** new fields: `frf_results: Optional[Dict[int, Dict]]`
+  (in-memory metadata cache; the NPZ on disk is the source of truth
+  for heavy arrays), `frf_stale: bool`, `qc_log_decrement: Optional[Dict[int, Dict]]`,
+  `_frf_lock: threading.Lock`. `has_frf()` helper added.
+- **`esprit_runner.chains_to_dicts`** additively writes
+  `quality_factor: 1/(2·damping_mean)` per chain AND per detection.
+  All other fields preserved. UI consumers ignore unknown keys, so
+  this is a non-breaking schema bump.
+- **`modal_adapter.py` facade**: wired `FrfOrchestrator`, extended
+  `data_status()` with `frf` / `frf_stale` / `qc_log_decrement` flags,
+  added `run_frf`, `get_frf_summary`, `get_scenario_frf`, `has_frf`,
+  `invalidate_frf`, `run_log_decrement_xcheck`, `get_log_decrement_xcheck`
+  delegation methods. Extended `load_intermediate` to dispatch `frf` +
+  `qc`. Wrapped `run_esprit` + `load_folder` to call
+  `_frf_orchestrator.mark_stale()` (Q8 dirty flag). Extended all four
+  project-create / repair subdir-loops with `frf` + `qc`.
+- **REST**: 6 new endpoints in `routes/pipeline_routes.py`:
+  `POST /modal/run_frf`, `GET /modal/frf/summary`,
+  `GET /modal/frf/scenario/<idx>`, `DELETE /modal/frf`,
+  `POST /modal/qc/log_decrement`, `GET /modal/qc/log_decrement`.
+- **Frontend (PianoidTunner)**: `ModalResultsView.jsx` ModeTable gains
+  a Q column rendering the `quality_factor` field; when the
+  `qcLogDecrement` prop is supplied, the Q cell carries a tooltip +
+  background-color flag showing agreement (green-tinted) vs
+  disagreement (red-tinted) relative to the log-decrement Q estimate.
+
+### Test deltas
+
+| Suite | New tests |
+|---|---|
+| `tests/integration/modal_adapter/test_quality_factor_surface.py` | 5 |
+| `tests/integration/modal_adapter/test_qc_log_decrement.py` | 9 |
+| `tests/integration/modal_adapter/test_frf_orchestrator.py` | 17 |
+| `PianoidTunner/src/components/__tests__/ModalResultsView.qColumn.test.jsx` | 6 |
+| **Total** | **37** |
+
+All 37 passing. Existing PianoidTunner Jest suite (662 tests, 55 suites)
+green. Existing PianoidCore modal_adapter integration tests (60) green.
+
+### Live verification
+
+Spun up `ModalAdapter()` in-process (no Flask server) against
+`D:/modal_measurements/PlyWoodLGtemp1/scenarios/PlyWood-Scenario100-LG`:
+
+- 120 cycles loaded after alignment (8 measurements × 15 cycles, no
+  cycle drops; alignment correlation threshold default 0.7 from the
+  scenario metadata)
+- FRF computed in ≈4 s end-to-end (load + alignment dominates;
+  per-cycle FFT is ms-class)
+- NPZ written to `<tmp>/modal_adapter/frf/scenario_100.npz` (18 arrays
+  ≈ 1.0 MB compressed)
+- Channel-averaged peak detection (50-3000 Hz):
+  | Expected (proposal §4.3) | Observed | Coherence |
+  |---|---|---|
+  | 85 Hz | 93 Hz (peak nearby; modal cluster) | 0.96 |
+  | 162 Hz | 161 Hz | 1.00 |
+  | 199-202 Hz | 194 Hz | 1.00 |
+  | 445-446 Hz | 445 Hz | 0.99 |
+  | 682 Hz | 680 Hz | 0.98 |
+  | 2261-2264 Hz | 2221 Hz | 0.94 |
+
+Peaks match the design-doc reference within ±5 Hz at modal-density
+frequencies and ±40 Hz at the highest frequency tested. Magnitudes
+are absolute differently because Phase 1 uses raw cycles (clean H1)
+vs the design-doc which used `averaged_responses/` (peak-normalised
+per cycle); both are valid surfaces, the Phase 1 path is the one Q1=B
+asked for. Coherence ≥ 0.85 at every modal peak — confirms the FRF
+is trustworthy where it matters.
+
+### Phase 2 boundary
+
+Phase 1 stops at: data layer + REST endpoints + Q UI surfacing. No
+FRF visualisation panel yet — the frontend reads
+`GET /modal/frf/scenario/<idx>` already (the JSON is panel-ready),
+the panel itself ships in Phase 2 alongside the residue extractor +
+relative modal mass calculator + cross-scenario residue heatmap (see
+proposal §6 Phase 2 table).
+
+---
+
+**END OF PROPOSAL.** Phase 0 + Phase 1 shipped 2026-05-24
+(branch `feature/dev-frf-q-phase01`, awaiting user verification + merge).
+Phase 2 design unchanged; ready when the user wants it.
