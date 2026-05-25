@@ -16,6 +16,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 
+<!-- dev-cptmto-9d7e locks RELEASED 2026-05-25 at Step 10a Phase 1.
+     Fix for 5-min hardcoded polling timeout in
+     CreateProjectFromMeasurementDialog round-30 async path.
+     Committed on feature/dev-cptmto-9d7e (PianoidTunner ee54470):
+     POLL_MAX_MS bump 5min->60min + live mm:ss elapsed-chip + 10-min
+     "still running" banner + improved timeout error message + 8 new
+     Jest tests. Docs commit on PianoidInstall master pending:
+     MODAL_COLLECTION.md async-path note, CODE_QUALITY.md God Objects
+     update (file crossed 1000 LOC RED), WIP doc-gap entry for
+     REST_API.md async surface. 37/37 dialog tests PASS; 64/64
+     broader related Jest sweep PASS. PianoidCore untouched. NOT
+     merged to dev yet — awaits user verification (live retry on the
+     large measurement that triggered the original bug). -->
+
 <!-- dev-msdel-3b1a locks RELEASED 2026-05-25 at Step 10a Phase 1.
      Fix for 5000 ms axios timeout on measurement-set deletion.
      Committed on feature/dev-msdel-3b1a (PianoidTunner 1a6a3de):

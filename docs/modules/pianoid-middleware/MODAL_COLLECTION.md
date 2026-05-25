@@ -363,10 +363,12 @@ Project entity gains four new fields in v2 schema (`schema_version: 2`):
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST   | `/modal/projects`                                          | v2 Create — body `{name, measurement_id, band_config?}`. Snapshots parent's setup at create time per N5. URL-param `?measurement=<id>` is an alternative. 404 unknown measurement, 409 name collision |
+| POST   | `/modal/projects`                                          | v2 Create — body `{name, measurement_id, band_config?, async?}`. Snapshots parent's setup at create time per N5. URL-param `?measurement=<id>` is an alternative. 404 unknown measurement, 409 name collision. **Async opt-in:** body `{"async": true}` returns 202 + `{operation_id, status_url}`; the canonical averager runs in a background thread and progress is polled via `GET /modal/import_operations/<op_id>/status` until a terminal phase (`done` / `error` / `cancelled`). Cancel via `POST /modal/import_operations/<op_id>/cancel` (cooperative, at scenario boundaries). See round-30 doc gap heads-up below. |
 | POST   | `/modal/projects/<old>/branch`                             | Branch sibling Project — body `{new_name, inherit_band_config?}`. Snapshots parent at branch time (can differ from source if parent was unlocked+edited). 409 if source is v1 (no measurement_id) |
 
 **Existing project endpoints unchanged** during Phase 1: `/modal/projects/create`, `/modal/projects/open`, `/modal/projects/copy`, `/modal/projects/delete`, `/modal/projects/<n>/rename`, `/modal/projects/<n>/reaverage`, etc.
+
+**Frontend timeout note (async create path).** `CreateProjectFromMeasurementDialog.jsx` consumes the async path and uses a **60-min `POLL_MAX_MS`** wall-clock backstop on its inline await-loop (`PianoidTunner/src/components/CreateProjectFromMeasurementDialog.jsx`). The cap is a defensive backstop, NOT a backend deadline — the backend worker keeps running regardless of client disconnects. When the cap fires the dialog's error message tells the user the operation may still be running and to refresh the project list. The original 5-min budget shipped with `dev-maimport` round 30 was hit by a real large measurement (`dev-cptmto-9d7e`, 2026-05-25). UX features added alongside the bump: live mm:ss elapsed-time chip below the LinearProgress, plus a "still running" Alert that appears past 10 min elapsed. Cancel remains the primary user escape (Cancel button is enabled the whole time; cooperative-cancels via `POST /modal/import_operations/<op_id>/cancel`).
 
 ### Migration Script
 

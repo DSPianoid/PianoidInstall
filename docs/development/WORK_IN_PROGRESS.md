@@ -7,6 +7,7 @@
 | dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI (round 2: fix checkbox placement + Run-FRF empty-state UX) | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
 | dev-frfres-9c41 | Fix "FRF: No usable measurement source folder" error on PlyWoodLGtemp1_p4 (resolver bug vs button-gating) | [log](logs/dev-frfres-9c41-2026-05-25-175913.md) | 2026-05-25 | Active |
 | dev-msdel-3b1a | Fix measurement-set deletion 5000 ms axios timeout in UI | [log](logs/dev-msdel-3b1a-2026-05-25-195928.md) | 2026-05-25 | Active |
+| dev-cptmto-9d7e | Fix CreateProjectFromMeasurementDialog 5-min hardcoded polling timeout (large measurements legitimately exceed it) | [log](logs/dev-cptmto-9d7e-2026-05-25-210927.md) | 2026-05-25 | Active |
 
 <!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
      merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
@@ -23,6 +24,21 @@
      data. Session log will be archived to logs/archive/ at Phase 2
      after user approval. -->
 
+
+---
+
+## Doc Gap: Round-30 Async Import Path in REST_API.md (2026-05-25)
+
+**Reporter:** dev-cptmto-9d7e (2026-05-25). The round-30 async opt-in (`POST /modal/projects` with `{"async": true}` → 202 + `{operation_id, status_url}`; polling via `GET /modal/import_operations/<op_id>/status`; cancellation via `POST /modal/import_operations/<op_id>/cancel`) is documented in:
+
+- The archived `dev-maimport-2026-05-19-135147.md` session log (sections "Round 30 backend additions" and "Round 30 frontend additions")
+- A new partial cross-reference added by this agent in `MODAL_COLLECTION.md` (the v2 Project endpoints table + "Frontend timeout note (async create path)")
+
+But NOT in the canonical `REST_API.md` endpoint catalogue. Future readers looking up the async API surface will find the sync path documented and miss the async opt-in entirely.
+
+**Scope of gap:** ~3 endpoints (`POST /modal/projects` async body field, `GET /modal/import_operations/<op_id>/status`, `POST /modal/import_operations/<op_id>/cancel`) + the response schema (`{operation_id, status_url, phase, scenarios_total, scenarios_completed, current_scenario, result, error}`) + the `TERMINAL_PHASES` invariant + the dialog-side `POLL_MAX_MS` backstop (60 min as of `dev-cptmto-9d7e`, 2026-05-25).
+
+**Owner:** next agent that touches `REST_API.md` for import/project routes, or a dedicated `/update-docs` pass on the round-30 surface. **ETA:** opportunistic — not blocking any current user-visible feature; the dialog UX surfaces enough information that users don't need the REST docs to use the feature.
 
 ---
 
