@@ -16,6 +16,21 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 
+<!-- dev-frfres-9c41 locks RELEASED 2026-05-25 at Step 10a Phase 1.
+     Fix for v2 open_project not setting ctx.source_folder (caused FRF
+     resolver to return None → "No usable measurement source folder
+     for FRF" on every measurement-backed v2 project). Committed on
+     feature/dev-frfres-9c41 (PianoidCore) + docs commit on
+     PianoidInstall master. NOT merged to dev yet — awaits user
+     verification (live browser test of Compute Modal Mass toolbar
+     button on PlyWoodLGtemp1_p4). New regression test
+     test_v2_open_project_source_folder.py PASS (2/2); related v2 +
+     FRF suites untouched (41/41 PASS). Live repro on real _p4 data
+     confirmed pre-fix=None, post-fix=D:\modal_measurements\PlyWoodLGtemp1.
+     Files: scenario_loader.py (24-line addition), new regression
+     test, MODAL_COLLECTION.md doc edit, diagnostic script. -->
+
+
 <!-- dev-mmui-6e97 round 2 locks RELEASED 2026-05-25 at Step 10a Phase 1.
      Modal Mass UI round 2 fixes committed on the existing
      feature/dev-mmui-6e97 (PianoidTunner: round-2 commit TBD on top of

@@ -1013,6 +1013,21 @@ that resolves, or `None` if no candidate is reachable — caller treats
 | `reaverage_project` | Re-run the averager on existing source | Raises `ValueError(no resolvable measurement source)` |
 | `_load_v2_scenarios_from_parent_measurement` | v2 open-project fallback (round 4) | Logs warning, leaves `_measurements` empty (downstream pipeline 409 surfaces the user-friendly recovery prompt) |
 
+**`ctx.source_folder` invariant (dev-frfres-9c41, 2026-05-25):** every
+state-mutating loader (v1 `load_folder`, v1 `load_roomresponse_scenarios`,
+**and** v2 `_load_v2_scenarios_from_parent_measurement`) must set
+`ctx.source_folder` to the **parent of the scenarios directory** — i.e.
+the directory that contains a `scenarios/` subfolder (v2 layout) OR the
+directory that contains scenario subfolders directly (v1 RoomResponse
+layout). This is the contract `FrfOrchestrator._resolve_scenario_dirs`
+depends on (it appends `/scenarios` to `source_folder` first and only
+falls back to `source_folder` directly if that path is absent). Skipping
+the assignment in v2 caused `POST /modal/run_frf` to raise
+`"No usable measurement source folder for FRF; resolved=None"` on every
+v2 project whose `measurements/` directory was empty — the canonical v2
+layout — even though the parent Measurement's `raw_recordings/` were
+fully present.
+
 `delete_project` is a special case (not a consumer): it explicitly
 reads `meta["measurement_source"]` to decide whether to rmtree the
 extracted Measurement folder. For v2 projects, that field is null
