@@ -65,11 +65,47 @@ New `useModalMassRun.js` hook is the shared FRF + modal_mass runner
 consumed by all three entry points (auto-chain checkbox, explicit
 toolbar button, chart empty-state CTA) so progress UI is consistent.
 
+**Round 3 (2026-05-25 late evening):** User tested round 2 live;
+Compute-Modal-Mass succeeded but the chart still showed the
+"needs FRF data" empty-state. Root cause was a backend silent-projection
+bug in `ModalAdapter.get_project_state()` — the method built its
+returned `data_status` sub-dict via a hand-picked allow-list that the
+dev-frf-q-phase01 + dev-modal-mass-p2 additions of `frf` / `frf_stale`
+/ `modal_mass` / `modal_mass_stale` keys never made it into. Frontend's
+`syncFromBackend` therefore had `dataStatus.frf` permanently
+`undefined`. Same anti-pattern as the dev-md06 hotfix.
+
+Fixes:
+1. **Backend `get_project_state()`** — replaced the allow-list with
+   a wholesale `dict(status)` spread; pop only the two large config-
+   dict keys that belong at the project_state top level.
+   `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py`.
+2. **Latent Rules-of-Hooks violation in `ModalMassFreqChart.jsx`** —
+   `useCallback(handleClick)` was defined AFTER the empty-state early
+   returns. The round-3 reactivity test exposed it: the very
+   empty-state → loaded transition that this round fixes would crash
+   the chart with "Rendered more hooks than during the previous render"
+   in production once the backend fix landed. Hoisted `handleClick`
+   above all conditional returns.
+3. **Backend regression tests** — new
+   `test_project_state_data_status_complete.py` (4 tests) pins the
+   pass-through invariant + no-duplication + Phase 1/2 keys + the
+   HTTP route end-to-end.
+4. **Frontend reactivity tests** — 3 new tests in
+   `ModalMassFreqChart.test.jsx` pin the empty-state → loaded
+   transition on dataStatus + summary updates.
+
 Branch: `feature/dev-mmui-6e97` on PianoidTunner (round 1 commit
-d616fb7 + round 2 commit ac19f9a); docs commit on PianoidInstall master.
-PianoidCore untouched. 40 new Jest tests pass total (22 chart + 18
-hook); full 727-test suite green (64 suites). NOT merged — awaits
-user verification (live browser test of all three round-2 surfaces).
+d616fb7 + round 2 ac19f9a + round 3 6f06535);
+`feature/dev-mmui-6e97-r3` on PianoidCore (off prior dev-frfres-9c41,
+round 3 75efd93); docs commit on PianoidInstall master.
+43 new Jest tests total cumulative (22 chart + 18 hook + 3 reactivity);
+full 730-test PianoidTunner suite green (64 suites).
+Backend modal_adapter / measurement_import suites: 142 / 142 PASS
+(round 3 backend test = 4 new). NOT merged — awaits user verification
+(live browser test on PlyWoodLGtemp1_p4: open project, click Compute
+Modal Mass, watch banner cycle to Done, confirm chart auto-populates
+without manual refresh).
 
 ---
 

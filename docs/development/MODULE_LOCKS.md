@@ -16,6 +16,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 
+<!-- dev-mmui-6e97 round 3 locks RELEASED 2026-05-25 at Step 10a Phase 1.
+     Backend fix (get_project_state() data_status pass-through) +
+     latent Rules-of-Hooks fix in ModalMassFreqChart.jsx + 4 backend
+     integration tests + 3 frontend reactivity tests. Committed on
+     feature/dev-mmui-6e97-r3 (PianoidCore) + feature/dev-mmui-6e97
+     (PianoidTunner) + docs commit on PianoidInstall master. NOT
+     merged to dev yet. Backend tests 4/4 PASS + related modal_adapter
+     sweep 142/142 PASS. Frontend 64 suites / 730 tests PASS. -->
+
+
 <!-- dev-frfres-9c41 locks RELEASED 2026-05-25 at Step 10a Phase 1.
      Fix for v2 open_project not setting ctx.source_folder (caused FRF
      resolver to return None → "No usable measurement source folder

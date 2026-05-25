@@ -925,6 +925,46 @@ interpretation of mode locations + heights becomes calibrated against the input 
     `useModalMass.js` kept (still wraps the 4 REST endpoints and is
     consumed by the new chart + tooltip). 22 new Jest tests pass;
     full 709-test suite green.
+- **Backend + frontend round 3 (dev-mmui-6e97, 2026-05-25 late evening).**
+  Round 2 shipped — user tested live; Compute-Modal-Mass ran successfully but
+  the chart still rendered its "needs FRF data" empty-state branch. Root
+  cause was a backend silent-projection bug in
+  ``ModalAdapter.get_project_state()``:
+  - The method built its returned ``data_status`` sub-dict via a hand-picked
+    allow-list of keys from ``data_status()``. Phase 1 (dev-frf-q-phase01)
+    added ``frf`` / ``frf_stale`` / ``qc_log_decrement`` and Phase 2
+    (dev-modal-mass-p2) added ``modal_mass`` / ``modal_mass_stale`` to
+    ``data_status()``, but neither was reflected in the allow-list.
+  - The frontend's ``useModalAdapter.syncFromBackend`` reads
+    ``/modal/project_state`` (NOT ``/modal/data_status``), so
+    ``dataStatus.frf`` and ``dataStatus.modal_mass`` were silently
+    ``undefined`` in React state forever. The chart's empty-state predicate
+    ``!dataStatus?.frf`` was therefore always truthy after a fresh open
+    AND after a successful run.
+  - Same class as the dev-md06 hotfix (which had silently dropped
+    ``chain_undo_available`` / ``chain_redo_available`` / ``tracked_chains_version``);
+    the allow-list IS the anti-pattern.
+  Fix: replace the allow-list with a wholesale ``dict(status)`` spread; pop
+  only the two large config-dict keys (``mapping_config``, ``esprit_config``)
+  that belong at the project_state top level. Backend file
+  ``PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py``,
+  ``get_project_state()``. Documented inline so future hands see the
+  anti-pattern named.
+  Plus: a latent Rules-of-Hooks violation in ``ModalMassFreqChart.jsx``
+  was exposed by the round-3 reactivity test — ``useCallback(handleClick, ...)``
+  was defined AFTER the empty-state early returns. When the parent flipped
+  empty-state → loaded between renders (exactly the transition triggered
+  by this round's fix), React crashed with "Rendered more hooks than during
+  the previous render." Fix: hoist ``handleClick`` above all conditional
+  returns. Would have crashed in production once the backend fix landed.
+  Tests: 4 new backend integration tests
+  (``test_project_state_data_status_complete.py``) pin the pass-through
+  invariant, the no-duplication invariant, and explicit presence of the
+  Phase 1 + Phase 2 keys + the HTTP route end-to-end. 3 new frontend
+  reactivity tests in ``ModalMassFreqChart.test.jsx`` pin the
+  empty-state → loaded transition on dataStatus + summary updates.
+  Full PianoidTunner suite: 64 / 64 PASS, 730 / 730 tests. Related
+  backend modal_adapter / measurement_import suites: 142 / 142 PASS.
 - **Frontend round 2 (dev-mmui-6e97, 2026-05-25 evening).** User
   feedback after round 1 surfaced two bugs:
   1. The auto-chain checkbox lived in the ESPRIT/Setup settings
