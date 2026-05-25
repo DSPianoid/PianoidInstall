@@ -16,6 +16,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 
+<!-- dev-msdel-3b1a locks RELEASED 2026-05-25 at Step 10a Phase 1.
+     Fix for 5000 ms axios timeout on measurement-set deletion.
+     Committed on feature/dev-msdel-3b1a (PianoidTunner 1a6a3de):
+     useMeasurementCatalog.js timeout bump 5000->60000 + new Jest
+     regression test. Docs commit on PianoidInstall master:
+     MODAL_COLLECTION.md callout for the new timeout + the threaded=
+     False / rmtree-cost rationale. PianoidCore untouched (backend
+     handler was correct). 18/18 useMeasurementCatalog tests PASS;
+     78/78 broader measurement-related Jest sweep PASS. Held files
+     were the 4 candidates investigated; only 2 (useMeasurementCatalog
+     .js + its Jest test) ended up edited. NOT merged to dev yet -
+     awaits user verification (live browser test of delete from
+     Measurements Management dialog). -->
+
 <!-- dev-mmui-6e97 round 3 locks RELEASED 2026-05-25 at Step 10a Phase 1.
      Backend fix (get_project_state() data_status pass-through) +
      latent Rules-of-Hooks fix in ModalMassFreqChart.jsx + 4 backend

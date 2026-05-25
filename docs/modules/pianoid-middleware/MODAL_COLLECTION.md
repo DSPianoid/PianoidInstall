@@ -355,7 +355,9 @@ Project entity gains four new fields in v2 schema (`schema_version: 2`):
 | POST   | `/modal/measurements/<id>/setup_test`                      | Run Setup Test — wired through `SetupTestEngine` (Phase 2a, dev-msmtui, 2026-05-11). Pauses synth, captures one calibration cycle, validates against `setup/calibration_criteria.json`, overwrites `setup_test/latest.*` per N3. 502 on pause failure, 500 on engine crash. |
 | GET    | `/modal/measurements/<id>/setup_test`                      | Fetch latest Setup Test report (404 if never run) |
 | POST   | `/modal/measurements/<id>/unlock`                          | Manual unlock-with-warning per N4. Body: `{confirm: true}` required. 400 without confirm |
-| DELETE | `/modal/measurements/<id>`                                 | Delete. 409 with `{linked_projects: [...]}` if any Project references this Measurement (N6, no force flag) |
+| DELETE | `/modal/measurements/<id>`                                 | Delete. 409 with `{linked_projects: [...]}` if any Project references this Measurement (N6, no force flag). Server-side cost = `shutil.rmtree(path)` + cross-project ref scan (both fast on isolation; the rmtree of a 8.8 GB / 2526-file fake measurement clocked 1.66 s in dev-msdel-3b1a 2026-05-25 timing). |
+
+**Frontend timeout note.** The `useMeasurementCatalog.deleteMeasurement` axios call uses a **60 s timeout** (`PianoidTunner/src/hooks/useMeasurementCatalog.js`). Two factors compound on the budget: (a) Windows `rmtree` on a many-scenario folder, and (b) `modal_adapter_server.py` runs `app.run(threaded=False)` for CuPy-GPU thread-pinning, so DELETE serialises behind any in-flight FRF (~22 s), modal-mass, or ESPRIT request. The original 5 s budget shipped with `dev-maimport` round 14 was unsurvivable when the user happened to delete during one of those long ops. Sibling pattern: `useMeasurementCatalog.renameMeasurement` uses 30 s for similar rationale.
 
 **Project endpoints (Phase 1 additions):**
 

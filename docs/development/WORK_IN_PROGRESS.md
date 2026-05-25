@@ -6,6 +6,7 @@
 |-------|------|-----|---------|--------|
 | dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI (round 2: fix checkbox placement + Run-FRF empty-state UX) | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
 | dev-frfres-9c41 | Fix "FRF: No usable measurement source folder" error on PlyWoodLGtemp1_p4 (resolver bug vs button-gating) | [log](logs/dev-frfres-9c41-2026-05-25-175913.md) | 2026-05-25 | Active |
+| dev-msdel-3b1a | Fix measurement-set deletion 5000 ms axios timeout in UI | [log](logs/dev-msdel-3b1a-2026-05-25-195928.md) | 2026-05-25 | Active |
 
 <!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
      merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
