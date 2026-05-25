@@ -15,6 +15,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+
+<!-- dev-mmui-6e97 locks RELEASED 2026-05-25 at Step 10a Phase 1.
+     Modal Mass UI refactor committed on feature/dev-mmui-6e97 (PianoidTunner d616fb7).
+     PianoidInstall docs commit on master. NOT merged to dev yet — awaits user
+     verification (live testing on PlyWoodLGtemp1 dataset). 22 new Jest tests
+     pass; full 709-test suite green. Backend untouched (PianoidCore unchanged). -->
+
 <!-- dev-frf-q-phase01 locks RELEASED 2026-05-24 at Step 10a Phase 1.
      Phase 0 + Phase 1 of Modal Mass + Q-factor improvement plan
      committed on feature/dev-frf-q-phase01 + merged to dev on both

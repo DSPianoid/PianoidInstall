@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI: remove dedicated tab, integrate into Tracking subpanel + chain popup, auto-chain ESPRIT checkbox, modal-mass-vs-log(f) chart | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
 
 <!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
      merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
@@ -24,6 +25,30 @@
 ---
 
 ## Modal Mass + Q-Factor — Improvement Plan built on force channel (2026-05-24)
+
+**dev-mmui-6e97 (2026-05-25) Phase 2 UI refactor IN PROGRESS.** Removed
+the dedicated "Modal Mass" tab and integrated functionality into the
+Tracking subpanel + ESPRIT settings:
+
+- New `ModalMassFreqChart.jsx` (modal-mass vs log(f) scatter) toggled
+  by a new "Mass" button next to Damp/Amp/MAC/Shape/Proj/Heatmap in
+  StabilizationDiagram.
+- `m_relative` + `fit_quality` fields appended to the SD chart's
+  hover tooltip (chain popup).
+- "Auto-chain after ESPRIT" opt-in checkbox in the Band Configuration
+  accordion — when ON, runs Tracking + FRF + Modal Mass client-side
+  after ESPRIT, with non-fatal snackbar fallbacks for the Q6 ≥8 gate.
+- `ModalMassPanel.jsx` + `ModalMassPanel.test.jsx` deleted (the bar
+  chart + per-chain drilldown were superseded by the new chart;
+  per-chain detail can be re-introduced as a future addition if
+  requested).
+
+Branch: `feature/dev-mmui-6e97` on PianoidTunner; docs commit on
+PianoidInstall master. PianoidCore untouched. 22 new Jest tests pass;
+full 709-test suite green. NOT merged — awaits user verification.
+
+---
+
 
 **Status (2026-05-24, evening):** Phase 0 + Phase 1 IMPLEMENTED in
 `feature/dev-frf-q-phase01` on PianoidCore + PianoidTunner (not yet

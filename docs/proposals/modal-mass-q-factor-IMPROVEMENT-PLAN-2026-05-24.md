@@ -844,7 +844,7 @@ interpretation of mode locations + heights becomes calibrated against the input 
 |---|---|---|---|---|---|
 | 2a | Residue extraction kernels: `circle_fit.py` (SDOF Kennedy-Pancu, ~200 LOC) + `rfp_fit.py` (MDOF RFP joint LS, ~200 LOC) | 600 BE | M-L | Phase 1 | **SHIPPED** (dev-modal-mass-p2, kernels under `pianoid_middleware/modal_adapter/modal_mass/`; orchestrator-side wiring in `modal_mass_orchestrator.py`) |
 | 2b | Per-chain relative modal mass via SVD dual-unit-max inversion (`shape_inversion.py`) + `modal_mass_orchestrator.py` (cluster detection, ref-mode selection, persistence) | 200 BE | S | 2a | **SHIPPED** (dev-modal-mass-p2; per-chain `m_absolute` + `m_relative` persisted; uncertainty deferred — current pipeline returns single-best-fit per chain, future LS-covariance work tracked in Phase 3) |
-| 2c | Mass-normalised mode shapes (toggle in UI) | 100 BE + 100 FE | S | 2b | **SHIPPED** (dev-modal-mass-p2; backend emits `shape_*_mass_normalised` arrays per chain; frontend `ModalMassPanel` exposes a Raw \| Mass-normalised ToggleButtonGroup) |
+| 2c | Mass-normalised mode shapes (toggle in UI) | 100 BE + 100 FE | S | 2b | **SHIPPED backend; FE temporarily withdrawn** (dev-modal-mass-p2 backend emits `shape_*_mass_normalised` arrays per chain; the Raw \| Mass-normalised ToggleButtonGroup lived in `ModalMassPanel` which was removed in the dev-mmui-6e97 UI refactor. Re-exposing the toggle is a Phase 3 follow-on if the user requests it — the backend payload still carries the data) |
 | 2d | Cross-scenario residue display (actuator-grid view) | 400 FE | M | 2a | **PARTIAL** (dev-modal-mass-p2; ECharts 1-D heatmap of `\|φ_actuator\|` per populated cell + per-(scenario, channel) residue magnitude table. 2-D GridHeatmapInset reuse deferred — current backend payload doesn't embed grid coordinates; that's a follow-on if the 1-D strip view is not enough) |
 | 2e | (Optional) Absolute modal mass IF `calibration_channel_si_per_count` set | 50 BE + 80 FE | S | 2b + user-side calibration | **NOT YET** (deferred per Q2 = Relative-only) |
 
@@ -888,14 +888,43 @@ interpretation of mode locations + heights becomes calibrated against the input 
   `fit_quality ∈ [0.5, 0.9]`. This is the correct fail-fast
   behaviour; the frontend renders fit_quality colour-coding so the
   user can spot low-quality chains.
-- **Frontend.** New "Modal Mass" tab in `ModalAdapter.jsx`
-  (PIPELINE_SECTIONS extended to 5: collect / setup / tracking /
-  modal_mass / apply). Hook `useModalMass.js` wraps the 4 REST
-  endpoints. Panel `ModalMassPanel.jsx` renders the bar chart of
-  m_n/m_ref + click-to-drilldown detail (actuator shape strip,
-  response-sensor strip, per-(scenario, channel) residue table)
-  + Raw \| Mass-normalised toggle + Run \| Invalidate buttons. 11
-  new Jest tests pass; full 673-test suite green.
+- **Frontend (dev-modal-mass-p2, superseded 2026-05-25).** Initial
+  landing added a dedicated "Modal Mass" tab in `ModalAdapter.jsx`
+  (PIPELINE_SECTIONS extended to 5). Hook `useModalMass.js` wraps the
+  4 REST endpoints. Panel `ModalMassPanel.jsx` rendered the bar chart
+  + click-to-drilldown detail + Raw / Mass-normalised toggle + Run /
+  Invalidate buttons. 11 new Jest tests passed; full 673-test suite
+  green.
+- **Frontend follow-up (dev-mmui-6e97, 2026-05-25).** The dedicated tab
+  was removed and replaced with three integrated touchpoints:
+  - **In-Tracking modal-mass-vs-log(f) chart** — new
+    `ModalMassFreqChart.jsx` component, toggled by a "Mass" button
+    parallel to Damp/Amp/MAC/Shape/Proj/Heatmap. ECharts scatter,
+    y = m_relative (log scale), x = log10(frequency_hz). Per-marker
+    opacity ramps with `fit_quality_overall` so low-fit chains are
+    visibly dimmed (addresses the original Phase 2 heads-up #1 about
+    uniform UI display masking trustworthiness). Filter chips
+    All / Selected / Stable / Export (MUI ToggleButtonGroup).
+    Click-to-select wires into the SD chart's selection state.
+    Empty-state CTAs: "Run FRF" if FRF missing, "Run Modal Mass" if
+    FRF ready but modal_mass missing.
+  - **Chain-popup `m_relative` + `fit_quality` fields** — the
+    StabilizationDiagram ECharts tooltip formatter now appends two
+    lines per chain hover (`m_rel: X.XXX (m_ref)?` + `fit_q: X.XX`),
+    looked up by `chain_id` from the modal-mass summary. Renders "—"
+    when modal mass has not been computed or this chain has no result.
+  - **Auto-chain checkbox in ESPRIT settings** — opt-in
+    `autoChainEsprit` boolean checkbox inside the Band Configuration
+    accordion of the Setup section. When ON, the Run-ESPRIT toolbar
+    button chains client-side: ESPRIT → Tracking → FRF → Modal Mass.
+    Failures along the way fall back to non-fatal snackbar messages
+    (Q6 ≥8-scenario gate trip renders as "Modal Mass skipped"). UI-
+    only state — never persisted with the preset. Default OFF
+    preserves the previous single-step behaviour.
+  - `ModalMassPanel.jsx` + `ModalMassPanel.test.jsx` deleted;
+    `useModalMass.js` kept (still wraps the 4 REST endpoints and is
+    consumed by the new chart + tooltip). 22 new Jest tests pass;
+    full 709-test suite green.
 
 **Demo:** new "Modal Mass" subpanel showing `m_n / m_1` bars with uncertainty;
 selecting a chain reveals a grid heatmap of its residue across all actuator
