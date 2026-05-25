@@ -925,6 +925,49 @@ interpretation of mode locations + heights becomes calibrated against the input 
     `useModalMass.js` kept (still wraps the 4 REST endpoints and is
     consumed by the new chart + tooltip). 22 new Jest tests pass;
     full 709-test suite green.
+- **Frontend round 2 (dev-mmui-6e97, 2026-05-25 evening).** User
+  feedback after round 1 surfaced two bugs:
+  1. The auto-chain checkbox lived in the ESPRIT/Setup settings
+     (Band Configuration accordion) — user looked in Tracking
+     settings and didn't find it.
+  2. The chart's "Run FRF" empty-state button had no progress
+     indication and on long FRF runs (~22 s on 12 scenarios) looked
+     like a silent failure.
+  Fixes:
+  - **Auto-chain checkbox moved** from Band Configuration accordion
+    to the Tracking settings panel (right below the nuclei MAC
+    thresholds row). The semantics (Run-ESPRIT triggers the chain)
+    are unchanged — only the discoverable location moved to where
+    the user expects "after-tracking" controls.
+  - **Explicit "Compute Modal Mass" toolbar button** in the Tracking
+    subpanel toolbar. Single-click chains FRF → Modal Mass via the
+    new shared `useModalMassRun` hook. Disabled when modal_adapter
+    is offline / no tracked chains exist / a run is in progress.
+    Label flips to the current stage label while running ("Running
+    FRF (1/2)…" → "Running Modal Mass (2/2)…").
+  - **Shared `useModalMassRun.js` hook** (new, 207 LOC): owns
+    `stage` (idle / frf / modal_mass / done / error), `elapsedMs`
+    (live counter, ~10 Hz updates), `error` (verbatim from backend
+    `err.response.data.error`), and `summary` (POST response).
+    Re-entrant-safe (second run() while in-flight is a no-op).
+    Consumed by all three entry points (auto-chain checkbox,
+    explicit toolbar button, chart empty-state CTA) so progress UI
+    is consistent regardless of where the run was triggered.
+  - **Persistent progress banner** below the toolbar (renders while
+    `isRunning` or after the most recent run completed). Shows
+    stage label + elapsed seconds while running, success summary
+    (chain count + ref chain @ freq) when done, or error variant
+    with the verbatim backend error message on failure. User
+    dismisses via the close button.
+  - **Chart empty-state CTAs upgraded** to (a) reflect in-progress
+    stage on the button label when a run was triggered elsewhere
+    (b) disable themselves to prevent double-click (c) surface
+    the same `useModalMassRun.error` in red text below the button
+    so the user never has to look elsewhere for failure context.
+  - 18 new Jest tests (15 for the new hook covering all 5 stages,
+    re-entrancy, dismiss, elapsed counter, plus 3 new chart tests
+    for the in-progress / error-surfacing states). Full 727-test
+    suite green (64 suites). Backend untouched.
 
 **Demo:** new "Modal Mass" subpanel showing `m_n / m_1` bars with uncertainty;
 selecting a chain reveals a grid heatmap of its residue across all actuator

@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI: remove dedicated tab, integrate into Tracking subpanel + chain popup, auto-chain ESPRIT checkbox, modal-mass-vs-log(f) chart | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
+| dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI (round 2: fix checkbox placement + Run-FRF empty-state UX) | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
 
 <!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
      merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
@@ -26,9 +26,10 @@
 
 ## Modal Mass + Q-Factor — Improvement Plan built on force channel (2026-05-24)
 
-**dev-mmui-6e97 (2026-05-25) Phase 2 UI refactor IN PROGRESS.** Removed
-the dedicated "Modal Mass" tab and integrated functionality into the
-Tracking subpanel + ESPRIT settings:
+**dev-mmui-6e97 (2026-05-25) Phase 2 UI refactor IN PROGRESS.**
+
+**Round 1:** Removed the dedicated "Modal Mass" tab and integrated
+functionality into the Tracking subpanel + ESPRIT settings:
 
 - New `ModalMassFreqChart.jsx` (modal-mass vs log(f) scatter) toggled
   by a new "Mass" button next to Damp/Amp/MAC/Shape/Proj/Heatmap in
@@ -43,9 +44,31 @@ Tracking subpanel + ESPRIT settings:
   per-chain detail can be re-introduced as a future addition if
   requested).
 
-Branch: `feature/dev-mmui-6e97` on PianoidTunner; docs commit on
-PianoidInstall master. PianoidCore untouched. 22 new Jest tests pass;
-full 709-test suite green. NOT merged — awaits user verification.
+**Round 2 (2026-05-25 evening):** User feedback after live testing of
+round 1 — fixed two bugs:
+
+1. **Auto-chain checkbox moved** from the Band Configuration accordion
+   (Setup section) to the Tracking settings panel. User looked there
+   first and didn't find it; tracking is where chains-become-chains so
+   the setting belongs with the tracking-method / freq-tolerance / max-
+   gap controls.
+2. **Explicit "Compute Modal Mass" toolbar button** in the Tracking
+   subpanel toolbar — single-click runs FRF → Modal Mass. Plus a
+   **persistent progress banner** below the toolbar showing stage
+   label ("Running FRF (1/2)…" → "Running Modal Mass (2/2)…") + live
+   elapsed-seconds counter + success summary or verbatim error
+   message on failure. Replaces the round-1 silent "Run FRF" button
+   that gave no progress feedback during the ~22 s FRF run.
+
+New `useModalMassRun.js` hook is the shared FRF + modal_mass runner
+consumed by all three entry points (auto-chain checkbox, explicit
+toolbar button, chart empty-state CTA) so progress UI is consistent.
+
+Branch: `feature/dev-mmui-6e97` on PianoidTunner (round 1 commit
+d616fb7 + round 2 commit ac19f9a); docs commit on PianoidInstall master.
+PianoidCore untouched. 40 new Jest tests pass total (22 chart + 18
+hook); full 727-test suite green (64 suites). NOT merged — awaits
+user verification (live browser test of all three round-2 surfaces).
 
 ---
 

@@ -16,7 +16,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 
-<!-- dev-mmui-6e97 locks RELEASED 2026-05-25 at Step 10a Phase 1.
+<!-- dev-mmui-6e97 round 2 locks RELEASED 2026-05-25 at Step 10a Phase 1.
+     Modal Mass UI round 2 fixes committed on the existing
+     feature/dev-mmui-6e97 (PianoidTunner: round-2 commit TBD on top of
+     round-1 d616fb7). PianoidInstall docs commit on master. NOT merged
+     to dev yet — awaits user verification (live browser test of moved
+     checkbox + new toolbar button + progress banner). 18 new Jest
+     tests (15 useModalMassRun + 3 chart in-progress); full 727-test
+     suite green (64 suites). Backend untouched. -->
+
+
+<!-- dev-mmui-6e97 round 1 locks RELEASED 2026-05-25 at Step 10a Phase 1.
      Modal Mass UI refactor committed on feature/dev-mmui-6e97 (PianoidTunner d616fb7).
      PianoidInstall docs commit on master. NOT merged to dev yet — awaits user
      verification (live testing on PlyWoodLGtemp1 dataset). 22 new Jest tests
