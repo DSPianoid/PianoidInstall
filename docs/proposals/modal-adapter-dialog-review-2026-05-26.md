@@ -939,7 +939,7 @@ explicit dependencies.
 | 4 | **Add error handling to Replace + Delete preset inline dialogs** in `EspritConfig.jsx` — currently swallow backend failures | `EspritConfig.jsx:877-917` | 2h | Low | — |
 | 5 | **Update stale "Renaming is coming in a future release" copy** in `MeasurementsManagementDialog.jsx:666` — rename shipped in round 15 | `MeasurementsManagementDialog.jsx:664-669` | 0.5h | Low | — |
 | 6 | **Add `CircularProgress` startIcon to `DeleteProjectDialog` and `RenameProjectDialog`** for visual consistency with the Measurement counterparts (pattern E → pattern D) | `DeleteProjectDialog.jsx:213`, `RenameProjectDialog.jsx:120-125` | 1h | Low | — |
-| 7 | **Replace the dead Copy-mode branch in `ProjectBrowserDialog`** — `mode="copy"` is documented but unreachable since N8 hard cutover | `ProjectBrowserDialog.jsx` — drop `mode === "copy"` branches + `copyName` state | 2h | Low | Confirm no test depends on copy mode (likely safe per dispatch wording about Phase 2c) |
+| 7 | **Replace the dead Copy-mode branch in `ProjectBrowserDialog`** — `mode="copy"` is documented but unreachable since N8 hard cutover. DONE (dev-dlgrm-4b1a, 2026-05-26, commit 4154b6c). Also paired with §6.4 #4. | `ProjectBrowserDialog.jsx` — drop `mode === "copy"` branches + `copyName` state | 2h | Low | Confirm no test depends on copy mode (likely safe per dispatch wording about Phase 2c) |
 | 8 | **Extract a `<DialogHeader>` shared component** for the destructive-action-with-icon pattern (4 dialogs use it) | new `components/dialogs/DialogHeader.jsx` + replace in `DeleteProjectDialog`, `DeleteMeasurementConfirmDialog`, `UnlockMeasurementDialog`, `MeasurementsManagementDialog` (rename target) | 3h | Low | — |
 
 **Total quick wins effort:** ~12.5 hours.
@@ -982,10 +982,10 @@ trade-offs get the discussion they deserve.
 
 | # | Recommendation | LOC saved | Risk | Notes |
 |---|---------------|---------:|------|-------|
-| 1 | **Delete `CreateProjectDialog.jsx` + its test** | 937 LOC | Low | DEAD CODE; verified no production import. Phase 2c cutover comment in `ModalAdapter.jsx:60` confirms |
-| 2 | **Delete `EffectiveSignalLengthRerunDialog.jsx` + its test** | 825 LOC | Low | DEAD CODE; was chained from CreateProjectDialog |
-| 3 | **Audit and remove orphaned hooks in `useProjectCRUD.js`** — `importProject`, `copyProject`, `reaverageProject`, `fetchEffectiveSignalLength` are referenced by the dead dialogs above and possibly nothing else | ~200-400 LOC | Med | Per `ModalAdapter.jsx:183-188` comment: "the hook still exports them (legacy callers + tests still reach for them); only this mount stops using them". Need a full grep to confirm no remaining real consumers. |
-| 4 | **Drop the Copy-mode branch** from `ProjectBrowserDialog.jsx` (paired with §6.1 #7) | ~50 LOC | Low | Same dead-code source — Phase 2c removed the Copy-From button |
+| 1 | **Delete `CreateProjectDialog.jsx` + its test** — DONE (dev-dlgrm-4b1a, 2026-05-26, commit 9391fb7) | 937 LOC | Low | DEAD CODE; verified no production import. Phase 2c cutover comment in `ModalAdapter.jsx:60` confirms |
+| 2 | **Delete `EffectiveSignalLengthRerunDialog.jsx` + its test** — DONE (dev-dlgrm-4b1a, 2026-05-26, commit dd5c8cf) | 825 LOC | Low | DEAD CODE; was chained from CreateProjectDialog |
+| 3 | **Audit and remove orphaned hooks in `useProjectCRUD.js`** — `importProject`, `copyProject`, `reaverageProject`, `fetchEffectiveSignalLength` are referenced by the dead dialogs above and possibly nothing else. Audit COMPLETE (dev-dlgrm-4b1a, 2026-05-26): all 4 confirmed orphaned at production-caller level. `fetchEffectiveSignalLength` has zero tests too. See dev-dlgrm-4b1a session log "Heads-up — orphaned hook methods" for the per-method breakdown. Deletion scheduled for a separate /dev session per §8 #2. | ~200-400 LOC | Med | Per `ModalAdapter.jsx:183-188` comment: "the hook still exports them (legacy callers + tests still reach for them); only this mount stops using them". |
+| 4 | **Drop the Copy-mode branch** from `ProjectBrowserDialog.jsx` (paired with §6.1 #7) — DONE (dev-dlgrm-4b1a, 2026-05-26, commit 4154b6c) | 118 LOC | Low | Same dead-code source — Phase 2c removed the Copy-From button |
 | 5 | **Extract nested dialogs from `MeasurementsManagementDialog.jsx`** (paired with §6.2 #6) | n/a (relocates not removes) | Low | Drops the file out of the RED ranking |
 | 6 | **Extract `ResultPanel` from `CreateProjectFromMeasurementDialog.jsx`** (paired with §6.2 #5) | n/a (relocates not removes) | Low | Drops the file out of the RED ranking |
 
@@ -993,6 +993,15 @@ trade-offs get the discussion they deserve.
 across components + tests + orphaned hook methods. This is the
 single highest-ROI bucket in the entire roadmap — a `/dev`
 session of about 4-6 hours could land all of it.
+
+**Status (2026-05-26, dev-dlgrm-4b1a):** §6.4 #1, #2, #4 LANDED on
+`feature/dev-dlgrm-4b1a` (PianoidTunner). LOC removed: 937 + 825 + 118
+= **1880 LOC**. Jest sweep: 64 suites / 739 tests pre-change → 62 suites /
+694 tests post-change (-2 suites, -45 tests, all in deleted-test boundary,
+no regression in surviving tests). §6.4 #3 (orphan hook removal) deferred
+to a follow-up session per §8 #2; audit findings recorded in
+`docs/development/logs/dev-dlgrm-4b1a-*.md` "Heads-up — orphaned hook
+methods" section.
 
 ---
 

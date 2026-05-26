@@ -15,6 +15,37 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-mstat-30b6 locks RELEASED 2026-05-26 at Step 10a Phase 1.
+     Per-chain mass_inversion_status field on modal mass (enum:
+     valid / insufficient_band_width / no_full_row / only_unmapped_full_row).
+     Committed on feature/dev-mstat-30b6 (PianoidCore 39798bc + PianoidTunner
+     7dc9763). PianoidInstall master commit pending — docs + session log +
+     verify script. NOT merged yet — orchestrator merge sweep will handle.
+     +17 backend tests (181/181 PASS in modal_adapter + external_export
+     sweep), +9 frontend tests (37/37 PASS on touched suites). Live verified
+     on LG_p3 via docs/development/diagnostics/dev-mstat-30b6-verify.py:
+     classifier output matches the audit exactly — 386 valid / 242
+     insufficient / 126 no_full_row / 3 only_unmapped out of 757 chains. -->
+| dev-collreorg-7a3f | `PianoidTunner/src/modules/ModalAdapter.jsx`, `PianoidTunner/src/modules/panels/CollectionSubpanel.jsx`, `PianoidTunner/src/modules/panels/collection/CollectionSettingsPanel.jsx` (NEW), `PianoidTunner/src/modules/panels/collection/CollectionToolbarActions.jsx` (NEW), `PianoidTunner/src/hooks/useCollectionStatus.js` (NEW), `PianoidTunner/src/modules/panels/collection/CollectionLog.jsx`, `PianoidTunner/src/modules/panels/collection/GeneralSection.jsx`, `PianoidTunner/src/modules/panels/collection/AudioDevicesSection.jsx`, `PianoidTunner/src/modules/panels/collection/ImpulseSection.jsx`, `PianoidTunner/src/modules/panels/collection/SeriesSection.jsx`, `PianoidTunner/src/modules/panels/collection/CalibrationCriteriaSection.jsx`, `PianoidTunner/src/components/__tests__/CollectionSubpanel.test.jsx`, `PianoidTunner/src/modules/__tests__/ModalAdapter.lockSettings.test.jsx`, `PianoidTunner/src/hooks/__tests__/useCollectionStatus.test.jsx` (NEW), `PianoidTunner/src/modules/panels/collection/__tests__/CollectionSettingsPanel.test.jsx` (NEW), `PianoidTunner/src/modules/panels/collection/__tests__/CollectionLog.test.jsx` | 2026-05-26T17:36:30Z | Collection subpanel reorg (proposal c16769c) — 6 commits |
+
+<!-- dev-dlgrm-4b1a locks RELEASED 2026-05-26 at Step 10a Phase 1.
+     Delete dead dialogs + Copy-mode branch per proposal
+     modal-adapter-dialog-review-2026-05-26.md §6.1 #7 + §6.4 #1, #2, #4.
+     Committed on feature/dev-dlgrm-4b1a (PianoidTunner): 3 commits totalling
+     -1880 LOC (CreateProjectDialog.jsx + test 937; EffectiveSignalLengthRerunDialog
+     .jsx + test 825; ProjectBrowserDialog Copy-mode branch 118 net).
+     Files: CreateProjectDialog.jsx + test (DELETED in 9391fb7),
+     EffectiveSignalLengthRerunDialog.jsx + test (DELETED in dd5c8cf),
+     ProjectBrowserDialog.jsx + test (edited in 4154b6c), ProjectSubpanel.jsx
+     (1-line `mode="open"` removal in 4154b6c). Jest baseline 64 suites/739
+     tests -> 62 suites/694 tests; -2 suites + -45 tests = exactly the deleted
+     test count (-25 CreateProjectDialog + -16 ESL + -4 Copy-mode); no
+     regression in surviving tests. NOT merged to dev yet — orchestrator
+     handles the merge sweep per dispatch. PianoidCore + PianoidBasic
+     untouched. Heads-up: orphaned hook methods (importProject, copyProject,
+     reaverageProject, fetchEffectiveSignalLength in useProjectCRUD.js +
+     useModalAdapter.js facade) confirmed orphaned at production-caller
+     level — deletion deferred to a separate /dev session per proposal §8 #2. -->
 
 <!-- dev-mmexp2-f492 locks RELEASED 2026-05-26 at Step 10a Phase 1.
      Filter relative_modal_mass.txt to export set (matches omega_coef.txt
