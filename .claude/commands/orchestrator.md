@@ -841,6 +841,44 @@ Before relaying completion or asking the user to test, verify no stale processes
 
 **Why:** User time is lost when a "ready to test" message is followed by the user discovering a port was held, a bundle was stale, or a .pyd was locked. The orchestrator owns the handoff quality gate.
 
+### Parallel /dev Agents on Same Repo MUST Use Dedicated Worktrees (BLOCKING)
+
+When dispatching 2+ /dev agents that touch the **same git repo** in parallel, each agent MUST work in its own git worktree — NEVER let them share the main working tree.
+
+**Why:** The git working tree has exactly ONE checked-out HEAD. When two agents share it, every `git checkout`, `git add`, or `git commit` mutates state the other agent depends on. Concrete failure modes (all observed 2026-05-26 with 3 parallel agents on PianoidTunner):
+
+- **Commit lands on wrong branch.** Agent A: `git checkout -b feature/A` → ... → `git commit`. Between checkout and commit, Agent B did `git checkout -b feature/B`. A's commit lands on `feature/B`. Recovery needs `git update-ref` + cherry-pick.
+- **Branch HEAD soft-reset.** Agent A's commit is intact but Agent B's `git reset` (during their own recovery) walks A's HEAD back. A's work appears to vanish from the branch tip.
+- **Pending edits swept into other agent's commit.** Agent A has unstaged changes. Agent B runs `git add .` (catches A's pending files) + `git commit`. A's changes end up in B's commit with B's authorship + commit message.
+- **Cross-agent file-lock confusion.** MODULE_LOCKS.md tracks FILE locks but NOT git HEAD ownership. Two agents can hold non-overlapping file locks yet still corrupt each other via branch state.
+
+**How to apply — when dispatching N parallel /dev agents on the SAME repo:**
+
+1. **Provision one worktree per agent** before dispatch:
+   ```bash
+   # For each agent ID, create a dedicated worktree off dev:
+   git -C <repo> worktree add ../<repo>-<agent-id>-wt -b feature/dev-<agent-id> dev
+   ```
+   Pass the absolute worktree path to the agent via the dispatch prompt: "Work in `<absolute path>` for all edits; do NOT cd into the main worktree."
+2. **Symlink/junction `node_modules`** from the main worktree to each PianoidTunner worktree to avoid duplicate ~2 GB installs:
+   ```powershell
+   cmd /c mklink /J <new-wt>\node_modules <main-wt>\node_modules
+   ```
+3. **At merge-sweep time** the orchestrator (or merge-sweep agent) reads each worktree's branch HEAD into a single canonical worktree for the merge sequence. After successful merge + push, run `git -C <repo> worktree remove <wt-path>` to clean up per-agent worktrees.
+4. **Different repos = no constraint.** Two agents that touch PianoidCore vs PianoidTunner respectively can share their respective main worktrees without conflict — the rule only applies within one repo.
+
+**Don't:**
+- Don't dispatch 2+ parallel /dev on the same repo without per-agent worktrees. The "lock the files in MODULE_LOCKS.md" pattern is necessary but NOT sufficient.
+- Don't rely on agents to detect each other's branch switches. The race is sub-second and recovery is messy.
+- Don't merge mid-flight. If Agent A is still committing, Agent B's worktree must not be merged to `dev` yet — wait for both to reach Phase 1 stop.
+
+**Concrete incident (2026-05-26):** 3 agents dispatched in parallel on PianoidTunner (dev-mstat-30b6, dev-collreorg-7a3f, dev-dlgrm-4b1a). All three reported the same race symptoms in their Phase 1 heads-up:
+- dev-mstat's PianoidTunner commit landed on `feature/dev-collreorg-7a3f` (wrong branch); recovered via reset + stash + reapply. Bad commit `ecc835a` dangling.
+- dev-dlgrm's commit `b247819` swallowed dev-mstat's staged docs (`b247819` content correct, attribution wrong — needs cross-agent acknowledgment).
+- dev-collreorg's Step 2 commit `f41671e` was soft-reset; Step 3 file edits swept into dev-mstat's `ecc835a`. Recovered by switching to a dedicated worktree mid-session and re-applying via `git show | git apply`.
+
+All 3 agents independently recommended: dedicated worktree per agent. This rule encodes that.
+
 ### Merge Sweep Before Live Test (BLOCKING)
 
 When 2+ /dev agents have shipped Phase 1 (commit + lock release) on parallel feature branches off `dev`, the working tree ends up checked out on whichever agent's branch was most recent — containing ONLY that agent's fix, NOT the siblings'. The user has no signal that they're seeing partial state. They live-test, see stale UI/behaviour from before the missing branches' fixes, and report "the system got reverted to an old version".
