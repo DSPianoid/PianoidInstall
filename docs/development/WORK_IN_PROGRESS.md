@@ -4,6 +4,9 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-mstat-30b6 | Add `mass_inversion_status` enum field per chain (modal mass) | [log](logs/dev-mstat-30b6-2026-05-26-203321.md) | 2026-05-26 | Active |
+| dev-collreorg-7a3f | Collection subpanel reorg to standard settings architecture (gear-portal + toolbar Start/Cancel + Save All + Badge) | [log](logs/dev-collreorg-7a3f-2026-05-26-173611.md) | 2026-05-26 | Active |
+| dev-dlgrm-4b1a | Delete dead dialogs + Copy-mode branch (proposal §6.1 #1 + §6.4) | [log](logs/dev-dlgrm-4b1a-2026-05-26-203712.md) | 2026-05-26 | Active |
 
 <!-- ana-mmnan-7c3a COMPLETED 2026-05-26 (Step 10a Phase 1). /analyse
      modal mass NaN audit on LG_p3 (371 NaN out of 757 chains). Doc-only

@@ -2465,6 +2465,7 @@ Response `200` (after a run):
       "m_relative": 1.0,
       "fit_quality_overall": 0.77,
       "is_reference_mode": true,
+      "mass_inversion_status": "valid",
       "has_file": true
     }
   ]
@@ -2474,6 +2475,29 @@ Response `200` (after a run):
 `stale=true` when FRF, ESPRIT, or scenarios re-ran since the last
 modal-mass run; the frontend renders a "STALE" badge on the Modal
 Mass tab.
+
+`mass_inversion_status` (dev-mstat-30b6 2026-05-26) explains the
+per-chain inversion outcome — useful when `m_absolute` is `null`
+because it tells the user *why*. Enum values:
+
+| Value | Meaning |
+|---|---|
+| `"valid"` | Inversion succeeded; `m_absolute` is finite. |
+| `"insufficient_band_width"` | Every per-`(scenario, channel)` circle/RFP fit returned `0+0j` because the chain's frequency band held < `MIN_FIT_BINS = 8` bins. Dominantly low-frequency chains. |
+| `"no_full_row"` | Some residues are nonzero but no mapped actuator row had all response channels populated; `shape_inversion.py`'s row-completeness gate dropped every row. Typically high-frequency chains. |
+| `"only_unmapped_full_row"` | Full rows exist, but only at scenario indices outside the actuator grid mapping (synthetic / unmapped scenario indices). Inherently rare. |
+
+See the audit at
+`docs/proposals/modal-mass-nan-investigation-2026-05-26.md` for the
+decision-tree derivation and per-bucket counts on LG_p3 (386 valid /
+242 insufficient_band_width / 126 no_full_row / 3
+only_unmapped_full_row out of 757 chains).
+
+**Backward compatibility:** older indices written before this commit
+do not carry the field. The backend backfills on read with a best-
+effort guess from `m_absolute` (finite -> `"valid"`, non-finite ->
+`"insufficient_band_width"`); the next `POST /modal/run_modal_mass`
+overwrites with the actually-classified value.
 
 ---
 
@@ -2514,9 +2538,14 @@ Response `200`:
     }
   },
   "fit_quality_overall": 0.77,
-  "is_reference_mode": true
+  "is_reference_mode": true,
+  "mass_inversion_status": "valid"
 }
 ```
+
+`mass_inversion_status` (dev-mstat-30b6 2026-05-26) — same enum as
+documented above under `GET /modal/modal_mass/summary`; identical
+value to the per-chain summary entry.
 
 Both shape arrays are SPARSE — actuator cells with no valid residue
 extraction are absent from the list (NOT serialised as `NaN`). The
@@ -2871,14 +2900,23 @@ Only the effective modes are written (no placeholder rows). See
 [`MODAL_ADAPTER_GUIDE.md` — Complex amplitudes CSV](../../guides/MODAL_ADAPTER_GUIDE.md#export-to-text-files-dev-6c54c87f).
 
 `relative_modal_mass.txt` (dev-mmexp-5561 2026-05-26; dev-mmexp2-f492
-2026-05-26 added export-set filter + NaN drop) is the per-chain
+2026-05-26 added export-set filter + NaN drop; dev-mstat-30b6 2026-05-26
+added `mass_inversion_status` column) is the per-chain
 relative-modal-mass reference. Tab-separated, with `#`-prefixed header
 lines (compatible with `np.loadtxt(comments="#")` round-trips) carrying
 the reference chain, project metadata, column names, and the filter
 book-keeping (`rows_after_filter`, `rows_written`). Rows are
 **sorted by frequency ascending** (NOT chain_id). Columns (in order):
 `chain_id`, `frequency_hz`, `m_relative`, `m_absolute`,
-`fit_quality_overall`, `is_reference`.
+`fit_quality_overall`, `is_reference`, `mass_inversion_status`.
+
+The trailing `mass_inversion_status` column is a string enum (one of
+`valid` / `insufficient_band_width` / `no_full_row` /
+`only_unmapped_full_row`); numpy round-trip consumers should pass
+`usecols=range(0, 6)` to skip it. In practice every emitted row has
+`status = valid` because the NaN-drop filter (see below) removes every
+non-valid candidate — the column exists for schema stability if the
+NaN drop is ever relaxed.
 
 **Row filtering** (matches the rest of the bundle):
 
