@@ -15,6 +15,12 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| ana-madlg-7c2e | docs/proposals/modal-adapter-dialog-review-2026-05-26.md (NEW) | 2026-05-26 | /analyse — Modal Adapter dialog inventory + consolidation proposal |
+
+<!-- ana-csub-4f12 lock RELEASED 2026-05-26 at Step 10a Phase 1.
+     Proposal at docs/proposals/collection-subpanel-reorg-2026-05-26.md
+     committed on master. Read-only /analyse; no code touched. -->
+
 
 <!-- dev-cptmto-9d7e locks RELEASED 2026-05-25 at Step 10a Phase 1.
      Fix for 5-min hardcoded polling timeout in
