@@ -4,7 +4,13 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mmexp-5561 | Add relative modal mass file to Modal Adapter Apply text export | [log](logs/dev-mmexp-5561-2026-05-26-160011.md) | 2026-05-26 | Phase 1 ready (awaiting merge sweep) |
+| _(none active)_ | | | | |
+
+<!-- dev-mmexp-5561 COMPLETED 2026-05-26 (wrap-mmexp Step 10a). Phase 2
+     wrap-up — relative_modal_mass.txt added to Modal Adapter Apply text
+     export bundle (PianoidCore feature/dev-mmexp-5561 merged to dev at
+     5f7f958). 88/88 integration + unit tests pass post-merge. Session log
+     archived to logs/archive/dev-mmexp-5561-2026-05-26-160011.md. -->
 
 <!-- ana-madlg-7c2e COMPLETED 2026-05-26 — /analyse Deep dialog review across
      Modal Adapter UI + consolidation proposal. Doc-only output at
