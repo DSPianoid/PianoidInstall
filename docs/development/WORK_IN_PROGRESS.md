@@ -4,12 +4,44 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| ana-madlg-7c2e | /analyse — Deep dialog review across Modal Adapter UI + consolidation proposal | (no log; doc-only output at `docs/proposals/modal-adapter-dialog-review-2026-05-26.md`, 1071 LOC) | 2026-05-26 | COMPLETE 2026-05-26 — proposal committed on PianoidInstall master |
-| ana-csub-4f12 | /analyse — Collection subpanel reorg to match standard settings architecture | (no log; doc-only output at `docs/proposals/collection-subpanel-reorg-2026-05-26.md`) | 2026-05-26 | Complete (proposal committed) |
-| dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI (round 2: fix checkbox placement + Run-FRF empty-state UX) | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
-| dev-frfres-9c41 | Fix "FRF: No usable measurement source folder" error on PlyWoodLGtemp1_p4 (resolver bug vs button-gating) | [log](logs/dev-frfres-9c41-2026-05-25-175913.md) | 2026-05-25 | Active |
-| dev-msdel-3b1a | Fix measurement-set deletion 5000 ms axios timeout in UI | [log](logs/dev-msdel-3b1a-2026-05-25-195928.md) | 2026-05-25 | Active |
-| dev-cptmto-9d7e | Fix CreateProjectFromMeasurementDialog 5-min hardcoded polling timeout (large measurements legitimately exceed it) | [log](logs/dev-cptmto-9d7e-2026-05-25-210927.md) | 2026-05-25 | Active |
+
+<!-- ana-madlg-7c2e COMPLETED 2026-05-26 — /analyse Deep dialog review across
+     Modal Adapter UI + consolidation proposal. Doc-only output at
+     `docs/proposals/modal-adapter-dialog-review-2026-05-26.md` (1071 LOC).
+     Proposal committed on PianoidInstall master. -->
+
+<!-- ana-csub-4f12 COMPLETED 2026-05-26 — /analyse Collection subpanel reorg
+     to match standard settings architecture. Doc-only output at
+     `docs/proposals/collection-subpanel-reorg-2026-05-26.md`. Proposal
+     committed on PianoidInstall master. -->
+
+<!-- dev-mmui-6e97 COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). Phase 2
+     Modal Mass UI refactor (rounds 1+2+3) merged to dev on PianoidTunner
+     (merge a5aae54) — drop tab + integrate into Tracking + ESPRIT settings +
+     auto-chain + Compute Modal Mass button + progress UI + Rules-of-Hooks
+     handleClick hoist + reactivity regression tests. Pushed to origin.
+     Session log archived to logs/archive/dev-mmui-6e97-2026-05-25-161702.md.
+     PianoidCore companion fixes shipped via feature/dev-mmui-6e97-r3
+     (merge 93dad0a) — see dev-frfres-9c41 absorption + get_project_state
+     data_status pass-through. -->
+
+<!-- dev-frfres-9c41 COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). v2
+     open_project ctx.source_folder fix shipped on PianoidCore via
+     feature/dev-frfres-9c41 (commit 1dedd13), absorbed into
+     feature/dev-mmui-6e97-r3 and merged to dev (merge 93dad0a). Pushed to
+     origin. Session log archived to
+     logs/archive/dev-frfres-9c41-2026-05-25-175913.md. -->
+
+<!-- dev-msdel-3b1a COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). Fix
+     measurement-set deletion axios timeout (5s -> 60s) merged to dev on
+     PianoidTunner (merge 54f859d). Pushed to origin. Session log archived
+     to logs/archive/dev-msdel-3b1a-2026-05-25-195928.md. -->
+
+<!-- dev-cptmto-9d7e COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). Fix
+     CreateProjectFromMeasurementDialog polling timeout (5 min -> 60 min) +
+     elapsed UX merged to dev on PianoidTunner (merge 00868cb). Pushed to
+     origin. Session log archived to
+     logs/archive/dev-cptmto-9d7e-2026-05-25-210927.md. -->
 
 <!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
      merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
