@@ -26,7 +26,35 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      on LG_p3 via docs/development/diagnostics/dev-mstat-30b6-verify.py:
      classifier output matches the audit exactly — 386 valid / 242
      insufficient / 126 no_full_row / 3 only_unmapped out of 757 chains. -->
-| dev-collreorg-7a3f | `PianoidTunner/src/modules/ModalAdapter.jsx`, `PianoidTunner/src/modules/panels/CollectionSubpanel.jsx`, `PianoidTunner/src/modules/panels/collection/CollectionSettingsPanel.jsx` (NEW), `PianoidTunner/src/modules/panels/collection/CollectionToolbarActions.jsx` (NEW), `PianoidTunner/src/hooks/useCollectionStatus.js` (NEW), `PianoidTunner/src/modules/panels/collection/CollectionLog.jsx`, `PianoidTunner/src/modules/panels/collection/GeneralSection.jsx`, `PianoidTunner/src/modules/panels/collection/AudioDevicesSection.jsx`, `PianoidTunner/src/modules/panels/collection/ImpulseSection.jsx`, `PianoidTunner/src/modules/panels/collection/SeriesSection.jsx`, `PianoidTunner/src/modules/panels/collection/CalibrationCriteriaSection.jsx`, `PianoidTunner/src/components/__tests__/CollectionSubpanel.test.jsx`, `PianoidTunner/src/modules/__tests__/ModalAdapter.lockSettings.test.jsx`, `PianoidTunner/src/hooks/__tests__/useCollectionStatus.test.jsx` (NEW), `PianoidTunner/src/modules/panels/collection/__tests__/CollectionSettingsPanel.test.jsx` (NEW), `PianoidTunner/src/modules/panels/collection/__tests__/CollectionLog.test.jsx` | 2026-05-26T17:36:30Z | Collection subpanel reorg (proposal c16769c) — 6 commits |
+<!-- dev-collreorg-7a3f locks RELEASED 2026-05-26 at Step 10a Phase 1.
+     Collection subpanel reorganization per proposal
+     docs/proposals/collection-subpanel-reorg-2026-05-26.md — 6 commits on
+     feature/dev-collreorg-7a3f (PianoidTunner): 54ccc25 Step 1
+     SECTIONS_WITH_SETTINGS gate, 4c52d5b Step 2 CollectionSettingsPanel
+     extraction, 6ad08f9 Step 3 useCollectionStatus hook + toolbar
+     Start/Cancel, 80745df Step 4 default-true localStorage showSettings,
+     287fdfb Step 5 Save All + gear Badge counter, 44a1617 Step 6 new
+     tests + ModalAdapter architecture guards. Jest baseline 64 suites/739
+     tests -> 66 suites/765 tests = +2 suites + +26 tests (11
+     useCollectionStatus + 3 CollectionSettingsPanel + 12 architecture
+     guards in lockSettings.test.jsx). Files: ModalAdapter.jsx (+177 net),
+     CollectionSubpanel.jsx (+68 net), CollectionSettingsPanel.jsx NEW
+     (+134), useCollectionStatus.js NEW (+162), 5 sub-section files +2
+     each (additive onDirtyChange prop), 2 new test files, lockSettings
+     test extended. CollectionToolbarActions.jsx + CollectionLog.jsx +
+     CollectionSubpanel.test.jsx + CollectionLog.test.jsx locked-but-never-edited
+     (CollectionToolbarActions inlined into ModalAdapter per Compute-Modal-Mass
+     precedent; CollectionLog poll de-dup deferred to follow-up). PianoidCore +
+     PianoidBasic untouched. Live verification deferred — test-ui blocked by
+     PowerShell permission denial; full Jest suite + 12 architecture-guard
+     source-text assertions cover the regression surface. NOT merged to dev
+     yet — orchestrator handles the merge sweep per dispatch. Worked in
+     dedicated worktree D:\repos\PianoidInstall\PianoidTunner-collreorg-wt
+     to avoid shared-main-worktree collisions with dev-mstat-30b6 +
+     dev-dlgrm-4b1a (Step 1 + Step 2 commits had to be cherry-picked /
+     reconstructed once after another agent's git operations clobbered
+     my HEAD — see session log "Worktree-sharing incident" section). -->
+
 
 <!-- dev-dlgrm-4b1a locks RELEASED 2026-05-26 at Step 10a Phase 1.
      Delete dead dialogs + Copy-mode branch per proposal
