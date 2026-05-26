@@ -841,6 +841,31 @@ Before relaying completion or asking the user to test, verify no stale processes
 
 **Why:** User time is lost when a "ready to test" message is followed by the user discovering a port was held, a bundle was stale, or a .pyd was locked. The orchestrator owns the handoff quality gate.
 
+### Merge Sweep Before Live Test (BLOCKING)
+
+When 2+ /dev agents have shipped Phase 1 (commit + lock release) on parallel feature branches off `dev`, the working tree ends up checked out on whichever agent's branch was most recent — containing ONLY that agent's fix, NOT the siblings'. The user has no signal that they're seeing partial state. They live-test, see stale UI/behaviour from before the missing branches' fixes, and report "the system got reverted to an old version".
+
+**Trigger conditions:**
+- Two or more feature branches off `dev` are unmerged AND
+- The user is about to start (or just started) live testing AND
+- Any of the unmerged branches modified the surface the user is testing
+
+**The sweep (run BEFORE telling the user to test):**
+
+1. Merge all relevant feature branches to `dev` (`--no-ff`, one commit per branch, in any order if branches are independent — verify with `git log --merges` or by checking each branch's reported file list for overlap)
+2. Run the project's full test suite on merged `dev` (Jest for frontend, pytest for backend) — confirm no regression from interaction
+3. Push all 3 repos to origin
+4. Archive each shipped agent's session log to `logs/archive/` and clean its WIP entry — Phase 2 wrap-up
+5. Verify the working tree ends on `dev` (not a feature branch)
+6. Only NOW tell the user "ready to pull + test"
+
+**Don't:**
+- Don't ship Phase 1 of an agent and immediately tell the user to test, when 1+ sibling branches are also waiting unmerged. The user will see a working tree that contains only the most recent agent's fix.
+- Don't let the merge queue grow past 3 unmerged branches without proactively asking the user for sweep approval — the deeper the queue, the more confusing the partial-state failure becomes.
+- Don't trust that the user knows to switch branches. The orchestrator owns the working-tree state during a multi-agent session.
+
+**Why:** Per-feature-branch isolation is the correct /dev pattern, but it has a silent failure mode at the orchestrator boundary. Concrete incident: 2026-05-26, 4 sibling /dev agents shipped Phase 1 over 24h on PianoidTunner. User pulled up the UI to test and saw the Modal Mass tab back (PRE-mmui state) because the working tree was on `feature/dev-cptmto-9d7e` (last agent), which only contained the cptmto polling-timeout fix. The other 3 branches' work was invisible. User complaint: "the system got reverted to an old incorrect version". The merge sweep was waiting on user approval that the orchestrator had asked for multiple times — but the orchestrator should have just done it before saying "ready to test", not asked.
+
 ### On User Approval
 
 1. If agent is ALIVE: instruct it to proceed with Step 10a (commit + cleanup)
