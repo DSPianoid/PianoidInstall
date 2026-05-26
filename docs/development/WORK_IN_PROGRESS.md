@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| ana-madlg-7c2e | /analyse — Deep dialog review across Modal Adapter UI + consolidation proposal | (no log; doc-only output at `docs/proposals/modal-adapter-dialog-review-2026-05-26.md`) | 2026-05-26 | Active analysis |
+| ana-madlg-7c2e | /analyse — Deep dialog review across Modal Adapter UI + consolidation proposal | (no log; doc-only output at `docs/proposals/modal-adapter-dialog-review-2026-05-26.md`, 1071 LOC) | 2026-05-26 | COMPLETE 2026-05-26 — proposal committed on PianoidInstall master |
 | ana-csub-4f12 | /analyse — Collection subpanel reorg to match standard settings architecture | (no log; doc-only output at `docs/proposals/collection-subpanel-reorg-2026-05-26.md`) | 2026-05-26 | Complete (proposal committed) |
 | dev-mmui-6e97 | Refactor Phase 2 Modal Mass UI (round 2: fix checkbox placement + Run-FRF empty-state UX) | [log](logs/dev-mmui-6e97-2026-05-25-161702.md) | 2026-05-25 | Active |
 | dev-frfres-9c41 | Fix "FRF: No usable measurement source folder" error on PlyWoodLGtemp1_p4 (resolver bug vs button-gating) | [log](logs/dev-frfres-9c41-2026-05-25-175913.md) | 2026-05-25 | Active |
