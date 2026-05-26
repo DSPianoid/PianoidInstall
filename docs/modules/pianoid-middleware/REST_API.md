@@ -383,7 +383,7 @@ Reads simulation parameters serialized for the frontend.
 | `output` | External sound output parameters (alias for feedback on output pitches) |
 | `sound_channel` | Mode-coupling coefficients per pitch (modes-listen mode `listen_to_modes=1`). Effective rows: piano pitches `0..127` |
 | `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. To set the gain for audio output channel `ch`, POST to `<key_no> = 128 + ch`. See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
-| `stability_ratio` | **Read-only.** Per-pitch FDTD CFL/Courant stability ratio `(coeff_tension − 8·coeff_bending)/CFL_LIMIT` (`CFL_LIMIT = 1`); `ratio ≤ 1` is stable. Per pitch: `{ratio, stable, strings:[{string_index, ratio, stable}]}`, plus a top-level `_meta {cfl_limit, criterion, formula}`. Computed by `parameterKernel` each parameter-change cycle (always-active, no debug build). Analyst-plottable vs pitch (`key_no = "all"` or `"from21to108"`). Derivation: `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound". `POST` to this parameter is not supported |
+| `stability_ratio` | **Read-only.** Per-pitch FDTD CFL/Courant stability ratio = `max_θ|g(θ)|` (`CFL_LIMIT = 1`); `ratio ≤ 1` is stable (a lossless string sits at exactly `1.0`). Per pitch: `{ratio, stable, strings:[{string_index, ratio, stable}]}`, plus a top-level `_meta {cfl_limit, criterion, formula}`. **Computed HOST-side** (v2) from the current `StringMap` physics via the closed-form `cfl_stability.max_amplification` (no GPU round-trip, no debug build), honouring the per-string `tension_offset`; output/"sound" strings (pitch ≥ 128) report the sentinel `1.0`/stable. Analyst-plottable vs pitch (`key_no = "all"`, `"output"`, or `"from21to108"`). Derivation: `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound"; design `docs/proposals/cfl-stability-guard-v2.md`. `POST` to this parameter is not supported |
 
 `key_no` formats:
 - Integer string: `"57"` — single pitch or mode number
@@ -454,15 +454,27 @@ backend gate is the single line of defense against catastrophic inputs.
 | `mode` | `frequency` | `< 0` | physically meaningless; produces NaN/instability |
 | `mode` | `decrement` | `< 0` | negative damping → exponential amplitude growth → speaker/ear damage |
 | any | any numeric field | NaN, +Inf, -Inf | non-finite values corrupt every parameter type |
-| `string` / `physics` | (combination of `tension`, `density`, `radius`, `stiffness`, `dx`, `sample_rate`, …) | FDTD coefficients violate the CFL bound — `(coeff_tension − 8·coeff_bending) > 1`, or `coeff_tension < 8·coeff_bending`, or non-finite | explicit FDTD scheme would diverge (Inf/NaN string field → engine-wide noise). Unlike the per-field predicates above, this is a *combination* check: the kernel guard (`parameterKernel`) computes the per-string ratio, **rejects** the edit (keeps the last-stable shadow coefficients) and raises a per-string flag; the middleware reads the flag back after the edit and returns 400. See `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound" |
+| `string` / `physics` | (combination of `tension`, `density`, `radius`, `stiffness`, `dx`, `sample_rate`, …) | the FDTD amplification `max_θ\|g(θ)\| > 1` (outside the two-sided box `8·coeff_bending ≤ coeff_tension ≤ 1 + 8·coeff_bending`), or non-finite | explicit FDTD scheme would diverge (Inf/NaN string field → engine-wide noise). Unlike the per-field predicates above, this is a *combination* check. **v2 (host-side):** `parameter_manager` computes the closed-form amplification from the **prospective** physics (current ⊕ this edit) **BEFORE** any GPU upload — honouring the per-string `tension_offset` (worst string decides) and skipping output strings (pitch ≥ 128) — and raises `CflRejected` → 400 if it would diverge. The edit is **never applied** (no `set_param`, no upload); the engine keeps its last-good coefficients. (No kernel guard / shadow buffer / per-string flag — those + the host flag-poll were the v1 design, removed in v2.) See `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability" + `docs/proposals/cfl-stability-guard-v2.md` |
 
-Example string-edit rejection body:
+Example string-edit rejection body (v2) — HTTP `400`, served by the dedicated `@app.errorhandler(CflRejected)`:
 
 ```json
-{"error": "string parameter rejected: would destabilise the FDTD solver — pitch 60 (string 187): CFL ratio=46.123 > 1. Last-stable coefficients retained (criterion: (coeff_tension - 8*coeff_bending) <= 1)."}
+{
+  "error": "CflRejected",
+  "code": "cfl_unstable",
+  "cfl_redline": true,
+  "pitch": 60,
+  "string": 1,
+  "amplification": 46.123,
+  "message": "cfl_unstable: string parameter rejected — would destabilise the FDTD solver (Courant). pitch 60 (string 1): amplification |g|=46.123 > 1.0. Edit not applied; last-stable coefficients retained.",
+  "path": "/set_parameter/string/60"
+}
 ```
 
-The per-string CFL ratios behind this gate are queryable read-only via
+`code: "cfl_unstable"` and the `cfl_redline` boolean (the redline-crossed flag) let the UI react without
+parsing the message; `pitch`/`string`/`amplification` identify the worst offending string. The WebSocket
+`set_parameter` handler emits the same `{code, cfl_redline, pitch, string, amplification, message}` shape on
+an `error` event. The per-string amplification ratios behind this gate are queryable read-only via
 `GET /get_parameter/stability_ratio/<key_no>` (above) for plotting ratio-vs-pitch.
 
 Example rejection bodies:

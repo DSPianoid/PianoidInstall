@@ -21,7 +21,7 @@ PianoidCore/tests/
 │   ├── test_performance.py
 │   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off)
 │   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
-│   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard (dev-cfl) — baseline-stable, unstable-tension REJECTED-not-NaN, ratio matches (T−8B) physics, no false-positive, middleware ValueError→400, stability_ratio pack_for_interface extraction (audio_off)
+│   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard v2 (HOST-side gate) — baseline-stable-via-ratio, unstable tension/jung/r REJECTED (CflRejected→400) BEFORE upload + engine-finite + model-NOT-mutated, stable/length not falsely rejected, host-backed stability_ratio extraction, per-string tension_offset (audio_off)
 │   ├── test_playback.py
 │   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag
@@ -31,6 +31,7 @@ PianoidCore/tests/
 │   ├── test_feedback_coupling.py
 │   └── test_modal_adapter_e2e.py   # Full modal adapter pipeline (Belarus data + GPU ESPRIT)
 └── unit/                # Pure Python, no GPU
+    ├── test_cfl_amp.py              # CFL guard v2 closed-form (cfl_stability.py) — PINNED K=24 grid vs dense max|g| (0 false-accept/reject), empirical crash borders incl. LOWER-edge, per-string tension_offset worst-string, collapse-not-flagged, isfinite (no GPU)
     ├── test_channel_assignment.py   # MappingConfig persistence round-trip, _load_mapping_results file priority, ESPRIT response channel filtering
     ├── test_direct_correction.py    # CalibrationController: direct linear correction algorithm, fallback to bisection, edge cases (11 tests)
     ├── test_event_buffer_backpressure.py # RealTimeEventBuffer back-pressure: setSizeLimit/getSizeLimit, drop-oldest-NOTE_OFF-first policy, fallback to oldest, stats.dropped_event_count (Tranche A / M12, 7 tests)

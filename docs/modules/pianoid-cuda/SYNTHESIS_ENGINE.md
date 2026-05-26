@@ -193,13 +193,7 @@ With the **core** coefficients (velocity damping `dec_curr = 0`, HF damping
 
 ### The bound (closed form, with `B = coeff_bending`, `T = coeff_tension`)
 
-The binding wavenumber is the **Nyquist mode θ = π** (`cos θ = −1`, `cos 2θ = 1`), where
-
-```
-A(π) = (2 + 12B − 2T) + 2(T − 8B)(−1) + 2(2B)(1) = 2 + 32B − 4T
-```
-
-Applying `−2 ≤ A(π) ≤ 2` gives the **two-sided stability box**:
+Evaluating the Jury condition at the binding modes gives the **two-sided stability box**:
 
 ```
 8·coeff_bending  ≤  coeff_tension  ≤  1 + 8·coeff_bending
@@ -207,9 +201,19 @@ Applying `−2 ≤ A(π) ≤ 2` gives the **two-sided stability box**:
 
 - **Upper edge — the CFL limit:** `coeff_tension − 8·coeff_bending ≤ 1`. The classic
   tension-Courant bound (`coeff_tension ≤ 1` at `B = 0`), *relaxed* by bending stiffness.
-  **`CFL_LIMIT = 1`** and the stability ratio is `(coeff_tension − 8·coeff_bending) / 1`.
-- **Lower edge:** `coeff_tension ≥ 8·coeff_bending` — tension must dominate bending at the
-  grid scale, or the Nyquist mode self-amplifies even for small `coeff_tension`.
+  **Binding wavenumber:** as `T → 1⁻` (approaching the upper edge *from below*) the growth onset
+  binds at **θ → 0⁺** (long wavelength near DC), **not** θ = π. (An earlier revision of this doc
+  stated the binding mode was Nyquist θ = π; that is imprecise — see the lower edge.)
+- **Lower edge:** `coeff_tension ≥ 8·coeff_bending` — tension must dominate bending at the grid
+  scale. This edge **does** bind at the **Nyquist mode θ = π** (`A(π) = 2 + 32B − 4T`; `T < 8B`
+  self-amplifies at π). A real positive-stiffness, large-radius preset can hit it (`B = 2.77e-3,
+  T = 0.018` blows up with `|g| = 1.14` even though `T − 8B = −0.004 ≤ 1`).
+
+> **The `(coeff_tension − 8·coeff_bending) / CFL_LIMIT` ratio is a DISPLAY number, not a sufficient
+> reject criterion.** It encodes only the **upper** edge, so it **misses** a real lower-edge / bending
+> blow-up (the `B = 2.77e-3` case above). A correct gate must test **both** edges — equivalently the
+> Jury condition (i) `|B0(θ)| ≤ 1` and (ii) `|A(θ)| ≤ 1 − B0(θ)` over θ, which is exactly
+> `max_θ|g(θ)| ≤ 1`. `CFL_LIMIT = 1`; a lossless string sits at `|g| = 1`.
 
 ### Damping terms (measured)
 
@@ -264,6 +268,24 @@ test.
 > B = 0.05`: `T + 4B = 0.59` ≤ 1 but `|g| = 1.22`, diverges) and *rejects* stable ones (e.g.
 > `T = 0.85, B = 0.10`: `T + 4B = 1.25` > 1 but `|g| = 1.0`, stable). The correct ratio is
 > `(coeff_tension − 8·coeff_bending) / CFL_LIMIT` with `CFL_LIMIT = 1`.
+
+### Where the guard lives (v2 — host-side, pre-upload)
+
+The stability guard is enforced **on the host, in `parameter_manager.py`, BEFORE the GPU upload**
+(`cfl_stability.py` computes the closed-form `max_θ|g(θ)|`; the gate runs in
+`update_parameter('string'|'physics', …)` before `set_param`/`updateMultiStringParameter_NEW`).
+A string/physics edit whose amplification exceeds `1 + CFL_STABILITY_EPS` (float round-off only,
+`1e-6` — **not** a tunable margin) is **rejected** (`CflRejected` → HTTP 400 + a redline boolean);
+the edit is **never applied**, so the engine keeps its last-good coefficients. The per-string
+`tension_offset` is honoured (string `i` uses `tension·(1 + i·tension_offset)`; the worst string
+decides). **Output/"sound" strings (pitch ≥ 128, `outer_sound > 0`) and modes are NOT gated**
+(modes are a separate scheme; output strings are soundboard proxies with placeholder physics).
+The per-string ratio is exposed read-only via `GET /get_parameter/stability_ratio/<key>` (computed
+host-side from the current `StringMap`). There is **no kernel-side guard, no per-point shadow buffer,
+and no per-string flag** — the v1 implementation used those + a host flag-poll that raced the audio
+thread and silently halted synthesis on any edit; the v2 host-side, pre-upload design removes that
+machinery by construction. Design + empirical crash-border validation:
+`docs/proposals/cfl-stability-guard-v2.md`.
 
 ---
 

@@ -6,6 +6,27 @@
 |-------|------|-----|---------|--------|
 | dev-cfl | Courant/CFL stability guard: derive+document CFL_LIMIT (von-Neumann), parameterKernel per-string ratio + R1 reject (shadow-coeff fallback), middleware REST per-string ratio extraction + 4xx on reject | [log](logs/dev-cfl-2026-05-24-092641.md) | 2026-05-24 | In Progress |
 | dev-ratiochart | PianoidTunner CFL stability ratio-vs-pitch chart (ECharts pane, consumes `GET /get_parameter/stability_ratio/<key_no>`) — deferred companion to dev-cfl | [log](logs/dev-ratiochart-2026-05-24-184903.md) | 2026-05-24 | In Progress |
+| dev-cfl-v2 | CFL guard v2 RE-IMPLEMENTATION per docs/proposals/cfl-stability-guard-v2.md — host-side closed-form pre-upload reject; removes v1 kernel sweep + shadow/flag buffers; backs stability_ratio host-side; keeps tests + REST contract | [log](logs/dev-cfl-v2-2026-05-26-121700.md) | 2026-05-26 | Done (Phase 1) — committed on feature/cfl-stability-guard-v2; fresh --heavy build verified, 27/27 tests, live pitch-57 SUSTAIN; NOT merged (awaits user final re-test) |
+
+---
+
+## Separate (UNCONFIRMED) bug — length / string_iteration edit crash is NOT coefficient-CFL (dev-cfl, 2026-05-25)
+
+The user reported that editing "r [radius], length, string iterations, etc." can destabilise the engine.
+Measured findings (dev-cfl, in-process):
+- **radius**: CONFIRMED coefficient-CFL — `coeff_bending ∝ r⁴`, a large radius drives the FDTD amplification
+  factor `max|g| > 1`. The CFL stability guard (θ-swept gate, this session) REJECTS it. Covered.
+- **length / string_iteration**: these drive `coeff_tension, coeff_bending → 0` (larger dx / smaller dt),
+  which lands at the **marginal `|g| = 1`** defective double root — *identical to a healthy lossless string
+  (the baseline preset is also `|g| = 1`)*. This is NOT a coefficient-CFL instability and the CFL guard
+  correctly does NOT (and must not) reject it (rejecting would refuse normal presets).
+- **Therefore**: IF a length / string_iteration edit actually crashes, it is via a DIFFERENT mechanism —
+  the dx-unit / grid-resolution / array-bounds family (cf. the #144 `length→dx` regression), NOT the FDTD
+  CFL coefficient bound. **This crash is INFERRED from the user's report, NOT reproduced/measured by dev-cfl.**
+
+**Status: UNCONFIRMED, separate task.** Not fixed in the CFL-guard session (out of scope — the CFL guard
+cannot address it without rejecting healthy presets). To pin: reproduce a live length/string_iteration edit
+and capture the actual failure signature (or get the user's exact length/iter repro). Owner: open.
 
 ---
 
