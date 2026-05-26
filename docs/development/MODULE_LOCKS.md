@@ -15,7 +15,21 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-mmexp2-f492 | `PianoidCore/pianoid_middleware/modal_adapter/external_export.py`, `PianoidCore/tests/unit/test_external_export.py`, `docs/modules/pianoid-middleware/REST_API.md`, `docs/development/CODE_QUALITY.md` | 2026-05-26T13:57:00Z | Filter relative_modal_mass.txt to export set + drop NaN rows |
+
+<!-- dev-mmexp2-f492 locks RELEASED 2026-05-26 at Step 10a Phase 1.
+     Filter relative_modal_mass.txt to export set (matches omega_coef.txt
+     selected_chains filter from build_export_payload) + drop NaN
+     m_relative rows defensively. PianoidCore feature/dev-mmexp2-f492
+     commit f6464cc. PianoidInstall master commit 3c5e919 (docs + log).
+     NOT merged to dev yet — orchestrator merge-sweep will handle.
+     +8 net new tests (71 -> 78 PASS in test_external_export.py;
+     1 renamed). Live verified on D:/modal_projects/LG_p3: 386 data
+     rows (was 757) with selected_chains=None, 6 data rows with an
+     explicit 10-chain selection (4 of the 10 dropped by NaN drop —
+     chain 5 was in the export set but had NaN m_relative). 0 NaN
+     rows in any output. external_export.py crossed C4 RED at 1033
+     LOC (was 993; +40); CODE_QUALITY.md updated. -->
+
 
 <!-- dev-mmexp-5561 locks RELEASED 2026-05-26 at Step 10a Phase 1.
      Add relative_modal_mass.txt to Apply text export bundle.
