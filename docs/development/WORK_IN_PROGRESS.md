@@ -15,7 +15,7 @@
      `docs/proposals/collection-subpanel-reorg-2026-05-26.md`. Proposal
      committed on PianoidInstall master. -->
 
-<!-- dev-mmui-6e97 COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). Phase 2
+<!-- dev-mmui-6e97 COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). Phase 2
      Modal Mass UI refactor (rounds 1+2+3) merged to dev on PianoidTunner
      (merge a5aae54) — drop tab + integrate into Tracking + ESPRIT settings +
      auto-chain + Compute Modal Mass button + progress UI + Rules-of-Hooks
@@ -25,19 +25,19 @@
      (merge 93dad0a) — see dev-frfres-9c41 absorption + get_project_state
      data_status pass-through. -->
 
-<!-- dev-frfres-9c41 COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). v2
+<!-- dev-frfres-9c41 COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). v2
      open_project ctx.source_folder fix shipped on PianoidCore via
      feature/dev-frfres-9c41 (commit 1dedd13), absorbed into
      feature/dev-mmui-6e97-r3 and merged to dev (merge 93dad0a). Pushed to
      origin. Session log archived to
      logs/archive/dev-frfres-9c41-2026-05-25-175913.md. -->
 
-<!-- dev-msdel-3b1a COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). Fix
+<!-- dev-msdel-3b1a COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). Fix
      measurement-set deletion axios timeout (5s -> 60s) merged to dev on
      PianoidTunner (merge 54f859d). Pushed to origin. Session log archived
      to logs/archive/dev-msdel-3b1a-2026-05-25-195928.md. -->
 
-<!-- dev-cptmto-9d7e COMPLETED 2026-05-25 (wrap-fb-XXXX Step 10a). Fix
+<!-- dev-cptmto-9d7e COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). Fix
      CreateProjectFromMeasurementDialog polling timeout (5 min -> 60 min) +
      elapsed UX merged to dev on PianoidTunner (merge 00868cb). Pushed to
      origin. Session log archived to
