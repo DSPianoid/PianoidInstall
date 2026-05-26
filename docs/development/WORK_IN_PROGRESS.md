@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mmexp-5561 | Add relative modal mass file to Modal Adapter Apply text export | [log](logs/dev-mmexp-5561-2026-05-26-160011.md) | 2026-05-26 | Active |
+| dev-mmexp-5561 | Add relative modal mass file to Modal Adapter Apply text export | [log](logs/dev-mmexp-5561-2026-05-26-160011.md) | 2026-05-26 | Phase 1 ready (awaiting merge sweep) |
 
 <!-- ana-madlg-7c2e COMPLETED 2026-05-26 — /analyse Deep dialog review across
      Modal Adapter UI + consolidation proposal. Doc-only output at
