@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| ana-mmnan-7c3a | /analyse Modal mass NaN audit on LG_p3 (371 NaN out of 757 chains) — doc-only output | (in-flight) | 2026-05-26 | Active analysis |
 
 <!-- dev-mmexp2-f492 COMPLETED 2026-05-26 (wrap-mmexp2 Step 10a). Phase 2
      wrap-up — relative_modal_mass.txt now respects the export-set filter
