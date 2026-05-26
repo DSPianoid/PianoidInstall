@@ -4,7 +4,17 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| ana-mmnan-7c3a | /analyse Modal mass NaN audit on LG_p3 (371 NaN out of 757 chains) — doc-only output | (in-flight) | 2026-05-26 | Active analysis |
+
+<!-- ana-mmnan-7c3a COMPLETED 2026-05-26 (Step 10a Phase 1). /analyse
+     modal mass NaN audit on LG_p3 (371 NaN out of 757 chains). Doc-only
+     output at `docs/proposals/modal-mass-nan-investigation-2026-05-26.md`
+     (557 lines) + audit script
+     `docs/development/diagnostics/ana-mmnan-7c3a-audit.py`. Commit 34efc44
+     on PianoidInstall master. No bugs found; every NaN is the
+     architecturally correct refusal at three documented gates
+     (MIN_FIT_BINS=8, row-completeness, actuator-mapping filter).
+     Recommended a small UX improvement (mass_inversion_status field, S
+     effort, deferred to a /dev follow-up). -->
 
 <!-- dev-mmexp2-f492 COMPLETED 2026-05-26 (wrap-mmexp2 Step 10a). Phase 2
      wrap-up — relative_modal_mass.txt now respects the export-set filter
