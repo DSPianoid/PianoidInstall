@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| _(none active)_ | | | | |
+| dev-mmexp2-f492 | Fix relative_modal_mass.txt: export-set filter + drop NaN | [log](logs/dev-mmexp2-f492-2026-05-26-165614.md) | 2026-05-26 | Active |
 
 <!-- dev-mmexp-5561 COMPLETED 2026-05-26 (wrap-mmexp Step 10a). Phase 2
      wrap-up — relative_modal_mass.txt added to Modal Adapter Apply text

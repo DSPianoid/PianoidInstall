@@ -2870,17 +2870,32 @@ number of scenarios. Cells with no detection write `0.000000, 0.000000`.
 Only the effective modes are written (no placeholder rows). See
 [`MODAL_ADAPTER_GUIDE.md` — Complex amplitudes CSV](../../guides/MODAL_ADAPTER_GUIDE.md#export-to-text-files-dev-6c54c87f).
 
-`relative_modal_mass.txt` (dev-mmexp-5561 2026-05-26) is the per-chain
+`relative_modal_mass.txt` (dev-mmexp-5561 2026-05-26; dev-mmexp2-f492
+2026-05-26 added export-set filter + NaN drop) is the per-chain
 relative-modal-mass reference. Tab-separated, with `#`-prefixed header
 lines (compatible with `np.loadtxt(comments="#")` round-trips) carrying
-the reference chain, project metadata, and column names. One data row
-per chain returned by `GET /modal/modal_mass/summary`, **sorted by
-frequency ascending** (NOT chain_id). Chains where the modal-mass fit
-failed are kept in the file with `NaN` cells for `m_relative` /
-`m_absolute` so a reader can audit which tracked chains were tried but
-not mass-fit. Columns (in order): `chain_id`, `frequency_hz`,
-`m_relative`, `m_absolute`, `fit_quality_overall`, `is_reference`. The
-file is **silently omitted** when the project has no persisted
+the reference chain, project metadata, column names, and the filter
+book-keeping (`rows_after_filter`, `rows_written`). Rows are
+**sorted by frequency ascending** (NOT chain_id). Columns (in order):
+`chain_id`, `frequency_hz`, `m_relative`, `m_absolute`,
+`fit_quality_overall`, `is_reference`.
+
+**Row filtering** (matches the rest of the bundle):
+
+- **Export-set filter** — when `selected_chains` is supplied in the
+  request body, the file is filtered to those chain_ids only. This is
+  the same filter `build_export_payload` applies to `omega_coef.txt`,
+  `Q_coeff_*.txt`, `decka_coeff.txt`, `Ci_coef_cos.txt`, and
+  `mode_amplitudes.csv`, so all bundle files cover the same modes.
+  Omit `selected_chains` (or pass `null`) to include all chains from
+  the modal-mass summary.
+- **NaN drop** — rows where `m_relative` is non-finite (`None` /
+  `NaN` / `inf` — i.e. the modal-mass fit failed for that chain) are
+  dropped after the export-set filter. The header records the row
+  count both before (`rows_after_filter`) and after (`rows_written`)
+  the drop so a reader can audit how many chains were skipped.
+
+The file is **silently omitted** when the project has no persisted
 modal-mass results (no `modal_adapter/modal_mass/index.json` on disk).
 The 5 fixed-name `.txt` files + sidecar + `mode_amplitudes.csv` are
 always written regardless. To populate modal mass first, run
