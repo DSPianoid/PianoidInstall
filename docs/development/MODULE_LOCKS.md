@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-mmexp-5561 | PianoidCore/pianoid_middleware/modal_adapter/external_export.py, PianoidCore/pianoid_middleware/modal_adapter/apply_service.py, PianoidCore/tests/unit/test_external_export.py, docs/modules/pianoid-middleware/REST_API.md | 2026-05-26T13:00:11Z | Add relative_modal_mass.txt to Apply text export bundle |
 
 <!-- ana-madlg-7c2e lock RELEASED 2026-05-26 at Step 10a Phase 1.
      Proposal at docs/proposals/modal-adapter-dialog-review-2026-05-26.md

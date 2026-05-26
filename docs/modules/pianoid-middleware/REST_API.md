@@ -2805,12 +2805,14 @@ Responses:
 
 ---
 
-#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f, extended dev-camp 2026-05-07)
+#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f, extended dev-camp 2026-05-07, dev-mmexp-5561 2026-05-26)
 
 Write the 5 RoomResponse-format text files (`Ci_coef_cos.txt`, `omega_coef.txt`,
 `Q_coeff_Q.txt`, `Q_coeff_E.txt`, `decka_coeff.txt`) plus a
-`stitched_results.json` sidecar AND a `mode_amplitudes.csv`
-(per-(mode, scenario) complex amplitudes) to disk. This is the runtime port of the
+`stitched_results.json` sidecar, a `mode_amplitudes.csv`
+(per-(mode, scenario) complex amplitudes), AND -- when the project has
+persisted modal-mass results -- a `relative_modal_mass.txt` (per-chain
+relative modal mass reference) to disk. This is the runtime port of the
 `Merge_res_New.py` Stage-2 generator from the RoomResponse repository,
 adapted to consume already-aggregated mode chains directly from the Modal
 Adapter's `_tracked_chains`.
@@ -2846,7 +2848,8 @@ Request body (all fields optional):
     "Q_coeff_E.txt":   "D:/.../Q_coeff_E.txt",
     "decka_coeff.txt": "D:/.../decka_coeff.txt",
     "stitched_results.json": "D:/.../stitched_results.json",
-    "mode_amplitudes.csv": "D:/.../mode_amplitudes.csv"
+    "mode_amplitudes.csv": "D:/.../mode_amplitudes.csv",
+    "relative_modal_mass.txt": "D:/.../relative_modal_mass.txt"
   },
   "n_modes_exported": 12,
   "n_modes_padded":   116,
@@ -2866,6 +2869,25 @@ amplitudes -- one row per chain, columns
 number of scenarios. Cells with no detection write `0.000000, 0.000000`.
 Only the effective modes are written (no placeholder rows). See
 [`MODAL_ADAPTER_GUIDE.md` — Complex amplitudes CSV](../../guides/MODAL_ADAPTER_GUIDE.md#export-to-text-files-dev-6c54c87f).
+
+`relative_modal_mass.txt` (dev-mmexp-5561 2026-05-26) is the per-chain
+relative-modal-mass reference. Tab-separated, with `#`-prefixed header
+lines (compatible with `np.loadtxt(comments="#")` round-trips) carrying
+the reference chain, project metadata, and column names. One data row
+per chain returned by `GET /modal/modal_mass/summary`, **sorted by
+frequency ascending** (NOT chain_id). Chains where the modal-mass fit
+failed are kept in the file with `NaN` cells for `m_relative` /
+`m_absolute` so a reader can audit which tracked chains were tried but
+not mass-fit. Columns (in order): `chain_id`, `frequency_hz`,
+`m_relative`, `m_absolute`, `fit_quality_overall`, `is_reference`. The
+file is **silently omitted** when the project has no persisted
+modal-mass results (no `modal_adapter/modal_mass/index.json` on disk).
+The 5 fixed-name `.txt` files + sidecar + `mode_amplitudes.csv` are
+always written regardless. To populate modal mass first, run
+`POST /modal/run_modal_mass` (the Q6 gate requires ≥8 scenarios with
+FRF persisted). Reads from `modal_adapter/modal_mass/index.json` in
+the project directory — same source as
+`GET /modal/modal_mass/summary`.
 
 Error responses:
 
