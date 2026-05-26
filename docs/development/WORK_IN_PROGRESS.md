@@ -4,9 +4,33 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mstat-30b6 | Add `mass_inversion_status` enum field per chain (modal mass) | [log](logs/dev-mstat-30b6-2026-05-26-203321.md) | 2026-05-26 | Active |
-| dev-collreorg-7a3f | Collection subpanel reorg to standard settings architecture (gear-portal + toolbar Start/Cancel + Save All + Badge) | [log](logs/dev-collreorg-7a3f-2026-05-26-173611.md) | 2026-05-26 | Active |
-| dev-dlgrm-4b1a | Delete dead dialogs + Copy-mode branch (proposal §6.1 #1 + §6.4) | [log](logs/dev-dlgrm-4b1a-2026-05-26-203712.md) | 2026-05-26 | Active |
+
+<!-- dev-mstat-30b6 COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
+     Per-chain `mass_inversion_status` enum field (ok / partial / failed /
+     skipped) plumbed through PianoidCore export pipeline AND surfaced in
+     PianoidTunner Stabilization Diagram + ModalMassFreqChart (chip + tooltip).
+     PianoidCore feature/dev-mstat-30b6 merged to dev at 67148fa.
+     PianoidTunner feature/dev-mstat-30b6 merged to dev at 845bb57. 107
+     PianoidCore unit/integration tests + 729 PianoidTunner Jest tests pass
+     post-merge. Session log archived to
+     logs/archive/dev-mstat-30b6-2026-05-26-203321.md. -->
+
+<!-- dev-collreorg-7a3f COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
+     Collection subpanel reorganised to match standard settings architecture —
+     gear-portal CollectionSettingsPanel + toolbar Start/Cancel buttons +
+     Save All button + dirty-counter Badge + useCollectionStatus hook +
+     ModalAdapter architecture guards. PianoidTunner
+     feature/dev-collreorg-7a3f merged to dev at 86d720c. 729 Jest tests
+     pass post-merge. Session log archived to
+     logs/archive/dev-collreorg-7a3f-2026-05-26-173611.md. -->
+
+<!-- dev-dlgrm-4b1a COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
+     Dead dialog cleanup per ana-madlg-7c2e proposal §6.1 #1 + §6.4 —
+     CreateProjectDialog.jsx + EffectiveSignalLengthRerunDialog.jsx + the
+     Copy-mode branch of ProjectBrowserDialog.jsx deleted (1880 LOC net).
+     PianoidTunner feature/dev-dlgrm-4b1a merged to dev at b9dde06. 729 Jest
+     tests pass post-merge (45 obsolete dialog tests removed cleanly).
+     Session log archived to logs/archive/dev-dlgrm-4b1a-2026-05-26-203712.md. -->
 
 <!-- ana-mmnan-7c3a COMPLETED 2026-05-26 (Step 10a Phase 1). /analyse
      modal mass NaN audit on LG_p3 (371 NaN out of 757 chains). Doc-only
