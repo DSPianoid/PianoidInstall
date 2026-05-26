@@ -4,7 +4,13 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mmexp2-f492 | Fix relative_modal_mass.txt: export-set filter + drop NaN | [log](logs/dev-mmexp2-f492-2026-05-26-165614.md) | 2026-05-26 | Active |
+
+<!-- dev-mmexp2-f492 COMPLETED 2026-05-26 (wrap-mmexp2 Step 10a). Phase 2
+     wrap-up — relative_modal_mass.txt now respects the export-set filter
+     (only currently-selected chains are emitted) and drops NaN rows.
+     PianoidCore feature/dev-mmexp2-f492 merged to dev at 33f2493.
+     78/78 unit tests pass post-merge. Session log archived to
+     logs/archive/dev-mmexp2-f492-2026-05-26-165614.md. -->
 
 <!-- dev-mmexp-5561 COMPLETED 2026-05-26 (wrap-mmexp Step 10a). Phase 2
      wrap-up — relative_modal_mass.txt added to Modal Adapter Apply text
