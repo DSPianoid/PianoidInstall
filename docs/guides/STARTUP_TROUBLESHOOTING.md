@@ -328,6 +328,17 @@ Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_pres
 - ASIO device in use by another application (DAW, etc.) — close the other application
 - ASIO sample rate mismatch with the backend — set `"sample_rate": 48` in `/load_preset`
   to match 48 kHz (the default for most interfaces)
+- **Second `/load_preset` fails with "No working ASIO driver found"** — historically the
+  second consecutive `/load_preset` with `audio_driver_type: 4` would fail enumeration
+  of every ASIO driver. Root cause was a missing COM apartment on the playback worker
+  thread; the Steinberg ASIO host SDK uses `IASIO` COM interfaces and the calling thread
+  must have COM initialized as STA (`COINIT_APARTMENTTHREADED`) before the first ASIO
+  call. Fixed in dev-asiocrash-b20f (2026-05-27) — the `run_online` worker in
+  `pianoid_middleware/pianoid.py` now calls `pythoncom.CoInitializeEx(COINIT_APARTMENTTHREADED)`
+  at thread start and `CoUninitialize` on cleanup. If the symptom reappears, confirm
+  via `PianoidCore/logs/backend_stdout.log` (captured by the launcher since this fix)
+  that `ASIO: Failed to initialize driver '<name>'` appears for every enumerated driver
+  on the second load — that signature points back to a COM-apartment regression.
 
 **SDL-specific issues:**
 

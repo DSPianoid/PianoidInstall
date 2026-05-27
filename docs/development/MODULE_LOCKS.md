@@ -15,6 +15,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-asiocrash-b20f locks RELEASED 2026-05-27 at Step 10a Phase 1.
+     CoInitializeEx(COINIT_APARTMENTTHREADED) in PianoidUnifiedPlaybackThread
+     fixes 2nd-/load_preset ASIO crash. ASIO printf -> PLOG hygiene.
+     Launcher captures backend stdout to PianoidCore/logs/backend_stdout.log.
+     Live-verified: 3 x /load_preset adt=4 healthy + mic FFT SNR 24.0x/7.3x/10.4x
+     for pitches 60/67/72 vel=100. PianoidCore commit 5d297a6,
+     PianoidTunner commit 735d523. PianoidInstall docs + log on master. -->
 <!-- dev-mstat-30b6 locks RELEASED 2026-05-26 at Step 10a Phase 1.
      Per-chain mass_inversion_status field on modal mass (enum:
      valid / insufficient_band_width / no_full_row / only_unmapped_full_row).

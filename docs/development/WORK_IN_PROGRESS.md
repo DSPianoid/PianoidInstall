@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-asiocrash-b20f | Fix backend ASIO crash on POST /load_preset for UMC 1820 (COM apartment hypothesis) | [log](logs/dev-asiocrash-b20f-2026-05-27-093951.md) | 2026-05-27 | Phase 1 complete — PianoidCore 5d297a6 + PianoidTunner 735d523. Verified live (3 x /load_preset adt=4 + mic FFT SNR 24.0x/7.3x/10.4x). Awaiting user-approved Phase 2 merge to dev. |
 
 <!-- dev-mstat-30b6 COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
      Per-chain `mass_inversion_status` enum field (ok / partial / failed /
