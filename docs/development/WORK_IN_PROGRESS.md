@@ -7,6 +7,7 @@
 | dev-cfl | Courant/CFL stability guard: derive+document CFL_LIMIT (von-Neumann), parameterKernel per-string ratio + R1 reject (shadow-coeff fallback), middleware REST per-string ratio extraction + 4xx on reject | [log](logs/dev-cfl-2026-05-24-092641.md) | 2026-05-24 | In Progress |
 | dev-ratiochart | PianoidTunner CFL stability ratio-vs-pitch chart (ECharts pane, consumes `GET /get_parameter/stability_ratio/<key_no>`) — deferred companion to dev-cfl | [log](logs/dev-ratiochart-2026-05-24-184903.md) | 2026-05-24 | In Progress |
 | dev-cfl-v2 | CFL guard v2 RE-IMPLEMENTATION per docs/proposals/cfl-stability-guard-v2.md — host-side closed-form pre-upload reject; removes v1 kernel sweep + shadow/flag buffers; backs stability_ratio host-side; keeps tests + REST contract | [log](logs/dev-cfl-v2-2026-05-26-121700.md) | 2026-05-26 | Done (Phase 1) — committed on feature/cfl-stability-guard-v2; fresh --heavy build verified, 27/27 tests, live pitch-57 SUSTAIN; NOT merged (awaits user final re-test) |
+| dev-vpnoteoff | Fix VirtualPiano.js note-off pitch mismatch — handleMouseUp sends note-off to mouseup-position pitch instead of pressed pitch; pressed note never released on cursor drift or off-canvas release | [log](logs/dev-vpnoteoff-2026-05-27-184500.md) | 2026-05-27 | In Progress |
 
 ---
 
