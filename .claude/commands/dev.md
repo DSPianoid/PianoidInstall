@@ -122,6 +122,8 @@ Once the log file exists, the WIP entry is added, and (if any) initial locks are
 
 These are not new requirements — they are the existing Step 0 rules with explicit timing. A controller is always active in orchestrator-driven sessions and watches every dev agent's session log.
 
+**Do not idle after `[STEP-0-COMPLETE]`.** Proceed directly into Step 1 (or Step 0b for a resume) and start emitting `[PROGRESS]` heartbeats. An agent that completes Step 0 then stops producing markers is flagged as idle-after-step by the controller's fast freshness check (> 8 min silent) within minutes, and will be nudged or re-spawned. A multi-step task is yours to carry through autonomously — don't stop and wait after the initial step.
+
 ### Check for Paused or Stale Sessions
 
 Before starting new work, check for existing sessions:
@@ -200,6 +202,8 @@ In addition to step headings, dev agents emit explicit **markers** at action bou
 | `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>` | After every MCP tool return | MCP-return boundary |
 | `[READ] {ts} path=<path>` | Before every `Read` on a project file | Read operation log |
 | `[GREP] {ts} pattern=<pattern> path=<path>` | Before every `Grep`/`Glob` on project files | Grep/Glob operation log |
+| `[PROGRESS] {ts} step=<N> note=<...>` | At every step heading AND ≥ every 3 min during any long op | Liveness heartbeat (freshness) |
+| `[PERM-RISK] {ts} action=<...> method=<...> gate-risk=<...>` | Before any gate-risky action (process-spawn, taskkill, mcp-auth) | Permission-risk pre-marker |
 
 **Backwards compatibility.** Archived dev session logs predating this convention lack these markers — that's expected. Only new sessions are subject to the marker rules.
 
@@ -212,7 +216,7 @@ Applies to **every** step that runs `Bash` or invokes an MCP tool. Without these
 - **Before every MCP tool invocation:** emit `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<first 80 chars>`
 - **After every MCP tool return:** emit `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>`
 
-The pairs are **load-bearing** — an unmatched `[BASH-CALL]` or `[MCP-CALL]` older than 30 minutes is the controller's primary signal that the agent has stalled (Tier-2). Older than 60 minutes is Tier-3.
+The pairs are **load-bearing** — an unmatched `[BASH-CALL]` or `[MCP-CALL]`, or a `[PROGRESS]` heartbeat, older than `STALL_THRESHOLD = 8 minutes` is the controller's primary signal that the agent has stalled (Tier-2). Older than 20 minutes is Tier-3. A trailing `[PERM-RISK]` marker escalates immediately, without waiting for the threshold — it is the strongest single signal of a CLI permission stall.
 
 Failure to emit these markers is itself a Tier-2 violation — the controller cannot enforce stall detection or pre-emptive gating-pattern flagging without them.
 
@@ -233,6 +237,12 @@ Exemptions (the controller suppresses violations under these conditions):
 Failure to emit these markers is itself a Tier-2 violation.
 
 Keep entries concise — bullet points, not prose. The log is a breadcrumb trail, not a narrative.
+
+### Heartbeat & Permission-Risk Discipline (cross-cutting)
+
+**Heartbeat (MANDATORY).** Emit `[PROGRESS] {ts} step=<N> note=<short>` (a) at every step boundary alongside the `### Step N` heading, and (b) at least every **3 minutes** during any operation that runs longer than that — `--heavy` builds, full pytest, ESPRIT/modal derivations, `/test-ui` or `/diagnose` invocations, or any extended analysis stretch with no tool calls. Emit one `[PROGRESS]` *before* a long op starts and again whenever you regain control. The controller's fast freshness check (every 3 min) flags any active agent whose log has gained no new marker for > **8 minutes** as STALLED — a live agent's log is therefore never silent longer than ~3 min.
+
+**Permission-risk pre-marker (MANDATORY).** Before any action that may trip a CLI permission prompt (see `.claude/CLAUDE.md` "Known gaps in `bypassPermissions`") — process-spawn via `run_in_background`/`Start-Process`, `taskkill`/`Stop-Process` on a non-trivial PID, an MCP tool whose name matches `*auth*|*pair*|*init*`, or any TTY-opening Bash — emit `[PERM-RISK] {ts} action=<desc> method=<bash-bg|start-process|launcher-rest|taskkill|mcp-auth|...> gate-risk=<why>` **first**, then the `[BASH-CALL]`/`[MCP-CALL]`. If you then stall, this marker pinpoints the prompting action so the orchestrator can re-route you to a no-prompt method instead of relaying the invisible prompt to the user. Emit `[PERM-RISK] method=launcher-rest` even for the safe launcher-REST path, to record that the no-prompt method was chosen.
 
 ## Step 0b: Resume Paused Session
 
@@ -392,7 +402,12 @@ netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000|5001) " && echo "WARNING: p
 
 ### Start Servers With Correct Venv
 
-When the task requires a running backend, **start it yourself**. Use `run_in_background: true` on the Bash tool (NOT shell `&`) so the process survives:
+When the task requires a running backend, **start it yourself** — using the no-prompt method hierarchy (full detail in *Recommended startup hierarchy* below):
+1. **PREFERRED — launcher REST** (`curl -X POST http://127.0.0.1:3001/api/start-backend`): an HTTP call, NO process-spawn → never trips the permission gate. Use this whenever a launcher is up.
+2. **FALLBACK — `Start-Process -WindowStyle Hidden`** (detached, redirected output): survives long-running, though a fresh process can trip the long-running-process gate once per session.
+3. **LAST RESORT — `Bash run_in_background: true`**: trips the gate AND gets reaped / Flask-reloader-orphaned (~30–120 s). Only if 1 + 2 are impossible.
+
+Emit `[PERM-RISK] {ts} action="start backend" method=<launcher-rest|start-process|bash-bg> gate-risk=<...>` **before** any start attempt (per *Heartbeat & Permission-Risk Discipline*). The `Bash run_in_background` example below is the LAST-RESORT form (NOT shell `&`, which the Bash tool reports as immediate exit):
 
 ```bash
 # Backend server (port 5000) — CWD must be pianoid_middleware for relative preset paths

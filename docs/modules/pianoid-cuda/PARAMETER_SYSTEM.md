@@ -203,17 +203,29 @@ Both the granular and bulk APIs ultimately reach the same swap pipeline in
        State → UPDATING
 
 2. (poll thread): update_complete_event_ fires
-       swap: dev_preset_working_ ↔ dev_preset_updating_
-       updateDerivedPointers()  (refresh all sub-pointers in Pianoid)
+       swap: dev_preset_working_ ↔ dev_preset_updating_   (under update_mutex_)
+       publish new working base (release atomic) + raise swap_pending_
+         — the poll thread does NOT write Pianoid's sub-pointers (P1 single-owner)
        cudaMemcpyAsync: dev_preset_working_ → dev_preset_updating_  (sync)
        State → SYNCING
+
+2b. (engine thread, top of next runSynthesisKernel): refreshSwappablePointersIfPending()
+       consumeSwapPending() (acquire) → recompute dev_physical_parameters / dev_hammer /
+       dev_gauss_params_full / dev_mode_state / dev_deck_parameters from the published base.
+       This is the SOLE writer of those members.
 
 3. (poll thread): sync_complete_event_ fires
        State → IDLE
 ```
 
-GPU kernels launched after step 2 will use the new parameters; kernels in flight during
-step 2 continue reading the previous working copy uninterrupted.
+GPU kernels launched after the engine adopts the swap (step 2b) use the new parameters; kernels in
+flight during step 2 continue reading the previous working copy uninterrupted. **The host-side
+sub-pointer refresh moved from the poll thread (step 2) to the engine thread (step 2b) to fix a C++
+data race** — the poll thread used to write those members (`updateDerivedPointers`-style loop) while
+the engine read them lock-free. The members now have one owner (the engine thread); the poll thread
+publishes the base via a release/acquire atomic. See
+[MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md#host-side-sub-pointer-ownership-p1-single-owner--dev-427c-2026-05-29)
+and SYSTEM_OVERVIEW.md "GPU preset pointer ownership".
 
 ---
 

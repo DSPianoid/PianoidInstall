@@ -510,7 +510,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | 9 | `PianoidTunner/src/hooks/useModalAdapter.js` | 1356 | Modal adapter hook — REST + WS + project state + ESPRIT triggers |
 | 10 | `PianoidCore/pianoid_middleware/calibration_controller.py` | 1324 | Calibration — direct correction + bisection + sequence + I/O |
 | 11 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/mode_tracking.py` | 1215 | Mode tracking — proposals + assignment + lifecycle + scoring |
-| 12 | `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu` | 1122 | GPU memory manager — allocation + pooling + tracking |
+| 12 | `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu` | 1124 | GPU memory manager — allocation + pooling + tracking. +2 at dev-427c (2026-05-29, P1-1 swap publishes base + swap_pending_ instead of writing Pianoid's sub-pointers). |
 | 13 | `PianoidTunner/src/modules/ModalAdapter.jsx` | 1077 | Modal adapter page — layout + multi-pane config + top-level state |
 | 14 | `PianoidCore/pianoid_cuda/asio.h` | 1070 | Vendor header — third-party; excluded from refactor unless re-homed |
 | 15 | `PianoidCore/pianoid_cuda/Pianoid.cu` | 1080 | CUDA synthesis facade — the `Pianoid` object lifecycle + GPU-memory lifecycle. Was rank 3 at 2952 LOC; split phases 0-8 (dev-cbd5, 2026-05-19) extracted 6 substantive modules (`Pianoid_presets/_debug/_calibration/_excitation/_parameters/_synthesis.cu`). +39 at dev-cfl (2026-05-24, register + zero-init the 3 always-active CFL OUTPUT buffers). Over the RED line — drops below 1000 after the deferred phase R relocates the ~10 thin audio-driver wrappers into the audio-driver subsystem (proposal `pianoid-cu-split-proposal-2026-05-19.md`). |
@@ -527,14 +527,14 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_middleware/modal_adapter/measurement_import.py` | 644 | (dev-maimport, 2026-05-19 — new module; shared by REST + future CLI use. P1/P2 clean — single concern, single owner.) |
 | `PianoidCore/pianoid_cuda/MainKernel.cu` | 762 |
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit_runner.py` | 759 |
-| `PianoidCore/pianoid_cuda/Pianoid.cuh` | 742 |
+| `PianoidCore/pianoid_cuda/Pianoid.cuh` | 768 |
 | `PianoidBasic/Pianoid/StringMap.py` | 686 |
 | `PianoidCore/pianoid_cuda/Pianoid_parameters.cu` | 667 |
 | `PianoidCore/pianoid_middleware/test_backendserver_audio.py` | 664 |
 | `PianoidCore/pianoid_cuda/AsioAudioInterface.cpp` | 656 |
 | `PianoidTunner/src/components/CurveEditor.jsx` | 655 |
 | `PianoidTunner/src/components/ChartSelector.jsx` | 634 |
-| `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu` | 622 |
+| `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu` | 648 |
 | `PianoidCore/pianoid_middleware/auto_tuner.py` | 607 |
 | `PianoidBasic/Pianoid/StringExcitation.py` | 589 |
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/esprit_core.py` | 586 |

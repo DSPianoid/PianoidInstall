@@ -85,16 +85,43 @@ UpdateState machine:
   IDLE:      No update in progress; working copy is live; updating copy is identical.
   UPDATING:  Host data is being copied to updating copy via cudaMemcpyAsync on update_stream_.
              GPU kernels continue reading from working copy uninterrupted.
-  SWAPPING:  update_complete_event_ has fired. Atomic pointer swap:
-               dev_preset_working_  ↔  dev_preset_updating_
-             Kernels launched after the swap read the new parameters.
+  SWAPPING:  update_complete_event_ has fired. The poll thread swaps the manager's own
+             buffer pointers: dev_preset_working_ ↔ dev_preset_updating_ (under update_mutex_).
+             It then PUBLISHES the new working-copy base (release-store atomic) and raises
+             swap_pending_ — it does NOT write the engine's host-side sub-pointers itself.
   SYNCING:   New working copy is being synchronised back to new updating copy
              (via another async copy on update_stream_) so both copies are identical again.
   IDLE:      sync_complete_event_ has fired. System returns to idle.
 ```
 
-The swap is atomic from the GPU's perspective — kernels never observe a partially-updated
-parameter block.
+The GPU-buffer swap is atomic from the GPU's perspective — kernels never observe a
+partially-updated parameter block.
+
+### Host-side sub-pointer ownership (P1 single-owner — dev-427c, 2026-05-29)
+
+The `Pianoid` object holds raw `real*` members (`dev_physical_parameters`, `dev_hammer`,
+`dev_gauss_params_full`, `dev_mode_state`, `dev_deck_parameters`) that point into the **working
+copy** and are read lock-free by the engine thread at kernel-launch marshaling
+(`runSynthesisKernel`). "Atomic from the GPU's perspective" covers the *GPU buffer content* — it
+does **not** make those *host-side C++ pointer members* thread-safe.
+
+Per **P1 Separation of Authority**, those members have exactly one owner: the **engine thread**.
+The swap therefore uses a flag-and-publish handoff (mirroring `run_string_map_kernel_`):
+
+- `swapBuffers()` (poll thread) swaps the manager's private `dev_preset_working_`/`dev_preset_updating_`
+  under `update_mutex_`, then `published_working_base_.store(working, release)` and
+  `swap_pending_.store(true, release)`. It never writes the `Pianoid::dev_*` members.
+- `Pianoid::refreshSwappablePointersIfPending()` (engine thread, first statement of
+  `runSynthesisKernel`, before any kernel-arg read) does `consumeSwapPending()` (acquire); on true it
+  recomputes the five members from `getPublishedWorkingBase()` + `PresetParameterOffsets`. The
+  acquire/release pair guarantees the engine sees the fully-swapped base as a consistent set — no
+  torn, stale, or mixed-base pointer read mid-cycle.
+
+Before this fix the poll thread wrote those members directly inside `swapBuffers()` while the engine
+read them lock-free — a C++ data race that fired on every async parameter update / preset swap
+(measured: ~1842 mid-cycle pointer mutations during a sustained note under update load). It was the
+suspected root cause of the intermittent, live-only, per-pitch "55/56/57 trichotomy". See
+`docs/development/CODE_QUALITY.md` P1 and the dev-427c session log.
 
 Update policy controls behaviour when a second update arrives while one is in progress:
 

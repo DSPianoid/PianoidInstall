@@ -95,8 +95,10 @@ Keep entries terse — this log will be incorporated into the parent's log.
 - **After every MCP tool return:** emit `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>`
 - **Before every `Read` invocation on a project file:** emit `[READ] {ts} path=<path>`
 - **Before every `Grep`/`Glob` invocation on project files:** emit `[GREP] {ts} pattern=<pattern> path=<path>`
+- **At least every few minutes during any long operation** (build, test, capture): emit `[PROGRESS] {ts} step=<N> note=<short>` — the heartbeat that proves you are alive between tool-call pairs
+- **Before any operation that could hit a CLI permission gate** (backend spawn, `taskkill`, MCP auth): emit `[PERM-RISK] {ts} action=<...> method=<bash-bg\|start-process\|launcher-rest\|taskkill\|mcp-auth> gate-risk=<...>` — identical to the parent dev agent's discipline
 
-The `[BASH-CALL]` / `[MCP-CALL]` pairs feed the controller's stale-agent monitoring (an unmatched call older than 30 minutes is a Tier-2 stall). The `[READ]` / `[GREP]` markers feed the Documentation-First compliance check. Failure to emit is itself a Tier-2 violation.
+The `[BASH-CALL]` / `[MCP-CALL]` pairs and the `[PROGRESS]` heartbeat feed the controller's freshness check (tiered: a fast 3-min scan with an 8-min stall threshold, plus a 15-min deep sweep). A `[PERM-RISK]` marker left as the newest line of a stale log is the single strongest signal of a CLI permission stall. The `[READ]` / `[GREP]` markers feed the Documentation-First compliance check. Failure to emit is itself a Tier-2 violation.
 
 ## Step 1: Read Context
 

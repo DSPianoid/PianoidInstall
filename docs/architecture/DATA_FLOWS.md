@@ -363,13 +363,16 @@ pianoid.py: update_parameter(param='string')                  (line 2230)
 C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
   IDLE → UPDATING:
     cudaMemcpyAsync(host → dev_preset_updating_, update_stream)
-  UPDATING → SWAPPING:
-    swap dev_preset_working_ ↔ dev_preset_updating_
-    updateDerivedPointers()
+  UPDATING → SWAPPING (poll thread):
+    swap dev_preset_working_ ↔ dev_preset_updating_  (under update_mutex_)
+    publish new base (release) + swap_pending_=true  (NOT a direct member write — P1 single-owner)
   SWAPPING → SYNCING → IDLE
          │
          ▼
-  Next MainKernel launch reads updated values from dev_preset_working_
+  Engine thread (top of next runSynthesisKernel): refreshSwappablePointersIfPending()
+    consumeSwapPending() (acquire) → refresh dev_physical_parameters etc. from the published base.
+    The engine is the SOLE writer of those members (fixes the poll-thread-vs-engine data race —
+    dev-427c). Next MainKernel launch then reads updated values from dev_preset_working_.
 ```
 
 **`length` → `dx` derivation (granular path).** `length` (main-section physical

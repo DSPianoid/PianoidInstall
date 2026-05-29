@@ -316,14 +316,36 @@ Backend Process (port 5000)
     |       Must not block; no Python code runs here.
     |
     +-- MIDI listener thread (optional)
-            Python MIDI_listener_unified (pianoid.py) — uses rtmidi to read
-            raw MIDI bytes from a hardware port, then pushes NOTE_ON /
-            NOTE_OFF / SUSTAIN events into RealTimeEventBuffer via
-            Pianoid.schedule_event(). Thread-safe buffer, < 1us lock.
-            Legacy Python MidiListener (pianoidMidiListener.py) is retained
-            for its YAML keyboard config / per-note CC handlers but is not
-            wired into the default startup path.
+    |       Python MIDI_listener_unified (pianoid.py) — uses rtmidi to read
+    |       raw MIDI bytes from a hardware port, then pushes NOTE_ON /
+    |       NOTE_OFF / SUSTAIN events into RealTimeEventBuffer via
+    |       Pianoid.schedule_event(). Thread-safe buffer, < 1us lock.
+    |       Legacy Python MidiListener (pianoidMidiListener.py) is retained
+    |       for its YAML keyboard config / per-note CC handlers but is not
+    |       wired into the default startup path.
+    |
+    +-- GPU parameter poll thread (C++, UnifiedGpuMemoryManager::updatePollThread)
+            Created in devMemoryInit; advances the TUNABLE double-buffer update
+            state machine (UPDATING → SWAPPING → SYNCING → IDLE) by polling CUDA
+            stream events every 100us. On SWAPPING it swaps the manager's own
+            working/updating GPU buffers under update_mutex_, then PUBLISHES the
+            new working-copy base (release atomic) + raises swap_pending_. It does
+            NOT write the engine's host-side preset sub-pointers — those are owned
+            by the engine thread (see "GPU preset pointer ownership" below).
 ```
+
+### GPU preset pointer ownership (P1 single-owner — dev-427c, 2026-05-29)
+
+The swappable preset sub-pointers (`Pianoid::dev_physical_parameters`, `dev_hammer`,
+`dev_gauss_params_full`, `dev_mode_state`, `dev_deck_parameters`) are written by **exactly one
+thread: the engine thread**, which refreshes them from the poll thread's published working-copy base
+at the top of every `runSynthesisKernel` (`refreshSwappablePointersIfPending`, gated by an
+acquire-load of `swap_pending_`). The poll thread only publishes the base + sets the flag; it never
+writes the members. This closes a C++ data race (poll thread writing the members while the engine read
+them lock-free) that was the suspected cause of the intermittent live-only "55/56/57 trichotomy". The
+Python-side `cuda_lock` (below) serialises *middleware* parameter calls but does not — and cannot —
+cover this C++ engine-vs-poll-thread member access; the single-owner handoff does. See
+[MEMORY_MANAGEMENT.md](../modules/pianoid-cuda/MEMORY_MANAGEMENT.md#host-side-sub-pointer-ownership-p1-single-owner--dev-427c-2026-05-29).
 
 Thread safety is maintained by:
 - `self.cuda_lock` (Python `threading.Lock`) in the Pianoid middleware class,

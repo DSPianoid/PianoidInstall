@@ -13,7 +13,7 @@ Promote the controller from a stub mention to a first-class **read-only complian
 The controller has **three complementary monitoring paths**:
 
 1. **Per-event invariant checks** (Sections 5a–5d, 5e, 8a–8c): catches workflow violations the moment a watched log file is updated. Examples: late Step 0, unlocked dirty file, premature Phase 2, missing build verification.
-2. **Periodic 30-min sweep** (Section 8d, supported by failure-mode catalogue Section 12): catches agents that **stopped advancing** — the dominant stall pattern is a tool call that triggered a CLI permission prompt invisible to the Telegram user (per CLAUDE.md "Known gaps in `bypassPermissions`"). The sweep reads each agent's session log for unmatched `[BASH-CALL]` / `[MCP-CALL]` markers and classifies the stall by the catalogue.
+2. **Tiered freshness sweep** (Section 8d — a fast 3-min scan with an 8-min stall threshold, plus a 15-min deep sweep; supported by failure-mode catalogue Section 12): catches agents that **stopped advancing** — the dominant stall pattern is a tool call that triggered a CLI permission prompt invisible to the Telegram user (per CLAUDE.md "Known gaps in `bypassPermissions`"). The sweep reads each agent's session log for unmatched `[BASH-CALL]` / `[MCP-CALL]` markers and classifies the stall by the catalogue.
 3. **Continuous sliding-window scan** (Section 8e): catches agents that **investigate in the wrong order** — specifically, dev agents who skip the CLAUDE.md "Documentation-First Rule (MANDATORY)" by grepping/reading source code without consulting `docs/` first. The scan slides over each agent's `[READ]`/`[GREP]` marker stream and flags windows where N=3 source-reads occurred with no preceding doc consultation.
 
 Together the three paths close the gap: every category of agent failure either produces a log event (per-event), produces silence (periodic), or produces a *sequence* of events that violates an investigative-order rule (sliding-window). The controller catches all three.
@@ -93,13 +93,13 @@ The controller enforces invariants along **four functional axes**:
 | Cross-agent | 5b | overlapping locks, sequential nvcc, untracked dirty files | event-driven + file-update of `MODULE_LOCKS.md` / `git status` |
 | Workflow-specific | 5c | multitask wave honesty, fn parent-lock inheritance, auto-trigger compliance | event-driven |
 | Dev anti-patterns | 5d | the 24 dev-discipline checks | event-driven |
-| **Stale-agent + permission-stall** | **Section 8d (mechanism) + Section 12 (failure-mode catalogue)** | **agents that stopped advancing — long-running bash, TTY-blocking, system-PID taskkill, MCP OAuth gates** | **periodic 30-min sweep** |
+| **Stale-agent + permission-stall** | **Section 8d (mechanism) + Section 12 (failure-mode catalogue)** | **agents that stopped advancing — long-running bash, TTY-blocking, system-PID taskkill, MCP OAuth gates** | **tiered: 3-min fast freshness scan (8-min stall threshold) + 15-min deep sweep** |
 | **Documentation-First rule** | **Section 8e (algorithm) + Section 5d "Documentation-First skipped" row** | **agents grepping/reading source code without first consulting `docs/` — per CLAUDE.md "Documentation-First Rule (MANDATORY)"** | **continuous, event-driven (sliding window over `[READ]`/`[GREP]` markers)** |
 
 Axes 5a–5d catch *what the agent did wrong* (substantive workflow violations) on the **event-driven** path. The stale-agent axis catches *what the agent stopped doing* — silence with no violation produced — on a **periodic-sweep** path. The Documentation-First axis catches *how the agent investigates* — the order in which it consults docs vs. source — on a **continuous sliding-window** path over the `[READ]`/`[GREP]` marker stream. The three paths are complementary:
 
-- The event-driven path can never detect "agent has been silent for 30 minutes" because there is no event.
-- The periodic path can never detect a same-second invariant break because it only fires every 30 min.
+- The event-driven path can never detect "agent has gone silent past the 8-minute stall threshold" because silence produces no event.
+- The periodic path can never detect a same-second invariant break because it only fires on its tick (3-min fast / 15-min deep).
 - The continuous sliding-window path is event-driven but evaluates over a *sequence* of recent events, not a single one — distinct from the per-event invariant checks in 5a–5d.
 
 Together they close the coverage: every category of agent failure either produces a log event (caught in 5a–5d), produces silence (caught by Section 8d's periodic sweep classifying patterns from the Section 12 catalogue), or produces a *sequence* of events that violates an investigative-order rule (caught by Section 8e's sliding-window scan).
@@ -293,7 +293,7 @@ For each anti-pattern check from Sections 5a–5d, this table records the signal
 | 31 | Feature branch must merge to dev (5d Step 9) | `git log dev..feature/*` per repo at CLOSED | Direct git read | *None* (direct git read) |
 | 32 | (orchestrator AP, Section 3) Reading source files in orchestrator | Orchestrator's tool-use record | Inaccessible to a sub-agent — orchestrator's own conversation is its own | *None on dev.md side.* Remains heuristic — controller catches the consequence (unlocked dirty file, check 8) not the act. **Open question:** see Section 17 |
 | 33 | (orchestrator AP, Section 3) Skipping post-completion verification | Orchestrator log of approval-relay actions | Orchestrator does not maintain its own session log today | *MARKER (orchestrator-side, not dev.md):* orchestrator should `SendMessage(to: "controller", "approval-relayed agent=<id>")` after each user-approval forward. Controller uses this as the gate for check 27 |
-| 34 | **Stale-agent detection: Bash call without return** (cross-cutting; primary stall pattern) | Paired markers around every Bash invocation; unmatched call = agent never returned, almost-certain permission stall | Free-form Bash logs only — no current convention captures the stall pattern | *MARKER (paired):* `[BASH-CALL] {ts} {command_summary}` BEFORE every Bash invocation; `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>` AFTER. Controller's stall scan (Section 8d) flags any unmatched `[BASH-CALL]` after 30 min as Tier-2, after 60 min as Tier-3 |
+| 34 | **Stale-agent detection: Bash call without return** (cross-cutting; primary stall pattern) | Paired markers around every Bash invocation; unmatched call = agent never returned, almost-certain permission stall | Free-form Bash logs only — no current convention captures the stall pattern | *MARKER (paired):* `[BASH-CALL] {ts} {command_summary}` BEFORE every Bash invocation; `[BASH-RETURN] {ts} duration_ms=<N> exit_code=<N>` AFTER. Controller's stall scan (Section 8d) flags any unmatched `[BASH-CALL]` after the 8-min `STALL_THRESHOLD` as Tier-2, after 20 min as Tier-3 |
 | 35 | **Stale-agent detection: MCP call without return** (cross-cutting; secondary stall pattern) | Paired markers around every MCP tool invocation; unmatched call = MCP server hung or auth-flow gating | Free-form — agents do not log MCP calls today | *MARKER (paired):* `[MCP-CALL] {ts} server=<name> tool=<name> args_summary=<...>` BEFORE; `[MCP-RETURN] {ts} duration_ms=<N> status=<ok\|error>` AFTER. Controller's stall scan flags unmatched `[MCP-CALL]` per same tier rules as check 34 |
 | 36 | **Discipline: every potentially-gating tool call must be marker-wrapped** (5d Step 0 / Step 1b — new rule) | Any Bash or MCP invocation in agent log without a preceding paired `*-CALL` marker | None (rule does not exist today) | *DISCIPLINE:* dev.md adds: "Before every `Bash` invocation, emit `[BASH-CALL] {ts} {first 80 chars of command}`. Before every MCP tool invocation, emit `[MCP-CALL] {ts} ...`. Pair with `[BASH-RETURN]` / `[MCP-RETURN]` on completion. Failure to emit is itself a Tier-2 violation — the controller cannot detect stalls without these markers." |
 | 37 | **Suspicious-pattern Bash detection** (cross-cutting; preventive) | `[BASH-CALL]` text matches a known-gating pattern (long-running starter, TTY-opening, taskkill on system PIDs) | Free-form | Falls out of (34) once `[BASH-CALL]` exists. Controller maintains a known-gates list (Section 12 catalogue) and flags `[BASH-CALL]` matches with **Tier-2 preemptive** *before* the call goes silent — gives orchestrator a chance to redirect the agent (e.g., "use PowerShell Start-Process instead of cmd //c start") |
@@ -485,11 +485,16 @@ Then the controller archives its own log to `logs/archive/` and exits.
 
 (Inter-session note: between the last dev agent's CLOSED and the next dispatch, the controller stays alive but enters a quiet state — pulses drop to 15 minutes, watch list goes empty. It does not produce a summary at that point, only at session end.)
 
-### 8d. Periodic stale-agent monitoring (30-min cadence)
+### 8d. Periodic stale-agent monitoring (tiered: 3-min fast freshness / 15-min deep sweep)
 
-The event-driven model in Sections 8a–8c catches violations the moment a watched log file is updated. It does NOT catch agents that simply STOP writing — for example, agents stuck on a CLI permission prompt that the Telegram user cannot see. This sub-section adds a periodic stale-check, complementary to (not replacing) the event-driven loop.
+The event-driven model in Sections 8a–8c catches violations the moment a watched log file is updated. It does NOT catch agents that simply STOP writing — for example, agents stuck on a CLI permission prompt that the Telegram user cannot see. This is the **dominant stall pattern**, so the periodic stale-check is split into two tiers, complementary to (not replacing) the event-driven loop.
 
-**Cadence.** Every 30 minutes of wall-clock time, the controller runs a stale-agent scan across every agent on its watch list. The 30-minute number is the user-specified default; see Section 17 (Open Questions) for the cadence-tuning question.
+**Tiered cadence.**
+
+- **Fast freshness scan — every 3 minutes** while ≥1 dev/fn agent is alive. Cheap: read only the last ~15 lines of each watched log, take the newest-entry timestamp, and compute its age. Any agent whose newest log line is older than `STALL_THRESHOLD = 8 minutes` is a stall candidate and is classified immediately (decision matrix below). The 3-minute tick can also fire out-of-band on an orchestrator **freshness-tick poke** (`SendMessage(to: controller, "freshness-tick")`): the orchestrator pokes when it independently suspects an agent has gone quiet, so the controller need not wait for its own timer.
+- **Deep sweep — every 15 minutes.** Full read of each watched log, complete marker reconciliation (unmatched `[BASH-CALL]`/`[MCP-CALL]`, Documentation-First `[READ]`/`[GREP]` ordering, lock-inheritance), and the heartbeat audit. The deep sweep catches discipline violations the fast scan skips for cost.
+
+**Heartbeat & permission markers.** Agents emit `[PROGRESS] {ts} step=<N> note=<...>` at least every few minutes during long operations, and `[PERM-RISK] {ts} action=<...> method=<...> gate-risk=<...>` immediately before any operation that could hit a CLI permission gate. The fast scan reads these directly: a fresh `[PROGRESS]` resets the stall clock even mid-build, and a `[PERM-RISK]` left as the newest line of a stale log is the single strongest signal of a permission stall — it escalates without waiting for the 8-minute threshold.
 
 **Per-agent procedure.** For each agent on the watch list:
 
@@ -501,19 +506,23 @@ The event-driven model in Sections 8a–8c catches violations the moment a watch
 3. Classify the **last-entry type**:
    - **Normal narration / step heading** — the agent was in the middle of described work
    - **Unmatched tool-call marker** — the agent emitted `[BASH-CALL]` or `[MCP-CALL]` but no matching `[BASH-RETURN]` / `[MCP-RETURN]` followed (per Section 5e.3 the markers are paired)
+   - **`[PERM-RISK]` as the newest line** — the agent announced an operation that can hit a CLI permission gate and then went silent: almost-certain permission stall, the highest-priority candidate
+   - **Stale `[PROGRESS]`** — the newest line is a heartbeat older than `STALL_THRESHOLD`: the agent was alive but its long operation has itself hung (e.g. a build that never returned)
    - **Final marker** — `[STEP-10A-PHASE-1]`, `[STEP-10A-PHASE-2]`, `[STEP-10B-RESET ... phase=done]` etc. — agent reached an exit point and may legitimately be idle awaiting orchestrator follow-up
 4. Compute the **stall duration**: `now - last_entry_timestamp`.
 5. Apply the decision matrix:
 
 | Last-entry age | Last-entry type | Tier | Suspicion score |
 |---|---|---|---|
-| < 30 min | any | none — agent is active | n/a |
-| 30–60 min | normal narration / step heading | T1 — informational ping to orchestrator | low |
-| 30–60 min | final marker (Phase 1 / 2 / Reset done / Pause) | none — legitimately idle pending orchestrator | n/a |
-| 30–60 min | unmatched `[BASH-CALL]` or `[MCP-CALL]` marker | **T2 — likely permission stall, escalate** | **high** |
-| > 60 min | normal narration / step heading | T3 — assume stalled, halt-and-investigate | medium |
-| > 60 min | final marker | T1 — orchestrator should follow up; agent is waiting | low |
-| > 60 min | unmatched `[BASH-CALL]` or `[MCP-CALL]` marker | **T3 — almost-certain permission stall, immediate halt** | **highest** |
+| < `STALL_THRESHOLD` (8 min) | any | none — agent is active | n/a |
+| any age | fresh `[PROGRESS]` newer than 8 min | none — heartbeat proves liveness mid-operation | n/a |
+| ≥ 8 min | `[PERM-RISK]` newest line | **T2 — almost-certain permission stall, escalate now** | **highest** |
+| 8–20 min | normal narration / step heading | T1 — informational ping to orchestrator | low |
+| 8–20 min | final marker (Phase 1 / 2 / Reset done / Pause) | none — legitimately idle pending orchestrator | n/a |
+| 8–20 min | unmatched `[BASH-CALL]` / `[MCP-CALL]` or stale `[PROGRESS]` | **T2 — likely permission/operation stall, escalate** | **high** |
+| > 20 min | normal narration / step heading | T3 — assume stalled, halt-and-investigate | medium |
+| > 20 min | final marker | T1 — orchestrator should follow up; agent is waiting | low |
+| > 20 min | unmatched `[BASH-CALL]` / `[MCP-CALL]`, stale `[PROGRESS]`, or `[PERM-RISK]` | **T3 — immediate halt** | **highest** |
 
 **Output.** Periodic-monitor scan finishes with a single SendMessage to orchestrator listing each candidate stalled agent:
 
@@ -604,7 +613,7 @@ Boundary contract:
 | Approving user requests | Orchestrator only |
 | Reading lock/WIP/log files | Either |
 | Detecting invariant violations | Controller (primary), orchestrator (fallback if no controller) |
-| **Detecting stalled agents (periodic 30-min sweep, Section 8d)** | **Controller** |
+| **Detecting stalled agents (tiered freshness sweep, Section 8d)** | **Controller** |
 | Acting on violations (e.g., relaying to user, instructing dev agent to stop) | Orchestrator |
 | **Acting on stale-agent reports (approve CLI prompt, kill+respawn, tell user via Telegram)** | **Orchestrator** |
 | Repo `git status` health checks | Either; controller does periodically, orchestrator does at Step 1.5 |
@@ -645,18 +654,23 @@ Controller event loop (mostly event-driven, with one periodic tick):
       * Monitor notification (a watched log file gained a line)
       * Pulse timer (5 min when ≥1 dev agent alive; 15 min idle / empty
         watch list)
-      * **Stale-agent scan timer (30 min, cadence per Section 8d)** — wakes
+      * **Fast freshness-scan timer (3 min when ≥1 dev/fn agent alive, cadence per Section 8d)** — wakes
         the controller even if no log file activity has occurred; this is
         what catches agents stuck on a CLI permission prompt (no log line
-        produced because the gating tool call never returned)
+        produced because the gating tool call never returned). Also fires
+        on an orchestrator `freshness-tick` poke (SendMessage).
+      * **Deep-sweep timer (15 min, cadence per Section 8d)** — full marker
+        reconciliation and the heartbeat audit
   - On wake:
       * Update watch list if new dispatch
       * Re-scan locks + WIP + git status if relevant
       * Cross-reference against active invariants (Section 5a-5d, signals
         per Section 5e)
-      * On 30-min stale-scan tick: read every active agent's log, classify
-        last-entry per Section 8d decision matrix, send stale-agent report
-        if any candidates found
+      * On a fast freshness-scan tick (or `freshness-tick` poke): read the
+        last ~15 lines of every active agent's log, classify last-entry per
+        the Section 8d decision matrix (8-min `STALL_THRESHOLD`), send a
+        stale-agent report if any candidates found. The 15-min deep sweep
+        additionally does full marker reconciliation.
       * Send pulses / alerts as needed
   - Between wakes: idle, near-zero token usage
     |
@@ -702,7 +716,7 @@ The user's msg 1707 named the dominant cause of stalls: "user confirmation reque
 - `dev-modal-b3` 2026-05-01 — backend startup via `cmd //c start-pianoid.bat`, gated, agent silent.
 - `dev-833f` 2026-04-30 (Phase A) — chrome-devtools session loss after permission prompt invisible to Telegram user.
 
-**Controller flag (via Section 8d).** Unmatched `[BASH-CALL] {ts} cmd //c start*` (or any pattern in the long-running-starter list below) older than 30 min → Tier-2; older than 60 min → Tier-3. Also: pre-emptive Tier-2 the moment `[BASH-CALL]` is emitted if its command_summary matches the pattern (per check 37, 5e.2).
+**Controller flag (via Section 8d).** Unmatched `[BASH-CALL] {ts} cmd //c start*` (or any pattern in the long-running-starter list below) older than the 8-min `STALL_THRESHOLD` → Tier-2; older than 20 min → Tier-3. Also: pre-emptive Tier-2 the moment `[BASH-CALL]` is emitted if its command_summary matches the pattern (per check 37, 5e.2).
 
 **Long-running-starter pattern list (controller pre-emptive matcher):**
 - `cmd //c start*` (Windows start command)
@@ -1067,7 +1081,7 @@ The marker convention (Step 1) lands FIRST because adding markers to dev.md does
 4. **Notification scope for non-/dev dispatches.** Section 6 says the orchestrator notifies the controller on every dispatch including `/sync`, `/test-ui`, `/pianoid-ui`. This catches accidental source edits but adds notification volume. Alternative: notify only on `/dev`, `/multitask`, `/fn`, `/update-docs`, `/review` — i.e., skills that *can* edit project state. Proposal: notify all (current text), reconsider if telemetry shows the non-editing skills generate noise.
 5. **Detecting orchestrator self-reads of source files (check 32).** The orchestrator's tool-use record is in its own conversation context, inaccessible to the controller. Today the controller catches the consequence (unlocked dirty file via check 8 + `[LOCK ACQUIRED]` divergence) but not the read itself. Options: (a) accept the gap and rely on consequence-detection; (b) require the orchestrator to write its own session log under `docs/development/logs/orchestrator-<session-id>-...md` capturing every Read/Bash tool call against project paths — a substantial new convention. Proposal: option (a). Option (b) is heavier than the failure mode warrants.
 6. **Orchestrator-side approval-relay marker (check 33).** The proposal asks the orchestrator to `SendMessage(to: "controller", "approval-relayed agent=<id>")` after each user-approval forward. This is the gating signal for check 27 (no premature Phase 2). Without it, the controller has to read the team-lead inbox file to detect approval relays — works today but ties controller correctness to inbox-file format stability. Should the orchestrator also write the approval-relay action to a structured log file, separate from the SendMessage? Proposal: SendMessage is sufficient; revisit if inbox format changes. Both options addressed in Section 15's orchestrator.md edit row.
-7. **Stale-agent scan cadence (30-min default, tunable).** Section 8d defaults to a 30-min cadence per the user's specification. This is a tunable trade-off: shorter cadence catches stalls faster but increases controller wakeups (still cheap, but adds log noise per pulse); longer cadence accepts more dead-time before a stalled agent is reported. Proposal: 30 min as user-specified; revisit if telemetry shows that (a) most stalls produce visible alerts before 30 min via other channels, in which case bump to 60 min; or (b) stalls cluster around well-known patterns where a pre-emptive check (Section 5e.2 row 37 with the Section 12 pattern catalogue) catches them within seconds, making the 30-min sweep less load-bearing.
+7. **Stale-agent scan cadence — RESOLVED (2026-05-24): tiered.** Section 8d now runs a fast 3-min freshness scan (8-min `STALL_THRESHOLD`) plus a 15-min deep sweep, superseding the original single 30-min cadence. The false-positive risk that made a sub-30-min cadence costly is removed by the `[PROGRESS]` heartbeat: a fresh heartbeat resets the stall clock mid-operation, so a long legitimate build no longer trips the fast scan. Pre-emptive flagging on a suspicious `[BASH-CALL]` (Section 5e.2 row 37 + the Section 12 pattern catalogue) remains the fastest path; the tiered sweep is the safety net. The orchestrator can also force a fast scan out-of-band with a `freshness-tick` poke.
 8. **Documentation-First windowing parameter (N=3 default, tunable).** Section 8e uses a sliding window of the last N=3 non-NEUTRAL `[READ]`/`[GREP]` events to decide whether the agent is grep-first vs docs-first. The user suggested N=3 as the default. Trade-offs: smaller N (e.g., 2) is more sensitive — flags faster but with more false positives; larger N (e.g., 5) is more lenient — fewer false positives but lets a few source-only reads through. Alternative model: time-window (e.g., last 2 minutes of investigation phase) instead of event-window (last 3 events). Proposal: keep N=3 event-window — easier for the controller to reason about and matches the user's intuition. Revisit if (a) telemetry shows persistent false-positive rate >20% on otherwise-compliant sessions, in which case bump to N=5; or (b) agents start gaming the window (e.g., one cheap doc-read followed by 100 source-reads), in which case switch to time-windowed.
 
 ---
@@ -1083,4 +1097,4 @@ This proposal does NOT:
 - Persist state across orchestrator sessions — each `/orchestrator start` gets a fresh controller.
 - Block agents — all enforcement is advisory; orchestrator decides actions.
 - **Auto-recover stalled agents.** The 4th axis (Section 8d periodic stale-scan + Section 12 catalogue) detects stalls and reports them; it never invokes `TaskStop`, never respawns, never auto-approves CLI permission prompts, never opens browser tabs to complete OAuth flows. Recovery is the orchestrator's job per the failure-mode-specific protocol in Section 8d / Section 12. This boundary is intentional: granting recovery authority to the controller would require it to also have actor-level permissions (Bash, TaskStop), which would expand its surface area beyond the read-only-monitor design and reintroduce the ambiguity Section 10 was designed to eliminate.
-- **Run more often than every 30 minutes for stall detection.** The cadence is deliberate: shorter intervals create false positives on slow legitimate work (large CUDA build, full pytest, npm cold install — all in F8). Sub-30-min stall sweeps produce noise faster than they catch real stalls. Pre-emptive flagging on the moment of `[BASH-CALL]` against the suspicious-pattern regex (Section 12.6) is the controller's fast-path for catching stalls early; the 30-min sweep is the slow-path safety net.
+- **Run the fast freshness scan without honoring the `[PROGRESS]` heartbeat.** The fast scan fires every 3 minutes (8-min `STALL_THRESHOLD`), but it MUST treat a fresh `[PROGRESS]` marker as proof of liveness — otherwise slow legitimate work (large CUDA build, full pytest, npm cold install — all in F8) trips false positives. The heartbeat is precisely what makes a 3-min cadence safe; without a heartbeat convention the controller would have to fall back to a longer cadence. Pre-emptive flagging on the moment of `[BASH-CALL]` against the suspicious-pattern regex (Section 12.6) is the fast-path for catching stalls early; the tiered sweep is the slow-path safety net.
