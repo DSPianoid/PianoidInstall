@@ -198,7 +198,7 @@ edit. It computes the FDTD amplification `max|g|` (closed form, `cfl_stability.p
 `tension_offset` honored) over the affected pitch's *current* model physics:
 
 - **reject** — when the edit breaches the CFL **safety** bound: either the worst-string **Courant number**
-  `(coeff_tension − 8·coeff_bending) ≥ CFL_MARGIN` (the upper-edge headroom, default `0.99`) **or**
+  `(coeff_tension − 8·coeff_bending) ≥ CFL_MARGIN` (the upper-edge headroom, currently `0.8`) **or**
   `max|g| > 1` (true divergence / the lower bending edge) → **raise the `cfl_redline` flag and skip the
   upload**. The edit stays in the Python model; the GPU buffer keeps its last *stable* values, so the
   engine never receives unsafe coefficients and never crashes (no partial write — the granular C++ path
@@ -208,9 +208,9 @@ edit. It computes the FDTD amplification `max|g|` (closed form, `cfl_stability.p
 This is **skip-the-upload, not reject-the-edit** (no exception/4xx). The flag is surfaced to the UI via
 `/health` + the `param_ack`/REST edit response (a "CFL" warning chip).
 
-**The acceptance threshold — `CFL_MARGIN` (Courant number, default `0.99`).** The exact upper-edge
-boundary is the Courant number reaching `1.0` (`max|g| = 1`, lossless). The middleware gate rejects ~1%
-*before* that, at `CFL_MARGIN = 0.99`, to give the **float32** engine headroom (it runs float32 with
+**The acceptance threshold — `CFL_MARGIN` (Courant number, tunable, currently `0.8`).** The exact upper-edge
+boundary is the Courant number reaching `1.0` (`max|g| = 1`, lossless). The middleware gate rejects ~20%
+*before* that, at `CFL_MARGIN = 0.8`, to give the **float32** engine headroom (it runs float32 with
 boundary + force terms and accumulates over thousands of steps, so a config the float64 closed-form
 scores exactly `|g| = 1.0` can still creep up live). The margin is applied to the **Courant number**, not
 `max|g|` — below the upper edge `|g|` is *flat* at `1.0` then jumps past the edge, so it cannot encode a
@@ -220,8 +220,9 @@ fractional headroom; the Courant number rises monotonically with tension and doe
 the **upper** edge; the exact `max|g| ≤ 1` test still runs so the lower (bending) edge is caught. The
 read-only `stability_ratio` endpoint reports the **exact** `max|g|` (the true boundary), not the
 margin-shifted threshold. Verified through the live granular gate at targeted Courant numbers
-(`docs/development/diagnostics/dev-eac2-cfl-margin-verify.py`): boundary exactly at `0.99` — courant `0.98`
-accepted, `0.995` rejected (was accepted pre-margin since `|g| = 1.0`).
+(`docs/development/diagnostics/dev-eac2-cfl-margin-verify.py`): the boundary tracks `CFL_MARGIN` — a Courant
+number just under the margin is accepted, just over is rejected (the over-margin band was accepted
+pre-margin since `|g| = 1.0`).
 
 > **`CFL_LIMIT` must stay `1.0` — the margin is NOT here.** `CFL_LIMIT` is the *exact* `max|g|` boundary
 > (a lossless string sits at exactly `1.0`). `is_stable_amp` tests `max|g| ≤ CFL_LIMIT + 1e-6`. Lowering

@@ -283,9 +283,9 @@ the flag. This is **skip-the-upload, not reject-the-edit** (user-directed 2026-0
 response, e.g. the `BackendStatusIndicator` "CFL" chip). The deprecated `_raise_if_cfl_unstable` (the old
 throw-based gate) is retained only until its reject-path tests migrate to the flag model.
 
-**`CFL_MARGIN` — a safety margin on the Courant number (default `0.99`).** The *exact* upper-edge boundary
-is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The live UPLOAD gate rejects ~1% *before*
-that, at `CFL_MARGIN = 0.99`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
+**`CFL_MARGIN` — a tunable safety margin on the Courant number (currently `0.8`).** The *exact* upper-edge
+boundary is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The live UPLOAD gate rejects
+~20% *before* that, at `CFL_MARGIN = 0.8`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
 for the *idealised* recurrence (`0` permissive cells vs a dense-θ truth,
 `dev-eac2-cfl-exactness-check.py` / `dev-eac2-cfl-ratio-boundary.py`), but the real engine runs float32
 with boundary + force terms and accumulates over thousands of steps, so a config the closed-form scores
@@ -296,8 +296,8 @@ so it cannot encode a fractional headroom; the Courant number rises monotonicall
 the exact boundary (no margin), lower = more headroom. The margin tightens only the **upper** edge; the
 exact `max|g| ≤ 1` test still runs so the lower (bending) edge is caught. The read-only `stability_ratio`
 endpoint reports the **exact** `max|g|`, not the margin-shifted threshold. Verified through the live
-granular gate at targeted Courant numbers (`dev-eac2-cfl-margin-verify.py`: courant `0.98` accepted,
-`0.995` rejected — boundary at `0.99`). The per-string `tension_offset` is honoured (string `i` uses
+granular gate at targeted Courant numbers (`dev-eac2-cfl-margin-verify.py` verifies the boundary tracks
+`CFL_MARGIN`: a Courant number just under the margin is accepted, just over is rejected). The per-string `tension_offset` is honoured (string `i` uses
 `tension·(1 + i·tension_offset)`; the worst string decides). **Output/"sound" strings (pitch ≥ 128,
 `outer_sound > 0`) and modes are NOT gated**
 (modes are a separate scheme; output strings are soundboard proxies with placeholder physics). The
