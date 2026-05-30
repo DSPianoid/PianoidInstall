@@ -118,6 +118,33 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/results            -- get extraction results
   /modal/apply_to_preset    -- inject modes into active preset
   /modal/cancel             -- cancel running extraction
+  /modal/run_frf            -- (Phase 1, dev-frf-q-phase01) spectral FRF
+                               extraction with hammer-impact force window
+                               from raw_recordings/ per scenario
+  /modal/frf/summary        -- (Phase 1) project-level FRF index + per-scenario
+                               metadata (lightweight, safe before any run)
+  /modal/frf/scenario/<idx> -- (Phase 1) per-scenario FRF arrays serialised
+                               for the frontend (frequencies + per-channel
+                               magnitude_db / magnitude_abs / phase_deg /
+                               coherence)
+  /modal/frf                -- (Phase 1, DELETE) invalidate FRF — remove
+                               persisted files + clear in-memory state
+  /modal/qc/log_decrement   -- (Phase 0c) GET + POST Hilbert log-decrement
+                               Q cross-check; flags chains where Q_logdec
+                               disagrees with Q_esprit beyond threshold
+                               (default 30%)
+  /modal/run_modal_mass     -- (Phase 2, dev-modal-mass-p2) per-chain residue
+                               extraction (SDOF circle-fit + MDOF RFP) +
+                               SVD dual-unit-max inversion -> per-mode
+                               relative modal mass + mass-normalised
+                               shapes. Q6 gate: requires >=8 scenarios
+                               with FRF persisted.
+  /modal/modal_mass/summary -- (Phase 2) project-level modal-mass index
+                               (chain count, m_rel/m_abs, reference mode)
+  /modal/modal_mass/mode/<chain_id> -- (Phase 2) per-chain payload (shapes
+                               + per-(scenario, channel) residues)
+  /modal/modal_mass         -- (Phase 2, DELETE) invalidate modal mass —
+                               remove persisted files + clear cache
   /modal/projects           -- list projects, current project, projects_base
   /modal/projects/create    -- create project with optional measurement_source
   /modal/projects/open      -- open existing project
@@ -2168,6 +2195,430 @@ Return per-pitch feedin and sound coefficients.
 
 ---
 
+### Stage 5b: FRF + Q Cross-check (dev-frf-q-phase01, Phase 0 + Phase 1)
+
+The FRF (Frequency Response Function) stage was added in 2026-05-24 as
+the first half of the Modal Mass + Q-factor improvement plan. It
+promotes the calibration / force channel from "alignment timing" to
+the input `X(f)` in a proper spectral-domain `H(f) = Y(f) / X(f)`
+using the clean H1 estimator on raw per-cycle data.
+
+See [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md)
+for the full design rationale.
+
+**Hammer-impact force window (user Q5 directive).** The force/calibration
+sensor is mounted on the hammer itself (not co-located with response
+sensors), so the recorded force signal contains the main impact peak
+PLUS post-impact hammer bounce + recoil + ringdown. Only the main
+impulse represents true input force into the structure. Before FFT,
+the force is windowed to `[peak - W_pre, peak + W_post]` (default
+0.5 ms + 4.5 ms = 5 ms total centred on the negative-peak impact).
+Defaults are tunable per project via the `config` body field on
+`POST /modal/run_frf`.
+
+#### `POST /modal/run_frf`
+
+Compute FRF for the requested scenarios (synchronous; per-scenario
+~tens-of-ms). Bypasses `normalize_by_calibration` and works directly
+on `raw_recordings/raw_*_chN.npy` so the H1 estimator is not
+double-normalised (see proposal §4.2).
+
+Request body:
+```json
+{
+  "scenario_indices": [100, 101, 102],
+  "config": {
+    "force_window_pre_ms": 0.5,
+    "force_window_post_ms": 4.5
+  }
+}
+```
+
+Both fields are optional — `scenario_indices=null` processes every
+loaded scenario; `config` falls back to the module defaults.
+
+Response `200`: same shape as `GET /modal/frf/summary`.
+
+---
+
+#### `GET /modal/frf/summary`
+
+Return the project-level FRF index. Lightweight — no heavy arrays.
+Safe to call before any FRF run (`available: false` then).
+
+Response `200` (after a run):
+```json
+{
+  "available": true,
+  "stale": false,
+  "computed_at": "2026-05-24T11:49:20.459820+00:00",
+  "scenario_count": 1,
+  "config": {
+    "force_window_pre_ms": 0.5,
+    "force_window_post_ms": 4.5,
+    "calibration_channel": 0,
+    "response_channels": [1, 2, 3, 4, 5, 6, 7]
+  },
+  "scenarios": [
+    { "scenario_index": 100, "has_npz": true }
+  ]
+}
+```
+
+`stale=true` when an ESPRIT re-run or scenario re-load happened
+since the last FRF run; the frontend renders a "FRF needs re-run"
+badge in that state (Q8 dirty-flag flow).
+
+---
+
+#### `GET /modal/frf/scenario/<int:scenario_idx>`
+
+Return one scenario's FRF arrays serialised as plain JSON lists for
+the frontend. Reads back the persisted
+`<project>/modal_adapter/frf/scenario_<N>.npz`.
+
+Response `200`:
+```json
+{
+  "scenario_index": 100,
+  "frequencies": [0.0, 1.0, 2.0, "..."],
+  "n_cycles_used": 120,
+  "force_window": {
+    "peak_sample_median": 0.0,
+    "w_pre_ms": 0.5,
+    "w_post_ms": 4.5
+  },
+  "channels": {
+    "ch1": {
+      "channel": 1,
+      "magnitude_db": ["..."],
+      "magnitude_abs": ["..."],
+      "phase_deg": ["..."],
+      "coherence": ["..."]
+    }
+  }
+}
+```
+
+Coherence `γ²(f) = |G_xy|² / (G_xx · G_yy) ∈ [0, 1]` is a per-frequency
+quality metric — values close to 1 mean the FRF estimate is
+trustworthy at that bin, values << 1 mean the response is dominated
+by input-uncorrelated noise. The frontend can gray-out / hatch
+regions where coherence < 0.7.
+
+Returns `404` if the scenario has no persisted FRF.
+
+---
+
+#### `DELETE /modal/frf`
+
+Invalidate FRF for the current project: remove persisted
+`frf/scenario_*.npz` + `frf/index.json` and clear the in-memory cache.
+Drives the Q8 user-opt-in dirty-flag flow.
+
+Response `200`:
+```json
+{
+  "message": "Invalidated FRF: removed 5 files",
+  "deleted_files": ["scenario_100.npz", "index.json", "..."]
+}
+```
+
+---
+
+#### `POST /modal/qc/log_decrement`
+
+Run the Hilbert log-decrement Q cross-check against the current
+tracked chains (Phase 0c). Bandpass-filters the averaged IR around
+each chain's mode frequency, computes the Hilbert envelope, fits
+the slope of `log(envelope)` to recover `ζ = -slope / ω_n`, and
+compares `Q_logdec = 1/(2ζ)` against ESPRIT's `Q_esprit` per chain.
+
+Request body (optional):
+```json
+{
+  "disagreement_threshold": 0.30
+}
+```
+
+`disagreement_threshold` is the relative tolerance
+`|Q_logdec - Q_esprit| / Q_esprit` above which the chain is flagged
+as suspicious (default 0.30 = 30%).
+
+Response `200`:
+```json
+{
+  "computed_at": "2026-05-24T...",
+  "disagreement_threshold": 0.30,
+  "chain_count": 42,
+  "per_chain": {
+    "0": {
+      "chain_id": 0,
+      "frequency_hz": 200.05,
+      "Q_esprit": 100.0,
+      "Q_logdec": 102.4,
+      "disagreement_ratio": 0.024,
+      "disagreement_flag": false,
+      "reason": "ok",
+      "samples_used": 4759
+    }
+  }
+}
+```
+
+`reason` is one of: `"ok"`, `"no_damping"`, `"out_of_band"`,
+`"insufficient_samples"`, `"fit_failed"`, `"bad_envelope"`,
+`"no_measurements"`.
+
+Persisted to `<project>/modal_adapter/qc/log_decrement.json`.
+
+---
+
+#### `GET /modal/qc/log_decrement`
+
+Return the persisted log-decrement cross-check payload (or
+`{"available": false, "per_chain": {}}` when no cross-check has run).
+
+---
+
+### Stage 5c: Modal Mass extraction (dev-modal-mass-p2, Phase 2)
+
+The Modal Mass stage was added in 2026-05-24 as the second half of the
+Modal Mass + Q-factor improvement plan. It consumes the FRF output of
+Stage 5b plus the tracked-chain set from Stage 4 to extract per-mode
+relative modal mass + mass-normalised mode shapes.
+
+See [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md)
+§5.2.1 + §5.2.3 + §6 Phase 2 for the design.
+
+**Pipeline.** Per tracked chain `n`:
+
+1. Detect MDOF clusters by frequency proximity (user decision C —
+   `|f_i - f_j| < 3 · max(BW_i, BW_j)`, cluster cap = 4 modes; chains
+   beyond the cap get `fit_method = "low_density_unresolved"`).
+2. For each `(scenario_i, response_channel_c)` in the chain's
+   `detections`, run the SDOF Kennedy-Pancu circle-fit (singleton
+   cluster) or the MDOF RFP joint LS fit (cluster of 2-4) on the
+   persisted FRF `H1_ch<c>` in the band `f_n ± 3·ζ_n·f_n`. Returns
+   `R_n^{i,c}` (complex) + `fit_quality ∈ [0, 1]`.
+3. Build the residue tensor `R[n, a, s]` where `a` is the
+   populated-grid-cell index (0..A-1, per
+   `MappingConfig.point_coordinates`) and `s` is the response-channel
+   axis. Missing `(actuator, channel)` entries are NaN.
+4. Per chain, invert the rank-1 residue matrix via SVD under the
+   **dual-unit-max convention** (`max|φ_a| = max|φ_s| = 1`): the
+   leftover scale equals `1/m_n` at the joint peak by the physics, so
+   `m_n = 1 / (σ_0 · max|u_0| · max|v_0|)`.
+5. Reference-mode selection (user decision B): lowest-freq chain with
+   `fit_quality_overall > 0.7 AND coverage >= 0.5`. Fallback: refuse
+   to normalise, emit `reference_mode_warning`, raw `m_absolute` still
+   stored per chain.
+
+**Q6 gate (user decision E):** `POST /modal/run_modal_mass` requires
+≥ 8 scenarios with FRF persisted; otherwise returns `422` with
+`InsufficientDataError`. `GET /modal/modal_mass/summary` is
+unconstrained — returns whatever was last persisted regardless of
+the current scenario count.
+
+**Units note (relative only per Q2).** H1 from Stage 5b is in
+dimensionless `response_voltage / force_voltage` (raw ADC, no sensor
+calibration applied). The recovered `m_n` is in
+"internally-consistent voltage-ratio units" — NOT kg. The
+user-meaningful output is `m_relative = m_n / m_ref`. Absolute SI
+calibration is deferred per proposal §5.5.1.
+
+#### `POST /modal/run_modal_mass`
+
+Run the modal-mass extraction across all tracked chains. Synchronous
+(per-chain fit is bounded — dozens of chains finish in a few seconds
+total). Reads FRF NPZ files on disk; writes per-chain JSON +
+`modal_mass/index.json`.
+
+Request body: none (empty `{}`).
+
+Response `200`: same shape as `GET /modal/modal_mass/summary`.
+
+Response `422` (Q6 gate trips):
+```json
+{
+  "error": "Modal mass requires ≥ 8 scenarios with FRF persisted; have 3. Run FRF on more scenarios first."
+}
+```
+
+Other errors (`400`):
+
+- `"No tracked chains"` — run ESPRIT + tracking first
+- `"Modal mass requires a grid-layout mapping"` — line-layout project
+- `"Mapping has no response channels"` — set channel roles first
+
+---
+
+#### `GET /modal/modal_mass/summary`
+
+Return the project-level modal-mass summary (light meta only — no
+shape arrays). Safe to call before any modal-mass run
+(`available: false` then). Unconstrained by Q6 gate per user
+decision E.
+
+Response `200` (after a run):
+```json
+{
+  "available": true,
+  "stale": false,
+  "computed_at": "2026-05-24T12:34:56.789012+00:00",
+  "chain_count": 42,
+  "scenario_count": 12,
+  "reference_mode_chain_id": 4,
+  "reference_mode_warning": null,
+  "config": {
+    "min_scenarios_for_modal_mass": 8,
+    "ref_mode_fit_quality_min": 0.7,
+    "ref_mode_coverage_min": 0.5,
+    "mdof_cluster_cap": 4,
+    "cluster_bw_mult": 3.0,
+    "response_channels": [1, 2, 3, 4, 5, 6, 7],
+    "actuator_count": 12
+  },
+  "chains": [
+    {
+      "chain_id": 4,
+      "frequency_hz": 42.2,
+      "fit_method": "mdof",
+      "m_absolute": 8.87e-6,
+      "m_relative": 1.0,
+      "fit_quality_overall": 0.77,
+      "is_reference_mode": true,
+      "mass_inversion_status": "valid",
+      "has_file": true
+    }
+  ]
+}
+```
+
+`stale=true` when FRF, ESPRIT, or scenarios re-ran since the last
+modal-mass run; the frontend renders a "STALE" badge on the Modal
+Mass tab.
+
+`mass_inversion_status` (dev-mstat-30b6 2026-05-26) explains the
+per-chain inversion outcome — useful when `m_absolute` is `null`
+because it tells the user *why*. Enum values:
+
+| Value | Meaning |
+|---|---|
+| `"valid"` | Inversion succeeded; `m_absolute` is finite. |
+| `"insufficient_band_width"` | Every per-`(scenario, channel)` circle/RFP fit returned `0+0j` because the chain's frequency band held < `MIN_FIT_BINS = 8` bins. Dominantly low-frequency chains. |
+| `"no_full_row"` | Some residues are nonzero but no mapped actuator row had all response channels populated; `shape_inversion.py`'s row-completeness gate dropped every row. Typically high-frequency chains. |
+| `"only_unmapped_full_row"` | Full rows exist, but only at scenario indices outside the actuator grid mapping (synthetic / unmapped scenario indices). Inherently rare. |
+
+See the audit at
+`docs/proposals/modal-mass-nan-investigation-2026-05-26.md` for the
+decision-tree derivation and per-bucket counts on LG_p3 (386 valid /
+242 insufficient_band_width / 126 no_full_row / 3
+only_unmapped_full_row out of 757 chains).
+
+**Backward compatibility:** older indices written before this commit
+do not carry the field. The backend backfills on read with a best-
+effort guess from `m_absolute` (finite -> `"valid"`, non-finite ->
+`"insufficient_band_width"`); the next `POST /modal/run_modal_mass`
+overwrites with the actually-classified value.
+
+---
+
+#### `GET /modal/modal_mass/mode/<int:chain_id>`
+
+Return one chain's full modal-mass payload (residues + shapes +
+mass-normalised variants + per-(scenario, channel) detail). Used by
+the Modal Mass tab's per-chain drilldown.
+
+Response `200`:
+```json
+{
+  "chain_id": 4,
+  "frequency_hz": 42.2,
+  "damping_ratio": 0.0051,
+  "quality_factor": 98.0,
+  "coverage": 0.95,
+  "fit_method": "mdof",
+  "cluster_chain_ids": [3, 4, 5],
+  "m_absolute": 8.87e-6,
+  "m_relative": 1.0,
+  "shape_actuator": [
+    { "index": 0, "real": 0.92, "imag": 0.0 },
+    { "index": 1, "real": 0.45, "imag": 0.01 }
+  ],
+  "shape_response": [
+    { "index": 0, "real": 0.78, "imag": 0.02 }
+  ],
+  "shape_actuator_mass_normalised": [
+    { "index": 0, "real": 309.4, "imag": 0.0 }
+  ],
+  "shape_response_mass_normalised": [
+    { "index": 0, "real": 262.0, "imag": 6.7 }
+  ],
+  "per_scenario_residues": {
+    "0": {
+      "1": { "real": 0.024, "imag": 0.012, "fit_quality": 0.72 }
+    }
+  },
+  "fit_quality_overall": 0.77,
+  "is_reference_mode": true,
+  "mass_inversion_status": "valid"
+}
+```
+
+`mass_inversion_status` (dev-mstat-30b6 2026-05-26) — same enum as
+documented above under `GET /modal/modal_mass/summary`; identical
+value to the per-chain summary entry.
+
+Both shape arrays are SPARSE — actuator cells with no valid residue
+extraction are absent from the list (NOT serialised as `NaN`). The
+frontend iterates the list and uses `index` to position each entry
+on the actuator grid.
+
+Returns `404` when the chain has no persisted modal-mass payload.
+
+---
+
+#### `DELETE /modal/modal_mass`
+
+Invalidate modal mass for the current project: remove persisted
+`modal_mass/chain_*.json` + `modal_mass/index.json` and clear the
+in-memory cache. Mirrors the FRF invalidate flow.
+
+Response `200`:
+```json
+{
+  "message": "Invalidated modal mass: removed 42 files",
+  "deleted_files": ["chain_0.json", "chain_1.json", "index.json"]
+}
+```
+
+---
+
+### Data Status surface extensions
+
+`GET /modal/data_status` payload was extended in Phase 1 with three
+new keys (additive, no breaking change), and again in Phase 2 with
+two more:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `frf` | bool | True when at least one scenario has FRF persisted |
+| `frf_stale` | bool | True when ESPRIT re-run / scenario re-load happened since the last FRF run |
+| `qc_log_decrement` | bool | True when the Hilbert log-decrement cross-check has been computed for the current project |
+| `modal_mass` | bool | (Phase 2) True when at least one chain has modal-mass persisted |
+| `modal_mass_stale` | bool | (Phase 2) True when FRF / ESPRIT / scenarios re-ran since the last modal-mass run |
+
+Per-chain dicts (returned by `GET /modal/tracking_results`) gained
+two additive fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `quality_factor` | number \| null | `1 / (2 · damping_mean)` — surfaces the Q-factor per chain. `null` when `damping_mean` is degenerate. |
+| `detections[<sc>].quality_factor` | number \| null | Per-detection Q, same formula on `damping_ratio`. |
+
+---
+
 ### Stage 6: Channel Mapping & Visualization
 
 #### `POST /modal/channel_mapping`
@@ -2406,12 +2857,14 @@ Responses:
 
 ---
 
-#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f, extended dev-camp 2026-05-07)
+#### `POST /modal/projects/<name>/export_text` (dev-6c54c87f, extended dev-camp 2026-05-07, dev-mmexp-5561 2026-05-26)
 
 Write the 5 RoomResponse-format text files (`Ci_coef_cos.txt`, `omega_coef.txt`,
 `Q_coeff_Q.txt`, `Q_coeff_E.txt`, `decka_coeff.txt`) plus a
-`stitched_results.json` sidecar AND a `mode_amplitudes.csv`
-(per-(mode, scenario) complex amplitudes) to disk. This is the runtime port of the
+`stitched_results.json` sidecar, a `mode_amplitudes.csv`
+(per-(mode, scenario) complex amplitudes), AND -- when the project has
+persisted modal-mass results -- a `relative_modal_mass.txt` (per-chain
+relative modal mass reference) to disk. This is the runtime port of the
 `Merge_res_New.py` Stage-2 generator from the RoomResponse repository,
 adapted to consume already-aggregated mode chains directly from the Modal
 Adapter's `_tracked_chains`.
@@ -2447,7 +2900,8 @@ Request body (all fields optional):
     "Q_coeff_E.txt":   "D:/.../Q_coeff_E.txt",
     "decka_coeff.txt": "D:/.../decka_coeff.txt",
     "stitched_results.json": "D:/.../stitched_results.json",
-    "mode_amplitudes.csv": "D:/.../mode_amplitudes.csv"
+    "mode_amplitudes.csv": "D:/.../mode_amplitudes.csv",
+    "relative_modal_mass.txt": "D:/.../relative_modal_mass.txt"
   },
   "n_modes_exported": 12,
   "n_modes_padded":   116,
@@ -2467,6 +2921,49 @@ amplitudes -- one row per chain, columns
 number of scenarios. Cells with no detection write `0.000000, 0.000000`.
 Only the effective modes are written (no placeholder rows). See
 [`MODAL_ADAPTER_GUIDE.md` — Complex amplitudes CSV](../../guides/MODAL_ADAPTER_GUIDE.md#export-to-text-files-dev-6c54c87f).
+
+`relative_modal_mass.txt` (dev-mmexp-5561 2026-05-26; dev-mmexp2-f492
+2026-05-26 added export-set filter + NaN drop; dev-mstat-30b6 2026-05-26
+added `mass_inversion_status` column) is the per-chain
+relative-modal-mass reference. Tab-separated, with `#`-prefixed header
+lines (compatible with `np.loadtxt(comments="#")` round-trips) carrying
+the reference chain, project metadata, column names, and the filter
+book-keeping (`rows_after_filter`, `rows_written`). Rows are
+**sorted by frequency ascending** (NOT chain_id). Columns (in order):
+`chain_id`, `frequency_hz`, `m_relative`, `m_absolute`,
+`fit_quality_overall`, `is_reference`, `mass_inversion_status`.
+
+The trailing `mass_inversion_status` column is a string enum (one of
+`valid` / `insufficient_band_width` / `no_full_row` /
+`only_unmapped_full_row`); numpy round-trip consumers should pass
+`usecols=range(0, 6)` to skip it. In practice every emitted row has
+`status = valid` because the NaN-drop filter (see below) removes every
+non-valid candidate — the column exists for schema stability if the
+NaN drop is ever relaxed.
+
+**Row filtering** (matches the rest of the bundle):
+
+- **Export-set filter** — when `selected_chains` is supplied in the
+  request body, the file is filtered to those chain_ids only. This is
+  the same filter `build_export_payload` applies to `omega_coef.txt`,
+  `Q_coeff_*.txt`, `decka_coeff.txt`, `Ci_coef_cos.txt`, and
+  `mode_amplitudes.csv`, so all bundle files cover the same modes.
+  Omit `selected_chains` (or pass `null`) to include all chains from
+  the modal-mass summary.
+- **NaN drop** — rows where `m_relative` is non-finite (`None` /
+  `NaN` / `inf` — i.e. the modal-mass fit failed for that chain) are
+  dropped after the export-set filter. The header records the row
+  count both before (`rows_after_filter`) and after (`rows_written`)
+  the drop so a reader can audit how many chains were skipped.
+
+The file is **silently omitted** when the project has no persisted
+modal-mass results (no `modal_adapter/modal_mass/index.json` on disk).
+The 5 fixed-name `.txt` files + sidecar + `mode_amplitudes.csv` are
+always written regardless. To populate modal mass first, run
+`POST /modal/run_modal_mass` (the Q6 gate requires ≥8 scenarios with
+FRF persisted). Reads from `modal_adapter/modal_mass/index.json` in
+the project directory — same source as
+`GET /modal/modal_mass/summary`.
 
 Error responses:
 

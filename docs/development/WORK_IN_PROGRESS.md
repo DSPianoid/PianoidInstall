@@ -40,6 +40,7 @@
 | dev-3580 (noteoff-probe) | Diagnostic instrumentation: PLOG probe in `_add_string_for_playback` to bisect live note-off path (upstream EventQueue vs downstream preset re-init). NOT a real fix — revert after measure. | [log](logs/dev-3580-2026-05-28-220939.md) | 2026-05-28 | In Progress |
 | damper-probe-ea77 | Diagnostic DAMPER_PROBE — measure `damper_string[201..203]` live in `dev_physical_parameters` to test H1 (damper=0 strands note) vs H2 (mode ringout) for 55/56/57 trichotomy. NOT a real fix. | [log](logs/damper-probe-ea77-2026-05-29-210147.md) | 2026-05-29 | CLOSED — see [bug-55-56-57-trichotomy-state-2026-05-29.md](bug-55-56-57-trichotomy-state-2026-05-29.md). damper_string read as 3.6e-05 (matches preset, not wiped); all engine hypotheses refuted; root cause is VirtualPiano.js handleMouseUp. Probe still in source pending revert authorization. |
 | bisect-live-75 | READ-ONLY bisect of fdf3dd2..67148fa to localize live-only damping regression. | [log](logs/bisect-live-75-2026-05-29.md) | 2026-05-29 | CLOSED — see [bug-55-56-57-trichotomy-state-2026-05-29.md](bug-55-56-57-trichotomy-state-2026-05-29.md). CUDA range fully eliminated; subsequent S2 listener-toggle verify (`D:\tmp\s2-listener-verify.py`) measured decay_ratio ≈ 0.0001 in BOTH `listen_to_midi=0` and `=1` after `/capture` reset → S1 + S2 both refuted. Root cause is frontend `VirtualPiano.js handleMouseUp` (matches memory `project_55_56_57_repro`). |
+| dev-asiocrash-b20f | Fix backend ASIO crash on POST /load_preset for UMC 1820 (COM apartment hypothesis) | [log](logs/dev-asiocrash-b20f-2026-05-27-093951.md) | 2026-05-27 | Phase 1 complete — PianoidCore 5d297a6 + PianoidTunner 735d523. Verified live (3 x /load_preset adt=4 + mic FFT SNR 24.0x/7.3x/10.4x). Awaiting user-approved Phase 2 merge to dev. |
 
 ---
 
@@ -115,6 +116,308 @@ Two follow-ups, both **explicitly out of scope** for this task (flagged, not bui
    pre-existing middleware quirk, NOT introduced by the guard, and did not block the task. Owner: open;
    investigate if a raw-`dx` granular edit is ever needed (likely an async DROP_IF_BUSY without a
    waitForParameterUpdate, or `dx` not surviving `set_param`).
+
+<!-- ===== Completed/archived sessions from origin/master (other-machine, unioned in) ===== -->
+
+<!-- dev-mstat-30b6 COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
+     Per-chain `mass_inversion_status` enum field (ok / partial / failed /
+     skipped) plumbed through PianoidCore export pipeline AND surfaced in
+     PianoidTunner Stabilization Diagram + ModalMassFreqChart (chip + tooltip).
+     PianoidCore feature/dev-mstat-30b6 merged to dev at 67148fa.
+     PianoidTunner feature/dev-mstat-30b6 merged to dev at 845bb57. 107
+     PianoidCore unit/integration tests + 729 PianoidTunner Jest tests pass
+     post-merge. Session log archived to
+     logs/archive/dev-mstat-30b6-2026-05-26-203321.md. -->
+
+<!-- dev-collreorg-7a3f COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
+     Collection subpanel reorganised to match standard settings architecture —
+     gear-portal CollectionSettingsPanel + toolbar Start/Cancel buttons +
+     Save All button + dirty-counter Badge + useCollectionStatus hook +
+     ModalAdapter architecture guards. PianoidTunner
+     feature/dev-collreorg-7a3f merged to dev at 86d720c. 729 Jest tests
+     pass post-merge. Session log archived to
+     logs/archive/dev-collreorg-7a3f-2026-05-26-173611.md. -->
+
+<!-- dev-dlgrm-4b1a COMPLETED 2026-05-26 (wrap-parallel3 Step 10a Phase 2).
+     Dead dialog cleanup per ana-madlg-7c2e proposal §6.1 #1 + §6.4 —
+     CreateProjectDialog.jsx + EffectiveSignalLengthRerunDialog.jsx + the
+     Copy-mode branch of ProjectBrowserDialog.jsx deleted (1880 LOC net).
+     PianoidTunner feature/dev-dlgrm-4b1a merged to dev at b9dde06. 729 Jest
+     tests pass post-merge (45 obsolete dialog tests removed cleanly).
+     Session log archived to logs/archive/dev-dlgrm-4b1a-2026-05-26-203712.md. -->
+
+<!-- ana-mmnan-7c3a COMPLETED 2026-05-26 (Step 10a Phase 1). /analyse
+     modal mass NaN audit on LG_p3 (371 NaN out of 757 chains). Doc-only
+     output at `docs/proposals/modal-mass-nan-investigation-2026-05-26.md`
+     (557 lines) + audit script
+     `docs/development/diagnostics/ana-mmnan-7c3a-audit.py`. Commit 34efc44
+     on PianoidInstall master. No bugs found; every NaN is the
+     architecturally correct refusal at three documented gates
+     (MIN_FIT_BINS=8, row-completeness, actuator-mapping filter).
+     Recommended a small UX improvement (mass_inversion_status field, S
+     effort, deferred to a /dev follow-up). -->
+
+<!-- dev-mmexp2-f492 COMPLETED 2026-05-26 (wrap-mmexp2 Step 10a). Phase 2
+     wrap-up — relative_modal_mass.txt now respects the export-set filter
+     (only currently-selected chains are emitted) and drops NaN rows.
+     PianoidCore feature/dev-mmexp2-f492 merged to dev at 33f2493.
+     78/78 unit tests pass post-merge. Session log archived to
+     logs/archive/dev-mmexp2-f492-2026-05-26-165614.md. -->
+
+<!-- dev-mmexp-5561 COMPLETED 2026-05-26 (wrap-mmexp Step 10a). Phase 2
+     wrap-up — relative_modal_mass.txt added to Modal Adapter Apply text
+     export bundle (PianoidCore feature/dev-mmexp-5561 merged to dev at
+     5f7f958). 88/88 integration + unit tests pass post-merge. Session log
+     archived to logs/archive/dev-mmexp-5561-2026-05-26-160011.md. -->
+
+<!-- ana-madlg-7c2e COMPLETED 2026-05-26 — /analyse Deep dialog review across
+     Modal Adapter UI + consolidation proposal. Doc-only output at
+     `docs/proposals/modal-adapter-dialog-review-2026-05-26.md` (1071 LOC).
+     Proposal committed on PianoidInstall master. -->
+
+<!-- ana-csub-4f12 COMPLETED 2026-05-26 — /analyse Collection subpanel reorg
+     to match standard settings architecture. Doc-only output at
+     `docs/proposals/collection-subpanel-reorg-2026-05-26.md`. Proposal
+     committed on PianoidInstall master. -->
+
+<!-- dev-mmui-6e97 COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). Phase 2
+     Modal Mass UI refactor (rounds 1+2+3) merged to dev on PianoidTunner
+     (merge a5aae54) — drop tab + integrate into Tracking + ESPRIT settings +
+     auto-chain + Compute Modal Mass button + progress UI + Rules-of-Hooks
+     handleClick hoist + reactivity regression tests. Pushed to origin.
+     Session log archived to logs/archive/dev-mmui-6e97-2026-05-25-161702.md.
+     PianoidCore companion fixes shipped via feature/dev-mmui-6e97-r3
+     (merge 93dad0a) — see dev-frfres-9c41 absorption + get_project_state
+     data_status pass-through. -->
+
+<!-- dev-frfres-9c41 COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). v2
+     open_project ctx.source_folder fix shipped on PianoidCore via
+     feature/dev-frfres-9c41 (commit 1dedd13), absorbed into
+     feature/dev-mmui-6e97-r3 and merged to dev (merge 93dad0a). Pushed to
+     origin. Session log archived to
+     logs/archive/dev-frfres-9c41-2026-05-25-175913.md. -->
+
+<!-- dev-msdel-3b1a COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). Fix
+     measurement-set deletion axios timeout (5s -> 60s) merged to dev on
+     PianoidTunner (merge 54f859d). Pushed to origin. Session log archived
+     to logs/archive/dev-msdel-3b1a-2026-05-25-195928.md. -->
+
+<!-- dev-cptmto-9d7e COMPLETED 2026-05-25 (wrap-fb-c0a1 Step 10a). Fix
+     CreateProjectFromMeasurementDialog polling timeout (5 min -> 60 min) +
+     elapsed UX merged to dev on PianoidTunner (merge 00868cb). Pushed to
+     origin. Session log archived to
+     logs/archive/dev-cptmto-9d7e-2026-05-25-210927.md. -->
+
+<!-- dev-modal-mass-p2 COMPLETED 2026-05-24 (Step 10a Phase 2, user-approved
+     merge + push). Phase 2 of Modal Mass + Q-factor improvement plan
+     merged to dev on PianoidCore + PianoidTunner; docs commit on
+     PianoidInstall master. Locks released, log archived to
+     logs/archive/dev-modal-mass-p2-2026-05-24-125547.md. Feature
+     branches kept for traceability. Pushed to origin. -->
+
+<!-- dev-frf-q-phase01 COMPLETED 2026-05-24 (Step 10a Phase 1).
+     Phase 0 + Phase 1 of Modal Mass + Q-factor implementation merged
+     to dev on PianoidCore (ddbf997) + PianoidTunner (c472997).
+     PianoidInstall docs commit 07508e4 on master. Locks released.
+     NOT pushed — awaits user verification on the user's measurement
+     data. Session log will be archived to logs/archive/ at Phase 2
+     after user approval. -->
+
+
+---
+
+## Doc Gap: Round-30 Async Import Path in REST_API.md (2026-05-25)
+
+**Reporter:** dev-cptmto-9d7e (2026-05-25). The round-30 async opt-in (`POST /modal/projects` with `{"async": true}` → 202 + `{operation_id, status_url}`; polling via `GET /modal/import_operations/<op_id>/status`; cancellation via `POST /modal/import_operations/<op_id>/cancel`) is documented in:
+
+- The archived `dev-maimport-2026-05-19-135147.md` session log (sections "Round 30 backend additions" and "Round 30 frontend additions")
+- A new partial cross-reference added by this agent in `MODAL_COLLECTION.md` (the v2 Project endpoints table + "Frontend timeout note (async create path)")
+
+But NOT in the canonical `REST_API.md` endpoint catalogue. Future readers looking up the async API surface will find the sync path documented and miss the async opt-in entirely.
+
+**Scope of gap:** ~3 endpoints (`POST /modal/projects` async body field, `GET /modal/import_operations/<op_id>/status`, `POST /modal/import_operations/<op_id>/cancel`) + the response schema (`{operation_id, status_url, phase, scenarios_total, scenarios_completed, current_scenario, result, error}`) + the `TERMINAL_PHASES` invariant + the dialog-side `POLL_MAX_MS` backstop (60 min as of `dev-cptmto-9d7e`, 2026-05-25).
+
+**Owner:** next agent that touches `REST_API.md` for import/project routes, or a dedicated `/update-docs` pass on the round-30 surface. **ETA:** opportunistic — not blocking any current user-visible feature; the dialog UX surfaces enough information that users don't need the REST docs to use the feature.
+
+---
+
+## Modal Mass + Q-Factor — Improvement Plan built on force channel (2026-05-24)
+
+**dev-mmui-6e97 (2026-05-25) Phase 2 UI refactor IN PROGRESS.**
+
+**Round 1:** Removed the dedicated "Modal Mass" tab and integrated
+functionality into the Tracking subpanel + ESPRIT settings:
+
+- New `ModalMassFreqChart.jsx` (modal-mass vs log(f) scatter) toggled
+  by a new "Mass" button next to Damp/Amp/MAC/Shape/Proj/Heatmap in
+  StabilizationDiagram.
+- `m_relative` + `fit_quality` fields appended to the SD chart's
+  hover tooltip (chain popup).
+- "Auto-chain after ESPRIT" opt-in checkbox in the Band Configuration
+  accordion — when ON, runs Tracking + FRF + Modal Mass client-side
+  after ESPRIT, with non-fatal snackbar fallbacks for the Q6 ≥8 gate.
+- `ModalMassPanel.jsx` + `ModalMassPanel.test.jsx` deleted (the bar
+  chart + per-chain drilldown were superseded by the new chart;
+  per-chain detail can be re-introduced as a future addition if
+  requested).
+
+**Round 2 (2026-05-25 evening):** User feedback after live testing of
+round 1 — fixed two bugs:
+
+1. **Auto-chain checkbox moved** from the Band Configuration accordion
+   (Setup section) to the Tracking settings panel. User looked there
+   first and didn't find it; tracking is where chains-become-chains so
+   the setting belongs with the tracking-method / freq-tolerance / max-
+   gap controls.
+2. **Explicit "Compute Modal Mass" toolbar button** in the Tracking
+   subpanel toolbar — single-click runs FRF → Modal Mass. Plus a
+   **persistent progress banner** below the toolbar showing stage
+   label ("Running FRF (1/2)…" → "Running Modal Mass (2/2)…") + live
+   elapsed-seconds counter + success summary or verbatim error
+   message on failure. Replaces the round-1 silent "Run FRF" button
+   that gave no progress feedback during the ~22 s FRF run.
+
+New `useModalMassRun.js` hook is the shared FRF + modal_mass runner
+consumed by all three entry points (auto-chain checkbox, explicit
+toolbar button, chart empty-state CTA) so progress UI is consistent.
+
+**Round 3 (2026-05-25 late evening):** User tested round 2 live;
+Compute-Modal-Mass succeeded but the chart still showed the
+"needs FRF data" empty-state. Root cause was a backend silent-projection
+bug in `ModalAdapter.get_project_state()` — the method built its
+returned `data_status` sub-dict via a hand-picked allow-list that the
+dev-frf-q-phase01 + dev-modal-mass-p2 additions of `frf` / `frf_stale`
+/ `modal_mass` / `modal_mass_stale` keys never made it into. Frontend's
+`syncFromBackend` therefore had `dataStatus.frf` permanently
+`undefined`. Same anti-pattern as the dev-md06 hotfix.
+
+Fixes:
+1. **Backend `get_project_state()`** — replaced the allow-list with
+   a wholesale `dict(status)` spread; pop only the two large config-
+   dict keys that belong at the project_state top level.
+   `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py`.
+2. **Latent Rules-of-Hooks violation in `ModalMassFreqChart.jsx`** —
+   `useCallback(handleClick)` was defined AFTER the empty-state early
+   returns. The round-3 reactivity test exposed it: the very
+   empty-state → loaded transition that this round fixes would crash
+   the chart with "Rendered more hooks than during the previous render"
+   in production once the backend fix landed. Hoisted `handleClick`
+   above all conditional returns.
+3. **Backend regression tests** — new
+   `test_project_state_data_status_complete.py` (4 tests) pins the
+   pass-through invariant + no-duplication + Phase 1/2 keys + the
+   HTTP route end-to-end.
+4. **Frontend reactivity tests** — 3 new tests in
+   `ModalMassFreqChart.test.jsx` pin the empty-state → loaded
+   transition on dataStatus + summary updates.
+
+Branch: `feature/dev-mmui-6e97` on PianoidTunner (round 1 commit
+d616fb7 + round 2 ac19f9a + round 3 6f06535);
+`feature/dev-mmui-6e97-r3` on PianoidCore (off prior dev-frfres-9c41,
+round 3 75efd93); docs commit on PianoidInstall master.
+43 new Jest tests total cumulative (22 chart + 18 hook + 3 reactivity);
+full 730-test PianoidTunner suite green (64 suites).
+Backend modal_adapter / measurement_import suites: 142 / 142 PASS
+(round 3 backend test = 4 new). NOT merged — awaits user verification
+(live browser test on PlyWoodLGtemp1_p4: open project, click Compute
+Modal Mass, watch banner cycle to Done, confirm chart auto-populates
+without manual refresh).
+
+---
+
+
+**Status (2026-05-24, evening):** Phase 0 + Phase 1 IMPLEMENTED in
+`feature/dev-frf-q-phase01` on PianoidCore + PianoidTunner (not yet
+merged to `dev`, not pushed).
+
+**What landed:**
+- Phase 0a: `quality_factor = 1/(2ζ)` surfaced per chain + per-detection
+  in `chains_to_dicts`; UI Q column in `ModalResultsView.jsx` ModeTable.
+- Phase 0c: Hilbert log-decrement Q cross-check
+  (`pianoid_middleware.modal_adapter.qc.log_decrement_xcheck`); REST
+  endpoints `POST/GET /modal/qc/log_decrement`; UI cell color-coding
+  in the Q column driven by `qcLogDecrement` prop.
+- Phase 1: `FrfOrchestrator`
+  (`pianoid_middleware/modal_adapter/frf_orchestrator.py`) — H1
+  estimator from `raw_recordings/` per the user's Q1=B directive
+  (bypasses `normalize_by_calibration`). Hammer-impact force window
+  per Q5 (default 5 ms total, 0.5 ms pre + 4.5 ms post-peak). Per-
+  scenario NPZ persistence at `<project>/modal_adapter/frf/scenario_<N>.npz`
+  + project-level `frf/index.json`. REST surface
+  `POST /modal/run_frf`, `GET /modal/frf/summary`,
+  `GET /modal/frf/scenario/<idx>`, `DELETE /modal/frf`.
+  `data_status()` extended additively with `frf`, `frf_stale`,
+  `qc_log_decrement` flags.
+- Tests: 31 new (5 Q surfacing + 9 log-decrement + 17 FRF), all
+  passing. Existing modal_adapter suite (60 tests) green; pre-existing
+  test_channel_assignment / test_calibration_review / test_measurement_entity
+  / test_modal_adapter_state failures (6 total) confirmed unrelated
+  on master.
+- Live verified on `D:/modal_measurements/PlyWoodLGtemp1/` Sc 100: 120
+  cycles used, peaks recovered at 161 / 194 / 354 / 445 / 680 / 2221 Hz
+  (vs design-doc reference 162 / 199 / 445 / 682 / 2261 — clean match
+  within ±5 Hz, magnitudes differ because the Phase 1 H1 path does NOT
+  double-normalise like the old averaged_responses-based computation).
+  Coherence ≥0.85 at all modal peaks.
+
+**Doc:** [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md).
+**REST surface:** [`docs/modules/pianoid-middleware/REST_API.md`](../modules/pianoid-middleware/REST_API.md) Stage 5b.
+**Branch:** `feature/dev-frf-q-phase01` on PianoidCore + PianoidTunner.
+**Phase 2 (relative modal mass, residue extraction, mass-normalised
+mode shapes) still pending per the proposal's phase boundaries.
+
+**OLD status (now superseded):** RESEARCH PROPOSAL — awaiting user decision on Q1–Q8 before any implementation.
+
+**Doc:** [`docs/proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md`](../proposals/modal-mass-q-factor-IMPROVEMENT-PLAN-2026-05-24.md).
+**Supersedes the §6 rollout** of [`modal-mass-q-factor-measurement-techniques-2026-05-13.md`](../proposals/modal-mass-q-factor-measurement-techniques-2026-05-13.md)
+(but NOT its physics — the 2026-05-13 stepped-sine / mass-loading / random catalogue stays
+valid; this plan adds a Phase 0 + Phase 1 + Phase 2 underneath it that exploit data the
+recorder already captures).
+
+**Headline.** The calibration ("force") channel that lives in `average_ch0.npy` is
+currently used for cycle alignment + per-cycle peak normalisation, then dropped from
+every downstream analysis (ESPRIT explicitly filters it out via
+`response_channels`). The plan promotes it to the input X(f) in a proper spectral-
+domain FRF `H(f) = Y(f)/X(f)`, which unlocks: per-mode Q from half-power BW + log-
+decrement (cross-validating ESPRIT's pole estimate), per-mode RELATIVE modal mass via
+SDOF curve-fit / circle-fit residue extraction, mass-normalised mode shapes, and a
+new per-scenario excitation-strength QC. No new measurement hardware, no new
+excitation type, no operator burden — all from data already on disk.
+
+**Three-phase rollout (improvement plan §6):**
+
+- **Phase 0 (~3-5 days, ~500 LOC):** Surface Q per chain, persist per-cycle force
+  peak, log-decrement Q cross-check. All free QC from existing data.
+- **Phase 1 (~3-4 weeks, ~1500 LOC):** `FrfOrchestrator` + FRF persistence stage +
+  coherence γ² + per-scenario FRF inspector + Q-from-FRF half-power bandwidth.
+- **Phase 2 (~3-4 weeks, ~1400 LOC):** `ResidueExtractor` + relative modal mass per
+  chain + mass-normalised mode-shape display + cross-scenario residue heatmap.
+
+**Blocker for ABSOLUTE modal mass (in kg):** no SI calibration constant exists in
+`setup/audio_config.json` for the calibration channel. Relative `m_n / m_1` is fully
+extractable from existing data; absolute SI requires either a one-time mass-loading
+campaign OR a reference-hammer calibration constant.
+
+**Open questions for user (Q1–Q8):** see proposal §7. Highlights: (Q1) FRF compute
+from raw_recordings vs averaged_responses given the existing peak-normalisation?
+(Q2) Relative-only or absolute SI modal mass priority? (Q5) Is the force-channel
+sensor co-located with one of the response-channel sensors (enables driving-point
+shortcut)?
+
+<!-- End modal-mass-q-factor-improvement-plan-2026-05-24 entry -->
+
+
+<!-- Closed 2026-05-24:
+     dev-maimport (started 2026-05-19) — round 30 + earlier (Measurement Import dialog, +New Project,
+     scenario import consolidation, etc.) merged into dev + pushed. Final commits: PianoidCore
+     f1b5197 → merge 9593009; PianoidTunner 9778416 → merge e60e1a4; PianoidInstall a14e548 → e2c335b.
+     Session log archived to logs/archive/dev-maimport-2026-05-19-135147.md.
+
+     dev-liveproc-w1 (started 2026-05-22) — Wave 1 (subprocess worker + CuPy probe gate +
+     LiveProcessingOrchestrator skeleton + ProjectContext additions + MeasurementSession callback
+     plumbed) merged into dev + pushed. Final commits: PianoidCore bf0e16b → merge 9593009.
+     Wave 2 not yet dispatched; feature/dev-liveproc-w1 branch preserved on PianoidCore.
+     Session log archived to logs/archive/dev-liveproc-w1-2026-05-22-144937.md. -->
 
 ---
 

@@ -1,0 +1,522 @@
+{
+  "invalid_chain_count": 129,
+  "invalid_chains": {
+    "350": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "356": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "362": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "370": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "380": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "383": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "392": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "405": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "408": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "411": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "414": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "415": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "417": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "419": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "420": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "421": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "426": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "430": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "434": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "436": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "439": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "442": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "443": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "447": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "448": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "450": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "451": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "452": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "453": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "455": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "456": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "457": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "458": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "461": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "464": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "468": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "470": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "473": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "474": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "477": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "478": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "479": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "482": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "483": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "484": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "485": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "486": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "490": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "493": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "494": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "499": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "500": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "501": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "502": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "503": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "505": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "515": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "517": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "522": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "523": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "526": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "527": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "530": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "533": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "534": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "536": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "537": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "541": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "542": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "543": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "545": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "549": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "552": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "553": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "561": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "562": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "564": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "566": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "568": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "569": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "572": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "573": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "574": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "575": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "579": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "582": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "583": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "584": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "586": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "589": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "590": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "591": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "593": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "594": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "595": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "598": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "604": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "606": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "609": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "610": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "611": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "612": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "613": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "614": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "620": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "621": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "622": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "623": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "625": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "627": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "629": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "631": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "638": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "640": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "641": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "642": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "644": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "647": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "652": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "665": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "679": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "684": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "686": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "706": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "715": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "719": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "733": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "737": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ],
+    "748": [
+      "m_absolute not finite: None",
+      "m_relative not finite: None"
+    ]
+  },
+  "summary_vs_payload_mismatches": {}
+}

@@ -355,16 +355,20 @@ Project entity gains four new fields in v2 schema (`schema_version: 2`):
 | POST   | `/modal/measurements/<id>/setup_test`                      | Run Setup Test — wired through `SetupTestEngine` (Phase 2a, dev-msmtui, 2026-05-11). Pauses synth, captures one calibration cycle, validates against `setup/calibration_criteria.json`, overwrites `setup_test/latest.*` per N3. 502 on pause failure, 500 on engine crash. |
 | GET    | `/modal/measurements/<id>/setup_test`                      | Fetch latest Setup Test report (404 if never run) |
 | POST   | `/modal/measurements/<id>/unlock`                          | Manual unlock-with-warning per N4. Body: `{confirm: true}` required. 400 without confirm |
-| DELETE | `/modal/measurements/<id>`                                 | Delete. 409 with `{linked_projects: [...]}` if any Project references this Measurement (N6, no force flag) |
+| DELETE | `/modal/measurements/<id>`                                 | Delete. 409 with `{linked_projects: [...]}` if any Project references this Measurement (N6, no force flag). Server-side cost = `shutil.rmtree(path)` + cross-project ref scan (both fast on isolation; the rmtree of a 8.8 GB / 2526-file fake measurement clocked 1.66 s in dev-msdel-3b1a 2026-05-25 timing). |
+
+**Frontend timeout note.** The `useMeasurementCatalog.deleteMeasurement` axios call uses a **60 s timeout** (`PianoidTunner/src/hooks/useMeasurementCatalog.js`). Two factors compound on the budget: (a) Windows `rmtree` on a many-scenario folder, and (b) `modal_adapter_server.py` runs `app.run(threaded=False)` for CuPy-GPU thread-pinning, so DELETE serialises behind any in-flight FRF (~22 s), modal-mass, or ESPRIT request. The original 5 s budget shipped with `dev-maimport` round 14 was unsurvivable when the user happened to delete during one of those long ops. Sibling pattern: `useMeasurementCatalog.renameMeasurement` uses 30 s for similar rationale.
 
 **Project endpoints (Phase 1 additions):**
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST   | `/modal/projects`                                          | v2 Create — body `{name, measurement_id, band_config?}`. Snapshots parent's setup at create time per N5. URL-param `?measurement=<id>` is an alternative. 404 unknown measurement, 409 name collision |
+| POST   | `/modal/projects`                                          | v2 Create — body `{name, measurement_id, band_config?, async?}`. Snapshots parent's setup at create time per N5. URL-param `?measurement=<id>` is an alternative. 404 unknown measurement, 409 name collision. **Async opt-in:** body `{"async": true}` returns 202 + `{operation_id, status_url}`; the canonical averager runs in a background thread and progress is polled via `GET /modal/import_operations/<op_id>/status` until a terminal phase (`done` / `error` / `cancelled`). Cancel via `POST /modal/import_operations/<op_id>/cancel` (cooperative, at scenario boundaries). See round-30 doc gap heads-up below. |
 | POST   | `/modal/projects/<old>/branch`                             | Branch sibling Project — body `{new_name, inherit_band_config?}`. Snapshots parent at branch time (can differ from source if parent was unlocked+edited). 409 if source is v1 (no measurement_id) |
 
 **Existing project endpoints unchanged** during Phase 1: `/modal/projects/create`, `/modal/projects/open`, `/modal/projects/copy`, `/modal/projects/delete`, `/modal/projects/<n>/rename`, `/modal/projects/<n>/reaverage`, etc.
+
+**Frontend timeout note (async create path).** `CreateProjectFromMeasurementDialog.jsx` consumes the async path and uses a **60-min `POLL_MAX_MS`** wall-clock backstop on its inline await-loop (`PianoidTunner/src/components/CreateProjectFromMeasurementDialog.jsx`). The cap is a defensive backstop, NOT a backend deadline — the backend worker keeps running regardless of client disconnects. When the cap fires the dialog's error message tells the user the operation may still be running and to refresh the project list. The original 5-min budget shipped with `dev-maimport` round 30 was hit by a real large measurement (`dev-cptmto-9d7e`, 2026-05-25). UX features added alongside the bump: live mm:ss elapsed-time chip below the LinearProgress, plus a "still running" Alert that appears past 10 min elapsed. Cancel remains the primary user escape (Cancel button is enabled the whole time; cooperative-cancels via `POST /modal/import_operations/<op_id>/cancel`).
 
 ### Migration Script
 
@@ -1012,6 +1016,21 @@ that resolves, or `None` if no candidate is reachable — caller treats
 | `get_qc_curves` (fallback path) | Per-channel QC curve fetch | Raises `FileNotFoundError("Scenario X not found... have: [])` |
 | `reaverage_project` | Re-run the averager on existing source | Raises `ValueError(no resolvable measurement source)` |
 | `_load_v2_scenarios_from_parent_measurement` | v2 open-project fallback (round 4) | Logs warning, leaves `_measurements` empty (downstream pipeline 409 surfaces the user-friendly recovery prompt) |
+
+**`ctx.source_folder` invariant (dev-frfres-9c41, 2026-05-25):** every
+state-mutating loader (v1 `load_folder`, v1 `load_roomresponse_scenarios`,
+**and** v2 `_load_v2_scenarios_from_parent_measurement`) must set
+`ctx.source_folder` to the **parent of the scenarios directory** — i.e.
+the directory that contains a `scenarios/` subfolder (v2 layout) OR the
+directory that contains scenario subfolders directly (v1 RoomResponse
+layout). This is the contract `FrfOrchestrator._resolve_scenario_dirs`
+depends on (it appends `/scenarios` to `source_folder` first and only
+falls back to `source_folder` directly if that path is absent). Skipping
+the assignment in v2 caused `POST /modal/run_frf` to raise
+`"No usable measurement source folder for FRF; resolved=None"` on every
+v2 project whose `measurements/` directory was empty — the canonical v2
+layout — even though the parent Measurement's `raw_recordings/` were
+fully present.
 
 `delete_project` is a special case (not a consumer): it explicitly
 reads `meta["measurement_source"]` to decide whether to rmtree the

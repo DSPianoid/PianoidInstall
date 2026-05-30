@@ -291,6 +291,23 @@ PAUSED (4)             -- GPU ready, playback stopped
 
 The `health` endpoint reports this state. `load_preset` always destroys any existing instance before creating a new one, returning to `UNINITIALIZED`.
 
+### ASIO COM apartment requirement (Windows)
+
+When `audio_driver_type: 4` (ASIO_CALLBACK) is requested, the `run_online`
+worker thread (`PianoidUnifiedPlaybackThread` in `pianoid.py`) calls
+`pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)` at thread
+start and `pythoncom.CoUninitialize` on cleanup. The Steinberg ASIO host
+SDK uses `IASIO` COM interfaces; every thread that calls into ASIO
+(`ASIOInit`, `ASIOStart`, `ASIODisposeBuffers`, `ASIOExit`, or any IASIO
+method via the buffer-switch callback) MUST have COM initialized as STA
+before the first ASIO call. Without it the **second** consecutive
+`/load_preset` with `audio_driver_type: 4` fails to enumerate any ASIO
+driver — the first thread tore down ASIO state when its default
+(uninitialised) COM apartment was destroyed. Fix landed in
+dev-asiocrash-b20f, 2026-05-27. See
+[STARTUP_TROUBLESHOOTING.md — ASIO-specific issues](../../guides/STARTUP_TROUBLESHOOTING.md#symptom-audio-driver-fails-to-initialize)
+for the user-facing recovery doc.
+
 ---
 
 ## AutoTuner (auto_tuner.py)
