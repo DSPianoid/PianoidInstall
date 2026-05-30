@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-bbcb | `PianoidTunner/src/components/ObjectInspector.jsx`, `PianoidTunner/src/components/NumInput/NumInput.js`, `PianoidTunner/src/components/PaneSettingsDialog.jsx`, `PianoidTunner/src/components/PresetPanel/PresetPanel.jsx`, `PianoidTunner/src/components/__tests__/PaneSettingsDialog.test.jsx`, `PianoidTunner/src/components/__tests__/ObjectInspector.test.jsx` (new) | 2026-05-30T17:58:00Z | Preset Loading Settings UI: (1) integer fields (volume/sample_rate/string_iterations/number_of_modes) → integer-only NumInput (opt-in `integer` prop + PARAMETER_CONFIG); limited-choice fields already Select/Switch (verified). (2) Move PresetConfigBar (Save Configuration) INSIDE PaneSettingsDialog via a generic `headerContent` prop. Frontend-only PianoidTunner, NO CUDA/backend. On `feature/preset-settings-ui` off dev 2d23254. NOT touching PianoidTuner.js (dev-177a sweep branch) / ToolBar.jsx+usePreset.js (dev-8085) / PresetConfigBar.jsx (only re-parenting it). STOP before commit. |
 <!-- dev-177a lock RELEASED 2026-05-30T17:04:00Z at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js.
      Option A uneven-keyboard-timing fix — online "Play All" sweep now routes through the backend even-scheduler
      (ONE POST /play_keyboard {mode:"online"}) instead of a per-note setTimeout chain; visual-only setInterval drives
