@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unconstrained Soundboard Design — Co-Development Proposal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: #0a0a0f; color: #e0e0e8; overflow: hidden; height: 100vh; width: 100vw; }
+  .slide { display: none; width: 100vw; height: 100vh; padding: 60px 80px; flex-direction: column; justify-content: center; }
+  .slide.active { display: flex; }
+  .slide.title { justify-content: center; align-items: center; text-align: center; background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #0a0a1a 100%); }
+  .slide.title h1 { font-size: 2.6em; font-weight: 700; line-height: 1.2; color: #fff; max-width: 950px; margin-bottom: 25px; }
+  .slide.title .subtitle { font-size: 1.2em; font-weight: 300; color: #8888aa; margin-bottom: 35px; }
+  .slide.title .tech { font-size: 1.0em; color: #5577cc; font-weight: 500; letter-spacing: 0.05em; }
+  h2 { font-size: 1.7em; font-weight: 600; color: #fff; margin-bottom: 28px; padding-bottom: 10px; border-bottom: 2px solid #2255aa; }
+  h3 { font-size: 1.12em; font-weight: 600; color: #7799dd; margin-bottom: 8px; margin-top: 14px; }
+  ul { list-style: none; padding: 0; }
+  ul li { font-size: 1.02em; line-height: 1.5; padding: 4px 0 4px 24px; position: relative; color: #c8c8d8; }
+  ul li::before { content: ''; position: absolute; left: 7px; top: 13px; width: 7px; height: 7px; background: #3366bb; border-radius: 50%; }
+  ul li strong { color: #fff; font-weight: 600; }
+  .cols { display: flex; gap: 50px; flex: 1; }
+  .cols .col { flex: 1; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.92em; }
+  th { text-align: left; padding: 7px 12px; background: #1a1a2e; color: #7799dd; font-weight: 600; border-bottom: 2px solid #2255aa; }
+  td { padding: 6px 12px; border-bottom: 1px solid #1a1a2e; color: #c8c8d8; }
+  td.yes { color: #44bb77; font-weight: 500; }
+  td.no { color: #886666; }
+  td.dim { color: #888899; }
+  .pipeline { display: flex; align-items: center; justify-content: center; gap: 0; margin: 15px 0; }
+  .pipeline .step { background: #1a1a2e; border: 1px solid #2a2a44; border-radius: 8px; padding: 12px 16px; text-align: center; min-width: 115px; }
+  .pipeline .step .num { font-size: 0.72em; color: #5577cc; font-weight: 600; margin-bottom: 2px; }
+  .pipeline .step .label { font-size: 0.92em; color: #fff; font-weight: 500; }
+  .pipeline .arrow { font-size: 1.2em; color: #3366bb; padding: 0 4px; }
+  .slide-num { position: absolute; bottom: 20px; left: 40px; font-size: 0.8em; color: #444466; }
+  #nav-hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 0.7em; color: #333355; z-index: 100; pointer-events: none; }
+  .phase-box { background: #12121e; border-left: 3px solid #2255aa; padding: 11px 15px; margin: 5px 0; border-radius: 0 6px 6px 0; }
+  .phase-box .phase-title { font-weight: 600; color: #7799dd; margin-bottom: 3px; font-size: 0.92em; }
+  .phase-box p { color: #aaaabc; font-size: 0.88em; line-height: 1.42; }
+  .risk { background: #1a1218; border-left: 3px solid #884422; padding: 9px 13px; margin: 5px 0; border-radius: 0 6px 6px 0; }
+  .risk .risk-title { font-weight: 600; color: #cc8855; margin-bottom: 2px; font-size: 0.88em; }
+  .risk p { color: #aa9988; font-size: 0.82em; line-height: 1.35; }
+  .note { color: #aa8844; font-size: 0.82em; font-style: italic; margin-top: 5px; }
+  .loop-return { text-align: center; color: #3366bb; font-size: 0.88em; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!-- S1: Title -->
+<div class="slide title active" data-n="1">
+  <h1>What if the soundboard were the only thing that mattered?</h1>
+  <div class="subtitle">Unconstrained Soundboard Design Using GPU-Accelerated Modal Synthesis, Physical Fabrication, and Acoustic Verification</div>
+  <div class="subtitle" style="font-size:1.0em; margin-bottom:30px;">Co-Development Proposal: Industry + University</div>
+  <div class="tech">PIANOID &mdash; Real-Time GPU-Accelerated Physical Modeling Piano Synthesizer</div>
+</div>
+
+<!-- S2: The Constraint -->
+<div class="slide" data-n="2">
+  <h2>The Soundboard Has Never Been a Free Design Variable</h2>
+  <div class="cols">
+    <div class="col">
+      <p style="font-size:1.05em; color:#c8c8d8; line-height:1.7; margin-bottom:15px;">In a conventional piano, the soundboard is the acoustic heart of the instrument &mdash; but it is the <strong style="color:#fff;">least free</strong> component in the design.</p>
+      <ul>
+        <li><strong>String tension dominates</strong> &mdash; 15&ndash;20 tonnes of total tension requires a cast-iron plate, rigid rim, and heavy frame. The soundboard must survive this structural environment</li>
+        <li><strong>Weight, shape, size</strong> are consequential to string tension &mdash; the instrument must bear the load before it can make sound</li>
+        <li><strong>Bridge position is fixed</strong> by the piano action's linear layout &mdash; constraining where and how energy enters the soundboard</li>
+        <li><strong>Iteration is impractical</strong> &mdash; changing a soundboard requires weeks of disassembly. Systematic exploration of the design space is economically prohibitive</li>
+      </ul>
+    </div>
+    <div class="col">
+      <p style="font-size:1.05em; color:#c8c8d8; line-height:1.7; margin-bottom:15px;">The result: three centuries of piano making have optimised within a <strong style="color:#fff;">severely constrained</strong> design space. Fundamental questions remain unanswered:</p>
+      <ul>
+        <li>Why do some instruments "sing" while others stay dull?</li>
+        <li>"Killer octave" &mdash; poor sustain in 5th&ndash;6th octave. Mechanism understood; design solution not found</li>
+        <li>What would a soundboard sound like if its geometry were determined <strong>purely by acoustic goals</strong>?</li>
+      </ul>
+      <p style="font-size:0.95em; color:#aaaabc; line-height:1.5; margin-top:15px;">Design knowledge exists as intuition accumulated over decades, not as transferable, quantifiable parameters.</p>
+    </div>
+  </div>
+  <div class="slide-num">2</div>
+</div>
+
+<!-- S3: What If -->
+<div class="slide" data-n="3">
+  <h2>Removing the Constraints: A New Design Space</h2>
+  <p style="font-size:1.1em; color:#c8c8d8; line-height:1.6; margin-bottom:22px;">Replace physical strings with a <strong style="color:#fff;">patented electromechanical excitation system</strong> driven by GPU-computed string physics. The piano's defining constraints vanish:</p>
+  <div class="cols">
+    <div class="col">
+      <h3>Soundboard Freedom</h3>
+      <ul>
+        <li><strong>No permanent tension</strong> &mdash; no iron plate, no frame. The soundboard bears no structural load</li>
+        <li><strong>Arbitrary geometry</strong> &mdash; shape, curvature, thickness profile optimised for target modal properties</li>
+        <li><strong>Any material</strong> &mdash; spruce, composites, engineered wood, sandwich panels. Acoustic viability tested computationally before fabrication</li>
+        <li><strong>Free mounting</strong> &mdash; no permanent stress or tension. Boundary conditions become a design variable</li>
+        <li><strong>Swappable</strong> &mdash; test a new soundboard in hours, not months</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Excitation Freedom</h3>
+      <ul>
+        <li><strong>Multi-point excitation</strong> &mdash; actuators at any positions across the surface, not confined to a linear bridge</li>
+        <li><strong>Frequency-optimised placement</strong> &mdash; excitation points chosen to maximise coupling to target modes</li>
+        <li><strong>Programmable coupling</strong> &mdash; feedin/feedback matrices can implement coupling topologies impossible with physical strings</li>
+      </ul>
+      <h3>Research Implication</h3>
+      <ul>
+        <li>For the first time, the soundboard becomes an <strong>independent design variable</strong> &mdash; decoupled from string tension, mechanical layout, and case geometry</li>
+        <li>Systematic, reproducible exploration of soundboard acoustics becomes possible</li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-num">3</div>
+</div>
+
+<!-- S4: How It Works -->
+<div class="slide" data-n="4">
+  <h2>The Pianoid Platform</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Working System &mdash; demonstrated at NAMM Show and in live concert performances</h3>
+      <ul>
+        <li><strong>Synthesis algorithm</strong> &mdash; full string set modelled with waveguide model, 256 soundboard modes coupled to all strings simultaneously, real-time on NVIDIA 4070 Ti with 30&ndash;50% safety margin</li>
+        <li><strong>Full inter-string coupling</strong> via feedin/feedback matrices (how each soundboard mode is energised by string motion and returns energy back) &mdash; sympathetic resonance, pedal effects emerge naturally</li>
+        <li><strong>Patented excitation system</strong> &mdash; 8-channel electromechanical actuators, tested and proven on a real piano soundboard</li>
+        <li><strong>Modal measurement pipeline</strong> &mdash; multi-band ESPRIT extraction with automated mode tracking across 78+ bridge positions</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>What This Proposal Builds</h3>
+      <ul>
+        <li><strong>FEA import pipeline</strong> &mdash; extract feedin/feedback matrices from FEA eigenmode output</li>
+        <li><strong>Acoustic radiation model</strong> &mdash; model the sound wave at the listening point outside the soundboard</li>
+        <li><strong>Algorithm improvement</strong> &mdash; 256 &rarr; 2048 modes (already in pipeline), increased string discretisation, enhanced hammer excitation model</li>
+        <li><strong>Soundboard fabrication</strong> &mdash; rapid prototyping pipeline, testing of materials, structural design of the encasing</li>
+        <li><strong>Perceptual validation protocol</strong> &mdash; ABX listening tests, comparative evaluation</li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-num">4</div>
+</div>
+
+<!-- S5: The Method -->
+<div class="slide" data-n="5">
+  <h2>Closed-Loop Design Methodology</h2>
+  <div class="pipeline">
+    <div class="step"><div class="num">PHASE 1</div><div class="label">FEA Design</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="step"><div class="num">PHASE 2</div><div class="label">GPU Preview</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="step"><div class="num">PHASE 3</div><div class="label">Fabrication</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="step"><div class="num">PHASE 4</div><div class="label">Measurement</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="step"><div class="num">PHASE 5</div><div class="label">A/B Evaluation</div></div>
+  </div>
+  <div class="loop-return">&larr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash; Correlation metrics below threshold? Revise FEA model and iterate &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;</div>
+  <p style="text-align:center; font-size:0.88em; color:#7799dd; margin:8px 0;"><strong>Loop closure:</strong> quantified modal correlation (frequency, MAC, damping) defines go/no-go. A/B perceptual test validates convergence.</p>
+  <div style="display:flex; gap:10px; margin-top:6px;">
+    <div class="phase-box" style="flex:1;">
+      <div class="phase-title">Phases 1&ndash;2: Design &amp; Preview</div>
+      <p>FEA eigenvalue analysis (COMSOL/Abaqus). Per mode: <strong>frequency, quality factor, modal mass, mode shape amplitudes at excitation positions</strong>. Mode shapes define the feedin/feedback coupling matrices. Import into Pianoid for real-time polyphonic preview.</p>
+    </div>
+    <div class="phase-box" style="flex:1;">
+      <div class="phase-title">Phase 3: Fabrication</div>
+      <p>Reduced-scale test boards for rapid iteration. Material options: spruce, plywood, composites. Carbon fiber ribs are <strong>a hypothesis to test</strong>, not a proven approach.</p>
+    </div>
+  </div>
+  <div style="display:flex; gap:10px; margin-top:2px;">
+    <div class="phase-box" style="flex:1;">
+      <div class="phase-title">Phase 4: Modal Verification</div>
+      <p>Multi-channel ESPRIT + automated mode tracking. FEA-vs-measured: frequency, MAC (Modal Assurance Criterion), damping.</p>
+    </div>
+    <div class="phase-box" style="flex:1;">
+      <div class="phase-title">Phase 5: A/B Synthesis &amp; Evaluation</div>
+      <p><strong>The core experiment:</strong> same engine, FEA modes vs. measured modes. Isolates model accuracy from synthesizer fidelity. ABX listening tests, expert musician assessment.</p>
+    </div>
+  </div>
+  <div class="slide-num">5</div>
+</div>
+
+<!-- S6: Research Landscape -->
+<div class="slide" data-n="6">
+  <h2>Research Landscape</h2>
+  <table style="font-size:0.84em;">
+    <tr><th>Group</th><th>Focus</th><th>Key Contribution</th></tr>
+    <tr><td>Chabassier, Chaigne (Inria/ENSTA)</td><td>Full piano FE simulation</td><td>Energy-preserving schemes for string + soundboard + air (JASA 2013)</td></tr>
+    <tr><td>MAESSTRO (ANR consortium)</td><td>Soundboard CAD tool</td><td>FEA modal synthesis; string-soundboard coupling; offline single-note (Acta Acustica 2022)</td></tr>
+    <tr><td>Ege, Boutillon (Polytechnique)</td><td>Experimental modal analysis</td><td>High-res soundboard characterization at manufacturing stages (2018)</td></tr>
+    <tr><td>V&auml;lim&auml;ki, Bank (Aalto/Budapest)</td><td>Real-time piano models</td><td>Efficient digital waveguide / IIR with psychoacoustic tuning</td></tr>
+    <tr><td>Modartt Pianoteq</td><td>Commercial physical model</td><td>~1000 modes/note, proprietary, no design pipeline</td></tr>
+    <tr><td>Weinreich (U. Michigan)</td><td>String coupling theory</td><td>Coupled polarization and double decay (JASA 1977)</td></tr>
+  </table>
+  <p style="font-size:0.95em; color:#7799dd; margin-top:15px;"><strong>All prior work operates within the conventional piano's constraints.</strong> No existing project treats the soundboard as an independent design variable with systematic computational-to-physical verification.</p>
+  <div class="slide-num">6</div>
+</div>
+
+<!-- S7: Comparison -->
+<div class="slide" data-n="7">
+  <h2>Piano Modelling State of the Art &mdash; And Its Gaps</h2>
+  <table>
+    <tr><th>Capability</th><th>MAESSTRO (ANR)</th><th>Pianoteq (Commercial)</th><th>Pianoid</th></tr>
+    <tr><td>Synthesis speed</td><td class="no">16 min / note</td><td class="yes">Real-time</td><td class="yes">Real-time, 48 kHz</td></tr>
+    <tr><td>Polyphony</td><td class="no">Single note</td><td class="yes">Full</td><td class="yes">256 strings</td></tr>
+    <tr><td>Real-time multi-string coupling</td><td class="no">No (single note)</td><td class="dim">Proprietary</td><td class="yes">Full modal network</td></tr>
+    <tr><td>Soundboard from FEA</td><td class="yes">Yes (core feature)</td><td class="no">Hand-tuned</td><td class="yes">FEA-derived modes</td></tr>
+    <tr><td>Modal measurement</td><td class="no">Not integrated</td><td class="no">Not integrated</td><td class="yes">Proprietary ESPRIT</td></tr>
+    <tr><td>Design verification</td><td class="no">Not addressed</td><td class="no">Not addressed</td><td class="yes">FEA vs. measured</td></tr>
+    <tr><td>Unconstrained soundboard</td><td class="no">Conventional geometry</td><td class="no">Conventional geometry</td><td class="yes">Excitation system (demonstrated)</td></tr>
+  </table>
+  <div class="slide-num">7</div>
+</div>
+
+<!-- S8: Co-Development -->
+<div class="slide" data-n="8">
+  <h2>Co-Development: Industry + University <span style="font-size:0.55em; color:#666688; font-weight:400;">(partner institution TBD)</span></h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Pianoid (Industry Partner) Brings</h3>
+      <ul>
+        <li><strong>GPU synthesis engine</strong> &mdash; real-time modal synthesis with inter-string coupling (working, demonstrated)</li>
+        <li><strong>Patented excitation system</strong> &mdash; 8-channel actuator prototype, hardware design, signal routing</li>
+        <li><strong>Modal measurement pipeline</strong> &mdash; ESPRIT extraction, automated mode tracking, FEA comparison tools</li>
+        <li><strong>FEA import tool development</strong> &mdash; software bridge from FEA eigenmode output to engine parameters</li>
+        <li><strong>Engine scaling R&amp;D</strong> &mdash; 256 &rarr; 2048 mode capacity increase</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>University Partner Brings</h3>
+      <ul>
+        <li><strong>FEA expertise</strong> &mdash; accurate soundboard modeling: orthotropic material characterization, rib/bridge geometry, boundary conditions, mesh convergence</li>
+        <li><strong>Music perception science</strong> &mdash; ABX test design, psychoacoustic evaluation methodology, statistical analysis</li>
+        <li><strong>Prototyping and testing facilities</strong> &mdash; vibration lab, anechoic chamber, accelerometer arrays, CNC</li>
+        <li><strong>Acoustic radiation analysis</strong> &mdash; post-processing from modal data; potential upgrade to coupled structural-acoustic FEA</li>
+        <li><strong>Credentialing in acoustics community</strong> &mdash; access to peer-reviewed venues, conference networks</li>
+      </ul>
+    </div>
+  </div>
+  <p style="margin-top:10px; font-size:0.85em; color:#8888aa; text-align:center;">IP: commercial technology retained by Pianoid. Academic publications and modal datasets fully open. Specific terms negotiated jointly.</p>
+  <div class="slide-num">8</div>
+</div>
+
+<!-- S9: Why Now -->
+<div class="slide" data-n="9">
+  <h2>Why Now?</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Technology Convergence</h3>
+      <ul>
+        <li><strong>GPU compute is crossing the threshold</strong> &mdash; real-time synthesis featuring waveguide strings and full modal feedback loop is feasible for the first time</li>
+        <li><strong>MAESSTRO laid the FEA groundwork</strong> &mdash; soundboard modal synthesis is proven; the missing piece is real-time performance and a verification loop</li>
+        <li><strong>Modal analysis tools are mature</strong> &mdash; ESPRIT and related methods now extract hundreds of modes reliably</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Platform Readiness</h3>
+      <ul>
+        <li><strong>Pianoid is demonstrated</strong> &mdash; patented excitation system, engine, and measurement pipeline shown at NAMM and in live concert performances</li>
+        <li><strong>The unconstrained design concept is now executable</strong> &mdash; the required combination of technologies was not available five years ago</li>
+      </ul>
+      <h3>Growing Demand</h3>
+      <ul>
+        <li><strong>Sustainable materials</strong> &mdash; new candidate soundboard materials need acoustic evaluation tools that don't require building a full piano</li>
+        <li><strong>Digital twin methodology</strong> &mdash; established in aerospace and automotive; extending it to acoustic instruments is timely</li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-num">9</div>
+</div>
+
+<!-- S10: Timeline & Risks -->
+<div class="slide" data-n="10">
+  <h2>Timeline and Risks</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Timeline (12 months)</h3>
+      <table style="font-size:0.8em;">
+        <tr><th>Phase</th><th>Months</th><th>Deliverable</th></tr>
+        <tr><td>Engine 2048-mode scaling</td><td>1&ndash;2</td><td>Validated scaling</td></tr>
+        <tr><td>FEA import tool</td><td>1&ndash;3</td><td>Working pipeline</td></tr>
+        <tr><td>FEA soundboard design</td><td>2&ndash;5</td><td>Modal basis, 2+ designs</td></tr>
+        <tr><td>GPU preview &amp; iteration</td><td>4&ndash;6</td><td>Playable virtual instruments</td></tr>
+        <tr><td>Prototype fabrication</td><td>4&ndash;8</td><td>Reduced-scale test boards</td></tr>
+        <tr><td>Measurement &amp; verification</td><td>7&ndash;9</td><td>FEA-vs-measured data</td></tr>
+        <tr><td>A/B evaluation &amp; performance</td><td>8&ndash;11</td><td>Playable prototype, ABX</td></tr>
+        <tr><td>Publication</td><td>10&ndash;12</td><td>Papers, open dataset</td></tr>
+      </table>
+    </div>
+    <div class="col">
+      <h3>Key Risks</h3>
+      <div class="risk">
+        <div class="risk-title">2048-mode scaling fails</div>
+        <p>Coupling flattening invalid or register pressure too high. <strong>Fallback:</strong> 256-mode model (proven). Next-gen NVIDIA adds headroom.</p>
+      </div>
+      <div class="risk">
+        <div class="risk-title">Poor FEA-to-measured correlation</div>
+        <p>First prototype modes don't match. <strong>Mitigation:</strong> start simple. Discrepancies inform refinement &mdash; this is the research.</p>
+      </div>
+      <div class="risk">
+        <div class="risk-title">Prototype acoustic validity</div>
+        <p>Non-traditional materials as proxies. <strong>Mitigation:</strong> spruce baseline alongside experimental materials.</p>
+      </div>
+      <div class="risk">
+        <div class="risk-title">Partnership timeline</div>
+        <p>Academic schedules, facility access. <strong>Mitigation:</strong> parallel workstreams; industry work proceeds independently months 1&ndash;3.</p>
+      </div>
+    </div>
+  </div>
+  <div class="slide-num">10</div>
+</div>
+
+<!-- S11: Outcomes -->
+<div class="slide" data-n="11">
+  <h2>Expected Outcomes</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Scientific</h3>
+      <ul>
+        <li><strong>First systematic study</strong> of soundboard acoustics decoupled from string tension and case geometry</li>
+        <li><strong>A/B synthesis results</strong> &mdash; controlled comparison of FEA vs. measured modes on the same engine</li>
+        <li><strong>Design guidelines</strong> &mdash; quantified sensitivity of acoustic features to structural parameters</li>
+        <li><strong>Open modal dataset</strong> &mdash; published characterizations at successive construction stages</li>
+      </ul>
+      <h3>Publications</h3>
+      <ul>
+        <li>Unconstrained soundboard design methodology (Acta Acustica / JASA)</li>
+        <li>Mode tracking methodology</li>
+        <li>Hybrid instrument: concept and perceptual evaluation</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Technological</h3>
+      <ul>
+        <li><strong>Playable prototype</strong> &mdash; fabricated soundboard with excitation system, live acoustic performance</li>
+        <li><strong>Software pipeline</strong> &mdash; integrated FEA-to-Pianoid import workflow</li>
+        <li><strong>Modal measurement toolkit</strong> &mdash; automated ESPRIT + tracking for instrument characterization</li>
+      </ul>
+      <h3>Industrial</h3>
+      <ul>
+        <li>Proof of concept for <strong>computer-aided soundboard design</strong> with real-time preview</li>
+        <li>Pathway to <strong>sustainable materials evaluation</strong></li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-num">11</div>
+</div>
+
+<!-- S12: Closing -->
+<div class="slide title" data-n="12">
+  <h1 style="font-size:2.0em; margin-bottom:40px; max-width:1000px;">What does a soundboard sound like when it is designed purely for sound?</h1>
+  <div class="subtitle">Now we have the tools to find out.</div>
+  <div class="tech" style="margin-top:30px;">PIANOID</div>
+</div>
+
+<div id="nav-hint">&larr; &rarr; arrows &bull; F fullscreen</div>
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+  function showSlide(n) { slides[current].classList.remove('active'); current = Math.max(0, Math.min(n, slides.length - 1)); slides[current].classList.add('active'); }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); showSlide(current + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); showSlide(current - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); showSlide(0); }
+    else if (e.key === 'End') { e.preventDefault(); showSlide(slides.length - 1); }
+    else if (e.key === 'f' || e.key === 'F') { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+  });
+  document.addEventListener('click', e => { if (e.clientX > window.innerWidth * 0.5) showSlide(current + 1); else showSlide(current - 1); });
+  document.addEventListener('keydown', () => { document.getElementById('nav-hint').style.display = 'none'; }, { once: true });
+</script>
+</body>
+</html>
