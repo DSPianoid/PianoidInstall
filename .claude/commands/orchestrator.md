@@ -841,6 +841,16 @@ Before relaying completion or asking the user to test, verify no stale processes
 
 **Why:** User time is lost when a "ready to test" message is followed by the user discovering a port was held, a bundle was stale, or a .pyd was locked. The orchestrator owns the handoff quality gate.
 
+### Rebuild Default — `--both` (BLOCKING)
+
+When dispatching any agent that may trigger a `pianoidCuda` rebuild — `/update-pianoid` after a pull, `/dev` after C++/CUDA edits, `/startup` after a failed install, or any one-off rebuild — the orchestrator's dispatch prompt MUST direct the agent to use `--heavy --both` (or `--light --both`), **never** `--release` alone. Both release and debug variants are required for the project's testing/profiling workflows. Building release-only leaves the debug `.pyd` silently stale, and per `feedback_debug_variant_dll_trap.md` the debug variant's DLL copy step is the failure mode for runtime symbol errors when something later tries to load it.
+
+When the user requests "rebuild" / "build" / "rebuild all", interpret it as `--both`. The only time `--release` alone is appropriate is when the user explicitly says "release only" / "just release" / similar — never as a default to save time.
+
+This applies transitively: a `/dev` agent that delegates rebuild to a sub-agent must pass the same `--both` instruction.
+
+**Why:** Concrete incident 2026-05-30 — `upd-origin-9a1d` was dispatched after a pull and ran `--heavy --release` (matching the then-current `update-pianoid.md` "Canonical rebuild" line). The debug `.pyd` remained 13 days stale at the May 17 build, invisibly broken until a debug-variant import would have surfaced a silent symbol error. User had to explicitly correct: "Build both, not just release." This rule + the `update-pianoid.md` canonical-line fix prevent the repeat.
+
 ### Parallel /dev Agents on Same Repo MUST Use Dedicated Worktrees (BLOCKING)
 
 When dispatching 2+ /dev agents that touch the **same git repo** in parallel, each agent MUST work in its own git worktree — NEVER let them share the main working tree.
