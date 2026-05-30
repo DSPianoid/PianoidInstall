@@ -53,7 +53,7 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 
 | Component | File | Purpose |
 |---|---|---|
-| `VirtualPiano` | `VirtualPiano.js` | Compact virtual piano with range selection and fixed-velocity mode |
+| `VirtualPiano` | `VirtualPiano.js` | Compact virtual piano with range selection and fixed-velocity mode. The pane's "Play All" toolbar button runs a keyboard sweep over the selected range — see "Play All (keyboard sweep)" below |
 | `VerticalPiano` | `VerticalPiano.jsx` | Vertically-oriented pitch selector used in matrix views |
 | `MidiComponent` | `MidiComponent.jsx` | MIDI device connection status display |
 | `ModeSelector` | `ModeSelector.jsx` | Mode index selector |
@@ -113,6 +113,43 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `PresetConfigBar` | `PresetPanel/PresetConfigBar.jsx` | Named-startup-configuration switcher row at the top of `PresetPanel` (dev-startup-configs, 2026-05-16). Config-name `<Select>` + Save / Save As / Rename / Delete / Export / Import icon buttons + a reused name-prompt Dialog. Pure controlled component — every mutating action calls a `useSettings` callback. See "Named startup configurations" under `useSettings` |
 | `PaneWithSettings` | `PaneWithSettings.jsx` | Generic HOC that wraps any pane with a portaled gear icon in the MosaicWindow title bar + a `<PaneSettingsDialog>` bound to one settings bucket. Replaces the monolithic Settings pane / central PropertyManager-routing pattern (dev-a328, 2026-05-01). Accepts a `readOnly` prop (dev-bfe2, 2026-05-18): when true (a read-only `original` preset is active) it renders a lock banner + a pointer-events overlay over the wrapped editor — one chokepoint locks all six parameter-editor panes. The 6 editors (Strings, Modes, Excitation, Feedin, Feedback, Sound Channels) pass `readOnly={activePresetReadOnly}`; Charts / Virtual Piano / Workbench do not (they do not edit preset params). The backend is still the read-only authority (HTTP 409 `preset_read_only`); the overlay is UX |
 | `PaneSettingsDialog` | `PaneSettingsDialog.jsx` | MUI Dialog wrapping `<ObjectInspector>` for one settings bucket. Snapshots a fresh `PropertyManager` on open; commits via `setSettings(newProps)` AND closes on Apply (the ObjectInspector's internal Apply button is the canonical commit path — DialogActions are intentionally omitted to avoid duplication) |
+
+---
+
+### Play All (keyboard sweep) — `startSweep` / `stopSweep` in `PianoidTuner.js`
+
+The Virtual Piano pane's toolbar "Play All" button (▶ / ■) sweeps every available
+pitch in the selected range, one note at a time, at `virtualPianoSettings.playbackSpeedMs`
+(default 100 ms/note) and the currently-selected velocity level. Two modes, chosen by
+`virtualPianoSettings.playbackMode`:
+
+| Mode | Behaviour | Timing authority |
+|---|---|---|
+| `online` (default) | Issues **ONE** `POST /play_keyboard {mode:"online", speed_ms_per_note, velocity, pitches}` — the backend schedules every NOTE_ON/NOTE_OFF up-front on a sample-accurate cycle grid (`delay_ms = i·speed_ms`) and returns immediately. **Even spacing.** | Backend engine event queue (`RealTimeEventBuffer`) — **P1 sole owner of note timing**. |
+| `offline` | Issues `POST /play_keyboard {mode:"offline", …}` — the backend stops the engine, renders a peak-normalized WAV to `/tmp`, restarts the engine, and returns the WAV path. | Backend offline render. |
+
+**Even-timing rationale (dev-177a, Option A, 2026-05-30).** The online sweep previously
+used a browser `setTimeout` chain that fired one `POST /play` per note with `delay_ms=0`;
+the backend pinned each note to `getCurrentCycle()+1` at wall-clock **arrival**, so
+browser/network jitter produced uneven spacing. Routing the whole sweep through the
+existing `/play_keyboard` even-scheduler moves note timing off the browser entirely.
+See [REST API — POST /play_keyboard](../pianoid-middleware/REST_API.md#post-play_keyboard).
+
+**On-screen highlight.** Because the browser no longer times the audio, the swept-key
+highlight (`sweepingNote` → `VirtualPiano`) is driven by a **visual-only** `setInterval`
+walking the same `speed_ms` grid. It is cosmetic — small drift vs the (even) audio is
+harmless. (The backend `midi_note_event` Socket.IO stream is **not** usable for this: it
+fires only for the unified hardware-MIDI listener, not for `/play_keyboard`-scheduled
+events.)
+
+**STOP / cancel limitation.** Once an online sweep is scheduled, there is **no
+lightweight way to cancel the already-queued audio** — the backend has no flush/clear
+endpoint for the event queue (the only stop is `stop_playback()`, which tears down the
+whole synthesis engine). So the ■ STOP button halts the **visual highlight** and resets
+local sweep state, but the scheduled notes **play to completion**. (Same end-to-end
+behaviour class as offline mode, which also runs to completion.) Lifting this would
+require a new backend "cancel scheduled events" endpoint — tracked as a possible
+follow-up; not done here (frontend-only change).
 
 ---
 
