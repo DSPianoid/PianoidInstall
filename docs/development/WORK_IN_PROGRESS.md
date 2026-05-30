@@ -23,9 +23,6 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-snmtxleak-7e3d | Phase A (UNDERSTAND) of Matrix-mode SC mute leak: muting one channel kills all sound, doesn't restore on un-mute, survives engine stop+reload. User: "structural inconsistency (leakage from UI)". | [log](logs/dev-snmtxleak-7e3d-2026-05-30-151649.md) | 2026-05-30 | In Progress (Phase A — read-only; no locks) |
-| dev-eac2 | CONTINUE CFL guard (user REDIRECT, 3 ordered directives): (A) REVERT a6358eed/dev-395e bulk gating — remove gate from the 2 BULK sites (update_pitch_physical_params, send_updated_params_to_CUDA), restore GRANULAR-ONLY gate + cfl_redline flag + FE warning. (B) REVIEW upload architecture — 2 paths (granular+bulk) vs prior "3 sites". (C) EXACT MATH — gate cfl<1 allow, >=1 reject, NO margin. (D) REPORT + HOLD final gate placement. Continues dev-395e's uncommitted work. | [log](logs/dev-eac2-2026-05-30-092541.md) | 2026-05-30 | ★DONE (analysis + revert), STOP before commit — HOLDING for user. **(A) REVERT DONE + verified**: removed `_skip_unstable_physical_upload` from both bulk methods; gate is granular-only again; flag plumbing (pianoid.py/backendServer.py) + FE warning untouched. Pure-Python recording-mock (`dev-eac2-cfl-revert-verify.py`) 6/6 PASS: granular over-edge→skip+flag; both bulk over-edge→UPLOAD anyway, no flag. **(B) ARCHITECTURE**: exactly **TWO logical paths** (user is right) — GRANULAR (`update_pitch_physical_params_GRANULAR`→`updateMultiStringParameter_NEW`, per-string; callers Strings-panel REST/WS + auto_tuner) and BULK (repack-all via `pack_parameters()`; 2 method-variants: `update_pitch_physical_params`→`setNewPhysicalParameters` for MIDI-CC/NoteTunner, and `send_updated_params_to_CUDA`→`setUpdatedParameters` INIT-ONLY). `send_updated_params_to_CUDA` is NOT a 3rd path — it's the init-time bulk variant. (Also found+fixed a DATA_FLOWS §2.1 doc bug: it wrongly showed the granular path calling `setNewPhysicalParameters`.) **(C) EXACT MATH**: the closed-form `max|g|` is ALREADY a faithful + numerically-EXACT model of the engine's FDTD recurrence (Kernels.cu+MainKernel.cu coeffs == cfl_stability formulas; K=24 grid == dense-θ == analytic to machine precision; 0 permissive cells). The gate ALREADY implements "cfl ratio <1 allow / ≥1 reject" exactly — it rejects the instant ratio>1 (|g| jumps to 1.0006), admits the lossless boundary |g|=1.0 (which it MUST). NO math change warranted (a stricter ">=1 reject" or a safety margin would reject every lossless string + contradicts "no margin"). The user's "permissive vs the real engine" is NOT a θ-grid/closed-form bug — candidates are the now-ungated BULK path (the revert) or float32 accumulation (would need a forbidden margin). **(D) HELD**: proposed final placement options reported for the user to direct (do NOT re-add bulk gating — "not for now"). ★★USER REVISION 2717 (2026-05-30): "(1) introduce a small margin cfl rate < 0.99 and I'll retest. (2) check Strings-panel tension routes to granular." DONE: **(1) MARGIN** — added `CFL_MARGIN = 0.99` (clearly-named, tunable) in cfl_stability.py applied to the **Courant number** (coeff_tension − 8·coeff_bending), NOT a |g|-scale (below the edge |g| is flat at 1.0 then jumps, so a fractional headroom must threshold the Courant number). New `is_stable_with_margin(amp, courant)` = exact `max|g|≤1` AND `courant < CFL_MARGIN`; wired into the GRANULAR gate only (bulk still ungated). Margin tightens only the upper edge; the exact max|g|≤1 still catches the lower bending edge. **(2) ROUTING CONFIRMED** — Strings-panel tension edit: PianoidTuner.js → changeParametersOfStrings('string') → usePreset.js WS/REST set_parameter/string → backend update_parameter('string') → update_pitch_physical_params_GRANULAR (the GATED method) → updateMultiStringParameter_NEW; 'tension' not remapped, reaches coeff_tension. So the margin DOES apply to the user's actual edits. **VERIFIED** pure-Python through the REAL granular gate (`dev-eac2-cfl-margin-verify.py`, 6/6 PASS): courant 0.98 ACCEPT, 0.9899 ACCEPT, 0.9901 REJECT, 0.995 REJECT (was allowed pre-margin, |g|=1.0), 1.005 REJECT — boundary EXACTLY at 0.99. test_cfl_amp.py 16/16 PASS (exact math unchanged). Diagnostics: `dev-eac2-cfl-exactness-check.py`, `dev-eac2-cfl-ratio-boundary.py`, `dev-eac2-cfl-revert-verify.py`, `dev-eac2-cfl-margin-verify.py`. Source edited: parameter_manager.py + cfl_stability.py (margin). No CUDA build. Env DOWN. Handoff = clean DOWN for user live retest (clean_and_start.ps1 → Strings over-edge tension → reject ~1% earlier + flag/chip + engine keeps last-stable). STOP before commit. ★★★USER REVISION 2720 (2026-05-30): "CFL flag never resets; reset on safe upload + on preset switch (apply or library)." DONE: **(1) NEVER-RESET BUG ROOT CAUSE** = `CFL_LIMIT` had been changed `1.0 → 0.96` in the working tree (NOT my edit — committed HEAD = 1.0; likely a user manual margin attempt). is_stable_amp = `max|g| ≤ CFL_LIMIT+eps`; every lossless string has |g|=1.0 > 0.96 → is_stable_amp rejects ALL real strings → gate rejects every edit → accept branch (which clears the flag) never reached → flag never clears. FIX: restored `CFL_LIMIT = 1.0` (the exact |g| boundary; the 1% headroom stays in CFL_MARGIN=0.99 on the Courant number — never bake a margin into CFL_LIMIT). **(2) PRESET-SWITCH RESET**: added `_clear_cfl_redline()` in `Pianoid.switch_preset` (library switch — it REUSES the param_manager so a stale flag persisted = the real gap) + a defensive clear after `initialize()` in `load_preset_route` (APPLY recreates the Pianoid → fresh flag anyway, explicit clear documents intent). VERIFIED pure-Python: `dev-eac2-cfl-flag-lifecycle.py` 5/5 (over-edge→set, then safe→CLEARS); `dev-eac2-cfl-preset-switch-reset.py` 3/3 (library switch_preset clears a stale flag; APPLY fresh param_manager clean). No regression: test_cfl_amp 16/16, margin-verify 6/6 still exact at 0.99. Source edited this revision: cfl_stability.py (CFL_LIMIT 1.0) + pianoid.py (switch_preset clear) + backendServer.py (load_preset clear). NO CUDA build. Env DOWN. STOP before commit. |
-| ~~dev-395e (all-path gate SUPERSEDED)~~ | dev-395e's v3 ALL-PATH gate (the granular gate PLUS calls in both bulk methods) is **SUPERSEDED** by dev-eac2 above: the user directed "no gate on bulk update for now", so the 2 bulk gate calls were reverted (gate is granular-only). dev-395e's granular gate + flag plumbing + FE warning REMAIN (they work). | [log](logs/dev-395e-2026-05-29-235348.md) | 2026-05-29 | SUPERSEDED by dev-eac2 (bulk gating reverted; granular-only retained). |
-| ~~dev-395e~~ | CFL guard: gate detects instability (flag raises) but the unstable string-physics coeff still reached the engine + crashed it (user live retest). FIX: ALL-PATH host-side choke gate. On feature/cfl-test-on-p1fix (PianoidCore) + the prior PianoidTunner flag/warning edits. **CONTINUED by dev-eac2** (above) — user redirected: revert the bulk gating, keep granular-only, review the upload architecture, make the math exact. | [log](logs/dev-395e-2026-05-29-235348.md) | 2026-05-29 | ★FIX IMPLEMENTED — awaiting USER LIVE RETEST (STOP before commit). User authoritative re-test: "Flag is raised, but the cross-threshold value got into engine and crashed it anyway." So the prior choke gate (only in `update_pitch_physical_params_GRANULAR`) detected + flagged but did not PREVENT the upload on every path. FIX: ONE shared host-side guard `ParameterManager._skip_unstable_physical_upload(pitches)` applied at ALL 3 `dev_physical_parameters` write sites — granular `update_pitch_physical_params_GRANULAR` (Strings panel) + the two previously-UNGATED bulk paths (`update_pitch_physical_params`→`setNewPhysicalParameters`, used by the MIDI-CC knob + auto-tune; `send_updated_params_to_CUDA`→`setUpdatedParameters` all-strings). On `max|g|>1`: raise `cfl_redline` + SKIP the upload (edit stays in the model, engine keeps last-stable coeffs, no crash, no throw). cfl_stability.py UNCHANGED; flag + FE warning (BackendStatusIndicator CFL chip via /health+param_ack) UNCHANGED (already wired, user confirms they WORK). Python-middleware-ONLY → NO CUDA build. VERIFIED pure-Python (no engine/GPU/Flask/socketio — per the stall-avoidance rule): `dev-395e-cfl-allpath-gate.py` ALL 6 PASS (over-edge on each path → 0 GPU writes + flag + model keeps value; below-edge → uploads + flag clears). ★Re-confirmed: the granular path was ALREADY blocking the upload in pure Python — so if the live engine still crashed WITH the flag raised on a granular edit, the value arrived via a BULK path (now closed) OR the closed-form gate is marginally permissive vs the real 196-mode float32 engine (CONTINGENCY for the live retest → tighten the margin; the prior border-match was a simplified single-string forward-sim). NO commit; env handed off DOWN; sole source edited = parameter_manager.py (locked by dev-395e). Earlier STOP+REPORT (ungated-path-model / H1-stale-process conclusion) SUPERSEDED — the running backend HAD the gate (flag raised) so it was NOT stale; the real gap is the all-path upload coverage now fixed. Diagnostics: docs/development/diagnostics/dev-395e-*.py (7). |
 | dev-cflt | Build a TEST environment: CFL stability guard (feature/cfl-stability-guard-v2 = 0d10675) merged ON TOP of the P1-1-fixed dev (a352b2f) on test branch feature/cfl-test-on-p1fix; --heavy --both build; run guard test suite; smoke-test the guard rejects an unstable FDTD edit; hand off CLEAN down-state. Guard stays on test branch — NOT merged to dev. | [log](logs/dev-cflt-2026-05-29-221621.md) | 2026-05-29 | In Progress |
 | dev-427c | Fix CRITICAL authority race (P1-1) on swappable GPU synthesis pointers (dev_physical_parameters/dev_mode_state/dev_deck_parameters/dev_hammer) — engine thread reads lock-free while UnifiedGpuMemoryManager poll thread rewrites them under update_mutex_ during swapBuffers. Single-owner fix (move pointer refresh onto engine thread). | [log](logs/dev-427c-2026-05-29-202054.md) | 2026-05-29 | ✅ DONE + USER-VERIFIED + COMMITTED + MERGED. ★Race CONFIRMED+MEASURED via compile-guarded probe: 1842 mid-cycle pointer mutations during a sustained note under a ~780-swap/note storm (Belarus MFeq/STRINGS). FIX (engine = sole writer; poll thread publishes base + swap_pending_ via release/acquire; engine refreshes at top of runSynthesisKernel, mirrors run_string_map_kernel_): same probe → **0** mid-cycle mutations (reproduced 2×). No regression: 5/5 perf (GPU mean ~unchanged, corr 0.9901), 11/11 preset-switch+feedback-coupling functional, control 55/56/57 clean+damping. **USER LIVE-TESTED the fixed build (feature/p1-authority-fix): 55/56/57 trichotomy GONE, no recurrence** → the correlational caveat is now resolved (the race WAS the bug). COMMITTED `80fc9ed` (+90/-20: UnifiedGpuMemoryManager.{h,cu}, Pianoid.cuh, Pianoid_synthesis.cu, Pianoid_presets.cu), MERGED to PianoidCore dev `a352b2f` (--no-ff) by the sync. Probe + harness: docs/development/diagnostics/dev-427c-p1-authority-race-stress.py (committed on root master). Locks RELEASED. NOT pushed yet (awaiting user push-confirm). |
 | dev-c317 | Build CLEAN current-dev (67148fa, --heavy --both) + bring full launcher stack up + verify sound server-side on 55/56/57 for the user's "total silence" test. Build/run/verify only — no code edits. | [log](logs/dev-c317-2026-05-29-180645.md) | 2026-05-29 | READY (pre-Step-10 halt) — clean 67148fa --heavy --both built (both .pyd fresh @15:20:38Z + import OK from PianoidCore/.venv + verified CLEAN: getRawSoundRecordInt/getMainVolumeCoefficient absent); offline 55/56/57 PROVEN audible+damping (p55=5.32/p56=23.03/p57=5.19, tail 1.57e-4 DAMPS); full launcher stack UP (launcher:3001/frontend:3000/backend:5000 healthy, /health 200 exception=false, pianoid_loaded=false pre-APPLY). Stack left UP for the user's live test. No commit (no code changed); no source locks held. |
@@ -118,6 +115,96 @@ Two follow-ups, both **explicitly out of scope** for this task (flagged, not bui
    waitForParameterUpdate, or `dx` not surviving `set_param`).
 
 <!-- ===== Completed/archived sessions from origin/master (other-machine, unioned in) ===== -->
+
+<!-- dev-eac2 COMPLETED 2026-05-30 (orchestrator bookkeeping wrap — code
+     landed via pull merge ce2818b/2d23254). CFL guard v2 evolution
+     (host-side, granular-only gate + CFL_MARGIN on the Courant number
+     + flag-lifecycle fixes). Directive A REVERT: removed
+     _skip_unstable_physical_upload from both bulk methods
+     (update_pitch_physical_params, send_updated_params_to_CUDA); gate
+     is granular-only again; flag plumbing + FE warning untouched.
+     Directive B ARCHITECTURE: documented TWO logical upload paths
+     (GRANULAR updateMultiStringParameter_NEW per-string; BULK repack-all
+     via pack_parameters with 2 method-variants — setNewPhysicalParameters
+     for MIDI-CC/NoteTunner, setUpdatedParameters INIT-ONLY).
+     send_updated_params_to_CUDA is NOT a 3rd path — it's the init-time
+     bulk variant. Fixed a DATA_FLOWS §2.1 doc bug (had granular path
+     wrongly calling setNewPhysicalParameters). Directive C EXACT MATH:
+     closed-form max|g| is ALREADY a faithful + numerically-EXACT model
+     of the engine's FDTD recurrence (Kernels.cu + MainKernel.cu coeffs
+     == cfl_stability formulas; K=24 grid == dense-θ == analytic to
+     machine precision; 0 permissive cells). NO math change warranted.
+     ★USER REVISION 2717: added CFL_MARGIN=0.99 (tunable) on the Courant
+     number (coeff_tension − 8·coeff_bending), NOT a |g|-scale (below the
+     edge |g| is flat at 1.0 then jumps, so fractional headroom must
+     threshold the Courant number). is_stable_with_margin = exact
+     max|g|≤1 AND courant<CFL_MARGIN; wired into GRANULAR gate only
+     (bulk still ungated). Margin tightens only the upper edge; exact
+     max|g|≤1 still catches lower bending edge. Strings-panel tension
+     ROUTING CONFIRMED: PianoidTuner.js → changeParametersOfStrings →
+     usePreset.js WS/REST set_parameter/string → backend
+     update_parameter('string') → update_pitch_physical_params_GRANULAR
+     (the GATED method). ★USER REVISION 2720: ROOT CAUSE of "flag never
+     resets" = CFL_LIMIT had been changed 1.0→0.96 in the working tree
+     (NOT this agent's edit — committed HEAD was 1.0; likely a user
+     manual margin attempt). is_stable_amp = max|g|≤CFL_LIMIT+eps;
+     every lossless string has |g|=1.0 > 0.96 → is_stable_amp rejected
+     ALL real strings → gate rejected every edit → accept branch
+     (which clears the flag) never reached. FIX: restored
+     CFL_LIMIT=1.0 (the exact |g| boundary; the 1% headroom stays in
+     CFL_MARGIN=0.99 on the Courant number — never bake a margin into
+     CFL_LIMIT). Preset-switch reset added: _clear_cfl_redline in
+     Pianoid.switch_preset (library switch — it REUSES the param_manager
+     so a stale flag persisted = the real gap) + defensive clear after
+     initialize() in load_preset_route (APPLY recreates the Pianoid →
+     fresh flag anyway, explicit clear documents intent). cfl_stability.py
+     exact math (max_amplification/is_stable_amp) UNCHANGED — only
+     constants + acceptance threshold added. Pure-Python verified
+     pre-merge: dev-eac2-cfl-revert-verify.py 6/6, dev-eac2-cfl-margin-
+     verify.py 6/6 (boundary EXACTLY at courant 0.99), dev-eac2-cfl-flag-
+     lifecycle.py 5/5 (over-edge→set, safe→CLEARS), dev-eac2-cfl-preset-
+     switch-reset.py 3/3 (library switch_preset clears stale flag);
+     test_cfl_amp.py 16/16 (exact math unchanged). ★USER live-tested and
+     approved. PianoidCore code commit a9d0aec on feature/cfl-test-on-
+     p1fix, merged to dev at ce2818b (Merge feature/cfl-test-on-p1fix
+     into dev — co-merged with dev-7032's CFL ratio chart a43f008 +
+     Belarus preset edits). PianoidTunner CFL redline warning chip
+     commit 983f0c2 on feature/lower-default-volume-100, merged to dev
+     at 2d23254 (co-merged with the 120→100 default volume change).
+     Both merges already on PianoidCore dev tip / PianoidTunner dev tip
+     when this Phase 2 wrap-up ran — the user's upd-origin-9a1d pull
+     (2026-05-30) had already brought them in, so the brief's W2–W7
+     git-plan steps corresponded to already-landed work and were
+     skipped; only the bookkeeping tail (lock release + WIP transition
+     + log archive + this commit) was executed. Session log archived to
+     logs/archive/dev-eac2-2026-05-30-092541.md. Diagnostics in
+     docs/development/diagnostics/ (dev-eac2-cfl-exactness-check.py,
+     dev-eac2-cfl-ratio-boundary.py, dev-eac2-cfl-revert-verify.py,
+     dev-eac2-cfl-margin-verify.py, dev-eac2-cfl-flag-lifecycle.py,
+     dev-eac2-cfl-preset-switch-reset.py). -->
+
+<!-- dev-395e COMPLETED 2026-05-30 (SUPERSEDED-by-dev-eac2 — orchestrator
+     bookkeeping wrap, paired with dev-eac2 above; code landed via the
+     same pull merge ce2818b). dev-395e's directive evolved twice across
+     two WIP rows: (1) original direction = ALL-PATH host-side choke gate
+     (the granular gate PLUS calls in both bulk methods) to close the
+     "flag raises but value still reached engine" live gap; (2) then the
+     user redirected "no gate on bulk update for now", which dev-eac2
+     executed as the directive-A REVERT (bulk gating removed; granular-
+     only retained). dev-395e's granular gate + cfl_redline flag plumbing
+     + FE warning (BackendStatusIndicator CFL chip via /health+param_ack)
+     REMAIN in the merged code (they work; user confirmed). dev-395e's
+     all-path bulk-gate calls do NOT appear in the merged code —
+     superseded by dev-eac2's revert before commit. dev-395e's pure-Python
+     verification (dev-395e-cfl-allpath-gate.py 6/6) was for the pre-
+     revert all-path state and is preserved as legacy diagnostic. Lock
+     ownership was explicitly transferred from dev-395e to dev-eac2 at
+     dev-eac2 Step 0 (see dev-eac2 log line 15 — "taken over from
+     dev-395e — continuation of its uncommitted work") so the combined
+     dev-eac2 + dev-395e scope merged as a single landed feature
+     (PianoidCore a9d0aec → ce2818b on dev). Session log archived to
+     logs/archive/dev-395e-2026-05-29-235348.md. Diagnostics in
+     docs/development/diagnostics/dev-395e-*.py (7). -->
 
 <!-- dev-7032 COMPLETED 2026-05-30 (orchestrator bookkeeping wrap — code
      landed via pull merge ce2818b/9e7cb39). Per-pitch CFL ratio chart

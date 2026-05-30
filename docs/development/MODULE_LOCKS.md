@@ -32,7 +32,33 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      bookkeeping tail (locks/WIP/log) was executed in this session, recorded as
      PianoidInstall master commit (this commit). Live tested + approved by the user prior to
      wrap-up ("CFL chart already tested and approved, wrap up"). -->
-| dev-eac2 (continues dev-395e) | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/cfl_stability.py` | 2026-05-30T06:26:00Z | CONTINUE CFL guard v2 (user REDIRECT + REVISION 2717). (A) REVERTED bulk gating (granular-only gate restored). (B) Documented the TRUE 2-path upload architecture (granular + bulk; send_updated_params_to_CUDA = init bulk variant). (C→revised) USER REVISION 2717: added a SAFETY MARGIN `CFL_MARGIN=0.99` on the Courant number (coeff_tension − 8·coeff_bending) in cfl_stability.py (new `is_stable_with_margin`/`amp_and_courant_for_pitch_strings`/`courant_number`), wired into the GRANULAR gate only (bulk stays ungated); + CONFIRMED Strings-panel tension routes to the granular gated method. cfl_stability.py exact math (max_amplification/is_stable_amp) UNCHANGED. Pure-Python verified (margin boundary exactly 0.99; 16/16 unit). On feature/cfl-test-on-p1fix. NOT touching usePreset.js (dev-8085), presets, or tools/*.ps1. NO CUDA build. STOP before commit — held for user live retest. |
+<!-- dev-eac2 + dev-395e locks RELEASED 2026-05-30 at Step 10a Phase 2 wrap-up. Held (CFL guard v2,
+     host-side, granular-only gate + CFL_MARGIN on the Courant number + flag-lifecycle fixes):
+     PianoidCore pianoid_middleware/parameter_manager.py + pianoid.py + backendServer.py +
+     cfl_stability.py (4 files; dev-eac2 explicitly took over dev-395e's lock per the dev-eac2
+     log Step 0, so the 4 files = combined dev-eac2 + dev-395e scope on the same shared branch
+     feature/cfl-test-on-p1fix). dev-395e's all-path gate (granular + 2 bulk sites) was
+     SUPERSEDED by dev-eac2's directive-A REVERT (granular-only — bulk ungated per the user's
+     "no gate on bulk update for now"); dev-eac2 then layered USER REVISION 2717 (CFL_MARGIN=0.99
+     on the Courant number, granular-only) + USER REVISION 2720 (CFL_LIMIT restored 0.96→1.0 to
+     fix the never-reset bug + _clear_cfl_redline added in switch_preset/load_preset for fresh
+     preset = fresh stability state). cfl_stability.py exact math (max_amplification/is_stable_amp)
+     UNCHANGED — only constants + acceptance threshold added. ★LANDED VIA PULL MERGE (not via this
+     agent's wrap-up): PianoidCore code commit a9d0aec on feature/cfl-test-on-p1fix, merged to dev
+     at ce2818b (Merge feature/cfl-test-on-p1fix into dev — co-merged with dev-7032's CFL ratio
+     chart a43f008 + Belarus preset edits); PianoidTunner CFL redline warning chip commit 983f0c2
+     on feature/lower-default-volume-100, merged to dev at 2d23254 (co-merged with the
+     120→100 default volume change). Both merges already on PianoidCore dev tip / PianoidTunner
+     dev tip when this wrap-up ran — the user's upd-origin-9a1d pull (2026-05-30) had already
+     brought them in. Pure-Python verified pre-merge: dev-eac2-cfl-revert-verify.py 6/6,
+     dev-eac2-cfl-margin-verify.py 6/6 (boundary EXACTLY at courant 0.99),
+     dev-eac2-cfl-flag-lifecycle.py 5/5 (over-edge→set, safe→CLEARS),
+     dev-eac2-cfl-preset-switch-reset.py 3/3 (library switch_preset clears stale flag); +
+     test_cfl_amp.py 16/16 (exact math unchanged); dev-395e-cfl-allpath-gate.py 6/6 (pre-revert
+     legacy). NO CUDA build (Python-middleware-only). Live tested + approved by the user prior
+     to wrap-up. Step W2–W7 of the brief's plan corresponded to already-landed work; only the
+     bookkeeping tail (locks/WIP/log) was executed in this session, recorded as PianoidInstall
+     master commit (this commit). -->
 <!-- dev-427c locks RELEASED 2026-05-29 by the sync wrap-up (completing dev-427c's halted Step 10).
      Held: PianoidCore Pianoid.cuh, Pianoid_synthesis.cu, Pianoid_presets.cu, UnifiedGpuMemoryManager.cu,
      UnifiedGpuMemoryManager.h. P1-1 GPU-pointer authority-race fix (engine sole-writer of the swappable
