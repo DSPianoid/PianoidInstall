@@ -144,6 +144,7 @@ The file contains 19 entries: 12 chart types and 7 action types.
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
 | `pure_mode_test` | `pure_mode_test_function` | `mode_index` (default 0), `velocity` (default 100), `duration_ms` (default 50), `coupling` (choice: off/on, default off) |
 | `tuning_report` | `tuning_report_function` | `type` (choice: frequency/volume/both, default both) |
+| `cfl_ratio` | `cfl_ratio_function` | `key_range` (choice: all/from21to108/output, default "all") |
 
 ### Action Types
 
@@ -209,6 +210,7 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 | `hammer_temporal_function` | Retrieves temporal hammer force envelope for a pitch and velocity |
 | `online_midi_playback_chart_function` | Starts MIDI file, waits, captures audio result |
 | `pure_mode_test_function` | Excites a single mode via `exciteMode()` + offline playback, reads sound via `_load_offline_sound_to_result()`. Coupling off: deck matrix zeroed for pure damped oscillator. Coupling on: full string-mode interaction. Normalized output with frequency measurement via zero-crossings |
+| `cfl_ratio_function` | Per-pitch FDTD CFL stability ratio across the keyboard — plots the worst-string **Courant number** (`coeff_tension − 8·coeff_bending`), the actual CFL ratio that VARIES per pitch (each pitch's headroom below the edge). **NB it does NOT plot `max\|g\|`**: `max\|g\|` is degenerate-flat at exactly `1.0` for every stable string → a useless flat line (revised 2026-05-30 after the user saw the flat chart). **PURE-PYTHON / HOST-side**: per pitch calls `pianoid.param_manager._pitch_upload_amp(pitch)` → `(max\|g\|, worst_string_index, Courant)` from the SAME closed-form the live gate uses (`cfl_stability.amp_and_courant_for_pitch_strings` over the current `StringMap` physics, honouring per-string `tension_offset`; output pitches ≥128 → `(1.0, 0, 0.0)` sentinel). NO GPU/engine/debug build; `cfl_stability.py` is NOT modified. Returns a **4-tuple** `(charts, header, text_fields, {"render_hints": [...]})` — a scatter chart with explicit pitch x-axis, the redline `threshold` at `CFL_LIMIT = 1.0` (Courant = 1, the stability edge), and the `CFL_MARGIN` reject-threshold marker via the additive `thresholds` array (read **live**). Per-point colour follows the gate's ACTUAL decision (`cfl_stability.is_stable_with_margin`): `Courant < CFL_MARGIN` AND `max\|g\| ≤ 1` → allowed (teal/circle), else rejected (red/diamond). Tooltip: `{note, pitch, courant, decision, max_g, worst_string}`. Degenerate (non-finite Courant) → NaN gap + rejected. `key_range`: `all` / `from21to108` / `output`. Unit test: `tests/unit/test_cfl_ratio_chart.py` (mocked `param_manager`, no engine, 13/13); real-preset varies-proof: `docs/development/diagnostics/dev-7032-cfl-courant-varies.py` |
 
 **Offline chart sound-readout path.** Offline chart functions render with
 `PlaybackConfig.audio_enabled = False`, which skips `manageSoundBuffers()` in
@@ -248,6 +250,7 @@ This is the contract a backend chart function emits to drive the enriched view
 | `y_axis_name` | string | Y-axis title. |
 | `series_type` | string | `"line"` (default) or `"scatter"`. |
 | `threshold` | `{value:number, label?:string, color?:string}` | Renders a horizontal **markLine** at `value` (dashed, silent, labelled). Used for the CFL stability limit (`value = cfl_limit = 1`). |
+| `thresholds` | `Array<{value:number, label?:string, color?:string}>` | **Additive** — renders one or more *extra* horizontal markLines alongside the single `threshold`, each independently styled/labelled. Used for the CFL ratio chart's `CFL_MARGIN` headroom reference line. A renderer build without this support ignores the array and still shows the single `threshold` (graceful degrade). Added by `feature/cfl-stability-chart` (`5e5d546`, Part 1 extension). |
 | `point_styles` | `Array<{color?:string, symbol?:string}>` | Per-point styling. **Length MUST equal the data array** (a mismatch is ignored and the chart falls back to a uniform series — fail-safe, never blanks). Supplying a `symbol` gives a **non-colour cue** alongside `color` so stable/unstable points are distinguishable without relying on colour (accessibility). |
 | `point_meta` | `Array<object>` | Per-point metadata merged into the tooltip (e.g. `{stable:true}`). |
 | `tooltip_fields` | `string[]` | Ordered `point_meta` keys to surface in the tooltip; defaults to all keys. |
@@ -260,26 +263,57 @@ otherwise ECharts' built-in tooltip is used (legacy behaviour, unchanged).
 
 ```json
 {
-  "data": [[0.42, 0.88, 1.35, 0.61]],
-  "chart_headers": ["CFL Stability Ratio"],
+  "data": [[0.018, 0.034, 0.86, 0.041]],
+  "chart_headers": ["CFL Courant Ratio"],
   "render_hints": [{
     "x_axis_values": ["A0", "A#0", "B0", "C1"],
-    "x_axis_name": "Pitch", "y_axis_name": "CFL ratio",
+    "x_axis_name": "Pitch", "y_axis_name": "CFL ratio (Courant)",
     "series_type": "scatter",
-    "threshold": {"value": 1.0, "label": "CFL limit"},
+    "threshold": {"value": 1.0, "label": "CFL limit (1)", "color": "#ef5350"},
+    "thresholds": [{"value": 0.8, "label": "CFL margin (0.8)", "color": "#ffa726"}],
     "point_styles": [
       {"color": "#26a69a", "symbol": "circle"},
       {"color": "#26a69a", "symbol": "circle"},
       {"color": "#ef5350", "symbol": "diamond"},
       {"color": "#26a69a", "symbol": "circle"}
     ],
-    "point_meta": [{"stable": true}, {"stable": true}, {"stable": false}, {"stable": true}],
-    "tooltip_fields": ["stable"]
+    "point_meta": [
+      {"courant": 0.018, "decision": "allowed"},
+      {"courant": 0.034, "decision": "allowed"},
+      {"courant": 0.86, "decision": "rejected"},
+      {"courant": 0.041, "decision": "allowed"}
+    ],
+    "tooltip_fields": ["courant", "decision"]
   }]
 }
 ```
 
-The backend `chartFunctions.py` function that emits this for the CFL ratio data
-(sourced from `GET /get_parameter/stability_ratio`'s underlying getters) is the
-deferred **Part 2** of this work — see `docs/development/WORK_IN_PROGRESS.md`.
-The transform + back-compat are covered by `src/utils/__tests__/chartOption.test.js`.
+**Part 2 — implemented (dev-7032, 2026-05-30; revised same day).** The backend
+`chartFunctions.py` function that emits this is `cfl_ratio_function` (registered as
+the `cfl_ratio` chart). It is PURE-PYTHON / host-side: per pitch it calls
+`pianoid.param_manager._pitch_upload_amp(pitch)` (the v2 host closed-form, no GPU /
+no debug build) and builds the chart array from the per-pitch worst-string
+**Courant number** (`coeff_tension − 8·coeff_bending`). **Revision:** the first
+version plotted `max|g|`, which is degenerate-flat at `1.0` for every stable string
+→ the user saw a flat line; the chart was switched to the Courant number, which
+varies per pitch and shows each pitch's headroom. The redline (`CFL_LIMIT = 1.0`)
+is the Courant = 1 stability edge; the `CFL_MARGIN` line (additive `thresholds`
+array, read `cfl_stability.CFL_MARGIN` **live**) is the gate's reject threshold;
+per-point colour is the gate's actual `is_stable_with_margin` decision. Covered by
+`tests/unit/test_cfl_ratio_chart.py` (backend, mocked `param_manager`, 13/13) +
+`docs/development/diagnostics/dev-7032-cfl-courant-varies.py` (real-preset proof the
+Courant array varies, pure-Python) + the renderer's `src/utils/__tests__/chartOption.test.js`
+(frontend, 16/16). Backend on PianoidCore `feature/cfl-test-on-p1fix`; the
+renderer's `thresholds` extension on PianoidTunner `feature/cfl-stability-chart`
+(`5e5d546`).
+
+> **Data-model note (why Courant, not |g|):** `max|g|` (the von-Neumann
+> amplification) is degenerate-FLAT at exactly `1.0` for every stable string and
+> only jumps past 1 when unstable (`cfl_stability.py` `CFL_MARGIN` docstring) — so a
+> `max|g|` chart is a useless flat line. The **Courant number** (`coeff_tension −
+> 8·coeff_bending`) varies per pitch and is the quantity that resolves each pitch's
+> real headroom below the edge, and it is exactly what `CFL_MARGIN` thresholds.
+> Hence the chart plots the Courant number. The redline (1.0) is the Courant
+> stability edge; a point is coloured rejected when its worst-string Courant reaches
+> `CFL_MARGIN` (or, for the lower/bending edge the Courant doesn't encode, when
+> `max|g| > 1`).

@@ -269,23 +269,51 @@ test.
 > `T = 0.85, B = 0.10`: `T + 4B = 1.25` > 1 but `|g| = 1.0`, stable). The correct ratio is
 > `(coeff_tension − 8·coeff_bending) / CFL_LIMIT` with `CFL_LIMIT = 1`.
 
-### Where the guard lives (v2 — host-side, pre-upload)
+### Where the guard lives (v2 — host-side, skip-the-upload + flag; GRANULAR path)
 
 The stability guard is enforced **on the host, in `parameter_manager.py`, BEFORE the GPU upload**
-(`cfl_stability.py` computes the closed-form `max_θ|g(θ)|`; the gate runs in
-`update_parameter('string'|'physics', …)` before `set_param`/`updateMultiStringParameter_NEW`).
-A string/physics edit whose amplification exceeds `1 + CFL_STABILITY_EPS` (float round-off only,
-`1e-6` — **not** a tunable margin) is **rejected** (`CflRejected` → HTTP 400 + a redline boolean);
-the edit is **never applied**, so the engine keeps its last-good coefficients. The per-string
-`tension_offset` is honoured (string `i` uses `tension·(1 + i·tension_offset)`; the worst string
-decides). **Output/"sound" strings (pitch ≥ 128, `outer_sound > 0`) and modes are NOT gated**
-(modes are a separate scheme; output strings are soundboard proxies with placeholder physics).
-The per-string ratio is exposed read-only via `GET /get_parameter/stability_ratio/<key>` (computed
-host-side from the current `StringMap`). There is **no kernel-side guard, no per-point shadow buffer,
-and no per-string flag** — the v1 implementation used those + a host flag-poll that raced the audio
-thread and silently halted synthesis on any edit; the v2 host-side, pre-upload design removes that
-machinery by construction. Design + empirical crash-border validation:
-`docs/proposals/cfl-stability-guard-v2.md`.
+(`cfl_stability.py` computes the closed-form `max_θ|g(θ)|` and the Courant number). It runs inside the
+**granular** upload path `update_pitch_physical_params_GRANULAR` — *after* the edit lands in the Python
+model, immediately before the `updateMultiStringParameter_NEW` upload. The guard **rejects** (raises
+`cfl_redline` + skips the GPU write — the edit stays in the model; the engine keeps its last-stable
+coefficients, no crash, no partial write) when the worst-string **Courant number**
+(`coeff_tension − 8·coeff_bending`) ≥ **`CFL_MARGIN`** **or** `max|g| > 1`. A subsequent stable edit clears
+the flag. This is **skip-the-upload, not reject-the-edit** (user-directed 2026-05-30 — replaces the earlier
+`CflRejected` → HTTP 400 reject; the flag is surfaced via `/health` + the `param_ack`/REST-200 edit
+response, e.g. the `BackendStatusIndicator` "CFL" chip). The deprecated `_raise_if_cfl_unstable` (the old
+throw-based gate) is retained only until its reject-path tests migrate to the flag model.
+
+**`CFL_MARGIN` — a safety margin on the Courant number (default `0.99`).** The *exact* upper-edge boundary
+is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The live UPLOAD gate rejects ~1% *before*
+that, at `CFL_MARGIN = 0.99`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
+for the *idealised* recurrence (`0` permissive cells vs a dense-θ truth,
+`dev-eac2-cfl-exactness-check.py` / `dev-eac2-cfl-ratio-boundary.py`), but the real engine runs float32
+with boundary + force terms and accumulates over thousands of steps, so a config the closed-form scores
+exactly `|g| = 1.0` can creep up live. The margin is on the **Courant number**, not `max|g|`: below the
+upper edge `|g|` is flat at `1.0` then jumps (the first value past the edge already gives `|g| ≈ 1.0006`),
+so it cannot encode a fractional headroom; the Courant number rises monotonically with tension and does.
+`CFL_MARGIN` (`cfl_stability.py`, `is_stable_with_margin`) is **clearly-named + easily tunable** — `1.0` =
+the exact boundary (no margin), lower = more headroom. The margin tightens only the **upper** edge; the
+exact `max|g| ≤ 1` test still runs so the lower (bending) edge is caught. The read-only `stability_ratio`
+endpoint reports the **exact** `max|g|`, not the margin-shifted threshold. Verified through the live
+granular gate at targeted Courant numbers (`dev-eac2-cfl-margin-verify.py`: courant `0.98` accepted,
+`0.995` rejected — boundary at `0.99`). The per-string `tension_offset` is honoured (string `i` uses
+`tension·(1 + i·tension_offset)`; the worst string decides). **Output/"sound" strings (pitch ≥ 128,
+`outer_sound > 0`) and modes are NOT gated**
+(modes are a separate scheme; output strings are soundboard proxies with placeholder physics). The
+per-string ratio is exposed read-only via `GET /get_parameter/stability_ratio/<key>`. There is **no
+kernel-side guard, no per-point shadow buffer, and no per-string flag** — the v1 implementation used
+those + a host flag-poll that raced the audio thread and silently halted synthesis on any edit; the v2
+host-side, pre-upload design removes that machinery by construction.
+
+> **Scope: GRANULAR only.** The guard covers only the per-string granular path (Strings panel).
+> The **bulk** repack-all path (`update_pitch_physical_params` → `setNewPhysicalParameters`, reached by
+> the MIDI-CC knobs and `NoteTunner` auto-tune; and its init variant `send_updated_params_to_CUDA`) is
+> **currently NOT gated** — an all-path gate was tried 2026-05-30 and reverted per the user; final bulk
+> placement is an open decision. See
+> [PARAMETER_SYSTEM.md "Host-Side CFL Stability Gate"](PARAMETER_SYSTEM.md#host-side-cfl-stability-gate-physical-params--granular-path).
+
+Design + empirical crash-border validation: `docs/proposals/cfl-stability-guard-v2.md`.
 
 ---
 

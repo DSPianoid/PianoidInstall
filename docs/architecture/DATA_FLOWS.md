@@ -354,10 +354,18 @@ pianoid.py: update_parameter(param='string')                  (line 2230)
   3. string_indices = sm.get_cuda_string_indices(60)  // e.g. [120, 121, 122]
   4. For each string: apply detuning offset
      new_values[i] = value * (1 + i * detuning)
-  6. With cuda_lock:
-     pianoid_cpp.setNewPhysicalParameters(physical_params, volume_coeffs)
-     pianoid_cpp.setNewHammerParameters(hammer)
-     pianoid_cpp.setNewExcitationParameters(gauss_params)
+  5. CFL/Courant stability gate (GRANULAR-path choke, host-side) —
+     _skip_unstable_physical_upload(pitchID): the worst-string Courant number (coeff_tension − 8·coeff_bending)
+     AND max|g| over the pitch's CURRENT (already-edited) model physics. REJECT (RAISE cfl_redline + SKIP the
+     upload) if the Courant number ≥ CFL_MARGIN (default 0.99 — ~1% safety headroom below the upper edge) OR
+     max|g| > 1 (true divergence / lower bending edge). On reject the edit stays in the model; the engine keeps
+     last-STABLE coefficients (no crash, no partial write). A subsequent stable edit clears the flag. See
+     "Stability gate" note below.
+  6. With cuda_lock (only if the gate passed) — the GRANULAR per-string API, NOT the bulk setNew*:
+     for each edited param: pianoid_cpp.updateMultiStringParameter_NEW(cuda_name, string_indices, values)
+     (read-modify-upload of only the affected strings; no pack(); detuning applies the per-string
+     tension_offset). Hammer edits go via update_hammer_shape; the bulk setNewPhysicalParameters/
+     setNewHammerParameters path is the SEPARATE bulk repack-all flow, not this granular path.
          │
          ▼
 C++ UnifiedGpuMemoryManager.updateTunableParameter(name, data):
@@ -386,6 +394,50 @@ pitch.geometry.dx()` so the upload loop sends `updateMultiStringParameter_NEW("d
 …)`. Without that injection the GPU `dx` slot keeps its stale preset-load value and the
 edit produces no audible change. (The bulk path `update_pitch_physical_params` is not
 affected — it repacks via `PhysicalParameters.pack()`, which always recomputes `dx`.)
+
+**The two upload paths.** Exactly two logical Python paths write `dev_physical_parameters`:
+- **GRANULAR** — `update_pitch_physical_params_GRANULAR` → `updateMultiStringParameter_NEW` (per-string
+  read-modify-upload, no repack). Callers: the Strings panel (REST/WS `set_parameter('string')`) and
+  `auto_tuner.py`. This is the primary production path.
+- **BULK** — repack *all* strings via `StringMap.pack_parameters()`, then upload the whole physical
+  array. Two method-variants of this one logical path: `update_pitch_physical_params` (deprecated) →
+  `setNewPhysicalParameters` + `setNewHammerParameters` + `setNewExcitationBaseLevels`, reached by the
+  MIDI-CC knobs (`pianoidMidiListener`) and `NoteTunner` auto-tune; and `send_updated_params_to_CUDA` →
+  `setUpdatedParameters` (combined call), reached only at init (`init_pianoid`).
+`send_updated_params_to_CUDA` is **not** a third independent path — it is the init-time variant of the
+bulk path (same `pack_parameters()`, same destination buffer; differs only in the C++ entry point and
+the trigger).
+
+**Stability gate (CFL/Courant) — GRANULAR-only, host-side, skip-not-reject, with a safety margin.** The
+guard `ParameterManager._skip_unstable_physical_upload(pitchID)` runs inside the **granular** path only
+(immediately before the `updateMultiStringParameter_NEW` upload, after the model already holds the edit).
+It computes the worst-string **Courant number** (`coeff_tension − 8·coeff_bending`) AND `max|g|`
+(`cfl_stability.amp_and_courant_for_pitch_strings`, per-string `tension_offset` honored) over the affected
+pitch's *current* model physics. It **rejects** (raises `cfl_redline` + skips the upload) when the Courant
+number ≥ **`CFL_MARGIN`** (default `0.99` — a ~1% safety headroom below the exact upper edge `1.0`, for the
+float32 engine) **or** `max|g| > 1` (true divergence / the lower bending edge). On reject the edit remains
+in the Python model (so the editor keeps the value), but the engine retains its last *stable* coefficients,
+so it never crashes and never receives a partial write. Otherwise it clears the flag and uploads. This is
+**skip-the-upload, not reject-the-edit**: no `CflRejected`/4xx/WS-error is thrown (user-directed
+2026-05-30). The flag latches until the next stable upload clears it, and is surfaced to the frontend via
+`/health` and the `param_ack`/REST-200 edit response (the `BackendStatusIndicator` shows a "CFL" warning
+chip). `CFL_MARGIN` (`cfl_stability.py`, `is_stable_with_margin`) is a clearly-named, easily-tunable
+constant (raise toward `1.0` for less headroom — `1.0` = the exact boundary; lower for more); the margin is
+on the **Courant number** because below the upper edge `|g|` is flat at `1.0` then jumps, so it can't encode
+a fractional headroom. The read-only `stability_ratio` endpoint still reports the **exact** `max|g|` (the
+true boundary). Verified through the live granular gate at targeted Courant numbers
+(`docs/development/diagnostics/dev-eac2-cfl-margin-verify.py`: courant `0.98` accepted, `0.995` rejected —
+boundary at `0.99`). Math: `cfl_stability.py` +
+[SYNTHESIS_ENGINE.md "FDTD Stability (CFL/Courant) Bound"](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#fdtd-stability-cfl--courant-bound).
+
+> **The BULK path is currently NOT gated.** An earlier all-path gate (the granular gate plus calls in
+> both bulk methods) was added 2026-05-30 and then **reverted** per the user ("no gate on bulk update
+> for now"). So a destabilising **bulk** edit (a MIDI-CC knob or `NoteTunner` auto-tune via
+> `update_pitch_physical_params`) currently reaches the engine unguarded. The final placement of the gate
+> across the bulk path is an open decision (the `_skip_unstable_physical_upload` helper is written
+> path-independently so it can be reused there without change). (The historical per-path
+> `CflRejected`→HTTP 400 reject is deprecated; `_raise_if_cfl_unstable` is retained only until its tests
+> migrate to the flag model.)
 
 ### 2.2 Excitation Parameters (Base-Levels Path)
 
@@ -820,6 +872,11 @@ backendserver.py: preset_switch_route()                 (line 345)
      together; stale mp.num_modes used to overflow or silently truncate
      feedback/output reads, fixed 2026-05-01.)
   5. Repack deck from (now correct) Python model → send_deck_params_to_CUDA()
+  5b. param_manager._clear_cfl_redline() — a fresh preset = fresh stability
+     state; switch_preset REUSES the ParameterManager, so a stale CFL redline
+     from an edit on the previous preset must not persist (user-directed 2026-05-30).
+     (The APPLY / POST /load_preset path recreates the whole Pianoid → fresh
+     ParameterManager → flag already False, plus an explicit clear after initialize().)
   6. Restore the global volume/feedback surface (volume_level,
      deck_feedback_coefficient, volume_center, volume_range snapshotted
      and re-applied — switching is loudness-neutral)
