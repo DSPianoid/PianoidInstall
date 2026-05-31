@@ -40,7 +40,8 @@ PianoidCore/tests/
     ├── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints, scenario discovery helpers (`_discover_{npy,roomresponse}_scenarios`)
     ├── test_modal_adapter_apply_route.py # Cross-server `apply_to_preset` wiring: F9 503 on port 5001 preserved, main-server (5000) counterpart route covers 400/404/409 paths (5 tests)
     ├── test_play_listen_gate_regression.py # REST/WS `/play` must reach the EventQueue while the MIDI listener runs — guards the W4-P3 gate regression (5 tests)
-    └── test_project_export_import.py # Project export/import: zip creation, manifest validation, sanitisation, round-trip, name conflict resolution
+    ├── test_project_export_import.py # Project export/import: zip creation, manifest validation, sanitisation, round-trip, name conflict resolution
+    └── test_start_right_away_binary.py # `/load_preset` `start_right_away` is BINARY 0/1 — value 1 starts the playback bg thread, 0/non-1 = init only; pins removal of dead value-2 (deprecated inline) + value-3 (no-op) branches. Drives load_preset_route via test_client with heavy deps monkeypatched, no engine (dev-5c3b, 5 tests)
 ```
 
 ## Running Tests

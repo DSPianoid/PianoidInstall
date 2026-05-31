@@ -300,7 +300,7 @@ Parameter details:
 - `sample_rate`: Hz; if < 1000 is multiplied by 1000
 - `volume`: MIDI-style level 0–127 (old API)
 - `max_volume`: float, explicit max volume (new API, takes precedence over `volume`)
-- `start_right_away`: `1`=start in background thread, `2`=start inline (deprecated), `3`=init only no start, `0`=init only
+- `start_right_away`: **binary** — `1`=start realtime playback in a background thread; `0` (or any non-`1`)=initialize only, do not start (engine is loaded and ready; playback is started later). The frontend only ever sends `0` or `1`. (The former `2`=start inline [deprecated] and `3`=init only [duplicate of `0`] values were removed in dev-5c3b, 2026-05-30 — the `2` branch had no caller and `3` was byte-identical to `0`.)
 - `listen_to_modes`: `0`=sound channels carry string bridge displacement, `1`=sound channels carry mode forces (default `1`)
 - `use_simulation`: `0`=normal operation (default, the only supported value); `1`=routes to `pianoid_cuda_placeholder.py`, a vestigial pre-library-API stub that has not been kept in sync with the live `pianoidCuda` API. **`use_simulation=1` is rejected with HTTP `400 FeatureNotSupported`** — the route handler short-circuits before destroying the engine. Fixed in dev-b001 (2026-05-01); pre-fix the request returned HTTP 500 `TypeError: Pianoid.__init__() missing 1 required positional argument: 'strings_in_pitches'` AND destroyed the live engine. See `backendServer.py:load_preset_route` and the deferred WIP follow-up "use_simulation/use_placeholder placeholder is vestigial" for the resurrection or retirement decision.
 - `listen_to_midi`: `0`=do not start the unified MIDI listener thread; `1`=start the unified `MIDI_listener_unified` thread that routes inbound rtmidi messages through `Pianoid.schedule_event(...)` for cycle-aligned dispatch (decision A1 — listener defaults to rtmidi port `0`; see `GET /midi/ports`).
@@ -863,7 +863,9 @@ Request body:
 
 Online response (no mic): scheduled event count + nominal duration, returns immediately.
 Online response (with mic): adds `mic_wav_path`, `mic_sample_rate`, `mic_samples`, `mic_peak`, `mic_rms`, `mic_nonzero_fraction`. Blocks until capture finishes.
-Offline response: `wav_path`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+Offline response: `wav_path`, `audio_data`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+
+- `audio_data`: the rendered WAV as a **list of one base64 string** — same shape as `POST /get_chart_test` (`["<base64 WAV string>"]`). It is the base64 of the bytes just written to `wav_path` (a complete RIFF/16-bit-PCM file), so the browser can decode and play it directly (`atob` → `Uint8Array` → `Blob({type:'audio/wav'})`) without reaching the server-side `wav_path`. The frontend "Play All" offline sweep (`PianoidTuner.js` `startSweep`) consumes `audio_data[0]`. `wav_path` is retained for server-side debugging.
 
 Response `400` for invalid params or empty pitch list. Response `417` if pianoid is in exception state.
 

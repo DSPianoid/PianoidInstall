@@ -61,6 +61,26 @@ and capture the actual failure signature (or get the user's exact length/iter re
 
 ---
 
+## Deferred follow-up — online "Play All" sweep has no mid-flight cancel (dev-177a, 2026-05-30)
+
+The online keyboard sweep ("Play All") now routes through the backend even-scheduler
+(`POST /play_keyboard {mode:"online"}`, dev-177a Option A) — every note is scheduled
+up-front on a sample-accurate cycle grid, fixing the old per-note `setTimeout` jitter.
+**Limitation:** once scheduled there is no lightweight way to cancel the queued audio —
+the backend exposes no "flush / clear scheduled events" endpoint (the only stop is
+`stop_playback()`, which tears down the whole synthesis engine). The ■ STOP button halts
+the visual highlight + resets local sweep state, but the scheduled notes play to
+completion.
+
+- **Owner:** unassigned. **ETA:** none (cosmetic; not blocking).
+- **Fix shape (if desired):** a small backend endpoint (e.g. `POST /clear_scheduled` or a
+  `panic`/all-notes-off) that flushes pending entries from `RealTimeEventBuffer` without
+  destroying the engine, wired to `stopSweep` in `PianoidTuner.js`. Backend change →
+  needs a `/dev` session (out of scope for the frontend-only dev-177a).
+- Documented in `docs/modules/pianoid-tunner/OVERVIEW.md` "Play All (keyboard sweep)".
+
+---
+
 ## Deferred follow-up — CFL stability guard: UI plotting + dx-granular update quirk (dev-cfl, 2026-05-24)
 
 **CFL stability guard is IMPLEMENTED + verified** (kernel R1 reject + shadow fallback + per-string flag,
