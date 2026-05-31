@@ -303,6 +303,63 @@ already be built and importable (see the previous symptom).
 - **Missing Python package** — run `pip list` in the venv to verify `Pianoid` (PianoidBasic) and `pianoidCuda` are installed
 - **Wrong Python interpreter** — always use `PianoidCore\.venv\Scripts\python`, never system Python
 
+### Symptom: Backend listener shows `C:\Python312\python.exe` instead of venv — DO NOT diagnose as a spawn bug
+
+When the launcher spawns the backend on Windows, you see **two Python processes**:
+
+| Role | PID example | `wmic ExecutablePath` | Cmdline format |
+|---|---|---|---|
+| Launcher shim (parent) | 58276 | `D:\...\PianoidCore\.venv\Scripts\python.exe` | unquoted `<path> -u backendServer.py` |
+| Actual interpreter (child) | 73984 | `C:\Python312\python.exe` | quoted `"<path>" -u backendServer.py` |
+
+`netstat -ano` shows the **child** holds port 5000, and `ExecutablePath` shows the base Python path. **This is normal Python 3.12 Windows venv behavior, NOT a venv→system-Python spawn bug.** Do not "fix" it.
+
+**Why:** Python 3.12 on Windows ships `venv/Scripts/python.exe` as a 274 KB `venvlauncher.exe`-derived **launcher stub** (compare against `C:\Python312\python.exe` at 103 KB — different sizes prove they're not the same binary). The stub locates the base Python from `pyvenv.cfg` and `CreateProcess`es it as a child, passing through argv + env. The stub parent stays alive as a wrapper for stdio relay. The child IS the actual CPython interpreter; its `sys.prefix` correctly resolves to the venv via `pyvenv.cfg` discovery, and it imports from the venv's `site-packages`.
+
+**The misleading signals** (each one matches the pathology pattern but means nothing on its own):
+
+- Child's `ExecutablePath` = `C:\Python312\python.exe` (just the binary location, not the active interpreter prefix)
+- Child has `WERKZEUG_SERVER_FD=<n>` in its env (set by werkzeug `run_simple` during normal non-reloader startup; not a reloader spawn signature)
+- Parent and child have nearly identical command lines
+- `tasklist /M pianoidCuda.cp312-win_amd64.pyd` shows the child PID with a `C:\Python312\...` style entry
+
+**The decisive signals** (use these, not `ExecutablePath`):
+
+```bash
+# Probe the running interpreter's sys.prefix — this is what determines site-packages
+PianoidCore/.venv/Scripts/python -c "import sys; print(sys.prefix)"
+# Expected: D:\repos\PianoidInstall\PianoidCore\.venv  (or your repo's venv path)
+# NOT: C:\Python312
+```
+
+```bash
+# Probe the actually-loaded pianoidCuda — this is what determines whether the fresh pyd is used
+PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+# Expected: D:\repos\PianoidInstall\PianoidCore\.venv\Lib\site-packages\pianoidCuda.cp312-win_amd64.pyd
+# NOT:      C:\Python312\Lib\site-packages\pianoidCuda.cp312-win_amd64.pyd
+```
+
+If both probes return the venv path, the backend is correctly venv-resolved. The shim's `ExecutablePath` is irrelevant.
+
+**When it IS a real wrong-Python problem.** The two-PID pattern under the launcher is normal. A genuine wrong-interpreter situation requires:
+
+- A backend started **outside the launcher** by typing `python backendserver.py` in a shell, where `python` from `PATH` resolves to `C:\Python312\python.exe` directly (no venv shim). The `sys.prefix` probe then returns `C:\Python312` — *that* is the real bug, and the `os.execv` venv guard at the top of `backendServer.py` re-execs into the venv to recover.
+- OR the user installed a stale `pianoidCuda.cp312-win_amd64.pyd` into `C:\Python312\Lib\site-packages\` historically (e.g. a March-17 build), AND is bypassing the venv. The fresh venv pyd lives at `PianoidCore/.venv/Lib/site-packages/` and is loaded correctly under the launcher.
+
+**Common misdiagnosis pattern.** When a method (e.g. `getRawSoundRecordInt`) is missing from the running backend's `pianoidCuda.Pianoid` object after a `--heavy --release` rebuild, the cause is almost always one of:
+
+1. **The backend was started before the rebuild finished.** The in-memory module is the pre-rebuild one. Solution: `curl -X POST http://127.0.0.1:3001/api/stop-backend && curl -X POST http://127.0.0.1:3001/api/start-backend` to pick up the fresh pyd. NO interpreter / spawn fix is needed.
+2. **A Python middleware file (`PanoidResult.py`, `chartFunctions.py`) was edited but the backend wasn't restarted.** Same fix as (1) — Python source isn't hot-reloaded.
+3. **A second backend is running outside the launcher.** Check `netstat -ano | grep :5000` and `wmic process where "Name='python.exe'" get ProcessId,ParentProcessId,ExecutablePath` — there should be exactly two Python PIDs (shim + interpreter) and the interpreter's parent should be the shim, whose parent should be the launcher (`node.exe ... server/launcher.js`).
+
+**Worked diagnostic probes** demonstrating the shim pattern + the `sys.prefix`/`pianoidCuda.__file__` checks:
+
+- `docs/development/diagnostics/dev-pyspawn-8b3a-venv-shim-probe.py` — captures the 2-PID structure and confirms the child's `sys.prefix` resolves to the venv
+- `docs/development/diagnostics/dev-pyspawn-8b3a-sysprefix-probe.py` — replays the launcher's exact spawn (cwd=`pianoid_middleware`, `.venv/Scripts/python.exe -u <script>`) and verifies the fresh pyd is loaded with the expected methods
+- `docs/development/diagnostics/dev-pyspawn-8b3a-execv-probe.py` — documents Windows `os.execv` semantics (spawn-and-exit, NOT in-place replace) for understanding the venv guard at the top of `backendServer.py`
+
+**History.** This pattern was misdiagnosed twice in the same week — first by `dev-stest-4a7c` (2026-05-31, session log line 406: "Backend was on SYSTEM Python ... loading the stale March pyd from C:\Python312\Lib\site-packages\"), then by the dispatch that spawned `dev-pyspawn-8b3a` (the brief asked for a Werkzeug-reloader / `sys._base_executable` fix). Both misreads followed the same template: `ExecutablePath=C:\Python312\python.exe` interpreted as "running with system Python" rather than "actual CPython binary launched via venv shim." The fifth distinct stale-pyd surface to be aware of, joining: cross-venv copy, `pip install --force-reinstall` cache hit, debug-variant DLL skip, and 0xC0000142 build failure (the other four are about actual stale pyds; this one is about misdiagnosed normal venv behavior).
+
 ### Symptom: Audio driver fails to initialize
 
 Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_preset`):
