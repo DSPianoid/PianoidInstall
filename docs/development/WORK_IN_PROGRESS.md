@@ -22,12 +22,12 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-stest-4a7c | Design + implement Sound Test diagnostic chart — 4 selectable sources (synth kernel output / post-FIR / Sint / recorded), parameters: what-to-play (note/chord/sequence) + duration + channels. | [log](logs/dev-stest-4a7c-2026-05-30-205710.md) | 2026-05-30 | In Progress (Phase A — design only, read-only, no locks) |
 | dev-snmtxleak-7e3d | Phase A (UNDERSTAND) of Matrix-mode SC mute leak: muting one channel kills all sound, doesn't restore on un-mute, survives engine stop+reload. User: "structural inconsistency (leakage from UI)". | [log](logs/dev-snmtxleak-7e3d-2026-05-30-151649.md) | 2026-05-30 | In Progress (Phase A — read-only; no locks) |
 | dev-cflt | Build a TEST environment: CFL stability guard (feature/cfl-stability-guard-v2 = 0d10675) merged ON TOP of the P1-1-fixed dev (a352b2f) on test branch feature/cfl-test-on-p1fix; --heavy --both build; run guard test suite; smoke-test the guard rejects an unstable FDTD edit; hand off CLEAN down-state. Guard stays on test branch — NOT merged to dev. | [log](logs/dev-cflt-2026-05-29-221621.md) | 2026-05-29 | In Progress |
 | dev-427c | Fix CRITICAL authority race (P1-1) on swappable GPU synthesis pointers (dev_physical_parameters/dev_mode_state/dev_deck_parameters/dev_hammer) — engine thread reads lock-free while UnifiedGpuMemoryManager poll thread rewrites them under update_mutex_ during swapBuffers. Single-owner fix (move pointer refresh onto engine thread). | [log](logs/dev-427c-2026-05-29-202054.md) | 2026-05-29 | ✅ DONE + USER-VERIFIED + COMMITTED + MERGED. ★Race CONFIRMED+MEASURED via compile-guarded probe: 1842 mid-cycle pointer mutations during a sustained note under a ~780-swap/note storm (Belarus MFeq/STRINGS). FIX (engine = sole writer; poll thread publishes base + swap_pending_ via release/acquire; engine refreshes at top of runSynthesisKernel, mirrors run_string_map_kernel_): same probe → **0** mid-cycle mutations (reproduced 2×). No regression: 5/5 perf (GPU mean ~unchanged, corr 0.9901), 11/11 preset-switch+feedback-coupling functional, control 55/56/57 clean+damping. **USER LIVE-TESTED the fixed build (feature/p1-authority-fix): 55/56/57 trichotomy GONE, no recurrence** → the correlational caveat is now resolved (the race WAS the bug). COMMITTED `80fc9ed` (+90/-20: UnifiedGpuMemoryManager.{h,cu}, Pianoid.cuh, Pianoid_synthesis.cu, Pianoid_presets.cu), MERGED to PianoidCore dev `a352b2f` (--no-ff) by the sync. Probe + harness: docs/development/diagnostics/dev-427c-p1-authority-race-stress.py (committed on root master). Locks RELEASED. NOT pushed yet (awaiting user push-confirm). |
 | dev-c317 | Build CLEAN current-dev (67148fa, --heavy --both) + bring full launcher stack up + verify sound server-side on 55/56/57 for the user's "total silence" test. Build/run/verify only — no code edits. | [log](logs/dev-c317-2026-05-29-180645.md) | 2026-05-29 | READY (pre-Step-10 halt) — clean 67148fa --heavy --both built (both .pyd fresh @15:20:38Z + import OK from PianoidCore/.venv + verified CLEAN: getRawSoundRecordInt/getMainVolumeCoefficient absent); offline 55/56/57 PROVEN audible+damping (p55=5.32/p56=23.03/p57=5.19, tail 1.57e-4 DAMPS); full launcher stack UP (launcher:3001/frontend:3000/backend:5000 healthy, /health 200 exception=false, pianoid_loaded=false pre-APPLY). Stack left UP for the user's live test. No commit (no code changed); no source locks held. |
-| dev-35a3 | BUILD-AND-TEST git bisect fdf3dd2..67148fa (103 commits) to find the commit that introduced the 55/56/57 trichotomy regression in PianoidCore. Stashes the paused dev-soundint-live work first, establishes an automated GOOD/BAD oracle, bisects if oracle found. | [log](logs/dev-35a3-2026-05-29-174509.md) | 2026-05-29 | KILLED 2026-05-29 by orchestrator (premature bisect → pivoted to the user's total-silence). Found an automated bisect INFEASIBLE: no oracle (clean current-dev 67148fa sounds fine on 55/56/57 offline AND on the real online-engine thread; the bug is live-frontend-only). Stashed dev-soundint-live work preserved at stash@{0} (26799bf). Tree left detached @fdf3dd2 → reconciled by dev-c317. No source locks held. |
-| dev-soundint-live | PHASE A: add readback path for POST-VOLUME `dev_soundInt` (the signal the audio driver gets — currently unobservable; all readouts read pre-volume `dev_soundFloat`). PHASE B: reproduce 55/56/57 trichotomy via LIVE UI (real browser VP clicks over WS) + capture post-volume soundInt during those clicks. | [log](logs/dev-soundint-live-2026-05-29-153254.md) | 2026-05-29 | PAUSED/terminated 2026-05-29 (see MODULE_LOCKS PAUSED entry). ★KEY RESULT: post-volume OVERFLOW REFUTED via kernel probe — engine CLEAN at vol=100 (mvc=7.999e8; the railed readings were a READBACK BUG, not the engine). Hook on feature/soundint-readback needs a valid-extent readback fix + TEMP kernel-probe revert before use. Work stashed at stash@{0} (26799bf). |
+| dev-35a3 | BUILD-AND-TEST git bisect fdf3dd2..67148fa (103 commits) to find the commit that introduced the 55/56/57 trichotomy regression in PianoidCore. Stashes the paused dev-soundint-live work first, establishes an automated GOOD/BAD oracle, bisects if oracle found. | [log](logs/dev-35a3-2026-05-29-174509.md) | 2026-05-29 | KILLED 2026-05-29 by orchestrator (premature bisect → pivoted to the user's total-silence). Found an automated bisect INFEASIBLE: no oracle (clean current-dev 67148fa sounds fine on 55/56/57 offline AND on the real online-engine thread; the bug is live-frontend-only). Tree left detached @fdf3dd2 → reconciled by dev-c317. No source locks held. (★The stash it created — stash@{0} = 26799bf, preserving dev-soundint-live work — was later VERIFIED LOST 2026-05-30/31; see dev-soundint-live TERMINATED comment in the historical-comment section below.) |
 | dev-8085 | Online-synthesis measurement rig (Option A) — deterministic live capture comparable to offline note_playback (single + sequence); then isolate+fix the real online-only bug (superposition RULED OUT) and prove online==offline | [log](logs/dev-8085-2026-05-29-123705.md) | 2026-05-29 | TERMINATED 2026-05-29. Built the in-proc + REST online/offline rig (committed to PianoidCore `feature/online-offline-measure-rig`); ran many wrap-free measurements that showed clean decay on every *drivable surrogate* surface and proposed "artifact" conclusions. ★Those conclusions are SUPERSEDED by the USER CORRECTION above — the bug is REAL, intermittent, and was never reproduced on the surrogates the rig could drive (real-browser repro was hard-blocked all session). The over-hot volume mapping + Sint32-overflow findings are real but PARKED as separate follow-ups. Frontend volume 120→100 change is uncommitted on PianoidTunner `feature/lower-default-volume-100` (awaits user approval). |
 | dev-cfl | Courant/CFL stability guard: derive+document CFL_LIMIT (von-Neumann), parameterKernel per-string ratio + R1 reject (shadow-coeff fallback), middleware REST per-string ratio extraction + 4xx on reject | [log](logs/dev-cfl-2026-05-24-092641.md) | 2026-05-24 | In Progress |
 | dev-ratiochart | PianoidTunner CFL stability ratio-vs-pitch chart (ECharts pane, consumes `GET /get_parameter/stability_ratio/<key_no>`) — deferred companion to dev-cfl | [log](logs/dev-ratiochart-2026-05-24-184903.md) | 2026-05-24 | In Progress |
@@ -115,6 +115,44 @@ Two follow-ups, both **explicitly out of scope** for this task (flagged, not bui
    waitForParameterUpdate, or `dx` not surviving `set_param`).
 
 <!-- ===== Completed/archived sessions from origin/master (other-machine, unioned in) ===== -->
+
+<!-- dev-soundint-live TERMINATED 2026-05-31 (orchestrator + user-approved
+     PAUSED-lock cleanup; Telegram msg 3059 "Go as recommended" = α = release
+     the lock now over β = let dev-stest-4a7c override it) — work LOST (stash
+     + branch + commit all GONE) — superseded by dev-stest-4a7c re-derivation.
+
+     ORIGINAL PHASE A goal: add a readback path for POST-VOLUME `dev_soundInt`
+     (the signal the audio driver actually gets — pre-fix all readouts went
+     against pre-volume `dev_soundFloat`, leaving the post-volume signal
+     unobservable). PHASE B was meant to reproduce the 55/56/57 trichotomy via
+     live UI clicks and capture post-volume soundInt during those clicks for
+     the H1/H2 overflow vs no-overflow discriminator.
+
+     ★KEY RESULT that survives in the archived session log (preserved for
+     dev-stest-4a7c's reference): post-volume OVERFLOW REFUTED via direct
+     kernel probe — mvc = 7.99902e8 exact; soundInt ±6e6 ≈ 340× UNDER the
+     INT32 rail; engine CLEAN at vol=100. The 97.6%/47.6%-railed M1/M2
+     measurements were a READBACK BUG, not an engine overflow: kernel writes
+     dev_soundInt at stride samplesInCycle, the hook's reshape used
+     mode_iteration; cudaMemset zero-fill didn't fix it. The trichotomy
+     itself was independently resolved by dev-427c (P1-1 GPU-pointer
+     authority race fix — engine = sole writer of swappable TUNABLE
+     sub-pointers; user live-verified, merged to PianoidCore dev `a352b2f`).
+
+     ★Work container ALL GONE — verified 2026-05-30 by dev-stest-4a7c and
+     re-verified 2026-05-31 by this cleanup:
+       - `git stash list`            → no soundint entry (3 unrelated stashes)
+       - `git branch -a | grep -i soundint` → empty
+       - `git reflog | grep -i soundint`     → empty
+       - `git cat-file -t 26799bf`            → "fatal: Not a valid object name"
+     The PAUSED MODULE_LOCKS entry had been protecting nothing for an unknown
+     period; superseded by dev-stest-4a7c which is RE-DERIVING the Sint-
+     readback hook from the archived session log (not from the lost stash) —
+     the actual hook code will be NEW code, not the preserved stash.
+
+     Session log archived to logs/archive/dev-soundint-live-2026-05-29-153254.md.
+     MODULE_LOCKS.md PAUSED row replaced with RELEASED comment block in the
+     same 2026-05-31 cleanup commit. NO push (local only). -->
 
 <!-- dev-eac2 COMPLETED 2026-05-30 (orchestrator bookkeeping wrap — code
      landed via pull merge ce2818b/2d23254). CFL guard v2 evolution

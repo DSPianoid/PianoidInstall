@@ -94,8 +94,33 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      tests/system/test_cfl_stability_guard.py. Committed on feature/cfl-stability-guard (PianoidCore
      2a37faa); docs/diagnostics/log on root master. NOT merged — branch awaits the user's test + approval. -->
 <!-- dev-vpnoteoff lock RELEASED 2026-05-27 at Step 10a Phase 1 commit. Held: PianoidTunner/src/components/VirtualPiano.js. Committed on feature/vp-noteoff-fix (f3ce378); 62/693 Jest PASS. NOT merged — awaits user test + approval. -->
-| dev-3580 | `PianoidCore/pianoid_cuda/Pianoid_excitation.cu` | 2026-05-28T19:09:39Z | Diagnostic NOTE_OFF_PROBE in `_add_string_for_playback` for live note-off bisect (NOT a real fix). Tree is now CLEAN (PianoidCore detached @67148fa); the probe is PRESERVED in `stash@{0}` = `26799bf` alongside the dev-soundint-live work. NOT to be merged to `dev`. Kept (not discarded) for the ongoing static review per the 2026-05-29 USER CORRECTION. |
-| dev-soundint-live (PAUSED — agent shut down 2026-05-29 at user request; lock RETAINED to protect preserved work) | `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid_debug.cu`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu`, `PianoidCore/pianoid_cuda/MainKernel.cu`, `PianoidCore/pianoid_middleware/chartFunctions.py`, `PianoidCore/pianoid_middleware/chart_config.json` | 2026-05-29T13:08:00Z | ★PAUSED. Work is now PRESERVED IN STASH `stash@{0}` = `26799bf` (stashed by dev-35a3 2026-05-29 for a clean bisect tree; PianoidCore tree is detached @67148fa, clean). NOT committed, NOT reverted, NOT merged to `dev`. ★USER CORRECTION 2026-05-29: the 55/56/57 trichotomy is REAL (not artifact, not probe-induced) — so this readback hook + probes are KEPT for the ongoing static review, but the hook has a known readback bug and the probes are stale, so they MUST NOT be merged to `dev` as-is. ★KEY RESULT: post-volume OVERFLOW REFUTED by direct kernel probe (mvc=7.99902e8 exact; soundInt ±6e6 ≈ 340× UNDER INT32 rail; engine CLEAN at vol=100). The 97.6%/47.6%-railed M1/M2 were a READBACK BUG (layout mismatch: kernel writes dev_soundInt at stride samplesInCycle, hook reshape used mode_iteration; cudaMemset zero-fill didn't fix it). TODO before any merge/use: fix readback to valid-extent copy + REVERT the TEMP kernel probe printf @ MainKernel.cu:492. NEXT PHASE: build-and-test bisect from the 05-10 baseline (needs a clean tree → reconcile this uncommitted work first). DAMPER_PROBE (Pianoid_synthesis.cu) + dev-3580 NOTE_OFF_PROBE (Pianoid_excitation.cu) untouched. ORIGINAL TASK: POST-volume `dev_soundInt` readback hook + H1/H2 discriminators. soundInt ring + `getRawSoundRecordInt()` + pybind + `sound_int` chart (mirror of soundFloat ring) + `getMainVolumeCoefficient()` getter + TEMP kernel probe at MainKernel.cu:492 printing (output, mvc, Sint32) ch0 first cycles (REVERT after H1/H2 pinned). On feature/soundint-readback (off dev @ 67148fa). `Pianoid_synthesis.cu`+`MainKernel.cu` team-lead authorized (my stack now, no user gate). DAMPER_PROBE/NOTE_OFF_PROBE untouched. |
+| dev-3580 | `PianoidCore/pianoid_cuda/Pianoid_excitation.cu` | 2026-05-28T19:09:39Z | Diagnostic NOTE_OFF_PROBE in `_add_string_for_playback` for live note-off bisect (NOT a real fix). Tree is now CLEAN (PianoidCore detached @67148fa); the probe was PRESERVED in `stash@{0}` = `26799bf` alongside the dev-soundint-live work (★that stash is now GONE per the 2026-05-30 verification — see dev-soundint-live RELEASED comment below). NOT to be merged to `dev`. Kept (not discarded) for the ongoing static review per the 2026-05-29 USER CORRECTION. |
+<!-- dev-soundint-live PAUSED-lock RELEASED 2026-05-31 (orchestrator + user-approved cleanup;
+     Telegram msg 3059 "Go as recommended" = α = release the PAUSED lock now over β = let
+     dev-stest-4a7c override it). HONEST-RECORD CLEANUP — UNLIKE dev-eac2/dev-7032 (whose code
+     reached dev via the morning's pull merge), dev-soundint-live's preserved work is VERIFIABLY
+     GONE. Held 8 files: 6 PianoidCore C++ (Pianoid.cuh, Pianoid.cu, Pianoid_debug.cu,
+     AddArraysWithCUDA.cpp, Pianoid_synthesis.cu, MainKernel.cu) + 2 PianoidCore Python
+     (pianoid_middleware/chartFunctions.py, pianoid_middleware/chart_config.json). The protected
+     work container `stash@{0}` = `26799bf` (stashed by dev-35a3 2026-05-29 for a clean bisect
+     tree), branch `feature/soundint-readback`, and commit `26799bf` were ALL verified GONE on
+     2026-05-30/2026-05-31 (verified independently by dev-stest-4a7c and again by this cleanup):
+     `git stash list` carries no soundint entry, `git branch -a | grep -i soundint` empty,
+     `git reflog | grep -i soundint` empty, `git cat-file -t 26799bf` → "Not a valid object name".
+     No recovery is possible — the PAUSED lock has been protecting nothing for an unknown period.
+     Cleanup driven by Phase A3 collision detection during dev-stest-4a7c design review (the new
+     Sound Test feature needs the same `dev_soundInt` readback surface this lock guarded).
+     Superseded by `dev-stest-4a7c` which is RE-DERIVING the Sint-readback hook from the archived
+     dev-soundint-live session log (not from the lost stash) — the actual hook code will be NEW
+     code, not the preserved stash. ★KEY RESULT that survives in the archived log for
+     dev-stest-4a7c's reference: post-volume OVERFLOW REFUTED via direct kernel probe (mvc=7.999e8
+     exact; soundInt ±6e6 ≈ 340× UNDER INT32 rail; engine CLEAN at vol=100; the railed M1/M2
+     readings were a READBACK BUG — layout mismatch: kernel writes dev_soundInt at stride
+     samplesInCycle, hook reshape used mode_iteration). Original task was POST-volume dev_soundInt
+     readback hook (soundInt ring + getRawSoundRecordInt() + pybind + sound_int chart +
+     getMainVolumeCoefficient() getter + TEMP kernel probe at MainKernel.cu:492) for the H1/H2
+     trichotomy discriminators; trichotomy itself was independently resolved by dev-427c
+     (P1-1 GPU-pointer authority race fix, merged to PianoidCore dev `a352b2f`). -->
 <!-- damper-probe-ea77 lock RELEASED 2026-05-29 at Step 10a Phase 1 (lightweight).
      Held: PianoidCore/pianoid_cuda/Pianoid_synthesis.cu — DAMPER_PROBE inserted (+7 lines)
      at the existing UPLOAD_PROBE site (around line 204-210). Probe LEFT IN SOURCE for ongoing
