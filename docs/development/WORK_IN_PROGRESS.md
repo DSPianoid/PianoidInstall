@@ -23,8 +23,44 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-pyspawn-8b3a | Non-bug closeout — docs entry only, no code change. The "venv→system Python spawn" premise from the dispatch was a misdiagnosis of normal Python 3.12 venv launcher shim architecture: `.venv/Scripts/python.exe` is a 274 KB launcher stub that spawns `C:\Python312\python.exe` as the actual interpreter; the child's `sys.prefix` correctly resolves to the venv via `pyvenv.cfg` and it imports the FRESH venv pyd (with `getRawSoundRecordInt`/`getRawFilteredFloatRecord` bound). Phase A measurement against the live engine refuted all 4 brief hypotheses (Werkzeug reloader / async_mode worker / `sys._base_executable` / corrupted shim). User re-tested against current PID 73984 — no AttributeError. Doc entry added to `docs/guides/STARTUP_TROUBLESHOOTING.md` so the next agent doesn't chase the same misdiagnosis (dev-stest-4a7c log line 406 + the brief that spawned this session both made this mistake). NO source code touched. | [log](logs/dev-pyspawn-8b3a-2026-05-31-142623.md) | 2026-05-31 | DONE (Phase 1 wrap-up — single docs commit on master pending) |
-| dev-stest-4a7c | Design + implement Sound Test diagnostic chart — 4 selectable sources (synth kernel output / post-FIR / Sint / recorded). PianoidResult-unified architecture per user A3 directive. | [log](logs/dev-stest-4a7c-2026-05-30-205710.md) | 2026-05-30 | **Phase 1 COMPLETE — awaiting user-approved Phase 2 merge to dev.** All M1-M18c milestones landed. PianoidCore feature/sound-test-chart: engine multi-channel offline writer + Sint/FIR rings + multi-channel-native PianoidResult + ChartRegistry bool-coercion fix + sound_test_function (4-source × N-channel, chart-native playback). PianoidTunner feature/sound-test-chart: NewWindowChart React.StrictMode-safe fetch (axios direct, fetchedRef + isMountedRef guards) closing the "plays twice + Loading-hang" pair (M18/M18b/M18c, live-verified via chrome-devtools — 1 POST + HTTP 200 + chart renders both offline and online modes). dev-m17-454a follow-up added M17 boolean-combination matrix tests (16 parametrised + 2 symptom regression pins) + M18-M18c strictMode regression suite (4 tests). 115 tests PASS total (89 PianoidCore unit + 6 integration + 20 PianoidTunner Jest). COMMITTED locally — Phase 1 SHAs reported in session log; Phase 2 (--no-ff merge to dev on both repos) deferred pending user re-confirmation. Locks RELEASED. |
-| dev-snmtxleak-7e3d | Phase A (UNDERSTAND) of Matrix-mode SC mute leak: muting one channel kills all sound, doesn't restore on un-mute, survives engine stop+reload. User: "structural inconsistency (leakage from UI)". | [log](logs/dev-snmtxleak-7e3d-2026-05-30-151649.md) | 2026-05-30 | In Progress (Phase A — read-only; no locks) |
+<!-- dev-stest-4a7c + dev-m17-454a + dev-snmtxleak-7e3d COMPLETED 2026-05-31 (Phase 2 wrap, user-approved merge).
+     Three sessions wrapped together by dev-m17-454a's Phase 2 consolidation pass.
+
+     dev-stest-4a7c (Sound Test diagnostic chart, M1-M16+M18) and dev-m17-454a (M17 follow-up + M18/M18b/M18c
+     StrictMode-safe fetch): joint Sound Test feature — 4 selectable sources (kernel/FIR/Sint/mic) via
+     unified PianoidResult contract; multi-channel offline writer; Sint + FIR host rings;
+     ChartRegistry bool URL-coercion fix; chart-native playback (per-chart Play buttons);
+     React.StrictMode-safe fetch (fetchedRef + isMountedRef guards + direct axios, no useApi auto-abort).
+     Live-verified via chrome-devtools (OFFLINE + ONLINE modes, 1 POST → HTTP 200 → chart renders).
+     115 tests PASS (89 PianoidCore unit + 6 integration + 20 PianoidTunner Jest including
+     4 new newWindowChart.strictMode tests + 18 M17 boolean-combination matrix tests).
+     - PianoidCore feature/sound-test-chart `d443e60` MERGED to dev at `b13ea4a` (--no-ff).
+     - PianoidTunner feature/sound-test-chart `f186072` MERGED to dev at `7e72e43` (--no-ff).
+
+     dev-snmtxleak-7e3d (SC matrix → selectedChannel decouple + useHotkeys zero-pitch guard):
+     decouple strings-axis matrix clicks from global setSelectedPitch (introduce local
+     `selectedChannel` useState in SoundChannelsPane; gate `onPitchSelect` by `listenToModes`);
+     harden useHotkeys `!pitch` → `pitch == null` on lines 58 (`play`) + 65 (`stopNote`)
+     to permit pitch=0 hardware events. Two NEW Jest test files
+     (SoundChannelsPane.localChannel.test.jsx + useHotkeys.zeroPitch.test.jsx, 10 new tests).
+     Live-verified via chrome-devtools post-commit: fiber-prop onPitchSelect(2) on strings axis
+     sets local selectedChannel=2 only; global selectedPitch stays at 60; spacebar fires
+     play({pitch: 60}) post-click.
+     - PianoidTunner feature/sc-decouple-spacebar-fix `4b0ce71` MERGED to dev at `7662bb7` (--no-ff).
+
+     Phase 2 PIs (PianoidInstall master):
+     - W1 merge-pulls: PianoidCore `3e03218`, PianoidTunner `7e28aea`, PianoidInstall master `2c76fe2`
+       (with manual MODULE_LOCKS.md union-resolve of two conflict regions on dev-7032 + dev-eac2 +
+       dev-8085 release-comment blocks).
+     - W5 wrap commit landed on master with this comment block + WIP cleanup + 3 log archives
+       (dev-stest-4a7c, dev-m17-454a, dev-snmtxleak-7e3d).
+
+     All three agents' MODULE_LOCKS rows previously RELEASED at Phase 1; Phase 2 leaves them
+     as comment blocks in MODULE_LOCKS.md (dev-snmtxleak's row was converted from ACTIVE to
+     RELEASED comment as part of W5 — picked up from working-tree edit they made before
+     standing down, see MODULE_LOCKS.md). Sound Test stack + SC matrix fix LIVE on dev branches
+     on both PianoidCore and PianoidTunner, ready for the user's next pull. -->
+
 | dev-cflt | Build a TEST environment: CFL stability guard (feature/cfl-stability-guard-v2 = 0d10675) merged ON TOP of the P1-1-fixed dev (a352b2f) on test branch feature/cfl-test-on-p1fix; --heavy --both build; run guard test suite; smoke-test the guard rejects an unstable FDTD edit; hand off CLEAN down-state. Guard stays on test branch — NOT merged to dev. | [log](logs/dev-cflt-2026-05-29-221621.md) | 2026-05-29 | In Progress |
 | dev-427c | Fix CRITICAL authority race (P1-1) on swappable GPU synthesis pointers (dev_physical_parameters/dev_mode_state/dev_deck_parameters/dev_hammer) — engine thread reads lock-free while UnifiedGpuMemoryManager poll thread rewrites them under update_mutex_ during swapBuffers. Single-owner fix (move pointer refresh onto engine thread). | [log](logs/dev-427c-2026-05-29-202054.md) | 2026-05-29 | ✅ DONE + USER-VERIFIED + COMMITTED + MERGED. ★Race CONFIRMED+MEASURED via compile-guarded probe: 1842 mid-cycle pointer mutations during a sustained note under a ~780-swap/note storm (Belarus MFeq/STRINGS). FIX (engine = sole writer; poll thread publishes base + swap_pending_ via release/acquire; engine refreshes at top of runSynthesisKernel, mirrors run_string_map_kernel_): same probe → **0** mid-cycle mutations (reproduced 2×). No regression: 5/5 perf (GPU mean ~unchanged, corr 0.9901), 11/11 preset-switch+feedback-coupling functional, control 55/56/57 clean+damping. **USER LIVE-TESTED the fixed build (feature/p1-authority-fix): 55/56/57 trichotomy GONE, no recurrence** → the correlational caveat is now resolved (the race WAS the bug). COMMITTED `80fc9ed` (+90/-20: UnifiedGpuMemoryManager.{h,cu}, Pianoid.cuh, Pianoid_synthesis.cu, Pianoid_presets.cu), MERGED to PianoidCore dev `a352b2f` (--no-ff) by the sync. Probe + harness: docs/development/diagnostics/dev-427c-p1-authority-race-stress.py (committed on root master). Locks RELEASED. NOT pushed yet (awaiting user push-confirm). |
 | dev-c317 | Build CLEAN current-dev (67148fa, --heavy --both) + bring full launcher stack up + verify sound server-side on 55/56/57 for the user's "total silence" test. Build/run/verify only — no code edits. | [log](logs/dev-c317-2026-05-29-180645.md) | 2026-05-29 | READY (pre-Step-10 halt) — clean 67148fa --heavy --both built (both .pyd fresh @15:20:38Z + import OK from PianoidCore/.venv + verified CLEAN: getRawSoundRecordInt/getMainVolumeCoefficient absent); offline 55/56/57 PROVEN audible+damping (p55=5.32/p56=23.03/p57=5.19, tail 1.57e-4 DAMPS); full launcher stack UP (launcher:3001/frontend:3000/backend:5000 healthy, /health 200 exception=false, pianoid_loaded=false pre-APPLY). Stack left UP for the user's live test. No commit (no code changed); no source locks held. |

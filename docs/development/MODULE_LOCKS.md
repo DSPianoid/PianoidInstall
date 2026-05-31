@@ -182,7 +182,25 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      re-confirmation. No collision with dev-snmtxleak-7e3d (their files MeasuredMatrix.jsx /
      SoundChannelsPane.jsx / useSoundChannels.js / useHotkeys.js — disjoint). -->
 | dev-stest-4a7c | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
-| dev-snmtxleak-7e3d | `PianoidTunner/src/components/SoundChannelsPane.jsx`, `PianoidTunner/src/hooks/useHotkeys.js`, `PianoidTunner/src/components/__tests__/SoundChannelsPane.localChannel.test.jsx` (NEW), `PianoidTunner/src/hooks/__tests__/useHotkeys.zeroPitch.test.jsx` (NEW) | 2026-05-31T18:11:00Z | [LOCK ACQUIRED] Phase B architectural fix per Phase A2 (user-approved): decouple SC strings-axis matrix from global setSelectedPitch + harden useHotkeys `!pitch` falsy-zero guard. SoundChannelsPane: add local `selectedChannel` useState; gate `onPitchSelect` by `listenToModes` (true → global setSelectedPitch / preserves modes-axis cross-pane sync; false → local setSelectedChannel / channel idx 0..N-1 stays in SC pane). useHotkeys: `!pitch` → `pitch == null` on lines 58 (`play`) + 65 (`stopNote`). Two NEW test files: SoundChannelsPane.localChannel.test.jsx (strings-axis click does NOT call setSelectedPitch; modes-axis click DOES) + useHotkeys.zeroPitch.test.jsx (`play(0)` fires playNote with pitch:0; `pitch == null` is rejected). Frontend-only, HMR pickup, no rebuild. No conflict with dev-m17-454a (newWindowChart.jsx) or dev-stest-4a7c (backend chartFunctions / engine), or dev-8085 (ToolBar.jsx / usePreset.js — different files). |
+<!-- dev-snmtxleak-7e3d locks RELEASED 2026-05-31 at Step 10a Phase 1. Held (architectural SC
+     strings-axis decouple + useHotkeys falsy-zero guard hardening):
+     PianoidTunner/src/components/SoundChannelsPane.jsx (~+24/-2 LOC: local `selectedChannel`
+     useState, `onPitchSelect` gated by `listenToModes`, pitchInView axis-aware), useHotkeys.js
+     (2 LOC: `!pitch` → `pitch == null` on lines 58 `play` + 65 `stopNote`), 2 NEW Jest test
+     files (SoundChannelsPane.localChannel.test.jsx + useHotkeys.zeroPitch.test.jsx — 10 new
+     tests, 5/5 existing useHotkeys.cyclePreset still PASS, sweep 15/15 PASS). Committed on
+     PianoidTunner `feature/sc-decouple-spacebar-fix` (off dev tip 71bc77f), commit `4b0ce71`
+     (+347/-5 across 4 files). NOT merged to dev. NOT pushed. Awaits user live re-test of
+     both bugs: (1) spacebar after SC strings-axis matrix click → should fire WS `play` frame
+     with the previous selectedPitch (not silent), (2) modes-axis behaviour unchanged
+     (cross-pane sync to global setSelectedPitch preserved). Frontend-only, HMR pickup, no
+     CUDA rebuild. No file collision with dev-m17-454a (newWindowChart.jsx), dev-stest-4a7c
+     (PianoidCore backend), or dev-8085 (ToolBar.jsx + usePreset.js — different files). Live
+     UI verified via chrome-devtools post-commit: fiber-prop onPitchSelect(2) on strings axis
+     sets local selectedChannel=2 ONLY; global selectedPitch stays at 60; spacebar fires
+     `play({pitch: 60})` post-click (pre-fix the same gesture fired `play({pitch: 2})`).
+     [LOCK RELEASED] 2026-05-31T18:25:00Z. -->
+
 | dev-m17-454a | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
 <!-- dev-pyspawn-8b3a lock RELEASED 2026-05-31 at Step 10a Phase 1. Held:
      docs/guides/STARTUP_TROUBLESHOOTING.md (re-scoped from code to docs).
