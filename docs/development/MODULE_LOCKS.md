@@ -15,6 +15,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-df69 lock RELEASED 2026-05-31T09:35Z: PianoidTunner/src/PianoidTuner.js merge conflict resolved
+     (feature/preset-settings-ui → dev), committed b24dead + pushed (origin/dev == b24dead, verified).
+     dev-177a even-scheduler ONLINE + dev-8abf offline-WAV OFFLINE both survive; stopSweep + unmount
+     cleanup tear down both. Full Jest 68/795 PASS, build0, eslint0. -->
+<!-- ★dev-df69 consolidation NOTE: the merged feature/preset-settings-ui carried dev-bbcb (c19bb1e) +
+     dev-e9ed (89cf124) + dev-8abf (bb46876) work into PianoidTunner dev. dev-bbcb's + dev-e9ed's ACTIVE
+     lock rows below (ObjectInspector.jsx, NumInput.js, PaneSettingsDialog.jsx, PresetPanel.jsx + tests)
+     are now STALE — their committed work is in dev; they will be reconciled (rows cleared) in the
+     lock/WIP housekeeping at the end of this consolidation, after PianoidCore + master are pushed. -->
+
 <!-- dev-8abf RE-ACQUIRED + RE-RELEASED 2026-05-31T09:20Z: post-Phase-1 NUL-byte correction in
      PianoidTunner/src/utils/__tests__/audioPlayback.test.js (Write tool turned a 4-space run in the
      SAMPLE_B64 literal into 4 NUL bytes → committed blob flagged binary). Rewrote NUL-free + amended the
@@ -44,8 +54,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      NOT merged — branch awaits the user's test + approval. ★FLAGGED: dev-eac2's lock row (above) on
      backendServer.py/pianoid.py is STALE — its CFL work is already merged into dev@ce2818b (tree clean);
      orchestrator should reconcile dev-eac2's lock + WIP "HOLDING uncommitted" status. -->
-| dev-bbcb | `PianoidTunner/src/components/ObjectInspector.jsx`, `PianoidTunner/src/components/NumInput/NumInput.js`, `PianoidTunner/src/components/PaneSettingsDialog.jsx`, `PianoidTunner/src/components/PresetPanel/PresetPanel.jsx`, `PianoidTunner/src/components/__tests__/PaneSettingsDialog.test.jsx`, `PianoidTunner/src/components/__tests__/ObjectInspector.test.jsx` (new) | 2026-05-30T17:58:00Z | Preset Loading Settings UI: (1) integer fields (volume/sample_rate/string_iterations/number_of_modes) → integer-only NumInput (opt-in `integer` prop + PARAMETER_CONFIG); limited-choice fields already Select/Switch (verified). (2) Move PresetConfigBar (Save Configuration) INSIDE PaneSettingsDialog via a generic `headerContent` prop. Frontend-only PianoidTunner, NO CUDA/backend. On `feature/preset-settings-ui` off dev 2d23254. NOT touching PianoidTuner.js (dev-177a sweep branch) / ToolBar.jsx+usePreset.js (dev-8085) / PresetConfigBar.jsx (only re-parenting it). STOP before commit. dev-bbcb's work is COMMITTED (`c19bb1e`), tree clean, HOLD-before-merge. ★dev-e9ed (below) is the USER-DIRECTED CONTINUATION of this settings work on the SAME branch — it is the active editor of ObjectInspector.jsx + ObjectInspector.test.jsx going forward (sequential continuation, dev-bbcb is not concurrently editing); dev-bbcb's NumInput.js/PaneSettingsDialog.jsx/PresetPanel.jsx are its committed work that dev-e9ed builds on but does NOT edit. |
-| dev-e9ed | `PianoidTunner/src/components/ObjectInspector.jsx`, `PianoidTunner/src/components/__tests__/ObjectInspector.test.jsx` | 2026-05-30T19:36:00Z | Phase 2: refactor VIRTUAL KEYBOARD settings (virtualPianoSettings bucket) the SAME way dev-bbcb did the preset-load settings — add PARAMETER_CONFIG entries: playbackMode → MUI Select {online,offline}; velocity/playbackSpeedMs/minRange → integer NumInput (reuse dev-bbcb's `integer` prop); showKeyNumbers/showRange/fixedVelocity → Switch (0/1-int); autoSelect/selectedKeyTopPiority → boolean-backed Switch (preserve true/false); colorOf* left as text (free-form, flagged). Extend ObjectInspector.test.jsx contract. CONTINUES dev-bbcb's committed branch `feature/preset-settings-ui` (c19bb1e) per explicit user direction ("settings agent: refactor Virtual keyboard settings the same way"). Overlap with dev-bbcb's lock on these 2 files is a sequential continuation, not a concurrent conflict (dev-bbcb committed + HOLD). Frontend-only, NO CUDA/backend. NOT touching NumInput.js (reuse only)/PaneSettingsDialog.jsx/PresetPanel.jsx/PianoidTuner.js/usePreset.js/presets/tools. STOP before merge (user tests the virtual-keyboard part first). |
+<!-- dev-bbcb lock RELEASED 2026-05-31T09:42Z by dev-df69 consolidation (STALE — work merged to PianoidTunner dev).
+     Held: ObjectInspector.jsx, NumInput/NumInput.js, PaneSettingsDialog.jsx, PresetPanel/PresetPanel.jsx,
+     __tests__/PaneSettingsDialog.test.jsx, __tests__/ObjectInspector.test.jsx. Preset-load settings UI
+     (integer NumInput + Save-Config-in-dialog). Committed c19bb1e on feature/preset-settings-ui, MERGED to
+     PianoidTunner dev via b24dead (--no-ff) + pushed (origin/dev == b24dead). Tree clean. -->
+<!-- dev-e9ed lock RELEASED 2026-05-31T09:42Z by dev-df69 consolidation (STALE — work merged to PianoidTunner dev).
+     Held: ObjectInspector.jsx, __tests__/ObjectInspector.test.jsx. Virtual-keyboard settings refactor
+     (selectors + integer fields, type-preserving Switch). Committed 89cf124 on feature/preset-settings-ui,
+     MERGED to PianoidTunner dev via b24dead + pushed. Tree clean. -->
+
 <!-- dev-177a lock RELEASED 2026-05-30T17:04:00Z at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js.
      Option A uneven-keyboard-timing fix — online "Play All" sweep now routes through the backend even-scheduler
      (ONE POST /play_keyboard {mode:"online"}) instead of a per-note setTimeout chain; visual-only setInterval drives
@@ -59,8 +77,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      WIP Active-Sessions row removed. -->
 
 <!-- ===== Active/held lock rows from the release-2026-05-30 sync (PianoidInstall master) ===== -->
-| dev-7032 | `PianoidCore/pianoid_middleware/chartFunctions.py`, `PianoidCore/pianoid_middleware/chart_config.json`, `PianoidCore/tests/unit/test_cfl_ratio_chart.py` (new), `docs/development/diagnostics/dev-7032-cfl-courant-varies.py` (new) | 2026-05-30T10:15:00Z | ★REVISED (plot Courant, not max\|g\|). ★HELD UNCOMMITTED (task: STOP before commit) — locks RETAINED to keep the committed-or-locked invariant on the held dirty files. CFL ratio chart `cfl_ratio` / `cfl_ratio_function` in chart_config.json + chartFunctions.py — pure-Python per-pitch **Courant number** via `pianoid.param_manager._pitch_upload_amp` (the SAME host closed-form the live gate uses; NOT max\|g\|, which is flat); redline 1.0 + CFL_MARGIN reference via render_hints; per-point colour = gate's is_stable_with_margin decision. On `feature/cfl-test-on-p1fix`. Verified 13/13 unit (mocked param_manager, no engine) + real-preset Courant-varies proof (dev-7032-cfl-courant-varies.py, BaselinePreset1, no GPU) + registry E2E. cfl_stability.py NOT modified (only called). FRONTEND `chartOption.js` thresholds-array extension COMMITTED on PianoidTunner `feature/cfl-stability-chart` (5e5d546) via a worktree (main tree untouched) — lock RELEASED; renderer is generic so the Courant switch needs NO FE change. ★NOMINAL COEXISTENCE with PAUSED dev-soundint-live's lock on chartFunctions.py/chart_config.json: its edits are STASHED (stash@{0}=26799bf) on branch `feature/soundint-readback`, NOT present here. NOT disturbing dev-eac2's CFL edits (backendServer/cfl_stability/parameter_manager/pianoid.py) or preset files. NO CUDA build. Awaiting user live test + commit/merge decision. |
-| dev-eac2 (continues dev-395e) | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/cfl_stability.py` | 2026-05-30T06:26:00Z | CONTINUE CFL guard v2 (user REDIRECT + REVISION 2717). (A) REVERTED bulk gating (granular-only gate restored). (B) Documented the TRUE 2-path upload architecture (granular + bulk; send_updated_params_to_CUDA = init bulk variant). (C→revised) USER REVISION 2717: added a SAFETY MARGIN `CFL_MARGIN=0.99` on the Courant number (coeff_tension − 8·coeff_bending) in cfl_stability.py (new `is_stable_with_margin`/`amp_and_courant_for_pitch_strings`/`courant_number`), wired into the GRANULAR gate only (bulk stays ungated); + CONFIRMED Strings-panel tension routes to the granular gated method. cfl_stability.py exact math (max_amplification/is_stable_amp) UNCHANGED. Pure-Python verified (margin boundary exactly 0.99; 16/16 unit). On feature/cfl-test-on-p1fix. NOT touching usePreset.js (dev-8085), presets, or tools/*.ps1. NO CUDA build. STOP before commit — held for user live retest. |
+<!-- dev-7032 lock RELEASED 2026-05-31T09:42Z by dev-df69 consolidation (STALE — work shipped in PianoidCore dev).
+     Held: chartFunctions.py, chart_config.json, tests/unit/test_cfl_ratio_chart.py (new),
+     docs/development/diagnostics/dev-7032-cfl-courant-varies.py (new). Per-pitch CFL ratio (Courant) chart.
+     feature/cfl-test-on-p1fix (tip 94c7901) is an ANCESTOR of dev → dev has cfl_ratio (chart_config.json) +
+     cfl_ratio_function (chartFunctions.py) + test_cfl_ratio_chart.py; diagnostic tracked on master. Tree clean.
+     The earlier "HELD UNCOMMITTED" note predated the feature/cfl-test-on-p1fix → dev merge (ce2818b). -->
+<!-- dev-eac2 lock RELEASED 2026-05-31T09:42Z by dev-df69 consolidation (STALE — work shipped in PianoidCore dev;
+     orchestrator-directed). Held: parameter_manager.py, pianoid.py, backendServer.py, cfl_stability.py.
+     CFL guard v2 (granular-only gate + CFL_MARGIN=0.99 on Courant [REV 2717] + flag-reset/CFL_LIMIT=1.0 [REV 2720]).
+     feature/cfl-test-on-p1fix (tip 94c7901) is an ANCESTOR of dev → dev cfl_stability.py has CFL_MARGIN +
+     is_stable_with_margin (13 refs) + CFL_LIMIT=1.0; pianoid.py + backendServer.py have _clear_cfl_redline.
+     Tree clean (all 4 files committed-clean on dev). -->
+
 <!-- dev-427c locks RELEASED 2026-05-29 by the sync wrap-up (completing dev-427c's halted Step 10).
      Held: PianoidCore Pianoid.cuh, Pianoid_synthesis.cu, Pianoid_presets.cu, UnifiedGpuMemoryManager.cu,
      UnifiedGpuMemoryManager.h. P1-1 GPU-pointer authority-race fix (engine sole-writer of the swappable
@@ -71,8 +100,11 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      bug-55-56-57 §7b) + diagnostic dev-427c-p1-authority-race-stress.py + session log committed on root
      master by the same sync. stash@{0}=26799bf (dev-soundint-live) NOT popped/touched. Other feature
      branches untouched. NOT pushed yet (awaiting user push-confirm). -->
-| dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. Committed THIS SYNC on PianoidTunner `feature/lower-default-volume-100` ONLY (NOT merged, NOT pushed — held for user approval). (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
-| dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
+<!-- dev-8085 locks RELEASED 2026-05-31T09:42Z by dev-df69 consolidation (STALE — work shipped in PianoidTunner dev;
+     2 duplicate rows collapsed). Held: ToolBar.jsx, usePreset.js. Lower default preset-load volume 120→100.
+     feature/lower-default-volume-100 is an ANCESTOR of dev (dev usePreset.js:152 default volume = 100, merged
+     at 2d23254). Tree clean. (Diagnostic rig .py are committed-free under docs/; instrumentation already reverted.) -->
+
 <!-- dev-ratiochart locks RELEASED 2026-05-24 at Step 10a Phase 1 commit. Held (CFL chart Part 1, frontend):
      newWindowChart.jsx, NEW src/utils/chartOption.js, NEW src/utils/__tests__/chartOption.test.js.
      Committed on PianoidTunner feature/cfl-stability-chart (0a3973f). Full Jest 62/693 PASS, 0 regressions.

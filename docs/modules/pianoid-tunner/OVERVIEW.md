@@ -156,6 +156,14 @@ harmless. (The backend `midi_note_event` Socket.IO stream is **not** usable for 
 fires only for the unified hardware-MIDI listener, not for `/play_keyboard`-scheduled
 events.)
 
+**Stop (■) — both modes (consolidated when dev-177a + dev-8abf merged, 2026-05-31).**
+`stopSweep` clears the online visual-highlight `setInterval` (`sweepHighlightRef`) **and**
+pauses + revokes the offline `<audio>` blob URL (`sweepAudioRef`). So ■ stops offline
+playback immediately (the WAV is a local `<audio>`), but for online it only halts the
+highlight + local state — the notes were already scheduled up-front on the backend cycle
+grid and there is no flush endpoint (the only backend stop is `stop_playback`, which tears
+down the whole engine). The unmount cleanup effect performs the same dual teardown.
+
 **STOP / cancel limitation.** Once an online sweep is scheduled, there is **no
 lightweight way to cancel the already-queued audio** — the backend has no flush/clear
 endpoint for the event queue (the only stop is `stop_playback()`, which tears down the
