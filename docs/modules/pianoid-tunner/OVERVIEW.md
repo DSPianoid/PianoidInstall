@@ -126,7 +126,7 @@ pitch in the selected range, one note at a time, at `virtualPianoSettings.playba
 | Mode | Behaviour | Timing authority |
 |---|---|---|
 | `online` (default) | Issues **ONE** `POST /play_keyboard {mode:"online", speed_ms_per_note, velocity, pitches}` — the backend schedules every NOTE_ON/NOTE_OFF up-front on a sample-accurate cycle grid (`delay_ms = i·speed_ms`) and returns immediately. **Even spacing.** | Backend engine event queue (`RealTimeEventBuffer`) — **P1 sole owner of note timing**. |
-| `offline` | Issues `POST /play_keyboard {mode:"offline", …}` — the backend stops the engine, renders a peak-normalized WAV to `/tmp`, restarts the engine, and returns the WAV path. | Backend offline render. |
+| `offline` | Issues `POST /play_keyboard {mode:"offline", …}` — the backend stops the engine, renders a peak-normalized WAV to `/tmp`, restarts the engine, and returns the WAV **plus** its base64 (`audio_data`). The frontend decodes `audio_data[0]` and **plays it** through a hidden `<audio>` element. | Backend offline render; browser plays the returned WAV. |
 
 **Even-timing rationale (dev-177a, Option A, 2026-05-30).** The online sweep previously
 used a browser `setTimeout` chain that fired one `POST /play` per note with `delay_ms=0`;
@@ -134,6 +134,20 @@ the backend pinned each note to `getCurrentCycle()+1` at wall-clock **arrival**,
 browser/network jitter produced uneven spacing. Routing the whole sweep through the
 existing `/play_keyboard` even-scheduler moves note timing off the browser entirely.
 See [REST API — POST /play_keyboard](../pianoid-middleware/REST_API.md#post-play_keyboard).
+
+**Offline playback (dev-8abf, 2026-05-31).** Offline mode previously only rendered the
+WAV server-side and logged the (server-FS) `wav_path` — the browser, which cannot reach
+that path, played nothing. The fix makes it render-then-**play**: the backend offline
+branch now adds an `audio_data` field (base64 of the just-written WAV, same `["<base64
+WAV>"]` shape as `/get_chart_test` — see [REST API — POST
+/play_keyboard](../pianoid-middleware/REST_API.md#post-play_keyboard)), and `startSweep`
+decodes `audio_data[0]` and plays it through a hidden `<audio>` element. The decode→play
+idiom (atob → `Uint8Array` → `Blob({type:'audio/wav'})` → object URL → `.play()`, revoke
+on `ended`/`error`) was extracted from `components/newWindowChart.jsx` (AudioPlayer) into
+the reusable `src/utils/audioPlayback.js` (`base64WavToBlobUrl` / `playBase64Wav`), unit-
+tested in `src/utils/__tests__/audioPlayback.test.js`. `wav_path` is still logged for
+debug. The backend `audio_data` addition requires a **backend restart** to take effect;
+the frontend change hot-reloads.
 
 **On-screen highlight.** Because the browser no longer times the audio, the swept-key
 highlight (`sweepingNote` → `VirtualPiano`) is driven by a **visual-only** `setInterval`

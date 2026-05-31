@@ -15,6 +15,24 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-8abf RE-ACQUIRED + RE-RELEASED 2026-05-31T09:20Z: post-Phase-1 NUL-byte correction in
+     PianoidTunner/src/utils/__tests__/audioPlayback.test.js (Write tool turned a 4-space run in the
+     SAMPLE_B64 literal into 4 NUL bytes → committed blob flagged binary). Rewrote NUL-free + amended the
+     held FE commit (64ce7de → bb46876, NOT merged/pushed). 7/7 + full Jest 68/795 still PASS; committed blob
+     now 0 NULs (git treats as text). -->
+<!-- dev-8abf locks RELEASED 2026-05-31T09:13Z at Step 10a Phase 1 commit. Held:
+     PianoidCore/pianoid_middleware/backendServer.py, PianoidTunner/src/PianoidTuner.js,
+     PianoidTunner/src/utils/audioPlayback.js (new), PianoidTunner/src/utils/__tests__/audioPlayback.test.js (new),
+     docs/development/diagnostics/dev-8abf-offline-audio-data-roundtrip.py (new).
+     OFFLINE "Play All" playback fix (Option A): offline /play_keyboard now returns base64 `audio_data`
+     (list-shaped, matches /get_chart_test) read from the already-written WAV; FE startSweep offline branch
+     decodes audio_data[0] and plays via a hidden <audio>, idiom extracted to utils/audioPlayback.js (+7 Jest).
+     Committed BE PianoidCore feature/start-right-away-binary `bdfc7c0` (+10); FE PianoidTunner
+     feature/preset-settings-ui `bb46876` (+212/-1, on top of dev-e9ed 89cf124); docs/log/diagnostic on root master.
+     FE Jest 68/795 PASS (+1 suite/+7 tests, 0 regressions) + build clean; BE 12/12 isolated round-trip.
+     NEITHER branch merged — held for the user's post-release batch test (orchestrator consolidates later).
+     ★dev-eac2's stale lock on backendServer.py/pianoid.py (CFL already merged to dev@ce2818b) flagged again
+     for reconciliation — did NOT collide (different branch, file clean on my branch). NO CUDA build. -->
 <!-- dev-5c3b locks RELEASED 2026-05-30T21:13Z at Step 10a Phase 1 commit. Held:
      PianoidCore/pianoid_middleware/backendServer.py + tests/unit/test_start_right_away_binary.py (new).
      start_right_away made BINARY 0/1 — deleted dead value-2 (deprecated inline, no caller) + value-3

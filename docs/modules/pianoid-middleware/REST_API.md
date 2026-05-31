@@ -863,7 +863,9 @@ Request body:
 
 Online response (no mic): scheduled event count + nominal duration, returns immediately.
 Online response (with mic): adds `mic_wav_path`, `mic_sample_rate`, `mic_samples`, `mic_peak`, `mic_rms`, `mic_nonzero_fraction`. Blocks until capture finishes.
-Offline response: `wav_path`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+Offline response: `wav_path`, `audio_data`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+
+- `audio_data`: the rendered WAV as a **list of one base64 string** — same shape as `POST /get_chart_test` (`["<base64 WAV string>"]`). It is the base64 of the bytes just written to `wav_path` (a complete RIFF/16-bit-PCM file), so the browser can decode and play it directly (`atob` → `Uint8Array` → `Blob({type:'audio/wav'})`) without reaching the server-side `wav_path`. The frontend "Play All" offline sweep (`PianoidTuner.js` `startSweep`) consumes `audio_data[0]`. `wav_path` is retained for server-side debugging.
 
 Response `400` for invalid params or empty pitch list. Response `417` if pianoid is in exception state.
 
