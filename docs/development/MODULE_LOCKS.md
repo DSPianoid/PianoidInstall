@@ -72,7 +72,32 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. Committed THIS SYNC on PianoidTunner `feature/lower-default-volume-100` ONLY (NOT merged, NOT pushed — held for user approval). (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
 | dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
 | dev-stest-4a7c | `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu`, `PianoidCore/pianoid_cuda/Pianoid_debug.cu`, `PianoidCore/pianoid_cuda/OfflinePlaybackEngine.h`, `PianoidCore/pianoid_cuda/OfflinePlaybackEngine.cu`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/PanoidResult.py`, `PianoidCore/pianoid_middleware/chartFunctions.py`, `PianoidCore/pianoid_middleware/chart_config.json`, `PianoidCore/tests/unit/test_sound_test_chart.py` (NEW), `PianoidCore/tests/unit/test_pianoid_result_loaders.py` (NEW), `PianoidCore/tests/integration/test_sound_test_offline.py` (NEW), `PianoidCore/tests/system/test_sound_test_online.py` (NEW M9) | 2026-05-31T04:30:00Z | Sound Test diagnostic chart — Phase B + M9 ext (mode param + 4 booleans). Unified PianoidResult architecture per user A3 directive: new fields `post_fir_sound` + `sint_sound` + loaders; engine-side new rings (Sint + FIR) + multi-channel offline writer fix; chart-fn reads ONLY via `PianoidResult.get_*_audio()` accessors (architectural assertion in unit test that raw C++ getters are never called by chart fn). On feature/sound-test-chart off PianoidCore dev (37f664a). Pre-edit regression baseline captured: sha256 e5654ec6...4e for BaselinePreset1 pitch 60 vel 100 (preserved in /tmp/dev-stest-4a7c-baseline.{npy,json}). dev-soundint-live PAUSED lock released this round (stash+branch confirmed gone). |
-| dev-pyspawn-8b3a | `docs/guides/STARTUP_TROUBLESHOOTING.md` | 2026-05-31T15:34:58Z | **Re-scoped from code to docs.** Original brief targeted `backendServer.py` + `launcher.js` to fix a "venv→system Python child spawn" bug. Phase A measurement (3 diagnostic probes in `docs/development/diagnostics/dev-pyspawn-8b3a-*.py`) refuted the premise — the two-PID structure is Python 3.12's normal venv launcher shim architecture (`.venv/Scripts/python.exe` is a 274 KB launcher stub that spawns `C:\Python312\python.exe` as the actual interpreter; child's `sys.prefix` correctly resolves to the venv, child imports from the venv site-packages with `getRawSoundRecordInt`/`getRawFilteredFloatRecord` bound). User re-tested against current PID 73984 — no AttributeError. Closing as non-bug + writing doc entry to STARTUP_TROUBLESHOOTING.md so the next agent doesn't chase the same misdiagnosis (dev-stest-4a7c log line 406 + the brief that spawned this session both made this mistake). NO source code touched. Independent of dev-stest-4a7c's work (different files, different concerns). |
+<!-- dev-pyspawn-8b3a lock RELEASED 2026-05-31 at Step 10a Phase 1. Held:
+     docs/guides/STARTUP_TROUBLESHOOTING.md (re-scoped from code to docs).
+     Original brief targeted backendServer.py + launcher.js for an alleged
+     "venv→system Python child spawn" bug. Phase A measurement-based diagnosis
+     against the live engine (3 diagnostic probes preserved in
+     docs/development/diagnostics/dev-pyspawn-8b3a-*.py) REFUTED all 4 brief
+     hypotheses (Werkzeug reloader / Flask-SocketIO async_mode / sys._base_executable
+     / corrupted venv shim). The two-PID structure under the launcher is normal
+     Python 3.12 venv launcher-shim architecture: .venv/Scripts/python.exe is a
+     274 KB launcher stub that spawns C:\Python312\python.exe as the actual
+     interpreter via CreateProcess; the child's sys.prefix correctly resolves to
+     the venv via pyvenv.cfg discovery and imports the FRESH venv pyd (with
+     getRawSoundRecordInt + getRawFilteredFloatRecord bound, verified by direct
+     probe with launcher-exact env). User re-tested chart against running PID 73984
+     — no AttributeError; cause was hypothesis D (running backend predated dev-stest-4a7c's
+     working-tree edits to PanoidResult.py + chartFunctions.py; clean backend restart
+     picks up the new module). Same misdiagnosis previously seen in dev-stest-4a7c
+     log line 406 + the brief itself — STARTUP_TROUBLESHOOTING.md entry documents
+     the pattern + decisive sys.prefix/pianoidCuda.__file__ probes so it doesn't
+     recur. COMMITTED PianoidInstall master c21fadb (7 files +345/-1: STARTUP doc
+     entry + 3 diagnostic .py probes + session log + WIP transition + this lock
+     release). NO source code modified. Independent of dev-stest-4a7c's ongoing
+     Phase B work (different files, different concerns). Live stack PRESERVED
+     (PID 86072/58276/73984) per orchestrator direction — dev-stest-4a7c's
+     continuing work needs it. -->
+
 <!-- dev-ratiochart locks RELEASED 2026-05-24 at Step 10a Phase 1 commit. Held (CFL chart Part 1, frontend):
      newWindowChart.jsx, NEW src/utils/chartOption.js, NEW src/utils/__tests__/chartOption.test.js.
      Committed on PianoidTunner feature/cfl-stability-chart (0a3973f). Full Jest 62/693 PASS, 0 regressions.
