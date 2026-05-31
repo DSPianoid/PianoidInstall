@@ -74,6 +74,19 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 **Merge default — test-on-branch, merge-after-approval.** The default handoff leaves the work on its feature branch (unmerged) with the stack down, so the user can run their OWN live test before anything reaches the integration branch. The orchestrator does NOT direct a feature→dev merge until the user explicitly approves the FIX based on that test — a passing agent test is not approval. Never offer "merge to the integration branch so a restart picks it up, then test" — that inverts the order; the user tests on the feature branch first, the merge follows approval. (PianoidTunner's integration branch is `dev`, not `master`; root PianoidInstall is on `master`.) Merging and pushing are separate decisions — never push unless the user asks.
 
+**Phase 2 sequence — wrap up locally FIRST, reconcile with origin AFTER (BLOCKING).** When the user approves Phase 2, the canonical order is:
+
+1. **Merge feature branches → local dev** (and the docs work that goes on local master) — sequential through every approved agent's feature branch. No pull from origin yet.
+2. **Wrap up agents** — archive each agent's session log to `logs/archive/`, remove their WIP rows + add historical-comment blocks with merge SHAs, commit on PianoidInstall master with `[<agent-id>] chore: Phase 2 wrap`. Each agent's Phase 2 commits stay local.
+3. **Reconcile with origin** — pull origin/dev (merge-mode, not FF-only — origin may have diverged due to other-machine pushes) on each repo with the integration branch checked out; resolve any conflicts (docs conflicts in WIP/MODULE_LOCKS can be union-resolved by the orchestrator/agent; code conflicts STOP for user judgement).
+4. **Push** — only when the user explicitly says push.
+
+**Do NOT pull from origin BEFORE the local merges.** The opposite order (pull-then-merge-features) interleaves origin's history with the local feature work in a way that's confusing in the audit trail and makes it harder to roll back if the user changes their mind on the merge. Local-merge-first keeps each agent's feature work as a discrete, identifiable unit on top of the pre-pull local dev state; origin reconciliation is then a separate, named step.
+
+**If a pull from origin has already happened before the local merges** (orchestrator mistakenly did it, or a prior wrap-up step preceded this rule): hard-reset local dev/master back to the pre-pull SHA before proceeding with the local merges. Git's reflog preserves the pull-merge commits for ~30 days; nothing is lost. Skip the reset only if the pull-merge already incorporated conflict resolutions the user cared about — in which case surface to the user and let them decide.
+
+**Why:** Concrete incident 2026-05-31 — orchestrator dispatched stest's Phase 2 with `pull --no-rebase origin dev` as W1 before W2 (merge feature branches → local dev). Pull-merge succeeded cleanly but the user immediately reversed the order: "Merge locally and wrap up agents BEFORE reconciling with origin." The pull-merge had to be undone via `git reset --hard <pre-W1-SHA>` on three repos, then the local-merge → wrap → push sequence re-done in the right order. This rule prevents the re-discovery of that ordering preference.
+
 ```powershell
 # Port-targeted full-clearance sweep (run before declaring the environment clear)
 foreach ($port in 3000,3001,5000,5001) {
