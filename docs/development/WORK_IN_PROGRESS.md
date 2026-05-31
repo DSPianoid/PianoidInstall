@@ -22,7 +22,20 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-pyspawn-8b3a | Non-bug closeout — docs entry only, no code change. The "venv→system Python spawn" premise from the dispatch was a misdiagnosis of normal Python 3.12 venv launcher shim architecture: `.venv/Scripts/python.exe` is a 274 KB launcher stub that spawns `C:\Python312\python.exe` as the actual interpreter; the child's `sys.prefix` correctly resolves to the venv via `pyvenv.cfg` and it imports the FRESH venv pyd (with `getRawSoundRecordInt`/`getRawFilteredFloatRecord` bound). Phase A measurement against the live engine refuted all 4 brief hypotheses (Werkzeug reloader / async_mode worker / `sys._base_executable` / corrupted shim). User re-tested against current PID 73984 — no AttributeError. Doc entry added to `docs/guides/STARTUP_TROUBLESHOOTING.md` so the next agent doesn't chase the same misdiagnosis (dev-stest-4a7c log line 406 + the brief that spawned this session both made this mistake). NO source code touched. | [log](logs/dev-pyspawn-8b3a-2026-05-31-142623.md) | 2026-05-31 | DONE (Phase 1 wrap-up — single docs commit on master pending) |
+<!-- dev-pyspawn-8b3a COMPLETED 2026-05-31 (Phase 2 closeout by orchestrator).
+     Non-bug closeout — docs entry only, no code change. The "venv→system Python spawn"
+     premise from the dispatch was a misdiagnosis of normal Python 3.12 venv launcher shim
+     architecture: `.venv/Scripts/python.exe` is a 274 KB launcher stub that spawns
+     `C:\Python312\python.exe` as the actual interpreter; the child's `sys.prefix` correctly
+     resolves to the venv via `pyvenv.cfg` and it imports the fresh venv pyd. Phase A
+     measurement against the live engine refuted all 4 brief hypotheses (Werkzeug reloader /
+     async_mode worker / `sys._base_executable` / corrupted shim). User re-tested against the
+     live backend — no AttributeError. Doc entry added to `docs/guides/STARTUP_TROUBLESHOOTING.md`
+     so the next agent doesn't chase the same misdiagnosis. Phase 1 commits on PianoidInstall
+     master: c21fadb (docs entry), d41a5ba (lock release), 2d39fa6 (session log markers) —
+     all 3 shipped to origin via dev-stest-4a7c's Phase 2 push at master 676aef5. Session log
+     archived to logs/archive/. WIP row + locks already cleaned in Phase 1.
+-->
 <!-- dev-stest-4a7c + dev-m17-454a + dev-snmtxleak-7e3d COMPLETED 2026-05-31 (Phase 2 wrap, user-approved merge).
      Three sessions wrapped together by dev-m17-454a's Phase 2 consolidation pass.
 
