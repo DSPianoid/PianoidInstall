@@ -71,7 +71,44 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      branches untouched. NOT pushed yet (awaiting user push-confirm). -->
 | dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. Committed THIS SYNC on PianoidTunner `feature/lower-default-volume-100` ONLY (NOT merged, NOT pushed — held for user approval). (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
 | dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
-| dev-stest-4a7c | `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu`, `PianoidCore/pianoid_cuda/Pianoid_debug.cu`, `PianoidCore/pianoid_cuda/OfflinePlaybackEngine.h`, `PianoidCore/pianoid_cuda/OfflinePlaybackEngine.cu`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/PanoidResult.py`, `PianoidCore/pianoid_middleware/chartFunctions.py`, `PianoidCore/pianoid_middleware/chart_config.json`, `PianoidCore/tests/unit/test_sound_test_chart.py` (NEW), `PianoidCore/tests/unit/test_pianoid_result_loaders.py` (NEW), `PianoidCore/tests/integration/test_sound_test_offline.py` (NEW), `PianoidCore/tests/system/test_sound_test_online.py` (NEW M9) | 2026-05-31T04:30:00Z | Sound Test diagnostic chart — Phase B + M9 ext (mode param + 4 booleans). Unified PianoidResult architecture per user A3 directive: new fields `post_fir_sound` + `sint_sound` + loaders; engine-side new rings (Sint + FIR) + multi-channel offline writer fix; chart-fn reads ONLY via `PianoidResult.get_*_audio()` accessors (architectural assertion in unit test that raw C++ getters are never called by chart fn). On feature/sound-test-chart off PianoidCore dev (37f664a). Pre-edit regression baseline captured: sha256 e5654ec6...4e for BaselinePreset1 pitch 60 vel 100 (preserved in /tmp/dev-stest-4a7c-baseline.{npy,json}). dev-soundint-live PAUSED lock released this round (stash+branch confirmed gone). |
+<!-- dev-stest-4a7c locks RELEASED 2026-05-31 at Step 10a Phase 1 (Sound Test diagnostic chart).
+     Sound Test diagnostic chart — Phase B + M9 + M12 + M14 (audio attach for chart-native playback).
+     M12: bool URL-string coercion fix in ChartRegistry.extract_arguments — bug where
+     `bool("false")==True` made boolean params always-true for URL-routed requests.
+     Unified PianoidResult architecture per user A3 directive: new fields `post_fir_sound` +
+     `sint_sound` + loaders; engine-side new rings (Sint + FIR) + multi-channel offline writer
+     fix; chart-fn reads ONLY via `PianoidResult.get_*_audio()` accessors (architectural assertion
+     in unit test that raw C++ getters are never called by chart fn).
+     Engine + middleware + tests committed locally on PianoidCore `feature/sound-test-chart`
+     branched off dev `37f664a` (SHA reported in dev-m17-454a session log). Doc-gap closures
+     (`docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md`, `docs/modules/pianoid-cuda/DEBUG_DATA.md`)
+     + proposals (`docs/proposals/sound-test-chart-2026-05-30.md` + `chart-native-playback-2026-05-31.md`)
+     committed on PianoidInstall master. Pre-edit regression baseline captured:
+     sha256 e5654ec6...4e for BaselinePreset1 pitch 60 vel 100 (preserved in
+     /tmp/dev-stest-4a7c-baseline.{npy,json}). dev-soundint-live PAUSED lock released this round
+     (stash+branch confirmed gone). NOT merged to dev yet — Phase 2 awaits user re-confirmation. -->
+<!-- dev-m17-454a locks RELEASED 2026-05-31 at Step 10a Phase 1 (M17 follow-up + M18/M18b/M18c).
+     M17 follow-up: appended `TestRenderLayerCombinations` class (+18 parametrised tests + 2 symptom
+     regression pins) to `PianoidCore/tests/unit/test_sound_test_chart.py` (620→861 LOC). Locks the
+     parent's M17 architectural invariants — synthesis-always-runs; per-boolean rendering — by
+     enumerating all 16 (kernel,fir,sint,mic) boolean combinations + Symptom A/B spot-checks.
+     M18/M18b/M18c: NewWindowChart React.StrictMode-safe fetch in
+     `PianoidTunner/src/components/newWindowChart.jsx` (540→~590 LOC) — `fetchedRef` one-shot
+     fence prevents the dev double-invoke duplicate POST that the user heard as "note plays twice
+     BEFORE the chart renders"; `isMountedRef` guards late setState onto an unmounted root; M18c
+     swaps `useApi` → direct `axios.post(...)` to side-step `useApi.js:28`'s own
+     auto-abort-on-unmount cleanup which was cancelling the only POST under StrictMode
+     (`net::ERR_ABORTED` → Loading-hang). 4 strictMode regression tests committed in
+     `PianoidTunner/src/components/__tests__/newWindowChart.strictMode.test.jsx`. Live-verified
+     via chrome-devtools both OFFLINE + ONLINE modes — 1 POST → HTTP 200 → chart renders with
+     Kernel/Sint per-source Play buttons. NO CUDA rebuild. NO backend edits. Frontend HMR
+     pickup. Committed locally on PianoidTunner `feature/sound-test-chart` (NEW branch off dev
+     `71bc77f`; SHA reported in session log). NOT merged to dev — Phase 2 awaits user
+     re-confirmation. No collision with dev-snmtxleak-7e3d (their files MeasuredMatrix.jsx /
+     SoundChannelsPane.jsx / useSoundChannels.js / useHotkeys.js — disjoint). -->
+| dev-stest-4a7c | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
+| dev-snmtxleak-7e3d | `PianoidTunner/src/components/SoundChannelsPane.jsx`, `PianoidTunner/src/hooks/useHotkeys.js`, `PianoidTunner/src/components/__tests__/SoundChannelsPane.localChannel.test.jsx` (NEW), `PianoidTunner/src/hooks/__tests__/useHotkeys.zeroPitch.test.jsx` (NEW) | 2026-05-31T18:11:00Z | [LOCK ACQUIRED] Phase B architectural fix per Phase A2 (user-approved): decouple SC strings-axis matrix from global setSelectedPitch + harden useHotkeys `!pitch` falsy-zero guard. SoundChannelsPane: add local `selectedChannel` useState; gate `onPitchSelect` by `listenToModes` (true → global setSelectedPitch / preserves modes-axis cross-pane sync; false → local setSelectedChannel / channel idx 0..N-1 stays in SC pane). useHotkeys: `!pitch` → `pitch == null` on lines 58 (`play`) + 65 (`stopNote`). Two NEW test files: SoundChannelsPane.localChannel.test.jsx (strings-axis click does NOT call setSelectedPitch; modes-axis click DOES) + useHotkeys.zeroPitch.test.jsx (`play(0)` fires playNote with pitch:0; `pitch == null` is rejected). Frontend-only, HMR pickup, no rebuild. No conflict with dev-m17-454a (newWindowChart.jsx) or dev-stest-4a7c (backend chartFunctions / engine), or dev-8085 (ToolBar.jsx / usePreset.js — different files). |
+| dev-m17-454a | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
 <!-- dev-pyspawn-8b3a lock RELEASED 2026-05-31 at Step 10a Phase 1. Held:
      docs/guides/STARTUP_TROUBLESHOOTING.md (re-scoped from code to docs).
      Original brief targeted backendServer.py + launcher.js for an alleged

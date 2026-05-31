@@ -73,7 +73,7 @@ for build commands.
 |--------|---------|---------------|-------|
 | `getRawSoundRecord()` | `vector<float>` | `rawSoundBuffer` (host circular buffer) | Always active. Returns last 5 seconds of audio in chronological order |
 | `getRecordedAudio()` | `vector<float>` | `last_recorded_audio_` (host) | Audio from last completed playback session (online or offline) |
-| `getCurrentCycleAudio()` | `vector<float>` (mode_iteration samples) | `dev_soundFloat` or `dev_soundInt` (GPU) | Single cycle. Auto-converts int32→float via `/ INT32_MAX` |
+| `getCurrentCycleAudio()` | `vector<float>` (`samplesInCycle × num_channels` samples, interleaved per channel) | `dev_soundFloat` or `dev_soundInt` (GPU) | Single cycle. Copies the kernel's per-channel valid extent only (`samplesInCycle` per channel, NOT `mode_iteration` — see SYNTHESIS_ENGINE.md "Stored-vs-effective extent — readback contract"). Auto-converts int32→float via `/ INT32_MAX` for the `dev_soundInt` fallback. Multi-channel result is consumed by `OfflinePlaybackEngine::collectAudio` and reshaped to `(num_channels, samples)` by `PianoidResult.load_offline_sound_from_pianoid`. |
 
 **Raw sound recording** uses a fixed circular buffer (`5 * sample_rate * num_channels` floats) that is always active — no enable/disable toggle. Each cycle writes directly into the buffer via `cudaMemcpy` (no intermediate allocation, no `cudaDeviceSynchronize`). `clearRecords()` resets the buffer.
 
@@ -187,7 +187,10 @@ PianoidResult(pianoid_cpp, model_params, num_records=4, num_states=10, num_param
 
 | Member | Shape | Source Method |
 |--------|-------|--------------|
-| `sound` | `(num_channels, samples)` | `get_sound_from_pianoid(length=None)` ← `getRawSoundRecord()`. `length=None` returns full circular buffer |
+| `sound` | `(num_channels, samples)` — multi-channel-native in **both** Online and Offline modes (dev-stest-4a7c, 2026-05-31) | Online: `get_sound_from_pianoid(length=None)` ← `getRawSoundRecord()`. Offline: `load_offline_sound_from_pianoid(length=None)` ← `getRecordedAudio()`. Both writers reshape interleaved per-channel raw data to `(num_channels, samples)` |
+| `post_fir_sound` | `(num_channels, samples)` post-FIR float — Online regime only (FIR runs only in `pushCycleAudioToDriver`) | `load_post_fir_audio_from_pianoid(length=None)` ← `getRawFilteredFloatRecord()` |
+| `sint_sound` | `(num_channels, samples)` post-volume Sint32 (dtype `np.int32`) — both Online and Offline | `load_sint_audio_from_pianoid(length=None)` ← `getRawSoundRecordInt()` |
+| `mic_audio` | `(samples,)` mono float32 — or `None` if no mic capture attached | Caller-attachment via `set_mic_audio(buf)`. PianoidResult never engages the mic itself. |
 | `string_states` | `(2, num_blocks, array_size)` | `get_pianoid_state()` ← `getPianoidState()` |
 | `output_data` | `(10, num_strings, array_size)` | `get_output_data_from_pianoid()` ← `getOutputData()` |
 | `records` | `(4, num_strings, samples)` | `get_sound_records_from_pianoid(length)` ← `getSoundRecords()` |
@@ -198,11 +201,18 @@ PianoidResult(pianoid_cpp, model_params, num_records=4, num_states=10, num_param
 | Method | Purpose |
 |--------|---------|
 | `fetch(length, debug, point_parameters)` | Master fetch — always gets string states; conditionally gets output_data, sound, records (if `debug=True`) and parameters (if `point_parameters=True`) |
-| `get_sound(channel, wav, result_type)` | Returns sound for a channel (list or ndarray). `channel=-1` returns all channels |
+| `get_synth_audio(channel, result_type)` | Returns kernel-output (pre-FIR) audio from `self.sound`. Canonical accessor for the unified chart-fn read interface. `channel=-1` returns the full `(num_channels, samples)` array. |
+| `get_post_fir_audio(channel, result_type)` | Returns post-FIR audio from `self.post_fir_sound`. Online-only; returns empty when the ring is unpopulated. |
+| `get_sint_audio(channel, result_type, as_float=False)` | Returns post-volume Sint32 audio from `self.sint_sound`. `as_float=True` returns `/ INT32_MAX` normalisation. |
+| `get_mic_audio()` | Returns the mic recording attached via `set_mic_audio`, or `None`. |
+| `set_mic_audio(buf)` | Attaches a mic-capture buffer. Caller-attachment pattern — PianoidResult never starts mic capture. |
+| `get_sound(channel, wav, result_type)` | Legacy alias of `get_synth_audio` — kept for backward compat. |
 | `get_record(record_no, obj_no)` | Extracts a specific sound record. `obj_no='all'` or `-1` returns all strings flattened |
 | `point_parameters(param_no, block_no)` | Extracts point parameter data. Lazy-fetches if not captured |
 | `save_sound_to_wav(channel, path, normalize)` | Saves single channel to 16-bit WAV file |
 | `save_all_channels_to_wav(base_path)` | Saves all channels to separate WAV files |
+
+**Architectural contract (dev-stest-4a7c, 2026-05-31):** every chart-consumed audio source MUST be reached through a PianoidResult accessor (`get_synth_audio` / `get_post_fir_audio` / `get_sint_audio` / `get_mic_audio`) and populated through a PianoidResult loader (`get_sound_from_pianoid` / `load_offline_sound_from_pianoid` / `load_post_fir_audio_from_pianoid` / `load_sint_audio_from_pianoid` / `set_mic_audio`). Chart functions MUST NOT call the underlying C++ getters (`getRawSoundRecord` / `getRawFilteredFloatRecord` / `getRawSoundRecordInt` / `getRecordedAudio`) directly — those are transport primitives reached only by PianoidResult's own loader methods. This contract is enforced by `tests/unit/test_sound_test_chart.py` via `.assert_not_called()` on the C++ getter mocks.
 
 ### Usage from Middleware
 

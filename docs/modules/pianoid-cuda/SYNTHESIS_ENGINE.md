@@ -531,6 +531,27 @@ the 22 strings as "sound strings" with `outerSoundChannel` values `1..4` and con
 Full audio chain and empirical verification in
 [VOLUME_ITER_BUG_INVESTIGATION.md](../../development/archive/VOLUME_ITER_BUG_INVESTIGATION.md#audio-path-discovery).
 
+> **Stored-vs-effective extent — readback contract (dev-stest-4a7c, 2026-05-31).**
+> `dev_soundFloat` and `dev_soundInt` are both allocated `mode_iteration × num_channels`
+> entries (the GPU buffer's *stored* extent), but the kernel only writes
+> `[0, samplesInCycle) × num_channels` entries per cycle (the *effective* extent —
+> indexed as `sampleIndex = (outerSoundChannel − 1) · samplesInCycle + main_cycle_index`).
+> The per-channel tail region `[samplesInCycle, mode_iteration)` is **never written by
+> the kernel** and remains whatever the GPU memory held before — uninitialised on first
+> use, stale-cycle data thereafter. The FIR-enabled path memsets `dev_soundInt` per
+> cycle (`Pianoid_synthesis.cu:539` region), but the FIR-off path does NOT. **A naïve
+> readback that copies `mode_iteration × num_channels` therefore reads garbage in every
+> per-channel tail when FIR is off** — for `dev_soundFloat` this typically reads as
+> near-zero (uninitialised float reads ≈ 0), for `dev_soundInt` it reads as
+> ±INT32_MAX (uninitialised Sint32 bytes rail). **All correct host readbacks of
+> `dev_soundFloat` / `dev_soundInt` (e.g. `appendCycleAudioToHostBuffer`,
+> `appendCycleSoundIntToHostBuffer`, `getCurrentCycleAudio`) MUST copy only the
+> per-channel valid extent `samplesInCycle` per channel, NOT the full `mode_iteration`
+> per channel.** This was measured by the dev-soundint-live kernel-probe (2026-05-29):
+> at `mvc = 7.99902e8` Belarus MFeq vol=100 pitch 56, the kernel writes `output ±0.0078
+> → soundInt ±6.3e6` (well within INT32), while a buggy `mode_iteration`-extent readback
+> reported ~83% railed values from the tail.
+
 There is also a parallel **mode-direct output path** for listen-to-modes mode
 (`MainKernel.cu:623–630`) that writes `s_mode_applied_force[quarter]` directly when
 `outerSoundModeChannel > 0` — used when `listen_to_modes=1` to tap mode force without going
