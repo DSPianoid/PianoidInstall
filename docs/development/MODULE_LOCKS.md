@@ -15,6 +15,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-numsplit locks RELEASED 2026-06-01 at Step 10a Phase 1 commit (user-approved, live-tested "works"). Held:
+     PianoidTunner/src/components/NumInput/NumInput.js + numInputMath.js (new) + useNumInputCaret.js (new) +
+     __tests__/numInputMath.test.js (new). NumInput god-object split 1555 RED → 995 YELLOW (review R-1):
+     pure math (formatNumber/anchorExponentCaret/getStepFromCursorPosition/computeExponentStep/getInputTitle/
+     generateUniqueId) → numInputMath.js; caret machinery → useNumInputCaret hook; arrow-handler + config-commit
+     dedup in-component. Public prop API byte-identical. Committed PianoidTunner feature/numinput-split c8edfa1
+     (+962/-829, 4 files). Full Jest 68/795→69/820 (zero regressions); 3 files eslint-clean. Docs (CODE_QUALITY
+     God Objects RED→YELLOW + OVERVIEW NumInput row) + session log on root master. MERGED to PianoidTunner dev
+     (--no-ff) at Phase 2. NOT pushed (user did not request push — local only). -->
 <!-- dev-df69 lock RELEASED 2026-05-31T09:35Z: PianoidTunner/src/PianoidTuner.js merge conflict resolved
      (feature/preset-settings-ui → dev), committed b24dead + pushed (origin/dev == b24dead, verified).
      dev-177a even-scheduler ONLINE + dev-8abf offline-WAV OFFLINE both survive; stopSweep + unmount
