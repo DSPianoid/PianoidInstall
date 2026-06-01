@@ -22,7 +22,10 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-numsplit | Split NumInput.js god-object (C4 RED 1555 LOC) — extract exponent-step helper + in-place config-edit concern, behavior+API preserving (review R-1) | [log](logs/dev-numsplit-2026-06-01-125144.md) | 2026-06-01 | In Progress |
+<!-- dev-numsplit COMPLETED 2026-06-01 (Step 10a Phase 2, user-approved merge). NumInput.js god-object split
+     1555 RED → 995 YELLOW (review R-1). PianoidTunner feature/numinput-split c8edfa1 MERGED to dev 739bee7
+     (--no-ff). Docs+log on root master 72e069f. NOT pushed (local only — user did not request push). Log
+     archived to logs/archive/dev-numsplit-2026-06-01-125144.md. -->
 <!-- dev-pyspawn-8b3a COMPLETED 2026-05-31 (Phase 2 closeout by orchestrator).
      Non-bug closeout — docs entry only, no code change. The "venv→system Python spawn"
      premise from the dispatch was a misdiagnosis of normal Python 3.12 venv launcher shim
