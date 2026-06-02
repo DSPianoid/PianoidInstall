@@ -371,9 +371,21 @@ Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_pres
 | `2` | SDL2 | Universal fallback, works on any system |
 | `1` | ASIO (legacy polling) | Older ASIO path; prefer `4` |
 
+**Automatic ASIO → SDL3 fallback (dev-asioload, 2026-06-02).** When `audio_driver_type: 4`
+(ASIO_CALLBACK) is requested but ASIO cannot initialize (the common "no ASIO driver
+installed" case), the engine now **automatically falls back to SDL3** instead of leaving
+`audio_driver_active: false` (silent no-sound). The fallback is **surfaced to the user**:
+`GET /health` reports `audio_driver_fallback: {occurred: true, requested: "ASIO_CALLBACK",
+active: "SDL3", message: "ASIO_CALLBACK unavailable - using SDL3", reason: ...}`, and the
+same dict is pushed on the WebSocket `lifecycle` event so the frontend shows a warning.
+You no longer need to manually switch to SDL just to get audio — but to get *native ASIO*
+(lowest latency) you must install an ASIO driver (below). Engine mechanics:
+[AUDIO_DRIVERS.md — ASIO → SDL3 Runtime Fallback](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asio--sdl3-runtime-fallback).
+
 **Recommended fallback chain** when the current driver fails to initialize:
 
-1. **ASIO Callback (4) fails** → try SDL3 (3)
+1. **ASIO Callback (4) fails** → the engine now auto-falls-back to SDL3 (3) and warns;
+   to switch manually anyway, set `audio_driver_type: 3`
 2. **SDL3 (3) fails** → try SDL2 (2)
 3. **SDL2 (2) fails** → the build likely lacks both SDL variants; rebuild with
    `build_pianoid_cuda.bat --heavy` after ensuring at least one of SDL2/SDL3 is
@@ -381,7 +393,10 @@ Pianoid supports four driver codes (passed as `audio_driver_type` to `/load_pres
 
 **ASIO-specific issues:**
 
-- No ASIO driver installed — install ASIO4ALL or use your audio interface's ASIO driver
+- No ASIO driver installed (`HKLM\SOFTWARE\ASIO` empty/absent → "No working ASIO driver
+  found!") — install ASIO4ALL or your audio interface's native ASIO driver. Until then the
+  engine auto-falls-back to SDL3 (above), so you still have audio; native ASIO requires the
+  driver. Verify with PowerShell `Test-Path 'HKLM:\SOFTWARE\ASIO'` (`$false` = none installed).
 - ASIO device in use by another application (DAW, etc.) — close the other application
 - ASIO sample rate mismatch with the backend — set `"sample_rate": 48` in `/load_preset`
   to match 48 kHz (the default for most interfaces)

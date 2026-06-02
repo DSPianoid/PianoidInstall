@@ -212,6 +212,51 @@ Compile-time selection (`AudioDriverConfig.h`):
   defined: `#define USE_SDL3_AUDIO` and `#define USE_ASIO_AUDIO`
 - Priority at runtime: ASIO > SDL3 > SDL2
 
+Note: `isDriverAvailable()` / `getBestAvailableDriver()` are **compile-time** checks
+("was this driver compiled in?"), NOT runtime device probes. A build with
+`USE_ASIO_AUDIO` reports ASIO available even on a machine with no ASIO driver
+installed; the actual device load happens later in `ASIOAudioDriver::init()`.
+
+---
+
+## ASIO → SDL3 Runtime Fallback
+
+**File:** `Pianoid.cu` (`Pianoid::startAudioDriver()`) — added dev-asioload, 2026-06-02.
+
+The audio driver object is **constructed** in the `Pianoid` constructor (via
+`AudioDriverFactory::createDriverWithType`, matching `init_params_.audio_driver_type`),
+but the physical device is only **opened** later, when `startAudioDriver()` calls
+`audioDriver->init()`. For ASIO that init enumerates the Steinberg ASIO drivers from
+`HKLM\SOFTWARE\ASIO`; with no ASIO driver installed it throws
+(`"ASIO driver initialization failed — no working ASIO device found"`).
+
+`startAudioDriver()` catches that throw and, **only when the requested driver was an
+ASIO variant** (`ASIO` or `ASIO_CALLBACK`), reconstructs the driver as **SDL3**
+(`circular_buffer_chunks = 16`), re-runs `setupCuda` + `init`, and continues — so the
+user still gets audio instead of `audio_driver_active = false` (silent no-sound).
+
+The fallback is **not silent**: the engine records it (engine is the sole writer — P1)
+and exposes it for a user-visible warning:
+
+```cpp
+bool        didAudioDriverFallback() const;   // true once an ASIO→SDL3 fallback occurred
+int         getRequestedDriverType() const;   // AudioDriverType int requested (-1 = not started)
+int         getActiveDriverType() const;      // AudioDriverType int actually running
+std::string getAudioDriverFallbackReason();   // human-readable reason ("" when none)
+```
+
+Fail-fast is preserved (S5): a **non-ASIO** init failure rethrows (no fallback), and if
+the **SDL3 fallback also fails** the exception is rethrown (`audio_driver_active` stays
+`false`). Only the ASIO-fails-but-SDL3-succeeds path is the new graceful behaviour.
+
+The middleware surfaces these getters via the `/health` `audio_driver_fallback` field and
+the WebSocket `lifecycle` event so the frontend can show
+"ASIO unavailable — using SDL3" — see
+[REST_API.md — /health](../pianoid-middleware/REST_API.md) and the audio-driver selection
+rule there. When no ASIO driver is installed at all, the fix for getting native ASIO is
+environmental (install the device's ASIO driver or ASIO4ALL); see
+[STARTUP_TROUBLESHOOTING.md](../../guides/STARTUP_TROUBLESHOOTING.md#symptom-audio-driver-fails-to-initialize).
+
 ---
 
 ## LockFreeCircularBuffer

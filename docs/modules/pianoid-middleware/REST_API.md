@@ -231,11 +231,30 @@ Response `200` (healthy):
     "main_loop_should_continue": true
   },
   "cpp_module_responsive": true,
-  "available_notes_count": 88
+  "available_notes_count": 88,
+  "audio_driver_fallback": {
+    "occurred": true,
+    "requested": "ASIO_CALLBACK",
+    "active": "SDL3",
+    "reason": "Requested ASIO audio driver could not be initialized (...). Falling back to SDL3.",
+    "message": "ASIO_CALLBACK unavailable - using SDL3"
+  }
 }
 ```
 
 Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
+
+`audio_driver_fallback` (added dev-asioload, 2026-06-02): `null` when no fallback
+info is available (engine not loaded, or a build predating the feature). Otherwise a
+dict describing the ASIO→SDL3 runtime fallback — `occurred` is `true` only when the
+requested ASIO driver failed to initialize and the engine fell back to SDL3 (so the
+user still has audio instead of `audio_driver_active: false`). `requested`/`active`
+are driver names (`SDL2`/`SDL3`/`ASIO`/`ASIO_CALLBACK`); `message` is the short
+user-facing warning and `reason` the underlying engine detail. The frontend lights a
+"ASIO unavailable — using SDL3" warning on `occurred: true`. The same dict is pushed
+on the WebSocket `lifecycle` event (`audio_driver_fallback` key) so the UI reacts
+without polling. Engine-side mechanics: see
+[AUDIO_DRIVERS.md — ASIO → SDL3 Runtime Fallback](../pianoid-cuda/AUDIO_DRIVERS.md#asio--sdl3-runtime-fallback).
 
 Response `500` if health check itself throws.
 

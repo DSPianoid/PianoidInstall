@@ -22,6 +22,7 @@ PianoidCore/tests/
 │   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off)
 │   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
 │   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard v2 (HOST-side gate) — baseline-stable-via-ratio, unstable tension/jung/r REJECTED (CflRejected→400) BEFORE upload + engine-finite + model-NOT-mutated, stable/length not falsely rejected, host-backed stability_ratio extraction, per-string tension_offset (audio_off)
+│   ├── test_asio_fallback.py          # ASIO→SDL3 auto-fallback (dev-asioload): adt=4 with no ASIO driver → engine falls back to SDL3 (audio_driver_active=True) + flags didAudioDriverFallback + records requested/active/reason; SDL3-direct does NOT flag fallback. Fallback-occurred asserts skip if a working ASIO driver is installed. (audio_on)
 │   ├── test_playback.py
 │   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag
