@@ -22,7 +22,43 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-asioload | Diagnose ASIO driver load failure (device connected) | [log](logs/dev-asioload-2026-06-01-174548.md) | 2026-06-01 | In Progress |
+<!-- (no active dev sessions) -->
+<!-- dev-asioload COMPLETED 2026-06-03 (Step 10a Phase 2, user-approved merge + Phase 2 via Telegram; recovered
+     from an orphaned 2026-06-02 HOLD via Step 10d, SAME agent ID). ASIO→SDL3 audio-driver auto-fallback (option B)
+     WITH a user-visible warning. Started 2026-06-01 as a DIAGNOSIS (root cause: no ASIO driver registered on this
+     machine — HKLM\SOFTWARE\ASIO absent; the connected ESI GIGAPORT eX runs on the generic Windows USB-Audio class
+     driver; adt=4/ASIO_CALLBACK enumeration returns 0 → init throws → audio_driver_active=FALSE/no sound until the
+     user manually switches to SDL). User then approved option B (auto-fallback + visible warning). IMPLEMENTED:
+     - C++ (pianoid_cuda): startAudioDriver() catches the ASIO init throw → reconstructs SDL3
+       (createDriverWithType(SDL3, chunks=16)+setupCuda+init); engine records requested/active driver + reason
+       (engine = SOLE writer, P1); rethrows on a non-ASIO failure OR if the SDL3 fallback ALSO fails (fail-fast, S5).
+       pybind getters (didAudioDriverFallback / getRequestedDriverType / getActiveDriverType /
+       getAudioDriverFallbackReason) in AddArraysWithCUDA.cpp.
+     - Middleware (backendServer.py): /health gains an `audio_driver_fallback` dict
+       (occurred/requested/active/message/reason) + the same dict pushed on the WS lifecycle event (mirrors the
+       cfl_redline precedent; _audio_driver_fallback_status() helper).
+     - tests/system/test_asio_fallback.py (NEW, 3 tests): getters exist; ASIO→SDL3 fallback active+flagged+reason;
+       SDL3-direct no-flag.
+     END-TO-END VERIFIED on this no-ASIO machine (Audio Verification Rule satisfied): backend on port 5002 →
+     /health audio_driver_active=TRUE (was FALSE/silence pre-fix) + audio_driver_fallback dict populated
+     (occurred:true, requested:ASIO_CALLBACK, active:SDL3, message:"ASIO_CALLBACK unavailable - using SDL3");
+     engine isAudioDriverActive()=True / didAudioDriverFallback()=True / requested=3 / active=1; test_asio_fallback.py
+     3/3; perf audio_off 5/5 + test_sound_regression PASS (synthesis path untouched → byte-identical output).
+     --heavy --release build verified (4 getters bound into the correct-venv .pyd).
+     COMMITTED PianoidCore feature/asio-sdl-fallback `3ef4e69` (5 files +330/-3), MERGED to dev `b88a627` (--no-ff).
+     Feature branch KEPT. NOT pushed (local dev was 5 behind origin/dev — origin reconciliation deferred to
+     orchestrator/user, same "LANDED VIA PULL MERGE" pattern as dev-7032/dev-eac2). Docs
+     (AUDIO_DRIVERS / REST_API / STARTUP_TROUBLESHOOTING / TESTING) + session log on root master (9ab2571 + the
+     Phase-2 bookkeeping commit). Session log archived to logs/archive/dev-asioload-2026-06-01-174548.md. Diagnostics
+     under docs/development/diagnostics/ (dev-asioload-asio-init-repro.py, dev-asioload-fallback-capture.py). No
+     servers left running (all my ports free; user's 3000/3001 untouched). PianoidTunner UNTOUCHED.
+     ★DEFERRED FOLLOW-UP (now UNBLOCKED — clean): Layer 3 = the PianoidTunner FRONTEND warning chip/banner that
+     CONSUMES the WS `audio_driver_fallback` field (e.g. a BackendStatusIndicator chip "ASIO_CALLBACK unavailable —
+     using SDL3", MUI dark theme). It was correctly DEFERRED because the FE tree was held by dev-blur during this
+     session. dev-blur COMPLETED 2026-06-03 (PianoidTunner on dev @234e1b9, clean) → the FE tree is now clear, so
+     Layer 3 is a clean standalone /dev follow-up. The backend contract (/health field + WS lifecycle push) is
+     already shipped and verified; only the FE consumer + pianoid-tunner/OVERVIEW.md doc row remain. -->
+
 <!-- dev-blur COMPLETED 2026-06-03 (Step 10a Phase 2, user-approved full merge; recovered from an orphaned
      2026-06-02 session via Step 10d, same agent ID). NumInput persist-on-blur: a VALUE-mode edit now COMMITS
      on blur (was: reverted) through the same commitValue(rawString) path as Enter — clamp-and-commit on

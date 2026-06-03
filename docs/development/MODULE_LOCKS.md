@@ -15,7 +15,37 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-asioload | `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/tests/system/test_asio_fallback.py` (new) | 2026-06-02T19:10:00Z | ASIO→SDL3 auto-fallback (option B) + USER-VISIBLE warning. C++: startAudioDriver() catches ASIO init throw → reconstruct SDL3, engine records requested/active driver + reason (engine = sole writer, P1). pybind getters in AddArraysWithCUDA.cpp. Middleware: /health audio_driver_fallback field + WS push (mirrors cfl_redline precedent). feature/asio-sdl-fallback (off dev), --heavy build. pianoid.py lock RELEASED 2026-06-02T19:22Z — no edit needed (fallback fully in C++; run_online catches both-fail; COM init in asiolist.cpp only when numdrv>0 so no-ASIO teardown is a no-op). NO PianoidTunner edits yet (dev-blur holds the FE tree — deferred per team-lead ordering). NO overlap with dev-blur (PianoidTunner-only) / dev-3580 (Pianoid_excitation.cu, different .cu). |
+| <!-- (none active) --> | | | |
+<!-- dev-asioload locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap of the orphaned 2026-06-02 HOLD,
+     same agent ID; user-approved merge + Phase 2 via Telegram). Held: PianoidCore/pianoid_cuda/Pianoid.cu,
+     Pianoid.cuh, AddArraysWithCUDA.cpp, pianoid_middleware/backendServer.py, tests/system/test_asio_fallback.py (new).
+     ASIO→SDL3 auto-fallback (option B) + USER-VISIBLE warning. C++: startAudioDriver() catches the ASIO init throw →
+     reconstructs SDL3 (createDriverWithType(SDL3, chunks=16)+setupCuda+init); engine records requested/active driver +
+     reason (engine = sole writer, P1); rethrows on non-ASIO failure OR if the SDL3 fallback ALSO fails (fail-fast S5).
+     pybind getters (didAudioDriverFallback/getRequestedDriverType/getActiveDriverType/getAudioDriverFallbackReason) in
+     AddArraysWithCUDA.cpp. Middleware: /health `audio_driver_fallback` dict + WS lifecycle push (mirrors cfl_redline
+     precedent, same _audio_driver_fallback_status() helper). pianoid.py was locked then RELEASED 2026-06-02T19:22Z —
+     no edit needed (fallback fully in C++). --heavy --release build verified (4 getters bound into correct-venv .pyd).
+     END-TO-END VERIFIED on this no-ASIO machine: /health audio_driver_active=TRUE + audio_driver_fallback dict
+     populated (occurred:true, requested:ASIO_CALLBACK, active:SDL3); engine isAudioDriverActive()=True / didFallback=True;
+     test_asio_fallback.py 3/3; perf 5/5 + sound_regression PASS (synthesis byte-identical). COMMITTED PianoidCore
+     feature/asio-sdl-fallback `3ef4e69` (5 files +330/-3), MERGED to dev `b88a627` (--no-ff). Feature branch KEPT.
+     NOT pushed (local dev was 5 behind origin/dev — origin reconciliation deferred to orchestrator/user, same
+     "LANDED VIA PULL MERGE" pattern as dev-7032/dev-eac2). Docs (AUDIO_DRIVERS/REST_API/STARTUP_TROUBLESHOOTING/
+     TESTING) + session log on root master (9ab2571 + this Phase-2 bookkeeping commit). DEFERRED follow-up: Layer 3
+     (PianoidTunner FE warning chip consuming the WS audio_driver_fallback field) is UNBUILT — correctly deferred while
+     the FE tree was held by dev-blur; now an UNBLOCKED clean follow-up since PianoidTunner dev is clear (dev-blur
+     COMPLETED 2026-06-03 @234e1b9). NO PianoidTunner edits this session. Session log archived to logs/archive/. -->
+<!-- dev-3580 lock RECONCILED 2026-06-03 by dev-asioload (STALE — guards nothing). The active `| dev-3580 |` row that
+     stood below on PianoidCore/pianoid_cuda/Pianoid_excitation.cu has been removed. Its content was a diagnostic
+     NOTE_OFF_PROBE in `_add_string_for_playback` (a live note-off bisect probe, explicitly NOT a real fix and NOT to be
+     merged to dev). The probe was preserved ONLY in `stash@{0}` = `26799bf` (alongside the dev-soundint-live work) —
+     and that stash/branch/commit are VERIFIABLY GONE (confirmed by the dev-soundint-live RELEASED comment + the
+     2026-05-30/05-31 verification: `git stash list` carries no soundint entry, `git branch -a | grep -i soundint`
+     empty, `git cat-file -t 26799bf` → "Not a valid object name"). The 55/56/57 trichotomy this probe was investigating
+     was independently RESOLVED by dev-427c (P1-1 GPU-pointer authority race, merged to PianoidCore dev `a352b2f`). With
+     the protected stash gone and the bug resolved, the row protects nothing and is reconciled to this comment. The
+     PianoidCore tree is clean on dev (Pianoid_excitation.cu committed-clean — no orphaned probe in the working tree). -->
 <!-- dev-blur locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap, user-approved full merge).
      Held: PianoidTunner NumInput/NumInput.js, Mode.jsx, Strings.jsx, GaussCell.jsx,
      ToolBar.jsx, NumInput/__tests__/numInput.blur.test.jsx (new),
@@ -290,7 +320,10 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      tests/system/test_cfl_stability_guard.py. Committed on feature/cfl-stability-guard (PianoidCore
      2a37faa); docs/diagnostics/log on root master. NOT merged — branch awaits the user's test + approval. -->
 <!-- dev-vpnoteoff lock RELEASED 2026-05-27 at Step 10a Phase 1 commit. Held: PianoidTunner/src/components/VirtualPiano.js. Committed on feature/vp-noteoff-fix (f3ce378); 62/693 Jest PASS. NOT merged — awaits user test + approval. -->
-| dev-3580 | `PianoidCore/pianoid_cuda/Pianoid_excitation.cu` | 2026-05-28T19:09:39Z | Diagnostic NOTE_OFF_PROBE in `_add_string_for_playback` for live note-off bisect (NOT a real fix). Tree is now CLEAN (PianoidCore detached @67148fa); the probe was PRESERVED in `stash@{0}` = `26799bf` alongside the dev-soundint-live work (★that stash is now GONE per the 2026-05-30 verification — see dev-soundint-live RELEASED comment below). NOT to be merged to `dev`. Kept (not discarded) for the ongoing static review per the 2026-05-29 USER CORRECTION. |
+<!-- dev-3580 active row REMOVED 2026-06-03 by dev-asioload (reconciled to RELEASED — see the
+     "dev-3580 lock RECONCILED 2026-06-03 by dev-asioload" comment in the active-rows region near the top).
+     Was: `PianoidCore/pianoid_cuda/Pianoid_excitation.cu` — diagnostic NOTE_OFF_PROBE preserved only in the
+     now-lost stash@{0}=26799bf; guards nothing (stash GONE, trichotomy resolved by dev-427c). Tree clean. -->
 <!-- dev-soundint-live PAUSED-lock RELEASED 2026-05-31 (orchestrator + user-approved cleanup;
      Telegram msg 3059 "Go as recommended" = α = release the PAUSED lock now over β = let
      dev-stest-4a7c override it). HONEST-RECORD CLEANUP — UNLIKE dev-eac2/dev-7032 (whose code
