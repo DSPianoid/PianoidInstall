@@ -16,6 +16,31 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 | dev-asioload | `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/tests/system/test_asio_fallback.py` (new) | 2026-06-02T19:10:00Z | ASIO→SDL3 auto-fallback (option B) + USER-VISIBLE warning. C++: startAudioDriver() catches ASIO init throw → reconstruct SDL3, engine records requested/active driver + reason (engine = sole writer, P1). pybind getters in AddArraysWithCUDA.cpp. Middleware: /health audio_driver_fallback field + WS push (mirrors cfl_redline precedent). feature/asio-sdl-fallback (off dev), --heavy build. pianoid.py lock RELEASED 2026-06-02T19:22Z — no edit needed (fallback fully in C++; run_online catches both-fail; COM init in asiolist.cpp only when numdrv>0 so no-ASIO teardown is a no-op). NO PianoidTunner edits yet (dev-blur holds the FE tree — deferred per team-lead ordering). NO overlap with dev-blur (PianoidTunner-only) / dev-3580 (Pianoid_excitation.cu, different .cu). |
+<!-- dev-blur locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap, user-approved full merge).
+     Held: PianoidTunner NumInput/NumInput.js, Mode.jsx, Strings.jsx, GaussCell.jsx,
+     ToolBar.jsx, NumInput/__tests__/numInput.blur.test.jsx (new),
+     __tests__/ToolBar.commitKey.test.jsx (new). NumInput persist-on-blur: shared
+     commitValue(rawString) (Enter+blur), handleBlur decision table, optional commitKey
+     edit-identity guard (+editKeyRef). All 4 Group-1 callers wired — Mode/Strings (commitKey=key),
+     GaussCell (`${level}-${chart}-${name}`), ToolBar (composite of selectedParameter
+     groupe/name/gaussIndex/levelValue + pitch/mode, on the shared selected-param NumInput).
+     Committed PianoidTunner feature/numinput-persist-on-blur 76a56fd (7 files, +471/-67),
+     MERGED to PianoidTunner dev 234e1b9 (--no-ff). Feature branch KEPT. NOT pushed (PianoidTunner
+     dev is local-only since dev-numsplit). Full Jest 70/830 → 71/834 (+1 suite ToolBar.commitKey /
+     +4 tests; ZERO regressions); 0 new eslint warnings on changed files. Docs (OVERVIEW NumInput row +
+     CODE_QUALITY God Objects NumInput.js RED rank 16 @1036 + P2-1 config-editor split named) already
+     updated by the prior dev-blur session; recovery verified accuracy. FRONTEND-ONLY, NO CUDA/backend,
+     no servers started (Jest jsdom). PianoidCore untouched (off-limits — on dev-asioload's
+     feature/asio-sdl-fallback). Session log archived to logs/archive/. -->
+<!-- dev-8085 locks RECONCILED 2026-06-03 by dev-blur (STALE — the 2 active `| dev-8085 |` rows that
+     stood here are now removed). Per the dev-df69 consolidation (2026-05-31, comment further below):
+     feature/lower-default-volume-100 (120→100 default preset-load volume) is an ANCESTOR of PianoidTunner
+     dev (usePreset.js:152 default = 100, merged at 2d23254; ToolBar.jsx volume change history 88a016f) —
+     the work shipped, the rows were orphaned leftovers the consolidation noted ("2 duplicate rows
+     collapsed") but never deleted. dev-blur legitimately re-acquired + released ToolBar.jsx this session
+     (persist-on-blur commitKey wiring) and usePreset.js is committed-clean on dev, so reconciling both
+     dev-8085 files into this single RELEASED comment is in-scope. Held files were: ToolBar.jsx,
+     usePreset.js. Tree clean. -->
 <!-- dev-numsplit locks RELEASED 2026-06-01 at Step 10a Phase 1 commit (user-approved, live-tested "works"). Held:
      PianoidTunner/src/components/NumInput/NumInput.js + numInputMath.js (new) + useNumInputCaret.js (new) +
      __tests__/numInputMath.test.js (new). NumInput god-object split 1555 RED → 995 YELLOW (review R-1):
@@ -154,8 +179,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      bug-55-56-57 §7b) + diagnostic dev-427c-p1-authority-race-stress.py + session log committed on root
      master by the same sync. stash@{0}=26799bf (dev-soundint-live) NOT popped/touched. Other feature
      branches untouched. NOT pushed yet (awaiting user push-confirm). -->
-| dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. Committed THIS SYNC on PianoidTunner `feature/lower-default-volume-100` ONLY (NOT merged, NOT pushed — held for user approval). (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
-| dev-8085 | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/usePreset.js` | 2026-05-29T13:20:00Z | Lower default preset-load volume 120→100 (user request). Frontend-only, no rebuild. (Diagnostic rig files + backendServer.py/pianoid.py instrumentation RELEASED — instrumentation reverted to clean source; rig .py are committed-free diagnostics under docs/.) |
+<!-- (dev-8085's 2 stale active rows removed 2026-06-03 — see the "dev-8085 locks RECONCILED 2026-06-03 by dev-blur" comment near the top active-rows region.) -->
 <!-- dev-stest-4a7c locks RELEASED 2026-05-31 at Step 10a Phase 1 (Sound Test diagnostic chart).
      Sound Test diagnostic chart — Phase B + M9 + M12 + M14 (audio attach for chart-native playback).
      M12: bool URL-string coercion fix in ChartRegistry.extract_arguments — bug where

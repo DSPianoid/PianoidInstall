@@ -22,6 +22,21 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-asioload | Diagnose ASIO driver load failure (device connected) | [log](logs/dev-asioload-2026-06-01-174548.md) | 2026-06-01 | In Progress |
+<!-- dev-blur COMPLETED 2026-06-03 (Step 10a Phase 2, user-approved full merge; recovered from an orphaned
+     2026-06-02 session via Step 10d, same agent ID). NumInput persist-on-blur: a VALUE-mode edit now COMMITS
+     on blur (was: reverted) through the same commitValue(rawString) path as Enter — clamp-and-commit on
+     out-of-range, no-op when unchanged, revert on invalid/empty/partial; in-place config sub-modes NOT
+     auto-committed. Optional commitKey prop = edit-identity guard (snapshot at focus/first-keystroke, compared
+     at blur; key change → revert, preventing stale-edit contamination of a re-targeted shared instance). All 4
+     Group-1 callers wired: Mode/Strings (commitKey=key), GaussCell (`${level}-${chart}-${name}`), ToolBar
+     (composite selectedParameter groupe/name/gaussIndex/levelValue + pitch/mode — wired in the recovery
+     session). Committed PianoidTunner feature/numinput-persist-on-blur 76a56fd (7 files, +471/-67), MERGED to
+     PianoidTunner dev 234e1b9 (--no-ff). Feature branch KEPT. NOT pushed (PianoidTunner dev is local-only since
+     dev-numsplit). Full Jest 70/830 → 71/834 (+ ToolBar.commitKey suite, 4 tests; ZERO regressions); 0 new
+     eslint warnings on changed files. Docs (OVERVIEW NumInput row + CODE_QUALITY God Objects: NumInput.js RED
+     rank 16 @1036 + P2-1 config-editor split named) on root master. Frontend-only, no CUDA/backend, no servers
+     started. Log archived to logs/archive/dev-blur-2026-06-02-190000.md. -->
 <!-- dev-numsplit COMPLETED 2026-06-01 (Step 10a Phase 2, user-approved merge). NumInput.js god-object split
      1555 RED → 995 YELLOW (review R-1). PianoidTunner feature/numinput-split c8edfa1 MERGED to dev 739bee7
      (--no-ff). Docs+log on root master 72e069f. NOT pushed (local only — user did not request push). Log
