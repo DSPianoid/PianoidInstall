@@ -370,7 +370,7 @@ DEFAULT_TIMING_BANDS = [
 
 ESPRIT-based modal extraction pipeline. Extracts soundboard resonance modes from impulse response measurements and injects them into the active preset with measured feedin coefficients.
 
-**Status:** All 6 waves complete — untested (not yet verified in browser). Backend (Waves 1-4) and frontend (Waves 5-6) implementation done. See [MODAL_ADAPTER_REDESIGN_PLAN.md](../../development/archive/MODAL_ADAPTER_REDESIGN_PLAN.md) for commit references.
+The acquisition side (measurement collection) is now a first-class **Measurement** entity, separate from the analysis-side **Project** — see [Measurement Entity (Modal Adapter refactor)](#measurement-entity-modal-adapter-refactor) below and the canonical [MODAL_COLLECTION.md](MODAL_COLLECTION.md). The extraction pipeline (ESPRIT → tracking → feedin → apply) operates on a Project that references a Measurement.
 
 **Architecture:** Data-availability-driven with independent stage execution. The old sequential `AdapterState` enum is replaced by `data_status()` checks — each stage asks "do I have my inputs?" not "was the previous stage run in this session?" A `run_full_pipeline(config)` method executes all stages sequentially in a background thread.
 
@@ -387,7 +387,7 @@ Load → ESPRIT Extract → Mode Tracking → Feedin Extraction → Channel Mapp
 | `FeedinExtractor` | `feedin_extractor.py` | Feedin extraction: mode-shape reference projection (default) with FFT fallback | Working (mode_shape + fft methods) |
 | `PresetInjector` | `preset_injector.py` | Applies modes to preset (legacy + FFT feedin paths) + `build_preset_to_file()` for offline preset generation. Configurable via `PresetConfig` | Working (output pitches dynamic, up to 16 channels) |
 | `PresetConfig` | `preset_injector.py` | Dataclass for preset build parameters: `max_modes`, `feedin_max`, `regular_feedback`, `sound_max`, `interpolate_missing` | Working |
-| `modal_bp` | `routes.py` | Flask blueprint mounted at `/modal/*` on the **modal adapter server (port 5001)** only. The main backend (port 5000) does NOT register the blueprint; it defines just one counterpart route (`POST /modal/apply_to_preset`) inline because that route alone needs the live `Pianoid` engine. | 23 endpoints on 5001 + 1 on 5000 |
+| `modal_bp` | `routes/` package + `measurement_routes.py` + `measurement_import.py` + `fs_routes.py` | Flask blueprint mounted at `/modal/*` on the **modal adapter server (port 5001)** only. The main backend (port 5000) does NOT register the blueprint; it defines just one counterpart route (`POST /modal/apply_to_preset`) inline because that route alone needs the live `Pianoid` engine. `routes.py` was split into a `routes/` package (C4-RED, Phase 2c). | pipeline/project/chains/preset routes + the v2 Measurement-entity surface (see [MODAL_COLLECTION.md](MODAL_COLLECTION.md)) on 5001 + 1 on 5000 |
 
 ### PresetConfig Parameters
 
@@ -460,7 +460,7 @@ install into `PianoidCore/.venv/Lib/site-packages/`:
 |--------|--------|
 | Probe (in-process) | `_probe_measurement_stack()` in `modal_adapter_server.py` — imports `sdl_audio_core` + `pianoid_middleware.modal_adapter.measurement.recorder` |
 | Status surface | `app.config['roomresponse_status']` (dict: `available`, `sdl_version`, `error`, `room_response_path`) — dict shape preserved for frontend backwards-compat; `room_response_path` is now always `None` |
-| Health endpoint | `GET /modal/collect/health` returns the status dict verbatim |
+| Health endpoint | **`GET /modal/collect/health` is RETIRED to 410 Gone (Phase 2a).** Availability is now reflected by the modal_adapter_server's import-time logs (the in-tree measurement stack imports at process start) and by the per-Measurement device probe (`GET /modal/measurements/<id>/devices`, 503 when the stack is unavailable). |
 | Failure mode | Soft — server still starts when the import probe fails (e.g. `sdl_audio_core` not built yet) |
 
 **Pre-Phase-0 (deleted at dev-rrport, 2026-05-10):** `_room_response_bootstrap.py`
@@ -492,8 +492,44 @@ open while paused.
 
 ---
 
+## Measurement Entity (Modal Adapter refactor)
+
+A **Measurement** is the first-class acquisition entity — raw recordings plus
+the audio-device / impulse / series / mapping / calibration-criteria setup. It
+is **separate from the Project** (the analysis-side entity that owns ESPRIT /
+tracking / feedin). One Measurement parents many Projects. Full architecture,
+REST surface, migration, and import flow live in
+[MODAL_COLLECTION.md](MODAL_COLLECTION.md); the canonical spec is
+[`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md).
+
+Backend modules (all under `pianoid_middleware.modal_adapter`):
+
+| File | Role |
+|------|------|
+| `measurement_entity.py` | `Measurement` dataclass — `create` / `load` / `save` / `summary`, `read_all_setup`, `write_setup_config` (lock-gated), `lock` / `unlock`, `record_scenario` (auto-lock N4), `write_setup_test` (N3), slug normalisation (N1). Errors: `MeasurementLockedError` (→423), `MeasurementHasReferencesError` (→409), `InvalidMeasurementIdError` (→422) |
+| `measurement_catalog.py` | `MeasurementCatalog` — list / get / create (409 dup, N1) / delete (409 if referenced, N6) / atomic rename + cross-Project ref update; `find_projects_referencing` reverse-lookup |
+| `measurement_routes.py` | REST surface under `/modal/measurements/*` (create/list/get, 5 setup PATCHes, setup_test, unlock, rename, delete, the Phase-2c collect family, devices, and the import endpoints) |
+| `measurement_import.py` | Import an existing dataset folder/zip as a Measurement (probe / import_folder / import_scenarios / unzip_helper); `session_metadata.json → setup/*` translation |
+| `migrate_to_measurement_entity.py` | v1→v2 migration CLI — `--mode {dry-run, apply, verify, rollback}`, per-project rollback tarball, idempotent |
+| `measurement/recorder.py` | `RoomResponseRecorder` — vendored in-tree at Phase 0 (was the deleted `_room_response_bootstrap.py` sibling-repo shim) |
+
+**Lifecycle semantics (locked decisions):**
+
+| Rule | Behaviour |
+|------|-----------|
+| Identity (N1) | `measurement_id` IS the globally-unique display name (slug-normalised). Duplicate create → 409 |
+| Snapshot (N5) | A Project deep-copies the parent's `setup/*` into `project.json.measurement_snapshot` at branch time — frozen; later parent edits don't affect existing Projects |
+| Auto-lock (N4) | First successful scenario writes `locks/acquisition.lock`; `setup/*` becomes read-only (423) until `POST /unlock {confirm:true}`. `calibration_criteria` stays editable (analysis-time gate) |
+| Deletion (N6) | Never auto-deleted on Project delete. `DELETE /modal/measurements/<id>` → 409 if any Project references it; the user deletes/re-binds linked Projects first |
+| recording_mode (N7) | Per-Measurement only; the user-facing field was removed (dev-impulse-chart) — real acquisition is always `standard`, calibration sweeps go through `SetupTestEngine` |
+| Setup Test (N3) | One shared test in 3 UI surfaces; overwrites `setup_test/latest.{json,wav}` per run (no history) |
+| v1 cutover (N8) | `/modal/collect/*` → `410 Gone`; sole survivor is `GET /modal/measurements/active_session` |
+
+---
+
 ## Related Documentation
 
 - [REST_API.md](REST_API.md) — complete endpoint reference
+- [MODAL_COLLECTION.md](MODAL_COLLECTION.md) — Measurement entity, collection, migration, import (canonical)
 - [MIDI_SYSTEM.md](MIDI_SYSTEM.md) — MidiListener, midi_commands, event pipeline
 - [CHART_SYSTEM.md](CHART_SYSTEM.md) — ChartGenerator, ChartRegistry, chartFunctions, chart_config.json

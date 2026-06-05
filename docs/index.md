@@ -91,6 +91,9 @@ interactive latency.
   structure, startup sequence, and inter-module communication
 - [modules/pianoid-middleware/REST_API.md](modules/pianoid-middleware/REST_API.md) — All HTTP
   endpoints, request/response schemas, and error codes
+- [modules/pianoid-middleware/MODAL_COLLECTION.md](modules/pianoid-middleware/MODAL_COLLECTION.md) —
+  Modal Adapter Measurement entity: lifecycle/semantics, collection REST surface,
+  v1→v2 migration, dataset import
 - [modules/pianoid-middleware/MIDI_SYSTEM.md](modules/pianoid-middleware/MIDI_SYSTEM.md) — MIDI
   device enumeration, event parsing, and routing to the engine
 - [modules/pianoid-middleware/CHART_SYSTEM.md](modules/pianoid-middleware/CHART_SYSTEM.md) —

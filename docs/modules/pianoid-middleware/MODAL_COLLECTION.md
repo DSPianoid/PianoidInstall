@@ -1,10 +1,14 @@
 # Modal Adapter Measurement Collection
 
-**Status (Phase 2c, dev-msmtui-fc, 2026-05-11):** The per-Measurement
-collect endpoints have shipped. Combined with Phase 2a's v1 retirement
-+ Phase 2b's frontend Collection UX, the Measurement-entity refactor's
-backend acquisition surface is complete; only Phase 3 (light SDL3.dll
-share) and Phase 4 (streaming-messages polish) remain.
+**Status — SHIPPED (merged to PianoidCore + PianoidTunner `dev`).** The
+Measurement-entity refactor is functionally complete: Phase 1 (entity + REST +
+migration), Phase 2a (v1 `/modal/collect/*` → 410 + real Setup Test + streaming
+messages), Phase 2b (the rebuilt 5-section Collection subpanel + shared
+`<SetupTest>` + `<CollectionLog>`), Phase 2c (per-Measurement collect family +
+branching, `/projects/copy` + `/create_from_zip` → 410), and the dev-maimport
+campaign (import an existing dataset folder/zip as a Measurement). The **only**
+outstanding item is the proposal's Phase 5 single-`SDL3.dll`-dedup benchmark
+(Gate-4) — a deployment-hygiene cleanup with no functional surface, NOT yet done.
 
 The legacy v1 `/modal/collect/*` REST surface (Wave B-1) is **retired
 to HTTP 410 Gone** as part of the Modal Adapter Measurement-entity
@@ -1306,6 +1310,6 @@ phase PATCH (canonical 7-key body) before code fix landed.
 
 - [DATA_FLOWS.md § Measurement Collection Flow](../../architecture/DATA_FLOWS.md#measurement-collection-flow)
 - [pianoid-middleware OVERVIEW: Measurement Stack (Phase 0 RR-port)](OVERVIEW.md#measurement-stack-phase-0-rr-port-dev-rrport-2026-05-10)
-- [REST_API.md: Modal Collection Endpoints](REST_API.md#modal-collection-endpoints-port-5001-b-1)
+- [REST_API.md: Measurement Collection Endpoints](REST_API.md#measurement-collection-endpoints-port-5001--v2-measurement-entity)
 - [Proposal §3.4 N8 hard cutover](../../proposals/modal-adapter-measurement-entity-2026-05-10.md#34-endpoints-removed--hard-cutover-at-phase-2-n8)
 - [MODAL_ADAPTER_GUIDE.md § Project Management (Phase 2c rework)](../../guides/MODAL_ADAPTER_GUIDE.md#project-management)
