@@ -15,6 +15,80 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-steinway-preset locks RELEASED 2026-06-05 at Step 10a Phase 2 (user-approved SHIP option A). Held:
+     PianoidCore/pianoid_middleware/presets/Belarus_196modesC_Steinway1860 (NEW),
+     .../Belarus_196modesC_Steinway1860_56SM (NEW), pianoid_middleware/auto_tuner.py,
+     tests/unit/test_auto_tuner_robust.py (NEW). 2 Steinway 1860 mensur presets (full 88-key 58-block +
+     56-SM 84-key trim) + robust harmonic-comb FrequencyTuner (R1 adaptive window/zero-pad, R2 comb f0,
+     R3 comb-consistency confidence [deleted the 0.5 floor], R4 inharmonic stretched comb + treble window).
+     Committed feature/steinway-1860-presets f30ba32 + 5655f02, MERGED to dev 7394188 (--no-ff, branch kept).
+     NOT pushed (/sync handles origin reconcile + push-all). Regression: test_auto_tuner_robust 14/14 +
+     test_tune_pipeline 59/59. Source preset Belarus_196modesC was READ-ONLY (untouched). -->
+| <!-- (none active) --> | | | |
+<!-- dev-asioload locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap of the orphaned 2026-06-02 HOLD,
+     same agent ID; user-approved merge + Phase 2 via Telegram). Held: PianoidCore/pianoid_cuda/Pianoid.cu,
+     Pianoid.cuh, AddArraysWithCUDA.cpp, pianoid_middleware/backendServer.py, tests/system/test_asio_fallback.py (new).
+     ASIO→SDL3 auto-fallback (option B) + USER-VISIBLE warning. C++: startAudioDriver() catches the ASIO init throw →
+     reconstructs SDL3 (createDriverWithType(SDL3, chunks=16)+setupCuda+init); engine records requested/active driver +
+     reason (engine = sole writer, P1); rethrows on non-ASIO failure OR if the SDL3 fallback ALSO fails (fail-fast S5).
+     pybind getters (didAudioDriverFallback/getRequestedDriverType/getActiveDriverType/getAudioDriverFallbackReason) in
+     AddArraysWithCUDA.cpp. Middleware: /health `audio_driver_fallback` dict + WS lifecycle push (mirrors cfl_redline
+     precedent, same _audio_driver_fallback_status() helper). pianoid.py was locked then RELEASED 2026-06-02T19:22Z —
+     no edit needed (fallback fully in C++). --heavy --release build verified (4 getters bound into correct-venv .pyd).
+     END-TO-END VERIFIED on this no-ASIO machine: /health audio_driver_active=TRUE + audio_driver_fallback dict
+     populated (occurred:true, requested:ASIO_CALLBACK, active:SDL3); engine isAudioDriverActive()=True / didFallback=True;
+     test_asio_fallback.py 3/3; perf 5/5 + sound_regression PASS (synthesis byte-identical). COMMITTED PianoidCore
+     feature/asio-sdl-fallback `3ef4e69` (5 files +330/-3), MERGED to dev `b88a627` (--no-ff). Feature branch KEPT.
+     NOT pushed (local dev was 5 behind origin/dev — origin reconciliation deferred to orchestrator/user, same
+     "LANDED VIA PULL MERGE" pattern as dev-7032/dev-eac2). Docs (AUDIO_DRIVERS/REST_API/STARTUP_TROUBLESHOOTING/
+     TESTING) + session log on root master (9ab2571 + this Phase-2 bookkeeping commit). DEFERRED follow-up: Layer 3
+     (PianoidTunner FE warning chip consuming the WS audio_driver_fallback field) is UNBUILT — correctly deferred while
+     the FE tree was held by dev-blur; now an UNBLOCKED clean follow-up since PianoidTunner dev is clear (dev-blur
+     COMPLETED 2026-06-03 @234e1b9). NO PianoidTunner edits this session. Session log archived to logs/archive/. -->
+<!-- dev-3580 lock RECONCILED 2026-06-03 by dev-asioload (STALE — guards nothing). The active `| dev-3580 |` row that
+     stood below on PianoidCore/pianoid_cuda/Pianoid_excitation.cu has been removed. Its content was a diagnostic
+     NOTE_OFF_PROBE in `_add_string_for_playback` (a live note-off bisect probe, explicitly NOT a real fix and NOT to be
+     merged to dev). The probe was preserved ONLY in `stash@{0}` = `26799bf` (alongside the dev-soundint-live work) —
+     and that stash/branch/commit are VERIFIABLY GONE (confirmed by the dev-soundint-live RELEASED comment + the
+     2026-05-30/05-31 verification: `git stash list` carries no soundint entry, `git branch -a | grep -i soundint`
+     empty, `git cat-file -t 26799bf` → "Not a valid object name"). The 55/56/57 trichotomy this probe was investigating
+     was independently RESOLVED by dev-427c (P1-1 GPU-pointer authority race, merged to PianoidCore dev `a352b2f`). With
+     the protected stash gone and the bug resolved, the row protects nothing and is reconciled to this comment. The
+     PianoidCore tree is clean on dev (Pianoid_excitation.cu committed-clean — no orphaned probe in the working tree). -->
+<!-- dev-blur locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap, user-approved full merge).
+     Held: PianoidTunner NumInput/NumInput.js, Mode.jsx, Strings.jsx, GaussCell.jsx,
+     ToolBar.jsx, NumInput/__tests__/numInput.blur.test.jsx (new),
+     __tests__/ToolBar.commitKey.test.jsx (new). NumInput persist-on-blur: shared
+     commitValue(rawString) (Enter+blur), handleBlur decision table, optional commitKey
+     edit-identity guard (+editKeyRef). All 4 Group-1 callers wired — Mode/Strings (commitKey=key),
+     GaussCell (`${level}-${chart}-${name}`), ToolBar (composite of selectedParameter
+     groupe/name/gaussIndex/levelValue + pitch/mode, on the shared selected-param NumInput).
+     Committed PianoidTunner feature/numinput-persist-on-blur 76a56fd (7 files, +471/-67),
+     MERGED to PianoidTunner dev 234e1b9 (--no-ff). Feature branch KEPT. NOT pushed (PianoidTunner
+     dev is local-only since dev-numsplit). Full Jest 70/830 → 71/834 (+1 suite ToolBar.commitKey /
+     +4 tests; ZERO regressions); 0 new eslint warnings on changed files. Docs (OVERVIEW NumInput row +
+     CODE_QUALITY God Objects NumInput.js RED rank 16 @1036 + P2-1 config-editor split named) already
+     updated by the prior dev-blur session; recovery verified accuracy. FRONTEND-ONLY, NO CUDA/backend,
+     no servers started (Jest jsdom). PianoidCore untouched (off-limits — on dev-asioload's
+     feature/asio-sdl-fallback). Session log archived to logs/archive/. -->
+<!-- dev-8085 locks RECONCILED 2026-06-03 by dev-blur (STALE — the 2 active `| dev-8085 |` rows that
+     stood here are now removed). Per the dev-df69 consolidation (2026-05-31, comment further below):
+     feature/lower-default-volume-100 (120→100 default preset-load volume) is an ANCESTOR of PianoidTunner
+     dev (usePreset.js:152 default = 100, merged at 2d23254; ToolBar.jsx volume change history 88a016f) —
+     the work shipped, the rows were orphaned leftovers the consolidation noted ("2 duplicate rows
+     collapsed") but never deleted. dev-blur legitimately re-acquired + released ToolBar.jsx this session
+     (persist-on-blur commitKey wiring) and usePreset.js is committed-clean on dev, so reconciling both
+     dev-8085 files into this single RELEASED comment is in-scope. Held files were: ToolBar.jsx,
+     usePreset.js. Tree clean. -->
+<!-- dev-numsplit locks RELEASED 2026-06-01 at Step 10a Phase 1 commit (user-approved, live-tested "works"). Held:
+     PianoidTunner/src/components/NumInput/NumInput.js + numInputMath.js (new) + useNumInputCaret.js (new) +
+     __tests__/numInputMath.test.js (new). NumInput god-object split 1555 RED → 995 YELLOW (review R-1):
+     pure math (formatNumber/anchorExponentCaret/getStepFromCursorPosition/computeExponentStep/getInputTitle/
+     generateUniqueId) → numInputMath.js; caret machinery → useNumInputCaret hook; arrow-handler + config-commit
+     dedup in-component. Public prop API byte-identical. Committed PianoidTunner feature/numinput-split c8edfa1
+     (+962/-829, 4 files). Full Jest 68/795→69/820 (zero regressions); 3 files eslint-clean. Docs (CODE_QUALITY
+     God Objects RED→YELLOW + OVERVIEW NumInput row) + session log on root master. MERGED to PianoidTunner dev
+     (--no-ff) at Phase 2. NOT pushed (user did not request push — local only). -->
 <!-- dev-df69 lock RELEASED 2026-05-31T09:35Z: PianoidTunner/src/PianoidTuner.js merge conflict resolved
      (feature/preset-settings-ui → dev), committed b24dead + pushed (origin/dev == b24dead, verified).
      dev-177a even-scheduler ONLINE + dev-8abf offline-WAV OFFLINE both survive; stopSweep + unmount
@@ -144,12 +218,12 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      bug-55-56-57 §7b) + diagnostic dev-427c-p1-authority-race-stress.py + session log committed on root
      master by the same sync. stash@{0}=26799bf (dev-soundint-live) NOT popped/touched. Other feature
      branches untouched. NOT pushed yet (awaiting user push-confirm). -->
+<!-- (dev-8085's 2 stale active rows removed 2026-06-03 — see the "dev-8085 locks RECONCILED 2026-06-03 by dev-blur" comment near the top active-rows region.) -->
 <!-- dev-8085 ACTIVE rows REMOVED 2026-06-04 (Phase 2 wrap, stale-row reconcile). These two rows were
      leftover ACTIVE entries for the 120→100 default-volume work; that work has long been an ancestor of
      PianoidTunner dev — already documented RELEASED 2026-05-31 by the dev-df69 consolidation (see the
      "dev-8085 locks RELEASED 2026-05-31T09:42Z by dev-df69 consolidation" comment further below). The
      rows simply weren't deleted at that time. No active lock; nothing held. -->
-
 <!-- dev-stest-4a7c locks RELEASED 2026-05-31 at Step 10a Phase 1 (Sound Test diagnostic chart).
      Sound Test diagnostic chart — Phase B + M9 + M12 + M14 (audio attach for chart-native playback).
      M12: bool URL-string coercion fix in ChartRegistry.extract_arguments — bug where
@@ -260,7 +334,10 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      tests/system/test_cfl_stability_guard.py. Committed on feature/cfl-stability-guard (PianoidCore
      2a37faa); docs/diagnostics/log on root master. NOT merged — branch awaits the user's test + approval. -->
 <!-- dev-vpnoteoff lock RELEASED 2026-05-27 at Step 10a Phase 1 commit. Held: PianoidTunner/src/components/VirtualPiano.js. Committed on feature/vp-noteoff-fix (f3ce378); 62/693 Jest PASS. NOT merged — awaits user test + approval. -->
-| dev-3580 | `PianoidCore/pianoid_cuda/Pianoid_excitation.cu` | 2026-05-28T19:09:39Z | Diagnostic NOTE_OFF_PROBE in `_add_string_for_playback` for live note-off bisect (NOT a real fix). Tree is now CLEAN (PianoidCore detached @67148fa); the probe was PRESERVED in `stash@{0}` = `26799bf` alongside the dev-soundint-live work (★that stash is now GONE per the 2026-05-30 verification — see dev-soundint-live RELEASED comment below). NOT to be merged to `dev`. Kept (not discarded) for the ongoing static review per the 2026-05-29 USER CORRECTION. |
+<!-- dev-3580 active row REMOVED 2026-06-03 by dev-asioload (reconciled to RELEASED — see the
+     "dev-3580 lock RECONCILED 2026-06-03 by dev-asioload" comment in the active-rows region near the top).
+     Was: `PianoidCore/pianoid_cuda/Pianoid_excitation.cu` — diagnostic NOTE_OFF_PROBE preserved only in the
+     now-lost stash@{0}=26799bf; guards nothing (stash GONE, trichotomy resolved by dev-427c). Tree clean. -->
 <!-- dev-soundint-live PAUSED-lock RELEASED 2026-05-31 (orchestrator + user-approved cleanup;
      Telegram msg 3059 "Go as recommended" = α = release the PAUSED lock now over β = let
      dev-stest-4a7c override it). HONEST-RECORD CLEANUP — UNLIKE dev-eac2/dev-7032 (whose code

@@ -231,13 +231,32 @@ Response `200` (healthy):
     "main_loop_should_continue": true
   },
   "cpp_module_responsive": true,
-  "available_notes_count": 88
+  "available_notes_count": 88,
+  "audio_driver_fallback": {
+    "occurred": true,
+    "requested": "ASIO_CALLBACK",
+    "active": "SDL3",
+    "reason": "Requested ASIO audio driver could not be initialized (...). Falling back to SDL3.",
+    "message": "ASIO_CALLBACK unavailable - using SDL3"
+  }
 }
 ```
 
 Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
 
 - `listen_mode`: the engine's runtime **listen-to-modes** flag — `true` when sound channels carry mode forces, `false` when they carry string bridge displacement. Mirrors the `listen_to_modes` value passed to the last `POST /load_preset` (its sole owner is `pianoid.mp.listen_to_modes`, set in `pianoid.py`). It is **not** the MIDI-listener state (`GET /midi/status` → `listening`); the two are independent. (Fixed in dev-lmode, 2026-06-05: this field formerly read `pianoid.listen`, the MIDI-listener loop flag, so it always reported `false` under the `listen_to_midi=0` default regardless of the modes setting.)
+
+`audio_driver_fallback` (added dev-asioload, 2026-06-02): `null` when no fallback
+info is available (engine not loaded, or a build predating the feature). Otherwise a
+dict describing the ASIO→SDL3 runtime fallback — `occurred` is `true` only when the
+requested ASIO driver failed to initialize and the engine fell back to SDL3 (so the
+user still has audio instead of `audio_driver_active: false`). `requested`/`active`
+are driver names (`SDL2`/`SDL3`/`ASIO`/`ASIO_CALLBACK`); `message` is the short
+user-facing warning and `reason` the underlying engine detail. The frontend lights a
+"ASIO unavailable — using SDL3" warning on `occurred: true`. The same dict is pushed
+on the WebSocket `lifecycle` event (`audio_driver_fallback` key) so the UI reacts
+without polling. Engine-side mechanics: see
+[AUDIO_DRIVERS.md — ASIO → SDL3 Runtime Fallback](../pianoid-cuda/AUDIO_DRIVERS.md#asio--sdl3-runtime-fallback).
 
 Response `500` if health check itself throws.
 
