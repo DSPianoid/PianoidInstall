@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-fbsl | `PianoidBasic/Pianoid/ModelParams.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidTunner/src/hooks/usePreset.js`, `PianoidTunner/src/hooks/useBackendHealth.js`, `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/PianoidTuner.js`, `PianoidCore/tests/system/test_feedback_coeff_sound_channels.py` | 2026-06-05T08:35:00Z | Feedback-coefficient slider: two-layer (per-preset stored × global env-multiplier) + Set/fold button + matrix-disable in single-matrix mode + ownership inversion (remove switch_preset feedback snapshot/restore). Frontend composition, NO CUDA build. |
 <!-- dev-mtxfix locks RELEASED 2026-06-05 at Step 10a (team-lead-approved single batch wrap + push). Held:
      PianoidTunner MatrixTools.jsx/.css + __tests__/MatrixTools.theme.test.jsx (deleted), SoundChannelsPane.jsx,
      MeasuredMatrix.jsx, RowEditor.js, hooks/useSettings.js + 2 test files (RowEditor.axisVariant.test.jsx new +

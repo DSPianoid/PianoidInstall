@@ -223,6 +223,8 @@ Response `200` (healthy):
   "backend_thread_running": true,
   "exception": false,
   "listen_mode": false,
+  "single_deck_matrix": true,
+  "stored_feedback_coeff": 1.0,
   "status": "healthy",
   "message": "Core loaded, GPU initialized, main loop running with audio",
   "lifecycle": {
@@ -245,6 +247,10 @@ Response `200` (healthy):
 Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
 
 - `listen_mode`: the engine's runtime **listen-to-modes** flag — `true` when sound channels carry mode forces, `false` when they carry string bridge displacement. Mirrors the `listen_to_modes` value passed to the last `POST /load_preset` (its sole owner is `pianoid.mp.listen_to_modes`, set in `pianoid.py`). It is **not** the MIDI-listener state (`GET /midi/status` → `listening`); the two are independent. (Fixed in dev-lmode, 2026-06-05: this field formerly read `pianoid.listen`, the MIDI-listener loop flag, so it always reported `false` under the `listen_to_midi=0` default regardless of the modes setting.)
+
+- `single_deck_matrix` (added dev-fbsl, 2026-06-05): the engine's compile-time `USE_SINGLE_DECK_MATRIX` mode. `true` (the active build) means there is ONE packed coupling matrix (feedin only) and feedback is derived as `feedin × deck_feedback_coeff` — no separate feedback half exists, so the per-pitch feedback MATRIX editor is meaningless and the frontend disables it (only the toolbar Feedback coefficient slider acts on feedback). Surfaced from the backend (not a frontend-only assumption) to avoid silent divergence. NOTE: the installed `.pyd` does not currently export the constant, so the backend falls back to `true` (the active build is single-deck per the pack/kernel path); if a future build exports `pianoidCuda.USE_SINGLE_DECK_MATRIX`, the field reflects it.
+
+- `stored_feedback_coeff` (added dev-fbsl, 2026-06-05): the active preset's PER-PRESET feedback baseline (`pianoid.mp.deck_feedback_coefficient`; default `1.0`). The frontend reads this after a preset load/switch to seed the stored layer of the two-layer feedback slider (the slider's off-center env multiplier is applied on top). See `POST /set_runtime_parameters` (`feedback_coeff` / `store_feedback_coeff`) and DATA_FLOWS §2.6.
 
 `audio_driver_fallback` (added dev-asioload, 2026-06-02): `null` when no fallback
 info is available (engine not loaded, or a build predating the feature). Otherwise a
@@ -739,6 +745,20 @@ Request body:
 - Outside `1`–`127` (e.g. `2.5`) — used as direct coefficient
 
 Valid coefficient range after mapping: `0.0`–`1000`.
+
+`feedback_coeff` (optional, float, dev-fbsl 2026-06-05): a DIRECT effective deck feedback
+coefficient that BYPASSES the `feedback` level mapping above. Used by the two-layer
+feedback slider, which composes `effective = stored_coeff(preset) × env_multiplier(slider)`
+frontend-side and sends the product here. Calls `set_deck_feedback_coefficient(value)`
+directly. Range `0.0`–`1000`. Scales PIANO-pitch resonance feedback only (the dev-d52b
+`dev_feedback_output_mask` keeps sound-channel/output rows ≥128 at ×1).
+
+`store_feedback_coeff` (optional, float, dev-fbsl 2026-06-05): the "Set" / fold button writes
+the new PER-PRESET stored feedback baseline IN MEMORY (`pianoid.mp.deck_feedback_coefficient`)
+— NO disk I/O. The value is persisted to the preset file only on `/save_preset` (it rides
+`mp.pack()` → `model_parameters.deck_feedback_coefficient`). Range `0.0`–`1000`. The stored
+baseline is per-preset: `switch_preset` applies the target preset's value (it is no longer
+global; volume + volume-sensitivity remain global).
 
 `volume_center` (optional, float): coefficient at level 64. `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
 

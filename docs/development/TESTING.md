@@ -23,6 +23,7 @@ PianoidCore/tests/
 │   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
 │   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard v2 (HOST-side gate) — baseline-stable-via-ratio, unstable tension/jung/r REJECTED (CflRejected→400) BEFORE upload + engine-finite + model-NOT-mutated, stable/length not falsely rejected, host-backed stability_ratio extraction, per-string tension_offset (audio_off)
 │   ├── test_asio_fallback.py          # ASIO→SDL3 auto-fallback (dev-asioload): adt=4 with no ASIO driver → engine falls back to SDL3 (audio_driver_active=True) + flags didAudioDriverFallback + records requested/active/reason; SDL3-direct does NOT flag fallback. Fallback-occurred asserts skip if a working ASIO driver is installed. (audio_on)
+│   ├── test_feedback_coeff_sound_channels.py  # Feedback-coeff slider (dev-fbsl): SOUND CHANNELS unaffected by the effective coefficient — output mask classifies output rows (≥128)=1.0 / piano=0.0 (single scalar can't reach sound-channel rows); feedback=0 PRESERVES sound-channel audio (not silence); coeff not globally inert (resonance coupling changes output). The mask-contract form of "sound channels unaffected by both layers + their product". (audio_off)
 │   ├── test_playback.py
 │   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag

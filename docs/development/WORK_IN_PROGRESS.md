@@ -23,6 +23,7 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-fbsl | DESIGN-FIRST — single feedback/feedin coefficient SLIDER (64-center env multiplier + write-button folds into stored coeff + matrix-edit-disable in single-matrix mode + in-memory-vs-disk persistence). Builds on dev-d52b/dev-uimtx feedback work. DESIGN phase only — no locks/edits. | [log](logs/dev-fbsl-2026-06-05-073950.md) | 2026-06-05 | In Progress (design) |
+| dev-mzoom | DESIGN-FIRST — matrix select-to-zoom + selection-scoped edits for PianoidTunner (drag-select → view auto-scales to selection; all edits scoped to selection; reset/un-zoom control). DESIGN-ONLY — no locks/edits, read-only study. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | In Progress (design) |
 
 <!-- dev-steinway-preset COMPLETED 2026-06-05 (Step 10a Phase 2, user-approved SHIP option A).
      PianoidCore feature/steinway-1860-presets: f30ba32 (robust tuner R1-R4 + 14 tests) + 5655f02
