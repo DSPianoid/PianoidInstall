@@ -220,6 +220,27 @@ and capture the actual failure signature (or get the user's exact length/iter re
 
 ---
 
+## Deferred follow-up — matrix-scale Zoomer slider exists but is NOT wired into the matrix panes (dev-mtxfix, 2026-06-05)
+
+There is no working in-matrix gesture to change the matrix SCALE (the visible pitch/mode
+range, which sets cell size: `cellWidth = containerWidth / (range[1]-range[0]+1)` in
+`PitchesModesMatrixCanvas.jsx`). The only way to enlarge cells today is dragging the mosaic
+pane border bigger (the matrix auto-fits). A dual-thumb range slider, `Zoomer.jsx` (calls
+`onRangeChange` → `setRangeOfPitches`/`setRangeOfModes`, gated on `settings.showRange`),
+ALREADY EXISTS but is only rendered inside `ModeSelector.jsx`, which is **not mounted anywhere**
+in `PianoidTuner.js`. The matrix panes (Feedin/Feedback/Sound Channels) use `VirtualPiano` +
+`ModesRule` rulers, which expose `onSelectRange` (drag to HIGHLIGHT a sub-range for bulk edits)
+but never call `onRangeChange` — `VirtualPiano` doesn't even accept the prop. So the
+`onRangeChange={setRangeOf*}` props passed to those rulers (PianoidTuner.js:1904 etc.) are dead.
+
+**Status: documented gap, awaiting user decision (relayed by team-lead).** Surfaced when the user
+asked "how do I scale the matrix?" during the dev-mtxfix matrices-UI live-fix batch. To wire it:
+mount a `Zoomer` (or equivalent +/- / range control) on the matrix-pane rulers and connect it to
+the existing `setRangeOfPitches`/`setRangeOfModes` shared state. NOT in scope for the dev-mtxfix
+batch (M1 revert + SC flat-bars + bar-not-line). Owner: open — a fresh /dev task if the user wants it.
+
+---
+
 ## Deferred follow-up — online "Play All" sweep has no mid-flight cancel (dev-177a, 2026-05-30)
 
 The online keyboard sweep ("Play All") now routes through the backend even-scheduler

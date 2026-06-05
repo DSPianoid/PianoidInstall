@@ -15,6 +15,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-mtxfix locks RELEASED 2026-06-05 at Step 10a (team-lead-approved single batch wrap + push). Held:
+     PianoidTunner MatrixTools.jsx/.css + __tests__/MatrixTools.theme.test.jsx (deleted), SoundChannelsPane.jsx,
+     MeasuredMatrix.jsx, RowEditor.js, hooks/useSettings.js + 2 test files (RowEditor.axisVariant.test.jsx new +
+     SoundChannelsPane.localChannel.test.jsx). Matrices-UI live-fix batch: (1) REVERT M1 dark-theme toolbar
+     (restore raster icons + #ddd light bg = visible edit buttons; deleted M1-only theme test); (2) PART 3 SC pitch
+     control still showed a keyboard after Rotate — bottom RowEditor ruler ignored axisVariant; threaded axisVariant
+     MeasuredMatrix->RowEditor + FlatBarAxis for channel rows; (3) PART 4 SC per-channel matrix chart rendered as a
+     LINE — soundChannelSettings.visualization='line' (aggregate-only default, pre-existing from dev-drawable-sc
+     Wave 3) leaked into MeasuredMatrix's RowEditor; SoundChannelsPane now overrides visualization='bar' for the
+     matrix path (aggregate keeps 'line'); corrected the misleading useSettings comment. All other dev-uimtx work
+     (C1/H1/H2/H3/M3/bar-chart/clip) intact. Full Jest 83 suites/903 tests green; frontend-only, NO build.
+     PianoidTunner feature/dev-mtxfix-revert-m1 278ee39 MERGED to dev e2aaacf (--no-ff). Docs (OVERVIEW RowEditor
+     row + WIP matrix-zoom gap follow-up) + session log on PianoidInstall master. Pushed to origin. -->
+| <!-- (none active) --> | | | |
 <!-- dev-steinway-preset locks RELEASED 2026-06-05 at Step 10a Phase 2 (user-approved SHIP option A). Held:
      PianoidCore/pianoid_middleware/presets/Belarus_196modesC_Steinway1860 (NEW),
      .../Belarus_196modesC_Steinway1860_56SM (NEW), pianoid_middleware/auto_tuner.py,
