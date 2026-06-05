@@ -411,7 +411,9 @@ Tracks the current UI selection state — which pitch, range of pitches, which m
 
 ### `useMatrixHistory`
 
-Tracks edit history for the feedin/feedback matrices to support undo operations.
+Tracks edit history for the feedin/feedback (and Sound Channels) matrices to support undo operations. The pure `calcChange(stageMatrix, stageMuteMap, change)` applies one change object and is the single matrix-mutation primitive (reused by `applyChange`, `applyBatchChange`, and the imperative-emit paths in `useSoundChannels`/PianoidTuner).
+
+**Selection-scoped edits (dev-mzoom, 2026-06-05).** `change` accepts an optional `bounds = { pitchMin, pitchMax, modeMin, modeMax }` (matrix-key space: `pitchMin/Max` = matrix ROW keys — piano pitches for Feedin/Feedback, output-channel indices for SC; `modeMin/Max` = column indices). When present, the `Row` (`modesVector`), `Column` (`pitchesVector`), and `Matrix` zones — and their `Mute` variants — clamp their writes to the rectangle, so an edit applies ONLY to the selected/zoomed area. `Cell` and the `*Drawn` zones ignore `bounds` (a single clicked cell / explicit per-index vectors). **When `bounds` is absent the op covers the whole matrix exactly as before (backward-compatible).** `MeasuredMatrix` supplies `bounds` from its per-pane `pianoRange`/`modesRange` (the VIEW range); because select-to-zoom sets the view range = the selected area (M1), bounding to the view range bounds edits to the selection. The emit path is unchanged — a whole-matrix emit posts the post-`calcChange` matrix (out-of-bounds cells unchanged); a per-pitch emit posts the bounded row. Covered by `__tests__/useMatrixHistory.bounds.test.jsx`.
 
 ### `useValuesHistory`
 
