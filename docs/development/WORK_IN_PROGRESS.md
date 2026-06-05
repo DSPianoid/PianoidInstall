@@ -22,6 +22,28 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+<!-- dev-d52b + dev-uimtx COMPLETED 2026-06-04 (Phase 2 wrap, user-approved
+     "commit and push everything").
+
+     dev-d52b (proportional piano-only feedback coefficient + int-domain output
+     soft-limiter): middleware policy + one-time kernel mechanism (Option M) —
+     slider × feedin applied to piano pitches only (sound channels excluded);
+     int-domain output soft-limiter to tame the runaway/overflow the proportional
+     feedback could drive. 11 files. Basis: feedin-feedback-soundchannels-review-2026-06-04.md §10.
+     - PianoidCore feature/dev-d52b-feedback-coeff 24d5251 MERGED to dev at f332838 (--no-ff).
+     - PianoidBasic feature/dev-d52b-feedback-coeff 5758dae (StringMap.pack_output_mask
+       for piano-only feedback scaling) MERGED to dev at 206ea96 (--no-ff).
+
+     dev-uimtx (matrices-UI review fixes C1/H1/H3/M1/M3, PianoidTunner frontend-only):
+     matrices UI fixes + clip/limit indicator + React-warning fixes. 23 files.
+     Basis: feedin-feedback-soundchannels-UI-review-2026-06-04.md.
+     - PianoidTunner feature/matrices-ui-fixes 1132b4a MERGED to dev at 2488168 (--no-ff).
+
+     All clean --no-ff merges, done locally by the dev agents before this wrap.
+     Session logs archived to logs/archive/ (dev-d52b-2026-06-04-110615.md,
+     dev-uimtx-2026-06-04-131706.md). MODULE_LOCKS rows 486/487 converted to
+     RELEASED comments in this wrap (plus stale dev-8085 rows removed). Diagnostics
+     + screenshots + proposal/reviews committed on PianoidInstall master. Pushed to origin. -->
 <!-- dev-pyspawn-8b3a COMPLETED 2026-05-31 (Phase 2 closeout by orchestrator).
      Non-bug closeout — docs entry only, no code change. The "venv→system Python spawn"
      premise from the dispatch was a misdiagnosis of normal Python 3.12 venv launcher shim
