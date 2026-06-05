@@ -219,6 +219,11 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      master by the same sync. stash@{0}=26799bf (dev-soundint-live) NOT popped/touched. Other feature
      branches untouched. NOT pushed yet (awaiting user push-confirm). -->
 <!-- (dev-8085's 2 stale active rows removed 2026-06-03 — see the "dev-8085 locks RECONCILED 2026-06-03 by dev-blur" comment near the top active-rows region.) -->
+<!-- dev-8085 ACTIVE rows REMOVED 2026-06-04 (Phase 2 wrap, stale-row reconcile). These two rows were
+     leftover ACTIVE entries for the 120→100 default-volume work; that work has long been an ancestor of
+     PianoidTunner dev — already documented RELEASED 2026-05-31 by the dev-df69 consolidation (see the
+     "dev-8085 locks RELEASED 2026-05-31T09:42Z by dev-df69 consolidation" comment further below). The
+     rows simply weren't deleted at that time. No active lock; nothing held. -->
 <!-- dev-stest-4a7c locks RELEASED 2026-05-31 at Step 10a Phase 1 (Sound Test diagnostic chart).
      Sound Test diagnostic chart — Phase B + M9 + M12 + M14 (audio attach for chart-native playback).
      M12: bool URL-string coercion fix in ChartRegistry.extract_arguments — bug where
@@ -559,6 +564,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      committed 908a6c5; docs/log/screenshot on root master e3d2677. [#1-trace] stripped (0 markers).
      Full Jest 61/681 PASS. Stack DOWN (3000/3001/5000/5001 clear). NOT merged — branch awaits the
      user's test + approval. -->
+<!-- dev-d52b locks RELEASED 2026-06-04 (Phase 2 wrap, user-approved). Held:
+     PianoidBasic/Pianoid/StringMap.py + 8 PianoidCore CUDA files (Pianoid.cu/.cuh, MainKernel.cu/.cuh,
+     constants.h, Pianoid_parameters.cu, Pianoid_debug.cu, AddArraysWithCUDA.cpp) +
+     pianoid.py / pianoid_cuda_placeholder.py / backendServer.py. PROPORTIONAL piano-only feedback coeff
+     (slider × feedin; output/sound 128+ excluded via per-string dev_feedback_output_mask) + int-domain
+     tanh output soft-limiter (LIMITER_CEILING 1.2) + non-silent limiting signal (dev_limiter_peak buffer,
+     getLimiterPeaks/resetLimiterPeaks pybind, /health get_limiter_status). KERNEL CHANGE (--heavy --both).
+     PianoidCore feature/dev-d52b-feedback-coeff 24d5251 MERGED to dev at f332838 (--no-ff);
+     PianoidBasic feature/dev-d52b-feedback-coeff 5758dae MERGED to dev at 206ea96 (--no-ff). Pushed to origin. -->
+<!-- dev-uimtx locks RELEASED 2026-06-04 (Phase 2 wrap, user-approved). Held: ~23 PianoidTunner frontend
+     files (MeasuredMatrix.jsx, PitchesModesMatrixCanvas.jsx, MatrixTools.jsx/.css, SoundChannelsPane.jsx,
+     FlatBarAxis.jsx new, PianoidTuner.js, matrixEmit.js new, RowEditor.js, DrawableChart.jsx,
+     useBackendHealth.js, BackendStatusIndicator.jsx, ToolBar.jsx + 8 new test files). Matrices-UI review
+     fixes C1/H1/H3/M1/M3 + clip/limit indicator (binds dev-d52b's /health limiting contract read-only) +
+     React-warning fixes + #208 bar-chart fixes. Frontend-only, HMR, NO CUDA build.
+     PianoidTunner feature/matrices-ui-fixes 1132b4a MERGED to dev at 2488168 (--no-ff). Pushed to origin. -->
 | <!-- (none active) --> | | | |
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10a wrap-up (user-approved merge). Held:
      ToolBar.jsx, useHotkeys.js, PianoidTuner.js, usePreset.js — all committed on
