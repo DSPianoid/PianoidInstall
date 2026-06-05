@@ -22,7 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-fbsl | DESIGN-FIRST — single feedback/feedin coefficient SLIDER (64-center env multiplier + write-button folds into stored coeff + matrix-edit-disable in single-matrix mode + in-memory-vs-disk persistence). Builds on dev-d52b/dev-uimtx feedback work. DESIGN phase only — no locks/edits. | [log](logs/dev-fbsl-2026-06-05-073950.md) | 2026-06-05 | In Progress (design) |
+| dev-fbsl | Single feedback/feedin coefficient SLIDER — two-layer (per-preset stored × global env-multiplier) + Set/fold button + Feedback-matrix-disable in single-deck mode + ownership inversion (switch_preset no longer global). Builds on dev-d52b/dev-uimtx. | [log](logs/dev-fbsl-2026-06-05-073950.md) | 2026-06-05 | IMPLEMENTED (pre-Step-10 halt) — committed on feature/feedback-coeff-slider: PianoidBasic 4660f6b, PianoidCore bf7ac71, PianoidTunner 9aa0e3e; docs master ccdad55. PianoidBasic light build OK (field verified). 3/3 sound-channels mask-contract test PASS. NO CUDA build. NOT merged — awaits user live test + approval. |
 | dev-mzoom | DESIGN-FIRST — matrix select-to-zoom + selection-scoped edits for PianoidTunner (drag-select → view auto-scales to selection; all edits scoped to selection; reset/un-zoom control). DESIGN-ONLY — no locks/edits, read-only study. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | In Progress (design) |
 
 <!-- dev-steinway-preset COMPLETED 2026-06-05 (Step 10a Phase 2, user-approved SHIP option A).
