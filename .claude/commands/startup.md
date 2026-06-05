@@ -301,10 +301,11 @@ start-pianoid.bat
 
 After applying a fix:
 
-1. **Build verification**: `.venv/Scripts/python -c "import pianoidCuda; print('OK')"`
+1. **Build verification (L1 import)**: `PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"` — the path MUST be inside `PianoidCore/.venv/` (not the root `.venv/`)
 2. **Backend health**: `curl http://localhost:5000/health`
-3. **Audio verification**: play a note through the UI or API and confirm audio output
-4. **Full stack**: open http://localhost:3000, click APPLY, play a note
+3. **Preset-load smoke-test (L2 — REQUIRED after any rebuild)**: `POST /load_preset {path:"presets/BaselinePreset1.json"}` → expect **200**, `pianoid_loaded=true`, no Python traceback (an API divergence from a merge/pull shows only here, not at import)
+4. **Audio verification**: play a note through the UI or API and confirm audio output
+5. **Full stack**: open http://localhost:3000, click APPLY, play a note
 
 ### Step 5: Report
 

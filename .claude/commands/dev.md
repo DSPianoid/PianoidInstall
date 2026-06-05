@@ -30,7 +30,7 @@ Do not ship a change that pushes a file past the C4 thresholds without discussin
 Every rebuild, install, or server restart starts by reading the canonical docs — NOT by typing `pip install`. Skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
 
 - **Before ANY CUDA build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
-- **Canonical rebuild command** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your edit never lands.
+- **Canonical rebuild command** — `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both` (cd-safe `.\` path + default `--both`; in agent context use the detached `Start-Process` form — see [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)). Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your edit never lands.
 - **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone does NOT copy CUDA DLLs; run release first (or `--both`). Missing DLLs look like import errors, not build errors.
 - **Verify the rebuild landed** — `grep -a "<new-string-you-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If your marker is absent, nothing changed — do NOT run tests.
 - **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. A locked `.pyd` causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks the venv.
@@ -627,19 +627,15 @@ tasklist //M cudart64_12.dll 2>/dev/null | grep python && echo "WARNING: cudart6
 |--------------|---------------|
 | `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh`, `setup.py` | see below (heavy) |
 | `pianoid_middleware/*.py` only | see below (light) |
-| PianoidBasic `*.py` | `unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_basic.bat"` |
+| PianoidBasic `*.py` | `cd /d PianoidCore && .\build_pianoid_basic.bat` (detached `Start-Process` in agent ctx) |
 | `tests/**` only | No rebuild needed |
 
-**CUDA build (heavy — full rebuild for C++/CUDA changes):**
-```bash
-unset VIRTUAL_ENV
-cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy"
-```
-
-**CUDA build (light — incremental for Python-only middleware changes):**
-```bash
-unset VIRTUAL_ENV
-cmd //c "PianoidCore\build_pianoid_cuda.bat --light"
+**CUDA build — agent context (DETACHED + `--both`; `cmd //c` gate-stalls DESTRUCTIVELY here).** Stop the `.pyd` holder first (launcher REST `POST /api/stop-backend`, or a PID-targeted kill — never `//IM python.exe`), then build detached (`--heavy` = C++/CUDA changes; `--light` = Python-only middleware):
+```powershell
+Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
+  '/c','set "VIRTUAL_ENV=D:\repos\PianoidInstall\PianoidCore\.venv" && cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both > D:\tmp\build.log 2>&1' -PassThru
+# --light --both for middleware-only. ABSOLUTE bat path after cd /d (a bare name fails "not recognized", L-2).
+# Poll D:\tmp\build.log; done at "[SUCCESS] Build completed". Full procedure: BUILD_SYSTEM.md → Canonical Install / Rebuild.
 ```
 
 **If the build fails with exit code `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):**

@@ -155,12 +155,34 @@ For each repo with uncommitted changes:
    git -C "$REPO" commit -m "$(cat <<'EOF'
    <commit message>
 
-   Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+   Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
    EOF
    )"
    ```
 
 **Important**: Present all commit messages to the user for approval before committing. The user may want to adjust wording or split commits.
+
+## Step 5.5: Post-Merge Rebuild Gate (BLOCKING — before push)
+
+A merge that brings in compiled-code changes leaves the LOCAL binaries stale against the new source. Pushing without rebuilding publishes new source that the binaries don't match — the backend then runs new Python against a stale `.pyd` and fails only at runtime (e.g. `/load_preset` 500 `AttributeError`). **This gate is mandatory; its absence is exactly what shipped a broken build (the `pack_output_mask` regression, 2026-06-05).**
+
+1. Compute what the Step-3 merges brought into each repo:
+   ```bash
+   git -C "$REPO" diff <pre-merge-SHA>..HEAD --name-only
+   ```
+2. If the diff touches compiled code, REBUILD (canonical procedure — [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)):
+
+   | Diff touches | Rebuild |
+   |---|---|
+   | `pianoid_cuda/*.cu`, `*.cpp`, `*.cuh`, `*.h`, `setup.py`, `detect_paths.py` | HEAVY CUDA `--both` |
+   | any `PianoidBasic/**` | PianoidBasic build (+ HEAVY CUDA if `.cu/.cpp` also changed) |
+   | `pianoid_middleware/*.py` only | LIGHT CUDA `--both` |
+   | `PianoidTunner` `package.json` / `package-lock.json` | `npm install` |
+   | docs / tests only | no rebuild |
+
+3. Stop the `.pyd` holder first (launcher REST `POST /api/stop-backend`, or a PID-targeted kill), build DETACHED (`Start-Process -WindowStyle Hidden`, absolute bat path), then **VERIFY both levels**: L1 `import pianoidCuda` resolves inside `PianoidCore/.venv/`, AND L2 `/load_preset` returns **200** with no Python traceback (the API-divergence case that import-verify alone misses).
+
+**Step 6 (push) is BLOCKED until the rebuild + `/load_preset` 200 smoke-test pass.** If no compiled code changed, record "post-merge gate: no compiled diff, no rebuild" and proceed.
 
 ## Step 6: Push to Origin
 
