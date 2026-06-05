@@ -266,15 +266,24 @@ unlock zoom" scope):
    `selectedChannel` local-vs-global split, dev-snmtxleak-7e3d). Owner: open — only if the
    user asks during testing.
 
-2. **Reset-button hardcoded `[0,63]` modes bug — PRE-EXISTING + SHARED, NOT fixed here.**
-   The reset (`ZoomOutIcon`) and zoom-to-selection-fallback paths in
-   `PianoidTuner.renderToolbarControls` (~lines 2263-2299) hardcode the modes-axis reset to
-   `[0, 63]` instead of `[0, totalModes - 1]`. This is wrong for any preset with ≠64 modes
-   (e.g. Belarus 196) and affects **Feedin/Feedback too** — it is NOT SC-specific and was
-   NOT introduced by dev-mzoom. Left untouched to keep the SC-unlock diff minimal. The
-   canonical full-modes range already exists at `PianoidTuner.js:1122`
-   (`setRangeOfModes([0, totalModes - 1])`). Owner: team-lead tracking; trivial fix
-   (replace both `[0, 63]` literals) when prioritised.
+2. **Reset-button hardcoded `[0,63]` modes bug — FIXED (dev-mzoom debug iter 2, commit
+   `8ba4944`).** Originally deferred as out of "just-unlock" scope, but the user's
+   missing-UNZOOM-button report made it required: the reset (`ZoomOutIcon`) visibility +
+   action + the zoom-to-selection fallback in `PianoidTuner.renderToolbarControls`
+   hardcoded the modes-axis full bound to `63`. On a >64-mode preset (Belarus = 196) a
+   mode-zoom to `[0, N>=63]` left both mode clauses false → the reset/unzoom button never
+   appeared; the reset action also reset to `[0,63]` (still zoomed). Fixed by deriving
+   `fullModesMax = totalModes ? totalModes - 1 : 63` and using it in the visibility
+   condition, the reset action, and the fallback. Being the SHARED zoom control, this also
+   fixes Feedin/Feedback unzoom for any non-64-mode preset. Live-verified on Belarus 196:
+   reset button appears after a mode-zoom and returns `modesRange` to full `[0,195]`.
+
+   **Also fixed in the same iteration (debug iter 1, commit `fa3c64b`):** SC zoom-to-selection
+   CRASHED the app — SC's channel-row drag wrote a channel range into the shared
+   `selectedPitches`, the shared zoom button turned it into a channel-range `rangeOfPitches`,
+   and Feedin/Feedback's canvas `normRangeStart = pianoRange[0] - firstAvailableNote` went
+   negative → `matrix[-N]` undefined → crash. Fixed by no-op'ing SC's channel-row-axis
+   range/selection callbacks so channel indices never enter the shared piano-pitch state.
 
 ---
 
