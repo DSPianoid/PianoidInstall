@@ -17,6 +17,21 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 |-------|-------|-----------|------|
 <!-- dev-fbsl PianoidTunner locks RELEASED 2026-06-05 (team-lead-directed, to unblock dev-mzoom's PianoidTuner.js SC-zoom work). Frontend slider work is COMMITTED on feature/feedback-coeff-slider 9aa0e3e (usePreset.js + useBackendHealth.js + ToolBar.jsx + PianoidTuner.js); no further frontend edits needed. PianoidCore/PianoidBasic locks KEPT (switch-path test + merge). -->
 | dev-fbsl | `PianoidBasic/Pianoid/ModelParams.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/tests/system/test_feedback_coeff_sound_channels.py` | 2026-06-05T08:35:00Z | Feedback-coefficient slider: per-preset deck_feedback_coefficient persistence + runtime feedback_coeff/store_feedback_coeff + switch_preset ownership inversion + /health flags + sound-channels/switch-path tests. (PianoidTunner rows released 2026-06-05 — frontend committed.) Frontend composition, NO CUDA build. |
+<!-- dev-mzoom locks RELEASED 2026-06-05 at Step 10a Phase 1 commit. Held:
+     PianoidTunner/src/PianoidTuner.js + src/components/SoundChannelsPane.jsx. Unlock existing
+     matrix zoom for Sound Channels (mode-axis): un-gate SC in renderToolbarControls zoom-button
+     id list + wire SC mode-COLUMN axis to shared rangeOfModes/selectedModes (zooms like
+     Feedin/Feedback). Channel-ROW axis kept full (SC rows = output channels 0..N-1, not piano
+     pitches — shared piano-space rangeOfPitches would blank them; deferred follow-up). Reset
+     [0,63] modes bug is PRE-EXISTING + SHARED (Feedin/Feedback too) — NOT fixed here, flagged in
+     WIP. Committed PianoidTunner feature/mzoom-sc-zoom ba38453 (off dev e2aaacf, +25/-3, 2 files).
+     Jest 83 suites/903 tests green; 0 eslint errors. Frontend-only, NO build, no servers.
+     NOT merged — awaits user test + approval. Co-edits PianoidTuner.js with dev-fbsl's COMMITTED
+     feature/feedback-coeff-slider (disjoint regions: fbsl=ToolBar/usePreset wiring + Feedback
+     Alert; mzoom=renderToolbarControls zoom buttons + SC call-site) → clean 3-way merge expected,
+     team-lead sequences fbsl-then-mzoom at integration. Docs (OVERVIEW SC row + WIP follow-ups)
+     + session log on PianoidInstall master. -->
+| <!-- (none active for dev-mzoom) --> | | | |
 <!-- dev-mtxfix locks RELEASED 2026-06-05 at Step 10a (team-lead-approved single batch wrap + push). Held:
      PianoidTunner MatrixTools.jsx/.css + __tests__/MatrixTools.theme.test.jsx (deleted), SoundChannelsPane.jsx,
      MeasuredMatrix.jsx, RowEditor.js, hooks/useSettings.js + 2 test files (RowEditor.axisVariant.test.jsx new +

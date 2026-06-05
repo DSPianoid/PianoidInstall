@@ -242,6 +242,42 @@ batch (M1 revert + SC flat-bars + bar-not-line). Owner: open — a fresh /dev ta
 
 ---
 
+## Deferred follow-ups — Sound Channels zoom unlock (dev-mzoom, 2026-06-05)
+
+**SHIPPED (on PianoidTunner `feature/mzoom-sc-zoom`, off dev e2aaacf, awaiting user test):**
+The existing toolbar zoom-button pair (the `ZoomInIcon` "zoom to selection" + `ZoomOutIcon`
+"reset to full" in `PianoidTuner.renderToolbarControls`, ~line 2245) was un-gated for the
+**Sound Channels** pane and SC's **mode-COLUMN** axis now consumes the shared
+`rangeOfModes`/`selectedModes` — so SC mode columns zoom exactly like Feedin/Feedback.
+2 files: `PianoidTuner.js` (id-gating list += "Sound Channels"; SC call-site now passes
+`rangeOfModes`/`selectedModes`), `SoundChannelsPane.jsx` (`modesRange`/`selectedModesRange`
+← shared state; `pianoRange`/`selectedPianoRange` kept full). Jest 83/903 green. Frontend-only.
+
+Two items **explicitly DEFERRED** (flagged, not built — per the user's "for starters, JUST
+unlock zoom" scope):
+
+1. **SC channel-ROW axis zoom — NOT wired.** SC strings-axis rows are OUTPUT CHANNELS
+   (`0..N-1`, typically 4-16), NOT piano pitches. The shared `rangeOfPitches` is piano-space
+   (`[21..108]`); wiring it to SC's `pianoRange` would make `MeasuredMatrix`'s ruler filter
+   (`availableNotes.filter(v => v >= pianoRange[0] && v <= pianoRange[1])`) exclude every
+   channel row → blank matrix. So only the mode-column axis zooms. Channel rows are few and
+   already fit, so this is low-impact. To add it later: a SEPARATE SC-local channel-range
+   state driven by the zoom buttons only when the SC pane is active (mirrors the
+   `selectedChannel` local-vs-global split, dev-snmtxleak-7e3d). Owner: open — only if the
+   user asks during testing.
+
+2. **Reset-button hardcoded `[0,63]` modes bug — PRE-EXISTING + SHARED, NOT fixed here.**
+   The reset (`ZoomOutIcon`) and zoom-to-selection-fallback paths in
+   `PianoidTuner.renderToolbarControls` (~lines 2263-2299) hardcode the modes-axis reset to
+   `[0, 63]` instead of `[0, totalModes - 1]`. This is wrong for any preset with ≠64 modes
+   (e.g. Belarus 196) and affects **Feedin/Feedback too** — it is NOT SC-specific and was
+   NOT introduced by dev-mzoom. Left untouched to keep the SC-unlock diff minimal. The
+   canonical full-modes range already exists at `PianoidTuner.js:1122`
+   (`setRangeOfModes([0, totalModes - 1])`). Owner: team-lead tracking; trivial fix
+   (replace both `[0, 63]` literals) when prioritised.
+
+---
+
 ## Deferred follow-up — online "Play All" sweep has no mid-flight cancel (dev-177a, 2026-05-30)
 
 The online keyboard sweep ("Play All") now routes through the backend even-scheduler
