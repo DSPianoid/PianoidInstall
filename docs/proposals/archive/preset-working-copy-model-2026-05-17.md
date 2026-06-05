@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-17 (revised 2026-05-18 with user decisions)
 **Author:** dev-bfe2 (`/dev` PLAN-FIRST)
-**Status:** REVISED — all 9 design decisions resolved; awaiting final "approved — implement"
+**Status:** IMPLEMENTED + MERGED — `PresetLibrary` registry + working-copy model in `PianoidCore/pianoid_middleware/pianoid.py` (`d3958d8` registry class, `ca014f3` edit-isolation/read-only-originals/spawn-promote, `1d30856` REST + 409 mapping, `c2d7c21` engine-correctness + `PresetReadOnlyError` + system tests), merged to `dev` via `7d547c3`. Archived 2026-06-05. (Header below "awaiting approval" was stale — the model shipped.)
 **Build type:** `--light` (Python middleware) + `npm` (frontend). No CUDA `.cu/.cuh/.h` edit. Backend restart suffices.
 
 > **Revision note (2026-05-18).** The user answered all open questions (Q1-Q7, Q9)

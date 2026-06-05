@@ -2,6 +2,7 @@
 
 **Agent:** `ana-madlg-7c2e` (`/analyse`, read-only)
 **Date:** 2026-05-26
+**Status:** IMPLEMENTED + MERGED — PianoidTunner `dev-dlgrm-4b1a` merged to `dev` via `b9dde06` (dead-dialog deletions: `CreateProjectDialog`, `EffectiveSignalLengthRerunDialog`, Copy-mode branch). Archived 2026-06-05.
 **Scope:** Every `Dialog` mounted from the Modal Adapter UI surface
 (PianoidTunner Modal Adapter pane: Collect / Setup / Tracking /
 Modal Mass / Apply subpanels).

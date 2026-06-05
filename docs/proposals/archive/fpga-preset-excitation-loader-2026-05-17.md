@@ -1,7 +1,7 @@
 # FPGA Preset Excitation Loader — schema discovery and proposal
 
 **Date:** 2026-05-17
-**Status:** IMPLEMENTED — see `Pianoid.load_excitation_from_fpga_preset()`
+**Status:** IMPLEMENTED — `Pianoid.load_excitation_from_fpga_preset()` in `PianoidCore/pianoid_middleware/pianoid.py` (+ `tests/unit/test_fpga_excitation_loader.py`, `tools/generate_belarus_fpga_preset.py`). Archived 2026-06-05.
 in `PianoidCore/pianoid_middleware/pianoid.py` (dev-fpga-exc Phase 1, 2026-05-06).
 **Revised after slot-mapping audit (dev-fpga-exc Phase 2, 2026-05-06)** —
 see [Revision after slot-mapping audit](#revision-after-slot-mapping-audit-2026-05-06)

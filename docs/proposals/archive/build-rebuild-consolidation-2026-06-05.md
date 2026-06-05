@@ -3,7 +3,8 @@
 - **Date:** 2026-06-05
 - **Agent:** analyse-buildaudit
 - **Scope:** Audit the Pianoid BUILD / REBUILD / UPDATE instruction-set across CLAUDE.md, the skill files (`/dev`, `/startup`, `/sync`, `/update-pianoid`, `/orchestrator`), and the build docs (`BUILD_SYSTEM.md`, `QUICK_START.md`, `STARTUP_TROUBLESHOOTING.md`, `LINUX_BUILD.md`). Find gaps, conflicts, duplication. Propose ONE authoritative procedure + a mechanical change-list.
-- **Status:** Proposal — READ-ONLY audit; no skill/doc/source edited. Fixes applied separately per the change-list below.
+- **Status:** IMPLEMENTED — consolidation change-list applied (skill/CLAUDE.md/build-doc edits), committed `9fbc32d` (2026-06-05). Archived 2026-06-05.
+- **Original status (pre-implementation):** Proposal — READ-ONLY audit; no skill/doc/source edited. Fixes applied separately per the change-list below.
 - **Motivating incidents (both this session, both avoidable):**
   - **FAIL #1** — a `/sync` merged origin's compiled-code changes (`.cu` + PianoidBasic `dev-d52b`, which added `StringMap.pack_output_mask` + a 7th `devMemoryInit` arg) into local dev and **pushed without rebuilding**. Backend then ran new Python against stale binaries → `/load_preset` 500 `AttributeError 'StringMap' has no attribute 'pack_output_mask'`. A post-merge rebuild + smoke-test should have been mandatory before "done".
   - **FAIL #2** — an agent launched `build_pianoid_cuda.bat` **without `cd`-ing to `PianoidCore` first** → the bat resolved `pianoid_cuda` against the repo root (`D:\repos\PianoidInstall\pianoid_cuda`) instead of `PianoidCore\pianoid_cuda` → `[ERROR] Folder not found: D:\repos\PianoidInstall\pianoid_cuda` → instant build failure + ~13-min idle stall.

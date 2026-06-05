@@ -1,6 +1,7 @@
 # Proposal: Reorganize the Collection Subpanel to Match the Standard Settings Architecture
 
 **Date:** 2026-05-26
+**Status:** IMPLEMENTED + MERGED — PianoidTunner `dev-collreorg-7a3f` commits `54ccc25`→`44a1617`, merged to `dev` via `86d720c`. Archived 2026-06-05.
 **Agent:** `ana-csub-4f12` (read-only `/analyse` pass).
 **Status:** **IMPLEMENTED** by `dev-collreorg-7a3f` (2026-05-26) on `feature/dev-collreorg-7a3f` (PianoidTunner) — 6 commits 54ccc25 → 44a1617. Live verification was deferred (test-ui blocker — PowerShell permission denied + Bash long-running-process gate); coverage via Jest (765 tests / 66 suites PASS, including 12 source-text architecture-guard assertions in `ModalAdapter.lockSettings.test.jsx`). Awaits orchestrator merge sweep + user live test.
 **Scope:** `PianoidTunner/src/modules/panels/CollectionSubpanel.jsx` (584 LOC) and its 6 child sections in `PianoidTunner/src/modules/panels/collection/*.jsx` (~2,360 LOC across the folder), plus a small number of editorial deltas to `ModalAdapter.jsx`'s inline Setup/Tracking/Apply panels so the cross-pane vocabulary lines up.

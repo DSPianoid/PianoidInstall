@@ -1,8 +1,6 @@
 # Proposal: Courant/CFL Stability Guard — v2 (Simple, Robust Rewrite)
 
-- **Status:** APPROVED 2026-05-26 (user, with a bulk-latency reservation — addressed via
-  vectorisation); IMPLEMENTED as PianoidCore `24297c7` on `feature/cfl-stability-guard-v2`; awaiting
-  the user's live audio re-test before merge to `dev`. Supersedes the v1 design.
+- **Status:** IMPLEMENTED + MERGED — PianoidCore `cfl_stability.py` + `stability_ratio` in tree; v2 re-architecture merged to `dev` via `ce2818b`. Supersedes the v1 design (already in `archive/courant-stability-guard.md`). Archived 2026-06-05.
 - **Author:** rev-0a12 (independent reviewer/architect); implemented by dev-cfl-v2.
 - **Date:** 2026-05-26
 - **Implementation notes (as shipped, 24297c7):** gate moved host-side (option A — prospective
