@@ -15,6 +15,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-steinway-preset locks RELEASED 2026-06-05 at Step 10a Phase 2 (user-approved SHIP option A). Held:
+     PianoidCore/pianoid_middleware/presets/Belarus_196modesC_Steinway1860 (NEW),
+     .../Belarus_196modesC_Steinway1860_56SM (NEW), pianoid_middleware/auto_tuner.py,
+     tests/unit/test_auto_tuner_robust.py (NEW). 2 Steinway 1860 mensur presets (full 88-key 58-block +
+     56-SM 84-key trim) + robust harmonic-comb FrequencyTuner (R1 adaptive window/zero-pad, R2 comb f0,
+     R3 comb-consistency confidence [deleted the 0.5 floor], R4 inharmonic stretched comb + treble window).
+     Committed feature/steinway-1860-presets f30ba32 + 5655f02, MERGED to dev 7394188 (--no-ff, branch kept).
+     NOT pushed (/sync handles origin reconcile + push-all). Regression: test_auto_tuner_robust 14/14 +
+     test_tune_pipeline 59/59. Source preset Belarus_196modesC was READ-ONLY (untouched). -->
 | <!-- (none active) --> | | | |
 <!-- dev-asioload locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap of the orphaned 2026-06-02 HOLD,
      same agent ID; user-approved merge + Phase 2 via Telegram). Held: PianoidCore/pianoid_cuda/Pianoid.cu,

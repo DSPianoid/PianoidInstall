@@ -23,6 +23,39 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 <!-- (no active dev sessions) -->
+
+<!-- dev-steinway-preset COMPLETED 2026-06-05 (Step 10a Phase 2, user-approved SHIP option A).
+     PianoidCore feature/steinway-1860-presets: f30ba32 (robust tuner R1-R4 + 14 tests) + 5655f02
+     (2 Steinway presets), MERGED to dev 7394188 (--no-ff, feature branch kept). NOT pushed —
+     /sync reconciles origin + push-all. Regression: test_auto_tuner_robust 14/14 + test_tune_pipeline 59/59.
+     ★ FINAL tuning = confidence-gated + revert-safe via the robust harmonic-comb FrequencyTuner: ~58 notes
+     tuned to ET (abs-mean ~16c), top octave 103-106 kept derived (engine-incoherent, see finding below).
+     ★★ ENGINE FOLLOW-UP (separate /dev, NOT a tuner bug): MIDI 103-106 (B7/C8, 3.1-3.7kHz) render
+     HARMONICALLY INCOHERENT — pitch 105 (target 3520Hz) spectrum = dominant low-freq @277/577Hz + a sharp
+     partial @~4003Hz, NO clean fundamental near target. Unmeasurable by any pitch detector → can't be
+     auto-tuned. This is a synthesis-engine top-octave output-quality issue worth its own investigation.
+     ----- original build notes -----
+     TWO new presets built on PianoidCore feature/steinway-1860-presets:
+       - Belarus_196modesC_Steinway1860 = FULL 88-key (MIDI 21-108), 58 blocks, 232 strings.
+         ★ Does NOT run on this GPU (RTX 4070 SUPER = 56 SMs; cooperative addKernel → kernel_status 500,
+         empirically confirmed). For a >=58-SM GPU only.
+       - Belarus_196modesC_Steinway1860_56SM = the full preset minus the first 2 blocks (symmetric trim:
+         drops MIDI 21,22,107,108) = MIDI 23-106, 84 keys, 56 blocks, 224 strings. RUNS on this GPU.
+     Physics from the Steinway 1860 мензура sheet: wound bass (MIDI 21-41) core-r + steel+0.88·Cu-annulus rho;
+     plain treble (42-105) wire-r + steel rho; tension T=4·L²·f²·ρ (ideal, ET freq); real Steinway lengths;
+     plain-treble extrapolation for MIDI 106/107/108. Overrides ONLY {r,rho,tension,length,main} per pitch;
+     keeps Belarus jung/gamma/damper/hammer/excitation/deck/modes/sound_channels/calibration. array_size=512.
+     Block-packing builder PROVEN to reproduce Belarus_196modesC bit-for-bit before extending (no guessing).
+     CFL: both presets 0 fails (max Courant 0.073 vs 0.8 gate). Both render clean offline (attack+decay, no NaN).
+     ★ CAVEAT (measured): the ideal tension formula yields strings that sound SYSTEMATICALLY SHARP in the
+     stiff-string engine (jung·r⁴ bending raises pitch; grows up the keyboard: C4 +35c, C6 +99c) — A#7 is
+     much closer to ET than Belarus (−4c vs −94c) but mid/treble is sharper. A stiffness-compensated tension
+     would fix it but is a DERIVATION CHANGE pending user decision.
+     GENERAL SM-SIZING RULE: cut K = max(0, num_blocks − target_SMs) blocks from the START of the block array
+     → drops the K lowest + K highest notes (symmetric trim, because block N pairs the Nth-lowest long string
+     with the Nth-highest short strings). target_SMs = the GPU's cudaGetDeviceProperties.multiProcessorCount.
+     Build/derivation/CFL/verify scripts in docs/development/diagnostics/dev-steinway-preset-*.py. -->
+
 <!-- dev-asioload COMPLETED 2026-06-03 (Step 10a Phase 2, user-approved merge + Phase 2 via Telegram; recovered
      from an orphaned 2026-06-02 HOLD via Step 10d, SAME agent ID). ASIO→SDL3 audio-driver auto-fallback (option B)
      WITH a user-visible warning. Started 2026-06-01 as a DIAGNOSIS (root cause: no ASIO driver registered on this
