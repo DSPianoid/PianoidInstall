@@ -237,6 +237,8 @@ Response `200` (healthy):
 
 Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
 
+- `listen_mode`: the engine's runtime **listen-to-modes** flag — `true` when sound channels carry mode forces, `false` when they carry string bridge displacement. Mirrors the `listen_to_modes` value passed to the last `POST /load_preset` (its sole owner is `pianoid.mp.listen_to_modes`, set in `pianoid.py`). It is **not** the MIDI-listener state (`GET /midi/status` → `listening`); the two are independent. (Fixed in dev-lmode, 2026-06-05: this field formerly read `pianoid.listen`, the MIDI-listener loop flag, so it always reported `false` under the `listen_to_midi=0` default regardless of the modes setting.)
+
 Response `500` if health check itself throws.
 
 ---

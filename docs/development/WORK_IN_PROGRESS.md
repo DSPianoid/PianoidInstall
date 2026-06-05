@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-fbsl | DESIGN-FIRST — single feedback/feedin coefficient SLIDER (64-center env multiplier + write-button folds into stored coeff + matrix-edit-disable in single-matrix mode + in-memory-vs-disk persistence). Builds on dev-d52b/dev-uimtx feedback work. DESIGN phase only — no locks/edits. | [log](logs/dev-fbsl-2026-06-05-073950.md) | 2026-06-05 | In Progress (design) |
 <!-- dev-d52b + dev-uimtx COMPLETED 2026-06-04 (Phase 2 wrap, user-approved
      "commit and push everything").
 

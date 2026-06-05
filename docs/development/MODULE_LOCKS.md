@@ -503,6 +503,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      fixes C1/H1/H3/M1/M3 + clip/limit indicator (binds dev-d52b's /health limiting contract read-only) +
      React-warning fixes + #208 bar-chart fixes. Frontend-only, HMR, NO CUDA build.
      PianoidTunner feature/matrices-ui-fixes 1132b4a MERGED to dev at 2488168 (--no-ff). Pushed to origin. -->
+<!-- dev-lmode locks RELEASED 2026-06-05 at Step 10a (user-approved commit + push). Held:
+     PianoidCore/pianoid_middleware/backendServer.py + tests/unit/test_health_listen_mode_regression.py (new).
+     Fix: GET /health `listen_mode` now reads pianoid.mp.listen_to_modes (engine listen-to-modes truth, set
+     from /load_preset) instead of pianoid.listen (the MIDI-listener loop flag) — pre-fix /health always
+     reported listen_mode=false under the listen_to_midi=0 default regardless of the modes setting. Diagnosis
+     (B) REPORTING GAP, measurement-confirmed (in-process probe: mp.listen_to_modes tracks request True/False,
+     pianoid.listen independent). Feature was applied engine-side all along (StringMap.py:444 gates the
+     sound-channel feedin cell); only the report was wrong. +3 unit tests (8/8 PASS incl. 5 sibling
+     play/listen-gate). Python-middleware-only, NO CUDA build. PianoidCore feature/dev-lmode-health-listen-mode
+     6125b69 MERGED to dev at a139971 (--no-ff). Docs (REST_API.md GET /health field semantics + TESTING.md
+     test registration) + diagnostic probe + session log on PianoidInstall master. Pushed to origin. -->
 | <!-- (none active) --> | | | |
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10a wrap-up (user-approved merge). Held:
      ToolBar.jsx, useHotkeys.js, PianoidTuner.js, usePreset.js — all committed on
