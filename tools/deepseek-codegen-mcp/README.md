@@ -61,6 +61,23 @@ Returns one of:
 
 The tool **never raises to the model** — failures come back as a `status` so `/fn` can fall back cleanly.
 
+## Runtime venv
+
+The server itself only needs the **`mcp`** package (plus stdlib) — `core.py` and the unit tests need
+nothing installed. The committed code is **interpreter-agnostic**: it runs from whatever Python
+`~/.claude.json` `command` points at. Two options:
+
+- **Dedicated venv (recommended)** — create a small venv just for this server
+  (`python -m venv tools/deepseek-codegen-mcp/.venv` → `…/.venv/Scripts/python -m pip install mcp`) and
+  point the `~/.claude.json` `command` at it. This keeps the MCP server's dependency tree (pydantic,
+  starlette, uvicorn, …) out of the engine's `PianoidCore/.venv`.
+- **Project venv** — install `mcp` into `PianoidCore/.venv` (matches the proposal's Phase-1 step) and
+  point `command` there. Simplest, but adds the MCP dep tree to the engine venv (and bumps
+  `typing_extensions`); the engine still imports/runs fine, but it crosses the project's venv-isolation
+  preference.
+
+The `command` path in the `~/.claude.json` entry below is the only thing that changes between the two.
+
 ## Setup
 
 1. **Provide the key** as a user environment variable (never in the repo):
