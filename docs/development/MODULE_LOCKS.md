@@ -15,7 +15,31 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| deepseek-phase0 | tools/deepseek-codegen-mcp/** (NEW dir: server.py, tests, README, requirements) | 2026-06-06T13:35:55Z | Phase 1 — build the deepseek-codegen MCP server + tests + README (DeepSeek dev-pipeline integration). NOTE: DRAFTING .claude/commands/fn.md + the ~/.claude.json mcpServers entry for the orchestrator to apply — NOT editing them. |
+<!-- dev-dsfix locks RELEASED 2026-06-06 at Step 10a Phase 1 commit (user-approved option A — commit only, NO
+     merge/push). Took over dead deepseek-phase0's tools/deepseek-codegen-mcp/** lock and CONTINUED the
+     integration: FIX deepseek-codegen MCP reliability (dir-1) + add NON-THINKING codegen mode (dir-2).
+     Held: tools/deepseek-codegen-mcp/core.py, README.md, test_core.py (server.py + test_integration.py
+     locked precautionarily, NOT edited).
+     ROOT CAUSE (measured): deepseek-v4-flash is a dual-mode REASONING model; with thinking ENABLED it
+     spends reasoning_tokens (measured 1.1k-11.8k) before the answer, counting against max_tokens → the
+     4096 cap truncated complex bodies (no closing fence → unusable) or let reasoning eat the whole budget
+     (no visible content → "empty implementation"); intermittent because reasoning length varies.
+     FIX: (1) disable thinking for codegen (`{"thinking":{"type":"disabled"}}` = DEEPSEEK_THINKING_DISABLED)
+     — the real speed/cost lever, eliminates the failure structurally; (2) DEFAULT_MAX_TOKENS 4096→32768
+     (env-overridable DEEPSEEK_MAX_TOKENS) as defense-in-depth; (3) hardened extract_code (3-tier: closed
+     fence / unterminated-fence recovery / bare-code; never returns a ```lang marker as code). v4-flash pin
+     + temp 0.0 unchanged. +10 unit tests; README updated. NESTED-backtick extractor edge (review Medium #1)
+     DEFERRED.
+     MEASURED: thinking-fix 6/6 usable + oracle-correct (calc 71/71, csv 53/53); non-thinking 9/9 usable
+     (finish=stop, reasoning_tokens=0), ~3-19x fewer completion tokens/call, much faster, with a small
+     first-pass oracle dip on the hardest specs (csv 44-52/53; the /fn test is the correctness gate). Tool
+     suite 48/48 (46 unit + 2 integration incl. 1 live call). Pure-Python, NO CUDA/engine/middleware;
+     server.py untouched.
+     COMMITTED on feature/deepseek-codegen-mcp (Phase 1 — SHA in session log). NOT merged, NOT pushed
+     (awaiting user merge/push approval — Phase 2 pending team-lead relay). Session log NOT yet archived
+     (Phase 2). -->
+<!-- (none active for dev-dsfix — released at Phase 1) -->
+| <!-- (none) --> | | | |
 <!-- dev-wave3split-f634 locks RELEASED 2026-06-06 at Step 10a Phase 2 (user-approved "Merge and push" via Telegram;
      executed by sync-release as part of the multi-repo release). Held 9 files: modal_adapter.py, chain_editor.py (NEW),
      project_store.py (NEW), apply_service.py, esprit_orchestrator.py (NEW), tests/unit/test_modal_adapter_state.py,

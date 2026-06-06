@@ -27,6 +27,50 @@ def test_temperature_is_zero_for_coding():
 
 
 # --------------------------------------------------------------------------------------------------
+# Non-thinking mode (dev-dsfix dir-2): codegen disables the reasoning phase
+# --------------------------------------------------------------------------------------------------
+def test_thinking_disabled_constant():
+    assert core.DEEPSEEK_THINKING_DISABLED == {"type": "disabled"}
+
+
+def test_request_body_carries_thinking_disabled(monkeypatch):
+    """The POSTed /chat/completions body must carry thinking-disabled (+ the pinned model/temp/cap)."""
+    import io
+    import json as _json
+    import urllib.request
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-not-real-unit-test")
+    captured = {}
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return _json.dumps({
+                "choices": [{"message": {"content": "```python\ndef f():\n    return 1\n```"},
+                             "finish_reason": "stop"}],
+                "usage": {"completion_tokens": 5}, "model": "deepseek-v4-flash",
+            }).encode("utf-8")
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = _json.loads(req.data.decode("utf-8"))
+        return _FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    core._post_chat_completion([{"role": "user", "content": "x"}], timeout_s=5, max_tokens=32768)
+
+    body = captured["body"]
+    assert body["thinking"] == {"type": "disabled"}   # the lever — non-thinking codegen
+    assert body["model"] == "deepseek-v4-flash"
+    assert body["temperature"] == 0.0
+    assert body["max_tokens"] == 32768
+
+
+# --------------------------------------------------------------------------------------------------
 # Prompt construction
 # --------------------------------------------------------------------------------------------------
 def test_build_messages_shape_and_content():
@@ -106,6 +150,64 @@ def test_extract_code_picks_largest_fence():
 
 def test_extract_code_bare_fallback():
     assert core.extract_code("def f():\n    return 2") == "def f():\n    return 2"
+
+
+# --- Hardened extraction (dev-dsfix): truncation + stray-fence recovery -----------------------------
+# Root cause of the "empty implementation"/"truncated, unusable" failures: deepseek-v4-flash spends
+# thousands of reasoning_tokens before the answer; against the old 4096 cap the visible block was cut
+# off mid-statement with an OPENING ```lang fence but NO closing fence. The old extractor returned the
+# whole text INCLUDING the ```lang line (unusable) or "" (the empty error). These pin the recovery.
+def test_extract_code_recovers_unterminated_fence_strips_marker():
+    # opening fence, body, then truncation BEFORE the closing fence
+    text = "```python\nimport re\n\ndef f():\n    return re.match"  # cut off mid-expression
+    out = core.extract_code(text)
+    assert not out.startswith("```")          # the ```python marker must NOT be returned as code
+    assert out.startswith("import re")        # body recovered, marker stripped
+    assert "def f():" in out
+
+
+def test_extract_code_unterminated_fence_drops_dangling_partial_close():
+    # a truncation that happened to leave a partial closing fence on the last line
+    text = "```python\ndef f():\n    return 1\n``"  # dangling 2-backtick partial close
+    out = core.extract_code(text)
+    assert out == "def f():\n    return 1"
+
+
+def test_extract_code_strips_stray_lone_fence_lines_when_no_pair():
+    # a lone ``` with no language tag and no matching pair must not contaminate bare-code output
+    text = "```\ndef f():\n    return 1"
+    out = core.extract_code(text)
+    assert not out.startswith("```")
+    assert out == "def f():\n    return 1"
+
+
+def test_extract_code_empty_and_whitespace_still_empty():
+    # genuinely-empty content must still map to "" so the caller raises the clean fallback error
+    assert core.extract_code("") == ""
+    assert core.extract_code("   \n  ") == ""
+    assert core.extract_code(None) == ""
+
+
+# --- max_tokens default (dev-dsfix): raised for the reasoning model, env-overridable ----------------
+def test_default_max_tokens_is_large_enough_for_reasoning_model():
+    # 4096 was catastrophically small (reasoning_tokens alone measured up to ~9.7k); must be >= 32768
+    assert core.DEFAULT_MAX_TOKENS >= 32768
+
+
+def test_default_max_tokens_reaches_the_request_body(monkeypatch):
+    # the (raised) default must actually be forwarded into the POST body as max_tokens
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-not-real-unit-test")
+    seen = {}
+
+    def fake_post(messages, timeout_s, max_tokens):
+        seen["max_tokens"] = max_tokens
+        return {"choices": [{"message": {"content": "```python\ndef f():\n    return 1\n```"}}],
+                "usage": {}, "model": "deepseek-v4-flash"}
+
+    monkeypatch.setattr(core, "_post_chat_completion", fake_post)
+    core.delegate_codegen(function_spec="def f(): ...", test_or_signature="def t(): pass")
+    assert seen["max_tokens"] == core.DEFAULT_MAX_TOKENS
+    assert seen["max_tokens"] >= 32768
 
 
 # --------------------------------------------------------------------------------------------------

@@ -28,7 +28,48 @@ representative `/fn`-style tasks.
 | **HC-3 — no side effects** | Pure compute-in / text-out. No filesystem, git, or doc access. |
 | **HC-4 — no permission stall** | Plain MCP tool; allow-list `mcp__deepseek-codegen__*` (one-time, in `.claude/settings.local.json`). |
 | **Model pin** | `deepseek-v4-flash` (the cheap coding tier), temperature `0.0`. The deprecating `deepseek-chat`/`deepseek-reasoner` aliases are **not** used (they retire 2026-07-24). Pinned in one spot: `core.py`. |
+| **Thinking mode** | **DISABLED** for codegen — the request body carries `{"thinking": {"type": "disabled"}}` (`DEEPSEEK_THINKING_DISABLED`). `deepseek-v4-flash` is a dual-mode model; with thinking *enabled* it spends thousands of internal reasoning tokens before the answer, which is slower, costs more, and was the **root cause** of the truncation / empty-implementation failures (reasoning ate the output budget). For a single well-specified function gated by the Claude-written test, step-by-step reasoning buys nothing. See "Why non-thinking". |
+| **Output cap** | `max_tokens` defaults to **32768** (`DEFAULT_MAX_TOKENS`, overridable via `DEEPSEEK_MAX_TOKENS`). Kept large as **defense-in-depth** — with thinking disabled the model no longer burns the budget on reasoning, but a generous cap means even a verbose body (or a future config that re-enables thinking) completes instead of truncating mid-statement. |
 | **Secret** | The API key is read **only** from the `DEEPSEEK_API_KEY` environment variable. It is never hardcoded, never committed, never logged, never returned. |
+
+### Why non-thinking (+ a 32768 cap)
+
+**The root cause of the original failures was the model's *thinking* phase, not just the cap.**
+`deepseek-v4-flash` is dual-mode; with thinking **enabled** it emits `reasoning_tokens` (a separate
+`reasoning_content` field) **before** the visible code, and those count against `max_tokens`. Measured
+with thinking ON, on two complex specs (an arithmetic evaluator and an RFC4180 CSV parser):
+
+| thinking ON | reasoning_tokens | @ 4096 cap | @ 32768 cap |
+|---|---|---|---|
+| `evaluate` | ~1.1k–6.3k | `length` (truncated, no closing fence) | `stop` (complete) |
+| `parse_record` | ~3.8k–**11.8k** | `length` (truncated / empty) | `stop` (complete) |
+
+At 4096 the CSV parser's reasoning alone (up to ~11.8k) exceeded the whole budget → the reply was cut
+off mid-statement (opening ```` ```python ````, no closing fence) or had **no visible content** →
+`extract_code` returned `""` → `"DeepSeek returned an empty implementation"`. Intermittent because
+reasoning length varies run-to-run.
+
+**Disabling thinking removes the cause entirely** — no reasoning phase, so the model goes straight to
+the code. It is also **faster and cheaper** (no thousands of reasoning tokens to generate/bill). For a
+single well-specified function whose correctness is gated by the Claude-written test, step-by-step
+reasoning adds nothing. The **32768 cap is kept as defense-in-depth**: it costs nothing when the reply
+is short, but guarantees even a verbose body (or a future re-enable of thinking) still completes instead
+of truncating. (The model supports up to 384K output tokens.) Measured non-thinking vs thinking on all
+three round-2 specs — reliability, latency, and tokens/call — is recorded in the dev-dsfix session log.
+
+### Extraction robustness
+
+`extract_code` resolves the reply in three tiers so a degenerate response still yields usable code
+(the Claude-written test remains the correctness gate either way):
+
+1. **Closed fence(s)** → return the largest fenced block (any language tag). The normal path.
+2. **Unterminated fence** (a long reply truncated before the closing ```` ``` ````) → return the body
+   after the opening ```` ```lang ```` line, dropping any dangling partial fence. Recovers a
+   partial-but-usable body and never returns the literal ```` ```lang ```` marker as code.
+3. **No fence** (bare code) → return the stripped text with stray lone ```` ``` ```` lines removed.
+
+It returns `""` only when there is genuinely no content, which the caller maps to a clean `error` so
+`/fn` falls back to Claude.
 
 ## Files
 

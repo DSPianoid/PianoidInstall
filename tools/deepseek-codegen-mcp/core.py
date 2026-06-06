@@ -31,7 +31,21 @@ DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.co
 DEEPSEEK_MODEL = "deepseek-v4-flash"  # PINNED — do not use the deprecating chat/reasoner aliases
 DEEPSEEK_TEMPERATURE = 0.0            # DeepSeek's official coding temperature
 DEFAULT_TIMEOUT_S = 90
-DEFAULT_MAX_TOKENS = 4096
+# Disable the model's "thinking" (reasoning) phase for codegen. deepseek-v4-flash supports dual modes;
+# with thinking ENABLED it spends thousands of internal reasoning tokens (lands in a separate
+# `reasoning_content` field) BEFORE the answer, which (a) slows the call, (b) costs tokens, and (c) was
+# the ROOT CAUSE of the truncation / "empty implementation" failures — the reasoning ate the output cap
+# and the visible code was cut off (or never emitted). For a single well-specified function with the
+# Claude-written test as the correctness gate, step-by-step reasoning buys nothing. So codegen sends
+# `{"thinking": {"type": "disabled"}}` (the DeepSeek V4 request-body toggle; the API docs show the
+# `enabled` form, `disabled` is its off value). One spot, like the model/temperature pins above.
+DEEPSEEK_THINKING_DISABLED = {"type": "disabled"}
+# Output-token cap for one completion. Kept large as DEFENSE-IN-DEPTH: with thinking disabled the model
+# no longer burns the budget on reasoning, but a generous cap means even a verbose body (or a future
+# config that re-enables thinking) still completes instead of truncating mid-statement (which left an
+# unclosed fence → unusable, or no visible content → the "empty implementation" error). The model
+# supports up to 384K output tokens, so 32768 is well within range. Env-overridable for tuning.
+DEFAULT_MAX_TOKENS = int(os.environ.get("DEEPSEEK_MAX_TOKENS", "32768"))
 
 # Language → (human label for the prompt, markdown code-fence tag). Drives the prompt so a non-Python
 # `language` actually targets that language (TS/JS/React via Jest, etc.). Unknown languages fall back to
@@ -140,18 +154,47 @@ def build_messages(function_spec: str, test_or_signature: str, constraints: str 
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-# Match a fenced block with ANY language tag (```python / ```typescript / ```tsx / ```jsx / ```js / …)
+# Match a CLOSED fenced block with ANY language tag (```python / ```typescript / ```tsx / ```js / …)
 # or a bare ``` fence — `[^\n]*` swallows the optional language token on the opening line.
 _CODE_FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+# Match an OPENING fence line (```lang or bare ```) so we can recover the body of an UNTERMINATED
+# block — e.g. when a long reply was truncated before the closing fence — and so we never leave a
+# literal ```lang marker line at the top of the returned code.
+_OPEN_FENCE = re.compile(r"```[^\n]*\n", re.DOTALL)
+# A line that is nothing but a 1-3 backtick fence (optionally with a language tag). Used to (a) strip a
+# dangling partial closing fence a truncation may have left, and (b) drop stray fence lines from a
+# no-closed-fence reply — without touching real code lines (which never start with a backtick fence).
+_BARE_FENCE_LINE = re.compile(r"^\s*`{1,3}[A-Za-z0-9_+-]*\s*$")
 
 
 def extract_code(text: str) -> str:
-    """Pull the implementation out of the model reply. Prefer the largest fenced code block (any language
-    tag); if there is no fence, return the stripped text (the model occasionally returns bare code)."""
-    matches = _CODE_FENCE.findall(text or "")
-    if matches:
-        return max(matches, key=len).strip()
-    return (text or "").strip()
+    """Pull the implementation out of the model reply, robust to prose and truncation.
+
+    Resolution order (a model reply usually contains exactly one fenced block; this also recovers the
+    degenerate cases that produced the 'empty implementation' / 'truncated, unusable' failures):
+      1. CLOSED fence(s) present → return the largest fenced block (any language tag). The happy path.
+      2. An OPENING fence with no matching close (the reply was truncated mid-block) → return everything
+         after the first opening ```lang line, with any trailing partial fence stripped. This recovers
+         a partial-but-usable body and, crucially, never returns the literal ```lang marker as code.
+      3. No fence at all (the model returned bare code) → return the stripped text, with any stray lone
+         ``` lines removed.
+    Returns "" only when there is genuinely no content — the caller maps that to a clean error so /fn
+    falls back to Claude. Hardening is best-effort; the Claude-written test remains the correctness gate.
+    """
+    raw = text or ""
+    closed = _CODE_FENCE.findall(raw)
+    if closed:
+        return max(closed, key=len).strip()
+    # No closed fence. If an opening fence exists, the body is everything after it (truncated block).
+    open_match = _OPEN_FENCE.search(raw)
+    if open_match:
+        body = raw[open_match.end():]
+        # Drop a dangling partial closing fence — truncation can sever the closing ``` anywhere,
+        # leaving e.g. a 2-backtick `` or a ```py on the final line.
+        body = re.sub(r"\n`{1,3}[A-Za-z0-9_+-]*[ \t]*$", "", body)
+        return body.strip()
+    # No fence at all: bare code. Strip any stray lone ``` lines that slipped in without a newline pair.
+    return "\n".join(ln for ln in raw.splitlines() if not _BARE_FENCE_LINE.match(ln)).strip()
 
 
 def _post_chat_completion(messages: list[dict], timeout_s: int, max_tokens: int) -> dict:
@@ -164,6 +207,9 @@ def _post_chat_completion(messages: list[dict], timeout_s: int, max_tokens: int)
         "messages": messages,
         "temperature": DEEPSEEK_TEMPERATURE,
         "max_tokens": max_tokens,
+        # Non-thinking mode for codegen — no reasoning phase (faster, cheaper, no budget-eating). See
+        # DEEPSEEK_THINKING_DISABLED. core.py builds the raw body, so this goes inline (not extra_body).
+        "thinking": DEEPSEEK_THINKING_DISABLED,
     }
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(DEEPSEEK_BASE_URL.rstrip("/") + "/chat/completions",
