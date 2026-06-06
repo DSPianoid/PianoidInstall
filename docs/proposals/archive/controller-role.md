@@ -1,6 +1,6 @@
 # Controller Agent Role Proposal
 
-**Status:** Draft for review (2026-05-05, in response to Telegram msg 1682)
+**Status:** IMPLEMENTED + ARCHIVED 2026-06-06 — the controller is built and runs every orchestrator session. Its operational spec now lives in the working doc [`docs/development/CONTROLLER.md`](../../development/CONTROLLER.md); the orchestrator skill references THAT, not this proposal. Retained for historical/design context only. (Originally: Draft for review, 2026-05-05, Telegram msg 1682.)
 **Driver request:** "Review orchestrator + dev working pipeline. There is the controller role which is not defined clearly and never actually used. Controller should be involved in all significant development processes, especially when more then one dev agent involved. Propose and clarify the role"
 **Scope:** Skill definitions in `.claude/commands/` — `orchestrator.md`, `dev.md`, `multitask.md`, `fn.md`. No source-code or runtime impact.
 
