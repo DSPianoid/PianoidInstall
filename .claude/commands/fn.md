@@ -130,6 +130,24 @@ The controller verifies parent-lock inheritance: if `target_file` is not in `hel
 
 Log the edit: what changed, line numbers, rationale.
 
+## Step 2a (optional): Delegate codegen to DeepSeek
+
+Before writing the function yourself, you MAY offload the *body* to DeepSeek via the `deepseek-codegen` MCP tool — Claude still owns the test, the review, the build, the test run, the debug loop, and the commit. This is opt-in and falls back silently to writing it yourself.
+
+**Eligible ONLY when ALL hold:**
+- `target_file` is `.py` (NOT `.cu/.cpp/.cuh/.h/setup.py` — hard exclusion, HC-1).
+- The function is a single, pure, well-specified responsibility (the `/fn` envelope) — not a cross-cutting refactor.
+- A concrete test exists already (the caller's `test_command` + the test source) — HC-2: never delegate without the test.
+
+**Procedure:**
+1. Emit `[MCP-CALL] {ts} server=deepseek-codegen tool=delegate_codegen args_summary=<fn name>`.
+2. Call `mcp__deepseek-codegen__delegate_codegen(function_spec=<sig+behaviour>, test_or_signature=<the test source>, constraints=<requirements>, context_snippets=<the adjacent patterns from Step 1 — NOT the whole repo>)`.
+3. Emit `[MCP-RETURN] {ts} status=<ok|refused|error>`.
+4. On `status:"ok"`: REVIEW the returned `code` (style match, no speculative features, sane imports). If good, apply it via Edit/Write (the tool never writes files) and continue to Step 3. If the review rejects it, write the function yourself (normal Step 2).
+5. On `status:"refused"` or `status:"error"`: write the function yourself (normal Step 2) — no retry needed.
+
+Note: DeepSeek output is never trusted, only tested — Step 4 (the Claude-written test) is the gate. If the applied code fails the test after the Step 4b ≤3-iteration debug loop, discard it and rewrite from scratch.
+
 ## Step 3: Build (if needed)
 
 Only rebuild if the edited file requires it:

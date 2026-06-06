@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| deepseek-phase0 | tools/deepseek-codegen-mcp/** (NEW dir: server.py, tests, README, requirements) | 2026-06-06T13:35:55Z | Phase 1 — build the deepseek-codegen MCP server + tests + README (DeepSeek dev-pipeline integration). NOTE: DRAFTING .claude/commands/fn.md + the ~/.claude.json mcpServers entry for the orchestrator to apply — NOT editing them. |
 <!-- dev-wave3split-f634 locks RELEASED 2026-06-06 at Step 10a Phase 2 (user-approved "Merge and push" via Telegram;
      executed by sync-release as part of the multi-repo release). Held 9 files: modal_adapter.py, chain_editor.py (NEW),
      project_store.py (NEW), apply_service.py, esprit_orchestrator.py (NEW), tests/unit/test_modal_adapter_state.py,
