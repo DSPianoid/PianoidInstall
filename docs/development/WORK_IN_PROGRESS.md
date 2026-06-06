@@ -22,10 +22,31 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-wave3split-f634 | Wave 3 Modal Adapter split — extract ChainEditor + ProjectStore, rewrite modal_adapter.py to ~400-LOC thin facade | [log](logs/dev-wave3split-f634-2026-06-05-210342.md) | 2026-06-05 | In Progress |
-| dev-presetfix | Post-merge preset-load regression — REBUILD FIX COMPLETE + verified (/load_preset 200, /preset/list 200, /health pianoid_loaded=true). Root cause = stale build after the f7905a9 origin merge (dev-d52b brought StringMap.pack_output_mask + a new devMemoryInit positional arg, but the tree was not rebuilt). Fixed by rebuilding PianoidBasic wheel (pianoid-0.1.15) + pianoidCuda --heavy --both. Symptom-2 "configs gone" = frontend localStorage (presetConfigStore), untouched by the merge, reappear once init works. Pure rebuild — NO source change, nothing to commit (only a 1-line OVERVIEW.md doc note, uncommitted). Stack LEFT UP for the user (team-lead direction). Staying alive. | [log](logs/dev-presetfix-2026-06-05-085001.md) | 2026-06-05 | Complete (stack up) |
-| dev-fbsl | Single feedback/feedin coefficient SLIDER — two-layer (per-preset stored × global env-multiplier) + Set/fold button + Feedback-matrix-disable in single-deck mode + ownership inversion (switch_preset no longer global). Builds on dev-d52b/dev-uimtx. | [log](logs/dev-fbsl-2026-06-05-073950.md) | 2026-06-05 | MERGED to dev + PUSHED (2026-06-06, user "include in the push"; merged by dev-mzoom — all CLEAN, no conflicts): PianoidBasic dev d86b477 (slider 4660f6b), PianoidCore dev ed99d42 (slider tip 9a88518 incl. UNRUN switch-lifecycle test), PianoidTunner dev 05ce924 (slider 9aa0e3e). ★UNVERIFIED — needs BACKEND REBUILD to function; preset-switch lifecycle test (9a88518) UNRUN; user rebuilds + live-tests on another system. Frontend Jest stays green post-merge (88/941, eslint 0). |
-| dev-mzoom | PianoidTunner UI: (1) matrices-zoom + selection-scoped edits + AVG-mode zoom/mute; (2) bar-chart auto-scale toggle (Option P, pane toolbar); (3) system-wide selection + per-chart tie/untie zoom (P0 core + P1 Feedin reference). | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2) MERGED to PianoidTunner dev (matrices-zoom f3ff30a, bar-chart toggle 795f559); (3) P0/P1 MERGED to dev (41b4737, Feedin reference) — **P2 (highlight band) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the Feedin reference. Jest 88/941, eslint 0. Pushed to origin. dev-mzoom mid-build — NOT wrapped. |
+| dev-mzoom | PianoidTunner UI: (3) system-wide selection + per-chart tie/untie zoom — **P2 (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the P1 Feedin reference. (1) matrices-zoom + (2) bar-chart toggle + (3) P0/P1 already MERGED + PUSHED. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2)+(3:P0/P1) MERGED to PianoidTunner dev + PUSHED (matrices-zoom f3ff30a, bar-chart toggle 795f559, P0/P1 Feedin 41b4737). **P2/P3 = REAL deferred follow-up awaiting the user's Feedin-reference test gate** — do NOT drop. Jest 88/941, eslint 0. |
+
+<!-- dev-wave3split-f634 COMPLETED 2026-06-06 (Step 10a Phase 2, user-approved "Merge and push" via Telegram;
+     wrapped by sync-release as part of the multi-repo release). Wave 3 Modal Adapter facade split: extract ChainEditor +
+     ProjectStore, migrate deferred-QC/ESPRIT logic out of facade to ApplyService/EspritOrchestrator, rename
+     test_project_v2_branch → test_project_store (§8.2). modal_adapter.py 4253 → 1755 LOC (−58.7% wave, −69% from 5649).
+     613 tests pass / 1 skipped / 1 pre-existing-failure (documented). /modal smoke 200. Behaviour identical. 2 endorsed
+     judgment calls preserved: kept run_full_pipeline on the facade; did NOT fold test_measurement_rename into
+     test_project_store. Committed PianoidCore feature/modal-adapter-wave3-split (3a26270 / aeaa717 / 7e8e9d7 / 0248b46),
+     MERGED to dev `9f2c3b5` (--no-ff). Pure-Python — no CUDA rebuild. Literal ~400-LOC thin-facade rewrite DEFERRED to
+     follow-up proposal docs/proposals/modal-adapter-facade-shim-removal-2026-06-06.md (300-test rewrite, stays
+     top-level). Session log archived to logs/archive/dev-wave3split-f634-2026-06-05-210342.md. -->
+<!-- dev-presetfix COMPLETED 2026-06-05 (rebuild fix, no source change). Post-merge preset-load regression
+     (pack_output_mask AttributeError) = stale build after the f7905a9 origin merge (dev-d52b brought
+     StringMap.pack_output_mask + a new devMemoryInit positional arg, tree not rebuilt). Fixed by rebuilding PianoidBasic
+     wheel (pianoid-0.1.15) + pianoidCuda --heavy --both; /load_preset 200, /preset/list 200, /health pianoid_loaded=true
+     verified. Symptom-2 "configs gone" = frontend localStorage (presetConfigStore), untouched by the merge. PURE rebuild
+     — nothing to commit. Session log archived to logs/archive/dev-presetfix-2026-06-05-085001.md. -->
+<!-- dev-fbsl COMPLETED 2026-06-06 — feedback/feedin coefficient SLIDER (two-layer per-preset stored × global
+     env-multiplier + Set/fold + Feedback-matrix-disable in single-deck + switch_preset ownership inversion). MERGED +
+     PUSHED 2026-06-06 (user "include in the push"; merged by dev-mzoom, all CLEAN): PianoidBasic dev d86b477 (slider
+     4660f6b), PianoidCore dev ed99d42 (slider tip 9a88518 incl. UNRUN switch-lifecycle test), PianoidTunner dev 05ce924
+     (slider 9aa0e3e). ★UNVERIFIED — needs a BACKEND REBUILD to function; preset-switch lifecycle test (9a88518) UNRUN;
+     user rebuilds + live-tests on another system. Frontend Jest green (88/941, eslint 0). Session log
+     logs/dev-fbsl-2026-06-05-073950.md. -->
 
 <!-- dev-steinway-preset COMPLETED 2026-06-05 (Step 10a Phase 2, user-approved SHIP option A).
      PianoidCore feature/steinway-1860-presets: f30ba32 (robust tuner R1-R4 + 14 tests) + 5655f02

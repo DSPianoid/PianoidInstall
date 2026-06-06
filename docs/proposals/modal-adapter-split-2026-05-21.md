@@ -1,7 +1,7 @@
 # Proposal: Split the `modal_adapter.py` God-Object
 
 **Date:** 2026-05-21
-**Status:** PARTIAL / IN PROGRESS — **Waves 1+2 merged** to PianoidCore dev (Wave 1 `71ddf22`/`f591603` = ScenarioLoader + VisualizationService + ProjectContext; Wave 2 `48e07b4`/`893fd44` = EspritOrchestrator + TrackingOrchestrator + ApplyService). **Wave 3 (ChainEditor + ProjectStore + facade rewrite, Option A) IN PROGRESS 2026-06-06** (dev-wave3split, `feature/modal-adapter-wave3-split`). The headline goal — slim `modal_adapter.py` to a ~400-LOC thin facade — is NOT yet met (still ~4,253 LOC / 233 methods until Wave 3 lands). (The original "awaiting Wave-1 dispatch" line was stale.)
+**Status:** ALL 3 WAVES MERGED to PianoidCore dev (Wave 1 `71ddf22`/`f591603` = ScenarioLoader + VisualizationService + ProjectContext; Wave 2 `48e07b4`/`893fd44` = EspritOrchestrator + TrackingOrchestrator + ApplyService; **Wave 3 `3a26270`/`aeaa717`/`7e8e9d7`/`0248b46` → merge `9f2c3b5` (--no-ff), 2026-06-06** = ChainEditor + ProjectStore + deferred-QC/ESPRIT migration, Option A). `modal_adapter.py` 5,649 → **1,755 LOC** (−69%). ★The headline ~400-LOC thin-facade acceptance criterion (§12 Wave 3, §6.1) is NOT met — the literal facade collapse + property-shim removal (~300-test rewrite) was consciously DEFERRED to the follow-up proposal [`modal-adapter-facade-shim-removal-2026-06-06.md`](modal-adapter-facade-shim-removal-2026-06-06.md). This proposal stays TOP-LEVEL (not archived) until that residual lands. (The original "awaiting Wave-1 dispatch" line was stale.)
 **Author tag:** `[dev-maimport]` (round 15 wrap-up + round 16 prep).
 **Scope:** `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` (5,599 LOC, 103 methods).
 **Related docs:**
