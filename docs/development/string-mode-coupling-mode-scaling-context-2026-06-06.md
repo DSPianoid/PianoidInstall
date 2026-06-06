@@ -35,14 +35,21 @@ the number of soundboard resonance modes* in the synthesis engine.
   - **Effective per-run count:** `cycle_parameters[2] = init_params_.num_modes`
     (`Pianoid.cu:142`), where `init_params_.num_modes` is set from Python's `num_modes_for_model`,
     itself forced to `num_strings` (`pianoid.py:201`, `:2577`, `:3331`). **[SRC]**
-- **The dominant hard ceiling is NOT `NUM_MODES=256` — it is the kernel's mode-placement
-  formula `modeNo = numArrays * quarterNumber + blockNo`** (`Kernels.cu:253`), which can address at
-  most `numArrays * num_strings_in_array = num_strings` distinct modes. Modes do **not** get their
-  own CUDA blocks: they piggy-back on the string blocks via a quarter/fold indexing scheme. So
+- **The dominant hard ceiling of the CURRENT kernel is NOT `NUM_MODES=256` — it is the kernel's
+  mode-placement formula `modeNo = numArrays * quarterNumber + blockNo`** (`Kernels.cu:253`) plus the
+  `indexInQuarter==0` oscillator-update gate (`MainKernel.cu:667`), which together address at most
+  `numArrays * num_strings_in_array = num_strings` distinct modes. Modes do **not** get their own
+  CUDA blocks: they piggy-back on the string blocks via a quarter/fold indexing scheme. So
   **`num_modes ≤ num_strings` is a structural invariant of the current kernel**, independent of the
   `NUM_MODES=256` array bound. **[SRC]** This is reinforced by middleware comments
   (`PanoidResult.py:11-13`, `create_belarus_preset.py:55` "num_modes + num_sound_channels must be
   <= num_strings").
+  > **⚠ See §0c (2026-06-06 correction).** This bound is caused by the *index convention*, **not**
+  > by any per-block hardware/occupancy limit. A block spends all 512 threads on 4 strings' spatial
+  > points but only **4 threads + 4 reals** on oscillators — ~508 threads idle of mode work. Several
+  > scalar mode-oscillators CAN therefore share one string slot (the user's correction, SRC-confirmed),
+  > so 4000 modes need not force `num_strings`→4000. The bound is real but **escapable by re-indexing,
+  > not only by adding strings.**
 - **Worst-scaling structures** (as a function of mode count M, when M is raised by raising
   num_strings to match): the deck/coupling matrix `dev_deck_parameters` scales **O(num_strings ×
   num_modes) = O(num_strings²)** because its row width is padded to `num_strings`; the per-string
@@ -250,6 +257,279 @@ throughput + the cooperative-grid layout for 4000 extra oscillators is.**
 
 ---
 
+## 0c. CORRECTION (2026-06-06, adversarial re-review) — the mode↔string-slot model was INCOMPLETE
+
+> **This section supersedes the §0/§3.3 framing that "modes piggy-back ~1:1 on string slots →
+> num_modes ≤ num_strings is a hardware-structural invariant."** The *current-kernel* bound
+> `num_modes ≤ num_strings` is **real and confirmed [SRC]** — but the doc mis-attributed its
+> CAUSE. It is **not** a hardware/occupancy/data-layout necessity (the user is right). It is a
+> property of **one specific, replaceable indexing convention**: `modeNo =
+> numArrays*quarterNumber + blockNo` plus the `indexInQuarter==0` gate on the oscillator update.
+> The user's correction — *several mode-oscillators can share one string slot because a string is
+> spatially multi-point while a mode is a single scalar* — is **CONFIRMED by source** and changes
+> the change-map (§8) from "must add strings" to "can re-index modes onto spare per-block threads."
+
+### 0c.1 What a "string slot" actually consumes vs what a mode actually consumes — [SRC]
+
+Re-read of `Kernels.cu:185-300` + `MainKernel.cu:140-319, 666-676` + grid layout
+(`SYNTHESIS_ENGINE.md` "Kernel Grid Layout"):
+
+- **Grid:** `gridDim.x = numArrays = numStrings/numStringsInArray` blocks; **block = 512 threads**
+  (`blockDim.x=4`, `blockDim.y=128`; `MAX_ARRAY_SIZE=512`). **[SRC/DOC]**
+- **A STRING is genuinely multi-point.** Each block packs `numStringsInArray = 4` strings
+  side-by-side across the 512 threads (`stringNum_s[idx] = stringMap[...]`, `Kernels.cu:208-226`);
+  each string owns a contiguous spatial point-range (`start_s..end_s`, ~128 points). The FDTD
+  update (`MainKernel.cu:549-566`) runs **per spatial point** — that is where the 512 threads/block
+  are spent. **[SRC]**
+- **A MODE is genuinely a single scalar oscillator.** The oscillator advance
+  (`MainKernel.cu:666-676`) is gated `if (indexInQuarter == 0)`, where `indexInQuarter = stMdIndex %
+  quarterSize` (quarterSize = 512/4 = 128). **Exactly 4 threads per block** satisfy this
+  (stMdIndex ∈ {0,128,256,384}); each updates `s_mode[quarterNumber]`, `quarterNumber ∈ {0,1,2,3}`,
+  for its `modeNo`. The mode state is a tiny `__shared__ real s_mode[MAX_NUM_STRINGS_IN_ARRAY]`
+  (size **4**) — i.e. the block currently reserves room for only 4 live mode amplitudes. **[SRC]**
+
+> **THE ASYMMETRY THE USER IDENTIFIED, made precise [SRC]:** within a 512-thread block, the string
+> machinery consumes **all 512 threads** (4 strings × ~128 points), but the mode machinery consumes
+> only **4 threads** (one per quarter) and **4 reals of shared memory**. **508 of 512 threads do no
+> oscillator work.** A single scalar oscillator (`q̈+2γq̇+ω²q=F/m`, ~6 reals + ~3 FLOPs/sample) is
+> ~2 orders of magnitude cheaper than a 128-point FDTD string. So the claim "one string slot's
+> multi-point machinery could host many mode-oscillators" is **structurally TRUE** — there is spare
+> per-block thread + register + shared-mem budget for far more than 4 oscillators.
+
+### 0c.2 So WHY is `num_modes ≤ num_strings` true today? — [SRC] it's the *index convention*, not hardware
+
+The bound is produced **entirely** by two coupled conventions, both replaceable:
+
+1. **`modeNo = numArrays*quarterNumber + blockNo`** (`Kernels.cu:253`). With `quarterNumber ∈ {0..3}`
+   and `blockNo ∈ {0..numArrays-1}`, the set of distinct `modeNo` is exactly `{0 .. 4*numArrays-1} =
+   {0 .. numStrings-1}`. The mode index is *defined as a function of the string-block geometry*, so
+   it cannot exceed it. **[SRC]**
+2. **The `indexInQuarter==0` gate** (`MainKernel.cu:667`) → 1 oscillator per quarter → 4 per block.
+   This is the line that throws away the other 508 threads. **[SRC]**
+
+Neither is a hardware necessity. To host **K_block modes per block** instead of 4, you would (a)
+let the oscillator update run on more than one thread per quarter (e.g. loop, or use the idle
+threads with a stride), and (b) replace `modeNo`'s definition with one whose range is `K_block ×
+numArrays` rather than `4 × numArrays`. The `s_mode[4]` shared array would grow to `s_mode[K_block ×
+4]` (still tiny — even 256 modes/block = 256 reals = 1 KB shared, well under the ~3 KB current use).
+**[SRC-grounded reasoning; the re-indexed kernel is a design, not current source → [UNCERTAIN]
+until prototyped.]**
+
+> **CORRECTED CEILING STATEMENT.** *Current kernel:* `num_modes ≤ num_strings` **[SRC, confirmed]**.
+> *Cause:* the `modeNo` formula + `indexInQuarter==0` gate, **not** a per-block resource limit.
+> *Implication for 4000 modes:* you do **not** have to inflate `num_strings` to 4000 (which would
+> blow up the O(S²) deck and the O(S·A) FDTD buffers, §4/§6). You can instead **pack many
+> oscillators per existing block** using the spare threads. This is a *different and cheaper* escape
+> route than §0b/§8-TierB's "give modes their own grid dimension," and it is the one the user's
+> idea exploits.
+
+### 0c.3 One caveat the asymmetry does NOT remove — the COUPLING is still per-(string,mode) — [SRC]
+
+The oscillator is cheap and packable; the **coupling reduction is the expensive part and it is
+genuinely 2-D.** `mode_feedin[i] = mode_coefficients[stringNoForQuarter*numModes +
+modeIndexInQuarter[i]]` (`MainKernel.cu:249`) and the feedback
+`mode_coefficients[foldedIndexInQuarter[i]*numModes + modeNo]` (`:265`) both index a distinct
+weight per (string, mode). Packing N oscillators into one block makes the *oscillator updates*
+N-cheap, but each packed oscillator still needs its **own column of the deck** and its **own
+string→mode / mode→string reduction** unless that coupling is shared (which is exactly the user's
+premise — see §0d). **Packing oscillators ≠ packing coupling.** The win from packing is only
+realised if the coupling is *also* collapsed; otherwise you've saved 4 threads' worth of arithmetic
+and still pay O(strings×modes). **[SRC]** This is the hinge the next section turns on.
+
+---
+
+## 0d. THE BLOCK-GROUPING-BY-SHARED-COUPLING IDEA — steelman, then adversarial criticism
+
+> **User's idea (verbatim intent):** *"provided that all modes sharing one string also share the
+> SAME COUPLING COEFFICIENTS, they can be processed together in the same block."* I.e. group modes
+> that have identical coupling, place the whole group in one block, and update them together —
+> amortising the per-block coupling work across the group.
+
+### 0d.1 STEELMAN — the strongest version of the idea, and why it is sound where it applies
+
+Decompose the per-sample coupling cost. For a group **G** of modes that **share one coupling vector
+across strings** — i.e. for every mode m∈G and string s, `deck[s,m] = w(s)` (the *same* string-shape
+`w(s)`, independent of which mode in the group) — the two reductions factor:
+
+```
+FEEDIN  (string → each mode m∈G):
+    F_applied(m) = Σ_s w(s)·bridgeForce(s)              ← SAME sum for ALL m∈G
+                 = (Σ_s w(s)·bridgeForce(s))            ← compute ONCE per group
+    → cost: O(strings) ONCE per group  +  O(|G|) trivial fan-out (optionally ×a_in(m))
+
+FEEDBACK (each mode m∈G → string s):
+    feedback(s) += Σ_{m∈G} w(s)·q(m) = w(s)·(Σ_{m∈G} q(m))   ← factor w(s) OUT of the mode sum
+    → cost: O(|G|) to form Σ q(m) ONCE  +  O(strings) to scatter w(s)·(Σq)  per group
+```
+
+**This is real and correct.** When a group shares the string-coupling shape `w(s)`, the dense
+`O(strings × |G|)` block of the deck contraction **collapses to `O(strings) + O(|G|)` per sample** —
+the string axis is summed once (reused by all group members on feedin) and `Σ q(m)` is summed once
+(reused by all strings on feedback). That is an **exact algebraic factorisation, not an
+approximation**, *given* the shared-coupling premise. The mode group can then live in **one block**:
+form `Σ q(m)` in shared memory, do one `w(s)`-weighted scatter, advance all |G| oscillators on the
+block's spare threads (§0c.1). **[SRC-grounded algebra; [UNCERTAIN] as a kernel until prototyped.]**
+
+So the steelman verdict: **the idea is valid and beneficial exactly when the premise holds** — and
+the spare-thread asymmetry of §0c is precisely what makes "process them together in one block"
+physically implementable.
+
+### 0d.2 INTERROGATING THE PREMISE — "modes sharing a string share the same coupling"
+
+This is the load-bearing assumption and it is **false in general by construction** [SRC]: the deck
+matrix's *entire purpose* is that `deck[s,m]` is the **normalised spatial mode-shape amplitude of
+mode m at string s's bridge position** (§0b.1, OVERVIEW "Coupling Coefficients"). Two different
+modes m₁≠m₂ have **different spatial shapes**, so `deck[s,m₁] ≠ deck[s,m₂]` in general — that is the
+whole reason the matrix is 2-D. **Modes sharing a string slot today do NOT share coupling** — they
+share a *thread-placement slot*, which is unrelated to their coupling values. So the premise, taken
+literally against the current data model, **does not hold for arbitrary modes.** [SRC]
+
+**When DOES it hold?** Only when the group's modes are *deliberately constructed* to share `w(s)`.
+Three regimes:
+
+| Regime | Does shared-coupling hold? | Why |
+|---|---|---|
+| **Shaped tier** (low-freq, per-mode shape is the point) | **NO** | distinct `deck[s,m]` per mode is the feature; grouping would destroy the shapes [SRC] |
+| **Flat tier** (the §0b bulk: coupling approximated as separable `a_out(m)·a_in(s)` or `a(m)·1`) | **YES — by construction** | flattening *defines* a shared string-shape (`a_in(s)`, or unity); every flat mode uses the same `w(s)` |
+| **Arbitrary HF modes left un-flattened** | NO | same as shaped — real per-mode shapes differ |
+
+> **ALIGNMENT CONFIRMED [SRC-grounded].** The user's grouping premise is satisfied **precisely by
+> the flat tier and ONLY the flat tier.** Flattening a mode *means* replacing its per-string shape
+> with a single shared string-vector `a_in(s)` (rank-1, §0b.2) — which is exactly "all these modes
+> share the same coupling coefficients across strings." So the user's "group by shared coupling" is
+> not a new requirement layered on top of the shaped/flat split; **it is the operational definition
+> of the flat tier, viewed from the kernel-scheduling side.** The shaped tier categorically cannot
+> be grouped this way. This refutes any reading where block-grouping is a general-purpose speedup
+> for all modes, and confirms it as a flat-tier-only mechanism. **[SRC for "shaped can't";
+> SRC-grounded for "flat can"; [UNCERTAIN] only on whether real Pianoid HF deck rows are close
+> enough to separable to flatten without audible loss — that is the §0b.7 measurement.]**
+
+### 0d.3 IS IT THE SAME AS, OR BETTER THAN, §0b's "FLAT = SEPARABLE-SUM"? — be precise
+
+They are the **same decomposition seen from two layers**:
+
+- **§0b ("separable-sum") describes the MATH:** approximate the flat deck submatrix as rank-1
+  `a_out(m)·a_in(s)` so the double sum separates into two single sums. (Algebra.)
+- **§0d ("block-grouping-by-shared-coupling") describes the SCHEDULE:** put all modes that share
+  `a_in(s)` in one block so the single string-sum and the single `Σq(m)` are computed once per block
+  on shared memory + spare threads. (Kernel placement.)
+
+So the user's idea is **NOT a different/competing algorithm and NOT strictly more general** — it is
+the *implementation strategy* for the §0b flat tier on this specific cooperative-grid kernel. It is
+**"strictly better" only in the sense that it tells you HOW to realise the §0b win efficiently on
+the existing block structure** (reuse spare per-block threads, §0c) instead of inventing a whole new
+grid dimension (the §8-TierB "separate kernel / mode grid" proposal). Concretely it offers two
+things §0b alone did not pin down:
+1. **Where the 4000 flat oscillators live** (§0b.4 flagged this as the open bottleneck): on the
+   spare 508 threads/block, grouped by shared `a_in(s)`.
+2. **A finer granularity than one global flat group:** §0b assumed essentially *one* flat group with
+   a single `a_in(s)`. The user's framing allows **multiple flat groups, each with its own shared
+   `w(s)`** — a *piecewise-separable* (block-low-rank) approximation of the flat deck, strictly
+   richer than a single rank-1 global flat term, at the cost of one extra reduction per group.
+
+> **VERDICT on relation:** same win as §0b, expressed as a schedule; *more expressive* than §0b's
+> single-rank-1 flat term because it permits several shared-coupling groups (piecewise rank-1).
+> Not a separate idea — the **missing implementation half** of the §0b flat tier. **[SRC-grounded.]**
+
+### 0d.4 ADVERSARIAL GOTCHAS — where it breaks or needs qualification
+
+1. **Data-layout mismatch (string-multi-point vs mode-single-scalar) is real overhead, not free.**
+   §0c shows the *threads* exist, but the FDTD string points and the packed oscillators interleave
+   awkwardly: the oscillator update currently rides `indexInQuarter==0` (one thread per 128-wide
+   quarter). Packing K oscillators/block means K threads doing scalar work scattered among 128-point
+   FDTD threads — **warp divergence** (those K threads branch differently) and **poor coalescing**
+   when they each touch `mode_running[modeNo]`/`mode_state[modeNo]` at non-contiguous `modeNo`. Fix
+   requires re-laying mode state so a warp of packed oscillators reads contiguous memory — a real
+   kernel rewrite, not a constant bump. **[SRC for current layout; [UNCERTAIN] for the rewrite.]**
+
+2. **`SEGMENT_FOR_SHUFFLE_SUMMATION = 64` still bounds the reductions — grouping does NOT dodge it.**
+   Both the feedin and feedback reductions use `sumArray(..., SEGMENT_FOR_SHUFFLE_SUMMATION, ...)`
+   over a segment that **must be ≥ numArrays (block count) and ÷32** (`constants.h:90`,
+   `MainKernel.cu:469,641`). Block-grouping *reduces the number of distinct coupling reductions*
+   (one per group instead of one per mode) but each surviving reduction is still a SEGMENT-wide
+   shuffle tied to the block count. If a future layout raises the block count past 64 to fit more
+   string carriers, SEGMENT still silently corrupts. The user's idea **mitigates the O(modes) factor
+   but inherits the O(blocks) segment constraint unchanged.** **[SRC]**
+
+3. **"Same coupling" must be EXACT, not approximate, for the factorisation to be lossless.** The
+   algebra in §0d.1 requires `deck[s,m] = w(s)` identically for all m∈G. If modes in a group have
+   *nearly* equal shapes, factoring them as if identical introduces error proportional to the
+   intra-group shape variance. This is acceptable **only because the flat tier already accepted that
+   approximation** (§0b.7) — but it means **group membership is an approximation-quality decision**,
+   not a free regrouping. Choosing groups = choosing a piecewise-rank-1 approximation of the deck;
+   its error must be A/B-rendered (Audio Verification Rule). **[SRC-grounded; [UNCERTAIN] error
+   magnitude — measure deck column-variance per candidate group on Belarus.]**
+
+4. **Per-mode frequency/damping stays distinct even within a shared-coupling group — and that's
+   fine, but don't conflate the two axes.** Shared *coupling* (`deck`) does NOT imply shared
+   *oscillator parameters* (`dec/omega/mass_inv`, `dev_mode_state`). Each m∈G keeps its own
+   `mode_state[modeNo]` (`MainKernel.cu:315-317`) and its own `q/q_prev`. The factorisation only
+   touches the coupling sums; the K oscillator advances are still K independent updates (cheap, §0c).
+   Correct — but a naive "process together" that also tried to share frequency/damping would be
+   physically wrong (it would merge distinct resonances). The grouping axis (coupling) and the
+   per-mode-physics axis (freq/damping) **must stay orthogonal.** **[SRC]**
+
+5. **Numerical accumulation across a big group.** `Σ_{m∈G} q(m)` over a large group in float32 is a
+   wide accumulation (§0b.7 risk #3); the *feedback factoring* concentrates many modes into one sum
+   per string, so float32 cancellation/precision is a live risk at |G|~thousands. Consider Kahan or
+   double accumulation for the group sum. **[SRC-grounded reasoning.]**
+
+6. **"One block" capacity at 4000 — does it actually matter?** Spare threads exist (§0c), but a
+   *single* block holding all 4000 flat oscillators would serialise their updates on ≤512 threads
+   and bloat that block's shared memory. The realistic design is **many blocks, each holding one
+   shared-coupling group** — which re-introduces the cooperative-grid co-residency question (§6
+   risk #3): more groups → more blocks → the cooperative launch must still fit them all resident.
+   Grouping helps the *coupling-compute* axis but **does not by itself relax the co-residency
+   ceiling.** **[SRC for coop-launch constraint; [UNCERTAIN] at 4000-scale grid sizing.]**
+
+7. **Group assignment becomes a preset-build + frontend concern.** Which modes belong to which
+   shared-coupling group is a new preset property (like `n_shaped`, §0b.5). It must be packed
+   (StringMap/Mode.py), plumbed (`/health`), and the matrix mode-axis must tolerate grouped modes —
+   same cross-layer surface as §8 Tier C, now with an extra grouping dimension. **[SRC-grounded.]**
+
+### 0d.5 WHAT MUST BE TRUE FOR THE IDEA TO WORK (preconditions) + WHAT TO MEASURE NEXT
+
+**Must be true:**
+- The flat tier's deck rows are genuinely (near-)separable so a small number of shared-coupling
+  groups approximate them within audible tolerance. *(The premise; §0b.7.)*
+- The kernel is re-indexed so `modeNo`'s range decouples from `4×numArrays` and the oscillator update
+  runs on more than 1 thread/quarter (§0c.2) — a real kernel change.
+- Mode state (`dev_mode_running`/`dev_mode_state`) is re-laid for contiguous per-group access to keep
+  the packed-oscillator updates coalesced (gotcha #1).
+- SEGMENT and the cooperative-grid sizing are revisited if block count rises (gotchas #2, #6).
+
+**Measure next (in priority order):**
+1. **Deck column-variance per mode vs mode frequency on Belarus** (live readback of
+   `dev_output_data` records 4/5/9, §8.2 Q1 mechanism) → identifies the shaped/flat boundary AND
+   the natural shared-coupling groups (clusters of low-variance, mutually-similar rows). This single
+   measurement validates both §0b's flat boundary and §0d's grouping simultaneously. **[UNCERTAIN —
+   not yet measured.]**
+2. **A/B offline render** (`note_playback`, audio_off `/test-ui`) of full-deck vs grouped/flattened
+   deck at a candidate group count, per the Audio Verification Rule — the only acceptance test for
+   the approximation. **[UNCERTAIN.]**
+3. **Cooperative-grid co-residency** at the target group/block count (§8.2 Q2) before committing to
+   "many blocks, one group each." **[UNCERTAIN.]**
+
+### 0d.6 BOTTOM-LINE VERDICT
+
+- **Mode↔slot correction:** the user is **right** — modes are scalar and the per-block thread budget
+  is ~99% idle of oscillator work, so multiple oscillators CAN share a string slot. The doc's
+  `num_modes ≤ num_strings` ceiling is real **for the current index convention only**, not as a
+  hardware law. **[SRC, confirmed.]**
+- **Block-grouping-by-shared-coupling:** **valid and beneficial, but ONLY for the flat tier**, where
+  "shared coupling" holds by construction. It is **not** a general speedup (shaped modes have
+  distinct shapes by design — refuted there), and it is **not** a new algorithm — it is the
+  *scheduling realisation* of §0b's separable-sum flat tier, with a useful generalisation (multiple
+  shared-coupling groups = piecewise rank-1, richer than one global flat term). **[SRC-grounded.]**
+- **Net:** the idea **holds where the design already needs it** and fills the gap §0b left open
+  ("where do the 4000 flat oscillators live, and how is their coupling amortised"). It does **not**
+  dissolve the remaining hard constraints — `SEGMENT_FOR_SHUFFLE_SUMMATION`, cooperative-grid
+  co-residency, data-layout/coalescing rewrite, and the exactness/error of the shared-coupling
+  approximation are all live and must be measured/handled. **It is a correct refinement, not a
+  silver bullet.**
+
+---
+
 ## 1. Architecture of the String–Mode Coupling System
 
 ### 1.1 What it is, physically
@@ -432,10 +712,15 @@ num_strings_in_array = num_strings.** The kernel's per-thread `modeNo` is read b
 itself is one mode per quarter slot** (`MainKernel.cu:666-676`, gated on `indexInQuarter==0`).
 
 > **HIGH-STAKES — the binding ceiling is `num_modes ≤ num_strings`, enforced structurally by
-> `modeNo = numArrays*quarterNumber + blockNo`, NOT by `NUM_MODES=256`. [SRC]** Confirmed by
-> middleware: `PanoidResult.py:11-13` ("works as long as num_modes <= num_strings");
-> `create_belarus_preset.py:55` ("num_modes + num_sound_channels must be <= num_strings = 224").
-> To add modes you must add strings.
+> `modeNo = numArrays*quarterNumber + blockNo` + the `indexInQuarter==0` gate, NOT by
+> `NUM_MODES=256`. [SRC]** Confirmed by middleware: `PanoidResult.py:11-13` ("works as long as
+> num_modes <= num_strings"); `create_belarus_preset.py:55` ("num_modes + num_sound_channels must
+> be <= num_strings = 224").
+> **CORRECTION (§0c, 2026-06-06):** "To add modes you must add strings" is the *current-convention*
+> consequence, **not a hardware law.** The oscillator update uses 1 thread/quarter (4/block); the
+> other ~508 threads/block are idle of mode work, so the real fix for a radical increase is to
+> **re-index modes onto the spare per-block threads** (pack many oscillators per existing block),
+> which avoids inflating `num_strings` and the O(S²) deck. See §0c.2 and §0d.
 
 ---
 
@@ -653,6 +938,17 @@ within S≤256, or larger with S>256) increases:**
    num_modes** and the kernel does not force `num_modes_for_model = num_strings` — rework the
    `modeNo = numArrays*quarterNumber+blockNo` placement and the quarter/fold mapping, or move modes
    to a **separate kernel / grid dimension**.
+   > **CHEAPER ROUTE surfaced by §0c/§0d (2026-06-06).** Decoupling does **not** require a whole new
+   > grid dimension. Because ~508 of 512 threads/block do no oscillator work, the bulk (flat) modes
+   > can be **re-indexed onto the spare per-block threads**: replace the `modeNo` range
+   > `4×numArrays` with `K_block×numArrays`, drop the `indexInQuarter==0` single-thread gate so >1
+   > oscillator updates per quarter, and grow `s_mode[4]`→`s_mode[K_block×4]` (still ≤~1 KB shared).
+   > Group flat modes by **shared coupling vector `w(s)`** (one group per block) so each group pays
+   > the string↔mode reduction **once** (§0d.1). This realises the §0b flat tier *on the existing
+   > block structure* — keep the §8-Tier-B "separate kernel" only if the flat oscillator count
+   > exceeds what packing onto spare threads can serve. Caveats: warp divergence / mode-state
+   > coalescing rewrite (§0d.4 #1), `SEGMENT_FOR_SHUFFLE_SUMMATION` still bounds reductions
+   > (#2), cooperative-grid co-residency still bounds block count (#6).
 8. Replace the block-count-tied reduction (`SEGMENT_FOR_SHUFFLE_SUMMATION`) with a scheme
    independent of block count.
 9. Reconsider the cooperative-grid requirement (the grid sync between string and mode phases) — a
