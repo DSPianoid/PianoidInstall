@@ -6,7 +6,7 @@
 > Phase 0 ready to start on user approval.
 
 **Date:** 2026-05-10 (decisions locked 2026-05-10)
-**Status:** Authoritative spec, NOT IMPLEMENTED. Multi-phase, ~5–6 week wall budget.
+**Status:** IMPLEMENTED + MERGED — Measurement entity refactor shipped via the dev-maimport campaign (Wave 1 + Wave 2 + ~30 rounds): `measurement_entity.py` (`Measurement` class), `measurement_routes.py` (full `/modal/measurements/...` surface, registered), `migrate_to_measurement_entity.py` + Tunner collection 5-section rebuild + SetupTest + CollectionLog + CreateProjectFromMeasurement; legacy `/modal/collect/*` retired to 410 Gone. All 16 decisions (Q1–Q8 + N1–N8) realized. Only remainder: optional Phase-5 Gate-4 SDL3.dll dedup benchmark. The "NOT IMPLEMENTED / ~5–6 week" note below is stale. Archived 2026-06-06.
 **Author:** /analyse pass (orchestrator-spawned read-only investigation), decisions baked in by /dev (dev-propspec, 2026-05-10).
 
 ---

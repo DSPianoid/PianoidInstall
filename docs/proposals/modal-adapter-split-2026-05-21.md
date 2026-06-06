@@ -1,7 +1,7 @@
 # Proposal: Split the `modal_adapter.py` God-Object
 
 **Date:** 2026-05-21
-**Status:** Proposed (6 architectural decisions locked by user; awaiting Wave-1 dispatch).
+**Status:** PARTIAL / IN PROGRESS — **Waves 1+2 merged** to PianoidCore dev (Wave 1 `71ddf22`/`f591603` = ScenarioLoader + VisualizationService + ProjectContext; Wave 2 `48e07b4`/`893fd44` = EspritOrchestrator + TrackingOrchestrator + ApplyService). **Wave 3 (ChainEditor + ProjectStore + facade rewrite, Option A) IN PROGRESS 2026-06-06** (dev-wave3split, `feature/modal-adapter-wave3-split`). The headline goal — slim `modal_adapter.py` to a ~400-LOC thin facade — is NOT yet met (still ~4,253 LOC / 233 methods until Wave 3 lands). (The original "awaiting Wave-1 dispatch" line was stale.)
 **Author tag:** `[dev-maimport]` (round 15 wrap-up + round 16 prep).
 **Scope:** `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` (5,599 LOC, 103 methods).
 **Related docs:**

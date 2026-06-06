@@ -2,7 +2,7 @@
 
 - **Author:** dev-stest-4a7c
 - **Date:** 2026-05-30
-- **Status:** Phase A design — awaiting user direction on Scope (S1 / S2 / S3) before any code edits.
+- **Status:** IMPLEMENTED + MERGED at scope **S3** (all four sources) — shipped via dev-stest-4a7c (PianoidCore merge `b13ea4a`): `sound_test` chart in `chartFunctions.py` (registered in `chart_config.json`, dispatchable), multi-source kernel/FIR/Sint/mic via `PanoidResult` (incl. the rebuilt post-volume `dev_soundInt` readback hook `load_sint_audio_from_pianoid`), multi-channel offline writer, unit test `test_sound_test_chart.py`. The S1/S2/S3 scope question is resolved (S3 shipped). Only deferred item: the optional custom `SoundTestParamsPane.jsx` (auto-rendered pane in use instead). Header below ("awaiting Scope direction") is stale. Archived 2026-06-06.
 - **Related docs:**
   - `docs/modules/pianoid-middleware/CHART_SYSTEM.md` (chart registration + `render_hints`)
   - `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` (signal pipeline, FIR placement, per-sample write)

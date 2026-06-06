@@ -1,7 +1,7 @@
 # Proposal: Online vs Offline Synthesis — Root-Cause Analysis & Path Unification
 
 **Date:** 2026-05-29
-**Status:** Proposed — ANALYSIS ONLY. No source changed, nothing built, nothing committed. (Two throwaway measurement scripts were run in a separate `audio_off` process; the user's running stack was not modified.)
+**Status:** SUPERSEDED — the trigger bug (the 55/56/57 trichotomy, "incorrectly rendered notes only in live UI") was fixed by the shipped **P1-authority-fix** (PianoidCore `80fc9ed [dev-427c]` + merge `a352b2f`, USER-VERIFIED — engine sole-writer of swappable GPU pointers via release/acquire). This document's own in-doc "Sint32-overflow ROOT CAUSE" (the §⚠️ 2026-05-29 update below) was subsequently REFUTED (readback bug, not a real overflow). The driving bug is gone; the path-unification refactor was never agreed/built. Archived 2026-06-06 as superseded. (If the online↔offline path unification is later wanted as standalone tech-debt, re-open fresh — the bug rationale no longer applies.)
 **Author tag:** `[online-offline-unify]` (analyse-arch, task #173) — **maximum-rigor pass** per team-lead escalation.
 **Trigger:** The user reports *incorrectly rendered notes* that appear **only in online (live UI) synthesis**, never in the offline `note_playback` render — the "55/56/57 trichotomy" (p55 OK, p56 "does not decay", p57 "click"). A prior session shipped a frontend `handleMouseUp` fix on `feature/vp-noteoff-fix`; **that fix FAILED.** The user believes this exposes a severe architectural inconsistency between two synthesis paths.
 
