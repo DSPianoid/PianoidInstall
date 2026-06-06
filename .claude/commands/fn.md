@@ -135,7 +135,7 @@ Log the edit: what changed, line numbers, rationale.
 Before writing the function yourself, you MAY offload the *body* to DeepSeek via the `deepseek-codegen` MCP tool — Claude still owns the test, the review, the build, the test run, the debug loop, and the commit. This is opt-in and falls back silently to writing it yourself.
 
 **Eligible ONLY when ALL hold:**
-- `target_file` is `.py` (NOT `.cu/.cpp/.cuh/.h/setup.py` — hard exclusion, HC-1).
+- `target_file` is Python (`.py`, tested via pytest) OR JavaScript/TypeScript/React (`.js/.jsx/.ts/.tsx`, tested via Jest) — pass the matching `language` to the tool. HARD-EXCLUDED: `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++ — HC-1). Other languages are fine too wherever a fast isolated test gate exists.
 - The function is a single, pure, well-specified responsibility (the `/fn` envelope) — not a cross-cutting refactor.
 - A concrete test exists already (the caller's `test_command` + the test source) — HC-2: never delegate without the test.
 

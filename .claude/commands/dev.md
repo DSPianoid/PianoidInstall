@@ -667,7 +667,7 @@ When a task can be decomposed into functions with clear requirements and testabl
 
 Function-level work delegated to `/fn` can have its codegen step offloaded to **DeepSeek** (the `deepseek-codegen` MCP tool, wired into `/fn` Step 2a) — cheaper + faster for routine function bodies, with Claude still owning the spec, test, review, build, debug, and commit. The dev agent does NOT call DeepSeek directly; it flows through the `/fn` sub-agent, and only when eligible.
 
-- **WHEN (all must hold):** target is a `.py` file; a single, pure, well-specified function (the `/fn` envelope); and the test is written FIRST (see "Prepare tests FIRST" below). These are the same delegate-to-`/fn` conditions — DeepSeek just generates the body inside that envelope.
+- **WHEN (all must hold):** target is Python (`.py`/pytest) or JS/TS/React (`.js/.jsx/.ts/.tsx`/Jest — PianoidTunner frontend included), or any language with a fast isolated test gate; a single, pure, well-specified unit (the `/fn` envelope); and the test is written FIRST (see "Prepare tests FIRST" below). These are the same delegate-to-`/fn` conditions — DeepSeek just generates the body inside that envelope.
 - **HARD RULE — never DeepSeek:** any `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++) change, and any cross-cutting or multi-file refactor, stays on **Claude `/dev`** — the dev agent implements these itself and does not route them to `/fn` for offload. (The MCP tool also refuses C++/CUDA as a backstop, but the gate is the dev agent's routing decision first.)
 - **SAFETY:** DeepSeek output is never trusted, only tested — the Claude-written test is the gate. If the generated body fails the Step-4b debug loop, fall back to a Claude implementation. DeepSeek never writes files, never commits, never updates docs.
 

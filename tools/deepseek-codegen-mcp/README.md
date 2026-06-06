@@ -2,9 +2,9 @@
 
 A tiny local **stdio MCP server** that exposes ONE tool, `delegate_codegen`, wrapping DeepSeek's
 OpenAI-compatible API. It lets the **`/fn`** skill offload the *codegen step only* — drafting a single,
-well-defined, **Python-only** function body — to the cheap `deepseek-v4-flash` model, while Claude keeps
-ownership of everything that determines correctness (test authoring, review, build, test run, debug,
-commit, docs).
+well-defined function body in **Python or JS/TS/React** (any language with a fast isolated test gate;
+**C++/CUDA excluded**) — to the cheap `deepseek-v4-flash` model, while Claude keeps ownership of
+everything that determines correctness (test authoring, review, build, test run, debug, commit, docs).
 
 This is **Architecture A** of
 [`docs/proposals/deepseek-dev-pipeline-integration-2026-06-06.md`](../../docs/proposals/deepseek-dev-pipeline-integration-2026-06-06.md).
@@ -45,10 +45,10 @@ representative `/fn`-style tasks.
 ```
 delegate_codegen(
     function_spec: str,        # signature + behaviour
-    test_or_signature: str,    # the Claude-written pytest (REQUIRED) — or at least the exact signature
+    test_or_signature: str,    # the Claude-written test (REQUIRED, pytest/Jest/…) — or at least the signature
     constraints: str = "",     # optional acceptance criteria
     context_snippets: str = "",# optional caller-curated surrounding patterns (NOT the whole repo)
-    language: str = "python",  # python only; non-python is refused
+    language: str = "python",  # python | javascript/js | typescript/ts | jsx/tsx/react | …; C/C++/CUDA refused
     backend: str = "cloud",    # "cloud" = DeepSeek API (default). "local" (Ollama) = documented TODO.
 ) -> dict
 ```
@@ -111,7 +111,8 @@ The `command` path in the `~/.claude.json` entry below is the only thing that ch
 ## How `/fn` uses it
 
 In `/fn` Step 2 ("Edit Code"), **after the Claude-written test exists** and only for a simple, pure,
-well-specified **Python-only** single function (never `.cu/.cpp/.cuh/.h/setup.py`):
+well-specified single function in **Python or JS/TS/React** — any language with a fast isolated test gate
+(never `.cu/.cpp/.cuh/.h/setup.py`):
 
 1. Claude assembles a tight prompt: `function_spec` + `constraints` + the test source + minimal
    `context_snippets`, and calls `mcp__deepseek-codegen__delegate_codegen(...)`.

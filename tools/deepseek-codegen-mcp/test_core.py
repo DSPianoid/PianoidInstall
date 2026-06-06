@@ -56,6 +56,41 @@ def test_build_messages_omits_empty_optional_sections():
     assert "CONTEXT" not in user
 
 
+def test_build_messages_typescript_targets_ts_not_python():
+    msgs = core.build_messages(
+        function_spec="export function add(a: number, b: number): number",
+        test_or_signature="test('add', () => { expect(add(1,2)).toBe(3); });",
+        language="typescript",
+    )
+    system = msgs[0]["content"]
+    user = msgs[1]["content"]
+    # the prompt must target TypeScript, NOT Python
+    assert "TypeScript" in system
+    assert "Python" not in system
+    assert "Implement this function in TypeScript." in user
+    assert "```typescript" in user        # test fenced as typescript, not python
+    assert "Return only the implementation as one TypeScript code block." in user
+
+
+def test_build_messages_javascript_and_react_labels():
+    js = core.build_messages("function f(){}", "test('f',()=>{})", language="js")
+    assert "JavaScript" in js[0]["content"]
+    assert "```javascript" in js[1]["content"]
+    tsx = core.build_messages("export const C = () => <div/>", "render(<C/>)", language="tsx")
+    assert "TSX" in tsx[0]["content"] or "React" in tsx[0]["content"]
+    assert "```tsx" in tsx[1]["content"]
+
+
+def test_extract_code_typescript_fence():
+    text = "Here:\n```typescript\nexport function add(a:number,b:number){return a+b;}\n```\n"
+    assert core.extract_code(text) == "export function add(a:number,b:number){return a+b;}"
+
+
+def test_extract_code_jsx_fence():
+    text = "```jsx\nexport const X = () => <div>hi</div>;\n```"
+    assert "export const X" in core.extract_code(text)
+
+
 # --------------------------------------------------------------------------------------------------
 # Code extraction
 # --------------------------------------------------------------------------------------------------
@@ -209,7 +244,21 @@ def test_tool_result_refused_for_cuda(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-not-real-unit-test")
     out = core.to_tool_result(function_spec="write a CUDA kernel", test_or_signature="def t(): pass")
     assert out["status"] == "refused"
-    assert "C++/CUDA" in out["reason"] or "Python-only" in out["reason"]
+    assert "C++/CUDA" in out["reason"]
+
+
+def test_cuda_refused_regardless_of_language(monkeypatch):
+    # The HC-1 gate must fire even when language is a permitted one (e.g. typescript) but the spec is C/CUDA.
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-not-real-unit-test")
+    for lang in ("typescript", "javascript", "tsx", "python"):
+        with pytest.raises(core.CppCudaRefused):
+            core.delegate_codegen(
+                function_spec="edit Pianoid_synthesis.cu to add a __global__ kernel",
+                test_or_signature="def t(): pass", language=lang,
+            )
+    # and a .h spec under a JS language still refuses
+    with pytest.raises(core.CppCudaRefused):
+        core.delegate_codegen(function_spec="patch constants.h", test_or_signature="x", language="js")
 
 
 def test_tool_result_error_for_missing_key(monkeypatch):

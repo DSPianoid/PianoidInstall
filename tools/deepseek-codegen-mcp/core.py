@@ -33,6 +33,23 @@ DEEPSEEK_TEMPERATURE = 0.0            # DeepSeek's official coding temperature
 DEFAULT_TIMEOUT_S = 90
 DEFAULT_MAX_TOKENS = 4096
 
+# Language → (human label for the prompt, markdown code-fence tag). Drives the prompt so a non-Python
+# `language` actually targets that language (TS/JS/React via Jest, etc.). Unknown languages fall back to
+# the raw `language` string + no fence tag. C/C++/CUDA are NOT here — they are refused (HC-1).
+_LANG_LABELS = {
+    "python": "Python", "py": "Python",
+    "javascript": "JavaScript", "js": "JavaScript",
+    "typescript": "TypeScript", "ts": "TypeScript",
+    "jsx": "JavaScript (React/JSX)", "tsx": "TypeScript (React/TSX)",
+    "react": "React",
+}
+_LANG_FENCE = {
+    "python": "python", "py": "python",
+    "javascript": "javascript", "js": "javascript",
+    "typescript": "typescript", "ts": "typescript",
+    "jsx": "jsx", "tsx": "tsx", "react": "tsx",
+}
+
 # Markers that flag a request as C++/CUDA → REFUSE (HC-1 backstop). Case-insensitive.
 # Two ingredients: the source EXTENSIONS (each matched at a trailing word boundary so ".h" is caught
 # before newline/period/comma/paren/EOS but "headers" — where "h" is followed by the word char "e" —
@@ -95,13 +112,15 @@ def build_messages(function_spec: str, test_or_signature: str, constraints: str 
     Mirrors the Phase-0 spike prompt that scored 90% first-try: a strict system message ("return ONLY a
     single code block, no prose") + a user message carrying the spec, requirements/constraints, the
     Claude-written test, and any caller-curated context (NOT the whole repo)."""
+    lang_label = _LANG_LABELS.get((language or "").strip().lower(), language or "the requested language")
+    fence = _LANG_FENCE.get((language or "").strip().lower(), "")
     system = (
-        "You are an expert Python engineer. Implement EXACTLY the requested function. "
-        "Return ONLY a single Python code block containing a complete, importable module "
-        "(necessary imports + the function). No prose, no explanation, no example usage. "
+        f"You are an expert {lang_label} engineer. Implement EXACTLY the requested function. "
+        f"Return ONLY a single {lang_label} code block containing complete, importable code "
+        "(necessary imports + the function/export). No prose, no explanation, no example usage. "
         "Match the given signature and satisfy every requirement and the provided test."
     )
-    parts = [f"Implement this function in {language}.", "", "SIGNATURE / SPEC:", function_spec.strip()]
+    parts = [f"Implement this function in {lang_label}.", "", "SIGNATURE / SPEC:", function_spec.strip()]
     if constraints and constraints.strip():
         parts += ["", "REQUIREMENTS / CONSTRAINTS:", constraints.strip()]
     if context_snippets and context_snippets.strip():
@@ -111,22 +130,24 @@ def build_messages(function_spec: str, test_or_signature: str, constraints: str 
         "",
         "It must satisfy this test (write the implementation so the test passes — do NOT modify the test "
         "and do NOT include the test in your output):",
-        "```python",
+        "```" + fence,
         test_or_signature.strip(),
         "```",
         "",
-        "Return only the implementation module as one Python code block.",
+        f"Return only the implementation as one {lang_label} code block.",
     ]
     user = "\n".join(parts)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-_CODE_FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+# Match a fenced block with ANY language tag (```python / ```typescript / ```tsx / ```jsx / ```js / …)
+# or a bare ``` fence — `[^\n]*` swallows the optional language token on the opening line.
+_CODE_FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
 
 
 def extract_code(text: str) -> str:
-    """Pull the implementation out of the model reply. Prefer the largest fenced code block; if there is
-    no fence, return the stripped text (the model occasionally returns bare code)."""
+    """Pull the implementation out of the model reply. Prefer the largest fenced code block (any language
+    tag); if there is no fence, return the stripped text (the model occasionally returns bare code)."""
     matches = _CODE_FENCE.findall(text or "")
     if matches:
         return max(matches, key=len).strip()
@@ -199,12 +220,12 @@ def delegate_codegen(function_spec: str, test_or_signature: str, constraints: st
     if backend != "cloud":
         raise DeepSeekError(f"Unknown backend {backend!r}. Supported: 'cloud' (default); 'local' is a TODO.")
 
-    # HC-1 defense-in-depth gate.
+    # HC-1 defense-in-depth gate. (Python + JS/TS/React are eligible; C++/CUDA is the hard exclusion.)
     if _looks_like_cpp_cuda(language, function_spec, constraints, context_snippets):
         raise CppCudaRefused(
             "This request appears to involve C++/CUDA (.cu/.cpp/.cuh/.h/setup.py or CUDA kernel work). "
-            "delegate_codegen is Python-only by policy (HC-1) — keep C++/CUDA changes on Claude /dev, "
-            "which handles the CUDA build and the data-model reasoning."
+            "delegate_codegen excludes C++/CUDA by policy (HC-1) — keep those on Claude /dev, which "
+            "handles the CUDA build and the data-model reasoning. (Python and JS/TS/React ARE eligible.)"
         )
 
     messages = build_messages(function_spec, test_or_signature, constraints, context_snippets, language)

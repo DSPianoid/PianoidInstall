@@ -2,9 +2,9 @@
 
 Architecture A of docs/proposals/deepseek-dev-pipeline-integration-2026-06-06.md: a tiny local stdio MCP
 server that wraps DeepSeek's OpenAI-compatible API so the `/fn` skill can offload the *codegen step only*
-for well-defined, Python-only single functions. DeepSeek writes the function body; Claude (the `/fn`
-caller) reviews it, applies it, builds, and runs the Claude-written test (the verification gate is
-unchanged — HC-2/HC-3).
+for well-defined single functions in Python or JS/TS/React (any language with a fast isolated test gate;
+C++/CUDA excluded). DeepSeek writes the function body; Claude (the `/fn` caller) reviews it, applies it,
+builds, and runs the Claude-written test (the verification gate is unchanged — HC-2/HC-3).
 
 Run (stdio):  python tools/deepseek-codegen-mcp/server.py
 Registered in ~/.claude.json under mcpServers."deepseek-codegen" (see README.md). The API key is read
@@ -46,24 +46,25 @@ def delegate_codegen(
     language: str = "python",
     backend: str = "cloud",
 ) -> dict:
-    """Delegate a SINGLE Python function's implementation to DeepSeek and return the code as TEXT.
+    """Delegate a SINGLE function's implementation to DeepSeek and return the code as TEXT.
 
-    Use this from the /fn skill's "edit code" step ONLY for a simple, pure, well-specified, Python-only
-    single function, AFTER the Claude-written test exists. DeepSeek writes the function body; YOU (Claude)
-    must review the returned code, apply it via Edit/Write, then build and run the test. This tool never
-    writes files, never commits. If the returned code is unusable or fails the test, fall back to writing
-    the function yourself.
+    Use this from the /fn skill's "edit code" step ONLY for a simple, pure, well-specified single function
+    in Python or JS/TS/React (any language with a fast isolated test gate), AFTER the Claude-written test
+    exists. DeepSeek writes the function body; YOU (Claude) must review the returned code, apply it via
+    Edit/Write, then build and run the test. This tool never writes files, never commits. If the returned
+    code is unusable or fails the test, fall back to writing the function yourself.
 
     HARD EXCLUSION (HC-1): never use this for C++/CUDA (.cu/.cpp/.cuh/.h/setup.py or CUDA kernel work) —
-    those stay on Claude /dev. The tool refuses such requests as a backstop.
+    those stay on Claude /dev. The tool refuses such requests as a backstop, regardless of `language`.
 
     Args:
         function_spec: The function signature + a description of its behaviour.
-        test_or_signature: The Claude-written pytest (or at minimum the exact signature) the
-            implementation must satisfy. REQUIRED — the tool refuses to delegate without it.
+        test_or_signature: The Claude-written test (pytest / Jest / etc. — or at minimum the exact
+            signature) the implementation must satisfy. REQUIRED — the tool refuses to delegate without it.
         constraints: Optional acceptance criteria / requirements text.
         context_snippets: Optional caller-curated surrounding code/patterns (NOT the whole repo).
-        language: Must be "python" (default). Non-Python is refused.
+        language: Target language — "python" (default), "javascript"/"js", "typescript"/"ts",
+            "jsx"/"tsx"/"react", etc. Drives the prompt + output language. C/C++/CUDA are refused.
         backend: "cloud" (default — DeepSeek API). "local" (Ollama) is a documented TODO, not built.
 
     Returns:
