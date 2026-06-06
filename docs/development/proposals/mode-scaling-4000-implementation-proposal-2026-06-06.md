@@ -66,9 +66,11 @@ oscillator (~27 modes / 128 threads ⇒ **≤1 mode/thread**, ~5 added registers
 for the shaped quarter. The flat modes **ride the existing ~56 string-blocks' spare quarters — NO new
 blocks** (§4b.5), so the block count stays **<64, respecting `SEGMENT_FOR_SHUFFLE_SUMMATION=64`**, and
 co-residency is not worsened. Add one block-local reduction per flat quarter for feedin and one for
-feedback (`Σ q(m)` factored), in addition to the unchanged shaped path. **One OPEN QUESTION blocks
-implementation: the real SHAPED count (§4b.4) — ~1000–1350 (uniform) vs ~64–256 (reserved-slot) — is
-the user's decision.** Constants, allocations, and the Python/JS plumbing follow (§7–§8).
+feedback (`Σ q(m)` factored), in addition to the unchanged shaped path. **SHAPED COUNT — RESOLVED
+(user, 2026-06-06): exactly ONE shaped mode per block in quarter 0, running the current per-mode
+logic unchanged; quarters 1–3 hold ~25–30 FLAT modes each (~80/block). Real shaped ≈ 1 × ~56 blocks
+≈ 56 modes — the shaped path = today's per-quarter code restricted to quarter 0 (§4b.4).** Constants,
+allocations, and the Python/JS plumbing follow (§7–§8).
 
 ---
 
@@ -464,10 +466,28 @@ sparse per quarter that the spread is ≤1 mode/thread with room to spare.**
 > The user could pack tighter (more modes/quarter, fewer blocks) to raise utilisation, but that
 > trades against the SHAPED-count and per-mode register budget — see §4b.4. **[EST.]**
 
-### 4b.4 ★ SHAPED-COUNT IMPLICATION — an OPEN QUESTION for the user (do NOT silently pick)
+### 4b.4 ★ SHAPED-COUNT — RESOLVED (user decision, 2026-06-06)
 
-The user's layout says **"in EACH block ONE QUARTER is dedicated to SHAPED."** Taken literally with
-a uniform population, that has a large, possibly-unintended consequence:
+**RESOLUTION: exactly ONE shaped mode per block, in quarter 0, with all current per-mode logic
+retained unchanged; quarters 1–3 hold ~25–30 FLAT modes each (~80 modes/block).** → Real shaped
+count ≈ 1 × ~56 blocks ≈ **56 shaped modes** (one per string-block — even smaller than interpretation
+B). The shaped path is therefore **today's per-quarter shaped code kept only in quarter 0**: currently
+the shaped (1-mode-per-quarter) path runs in all 4 quarters/block (~4 shaped/block); the change is to
+keep it in quarter 0 ONLY and convert quarters 1–3 to flat packing. Convolution cost ≈ today's
+(≈1 shaped mode/block, as now). This is neither interpretation A nor B below — it is the cleanest
+reading and preserves the two-tier economics maximally. The A/B analysis below is retained as the
+decision record.
+
+> **★ IMPLEMENTATION NUANCE (for the /dev phase):** "retain current logic" applies to quarter 0's
+> single shaped mode. The kernel edit keeps the existing shaped per-mode path for `quarterNumber==0`
+> and routes `quarterNumber∈{1,2,3}` to the new flat packing+summation. Effectively all current HF
+> modes beyond the one lowest-per-block become flat — exactly the §0b.7 intent.
+
+---
+
+_(historical — the question as originally posed, retained as the decision record:)_ The user's layout
+says **"in EACH block ONE QUARTER is dedicated to SHAPED."** Taken literally with a uniform
+population, that has a large, possibly-unintended consequence:
 
 ```
 1 shaped quarter/block × ~50 blocks × ~27 (or ~20) modes/quarter
