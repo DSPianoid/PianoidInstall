@@ -1,7 +1,7 @@
 # Proposal: Split the `Pianoid.cu` God-Object
 
 **Date:** 2026-05-19
-**Status:** Planning only — research + design. No code changes proposed for immediate execution.
+**Status:** IMPLEMENTED + MERGED — `Pianoid.cu` split into `Pianoid_{calibration,debug,excitation,parameters,presets,synthesis}.cu` (all 6 phases, dev-cbd5), merged to `dev` via `aa8bcb3`. Archived 2026-06-05. (Original draft status below was "Planning only" — superseded by the completed split.)
 **Scope:** `PianoidCore/pianoid_cuda/Pianoid.cu` (2988 LOC) and `Pianoid.cuh` (758 LOC).
 **Author:** investigation sub-agent (docs-first per CLAUDE.md Documentation-First rule).
 **Revision history:**

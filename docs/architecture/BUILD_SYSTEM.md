@@ -2,59 +2,101 @@
 
 ## Canonical Install / Rebuild (Read This First)
 
-For **any** change to `.cu`, `.cpp`, `.cuh`, `.h`, or `setup.py` in `pianoid_cuda/`, the
-only reliable rebuild command is:
+This is the **single source of truth** for the Pianoid build/rebuild procedure. Every
+other file (CLAUDE.md, the skills, QUICK_START.md, STARTUP_TROUBLESHOOTING.md) references
+this section rather than re-deriving the commands. `<CORE>` = the OS-specific PianoidCore
+absolute path (`D:\repos\PianoidInstall\PianoidCore` on Windows).
 
-```bash
-cd PianoidCore && ./build_pianoid_cuda.bat --heavy --release
 ```
+PIANOID BUILD & REBUILD — CANONICAL PROCEDURE  (single source of truth: BUILD_SYSTEM.md)
 
-### Supported shells
+WHEN TO BUILD
+  • Edited .cu/.cpp/.cuh/.h/setup.py/detect_paths.py ........ HEAVY CUDA build
+  • Edited pianoid_middleware/*.py only ..................... LIGHT CUDA build
+  • Edited / merged / pulled any PianoidBasic/** ............ PianoidBasic build  (+ heavy CUDA if .cu/.cpp also changed)
+  • MERGED or PULLED a diff touching any of the above ....... REBUILD per the file types in the diff  (POST-MERGE/PULL GATE, below)
+  • Edited tests/** only .................................... no rebuild
+  Default variant = --both (release + debug). Use --release ONLY when the caller says "release only"
+  (leaving the debug .pyd stale silently breaks every later debug-variant import / the APPLY debug_mode=1 path).
 
-The script is written in cmd.exe batch but is invocable from any Windows shell. Verified
-exit 0 on all three on a clean system (2026-04-24):
+STEP 1 — PRE-CHECK + STOP the locked-binary holder   [agents emit [BUILD-PRECHECK] holders=...]
+  A running backend holding the .pyd makes the --heavy pip-uninstall fail [WinError 5] and BRICKS the venv
+  (uninstall removes the .pyd before reinstall). This step is LOAD-BEARING (confirmed L-3, PID 37348 this session).
+  PREFERRED — if a launcher is up, stop the backend gracefully (no PID hunt):
+            curl -X POST http://127.0.0.1:3001/api/stop-backend
+  ELSE — find + kill the specific holder:
+  Windows:  tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
+            tasklist //M cudart64_12.dll 2>/dev/null | grep python
+            taskkill //F //PID <pid>        # specific PID only — NEVER //IM python.exe
+  Linux:    lsof PianoidCore/.venv/lib/python3.12/site-packages/pianoidCuda*.so 2>/dev/null
 
-| Shell | Invocation | Notes |
-|-------|------------|-------|
-| cmd.exe | `build_pianoid_cuda.bat --heavy` (from `PianoidCore/`) | Primary; native shell |
-| bash (git-bash) | `env -u VIRTUAL_ENV cmd //c "<launcher>.bat"` where launcher does `cd PianoidCore && call build_pianoid_cuda.bat %*` | `cmd //c "abs\path\to.bat"` can mis-resolve `%~dp0` — always `cd` first |
-| PowerShell | `& cmd /c "<launcher>.bat --heavy"` | Same quoting considerations as bash |
+STEP 2 — BUILD  (cwd MUST be PianoidCore [L-1]; bat invoked by ABSOLUTE path [L-2]; VIRTUAL_ENV set EXPLICITLY)
+  cd-safety: the `cd /d <CORE>` sets cwd so setup.py finds pianoid_cuda/ (L-1). The bat is ALWAYS invoked by its
+  ABSOLUTE path `<CORE>\build_pianoid_cuda.bat` — a BARE `build_pianoid_cuda.bat` after a cd FAILS "not recognized"
+  (L-2: cwd is not on cmd's exec PATH). Never bare-name, never the double `PianoidCore\PianoidCore\` prefix (GAP g).
+
+  --- AGENT / ORCHESTRATOR context (DETACHED — required; cmd //c gate-stalls DESTRUCTIVELY) ---
+  PowerShell:
+    Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
+      '/c','set "VIRTUAL_ENV=<CORE>\.venv" && cd /d <CORE> && <CORE>\build_pianoid_cuda.bat --heavy --both > D:\tmp\build.log 2>&1' -PassThru
+    # set VIRTUAL_ENV EXPLICITLY to <CORE>\.venv (NOT empty — empty-but-defined sends the install to SYSTEM python).
+    # ABSOLUTE bat path inside the cmd /c (cd does not put cwd on PATH → a bare bat name = "not recognized", L-2).
+    # Then poll D:\tmp\build.log + the .pyd mtime; emit [PROGRESS]; done when log shows [SUCCESS] Build completed.
+
+  --- INTERACTIVE HUMAN context (Windows) ---
+    cd /d <CORE> && <CORE>\build_pianoid_cuda.bat --heavy --both      # absolute path, or .\build_pianoid_cuda.bat
+    (light:  <CORE>\build_pianoid_cuda.bat --light --both    |   release-only: ... --heavy --release)
+
+  --- Linux (any context) ---
+    PianoidCore/build_pianoid_cuda.sh --heavy --both       # ASIO excluded; produces .so; libdir lib64; g++ host
+
+  PianoidBasic:  cd /d <CORE> && <CORE>\build_pianoid_basic.bat        (Linux: build_pianoid_basic.sh)
+
+STEP 3 — VERIFY  (BOTH levels; import-only is NOT enough after a merge/pull)
+  L1 import:   PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"
+               → path MUST be inside PianoidCore/.venv/  (NOT root .venv/)   [Linux: .venv/bin/python]
+  L1 debug:    ...python -c "import pianoidCuda; import pianoidCuda_debug; print('OK')"   (when --both)
+  L2 smoke:    start backend, then  POST /load_preset {path:"presets/BaselinePreset1.json", start_right_away:1}
+               → expect 200 + /health 200 + NO Python traceback (AttributeError/ImportError/ModuleNotFoundError).
+               REQUIRED after any merge/pull-triggered rebuild (API divergence shows only at /load_preset, not at import).
+  agents emit:  [BUILD OK] duration=<s> marker=<verify> verified=yes
+
+RECOVERY
+  • Exit 3221225794 (0xC0000142): NOT a pip-install fallback — delete %TEMP%\pip-build-env-*, pip cache purge,
+    re-run the canonical build.  Full steps: BUILD_SYSTEM.md §0xC0000142 Recovery.
+  • Any other build/install/startup failure: invoke /startup. Do NOT improvise (.pth shim, pip --force-reinstall).
+  • NEVER  pip install --force-reinstall pianoid_cuda/  → silently reinstalls the STALE .pyd.
+```
 
 The script reads all toolchain paths from `build_config.json` (generated by
 `detect_paths.py`), so **no shell-level MSVC environment is required**. The build does
 not need `vcvars64.bat` or a Developer Command Prompt.
 
-### Pre-build checks (MANDATORY)
+---
 
-Before invoking the script:
+## Post-Merge / Post-Pull Rebuild Gate
 
-1. **Clear `VIRTUAL_ENV`** if set to anything other than `PianoidCore/.venv/`. The script
-   will activate `PianoidCore/.venv/` itself; leaving `VIRTUAL_ENV` pointed at another venv
-   (e.g. the root `PianoidInstall/.venv/`) causes the install to land in the wrong place.
+After ANY operation that brings new source into the working tree — a feature→dev merge,
+a `git pull`/reconcile, a `/sync` merge, an `/update-pianoid` pull, or an orchestrator
+Phase-2 reconcile — compute the incoming diff and rebuild BEFORE pushing or handing off:
 
-   ```bash
-   unset VIRTUAL_ENV    # bash
-   # or
-   Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue    # PowerShell
-   ```
+```
+git -C <repo> diff <pre-state>..<post-state> --name-only
+```
 
-2. **Check for locked package files.** A running backend or test process holding the
-   `.pyd` causes `[WinError 5] Access is denied`, leaves the package uninstalled, and
-   breaks the venv.
+| Diff touches | Action (then STEP 3 VERIFY incl. L2 smoke) |
+|---|---|
+| `pianoid_cuda/*.cu`, `*.cpp`, `*.cuh`, `*.h`, `setup.py`, `detect_paths.py` | HEAVY CUDA `--both` |
+| any `PianoidBasic/**` | PianoidBasic build (+ HEAVY CUDA if `.cu/.cpp` also in diff) |
+| `pianoid_middleware/*.py` only | LIGHT CUDA `--both` |
+| `PianoidTunner` `package.json` / `package-lock.json` | `npm install` |
+| docs / tests only | no rebuild |
 
-   ```bash
-   tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
-   tasklist //M cudart64_12.dll 2>/dev/null | grep python
-   # If anything matches, kill BY PID:
-   taskkill //F //PID <pid>
-   ```
+**Push / declare-ready is BLOCKED until the rebuild + `/load_preset` 200 smoke-test pass.**
+This is the gate that FAIL #1 skipped: new Python (`StringMap.pack_output_mask`) ran against
+stale binaries because merge→push had no rebuild step.
 
-   **Never** use `taskkill //F //IM python.exe` — that kills MCP servers, Claude Code
-   itself, and any unrelated Python process.
-
-3. **Verify the launcher/backend is not running.** If the launcher is up,
-   `curl -X POST http://localhost:3001/api/stop-backend` shuts the backend down gracefully
-   before building.
+---
 
 ### 0xC0000142 Recovery (STATUS_DLL_INIT_FAILED)
 
@@ -709,7 +751,7 @@ rebuild is needed (e.g. after changing `setup.py` or pybind11 bindings).
 
 ### Build installs into wrong venv / `[WinError 5] Access is denied`
 
-Both failure modes are covered in the [Canonical CUDA Rebuild](#canonical-cuda-rebuild-read-this-first)
+Both failure modes are covered in the [Canonical Install / Rebuild](#canonical-install--rebuild-read-this-first)
 section at the top of this page — see "Venv Location" and "Before any rebuild: check
 for locked files" respectively.
 
@@ -718,7 +760,7 @@ for locked files" respectively.
 Symptom: you edit a `.cu` / `.cpp` file, rebuild, but runtime behavior is unchanged.
 
 Most common cause is a stale cached pyd from direct `pip install` — see
-[Canonical CUDA Rebuild](#canonical-cuda-rebuild-read-this-first). Use
+[Canonical Install / Rebuild](#canonical-install--rebuild-read-this-first). Use
 `build_pianoid_cuda.bat --heavy` and run the post-build grep verification.
 
 If the grep confirms your string IS in the installed pyd but output still hasn't changed,

@@ -1,5 +1,7 @@
 # Modal Mass NaN Investigation — LG_p3 (ana-mmnan-7c3a, 2026-05-26)
 
+**Status:** ANALYSIS CLOSED + ARCHIVED 2026-06-06 — conclusion holds (the ~49% NaN rate on LG_p3 = architecturally-correct refusal-to-fit, NOT a bug; the `MIN_FIT_BINS=8` / row-completeness / coordinate-grid gates are unchanged in the tree). The one recommended follow-up — a `mass_inversion_status` field — SHIPPED via dev-mstat-30b6.
+
 ## TL;DR
 
 The user reported "371 NaN `m_relative` out of 757 chains (~49 %)" in the

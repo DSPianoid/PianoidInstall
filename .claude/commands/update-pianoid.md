@@ -204,19 +204,21 @@ cmd //c "cd /d PianoidTunner && npm install"
 
 **IMPORTANT — venv isolation:** The build scripts check `VIRTUAL_ENV` and skip activating `PianoidCore\.venv` if it's already set (e.g. to the root `.venv` from the bash shell). Use `env -u VIRTUAL_ENV` to strip it from the environment before spawning cmd. This ensures packages install into `PianoidCore\.venv` (the correct target). Note: `set VIRTUAL_ENV=` inside cmd does NOT work because the bat file's `setlocal` captures the inherited environment before the chained `set` takes effect.
 
+**Before building — stop the `.pyd` holder** (a running backend → `[WinError 5]` on the `--heavy` uninstall, which bricks the venv): launcher REST `curl -X POST http://127.0.0.1:3001/api/stop-backend` (preferred) or a PID-targeted kill (never `//IM python.exe`). **In agent context, build via the detached `Start-Process -WindowStyle Hidden` form** — the `cmd //c` lines below are the interactive-human form (`cmd //c` for `--heavy` gate-stalls DESTRUCTIVELY in agent context). **After building — verify BOTH levels:** L1 `import pianoidCuda` resolves inside `PianoidCore/.venv/`, AND L2 `POST /load_preset` returns **200** with no traceback (a pull that diverges the Python↔C++ API surfaces only at `/load_preset`, not at import). Full procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
+
 **PianoidBasic** (if changed):
 ```bash
-env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && PianoidCore\build_pianoid_basic.bat"
+env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && .\build_pianoid_basic.bat"
 ```
 
 **PianoidCuda Heavy** (if C++/CUDA changed OR `--force-heavy`):
 ```bash
-env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && PianoidCore\build_pianoid_cuda.bat --heavy --both"
+env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both"
 ```
 
 **PianoidCuda Light** (if only Python middleware changed):
 ```bash
-env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && PianoidCore\build_pianoid_cuda.bat --light --both"
+env -u VIRTUAL_ENV cmd //c "cd /d PianoidCore && .\build_pianoid_cuda.bat --light --both"
 ```
 
 **PianoidTunner** (if `package.json` or `package-lock.json` changed):

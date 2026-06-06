@@ -1091,6 +1091,10 @@ pianoid.py: get_chart_for_frontend()                         (line 2278)
        └── return { data, general_header, text_fields, chart_headers, audio_data }
 ```
 
+Each non-null `audio_data[i]` entry drives a per-chart **AudioPlayer** widget
+(play/pause + click-to-seek) in `newWindowChart.jsx` — see
+[CHART_SYSTEM.md § Chart-native audio playback](../modules/pianoid-middleware/CHART_SYSTEM.md#chart-native-audio-playback-dev-chartplay-2026-05-31).
+
 ### 3.4 Chart Functions by Type
 
 **Sound waveform** (`sound_function`):
@@ -1128,9 +1132,9 @@ play_note_offline_chart_function(pianoid, pitch=60, velocity=80, duration_ms=500
   5. charts + base64 WAV audio
 ```
 
-**Offline MIDI playback** (`offline_midi_playback_function`):
+**Offline MIDI playback** (`online_midi_chart` offline path / `POST /play_keyboard {mode:"offline"}`):
 ```
-Same as offline note but with full MIDI file → EventQueue
+Same as offline note but with a full MIDI file → EventQueue
 ```
 
 **Online MIDI chart** (`online_midi_playback_chart_function`):
@@ -1141,14 +1145,27 @@ Same as offline note but with full MIDI file → EventQueue
   4. (no explicit stop — events drain naturally)
 ```
 
+**Sound Test multi-source** (`sound_test_function`):
+```
+  1. Build EventQueue from play_kind (note/chord/sequence) + CSV pitches/vels/durations
+  2. mode=offline → runOfflinePlayback (kernel only) | mode=online → live driver
+  3. Read each selected tap via a PianoidResult accessor (NEVER a raw C++ getter):
+       kernel → result.get_synth_audio()      (dev_soundFloat, pre-FIR/pre-volume)
+       fir    → result.get_post_fir_audio()    (dev_filteredSoundFloat, online+FIR)
+       sint   → result.get_sint_audio()        (dev_soundInt, post-volume Sint32, online)
+       mic    → result.get_mic_audio()         (capture, online+audio_on)
+  4. One chart entry per source×channel + base64 WAV each (per-entry AudioPlayer)
+```
+See [CHART_SYSTEM.md § Sound Test diagnostic chart](../modules/pianoid-middleware/CHART_SYSTEM.md#sound-test-diagnostic-chart-dev-stest-4a7c-2026-05-31).
+
 **Feedin coupling** (`feedin_function`):
 ```
   sm.pack_deck() → select pitch row → coupling coefficients (no audio)
 ```
 
-**Mode playback** (`play_mode_chart_function`):
+**Mode test** (`mode_test_function`; legacy names `mode_playback` / `pure_mode_test` forward here):
 ```
-  pianoid.play_mode(mode_index) → get_result_from_pianoid() → waveform
+  excite mode_index (offline) → _load_offline_sound_to_result() → waveform + base64 WAV
 ```
 
 **Volume test** (`test_volume_parameters_function`):
@@ -1363,63 +1380,58 @@ _restart_online_engine()
 
 ---
 
-## 5. Measurement Collection Flow (Modal Adapter, B-1)
+## 5. Measurement Collection Flow (Modal Adapter)
 
-The Modal Adapter server (port 5001) can drive a complete RoomResponse
-measurement scenario via REST. The flow shares the audio device with
-Pianoid synthesis (port 5000), so collection always pauses Pianoid for
-the duration of the recording.
+The Modal Adapter server (port 5001) drives a complete measurement scenario
+per **Measurement** entity (the v2 acquisition surface; the v1 `/modal/collect/*`
+paths are retired to 410 Gone). The flow shares the audio device with Pianoid
+synthesis (port 5000), so collection always pauses Pianoid for the duration of
+the recording. The Collect subpanel edits the Measurement's `setup/*` first; on
+Start, those files are stitched into the legacy recorder config.
 
 ```text
-Operator (curl / future Collect panel)
+Collect subpanel (CollectionSubpanel.jsx)  ──edit──►  setup/{audio,impulse,series,mapping}_config.json
     │
-    │ POST /modal/collect/start  {scenario_number, project_dir, recorder_config}
+    │ POST /modal/measurements/<id>/collect/start  {scenario_number, description?, computer?, room?}
     ▼
-collection_routes.collect_start (modal_adapter_server :5001)
-    │
-    │ MeasurementSession.start() - guards single-active-session, spawns daemon Thread
+measurement_routes.start_collect (modal_adapter_server :5001)
+    │  _build_recorder_config_from_measurement(m): setup/* → legacy recorder cfg (ms→s conversions)
+    │  caller recorder_config_overrides layered on top; scenarios land under <measurement>/scenarios/
     ▼
-MeasurementSession._run (worker thread)
+MeasurementSession.start() — guards single-active-session, spawns daemon Thread, tags measurement_id
     │
-    │ phase=pausing
-    │ POST /pause_synthesis @ 127.0.0.1:5000
-    │     -> backendServer.pause_synthesis (backendServer.py:1844)
-    │     -> pianoid.stop_playback()
-    │     -> SDL3AudioDriver::stopPlayback (SDL3AudioDriver.cpp:296-309)
-    │     -> SDL_DestroyAudioStream releases the OS audio device
+    │ phase=pausing   POST /pause_synthesis @ :5000 → pianoid.stop_playback()
+    │                 → SDL3AudioDriver::stopPlayback → SDL_DestroyAudioStream releases the OS device
+    │                 (5xx / unreachable: phase=error, NO resume, device never opened — fail-fast)
     │
-    │ phase=recording
-    │ RoomResponseRecorder.take_record(...) per measurement
-    │ SingleScenarioCollector.collect_scenario_measurements()
-    │   -> writes raw_recordings/, impulse_responses/, room_responses/
+    │ phase=recording  RoomResponseRecorder.take_record(...) + SingleScenarioCollector
+    │                  → raw_recordings/, impulse_responses/, room_responses/
     │
-    │ phase=saving
-    │ generate_averaged_responses_for_scenario(scenario_dir)
-    │   -> writes averaged_responses/average_chN.npy
-    │ Mirror averaged → {project_dir}/measurements/scenario_N.npy
-    │   -> consumed by ModalAdapter._discover_npy_scenarios
+    │ phase=saving     generate_averaged_responses_for_scenario → averaged_responses/average_chN.npy
+    │                  (+ measurements/scenario_N.npy mirror for ModalAdapter._discover_npy_scenarios)
     │
-    │ phase=resuming  (always, on success / cancel / error if pause succeeded)
-    │ POST /resume_synthesis @ 127.0.0.1:5000
+    │ phase=resuming   POST /resume_synthesis @ :5000 (always, on success/cancel/error if pause OK)
     │
+    │ messages[] ring buffer (Q8) appended at every phase transition
     ▼
-phase ∈ {done, cancelled, error}
+phase ∈ {complete, cancelled, error}    ── first successful scenario auto-locks (N4) ──►  locks/acquisition.lock
     │
-    │ Operator polls GET /modal/collect/status, then
-    │ GET /modal/collect/results/<sid> for paths + session_metadata
+    │ useCollectionStatus polls GET /modal/measurements/<id>/collect/status (phase + messages),
+    │ then GET .../collect/results/<sid> for paths + session_metadata
     ▼
-Modal Adapter ESPRIT pipeline (existing flow at modal_adapter.py:1244-1346)
-    can now load the new scenario via load_folder / add_folder.
+A Project that references this Measurement loads the scenarios for the ESPRIT pipeline
+    (via _resolve_project_scenarios_path → <measurement_path>/scenarios).
 ```
 
-Single-active-session constraint is enforced by an `_active_lock` +
-in-flight `_thread.is_alive()` check in `MeasurementSession`. Concurrent
-`POST /modal/collect/start` returns HTTP 409. The session never opens
-the audio device unless `/pause_synthesis` returns a non-5xx response;
-this is the fail-fast path for shared-device contention with Pianoid.
+Single-active-session is enforced by an `_active_lock` + `_thread.is_alive()`
+check in `MeasurementSession`; a concurrent start returns HTTP 409. Cross-
+Measurement status reads return `{phase:"idle"}`; the global
+`GET /modal/measurements/active_session` probe surfaces whichever Measurement is
+acquiring (the sole v1 survivor).
 
 See [pianoid-middleware/MODAL_COLLECTION.md](../modules/pianoid-middleware/MODAL_COLLECTION.md)
-for the full architecture and recorder-config override schema.
+for the full architecture, the setup→recorder stitching table, the migration
+CLI, and the import flow.
 
 ---
 

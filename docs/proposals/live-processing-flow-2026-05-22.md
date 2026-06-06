@@ -3,6 +3,8 @@
 **Date:** 2026-05-22
 **Status:** Proposed (DESIGN ROUND — no agreement to build yet; user reviews this doc + answers OQ1..OQ12 before any Wave 1 dispatch).
 **Author tag:** `[live-processing-design]`.
+
+> **Implementation note (2026-06-06):** Wave-1 PLUMBING already LANDED but is INERT/unwired — do NOT re-implement it. `LiveProcessingOrchestrator` (`live_processing_orchestrator.py`) + `live_processing_subprocess.py` + the ProjectContext live-processing fields/locks + the CuPy-recording-thread probe gate shipped via PianoidCore `79510db` (`feature/dev-liveproc-w1`). However `LiveProcessingOrchestrator` is constructed ONLY in tests — it is NOT wired into any production path (the `collection_engine.py` / `project_context.py` references are comments; no `MeasurementSession.on_scenario_done` → `handle_scenario_done` callback is registered). The functional flow (Wave 2: `handle_scenario_done` actually running ESPRIT+tracking, the 3 REST endpoints, `useLiveProcessing.js`, the UI) and Wave 3 (cancel/pause/error) are un-built. Still gated on OQ1-12 + MODULE_LOCKS coordination with modal-adapter-split Wave 3 (in progress).
 **Scope:**
 - PianoidCore: `pianoid_middleware/modal_adapter/collection_engine.py`, `esprit_orchestrator.py`, `tracking_orchestrator.py`, `apply_service.py`, `project_context.py`, `measurement_routes.py`, `modal_adapter.py` (facade).
 - PianoidTunner: `modules/panels/CollectionSubpanel.jsx`, `modules/panels/ProjectSubpanel.jsx`, `modules/ModalAdapter.jsx`, `hooks/useModalAdapter.js`, `hooks/modalAdapter/useProjectCRUD.js`, `hooks/useMeasurementCatalog.js`, plus a new `useLiveProcessing` hook.

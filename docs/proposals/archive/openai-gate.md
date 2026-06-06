@@ -1,6 +1,6 @@
 # OpenAI Gate Proposal — Claude Code → OpenAI Services
 
-**Status:** draft / awaiting decisions
+**Status:** IMPLEMENTED — built as `~/openai-gate/gate.py` (thin MCP server) + setup skill `~/claude-config/skills/setup-openai-gate/SKILL.md`. Exposes `openai_complete` (chat/code-gen, incl. Codex-class models), `openai_transcribe` (Whisper/GPT-4o-transcribe), `openai_tts`, `transcribe_auto` (short→local faster-whisper, long→OpenAI), `gate_status`. The proposal's open decisions are RESOLVED by what shipped: model allowlist (PRICING table — codex-1/gpt-5.2-codex/o3/o4-mini/gpt-5.x/gpt-4o/whisper/tts), cost ceiling (`OPENAI_GATE_DAILY_USD_CAP`, reset 00:00 UTC), hosted-vs-local STT routing (`transcribe_auto`), and build-vs-install (built the wrapper). Stale "awaiting decisions" header. Archived 2026-06-06.
 **Author:** research agent
 **Date:** 2026-05-05
 

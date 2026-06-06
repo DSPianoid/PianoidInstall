@@ -1,12 +1,9 @@
-# Modal Mass + Q-Factor — Improvement Plan Built on the Force Channel (Updated Analysis)
+# Modal Mass + Q-Factor — Consolidated Research Proposal (Force-Channel FRF + Staged Measurement Techniques)
 
-**Date:** 2026-05-24
-**Status:** RESEARCH PROPOSAL — read-only analysis. NO code edits in this pass; user
-decision required on the §7 open questions before any implementation work is scheduled.
-**Author:** /analyse pass (orchestrator-spawned read-only research, 2026-05-24).
-**Supersedes:** [`modal-mass-q-factor-measurement-techniques-2026-05-13.md`](modal-mass-q-factor-measurement-techniques-2026-05-13.md) §6 sequencing
-(NOT its physics — the textbook techniques in §3-§5 of the earlier proposal stay valid;
-this plan adds an extra Phase 0 layer below them that exploits data we already record).
+**Date:** 2026-05-24 (consolidated 2026-06-06)
+**Status:** PARTIAL — **Phase 0 + Phase 1 SHIPPED + MERGED** to PianoidCore dev (`ddbf997` / `9c35c4f [dev-frf-q-phase01]` round 32: Phase 0 Q surfacing + Hilbert log-decrement cross-check; Phase 1 `FrfOrchestrator` with hammer-window force + raw_recordings H1 FRF + coherence + data_status). **Phases 2+ and the staged sustained-excitation measurement types (stepped-sine / swept-sine / random-FRF / multi-sine, mass-loading anchor — Appendix A) are NOT built** and remain gated on the §7 Open Questions. Kept top-level as the open/parked single source of truth for the remaining modal-mass / Q-factor measurement work.
+**Author:** /analyse pass (orchestrator-spawned read-only research, 2026-05-24); consolidated 2026-06-06.
+**Consolidates (merged 2026-06-06):** the merge of the two prior modal-mass/Q-factor research proposals. The BODY below (the force-channel FRF improvement plan — the lead approach: `H(f)=Y(f)/X(f)` from the already-captured `average_ch0.npy` force channel) is the 2026-05-24 plan. **Appendix A** (at the end) folds in the still-valid textbook physics — Q-factor methods, modal-mass methods, Pianoid feasibility — from the earlier `modal-mass-q-factor-measurement-techniques-2026-05-13.md`, which has been removed (its substance lives here + in git history). The 2026-05-24 plan supersedes that earlier proposal's §6 *sequencing* only; its physics is retained in substance in Appendix A.
 **Scope:** Concrete improvements to the modal-mass / Q-factor measurement story that fit
 on top of the **current** Modal Adapter architecture (Wave 1 + Wave 2 of the
 `modal_adapter` split + round-18 averager-validation removal). The headline addition
@@ -1485,6 +1482,71 @@ proposal §6 Phase 2 table).
 
 ---
 
-**END OF PROPOSAL.** Phase 0 + Phase 1 shipped 2026-05-24
-(branch `feature/dev-frf-q-phase01`, awaiting user verification + merge).
-Phase 2 design unchanged; ready when the user wants it.
+**END OF MAIN PROPOSAL.** Phase 0 + Phase 1 shipped 2026-05-24 and MERGED to dev
+(`ddbf997` / `9c35c4f [dev-frf-q-phase01]`, round 32). Phase 2 design unchanged;
+ready when the user wants it. The staged measurement-technique catalogue below
+(Appendix A) is the un-built remainder, gated on the §7 Open Questions.
+
+---
+
+# Appendix A — Staged Measurement Techniques (folded in from the 2026-05-13 proposal)
+
+> Consolidated 2026-06-06. This appendix preserves the still-valid textbook physics
+> from the removed `modal-mass-q-factor-measurement-techniques-2026-05-13.md`. The
+> 2026-05-24 force-channel FRF plan (main body above) supersedes that proposal's §6
+> *sequencing* only — the methods here remain the menu of un-built measurement types.
+> Full original text is recoverable from git history. **None of Appendix A is built.**
+
+## A.1 — Q-factor measurement techniques (Stream 1)
+
+| Method | Excitation | Per-mode cost | Effort | Status |
+|---|---|---|---|---|
+| **A — Half-power (-3 dB) bandwidth, stepped sine** (user's primary suggestion, textbook) | discrete tones, steady-state dwell | ~5-90 s/mode (Q-dependent) | LOW (`stepped_sine` form) | un-built |
+| **B — Half-power bandwidth, narrow swept sine** (Farina ESS + inverse-convolution) | log sweep ~1 s | ~2-3 s/mode | LOW-MED | un-built |
+| **C — Log-decrement from existing impulse** (bandpass + Hilbert-envelope log fit) | existing broadband impulse | 0 (already measured) | NONE-LOW | **SHIPPED** as Phase 0 Hilbert log-dec cross-check (`9c35c4f`) |
+| **D — Phase-resonance / 90° quadrature** | stepped sine (fold into A's post-proc) | +0 over A | LOW | un-built |
+| **E — Random excitation + H1/H2 FRF** (Welch) | band-limited Gaussian noise ~5-10 s | one recording, all modes | MED | partial — H1 FRF infra shipped in Phase 1 FrfOrchestrator; random-excitation form un-built |
+| **F — Multi-sine (Schroeder-phased)** | sum of sinusoids at f_i | ~5 s whole set | MED-HIGH | un-built (natural carrier for A.2 between-mode probes) |
+
+**Key formulae.** `Q = f_n/(f_2−f_1)`; `ζ = 1/(2Q) = (f_2−f_1)/(2f_n)` for `ζ<0.1`;
+Wang/Liu correction valid to `ζ≈0.3`: `ζ = (f_2²−f_1²)/(4f_n²)`. Steady-state dwell
+requirement: settle ≈ `Q/π` cycles ⇒ adaptive dwell `max(T_min, 5·Q_est/(π·f_n))`.
+Stepped-sine is optimal SNR-per-Hz (all energy in one bin) — wins for very-high-Q bass;
+swept-sine wins for moderate-Q midrange (tracking-rate limit `df/dt < f_n²·ζ²`).
+**Stream-1 recommendation:** ship C immediately (done); A as the first new measurement
+type (Phase-1 of a measurement rollout); defer B/D-fold/E/F.
+
+## A.2 — Modal-mass measurement techniques (Stream 2)
+
+Modal mass `m_k` scales the mode's synthesis contribution: in modal-superposition
+`y(t) = Σ_k (φ_k(x_resp)·φ_k(x_exc)/m_k)·q_k(t)`. Today Pianoid lumps `φ²/m_k` into the
+mode-shape amplitude — works for single-point replay but is uncalibrated.
+
+| Method | Hardware | Accuracy | Effort | Status |
+|---|---|---|---|---|
+| **A — Mass loading (known δm)** — `Δf_k/f_k ≈ −½·δm·φ_k²(x_load)/m_k` | known 10-50 g mass | best in literature ±5-10% | LOW sw / HIGH operator | un-built (one-time absolute-calibration anchor) |
+| **B — Between-modes steady-state probe** (user's suggestion) | none new | ±10-30% relative | MED-HIGH | un-built (primary relative-mass technique; rides on A.1.A stepped-sine) |
+| **C — FRF residue extraction (SDOF / circle-fit)** | none (reuses A.1 data) | ±10-20% per residue | MED | partial — FRF infra shipped Phase 1; residue/circle-fit extraction un-built |
+| **D — Reciprocity check** | none | sanity only | LOW | un-built (ad-hoc QC) |
+| **E — Driving-point mobility** (drive+measure same point) | calibration channel | ±5-15% | LOW-MED | un-built (free parallel analysis if calib channel absolutely calibrated) |
+
+**Stream-2 recommendation:** ship B (between-modes residue) as the primary relative-mass
+technique on top of stepped-sine; E (driving-point mobility) as a free parallel analysis;
+C (circle-fit) as a cross-check; defer A (mass loading) to a one-time validation campaign;
+D (reciprocity) ad-hoc.
+
+## A.3 — Pianoid feasibility (Stream 3)
+
+The SDL3 driver already plays every required waveform (sustained sine, compound stepped
+bursts, Farina sweep, band-limited noise, multi-sine) via the arbitrary-buffer path — no
+new C++ layer; recorder needs ~50 LOC per new pulse-form generator. The capture pipeline
+(`SignalProcessor` → cycle-extract → align → average) is impulse-specialised; sustained-
+excitation types need a parallel `SustainedExcitationProcessor` (~400-600 LOC for the first
+`stepped_sine` type, ~150 LOC each subsequent) keyed on `impulse_form`. Collection UX
+Section C already has an `impulse_form` Select to extend.
+
+## A.4 — Canonical references (from the 2026-05-13 proposal)
+
+Ewins, *Modal Testing: Theory, Practice and Application*; Heylen/Lammens/Sas, *Modal
+Analysis Theory and Testing*; Farina (2000) exponential-sine-sweep; standard EMA SDOF /
+circle-fit residue methods. (Full reference list in git history of the removed proposal.)

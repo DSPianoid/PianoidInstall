@@ -170,6 +170,8 @@ cd PianoidCore
 
 ## Build Failures
 
+**Build / rebuild:** follow the canonical procedure in [`docs/architecture/BUILD_SYSTEM.md` → Canonical Install / Rebuild](../architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first) — stop the .pyd holder first (launcher REST or PID), cwd `PianoidCore`, bat by **absolute path** (cd-safe), `unset VIRTUAL_ENV`, default `--both`, detached `Start-Process` in agent contexts, verify import **and** `/load_preset` 200. After any merge/pull touching compiled code, the [post-merge rebuild gate](../architecture/BUILD_SYSTEM.md#post-merge--post-pull-rebuild-gate) is mandatory before push/handoff. The sections below diagnose specific build-failure symptoms.
+
 ### Symptom: MSVC / Visual Studio not found
 
 `detect_paths.py` cannot locate the C++ compiler.
@@ -222,7 +224,7 @@ taskkill //F //PID <pid>
 ```
 
 If a launcher is running, `curl -X POST http://localhost:3001/api/stop-backend` is a
-safer alternative. Retry via `build_pianoid_cuda.bat --heavy --release`.
+safer alternative. Retry via `.\build_pianoid_cuda.bat --heavy --both`.
 
 ### Symptom: Code changes appear to have no effect after rebuild
 
@@ -237,7 +239,7 @@ files regenerate and `nvcc` runs.
 **Fix:** always rebuild via the batch script:
 
 ```bash
-cd PianoidCore && ./build_pianoid_cuda.bat --heavy --release
+cd PianoidCore && .\build_pianoid_cuda.bat --heavy --both
 ```
 
 **Verify** a known new string from your edit is in the installed binary:
@@ -248,7 +250,7 @@ grep -a "<some-new-string-from-your-edit>" \
 ```
 
 Zero matches means a stale pyd was installed. See
-[BUILD_SYSTEM.md — Canonical CUDA Rebuild](../architecture/BUILD_SYSTEM.md#canonical-cuda-rebuild-read-this-first).
+[BUILD_SYSTEM.md — Canonical Install / Rebuild](../architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
 
 ### Symptom: Debug variant fails to import / release loads instead
 
@@ -416,7 +418,7 @@ You no longer need to manually switch to SDL just to get audio — but to get *n
 
 - `SDL3.dll` or `SDL2.dll` missing next to the installed `.pyd` — the build's DLL deploy
   step failed or you rebuilt the debug variant without the release DLLs. Rebuild with
-  `./build_pianoid_cuda.bat --heavy --release`. See
+  `.\build_pianoid_cuda.bat --heavy --both`. See
   [Debug variant fails to import](#symptom-debug-variant-fails-to-import-release-loads-instead).
 - SDL version mismatch — ensure the installed SDL version matches what was used during
   build (check `build_config.json` in `PianoidCore/pianoid_cuda/`)

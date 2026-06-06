@@ -1,6 +1,7 @@
 # MIDI Refactor — Implementation Plan (Wave Breakdown)
 
 **Mode:** Read-only planning. No code changes.
+**Status:** IMPLEMENTED + MERGED — all 5 waves landed. PianoidCore: dev-midi-p0..p4 merged (`5c853fa` p0 ingress, `fdf3dd2` p1 kernel batch, p2/p3, `fe6affd` p4 validation). PianoidTunner: `f2ca61a` p3 frontend panel. Archived 2026-06-05.
 **Author:** plan-midi-refactor agent (orchestrator-spawned)
 **Date:** 2026-05-08 (supersedes the 2026-05-05 draft of this same file)
 **Source plans:**

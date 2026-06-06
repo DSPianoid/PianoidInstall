@@ -2,7 +2,7 @@
 
 - **Author:** dev-stest-4a7c
 - **Date:** 2026-05-31
-- **Status:** Phase A2 design — awaiting user approval before implementation.
+- **Status:** IMPLEMENTED + MERGED — shipped via dev-stest-4a7c (PianoidTunner merge `7e72e43` / PianoidCore `b13ea4a`): `AudioPlayer` per-chart play/pause/seek widget (`newWindowChart.jsx`) + `utils/audioPlayback.js`; `create_audio_to_chart` extended to all 7 audio-producing charts (the 5 pre-existing + `sound_test` + `pure_mode_test`). Scoped to charts that produce audio (non-audio charts have nothing to play). Header below ("awaiting approval") is stale. Archived 2026-06-06.
 - **User request (verbatim):** "Add playback functionality (chart native) to all the charts"
 
 ---

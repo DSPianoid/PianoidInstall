@@ -15,9 +15,44 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-wave3split-f634 locks RELEASED 2026-06-06 at Step 10a Phase 2 (user-approved "Merge and push" via Telegram;
+     executed by sync-release as part of the multi-repo release). Held 9 files: modal_adapter.py, chain_editor.py (NEW),
+     project_store.py (NEW), apply_service.py, esprit_orchestrator.py (NEW), tests/unit/test_modal_adapter_state.py,
+     tests/unit/test_qc_curves.py, tests/integration/test_project_v2_branch.py (renamed → test_project_store.py),
+     tests/integration/test_measurement_rename.py. Wave 3 Modal Adapter facade split (Option A): extract ChainEditor +
+     ProjectStore, migrate deferred-QC/ESPRIT logic out of facade to ApplyService/EspritOrchestrator, rename
+     test_project_v2_branch → test_project_store (§8.2). modal_adapter.py 4253 → 1755 LOC (−58.7% wave, −69% from 5649).
+     613 tests pass / 1 skipped / 1 pre-existing-failure (documented). /modal smoke 200. Behaviour identical. 2 endorsed
+     judgment calls: kept run_full_pipeline on the facade (5-service orchestrator); did NOT fold test_measurement_rename
+     into test_project_store. Committed PianoidCore feature/modal-adapter-wave3-split (4 commits: 3a26270 ChainEditor,
+     aeaa717 ProjectStore, 7e8e9d7 deferred-QC/ESPRIT migration, 0248b46 test rename), MERGED to dev `9f2c3b5` (--no-ff).
+     Pure-Python refactor — no CUDA rebuild. Literal ~400-LOC thin-facade rewrite DEFERRED to follow-up proposal
+     docs/proposals/modal-adapter-facade-shim-removal-2026-06-06.md (300-test rewrite). Session log archived to
+     logs/archive/. -->
+| <!-- (none active for dev-wave3split-f634) --> | | | |
 <!-- dev-fbsl PianoidTunner locks RELEASED 2026-06-05 (team-lead-directed, to unblock dev-mzoom's PianoidTuner.js SC-zoom work). Frontend slider work is COMMITTED on feature/feedback-coeff-slider 9aa0e3e (usePreset.js + useBackendHealth.js + ToolBar.jsx + PianoidTuner.js); no further frontend edits needed. PianoidCore/PianoidBasic locks KEPT (switch-path test + merge). -->
-| dev-fbsl | `PianoidBasic/Pianoid/ModelParams.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/tests/system/test_feedback_coeff_sound_channels.py` | 2026-06-05T08:35:00Z | Feedback-coefficient slider: per-preset deck_feedback_coefficient persistence + runtime feedback_coeff/store_feedback_coeff + switch_preset ownership inversion + /health flags + sound-channels/switch-path tests. (PianoidTunner rows released 2026-06-05 — frontend committed.) Frontend composition, NO CUDA build. |
-| dev-mzoom | `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/useCurrentValues.js`, `PianoidTunner/src/utils/chartView.js`, `PianoidTunner/src/components/SoundChannelsPane.jsx`, `PianoidTunner/src/components/MeasuredMatrix.jsx`, `PianoidTunner/src/components/RowEditor.js`, `PianoidTunner/src/components/BarChart.jsx`, `PianoidTunner/src/components/DrawableChart/DrawableChart.jsx`, `PianoidTunner/src/components/SoundChannelsAggregateChart.jsx` | 2026-06-06T12:00:00Z | matrices-zoom (97f98b3) + bar-chart toggle (ebea866) MERGED to local dev @ 795f559 (Path A, verified Jest 926/eslint 0, NOT pushed). ★ACTIVE (GREENLIT, feature/system-wide-selection off 795f559): system-wide selection + per-chart tie/untie zoom (docs/proposals/system-wide-selection-2026-06-06.md). Per-chart `tied` flag (default true) in useCurrentValues; view DERIVED = tied?(globalSelection??full):full via new utils/chartView.js deriveChartView. ZoomOut=untie(full+highlight band); ZoomIn=re-tie. ★HARD CONSTRAINT: SC channel-ROW axis stays SC-LOCAL, NEVER global pitch (dev-snmtxleak/fa3c64b) — only SC MODE axis ties to global selectedModes. Phased: P0 core (chartView util + tied map) → P1 Strings reference → P2 highlight band (DrawableChart) → P3 all editors → P4 new-chart-tied+workbench lifecycle → P5 retire shared rangeOf*. STOP after P1 for user HMR. Frontend-only, NO CUDA build. |
+<!-- dev-fbsl locks RELEASED 2026-06-06 (Step 10a Phase 2, reconciled by sync-release — work already MERGED + PUSHED
+     2026-06-06 by dev-mzoom per the user's "include in the push", all CLEAN no conflicts). Held: ModelParams.py,
+     pianoid.py, backendServer.py, tests/system/test_feedback_coeff_sound_channels.py. Feedback-coefficient slider:
+     per-preset deck_feedback_coefficient persistence + runtime feedback_coeff/store_feedback_coeff + switch_preset
+     ownership inversion + /health flags + sound-channels/switch-path tests. Backend: PianoidCore dev ed99d42 (slider
+     tip 9a88518 incl. UNRUN switch-lifecycle test); PianoidBasic dev d86b477 (slider 4660f6b); frontend PianoidTunner
+     dev 05ce924 (slider 9aa0e3e). ★UNVERIFIED — needs a BACKEND REBUILD to function; preset-switch lifecycle test
+     (9a88518) UNRUN; user rebuilds + live-tests on another system. Frontend Jest stays green (88/941, eslint 0).
+     NO CUDA build done by dev-fbsl itself (frontend composition + middleware/Python). -->
+| <!-- (none active for dev-fbsl) --> | | | |
+<!-- dev-mzoom locks RELEASED 2026-06-06 (Step 10a Phase 2, reconciled by sync-release — (1)+(2) and the P0/P1 of (3)
+     already MERGED to PianoidTunner dev + PUSHED to origin). Held: PianoidTuner.js, hooks/useCurrentValues.js,
+     utils/chartView.js (NEW), SoundChannelsPane.jsx, MeasuredMatrix.jsx, RowEditor.js, BarChart.jsx,
+     DrawableChart/DrawableChart.jsx, SoundChannelsAggregateChart.jsx. Three sub-features: (1) matrices-zoom +
+     selection-scoped edits + AVG-mode zoom/mute (f3ff30a); (2) bar-chart auto-scale toggle (795f559); (3) system-wide
+     selection + per-chart tie/untie zoom (docs/proposals/system-wide-selection-2026-06-06.md) — P0 core + P1 Feedin
+     reference MERGED to dev (41b4737). ★HARD CONSTRAINT preserved: SC channel-ROW axis stays SC-LOCAL, NEVER global
+     pitch (dev-snmtxleak/fa3c64b) — only SC MODE axis ties to global selectedModes. Jest 88/941, eslint 0. Frontend-only,
+     NO CUDA build. ★DEFERRED follow-up (REAL pending work — see WORK_IN_PROGRESS.md): (3) P2 (highlight band in
+     DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING the user's cross-system test of the
+     Feedin reference. Do NOT lose this — it is greenlit, partially-shipped work awaiting a user gate. -->
+| <!-- (none active for dev-mzoom) --> | | | |
 <!-- dev-mzoom locks RELEASED 2026-06-05 at Step 10a Phase 1 commit. Held:
      PianoidTunner/src/PianoidTuner.js + src/components/SoundChannelsPane.jsx. Unlock existing
      matrix zoom for Sound Channels (mode-axis): un-gate SC in renderToolbarControls zoom-button

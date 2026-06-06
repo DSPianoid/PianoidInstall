@@ -91,6 +91,9 @@ interactive latency.
   structure, startup sequence, and inter-module communication
 - [modules/pianoid-middleware/REST_API.md](modules/pianoid-middleware/REST_API.md) — All HTTP
   endpoints, request/response schemas, and error codes
+- [modules/pianoid-middleware/MODAL_COLLECTION.md](modules/pianoid-middleware/MODAL_COLLECTION.md) —
+  Modal Adapter Measurement entity: lifecycle/semantics, collection REST surface,
+  v1→v2 migration, dataset import
 - [modules/pianoid-middleware/MIDI_SYSTEM.md](modules/pianoid-middleware/MIDI_SYSTEM.md) — MIDI
   device enumeration, event parsing, and routing to the engine
 - [modules/pianoid-middleware/CHART_SYSTEM.md](modules/pianoid-middleware/CHART_SYSTEM.md) —
@@ -114,6 +117,8 @@ interactive latency.
   naming conventions, architecture rules, review checklist
 - [development/TESTING.md](development/TESTING.md) — Three-level pytest framework, test inventory,
   instrumentation APIs
+- [development/CONTROLLER.md](development/CONTROLLER.md) — The orchestrator's read-only compliance
+  controller: role, invariant catalogue, marker conventions, periodic scans, tier rules
 - [development/WORK_IN_PROGRESS.md](development/WORK_IN_PROGRESS.md) — Active investigations
   and planned work
 

@@ -79,9 +79,10 @@ If you are about to ask the user to *do* something operational, **stop** — the
 **Phase 2 sequence — wrap up locally FIRST, reconcile with origin AFTER (BLOCKING).** When the user approves Phase 2, the canonical order is:
 
 1. **Merge feature branches → local dev** (and the docs work that goes on local master) — sequential through every approved agent's feature branch. No pull from origin yet.
-2. **Wrap up agents** — archive each agent's session log to `logs/archive/`, remove their WIP rows + add historical-comment blocks with merge SHAs, commit on PianoidInstall master with `[<agent-id>] chore: Phase 2 wrap`. Each agent's Phase 2 commits stay local.
+2. **Wrap up agents** — archive each agent's session log to `logs/archive/`, remove their WIP rows + add historical-comment blocks with merge SHAs, commit on PianoidInstall master with `[<agent-id>] chore: Phase 2 wrap`. Each agent's Phase 2 commits stay local. **Also archive any proposal an agent's work implemented or superseded** (git mv → `docs/proposals/archive/` + a `**Status:**` line; first de-reference it from any working code into a working doc) — the `/dev` Step-10a Phase-2 proposal-archiving step. A shipped proposal left at top-level is exactly the backlog this prevents (≈17 had accumulated by the 2026-06-06 triage).
 3. **Reconcile with origin** — pull origin/dev (merge-mode, not FF-only — origin may have diverged due to other-machine pushes) on each repo with the integration branch checked out; resolve any conflicts (docs conflicts in WIP/MODULE_LOCKS can be union-resolved by the orchestrator/agent; code conflicts STOP for user judgement).
-4. **Push** — only when the user explicitly says push.
+4. **Rebuild gate (BLOCKING)** — if the Step-3 reconcile/pull brought in compiled code (the pulled diff touches `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py` or any `PianoidBasic/**`), REBUILD (`--both`, detached `Start-Process`, absolute bat path, **stop the `.pyd` holder first** via launcher REST `POST /api/stop-backend`) and run a `/load_preset` **200** smoke-test BEFORE push or before declaring the environment ready. Stale local binaries against reconciled source is the FAIL-#1 class (new Python vs a stale `.pyd` → `/load_preset` 500). See BUILD_SYSTEM.md → Post-Merge / Post-Pull Rebuild Gate.
+5. **Push** — only when the user explicitly says push.
 
 **Do NOT pull from origin BEFORE the local merges.** The opposite order (pull-then-merge-features) interleaves origin's history with the local feature work in a way that's confusing in the audit trail and makes it harder to roll back if the user changes their mind on the merge. Local-merge-first keeps each agent's feature work as a discrete, identifiable unit on top of the pre-pull local dev state; origin reconciliation is then a separate, named step.
 
@@ -233,7 +234,7 @@ After the health check completes and before exiting Step 1.5, **spawn the contro
 
 The orchestrator runs alongside a permanent **controller agent** for the full session. The controller is a read-only compliance monitor: it watches `MODULE_LOCKS.md`, `WORK_IN_PROGRESS.md`, dev-agent session logs, and `git status` and reports graduated alerts (warn → escalate → halt) to the orchestrator. It never edits source, never spawns or kills agents, never messages the user.
 
-See the full proposal at `docs/proposals/controller-role.md` for the complete invariant catalogue, marker conventions, and tier rules.
+See [`docs/development/CONTROLLER.md`](../../docs/development/CONTROLLER.md) for the complete invariant catalogue, marker conventions, and tier rules.
 
 ### Lifecycle
 
@@ -269,10 +270,11 @@ Agent({
     5. Subscribe via Monitor to each pre-existing dev-agent log file (if any)
     6. Send initial pulse to team-lead — confirms boot, may report orphans
 
-  Invariants to enforce — see docs/proposals/controller-role.md sections 5a,
-  5b, 5c, 5d (substantive event-driven), 8d + 12 (periodic 30-min stale-agent
-  scan), 8e (continuous Documentation-First sliding-window scan), and 9 (tier
-  rules). Signal/marker conventions per Section 5e.
+  Invariants to enforce — see docs/development/CONTROLLER.md: the Invariant
+  Catalogue (per-agent, cross-agent, workflow, dev-anti-pattern axes), the
+  Periodic Scans (30-min stale-agent scan + continuous Documentation-First
+  sliding-window scan), and the Tier Rules (warn→escalate→halt). Signal/marker
+  conventions per the Marker Conventions section.
 
   STAY ALIVE until orchestrator sends "session ending". Do not exit on your
   own. Wake events: SendMessage from team-lead, Monitor notifications, pulse
@@ -860,6 +862,8 @@ Before relaying completion or asking the user to test, verify no stale processes
 
 When dispatching any agent that may trigger a `pianoidCuda` rebuild — `/update-pianoid` after a pull, `/dev` after C++/CUDA edits, `/startup` after a failed install, or any one-off rebuild — the orchestrator's dispatch prompt MUST direct the agent to use `--heavy --both` (or `--light --both`), **never** `--release` alone. Both release and debug variants are required for the project's testing/profiling workflows. Building release-only leaves the debug `.pyd` silently stale, and per `feedback_debug_variant_dll_trap.md` the debug variant's DLL copy step is the failure mode for runtime symbol errors when something later tries to load it.
 
+**Launch mechanism (BLOCKING for dispatch prompts).** A build-dispatch prompt MUST also direct the agent to: build via the **detached `Start-Process -WindowStyle Hidden`** form (NOT `cmd //c`, which gate-stalls DESTRUCTIVELY in agent context — it removes the old `.pyd` before reinstall, bricking the venv); `cd /d PianoidCore` AND invoke the bat by **absolute path** (a bare bat name after the `cd` fails *"not recognized"*, L-2); and **stop the `.pyd` holder first** (launcher REST `POST /api/stop-backend` — a running backend → `[WinError 5]` on the `--heavy` uninstall, L-3). See BUILD_SYSTEM.md → Canonical Install / Rebuild STEP 1–2. All three were reproduced live 2026-06-05.
+
 When the user requests "rebuild" / "build" / "rebuild all", interpret it as `--both`. The only time `--release` alone is appropriate is when the user explicitly says "release only" / "just release" / similar — never as a default to save time.
 
 This applies transitively: a `/dev` agent that delegates rebuild to a sub-agent must pass the same `--both` instruction.
@@ -1154,7 +1158,7 @@ Stalled candidates:
 
 ### 2. Identify the gating tool from the unmatched marker
 
-For unmatched `[BASH-CALL]` or `[MCP-CALL]` markers, the command/tool name is the smoking gun. Match against the failure-mode catalogue in `docs/proposals/controller-role.md` Section 12:
+For unmatched `[BASH-CALL]` or `[MCP-CALL]` markers, the command/tool name is the smoking gun. Match against the failure-mode catalogue in [`docs/development/CONTROLLER.md`](../../docs/development/CONTROLLER.md#failure-mode-catalogue):
 
 | Pattern in last marker | Class | Reference |
 |---|---|---|

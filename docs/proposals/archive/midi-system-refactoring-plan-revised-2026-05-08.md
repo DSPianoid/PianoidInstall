@@ -1,6 +1,7 @@
 # MIDI / Online-Playback System Refactoring — REVISED Consolidated Plan (2026-05-08)
 
 **Mode:** Read-only analysis. No code changes.
+**Status:** IMPLEMENTED + MERGED — executed via `midi-implementation-plan.md` (all 5 MIDI waves merged across PianoidCore dev-midi-p0..p4 + PianoidTunner p3-frontend). Predecessor analyses already in `archive/`. Archived 2026-06-05.
 **Author:** `/analyse` (orchestrator-spawned, this revision)
 **Supersedes:** `docs/proposals/archive/midi-system-refactoring-plan-2026-05-08.md` (archived 2026-05-09 by dev-prophy under one-doc-per-topic enforcement)
 **Inputs (read in order, treated as ground truth — all archived to `docs/proposals/archive/` 2026-05-09):**

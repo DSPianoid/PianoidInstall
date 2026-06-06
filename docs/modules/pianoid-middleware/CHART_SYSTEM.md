@@ -74,7 +74,7 @@ Container for multiple `ChartData` objects.
 |--------|-------------|
 | `append_chart(header, data)` | Creates and appends a `ChartData` |
 | `get_data(scaled=False)` | Returns `(headers[], datas[], audio_records[])` across all charts |
-| `create_audio_to_chart(chartNo, sample_rate)` | Calls `create_audio()` on specified chart indices. `chartNo='all'` processes every chart. |
+| `create_audio_to_chart(chartNo, sample_rate)` | Calls `create_audio()` on specified chart indices (`chartNo='all'` processes every chart), attaching a base64 WAV that drives the frontend's per-chart [AudioPlayer widget](#chart-native-audio-playback-dev-chartplay-2026-05-31). |
 
 ### `ChartParameter`
 
@@ -123,7 +123,7 @@ Global registry. Registry keys use the format `"<item_type>@<name>"`.
 
 ## chart_config.json — Registered Types
 
-The file contains 19 entries: 12 chart types and 7 action types.
+The file contains 27 entries: 16 chart types, 9 action types, and 2 dynamic_chart types.
 
 ### Chart Types
 
@@ -135,16 +135,16 @@ The file contains 19 entries: 12 chart types and 7 action types.
 | `filter_test` | `filter_test_function` | `mode` (choice: pianoid/pulses/harmonic), `num_outputs`, `num_inputs`, `length`, `save_path`, `load_from_file`, `stop_pianoid`, `block_no`, `filter_file_no` |
 | `block_output_data` | `block_output_data_function` | `record_name` (choice: 10 GPU debug records, default "Raw Coefficients"), `block_no` (default 0) |
 | `profiling` | `profiling_data_function` | `cpu_file`, `gpu_file`, `auto_stop`, `auto_write`, `show_filter` |
-| `mode_playback` | `play_mode_chart_function` | `mode_index`, `velocity`, `duration_ms`, `display_length_ms` |
+| `mode_test` | `mode_test_function` | `mode_index`, `velocity`, `duration_ms`, `display_length_ms`, `coupling`, `view_mode` (mode_state/synth_audio/mic_audio). The legacy `mode_playback` / `pure_mode_test` chart names forward here via deprecated shims (`play_mode_chart_function` / `pure_mode_test_function`) |
 | `note_playback` | `play_note_offline_chart_function` | `pitch`, `velocity`, `duration_ms`, `display_length_ms` |
 | `test_volume_parameters` | `test_volume_parameters_function` | `max_volume` (float, default 8000.0), `volume_level` (default 80) |
 | `feedback_diagnostic` | `feedback_diagnostic_function` | `pitch_no` (default 60), `num_modes` (default 50) |
 | `hammer_shape` | `hammer_shape_function` | `pitch_no` (default 60) |
 | `hammer_temporal` | `hammer_temporal_function` | `pitch_no` (default 60), `velocity` (default 100) |
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
-| `pure_mode_test` | `pure_mode_test_function` | `mode_index` (default 0), `velocity` (default 100), `duration_ms` (default 50), `coupling` (choice: off/on, default off) |
 | `tuning_report` | `tuning_report_function` | `type` (choice: frequency/volume/both, default both) |
 | `cfl_ratio` | `cfl_ratio_function` | `key_range` (choice: all/from21to108/output, default "all") |
+| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_full_result` |
 
 ### Action Types
 
@@ -210,6 +210,7 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 | `hammer_temporal_function` | Retrieves temporal hammer force envelope for a pitch and velocity |
 | `online_midi_playback_chart_function` | Starts MIDI file, waits, captures audio result |
 | `pure_mode_test_function` | Excites a single mode via `exciteMode()` + offline playback, reads sound via `_load_offline_sound_to_result()`. Coupling off: deck matrix zeroed for pure damped oscillator. Coupling on: full string-mode interaction. Normalized output with frequency measurement via zero-crossings |
+| `sound_test_function` | Multi-source audio-diagnostic overlay (dev-stest-4a7c, 2026-05-31). Renders up to 4 selectable sources for the same note/chord/sequence on a shared time axis — see **Sound Test diagnostic chart** below |
 | `cfl_ratio_function` | Per-pitch FDTD CFL stability ratio across the keyboard — plots the worst-string **Courant number** (`coeff_tension − 8·coeff_bending`), the actual CFL ratio that VARIES per pitch (each pitch's headroom below the edge). **NB it does NOT plot `max\|g\|`**: `max\|g\|` is degenerate-flat at exactly `1.0` for every stable string → a useless flat line (revised 2026-05-30 after the user saw the flat chart). **PURE-PYTHON / HOST-side**: per pitch calls `pianoid.param_manager._pitch_upload_amp(pitch)` → `(max\|g\|, worst_string_index, Courant)` from the SAME closed-form the live gate uses (`cfl_stability.amp_and_courant_for_pitch_strings` over the current `StringMap` physics, honouring per-string `tension_offset`; output pitches ≥128 → `(1.0, 0, 0.0)` sentinel). NO GPU/engine/debug build; `cfl_stability.py` is NOT modified. Returns a **4-tuple** `(charts, header, text_fields, {"render_hints": [...]})` — a scatter chart with explicit pitch x-axis, the redline `threshold` at `CFL_LIMIT = 1.0` (Courant = 1, the stability edge), and the `CFL_MARGIN` reject-threshold marker via the additive `thresholds` array (read **live**). Per-point colour follows the gate's ACTUAL decision (`cfl_stability.is_stable_with_margin`): `Courant < CFL_MARGIN` AND `max\|g\| ≤ 1` → allowed (teal/circle), else rejected (red/diamond). Tooltip: `{note, pitch, courant, decision, max_g, worst_string}`. Degenerate (non-finite Courant) → NaN gap + rejected. `key_range`: `all` / `from21to108` / `output`. Unit test: `tests/unit/test_cfl_ratio_chart.py` (mocked `param_manager`, no engine, 13/13); real-preset varies-proof: `docs/development/diagnostics/dev-7032-cfl-courant-varies.py` |
 
 **Offline chart sound-readout path.** Offline chart functions render with
@@ -223,6 +224,60 @@ reads the offline engine's `getRecordedAudio()` output (populated by
 it into `pianoid.result.sound` with shape `(num_channels, N)`. Live/online charts
 (`sound_function`, etc.) continue to use `get_sound_from_pianoid()` — their raw
 buffer is filled normally by `playSoundSamples()`.
+
+---
+
+## Sound Test diagnostic chart (dev-stest-4a7c, 2026-05-31)
+
+The `sound_test` chart (`sound_test_function`) renders the same note / chord /
+sequence through up to **4 selectable audio taps** on one shared time axis, so the
+operator can compare the signal at successive points in the output pipeline. Each
+selected source × channel pair becomes its own chart entry (with its own
+[playback widget](#chart-native-audio-playback-dev-chartplay-2026-05-31)).
+
+| Source toggle | Buffer | PianoidResult accessor | Availability |
+|---------------|--------|------------------------|--------------|
+| `include_kernel` | `dev_soundFloat` — raw kernel output, **pre-FIR, pre-volume** | `result.get_synth_audio()` | offline + online |
+| `include_fir` | `dev_filteredSoundFloat` — **post-FIR** float (hardwired stereo) | `result.get_post_fir_audio()` (`load_post_fir_audio_from_pianoid`) | online + `FIRfilterON` only |
+| `include_sint` | `dev_soundInt` — **post-volume `Sint32`** buffer the audio driver consumes | `result.get_sint_audio()` (`load_sint_audio_from_pianoid`, stored `np.int32` so overflow/saturation is visible) | online only |
+| `include_mic` | live microphone capture during playback | `result.get_mic_audio()` | online + `audio_on` + mic checkbox |
+
+**Architectural contract.** The chart function reads **every** source through a
+PianoidResult accessor — it never calls the raw C++ getters
+(`getRawSoundRecord`, `getRawFilteredFloatRecord`, `getRawSoundRecordInt`,
+`getRecordedAudio`); those are transport primitives owned by the loader methods.
+`tests/unit/test_sound_test_chart.py` asserts this structurally via
+`assert_not_called()` on each raw-getter mock.
+
+**Modes.** `mode="offline"` runs the deterministic `runOfflinePlayback` path
+(only `kernel` populates; `fir`/`sint`/`mic` report **Unavailable** in
+`text_fields`). `mode="online"` drives the live audio driver so the FIR / Sint
+host rings fill and mic capture can run (requires `audio_driver_type` 2/3/4 — an
+`audio_off` backend returns an error). Unselected/empty source set returns a
+Notice rather than rendering. The `dev_soundInt` tap is the only Python/REST path
+to the post-volume buffer — every other readout returns pre-volume float — so
+this chart is the canonical way to observe driver-input clipping/overflow.
+
+---
+
+## Chart-native audio playback (dev-chartplay, 2026-05-31)
+
+Any chart whose REST response carries a non-null `audio_data[i]` entry renders an
+inline **AudioPlayer** widget (`PianoidTunner/src/components/newWindowChart.jsx`)
+directly above that chart — play/pause toggle + a click-to-seek progress bar with
+`m:ss` elapsed/total readouts. It is per-chart-entry, so a multi-source
+`sound_test` response (kernel ch0, kernel ch1, sint ch0, …) gets one independent
+player per entry; the decode→play helper (`base64WavToBlobUrl` / `playBase64Wav`,
+revokes the blob URL on `ended`/`error`) is extracted into
+`src/utils/audioPlayback.js` and reused by the offline "Play All" sweep.
+
+The base64 WAV is attached backend-side by `ChartArray.create_audio_to_chart('all', sample_rate=…)`,
+which calls `ChartData.create_audio()` per chart. The audio-producing chart
+functions that wire it are: `sound_function`, `filter_test_function`,
+`mode_test_function`, `play_note_offline_chart_function`,
+`online_midi_playback_chart_function`, and `sound_test_function`. The attachment
+is purely additive — callers that ignore `audio_data` are unaffected, and a chart
+with `audio_data[i] === null` renders no player for that entry.
 
 ---
 

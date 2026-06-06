@@ -146,14 +146,12 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/modal_mass         -- (Phase 2, DELETE) invalidate modal mass —
                                remove persisted files + clear cache
   /modal/projects           -- list projects, current project, projects_base
-  /modal/projects/create    -- create project with optional measurement_source
+  /modal/projects/create    -- create project with optional measurement_source (v1)
+  /modal/projects           -- (POST) v2 create from a Measurement (snapshots setup, N5)
+  /modal/projects/<old>/branch -- v2 branch a sibling Project off the same Measurement
   /modal/projects/open      -- open existing project
-  /modal/projects/copy      -- clean-clone: copy measurements + mapping
-                               from an existing project but reset all
-                               analysis output (ESPRIT/tracking/feedin/
-                               applied) so the user can re-run the
-                               pipeline with different parameters.
-                               dev-mabug.
+  /modal/projects/copy      -- RETIRED (410 Gone, Phase 2c) -> use /projects/<old>/branch
+  /modal/projects/create_from_zip -- RETIRED (410 Gone, Phase 2c) -> POST /modal/projects
   /modal/projects/delete    -- delete project
   /modal/projects/add_measurements -- add measurements to current project
   /modal/projects/set_base  -- set projects base directory
@@ -168,12 +166,32 @@ On startup, the server runs a stale process check: finds any PID listening on th
                                       (scenario, channel) — signal_a / signal_b /
                                       env_signal / env_diff / ratio + T_eff at the
                                       requested threshold. Backs QCVisualizationPanel.
-  /modal/collect/health     -- (B-0) RoomResponse coexistence probe
-  /modal/collect/start      -- (B-1) begin one measurement scenario
-  /modal/collect/status     -- (B-1) active session snapshot
-  /modal/collect/cancel     -- (B-1) cancel active session
-  /modal/collect/results/<sid> -- (B-1) completed-session result + metadata
-  /modal/collect/devices    -- (B-1) enumerate SDL3 input/output devices
+  /modal/collect/*          -- RETIRED (410 Gone, Phase 2a) -> /modal/measurements/<id>/collect/*
+                               (the v1 B-0/B-1 surface; see Measurement Collection Endpoints below)
+
+  -- Measurement entity (v2, Phase 1+2; canonical doc: MODAL_COLLECTION.md) --
+  /modal/measurements              -- GET list / POST create (409 dup name N1)
+  /modal/measurements/<id>         -- GET full manifest + setup/* / DELETE (409 if linked, N6)
+  /modal/measurements/<id>/audio_config       -- PATCH (423 if locked, N4)
+  /modal/measurements/<id>/impulse_config     -- PATCH (423 if locked)
+  /modal/measurements/<id>/series_config      -- PATCH (423 if locked)
+  /modal/measurements/<id>/mapping_config     -- PATCH (423 if locked)
+  /modal/measurements/<id>/calibration_criteria -- PATCH (always allowed; analysis-time gate)
+  /modal/measurements/<id>/setup_test         -- POST run / GET latest (N3, overwrite-per-run)
+  /modal/measurements/<id>/unlock             -- POST manual unlock-with-warning (confirm:true)
+  /modal/measurements/<id>/rename             -- POST atomic rename + cross-ref update
+  /modal/measurements/<id>/collect/start      -- (Phase 2c) start one scenario
+  /modal/measurements/<id>/collect/status     -- (Phase 2c) session snapshot + messages ring
+  /modal/measurements/<id>/collect/cancel     -- (Phase 2c) cancel in-flight scenario
+  /modal/measurements/<id>/collect/results/<sid> -- (Phase 2c) completed scenario result
+  /modal/measurements/<id>/devices            -- (Phase 2c) SDL3 devices (per-Measurement)
+  /modal/measurements/devices                 -- (Phase 2c) unscoped alias (Create flow)
+  /modal/measurements/active_session          -- global "any session in flight?" probe (sole v1 survivor)
+  /modal/measurements/probe                   -- (import) sniff a folder's layout, no writes
+  /modal/measurements/import_folder           -- (import) create a Measurement from a folder
+  /modal/measurements/<id>/import_scenarios   -- (import) add scenarios to an existing Measurement
+  /modal/measurements/unzip_helper            -- (import) extract a raw zip into _staging/
+  /modal/fs/roots, /modal/fs/list             -- (import) server-side directory tree picker
 ```
 
 ---
@@ -3121,7 +3139,7 @@ Response `200`:
 
 #### `POST /modal/projects/create`
 
-Create a new project. Optionally copy measurements from an existing source.
+Create a v1 project. Optionally copy measurements from an existing source.
 
 Request body:
 ```json
@@ -3132,6 +3150,10 @@ Request body:
 ```
 
 - `measurement_source` (optional): name of existing project to copy measurements from
+
+> **v2 create.** New work uses `POST /modal/projects` (body `{name, measurement_id, ...}`),
+> which links the Project to a first-class Measurement and snapshots its setup (N5).
+> See [Measurement Collection Endpoints § v2 Project endpoints](#measurement-collection-endpoints-port-5001--v2-measurement-entity).
 
 ---
 
@@ -3148,52 +3170,24 @@ Request body:
 
 ---
 
-#### `POST /modal/projects/copy`
+#### `POST /modal/projects/copy` — RETIRED (410 Gone, Phase 2c)
 
-Create a new project by cloning the raw measurement data and channel
-mapping from an existing project. dev-mabug (2026-05-09) reaffirmed
-the **clean-clone** contract: ESPRIT results, tracking chains, feedin
-data, the applied flag, and any cached export artifacts are all
-**reset** in the destination so the user can immediately re-run the
-pipeline with different ESPRIT parameters.
+Hard-cut per the Measurement-entity proposal (N8). The route returns the
+standard `410 Gone` body (`{error:"endpoint_retired", retired_at:"v2",
+phase:"Phase 2c", replacement:"/modal/projects/<old>/branch", doc:...}`).
+The Copy From flow is replaced by **branching**: a sibling Project that
+points at the same parent Measurement and takes a fresh setup snapshot —
+no measurement data is duplicated on disk.
 
-Request body:
-```json
-{
-  "source": "piano_A",
-  "name": "piano_A_copy"
-}
+```
+POST /modal/projects/<old>/branch   { "new_name": "...", "inherit_band_config": true? }
 ```
 
-Both `source` and `name` are required (HTTP 400 if either is missing).
-`source` must already exist as a project; `name` must NOT already
-exist (HTTP 500 with `ValueError` surfaced to the response if it
-does).
-
-What the destination carries from the source:
-
-- `measurements/scenario_*.npy` (raw scenario arrays, byte-identical)
-- `modal_adapter/mapping/mapping_config.json` (channel roles, grid
-  layout, pitch_offset, bridge_boundary, cell_mask)
-- From `project.json`: `sample_rate`, `num_scenarios`, `num_channels`,
-  `scenario_indices`, `measurement_source`, `band_config`,
-  `ir_working_length_ms`, `extracted_path`
-
-What the destination resets:
-
-- `modal_adapter/esprit/`, `modal_adapter/tracking/`,
-  `modal_adapter/feedin/` — empty stage directories
-- `modal_adapter/output/applied.json` — not carried (applied=False)
-- `modal_adapter/export_text/` — not carried
-- `project.json.created` is reset to "now"; `copied_from` is set to
-  `source` for provenance
-
-Response: the destination project's `open_project` envelope (the
-adapter opens the new project before returning so the frontend sees
-it loaded with measurements + mapping in memory).
-
-See `ModalAdapter.copy_project` and the integration tests in
-`tests/integration/test_modal_copy_project.py`.
+The underlying `ModalAdapter.copy_project()` Python method remains for
+direct callers (tests, scripts) until a follow-on session retires it; only
+the HTTP surface is gone. The frontend `useProjectCRUD.copyProject` helper
+is now a throwing stub. See
+[MODAL_COLLECTION.md § /modal/projects/copy retired](MODAL_COLLECTION.md#modalprojectscopy--create_from_zip-retired-n8).
 
 ---
 
@@ -3458,151 +3452,96 @@ handles this without issue; the LRU cache makes channel switches
 
 ---
 
-### Modal Collection Endpoints (port 5001, B-1)
+### Measurement Collection Endpoints (port 5001) — v2 Measurement entity
 
-Five new endpoints under `/modal/collect/*` orchestrate one in-flight
-RoomResponse measurement scenario per process. All routes are mounted on
-the modal_adapter_server (port 5001) only — calls to the same paths on
-the main backend (port 5000) return HTTP 503 because the RoomResponse
-bootstrap is not run there. See [MODAL_COLLECTION.md](MODAL_COLLECTION.md)
-for the full architecture.
+> **Canonical doc:** [MODAL_COLLECTION.md](MODAL_COLLECTION.md) holds the full
+> architecture, the migration CLI, the import endpoints, the setup-stitching
+> table, and per-route curl examples. This section is the endpoint quick-reference.
 
-#### `POST /modal/collect/start`
+The Modal Adapter **Measurement** is the first-class acquisition entity (raw
+recordings + `setup/*` config), separate from the analysis-side **Project**.
+A Project snapshots its parent Measurement's setup at branch time (N5) and is
+never auto-deleted when a Project is deleted (N6 — explicit delete only). Per
+the proposal's N8 hard cutover the **v1 `/modal/collect/*` surface is retired
+to `410 Gone`** (Phase 2a); the only survivor is the global
+`GET /modal/measurements/active_session` probe.
 
-Begin one measurement scenario. Returns a `session_id` immediately; the
-worker thread runs in background. Poll `/modal/collect/status` for
-progress.
+#### Status-code contract
 
-Request body:
+| Code | When |
+|------|------|
+| `409` | duplicate `measurement_id` on create (N1); Measurement still referenced by ≥1 Project on delete (N6, body `{linked_projects:[...]}`); another acquisition already in flight; rename target name taken |
+| `410` | any retired v1 `/modal/collect/*` path; retired `/modal/projects/copy` + `/create_from_zip` (body `{error:"endpoint_retired", replacement, doc}`) |
+| `422` | invalid `measurement_id` slug; STRICT import-compat mismatch |
+| `423` | write to `setup/*` while `locks/acquisition.lock` exists (N4); rename of a locked / currently-open Measurement |
+| `502` | Pause Pianoid failed on Setup Test / collect start (audio device never opened) |
+| `503` | SDL3 / measurement stack unavailable (devices, collect start) |
 
-```json
-{
-  "scenario_number": 0,
-  "project_dir": "D:/data/myproject",
-  "recorder_config": {
-    "num_measurements": 5,
-    "measurement_interval": 0.5,
-    "computer": "Belarus",
-    "room": "Run1",
-    "sample_rate": 48000,
-    "num_pulses": 5,
-    "volume": 0.65,
-    "input_device_name": "IN 01-08 (BEHRINGER UMC 1820)",
-    "output_device_name": "OUT 1-2 (BEHRINGER UMC 1820)",
-    "multichannel_config": {
-      "enabled": true,
-      "num_channels": 6,
-      "response_channels": [0, 1, 3, 4, 5],
-      "calibration_channel": 2,
-      "reference_channel": 5
-    }
-  }
-}
-```
+#### Lifecycle endpoints (Phase 1)
 
-Only the high-impact keys above are honoured in v1 (per direction Q2).
-Everything else falls back to RoomResponse's bundled `recorderConfig.json`.
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/modal/measurements` | Create. Body `{measurement_id, sample_rate?, audio_config?, impulse_config?, series_config?, mapping_config?, calibration_criteria?}`. 201 + summary. 409 dup (N1), 422 slug |
+| GET  | `/modal/measurements` | List summaries (+ `mtime`, `linked_projects_count`/`linked_projects` for the manage dialog) |
+| GET  | `/modal/measurements/<id>` | Full manifest + inline `setup/*` + scenarios list. 404 if missing |
+| PATCH | `/modal/measurements/<id>/{audio,impulse,series,mapping}_config` | Update one setup file. 423 if locked (N4). Response carries the full re-read body under the long section key (round-10 fix) |
+| PATCH | `/modal/measurements/<id>/calibration_criteria` | Always allowed even when locked (analysis-time gate, N4) |
+| POST | `/modal/measurements/<id>/unlock` | Manual unlock-with-warning (N4). Body `{confirm:true}` required (400 without). Lock re-fires on next successful scenario |
+| POST | `/modal/measurements/<id>/rename` | Atomic folder rename + every referencing Project's `measurement_id`/`measurement_path`. 423 locked/open, 409 name taken, 500 rolled-back |
+| DELETE | `/modal/measurements/<id>` | Delete. 409 `{linked_projects:[...]}` if any Project references it (N6, no force flag) |
 
-Responses:
+#### Setup Test (Phase 2a)
 
-| Code | Body | When |
-|------|------|------|
-| 200 | `{"session_id": "<12-hex>"}` | Accepted; worker thread spawned |
-| 400 | `{"error": "..."}` | Missing `scenario_number` / `project_dir`, malformed body |
-| 409 | `{"error": "Measurement already running ..."}` | Another session is in flight |
-| 502 | `{"error": "Failed to pause Pianoid synthesis ..."}` | Synchronous-path pause failure (rare; usually surfaces via status `phase=error`) |
-| 503 | `{"error": "RoomResponse unavailable on this server"}` | Bootstrap failed or running on port 5000 |
-
-Pause coordination happens inside the worker thread. If
-`/pause_synthesis` (port 5000) fails or is unreachable, the session
-transitions to `phase=error` without opening the audio device — the
-operator must check status to learn the failure.
-
-#### `GET /modal/collect/status`
-
-Returns the current (or most recent) session snapshot:
+`POST /modal/measurements/<id>/setup_test` runs ONE calibration impulse cycle
+(`SetupTestEngine`): pause synth → record → validate every channel against
+`setup/calibration_criteria.json` → resume synth → overwrite
+`setup_test/latest.{json,wav}` (N3, single-latest). `GET` returns the latest
+report (404 if never run — no history endpoint). Report:
 
 ```json
 {
-  "session_id": "d0722c397e99",
-  "scenario_number": 0,
-  "project_dir": "D:/data/myproject",
-  "phase": "recording",
-  "progress_pct": 10.0,
-  "started_at": 1777636462.86,
-  "finished_at": null,
-  "error_message": null,
-  "output_paths": []
+  "schema_version": 1, "tested_at": "2026-05-11T15:00:00Z",
+  "overall": "pass",
+  "results": [{"criterion_id": "calibration_correlation_min", "channel": "calibration",
+               "measured": 0.92, "threshold": 0.85, "verdict": "pass", "fail_action": "fail"}],
+  "recording_path": "setup_test/latest.wav", "error": null
 }
 ```
 
-When no session has ever run on this process, returns `{"phase": "idle"}`.
+`overall = fail` if any `fail_action:"fail"` criterion fails, else `warn` if
+any `fail_action:"warn"` fails, else `pass`. 502 on pause failure, 500 on
+engine crash (report still persisted so the UI sees a fail surface).
 
-| Phase | Meaning |
-|-------|---------|
-| `idle` | No session has run |
-| `pausing` | Posting `/pause_synthesis` |
-| `recording` | RoomResponseRecorder + collector running |
-| `saving` | Generating averaged_responses + scenario_N.npy mirror |
-| `resuming` | Posting `/resume_synthesis` |
-| `done` | Success terminal |
-| `cancelled` | Cancellation requested mid-flight |
-| `error` | Pause failed, recording crashed, or save failed (`error_message` populated) |
+#### Per-Measurement collect family (Phase 2c)
 
-#### `POST /modal/collect/cancel`
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/modal/measurements/<id>/collect/start` | Body `{scenario_number, description?, computer?, room?, recorder_config_overrides?}`. Stitches `setup/*` → legacy recorder cfg (`_build_recorder_config_from_measurement`); caller overrides win. 409 if a session is in flight. First successful scenario auto-locks (N4) |
+| GET  | `/modal/measurements/<id>/collect/status` | Per-Measurement snapshot incl. `messages` ring buffer (Q8). Cross-Measurement → `{phase:"idle"}` |
+| POST | `/modal/measurements/<id>/collect/cancel` | Cancel in-flight. Cross-Measurement → 409 with active id |
+| GET  | `/modal/measurements/<id>/collect/results/<sid>` | Completed scenario result. Cross-Measurement → 404 |
+| GET  | `/modal/measurements/<id>/devices` | SDL3 devices + the Measurement's current input/output echoed for UI pre-fill |
+| GET  | `/modal/measurements/devices` | Unscoped alias (Create-Measurement flow, no id yet); `current_*` = null |
+| GET  | `/modal/measurements/active_session` | Global "any session in flight?" probe — `{measurement_id, session_id, phase, progress_pct, messages, ...}` or `{phase:"idle"}`. Sole v1 survivor |
 
-Signals cancellation of the active session via `threading.Event`. The
-worker checks between phases; the final `/resume_synthesis` always fires
-when the engine paused successfully, regardless of cancel/error.
+#### v2 Project endpoints
 
-Response: `{"cancelled": true}` if a session was active, `{"cancelled": false}` otherwise.
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/modal/projects` | Create from a Measurement. Body `{name, measurement_id, band_config?, async?}` (or `?measurement=<id>`). Snapshots parent setup (N5). 404 unknown measurement, 409 name collision. `async:true` → 202 `{operation_id, status_url}` |
+| POST | `/modal/projects/<old>/branch` | Branch a sibling Project off the same Measurement. Body `{new_name, inherit_band_config?}`. Fresh snapshot of the parent's CURRENT setup. 409 if source is v1 (no `measurement_id`) |
+| POST | `/modal/projects/copy`, `/modal/projects/create_from_zip` | RETIRED 410 Gone (Phase 2c) → use `/branch` / `POST /modal/projects` |
 
-#### `GET /modal/collect/results/<session_id>`
+#### Migration (v1 → v2)
 
-Returns paths and persisted metadata for a completed session. Sessions
-are kept in memory (last 16 by id) for post-completion polling.
-
-```json
-{
-  "session_id": "d0722c397e99",
-  "scenario_number": 0,
-  "phase": "done",
-  "output_paths": [
-    "D:/data/myproject/B1Demo-Scenario0-Run1/raw_recordings/raw_meas_000.wav",
-    "...",
-    "D:/data/myproject/B1Demo-Scenario0-Run1/averaged_responses/average_ch0.npy",
-    "D:/data/myproject/measurements/scenario_0.npy"
-  ],
-  "session_metadata": {
-    "scenario_name": "B1Demo-Scenario0-Run1",
-    "device_info": { "sdl_version": "3.2.0", "device_counts": { ... } },
-    "measurements": [ ... ]
-  }
-}
-```
-
-| Code | Body | When |
-|------|------|------|
-| 200 | result body | session known |
-| 404 | `{"error": "Unknown session: ..."}` | session_id not in active or recent history |
-
-#### `GET /modal/collect/devices`
-
-Transient SDL3 device probe. The handler does NOT keep an `AudioEngine`
-open across the call — it enumerates and returns.
-
-```json
-{
-  "input_devices":  [{"index": 0, "name": "IN 05 (BEHRINGER UMC 1820)"}, ...],
-  "output_devices": [{"index": 0, "name": "OUT 1-2 (BEHRINGER UMC 1820)"}, ...],
-  "sdl_version": "3.2.0"
-}
-```
-
-| Code | Body | When |
-|------|------|------|
-| 200 | device list | normal |
-| 503 | `{"error": "RoomResponse unavailable"}` | `/modal/collect/health` would also report `available: false` |
+`python -m pianoid_middleware.modal_adapter.migrate_to_measurement_entity --mode
+{dry-run|apply|verify|rollback}` upgrades each v1 Project into a (Measurement +
+thin Project) pair: writes a rollback tarball, upgrades / reuses the Measurement
+folder, rewrites `project.json` to `schema_version:2` (adds `measurement_id`,
+`measurement_path`, `measurement_snapshot`, `averaging`), and seals the
+Measurement (`reason:"migration_v1_to_v2"`). Idempotent (`already_v2` skipped);
+refuses v1 projects with no / missing / external `measurement_source`. See
+[MODAL_COLLECTION.md § Migration Script](MODAL_COLLECTION.md#migration-script).
 
 ---
 

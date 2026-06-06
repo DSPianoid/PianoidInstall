@@ -179,42 +179,28 @@ tasklist //M cudart64_12.dll 2>/dev/null | grep python
 lsof PianoidCore/.venv/lib/python3.12/site-packages/pianoidCuda*.so 2>/dev/null
 ```
 
-**Build pianoidCuda** — always use the canonical build script. Details
-and troubleshooting live in **[`docs/architecture/BUILD_SYSTEM.md`](../docs/architecture/BUILD_SYSTEM.md)**;
-do not maintain a competing copy of build commands here. Clear `VIRTUAL_ENV` first so the
-install lands in `PianoidCore/.venv/`, not the root `.venv/`.
+**[`docs/architecture/BUILD_SYSTEM.md` → Canonical Install / Rebuild](../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first) is the SINGLE SOURCE OF TRUTH** for the build (pre-checks, recovery, verify, and the post-merge gate). The blocks below are only the agent-facing quick form — do not let them drift from it. Clear `VIRTUAL_ENV` (or set it EXPLICITLY to `PianoidCore\.venv`) so the install lands in `PianoidCore/.venv/`, not the root `.venv/`.
 
-**Windows** (canonical, tested):
+**Windows — agent / orchestrator context (DETACHED — required).** A `cmd //c` `--heavy` build gate-stalls DESTRUCTIVELY in agent context (the install removes the old `.pyd` at `[4/6]` before reinstalling at `[6/6]` → a stall there bricks the venv). So: **(1) STOP the `.pyd` holder first** — launcher REST `curl -X POST http://127.0.0.1:3001/api/stop-backend` (preferred; a running backend → `[WinError 5]` on the uninstall), else a PID-targeted `taskkill //F //PID <pid>` (NEVER `//IM python.exe`); **(2) launch DETACHED with the bat invoked by ABSOLUTE path after `cd /d`** (a bare bat name after a `cd` fails *"not recognized"*; cwd must be `PianoidCore` so `setup.py` finds `pianoid_cuda/`):
 
-```bash
-# Full rebuild (C++/CUDA changes — release only)
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy --release"
-
-# Incremental (Python middleware only)
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --light --release"
-
-# Both variants (release + debug) when the debug build is needed
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy --both"
+```powershell
+Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
+  '/c','set "VIRTUAL_ENV=D:\repos\PianoidInstall\PianoidCore\.venv" && cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both > D:\tmp\build.log 2>&1' -PassThru
+# Default = --heavy --both. Then poll D:\tmp\build.log + the .pyd mtime; done at "[SUCCESS] Build completed".
+# --light --both = middleware-only;  --heavy --release = release-only ON EXPLICIT REQUEST (leaves the debug .pyd stale).
 ```
 
-**Linux** (parallel set, ported 2026-05-01):
+**Windows — interactive human:** `cd /d <CORE> && <CORE>\build_pianoid_cuda.bat --heavy --both`
+(absolute path — or `.\build_pianoid_cuda.bat`; NEVER a bare name [L-2 "not recognized"], NEVER a double `PianoidCore\PianoidCore\` prefix).
+
+**Linux** (any context; ASIO excluded, produces `.so`, libdir `lib64`, g++ host — see
+[`docs/guides/LINUX_BUILD.md`](../docs/guides/LINUX_BUILD.md)):
 
 ```bash
-# Full rebuild (C++/CUDA changes — release only)
-PianoidCore/build_pianoid_cuda.sh --heavy --release
-
-# Incremental (Python middleware only)
-PianoidCore/build_pianoid_cuda.sh --light --release
-
-# Both variants (release + debug) when the debug build is needed
-PianoidCore/build_pianoid_cuda.sh --heavy --both
+PianoidCore/build_pianoid_cuda.sh --heavy --both      # full (C++/CUDA);  --light --both = middleware-only
 ```
 
-Linux differences vs Windows: ASIO is excluded from the build (Windows-only),
-the produced extension is `pianoidCuda*.so` (not `.pyd`), CUDA libdir is
-`lib64` (not `lib/x64`), and the host compiler is g++ (not MSVC). See
-[`docs/guides/LINUX_BUILD.md`](../docs/guides/LINUX_BUILD.md) for the full
-walkthrough including system-package install.
+**Post-merge / post-pull rebuild gate (MANDATORY).** After any merge / pull / `/sync` / reconcile whose diff touches `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py` or any `PianoidBasic/**`, REBUILD (`--both`) and run a `/load_preset` **200** smoke-test BEFORE pushing or declaring ready — import-verify alone passes even when the Python↔C++ API diverged (the failure class where new Python runs against a stale `.pyd`). See [`BUILD_SYSTEM.md` → Post-Merge / Post-Pull Rebuild Gate](../docs/architecture/BUILD_SYSTEM.md#post-merge--post-pull-rebuild-gate).
 
 **If the Windows build exits with `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):** do NOT
 substitute a manual `pip install` — it silently reinstalls the stale `.pyd`. Follow the

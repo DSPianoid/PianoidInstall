@@ -115,34 +115,13 @@ The build takes 5–15 minutes depending on GPU architecture count. Check `Piano
 
 ### Build individual components
 
+**Build / rebuild:** follow the canonical procedure in [`docs/architecture/BUILD_SYSTEM.md` → Canonical Install / Rebuild](../architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first) — stop the .pyd holder first (launcher REST or PID), cwd `PianoidCore`, bat by **absolute path** (cd-safe), `unset VIRTUAL_ENV`, default `--both`, detached `Start-Process` in agent contexts, verify import **and** `/load_preset` 200. After any merge/pull touching compiled code, the [post-merge rebuild gate](../architecture/BUILD_SYSTEM.md#post-merge--post-pull-rebuild-gate) is mandatory before push/handoff.
+
+Quick copy-pasteable line for an interactive human shell (full clean, both variants):
+
 ```bash
-cd PianoidInstall/PianoidCore
-
-# PianoidBasic only
-./build_pianoid_basic.bat
-
-# CUDA extension — canonical rebuild (full clean, both variants)
-./build_pianoid_cuda.bat --heavy --both
-
-# CUDA extension — release-only clean rebuild
-./build_pianoid_cuda.bat --heavy --release
-
-# CUDA extension — incremental rebuild (only after confirming no stale pyd)
-./build_pianoid_cuda.bat --light --release
+cd PianoidInstall/PianoidCore && .\build_pianoid_cuda.bat --heavy --both
 ```
-
-!!! warning "Always use `build_pianoid_cuda.bat`, not `pip install` directly"
-    `pip install --force-reinstall --no-cache-dir pianoid_cuda/` sometimes silently
-    returns a cached stale `.pyd` even though `.obj` files regenerate. If you change
-    any `.cu` / `.cpp` / `.cuh` / `.h` file, use `build_pianoid_cuda.bat --heavy`.
-    See [BUILD_SYSTEM.md — Canonical CUDA Rebuild](../architecture/BUILD_SYSTEM.md#canonical-cuda-rebuild-read-this-first).
-
-!!! tip "Before rebuilding: check for locked files"
-    A running backend holding `pianoidCuda.pyd` causes `[WinError 5]`. Check first:
-    ```bash
-    tasklist //M pianoidCuda.cp312-win_amd64.pyd 2>/dev/null | grep python
-    ```
-    Kill by specific PID only — never `taskkill //F //IM python.exe`.
 
 ### Diagnosing build failures
 
