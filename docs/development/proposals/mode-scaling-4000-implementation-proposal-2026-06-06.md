@@ -57,11 +57,18 @@ of global-load latency per audio sample**. §3 establishes the register budget, 
 register cost, how many flat modes/thread are register-resident at what occupancy, and the
 shared-memory fallback.
 
-**Headline of the kernel change (§7):** drop the `indexInQuarter==0` single-oscillator gate; let each
-of the (up to) 512 threads/block own **M_t flat oscillators in a register array**; replace the
-`modeNo` formula with a flat-mode index whose range is `M_block × numArrays` not `4 × numArrays`;
-add one grid-wide reduction per flat group for feedin and one for feedback (`Σ q(m)` factored), in
-addition to the unchanged shaped path. Constants, allocations, and the Python/JS plumbing follow.
+**Headline of the kernel change (§7, §4b):** under the **quarter-fork scheduling** (user refinement,
+2026-06-06 — see §4b), the kernel **forks on `quarterNumber == 0`**: per block, **quarter 0 → SHAPED
+(convolution, unchanged), quarters 1–3 → FLAT (summation)**. The fork is **warp-uniform — a quarter
+is exactly 4 warps, zero intra-warp divergence** (§4b.2 [SRC+SPEC]). Drop the `indexInQuarter==0`
+single-oscillator gate **for the flat quarters** so their threads each advance a register-resident
+oscillator (~27 modes / 128 threads ⇒ **≤1 mode/thread**, ~5 added registers, §4b.3); keep the gate
+for the shaped quarter. The flat modes **ride the existing ~56 string-blocks' spare quarters — NO new
+blocks** (§4b.5), so the block count stays **<64, respecting `SEGMENT_FOR_SHUFFLE_SUMMATION=64`**, and
+co-residency is not worsened. Add one block-local reduction per flat quarter for feedin and one for
+feedback (`Σ q(m)` factored), in addition to the unchanged shaped path. **One OPEN QUESTION blocks
+implementation: the real SHAPED count (§4b.4) — ~1000–1350 (uniform) vs ~64–256 (reserved-slot) — is
+the user's decision.** Constants, allocations, and the Python/JS plumbing follow (§7–§8).
 
 ---
 
@@ -260,6 +267,14 @@ state is register-resident at M_t ∈ {1,2}, costing ~5–10 extra registers/thr
 (M_t=8) also fits without spill (88 regs < 255) but at lower occupancy and is not recommended for the
 full 4000.
 
+> **★ Superseded by the quarter-fork layout (§4b).** This sub-section's "T_active=512, spread across
+> 4–8 *flat blocks*" model predates the user's 2026-06-06 quarter-fork refinement. Under the
+> quarter-fork the flat modes ride the **existing ~56 string-blocks** (NOT new flat blocks, §4b.5),
+> 3 flat quarters × 128 threads = 384 flat threads/block, with only ~27 modes/flat-quarter ⇒
+> **`M_t ≤ 1`** (§4b.3). That is the **most** favourable register row above (≤5 added regs,
+> ~55–60% occupancy), so the §3.4 register-residency verdict holds *a fortiori*. Read §4b.3 for the
+> reconciled mapping; this sub-section's relative ordering of options is retained as background.
+
 ### 3.5 Why register-residency matters — quantifying the "dramatic deterioration"
 
 If the flat oscillator state `q, q_prev` lived in **global memory** instead of registers, every
@@ -329,6 +344,273 @@ No kernel-math change to the shaped path; only the loop bound changes from "all 
 
 ---
 
+## 4b. ★ QUARTER-FORK SCHEDULING — the per-block SHAPED/FLAT layout (2026-06-06 refinement)
+
+> **This section integrates the user's architectural refinement (2026-06-06, verbatim intent):**
+> *"modes should be spread evenly across the blocks, so maximum will be roughly 80 modes/block. In
+> each block ONE QUARTER should be dedicated to the SHAPED modes, the rest of the quarters to FLAT
+> modes, roughly 27 modes per quarter. The logic should FORK at quarterNumber == 0 to go convolution
+> or summation."*
+>
+> Concretely: **per block → quarter 0 = SHAPED (convolution), quarters 1–3 = FLAT (summation)**;
+> ~80 modes/block; ~27 modes/quarter; ~50 blocks for 4000 modes; the kernel branches on
+> `quarterNumber == 0`. This section grounds that against the kernel, **confirms the warp-alignment
+> claim**, derives the thread↔mode mapping and register budget under THIS layout, and surfaces one
+> open question (the SHAPED-COUNT implication, §4b.3) that the user must decide before implementation.
+
+### 4b.1 MECHANISM — the quarter structure, grounded [SRC]
+
+The block is launched `cudaLaunchCooperativeKernel(addKernel, grid=num_string_arrays,
+blockSize)` with **`blockSize = dim3(array_size/32, 32) = dim3(16, 32)` = 512 threads**
+(`Pianoid_synthesis.cu:229-230, 345` **[SRC]**). Inside the kernel two distinct linearisations of the
+512 threads coexist (`MainKernel.cu:144-147` **[SRC]**):
+
+```
+pointIndex = threadIdx.y + threadIdx.x * WARP_SIZE        // string-FDTD layout (segment-of-32, bank-conflict avoidance)
+stMdIndex  = threadIdx.y * blockDim.x + threadIdx.x       // mode/coupling layout ("done directly for the warp shuffle to work correctly")
+```
+
+The quarter machinery rides `stMdIndex` (`MainKernel.cu:173-176` **[SRC]**):
+
+```
+quarterSize    = arraySize / numStringsInArray = 512/4 = 128
+indexInQuarter = stMdIndex % quarterSize           // 0..127
+quarterNumber  = stMdIndex / quarterSize           // 0..3  (one per string-in-block)
+modeNo         = parameters[... 25*arraySize + stMdIndex]   // baked at packing = numArrays*quarterNumber + blockNo  (Kernels.cu:253)
+```
+
+So **`quarterNumber ∈ {0,1,2,3}` partitions the 512 threads into four contiguous 128-thread bands by
+`stMdIndex`.** A fork `if (quarterNumber == 0) { …convolution… } else { …summation… }` cleanly routes
+the 128 threads of band 0 to the shaped path and the 384 threads of bands 1–3 to the flat path. The
+oscillator update today is additionally gated `indexInQuarter == 0` (`MainKernel.cu:304, 667` **[SRC]**)
+→ stMdIndex ∈ {0,128,256,384} → exactly 4 threads/block advance one oscillator each. The quarter-fork
+proposal **drops that inner gate for the flat bands** (so all 384 flat threads can advance
+oscillators) while **keeping it for the shaped band** (band 0 keeps its existing single-oscillator-
+per-quarter convolution treatment, or is widened — see §4b.2).
+
+### 4b.2 ★ WARP-ALIGNMENT VERDICT — CONFIRMED (the fork is warp-uniform) [SRC + SPEC]
+
+**The user's premise is correct: the `quarterNumber` fork is warp-aligned with NO intra-warp
+divergence.** Proof from the launch geometry:
+
+- CUDA assigns hardware warp lanes by the linear thread index
+  `threadIdx.x + threadIdx.y·blockDim.x + threadIdx.z·blockDim.x·blockDim.y` **[SPEC** — CUDA
+  programming model, warp lane assignment]**. With `blockDim = (16, 32, 1)` this is
+  `threadIdx.x + threadIdx.y·16` = **exactly `stMdIndex`** (`MainKernel.cu:147` **[SRC]**). So
+  `stMdIndex` IS the hardware linear thread index → **warp `w` = the 32 threads with
+  `stMdIndex ∈ [32w, 32w+31]`**, contiguous.
+- A quarter is `quarterNumber = stMdIndex / 128` → quarter `q` = `stMdIndex ∈ [128q, 128q+127]` =
+  **warps `{4q, 4q+1, 4q+2, 4q+3}` — exactly 4 whole warps, no warp split across the boundary**
+  (128 = 4·32). Therefore `quarterNumber` is **constant within every warp** → a branch on
+  `quarterNumber == 0` (or any function of `quarterNumber`) is **warp-uniform: zero intra-warp
+  divergence.** Quarter 0 = warps 0–3 (shaped); quarters 1–3 = warps 4–15 (flat). **[SRC-grounded
+  from the launch dims + SPEC warp-lane rule.]**
+
+> **Correction to the substrate's §0d.4 #1 divergence worry.** The substrate flagged "warp
+> divergence (those K threads branch differently)" as a gotcha for packing oscillators. That worry
+> applies to the **current `indexInQuarter == 0` gate**, which fires only lane 0 of warps 0/4/8/12 —
+> that IS intra-warp divergent (1 of 32 lanes active). The **quarter-fork layout REMOVES that
+> specific divergence for the flat path**: forking on `quarterNumber` is warp-uniform, and dropping
+> the `indexInQuarter==0` gate so all 128 threads of a flat quarter advance oscillators makes the
+> flat oscillator advance **fully warp-converged**. The quarter-fork is therefore *better* on
+> divergence than the substrate feared, not worse. **[SRC-grounded.]** The residual divergence
+> concern is only at the shaped/flat *block-level* coexistence (warps 0–3 doing convolution while
+> 4–15 do summation), which is **inter-warp**, not intra-warp — warps are independently scheduled, so
+> this is a scheduling/occupancy question, not a divergence penalty. **[SPEC.]**
+
+### 4b.3 THREAD↔MODE MAPPING + REGISTER RECONCILIATION under the quarter-fork
+
+**The numbers, derived from "~80 modes/block, ~50 blocks, 1 shaped quarter + 3 flat quarters":**
+
+```
+4000 modes / ~50 blocks            = ~80 modes / block          [EST, user's figure]
+~80 modes/block / 4 quarters       = ~20 modes / quarter        (uniform) — user says "~27/quarter"
+```
+
+> **Arithmetic reconciliation [EST].** 80/4 = 20, not 27. The user's "~27 modes/quarter" is
+> internally consistent with a *different* split: if the ~80 modes/block are **concentrated in the 3
+> flat quarters** (shaped quarter carrying few/zero real modes), then 80/3 ≈ **27 modes per flat
+> quarter** — which matches the user's "~27" exactly and implies the shaped quarter is **lightly
+> populated**. Alternatively, if all 4 quarters carry equal real modes it is ~20/quarter and the
+> shaped count is large (§4b.4). **The "27" figure itself is evidence for the lightly-populated-
+> shaped-quarter interpretation** — flagged in §4b.4 for the user to confirm.
+
+**Thread↔mode mapping (flat quarters).** Each flat quarter = 128 threads. With ~27 (or ~20) modes
+mapped onto 128 threads, the natural mapping is **≤1 mode per thread** — assign mode `j` of the
+quarter to thread `indexInQuarter == j` (the first ~27 threads of the quarter own one oscillator
+each; threads 27–127 own zero). This is **register-trivial**: `M_t ≤ 1` for almost every thread.
+Packing (`M_t = ceil(27/128) = 1`) is unnecessary — there are 128 threads for 27 modes, ~4.7×
+headroom. Contrast §3.4's earlier analysis which assumed `T_active = 512` threads spreading
+512·M_t modes/block and asked how many modes/thread; **under the quarter-fork the flat modes are so
+sparse per quarter that the spread is ≤1 mode/thread with room to spare.**
+
+> **Register reconciliation with §3.** §3.3 priced a flat oscillator at **~5 registers**
+> (`q, q_prev` + 3 cached physics constants) **[EST]**. §3.4 found `M_t ≤ 2` keeps occupancy
+> ~55–60%. **Under the quarter-fork, `M_t ≤ 1` for the flat threads** → flat oscillators add **≤5
+> registers/thread**, the *most* favourable row of §3.4's table (the "8 blocks / M_t=1 / ~60%
+> occupancy" row). So the quarter-fork layout lands at or below §3's best-case register budget — it
+> is *easier* register-wise than §3 conservatively assumed, because spreading across ~50 blocks ×
+> 384 flat threads = ~19,200 flat-thread-slots for 3000–4000 flat modes ⇒ ~0.15–0.2 modes/thread
+> on average. **The §3 register-residency conclusion holds a fortiori: ALL flat state is
+> register-resident, no spill, ~5 added registers, ~55–60% occupancy.** [EST; the absolute
+> occupancy still depends on the unmeasured baseline R0 (§3.2) — only the *delta* (~5 regs) is firm.]**
+
+> **Idle-thread note [EST].** With ~27 modes in a 128-thread quarter, ~100 threads/flat-quarter do
+> no oscillator work — the layout *re-introduces* the very idle-thread waste §0c identified, just at
+> a different granularity. This is **acceptable** because (a) those idle threads cost no registers/
+> occupancy beyond the block's resident footprint, (b) the flat oscillator advance is ~6 FLOPs so
+> even 27/128 utilisation is negligible compute, and (c) the 128 threads are still needed *as a
+> group* for the per-quarter reduction (the `sumArray` warp-shuffle needs the full warp population).
+> The user could pack tighter (more modes/quarter, fewer blocks) to raise utilisation, but that
+> trades against the SHAPED-count and per-mode register budget — see §4b.4. **[EST.]**
+
+### 4b.4 ★ SHAPED-COUNT IMPLICATION — an OPEN QUESTION for the user (do NOT silently pick)
+
+The user's layout says **"in EACH block ONE QUARTER is dedicated to SHAPED."** Taken literally with
+a uniform population, that has a large, possibly-unintended consequence:
+
+```
+1 shaped quarter/block × ~50 blocks × ~27 (or ~20) modes/quarter
+   = ~1,350 shaped modes  (at 27/quarter)   OR   ~1,000 shaped modes (at 20/quarter)
+   = ~25–34% of the 4000 are SHAPED (full per-(string,mode) convolution)
+```
+
+This is **5–20× the proposal's prior "small SHAPED set, n_shaped ∈ [64, 256]" assumption** (§1, §4,
+§9). Two interpretations, both plausible from the user's words, with very different cost — **this is
+the load-bearing decision and must be the user's, not the agent's:**
+
+| | **Interpretation A — Uniform block layout (literal)** | **Interpretation B — Mostly-dummy shaped quarters** |
+|---|---|---|
+| Shaped quarter population | every block's quarter 0 holds ~20–27 **real** shaped modes | only the **first N blocks** carry real shaped modes in quarter 0; the rest have a quarter 0 that is **dummy/unpopulated** (placeholder, `modeNo` ≥ n_shaped or ID=−1) |
+| Real shaped count | **~1000–1350** (~25–34% of 4000) | **small, ~64–256** (matches §1/§4/§9) — e.g. n_shaped=256 → only first ~10–13 blocks have a populated shaped quarter |
+| Convolution cost | **O(S × ~1300)** per sample — the expensive dense reduction over ~1300 modes; ~5–20× the prior shaped budget | **O(S × ≤256)** — the cheap, bounded shaped cost the whole two-tier design was built around |
+| Deck memory (shaped) | `S × ~1300` ≈ 224×1300 ≈ 1.1 MB | `S × 256` ≈ 256 KB (≈ current) |
+| Layout uniformity | every block identical (clean SIMT, simplest packing/index math) | blocks heterogeneous (first N "have shaped", rest "all-flat") — slightly more complex packing |
+| Matches user's "~27/quarter"? | only if shaped quarter also ~27 (then ~1350 shaped) | yes — flat quarters carry the ~27; shaped quarter mostly empty |
+| Audio implication | far more HF modes kept shape-aware → *higher fidelity*, *higher cost* | HF bulk flattened as the §0b.7 perceptual argument intends |
+
+**Cost driver to make explicit:** the convolution (shaped) cost scales with the **real** shaped
+count, NOT with the number of reserved shaped quarters. Reserving a shaped quarter in every block is
+*free* if those quarters are dummy (Interpretation B); it is *expensive* only if they hold real
+shaped modes (Interpretation A). So the question is purely: **how many of the 4000 are genuinely
+shaped?**
+
+> **★ EXPLICIT QUESTION FOR THE USER (blocking before implementation):** Do you intend
+> **(A)** a uniform layout where every block's shaped quarter holds real shaped modes — accepting
+> **~1000–1350 shaped modes (~25–34% of 4000)** at ~5–20× the convolution cost of the original
+> "small shaped set" plan (higher fidelity, higher cost) — **or (B)** a uniform *reserved-slot*
+> layout where the shaped quarter exists in every block for index regularity but is **populated only
+> in the first N blocks** (real shaped count stays small, ~64–256, per §9's variance-driven
+> boundary), the remaining shaped quarters carrying dummy modes? **Interpretation B preserves the
+> two-tier design's core economics (§0b.4); Interpretation A is a deliberately higher-fidelity, more
+> expensive instrument.** The "~27 modes/quarter" figure leans toward B (flat quarters carry the
+> ~27, shaped quarter near-empty), but the "one quarter dedicated to shaped in each block" wording
+> leans toward A. **This is not the agent's call.** [EST/UNCERTAIN — both are coherent readings; the
+> convolution cost difference (~256 vs ~1300 shaped modes) is the whole point of the two-tier split,
+> so it must be the user's explicit decision.]**
+
+### 4b.5 BLOCK-COUNT vs CONSTRAINTS — mode-blocks ARE the string-blocks (pivotal finding)
+
+**Finding: under the quarter-fork, the mode-blocks are the SAME blocks as the string-blocks — modes
+ride the existing string blocks' spare quarters/threads. They are NOT new mode-dedicated blocks.**
+[SRC-grounded] This follows directly from the kernel structure:
+
+- The grid is `gridDim.x = numArrays = numStrings/numStringsInArray` blocks (`MainKernel.cu:121`,
+  `Pianoid_synthesis.cu:345` **[SRC]**). Each block already binds 4 strings (the FDTD work on all
+  512 threads) AND hosts 4 mode-oscillators (one per quarter, `indexInQuarter==0`). Modes already
+  *co-habit* the string blocks today (§0c.1). The quarter-fork keeps that co-habitation and merely
+  **uses more of each block's idle threads** for modes — it does **not** add a separate `gridDim`
+  partition. **[SRC.]**
+- So "~50 blocks for 4000 modes" must reconcile with the **string** block count. Today
+  `numStrings ≈ 224, nsa = 4 → numArrays ≈ 56 string-blocks` (substrate §9 **[MEAS-derived]**). The
+  user's "~50 blocks" ≈ the existing ~56 string-blocks. **The 4000 modes are spread across the
+  EXISTING ~56 string-blocks** (4000/56 ≈ 71 modes/block, close to the user's "~80"), 4 quarters
+  each. **No new blocks are created; the block count stays = numArrays (string-driven).** [SRC-grounded
+  arithmetic.] This is the §8-Tier-B "cheaper route" (substrate §8.3 #7 note) realised concretely:
+  re-index modes onto spare per-block threads rather than inventing a mode grid dimension.
+
+> **Consequence for the "decouple modes from strings" goal:** the quarter-fork does **NOT** fully
+> decouple the mode count from the block count — block count is still `numStrings/nsa`. But it
+> decouples the mode count from `numStrings` *as a 1:1 ceiling*: each block now carries ~80 modes
+> instead of 4, so 4000 modes fit on ~56 blocks (≈ today's count) **without raising numStrings to
+> 4000.** The O(S²) deck blow-up is avoided (deck width stays driven by n_shaped, not 4000). This is
+> exactly the substrate §0c.2 escape route. **[SRC-grounded.]**
+
+**SEGMENT_FOR_SHUFFLE_SUMMATION = 64 — RESPECTED (a plus of this layout).** The reduction segment
+must be ≥ block count and ÷32 (`constants.h:90`, `MainKernel.cu:469, 641` **[SRC]**). Because the
+quarter-fork keeps the block count at `numArrays ≈ 50–56` (NOT raising numStrings), **block count
+≈ 50–56 < 64 = SEGMENT — the layout stays UNDER the segment limit with no change to SEGMENT.** This
+is a genuine advantage over the §6 "raise numStrings to 4000" path, which would push block count to
+~1000 and demand SEGMENT ≥ 1024 (and silently corrupt if forgotten — substrate §8.1 #1). **The
+quarter-fork respects SEGMENT=64 as-is.** [SRC-grounded — but see the caveat below.]
+
+> **CAVEAT on SEGMENT [SRC + UNCERTAIN].** SEGMENT bounds the *block-count* axis of the reductions,
+> which the quarter-fork leaves at ≈56 ✓. BUT the quarter-fork ADDS a **new reduction axis**: the
+> per-flat-quarter `groupForceSum_g` (feedin) and `modeSum_g = Σ a_out·q` (feedback) over the flat
+> modes (§5.2). Those are *block-local* reductions over ~27 modes (well within a warp/quarter), NOT
+> SEGMENT-wide cross-block shuffles — so they do **not** stress SEGMENT. The existing SEGMENT-wide
+> `sumArray` (feedin/feedback cycle-matrix reduction across blocks, `MainKernel.cu:469, 641`) is
+> unchanged in width. **Net: SEGMENT=64 is respected; the new flat group-sums are a separate,
+> smaller, intra-block reduction.** Verify the flat group-reduction does not accidentally reuse the
+> SEGMENT-wide `feedin_cycle_matrix` path at block-count width — [UNCERTAIN until the kernel edit
+> is written; flagged for the §7 change.]**
+
+**Cooperative-grid co-residency — UNCHANGED, still binding but NOT worsened.** The grid stays
+`numArrays ≈ 56` cooperative blocks (the same grid that launches today), so co-residency is **no
+harder than the current working kernel** — the quarter-fork does not add blocks. The added per-block
+register pressure (~5 regs, §4b.3) and any added shared memory (the flat group-sum scratch, a few
+reals/quarter) **could** lower max-resident-blocks/SM and thus threaten co-residency at the margin,
+but the delta is small. The §7.5 occupancy clamp (`cudaOccupancyMaxActiveBlocksPerMultiprocessor ×
+SM_count`) is still recommended as a guard. **[SRC for the grid; EST for the margin — must verify
+co-residency once registers/shared are measured, §12.]**
+
+### 4b.6 DISTRIBUTED SHAPED — convolution + deck access with shaped spread 1-quarter-per-block
+
+Under the quarter-fork the shaped modes are **distributed** (quarter 0 of every block) rather than
+**concentrated** (the first n_shaped contiguous slots, as §4/§9 assumed). Implications:
+
+- **Convolution correctness is preserved** either way — the shaped path is the *unchanged*
+  per-(string,mode) deck reduction (`MainKernel.cu:619-641, 433-444` **[SRC]**); it does not care
+  whether the shaped modes are contiguous or block-distributed, only that each shaped mode's
+  `modeNo` correctly indexes its deck column `mode_coefficients[s·numModes + modeNo]`. The existing
+  `modeNo = numArrays*quarterNumber + blockNo` already *distributes* modes across blocks by
+  construction (`Kernels.cu:253` **[SRC]**) — quarter 0 of block b is `modeNo = b` (the first
+  `numArrays` modes are the quarter-0 modes of all blocks). So distributing shaped modes to quarter 0
+  is the *natural* placement, not a special case. **[SRC-grounded.]**
+- **Deck-access coalescing [UNCERTAIN].** The deck is indexed `mode_coefficients[string·numModes +
+  modeNo]`. With shaped modes at quarter-0 `modeNo`s that are **strided by `numArrays` across
+  blocks** (modeNo = blockNo for quarter 0), consecutive blocks read deck columns 0,1,2,… — but
+  *within* a block the shaped quarter's threads read along the **string** axis (the inner loop over
+  folds / strings), which is the `string·numModes` stride. Whether this coalesces depends on the
+  shaped deck's row/column-major layout, which the contiguous-re-layout note (§6) addresses for the
+  *flat* tier but **not** explicitly for distributed shaped. **Recommendation:** keep the shaped deck
+  in its current `S × n_shaped` layout (small, ≤256 KB) where today's access pattern already works;
+  the distribution to quarter-0 does not change the per-mode deck column, only which thread reads it.
+  **[SRC for the index; UNCERTAIN whether distributed shaped changes the existing coalescing — it
+  reuses the existing shaped path, so it should match today's behaviour, but confirm with the §12
+  profiler pass.]**
+- **Deck-layout implication:** because shaped stays distributed-but-using-the-existing-path, the
+  **shaped deck layout is unchanged from today** (the §6 "contiguous re-layout" rewrite applies to
+  the **flat** mode-state, not the shaped deck). This *reduces* the implementation surface vs a
+  scheme that concentrated shaped modes (which would have needed a deck re-pack). **[SRC-grounded.]**
+
+### 4b.7 SUMMARY of the quarter-fork integration
+
+| Question | Verdict |
+|---|---|
+| Fork on `quarterNumber==0` routes Q0→convolution, Q1–3→summation? | **Yes, cleanly** — `quarterNumber` partitions 512 threads into 4×128-thread bands by `stMdIndex` [SRC] |
+| Warp-aligned (no intra-warp divergence)? | **CONFIRMED** — 128-thread quarter = 4 whole warps; `stMdIndex` = hardware lane index; fork is warp-uniform [SRC+SPEC] |
+| Thread↔mode mapping | **≤1 mode/thread** in flat quarters (~27 modes / 128 threads); packing unnecessary [EST] |
+| Register budget vs §3 | **Easier** — `M_t ≤ 1` ⇒ ~5 added regs, §3.4's best row; all flat state register-resident, no spill [EST, delta firm] |
+| Shaped count | **OPEN QUESTION (§4b.4)** — literal layout ⇒ ~1000–1350 shaped (~25–34%); reserved-slot layout ⇒ ~64–256. User must decide. |
+| Mode-blocks vs string-blocks | **SAME blocks** — modes ride existing ~56 string-blocks' spare quarters; no new grid dimension [SRC] |
+| Block count | **≈ numArrays ≈ 50–56** (unchanged; string-driven), not 4000 [SRC-grounded] |
+| SEGMENT=64 respected? | **Yes** — block count stays <64; flat group-sums are separate intra-block reductions [SRC; one caveat to verify §4b.5] |
+| Co-residency | **Unchanged / not worsened** — same grid as today; keep the §7.5 clamp as guard [SRC+EST] |
+| Distributed shaped works? | **Yes** — reuses the existing per-(string,mode) path; shaped deck layout unchanged; coalescing matches today [SRC; one profiler check §12] |
+
+---
+
 ## 5. FLAT Tier Design
 
 ### 5.1 Register-resident oscillators
@@ -375,13 +657,24 @@ of the flat deck, at the cost of one extra feedin+feedback reduction per group.
 
 ### 5.4 Where flat oscillators live in the grid
 
-Per §3.4 sweet spot: **several flat blocks, one shared-coupling group per block.** Each flat block
-forms its group's `modeSum_g` in shared memory (a single-value reduction over the block's flat modes),
-does one `w_g(s)`-weighted scatter, and advances its group's oscillators on the block's threads
+> **★ Updated by the quarter-fork layout (§4b.5).** The earlier "several *additional* flat blocks,
+> one group per block" framing is superseded: under the user's 2026-06-06 refinement the flat modes
+> ride the **existing ~56 string-blocks' quarters 1–3** (3 flat quarters × 128 threads/block), NOT
+> new `gridDim.x` blocks. **No blocks are added to the cooperative grid** — it stays `numArrays ≈ 56`,
+> the same grid that launches today (§4b.5), so co-residency is **not worsened** vs the current
+> kernel (cf. the original concern below). The per-flat-quarter group forms its `modeSum_g` /
+> `groupForceSum_g` as a **block-local (intra-quarter) reduction** over its ~27 modes, advances them
+> on the quarter's threads at `M_t ≤ 1` (§4b.3), and scatters `w_g(s)·modeSum_g`. Each block can thus
+> host up to **3 flat groups** (one per flat quarter) in addition to its shaped quarter.
+
+**Original framing (retained as the alternative if per-block packing proves insufficient):** several
+flat blocks, one shared-coupling group per block; each flat block forms its group's `modeSum_g` in
+shared memory, does one `w_g(s)`-weighted scatter, advances oscillators on the block's threads
 (M_t ≤ 2). This sits **inside the same cooperative grid** as the shaped/string blocks (they need the
 grid sync between the string and mode phases — substrate §1.3 **[SRC]** `allBlocks.sync()`
-`MainKernel.cu:448, 628`), so flat blocks are additional `gridDim.x` blocks co-resident with the
-string blocks. **Co-residency at the larger block count is an open measurement (§12).**
+`MainKernel.cu:448, 628`). The quarter-fork layout makes this the default-on-existing-blocks; only if
+the flat oscillator count exceeds what the existing blocks' spare quarters can serve would
+*additional* flat blocks be introduced, re-opening the co-residency question (§12).
 
 ---
 
@@ -420,17 +713,28 @@ string blocks. **Co-residency at the larger block count is an open measurement (
 - Re-derive `MAX_NUM_MODES_BY_QUARTER` only if the shaped fold scheme is touched (it is not, for
   shaped ≤ S).
 
-### 7.2 `Kernels.cu` (placement, ~:185-300)
-- **Shaped path:** keep `modeNo = numArrays*quarterNumber+blockNo` (`:253`) and the per-thread bake
-  (`:298`) for blocks/threads serving shaped modes. **[SRC]**
-- **Flat path:** for flat blocks, compute a **flat-mode base index** `flatBase = (flatBlockNo ·
-  M_block) + groupOffset` and bake per-thread the `M_t` flat-mode indices this thread owns (a small
-  contiguous run), plus the thread's group id. Bake `w_g` index and `a_in/a_out` offsets.
+### 7.2 `Kernels.cu` (placement, ~:185-300) — quarter-fork bake
+- **Shaped path (quarter 0):** keep `modeNo = numArrays*quarterNumber+blockNo` (`:253`) and the
+  per-thread bake (`:298`) for the **quarter-0** threads (`quarterNumber == 0`). **[SRC]** These are
+  the shaped modes; nothing about their placement changes.
+- **Flat path (quarters 1–3):** for `quarterNumber ∈ {1,2,3}` bake a **flat-mode index** per thread:
+  with ≤1 mode/thread (§4b.3), thread `indexInQuarter == j` of flat quarter `qn` owns flat mode
+  `flatBase(blockNo, qn) + j` for `j < (modes_in_this_flat_quarter)`, else none. Also bake the
+  thread's **flat group id** (= the quarter, if one group per flat quarter) and the `w_g` /
+  `a_in/a_out` offsets. The bake writes to a new per-thread slot (alongside the existing `modeNo` at
+  `25*arraySize`). **[SRC for the slot mechanism `:298`; EST for the new index formula.]**
+- **Fork point:** the kernel reads `quarterNumber = stMdIndex / quarterSize` (`MainKernel.cu:175`);
+  the fork `if (quarterNumber == 0)` is warp-uniform (§4b.2) so it costs no divergence.
 
-### 7.3 `MainKernel.cu` (the loop, ~:427-702)
-- **Gate removal:** the oscillator update (`:666-676`) currently `if (indexInQuarter==0)`. For flat
-  threads, replace with a `for (k=0; k<M_t; k++)` register loop advancing `q_flat[k]` (§3.3, §5.1).
-  Shaped modes keep the gated single-thread update.
+### 7.3 `MainKernel.cu` (the loop, ~:427-702) — the `quarterNumber==0` fork
+- **The fork:** wrap the mode coupling+oscillator work in `if (quarterNumber == 0) { …shaped
+  convolution… } else { …flat summation… }`. Warp-uniform (§4b.2). Quarter 0 keeps the existing
+  per-(string,mode) deck scatter+reduce (`:619-641, 433-444`) and the gated single-oscillator update.
+- **Gate change (flat quarters only):** the oscillator update (`:666-676`) currently
+  `if (indexInQuarter==0)` — for the flat quarters, drop that gate so each of the (up to 128) flat
+  threads holding a mode advances its `q_flat` (M_t ≤ 1 → no loop needed, just one oscillator/thread;
+  §4b.3, §5.1). Quarter 0 (shaped) **keeps** the `indexInQuarter==0` gate (or its existing
+  convolution treatment) unchanged.
 - **Flat feedin:** after the string phase produces `force_on_bridge_summed`, each flat group computes
   `groupForceSum_g = Σ_s w_g(s)·bridge(s)` via one `sumArray`-style reduction per group (reusing the
   reduction machinery, sized by SEGMENT), then `F_applied(m)=a_in(m)·groupForceSum_g` per owned mode.
@@ -452,11 +756,15 @@ string blocks. **Co-residency at the larger block count is an open measurement (
   them (extend beyond the current 16-int `dev_cycle_params` `:355`). **[SRC]**
 
 ### 7.5 `Pianoid_synthesis.cu` (launch, ~:345)
-- Grid grows from `num_string_arrays()` to `num_string_arrays() + n_flat_blocks`. Add the
-  **occupancy/co-residency clamp** the FIR path already models (`:467-481` **[SRC]** computes a grid
-  that respects cooperative limits) — `addKernel` currently has none (substrate §6 #3 **[SRC]**).
-  Use `cudaOccupancyMaxActiveBlocksPerMultiprocessor × SM_count` to verify the grid is co-resident
-  before launch; fail loudly (not silently) if not.
+- **Under the quarter-fork (§4b.5) the grid does NOT grow** — it stays `num_string_arrays() ≈ 56`,
+  the same cooperative grid as today, because flat modes ride the existing string-blocks' flat
+  quarters rather than new blocks. (The earlier "+ n_flat_blocks" applies only to the alternative
+  *additional-flat-blocks* fallback in §5.4, not the quarter-fork default.) **[SRC + §4b.5.]**
+- Still add the **occupancy/co-residency clamp** the FIR path already models (`:467-481` **[SRC]**
+  computes a grid that respects cooperative limits) — `addKernel` currently has none (substrate §6 #3
+  **[SRC]**) — as a guard against the small added register/shared-mem pressure (§4b.5) reducing
+  max-resident-blocks. Use `cudaOccupancyMaxActiveBlocksPerMultiprocessor × SM_count` to verify
+  co-residency before launch; fail loudly (not silently) if not.
 
 ---
 
@@ -556,9 +864,21 @@ Audio Verification Rule.
 - Deck column-variance vs mode frequency on Belarus (§9) → the `n_shaped` boundary and natural groups.
 - `cudaOccupancyMaxActiveBlocksPerMultiprocessor` × SM count on the target GPU → co-residency budget.
 
-**Phase 1 — Enable multi-oscillator-per-slot (no flat tier yet, pure refactor).**
-- Drop the `indexInQuarter==0` gate behind a flag; let each thread own M_t=1 register oscillator over
-  a *re-indexed contiguous* mode layout; raise `NUM_MODES`/`dev_mode_running` sizing.
+**Phase 0b — Resolve the SHAPED-COUNT decision (§4b.4) BEFORE coding the layout.**
+- The user must choose Interpretation A (uniform, ~1000–1350 real shaped) vs B (reserved-slot,
+  ~64–256 real shaped). This gates the convolution cost, the shaped deck width, and whether the
+  shaped quarters are populated or dummy. **Blocking — do not implement the quarter-fork bake (§7.2)
+  until decided.** [Per the project investigation→implementation rule: a code edit must not proceed
+  on an unanswered design question.]
+
+**Phase 1 — Enable multi-oscillator-per-slot via the quarter-fork (no flat *coupling* yet, pure
+refactor).**
+- Implement the `quarterNumber==0` fork (§7.3): quarter 0 keeps today's shaped path verbatim;
+  quarters 1–3 drop the `indexInQuarter==0` gate so each flat-quarter thread can own M_t=1 register
+  oscillator over a *re-indexed* flat mode layout; raise `NUM_MODES`/`dev_mode_running` sizing.
+- Keep flat coupling identical to shaped initially (each flat mode still reads its own deck column),
+  so this phase is **behaviour-preserving** — it only changes *which thread* advances each oscillator,
+  not the math.
 - **Verify:** identical audio to baseline at the current mode count (the re-indexing is behaviour-
   preserving) — A/B `note_playback` must match bit-for-bit-ish (within fp tolerance). This validates
   the gate removal + contiguous layout in isolation. **[the enabling change of §2.]**
@@ -605,6 +925,11 @@ Audio Verification Rule.
 - **Preset compatibility** — mitigated by the all-shaped default (§8.1).
 
 ### 12.2 Open questions
+- **★ SHAPED-COUNT (§4b.4) — the load-bearing design decision.** Does the user intend a uniform
+  layout with ~1000–1350 *real* shaped modes (~25–34% of 4000, ~5–20× the convolution cost), or a
+  reserved-slot layout where the shaped quarter is populated only in the first N blocks (real shaped
+  ~64–256)? Both are coherent readings of "one quarter dedicated to shaped in each block." **User
+  decision required before §7.2 implementation.** [UNCERTAIN — design intent, not measurable.]
 - Exact R0 (current regs/thread) — **unknown without `-Xptxas -v`** (§3.2).
 - Whether the deck HF rows are near-separable enough to flatten without audible loss (§9).
 - The target GPU model and its exact occupancy/co-residency budget (§3.1, §5.4).
