@@ -1059,7 +1059,11 @@ Emit `[STEP-10A-PHASE-2] 2026-05-05T12:30:22Z` as the first action of Phase 2. T
    mv "$LOG_FILE" docs/development/logs/archive/
    ```
 8. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
-9. **Merge** — proceed to Step 9 if a feature branch was created
+9. **Archive any proposal this work implemented (prevents backlog pile-up).** If this task IMPLEMENTED, COMPLETED, or SUPERSEDED a proposal in `docs/proposals/`, archive it now as part of the wrap — a shipped design must not linger at top-level (leaving them there is what let ~17 stale "draft/awaiting" proposals — already shipped — pile up before the 2026-06-06 triage):
+   - **De-reference it from working code FIRST.** If any working file (`.claude/commands/*.md`, `CLAUDE.md`, or a `docs/` reference page) points at the proposal, move the content it relies on into a WORKING doc (`docs/development/` or `docs/architecture/`) and re-point the reference there — working code references working docs, NEVER a proposal. (Skill / `CLAUDE.md` edits are orchestrator-applied — flag them in your Phase-1 report for the orchestrator to apply before the archive.)
+   - **Then archive:** `git mv docs/proposals/<name>.md docs/proposals/archive/` and prepend a `**Status:** IMPLEMENTED <commit/agent evidence> — Archived <YYYY-MM-DD>.` line. (Do the status edit AFTER the `git mv`, then `git add` the moved file, so the edit isn't stranded unstaged.)
+   - If the proposal is only PARTIALLY implemented, do NOT archive — instead correct its stale header to the true state (which phases/waves shipped, what remains).
+10. **Merge** — proceed to Step 9 if a feature branch was created
 
 ### 10b: Reset (failed implementation)
 
