@@ -2,8 +2,8 @@
 
 - **Author:** dev-mzoom
 - **Date:** 2026-06-06
-- **Status:** PROPOSAL (design-first; NO implementation until user approves)
-- **Origin:** User request (Telegram msg 3281), relayed via team-lead.
+- **Status:** FINALIZED DESIGN (tie/untie model per user msg 3285) + phased plan; NO implementation until the user's FINAL go.
+- **Origin:** User request (Telegram msg 3281); model decided by user (msg 3285), relayed via team-lead.
 - **Mode:** Read-only audit + design. No source edits, no branch.
 
 ## 1. User request (verbatim intent)
@@ -93,165 +93,223 @@ the selection→bounds edit-scoping is already decoupled from the view/zoom rang
 favorable starting point: making zoom per-chart will NOT disturb selection-scoped
 editing, because that keys off the selection, which we keep global.
 
-## 3. Proposed model
+## 3. FINALIZED MODEL — tie/untie auto-zoom (user decision, msg 3285)
 
-### 3.1 Two orthogonal axes of state
+The user gave a decisive model. This section is now the authoritative design; the
+earlier "independent dimensions" framing (and the Z/D/Q options) is SUPERSEDED by the
+tie/untie model below.
 
-| Concept | Scope | Rationale |
-|---|---|---|
-| **Selection range** (`selectedPitchRange`, `selectedModeRange`) | **GLOBAL** (system-wide) | "applies universally; controlled from any relevant editor." Drives edit-scoping (already does) + cross-chart highlight. |
-| **View/zoom range** (per-chart) | **PER-CHART** | "each chart editor has zoom applied INDIVIDUALLY." |
+### 3.1 The model
 
-Rename for clarity in the proposal (final names TBD with user): keep `selectedPitches`/
-`selectedModes` as the GLOBAL selection (they already are), and MOVE the view range
-OUT of the single global `rangeOfPitches`/`rangeOfModes` into a per-chart store.
+- **GLOBAL selection** — `selectedPitches` (pitch range) + `selectedModes` (mode range),
+  settable from ANY relevant editor. Already global in `useCurrentValues` today.
+- **Per-chart `tied` flag — DEFAULT `true`** — the ONLY new per-chart state. A chart's
+  view range is **DERIVED**, not stored:
 
-### 3.2 Global selection range (system-wide)
+  ```
+  chartView(axis) = tied ? (globalSelection(axis) ?? fullRange(axis))
+                         : fullRange(axis)
+  ```
 
-- `selectedPitches` and `selectedModes` STAY in `useCurrentValues` (already global).
-- ANY pitch-based editor's drag-select writes `setSelectedPitches`; ANY mode-based
-  editor's drag-select writes `setSelectedModes`. (Mostly wired already — gap: Strings
-  currently writes `setSelectedPitches` via `onSelectRange`; confirm Modes writes
-  `setSelectedModes`; Excitation has no range.)
-- **★SC channel axis NEVER writes `selectedPitches`** — stays SC-LOCAL
-  (`selectedChannelRange`), exactly as today. The SC MODE axis writes the global
-  `selectedModes`. (Unchanged from current; the design must preserve it verbatim.)
+  - **Tied (default):** the chart AUTO-ZOOMS its view to follow the global selection.
+    Nothing selected → full view. When a selection is made (from any editor), ALL tied
+    charts auto-zoom to it.
+  - **Untied:** the chart shows the FULL range, with the selected area drawn as a
+    HIGHLIGHT band.
+- **ZOOM-OUT button = UNTIE** that chart (`tied=false`) → full range + highlight band.
+- **ZOOM-IN button = RE-TIE** that chart (`tied=true`) → auto-zoom back to the selection.
+- **NEW chart opens TIED** (default) → auto-zoomed to the current selection (full if none).
+
+This REPLACES today's single shared `rangeOfPitches`/`rangeOfModes` as the source of a
+chart's view: the view is now derived from `(tied, globalSelection, fullRange)`. The
+per-chart `tied` boolean is the only new per-chart state — there is NO stored per-chart
+view range (it's always derived), which is simpler than the earlier per-pane viewRange
+map and removes a whole class of stale-range bugs.
+
+### 3.2 Confirmed defaults (user did not override)
+
+- **Selection null-default** — nothing selected = whole-matrix edits, exactly as today
+  (`selectedPitches`/`selectedModes` stay `null` until a drag-select). A tied chart with
+  no selection shows the full range.
+- **`tied` flag in-memory** — per-chart React state, NOT persisted, unless persistence is
+  trivial (it is per-session UI state; in-memory is the right default).
+- **Excitation OUT of scope** — single-pitch editor (`selectedPitch`, no range); not part
+  of the tie/untie range model.
+- **SC channel-ROW zoom OUT of scope** — SC mode-axis only (see §3.4).
 
 ### 3.3 AXIS → RANGE mapping per editor (the contract)
 
-| Editor | Axis | Controls GLOBAL selection? | Per-chart zoom axis |
+| Editor | Axis | Sets GLOBAL selection? | Tie/untie view axis |
 |---|---|---|---|
 | Strings | pitch | YES → `selectedPitches` | pitch |
 | Modes | mode | YES → `selectedModes` | mode |
 | Feedin | pitch (row) + mode (col) | YES both | pitch + mode |
 | Feedback | pitch (row) + mode (col) | YES both | pitch + mode |
-| Excitation | pitch (single `selectedPitch`) | single-select only (no range today) | pitch (optional) |
-| Sound Channels | **channel (row)** | **NO — SC-LOCAL only** | channel (LOCAL) |
-| Sound Channels | **mode (col)** | YES → `selectedModes` | mode |
+| Excitation | pitch (single `selectedPitch`) | OUT OF SCOPE (single-select) | — |
+| Sound Channels | **channel (row)** | **NO — SC-LOCAL only; NEVER global pitch** | **none (always full; OUT OF SCOPE)** |
+| Sound Channels | **mode (col)** | YES → `selectedModes` | mode (tie/untie follows global mode selection) |
 | Workbench (piano param) | pitch | YES → `selectedPitches` | pitch |
 | Workbench (mode param) | mode | YES → `selectedModes` | mode |
 
-"Pitch-based charts control pitch range; mode-based charts control mode range" maps
-cleanly EXCEPT the SC channel row, which is its own axis and stays local.
+### 3.4 ★(a) CONFIRMED — SC channel-axis exemption holds in the tie/untie model
 
-### 3.4 Per-chart zoom (view range)
+A **tied SC chart auto-zooms its MODE axis** to the global mode selection
+(`selectedModes`). Its **CHANNEL (row) axis stays FULL and SC-LOCAL** — it is NEVER
+driven by the global pitch selection, NEVER reads/writes `selectedPitches`, and is NOT
+zoomable in this scope. Concretely, in the derived-view formula the SC pane evaluates
+ONLY the mode axis against `tied`:
 
-**Proposed:** each pane owns its OWN view range, keyed by pane id, NOT the shared
-global `rangeOfPitches`/`rangeOfModes`. Options for where it lives:
+```
+SC chart mode axis  = tied ? (selectedModes ?? fullModes) : fullModes
+SC chart channel axis = ALWAYS fullChannels   // SC-LOCAL, never global pitch
+```
 
-- **Option Z1 (recommended): a per-pane `viewRange` map in `useCurrentValues`** —
-  `{ [paneId]: { pitch: [lo,hi], mode: [lo,hi] } }`. The toolbar zoom buttons read/write
-  `viewRange[id]` for the pane whose toolbar was clicked (the `id` is already passed to
-  `renderToolbarControls`). Default per axis = full extent (un-zoomed) OR the global
-  selection (see 3.5). Dynamic workbenches get an entry on open.
-- **Option Z2: per-pane-persisted in settings buckets** (like `visualization`/`autoScale`
-  from the toggle work). Survives reload. Heavier; view range is more ephemeral than a
-  setting, so Z1 (in-memory selection context) is the better fit — but flag for user.
+This preserves the dev-snmtxleak-7e3d decouple and cannot reintroduce the fa3c64b crash
+(`matrix[-22]`): a channel index `0..N-1` can never flow into `selectedPitches` (piano
+space `21..108`) because the SC channel axis is simply not wired to the global pitch
+selection at all — neither as a setter (drag-select stays SC-LOCAL) nor as a reader
+(view always full). The SC channel selection for EDIT-scoping continues to use the
+SC-LOCAL `selectedChannelRange` (unchanged). **This is the hard constraint and it holds.**
 
-**Relationship between global selection and per-chart zoom (resolved):**
+### 3.5 ★(b) HIGHLIGHT band — when shown
 
-- They are **independent dimensions**. Selection = "what region is chosen" (drives
-  edits + highlight, global). Zoom = "what region is visible in THIS chart" (per-chart).
-- **Zoom does NOT update the global selection**, and selecting does NOT auto-zoom —
-  EXCEPT the explicit, user-driven "zoom to selection" action (the existing Unzoom/
-  zoom-out button already does `setRangeOf*(selectedPitches||full)`). Proposal: keep a
-  per-chart "zoom to current selection" affordance (the existing button, now scoped to
-  the one chart) so the user can opt INTO aligning a chart's view with the global
-  selection, but it's a one-shot action, not a binding.
-- This resolves coherently: editing scope (selection) is universal; visibility (zoom)
-  is local; the two meet only via the explicit zoom-to-selection button.
+- **UNTIED chart:** YES — the chart shows the FULL range with the selected sub-range
+  drawn as a highlight band (an ECharts `markArea` over the selected pitch/mode span).
+  This is the band's primary purpose: "see the whole thing, with the selected region
+  marked."
+- **TIED chart:** the band is **MOOT / effectively the whole view** — a tied chart is
+  already zoomed exactly to the selection, so a highlight over `[selectionLo, selectionHi]`
+  would cover the entire visible area. **Proposal: do NOT render the band when tied**
+  (it adds visual noise covering 100% of the chart for no information). Exception worth
+  noting: if a tied chart has NO selection (full view), there is no band to show anyway.
+  - Alternative (flagged, not recommended): always render the band, even tied. Rejected
+    because a full-coverage band is noise. If the user prefers an always-on faint band
+    for consistency, it's a one-line `markArea` opacity tweak — easy to add later.
+- **Band semantics:** the band reflects the GLOBAL selection (same span every untied
+  chart highlights), so the user sees the one selected region consistently across all
+  untied charts. SC: the band is on the MODE axis only (channel axis has no global
+  selection to show).
 
-### 3.5 "New chart opens zoomed-in by default" — semantics to define
+### 3.6 Cross-pane behavior summary (the coherent picture)
 
-A "new chart" = a newly-opened **dynamic Workbench** (`openWorkbench`) primarily; also
-applies to a freshly-mounted editor pane. "Zoomed-in by default" needs a target:
-
-- **Option D1 (recommended): zoom the new chart to the current GLOBAL selection** — if
-  a `selectedPitches`/`selectedModes` is active, the new chart opens with `viewRange =
-  that selection`; if no selection, opens at full extent (or a sensible default
-  sub-range). This makes "open a workbench for the region I'm working on" the default —
-  matches the workflow the request implies.
-- **Option D2: zoom to a fixed default sub-range** (e.g. an octave around `selectedPitch`,
-  or modes `[0, 31]`). Predictable but ignores the user's current focus.
-- **Option D3: zoom to the parent chart's current view** (the chart the workbench was
-  spawned from). Contextual but requires threading the spawning pane's view range.
-
-Recommend D1 (selection-driven), with full-extent fallback when nothing is selected.
-Needs user confirmation.
+1. User drag-selects a pitch range in Strings → `setSelectedPitches`.
+2. Every TIED pitch-aware chart (Feedin/Feedback rows, Workbench-piano, Strings itself)
+   auto-zooms its pitch axis to that range. Mode-aware charts are unaffected (no mode
+   selection changed).
+3. User clicks ZOOM-OUT on Feedback → Feedback unties → shows full pitch range with the
+   selection as a highlight band. Other charts stay tied/zoomed.
+4. User clicks ZOOM-IN on Feedback → re-ties → auto-zooms back to the selection.
+5. User opens a new Workbench → opens tied → auto-zoomed to the current selection.
 
 ## 4. Reconciliation with the just-built matrices-zoom per-pane view ranges
 
-The matrices-zoom work (dev-mzoom) currently uses the SHARED global `rangeOfModes`/
-`rangeOfPitches` as the view range. Under this proposal:
+The matrices-zoom work (dev-mzoom, ba38453…97f98b3) currently uses the SHARED global
+`rangeOfModes`/`rangeOfPitches` as the view range, and its toolbar ZoomIn/ZoomOut write
+that shared range. Under the tie/untie model:
 
-- **The view range moves from global → per-chart (Section 3.4).** The matrices-zoom
-  feature is REPLACED-IN-PLACE, not layered: SC/Feedin/Feedback read `viewRange[id]`
-  instead of the shared `rangeOfModes`/`rangeOfPitches`. Behavior for a single pane is
-  identical; the only change is that zooming one pane no longer zooms the others.
-- **Selection-scoped edits are UNAFFECTED** — they already key off the SELECTION
-  (`selectedPitches`/`selectedModes`/SC-LOCAL `selectedChannelRange`), which stays
-  global. So `useMatrixHistory` `bounds` logic needs NO change.
-- **The SC channel-axis decouple is preserved** — channel view range (if zoomable
-  later) stays SC-LOCAL alongside `selectedChannelRange`; never enters the per-chart
-  pitch view either, since SC rows aren't pitches.
-- **The bar-chart auto-scale toggle (just landed)** is orthogonal (y-axis), no interaction.
+- **REPLACE-IN-PLACE.** The shared `rangeOfPitches`/`rangeOfModes` view-range plumbing is
+  replaced by the derived-view formula (§3.1). The toolbar ZoomIn/ZoomOut buttons change
+  meaning from "set the shared view range" to "re-tie / untie THIS chart." Single-chart
+  behavior is similar (zoom in = see the selection; zoom out = see everything) but now
+  per-chart instead of global.
+- **`selectedModes`/`selectedPitches` are KEPT** (they're the global selection that
+  drives both edit-scoping AND the tied view) — only the `rangeOf*` VIEW state is
+  retired/derived.
+- **Selection-scoped edits UNAFFECTED** — `useMatrixHistory` `bounds` already key off the
+  SELECTION (`selectedPitches`/`selectedModes`/SC-LOCAL `selectedChannelRange`). NO change
+  to bounds logic. (This is why the tie/untie model is lower-risk than it looks: the
+  dangerous path — edit scoping + SC decouple — is already selection-keyed and untouched.)
+- **Bar-chart auto-scale toggle (ebea866)** is orthogonal (y-axis); no interaction with
+  the x-axis tie/untie view.
+- **The SC mode-axis zoom built in 97f98b3** becomes the tied-mode-axis behavior for SC;
+  the SC channel-row "stays full" decision from that work is preserved verbatim.
 
-Net: this is an in-place ownership change of the view range + completion of the global
-selection wiring. Lower-risk than it sounds because the highest-stakes path (edit
-scoping + SC decouple) is already selection-keyed and stays as-is.
+## 5. PHASED IMPLEMENTATION PLAN
 
-## 5. Open design questions (for the user — team-lead to relay)
+Phased so each lands + HMR-tests independently — NOT one giant commit. All frontend-only,
+no CUDA build. Each phase is a separate commit on a feature branch (proposed
+`feature/system-wide-selection`, off `dev` after the matrices-zoom + autoscale branches
+merge — sequencing is team-lead's call). Default `tied=true` keeps each phase
+behaviorally close to today until the untie path is wired.
 
-1. **Q-selection-default:** today `selectedPitches`/`selectedModes` default to `null`
-   (no selection → edits hit whole matrix). Keep null-default (explicit drag to select),
-   or default the global selection to the full extent? (Affects "new chart zoomed-in"
-   when nothing has been selected yet.)
-2. **Q-new-chart-zoom (D1/D2/D3):** new chart zooms to the current global selection
-   (D1, recommended), a fixed default sub-range (D2), or the spawning chart's view (D3)?
-   And when NO selection is active, does a new chart open full-extent or at some default
-   sub-range?
-3. **Q-zoom-store (Z1/Z2):** per-chart view range in-memory (Z1, recommended) or
-   persisted across reloads in settings buckets (Z2)?
-4. **Q-zoom-to-selection binding:** should per-chart zoom be PURELY independent (zoom is
-   never auto-driven by selection; only the explicit button aligns them, recommended),
-   or should changing the global selection AUTO-zoom every chart to it (tighter coupling,
-   closer to today's shared-range behavior but per-chart)?
-5. **Q-scope-of-"any relevant editor":** does "controlled from any relevant editor"
-   include the single-select editors (Excitation uses `selectedPitch`, not a range) — do
-   we add range-select to Excitation, or is it out of scope (pitch range read-only there)?
-6. **Q-SC-channel-zoom:** the SC channel ROW axis is currently NOT zoomable (full extent).
-   Does "each chart zoomed individually" include adding per-chart channel-row zoom to SC
-   (SC-LOCAL), or is the SC channel axis explicitly out of scope (mode-axis zoom only)?
-7. **Q-cross-pane highlight:** should the global selection render as a visible highlight
-   band in EVERY relevant chart (so you see "the selected region" everywhere), or only
-   drive edit-scoping silently? (The request says selection "applies universally" — likely
-   wants the visible band, but confirm.)
+**Phase 0 — derived-view core (no UI change yet).**
+- Files: `src/hooks/useCurrentValues.js` (add per-chart `tied` map `{ [paneId]: bool }`
+  defaulting true + `setTied(paneId, bool)`; keep `selectedPitches`/`selectedModes`);
+  a small pure helper `deriveChartView(tied, selection, fullRange)` (new
+  `src/utils/chartView.js`, unit-tested).
+- Independently testable: Jest unit tests on `deriveChartView` (tied+selection → selection;
+  tied+no-selection → full; untied → full) + `tied` map get/set/default. No visible change.
+
+**Phase 1 — wire ONE pitch editor end-to-end (Strings) as the reference.**
+- Files: `src/PianoidTuner.js` (Strings pane: view = `deriveChartView(tied["Strings"], …)`;
+  ZoomIn/ZoomOut buttons in `renderToolbarControls` call `setTied("Strings", true/false)`
+  instead of `setRangeOfPitches`).
+- Independently testable: live HMR — select a pitch range in Strings, it auto-zooms (tied);
+  ZoomOut → full + highlight band; ZoomIn → re-zoom. Jest: toolbar button → setTied.
+
+**Phase 2 — the highlight band (DrawableChart/RowEditor markArea).**
+- Files: `src/components/DrawableChart/DrawableChart.jsx` (add an optional
+  `highlightRange` prop → ECharts `markArea` over `[lo,hi]`, shown only when untied +
+  selection present); thread from RowEditor/BarChart. ★Coordinate with feature/mzoom-sc-zoom
+  (DrawableChart) — flag the region to team-lead for merge sequencing.
+- Independently testable: untied chart shows the band; tied chart shows none; Jest on the
+  markArea option.
+
+**Phase 3 — roll out to the remaining pitch + mode editors.**
+- Files: `src/PianoidTuner.js` (Feedin, Feedback, Modes, Workbench default + dynamic) +
+  `src/components/SoundChannelsPane.jsx` (SC MODE axis only — ★channel axis untouched,
+  stays full/SC-LOCAL).
+- Independently testable per editor: each pane ties/unties on its own; selecting in one
+  pitch editor zooms all tied pitch editors; SC mode-axis ties to `selectedModes`; SC
+  channel axis verified STILL full + SC-LOCAL (regression test for the decouple).
+
+**Phase 4 — new-chart-opens-tied + dynamic-workbench lifecycle.**
+- Files: `src/hooks/useCurrentValues.js` (`openWorkbench` seeds `tied[id]=true`;
+  `closeWorkbench` deletes `tied[id]` — mirror the `workbenches` registry lifecycle).
+- Independently testable: open a workbench while a selection is active → it opens
+  auto-zoomed to the selection; close → no leaked `tied` entry.
+
+**Phase 5 — retire the dead shared view-range plumbing + docs.**
+- Files: `src/hooks/useCurrentValues.js` (remove `rangeOfPitches`/`rangeOfModes` if fully
+  superseded, OR keep as `fullRange` source — decide during impl), `PianoidTuner.js`
+  cleanup of now-dead `setRangeOf*` wiring; `docs/modules/pianoid-tunner/OVERVIEW.md`
+  (`useCurrentValues` + matrices-zoom sections rewritten to the tie/untie model).
+- Independently testable: full Jest green; live HMR full regression of all editors.
+
+**Regression guard across all phases:** the SC channel→pitch decouple
+(`SoundChannelsPane.localChannel.test.jsx` + a new tie/untie-specific assertion that SC
+channel axis never reads `selectedPitches` and its view is always full). The fa3c64b
+crash must remain impossible.
 
 ## 6. Risks / constraints (hard)
 
 - ★**SC channel-axis decouple (dev-snmtxleak / fa3c64b)** — channel indices MUST NOT
-  enter global pitch selection or per-chart pitch view. Any global-selection wiring must
-  exempt the SC channel axis. This is the single highest-stakes constraint.
-- **P1 sole-writer** — the global selection ranges keep a single owner
-  (`useCurrentValues`); per-chart view ranges get a single owner too (the per-pane map).
-  No non-owner writes.
-- **Backward-compat for selection-scoped edits** — must stay selection-keyed; do not
-  re-point `bounds` at the (now per-chart) view range.
-- **Dynamic workbench lifecycle** — per-chart view entries must be created on
-  `openWorkbench` and cleaned on `closeWorkbench` (mirror the existing `workbenches`
-  registry lifecycle) to avoid a leak.
+  enter global pitch selection or any pitch view. The tie/untie model exempts the SC
+  channel axis entirely (§3.4): it is neither a global-selection setter nor a tied-view
+  reader. Single highest-stakes constraint; confirmed to hold (§3.4).
+- **P1 sole-writer** — global selection (`selectedPitches`/`selectedModes`) and the new
+  per-chart `tied` map both live in `useCurrentValues` (single owner). No non-owner writes.
+- **Backward-compat for selection-scoped edits** — `useMatrixHistory` `bounds` stays
+  selection-keyed; the retired `rangeOf*` view state must NOT be wired back into bounds.
+- **Dynamic workbench lifecycle** — `tied[id]` created on `openWorkbench`, deleted on
+  `closeWorkbench` (Phase 4) to avoid a map leak.
+- **Cross-branch DrawableChart (Phase 2)** — the highlight-band `markArea` touches
+  DrawableChart, which also has the autoscale (ebea866) + paintDisabled (97f98b3) edits;
+  sequence the merge / flag the region to team-lead.
 
-## 7. Recommendation summary
+## 7. Recommendation summary (finalized)
 
-- Selection range: **keep global** (already is); complete the per-editor wiring; EXEMPT
-  the SC channel axis (verbatim preserve the decouple).
-- View/zoom range: **invert global → per-chart** (Option Z1, per-pane map in
-  `useCurrentValues`, keyed by pane id; toolbar zoom buttons scope to the clicked pane).
-- New chart: **zoom to current global selection** (Option D1), full-extent fallback.
-- Selection ↔ zoom: **independent**, meeting only via the explicit per-chart
-  zoom-to-selection button.
-- Reconcile matrices-zoom: **replace-in-place** (view range source swaps global → per-chart;
+- **Model:** tie/untie auto-zoom (§3.1) — global selection + per-chart `tied` flag
+  (default true); view DERIVED, no stored per-chart view range.
+- **ZoomOut = untie** (full + highlight band); **ZoomIn = re-tie** (auto-zoom to selection).
+- **New chart opens tied** → auto-zoomed to current selection (full if none).
+- **★SC channel axis exempt** — mode-axis ties to global modes; channel axis always full,
+  SC-LOCAL, never global pitch (§3.4, confirmed).
+- **Highlight band:** shown when UNTIED; not rendered when tied (full-coverage = noise) (§3.5).
+- **Reconcile matrices-zoom:** replace-in-place (retire shared `rangeOf*`; keep selection;
   edit-scoping untouched).
+- **Phased rollout (§5):** Phase 0 core → 1 Strings reference → 2 highlight band → 3 all
+  editors → 4 new-chart + lifecycle → 5 cleanup + docs. Each independently HMR-testable.
 
 ---
 
