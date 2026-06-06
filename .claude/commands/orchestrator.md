@@ -234,7 +234,7 @@ After the health check completes and before exiting Step 1.5, **spawn the contro
 
 The orchestrator runs alongside a permanent **controller agent** for the full session. The controller is a read-only compliance monitor: it watches `MODULE_LOCKS.md`, `WORK_IN_PROGRESS.md`, dev-agent session logs, and `git status` and reports graduated alerts (warn → escalate → halt) to the orchestrator. It never edits source, never spawns or kills agents, never messages the user.
 
-See the full proposal at `docs/proposals/controller-role.md` for the complete invariant catalogue, marker conventions, and tier rules.
+See [`docs/development/CONTROLLER.md`](../../docs/development/CONTROLLER.md) for the complete invariant catalogue, marker conventions, and tier rules.
 
 ### Lifecycle
 
@@ -270,10 +270,11 @@ Agent({
     5. Subscribe via Monitor to each pre-existing dev-agent log file (if any)
     6. Send initial pulse to team-lead — confirms boot, may report orphans
 
-  Invariants to enforce — see docs/proposals/controller-role.md sections 5a,
-  5b, 5c, 5d (substantive event-driven), 8d + 12 (periodic 30-min stale-agent
-  scan), 8e (continuous Documentation-First sliding-window scan), and 9 (tier
-  rules). Signal/marker conventions per Section 5e.
+  Invariants to enforce — see docs/development/CONTROLLER.md: the Invariant
+  Catalogue (per-agent, cross-agent, workflow, dev-anti-pattern axes), the
+  Periodic Scans (30-min stale-agent scan + continuous Documentation-First
+  sliding-window scan), and the Tier Rules (warn→escalate→halt). Signal/marker
+  conventions per the Marker Conventions section.
 
   STAY ALIVE until orchestrator sends "session ending". Do not exit on your
   own. Wake events: SendMessage from team-lead, Monitor notifications, pulse
@@ -1157,7 +1158,7 @@ Stalled candidates:
 
 ### 2. Identify the gating tool from the unmatched marker
 
-For unmatched `[BASH-CALL]` or `[MCP-CALL]` markers, the command/tool name is the smoking gun. Match against the failure-mode catalogue in `docs/proposals/controller-role.md` Section 12:
+For unmatched `[BASH-CALL]` or `[MCP-CALL]` markers, the command/tool name is the smoking gun. Match against the failure-mode catalogue in [`docs/development/CONTROLLER.md`](../../docs/development/CONTROLLER.md#failure-mode-catalogue):
 
 | Pattern in last marker | Class | Reference |
 |---|---|---|

@@ -50,6 +50,7 @@ nav:
   - Frontend: modules/pianoid-tunner/OVERVIEW.md
   - Development:
     - Testing: development/TESTING.md
+    - Controller Agent: development/CONTROLLER.md
     - Work in Progress: development/WORK_IN_PROGRESS.md
   - Guides:
     - Quick Start: guides/QUICK_START.md

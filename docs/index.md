@@ -117,6 +117,8 @@ interactive latency.
   naming conventions, architecture rules, review checklist
 - [development/TESTING.md](development/TESTING.md) — Three-level pytest framework, test inventory,
   instrumentation APIs
+- [development/CONTROLLER.md](development/CONTROLLER.md) — The orchestrator's read-only compliance
+  controller: role, invariant catalogue, marker conventions, periodic scans, tier rules
 - [development/WORK_IN_PROGRESS.md](development/WORK_IN_PROGRESS.md) — Active investigations
   and planned work
 
