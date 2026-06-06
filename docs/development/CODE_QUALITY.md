@@ -222,13 +222,18 @@ why the logic belongs in the facade vs a service. The reviewer applies
 RED status persists until all 3 waves land AND a follow-up review
 formally relaxes the rule.
 
-**Post-Wave-1 LOC tracking (2026-05-21):**
+**Post-Wave-3 LOC tracking (2026-06-06, dev-wave3split — all 3 waves landed):**
 
 | File | LOC | Status | Notes |
 |---|---|---|---|
-| `modal_adapter.py` | 4,782 | RED (down from 5,649) | -867 from extracting 23 methods + 25 state fields |
-| `project_context.py` | 195 | < 500 | ProjectContext dataclass + helpers |
-| `scenario_loader.py` | 820 | YELLOW | Largest extracted module; sub-split candidate if growth continues |
+| `modal_adapter.py` (facade) | 1,755 | RED (down from 4,253 pre-Wave-3 / 5,649 pre-split = **−69%**) | Composition + ~80 REST delegations + ctx-access shims + `data_status`/`state`/`get_project_state`/`reset`/`run_full_pipeline` composition. Residual ~400 LOC target is a follow-up (needs a ~300-ref test-shim rewrite — see `docs/proposals/modal-adapter-facade-shim-removal-2026-06-06.md`). |
+| `project_store.py` | 1,754 | RED | Wave 3 — project lifecycle (create/open/copy/branch/delete/rename/export/import + create-from-zip + legacy mapping migration). Expected per split proposal §4.1 (~1,800 est) + §10 risk #1: the one module above YELLOW; sub-split to `ProjectStore`+`ProjectImporter`+`ProjectExporter` is a future-wave contingency if it grows. |
+| `chain_editor.py` | 725 | YELLOW | Wave 3 — chain create/merge/split/delete/undo/redo + `_Chain`/`_Detection` duck-types + `_reconstruct_chains`. |
+| `scenario_loader.py` | 820 | YELLOW | Wave 1; sub-split candidate if growth continues |
+| `esprit_orchestrator.py` | 716 | YELLOW | Wave 2 + Wave 3 (mapping/status/results/cancel migrated in) |
+| `apply_service.py` | ~970 | YELLOW | Wave 2 + Wave 3 (QC family migrated in) |
+| `tracking_orchestrator.py` | 567 | YELLOW | Wave 2 |
+| `project_context.py` | 416 | < 500 | ProjectContext dataclass + helpers (incl. inert live-processing fields, intentionally preserved) |
 | `visualization_service.py` | 330 | < 500 | Pure-read viz |
 
 #### C5. Structural Consistency
@@ -502,7 +507,8 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | 1 | `PianoidCore/pianoid_middleware/backendServer.py` | 3613 | Main server routes + lifecycle; several concerns (REST, WS, calibration proxy, MIDI). +112 at dev-bfe2 (preset working-copy endpoints, 2026-05-18). dev-cfl (2026-05-24) added a single allowlist token (`stability_ratio` in `parse_range`) — no structural change. +14 at dev-8abf (2026-05-31, `audio_data` base64-WAV field in the `/play_keyboard` offline branch — additive, no structural change) |
 | 2 | `PianoidCore/pianoid_middleware/pianoid.py` | 3250 | Main synthesis orchestrator; preset loading + parameter routing + playback + more. +182 at dev-bfe2 (working-copy spawn/promote/guard methods, 2026-05-18); +~30 at dev-cfl (2026-05-24, `pack_for_interface` `stability_ratio` extraction branch). The `PresetLibrary` registry data structure was carved out to `preset_library.py`, but the orchestration methods correctly stay here; the file remains RED and a deeper preset-IO carve-out is still open (WIP §4.3) |
 | 3 | `PianoidTunner/src/PianoidTuner.js` | 2779 | Top-level frontend orchestrator; mixes layout, routing, pane config, top-level state. dev-8abf (2026-05-31) added offline "Play All" playback but EXTRACTED the base64-WAV decode/play idiom to `src/utils/audioPlayback.js` (net inline shrink); still RED |
-| 4 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 2725 | Modal adapter orchestrator; pipeline stages + persistence + config |
+| 4 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py` | 1755 | Modal adapter FACADE. Down from 4,253 (pre-Wave-3) / 5,649 (pre-split) = **−69%** after the 3-wave split landed (dev-wave3split, 2026-06-06). Now composition + ~80 REST delegations + ctx-access shims + the `data_status`/`state`/`get_project_state`/`reset`/`run_full_pipeline` composition methods. Still RED; the residual ~400 target needs a ~300-reference test-shim rewrite — tracked in `docs/proposals/modal-adapter-facade-shim-removal-2026-06-06.md`. The thin-facade §C4.1 policy applies. |
+| 4b | `PianoidCore/pianoid_middleware/modal_adapter/project_store.py` | 1754 | NEW RED entry (dev-wave3split Wave 3, 2026-06-06). Project lifecycle — create/open/copy/branch/delete/rename/export/import + create-from-zip extract pipeline + legacy channel_mapping→mapping_config migration. EXPECTED per split proposal §4.1 (~1,800 est) + §10 risk #1: the one extracted module above YELLOW. Sub-split to `ProjectStore` + `ProjectImporter` (export/import/create-from-zip) + `ProjectExporter` is a future-wave contingency if it grows. Do NOT add further code without that split plan. |
 | 5 | `PianoidCore/pianoid_middleware/chartFunctions.py` | 2840 | Chart generation for many chart types; natural split by chart family. +147 at dev-7032 (2026-05-30, `cfl_ratio_function` — one additive host-side chart fn, consistent with the file's existing 20+ chart fns; no structural change, split still open) |
 | 6 | `PianoidTunner/src/components/StabilizationDiagram.jsx` | 2231 | Stabilization diagram — data prep + ECharts config + interaction + sub-panels |
 | 7 | `PianoidTunner/src/hooks/usePreset.js` | 1514 | Preset hook — WS + REST + debounce + optimistic UI + available notes + library records / spawn / promote (dev-bfe2, 2026-05-18) |

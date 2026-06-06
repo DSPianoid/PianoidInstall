@@ -22,6 +22,8 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-wave3split-f634 | Wave 3 Modal Adapter split — extract ChainEditor + ProjectStore, rewrite modal_adapter.py to ~400-LOC thin facade | [log](logs/dev-wave3split-f634-2026-06-05-210342.md) | 2026-06-05 | In Progress |
+| dev-presetfix | Post-merge preset-load regression — REBUILD FIX COMPLETE + verified (/load_preset 200, /preset/list 200, /health pianoid_loaded=true). Root cause = stale build after the f7905a9 origin merge (dev-d52b brought StringMap.pack_output_mask + a new devMemoryInit positional arg, but the tree was not rebuilt). Fixed by rebuilding PianoidBasic wheel (pianoid-0.1.15) + pianoidCuda --heavy --both. Symptom-2 "configs gone" = frontend localStorage (presetConfigStore), untouched by the merge, reappear once init works. Pure rebuild — NO source change, nothing to commit (only a 1-line OVERVIEW.md doc note, uncommitted). Stack LEFT UP for the user (team-lead direction). Staying alive. | [log](logs/dev-presetfix-2026-06-05-085001.md) | 2026-06-05 | Complete (stack up) |
 <!-- (no active dev sessions) -->
 
 <!-- dev-steinway-preset COMPLETED 2026-06-05 (Step 10a Phase 2, user-approved SHIP option A).

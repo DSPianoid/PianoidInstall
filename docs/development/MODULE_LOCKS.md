@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-wave3split-f634 | `PianoidCore/pianoid_middleware/modal_adapter/modal_adapter.py`, `PianoidCore/pianoid_middleware/modal_adapter/chain_editor.py`, `PianoidCore/pianoid_middleware/modal_adapter/project_store.py`, `PianoidCore/pianoid_middleware/modal_adapter/apply_service.py`, `PianoidCore/pianoid_middleware/modal_adapter/esprit_orchestrator.py`, `PianoidCore/tests/unit/test_modal_adapter_state.py`, `PianoidCore/tests/unit/test_qc_curves.py`, `PianoidCore/tests/integration/test_project_v2_branch.py`, `PianoidCore/tests/integration/test_measurement_rename.py` | 2026-06-05T18:03:42Z | Wave 3 Modal Adapter split (Option A) — extract ChainEditor + ProjectStore + migrate deferred QC/pipeline logic to ApplyService/EspritOrchestrator; §8.2 test moves |
 <!-- dev-steinway-preset locks RELEASED 2026-06-05 at Step 10a Phase 2 (user-approved SHIP option A). Held:
      PianoidCore/pianoid_middleware/presets/Belarus_196modesC_Steinway1860 (NEW),
      .../Belarus_196modesC_Steinway1860_56SM (NEW), pianoid_middleware/auto_tuner.py,
