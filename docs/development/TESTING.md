@@ -23,6 +23,7 @@ PianoidCore/tests/
 │   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
 │   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard v2 (HOST-side gate) — baseline-stable-via-ratio, unstable tension/jung/r REJECTED (CflRejected→400) BEFORE upload + engine-finite + model-NOT-mutated, stable/length not falsely rejected, host-backed stability_ratio extraction, per-string tension_offset (audio_off)
 │   ├── test_asio_fallback.py          # ASIO→SDL3 auto-fallback (dev-asioload): adt=4 with no ASIO driver → engine falls back to SDL3 (audio_driver_active=True) + flags didAudioDriverFallback + records requested/active/reason; SDL3-direct does NOT flag fallback. Fallback-occurred asserts skip if a working ASIO driver is installed. (audio_on)
+│   ├── test_feedback_coeff_sound_channels.py  # Feedback-coeff slider (dev-fbsl): SOUND CHANNELS unaffected by the effective coefficient — output mask classifies output rows (≥128)=1.0 / piano=0.0 (single scalar can't reach sound-channel rows); feedback=0 PRESERVES sound-channel audio (not silence); coeff not globally inert (resonance coupling changes output). The mask-contract form of "sound channels unaffected by both layers + their product". (audio_off)
 │   ├── test_playback.py
 │   ├── test_preset_switch_mode_count.py  # Cross-mode-count /preset/switch regression (Bug A)
 │   ├── test_websocket.py              # WebSocket unit tests — imports, binary frames, event schemas, param schemas, feedback mapping, debug flag
@@ -42,6 +43,7 @@ PianoidCore/tests/
     ├── test_modal_adapter_state.py  # ModalAdapter state/data checks, persistence, ESPRIT refactor, pipeline, offline preset builder, PresetConfig features, REST endpoints, scenario discovery helpers (`_discover_{npy,roomresponse}_scenarios`)
     ├── test_modal_adapter_apply_route.py # Cross-server `apply_to_preset` wiring: F9 503 on port 5001 preserved, main-server (5000) counterpart route covers 400/404/409 paths (5 tests)
     ├── test_play_listen_gate_regression.py # REST/WS `/play` must reach the EventQueue while the MIDI listener runs — guards the W4-P3 gate regression (5 tests)
+    ├── test_health_listen_mode_regression.py # `GET /health` `listen_mode` must report `pianoid.mp.listen_to_modes` (engine listen-to-modes truth), NOT `pianoid.listen` (the MIDI-listener flag). Stub sets pianoid.listen to the inverse so a regression flips the value. Drives /health via test_client, no engine (dev-lmode, 3 tests)
     ├── test_project_export_import.py # Project export/import: zip creation, manifest validation, sanitisation, round-trip, name conflict resolution
     └── test_start_right_away_binary.py # `/load_preset` `start_right_away` is BINARY 0/1 — value 1 starts the playback bg thread, 0/non-1 = init only; pins removal of dead value-2 (deprecated inline) + value-3 (no-op) branches. Drives load_preset_route via test_client with heavy deps monkeypatched, no engine (dev-5c3b, 5 tests)
 ```

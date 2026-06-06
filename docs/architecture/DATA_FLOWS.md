@@ -687,7 +687,7 @@ Volume:
       cudaMemcpy → dev_main_volume_coeff         // direct write
 
 Feedback:
-  pianoid.set_deck_feedback_coefficient(coeff)   // pianoid.py:411
+  pianoid.set_deck_feedback_coefficient(coeff)   // pianoid.py:775
   ─► exponential mapping: CC=64→1.0, CC=127→8.0
   ─► RuntimeParameters.deck_feedback_coefficient = coeff
   ─► pianoid_cpp.setRuntimeParameters(params)
@@ -698,6 +698,41 @@ MIDI path: CC 7  → set_volume_level(velocity)
 Volume formula (applied in GPU kernel):
   soundInt = Sint32(diff_result * max_volume^(volume_level/127))
 ```
+
+**Feedback coefficient — TWO-LAYER model + PER-PRESET ownership (dev-fbsl, 2026-06-05).**
+The toolbar Feedback slider is no longer a single absolute coefficient. The EFFECTIVE
+runtime coefficient is composed frontend-side from two layers:
+
+```
+effective_coeff = stored_coeff[active preset]  ×  env_multiplier(slider position)
+                  └ PER-PRESET, persisted ──┘     └ GLOBAL, localStorage, 64 = ×1 ┘
+```
+
+- **`stored_coeff`** is the per-preset baseline, persisted in the preset file under
+  `model_parameters.deck_feedback_coefficient` (default `1.0` for legacy presets; added to
+  `ModelParameters.PARAM_NAMES`). It rides `mp.pack()` into `save_preset` and loads back via
+  `mp.update_params`. Bootstrapped onto the engine at `init_pianoid` and on `switch_preset`.
+- **`env_multiplier(pos) = 8^((pos−64)/63)`** is a GLOBAL environment setting (the slider
+  position), persisted to localStorage (`feedbackSliderPos`). It survives library preset
+  switches; it is NEVER written into a preset.
+- **Slider move:** frontend sends `effective` via `POST /set_runtime_parameters { feedback_coeff }`
+  (a direct coefficient field that bypasses the CC-style level mapping).
+- **"Set" / fold button:** folds the env multiplier into `stored_coeff` value-preservingly
+  (effective unchanged → no audible jump) and resets the slider to 64; persists the new baseline
+  IN MEMORY via `POST /set_runtime_parameters { store_feedback_coeff }` (writes `pianoid.mp`,
+  NO disk I/O). Disk write happens only on `/save_preset`.
+- **OWNERSHIP INVERSION (was global, now per-preset):** `switch_preset` NO LONGER snapshots/
+  restores `deck_feedback_coefficient` globally — it applies the target preset's
+  `mp.deck_feedback_coefficient` instead. Volume + volume-sensitivity remain global.
+- **SOUND CHANNELS UNAFFECTED:** the effective coefficient is a single scalar applied through the
+  dev-d52b per-string `dev_feedback_output_mask` — it scales PIANO-pitch resonance rows only;
+  the output/sound-channel rows (pitch ≥ 128) are masked at ×1, so feedback=0 zeroes resonance
+  but KEEPS the note audio. (The rendered output still varies with the coefficient because piano
+  resonance physically couples into the soundboard — "unaffected" means the output ROWS are not
+  directly scaled, the mask contract; see `tests/system/test_feedback_coeff_sound_channels.py`.)
+- **Single-matrix mode:** in the active `USE_SINGLE_DECK_MATRIX=1` build there is no separate
+  feedback half, so the per-pitch feedback MATRIX editor is disabled in the UI (only the slider
+  acts on feedback). The frontend reads `/health.single_deck_matrix` to gate the editor.
 
 ### 2.7 Preset Save and Load
 

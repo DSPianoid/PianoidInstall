@@ -24,7 +24,8 @@
 |-------|------|-----|---------|--------|
 | dev-wave3split-f634 | Wave 3 Modal Adapter split — extract ChainEditor + ProjectStore, rewrite modal_adapter.py to ~400-LOC thin facade | [log](logs/dev-wave3split-f634-2026-06-05-210342.md) | 2026-06-05 | In Progress |
 | dev-presetfix | Post-merge preset-load regression — REBUILD FIX COMPLETE + verified (/load_preset 200, /preset/list 200, /health pianoid_loaded=true). Root cause = stale build after the f7905a9 origin merge (dev-d52b brought StringMap.pack_output_mask + a new devMemoryInit positional arg, but the tree was not rebuilt). Fixed by rebuilding PianoidBasic wheel (pianoid-0.1.15) + pianoidCuda --heavy --both. Symptom-2 "configs gone" = frontend localStorage (presetConfigStore), untouched by the merge, reappear once init works. Pure rebuild — NO source change, nothing to commit (only a 1-line OVERVIEW.md doc note, uncommitted). Stack LEFT UP for the user (team-lead direction). Staying alive. | [log](logs/dev-presetfix-2026-06-05-085001.md) | 2026-06-05 | Complete (stack up) |
-<!-- (no active dev sessions) -->
+| dev-fbsl | Single feedback/feedin coefficient SLIDER — two-layer (per-preset stored × global env-multiplier) + Set/fold button + Feedback-matrix-disable in single-deck mode + ownership inversion (switch_preset no longer global). Builds on dev-d52b/dev-uimtx. | [log](logs/dev-fbsl-2026-06-05-073950.md) | 2026-06-05 | MERGED to dev + PUSHED (2026-06-06, user "include in the push"; merged by dev-mzoom — all CLEAN, no conflicts): PianoidBasic dev d86b477 (slider 4660f6b), PianoidCore dev ed99d42 (slider tip 9a88518 incl. UNRUN switch-lifecycle test), PianoidTunner dev 05ce924 (slider 9aa0e3e). ★UNVERIFIED — needs BACKEND REBUILD to function; preset-switch lifecycle test (9a88518) UNRUN; user rebuilds + live-tests on another system. Frontend Jest stays green post-merge (88/941, eslint 0). |
+| dev-mzoom | PianoidTunner UI: (1) matrices-zoom + selection-scoped edits + AVG-mode zoom/mute; (2) bar-chart auto-scale toggle (Option P, pane toolbar); (3) system-wide selection + per-chart tie/untie zoom (P0 core + P1 Feedin reference). | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2) MERGED to PianoidTunner dev (matrices-zoom f3ff30a, bar-chart toggle 795f559); (3) P0/P1 MERGED to dev (41b4737, Feedin reference) — **P2 (highlight band) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the Feedin reference. Jest 88/941, eslint 0. Pushed to origin. dev-mzoom mid-build — NOT wrapped. |
 
 <!-- dev-steinway-preset COMPLETED 2026-06-05 (Step 10a Phase 2, user-approved SHIP option A).
      PianoidCore feature/steinway-1860-presets: f30ba32 (robust tuner R1-R4 + 14 tests) + 5655f02
@@ -219,6 +220,72 @@ Measured findings (dev-cfl, in-process):
 **Status: UNCONFIRMED, separate task.** Not fixed in the CFL-guard session (out of scope — the CFL guard
 cannot address it without rejecting healthy presets). To pin: reproduce a live length/string_iteration edit
 and capture the actual failure signature (or get the user's exact length/iter repro). Owner: open.
+
+---
+
+## Deferred follow-up — matrix-scale Zoomer slider exists but is NOT wired into the matrix panes (dev-mtxfix, 2026-06-05)
+
+There is no working in-matrix gesture to change the matrix SCALE (the visible pitch/mode
+range, which sets cell size: `cellWidth = containerWidth / (range[1]-range[0]+1)` in
+`PitchesModesMatrixCanvas.jsx`). The only way to enlarge cells today is dragging the mosaic
+pane border bigger (the matrix auto-fits). A dual-thumb range slider, `Zoomer.jsx` (calls
+`onRangeChange` → `setRangeOfPitches`/`setRangeOfModes`, gated on `settings.showRange`),
+ALREADY EXISTS but is only rendered inside `ModeSelector.jsx`, which is **not mounted anywhere**
+in `PianoidTuner.js`. The matrix panes (Feedin/Feedback/Sound Channels) use `VirtualPiano` +
+`ModesRule` rulers, which expose `onSelectRange` (drag to HIGHLIGHT a sub-range for bulk edits)
+but never call `onRangeChange` — `VirtualPiano` doesn't even accept the prop. So the
+`onRangeChange={setRangeOf*}` props passed to those rulers (PianoidTuner.js:1904 etc.) are dead.
+
+**Status: documented gap, awaiting user decision (relayed by team-lead).** Surfaced when the user
+asked "how do I scale the matrix?" during the dev-mtxfix matrices-UI live-fix batch. To wire it:
+mount a `Zoomer` (or equivalent +/- / range control) on the matrix-pane rulers and connect it to
+the existing `setRangeOfPitches`/`setRangeOfModes` shared state. NOT in scope for the dev-mtxfix
+batch (M1 revert + SC flat-bars + bar-not-line). Owner: open — a fresh /dev task if the user wants it.
+
+---
+
+## Deferred follow-ups — Sound Channels zoom unlock (dev-mzoom, 2026-06-05)
+
+**SHIPPED (on PianoidTunner `feature/mzoom-sc-zoom`, off dev e2aaacf, awaiting user test):**
+The existing toolbar zoom-button pair (the `ZoomInIcon` "zoom to selection" + `ZoomOutIcon`
+"reset to full" in `PianoidTuner.renderToolbarControls`, ~line 2245) was un-gated for the
+**Sound Channels** pane and SC's **mode-COLUMN** axis now consumes the shared
+`rangeOfModes`/`selectedModes` — so SC mode columns zoom exactly like Feedin/Feedback.
+2 files: `PianoidTuner.js` (id-gating list += "Sound Channels"; SC call-site now passes
+`rangeOfModes`/`selectedModes`), `SoundChannelsPane.jsx` (`modesRange`/`selectedModesRange`
+← shared state; `pianoRange`/`selectedPianoRange` kept full). Jest 83/903 green. Frontend-only.
+
+Two items **explicitly DEFERRED** (flagged, not built — per the user's "for starters, JUST
+unlock zoom" scope):
+
+1. **SC channel-ROW axis zoom — NOT wired.** SC strings-axis rows are OUTPUT CHANNELS
+   (`0..N-1`, typically 4-16), NOT piano pitches. The shared `rangeOfPitches` is piano-space
+   (`[21..108]`); wiring it to SC's `pianoRange` would make `MeasuredMatrix`'s ruler filter
+   (`availableNotes.filter(v => v >= pianoRange[0] && v <= pianoRange[1])`) exclude every
+   channel row → blank matrix. So only the mode-column axis zooms. Channel rows are few and
+   already fit, so this is low-impact. To add it later: a SEPARATE SC-local channel-range
+   state driven by the zoom buttons only when the SC pane is active (mirrors the
+   `selectedChannel` local-vs-global split, dev-snmtxleak-7e3d). Owner: open — only if the
+   user asks during testing.
+
+2. **Reset-button hardcoded `[0,63]` modes bug — FIXED (dev-mzoom debug iter 2, commit
+   `8ba4944`).** Originally deferred as out of "just-unlock" scope, but the user's
+   missing-UNZOOM-button report made it required: the reset (`ZoomOutIcon`) visibility +
+   action + the zoom-to-selection fallback in `PianoidTuner.renderToolbarControls`
+   hardcoded the modes-axis full bound to `63`. On a >64-mode preset (Belarus = 196) a
+   mode-zoom to `[0, N>=63]` left both mode clauses false → the reset/unzoom button never
+   appeared; the reset action also reset to `[0,63]` (still zoomed). Fixed by deriving
+   `fullModesMax = totalModes ? totalModes - 1 : 63` and using it in the visibility
+   condition, the reset action, and the fallback. Being the SHARED zoom control, this also
+   fixes Feedin/Feedback unzoom for any non-64-mode preset. Live-verified on Belarus 196:
+   reset button appears after a mode-zoom and returns `modesRange` to full `[0,195]`.
+
+   **Also fixed in the same iteration (debug iter 1, commit `fa3c64b`):** SC zoom-to-selection
+   CRASHED the app — SC's channel-row drag wrote a channel range into the shared
+   `selectedPitches`, the shared zoom button turned it into a channel-range `rangeOfPitches`,
+   and Feedin/Feedback's canvas `normRangeStart = pianoRange[0] - firstAvailableNote` went
+   negative → `matrix[-N]` undefined → crash. Fixed by no-op'ing SC's channel-row-axis
+   range/selection callbacks so channel indices never enter the shared piano-pitch state.
 
 ---
 
