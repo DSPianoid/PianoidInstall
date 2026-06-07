@@ -1,0 +1,10 @@
+# deepseek-codegen MCP server dependencies.
+#
+# The DeepSeek API call uses only the Python standard library (urllib) — there is NO `openai` dependency.
+# The only runtime requirement is the MCP framework, which `server.py` needs to speak the MCP protocol.
+# `core.py` (the logic + the unit tests) imports NOTHING from this file.
+#
+# Install into the interpreter that will run the server (see README.md). pytest is for the test suite.
+
+mcp>=1.2.0
+pytest>=8.0

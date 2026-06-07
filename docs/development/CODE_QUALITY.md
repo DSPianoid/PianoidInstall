@@ -547,6 +547,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidBasic/Pianoid/StringExcitation.py` | 589 |
 | `PianoidCore/pianoid_middleware/modal_adapter/esprit/esprit_core.py` | 586 |
 | `PianoidBasic/Pianoid/Pitch.py` | 570 |
+| `tools/deepseek-codegen-mcp/batch_pipeline.py` | 757 | (dev-dsfix, 2026-06-07 — was 564; +193 adding Gap A dual-backend signals [xp_untested] + Gap B deps DAG [topo layering, dependency exposure, --expose]. Single concern = batch codegen orchestration; P1/P2 clean. Well under 1000 RED; listed slightly above strict-LOC order. Sub-split candidate if it keeps growing = carve the test-gate runner [`_run_test`/`_is_collection_error`/`_parse_xp_backends`] into a `gate.py`.) |
 | `PianoidTunner/src/components/newWindowChart.jsx` | 557 |
 | `PianoidCore/pianoid_middleware/pianoidMidiListener.py` | 541 |
 | `PianoidCore/pianoid_middleware/synthesis_tuner.py` | 538 |

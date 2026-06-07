@@ -99,6 +99,8 @@ foreach ($port in 3000,3001,5000,5001) {
 }
 ```
 
+**Helper script (optional — one turn instead of pasting the loop + reading four `git status` outputs).** `python tools/dev-pipeline/env_sweep.py` runs exactly this port-scoped sweep, re-verifies the four ports are free, and prints per-repo `git status --short` — exit 0 = all clear, 2 = a port still in use. The port-scoped-only invariant is encoded structurally (it can only kill PIDs found *listening* on 3000/3001/5000/5001, never by image name), so it is the preferred form over hand-pasting the loop. `--no-kill` inspects without killing. Opus still owns WHETHER to sweep (a concurrent agent using the stack → scope down by NOT calling it, never by editing the port list).
+
 ---
 
 ## Step 0: Verify Agent Infrastructure
@@ -358,6 +360,8 @@ Dev agents complete Step 10a Phase 1 autonomously (commit, release locks) then S
 2. Agent's locks are released from MODULE_LOCKS.md
 3. Agent's log is still in `logs/` (NOT archived yet — that's Phase 2)
 4. Agent's WIP entry is still in Active Dev Sessions (NOT cleaned yet — that's Phase 2)
+
+**Helper script (optional — runs all four checks in one orchestrator turn, where context is largest so each saved turn is the most expensive).** `python tools/dev-pipeline/verify_phase1.py <agent-id> [--repo PianoidCore | --scan-repos]` prints PASS/FAIL per check (exit 0 = clean Phase-1 handoff, 2 = any fail). Pure read-only — it changes nothing. Relaying the report and the approval decision stay with Opus. See `tools/dev-pipeline/README.md`.
 
 Relay the report to the user via Telegram. Wait for explicit approval.
 

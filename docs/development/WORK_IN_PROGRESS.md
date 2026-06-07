@@ -24,6 +24,28 @@
 |-------|------|-----|---------|--------|
 | dev-mzoom | PianoidTunner UI: (3) system-wide selection + per-chart tie/untie zoom — **P2 (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the P1 Feedin reference. (1) matrices-zoom + (2) bar-chart toggle + (3) P0/P1 already MERGED + PUSHED. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2)+(3:P0/P1) MERGED to PianoidTunner dev + PUSHED (matrices-zoom f3ff30a, bar-chart toggle 795f559, P0/P1 Feedin 41b4737). **P2/P3 = REAL deferred follow-up awaiting the user's Feedin-reference test gate** — do NOT drop. Jest 88/941, eslint 0. |
 
+<!-- deepseek-phase0 + dev-dsfix + dev-minopus COMPLETED 2026-06-07 (Step 10a Phase 2, user-approved "merge+push"
+     via Telegram). DeepSeek codegen MCP + minimize-opus dev-pipeline tooling; merged feature/deepseek-codegen-mcp
+     -> master 2026-06-07.
+     - deepseek-phase0: built the deepseek-codegen MCP server (tools/deepseek-codegen-mcp/, one delegate_codegen tool,
+       model-pinned deepseek-v4-flash, key-from-env, .cu/.cpp refusal backstop) + README + /fn Step 2a; commits
+       f8eac6e -> 0abb73e -> 4e740ff -> 8a22e2b -> d80dc8a (incl. Python + JS/React broadening). Died on a VS Code
+       reload; its tools/deepseek-codegen-mcp/** lock + work were continued by dev-dsfix.
+     - dev-dsfix: (1) reliability fix b49fc51 (non-thinking codegen + max_tokens 4096->32768 + hardened extractor;
+       non-thinking was the real lever). (2) batch pipeline + dual-backend Gap A + deps-DAG Gap B 3f9ed60
+       (tools/deepseek-codegen-mcp/batch_pipeline.py, 80/80 tests).
+     - dev-minopus: minimize-opus P1+P2 5be7efa — tools/dev-pipeline/ bookkeeping scripts
+       (dev_init/dev_wrap_phase2/env_sweep/verify_phase1 + common.py, 80/80 tests + real-git e2e) + P1 marker-hook
+       verdict (DEFERRED: a PostToolUse hook cannot target the per-agent log under concurrency; marker_hook.py shipped
+       UNWIRED as a documented option).
+     - orchestrator: /fn + /dev skill rules + 3 DeepSeek proposals (fdbae56); minimize-opus P0 context-hygiene
+       (6ab40ba) + P2 integration prose into dev.md/orchestrator.md (eaa1631).
+     A/B RE-RUN (2026-06-07) validated the optimized system: pure-Opus vs optimized-DeepSeek on 17 xp-agnostic ESPRIT
+     fns -> BOTH 350/350 gate; optimized DeepSeek reached pure-Opus correctness for ~12-25x less total cost + ~30x
+     faster (Arm A $3.69 / 56 calls vs Arm B $0.0106 DeepSeek + thin orchestration, 0 escalations); the dual-backend
+     gate caught a cupy bug both arms shipped pre-upgrade. All 3 session logs archived to logs/archive/. The
+     minimize-opus proposal stays top-level (PARTIAL: P1 deferred; P3 test/build wrappers + P4 cheap-model lane pending). -->
+
 <!-- dev-wave3split-f634 COMPLETED 2026-06-06 (Step 10a Phase 2, user-approved "Merge and push" via Telegram;
      wrapped by sync-release as part of the multi-repo release). Wave 3 Modal Adapter facade split: extract ChainEditor +
      ProjectStore, migrate deferred-QC/ESPRIT logic out of facade to ApplyService/EspritOrchestrator, rename

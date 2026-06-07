@@ -124,6 +124,8 @@ These are not new requirements — they are the existing Step 0 rules with expli
 
 **Do not idle after `[STEP-0-COMPLETE]`.** Proceed directly into Step 1 (or Step 0b for a resume) and start emitting `[PROGRESS]` heartbeats. An agent that completes Step 0 then stops producing markers is flagged as idle-after-step by the controller's fast freshness check (> 8 min silent) within minutes, and will be nudged or re-spawned. A multi-step task is yours to carry through autonomously — don't stop and wait after the initial step.
 
+**Helper script (optional — collapses this scaffold into one turn).** `python tools/dev-pipeline/dev_init.py "<task>" [--agent-id dev-xxxx] [--branch feature/x --repo PianoidCore] [--plan docs/proposals/x.md]` generates the agent ID, writes the byte-faithful log header (with `[STEP-0-COMPLETE]` as the first `## Actions` line), adds the WIP `## Active Dev Sessions` row, and optionally creates the branch — then prints the agent ID + log path. Opus still owns the judgment the script never touches: whether to branch vs work on dev, and lock acquisition. See `tools/dev-pipeline/README.md`.
+
 ### Check for Paused or Stale Sessions
 
 Before starting new work, check for existing sessions:
@@ -663,6 +665,20 @@ The controller alerts if Step 5 begins without a preceding `[BUILD OK] verified=
 
 When a task can be decomposed into functions with clear requirements and testable acceptance criteria, **prefer delegating to `/fn` sub-agents** over editing code inline. This applies whether there's one function or many — the value is in enforced requirements clarity and test-driven implementation, not just parallelism.
 
+### DeepSeek codegen offload (via `/fn`)
+
+Function-level work delegated to `/fn` can have its codegen step offloaded to **DeepSeek** (the `deepseek-codegen` MCP tool, wired into `/fn` Step 2a) — cheaper + faster for routine function bodies, with Claude still owning the spec, test, review, build, debug, and commit. The dev agent does NOT call DeepSeek directly; it flows through the `/fn` sub-agent, and only when eligible.
+
+- **WHEN (all must hold):** target is Python (`.py`/pytest) or JS/TS/React (`.js/.jsx/.ts/.tsx`/Jest — PianoidTunner frontend included), or any language with a fast isolated test gate; a single, pure, well-specified unit (the `/fn` envelope); and the test is written FIRST (see "Prepare tests FIRST" below). These are the same delegate-to-`/fn` conditions — DeepSeek just generates the body inside that envelope.
+- **HARD RULE — never DeepSeek:** any `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++) change, and any cross-cutting or multi-file refactor, stays on **Claude `/dev`** — the dev agent implements these itself and does not route them to `/fn` for offload. (The MCP tool also refuses C++/CUDA as a backstop, but the gate is the dev agent's routing decision first.)
+- **SAFETY:** DeepSeek output is never trusted, only tested — the Claude-written test is the gate. If the generated body fails the Step-4b debug loop, fall back to a Claude implementation. DeepSeek never writes files, never commits, never updates docs.
+
+Mechanism + setup: `/fn` Step 2a and `tools/deepseek-codegen-mcp/README.md`.
+
+**Dual-backend tests for array-agnostic functions (MANDATORY).** When a function takes an array module (`xp`, numpy/cupy/torch), the test you prepare FIRST must exercise **both** numpy AND cupy — a numpy-only test ships latent cupy bugs (the 2026-06-06 A/B shipped a `cupy + numpy` add the numpy-only gate never caught). See the dual-backend rule in `/fn` Step 2a; it governs the tests `/dev` writes before delegating, too.
+
+**Batching interdependent functions — declare deps.** When you route **≥2** functions to DeepSeek where some call others, use the **batch pipeline** (`tools/deepseek-codegen-mcp/batch_pipeline.py`) and DECLARE the dependency edges (each function's `meta.json` `deps` = the sibling helpers it may call). The pipeline then builds leaf helpers first and exposes them in the delegate prompt — otherwise each function is delegated in isolation and DeepSeek **re-implements** shared logic (in the 2026-06-06 A/B it re-implemented `compute_mac` in two functions and re-derived a helper instead of calling it). **Same rule for React:** a component that composes a shared component declares it as a dep, so the shared component is built first and its prop interface exposed — don't let DeepSeek re-create a `NumInput` (divergent styling/a11y/debounce that a Jest test rarely asserts).
+
 ### When to delegate
 
 - The function has clear inputs, outputs, and behavior that can be specified upfront
@@ -674,6 +690,17 @@ When a task can be decomposed into functions with clear requirements and testabl
 - The change is a cross-cutting refactor (rename across many call sites, structural reorganization)
 - The function's behavior can only be verified through the full system (no isolated test possible)
 - The change is so trivial that writing the spec would take longer than the edit
+
+### Context hygiene & spawn-cost discipline (cost control)
+
+Every Opus turn re-reads the agent's **entire accumulated context** as cache-read before it does anything — that re-read (not the work) is ~65% of cost. So the levers are: make fewer turns, and keep each turn's resident context small. Apply these to this agent AND to how it shapes `/fn` work:
+
+- **Read narrowly.** Read the target function span with `offset`/`limit`, not the whole file, when one function is in scope. Read the one gating test, not the whole suite / `SUITE.md`.
+- **Test once at the end** of a function, not after each speculative edit (review-on-red). The 4×-incremental-pytest pattern re-reads ~50k each time — three wasted turns ≈ $0.13 on a 3-function run.
+- **Prune stale tool output.** Once a function is green, don't keep its full diff + every intermediate pytest dump resident — summarize to one line in the **session log** (the durable record) and move on. Prune *stale* output, never *load-bearing* context (Data Model Card facts, the spec, the current test).
+- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **~$0.15 startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2 (measured: +38% at N=3, +60% at N=10). **Never spawn an Opus sub-agent for a unit of work smaller than ~$0.15 — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY paired with a cheap model (the infra-gated cheap-`/fn` lane).
+
+(Full cost model + measurements: `docs/proposals/minimize-opus-calls-dev-pipeline-2026-06-06.md`.)
 
 ### Prepare tests FIRST (dev agent responsibility)
 
@@ -1052,6 +1079,8 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
 #### Phase 2: User-approved (only after explicit approval)
 
 Emit `[STEP-10A-PHASE-2] 2026-05-05T12:30:22Z` as the first action of Phase 2. The Phase-2 timestamp must follow the orchestrator's approval-relay timestamp; the controller flags out-of-order Phase-2 starts as Tier-2 escalate.
+
+**Helper script (optional — collapses steps 7–9 into one turn; fires at max context, so it is the highest $/turn save).** After the approval above, `python tools/dev-pipeline/dev_wrap_phase2.py <agent-id> [--proposal docs/proposals/<name>.md --status "IMPLEMENTED <evidence>"]` performs the deterministic moves: `git mv` the log → `logs/archive/`, remove the agent's WIP row, and (when a shipped proposal is named) `git mv` it → `docs/proposals/archive/` + prepend the `**Status:**` line. The approval, WHICH proposal shipped, and the de-reference-from-working-code step (#9 first bullet) stay with Opus — the script refuses to archive a proposal unless explicitly told which one. See `tools/dev-pipeline/README.md`.
 
 7. **Archive log** — move log file to archive:
    ```bash
