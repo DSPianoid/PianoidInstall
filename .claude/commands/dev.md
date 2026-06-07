@@ -124,6 +124,8 @@ These are not new requirements — they are the existing Step 0 rules with expli
 
 **Do not idle after `[STEP-0-COMPLETE]`.** Proceed directly into Step 1 (or Step 0b for a resume) and start emitting `[PROGRESS]` heartbeats. An agent that completes Step 0 then stops producing markers is flagged as idle-after-step by the controller's fast freshness check (> 8 min silent) within minutes, and will be nudged or re-spawned. A multi-step task is yours to carry through autonomously — don't stop and wait after the initial step.
 
+**Helper script (optional — collapses this scaffold into one turn).** `python tools/dev-pipeline/dev_init.py "<task>" [--agent-id dev-xxxx] [--branch feature/x --repo PianoidCore] [--plan docs/proposals/x.md]` generates the agent ID, writes the byte-faithful log header (with `[STEP-0-COMPLETE]` as the first `## Actions` line), adds the WIP `## Active Dev Sessions` row, and optionally creates the branch — then prints the agent ID + log path. Opus still owns the judgment the script never touches: whether to branch vs work on dev, and lock acquisition. See `tools/dev-pipeline/README.md`.
+
 ### Check for Paused or Stale Sessions
 
 Before starting new work, check for existing sessions:
@@ -1077,6 +1079,8 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
 #### Phase 2: User-approved (only after explicit approval)
 
 Emit `[STEP-10A-PHASE-2] 2026-05-05T12:30:22Z` as the first action of Phase 2. The Phase-2 timestamp must follow the orchestrator's approval-relay timestamp; the controller flags out-of-order Phase-2 starts as Tier-2 escalate.
+
+**Helper script (optional — collapses steps 7–9 into one turn; fires at max context, so it is the highest $/turn save).** After the approval above, `python tools/dev-pipeline/dev_wrap_phase2.py <agent-id> [--proposal docs/proposals/<name>.md --status "IMPLEMENTED <evidence>"]` performs the deterministic moves: `git mv` the log → `logs/archive/`, remove the agent's WIP row, and (when a shipped proposal is named) `git mv` it → `docs/proposals/archive/` + prepend the `**Status:**` line. The approval, WHICH proposal shipped, and the de-reference-from-working-code step (#9 first bullet) stay with Opus — the script refuses to archive a proposal unless explicitly told which one. See `tools/dev-pipeline/README.md`.
 
 7. **Archive log** — move log file to archive:
    ```bash
