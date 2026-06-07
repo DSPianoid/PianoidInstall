@@ -35,8 +35,9 @@ PianoidCore/.venv/Scripts/python tools/dev-pipeline/<script>.py ...
 PianoidCore/.venv/bin/python tools/dev-pipeline/<script>.py ...
 ```
 
-Tests: `… -m pytest tools/dev-pipeline/tests -q` (80 tests; never touch the real repo — they build a
-throwaway tree under `tmp_path` and point the scripts at it via `PIANOID_REPO_ROOT`).
+Tests: `… -m pytest tools/dev-pipeline/tests -q` (145 tests; never touch the real repo, never run a
+real CUDA build, never kill a real process — they build a throwaway tree under `tmp_path`, point the
+scripts at it via `PIANOID_REPO_ROOT`, and monkeypatch every subprocess/git/launch/poll primitive).
 
 ---
 
@@ -117,6 +118,82 @@ python tools/dev-pipeline/verify_phase1.py <agent-id> \
 ```
 
 Exit 0 = all four PASS (a clean Phase-1 handoff); 2 = any FAIL.
+
+---
+
+## Phase 3 — test / build wrappers with a SPLIT verdict (correctness + cost)
+
+The Phase-2 scripts above are zero-judgment plumbing. The three Phase-3 scripts wrap genuinely fiddly
+procedures (perf parsing, the CUDA build discipline, the commit prefix). Each is deliberately
+**split**: the script takes the *deterministic half* (run + parse + format + git plumbing) and Opus
+keeps *every branch-on-meaning* (the regression verdict, the build-failure diagnosis, the message
+wording). Rationale: proposal §2.2 rows 4/5/6, §2.3 "what must STAY Opus", §3 Phase 3.
+
+### `run_perf.py` — perf-test runner + metric parser + delta table + verdict_hint  (Q3 row 4)
+
+Runs the perf pytest, PARSES the metrics from its `-s` output (there is no junit/json — the metrics
+are printed lines), prints the dev.md Step-5 markdown **delta table**, and emits the marker fields +
+a `verdict_hint` computed from the STATIC dev.md Step-5 thresholds. **Opus still makes the regression
+verdict** — the script only computes deltas + the hint (a perf-tradeoff change may legitimately
+regress, which is judgment).
+
+```bash
+python tools/dev-pipeline/run_perf.py --baseline [--out baseline.json]   # Step 2: write a baseline
+python tools/dev-pipeline/run_perf.py --compare baseline.json            # Step 5: diff + verdict_hint
+    [--test-path tests/system/test_performance_audio_off.py]  # what to run (default audio_off perf)
+    [--audio-on]        # also run the audio_on perf file (real driver; auto-skips without hardware)
+    [--from-log <log>]  # parse an existing pytest log instead of running pytest
+    [--json]
+```
+
+Parsed fields (a metric absent from the run — e.g. `gpu_p99`/`underrun` need the audio_on suite — is
+recorded as null and skipped, never guessed): `gpu_mean`, `gpu_p99`, `total_mean`, `sound_corr`,
+`underrun`. Static thresholds (dev.md Step 5 verbatim): **fail** on GPU mean +>10% OR sound_corr
+< 0.95 OR any test failure; **warn** on GPU p99 +>20% OR underrun +>50%. `--baseline` prints
+`[BASELINE-TEST]`; `--compare` prints the table + `[REGRESSION-CHECK] … verdict=<hint>` (+ a
+`[REGRESSION-DETECTED]` per offender when the hint is `fail`). Exit mirrors the hint (0 pass/warn,
+2 fail) — but the **authoritative verdict is Opus's**.
+
+### `build_pianoid.py` — the BUILD_SYSTEM.md build discipline as ONE call  (Q3 row 6)
+
+A pure-Python wrapper that encodes the `BUILD_SYSTEM.md` "Canonical Install / Rebuild" procedure once:
+precheck `.pyd` holders → **stop the holder FIRST** (launcher REST `POST .../api/stop-backend`, else
+PID-targeted `taskkill //F //PID`, **NEVER** `//IM python.exe`) → launch **DETACHED** via
+`Start-Process -WindowStyle Hidden` with the bat invoked by **absolute path** after `cd /d <CORE>`
+(Linux: the `.sh` directly) → poll the build log for `[SUCCESS] Build completed.` → grep-verify the
+freshly-built binary for a marker → emit `[BUILD-PRECHECK]`/`[BUILD STARTED]`/`[BUILD OK]`/`[BUILD
+FAIL]`. **It NEVER falls back to `pip install … pianoid_cuda/`** (the documented stale-`.pyd` trap).
+
+```bash
+python tools/dev-pipeline/build_pianoid.py [--heavy|--light] [--both|--release|--debug]
+    [--core <PianoidCore abs path>] [--log <path>]
+    [--marker "<string from your edit>"]   # post-build grep-verify (a stale pyd → marker absent → fail)
+    [--no-stop] [--timeout 1200] [--poll 3] [--dry-run]
+```
+
+Default = `--heavy --both` (BUILD_SYSTEM.md mandates `--both`; `--release` leaves the debug pyd
+stale). It also encodes the **destructive-uninstall guard**: if a holder survives the stop step it
+ABORTS before launching (a held `.pyd` → uninstall `[WinError 5]` → bricked venv). **Build-failure
+diagnosis STAYS Opus** — on failure the script detects the exit code (incl. `3221225794` =
+0xC0000142) and tails the log; Opus reads the tail and applies the right documented recovery. Exit
+0 = `[SUCCESS]` reached (+ marker present if given); 2 = failed/timed-out/marker-absent.
+
+### `dev_commit.py` — commit with an ENFORCED `[agent-id]` prefix  (Q3 row 5)
+
+`git add <files>` + `git commit -m "[<agent-id>] <type>: <msg>"`. Its one job beyond the git plumbing
+is to GUARANTEE the dev.md `[<agent-id>] <type>: <subject>` convention every time — closing the
+Tier-1 "missing/incorrect prefix" violation the controller currently catches by hand. It stages
+**exactly** the given files (never `git add -A`), validates the type against the conventional-commit
+set, and refuses an empty message / no files / a bad agent-id.
+
+```bash
+python tools/dev-pipeline/dev_commit.py <agent-id> <type> "<subject>" <file> [<file> ...]
+    [--repo PianoidCore]   # repo the commit lands in (default: the Install repo root)
+    [--body "<body>"] [--allow-empty] [--dry-run]
+```
+
+Opus still owns: the **message wording** (the agent supplies `<subject>`), WHICH files belong in the
+commit, and WHETHER to commit / split. The script only assembles the prefix + does the `git`.
 
 ---
 
