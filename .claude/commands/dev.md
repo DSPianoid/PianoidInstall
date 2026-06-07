@@ -496,7 +496,7 @@ Before any code changes, run the performance test suite and save results:
 
 ```bash
 cd PianoidCore
-.venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/baseline_perf.log
+.venv/Scripts/python -m pytest tests/system/test_performance_audio_off.py -v -s 2>&1 | tee /tmp/baseline_perf.log
 ```
 
 Record these metrics from the output:
@@ -639,6 +639,8 @@ Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
 # --light --both for middleware-only. ABSOLUTE bat path after cd /d (a bare name fails "not recognized", L-2).
 # Poll D:\tmp\build.log; done at "[SUCCESS] Build completed". Full procedure: BUILD_SYSTEM.md → Canonical Install / Rebuild.
 ```
+
+**Helper script (optional — the whole procedure above in one call).** `python tools/dev-pipeline/build_pianoid.py --heavy --both [--marker "<string from your edit>"]`: precheck `.pyd` holders → stop the holder FIRST (launcher REST, else PID-targeted, never `//IM`) → launch the detached build (absolute bat path) → poll the log for `[SUCCESS]` → grep-verify the `.pyd` for your marker → emit `[BUILD STARTED]`/`[BUILD OK]`/`[BUILD FAIL]`. It NEVER pip-installs (the stale-`.pyd` trap) and ABORTS rather than build against a held `.pyd` (the venv-brick guard). **Build-failure diagnosis stays Opus** — on `[BUILD FAIL]` it tails the log + flags the exit code (incl. 0xC0000142); you apply the documented recovery below. See `tools/dev-pipeline/README.md`.
 
 **If the build fails with exit code `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):**
 
@@ -833,7 +835,7 @@ Agent({
 Run the same test suite:
 ```bash
 cd PianoidCore
-.venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/postchange_perf.log
+.venv/Scripts/python -m pytest tests/system/test_performance_audio_off.py -v -s 2>&1 | tee /tmp/postchange_perf.log
 ```
 
 Compare against baseline and print a table:
@@ -857,6 +859,8 @@ Compare against baseline and print a table:
 
 **Markers (MANDATORY):** after the comparison table, emit `[REGRESSION-CHECK] 2026-05-05T12:30:22Z gpu_mean_delta_pct=<N> sound_corr=<N> verdict=<pass\|warn\|fail>`. On `verdict=fail`, also emit `[REGRESSION-DETECTED] 2026-05-05T12:30:22Z file=<path> metric=<name> delta=<value>` per offending metric. The controller alerts if `[REGRESSION-DETECTED]` is followed by `[STEP-10A-PHASE-1]` without an intervening `[STEP-6-DEBUG]` marker (Tier-2 escalate — regression triggers debug, not commit).
 
+**Helper script (optional — runs the test + parses metrics + builds the delta table + emits the markers in one call).** `python tools/dev-pipeline/run_perf.py --baseline [--out baseline.json]` at Step 3 (writes the baseline JSON + emits `[BASELINE-TEST]`), then `--compare baseline.json` here (prints the Baseline/After/Delta table + emits `[REGRESSION-CHECK]` / `[REGRESSION-DETECTED]` with a `verdict_hint` from the thresholds above; `--audio-on` for the mic variant). **The regression VERDICT stays Opus** — the script computes the deltas + a hint; you decide whether a breach is acceptable for THIS change. See `tools/dev-pipeline/README.md`.
+
 ## Step 6: Debug (if tests fail)
 
 **Build failures:** If a build command fails (linker errors, missing libraries, DLL issues),
@@ -868,7 +872,7 @@ Iterative loop (max 5 iterations):
 1. Read failure output — identify root cause, not just symptom
 2. Make targeted fix
 3. Rebuild if needed (step 4 commands)
-4. Re-run failing test only: `.venv/Scripts/python -m pytest tests/system/test_performance.py::<TestClass>::<test_name> -v -s`
+4. Re-run failing test only: `.venv/Scripts/python -m pytest tests/system/test_performance_audio_off.py::<TestClass>::<test_name> -v -s`
 5. Once that test passes, re-run full suite (step 5)
 6. Repeat until all pass
 
@@ -912,7 +916,7 @@ Write tests in the appropriate level:
 - GPU, no audio → `tests/integration/`
 - Pure Python → `tests/unit/`
 
-Follow patterns from `test_performance.py` (fixtures, markers, assertions).
+Follow patterns from `test_performance_audio_off.py` (fixtures, markers, assertions).
 
 ## Step 8: Update Documentation
 
@@ -1047,6 +1051,8 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
    git add docs/ mkdocs.yml
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
+
+   **Helper script (optional — enforces the `[agent-id]` prefix + does the git in one call).** `python tools/dev-pipeline/dev_commit.py <agent-id> <type> "<subject>" <files...> [--repo PianoidCore] [--body "..."]` runs `git add -- <exactly those files>` (never `-A`) + `git commit -m "[<agent-id>] <type>: <subject>"`, refusing a bad agent-id / empty message / no files — removing the `[agent-id]`-prefix violations the controller Tier-1-catches. **You write the message wording**; the script only enforces the prefix + does the plumbing. See `tools/dev-pipeline/README.md`.
 4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`. Emit `[LOCK RELEASED] {file}` for each.
 5. **Pre-handoff process hygiene (MANDATORY).** Always leave a CLEAR environment before reporting "ready to test". Kill all running server instances. **Do NOT restart unless explicitly instructed to.** The user prefers to start fresh manually so their browser tab is guaranteed to bind to a known-new bundle on first connect (no HMR ghost state, no stale dev-server cache, no chance the orchestrator's restart timing misaligns with the user's hard-refresh).
 
@@ -1252,7 +1258,7 @@ Use this when an agent was paused (10c) due to a lock conflict and the blocking 
 | PianoidCore | `PianoidCore` |
 | PianoidBasic | `PianoidBasic` |
 | PianoidTunner | `PianoidTunner` |
-| Performance tests | `PianoidCore/tests/system/test_performance.py` |
+| Performance tests | `PianoidCore/tests/system/test_performance_audio_off.py` |
 | Audio driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
 | Documentation | `docs/` |
 | Session logs | `docs\development\logs/` |
