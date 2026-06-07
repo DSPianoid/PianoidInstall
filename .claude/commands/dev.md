@@ -663,23 +663,30 @@ Verify the path is inside `PianoidCore/.venv/` (not root `.venv/`).
 
 The controller alerts if Step 5 begins without a preceding `[BUILD OK] verified=yes` (Tier-1 warn). Any `pip install ... pianoid_cuda/` invocation lacking a paired `[BUILD STARTED]` is the canonical-build-script violation (Tier-2 escalate).
 
-## Step 4b: Delegate to `/fn` Sub-Agents (preferred)
+## Step 4b: Codegen delegation — /dev designs, DeepSeek does routine bodies, /fn is judgment + debug
 
-When a task can be decomposed into functions with clear requirements and testable acceptance criteria, **prefer delegating to `/fn` sub-agents** over editing code inline. This applies whether there's one function or many — the value is in enforced requirements clarity and test-driven implementation, not just parallelism.
+When a task decomposes into functions with clear, testable acceptance criteria, the **/dev agent itself owns the design** — it writes each function's spec + test + selects the context — and routes the work by KIND:
 
-### DeepSeek codegen offload (via `/fn`)
+- **Routine, DeepSeek-eligible function** (the common case) → **/dev does NOT spawn a `/fn` per function.** It writes the spec + test + picks the context snippets, then delegates the codegen to **DeepSeek through the batch pipeline** (`tools/deepseek-codegen-mcp/batch_pipeline.py`) — **uniformly, even for a single function** (a 1-function manifest; no direct-call special case). The pipeline delegates + runs the per-function test gate + flags failures in pure Python (zero Opus per function — the strategy-C win: one designing /dev agent beats N spawned `/fn` workers each re-paying the ~$0.15 startup tax). Clean pass → apply, done. Failure → see **On DeepSeek failure** below.
+  - *Eligible WHEN (all hold):* Python (`.py`/pytest) or JS/TS/React (`.js/.jsx/.ts/.tsx`/Jest — PianoidTunner included), or any language with a fast isolated test gate; a single, pure, well-specified unit; the test is written FIRST (see "Prepare tests FIRST" below).
+- **Judgment-heavy function** (genuine design judgment a hard test can't fully pin) → /dev's discretion: **write it inline** (pruning between functions per Context hygiene below), OR **spawn an Opus `/fn`** sub-agent for it (the enforced-clarity + isolation path — the Spawning procedure below). Reserve the `/fn` spawn for a unit large enough to clear the ~$0.15 spawn tax AND needing Opus judgment.
+- **HARD RULE — never DeepSeek:** any `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++) change, and any cross-cutting or multi-file refactor, stays on **Claude /dev** (write inline or via an Opus `/fn`) — never DeepSeek. (The MCP tool also refuses C++/CUDA as a backstop, but the gate is /dev's routing decision first.)
 
-Function-level work delegated to `/fn` can have its codegen step offloaded to **DeepSeek** (the `deepseek-codegen` MCP tool, wired into `/fn` Step 2a) — cheaper + faster for routine function bodies, with Claude still owning the spec, test, review, build, debug, and commit. The dev agent does NOT call DeepSeek directly; it flows through the `/fn` sub-agent, and only when eligible.
+So **`/fn` now has exactly two roles:** (1) implement a *judgment-heavy* function (Opus, when /dev chooses isolation over inline), and (2) **debug a DeepSeek failure** (below). The routine-codegen path no longer spawns a `/fn` per function — specs + context + delegation live in /dev; the codegen is DeepSeek-via-pipeline.
 
-- **WHEN (all must hold):** target is Python (`.py`/pytest) or JS/TS/React (`.js/.jsx/.ts/.tsx`/Jest — PianoidTunner frontend included), or any language with a fast isolated test gate; a single, pure, well-specified unit (the `/fn` envelope); and the test is written FIRST (see "Prepare tests FIRST" below). These are the same delegate-to-`/fn` conditions — DeepSeek just generates the body inside that envelope.
-- **HARD RULE — never DeepSeek:** any `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++) change, and any cross-cutting or multi-file refactor, stays on **Claude `/dev`** — the dev agent implements these itself and does not route them to `/fn` for offload. (The MCP tool also refuses C++/CUDA as a backstop, but the gate is the dev agent's routing decision first.)
-- **SAFETY:** DeepSeek output is never trusted, only tested — the Claude-written test is the gate. If the generated body fails the Step-4b debug loop, fall back to a Claude implementation. DeepSeek never writes files, never commits, never updates docs.
+**SAFETY (unchanged):** DeepSeek output is never trusted, only tested — the /dev-written test is the gate. DeepSeek never writes files, never commits, never updates docs. Mechanism + setup: `tools/deepseek-codegen-mcp/README.md` (+ `/fn` Step 2a for the single-unit envelope).
 
-Mechanism + setup: `/fn` Step 2a and `tools/deepseek-codegen-mcp/README.md`.
+### On DeepSeek failure (the `/fn` debug agent)
+
+When the pipeline flags a function as failed (DeepSeek couldn't pass the gate after its retries), /dev:
+1. **Tries ONE quick inline fix** — /dev already holds the spec + test + context; read the failure + the flagged body, attempt a targeted fix, re-run the gate. (Cheaper than a spawn for a trivial miss.)
+2. **If that doesn't land, or the bug is clearly deep** → spawn a **dedicated `/fn` debug agent** (Opus) for that ONE function: hand it the failing body + the test + the failure output + the spec; it debugs/rewrites to green. This is where Opus cognition earns the spawn.
+
+Never ship a failing body; never enter Step 5 with a red function.
 
 **Dual-backend tests for array-agnostic functions (MANDATORY).** When a function takes an array module (`xp`, numpy/cupy/torch), the test you prepare FIRST must exercise **both** numpy AND cupy — a numpy-only test ships latent cupy bugs (the 2026-06-06 A/B shipped a `cupy + numpy` add the numpy-only gate never caught). See the dual-backend rule in `/fn` Step 2a; it governs the tests `/dev` writes before delegating, too.
 
-**Batching interdependent functions — declare deps.** When you route **≥2** functions to DeepSeek where some call others, use the **batch pipeline** (`tools/deepseek-codegen-mcp/batch_pipeline.py`) and DECLARE the dependency edges (each function's `meta.json` `deps` = the sibling helpers it may call). The pipeline then builds leaf helpers first and exposes them in the delegate prompt — otherwise each function is delegated in isolation and DeepSeek **re-implements** shared logic (in the 2026-06-06 A/B it re-implemented `compute_mac` in two functions and re-derived a helper instead of calling it). **Same rule for React:** a component that composes a shared component declares it as a dep, so the shared component is built first and its prop interface exposed — don't let DeepSeek re-create a `NumInput` (divergent styling/a11y/debounce that a Jest test rarely asserts).
+**Declare deps in the manifest.** Since ALL DeepSeek codegen flows through the pipeline now, each function's `meta.json` declares its `deps` (the sibling helpers it may call). The pipeline builds leaf helpers first and exposes them in the delegate prompt — otherwise DeepSeek **re-implements** shared logic (the 2026-06-06 A/B re-implemented `compute_mac` in two functions instead of calling it). **Same for React:** a component declares the shared component it composes as a dep, so that component is built first and its prop interface exposed — don't let DeepSeek re-create a `NumInput` (divergent styling/a11y/debounce a Jest test rarely asserts).
 
 ### When to delegate
 
@@ -700,7 +707,7 @@ Every Opus turn re-reads the agent's **entire accumulated context** as cache-rea
 - **Read narrowly.** Read the target function span with `offset`/`limit`, not the whole file, when one function is in scope. Read the one gating test, not the whole suite / `SUITE.md`.
 - **Test once at the end** of a function, not after each speculative edit (review-on-red). The 4×-incremental-pytest pattern re-reads ~50k each time — three wasted turns ≈ $0.13 on a 3-function run.
 - **Prune stale tool output.** Once a function is green, don't keep its full diff + every intermediate pytest dump resident — summarize to one line in the **session log** (the durable record) and move on. Prune *stale* output, never *load-bearing* context (Data Model Card facts, the spec, the current test).
-- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **~$0.15 startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2 (measured: +38% at N=3, +60% at N=10). **Never spawn an Opus sub-agent for a unit of work smaller than ~$0.15 — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY paired with a cheap model (the infra-gated cheap-`/fn` lane).
+- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **~$0.15 startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2 (measured: +38% at N=3, +60% at N=10). **Never spawn an Opus sub-agent for a unit of work smaller than ~$0.15 — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY when the unit is a *judgment* function needing Opus isolation — for ROUTINE codegen the cheaper path is the DeepSeek pipeline (Step 4b above), never a fanned-out Opus `/fn`.
 
 (Full cost model + measurements: `docs/proposals/minimize-opus-calls-dev-pipeline-2026-06-06.md`.)
 
