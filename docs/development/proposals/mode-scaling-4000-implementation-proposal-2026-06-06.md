@@ -698,6 +698,391 @@ the flat oscillator count exceeds what the existing blocks' spare quarters can s
 
 ---
 
+## 5.5 ★ FLAT-MODE PROCESSING — detailed per-sample logic (the /dev implementation spec)
+
+> **Scope & method.** This section derives the flat per-sample algorithm **as a strict
+> simplification of the CURRENT kernel math**, with line citations into
+> `PianoidCore/pianoid_cuda/MainKernel.cu` (the per-sample loop `:427-702`) and
+> `Kernels.cu` (the placement bake `:185-300`). Nothing here is invented: every flat step is
+> the shaped step with the per-(string,mode) deck weight `deck[s,m]` replaced by a shared group
+> vector `w_g(s)` × per-mode scalar — exactly the §0d.1 factorisation. Evidence tags as in §1.
+> Anything not confirmable from source is marked **[UNCERTAIN]**.
+>
+> **The current shaped path this simplifies, in one place [SRC]:**
+> - FEEDBACK scatter `mode_feedback[i] * s_mode[quarterNumber]` → `feedback_cycle_matrix` (`:441-442`),
+>   reduced per-string by `sumArray` (`:469`) into `s_feedback`, applied to the stem (`:471-472`).
+> - OSCILLATOR advance `result = ((2q − q_prev) + q_prev·dec − q·omega + F·mass_inv)·(1 − dec)`
+>   (`:668-672`), gated `indexInQuarter==0` (`:667`), state in `s_mode[quarterNumber]`/`mode_1`.
+> - FEEDIN scatter `mode_feedin[i] * force_on_bridge_summed[quarterNumber] / soundStep` →
+>   `feedin_cycle_matrix` (`:622-623`), reduced per-mode by `sumArray` (`:641`) into
+>   `s_mode_applied_force`.
+> - The deck weights `mode_feedin`/`mode_feedback` are loaded once (outside the sample loop) from
+>   `mode_coefficients` (= `dev_deck_parameters`) at `:249` / `:265`. `mode_coefficients[s·numModes + m]`.
+
+### 5.5.1 FLAT-MODE STATE — exactly what each flat mode holds (register-resident)
+
+A flat mode is the **same damped harmonic oscillator** as a shaped mode (§0b.3, §0d.4 #4 — physics
+axis is NOT shared); only its *coupling* is replaced. For flat mode `m` owned by a thread, the
+register-resident state is:
+
+| Register value | Per-mode? | Replaces (current source) | Notes |
+|---|---|---|---|
+| `q` (current displacement) | **per-mode, MUTABLE** | `s_mode[quarterNumber]` (`:311, 674`) — shared today, **register here** | the live oscillator state; persisted to global at cycle end |
+| `q_prev` (previous displacement) | **per-mode, MUTABLE** | `mode_1` (`:312, 673`) | second state var of the 2-tap recurrence |
+| `dec` (damping) | per-mode, read-only | `mode_dec = mode_state[modeNo]` (`:315`) | physics — distinct per mode; cache in reg or re-read |
+| `omega` (≈ω²·dt²) | per-mode, read-only | `mode_omega = mode_state[numModes+modeNo]` (`:316`) | physics — distinct |
+| `mass_inv` | per-mode, read-only | `mode_mass_inv = mode_state[2·numModes+modeNo]` (`:317`) | physics — distinct |
+| `a_in(m)` (feedin gain) | per-mode, read-only | **NEW** — replaces the per-(string,mode) deck **column** used at `:249` | a single scalar instead of S deck weights |
+| `a_out(m)` (feedback gain) | per-mode, read-only | **NEW** — replaces the deck **row** used at `:265` | may equal `a_in` by reciprocity (§12.2) → save 1 reg |
+| `F_applied(m)` (per-sample force) | per-mode, transient | `s_mode_applied_force[quarterNumber]` (`:660, 671`) | recomputed each sample = `a_in(m)·groupForceSum_g`; not persisted |
+
+**Shared / group-constant (NOT per-mode — held once per group, not in every mode's registers):**
+
+| Value | Scope | Replaces (current) |
+|---|---|---|
+| `w_g(s)` (group coupling vector over strings) | **one vector per group** (shared mem / global) | the deck columns/rows `deck[s,m]` that were per-mode (`:249, 265`) |
+| `groupForceSum_g = Σ_s w_g(s)·bridge(s)` | one scalar per group per sample | the per-mode reduction output `s_mode_applied_force` (`:641`) — now one sum reused by all m∈G |
+| `modeSum_g = Σ_{m∈G} a_out(m)·q(m)` | one scalar per group per sample | the per-mode feedback scatter sum (`:441-442, 469`) — now one sum scattered by w_g(s) |
+
+**Register accounting (ties to §3.3, §4b.3):** the **mutable** per-mode state is exactly **2 regs**
+(`q`, `q_prev`). The 3 physics constants + `a_in`/`a_out` are read-only and may be cached (~5 regs)
+or re-read from contiguous, L1/L2-hot global (2-reg minimal regime, §3.3). Working figure: **~5
+regs/flat-mode**. Under the quarter-fork `M_t ≤ 1` (§4b.3) so this is ~5 added regs/thread total —
+the most favourable §3.4 row. The group-constant values cost **0 per-mode registers** — `w_g(s)` lives
+in shared/global, `groupForceSum_g`/`modeSum_g` are computed once per group into shared scalars.
+
+### 5.5.2 PER-SAMPLE ALGORITHM for a flat quarter (step by step, derived from the current math)
+
+This runs inside the existing sample loop (`MainKernel.cu:427`), in the **`quarterNumber != 0`**
+branch of the §7.3 fork. Ordering mirrors the current loop: feedback-scatter → reduce → emit audio →
+inner FDTD → feedin-scatter → reduce → oscillator advance.
+
+#### (a) FEEDIN (force → mode) — factor the shaped Σ_strings deck[s,m]·force(s)
+
+The shaped feedin (`:622-623`) is, per mode, `F_applied(m) = (Σ_s deck[s,m]·bridge(s))/soundStep`
+realised as an atomic scatter + `sumArray` reduction (`:641`). For a flat group where
+`deck[s,m] = w_g(s)·a_in(m)` (separable), the string sum **factors out of the per-mode loop**:
+
+```
+groupForceSum_g = Σ_s  w_g(s) · force_on_bridge_summed[s] / soundStep      // ONE reduction per group
+F_applied(m)    = a_in(m) · groupForceSum_g                                 // per-mode scalar fan-out, no reduction
+```
+
+- The **shared sum** `groupForceSum_g` is computed **once per group per sample** from the existing
+  per-string bridge force `force_on_bridge_summed[stringInArr]` (already produced by the FDTD inner
+  loop at `:599`, available at `:619`). It uses the block-local reduction of §5.5.3, NOT the
+  per-mode `feedin_cycle_matrix`/`sumArray` path (which is kept only for the shaped quarter).
+- The **per-mode application** is a single multiply by the register scalar `a_in(m)` — replacing the
+  per-mode `sumArray` output `s_mode_applied_force[quarterNumber]` (`:671`). At `M_t≤1` each flat
+  thread does exactly one such multiply.
+- **Reduction to O(S)+O(|G|):** the string axis is summed once (O(S), shared by every m∈G); the
+  per-mode work is O(|G|) trivial multiplies. This is the exact §0d.1 factorisation, not an
+  approximation, *given* `deck[s,m]=w_g(s)·a_in(m)`.
+
+#### (b) OSCILLATOR ADVANCE — register-only recurrence, transcribed from `:668-672`
+
+The advance is **identical** to the shaped advance (the simplification is in coupling, not physics).
+Transcribed verbatim from `MainKernel.cu:668-672`, with `s_mode[quarterNumber]→q`,
+`mode_1→q_prev`, `s_mode_applied_force[quarterNumber]→F_applied(m)`:
+
+```
+result = ((2*q - q_prev) + q_prev*dec - q*omega + F_applied*mass_inv) * (1 - dec);
+q_prev = q;
+q      = result;
+```
+
+- **Per-mode INDEPENDENT — confirmed [SRC]:** the recurrence reads only this mode's own
+  `q, q_prev, dec, omega, mass_inv` and its own `F_applied`. There is **no cross-mode term** in the
+  advance (`:668-672` references only `s_mode[quarterNumber]`, `mode_1`, and the three per-mode
+  config scalars + the per-mode force). Cross-mode coupling exists ONLY through the string field
+  (feedin/feedback), never inside the advance. So packing N oscillators = N fully independent copies
+  of this 6-FLOP update; safe to run one-per-thread with zero synchronisation between them.
+- **Gate change:** the current advance is gated `indexInQuarter==0` (`:667`) → 1 thread/quarter. For
+  flat quarters this gate is **dropped** (§7.3): each thread holding a flat mode (`indexInQuarter < |G_quarter|`) runs the advance on its **register** `q`/`q_prev` (not `s_mode[]`). Threads with no
+  mode (`indexInQuarter ≥ |G_quarter|`) skip the advance but **still participate** in the §5.5.3
+  shuffle with an identity contribution.
+
+#### (c) FEEDBACK (mode → output) — factor the shaped Σ_modes deck[s,m]·q(m)
+
+The shaped feedback (`:441-442`) scatters `mode_feedback[i]·s_mode[quarterNumber]` per (string,mode)
+into `feedback_cycle_matrix`, reduced per-string by `sumArray` (`:469`) into `s_feedback`, applied to
+the stem (`:471-472`). For a flat group where `deck[s,m] = w_g(s)·a_out(m)`, factor `w_g(s)` OUT of
+the mode sum:
+
+```
+modeSum_g     = Σ_{m∈G} a_out(m) · q(m)                 // ONE reduction per group (block-local, §5.5.3)
+feedback(s)  += w_g(s) · modeSum_g                       // scatter per group, per output point
+```
+
+- `modeSum_g` is the **single** group reduction over its ~27 flat modes — replacing the per-mode
+  feedback scatter+`sumArray`. It maps to the current feedback path as: instead of every mode
+  atomic-adding `deck[s,m]·q(m)` into `feedback_cycle_matrix[s·SEGMENT+blockNo]` (`:441-442`), the
+  group forms one scalar `modeSum_g`, then adds `w_g(s)·modeSum_g` to each output point's feedback.
+- **Where it lands:** the flat contribution adds into the **same `s_feedback`/stem accumulator** the
+  shaped path uses (`:472`), so the integration point is unchanged (§5.5.6). For the degenerate
+  `w_g(s)=1` (uniform) group, `feedback(s) += modeSum_g` is broadcast identically to every output
+  stem (substrate §0b.2).
+- **Output tap:** audio is read from the stem as `feedback − s_b` (velocity) or its 2nd difference
+  (`:497-501`), **unchanged** — the flat feedback simply adds into `feedback` before that tap.
+
+### 5.5.3 ★ THE REDUCTIONS — block-local, NOT the SEGMENT-wide `sumArray` (the §4b.5 caveat)
+
+The two per-group flat sums — `groupForceSum_g` (feedin) and `modeSum_g` (feedback) — MUST be
+**block-local**, computed within the flat quarter's own warps, and **must NOT route through the
+cross-block `sumArray(..., SEGMENT_FOR_SHUFFLE_SUMMATION, ...)` path** (`:469, 641`). Reasoning [SRC]:
+the existing `sumArray` reduces the per-string `*_cycle_matrix` **across blocks** (segment width 64 =
+block-count axis); the flat group sum is over **~27 modes inside ONE quarter of ONE block** — a
+different, smaller axis. Reusing the SEGMENT-wide path would (a) be wrong-axis and (b) re-stress the
+SEGMENT=64 constraint the quarter-fork was careful to leave alone (§4b.5 caveat).
+
+**Concrete block-local mechanism (a flat quarter = exactly 4 whole warps, §4b.2):**
+
+1. **Warp-shuffle within each of the quarter's 4 warps.** Reuse the existing `warpReduceSum`
+   (`MainKernel.cu:21-30` **[SRC]** — `__shfl_down_sync(FULL_MASK, val, offset)` butterfly over
+   `offset = 16,8,4,2,1`). Each lane's input is its mode's contribution:
+   - feedback: `a_out(m)·q(m)` for a thread owning a mode, else `0.0`;
+   - feedin: `w_g(s_lane)·bridge(s_lane)` — but feedin sums over **strings**, not modes (see note
+     below). Lane 0 of each warp holds that warp's partial sum after the shuffle.
+2. **Shared-memory combine across the quarter's 4 warps.** A small `__shared__ real
+   s_flat_group[NUM_FLAT_QUARTERS][?]` scratch (or reuse a sized slot): each warp's lane-0 does
+   `atomicAdd(&s_flat_group[quarterNumber], warpSum)` — exactly the `sumArray` warp-combine pattern
+   (`:61-62`), but scoped to the 4 warps of THIS quarter, indexed by `quarterNumber` (1,2,3), with NO
+   cross-block atomic and NO SEGMENT addressing. One `allThreads.sync()` (block barrier) after the
+   atomics makes `s_flat_group[quarterNumber]` the per-group result, readable by all the quarter's
+   threads.
+3. **Per-block group result.** After the sync, `s_flat_group[1..3]` hold the 3 flat quarters'
+   `modeSum_g` (feedback) or `groupForceSum_g` (feedin). No `allBlocks.sync()` is needed for the
+   *group* sum itself (it is block-local); the existing grid sync (`:448, 628`) is still needed only
+   for the string↔mode field coupling, unchanged.
+
+> **Shared-mem slots.** Add `__shared__ real s_flat_feedback[NUM_STRINGS_IN_ARRAY]` and
+> `__shared__ real s_flat_feedin[NUM_STRINGS_IN_ARRAY]` (4 reals each — index by `quarterNumber`,
+> only entries 1–3 used). Trivial vs the ~3 KB current shared budget (substrate §4). Zero them
+> (the `if (stMdIndex < 4)` pattern of `:293-295`) before each sample's accumulation.
+
+> **★ Feedin reduction axis note [SRC-grounded].** The feedback group-sum is over **modes** (lanes =
+> modes, ≤27 active per quarter) — the warp-shuffle above applies directly. The feedin group-sum
+> `groupForceSum_g = Σ_s w_g(s)·bridge(s)` is over **strings** (only `numStringsInArray = 4` bridge
+> forces per block — `force_on_bridge_summed[0..3]`, `:417, 593, 599`). That is a **4-element sum**,
+> not a 27-element one: it does NOT need a warp shuffle at all — a single thread (e.g.
+> `indexInQuarter==0` of the flat quarter) can compute `Σ_{s=0..3} w_g(s)·force_on_bridge_summed[s]`
+> directly into `s_flat_feedin[quarterNumber]` after the existing `:602` sync, then all the quarter's
+> mode-threads read it. **This is cheaper than the shaped feedin's cross-block `sumArray` because the
+> flat string-sum is intra-block (4 strings) — the cross-block accumulation only existed to gather a
+> mode's force from all blocks; a flat group's force comes from its own block's 4 strings.**
+> [UNCERTAIN — confirm whether a flat group's coupling is intended to span only the block's 4 strings
+> or all strings; if all-strings, the feedin sum DOES need a cross-block gather and the §4b.5 caveat
+> tightens. Flagged for §12 — see 5.5.8.]
+
+### 5.5.4 MULTIPLE FLAT GROUPS (piecewise rank-1)
+
+If a block's flat modes split into `G` groups by shared coupling (substrate §0d.3), the natural
+mapping under the quarter-fork is **one group per flat quarter** (quarters 1, 2, 3 → groups g₁, g₂,
+g₃), since the per-quarter reduction is already group-scoped by `quarterNumber` (§5.5.3 step 2). Then:
+
+- Each group gets **its own** `w_g(s)` vector (3 vectors/block max), **its own** `a_in/a_out` per
+  member, and **its own pair** of reductions (`groupForceSum_g`, `modeSum_g`) landing in
+  `s_flat_*[quarterNumber]` — the `quarterNumber` index already separates them with no extra
+  bookkeeping.
+- **Layout across quarters/threads:** group `g` = flat quarter `qn ∈ {1,2,3}` = warps `{4qn..4qn+3}`
+  (§4b.2). Its members occupy threads `indexInQuarter ∈ [0, |g|)` of that quarter; `|g| ≤ 128`,
+  realistically ~27 (§4b.3). Three independent, warp-uniform groups per block, zero inter-group
+  divergence (each is whole warps).
+- If MORE than 3 groups/block are needed, either (i) pack >1 group per quarter (sub-ranges of
+  `indexInQuarter`, costs a per-sub-range partial-sum mask), or (ii) spill extra groups to additional
+  flat blocks (§5.4 fallback). Start with **≤3 groups/block** (one/quarter) — the clean case.
+- **Phase-2 degenerate case:** `n_groups = 1`, `w(s)=1` — a single global flat term (§5.3, §11
+  Phase 2). Then all 3 flat quarters share one `w`, and the 3 quarter sums are summed once more into a
+  block flat total. Recommended starting point.
+
+### 5.5.5 THREAD↔MODE MAPPING (concretely)
+
+Per the quarter-fork (§4b.3): ~27 modes per 128-thread flat quarter ⇒ **≤1 mode/thread**.
+
+- **Index math.** For flat quarter `qn ∈ {1,2,3}`, thread with `indexInQuarter == j` owns flat mode
+  `flatLocalId = j` of that quarter's group iff `j < modesInThisQuarter`. Its **global** flat-mode
+  index (for the contiguous mode-state buffer, §6) is
+  `flatModeIndex = flatBase(blockNo, qn) + j`, where `flatBase` is baked at packing time into a new
+  per-thread `parameters[...]` slot alongside the existing `modeNo` bake (`Kernels.cu:298` **[SRC]** —
+  same mechanism, new slot; §7.2). The thread also reads its baked **group id** (= `qn` for
+  one-group-per-quarter) and the `w_g`/`a_in`/`a_out` offsets.
+- **Owner predicate:** `bool ownsFlatMode = (quarterNumber != 0) && (indexInQuarter < modesInThisQuarter);`
+- **Idle threads (128 − ~27 ≈ 101 per flat quarter) MUST contribute identity, not garbage** in the
+  reductions:
+  - feedback shuffle: a non-owner lane feeds `0.0` (additive identity) into `warpReduceSum` — so its
+    garbage `q` register never enters `modeSum_g`. Concretely the per-lane input is
+    `ownsFlatMode ? (a_out(m)*q) : 0.0f`. Because the fork is warp-uniform (`quarterNumber` constant
+    per warp, §4b.2) and `FULL_MASK` is used (`:24`), **all 32 lanes are active** in the shuffle — the
+    non-owners just contribute 0. This is REQUIRED: `warpReduceSum` uses `FULL_MASK` (`:24`), so every
+    lane MUST hold a valid (identity) value or the butterfly sums uninitialised registers. Initialise
+    the per-lane accumulator to `0.0f` before the owner-conditional write.
+  - feedin: handled by the 4-element single-thread sum (§5.5.3 note), so idle mode-threads are
+    irrelevant there.
+- **No `M_t` loop needed** at ≤1 mode/thread; if a denser packing is later chosen (`M_t>1`, §3.4),
+  the owner predicate becomes a short unrolled per-thread loop over `M_t` and each iteration feeds the
+  shuffle separately (or pre-sums the thread's `M_t` modes into one lane value first).
+
+### 5.5.6 INTEGRATION — combining flat + shaped + string output into the per-sample stem
+
+The flat feedback adds into the **same** stem feedback accumulator as the shaped path, preserving the
+current audio tap. Ordering within one sample of the loop (`:427-702`), with required barriers:
+
+1. **Feedback assembly (loop top, `:433-448`).**
+   - Quarter 0 (shaped): existing per-(string,mode) scatter into `feedback_cycle_matrix` (`:441-442`).
+   - Quarters 1–3 (flat): form `modeSum_g` (§5.5.3) → `s_flat_feedback[qn]`.
+   - `allThreads.sync()` (`:447`) — barrier so both shaped scatter and flat group sums are complete.
+2. **Per-string feedback reduction (`:469-472`).** Run the existing `sumArray` for the **shaped**
+   contribution into `s_feedback`. Then **add the flat contribution**: for each output point `s`,
+   `feedback = s_feedback[stringInArr] + Σ_{qn=1..3} w_{g(qn)}(s) · s_flat_feedback[qn]` (for uniform
+   `w=1`, just `+ Σ s_flat_feedback[qn]`). This single addition is the integration point — flat and
+   shaped feedback are summed BEFORE the stem overwrite (`:472`) and the audio tap (`:497`).
+   `allBlocks.sync()` is already present (`:448`) for the cross-block shaped reduction; the flat group
+   sum being block-local needs no additional grid sync.
+3. **Audio emit (`:493-528`).** Unchanged — reads the combined `feedback`.
+4. **String FDTD inner loop (`:531-587`).** Unchanged — the stem boundary now carries shaped+flat
+   feedback. Produces `force_on_bridge_summed[0..3]` (`:599`) after `:602` sync.
+5. **Feedin assembly (`:619-641`).**
+   - Quarter 0 (shaped): existing scatter into `feedin_cycle_matrix` + cross-block `sumArray` (`:641`).
+   - Quarters 1–3 (flat): compute `groupForceSum_g` (§5.5.3 note, 4-string sum) → `s_flat_feedin[qn]`,
+     then `F_applied(m) = a_in(m)·groupForceSum_g`.
+   - Barriers `:627-628` (`allThreads.sync()` + `allBlocks.sync()`) bound this — unchanged for shaped;
+     the flat 4-string sum needs only the `allThreads.sync()` already at `:602`/`:627`.
+6. **Oscillator advance (`:666-676`).** Quarter 0: gated shaped advance (unchanged). Quarters 1–3:
+   ungated register advance (§5.5.2b) using `F_applied(m)`.
+7. **Cycle-end persist (`:739-743`).** Quarter 0: existing `mode_running[modeNo] = s_mode[...]`. Flat:
+   write each register `q`/`q_prev` to the contiguous flat working buffer at `flatModeIndex`
+   (mirrors `:741-742`, new indices; §6, §7.3).
+
+**No NEW grid barriers are required** beyond the two the loop already has (`:448`, `:628`): the flat
+group reductions are block-local. The flat path slots into the existing barrier structure; only the
+*content* between barriers changes (forked by `quarterNumber`).
+
+### 5.5.7 NUMERICAL — fp32 accumulation of the group sums
+
+`real = float` (`pianoid_types.h:6,16` **[SRC]**), so every group sum is single-precision.
+
+- **Per-quarter `modeSum_g`** sums ~27 terms `a_out(m)·q(m)` — small, low cancellation risk; plain
+  fp32 warp-shuffle (`warpReduceSum`) is adequate.
+- **`groupForceSum_g`** sums only 4 string terms — negligible risk.
+- **Cancellation risk concentrates at any GLOBAL combine** (§7 if flat groups span the whole instrument
+  or are later summed across all blocks): summing toward ~4000 flat modes' contributions in fp32 is the
+  substrate §0b.7 #3 / §0d.4 #5 risk. **Mitigation only where the accumulation width is large:**
+  - Per-quarter (≤27) and per-block (≤80): plain fp32 is fine.
+  - Any cross-block flat total (if a single global flat group is chosen, Phase 2): use **Kahan
+    compensation** in the cross-block combine, or a **double accumulator** for the final scalar (cast
+    the per-block fp32 partials to `double`, sum in double, cast back). Double atomics are emulated
+    (the commented-out `atomicAddDouble`, `MainKernel.cu:33-42` [SRC]) — prefer Kahan in fp32 over
+    emulated-double atomics for throughput.
+- **Where to spend it:** put the compensated accumulation ONLY on the widest sum (the global/cross-
+  block one). The block-local ~27-element sums do not warrant Kahan. This matches §10 #5.
+
+### 5.5.8 PSEUDOCODE — per-sample flat-quarter logic (for the /dev implementer)
+
+> Pseudocode for the **`quarterNumber != 0`** branch of the §7.3 fork, one sample of the loop
+> (`MainKernel.cu:427`). Shaped quarter (0) keeps its current code verbatim. `g = quarterNumber` is
+> the group id (one group per flat quarter). Barriers named to match the current loop.
+
+```c
+// ---- PER-THREAD SETUP (once, before the sample loop; baked indices from Kernels.cu) ----
+bool isFlat        = (quarterNumber != 0);
+int  g             = quarterNumber;                       // group id (1..3)
+int  flatLocalId   = indexInQuarter;                      // 0..127
+int  flatModeIndex = flatBase[blockNo][g] + flatLocalId;  // baked slot (Kernels.cu:298 analogue)
+bool ownsFlatMode  = isFlat && (flatLocalId < modesInQuarter[g]);
+
+// register-resident oscillator state (loaded once from contiguous flat working buffer)
+real q = 0, q_prev = 0, dec = 0, omega = 0, mass_inv = 0, a_in = 0, a_out = 0;
+if (ownsFlatMode) {
+    q        = (status==500) ? 0 : flat_running[flatModeIndex];                 // cf. :311
+    q_prev   = (status==500) ? 0 : flat_running[numFlat + flatModeIndex];       // cf. :312
+    dec      = flat_state[flatModeIndex];                                       // cf. :315
+    omega    = flat_state[numFlat + flatModeIndex];                            // cf. :316
+    mass_inv = flat_state[2*numFlat + flatModeIndex];                          // cf. :317
+    a_in     = flat_gain_in[flatModeIndex];                                     // NEW (replaces deck col)
+    a_out    = flat_gain_out[flatModeIndex];                                    // NEW (replaces deck row)
+}
+// w_g(s): 4 reals per group for this block's strings (shared/global), loaded once
+real w_g[NUM_STRINGS_IN_ARRAY];   // w_g[0..3] for this group g
+
+for (sample = 0; sample < samplesInCycle; ++sample) {           // == MainKernel.cu:427
+
+  // ===== (c) FEEDBACK: mode -> output, block-local group reduction =====
+  if (g>=1 && indexInQuarter < 4) s_flat_feedback[g] = 0.0;     // zero group slot (cf. :293)
+  allThreads.sync();                                            // cf. :447
+
+  real fb_in = ownsFlatMode ? (a_out * q) : 0.0f;               // identity for idle lanes (§5.5.5)
+  real warpSum = warpReduceSum(fb_in);                          // MainKernel.cu:21-30 (FULL_MASK)
+  if ((stMdIndex % WARP_SIZE) == 0) atomicAdd(&s_flat_feedback[g], warpSum);   // cf. :61-62
+  allThreads.sync();                                            // group sum ready (cf. :447/:484)
+
+  // integrate flat feedback into the SAME stem accumulator as shaped (§5.5.6 step 2)
+  if (onStem) {
+      real flat_fb = 0.0f;
+      for (int gg=1; gg<=3; ++gg) flat_fb += w_for_point(gg, s) * s_flat_feedback[gg];  // w=1 ⇒ sum
+      feedback += flat_fb;                                       // added to s_feedback[...] (:472)
+  }
+  allBlocks.sync();                                             // already at :448 (shaped path)
+
+  // ===== AUDIO EMIT (:493-528) and STRING FDTD INNER LOOP (:531-587): UNCHANGED =====
+  // ... produces force_on_bridge_summed[0..3] at :599, sync at :602 ...
+
+  // ===== (a) FEEDIN: force -> mode, factored =====
+  if (g>=1 && indexInQuarter == 0) {                            // 4-string sum, one thread/group
+      real fsum = 0.0f;
+      for (int s=0; s<numStringsInArray; ++s) fsum += w_g[s] * force_on_bridge_summed[s];
+      s_flat_feedin[g] = fsum / soundStep;                      // cf. :623 (/soundStep)
+  }
+  allThreads.sync();                                            // cf. :627
+  real F_applied = ownsFlatMode ? (a_in * s_flat_feedin[g]) : 0.0f;   // per-mode fan-out (replaces :671)
+
+  // ===== (b) OSCILLATOR ADVANCE: register-only, ungated (§5.5.2b; transcribed :668-672) =====
+  if (ownsFlatMode) {
+      real result = ((2*q - q_prev) + q_prev*dec - q*omega + F_applied*mass_inv) * (1 - dec);
+      q_prev = q;
+      q      = result;
+  }
+  allThreads.sync();                                            // cf. :678
+  // (shaped quarter 0 runs its gated advance + cross-block sumArray in parallel, unchanged)
+}
+
+// ===== CYCLE-END PERSIST (§5.5.6 step 7; cf. :739-743) =====
+if (ownsFlatMode) {
+    flat_running[flatModeIndex]           = q;        // cf. :741
+    flat_running[numFlat + flatModeIndex] = q_prev;   // cf. :742
+}
+```
+
+> **Implementer notes.**
+> 1. The fork wraps this whole body in `if (quarterNumber == 0) { /*shaped, current code*/ } else
+>    { /*above*/ }` — warp-uniform, zero intra-warp divergence (§4b.2).
+> 2. `w_for_point(gg, s)` = the group's coupling at output point `s`; for the Phase-2 uniform case it
+>    is `1.0` and the loop collapses to `feedback += Σ s_flat_feedback[gg]`.
+> 3. The idle-lane `0.0f` initialisation before the owner-conditional is **load-bearing** (FULL_MASK
+>    shuffle, §5.5.5) — do not guard the shuffle itself with `ownsFlatMode`.
+> 4. Replace plain fp32 atomics with Kahan only on any cross-block flat total (§5.5.7), not on the
+>    ≤27-element per-quarter sums.
+
+### 5.5.9 UNCERTAINTIES / ASSUMPTIONS specific to this section
+
+- **[UNCERTAIN] Flat group string-span.** Whether a flat group's coupling spans only its block's 4
+  strings (intra-block feedin, as the pseudocode assumes — cheaper, no cross-block gather) or all
+  strings (needs a cross-block feedin gather, tightening the §4b.5 SEGMENT caveat). The substrate's
+  separable-sum math (§0b.2) is written global-over-strings; the quarter-fork's block-locality
+  (§4b.5) favours intra-block. **Must be decided/measured (§12) — it changes whether the feedin
+  reduction is the cheap 4-element sum or a SEGMENT-wide one.**
+- **[EST] One-group-per-flat-quarter** is the clean default; >3 groups/block needs sub-range packing
+  or extra blocks (§5.5.4).
+- **[UNCERTAIN] a_in == a_out (reciprocity).** Saves a register + an array; depends on the physical
+  model's deck symmetry (§12.2) — assumed distinct here to be safe.
+- **[SRC-confirmed] The advance is per-mode independent** (`:668-672`) and the **feedback/feedin are
+  exact factorisations** of the shaped scatters (`:441-442, 622-623`) under `deck[s,m]=w_g(s)·a(m)`.
+  The ONLY approximation is the choice to flatten/group (§9, §10 #3) — the per-sample mechanics above
+  are exact given that choice.
+- **[SPEC] `warpReduceSum` + FULL_MASK** requires all 32 lanes valid — the idle-lane identity
+  (§5.5.5) is mandatory, not optional.
+
+---
+
 ## 6. Data Layout
 
 | Structure | Today | Under the split |
