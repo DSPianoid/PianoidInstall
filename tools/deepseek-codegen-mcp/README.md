@@ -80,6 +80,8 @@ It returns `""` only when there is genuinely no content, which the caller maps t
 | `requirements.txt` | `mcp` (runtime) + `pytest` (tests). **No `openai`** — the API call uses only the standard library. |
 | `test_core.py` | Unit tests (no network): model-pin, prompt construction, code extraction, the C++/CUDA refusal (incl. `.h` at non-space boundaries), missing-key/empty-input guards, the `local`-backend TODO, the `to_tool_result` status mapping. |
 | `test_integration.py` | Integration tests; the live one makes ONE real DeepSeek call and verifies the returned code passes a provided test. **Auto-skips** without a key or network. |
+| `batch_pipeline.py` | **Batch** codegen pipeline (pure-Python, zero-LLM-in-the-loop): N `(spec, test)` pairs → delegate (+ optional DeepSeek self-review) → caller's test gate → re-delegate ≤K → escalate. Parallel, test-gated, never ships a failing body. CLI; imports `core.py` directly. See "Batch pipeline" below. |
+| `test_batch_pipeline.py` | Unit tests for the batch pipeline (stubbed `core` — no network): manifest forms, the **escalation invariant** (shipped file iff test passed), escalation + retry-to-cap, cost math, thin-test warning, self-review wiring. |
 
 ## The tool
 
@@ -166,6 +168,83 @@ well-specified single function in **Python or JS/TS/React** — any language wit
 See the proposal §4 for the full control flow. The exact `/fn.md` edit is drafted in
 `docs/proposals/` companion notes / handed to the orchestrator (the `/fn` skill is applied at the
 orchestrator level, not by sub-agents).
+
+## Batch pipeline (`batch_pipeline.py`)
+
+For generating **several** functions in one run (a suite, a module of helpers/adapters), the batch
+pipeline is the path where delegation actually pays off — it is **pure-Python orchestration with NO LLM
+in the loop except DeepSeek**, so the Claude-side per-round-trip cost that makes single-function
+delegation net-negative (see
+[`deepseek-delegation-overhead-2026-06-06.md`](../../docs/proposals/deepseek-delegation-overhead-2026-06-06.md))
+is ~0. Design + sign-off:
+[`deepseek-batch-pipeline-production-2026-06-06.md`](../../docs/proposals/deepseek-batch-pipeline-production-2026-06-06.md).
+
+```
+<venv-python> tools/deepseek-codegen-mcp/batch_pipeline.py --manifest <dir-or-json> [--out <dir>] \
+    [--report <path>] [--concurrency 4] [--max-delegations 3] [--review-ds on|off] \
+    [--expose bodies|signatures] [--venv-python <py>]
+# exit 0 iff every function shipped a test-passing body; non-zero if any escalated (or a config error).
+```
+
+- **Manifest** — a **directory** with per-function files `<name>.spec.md`, `<name>.test.<ext>`
+  (REQUIRED — no test ⇒ hard config error, never a silent skip), optional `<name>.constraints.md` +
+  `<name>.meta.json` (`{target_module, language, xp_agnostic, deps}`); OR an explicit `manifest.json`
+  (`{"functions":[{name, language?, spec, test, constraints?, target_module?, xp_agnostic?, deps?}]}`
+  with paths). `deps` defaults to `[]` (a leaf); `xp_agnostic` defaults to a spec/test `xp`-token heuristic.
+- **Per function:** delegate → optional **DeepSeek self-review** (a 2nd, sharper DeepSeek call that
+  critiques+repairs against an error-contract / forbidden-construct checklist — **default ON**, cheap,
+  validated to catch the known corner-cuts; `--review-ds off` to skip) → run the caller's test → on
+  failure, re-delegate feeding the failure tail back, up to `--max-delegations` (default 3).
+- **Test-harness conventions (both supported):** (a) **bare import** — the test does
+  `import impl_<name>` (the pipeline writes the body as `impl_<name>.py` and writes the test under a
+  pytest-collectable name); (b) **conftest/`_candidate`** — if the manifest dir has a `conftest.py`
+  and/or `pytest.ini`, the pipeline copies them into the gate's temp dir and sets `SYNTHDS_CANDIDATE`
+  to the written body, so a test that does `from _candidate import <name>` resolves. The body is the
+  candidate either way.
+- **Parallel** — each function's full chain runs in its own thread, capped at `--concurrency`
+  (default 4); wall-clock = the slowest chain, not the sum.
+- **Escalation (never ships a failing/missing body):** a function still red after K delegations is
+  marked `escalated` — the CLI **exits non-zero**, writes **no** shipped file for it (only a
+  `<module>.escalated` reference + the failure tail), and the caller (Claude) writes that function
+  itself. **Invariant:** a shipped `<module>` file exists **iff** that function's test passed.
+- **Harness error vs code failure:** a pytest **collection/import** error (the test setup is broken,
+  not the body) is classified `status:"harness_error"` — **not** counted as a code failure and it does
+  **not** consume the re-delegation budget (re-delegating can't fix a broken gate). Exits non-zero with
+  a `<module>.escalated` note saying the setup needs fixing.
+- **Dual-backend signal (Gap A — array-module-agnostic targets):** for functions flagged `xp_agnostic`
+  (e.g. numpy-in-test / cupy-in-prod, the array module passed as the last `xp` param), the pipeline
+  parses the gate's pytest output for which backends actually ran (`[numpy]` / `[cupy]` parametrisation
+  ids) and reports `xp_backends_tested`. If an xp-agnostic function's gate never ran `cupy`, it sets
+  **`xp_untested`** (WARN-ONLY, like `thin_test_warning` — a numpy-only/no-GPU box is a legitimate run;
+  the flag says "this body's cupy path was not validated here"). Surfaced as `" XP-UNTESTED!"` in the
+  console. (The manifest's `conftest.py` parametrises `xp` over `{numpy, cupy-if-importable}`; cupy
+  absence is a clean skip.)
+- **Sibling-dependency awareness (Gap B — declare → schedule → expose):** each function's
+  `meta.json` `deps` names the sibling functions it may CALL. The pipeline validates them (a dangling
+  name or a cycle is a `ConfigError`), schedules in **topological layers** (leaf helpers first,
+  parallelising within each layer, blocking per layer so a dependent never starts until its deps have
+  shipped), and **exposes** each already-shipped dependency to the dependent's prompt — `--expose
+  bodies` (default for Python; passes the canonical body so the delegate calls it, not re-derives it) or
+  `--expose signatures` (default for jsx/tsx/react; the public contract only). The exposure also reaches
+  the self-review (so it doesn't repair a correct sibling-call into an inline copy), and the gate
+  **prepends shipped dep bodies into the candidate module** so the dependent's calls resolve. A dep that
+  failed to ship is recorded in `deps_unsatisfied`.
+- **Report** (`--report`, default `<out>/report.json`): `summary{n, shipped, escalated, harness_errors,
+  xp_untested_count, xp_backends_available, total_cost_usd, wall_ms, model, deps_graph, layers}` +
+  per-function `{status, public_test_passed, harness_error, n_delegations, attempts, deepseek_tokens,
+  cost_usd, thin_test_warning, xp_agnostic, xp_backends_tested, xp_untested, deps, deps_unsatisfied,
+  review{fired,changed}, escalation_reason}`.
+- **Correctness:** non-thinking DeepSeek cuts edge-case corners; the **caller's test is the gate**, the
+  self-review widens what's caught before the gate, and escalation is the backstop. A **thin-test
+  warning** flags functions whose test looks shallow (`< 3` asserts or no exception-raising case).
+- **It never writes into the repo, commits, or branches** — bodies go to `--out`; the caller applies them.
+- **Residuals (honest):** (1) `xp_untested` is WARN-only — on a no-GPU box the cupy path is genuinely
+  unvalidated; run on a CUDA box (or accept the risk). (2) `deps` is a **human planning act** — the
+  pipeline validates + schedules + exposes declared edges, but does not auto-infer them from spec prose;
+  an undeclared sibling call won't be exposed (and a dependent re-implements it). (3) the dual-backend
+  contract assumes **array inputs arrive as `xp` arrays** (the test/caller moves them onto `xp`) and the
+  body lifts only **host-drawn intermediates** (e.g. a numpy RNG result) with `xp.asarray` — this is the
+  exact host→device boundary the gate guards.
 
 ## Tests
 

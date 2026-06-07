@@ -38,6 +38,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      COMMITTED on feature/deepseek-codegen-mcp (Phase 1 — SHA in session log). NOT merged, NOT pushed
      (awaiting user merge/push approval — Phase 2 pending team-lead relay). Session log NOT yet archived
      (Phase 2). -->
+<!-- dev-dsfix locks RELEASED 2026-06-07 at Step 10a Phase 1 commit (user-approved "commit your scope ONLY",
+     NO merge/push). PRODUCTIONISED the L3 batch codegen pipeline: NEW tools/deepseek-codegen-mcp/
+     batch_pipeline.py + test_batch_pipeline.py (standalone CLI: manifest → parallel delegate → DeepSeek
+     self-review → test gate → re-delegate ≤K → escalate; never ships a failing body, invariant shipped-iff-
+     passed) + the 2 real-life gap fixes (conftest/_candidate gate convention; collection-error→harness_error
+     no-retry) + Gap A (dual-backend xp_untested signals) + Gap B (deps DAG: validate/topo-layer/expose,
+     --expose). core.py UNCHANGED (context_snippets already existed). Held: tools/deepseek-codegen-mcp/
+     batch_pipeline.py + test_batch_pipeline.py + README.md (server.py/test_integration.py/core.py NOT edited
+     this phase). PROVEN: full repo suite 67/67; real Arm B re-run 17/17 (dual-backend both [numpy]+[cupy],
+     3 dependents CALL their helpers). Committed on feature/deepseek-codegen-mcp (Phase-1 SHA in session log);
+     NOT merged, NOT pushed. Design/analysis proposals (docs/proposals/deepseek-*.md) committed by team-lead.
+     fn.md/dev.md = orchestrator-owned (untouched). Session log NOT archived (Phase 2 pending — not merged). -->
 <!-- (none active for dev-dsfix — released at Phase 1) -->
 | <!-- (none) --> | | | |
 <!-- dev-wave3split-f634 locks RELEASED 2026-06-06 at Step 10a Phase 2 (user-approved "Merge and push" via Telegram;
