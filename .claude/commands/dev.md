@@ -689,6 +689,17 @@ Mechanism + setup: `/fn` Step 2a and `tools/deepseek-codegen-mcp/README.md`.
 - The function's behavior can only be verified through the full system (no isolated test possible)
 - The change is so trivial that writing the spec would take longer than the edit
 
+### Context hygiene & spawn-cost discipline (cost control)
+
+Every Opus turn re-reads the agent's **entire accumulated context** as cache-read before it does anything — that re-read (not the work) is ~65% of cost. So the levers are: make fewer turns, and keep each turn's resident context small. Apply these to this agent AND to how it shapes `/fn` work:
+
+- **Read narrowly.** Read the target function span with `offset`/`limit`, not the whole file, when one function is in scope. Read the one gating test, not the whole suite / `SUITE.md`.
+- **Test once at the end** of a function, not after each speculative edit (review-on-red). The 4×-incremental-pytest pattern re-reads ~50k each time — three wasted turns ≈ $0.13 on a 3-function run.
+- **Prune stale tool output.** Once a function is green, don't keep its full diff + every intermediate pytest dump resident — summarize to one line in the **session log** (the durable record) and move on. Prune *stale* output, never *load-bearing* context (Data Model Card facts, the spec, the current test).
+- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **~$0.15 startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2 (measured: +38% at N=3, +60% at N=10). **Never spawn an Opus sub-agent for a unit of work smaller than ~$0.15 — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY paired with a cheap model (the infra-gated cheap-`/fn` lane).
+
+(Full cost model + measurements: `docs/proposals/minimize-opus-calls-dev-pipeline-2026-06-06.md`.)
+
 ### Prepare tests FIRST (dev agent responsibility)
 
 Before spawning a sub-agent, the dev agent must ensure a test exists for the function. This is the dev agent's job, not the sub-agent's.

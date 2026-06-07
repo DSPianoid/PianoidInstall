@@ -100,6 +100,16 @@ Keep entries terse — this log will be incorporated into the parent's log.
 
 The `[BASH-CALL]` / `[MCP-CALL]` pairs and the `[PROGRESS]` heartbeat feed the controller's freshness check (tiered: a fast 3-min scan with an 8-min stall threshold, plus a 15-min deep sweep). A `[PERM-RISK]` marker left as the newest line of a stale log is the single strongest signal of a CLI permission stall. The `[READ]` / `[GREP]` markers feed the Documentation-First compliance check. Failure to emit is itself a Tier-2 violation.
 
+## Context Hygiene (cost discipline)
+
+Every turn re-reads this agent's **entire accumulated context** before it does anything — that re-read, not the work itself, is the majority of the cost (~65%). Keep the resident working set small:
+
+- **Read narrowly.** Read the **target function span** with `offset`/`limit`, not the whole file, when only one function is in scope; read the **one gating test**, not the whole suite / `SUITE.md`. Don't load module docs "for context" the function doesn't touch — if a fact isn't cited in your reasoning, it needn't stay resident.
+- **Test once.** Run the gate **once** when the function is complete, not after each speculative edit — each full test turn re-reads your whole context; the 4×-incremental-pytest pattern is the canonical waste. Use the Step-4b debug loop only after the single run goes red.
+- **Prune stale output.** After the function is green, don't keep its full diff + every intermediate test dump resident — the durable record is the **session log**, not the live context. Prune *stale* output, never *load-bearing* context (the spec, the current test, cited doc facts).
+
+(Cost model + measurements: `docs/proposals/minimize-opus-calls-dev-pipeline-2026-06-06.md`.)
+
 ## Step 1: Read Context
 
 Read the files specified in `context_files` (if any) and the `target_file` itself.
