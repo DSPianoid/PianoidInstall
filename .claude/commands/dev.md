@@ -669,6 +669,7 @@ When a task decomposes into functions with clear, testable acceptance criteria, 
 
 - **Routine, DeepSeek-eligible function** (the common case) → **/dev does NOT spawn a `/fn` per function.** It writes the spec + test + picks the context snippets, then delegates the codegen to **DeepSeek through the batch pipeline** (`tools/deepseek-codegen-mcp/batch_pipeline.py`) — **uniformly, even for a single function** (a 1-function manifest; no direct-call special case). The pipeline delegates + runs the per-function test gate + flags failures in pure Python (zero Opus per function — the strategy-C win: one designing /dev agent beats N spawned `/fn` workers each re-paying the ~$0.15 startup tax). Clean pass → apply, done. Failure → see **On DeepSeek failure** below.
   - *Eligible WHEN (all hold):* Python (`.py`/pytest) or JS/TS/React (`.js/.jsx/.ts/.tsx`/Jest — PianoidTunner included), or any language with a fast isolated test gate; a single, pure, well-specified unit; the test is written FIRST (see "Prepare tests FIRST" below).
+  - *Manifest layout + CLI:* one directory, per function `<name>`: `<name>.spec.md` (signature + behaviour) · `<name>.test.py` (the gate — imports the candidate as `import impl_<name>`) · `<name>.meta.json` (`{target_module, language, xp_agnostic, deps:[<sibling helpers it may call>]}`) · shared `conftest.py`/`pytest.ini` if needed. Run: `PianoidCore/.venv/Scripts/python tools/deepseek-codegen-mcp/batch_pipeline.py --manifest <dir> --out <outdir> --review-ds on --expose bodies --concurrency 4` → shipped bodies land in `<outdir>/impl_<name>.py` (or `<name>.escalated` on a gate failure). Full reference: `tools/deepseek-codegen-mcp/README.md` → "Batch pipeline".
 - **Judgment-heavy function** (genuine design judgment a hard test can't fully pin) → /dev's discretion: **write it inline** (pruning between functions per Context hygiene below), OR **spawn an Opus `/fn`** sub-agent for it (the enforced-clarity + isolation path — the Spawning procedure below). Reserve the `/fn` spawn for a unit large enough to clear the ~$0.15 spawn tax AND needing Opus judgment.
 - **HARD RULE — never DeepSeek:** any `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++) change, and any cross-cutting or multi-file refactor, stays on **Claude /dev** (write inline or via an Opus `/fn`) — never DeepSeek. (The MCP tool also refuses C++/CUDA as a backstop, but the gate is /dev's routing decision first.)
 
@@ -733,7 +734,9 @@ The test file **persists in the project** — it is not disposable scaffolding. 
 
 **Write the test, commit-stage it, then reference it in the sub-agent spawn.** This way the test survives regardless of the sub-agent's outcome.
 
-### Spawning procedure
+### Spawning procedure (for a `/fn` spawn — judgment or debug, NOT the routine pipeline path)
+
+> The procedure + markers below (`[TEST-WRITTEN]` / `[FN-SPAWNED]` / `[FN-RESULT]`) apply when you SPAWN a `/fn` agent — i.e. a *judgment-heavy* function or a *debug-on-DeepSeek-failure*. The routine DeepSeek path (above) runs the **pipeline** instead and emits no `[FN-SPAWNED]` — its gate is the pipeline's per-function test run.
 
 1. **Decompose** — for each function, define:
    - `target_file`: absolute path to the file to edit
