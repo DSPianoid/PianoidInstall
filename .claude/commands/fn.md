@@ -130,6 +130,8 @@ The controller verifies parent-lock inheritance: if `target_file` is not in `hel
 
 Log the edit: what changed, line numbers, rationale.
 
+**Array-module-agnostic targets (MANDATORY dual-backend test).** If the function takes an array module (`xp`, or otherwise dispatches over numpy/cupy/torch), the test MUST exercise **both** backends — a numpy-only test does **not** validate the cupy path and ships latent host/device bugs (e.g. mixing a host `rng.standard_normal(...)` into a device array → `cupy + numpy` under `xp=cupy`). Parametrise the array module over `{numpy, cupy-if-importable}` (skip cupy cleanly when unavailable, but record that it was skipped — never hide it). Only after the test runs under both backends may you delegate the body to DeepSeek (Step 2a) or write it yourself. **The cupy parametrisation is the gate that forces `xp.asarray(...)` on any host-drawn array** — without it the bug ships green (2026-06-06 A/B: a `signal + numpy_noise` add passed the numpy-only gate and would have failed under cupy).
+
 ## Step 2a (optional): Delegate codegen to DeepSeek
 
 Before writing the function yourself, you MAY offload the *body* to DeepSeek via the `deepseek-codegen` MCP tool — Claude still owns the test, the review, the build, the test run, the debug loop, and the commit. This is opt-in and falls back silently to writing it yourself.
@@ -138,6 +140,7 @@ Before writing the function yourself, you MAY offload the *body* to DeepSeek via
 - `target_file` is Python (`.py`, tested via pytest) OR JavaScript/TypeScript/React (`.js/.jsx/.ts/.tsx`, tested via Jest) — pass the matching `language` to the tool. HARD-EXCLUDED: `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++ — HC-1). Other languages are fine too wherever a fast isolated test gate exists.
 - The function is a single, pure, well-specified responsibility (the `/fn` envelope) — not a cross-cutting refactor.
 - A concrete test exists already (the caller's `test_command` + the test source) — HC-2: never delegate without the test.
+- If the target is **xp-agnostic**, that test must already be **dual-backend** (per the MANDATORY rule above). Delegating against a numpy-only test re-introduces the blind spot — DeepSeek will (correctly, per its prompt) make the numpy-only test pass and leave the cupy path broken.
 
 **Procedure:**
 1. Emit `[MCP-CALL] {ts} server=deepseek-codegen tool=delegate_codegen args_summary=<fn name>`.
@@ -147,6 +150,8 @@ Before writing the function yourself, you MAY offload the *body* to DeepSeek via
 5. On `status:"refused"` or `status:"error"`: write the function yourself (normal Step 2) — no retry needed.
 
 Note: DeepSeek output is never trusted, only tested — Step 4 (the Claude-written test) is the gate. If the applied code fails the test after the Step 4b ≤3-iteration debug loop, discard it and rewrite from scratch.
+
+**Reuse existing helpers (don't let DeepSeek re-implement).** If the function should call an **existing** helper (in the repo, or one written earlier in this `/dev` run), put that helper's **signature** in `context_snippets` with an explicit "call this; do NOT re-implement." (To generate **several interdependent** functions at once, use the **batch pipeline** `tools/deepseek-codegen-mcp/batch_pipeline.py`, which declares dependencies, builds leaf helpers first, and exposes them automatically — a lone Step-2a delegation has no sibling context, so it WILL re-implement an undeclared helper.)
 
 ## Step 3: Build (if needed)
 

@@ -673,6 +673,10 @@ Function-level work delegated to `/fn` can have its codegen step offloaded to **
 
 Mechanism + setup: `/fn` Step 2a and `tools/deepseek-codegen-mcp/README.md`.
 
+**Dual-backend tests for array-agnostic functions (MANDATORY).** When a function takes an array module (`xp`, numpy/cupy/torch), the test you prepare FIRST must exercise **both** numpy AND cupy — a numpy-only test ships latent cupy bugs (the 2026-06-06 A/B shipped a `cupy + numpy` add the numpy-only gate never caught). See the dual-backend rule in `/fn` Step 2a; it governs the tests `/dev` writes before delegating, too.
+
+**Batching interdependent functions — declare deps.** When you route **≥2** functions to DeepSeek where some call others, use the **batch pipeline** (`tools/deepseek-codegen-mcp/batch_pipeline.py`) and DECLARE the dependency edges (each function's `meta.json` `deps` = the sibling helpers it may call). The pipeline then builds leaf helpers first and exposes them in the delegate prompt — otherwise each function is delegated in isolation and DeepSeek **re-implements** shared logic (in the 2026-06-06 A/B it re-implemented `compute_mac` in two functions and re-derived a helper instead of calling it). **Same rule for React:** a component that composes a shared component declares it as a dep, so the shared component is built first and its prop interface exposed — don't let DeepSeek re-create a `NumInput` (divergent styling/a11y/debounce that a Jest test rarely asserts).
+
 ### When to delegate
 
 - The function has clear inputs, outputs, and behavior that can be specified upfront
