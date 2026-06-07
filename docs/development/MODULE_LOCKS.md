@@ -15,7 +15,8 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-minopus | `tools/dev-pipeline/` (NEW dir: common.py + dev_init.py + dev_wrap_phase2.py + env_sweep.py + verify_phase1.py + marker_hook.py + README.md + tests/) | 2026-06-07T08:54:20Z | minimize-opus P1+P2 — bookkeeping scripts + deferred marker hook (NEW files only; disjoint from dev-dsfix's tools/deepseek-codegen-mcp/) |
+<!-- dev-minopus locks RELEASED 2026-06-07 at Phase-2 merge. tools/dev-pipeline/ (common.py + the 4 bookkeeping
+     scripts + marker_hook.py + README + tests) committed 5be7efa, merged to master a02b67b + pushed (d60fb57). -->
 <!-- dev-dsfix locks RELEASED 2026-06-06 at Step 10a Phase 1 commit (user-approved option A — commit only, NO
      merge/push). Took over dead deepseek-phase0's tools/deepseek-codegen-mcp/** lock and CONTINUED the
      integration: FIX deepseek-codegen MCP reliability (dir-1) + add NON-THINKING codegen mode (dir-2).
