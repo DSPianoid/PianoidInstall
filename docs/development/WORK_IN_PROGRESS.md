@@ -22,7 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-synth1 | Synthetic-dataset — **Phases 1-2 DONE** (P1 pure-fn core 17 fns dual-backend 356/356; P2 GPU sim + dataset writer, CPU↔GPU bit-parity + live import 201). Phases 3-4 (validation harness + frontend) PENDING. Committed feature/synthetic-dataset (P1 b9c0380, P2 e3658e4), NOT merged. | [log](logs/dev-synth1-2026-06-08-081806.md) | 2026-06-08 | In Progress |
+| dev-synth1 | Synthetic-dataset — **Phases 1-3 DONE** (P1 pure-fn core dual-backend 356/356; P2 GPU sim + writer, bit-parity + live import 201; P3 validation harness — clean lowest-band hits thresholds, band-mismatch low recall, 5/5 + 367 no-regression; root-caused+fixed dead-channel/boundary-node placement). Phase 4 (frontend) PENDING. Committed feature/synthetic-dataset (P1 b9c0380, P2 e3658e4, P3 37bd432), NOT merged. | [log](logs/dev-synth1-2026-06-08-081806.md) | 2026-06-08 | In Progress |
 | dev-mzoom | PianoidTunner UI: (3) system-wide selection + per-chart tie/untie zoom — **P2 (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the P1 Feedin reference. (1) matrices-zoom + (2) bar-chart toggle + (3) P0/P1 already MERGED + PUSHED. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2)+(3:P0/P1) MERGED to PianoidTunner dev + PUSHED (matrices-zoom f3ff30a, bar-chart toggle 795f559, P0/P1 Feedin 41b4737). **P2/P3 = REAL deferred follow-up awaiting the user's Feedin-reference test gate** — do NOT drop. Jest 88/941, eslint 0. |
 
 <!-- deepseek-phase0 + dev-dsfix + dev-minopus COMPLETED 2026-06-07 (Step 10a Phase 2, user-approved "merge+push"

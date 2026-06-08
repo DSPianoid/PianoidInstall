@@ -15,6 +15,25 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-synth1 Phase-3 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     orchestrator sequences Phase 4). Held (PianoidCore repo):
+       pianoid_middleware/modal_adapter/synth/validate.py (NEW — validation harness)
+       tests/integration/test_synth_validate.py (NEW)
+       pianoid_middleware/modal_adapter/synth/forward_model.py (re-edit: interior-receiver default fix)
+     Synthetic-dataset Phase 3 — validation harness: runs the REAL EspritRunner on a synthetic dataset →
+     match_modes#15 → precision_scorecard#17, scoring with the INDEPENDENT synth.metrics.compute_mac#12 (NOT
+     band_merging — circular-dep). 100% Opus-inline, 0 DeepSeek. ★Lowest-band-first surfaced + I root-caused
+     (by measurement, probe7) a DEAD-CHANNEL regime: default receivers sat on plate-boundary nodes (simply-
+     supported eigenmodes = 0 there) → noise poisoning ESPRIT. FIX: forward_model default receivers inset to
+     the plate INTERIOR (physics untouched — P2 CPU↔GPU parity still bit-exact) + harness amplitude-normalize
+     + a per-channel dead-channel diagnostic (channel_diagnostics, for the Phase-4 UI; captured into
+     DECISIONS.md comment 3 ★INTERIOR PLACEMENT). ACCEPTANCE both green: clean lowest-band hits thresholds on
+     5×5 AND 7×7 (median freq err 7e-5/1.3e-4 <1%, MAC 0.995 >0.95, recall 0.92 >0.9, all 4 modes); band-
+     mismatch → recall 0.0. 5/5 integration tests; 367 no-regression. Committed PianoidCore
+     feature/synthetic-dataset `37bd432` (off P2 e3658e4, +474/3 files). Pure Python + CuPy — NO CUDA/.cu, NO
+     rebuild. NOT merged/pushed. Docs (TESTING.md + proposal status PHASES-1-3) + log + ledger on
+     PianoidInstall master. -->
+<!-- dev-synth1 Phase-2 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
 <!-- dev-synth1 Phase-2 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      orchestrator sequences Phases 3-4). Held 3 NEW PianoidCore files + the synth/__init__.py edit:
        PianoidCore: pianoid_middleware/modal_adapter/synth/forward_model.py (NEW)

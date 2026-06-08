@@ -1,7 +1,20 @@
 # Synthetic Dataset Generator for ESPRIT-Tracker Validation
 
-**Status:** **PHASES 1-2 SHIPPED (2026-06-08, dev-synth1)** — Phases 3-4 PENDING (do NOT
-archive). Phase 1 = the pure-function core (all 17 §7.1 fns) in
+**Status:** **PHASES 1-3 SHIPPED (2026-06-08, dev-synth1)** — Phase 4 (frontend) PENDING (do
+NOT archive). **Phase 3** = the validation harness (`synth/validate.py`): runs the REAL,
+unchanged `EspritRunner` on a synthetic dataset → matches known↔detected (`match_modes`) →
+scores freq/Q/MAC/recall/precision (`precision_scorecard`), using the INDEPENDENT
+`synth.metrics.compute_mac` for SCORING (never the estimator's own `band_merging.compute_mac`
+— circular-dep). ★Lowest-band-first surfaced a real signal-conditioning regime: the default
+receivers sat on plate-boundary NODES (simply-supported eigenmodes are 0 on the boundary) →
+dead channels poisoning ESPRIT; FIXED by insetting the forward-model default receivers into
+the plate INTERIOR (physics untouched, P2 parity still bit-exact) + a per-channel
+dead-channel diagnostic. **Acceptance both green:** clean lowest-band hits thresholds (median
+freq err 7e-5/1.3e-4 < 1 %, median MAC 0.995 > 0.95, recall 0.92 > 0.9 on 5×5 & 7×7); a
+band-mismatched run surfaces recall 0.0 (scorecard catches the config gap). 5/5 integration
+tests; 367 no-regression. `tests/integration/test_synth_validate.py`. (Q/damping is reported
+per-mode but not gated — ESPRIT's damping estimate is noisier than frequency.)
+Phase 1 = the pure-function core (all 17 §7.1 fns) in
 `PianoidCore/pianoid_middleware/modal_adapter/synth/` (geometry / pulse / oscillator /
 metrics) with the 17 manifest tests at `tests/unit/test_synth_*.py` — **dual-backend gate
 356/356 green on numpy AND cupy** (DeepSeek shipped 16 routine fns first-try @ $0.011; Opus
