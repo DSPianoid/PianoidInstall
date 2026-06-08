@@ -1,12 +1,18 @@
 # Synthetic Dataset Generator for ESPRIT-Tracker Validation
 
-**Status:** DESIGN + A/B MANIFEST FOUNDATION. All 5 design questions signed off
-(2026-06-06): CuPy backend, analytic-core mode shapes, inline scorecard, extend-grid,
-thresholds-as-recommended. Physics refined to the **iterative force-driven model** per
-user direction (§3.4). The Phase-1 **A/B delegation manifest** (17 Python+CuPy functions,
-spec+test+constraints each) is built + validated against a private reference at
-`D:\tmp\synthds-ab\manifest\` — ready for the team lead to run the two A/B arms. No repo
-code/build/servers (the only repo write is this proposal).
+**Status:** **PHASE 1 SHIPPED (2026-06-08, dev-synth1)** — Phases 2-4 PENDING (do NOT
+archive). Phase 1 = the pure-function core (all 17 §7.1 fns) landed in
+`PianoidCore/pianoid_middleware/modal_adapter/synth/` (geometry / pulse / oscillator /
+metrics) on branch `feature/synthetic-dataset`, with the 17 manifest tests lifted to
+`PianoidCore/tests/unit/test_synth_*.py`. **Dual-backend gate: 356/356 green on numpy AND
+cupy.** Built via the Step-4b delegation model (DeepSeek batch pipeline shipped 16 routine
+fns first-try @ $0.011; Opus authored the one judgment fn `integrate_modal_oscillator`
+#8). The §3.4.2 parity cross-check passes (<1e-2 at the validated band). Stats ledger:
+`D:\tmp\synthds-build\{ledger.json,LEDGER.md}`. Remaining: Phase 2 (GPU sim
+orchestration), Phase 3 (validation harness), Phase 4 (frontend Synthesize section).
+Original design context (signed off 2026-06-06): CuPy backend, analytic-core mode shapes,
+inline scorecard, extend-grid, thresholds-as-recommended; iterative force-driven physics
+(§3.4); the A/B delegation manifest (17 fns) built + validated at `D:\tmp\synthds-ab\`.
 **Author:** `/analyse` (ana-synthds), 2026-06-06.
 **Scope:** A tool that synthesises a *ground-truth* multi-channel impulse-response
 dataset from a soundboard with **known** modes (frequency, quality factor, spatial

@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-synth1 | Synthetic-dataset Phase 1 — pure-fn core (17 fns) via Step-4b DeepSeek batch pipeline + Opus #8 | [log](logs/dev-synth1-2026-06-08-081806.md) | 2026-06-08 | In Progress |
 | dev-mzoom | PianoidTunner UI: (3) system-wide selection + per-chart tie/untie zoom — **P2 (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the P1 Feedin reference. (1) matrices-zoom + (2) bar-chart toggle + (3) P0/P1 already MERGED + PUSHED. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2)+(3:P0/P1) MERGED to PianoidTunner dev + PUSHED (matrices-zoom f3ff30a, bar-chart toggle 795f559, P0/P1 Feedin 41b4737). **P2/P3 = REAL deferred follow-up awaiting the user's Feedin-reference test gate** — do NOT drop. Jest 88/941, eslint 0. |
 
 <!-- deepseek-phase0 + dev-dsfix + dev-minopus COMPLETED 2026-06-07 (Step 10a Phase 2, user-approved "merge+push"

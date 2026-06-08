@@ -45,7 +45,13 @@ PianoidCore/tests/
     ├── test_play_listen_gate_regression.py # REST/WS `/play` must reach the EventQueue while the MIDI listener runs — guards the W4-P3 gate regression (5 tests)
     ├── test_health_listen_mode_regression.py # `GET /health` `listen_mode` must report `pianoid.mp.listen_to_modes` (engine listen-to-modes truth), NOT `pianoid.listen` (the MIDI-listener flag). Stub sets pianoid.listen to the inverse so a regression flips the value. Drives /health via test_client, no engine (dev-lmode, 3 tests)
     ├── test_project_export_import.py # Project export/import: zip creation, manifest validation, sanitisation, round-trip, name conflict resolution
-    └── test_start_right_away_binary.py # `/load_preset` `start_right_away` is BINARY 0/1 — value 1 starts the playback bg thread, 0/non-1 = init only; pins removal of dead value-2 (deprecated inline) + value-3 (no-op) branches. Drives load_preset_route via test_client with heavy deps monkeypatched, no engine (dev-5c3b, 5 tests)
+    ├── test_start_right_away_binary.py # `/load_preset` `start_right_away` is BINARY 0/1 — value 1 starts the playback bg thread, 0/non-1 = init only; pins removal of dead value-2 (deprecated inline) + value-3 (no-op) branches. Drives load_preset_route via test_client with heavy deps monkeypatched, no engine (dev-5c3b, 5 tests)
+    ├── conftest.py                  # `xp` fixture for the synth dual-backend tests below: parametrises {numpy, cupy-if-available}; cupy absence = clean skip. Only affects tests that request `xp` (the synth suite) (dev-synth1)
+    ├── test_synth_geometry.py       # synth.geometry (synthetic-dataset Phase 1): grid_point_coordinates, rect_plate_eigenmode, sample_shape_at_points, image_to_shape_grid. Dual-backend (numpy+cupy) via the `xp` fixture; lifted from the validated A/B manifest (dev-synth1)
+    ├── test_synth_pulse.py          # synth.pulse: raised_cosine_pulse, half_sine_pulse force pulses. Dual-backend (dev-synth1)
+    ├── test_synth_oscillator.py     # synth.oscillator: oscillator_zoh_coeffs (exact ZOH coeffs vs scipy expm), integrate_modal_oscillator (Opus-authored IIR vs scipy cont2discrete-zoh to <1e-8), modal_force_projection, accumulate_receiver_response. Dual-backend (dev-synth1)
+    ├── test_synth_metrics.py        # synth.metrics: compute_mac, relative_error, build_match_cost_matrix, match_modes (Hungarian/host), snr_scale_noise, precision_scorecard. Dual-backend (dev-synth1)
+    └── test_synth_parity.py         # synth parity: single_damped_oscillator_closed_form oracle + the §3.4.2 integrator-vs-closed-form cross-check (<1e-2 at the validated band; high-f corner pinned as sampling-limited). Dual-backend (dev-synth1)
 ```
 
 ## Running Tests

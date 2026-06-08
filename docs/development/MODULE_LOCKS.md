@@ -15,6 +15,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-synth1 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed — orchestrator
+     sequences Phases 2-4). Held 11 NEW files (all created this session, no conflict possible):
+     5 synth modules (pianoid_middleware/modal_adapter/synth/{__init__,geometry,pulse,oscillator,metrics}.py)
+     + tests/unit/conftest.py (the `xp` fixture) + 5 tests/unit/test_synth_{geometry,pulse,oscillator,metrics,parity}.py.
+     Synthetic-dataset Phase 1 — pure-fn core (17 xp-agnostic numpy/cupy fns) via the dev.md Step-4b
+     delegation model: DeepSeek batch pipeline shipped 16 routine fns first-try ($0.0107, 0 escalated, 0
+     harness errors); Opus authored the 1 judgment fn integrate_modal_oscillator (#8, exact-ZOH IIR). 3
+     dependents CALL their deps (compute_mac/relative_error/oscillator_zoh_coeffs). DUAL-BACKEND GATE:
+     356/356 green on numpy AND cupy (178+178, cupy genuinely ran on GPU). §3.4.2 parity cross-check
+     <1e-2 at the validated band. Committed PianoidCore feature/synthetic-dataset `b9c0380` (off dev
+     9f2c3b5, +1634/11 files). Pure Python + CuPy — NO CUDA/.cu, NO rebuild. NOT merged, NOT pushed
+     (awaits Phases 2-4 + user gate). Docs (TESTING.md + proposal status header) + session log + ledger
+     ref on PianoidInstall master. Stats ledger: D:/tmp/synthds-build/{ledger.json,LEDGER.md}. -->
 <!-- dev-minopus locks RELEASED 2026-06-07 at Phase-2 merge. tools/dev-pipeline/ (common.py + the 4 bookkeeping
      scripts + marker_hook.py + README + tests) committed 5be7efa, merged to master a02b67b + pushed (d60fb57). -->
 <!-- dev-dsfix locks RELEASED 2026-06-06 at Step 10a Phase 1 commit (user-approved option A — commit only, NO
