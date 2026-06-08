@@ -16,9 +16,10 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 <!-- dev-synth1 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed — orchestrator
-     sequences Phases 2-4). Held 11 NEW files (all created this session, no conflict possible):
-     5 synth modules (pianoid_middleware/modal_adapter/synth/{__init__,geometry,pulse,oscillator,metrics}.py)
-     + tests/unit/conftest.py (the `xp` fixture) + 5 tests/unit/test_synth_{geometry,pulse,oscillator,metrics,parity}.py.
+     sequences Phases 2-4). Held 11 NEW files, ALL in the **PianoidCore** repo (repo-relative paths;
+     all created this session, no conflict possible):
+       PianoidCore: pianoid_middleware/modal_adapter/synth/{__init__,geometry,pulse,oscillator,metrics}.py
+       PianoidCore: tests/unit/conftest.py (the `xp` fixture) + tests/unit/test_synth_{geometry,pulse,oscillator,metrics,parity}.py
      Synthetic-dataset Phase 1 — pure-fn core (17 xp-agnostic numpy/cupy fns) via the dev.md Step-4b
      delegation model: DeepSeek batch pipeline shipped 16 routine fns first-try ($0.0107, 0 escalated, 0
      harness errors); Opus authored the 1 judgment fn integrate_modal_oscillator (#8, exact-ZOH IIR). 3
