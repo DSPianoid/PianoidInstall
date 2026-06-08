@@ -1,7 +1,17 @@
 # Synthetic Dataset Generator for ESPRIT-Tracker Validation
 
-**Status:** **PHASES 1-3 + 4a SHIPPED (2026-06-08, dev-synth1) — BACKEND COMPLETE.** Phase 4b
-(frontend) PENDING (do NOT archive). **Phase 4a** = the REST routes (`synth/synth_routes.py`,
+**Status:** **PHASES 1-4 ALL BUILT (2026-06-08) — awaiting user live-test + merge (do NOT archive
+until merged).** Backend P1-3 + 4a by dev-synth1; **Phase 4b (frontend) BUILT by dev-synthfe** on
+PianoidTunner `feature/synthetic-dataset` (off `dev`) — a Record\|Synthesize toggle in
+`CollectionSubpanel` opening the "Synthesize" sub-mode: `SynthesizeSection` (mode table via
+`NumInput` + grid + impulse via the reused `ImpulseShapeChart` + ESPRIT-band selector +
+Synthesize/Validate); `SynthGridSelector` (reuses `GridLayoutEditor` select-mode, interior-default
+receivers + ★dead-channel boundary warning + resolvable-order caption); `SynthComparisonView` (the
+HEADLINE — per-mode GT-vs-ESPRIT freq/Q/MAC bars + per-channel dead-channel diag + pass/fail verdict
+badge); `useSynthesize` hook; pure helpers in `src/utils/synthScorecard.js` (8 fns DeepSeek-authored
+via the Step-4b batch pipeline, $0.0043, all first-try, Jest-gated). 62 new Jest tests + 0 regression
++ 0 eslint errors; live-UI verification + merge pending the user. **Phase 4a** = the REST routes
+(`synth/synth_routes.py`,
 on `modal_bp`): `POST /modal/measurements/synthesize` (body → forward_model + dataset_writer →
 import a Measurement, `synthetic:true` → 201) + `POST /modal/measurements/<id>/validate` (run
 the validate harness → the `ValidationScorecard` JSON the frontend charts render). Reuses

@@ -497,6 +497,16 @@ Measurement. Layout (per proposal §4.1):
 
 Section components live in `src/modules/panels/collection/` (`GeneralSection`, `AudioDevicesSection`, `ImpulseSection`, `SeriesSection`, `CalibrationCriteriaSection`).
 
+**Record | Synthesize sub-mode (dev-synthfe, synthetic-dataset Phase 4b, 2026-06-08).** A `ToggleButtonGroup` at the top of `CollectionSubpanel` switches between **Record** (the 5-section measurement-collection UI above, the default) and **Synthesize** — an analytic-ground-truth authoring surface that exercises the Phase-4a `/modal/measurements/synthesize` + `/<id>/validate` REST routes (modal-adapter, port 5001). The Synthesize path lets the user author a board of known plate modes + a receiver/impact grid, synthesise a `synthetic:true` Measurement, then (via a separate **Validate** button) run the real ESPRIT pipeline and view the **reconstructed-vs-ground-truth** comparison. Components (all in `src/modules/panels/collection/`):
+
+| Component | Role |
+|---|---|
+| `SynthesizeSection` | Orchestrator — owns the authoring form (measurement id, mode table via `NumInput`, grid dims, ESPRIT-band selector, impulse via the reused `ImpulseShapeChart` idiom, GPU toggle); pre-flight "modes outside the band" warning; Synthesize + Validate buttons + "Synthetic" chip. |
+| `SynthGridSelector` | Receiver/impact placement grid — reuses `GridLayoutEditor`'s opt-in **select-mode** (`selectMode`/`onSelectCell`/`cellRender`, purely additive). Defaults to the engine's interior-inset receiver lattice + 12 off-centre impacts; live "resolvable max mode order" caption (`floor((min(rows,cols)-1)/2)`); ★**dead-channel warning** when a receiver lands on a plate boundary node (where simply-supported eigenmodes are zero → poisons ESPRIT). |
+| `SynthComparisonView` | The HEADLINE deliverable — renders the `ValidationScorecard`: per-mode **ground-truth vs ESPRIT-detected** frequency + Q grouped bars, per-mode MAC bars (threshold-colored), per-channel relative-RMS (dead channels in red), the pass/fail verdict badge + recall/precision/threshold rows, and a per-mode numeric table. |
+
+Hook: `useSynthesize` (`src/hooks/`) is the sole writer of the synthesize/validate request+result state. Pure helpers (grid geometry mirroring the backend `forward_model` defaults + the scorecard→ECharts-option builders) live in `src/utils/synthScorecard.js` (DeepSeek-authored via the dev.md Step-4b batch pipeline, Jest-gated in `src/utils/__tests__/synthScorecard.test.js`). The synthetic Measurement lands in the normal Measurement store, so all downstream Project/ESPRIT flows are byte-identical.
+
 **Hooks (P1 — sole-writer rule):**
 
 | Hook | Owns | REST |

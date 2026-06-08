@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-synthfe | `PianoidTunner:src/modules/panels/collection/SynthesizeSection.jsx` (NEW), `PianoidTunner:src/modules/panels/collection/SynthComparisonView.jsx` (NEW), `PianoidTunner:src/modules/panels/collection/SynthGridSelector.jsx` (NEW), `PianoidTunner:src/components/GridLayoutEditor.jsx` (edit: additive selectMode), `PianoidTunner:src/modules/panels/CollectionSubpanel.jsx` (edit: Record\|Synthesize toggle), `PianoidTunner:src/hooks/useSynthesize.js` (NEW), `PianoidTunner:src/utils/synthScorecard.js` (NEW, DeepSeek helpers), `PianoidTunner:src/modules/panels/collection/__tests__/SynthesizeSection.test.jsx` (NEW), `PianoidTunner:src/utils/__tests__/synthScorecard.test.js` (NEW), `PianoidTunner:src/components/__tests__/GridLayoutEditor.selectMode.test.jsx` (NEW) | 2026-06-08T12:45:00Z | Synthetic-dataset Phase 4b — MA Collect Synthesize section + reconstructed-vs-GT comparison charts (frontend against Phase-4a REST). |
 <!-- dev-synth1 Phase-4a locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      orchestrator sequences Phase 4b frontend; team-lead said the backend is fully done after 4a).
      Held (PianoidCore repo): synth/synth_routes.py (NEW), routes/__init__.py (edit: register_synth_routes),
