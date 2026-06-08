@@ -15,6 +15,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-synth1 Phase-4a locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     orchestrator sequences Phase 4b frontend; team-lead said the backend is fully done after 4a).
+     Held (PianoidCore repo): synth/synth_routes.py (NEW), routes/__init__.py (edit: register_synth_routes),
+     tests/integration/test_synth_routes.py (NEW). Synthetic-dataset Phase 4a — the synthesize/validate REST
+     routes on modal_bp wiring the P1-3 backend into REST: POST /modal/measurements/synthesize (→201 +
+     synthetic Measurement) + POST /modal/measurements/<id>/validate (→200 + ValidationScorecard JSON).
+     Reuses import_folder_as_measurement UNCHANGED. 100% Opus-inline, 0 DeepSeek. 8/8 route tests; synth
+     integration 16/16 (1 PRE-EXISTING unrelated fail proven at clean HEAD). Committed PianoidCore
+     feature/synthetic-dataset `a35800a` (off P3 37bd432, +379/3 files). Pure Python + CuPy — NO CUDA/.cu, NO
+     rebuild. NOT merged/pushed. Docs (TESTING.md + proposal status BACKEND-COMPLETE) + log + ledger + the
+     REST contract on PianoidInstall master.
+     ★INCIDENT (recovered, no harm): a pre-existing-failure check used `git stash push -- <untracked files>`
+     (fails) + bare `git stash pop` → popped the unrelated preserved stash@{0} (dev-35a3 CUDA work) with
+     conflicts; restored via `git checkout HEAD -- <9 files>` + rm; the dev-35a3 stash is PRESERVED (intact).
+     LESSON: never stash/bare-pop in a shared tree with pre-existing stashes. -->
+<!-- dev-synth1 Phase-3 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
 <!-- dev-synth1 Phase-3 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      orchestrator sequences Phase 4). Held (PianoidCore repo):
        pianoid_middleware/modal_adapter/synth/validate.py (NEW — validation harness)

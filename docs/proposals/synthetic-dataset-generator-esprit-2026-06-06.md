@@ -1,7 +1,14 @@
 # Synthetic Dataset Generator for ESPRIT-Tracker Validation
 
-**Status:** **PHASES 1-3 SHIPPED (2026-06-08, dev-synth1)** — Phase 4 (frontend) PENDING (do
-NOT archive). **Phase 3** = the validation harness (`synth/validate.py`): runs the REAL,
+**Status:** **PHASES 1-3 + 4a SHIPPED (2026-06-08, dev-synth1) — BACKEND COMPLETE.** Phase 4b
+(frontend) PENDING (do NOT archive). **Phase 4a** = the REST routes (`synth/synth_routes.py`,
+on `modal_bp`): `POST /modal/measurements/synthesize` (body → forward_model + dataset_writer →
+import a Measurement, `synthetic:true` → 201) + `POST /modal/measurements/<id>/validate` (run
+the validate harness → the `ValidationScorecard` JSON the frontend charts render). Reuses
+`import_folder_as_measurement` unchanged. 8/8 route tests (Flask test_client). The full REST
+contract (request schemas + scorecard JSON shape) is in the dev-synth1 session log + the
+Phase-4a report — the API the frontend agent consumes. **Phase 3** = the validation harness
+(`synth/validate.py`): runs the REAL,
 unchanged `EspritRunner` on a synthetic dataset → matches known↔detected (`match_modes`) →
 scores freq/Q/MAC/recall/precision (`precision_scorecard`), using the INDEPENDENT
 `synth.metrics.compute_mac` for SCORING (never the estimator's own `band_merging.compute_mac`
