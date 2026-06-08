@@ -447,6 +447,50 @@ SDL versions require exact patch numbers because they map to specific download U
 Options include selective reinstall of individual components (Python, CUDA, Node.js)
 or a full reinstall of all components.
 
+### PATH preservation (protects NI LabWindows/CVI)
+
+`setup-dev.ps1` does **not** itself persist any PATH change — it only refreshes the
+session `$env:PATH` and writes the MSVC bin path into `build_config.json`. The Pianoid
+build reads `cl.exe` from `build_config.json` (via `detect_paths.py`) and deliberately
+avoids `vcvars64`, so **Pianoid never needs MSVC (or any toolchain) on the global
+PATH**. The persistent PATH, however, is rewritten by the third-party installers the
+script launches — the Python installer, VS 2022 Build Tools, the CUDA Toolkit, and the
+Node.js MSI — and on machines with NI LabWindows/CVI installed, one of those can drop or
+reorder the National Instruments PATH entries, leaving CVI unable to find its
+dependencies.
+
+To prevent this, `setup-dev.ps1` brackets the installer run with a snapshot/restore
+guard implemented in `setup-path-guard.ps1` (dot-sourced; pure, unit-tested helpers):
+
+1. **Snapshot** the persistent Machine + User PATH before any installer runs, and write
+   a timestamped backup (`pianoid-setup-path-backup-<ts>.txt`, next to the script) for
+   manual recovery.
+2. **Detect** an NI/CVI footprint (the two NI install roots, any `*CVI*` directory, or an
+   NI/CVI entry already on PATH) and print a heads-up that PATH will be protected.
+3. **Reconcile** after all installers finish: re-read the persistent PATH, compute every
+   entry that was in the snapshot but is now missing, and re-append those dropped entries
+   (de-duplicated case-insensitively, surviving entries' order preserved).
+4. **Truncation guard:** if a reconciled PATH would exceed a safe length cap (2047 chars),
+   the guard refuses to write it and warns loudly rather than risk silently dropping
+   entries — the backup file is the recovery path.
+
+The Python installer is also invoked with `PrependPath=0` by default (was `1`), so it does
+not rewrite the persistent PATH at all; the script captures `python.exe`'s explicit path
+regardless. Pass `-PythonPrependPath` to opt back in.
+
+> **Encoding caveat (`setup-dev.ps1`).** The script is UTF-8 **without a BOM** and contains
+> a few non-ASCII em-dashes in comments/strings. It runs correctly via
+> `powershell.exe -Command "& '...setup-dev.ps1'"` (the `setup-packages.bat` path), but the
+> `[Parser]::ParseFile()` API defaults to the ANSI code page for no-BOM files and will
+> mis-report syntax errors. To parse-check it, decode as UTF-8 first:
+> `[Parser]::ParseInput([IO.File]::ReadAllText($f,[Text.Encoding]::UTF8), [ref]$t, [ref]$e)`.
+> New code added to the script should stay pure-ASCII (the PATH-guard additions do).
+
+The pure PATH helpers have a standalone unit test at `tests/setup-path-guard.Tests.ps1`
+(Windows PowerShell 5.1, no Pester dependency): run
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\setup-path-guard.Tests.ps1`
+(exit 0 = pass). It mocks PATH strings and never runs the installers.
+
 ---
 
 ## Step 2: PianoidBasic Wheel (build_pianoid_basic.bat)

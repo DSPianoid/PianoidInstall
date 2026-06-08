@@ -15,6 +15,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-setuppath locks RELEASED 2026-06-08 at Step 10a Phase 1 commit. Held (OUTER PianoidInstall repo root):
+     setup-dev.ps1, setup-path-guard.ps1 (NEW), tests/setup-path-guard.Tests.ps1 (NEW). PATH-preserving guard so
+     setup-dev.ps1 stops breaking NI LabWindows/CVI: the script doesn't persist PATH itself, but the installers it
+     launches (Python PrependPath, VS Build Tools, CUDA, Node MSI) rewrite the persistent PATH and drop NI/CVI
+     entries. Fix: setup-path-guard.ps1 (8 pure/unit-tested helpers) snapshots Machine+User PATH before installers +
+     writes a timestamped backup + NI/CVI heads-up, then reconciles dropped entries after (dedup, survivors-first,
+     2047-char truncation guard refuses-not-truncates); Python PrependPath=0 by default (-PythonPrependPath opt-in).
+     Also ASCII-cleaned the 4 pre-existing em-dashes (removes a latent no-BOM ParseFile fragility). Unit test 17/17
+     PASS (PS 5.1, no Pester dep); ParseFile clean. NO CUDA build, no stack, no audio, no servers. Committed on
+     feature/setup-path-preserve-cvi (SHA in session log), MERGED to master (--no-ff). Docs (BUILD_SYSTEM.md Step-1
+     PATH-preservation subsection + encoding caveat) + session log on master. -->
 <!-- dev-synthfe Phase-4b locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      awaits user live-test + merge approval). Held (PianoidTunner repo, off dev): SynthesizeSection.jsx,
      SynthComparisonView.jsx, SynthGridSelector.jsx (3 NEW under modules/panels/collection/), useSynthesize.js
