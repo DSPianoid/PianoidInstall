@@ -15,6 +15,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-synth1 Phase-2 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     orchestrator sequences Phases 3-4). Held 3 NEW PianoidCore files + the synth/__init__.py edit:
+       PianoidCore: pianoid_middleware/modal_adapter/synth/forward_model.py (NEW)
+       PianoidCore: pianoid_middleware/modal_adapter/synth/dataset_writer.py (NEW)
+       PianoidCore: tests/integration/test_synth_forward_model.py (NEW)
+       PianoidCore: pianoid_middleware/modal_adapter/synth/__init__.py (Phase-2 exports added)
+     Synthetic-dataset Phase 2 — GPU sim orchestration (forward_model.py xp-switch mirroring
+     esprit_core._to_gpu_or_cpu; oversample→scipy.signal.decimate→48kHz; grid/modes parametric, default
+     7×7+12) + dataset_writer.py (exact Measurement import layout). 100% Opus-inline, 0 DeepSeek. ACCEPTANCE:
+     CPU↔GPU parity BIT-EXACT (0.000e+00); live POST /modal/measurements/import_folder → HTTP 201 (3 sc /
+     25 ch / 48k — confirms the (samples,n_channels) float32 npy contract via the REAL importer); 11/11
+     integration tests. Committed PianoidCore feature/synthetic-dataset `e3658e4` (off Phase-1 b9c0380,
+     +619/4 files). Pure Python + CuPy — NO CUDA/.cu, NO rebuild. NOT merged/pushed (awaits Phases 3-4 + user
+     gate). Docs (TESTING.md + proposal status) + log + ledger on PianoidInstall master. -->
+<!-- dev-synth1 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed — orchestrator
+     sequences Phases 2-4). Held 11 NEW files, ALL in the **PianoidCore** repo (repo-relative paths;
 <!-- dev-synth1 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed — orchestrator
      sequences Phases 2-4). Held 11 NEW files, ALL in the **PianoidCore** repo (repo-relative paths;
      all created this session, no conflict possible):

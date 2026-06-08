@@ -1,15 +1,21 @@
 # Synthetic Dataset Generator for ESPRIT-Tracker Validation
 
-**Status:** **PHASE 1 SHIPPED (2026-06-08, dev-synth1)** — Phases 2-4 PENDING (do NOT
-archive). Phase 1 = the pure-function core (all 17 §7.1 fns) landed in
+**Status:** **PHASES 1-2 SHIPPED (2026-06-08, dev-synth1)** — Phases 3-4 PENDING (do NOT
+archive). Phase 1 = the pure-function core (all 17 §7.1 fns) in
 `PianoidCore/pianoid_middleware/modal_adapter/synth/` (geometry / pulse / oscillator /
-metrics) on branch `feature/synthetic-dataset`, with the 17 manifest tests lifted to
-`PianoidCore/tests/unit/test_synth_*.py`. **Dual-backend gate: 356/356 green on numpy AND
-cupy.** Built via the Step-4b delegation model (DeepSeek batch pipeline shipped 16 routine
-fns first-try @ $0.011; Opus authored the one judgment fn `integrate_modal_oscillator`
-#8). The §3.4.2 parity cross-check passes (<1e-2 at the validated band). Stats ledger:
-`D:\tmp\synthds-build\{ledger.json,LEDGER.md}`. Remaining: Phase 2 (GPU sim
-orchestration), Phase 3 (validation harness), Phase 4 (frontend Synthesize section).
+metrics) with the 17 manifest tests at `tests/unit/test_synth_*.py` — **dual-backend gate
+356/356 green on numpy AND cupy** (DeepSeek shipped 16 routine fns first-try @ $0.011; Opus
+authored `integrate_modal_oscillator` #8; §3.4.2 parity < 1e-2). **Phase 2** = the GPU
+forward-model orchestrator (`synth/forward_model.py`, xp-switch mirroring
+`esprit_core._to_gpu_or_cpu`; loops impacts×modes → oversample → `scipy.signal.decimate` →
+48 kHz; grid/modes parametric, default 7×7 + 12 impacts) + the Measurement-layout writer
+(`synth/dataset_writer.py`) + `tests/integration/test_synth_forward_model.py`. **Acceptance:
+CPU↔GPU parity BIT-EXACT; live `import_folder` round-trip → HTTP 201** (3 scenarios / 25 ch /
+48 kHz — confirms the proposal §9 npy `(samples,n_channels)` float32 contract via the real
+importer); 11/11 integration tests. All on branch `feature/synthetic-dataset`. Stats ledger:
+`D:\tmp\synthds-build\{ledger.json,LEDGER.md}`. Remaining: Phase 3 (validation harness —
+real ESPRIT+tracking on synthetic data → scorecard, lowest-band first), Phase 4 (frontend
+Synthesize section + comparison charts).
 Original design context (signed off 2026-06-06): CuPy backend, analytic-core mode shapes,
 inline scorecard, extend-grid, thresholds-as-recommended; iterative force-driven physics
 (§3.4); the A/B delegation manifest (17 fns) built + validated at `D:\tmp\synthds-ab\`.

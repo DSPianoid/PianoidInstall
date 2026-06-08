@@ -32,7 +32,8 @@ PianoidCore/tests/
 │   ├── conftest.py      # Session-scoped Pianoid without audio, offline helpers
 │   ├── test_feedback_coupling.py
 │   ├── test_modal_adapter_e2e.py   # Full modal adapter pipeline (Belarus data + GPU ESPRIT)
-│   └── test_project_store.py       # ProjectStore lifecycle — v2 branch + create-from-measurement (renamed from test_project_v2_branch.py in Wave 3 of the modal_adapter split, dev-wave3split 2026-06-06; git --follow preserves history). test_measurement_rename.py stays separate (MeasurementCatalog rename, not ProjectStore).
+│   ├── test_project_store.py       # ProjectStore lifecycle — v2 branch + create-from-measurement (renamed from test_project_v2_branch.py in Wave 3 of the modal_adapter split, dev-wave3split 2026-06-06; git --follow preserves history). test_measurement_rename.py stays separate (MeasurementCatalog rename, not ProjectStore).
+│   └── test_synth_forward_model.py # synthetic-dataset Phase 2: forward_model (xp-switch GPU sim) CPU↔GPU bit-parity gate + output orientation + dataset_writer Measurement layout + npy round-trip. CuPy parity test skips cleanly without a device (dev-synth1)
 └── unit/                # Pure Python, no GPU
     ├── test_cfl_amp.py              # CFL guard v2 closed-form (cfl_stability.py) — PINNED K=24 grid vs dense max|g| (0 false-accept/reject), empirical crash borders incl. LOWER-edge, per-string tension_offset worst-string, collapse-not-flagged, isfinite (no GPU)
     ├── test_channel_assignment.py   # MappingConfig persistence round-trip, _load_mapping_results file priority, ESPRIT response channel filtering
