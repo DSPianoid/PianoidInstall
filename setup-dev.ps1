@@ -22,15 +22,27 @@ param(
   [string]$Sdl3Version = "",    # Override config file SDL3 version
   [string]$NodeVersion = "",    # Override config file version
   [string]$PythonVersion = "",  # Override config file version
-  [string]$SdlRoot = ""         # Override config file path
+  [string]$SdlRoot = "",        # Override config file path
+  [switch]$PythonPrependPath    # Opt-in: let the Python installer prepend itself
+                                # to the persistent PATH. OFF by default so the
+                                # installer does not rewrite the machine PATH
+                                # (which can drop NI/CVI entries). The script
+                                # captures python.exe's explicit path regardless,
+                                # so the rest of the run does not need this.
 )
 
 $ErrorActionPreference = 'Stop'
 
+# Dot-source the PATH-preservation helpers (snapshot / diff / restore). These
+# protect pre-existing PATH entries (notably NI LabWindows/CVI) from being
+# dropped by the third-party installers this script launches. See the header of
+# setup-path-guard.ps1 for the rationale.
+. (Join-Path $PSScriptRoot 'setup-path-guard.ps1')
+
 # Default versions: use major.minor (no patch) for components installed via winget
 # so that winget can find the latest available patch release.
 # Only SDL versions need exact patch since we download specific archive URLs.
-# CUDA must stay on 12.x — Pianoid does not support CUDA 13+.
+# CUDA must stay on 12.x -- Pianoid does not support CUDA 13+.
 $DefaultVersions = @{
   python = "3.12"
   cuda = "12.6"
@@ -112,7 +124,7 @@ function Load-Configuration {
   if ($Sdl2Version) { $config.versions.sdl2 = $Sdl2Version }
   if ($SdlRoot) { $config.paths.sdl_root = $SdlRoot }
 
-  # Enforce CUDA 12.x — reject any 13+ from config or CLI override
+  # Enforce CUDA 12.x -- reject any 13+ from config or CLI override
   $cudaMajor = ($config.versions.cuda -split '\.')[0]
   if ([int]$cudaMajor -ge 13) {
     Write-Warning "CUDA $($config.versions.cuda) specified but Pianoid requires 12.x. Forcing 12.6."
@@ -237,10 +249,18 @@ function Ensure-Python {
     Invoke-Download $url $tmp
     
     Write-Host "Running Python installer..."
+    # PrependPath defaults to 0 so the installer does not rewrite the persistent
+    # PATH (which can drop NI/CVI entries). Opt back in with -PythonPrependPath.
+    # We still capture python.exe's explicit .Source below, so the rest of the
+    # run finds Python regardless of this flag.
+    $prependPath = if ($PythonPrependPath) { '1' } else { '0' }
+    if (-not $PythonPrependPath) {
+      Write-Host "PrependPath=0 (persistent PATH left unchanged; pass -PythonPrependPath to opt in)"
+    }
     $installArgs = @(
       '/quiet',
       'InstallAllUsers=0',
-      'PrependPath=1',
+      "PrependPath=$prependPath",
       'Include_test=0',
       'Include_pip=1',
       'Include_doc=1',
@@ -618,7 +638,7 @@ function Ensure-CUDA {
     $cuda = $env:CUDA_PATH
   }
 
-  # Enforce CUDA 12.x — uninstall and replace any 13+ version
+  # Enforce CUDA 12.x -- uninstall and replace any 13+ version
   if ($cuda -and (Test-Path $cuda) -and (-not $forceRequested)) {
     $nvcc = Join-Path $cuda "bin\nvcc.exe"
     if (Test-Path $nvcc) {
@@ -627,7 +647,7 @@ function Ensure-CUDA {
         $installedMajor = [int]$Matches[1]
         $installedMinor = [int]$Matches[2]
         if ($installedMajor -ge 13) {
-          Write-Host "WARNING: CUDA $installedMajor.$installedMinor detected — Pianoid requires CUDA 12.x"
+          Write-Host "WARNING: CUDA $installedMajor.$installedMinor detected -- Pianoid requires CUDA 12.x"
           Write-Host "Removing incompatible CUDA $installedMajor.$installedMinor and installing $Version ..."
           Uninstall-CUDA
           $env:CUDA_PATH = [Environment]::GetEnvironmentVariable('CUDA_PATH','Machine')
@@ -809,6 +829,28 @@ elseif ($ForceVS -or $ForceCUDA -or $ForceSDL -or $ForceNode -or $ForcePython) {
 
 Assert-Admin
 
+# --- PATH preservation: snapshot BEFORE any installer runs ---
+# The installers below (Python / VS Build Tools / CUDA / Node.js) each rewrite
+# the persistent Windows PATH and can drop pre-existing entries. Capture the
+# current persistent PATH now so we can re-append anything they drop at the end.
+Write-Host "`n== Snapshotting persistent PATH (Machine + User) before install =="
+$pathSnapshot = Get-PersistentPathSnapshot
+$pathBackupFile = Write-PathBackup -MachineRaw $pathSnapshot.MachineRaw -UserRaw $pathSnapshot.UserRaw -Directory $PSScriptRoot
+if ($pathBackupFile) {
+  Write-Host "  PATH backup written to: $pathBackupFile"
+}
+
+# Heads-up if NI LabWindows/CVI is present - this is exactly what the snapshot
+# protects, since the installers are known to drop NI's PATH entries.
+$niEvidence = Find-NationalInstrumentsPaths -PathEntries (@($pathSnapshot.MachineEntries) + @($pathSnapshot.UserEntries))
+if ($niEvidence -and $niEvidence.Count -gt 0) {
+  Write-Host ""
+  Write-Host "  >> National Instruments / LabWindows-CVI detected:" -ForegroundColor Yellow
+  foreach ($e in $niEvidence) { Write-Host "       $e" -ForegroundColor Yellow }
+  Write-Host "     This setup will snapshot + restore PATH so the installers below do" -ForegroundColor Yellow
+  Write-Host "     not strip CVI's dependencies from PATH. A backup was saved above." -ForegroundColor Yellow
+}
+
 # Install in logical order
 $python   = Ensure-Python -Version $config.versions.python
 Ensure-VSBuildTools
@@ -819,6 +861,16 @@ $sdl2Base = Ensure-SDL2 -Version $config.versions.sdl2 -SdlRoot $config.paths.sd
 $sdl3Base = Ensure-SDL3 -Version $config.versions.sdl3 -SdlRoot $config.paths.sdl_root
 $nodeJs   = Ensure-NodeJS -Version $config.versions.nodejs
 $cudaHome = Ensure-CUDA -Version $config.versions.cuda
+
+# --- PATH preservation: reconcile AFTER all installers have run ---
+# Re-read the persistent PATH and re-append any entries the installers dropped
+# (e.g. NI/CVI), deduped and survivors-first. Refuses to write an over-length
+# value rather than risk silent truncation (the backup above is the fallback).
+Write-Host "`n== Reconciling persistent PATH (restoring entries dropped by installers) =="
+$pathRestore = Restore-DroppedPathEntries -Snapshot $pathSnapshot -BackupFile $pathBackupFile
+if ($pathRestore.MachineSkipped -or $pathRestore.UserSkipped) {
+  Write-Warning "PATH reconciliation skipped a scope to avoid truncation - see warnings above and the backup file."
+}
 
 Write-BuildConfig -CudaHome $cudaHome -VcBin $vcBin -Sdl2Base $sdl2Base -Sdl3Base $sdl3Base -CudaArchs $config.cuda.architectures
 
