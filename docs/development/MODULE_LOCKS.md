@@ -15,7 +15,26 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-synthfe | `PianoidTunner:src/modules/panels/collection/SynthesizeSection.jsx` (NEW), `PianoidTunner:src/modules/panels/collection/SynthComparisonView.jsx` (NEW), `PianoidTunner:src/modules/panels/collection/SynthGridSelector.jsx` (NEW), `PianoidTunner:src/components/GridLayoutEditor.jsx` (edit: additive selectMode), `PianoidTunner:src/modules/panels/CollectionSubpanel.jsx` (edit: Record\|Synthesize toggle), `PianoidTunner:src/hooks/useSynthesize.js` (NEW), `PianoidTunner:src/utils/synthScorecard.js` (NEW, DeepSeek helpers), `PianoidTunner:src/modules/panels/collection/__tests__/SynthesizeSection.test.jsx` (NEW), `PianoidTunner:src/utils/__tests__/synthScorecard.test.js` (NEW), `PianoidTunner:src/components/__tests__/GridLayoutEditor.selectMode.test.jsx` (NEW) | 2026-06-08T12:45:00Z | Synthetic-dataset Phase 4b — MA Collect Synthesize section + reconstructed-vs-GT comparison charts (frontend against Phase-4a REST). |
+<!-- dev-synthfe Phase-4b locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     awaits user live-test + merge approval). Held (PianoidTunner repo, off dev): SynthesizeSection.jsx,
+     SynthComparisonView.jsx, SynthGridSelector.jsx (3 NEW under modules/panels/collection/), useSynthesize.js
+     (NEW hook), utils/synthScorecard.js (NEW, 8 DeepSeek helpers) + GridLayoutEditor.jsx (edit: additive
+     selectMode/onSelectCell/cellRender) + CollectionSubpanel.jsx (edit: Record|Synthesize toggle) + 3 NEW
+     test files. Synthetic-dataset Phase 4b FRONTEND — the MA Collect "Synthesize" sub-mode + the
+     reconstructed-vs-ground-truth comparison charts (the headline comment-1 deliverable). HYBRID routing
+     (dev.md Step 4b): 8 pure JS/Jest helpers via the DeepSeek batch pipeline (8/8 shipped first-try, $0.0043,
+     node --test gate); the hook + 4 components + 2 edits Opus-inline. REUSE per DECISIONS comment 2:
+     GridLayoutEditor EXTENDED (additive select-mode, not cloned), ImpulseShapeChart reused as the impulse
+     preview, NumInput for every numeric field — no recreation. ACCEPTANCE: 62 new Jest tests (synthScorecard
+     49 + SynthesizeSection 9 + GridLayoutEditor.selectMode 4) + 0 regression (CollectionSubpanel 4/4) + 0
+     eslint errors. ★LIVE UI end-to-end PASSED on the full stack (launcher+React 3000/3001 + modal adapter
+     5001): Record|Synthesize toggle → Synthesize section (mode table + dead-channel grid + impulse) →
+     Synthesize 201 → Validate 200 → comparison charts rendered with PASS verdict, MAC 1.000, recall 1.000,
+     both modes recovered exactly; live ECharts clean. Live-fix during verify: SYNTH_TIMEOUT_MS 180→600s (GPU
+     cold-start). Committed PianoidTunner feature/synthetic-dataset `e707408` (feat) + `a99a41f` (timeout fix).
+     Frontend-only, NO CUDA build. NOT merged/pushed. Docs (OVERVIEW Synthesize sub-mode + proposal status
+     PHASES 1-4 ALL BUILT) + log + ledger + screenshot on PianoidInstall master. -->
+| <!-- (none active for dev-synthfe — released at Phase 1) --> | | | |
 <!-- dev-synth1 Phase-4a locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      orchestrator sequences Phase 4b frontend; team-lead said the backend is fully done after 4a).
      Held (PianoidCore repo): synth/synth_routes.py (NEW), routes/__init__.py (edit: register_synth_routes),
