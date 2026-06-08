@@ -24,7 +24,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      2047-char truncation guard refuses-not-truncates); Python PrependPath=0 by default (-PythonPrependPath opt-in).
      Also ASCII-cleaned the 4 pre-existing em-dashes (removes a latent no-BOM ParseFile fragility). Unit test 17/17
      PASS (PS 5.1, no Pester dep); ParseFile clean. NO CUDA build, no stack, no audio, no servers. Committed on
-     feature/setup-path-preserve-cvi (SHA in session log), MERGED to master (--no-ff). Docs (BUILD_SYSTEM.md Step-1
+     feature/setup-path-preserve-cvi bec2ccf, MERGED to master d7df7f4 (--no-ff), pushed to origin. Docs (BUILD_SYSTEM.md Step-1
      PATH-preservation subsection + encoding caveat) + session log on master. -->
 <!-- dev-synthfe Phase-4b locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      awaits user live-test + merge approval). Held (PianoidTunner repo, off dev): SynthesizeSection.jsx,
