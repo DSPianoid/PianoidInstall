@@ -15,6 +15,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-debugboot-bacd Fix-B locks RELEASED 2026-06-09 at Step 10a Phase 1 commit. Held:
+     PianoidCore/pianoid_middleware/backendServer.py + chartFunctions.py. /get_chart_test offline
+     render no longer leaves the realtime playback thread stopped: backendServer _spawn_realtime_thread
+     helper + pianoid._restart_realtime_thread hook (registered by load_preset); _restart_online_engine
+     prefers the hook (restores long_running_procedure + `running` flag), falls back to start_pianoid()
+     for serverless callers. Committed feature/debug-at-boot 3c4244a (+123/-5, incl.
+     tests/unit/test_chart_restart_realtime_thread.py 3/3). Docs (SYSTEM_OVERVIEW threading) on master.
+     3/3 Fix-B + 5/5 Fix-A unit; live: note_playback+mode_test keep backend_thread_running=TRUE (was
+     dropping to False). Python middleware — NO CUDA rebuild. NOT merged — awaits user test + approval. -->
 <!-- dev-debugboot-bacd lock RELEASED 2026-06-09 at Step 10a Phase 1 commit. Held:
      PianoidCore/pianoid_middleware/pianoid.py. Honor PIANOID_USE_DEBUG at module-import
      boot (select_cuda_variant_at_boot) so DEBUG wins the first pianoidCuda import + no-downgrade

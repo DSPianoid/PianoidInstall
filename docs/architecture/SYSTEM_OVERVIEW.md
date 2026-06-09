@@ -88,6 +88,19 @@ AudioDriver callback thread (SDL/ASIO)
     - Sends PCM to OS audio device
 ```
 
+**Offline chart renders restore the realtime thread.** GPU-exclusive offline
+renders (`/get_chart_test` → `note_playback` / `mode_test` / `sound_test`) call
+`chartFunctions._stop_online_engine` (`stop_playback` + `endMainLoop`). `endMainLoop`
+unblocks the `join()` inside `long_running_procedure`, so that managing thread exits
+and clears the backendServer `running` flag — `/health backend_thread_running` goes
+False. The chart then calls `_restart_online_engine`, which re-spawns the managing
+thread via `pianoid._restart_realtime_thread` (registered by the `/load_preset` route,
+backed by `_spawn_realtime_thread`) — restoring both the engine main loop AND the
+`running` flag, so live audio survives a chart render. (Before this hook, the chart
+restarted only the engine via `start_pianoid()`, leaving `running`=False → live
+keypresses silent until re-APPLY.) `_restart_online_engine` falls back to
+`start_pianoid()` for callers with no Flask server (e.g. unit tests).
+
 ---
 
 ## Frontend ↔ Backend State Discipline
