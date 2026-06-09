@@ -265,6 +265,16 @@ batch (M1 revert + SC flat-bars + bar-not-line). Owner: open — a fresh /dev ta
 
 ---
 
+## Future fix (user-requested 2026-06-09, during system-wide-selection testing) — matrix click should not change active pitch
+
+User: "click in the matrix should not change active pitch." Clicking a cell in a matrix editor
+(Feedin/Feedback/SC/Modes) currently changes the globally-active pitch as a side effect of the click.
+The user wants a matrix-cell click to NOT alter the active pitch — only perform its intended cell
+action. Logged as a FUTURE fix — explicitly NOT part of the current system-wide-selection batch
+(rulers/tie-untie). Likely in the matrix click handler (PitchesModesMatrixCanvas / MeasuredMatrix —
+the cell-click path probably calls setSelectedPitch/onPitchSelect; decouple the cell-click from the
+active-pitch change). Owner: open — pick up after the system-wide-selection feature lands.
+
 ## Deferred follow-ups — Sound Channels zoom unlock (dev-mzoom, 2026-06-05)
 
 **SHIPPED (on PianoidTunner `feature/mzoom-sc-zoom`, off dev e2aaacf, awaiting user test):**
