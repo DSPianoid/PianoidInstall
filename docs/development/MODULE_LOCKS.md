@@ -15,6 +15,21 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 (option-(a) /auto adjustment; NOT merged/pushed —
+     team-lead FFs the feature branch onto master + pushes). Held: check-running-servers.ps1 (edit), check-cuda.ps1
+     (edit); start-pianoid.bat NOT edited this round (already passes -Auto; per-case decision moved into the helpers).
+     Adjusted the /auto routing per the user's option (a): running-servers /auto → SHOW Kill&restart/Cancel pop-up
+     (timed WScript.Shell.Popup 30s; Yes→kill+0, No/timeout→cancel/20 = don't-kill-don't-launch); CUDA no-device /auto
+     → SHOW (timed; OK/timeout→0, Cancel→30); CUDA SM<60 /auto → SUPPRESS (informational, shown only bare/interactive);
+     bare/interactive → all 3 blocking MessageBox (unchanged). Show-ServerPrompt NEW; Show-CudaWarning gains -Kind
+     [no-device|low-sm]. POPUP_TIMEOUT_SEC=30. VERIFIED static/AST/sim only (stack LEFT RUNNING — NO launch, NO live-
+     port kill): both .ps1 AST-clean; REAL /auto+SM<60 on this 56-SM box → suppressed (exit0, no warning); REAL timed
+     WScript.Shell.Popup → rc=-1 on 2s timeout (no hang); decision matrix + .bat RC routing all pass team-lead's
+     required matrix (/auto+servers→shown, /auto+no-CUDA→shown, /auto+SM<60→NO popup, bare+SM<60→shown,
+     bare+servers→shown). Committed feature/launcher-prelaunch-checks 749aba5 (+125/-51). Docs (QUICK_START /auto
+     column) on this branch. NOT merged/pushed. Prior Phase-1 commits this branch: 2dff830 feat + 1951b83 docs +
+     e72f505 chore (off master c6baf4e). -->
+<!-- (none active for dev-syschecks — released at Phase 1) -->
 <!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs the
      feature branch onto master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit),
      check-running-servers.ps1 (NEW), check-cuda.ps1 (NEW). TWO best-effort pre-launch checks added to
