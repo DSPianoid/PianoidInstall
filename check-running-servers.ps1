@@ -18,15 +18,18 @@
 #          (the kill has already been performed here), OR ANY best-effort
 #          failure (treated as "unknown" -> just launch).
 #
-# -Auto switch (passed by the .bat when /auto / --no-prompt is set): run
-# non-interactively. A desktop-shortcut launch is unattended, so a blocking
-# MessageBox with nobody to click it would hang forever. In -Auto we DETECT +
-# warn on the console but apply the SAFE default: do NOT kill the running
-# stack (killing the user's live stack unattended is the dangerous choice) and
-# proceed (exit 0). Bare/interactive runs get the full pop-up.
+# -Auto switch (passed by the .bat when /auto / --no-prompt is set, e.g. the
+# desktop shortcut): the desktop-icon user IS present to answer, AND "warn +
+# launch alongside" fails (a busy port can't be launched onto), so under -Auto
+# we STILL SHOW the Kill & restart / Cancel prompt - but as a TIMED pop-up
+# (WScript.Shell.Popup, 30 s). On timeout (truly headless: nobody clicks) the
+# SAFE default is taken = do NOT kill, do NOT launch (exit 20) - never kill a
+# live stack with nobody watching, and never launch onto a busy port. Bare /
+# interactive runs get a normal blocking MessageBox (no timeout).
 #
-# DESIGN: BEST-EFFORT - must NEVER block, hang, or error the launch. The whole
-# body is wrapped so any unexpected failure falls through to exit 0.
+# DESIGN: BEST-EFFORT - must NEVER hang or error the launch. The whole body is
+# wrapped so any unexpected failure falls through to exit 0; the -Auto pop-up
+# is time-bounded so it cannot hang a headless launch.
 #
 # See: start-pianoid.bat (the caller), check-updates.ps1 (sibling pre-launch
 #      helper, same pattern), docs/guides/STARTUP_TROUBLESHOOTING.md.
@@ -42,6 +45,11 @@ $ErrorActionPreference = 'SilentlyContinue'
 # Pianoid service ports: 3000 React dev server, 3001 launcher WS,
 # 5000 Flask backend, 5001 modal adapter.
 $PianoidPorts = @(3000, 3001, 5000, 5001)
+
+# How long the -Auto (timed) pop-up waits for a click before taking the safe
+# default. Generous enough for a present desktop-icon user; bounded so a truly
+# headless launch never hangs.
+$PopupTimeoutSec = 30
 
 # -------------------------------------------------------------------------
 # Return the listening Pianoid ports as a sorted unique int array (empty if
@@ -80,6 +88,52 @@ function Stop-PianoidListeners {
     }
 }
 
+# -------------------------------------------------------------------------
+# Show the Kill & restart / Cancel prompt and return the user's intent as a
+# string: 'kill' (kill the listeners + launch) or 'cancel' (abort the launch).
+#
+#  * Interactive (no -Auto): a normal BLOCKING System.Windows.Forms.MessageBox
+#    (YesNo). Yes -> 'kill', No -> 'cancel'.
+#  * -Auto: a TIMED WScript.Shell.Popup (YesNo, $PopupTimeoutSec). The present
+#    desktop-icon user can still answer; if nobody does (timeout = -1) the SAFE
+#    default is 'cancel' - never kill a live stack unattended, never launch
+#    onto a busy port.
+# -------------------------------------------------------------------------
+function Show-ServerPrompt {
+    param([string] $PortList)
+
+    $body = "Pianoid servers are already running on port(s):`n`n  $PortList`n`n" +
+            "Kill them and restart, or cancel this launch?`n`n" +
+            "[Yes] Kill the running servers and restart`n" +
+            "[No]  Cancel - leave the running stack and do not launch"
+    $title = 'Pianoid - already running'
+
+    if ($Auto) {
+        # WScript.Shell.Popup button codes: 4 = Yes/No, 48 = Warning icon.
+        # Returns 6 = Yes, 7 = No, -1 = timed out (no click).
+        try {
+            $wshell = New-Object -ComObject WScript.Shell
+            $rc = $wshell.Popup(
+                ($body + "`n`n(Auto-launch: defaults to Cancel in $PopupTimeoutSec s.)"),
+                $PopupTimeoutSec, $title, (4 + 48))
+            if ($rc -eq 6) { return 'kill' }   # Yes
+            return 'cancel'                     # No (7) or timeout (-1) -> safe default
+        } catch {
+            # COM unavailable -> safe default: do not kill, do not launch.
+            return 'cancel'
+        }
+    }
+
+    # Interactive: blocking dialog.
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $body, $title,
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Warning)
+    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) { return 'kill' }
+    return 'cancel'
+}
+
 # =========================================================================
 # Main - fully wrapped so ANY failure falls through to exit 0 (launch).
 # =========================================================================
@@ -90,31 +144,11 @@ try {
     if ($listening.Count -eq 0) { exit 0 }
 
     $portList = ($listening -join ', ')
+    Write-Host ("Pianoid servers already running on port(s): {0}." -f $portList)
 
-    # Unattended (/auto): warn on console, DO NOT kill the running stack,
-    # proceed. Killing the user's live stack unattended is the dangerous
-    # default, so the safe choice is to leave it and launch alongside (the
-    # React dev server / launcher tolerate a port clash by reporting it; the
-    # user sees the warning in the spawned window).
-    if ($Auto) {
-        Write-Host ("WARNING: Pianoid servers already running on port(s): {0}." -f $portList)
-        Write-Host "  /auto mode: leaving the running stack untouched and proceeding."
-        exit 0
-    }
+    $intent = Show-ServerPrompt -PortList $portList
 
-    # Interactive: offer Kill & restart vs Cancel via a pop-up.
-    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
-    $msg = "Pianoid servers are already running on port(s):`n`n  $portList`n`n" +
-           "Kill them and restart, or cancel this launch?`n`n" +
-           "[Yes] Kill the running servers and restart`n" +
-           "[No]  Cancel - leave the running stack and do not launch"
-    $title = 'Pianoid - already running'
-    $result = [System.Windows.Forms.MessageBox]::Show(
-        $msg, $title,
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Warning)
-
-    if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+    if ($intent -eq 'kill') {
         Write-Host "Killing the running Pianoid servers (port-targeted)..."
         Stop-PianoidListeners
         # Brief settle so ports release before the .bat relaunches.
@@ -122,7 +156,7 @@ try {
         exit 0
     }
 
-    # User chose Cancel -> tell the .bat to abort the launch.
+    # 'cancel' -> tell the .bat to abort the launch.
     exit 20
 }
 catch {

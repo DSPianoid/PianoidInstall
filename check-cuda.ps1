@@ -25,13 +25,21 @@
 #          user clicked Continue on a warning, OR the check could not determine
 #          GPU state (skipped silently), OR ANY best-effort failure.
 #
-# -Auto switch (passed by the .bat when /auto / --no-prompt is set): run
-# non-interactively. The CUDA warnings are INFORMATIONAL (the UI loads either
-# way), so in -Auto we print the warning to the console and PROCEED (exit 0) -
-# never block an unattended shortcut launch on an info pop-up.
+# -Auto switch (passed by the .bat when /auto / --no-prompt is set, e.g. the
+# desktop shortcut): the two warnings are routed DIFFERENTLY because their
+# severity differs:
+#   * NO CUDA DEVICE -> SHOW the warning even under -Auto (a missing GPU means
+#     APPLY/synthesis will fail - worth a heads-up), but as a TIMED pop-up
+#     (WScript.Shell.Popup, 30 s) so a headless launch can't hang; on timeout
+#     the default is Continue (the UI still loads).
+#   * < 60 SMs -> SUPPRESS under -Auto. It is purely informational and would
+#     nag on EVERY desktop-icon launch on a sub-60-SM GPU (e.g. a 56-SM card),
+#     so it is shown ONLY on bare/interactive (terminal) runs.
+# Bare/interactive runs show BOTH warnings as a normal blocking MessageBox.
 #
-# DESIGN: BEST-EFFORT - must NEVER block, hang, or error the launch. The whole
-# body is wrapped so any unexpected failure falls through to exit 0.
+# DESIGN: BEST-EFFORT - must NEVER hang or error the launch. The whole body is
+# wrapped so any unexpected failure falls through to exit 0; the -Auto pop-up
+# is time-bounded so it cannot hang a headless launch.
 #
 # See: start-pianoid.bat (the caller), check-running-servers.ps1 +
 #      check-updates.ps1 (sibling pre-launch helpers, same pattern).
@@ -47,6 +55,10 @@ $ErrorActionPreference = 'SilentlyContinue'
 # Below this SM count, full-keyboard (58-block) presets may not fit the
 # cooperative launch. 58 blocks for a full 88-key preset + headroom -> 60.
 $MinSMCount = 60
+
+# How long the -Auto (timed) no-device pop-up waits for a click before taking
+# the safe default (Continue). Bounded so a headless launch never hangs.
+$PopupTimeoutSec = 30
 
 $RepoRoot = $PSScriptRoot
 
@@ -146,20 +158,46 @@ function Test-CudaViaNvidiaSmi {
 }
 
 # -------------------------------------------------------------------------
-# Show a warning pop-up (interactive) or print it (-Auto). Returns $true to
-# PROCEED, $false to CANCEL. In -Auto always proceeds (informational).
+# Show a CUDA warning and return $true to PROCEED or $false to CANCEL.
+# $Kind is 'no-device' or 'low-sm' and drives the -Auto routing:
+#
+#  * Interactive (no -Auto): a normal BLOCKING MessageBox (OKCancel) for BOTH
+#    kinds. OK -> proceed, Cancel -> cancel.
+#  * -Auto + 'low-sm'  -> SUPPRESSED: return proceed WITHOUT showing anything
+#    (purely informational; would nag every icon launch on a sub-60-SM GPU).
+#  * -Auto + 'no-device' -> a TIMED WScript.Shell.Popup (OKCancel, 30 s). OK ->
+#    proceed; Cancel -> cancel; timeout (no click) -> proceed (UI still loads).
 # -------------------------------------------------------------------------
 function Show-CudaWarning {
-    param([string] $Message)
+    param(
+        [string] $Message,
+        [ValidateSet('no-device', 'low-sm')] [string] $Kind
+    )
+
+    # -Auto + low-sm: suppress entirely (no console line, no pop-up).
+    if ($Auto -and $Kind -eq 'low-sm') { return $true }
 
     Write-Host "WARNING (CUDA check):"
     Write-Host ("  " + ($Message -replace "`n", "`n  "))
 
     if ($Auto) {
-        Write-Host "  /auto mode: informational - proceeding."
-        return $true
+        # Only 'no-device' reaches here under -Auto -> timed pop-up.
+        # WScript.Shell.Popup button codes: 1 = OK/Cancel, 48 = Warning icon.
+        # Returns 1 = OK, 2 = Cancel, -1 = timed out (no click).
+        try {
+            $wshell = New-Object -ComObject WScript.Shell
+            $rc = $wshell.Popup(
+                ($Message + "`n`n(Auto-launch: continues in $PopupTimeoutSec s.)"),
+                $PopupTimeoutSec, 'Pianoid - CUDA check', (1 + 48))
+            if ($rc -eq 2) { return $false }   # Cancel
+            return $true                        # OK (1) or timeout (-1) -> proceed
+        } catch {
+            # COM unavailable -> proceed (informational; UI still loads).
+            return $true
+        }
     }
 
+    # Interactive: blocking dialog (both kinds).
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
     $full = $Message + "`n`n[OK] Continue launching`n[Cancel] Abort the launch"
     $result = [System.Windows.Forms.MessageBox]::Show(
@@ -178,7 +216,7 @@ try {
     if ($info.Determined) {
         # Authoritative path (cupy gave us device count + SM count).
         if ($info.DeviceCount -lt 1) {
-            $proceed = Show-CudaWarning -Message ("No CUDA device found - Pianoid's synthesis engine needs an NVIDIA GPU.`n" +
+            $proceed = Show-CudaWarning -Kind 'no-device' -Message ("No CUDA device found - Pianoid's synthesis engine needs an NVIDIA GPU.`n" +
                 "The UI will load, but APPLY / synthesis will fail.")
             if (-not $proceed) { exit 30 }
             exit 0
@@ -190,7 +228,9 @@ try {
             $smMsg = ("GPU '{0}' has {1} SMs (< {2}).`n" +
                 "Full-keyboard presets may not run - the synthesis engine's cooperative kernel launch needs one block per 4 strings (a full 88-key preset = ~58 blocks), which can exceed the SM count.`n" +
                 "Use a reduced-keyboard preset (e.g. the *_56SM variants) if APPLY fails.") -f $info.Name, $info.SMCount, $MinSMCount
-            $proceed = Show-CudaWarning -Message $smMsg
+            # 'low-sm' is suppressed under -Auto (informational) and shown only
+            # on bare/interactive runs.
+            $proceed = Show-CudaWarning -Kind 'low-sm' -Message $smMsg
             if (-not $proceed) { exit 30 }
             exit 0
         }
@@ -201,7 +241,7 @@ try {
     # cupy path failed -> fall back to nvidia-smi for AVAILABILITY only.
     $present = Test-CudaViaNvidiaSmi
     if ($present -eq $false) {
-        $proceed = Show-CudaWarning -Message ("No CUDA device found (nvidia-smi reports no GPU) - Pianoid's synthesis engine needs an NVIDIA GPU.`n" +
+        $proceed = Show-CudaWarning -Kind 'no-device' -Message ("No CUDA device found (nvidia-smi reports no GPU) - Pianoid's synthesis engine needs an NVIDIA GPU.`n" +
             "The UI will load, but APPLY / synthesis will fail.")
         if (-not $proceed) { exit 30 }
         exit 0
