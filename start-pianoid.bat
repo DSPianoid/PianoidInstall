@@ -94,6 +94,36 @@ echo   OK  Frontend dependencies found
 echo.
 
 rem =========================================================================
+rem Running-servers check: is a Pianoid stack already up?
+rem
+rem check-running-servers.ps1 detects LISTENING Pianoid ports (3000/3001/
+rem 5000/5001). If a stack is running it offers (pop-up) Kill & restart vs
+rem Cancel; Kill is PORT-TARGETED (owning PIDs only, never by image name).
+rem Exit codes:
+rem   20 -> a stack was up AND the user chose Cancel -> abort the launch.
+rem    0 -> proceed (nothing up / killed & restarting / best-effort failure).
+rem In /auto it runs non-interactively: warns on console, leaves the running
+rem stack untouched, and proceeds (never kills the user's stack unattended).
+rem Best-effort: a missing script or PowerShell falls through to launch.
+rem =========================================================================
+if not exist "%ROOT_DIR%check-running-servers.ps1" goto :after_running_check
+where powershell >nul 2>&1
+if errorlevel 1 goto :after_running_check
+
+set "RUNNING_AUTO="
+if "%NOPROMPT%"=="1" set "RUNNING_AUTO=-Auto"
+set "RUNNING_RC=0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-running-servers.ps1" %RUNNING_AUTO%
+set "RUNNING_RC=%errorlevel%"
+if "%RUNNING_RC%"=="20" (
+    echo.
+    echo Launch cancelled - a Pianoid stack is already running.
+    echo.
+    goto :end
+)
+:after_running_check
+
+rem =========================================================================
 rem Best-effort update check (origin ahead?) -> offer to run update-repos.bat
 rem
 rem check-updates.ps1 fetches each Pianoid repo (short timeout) and, if any
@@ -135,6 +165,37 @@ if "%UPDATE_RC%"=="10" (
     echo.
 )
 :after_update_check
+
+rem =========================================================================
+rem CUDA device check (best-effort, before launch)
+rem
+rem check-cuda.ps1 queries the GPU via the engine venv + cupy (authoritative
+rem SM count; nvidia-smi availability fallback). Pianoid's synthesis engine
+rem runs a cooperative kernel whose block count (= strings / 4) must fit the
+rem GPU's SM-bounded cooperative budget, so it warns when no CUDA device is
+rem found or the device has < 60 SMs (full-keyboard presets may not run).
+rem Exit codes:
+rem   30 -> a warning was shown AND the user clicked Cancel -> abort the launch.
+rem    0 -> proceed (device OK / user clicked Continue / could not determine).
+rem In /auto the warnings are printed (informational) and the launch proceeds.
+rem Best-effort: a missing script / PowerShell / venv falls through to launch.
+rem =========================================================================
+if not exist "%ROOT_DIR%check-cuda.ps1" goto :after_cuda_check
+where powershell >nul 2>&1
+if errorlevel 1 goto :after_cuda_check
+
+set "CUDA_AUTO="
+if "%NOPROMPT%"=="1" set "CUDA_AUTO=-Auto"
+set "CUDA_RC=0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-cuda.ps1" %CUDA_AUTO%
+set "CUDA_RC=%errorlevel%"
+if "%CUDA_RC%"=="30" (
+    echo.
+    echo Launch cancelled at the CUDA check.
+    echo.
+    goto :end
+)
+:after_cuda_check
 
 rem =========================================================================
 rem Start application
