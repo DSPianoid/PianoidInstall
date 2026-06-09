@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-debugboot-bacd | `PianoidCore/pianoid_middleware/pianoid.py` | 2026-06-09T13:16:00Z | Honor PIANOID_USE_DEBUG at boot so DEBUG variant wins the first pianoidCuda import (fix debug-via-UI first-import race + APPLY downgrade) |
 <!-- dev-wave3split-f634 locks RELEASED 2026-06-06 at Step 10a Phase 2 (user-approved "Merge and push" via Telegram;
      executed by sync-release as part of the multi-repo release). Held 9 files: modal_adapter.py, chain_editor.py (NEW),
      project_store.py (NEW), apply_service.py, esprit_orchestrator.py (NEW), tests/unit/test_modal_adapter_state.py,

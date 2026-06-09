@@ -647,6 +647,35 @@ Set `PIANOID_USE_DEBUG=1` before starting the server, or pass `use_debug_build=T
 to `initialize_pianoid()`. The middleware aliases `pianoidCuda_debug` as `pianoidCuda`
 via `sys.modules`, so all existing import sites work unchanged.
 
+**The variant locks at the FIRST `import pianoidCuda` in the process.** `select_cuda_variant`
+must run before that first import (its docstring says so). This is enforced two ways:
+
+- **Boot-time selection (`select_cuda_variant_at_boot`, pianoid.py).** When
+  `PIANOID_USE_DEBUG=1`, `pianoid.py` selects the debug variant at module-import time —
+  `backendServer.py` runs `from pianoid import *`, which executes this *before* any
+  `load_preset`/APPLY can import RELEASE. This makes debug-via-UI reliable: the env wins
+  the first import regardless of who calls `load_preset` first. **Without it**, the
+  frontend's APPLY (which sends `debug_mode=0` unless the UI Debug toggle is set) would
+  import RELEASE first and lock it — a later `debug_mode=1` then hits the
+  "cannot switch — already imported" guard and is a silent no-op (the symptom: "debug
+  build runs RELEASE / sound test behaves like release"). When `PIANOID_USE_DEBUG` is
+  unset, boot selection is a no-op and **RELEASE stays the default** (zero change for
+  normal release runs).
+- **No-downgrade rule (`select_cuda_variant`).** Once a process has booted DEBUG, a later
+  release-request (e.g. a UI APPLY with `debug_mode=0`) does **not** downgrade it — the
+  debug binary cannot be unloaded from a live process, and silently flipping `debug_active`
+  off would disable extraction on a debug-booted engine. `select_cuda_variant(use_debug=False)`
+  on a debug-active process is a no-op that keeps debug active (detected via
+  `_debug_variant_active()`, which checks the aliased module's `__name__`).
+
+To run the full stack in debug from the launcher: start `npm run dev` with
+`PIANOID_USE_DEBUG=1` in its environment (the launcher forwards its env to the
+backend it spawns — `PianoidTunner/server/launcher.js`). The backend then boots debug
+before the frontend connects, and stays debug across APPLYs.
+
+Covered by `tests/unit/test_debug_variant_at_boot.py` (boot selection, no-downgrade,
+release-default, first-import lock).
+
 ### Debug variant DLL trap
 
 `PIANOID_BUILD_VARIANT=debug` builds `pianoidCuda_debug.pyd` but **skips the DLL copy
