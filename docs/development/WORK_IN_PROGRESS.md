@@ -22,8 +22,27 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-debugboot-bacd | Honor PIANOID_USE_DEBUG at backend boot so DEBUG variant wins the first pianoidCuda import (fixes debug-via-UI first-import race + APPLY downgrade) | [log](logs/dev-debugboot-2026-06-09-161203.md) | 2026-06-09 | In Progress |
-| dev-mzoom | PianoidTunner UI: (3) system-wide selection + per-chart tie/untie zoom — **P2 (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING** the user's cross-system test of the P1 Feedin reference. (1) matrices-zoom + (2) bar-chart toggle + (3) P0/P1 already MERGED + PUSHED. | [log](logs/dev-mzoom-2026-06-05-102816.md) | 2026-06-05 | (1)+(2)+(3:P0/P1) MERGED to PianoidTunner dev + PUSHED (matrices-zoom f3ff30a, bar-chart toggle 795f559, P0/P1 Feedin 41b4737). **P2/P3 = REAL deferred follow-up awaiting the user's Feedin-reference test gate** — do NOT drop. Jest 88/941, eslint 0. |
+<!-- dev-debugboot-bacd COMPLETED 2026-06-09 (Step 10a Phase 2, user-approved "merge all to dev and push").
+     Fix A (debug-at-boot): select_cuda_variant_at_boot() honors PIANOID_USE_DEBUG at module import so the DEBUG
+     variant wins the FIRST pianoidCuda import (before any load_preset/APPLY can lock RELEASE) + no-downgrade rule
+     (release-request on a debug-active process is a no-op); RELEASE stays default when env unset.
+     Fix B (chart-realtime-thread restore): /get_chart_test offline render (note_playback/mode_test/sound_test) no
+     longer leaves the realtime playback thread stopped — backendServer._spawn_realtime_thread + the
+     pianoid._restart_realtime_thread hook (registered by load_preset) re-establish long_running_procedure + the
+     `running` flag; chartFunctions._restart_online_engine prefers the hook (falls back to start_pianoid for
+     serverless callers). Fixes "no sound, sound test fails" (was the pre-B silence bug on dev/master).
+     Committed PianoidCore feature/debug-at-boot (cdee490 Fix A + test, 3c4244a Fix B + test), MERGED to
+     PianoidCore dev d7f15ef (--no-ff). 8/8 unit (5 Fix A + 3 Fix B) + live-proven (debug variant loads, sound
+     test keeps thread TRUE + audio). Python-middleware only — NO CUDA rebuild. Docs (BUILD_SYSTEM Runtime
+     selection, SYSTEM_OVERVIEW threading) on master. ★Separate follow-up HELD (own future branch): the LAUNCHER
+     env-forward fix (option a) — launcher.js must pass PIANOID_USE_DEBUG into the spawned backend env when the UI
+     Debug toggle is on, so Fix A engages via the normal UI launch (currently debug-via-UI only works if the first
+     APPLY carries debug_mode=1). NOT part of this merge. -->
+<!-- dev-mzoom COMPLETED-PHASE 2026-06-09 (system-wide-selection MERGED to PianoidTunner dev 758f5d7): tie/untie
+     zoom + tri-state mute + ruler↔bar-chart x-axis alignment. ★REAL DEFERRED FOLLOW-UP — do NOT drop: (3) P2
+     (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) remain PENDING the
+     user's cross-system test of the P1 Feedin reference. Earlier sub-features (1) matrices-zoom f3ff30a + (2)
+     bar-chart toggle 795f559 + (3) P0/P1 Feedin 41b4737 were merged/pushed previously. Jest 88/941, eslint 0. -->
 
 <!-- dev-wave3split-f634 COMPLETED 2026-06-06 (Step 10a Phase 2, user-approved "Merge and push" via Telegram;
      wrapped by sync-release as part of the multi-repo release). Wave 3 Modal Adapter facade split: extract ChainEditor +
