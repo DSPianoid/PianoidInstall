@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-syschecks | `start-pianoid.bat` (edit), `check-running-servers.ps1` (NEW), `check-cuda.ps1` (NEW) | 2026-06-09T19:00:00Z | Two pre-launch checks: (1) running-servers detection + kill/cancel pop-up (port-targeted PID kill only); (2) CUDA device + SM-count warning. OUTER PianoidInstall repo root, off master. |
 <!-- dev-b70f locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs onto
      master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit), check-updates.ps1 (NEW),
      make-shortcut.bat (NEW), make-shortcut.ps1 (NEW). Launcher enhancements: (1) start-pianoid.bat parses %1 →

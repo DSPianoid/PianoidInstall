@@ -251,6 +251,15 @@ The backend (port 5000) is **not started yet** — it launches on demand when yo
 
 **Startup update check (best-effort).** Before launching, `start-pianoid.bat` runs `check-updates.ps1`, which `git fetch`es each Pianoid repo (PianoidCore / PianoidTunner / PianoidBasic on their current branch, the outer PianoidInstall on `master`) with a short per-repo timeout and compares the local branch against its upstream. If any origin is **ahead**, a Yes/No pop-up offers to run [`update-repos.bat`](#) (pull + rebuild what changed). The check is strictly best-effort: if git is unreachable, there is no network, a branch has no upstream, or anything else goes wrong, it silently falls through to the normal launch — it never blocks, hangs, or errors startup. (Even in `/auto` mode the pop-up may still appear; use `/auto-noupdate` to suppress it.)
 
+**Pre-launch safety checks (best-effort).** `start-pianoid.bat` also runs two correctness checks before launch. Both are strictly best-effort (a missing script / PowerShell / venv → silent fall-through to launch) and neither ever blocks an unattended `/auto` launch.
+
+| Check | Helper | What it does | `/auto` behaviour |
+|---|---|---|---|
+| **Already-running stack** | `check-running-servers.ps1` | Detects a LISTENING Pianoid port (3000 React / 3001 launcher / 5000 backend / 5001 modal adapter). If a stack is already up, a pop-up offers **Kill & restart** (port-targeted PID kill — owning PIDs of those ports only, never a blanket `taskkill /IM`) or **Cancel** (abort the launch). | Detects + warns on the console, leaves the running stack **untouched**, and proceeds (never kills the user's live stack unattended). |
+| **CUDA device + SM count** | `check-cuda.ps1` | Queries the GPU via the engine venv + cupy (SM count; `nvidia-smi` availability fallback). Warns when **no CUDA device** is found (UI loads, APPLY/synthesis fails) or the device has **< 60 SMs** (full-keyboard 58-block presets may exceed the cooperative-kernel launch budget — one block per 4 strings; use a `*_56SM` preset). ≥ 60 SMs proceeds silently. | Prints the warning (informational) and proceeds. |
+
+The SM threshold comes from the synthesis engine's cooperative kernel, whose block count = `numStrings / 4` must fit the GPU's SM-bounded concurrent-block budget — see [`SYNTHESIS_ENGINE.md` § Kernel Grid Layout](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md).
+
 ---
 
 ## Step 4 (Alternative) — Start via CLI
