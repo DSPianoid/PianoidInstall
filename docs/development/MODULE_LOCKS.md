@@ -15,6 +15,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-09cf locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (user-approved scroll fix, "OK"). Held:
+     PianoidTunner/src/components/ToolBar.jsx. Top-toolbar responsive truncation fix — `<Toolbar>` gets a contained
+     `sx` (overflowX:auto + overflowY:hidden + `& > * {flexShrink:0}` + thin dark-theme scrollbar) so the dense
+     heterogeneous control row scrolls instead of clipping its rightmost controls at narrow widths; wide layout
+     byte-identical. Verified live (chrome-devtools @1600/800/500 — all controls reachable, no page-level h-scroll,
+     wide unchanged) + full Jest 91 suites/1003 tests green + eslint 0 new. Committed on PianoidTunner
+     feature/toolbar-responsive-overflow (off current HEAD feature/eslint-casing-fix; SHA in session log). NOT
+     merged/pushed — team-lead FFs onto dev + pushes (+ Phase 2 wrap). Docs (OVERVIEW ToolBar row) + session log on
+     PianoidInstall master. Frontend-only, NO CUDA/backend. -->
 <!-- dev-pipefix locks RELEASED 2026-06-09 — merged: eslint fix → PianoidTunner dev (8b9acf3); synthetic-dataset → dev (Core a35800a, Tunner 8b9acf3); outer setup-pianoid scripts + update-repos.{bat,sh} (NEW) + docs (QUICK_START/LINUX_BUILD Status_indicator_OK→dev) → master. -->
 <!-- dev-setuppath locks RELEASED 2026-06-08 at Step 10a Phase 1 commit. Held (OUTER PianoidInstall repo root):
      setup-dev.ps1, setup-path-guard.ps1 (NEW), tests/setup-path-guard.Tests.ps1 (NEW). PATH-preserving guard so
