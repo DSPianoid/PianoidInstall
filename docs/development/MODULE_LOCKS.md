@@ -15,7 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-pipefix | `PianoidTunner/.env` (NEW), `PianoidTunner/package.json`, `setup-pianoid.bat`, `setup-pianoid.sh`, `update-repos.bat` (NEW), `update-repos.sh` (NEW) | 2026-06-09T11:30:00Z | Setup-pipeline ESLint-casing fix (.env DISABLE_ESLINT_PLUGIN + lint script) + `py`-launcher Python detect + npm ci; NEW update-repos pull+rebuild script. (docs/guides/QUICK_START.md + LINUX_BUILD.md edited under doc-update, not source-lock.) |
+<!-- dev-pipefix locks RELEASED 2026-06-09 — merged: eslint fix → PianoidTunner dev (8b9acf3); synthetic-dataset → dev (Core a35800a, Tunner 8b9acf3); outer setup-pianoid scripts + update-repos.{bat,sh} (NEW) + docs (QUICK_START/LINUX_BUILD Status_indicator_OK→dev) → master. -->
 <!-- dev-setuppath locks RELEASED 2026-06-08 at Step 10a Phase 1 commit. Held (OUTER PianoidInstall repo root):
      setup-dev.ps1, setup-path-guard.ps1 (NEW), tests/setup-path-guard.Tests.ps1 (NEW). PATH-preserving guard so
      setup-dev.ps1 stops breaking NI LabWindows/CVI: the script doesn't persist PATH itself, but the installers it
