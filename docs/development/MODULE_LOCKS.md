@@ -15,6 +15,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-b70f locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs onto
+     master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit), check-updates.ps1 (NEW),
+     make-shortcut.bat (NEW), make-shortcut.ps1 (NEW). Launcher enhancements: (1) start-pianoid.bat parses %1 →
+     /auto (alias --no-prompt) skips both keypress pauses; /auto-noupdate (alias /no-update-check) also skips the
+     update check; bare = current interactive prompts; error path still pauses in /auto so a shortcut-launched
+     failure stays visible. (2) Best-effort origin-ahead update check before launch via check-updates.ps1 →
+     Yes/No pop-up → Yes calls update-repos.bat then launches; fully guarded (git-missing/offline/no-upstream/any
+     failure → silent fall-through to launch, NEVER blocks/hangs/errors). check-updates.ps1 = timeout-guarded
+     git fetch + rev-list ahead-count for Core/Tunner/Basic(current branch)+Install(master); exit 10=update/0=skip.
+     (3) make-shortcut.ps1+.bat = WScript.Shell COM → Desktop\Pianoid.lnk targeting `start-pianoid.bat /auto`,
+     repo-root workdir, favicon.ico icon. VERIFIED non-disruptively (stack left running): both .ps1 AST-parse clean;
+     start-pianoid.bat all 4 flag branches sim-tested via stubbed copy through cmd /c; check-updates.ps1 git-unreachable→
+     exit 0 + ahead-detection unit-tested (up-to-date/ahead/no-upstream/missing) + real read-only 4-repo probe (6.0s,
+     no pop-up) + Main Yes→10/No→0 decision; make-shortcut real run → Desktop\Pianoid.lnk created, all props asserted.
+     Committed feature/launcher-update-check-shortcut da7c1d5 (off master d7465a3). NO CUDA/backend, NO stack launched,
+     NO real pull. Docs (QUICK_START.md launch subsection) + session log on this branch too. -->
 <!-- dev-09cf locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (user-approved scroll fix, "OK"). Held:
      PianoidTunner/src/components/ToolBar.jsx. Top-toolbar responsive truncation fix — `<Toolbar>` gets a contained
      `sx` (overflowX:auto + overflowY:hidden + `& > * {flexShrink:0}` + thin dark-theme scrollbar) so the dense

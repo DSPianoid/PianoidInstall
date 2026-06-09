@@ -237,6 +237,20 @@ The backend (port 5000) is **not started yet** — it launches on demand when yo
 | `/api/backend-status` | GET | Returns `{ running, pid }` |
 | `/ws/console` | WebSocket | Real-time backend log stream |
 
+### No-prompt launch, desktop shortcut & update check
+
+`start-pianoid.bat` accepts an optional flag (first argument):
+
+| Invocation | Behaviour |
+|---|---|
+| `start-pianoid.bat` | Interactive: prints status, waits for a keypress before launching, pauses again on exit. |
+| `start-pianoid.bat /auto` (or `--no-prompt`) | Skips both keypress pauses and launches straight through. The update-available pop-up may still appear. |
+| `start-pianoid.bat /auto-noupdate` (or `/no-update-check`) | `/auto` **and** skips the origin-ahead update check — fully unattended. |
+
+**Desktop shortcut.** Run `make-shortcut.bat` (or `make-shortcut.ps1`) once to drop a **Pianoid** shortcut on your Desktop. It points at `start-pianoid.bat /auto` (no-prompt launch), uses the repo root as the working directory, and carries the Pianoid icon (`PianoidTunner/public/favicon.ico`). Re-running overwrites the existing shortcut.
+
+**Startup update check (best-effort).** Before launching, `start-pianoid.bat` runs `check-updates.ps1`, which `git fetch`es each Pianoid repo (PianoidCore / PianoidTunner / PianoidBasic on their current branch, the outer PianoidInstall on `master`) with a short per-repo timeout and compares the local branch against its upstream. If any origin is **ahead**, a Yes/No pop-up offers to run [`update-repos.bat`](#) (pull + rebuild what changed). The check is strictly best-effort: if git is unreachable, there is no network, a branch has no upstream, or anything else goes wrong, it silently falls through to the normal launch — it never blocks, hangs, or errors startup. (Even in `/auto` mode the pop-up may still appear; use `/auto-noupdate` to suppress it.)
+
 ---
 
 ## Step 4 (Alternative) — Start via CLI
