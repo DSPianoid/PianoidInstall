@@ -40,9 +40,9 @@ clone-packages.bat
 `clone-packages.bat` runs:
 
 ```bat
-git clone -b Status_indicator_OK https://github.com/DSPianoid/PianoidTunner
-git clone https://github.com/DSPianoid/PianoidCore
-git clone https://github.com/DSPianoid/PianoidBasic
+git clone -b dev https://github.com/DSPianoid/PianoidTunner
+git clone -b dev https://github.com/DSPianoid/PianoidCore
+git clone -b dev https://github.com/DSPianoid/PianoidBasic
 ```
 
 After this step the directory tree is:
@@ -106,10 +106,10 @@ setup-pianoid.bat
 
 This runs four steps in sequence:
 
-1. **Python venv** — creates `PianoidCore\.venv`, installs `requirements.txt`
+1. **Python venv** — creates `PianoidCore\.venv` (via `python`, falling back to the `py` launcher `py -3.12` / `py -3` when bare `python` is not on PATH), installs `requirements.txt`
 2. **PianoidBasic** — builds the domain model wheel, installs into `.venv`
 3. **PianoidCuda** — detects toolchain paths, compiles CUDA extension (release + debug)
-4. **Frontend** — runs `npm install` in PianoidTunner
+4. **Frontend** — runs `npm ci` in PianoidTunner (reproducible install from the committed `package-lock.json`)
 
 The build takes 5–15 minutes depending on GPU architecture count. Check `PianoidCore\build.log` for compiler output.
 

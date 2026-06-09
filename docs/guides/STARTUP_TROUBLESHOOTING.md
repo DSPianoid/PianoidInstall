@@ -484,6 +484,28 @@ npm install
 npm run dev
 ```
 
+### Symptom: `npm run dev` / `npm run build` fails with "Plugin react was conflicted between ..."
+
+The full error reads something like *"Plugin "react" was conflicted between
+`package.json » eslint-config-react-app » .../base.js` and
+`.eslintrc » eslint-config-react-app » .../base.js`."*
+
+**Cause:** `react-scripts 5.0.1` resolves `eslint-config-react-app` twice — once
+project-side (`package.json` `eslintConfig.extends: ["react-app"]`) and once
+react-scripts-side (its webpack config with `resolvePluginsRelativeTo: __dirname`).
+`@rushstack/eslint-patch` de-dups plugins by absolute path **case-sensitively**, but
+Windows' case-insensitive filesystem lets the same `base.js` resolve under different
+casings (e.g. `C:\dima\…` vs `C:\Dima\…`) depending on the CWD casing you launched from.
+The patch then sees "two different" copies of the `react` plugin and aborts. This is why
+it can bite a manual `npm run dev` from a mis-cased CWD even when `start-pianoid.bat` works.
+
+**Fix (already shipped):** `PianoidTunner/.env` contains `DISABLE_ESLINT_PLUGIN=true`, which
+makes `react-scripts` skip the build-time `ESLintWebpackPlugin` entirely, removing the
+double-resolution at its source — both launch methods build regardless of CWD casing. The
+file is committed (not gitignored), so collaborators get it automatically. If you ever
+deleted it, recreate it with that one line. Lint is still runnable on demand via
+`npm run lint` (the `react-app` rules stay configured in `package.json`).
+
 ### Symptom: Frontend loads but shows "Backend not connected"
 
 The launcher (port 3001) or the backend (port 5000) is not running.

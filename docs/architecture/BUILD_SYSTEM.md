@@ -96,6 +96,27 @@ git -C <repo> diff <pre-state>..<post-state> --name-only
 This is the gate that FAIL #1 skipped: new Python (`StringMap.pack_output_mask`) ran against
 stale binaries because merge→push had no rebuild step.
 
+#### `update-repos.{bat,sh}` — automated pull + post-pull rebuild
+
+`update-repos.bat` (Windows) / `update-repos.sh` (Linux), at the install root, automate
+this gate for a routine "pull latest and rebuild what's needed" sweep. They:
+
+1. `git pull --ff-only` each sub-repo (PianoidCore, PianoidTunner, PianoidBasic) on its
+   **current** branch — they do NOT switch branches, and WARN (but still pull) if a repo
+   is not on `dev`.
+2. Compute each repo's pulled diff and rebuild per the table above:
+   PianoidCore `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py` → CUDA build; any PianoidBasic
+   change → PianoidBasic build (+ CUDA, it is consumed by the engine); PianoidTunner
+   `package.json`/`package-lock.json` → `npm ci`. Nothing relevant → no-op (idempotent).
+3. Before any CUDA rebuild, stop the `.pyd`/`.so` holder (launcher REST
+   `POST /api/stop-backend`, else a port-targeted kill of the listener on 5000) so the
+   `--heavy` uninstall does not fail and brick the venv.
+
+CUDA variant flags mirror `build_pianoid_cuda.{bat,sh}`: default `--both` (release + debug);
+`--release` / `--debug` build a single variant; `--help` prints usage. Run it from a
+foreground terminal (it is interactive — it stops the backend itself). After a CUDA rebuild
+it reminds you to run the import + `/load_preset` 200 verification.
+
 ---
 
 ### 0xC0000142 Recovery (STATUS_DLL_INIT_FAILED)
@@ -215,6 +236,7 @@ Each pair is maintained as a single logical unit.
 |---|---|---|
 | Install system packages | `setup-packages.bat` | `setup-packages.sh` |
 | Install Pianoid (venv + builds) | `setup-pianoid.bat` | `setup-pianoid.sh` |
+| Update repos (pull + rebuild what changed) | `update-repos.bat` | `update-repos.sh` |
 | Launch full stack | `start-pianoid.bat` | `start-pianoid.sh` |
 | Build PianoidBasic wheel | `PianoidCore/build_pianoid_basic.bat` | `PianoidCore/build_pianoid_basic.sh` |
 | Build PianoidCuda extension | `PianoidCore/build_pianoid_cuda.bat` | `PianoidCore/build_pianoid_cuda.sh` |
