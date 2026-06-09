@@ -15,7 +15,27 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-syschecks | `start-pianoid.bat` (edit), `check-running-servers.ps1` (NEW), `check-cuda.ps1` (NEW) | 2026-06-09T19:00:00Z | Two pre-launch checks: (1) running-servers detection + kill/cancel pop-up (port-targeted PID kill only); (2) CUDA device + SM-count warning. OUTER PianoidInstall repo root, off master. |
+<!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs the
+     feature branch onto master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit),
+     check-running-servers.ps1 (NEW), check-cuda.ps1 (NEW). TWO best-effort pre-launch checks added to
+     start-pianoid.bat, each a self-contained PowerShell helper invoked like check-updates.ps1 (exit code read by
+     the .bat; any failure → exit 0 = launch): (1) check-running-servers.ps1 — Get-NetTCPConnection -State Listen on
+     3000/3001/5000/5001; if a stack is up → MessageBox (Yes=Kill&restart via PORT-TARGETED Stop-Process on those
+     ports' OwningProcess PIDs ONLY, never /IM; No=Cancel→exit 20). -Auto = warn+leave-untouched+proceed (never kills
+     a live stack unattended). (2) check-cuda.ps1 — venv python + cupy (getDeviceCount + multiProcessorCount) via a
+     TEMP FILE (python -c mangles embedded quotes), nvidia-smi availability fallback; no device → warn, SM<60 → warn
+     (cooperative block_count=strings/4 may exceed SMs; use *_56SM), ≥60 → silent; Cancel→exit 30; -Auto = print+proceed.
+     start-pianoid.bat: running-servers block (RC20→cancel) after node_modules check L97-124, CUDA block (RC30→cancel)
+     after :after_update_check L170-198; both gated by `if not exist ...ps1`+`where powershell`, pass -Auto when
+     NOPROMPT=1. FLAG DESIGN (flagged to team-lead): under /auto both run NON-interactively (safe-default+proceed) so
+     an unattended shortcut never hangs on a pop-up. VERIFIED static/AST/sim only (stack LEFT RUNNING — NO launch, NO
+     live-port kill): both .ps1 AST-clean; check-cuda -Auto via prod path detected RTX 4070 SUPER=56 SMs→correct <60
+     warning; check-running-servers -Auto detected live [3000,3001,5001]+left untouched; .bat full routing S1-S5 (bare
+     all-clear→LAUNCH, servers-up Cancel→abort, CUDA Cancel→abort, /auto→both run w/-Auto→LAUNCH, /auto-noupdate→update
+     skipped+both run→LAUNCH). Committed feature/launcher-prelaunch-checks (2dff830 feat + 1951b83 docs, off master
+     c6baf4e). NO CUDA build, NO backend, NO stack launched. Docs (QUICK_START Pre-launch-safety-checks subsection) +
+     session log on this branch. NOT merged/pushed. -->
+<!-- (none active for dev-syschecks — released at Phase 1) -->
 <!-- dev-b70f locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs onto
      master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit), check-updates.ps1 (NEW),
      make-shortcut.bat (NEW), make-shortcut.ps1 (NEW). Launcher enhancements: (1) start-pianoid.bat parses %1 →
