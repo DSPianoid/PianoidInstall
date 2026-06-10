@@ -32,7 +32,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      start-pianoid.bat was locked precautionarily but NOT edited (contract sound; the gate lives in check-cuda.ps1
      + the backend). NO merge, NO push (Phase 2 pending user live test). -->
 <!-- (no active dev-cudaguard locks — released at Phase 1) -->
-| dev-nvmldiag | **Outer (main tree, master):** `diagnose-cuda.ps1` (edit), `docs/development/diagnostics/dev-nvmldiag-*.ps1` (NEW test harness). | 2026-06-10T11:04:41Z | Extend diagnose-cuda.ps1 with NVML version-mismatch detection (System32 nvml.dll version vs driver version) + a precise reboot/DDU fix recipe + section-8 precedence so an NVML-error nvidia-smi run outranks the cupy-blame branch even when nvml.dll exists. Single .ps1 change, NO CUDA build. Does NOT touch check-cuda.ps1 (dev-cudaguard scope) or any PianoidCore/PianoidTunner file. Orchestrator commits + pushes. |
+<!-- dev-nvmldiag locks RELEASED 2026-06-10 at orchestrator Phase-2 wrap. Held (OUTER PianoidInstall, master):
+     diagnose-cuda.ps1 (edit) + docs/development/diagnostics/dev-nvmldiag-mismatch-verdict-tests.ps1 (NEW harness).
+     diagnose-cuda.ps1 4-round hardening SHIPPED to master (fa2cde1 -> 2cef064 -> 9b53ad9 -> 27f908e); verdict
+     harness (28/28) PRESERVED to master in this wrap. .ps1-only, NO CUDA build. Tree clean. -->
+<!-- dev-drvinstall locks RELEASED 2026-06-10 at orchestrator Phase-2 wrap (lock row was working-tree-only, never
+     committed to master). Held (OUTER PianoidInstall, master): install-nvidia-driver.ps1, check-driver-health.ps1
+     (NEW), setup-packages.bat (option 7), setup-dev.ps1 + 2 NEW harnesses. Driver detect+reinstall option 7 SHIPPED
+     to master (ccf1b0c -> 04a3080 -> 60fcbeb); harnesses PRESERVED to master in this wrap. .ps1/.bat-only, NO CUDA
+     build. All driver ops logic-tested only (no real choco/pnputil/DDU/reboot on this box). Tree clean. -->
 <!-- dev-upcheck locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs
      feature/check-updates-integration-branch onto master + pushes). Held (OUTER PianoidInstall repo root):
      check-updates.ps1 (edit) + docs/development/diagnostics/dev-upcheck-edge-tests.ps1 (NEW, edge-test diagnostic).

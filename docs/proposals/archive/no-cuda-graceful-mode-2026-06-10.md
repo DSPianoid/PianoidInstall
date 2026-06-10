@@ -2,7 +2,7 @@
 
 - **Author:** dev-cudaguard
 - **Date:** 2026-06-10
-- **Status:** PROPOSAL — awaiting user decision (do NOT implement the PianoidCore change without explicit approval)
+- **Status:** ✅ IMPLEMENTED + SHIPPED + ARCHIVED 2026-06-10. No-CUDA graceful mode merged to PianoidCore dev `3f8280a` + PianoidTunner dev `6b15121` (both pushed) + check-cuda.ps1 limited-mode warning on PianoidInstall master `ccf1b0c`. User-approved "Opt C". The PianoidBasic CPU-synthesis allowance is DEFERRED → `no-cuda-cpu-synthesis-2026-06-10.md` (kept top-level). Archived to `docs/proposals/archive/`.
 - **Related shipped work:** `tools/cuda_diagnostic.ps1` (CUDA diagnostic, master `fa2cde1`); `check-cuda.ps1` broken-NVML detection fix (on `feature/dev-cudaguard`).
 
 ## 1. Problem (user-stated, authoritative)

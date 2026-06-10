@@ -22,8 +22,44 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-cudaguard | Launcher graceful-no-CUDA guard + standalone CUDA diagnostic script | [log](logs/dev-cudaguard-2026-06-10-071700.md) | 2026-06-10 |
-| dev-nvmldiag | diagnose-cuda.ps1: NVML version-mismatch detection + exact fix recipe | [log](logs/dev-nvmldiag-2026-06-10-110441.md) | 2026-06-10 |
+<!-- (none active — session 2026-06-10 fully wrapped) -->
+
+<!-- ===== no-CUDA + CUDA-diagnostic + driver-reinstall session 2026-06-10 (orchestrator Phase-2 wrap).
+     Three agents COMPLETED; the user approved the full-clearance cleanup + stand-down. Outcomes: =====
+     - dev-cudaguard COMPLETED 2026-06-10 — launcher graceful-no-CUDA guard + no-CUDA backend/FE APPLY-gate +
+       standalone CUDA diagnostic seed. SHIPPED + PUSHED: PianoidCore no-CUDA gate (_gpu_available cached CuPy
+       probe + /load_preset 503 gpu_unavailable BEFORE destroyPianoid + /health gpu_available; tests/system/
+       test_no_cuda_gate.py 7/7) merged to PianoidCore dev `3f8280a` + pushed; PianoidTunner no-CUDA APPLY-gate
+       (useBackendHealth.gpuAvailable default-true-unless-false + PianoidTuner short-circuit + BackendStatusIndicator
+       "No CUDA" amber chip; Jest 8/8) merged to PianoidTunner dev `6b15121` + pushed; check-cuda.ps1 limited-mode
+       warning on PianoidInstall master `ccf1b0c`. Feature branches feature/no-cuda-gate (Core) +
+       feature/no-cuda-apply-gate (Tunner) merged + DELETED in this wrap; outer feature/dev-cudaguard (check-cuda
+       working copy) shipped to master via copy-commit + DELETED. PianoidBasic CPU synth DEFERRED -> kept proposal
+       docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md (top-level, future work). Implemented proposal
+       no-cuda-graceful-mode-2026-06-10.md ARCHIVED -> docs/proposals/archive/. Log archived to logs/archive/
+       dev-cudaguard-2026-06-10-071700.md.
+     - dev-nvmldiag COMPLETED 2026-06-10 — diagnose-cuda.ps1 hardened across 4 rounds into a comprehensive
+       read-only CUDA diagnostic (WMI GPU + PnP ConfigManagerErrorCode; nvlddmkm service State + loaded .sys
+       version; System32 nvml.dll/nvcuda.dll version-vs-driver compare; nvidia-smi -q/-L exact-error; PATH scan
+       for nvml/nvcuda/cudart/nvidia-smi shadowing; section-8 precedence so an NVML-error nvidia-smi outranks the
+       cupy-blame branch; round-4 verdict flags nvlddmkm State!=Running + stale-package conflict as the top cause).
+       SHIPPED to PianoidInstall master (fa2cde1 -> 2cef064 -> 9b53ad9 -> 27f908e). Verdict harness
+       docs/development/diagnostics/dev-nvmldiag-mismatch-verdict-tests.ps1 (28/28) PRESERVED to master in this wrap.
+       Log archived to logs/archive/dev-nvmldiag-2026-06-10-110441.md. ★Diagnosed Dmitri's box: driver installed but
+       nvlddmkm SERVICE not running (blocked by a stale v560.94 DriverStore package nv_dispig.inf on a hybrid RTX
+       3080 + Intel Iris); fix = manual Safe-Mode DDU + fresh driver + reboot, then re-run the diagnostic.
+     - dev-drvinstall COMPLETED 2026-06-10 — setup-packages.bat OPTION 7 driver detect+reinstall (separate opt-in,
+       prompt-once-then-automatic, chocolatey-primary, UNINSTALL-OLD-FIRST). SHIPPED to PianoidInstall master:
+       check-driver-health.ps1 ("if needed" detector exit 0/10/20) + install-nvidia-driver.ps1 (STEP-0 pnputil
+       uninstall of stale NVIDIA Display-class packages -> choco install nvidia-display-driver -y {0,1605,1614,1641,
+       3010} -> guided Safe-Mode-DDU Tier-2 fallback; risk-prompt + -DryRun/-Acknowledged/-NoReboot/-Force) +
+       setup-packages.bat option 7 + setup-dev.ps1 post-toolkit driver-health warn (ccf1b0c -> 04a3080 -> 60fcbeb).
+       Harnesses docs/development/diagnostics/dev-drvinstall-driver-health-tests.ps1 +
+       dev-drvinstall-installer-logic-tests.ps1 PRESERVED to master in this wrap. Implemented proposal
+       setup-packages-driver-reinstall-2026-06-10.md ARCHIVED -> docs/proposals/archive/. Outer feature/
+       setup-packages-driver-reinstall DELETED (code on origin/master). Log archived to logs/archive/
+       dev-drvinstall-2026-06-10-112335.md. .ps1/.bat only, NO CUDA build. ★SAFETY: all driver ops were
+       logic-tested only (-DryRun/mock) — no real choco/pnputil/DDU/reboot on this box. -->
 
 <!-- ===== Phase-2 debt sweep 2026-06-10 (cleanup-bkkp) — the 6 rows below were all MERGED but their
      WIP rows had never been removed (Phase-2 half-done: 4 logs were already in logs/archive/ yet the
