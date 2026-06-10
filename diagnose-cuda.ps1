@@ -137,6 +137,8 @@ $script:KmodShort         = $null   # LOADED kernel module nvlddmkm.sys short (s
 $script:KmodLoadedDesync  = $false  # loaded nvlddmkm != on-disk System32 nvml/nvcuda (2b)
 $script:SecondAdapter     = $false  # a non-NVIDIA display adapter present (section 1b)
 $script:GpuConfigError    = $null   # NVIDIA GPU ConfigManagerErrorCode (e.g. 43) (section 1b)
+$script:DriverServiceStopped = $false # nvlddmkm service present but State != Running (section 2)
+$script:StaleDriverPackage   = $false # a DriverStore nvml.dll version != active driver (section 3)
 
 # -------------------------------------------------------------------------
 # 0. Environment header.
@@ -237,8 +239,19 @@ try {
     $svc = Get-CimInstance Win32_SystemDriver -Filter "Name='nvlddmkm'" -ErrorAction SilentlyContinue
     if ($svc) {
         $script:NvlddmkmPathName = $svc.PathName
-        Report 'Driver' 'OK' ("nvlddmkm present (State={0}, Started={1}). PathName: {2}" -f `
-            $svc.State, $svc.Started, $svc.PathName)
+        # A PRESENT service is not enough - it must be RUNNING. A healthy box is
+        # State=Running / Started=True; State=Stopped / Started=False means the
+        # NVIDIA driver service is installed but NOT servicing the GPU -> NVML
+        # "Not Found" / "no CUDA device" even with all files matching + Code 0.
+        $running = ($svc.State -eq 'Running') -and ($svc.Started -eq $true)
+        if ($running) {
+            Report 'Driver' 'OK' ("nvlddmkm present and RUNNING (State={0}, Started={1}). PathName: {2}" -f `
+                $svc.State, $svc.Started, $svc.PathName)
+        } else {
+            $script:DriverServiceStopped = $true
+            Report 'Driver' 'WARN' ("NVIDIA driver SERVICE present but NOT running (State={0}, Started={1}) - installed but not servicing the GPU. This alone makes NVML report 'Not Found' / 'no CUDA-capable device' even with matching files. PathName: {2}" -f `
+                $svc.State, $svc.Started, $svc.PathName)
+        }
     } else {
         $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\nvlddmkm'
         if (Test-Path $svcKey) {
@@ -319,7 +332,7 @@ try {
     }
     if ($dsNvml.Count -gt 0) {
         $nvmlFound = $true
-        foreach ($d in ($dsNvml | Select-Object -First 3)) {
+        foreach ($d in ($dsNvml | Select-Object -First 6)) {
             $dfv = $d.VersionInfo.FileVersion
             $dShort = Get-NvDriverShort $dfv
             if ($dShort) { $script:NvmlStoreShorts += $dShort }
@@ -327,6 +340,23 @@ try {
         }
         if (-not (Test-Path -LiteralPath $sys32Nvml)) {
             Report 'NVML' 'WARN' 'nvml.dll exists in the DriverStore but NOT in System32 -> NVML clients cannot load it. Recovery: reinstall the GPU DRIVER (or copy the DriverStore nvml.dll into System32).'
+        }
+        # STALE-PACKAGE check: a DriverStore nvml.dll whose version differs from the
+        # ACTIVE display driver = a leftover older-driver package (e.g. an old
+        # nv_dispig.inf alongside the new nv_dispi.inf). A stale package can BLOCK
+        # the new driver service from starting -> a DDU clean wipe is the fix.
+        if ($script:DriverShort) {
+            $staleCopies = @($dsNvml | Where-Object {
+                $s = Get-NvDriverShort $_.VersionInfo.FileVersion
+                $s -and ($s -ne $script:DriverShort)
+            })
+            if ($staleCopies.Count -gt 0) {
+                $script:StaleDriverPackage = $true
+                $staleList = ($staleCopies | Select-Object -First 4 | ForEach-Object {
+                    "{0} (v{1})" -f $_.FullName, (Get-NvDriverShort $_.VersionInfo.FileVersion)
+                }) -join ' ; '
+                Report 'NVML' 'WARN' ("STALE DRIVER PACKAGE: a DriverStore nvml.dll version differs from the active driver (v{0}): {1}. A leftover older-driver package can BLOCK the new driver service from starting. Fix: DDU clean wipe + reinstall the current driver." -f $script:DriverShort, $staleList)
+            }
         }
     } else {
         Report 'NVML' 'INFO' 'No nvml.dll found in the DriverStore FileRepository.'
@@ -898,8 +928,36 @@ elseif ($driverLibProblem) {
         Write-Host '           but its version actually DIFFERS from the installed display driver, so it'
         Write-Host '           cannot load (the user-mode library is out of sync with the kernel driver).'
     }
+    elseif ($script:DriverServiceStopped) {
+        # HIGHEST-priority matched-but-fails sub-case: the driver service is not
+        # running. Files match + Code 0, but nvlddmkm is Stopped -> NVML "Not
+        # Found" / "no CUDA device". This is Dmitri's actual root cause; rank it
+        # ABOVE the generic loaded-desync / corruption / hybrid causes.
+        Write-Host '  VERDICT: NVIDIA driver service (nvlddmkm) is NOT running - the driver is INSTALLED but'
+        Write-Host '           not loaded / not servicing the GPU. The on-disk nvml.dll / nvcuda.dll versions'
+        Write-Host '           MATCH the display driver and Device Manager shows no device problem, but with'
+        Write-Host '           the service Stopped, NVML reports "Not Found" / "no CUDA-capable device". This'
+        Write-Host '           is the root cause (NOT a version mismatch, NOT a toolkit problem).'
+        Write-Host '  FIX (in order):'
+        Write-Host '   1. REBOOT - this starts the driver service in most cases.'
+        if ($script:StaleDriverPackage) {
+            Write-Host '   2. ★ A STALE older-driver DriverStore package was detected (section 3) coexisting'
+            Write-Host '      with the current driver - a leftover package can BLOCK the new service from'
+            Write-Host '      starting. Do a DDU (Display Driver Uninstaller) clean wipe in Safe Mode, then'
+            Write-Host '      reinstall the CURRENT driver from nvidia.com / the NVIDIA App, then reboot.'
+        } else {
+            Write-Host '   2. If it persists: DDU (Display Driver Uninstaller) clean wipe in Safe Mode, then'
+            Write-Host '      reinstall the current driver from nvidia.com / the NVIDIA App, then reboot -'
+            Write-Host '      ESPECIALLY if a stale older-driver DriverStore package coexists (it can block'
+            Write-Host '      the new service from starting).'
+        }
+        if ($script:SecondAdapter) {
+            Write-Host '   3. Hybrid graphics detected (section 1b): after the service runs, ensure the NVIDIA'
+            Write-Host '      GPU is selected as the high-performance adapter so CUDA/NVML target it.'
+        }
+    }
     else {
-        # MATCHED-BUT-FAILS: Dmitri's case. Do NOT call this a version mismatch.
+        # MATCHED-BUT-FAILS (service running): loaded-desync / corruption / hybrid.
         Write-Host '  VERDICT: DRIVER LIBRARY PRESENT + VERSION-MATCHED ON DISK, yet NVML FAILS to initialise.'
         Write-Host '           The on-disk nvml.dll / nvcuda.dll versions MATCH the display driver and there'
         Write-Host '           is NO shadowing copy on PATH - so this is NOT a version mismatch. The likely'
@@ -913,6 +971,10 @@ elseif ($driverLibProblem) {
             Write-Host '               libraries (driver update staged, not yet active).  FIX: REBOOT.'
         }
         Write-Host '           (b) the driver install / registration is CORRUPT.  FIX: DDU clean reinstall.'
+        if ($script:StaleDriverPackage) {
+            Write-Host '               ★ A stale older-driver DriverStore package was detected (section 3) -'
+            Write-Host '               a DDU clean wipe is especially indicated.'
+        }
         if ($script:SecondAdapter) {
             Write-Host '           (c) ★ a SECOND / default display adapter (section 1b) is shadowing the NVIDIA'
             Write-Host '               GPU (hybrid/Optimus).  FIX: in the NVIDIA Control Panel / Windows Graphics'
