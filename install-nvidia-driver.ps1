@@ -13,7 +13,14 @@
 # user involvement. setup-packages already runs elevated, so admin is assumed
 # available (and asserted).
 #
-# MECHANISM (chocolatey-primary, with a guided fail-safe):
+# MECHANISM (clean reinstall: uninstall-old-first, chocolatey-primary, guided fail-safe):
+#   STEP 0  UNINSTALL the existing NVIDIA DISPLAY-ADAPTER driver package(s) first,
+#           via native `pnputil` (enum-drivers -> delete-driver oemNN.inf
+#           /uninstall /force), scoped to the Display class
+#           {4d36e968-e325-11ce-bfc1-08002be10318} + Provider NVIDIA. A plain
+#           install-over does NOT remove a stale package; a lingering old package
+#           (e.g. nv_dispig.inf) can block the nvlddmkm service -> NVML "Not
+#           Found" (the confirmed root cause). Best-effort - never aborts.
 #   Tier 1  chocolatey `nvidia-display-driver` - installs the LATEST GeForce
 #           Game-Ready/DCH driver, fully unattended:
 #             (ensure choco is present, bootstrap it if missing)
@@ -21,9 +28,17 @@
 #           The package's own silentArgs are `-s -noreboot`; it returns 0 /
 #           1605 / 1614 / 1641 / 3010 on success (3010 = reboot required).
 #   Tier 2  GUIDED fail-safe: if choco can't be installed or the package install
-#           fails, open the NVIDIA App / driver page + print the exact steps.
-#           (Same safety net as the no-CUDA guidance - NEVER leaves the box worse.)
+#           fails, open the NVIDIA App / driver page + print the exact steps
+#           (incl. Safe-Mode DDU for a deep clean). NOTE: because STEP 0
+#           uninstalls first, a failed install can leave the box on the Windows
+#           basic display driver until a manual install + reboot.
 #   After any install attempt: VERIFY via diagnose-cuda.ps1 (the deep diagnostic).
+#
+# WHY pnputil (not the NVIDIA `-clean` flag or DDU CLI): the choco package does
+# NOT expose a clean/`-clean` package parameter (its silentArgs are hardcoded
+# `-s -noreboot`), so `-clean` is not reachable through it. DDU's full clean
+# really wants Safe Mode (not cleanly automatable unattended). pnputil is the
+# native, dependency-free, precisely-scoped way to remove the stale package.
 #
 # SCOPE / HONEST CAVEATS:
 #   * GeForce only. The choco package installs the latest desktop GeForce DCH
@@ -121,6 +136,79 @@ function Get-ChocoCmd {
     return (Get-Command 'choco' -ErrorAction SilentlyContinue)
 }
 
+# ---- Uninstall old display-driver packages BEFORE installing the fresh one ---
+# WHY (the Dmitri root cause): a plain install-over does NOT remove a stale
+# old-driver PACKAGE. When an old display-adapter package (e.g. nv_dispig.inf
+# v560.94) lingers in the driver store alongside a new one (nv_dispi.inf v610.47),
+# the nvlddmkm SERVICE can fail to start -> NVML "Not Found". So we clean-remove
+# the existing NVIDIA DISPLAY-ADAPTER driver package(s) first, via pnputil.
+#
+# SCOPE: ONLY the Display-adapter class ({4d36e968-e325-11ce-bfc1-08002be10318})
+# + Provider NVIDIA. We do NOT touch NVIDIA's audio / USB-C / PhysX / etc.
+# packages (over-broad deletion would break those). Mechanism = native Windows
+# `pnputil` (no extra dependency, no Safe Mode required).
+
+# The Display-adapter device-setup class GUID (stable Windows constant).
+$NvDisplayClassGuid = '{4d36e968-e325-11ce-bfc1-08002be10318}'
+
+# Enumerate the installed NVIDIA Display-adapter driver packages from the driver
+# store. READ-ONLY (`pnputil /enum-drivers` only lists). Returns a list of
+# { Inf=oemNN.inf; Orig; Provider; Ver }.
+function Get-NvidiaDisplayDriverPackages {
+    $found = New-Object System.Collections.Generic.List[object]
+    try {
+        $raw = & pnputil /enum-drivers 2>$null | Out-String
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $found }
+        # Split into per-driver blocks on blank lines (NON-capturing, so the
+        # delimiter is not injected as array elements).
+        $blocks = $raw -split "(?:\r?\n){2,}"
+        foreach ($b in $blocks) {
+            if ([string]::IsNullOrWhiteSpace($b)) { continue }
+            $published = $null; $orig = $null; $provider = $null; $classGuid = $null; $ver = $null
+            foreach ($line in ($b -split "\r?\n")) {
+                if ($line -match '(?i)^\s*Published Name\s*:\s*(\S+)')        { $published = $Matches[1] }
+                elseif ($line -match '(?i)^\s*Original Name\s*:\s*(\S+)')     { $orig = $Matches[1] }
+                elseif ($line -match '(?i)^\s*Provider Name\s*:\s*(.+?)\s*$') { $provider = $Matches[1] }
+                elseif ($line -match '(?i)^\s*Class GUID\s*:\s*(\{[0-9a-fA-F-]+\})') { $classGuid = $Matches[1] }
+                elseif ($line -match '(?i)^\s*Driver Version\s*:\s*(.+?)\s*$') { $ver = $Matches[1] }
+            }
+            if ($published -and $classGuid -and
+                ($classGuid.ToLower() -eq $NvDisplayClassGuid.ToLower()) -and
+                ($provider -match '(?i)NVIDIA')) {
+                $found.Add([pscustomobject]@{ Inf = $published; Orig = $orig; Provider = $provider; Ver = $ver })
+            }
+        }
+    } catch { }
+    return $found
+}
+
+# Remove the stale NVIDIA display-driver package(s) before the fresh install.
+# Best-effort: a failed delete does NOT abort - the subsequent install may still
+# resolve it, and we never want to block on the uninstall step.
+function Invoke-UninstallOldDrivers {
+    Write-Step 'Uninstall existing NVIDIA display-driver package(s) (pnputil)'
+    # @() guards against PowerShell unwrapping a single-element return to a scalar
+    # (which would have no .Count). Keeps the count + iteration correct for 1 pkg.
+    $pkgs = @(Get-NvidiaDisplayDriverPackages)
+    if ($pkgs.Count -eq 0) {
+        Write-Info 'No existing NVIDIA Display-adapter driver package found in the driver store (nothing to remove).'
+        return
+    }
+    Write-Info ("Found {0} NVIDIA display-driver package(s) to remove first:" -f $pkgs.Count)
+    foreach ($p in $pkgs) { Write-Info ("  {0} (orig {1}, v{2})" -f $p.Inf, $p.Orig, $p.Ver) }
+    foreach ($p in $pkgs) {
+        if ($DryRun) {
+            Write-Info ("[DryRun] WOULD run: pnputil /delete-driver {0} /uninstall /force" -f $p.Inf)
+            continue
+        }
+        Write-Info ("Removing: pnputil /delete-driver {0} /uninstall /force" -f $p.Inf)
+        & pnputil /delete-driver $p.Inf /uninstall /force 2>&1 | ForEach-Object { Write-Host ("    {0}" -f $_) }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn ("pnputil could not remove {0} (exit {1}) - continuing; the fresh install may still resolve it." -f $p.Inf, $LASTEXITCODE)
+        }
+    }
+}
+
 # ---- Tier 1: chocolatey ---------------------------------------------------
 # Returns $true if the install completed (or, under -DryRun, the plan printed),
 # $false if choco is unavailable / the install failed (-> caller goes to Tier 2).
@@ -183,18 +271,23 @@ function Invoke-Tier1-Chocolatey {
 function Invoke-Tier2-Guide {
     Write-Step 'Tier 2: guided manual install (automated path unavailable)'
     Write-Info 'The automated chocolatey install could not proceed (see the warnings above).'
-    Write-Info 'This is the SAFE fallback - nothing was changed on your system.'
+    Write-Warn 'IMPORTANT: the old display-driver package may ALREADY have been uninstalled in'
+    Write-Warn 'the step above, so this machine could currently be on the Windows basic display'
+    Write-Warn 'driver. Complete a manual install + reboot to restore the NVIDIA driver.'
     Write-Host ''
     Write-Info '*** TOOLKIT vs DRIVER ***'
     Write-Info 'setup-packages reinstalls the CUDA TOOLKIT - it does NOT reinstall the display'
     Write-Info 'driver and will NOT fix nvml.dll / nvcuda.dll (those are DISPLAY-DRIVER files).'
     Write-Host ''
-    Write-Info 'To fix the driver manually:'
+    Write-Info 'To finish manually:'
     Write-Info '  1. Install the NVIDIA App (the modern GUI installer):'
     Write-Info ("       {0}" -f $NvidiaAppPage)
     Write-Info ("     (or download a driver directly: {0})" -f $NvidiaDriverPage)
-    Write-Info '  2. Run it; if the problem persisted before, choose a Custom -> Clean install.'
-    Write-Info '  3. Reboot, then re-run diagnose-cuda.ps1 to verify (section 4 nvidia-smi should pass).'
+    Write-Info '  2. Run it and choose a Custom -> Clean install.'
+    Write-Info '  3. If it STILL will not install or the GPU is not detected, do a deep clean with'
+    Write-Info '     DDU (Display Driver Uninstaller) in SAFE MODE, then install the driver and reboot:'
+    Write-Info '       https://www.guru3d.com/download/display-driver-uninstaller-download/'
+    Write-Info '  4. Reboot, then re-run diagnose-cuda.ps1 to verify (section 4 nvidia-smi should pass).'
     if (-not $DryRun) {
         try { Start-Process $NvidiaAppPage | Out-Null; Write-Info 'Opened the NVIDIA App download page.' } catch { }
     } else {
@@ -248,14 +341,15 @@ Write-Info ("GPU: {0} | current driver {1}" -f $gpu.Name, $gpu.DriverVersion)
 if (-not $Acknowledged -and -not $DryRun) {
     Write-Host ''
     Write-Host '  ********************************* RISK NOTICE *********************************' -ForegroundColor Yellow
-    Write-Host '  This will install the LATEST NVIDIA GeForce display driver via chocolatey,' -ForegroundColor Yellow
-    Write-Host '  fully automatically. A driver install:' -ForegroundColor Yellow
-    Write-Host '    - briefly resets the display and CAN, in rare cases, leave it in a bad' -ForegroundColor Yellow
-    Write-Host '      state until a reboot / recovery;' -ForegroundColor Yellow
-    Write-Host '    - REQUIRES A REBOOT to fully take effect;' -ForegroundColor Yellow
-    Write-Host '    - installs the latest GeForce driver (GeForce GPUs only; laptop/OEM systems' -ForegroundColor Yellow
-    Write-Host '      may need the OEM driver instead).' -ForegroundColor Yellow
-    Write-Host '  Close other GPU apps and save your work first.' -ForegroundColor Yellow
+    Write-Host '  This performs a CLEAN reinstall of the NVIDIA GeForce display driver, fully' -ForegroundColor Yellow
+    Write-Host '  automatically: it FIRST UNINSTALLS the existing display-driver package(s),' -ForegroundColor Yellow
+    Write-Host '  then installs the latest via chocolatey. Because it uninstalls first:' -ForegroundColor Yellow
+    Write-Host '    - if the subsequent install fails, the machine may be left with NO display' -ForegroundColor Yellow
+    Write-Host '      driver until you reboot / recover (Windows basic display, or Safe Mode);' -ForegroundColor Yellow
+    Write-Host '    - the display will reset during the process and a REBOOT IS REQUIRED;' -ForegroundColor Yellow
+    Write-Host '    - GeForce GPUs only (laptop / OEM systems may need the OEM driver instead).' -ForegroundColor Yellow
+    Write-Host '  Close other GPU apps and SAVE YOUR WORK first. If the install fails, the' -ForegroundColor Yellow
+    Write-Host '  script guides you to a manual recovery (NVIDIA App / Safe-Mode DDU).' -ForegroundColor Yellow
     Write-Host '  ****************************************************************************' -ForegroundColor Yellow
     $ans = Read-Host '  Type YES to proceed (anything else cancels)'
     if ($ans -ne 'YES') { Write-Info 'Cancelled - nothing was changed.'; exit 0 }
@@ -268,7 +362,12 @@ $healthy = Test-DriverHealthy
 if ($healthy -eq $true) { Write-Info 'check-driver-health: driver currently HEALTHY (will still pull the latest via choco).' }
 elseif ($healthy -eq $false) { Write-Info 'check-driver-health: driver NEEDS ATTENTION - proceeding.' }
 
-# 5. Tier 1 choco; on failure -> Tier 2 guided (safe), then verify + exit.
+# 5. UNINSTALL the existing NVIDIA display-driver package(s) FIRST (the Dmitri
+#    root-cause fix: a plain install-over leaves a stale package that blocks
+#    nvlddmkm). Best-effort - never aborts; the install follows regardless.
+Invoke-UninstallOldDrivers
+
+# 6. Tier 1 choco; on failure -> Tier 2 guided (safe), then verify + exit.
 $done = Invoke-Tier1-Chocolatey
 if (-not $done) { Invoke-Tier2-Guide; Invoke-Verify; exit 0 }
 
