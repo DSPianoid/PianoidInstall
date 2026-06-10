@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-upcheck | `check-updates.ps1` | 2026-06-10T05:15:00Z | Harden origin-ahead detection: compare HEAD against explicit remote integration branch (origin/dev for sub-repos, origin/master for outer) instead of `@{u}` so a no-upstream local branch no longer silently skips the check. |
 <!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 (option-(a) /auto adjustment; NOT merged/pushed —
      team-lead FFs the feature branch onto master + pushes). Held: check-running-servers.ps1 (edit), check-cuda.ps1
      (edit); start-pianoid.bat NOT edited this round (already passes -Auto; per-case decision moved into the helpers).
