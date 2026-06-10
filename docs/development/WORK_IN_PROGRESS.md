@@ -20,9 +20,10 @@
 
 ## Active Dev Sessions
 
-| Agent | Task | Log | Started | Status |
-|-------|------|-----|---------|--------|
-| <!-- (no active dev sessions) --> | | | | |
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+| dev-cudaguard | Launcher graceful-no-CUDA guard + standalone CUDA diagnostic script | [log](logs/dev-cudaguard-2026-06-10-071700.md) | 2026-06-10 |
+| dev-nvmldiag | diagnose-cuda.ps1: NVML version-mismatch detection + exact fix recipe | [log](logs/dev-nvmldiag-2026-06-10-110441.md) | 2026-06-10 |
 
 <!-- ===== Phase-2 debt sweep 2026-06-10 (cleanup-bkkp) — the 6 rows below were all MERGED but their
      WIP rows had never been removed (Phase-2 half-done: 4 logs were already in logs/archive/ yet the
@@ -417,6 +418,28 @@ unlock zoom" scope):
    and Feedin/Feedback's canvas `normRangeStart = pianoRange[0] - firstAvailableNote` went
    negative → `matrix[-N]` undefined → crash. Fixed by no-op'ing SC's channel-row-axis
    range/selection callbacks so channel indices never enter the shared piano-pitch state.
+
+---
+
+## Deferred follow-up — CPU synthesis as the no-CUDA "cpu-sim" preset option (dev-cudaguard, 2026-06-10)
+
+The no-CUDA graceful mode (dev-cudaguard, user-approved "Opt C") ships a backend gate that blocks
+**all** GPU-synthesis preset loads when no CUDA device is available (`/load_preset` -> 503
+`gpu_unavailable` before `destroyPianoid()`; `/health gpu_available`; frontend APPLY-disable + "No
+CUDA" chip; launcher limited-mode warning). The user's spec includes gating "**except for the
+cpu-simulation option**" — clarified (user, authoritative) as **real CPU-based Pianoid synthesis in
+PianoidBasic** (exists, may be broken), NOT the Modal Adapter / synthetic-dataset path.
+
+**No working "play a preset on CPU" path is wired today** (the `use_simulation=1` placeholder is a
+non-functional mock, rejected with HTTP 400). So the shipped no-CUDA mode disables ALL GPU presets;
+the "except cpu-sim" allowance is this deferred feature.
+
+- **Owner:** unassigned. **ETA:** none (future). Needs the user's definition of what "CPU
+  simulation" should do (inspect-only vs real CPU audio) + which PianoidBasic entry point it maps to.
+- **Scope stub + build-on-this:** `docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md`. Likely
+  PianoidBasic + middleware (Python); confirm no CUDA/C++ involved before scoping. The cpu-sim
+  allowance hooks in right at the existing `_gpu_available()` gate in `load_preset_route`.
+- **Do NOT implement** without the user's cpu-sim spec.
 
 ---
 

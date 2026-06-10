@@ -223,6 +223,7 @@ Response `200` (not started):
   "pianoid_loaded": false,
   "backend_thread_running": false,
   "exception": false,
+  "gpu_available": true,
   "status": "not_started",
   "message": "Flask server running, core not loaded",
   "lifecycle": {
@@ -232,6 +233,13 @@ Response `200` (not started):
   }
 }
 ```
+
+`gpu_available` (top-level, added dev-cudaguard 2026-06-10): a cached CuPy device probe (mirrors
+`/modal/gpu_status`) — `true` iff a usable CUDA device is present. Reported even before a preset is
+loaded (`pianoid_loaded: false`) so the frontend can disable APPLY + show a limited-mode warning
+**before** a doomed load. When `false`, `POST /load_preset` is gated (HTTP `503 GpuUnavailable` —
+see below) because the GPU synthesis engine cannot initialise. Real CPU synthesis is a deferred
+feature (`docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md`).
 
 Response `200` (healthy):
 ```json
@@ -369,6 +377,23 @@ Response `400` (when `use_simulation=1`):
   "message": "use_simulation=1 is not currently supported. The placeholder module is out of sync with the live library-API and would crash the engine. Pass use_simulation=0 (the default)."
 }
 ```
+
+Response `503` (no-CUDA limited mode, added dev-cudaguard 2026-06-10):
+```json
+{
+  "error": "GpuUnavailable",
+  "code": "gpu_unavailable",
+  "gpu_available": false,
+  "message": "No CUDA device available - GPU presets are disabled (limited mode). The Modal Adapter still works on CPU. Run tools/cuda_diagnostic.ps1 to diagnose the GPU/CUDA issue. (CPU synthesis is a deferred future feature.)"
+}
+```
+
+The GPU-availability gate is checked **at the top of the route, before the existing engine is
+destroyed** — so a no-CUDA load returns `503` cleanly and the running engine (if any) is NOT torn
+down (it previously crashed with HTTP `500` after `destroyPianoid()`, the "destroy-then-crash" bug).
+The same `gpu_available` flag is exposed on `GET /health` so the frontend disables APPLY pre-load.
+Real CPU synthesis (PianoidBasic) is a deferred "cpu-sim" path that would be allowed through this
+gate later — `docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md`.
 
 ---
 

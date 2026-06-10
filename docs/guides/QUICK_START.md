@@ -256,9 +256,17 @@ The backend (port 5000) is **not started yet** — it launches on demand when yo
 | Check | Helper | What it does | `/auto` (desktop-icon) behaviour |
 |---|---|---|---|
 | **Already-running stack** | `check-running-servers.ps1` | Detects a LISTENING Pianoid port (3000 React / 3001 launcher / 5000 backend / 5001 modal adapter). If a stack is already up, a pop-up offers **Kill & restart** (port-targeted PID kill — owning PIDs of those ports only, never a blanket `taskkill /IM`) or **Cancel** (abort). | **Shows** the Kill & restart / Cancel pop-up (timed). On timeout → don't kill, don't launch (a busy port can't be launched onto; never kills a live stack unattended). |
-| **CUDA device + SM count** | `check-cuda.ps1` | Queries the GPU via the engine venv + cupy (SM count; `nvidia-smi` availability fallback). Warns when **no CUDA device** is found (UI loads, APPLY/synthesis fails) or the device has **< 60 SMs** (full-keyboard 58-block presets may exceed the cooperative-kernel launch budget — one block per 4 strings; use a `*_56SM` preset). ≥ 60 SMs proceeds silently. | **No-device** warning is **shown** (timed; timeout → continue). The **< 60-SM** warning is **suppressed** under `/auto` (informational, and would nag every launch on a sub-60-SM GPU) — it shows only on bare/interactive terminal runs. |
+| **CUDA device + SM count** | `check-cuda.ps1` | Queries the GPU via the engine venv + cupy (SM count; `nvidia-smi` availability fallback). Warns when **no CUDA device** is found, when **CUDA is present but broken** (the runtime/NVML failed to initialise — "NVML not found", driver/runtime mismatch, or a thrown device query — so APPLY/synthesis fails even though a GPU is visible), or when the device has **< 60 SMs** (full-keyboard 58-block presets may exceed the cooperative-kernel launch budget — one block per 4 strings; use a `*_56SM` preset). ≥ 60 SMs proceeds silently. | **No-device** and **CUDA-broken** warnings are **shown** (timed; timeout → continue). The **< 60-SM** warning is **suppressed** under `/auto` (informational, and would nag every launch on a sub-60-SM GPU) — it shows only on bare/interactive terminal runs. |
 
-Bare/interactive (terminal) runs show all three warnings as normal blocking dialogs. The SM threshold comes from the synthesis engine's cooperative kernel, whose block count = `numStrings / 4` must fit the GPU's SM-bounded concurrent-block budget — see [`SYNTHESIS_ENGINE.md` § Kernel Grid Layout](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md).
+Bare/interactive (terminal) runs show all warnings as normal blocking dialogs. The SM threshold comes from the synthesis engine's cooperative kernel, whose block count = `numStrings / 4` must fit the GPU's SM-bounded concurrent-block budget — see [`SYNTHESIS_ENGINE.md` § Kernel Grid Layout](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md).
+
+**Deep CUDA diagnostic.** When the CUDA-broken warning fires (or the backend crashes with "no CUDA-capable device is detected"), run `diagnose-cuda.ps1` for a full pinpoint:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File diagnose-cuda.ps1
+```
+
+It probes (and reports gracefully even when CUDA is completely broken): the GPU device (WMI — works without NVML), the NVIDIA kernel driver, **`nvml.dll`** presence/location (the classic "NVML not found" culprit — a *driver* component, version-locked to the display driver, **not** the CUDA toolkit, so a `setup-packages` toolkit re-install does not fix it), `nvidia-smi` (with the exact captured error), the CUDA toolkit/`CUDA_PATH`/`cudart`, the engine venv + its bundled runtime, and an optional cupy device query — ending with a **VERDICT + recommended fix**. The driver-vs-toolkit-vs-bundled-runtime split is what makes the diagnosis actionable. See [`STARTUP_TROUBLESHOOTING.md` § "NVML not found"](STARTUP_TROUBLESHOOTING.md#symptom-nvidia-smi-reports-nvml-not-found-gpu-visible-but-cuda-fails).
 
 ---
 

@@ -144,6 +144,52 @@ nvidia-smi
 - Another process holding exclusive GPU access — check Task Manager for GPU usage
 - CUDA toolkit version mismatch — the build was compiled against a different CUDA version than installed
 
+### Symptom: `nvidia-smi` reports "NVML not found" — GPU visible but CUDA fails
+
+The GPU is present and visible (Device Manager / Windows shows the card), but
+`nvidia-smi` fails with **"NVML library not found"** / **"Failed to initialize NVML"**,
+and the backend then crashes on APPLY with **"no CUDA-capable device is detected"**.
+Re-running the CUDA toolkit installer (`setup-packages.bat`) does **not** fix it.
+
+**Run the diagnostic first** — it pinpoints exactly which layer is broken and prints a verdict + fix:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File diagnose-cuda.ps1
+```
+
+**Root cause.** `nvml.dll` (the NVIDIA Management Library) and `nvidia-smi.exe` are
+**driver components**, not CUDA-toolkit components. `nvml.dll` lives in
+`C:\Windows\System32` (and the DriverStore `FileRepository`), **version-locked to the
+installed display driver**. "NVML not found" means `nvml.dll` is missing from a
+loadable location (or is the wrong version for the driver). Because it is a *driver*
+file, the **CUDA toolkit installer does not ship or repair it** — which is why a
+`setup-packages` re-install leaves the error in place.
+
+**Layers (the diagnostic separates these):**
+
+| Layer | Components | "NVML not found" relevance |
+|---|---|---|
+| **Display driver** | `nvml.dll`, `nvidia-smi.exe`, `nvlddmkm` kernel driver | **This is the broken layer.** Fix here. |
+| CUDA toolkit | `nvcc`, `CUDA_PATH`, `cudart64_*.dll` (in CUDA bin) | Needed only to *build*; re-installing it does not fix NVML. |
+| Pianoid engine runtime | `cudart64_12.dll` next to the `.pyd` in the venv | The engine's own bundled runtime; unrelated to NVML. |
+
+**Fix (in order):**
+
+1. **Reinstall / repair the NVIDIA DISPLAY DRIVER** — a clean install via the official
+   NVIDIA installer (or DDU + reinstall). This restores a matching `nvml.dll` into
+   `System32`. *(Not the CUDA toolkit.)*
+2. If the diagnostic shows `nvml.dll` only in the DriverStore but missing from
+   `System32`, a driver reinstall is still the correct fix — copying the DLL by hand
+   is a last-resort hack and can version-mismatch.
+3. Reboot, then re-run `diagnose-cuda.ps1` — the `nvidia-smi` section should pass.
+
+**Launcher behaviour.** `start-pianoid.bat`'s pre-launch `check-cuda.ps1` now detects
+this broken-but-present state (a thrown cupy device query, or an NVML error from
+`nvidia-smi`) and shows an explicit **"CUDA is installed but NOT working"** warning
+before launch, letting you proceed (the UI loads) or cancel — instead of launching
+straight into the backend crash. See
+[`QUICK_START.md` § Pre-launch safety checks](QUICK_START.md#no-prompt-launch-desktop-shortcut--update-check).
+
 ### Symptom: `nvcc` not found during build
 
 **Check:**

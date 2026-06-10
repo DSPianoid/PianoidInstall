@@ -15,6 +15,24 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-cudaguard locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — Phase 2
+     after the user's live test on the no-CUDA box). No-CUDA graceful mode (Opt C). COMMITTED, 3 feature
+     branches (held for the user's test, then merge per team-lead):
+       - PianoidCore feature/no-cuda-gate `fa22dda` (off dev 8df0e56): pianoid_middleware/backendServer.py
+         (_gpu_available cached CuPy probe + /load_preset 503 gate BEFORE destroyPianoid + /health gpu_available)
+         + tests/system/test_no_cuda_gate.py (NEW, 7/7). Python-only, NO CUDA build.
+       - PianoidTunner feature/no-cuda-apply-gate `3c8dad5` (off dev 5758019): src/hooks/useBackendHealth.js
+         (gpuAvailable, default-true unless explicit false) + src/PianoidTuner.js (ensureBackendAndLoadPreset
+         no-CUDA short-circuit + dep) + src/components/BackendStatusIndicator.jsx ("No CUDA" amber chip) +
+         2 NEW Jest (BackendStatusIndicator.noCuda 5, useBackendHealth.gpuAvailable 3). Jest 8/8; BSI suite 11/11.
+       - Outer worktree feature/dev-cudaguard `d6142af`: check-cuda.ps1 (limited-mode warning wording; detection
+         logic from the prior broken-NVML fix). .ps1 only.
+     Diagnostic diagnose-cuda.ps1 already SHIPPED to master (fa2cde1). PianoidBasic CPU synth DEFERRED (docs only:
+     docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md + WIP). Bookkeeping/docs committed on PianoidInstall master.
+     start-pianoid.bat was locked precautionarily but NOT edited (contract sound; the gate lives in check-cuda.ps1
+     + the backend). NO merge, NO push (Phase 2 pending user live test). -->
+<!-- (no active dev-cudaguard locks — released at Phase 1) -->
+| dev-nvmldiag | **Outer (main tree, master):** `diagnose-cuda.ps1` (edit), `docs/development/diagnostics/dev-nvmldiag-*.ps1` (NEW test harness). | 2026-06-10T11:04:41Z | Extend diagnose-cuda.ps1 with NVML version-mismatch detection (System32 nvml.dll version vs driver version) + a precise reboot/DDU fix recipe + section-8 precedence so an NVML-error nvidia-smi run outranks the cupy-blame branch even when nvml.dll exists. Single .ps1 change, NO CUDA build. Does NOT touch check-cuda.ps1 (dev-cudaguard scope) or any PianoidCore/PianoidTunner file. Orchestrator commits + pushes. |
 <!-- dev-upcheck locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs
      feature/check-updates-integration-branch onto master + pushes). Held (OUTER PianoidInstall repo root):
      check-updates.ps1 (edit) + docs/development/diagnostics/dev-upcheck-edge-tests.ps1 (NEW, edge-test diagnostic).
