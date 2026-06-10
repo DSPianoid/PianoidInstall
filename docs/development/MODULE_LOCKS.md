@@ -15,7 +15,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-upcheck | `check-updates.ps1` | 2026-06-10T05:15:00Z | Harden origin-ahead detection: compare HEAD against explicit remote integration branch (origin/dev for sub-repos, origin/master for outer) instead of `@{u}` so a no-upstream local branch no longer silently skips the check. |
+<!-- dev-upcheck locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs
+     feature/check-updates-integration-branch onto master + pushes). Held (OUTER PianoidInstall repo root):
+     check-updates.ps1 (edit) + docs/development/diagnostics/dev-upcheck-edge-tests.ps1 (NEW, edge-test diagnostic).
+     Hardened the launcher origin-ahead detector: compare HEAD vs the explicit REMOTE INTEGRATION BRANCH
+     (origin/dev for Core/Tunner/Basic, origin/master for outer) instead of the current-branch upstream @{u},
+     so a no-upstream local feature branch (or detached HEAD / merged-but-not-deleted branch) no longer reports
+     "unknown" and silently skips the prompt. @{u} kept as secondary fallback; unresolvable ref + no upstream ->
+     -1 unknown/skip (never errors). Added -WhatIf dry-run (prints per-repo decision, no MessageBox). PRESERVED:
+     timeout-guarded fetch; git-missing/offline/any-failure -> exit 0 silent; Yes=10/No=0 pop-up; "+N" listing.
+     VERIFIED non-disruptively (NO launch/pull/modal): -WhatIf on this machine = Core +4 / Tunner +13 behind
+     origin/dev, Basic + outer up to date (exit 10); no-upstream bug condition still detects Core +4 (old code
+     skipped it); git-unreachable -> exit 0; edge unit tests 10/10; AST-clean (209 LOC). Committed on
+     feature/check-updates-integration-branch 6f99d68 (off master b5f9051, +222/-29, 6 files). .ps1-only — NO CUDA
+     build, NO backend, NO stack. Docs (QUICK_START update-check paragraph) + session log on this branch. -->
 <!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 (option-(a) /auto adjustment; NOT merged/pushed —
      team-lead FFs the feature branch onto master + pushes). Held: check-running-servers.ps1 (edit), check-cuda.ps1
      (edit); start-pianoid.bat NOT edited this round (already passes -Auto; per-case decision moved into the helpers).
