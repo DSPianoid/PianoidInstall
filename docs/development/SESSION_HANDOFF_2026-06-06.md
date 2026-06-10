@@ -53,3 +53,22 @@ on §7 OQs), `modal-adapter-split-2026-05-21` (Wave 3 in progress), `modal-adapt
 - `proposals-review`, `docs-measentity`, `dev-presetfix`, `analyse-buildaudit`, `docs-buildconsol` — done/standing by.
 - On reload these are gone (new session); re-dispatch only if the user resumes a held item. dev-wave3split's
   feature branch + WIP row + locks persist in the repo → Step-1.5 orphan recovery will surface it.
+
+---
+
+## UPDATE — 2026-06-06 ~11:35Z (orchestrator resumed after Telegram reconnect; release SHIPPED + DeepSeek MCP BUILT; **VS Code reload pending**)
+
+**Why a reload is happening:** a new MCP server (`deepseek-codegen`) was registered in `~/.claude.json` — it only loads on a VS Code reload. The reload restarts the orchestrator. On restart: re-run `/orchestrator`, read this section + WIP, and run the pending live test below.
+
+**Done this session (all committed + pushed):**
+- Wave-3 modal-adapter split MERGED + full release: PianoidCore dev `9f2c3b5`, PianoidInstall master `822f581`→`61b9245`, all 4 repos 0/0 with origin. PianoidBasic wheel rebuilt + `/load_preset` 200 verified (dev-fbsl feedback-coeff fields confirmed live). `/update-pianoid` = no-op (already current). dev-wave3split Phase-2 wrapped; dev-fbsl/mzoom/presetfix stale rows reconciled (dev-mzoom P2/P3 KEPT as a real deferred follow-up).
+- DeepSeek `/fn` codegen integration (user-approved, cloud API): proposal (`docs/proposals/deepseek-dev-pipeline-integration-2026-06-06.md`, committed `61b9245`) → Phase-0 spike GO (90% first-try) → Phase-1 BUILT + `/review` PASS (1 Medium .h-gate fixed + 2 Lows) + committed on **PianoidInstall branch `feature/deepseek-codegen-mcp`**: `f8eac6e` (server `tools/deepseek-codegen-mcp/` + `.claude/commands/fn.md` Step 2a + review doc + bookkeeping) + `0abb73e` (README venv note) + a session-log commit + a `/dev` Step-4b DeepSeek-delegation note (`.claude/commands/dev.md`). 35/35 tests (incl. live DeepSeek call). Both `/fn` (Step 2a) AND `/dev` (Step 4b) now document how/when to use DeepSeek + the C++/CUDA-and-multi-file hard exclusion. **Broadened to Python + JS/TS/React (Jest)** — `d80dc8a` fixed the tool's `language` param (was Python-hardcoded in the prompt + the extractor would drop non-`python` fences) + 38/38 tests. **Feature branch tip = `d80dc8a` (5 commits: f8eac6e → 0abb73e → 4e740ff → 8a22e2b → d80dc8a, unmerged).** Validation: Python spike 90% first-try, JS spike 6/6 = 100% first-try — results in `D:\tmp\deepseek-phase0\{PHASE0_RESULTS,JS_SPIKE_RESULTS}.md`. Live test post-reload should exercise BOTH a Python and a JS/TS `/fn` task.
+- MCP wiring: `~/.claude.json` → server `deepseek-codegen` (command = dedicated venv `C:\Users\astri\.venvs\deepseek-codegen-mcp\Scripts\python.exe`; **key in env, NEVER in repo**); `.claude/settings.local.json` allows `mcp__deepseek-codegen__*` (machine-local, uncommitted). Engine venv `PianoidCore/.venv` RESTORED to pre-mcp pristine + verified (`import pianoidCuda` + `/load_preset` 200).
+
+**PENDING after reload (resume here):**
+1. **Live end-to-end test:** confirm `mcp__deepseek-codegen__delegate_codegen` is callable, then run a `/fn` task on a simple pure Python function that exercises it (DeepSeek generates → Claude's test gates → confirm fallback path). Spawn a fresh agent (deepseek-phase0 dies on reload — reuse its ID for the WIP row, or a fresh `/fn` test agent).
+2. **If the live test passes → user-approved Phase-2 wrap** for `feature/deepseek-codegen-mcp`: merge → root `master` + push (user's explicit call), archive `deepseek-phase0` log, clean its WIP/locks rows.
+
+**Agents (ALL die on reload):** controller-5, deepseek-phase0 (holding; WIP row carries the PENDING-live-test note), sync-release + upd-pianoid (release done — idle). Re-spawn controller at Step 1.5; re-dispatch others only as needed.
+
+**Also pending (pre-existing, untouched):** (3) config-persistence feature offer; (4) Ronnie transducer-purchase email draft.
