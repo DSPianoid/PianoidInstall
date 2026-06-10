@@ -73,6 +73,7 @@ If you are about to ask the user to *do* something operational, **stop** — the
 **How it's enforced:**
 - Each editing sub-agent shuts down servers it started and cleans its own tree on exit (see `/dev` "Full clearance before every handoff"). The **orchestrator is the final guarantor**: after the last active agent reports, run the port sweep across all four ports and verify `git status --short` is clean in every repo before telling the user the environment is clear.
 - The one in-session exception: if a concurrent agent is still actively using the stack, the orchestrator does NOT sweep mid-session — clearance applies at the handoff to the user, not between overlapping agents.
+- **No orphan rows/logs at handoff.** Before declaring the environment clear, run the row-iterating sweep from "Periodic Health Check": the `## Active Dev Sessions` table must have NO row for any non-alive agent (a re-statused "MERGED" row counts as debt — DELETE it), every non-archive session log must map to a live agent THIS session (else archive-on-sight; only the live controller survives), and `MODULE_LOCKS.md` must show no active rows for non-alive agents.
 
 **Merge default — test-on-branch, merge-after-approval.** The default handoff leaves the work on its feature branch (unmerged) with the stack down, so the user can run their OWN live test before anything reaches the integration branch. The orchestrator does NOT direct a feature→dev merge until the user explicitly approves the FIX based on that test — a passing agent test is not approval. Never offer "merge to the integration branch so a restart picks it up, then test" — that inverts the order; the user tests on the feature branch first, the merge follows approval. (PianoidTunner's integration branch is `dev`, not `master`; root PianoidInstall is on `master`.) Merging and pushing are separate decisions — never push unless the user asks.
 
@@ -369,12 +370,14 @@ Relay the report to the user via Telegram. Wait for explicit approval.
 
 Tell the agent to proceed with Step 10a Phase 2:
 ```
-SendMessage(to: agentId, message: "User approved. Proceed with Step 10a Phase 2: archive log, clean WIP, merge if needed.")
+SendMessage(to: agentId, message: "User approved. Proceed with Step 10a Phase 2: archive log → logs/archive/, REMOVE your WIP row entirely (do NOT just set its Status to 'MERGED' — Phase 2 = the row is GONE; put the outcome in a historical <!-- --> comment), merge if needed.")
 ```
 
-Then verify:
+**If the agent has already returned** (`SendMessage` reports no active task, or it reported then exited), do NOT assume Phase 2 happened — SendMessage to a dead agent is a no-op. The orchestrator performs Phase 2 DIRECTLY (`git mv` log → `logs/archive/`, DELETE the WIP row, release locks, commit `[orchestrator] chore: Phase 2 cleanup for <id> (agent returned earlier)`), exactly as in Queue Review §5.
+
+Then verify (gate on row ABSENCE, not status):
 1. Agent's log is moved to `logs/archive/`
-2. Agent's WIP entry is removed from Active Dev Sessions
+2. Agent's WIP row is **GONE** from the Active Dev Sessions table — grep the table and confirm NO row for this agent ID remains. **A row re-statused to "MERGED" is NOT done** — send the agent back to DELETE it (or do it directly if the agent returned). Do not report "closed" until the row is absent AND the log is archived.
 3. Feature branch is merged if applicable
 
 If the user requests changes instead, relay to the same agent — it still has full context.
@@ -972,7 +975,9 @@ Use when the agent made partial progress worth keeping.
 
 On startup (Step 1.5) and periodically: scan `docs/development/logs/` for logs that don't correspond to any running agent. These are orphaned from crashed/killed agents. Clean them up.
 
-**The invariant: every log in `docs/development/logs/` must correspond to an agent that is either ALIVE, RETURNED (awaiting user review), or CONFIRMED (awaiting commit). Anything else is orphaned and must be cleaned up immediately.**
+**Startup + periodic SWEEP (mandatory, orchestrator-direct) — iterate Active-Dev-Session ROWS, not just logs.** The dominant WIP debt is rows whose **log is ALREADY archived** but whose row was re-statused ("MERGED") instead of deleted — a logs-only scan MISSES these. So at Step 1.5 and after any parallel-agent burst, for EVERY row in the `## Active Dev Sessions` table: if its agent is NOT alive this session (no running Agent, not awaiting-review this session) OR its status reads terminal (MERGED/done/COMPLETED) OR its linked log already lives in `logs/archive/` → the row is terminal debt. DELETE the row (capture its outcome in a `<!-- -->` comment if not already recorded), `git mv` any still-non-archived log → `logs/archive/`, release any orphan `MODULE_LOCKS.md` rows, and commit `[orchestrator] chore: Phase 2 cleanup for <id>`. Separately, any non-archive log with NO matching row is also debt — archive it. The ONLY non-archive log/row that may survive a sweep is the current session's live controller.
+
+**The invariant: every log in `docs/development/logs/` must correspond to an agent that is either ALIVE, RETURNED (awaiting user review), or CONFIRMED (awaiting commit); and every row in `## Active Dev Sessions` must correspond to such a live/awaiting agent THIS session. Anything else is orphaned and must be cleaned up immediately (a re-statused "MERGED" row counts as orphaned).**
 
 ### Channel disconnects
 
@@ -1076,7 +1081,7 @@ When reviewing returned artefacts before relaying to Telegram, verify the path m
 On `/orchestrator stop` or user saying "stop" / "done for now":
 1. List any active sub-agents still running
 2. Warn user about in-progress work; let each active agent finish its own clean exit (commit/stash/revert, release locks) — never leave an agent's tree dirty
-3. **Bring the environment to full clearance** (see "Full Clearance Before Every Handoff"): sweep all four ports (3000/3001/5000/5001) down and verify `git status --short` is clean in every repo
+3. **Bring the environment to full clearance** (see "Full Clearance Before Every Handoff"): sweep all four ports (3000/3001/5000/5001) down, verify `git status --short` is clean in every repo, AND run the row-iterating Periodic-Health-Check sweep (no Active-Dev-Session row or non-archive log for any non-alive agent — re-statused "MERGED" rows count as debt; only the live controller's log survives)
 4. Send final status summary via Telegram, explicitly confirming the environment is fully cleared
 5. **Notify the controller:** `SendMessage(to: "controller", "session ending")`. The controller produces a final compliance summary, sends it to team-lead, archives its own log, and exits.
 

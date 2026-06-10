@@ -115,6 +115,8 @@ Add a reference to `docs/development/WORK_IN_PROGRESS.md` under `## Active Dev S
 
 Append rows for new agents; do not replace existing entries from other agents.
 
+**This table is a TRANSIENT roster of IN-FLIGHT agents, not a status ledger.** Use EXACTLY the 4 columns above — do NOT add a "Status" column. A row exists only while the agent is active or awaiting close-out, and is **removed entirely at Phase 2** (its outcome goes into a historical `<!-- -->` comment, never into a status cell). Convey progress through your session LOG's `[STEP-X]` markers, not this row. A row left present with a terminal status ("MERGED"/"done") is the #1 source of WIP debt — see Step 10a Phase 2.
+
 ### Step 0 Completion Marker
 
 Once the log file exists, the WIP entry is added, and (if any) initial locks are acquired, emit `[STEP-0-COMPLETE] 2026-05-05T12:30:22Z` as the FIRST line under `## Actions` in your session log. The controller computes `spawn → STEP-0-COMPLETE` delta:
@@ -1104,7 +1106,7 @@ Emit `[STEP-10A-PHASE-2] 2026-05-05T12:30:22Z` as the first action of Phase 2. T
    mkdir -p docs/development/logs/archive
    mv "$LOG_FILE" docs/development/logs/archive/
    ```
-8. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
+8. **Remove WIP row — do NOT re-status it.** DELETE this agent's entire row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`. Phase 2 means the row is **GONE**, not set to "MERGED"/"done"/"COMPLETED". If the outcome (merge SHAs, branch, deferred follow-ups) is not already captured in a COMPLETED/RELEASED comment block elsewhere in the file, add a one-line historical `<!-- dev-xxxx COMPLETED <date> — <outcome> -->` comment in its place. **A row left present with a terminal status is NOT done** — it is the #1 source of WIP debt (the 2026-06-10 sweep cleared 6 such rows whose Phase-2 commits said "mark MERGED" instead of deleting the row).
 9. **Archive any proposal this work implemented (prevents backlog pile-up).** If this task IMPLEMENTED, COMPLETED, or SUPERSEDED a proposal in `docs/proposals/`, archive it now as part of the wrap — a shipped design must not linger at top-level (leaving them there is what let ~17 stale "draft/awaiting" proposals — already shipped — pile up before the 2026-06-06 triage):
    - **De-reference it from working code FIRST.** If any working file (`.claude/commands/*.md`, `CLAUDE.md`, or a `docs/` reference page) points at the proposal, move the content it relies on into a WORKING doc (`docs/development/` or `docs/architecture/`) and re-point the reference there — working code references working docs, NEVER a proposal. (Skill / `CLAUDE.md` edits are orchestrator-applied — flag them in your Phase-1 report for the orchestrator to apply before the archive.)
    - **Then archive:** `git mv docs/proposals/<name>.md docs/proposals/archive/` and prepend a `**Status:** IMPLEMENTED <commit/agent evidence> — Archived <YYYY-MM-DD>.` line. (Do the status edit AFTER the `git mv`, then `git add` the moved file, so the edit isn't stranded unstaged.)
