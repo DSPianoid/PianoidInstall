@@ -121,7 +121,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      cold-start). Committed PianoidTunner feature/synthetic-dataset `e707408` (feat) + `a99a41f` (timeout fix).
      Frontend-only, NO CUDA build. NOT merged/pushed. Docs (OVERVIEW Synthesize sub-mode + proposal status
      PHASES 1-4 ALL BUILT) + log + ledger + screenshot on PianoidInstall master. -->
-| <!-- (none active for dev-synthfe — released at Phase 1) --> | | | |
+<!-- (none active for dev-synthfe — released at Phase 1) -->
 <!-- dev-synth1 Phase-4a locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
      orchestrator sequences Phase 4b frontend; team-lead said the backend is fully done after 4a).
      Held (PianoidCore repo): synth/synth_routes.py (NEW), routes/__init__.py (edit: register_synth_routes),
@@ -240,7 +240,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Pure-Python refactor — no CUDA rebuild. Literal ~400-LOC thin-facade rewrite DEFERRED to follow-up proposal
      docs/proposals/modal-adapter-facade-shim-removal-2026-06-06.md (300-test rewrite). Session log archived to
      logs/archive/. -->
-| <!-- (none active for dev-wave3split-f634) --> | | | |
+<!-- (none active for dev-wave3split-f634) -->
 <!-- dev-fbsl PianoidTunner locks RELEASED 2026-06-05 (team-lead-directed, to unblock dev-mzoom's PianoidTuner.js SC-zoom work). Frontend slider work is COMMITTED on feature/feedback-coeff-slider 9aa0e3e (usePreset.js + useBackendHealth.js + ToolBar.jsx + PianoidTuner.js); no further frontend edits needed. PianoidCore/PianoidBasic locks KEPT (switch-path test + merge). -->
 <!-- dev-fbsl locks RELEASED 2026-06-06 (Step 10a Phase 2, reconciled by sync-release — work already MERGED + PUSHED
      2026-06-06 by dev-mzoom per the user's "include in the push", all CLEAN no conflicts). Held: ModelParams.py,
@@ -251,7 +251,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      dev 05ce924 (slider 9aa0e3e). ★UNVERIFIED — needs a BACKEND REBUILD to function; preset-switch lifecycle test
      (9a88518) UNRUN; user rebuilds + live-tests on another system. Frontend Jest stays green (88/941, eslint 0).
      NO CUDA build done by dev-fbsl itself (frontend composition + middleware/Python). -->
-| <!-- (none active for dev-fbsl) --> | | | |
+<!-- (none active for dev-fbsl) -->
 <!-- dev-mzoom locks RELEASED 2026-06-06 (Step 10a Phase 2, reconciled by sync-release — (1)+(2) and the P0/P1 of (3)
      already MERGED to PianoidTunner dev + PUSHED to origin). Held: PianoidTuner.js, hooks/useCurrentValues.js,
      utils/chartView.js (NEW), SoundChannelsPane.jsx, MeasuredMatrix.jsx, RowEditor.js, BarChart.jsx,
@@ -263,7 +263,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      NO CUDA build. ★DEFERRED follow-up (REAL pending work — see WORK_IN_PROGRESS.md): (3) P2 (highlight band in
      DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING the user's cross-system test of the
      Feedin reference. Do NOT lose this — it is greenlit, partially-shipped work awaiting a user gate. -->
-| <!-- (none active for dev-mzoom) --> | | | |
+<!-- (none active for dev-mzoom) -->
 <!-- dev-mzoom locks RELEASED 2026-06-05 at Step 10a Phase 1 commit. Held:
      PianoidTunner/src/PianoidTuner.js + src/components/SoundChannelsPane.jsx. Unlock existing
      matrix zoom for Sound Channels (mode-axis): un-gate SC in renderToolbarControls zoom-button
@@ -278,7 +278,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Alert; mzoom=renderToolbarControls zoom buttons + SC call-site) → clean 3-way merge expected,
      team-lead sequences fbsl-then-mzoom at integration. Docs (OVERVIEW SC row + WIP follow-ups)
      + session log on PianoidInstall master. -->
-| <!-- (none active for dev-mzoom) --> | | | |
+<!-- (none active for dev-mzoom) -->
 <!-- dev-mtxfix locks RELEASED 2026-06-05 at Step 10a (team-lead-approved single batch wrap + push). Held:
      PianoidTunner MatrixTools.jsx/.css + __tests__/MatrixTools.theme.test.jsx (deleted), SoundChannelsPane.jsx,
      MeasuredMatrix.jsx, RowEditor.js, hooks/useSettings.js + 2 test files (RowEditor.axisVariant.test.jsx new +
@@ -292,7 +292,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (C1/H1/H2/H3/M3/bar-chart/clip) intact. Full Jest 83 suites/903 tests green; frontend-only, NO build.
      PianoidTunner feature/dev-mtxfix-revert-m1 278ee39 MERGED to dev e2aaacf (--no-ff). Docs (OVERVIEW RowEditor
      row + WIP matrix-zoom gap follow-up) + session log on PianoidInstall master. Pushed to origin. -->
-| <!-- (none active) --> | | | |
+<!-- (none active) -->
 <!-- dev-steinway-preset locks RELEASED 2026-06-05 at Step 10a Phase 2 (user-approved SHIP option A). Held:
      PianoidCore/pianoid_middleware/presets/Belarus_196modesC_Steinway1860 (NEW),
      .../Belarus_196modesC_Steinway1860_56SM (NEW), pianoid_middleware/auto_tuner.py,
@@ -302,7 +302,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Committed feature/steinway-1860-presets f30ba32 + 5655f02, MERGED to dev 7394188 (--no-ff, branch kept).
      NOT pushed (/sync handles origin reconcile + push-all). Regression: test_auto_tuner_robust 14/14 +
      test_tune_pipeline 59/59. Source preset Belarus_196modesC was READ-ONLY (untouched). -->
-| <!-- (none active) --> | | | |
+<!-- (none active) -->
 <!-- dev-asioload locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap of the orphaned 2026-06-02 HOLD,
      same agent ID; user-approved merge + Phase 2 via Telegram). Held: PianoidCore/pianoid_cuda/Pianoid.cu,
      Pianoid.cuh, AddArraysWithCUDA.cpp, pianoid_middleware/backendServer.py, tests/system/test_asio_fallback.py (new).
@@ -537,7 +537,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      `71bc77f`; SHA reported in session log). NOT merged to dev — Phase 2 awaits user
      re-confirmation. No collision with dev-snmtxleak-7e3d (their files MeasuredMatrix.jsx /
      SoundChannelsPane.jsx / useSoundChannels.js / useHotkeys.js — disjoint). -->
-| dev-stest-4a7c | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
+<!-- dev-stest-4a7c row removed 2026-06-10 (cleanup-bkkp) — was a stale placeholder; release documented in the comment block above. -->
 <!-- dev-snmtxleak-7e3d locks RELEASED 2026-05-31 at Step 10a Phase 1. Held (architectural SC
      strings-axis decouple + useHotkeys falsy-zero guard hardening):
      PianoidTunner/src/components/SoundChannelsPane.jsx (~+24/-2 LOC: local `selectedChannel`
@@ -557,7 +557,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      `play({pitch: 60})` post-click (pre-fix the same gesture fired `play({pitch: 2})`).
      [LOCK RELEASED] 2026-05-31T18:25:00Z. -->
 
-| dev-m17-454a | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
+<!-- dev-m17-454a row removed 2026-06-10 (cleanup-bkkp) — was a stale placeholder; release documented in the comment block above. -->
 <!-- dev-pyspawn-8b3a lock RELEASED 2026-05-31 at Step 10a Phase 1. Held:
      docs/guides/STARTUP_TROUBLESHOOTING.md (re-scoped from code to docs).
      Original brief targeted backendServer.py + launcher.js for an alleged
@@ -869,7 +869,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      play/listen-gate). Python-middleware-only, NO CUDA build. PianoidCore feature/dev-lmode-health-listen-mode
      6125b69 MERGED to dev at a139971 (--no-ff). Docs (REST_API.md GET /health field semantics + TESTING.md
      test registration) + diagnostic probe + session log on PianoidInstall master. Pushed to origin. -->
-| <!-- (none active) --> | | | |
+<!-- (none active) -->
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10a wrap-up (user-approved merge). Held:
      ToolBar.jsx, useHotkeys.js, PianoidTuner.js, usePreset.js — all committed on
      feature/preset-library-bugs (99bed57, b7af146, bbe8638) and MERGED to PianoidTunner `dev` via
