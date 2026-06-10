@@ -15,6 +15,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-mwfix locks RELEASED 2026-06-10T18:30:00Z at Step 10a Phase 1 (all 5 items committed on
+     PianoidTunner feature/dev-mwfix-matrix-fixes, off dev 5758019: 0c38c80 avg-SC ruler-align + ModesRule
+     windowed positioning [item 1]; 925c96a P1-A tie/untie rollout complete + delete legacy shared-range zoom
+     [item 2]; b732b31 P1-B delete dead mute write-path [item 3]; 9bb71f9 P2 cleanups (double calcChange,
+     mutedMatrix, scListenToModes source, Feedback dead zoom) [item 4]; 71b2398 P3 render-without-range guard +
+     cell-click decouple + explicit row order [item 5]). Held 9 files: SoundChannelsAggregateChart.jsx, ModesRule.js,
+     PianoidTuner.js, useCurrentValues.js, SoundChannelsPane.jsx, MeasuredMatrix.jsx, usePreset.js, useSoundChannels.js,
+     useMatrixHistory.js, PitchesModesMatrixCanvas.jsx (+2 NEW test files). ★SC channel-row decouple PRESERVED
+     throughout (only SC MODE axis ties to global selection). Full Jest 95 suites/1030 tests green, eslint 0 errors,
+     production build compiles. Frontend-only, NO CUDA build. NOT merged — HOLD on feature branch for user's live test.
+     Docs (pianoid-tunner OVERVIEW) + session log on PianoidInstall master. -->
+| <!-- (none active for dev-mwfix) --> | | | |
 <!-- dev-bug1rt locks RELEASED 2026-06-10 at Step 10a Phase 2 (user-confirmed live debug test "Works ok" msg 3438; team-lead-authorized LOCAL merge + wrap). Held: PianoidCore pianoid_cuda/MainKernel.cu, Pianoid_synthesis.cu, OnlinePlaybackEngine.cu (probes-only, reverted to net-zero), Pianoid.cu (read-only, not edited), pianoid_middleware/chartFunctions.py.
      BUG-1 = DEBUG addKernel cudaErrorCooperativeLaunchTooLarge (recordOutputData register pressure + online SDL3 audio-driver SM consumption exceed cooperative co-residency → realtime thread 0-cycles at launcher/APPLY boot → silent no-sound + empty kernel). FIX-2 = debug-only __launch_bounds__(512,1) on addKernel (#ifdef PIANOID_DEBUG_DATA macro → empty in release → release codegen byte-identical, preserves live debug-online extraction). FIX-3 = check cudaLaunchCooperativeKernel return → PLOG_ERR + return 500 (fail-fast; also makes the steinway 58-block-on-56-SM kernel_status-500 failure loud). BUG-2 = _stop_online_engine clears endMainLoop on stuck loop-flag regardless of isRunning() (→ "Cannot render offline" after dead thread). Committed feature/debug-online-realtime-fix f96e266 (3 files +58/-4), MERGED to LOCAL PianoidCore dev d0136e5 (--no-ff). Docs (DEBUG_DATA.md RCA+fix) + session log on PianoidInstall master (e58cc6a + Phase-2 wrap). All 5 verify gates PASS + user-tested OK. NOT pushed — origin reconcile + push HELD pending user push decision. Session log archived. -->
 | <!-- (none active for dev-bug1rt) --> | | | |

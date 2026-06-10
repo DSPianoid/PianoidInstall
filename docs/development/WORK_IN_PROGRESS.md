@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-mwfix | Matrix/workbench/avg-SC review fixes + avg-SC ruler-alignment bug (frontend, PianoidTunner) | [log](logs/dev-mwfix-2026-06-10-160214.md) | 2026-06-10 | In Progress |
 <!-- dev-bug1rt COMPLETED 2026-06-10 (Step 10a Phase 2; user-confirmed live debug test "Works ok" msg 3438). BUG-1 = DEBUG
      addKernel cudaErrorCooperativeLaunchTooLarge (recordOutputData register pressure + online SDL3 audio-driver SM
      consumption exceed cooperative co-residency → realtime thread 0-cycles at launcher/APPLY boot → silent no-sound +
