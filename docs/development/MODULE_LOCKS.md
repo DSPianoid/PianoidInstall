@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-bug1rt | `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu`, `PianoidCore/pianoid_cuda/OnlinePlaybackEngine.cu`, `PianoidCore/pianoid_cuda/MainKernel.cu`, `PianoidCore/pianoid_middleware/chartFunctions.py`, `PianoidCore/pianoid_cuda/Pianoid.cu` | 2026-06-10T07:22:00Z | BUG-1 (DEBUG realtime thread 0-cycles at launcher/APPLY boot: cudaErrorCooperativeLaunchTooLarge — debug addKernel + SDL3 driver exceed co-residency → no sound + empty kernel) + BUG-2 (_stop_online_engine isRunning-vs-shouldContinue guard → "Cannot render offline"). User-approved fix. feature/debug-online-realtime-fix. |
 <!-- dev-debugboot-bacd Fix-B locks RELEASED 2026-06-09 at Step 10a Phase 1 commit. Held:
      PianoidCore/pianoid_middleware/backendServer.py + chartFunctions.py. /get_chart_test offline
      render no longer leaves the realtime playback thread stopped: backendServer _spawn_realtime_thread
