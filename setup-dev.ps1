@@ -874,6 +874,38 @@ if ($pathRestore.MachineSkipped -or $pathRestore.UserSkipped) {
 
 Write-BuildConfig -CudaHome $cudaHome -VcBin $vcBin -Sdl2Base $sdl2Base -Sdl3Base $sdl3Base -CudaArchs $config.cuda.architectures
 
+# --- NVIDIA DISPLAY-DRIVER health check (non-blocking, informational) ---
+# The CUDA TOOLKIT we just installed is INDEPENDENT of the NVIDIA DISPLAY DRIVER.
+# nvml.dll / nvcuda.dll are driver-side (System32, version-locked to the driver),
+# so this toolkit install does NOT fix an "NVML not found" / "driver/library
+# version mismatch". Mirror the Linux setup-packages.sh check_nvidia_driver: warn
+# (do NOT install - that is the SEPARATE opt-in option 7 in setup-packages.bat /
+# install-nvidia-driver.ps1). Best-effort: never abort setup.
+if (-not $SkipCUDA) {
+  try {
+    $driverCheck = Join-Path $PSScriptRoot 'check-driver-health.ps1'
+    if (Test-Path -LiteralPath $driverCheck) {
+      & powershell -NoProfile -ExecutionPolicy Bypass -File $driverCheck -Quiet | Out-Null
+      $drvCode = $LASTEXITCODE
+      if ($drvCode -eq 10 -or $drvCode -eq 20) {
+        Write-Host ""
+        Write-Host "  >> NVIDIA DISPLAY-DRIVER attention needed (the CUDA toolkit does NOT fix this):" -ForegroundColor Yellow
+        if ($drvCode -eq 20) {
+          Write-Host "     No NVIDIA GPU detected by Windows. If a card is installed, enable it in" -ForegroundColor Yellow
+          Write-Host "     Device Manager. Pianoid synthesis needs an NVIDIA GPU + a working driver." -ForegroundColor Yellow
+        } else {
+          Write-Host "     The display driver is missing or version-mismatched (nvml.dll/nvcuda.dll)." -ForegroundColor Yellow
+          Write-Host "     This is a DRIVER problem - reinstalling the CUDA toolkit will NOT fix it." -ForegroundColor Yellow
+          Write-Host "     To reinstall the driver: run setup-packages.bat -> option 7 (or" -ForegroundColor Yellow
+          Write-Host "     install-nvidia-driver.ps1). Run diagnose-cuda.ps1 for a full report." -ForegroundColor Yellow
+        }
+      }
+    }
+  } catch {
+    # best-effort - a failed driver check must never abort setup.
+  }
+}
+
 Write-Host "`n=== Setup Complete ==="
 if ($python) { Write-Host "Python $($config.versions.python) installed at: $python" }
 Write-Host "CUDA $($config.versions.cuda) installed at: $cudaHome"
