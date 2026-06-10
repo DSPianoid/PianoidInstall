@@ -99,6 +99,41 @@ function Report {
     Add-Finding -Area $Area -Status $Status -Detail $Detail
 }
 
+# Normalise an NVIDIA version string to the human "XXX.YY" driver form (e.g.
+# 560.94). nvml.dll's FileVersion (e.g. 8.17.15.6094) and WMI's DriverVersion
+# (e.g. 32.0.15.6094) both encode the NVIDIA driver in their LAST 5 DIGITS
+# (...56094 -> 560.94) regardless of the leading parts, which differ between the
+# two but are NOT the driver number. So strip non-digits and read the last 5.
+# Returns $null when fewer than 5 digits are present (so a non-NVIDIA /
+# unparseable string never produces a bogus comparison). An already-short
+# "560.94" -> "56094" -> "560.94" round-trips correctly.
+function Get-NvDriverShort {
+    param([string] $Version)
+    if ([string]::IsNullOrWhiteSpace($Version)) { return $null }
+    $digits = ($Version -replace '[^\d]', '')
+    if ($digits.Length -ge 5) {
+        $last5 = $digits.Substring($digits.Length - 5)
+        return ("{0}.{1}" -f $last5.Substring(0, 3), $last5.Substring(3, 2))
+    }
+    return $null
+}
+
+# Version facts captured across sections 1/3/4/4b, compared in section 8. Each
+# short is the normalised "XXX.YY" form (or $null when the source was missing).
+$script:NvmlSys32Short    = $null   # nvml.dll in System32        (section 3)
+$script:NvmlSys32Raw      = $null   # its raw FileVersion         (section 3)
+$script:NvcudaSys32Short  = $null   # nvcuda.dll in System32      (section 3d)
+$script:NvcudaSys32Raw    = $null   # its raw FileVersion         (section 3d)
+$script:DriverShort       = $null   # display driver, from WMI    (section 1)
+$script:DriverRaw         = $null   # raw WMI DriverVersion       (section 1)
+$script:NvmlStoreShorts   = @()     # DriverStore nvml.dll shorts (section 3)
+$script:SmiNvmlError      = $false  # nvidia-smi failed w/ an NVML error (section 4)
+$script:SmiDriverShort    = $null   # driver version nvidia-smi -q reports (section 4)
+$script:NvmlShadowed      = $false  # a non-System32 PATH nvml.dll precedes System32 (4b)
+$script:NvcudaShadowed    = $false  # a non-System32 PATH nvcuda.dll precedes System32 (4b)
+$script:NvmlMultiVersion  = $false  # >1 distinct nvml.dll version across PATH+System32 (4b)
+$script:NvcudaMultiVersion = $false # >1 distinct nvcuda.dll version across PATH+System32 (4b)
+
 # -------------------------------------------------------------------------
 # 0. Environment header.
 # -------------------------------------------------------------------------
@@ -127,8 +162,15 @@ try {
             # WMI DriverVersion is the Windows 4-part form (e.g. 32.0.15.6094);
             # the last 5 digits map to the NVIDIA driver (15.6094 -> 560.94).
             $nvDrv = ''
-            if ($g.DriverVersion -match '(\d{3})(\d{2})$') {
-                $nvDrv = " (NVIDIA driver ~{0}.{1})" -f $matches[1], $matches[2]
+            $short = Get-NvDriverShort $g.DriverVersion
+            if ($short) {
+                $nvDrv = " (NVIDIA driver ~{0})" -f $short
+                # Capture the FIRST NVIDIA GPU's driver version as the canonical
+                # one for the section-8 NVML version-mismatch comparison.
+                if (-not $script:DriverShort) {
+                    $script:DriverShort = $short
+                    $script:DriverRaw   = $g.DriverVersion
+                }
             }
             Report 'GPU' 'OK' ("Found: {0} | WMI DriverVersion {1}{2} | DriverDate {3}" -f `
                 $g.Name, $g.DriverVersion, $nvDrv, $g.DriverDate)
@@ -181,6 +223,8 @@ try {
     if (Test-Path -LiteralPath $sys32Nvml) {
         $nvmlFound = $true
         $fv = (Get-Item -LiteralPath $sys32Nvml).VersionInfo.FileVersion
+        $script:NvmlSys32Raw   = $fv
+        $script:NvmlSys32Short = Get-NvDriverShort $fv
         Report 'NVML' 'OK' ("nvml.dll present in System32 (FileVersion {0}). This is the primary load location." -f $fv)
     } else {
         Report 'NVML' 'FAIL' ("nvml.dll is MISSING from {0}. nvidia-smi and any NVML client will report 'NVML not found' / 'Failed to load NVML library'." -f $sys32Nvml)
@@ -197,6 +241,8 @@ try {
         $nvmlFound = $true
         foreach ($d in ($dsNvml | Select-Object -First 3)) {
             $dfv = $d.VersionInfo.FileVersion
+            $dShort = Get-NvDriverShort $dfv
+            if ($dShort) { $script:NvmlStoreShorts += $dShort }
             Report 'NVML' 'INFO' ("DriverStore copy: {0} (FileVersion {1})" -f $d.FullName, $dfv)
         }
         if (-not (Test-Path -LiteralPath $sys32Nvml)) {
@@ -209,8 +255,67 @@ try {
     if (-not $nvmlFound) {
         Report 'NVML' 'FAIL' 'nvml.dll not found anywhere standard. NVML is a DRIVER component (NOT the CUDA toolkit) - fix by reinstalling/repairing the NVIDIA DISPLAY DRIVER, not the CUDA toolkit.'
     }
+
+    # 3c. VERSION COMPARISON - the present-but-WRONG-VERSION case. nvml.dll is
+    #     version-locked to the display driver; a System32 nvml.dll whose version
+    #     != the driver version is UNLOADABLE ("driver/library version mismatch"
+    #     / "Failed to load NVML"), even though the file is right there. Compare
+    #     the normalised XXX.YY short forms (built the SAME way for all three).
+    if ($script:NvmlSys32Short -and $script:DriverShort) {
+        if ($script:NvmlSys32Short -ne $script:DriverShort) {
+            Report 'NVML' 'FAIL' ("VERSION MISMATCH: System32 nvml.dll is v{0} (raw {1}) but the display driver is v{2} (raw {3}) -> nvml.dll is present but CANNOT LOAD. This is the 'NVML not found' / 'driver/library version mismatch' cause. See the DIAGNOSIS section for the fix." -f `
+                $script:NvmlSys32Short, $script:NvmlSys32Raw, $script:DriverShort, $script:DriverRaw)
+        } else {
+            Report 'NVML' 'OK' ("Version match: System32 nvml.dll v{0} == display driver v{1}." -f $script:NvmlSys32Short, $script:DriverShort)
+        }
+    } elseif ($script:NvmlSys32Short -and $script:NvmlStoreShorts.Count -gt 0) {
+        # Driver short form unavailable (rare): fall back to comparing System32
+        # against the DriverStore copy, which the driver installs alongside it.
+        $mismatchStore = @($script:NvmlStoreShorts | Where-Object { $_ -ne $script:NvmlSys32Short })
+        if ($mismatchStore.Count -gt 0 -and -not ($script:NvmlStoreShorts -contains $script:NvmlSys32Short)) {
+            Report 'NVML' 'WARN' ("Possible VERSION MISMATCH: System32 nvml.dll is v{0} but the DriverStore copy is v{1}. If nvidia-smi reports an NVML error, reinstall the matching display driver (see DIAGNOSIS)." -f `
+                $script:NvmlSys32Short, ($script:NvmlStoreShorts -join '/'))
+        }
+    }
+
+    # NOTE: the stray/shadowing nvml.dll-on-PATH check now lives in the
+    #       comprehensive PATH scan (section 4b), which also covers nvcuda.dll,
+    #       cudart and nvidia-smi.exe and detects ORDERED shadowing (a PATH copy
+    #       that precedes System32). Section 8 consumes $script:NvmlShadowed.
 } catch {
     Report 'NVML' 'WARN' ("NVML probe failed: {0}" -f $_.Exception.Message)
+}
+
+# -------------------------------------------------------------------------
+# 3d. nvcuda.dll - the CUDA DRIVER API library. Like nvml.dll it is a
+#     DISPLAY-DRIVER component (NOT the CUDA toolkit): it ships into
+#     C:\Windows\System32, version-locked to the display driver. A stale or
+#     mismatched nvcuda.dll is a common cause of cupy "no CUDA-capable device
+#     is detected" / "driver version is insufficient" - so it is checked here
+#     alongside nvml, and re-running the CUDA TOOLKIT installer does NOT fix it.
+# -------------------------------------------------------------------------
+Write-Section '3d. nvcuda.dll (CUDA Driver API - a DISPLAY-DRIVER component)'
+try {
+    $sys32Nvcuda = Join-Path $env:SystemRoot 'System32\nvcuda.dll'
+    if (Test-Path -LiteralPath $sys32Nvcuda) {
+        $nfv = (Get-Item -LiteralPath $sys32Nvcuda).VersionInfo.FileVersion
+        $script:NvcudaSys32Raw   = $nfv
+        $script:NvcudaSys32Short = Get-NvDriverShort $nfv
+        Report 'nvcuda' 'OK' ("nvcuda.dll present in System32 (FileVersion {0}). This is the CUDA Driver API (driver-side)." -f $nfv)
+        # Version comparison vs the display driver (same driver-locked rule as nvml).
+        if ($script:NvcudaSys32Short -and $script:DriverShort) {
+            if ($script:NvcudaSys32Short -ne $script:DriverShort) {
+                Report 'nvcuda' 'FAIL' ("VERSION MISMATCH: System32 nvcuda.dll is v{0} (raw {1}) but the display driver is v{2} (raw {3}) -> the CUDA Driver API is out of sync with the driver. This causes cupy 'no CUDA-capable device' / 'driver version is insufficient'. See the DIAGNOSIS section." -f `
+                    $script:NvcudaSys32Short, $script:NvcudaSys32Raw, $script:DriverShort, $script:DriverRaw)
+            } else {
+                Report 'nvcuda' 'OK' ("Version match: System32 nvcuda.dll v{0} == display driver v{1}." -f $script:NvcudaSys32Short, $script:DriverShort)
+            }
+        }
+    } else {
+        Report 'nvcuda' 'FAIL' ("nvcuda.dll is MISSING from {0}. The CUDA Driver API is a DISPLAY-DRIVER component; without it cupy/CUDA cannot initialise. Fix by reinstalling the NVIDIA DISPLAY DRIVER (NOT the CUDA toolkit)." -f $sys32Nvcuda)
+    }
+} catch {
+    Report 'nvcuda' 'WARN' ("nvcuda.dll probe failed: {0}" -f $_.Exception.Message)
 }
 
 # -------------------------------------------------------------------------
@@ -254,12 +359,64 @@ try {
             if ($code -eq 0 -and -not [string]::IsNullOrWhiteSpace($so)) {
                 $smiOk = $true
                 Report 'nvidia-smi' 'OK' ("nvidia-smi works. GPU(s): {0}" -f ($so.Trim() -replace "`r?`n", ' ; '))
+
+                # 4-verify: confirm the driver nvidia-smi loaded by DEFAULT matches
+                # the installed driver (WMI, section 1). nvidia-smi loads nvml.dll,
+                # which loads against the kernel driver - so a successful run whose
+                # reported Driver Version != WMI would mean a different driver/NVML
+                # is being picked up (e.g. a shadowing copy). Also count GPUs/drivers.
+                $qOut = Join-Path $env:TEMP ("pianoid_smiq_out_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+                $qErr = Join-Path $env:TEMP ("pianoid_smiq_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+                try {
+                    $pq = Start-Process -FilePath $smiPath -ArgumentList '-q' `
+                        -NoNewWindow -Wait -PassThru `
+                        -RedirectStandardOutput $qOut -RedirectStandardError $qErr
+                    $qso = (Get-Content -LiteralPath $qOut -Raw -ErrorAction SilentlyContinue)
+                    if ($pq.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($qso)) {
+                        # "Driver Version : 560.94" (already XXX.YY); normalise defensively.
+                        $drvLines = @([regex]::Matches($qso, '(?im)^\s*Driver Version\s*:\s*(.+?)\s*$'))
+                        $smiDrvShort = $null
+                        if ($drvLines.Count -gt 0) {
+                            $smiDrvRaw = $drvLines[0].Groups[1].Value.Trim()
+                            $smiDrvShort = Get-NvDriverShort $smiDrvRaw
+                            if (-not $smiDrvShort) { $smiDrvShort = $smiDrvRaw }
+                            $script:SmiDriverShort = $smiDrvShort
+                            Report 'nvidia-smi' 'INFO' ("nvidia-smi -q reports Driver Version {0}." -f $smiDrvRaw)
+                        }
+                        # Count attached GPUs (each block starts with "GPU 00000000:..").
+                        $gpuCount = @([regex]::Matches($qso, '(?im)^\s*GPU\s+[0-9A-Fa-f]{8}:')).Count
+                        if ($gpuCount -gt 1) {
+                            Report 'nvidia-smi' 'INFO' ("nvidia-smi sees {0} GPUs - if they use different drivers, NVML loads the primary one." -f $gpuCount)
+                        }
+                        # Compare the loaded driver vs the installed driver (WMI).
+                        if ($smiDrvShort -and $script:DriverShort) {
+                            if ($smiDrvShort -ne $script:DriverShort) {
+                                Report 'nvidia-smi' 'WARN' ("DRIVER MISMATCH: nvidia-smi loaded driver v{0} but WMI reports the installed driver as v{1}. A different driver/NVML is being picked up (possible shadowing copy on PATH - see section 4b)." -f $smiDrvShort, $script:DriverShort)
+                            } else {
+                                Report 'nvidia-smi' 'OK' ("Driver-load verified: nvidia-smi driver v{0} == installed driver v{1} (the correct driver loads by default)." -f $smiDrvShort, $script:DriverShort)
+                            }
+                        }
+                    }
+                } catch {
+                    Report 'nvidia-smi' 'INFO' ("nvidia-smi -q driver-load verification skipped: {0}" -f $_.Exception.Message)
+                } finally {
+                    Remove-Item -LiteralPath $qOut, $qErr -Force -ErrorAction SilentlyContinue
+                }
             } else {
                 $msg = $se; if ([string]::IsNullOrWhiteSpace($msg)) { $msg = $so }
                 if ([string]::IsNullOrWhiteSpace($msg)) { $msg = '(no output)' }
                 Report 'nvidia-smi' 'FAIL' ("nvidia-smi FAILED (exit {0}). Output: {1}" -f $code, ($msg.Trim() -replace "`r?`n", ' / '))
-                if ($msg -match 'NVML') {
+                # NVML signatures: "NVML not found" / "Failed to load NVML" /
+                # "driver/library version mismatch" (the classic mismatch wording).
+                if ($msg -match 'NVML' -or $msg -match 'driver/library version mismatch' -or $msg -match 'version mismatch') {
+                    $script:SmiNvmlError = $true
                     Report 'nvidia-smi' 'FAIL' 'NVML error confirmed via nvidia-smi -> see section 3 (nvml.dll). This is a DRIVER problem; reinstall/repair the NVIDIA display driver.'
+                    # Present-but-mismatched signature: NVML error from nvidia-smi
+                    # WHILE nvml.dll exists (section 3 found it in System32).
+                    if (-not [string]::IsNullOrWhiteSpace($script:NvmlSys32Short)) {
+                        Report 'nvidia-smi' 'FAIL' ("nvml.dll IS present in System32 (v{0}) yet nvidia-smi cannot load NVML -> present-but-UNLOADABLE = a version mismatch with the driver (v{1}). See the DIAGNOSIS section for the precise fix." -f `
+                            $script:NvmlSys32Short, $(if ($script:DriverShort) { $script:DriverShort } else { 'unknown' }))
+                    }
                 }
             }
         } finally {
@@ -268,6 +425,126 @@ try {
     }
 } catch {
     Report 'nvidia-smi' 'WARN' ("nvidia-smi probe raised: {0}" -f $_.Exception.Message)
+}
+
+# -------------------------------------------------------------------------
+# 4b. COMPREHENSIVE PATH SCAN - for EVERY directory on PATH (Machine THEN User,
+#     the order Windows uses) search for the four NVIDIA load-critical files:
+#       nvml.dll       (NVML, driver-side)
+#       nvcuda.dll     (CUDA Driver API, driver-side)
+#       cudart64_*.dll (CUDA runtime - toolkit / app-bundled)
+#       nvidia-smi.exe (driver tool)
+#     Report each hit's full path + FileVersion, then FLAG the classic
+#     "persists after reinstall" causes:
+#       (a) >1 nvml.dll (or nvcuda.dll) with DIFFERENT versions across PATH+System32;
+#       (b) a driver DLL on PATH that appears BEFORE System32 -> it SHADOWS the
+#           correct System32 copy (so a driver reinstall doesn't take effect);
+#       (c) a stray older copy from a different CUDA/driver install.
+#     System32 holds the LEGITIMATE driver copies; the goal is to find copies
+#     that PRECEDE it in the search order.
+# -------------------------------------------------------------------------
+Write-Section '4b. Comprehensive PATH scan (nvml / nvcuda / cudart / nvidia-smi)'
+try {
+    $sys32DirNorm = (Join-Path $env:SystemRoot 'System32').TrimEnd('\').ToLowerInvariant()
+
+    # Build the ORDERED, de-duplicated directory list the way the loader sees it:
+    # Machine PATH first, then User PATH (this is the effective DLL search order
+    # for PATH). Fall back to the process PATH if a registry read fails.
+    $orderedDirs = New-Object System.Collections.ArrayList
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+    function Add-Dirs {
+        param([string] $PathValue)
+        if ([string]::IsNullOrWhiteSpace($PathValue)) { return }
+        foreach ($d in ($PathValue -split ';')) {
+            if ([string]::IsNullOrWhiteSpace($d)) { continue }
+            # Expand any %VAR% the registry stores unexpanded.
+            $de = [System.Environment]::ExpandEnvironmentVariables($d).TrimEnd('\')
+            if ([string]::IsNullOrWhiteSpace($de)) { continue }
+            $key = $de.ToLowerInvariant()
+            if ($seen.Add($key)) { [void]$orderedDirs.Add($de) }
+        }
+    }
+    $machPath = $null; $userPath = $null
+    try { $machPath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') } catch { }
+    try { $userPath = [System.Environment]::GetEnvironmentVariable('Path', 'User') } catch { }
+    if ([string]::IsNullOrWhiteSpace($machPath) -and [string]::IsNullOrWhiteSpace($userPath)) {
+        Add-Dirs $env:Path                  # registry unavailable -> process PATH
+    } else {
+        Add-Dirs $machPath                  # Machine first ...
+        Add-Dirs $userPath                  # ... then User
+        Add-Dirs $env:Path                  # plus any process-only dirs, last
+    }
+
+    # Index of System32 in the ordered list (-1 if, oddly, not present).
+    $sys32Index = -1
+    for ($i = 0; $i -lt $orderedDirs.Count; $i++) {
+        if ($orderedDirs[$i].TrimEnd('\').ToLowerInvariant() -eq $sys32DirNorm) { $sys32Index = $i; break }
+    }
+
+    # Scan one file pattern across the ordered dirs. Returns the hit list
+    # ([pscustomobject]@{ Path; Version; Index }) and reports each one.
+    function Scan-PathFor {
+        param([string] $Area, [string] $Pattern, [bool] $IsDriverComp)
+        $hits = New-Object System.Collections.ArrayList
+        for ($i = 0; $i -lt $orderedDirs.Count; $i++) {
+            $dir = $orderedDirs[$i]
+            try {
+                if (-not (Test-Path -LiteralPath $dir)) { continue }
+                $found = @(Get-ChildItem -LiteralPath $dir -Filter $Pattern -File -ErrorAction SilentlyContinue)
+                foreach ($f in $found) {
+                    $ver = ''
+                    try { $ver = $f.VersionInfo.FileVersion } catch { }
+                    $inSys32 = ($dir.TrimEnd('\').ToLowerInvariant() -eq $sys32DirNorm)
+                    $tag = if ($inSys32) { ' [System32]' } else { '' }
+                    Report $Area 'INFO' ("{0} @ {1} (FileVersion {2}){3}" -f $Pattern, $f.FullName, $ver, $tag)
+                    [void]$hits.Add([pscustomobject]@{ Path = $f.FullName; Version = $ver; Index = $i; InSys32 = $inSys32 })
+                }
+            } catch { }
+        }
+        if ($hits.Count -eq 0) {
+            Report $Area 'INFO' ("No {0} found on any PATH directory." -f $Pattern)
+        }
+        return ,$hits
+    }
+
+    # --- nvml.dll (driver-side): shadowing + multi-version are the headline flags.
+    $nvmlHits = Scan-PathFor 'PATH-scan' 'nvml.dll' $true
+    $nvmlNonSys32Before = @($nvmlHits | Where-Object { -not $_.InSys32 -and ($sys32Index -lt 0 -or $_.Index -lt $sys32Index) })
+    if ($nvmlNonSys32Before.Count -gt 0) {
+        $script:NvmlShadowed = $true
+        Report 'PATH-scan' 'FAIL' ("SHADOWING: nvml.dll on a NON-System32 PATH dir appears BEFORE System32 in the search order -> {0}. This stray copy LOADS INSTEAD OF the driver's System32 nvml.dll, so a driver reinstall does NOT take effect until it is removed. Remove/rename it." -f (($nvmlNonSys32Before | ForEach-Object { "$($_.Path) (v$($_.Version))" }) -join ' ; '))
+    }
+    $nvmlVers = @($nvmlHits | Where-Object { $_.Version } | ForEach-Object { Get-NvDriverShort $_.Version } | Where-Object { $_ } | Select-Object -Unique)
+    if ($nvmlVers.Count -gt 1) {
+        $script:NvmlMultiVersion = $true
+        Report 'PATH-scan' 'WARN' ("MULTIPLE nvml.dll VERSIONS across PATH+System32: {0}. Different copies from different driver/CUDA installs -> whichever loads first wins; keep only the System32 (driver) copy." -f ($nvmlVers -join ' / '))
+    }
+
+    # --- nvcuda.dll (driver-side, CUDA Driver API): same shadowing/multi-version logic.
+    $nvcudaHits = Scan-PathFor 'PATH-scan' 'nvcuda.dll' $true
+    $nvcudaNonSys32Before = @($nvcudaHits | Where-Object { -not $_.InSys32 -and ($sys32Index -lt 0 -or $_.Index -lt $sys32Index) })
+    if ($nvcudaNonSys32Before.Count -gt 0) {
+        $script:NvcudaShadowed = $true
+        Report 'PATH-scan' 'FAIL' ("SHADOWING: nvcuda.dll on a NON-System32 PATH dir appears BEFORE System32 -> {0}. This stray CUDA Driver API copy loads instead of the driver's, causing cupy 'no CUDA-capable device' / driver mismatch even after a driver reinstall. Remove/rename it." -f (($nvcudaNonSys32Before | ForEach-Object { "$($_.Path) (v$($_.Version))" }) -join ' ; '))
+    }
+    $nvcudaVers = @($nvcudaHits | Where-Object { $_.Version } | ForEach-Object { Get-NvDriverShort $_.Version } | Where-Object { $_ } | Select-Object -Unique)
+    if ($nvcudaVers.Count -gt 1) {
+        $script:NvcudaMultiVersion = $true
+        Report 'PATH-scan' 'WARN' ("MULTIPLE nvcuda.dll VERSIONS across PATH+System32: {0}. Keep only the System32 (driver) copy." -f ($nvcudaVers -join ' / '))
+    }
+
+    # --- cudart64_*.dll (toolkit / app runtime): informational - multiple copies
+    #     are NORMAL (toolkit + each app bundles its own). Just list them.
+    [void](Scan-PathFor 'PATH-scan' 'cudart64_*.dll' $false)
+
+    # --- nvidia-smi.exe (driver tool): note if found outside System32/NVSMI.
+    $smiHits = Scan-PathFor 'PATH-scan' 'nvidia-smi.exe' $false
+    $smiStray = @($smiHits | Where-Object { -not $_.InSys32 -and ($_.Path -notmatch '(?i)\\NVSMI\\') })
+    if ($smiStray.Count -gt 0 -and @($smiHits | Where-Object { $_.InSys32 }).Count -gt 0) {
+        Report 'PATH-scan' 'WARN' ("nvidia-smi.exe also found outside System32/NVSMI: {0}. If it precedes System32, an older copy may run." -f (($smiStray | ForEach-Object { $_.Path }) -join ' ; '))
+    }
+} catch {
+    Report 'PATH-scan' 'WARN' ("comprehensive PATH scan failed: {0}" -f $_.Exception.Message)
 }
 
 # -------------------------------------------------------------------------
@@ -450,6 +727,23 @@ $smiOkFinding = @($script:Findings | Where-Object { $_.Area -eq 'nvidia-smi' -an
 # neither a clear pass (cupyOk) nor a clear fail (cupyFail).
 $cupyInconclusive = (-not $cupyOk) -and (-not $cupyFail)
 
+# DRIVER-COMPONENT MISMATCH / SHADOWING - a driver-side library (nvml.dll or
+# nvcuda.dll) is PRESENT but the WRONG one loads: either it is the wrong VERSION
+# for the driver (present-but-unloadable), or a stray copy on PATH SHADOWS the
+# correct System32 copy (loads instead of it). Both explain "persists after a
+# reboot AND after re-running setup-packages" - because setup-packages is the
+# CUDA TOOLKIT and never touches these driver files. Detected via:
+#   (a) section 3/3d direct version comparison flagged a "VERSION MISMATCH", OR
+#   (b) nvidia-smi failed with an NVML error WHILE nvml.dll exists in System32, OR
+#   (c) section 4b found a non-System32 nvml/nvcuda copy that PRECEDES System32.
+# This MUST take precedence over the cupy-blame branch even when the DLL exists.
+$nvmlMismatchFlag   = @($script:Findings | Where-Object { $_.Area -eq 'NVML'   -and $_.Detail -match 'VERSION MISMATCH' }).Count -gt 0
+$nvcudaMismatchFlag = @($script:Findings | Where-Object { $_.Area -eq 'nvcuda' -and $_.Detail -match 'VERSION MISMATCH' }).Count -gt 0
+$nvmlMismatch       = $nvmlMismatchFlag -or ($script:SmiNvmlError -and -not [string]::IsNullOrWhiteSpace($script:NvmlSys32Short))
+$driverShadowed     = $script:NvmlShadowed -or $script:NvcudaShadowed
+# The unified "the wrong driver library is in effect" trigger for the verdict.
+$driverLibProblem   = $nvmlMismatch -or $nvcudaMismatchFlag -or $driverShadowed
+
 Write-Host ''
 if (-not $gpuPresent) {
     Write-Host '  VERDICT: No NVIDIA GPU detected by Windows itself (WMI).'
@@ -461,10 +755,62 @@ elseif ($driverFail) {
     Write-Host '  VERDICT: GPU is present but the NVIDIA kernel driver (nvlddmkm) is not installed.'
     Write-Host '  FIX: Install the latest NVIDIA Game Ready / Studio driver for this GPU, then reboot.'
 }
+elseif ($driverLibProblem) {
+    # PRECEDENCE: checked BEFORE the cupy-blame branch, so a present-but-wrong
+    # driver library (mismatched nvml/nvcuda, or a shadowing PATH copy) is
+    # diagnosed correctly even though the DLL exists (which would let $cupyFail win).
+    $nvmlVerStr   = if ($script:NvmlSys32Short)   { "v$($script:NvmlSys32Short)" }   else { 'present (version unreadable)' }
+    $nvcudaVerStr = if ($script:NvcudaSys32Short) { "v$($script:NvcudaSys32Short)" } else { 'present (version unreadable)' }
+    $drvVerStr    = if ($script:DriverShort)      { "v$($script:DriverShort)" }      else { 'unknown' }
+
+    Write-Host '  VERDICT: DRIVER LIBRARY PROBLEM - a driver-side library (nvml.dll / nvcuda.dll) is'
+    Write-Host '           PRESENT but the WRONG one is in effect, so NVML/CUDA fail to initialise.'
+    if ($driverShadowed) {
+        Write-Host '           CAUSE: a STRAY copy on PATH SHADOWS the correct System32 copy (it loads'
+        Write-Host '                  INSTEAD of the driver`s) - this is why the error PERSISTS even after'
+        Write-Host '                  a reboot and a driver reinstall (the reinstall fixes System32, but the'
+        Write-Host '                  stray PATH copy still wins). See section 4b for the exact file(s).'
+    } else {
+        Write-Host '           CAUSE: a VERSION MISMATCH with the installed display driver (the library is'
+        Write-Host '                  out of sync with the kernel driver nvlddmkm).'
+    }
+    Write-Host ("  VERSIONS: System32 nvml.dll = {0} | System32 nvcuda.dll = {1} | display driver = {2}" -f $nvmlVerStr, $nvcudaVerStr, $drvVerStr)
+    Write-Host ''
+    Write-Host '  *** TOOLKIT vs DRIVER (read this) ***'
+    Write-Host '  Re-running setup-packages (the CUDA TOOLKIT) does NOT reinstall the display driver and'
+    Write-Host '  will NOT fix nvml.dll / nvcuda.dll - those are DISPLAY-DRIVER files, not toolkit files.'
+    Write-Host '  That is why "driver reinstallation via setup-packages" did not help: it never touched them.'
+    Write-Host ''
+    Write-Host '  FIX (in order):'
+    if ($driverShadowed) {
+        Write-Host '   1. REMOVE THE SHADOWING COPY first (section 4b lists it): delete/rename the stray'
+        Write-Host '      nvml.dll / nvcuda.dll on the NON-System32 PATH directory (or remove that directory'
+        Write-Host '      from PATH) so the driver`s System32 copy loads. This is the likely root cause of'
+        Write-Host '      "persists after reinstall".'
+        Write-Host '   2. Reboot, then re-run this diagnostic - section 4b should show only the System32 copy.'
+        Write-Host '   3. If STILL broken (a genuine version mismatch): do a REAL DISPLAY-DRIVER reinstall -'
+        Write-Host '      DDU (Display Driver Uninstaller) in Safe Mode, then a fresh driver from'
+        Write-Host '      nvidia.com / the NVIDIA App, then reboot. (NOT setup-packages / the CUDA toolkit.)'
+    } else {
+        Write-Host '   1. REBOOT FIRST. A driver update applied without a reboot leaves the kernel module'
+        Write-Host '      (nvlddmkm) and the user-mode nvml.dll/nvcuda.dll version-mismatched until restart'
+        Write-Host '      - a reboot ALONE often clears "driver/library version mismatch".'
+        Write-Host '   2. If still broken: do a REAL DISPLAY-DRIVER reinstall - DDU (Display Driver'
+        Write-Host '      Uninstaller) in Safe Mode to fully remove the driver, then install a fresh driver'
+        Write-Host '      from nvidia.com / the NVIDIA App, then reboot. This restores matching nvml.dll +'
+        Write-Host '      nvcuda.dll in System32. (NOT setup-packages / the CUDA toolkit - it does not ship them.)'
+        Write-Host '   3. Check no stray older nvml.dll / nvcuda.dll sits on a PATH directory shadowing'
+        Write-Host '      System32 (section 4b reports any). If one exists, remove it.'
+    }
+    Write-Host '   4. Reboot, then re-run this diagnostic - section 4 (nvidia-smi) should pass and the'
+    Write-Host '      versions in sections 3/3d should match the driver.'
+    Write-Host '  NOTE: Pianoid synthesis needs a WORKING CUDA runtime; until the driver libraries match,'
+    Write-Host '        the UI loads but APPLY/synthesis fails. The launcher warns about this.'
+}
 elseif ($nvmlFail -or ($smiFail -and -not $nvmlInSys32)) {
     Write-Host '  VERDICT: GPU + driver are present, but NVML is broken ("NVML not found").'
     Write-Host '  ROOT CAUSE: nvml.dll (a DRIVER component, version-locked to the display driver)'
-    Write-Host '              is missing from C:\Windows\System32 or not loadable. This is NOT'
+    Write-Host '              is MISSING from C:\Windows\System32 or not loadable. This is NOT'
     Write-Host '              fixed by reinstalling the CUDA TOOLKIT (setup-packages) - the toolkit'
     Write-Host '              does not ship the driver-side nvml.dll.'
     Write-Host '  FIX (in order):'
