@@ -22,7 +22,18 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-bug1rt | FIXED (committed, HELD for user test): BUG-1 = DEBUG addKernel `cudaErrorCooperativeLaunchTooLarge` (register pressure + SDL3 SM consumption → realtime thread 0-cycles at launcher/APPLY boot) → FIX-2 debug-only `__launch_bounds__(512,1)` + FIX-3 check coop-launch return (loud, non-200). BUG-2 = `_stop_online_engine` clears endMainLoop on stuck loop-flag. feature/debug-online-realtime-fix. ★FIX-3 also makes the dev-steinway-preset 58-block-on-56-SM kernel_status-500 failure LOUD (was silent). | [log](logs/dev-bug1rt-2026-06-10-095401.md) | 2026-06-10 | Implemented — HOLD for user test |
+<!-- dev-bug1rt COMPLETED 2026-06-10 (Step 10a Phase 2; user-confirmed live debug test "Works ok" msg 3438). BUG-1 = DEBUG
+     addKernel cudaErrorCooperativeLaunchTooLarge (recordOutputData register pressure + online SDL3 audio-driver SM
+     consumption exceed cooperative co-residency → realtime thread 0-cycles at launcher/APPLY boot → silent no-sound +
+     empty kernel). FIX-2 debug-only __launch_bounds__(512,1) on addKernel (#ifdef PIANOID_DEBUG_DATA → empty in release
+     → release codegen byte-identical; preserves live debug-online extraction feedback_diagnostic/block_output_data/
+     hammer_shape). FIX-3 check cudaLaunchCooperativeKernel return → PLOG_ERR + return 500 (fail-fast S5; also makes the
+     dev-steinway 58-block-on-56-SM kernel_status-500 failure LOUD, was silent). BUG-2 = _stop_online_engine clears
+     endMainLoop on stuck loop-flag regardless of isRunning() (P1; → "Cannot render offline" after dead thread).
+     Committed feature/debug-online-realtime-fix f96e266 (3 files +58/-4), MERGED to LOCAL PianoidCore dev d0136e5
+     (--no-ff). Docs (DEBUG_DATA.md RCA+fix) + log on PianoidInstall master. 5/5 verify gates + user live-test OK.
+     NOT pushed — origin reconcile + push HELD pending user push decision. Log archived to logs/archive/. -->
+| <!-- (none active — dev-bug1rt completed) --> | | | | |
 <!-- dev-debugboot-bacd COMPLETED 2026-06-09 (Step 10a Phase 2, user-approved "merge all to dev and push").
      Fix A (debug-at-boot): select_cuda_variant_at_boot() honors PIANOID_USE_DEBUG at module import so the DEBUG
      variant wins the FIRST pianoidCuda import (before any load_preset/APPLY can lock RELEASE) + no-downgrade rule
