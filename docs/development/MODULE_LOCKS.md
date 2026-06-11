@@ -15,6 +15,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-excwb locks RELEASED 2026-06-11 at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js,
+     components/Excitation.jsx, components/ExcitationProperties.jsx, components/GaussEditor.jsx,
+     hooks/useValuesHistory.js (+ 2 NEW test files). GaussCell.jsx was locked but NOT edited (affordance lives on
+     the GaussEditor param-row label, not the cell). Excitation→Workbench: every hammer + gauss param now opens a
+     Workbench (BarChart IconButton) editing across pitches, mirroring Strings/Modes; reused the shared mechanism
+     (updateDefaultWorkbench/handleOpenWorkbench/computeWorkbenchValues/handleVectorChange). Fixed 2 latent bugs:
+     handleVectorChange Excitation branch wrote stringsHistory (→ excitationHistory) + calcChange pitchesVectorDrawn
+     was flat-only (→ gauss-aware nested write). Committed feature/dev-excwb-excitation-workbench 3941714 (off dev
+     1a2dba2). Full Jest 100/1095 green, eslint 0, build compiles. Frontend-only, NO CUDA. NOT merged — HOLD for
+     user live test. Docs (pianoid-tunner OVERVIEW) + log on PianoidInstall master. -->
+| <!-- (none active for dev-excwb) --> | | | |
 <!-- dev-mwfix locks RELEASED 2026-06-11 at Step 10a (Workbench feature wrap; user-approved merge+push+sync msg 3458).
      Held: PianoidTunner/src/utils/curveShapes.js (NEW) + curveShapes.test.js (NEW) + WorkbenchFunctionTools.jsx (NEW) +
      PianoidTuner.js. Workbench range-edit feature: apply-anchored-function (7 shapes, anchor value unchanged) + 2x-sticky

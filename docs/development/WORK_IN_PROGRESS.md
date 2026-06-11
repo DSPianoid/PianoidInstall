@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-excwb | Assign a Workbench to ALL Excitation panel params (replicate Strings/Modes pattern, per-pitch axis) | [log](logs/dev-excwb-2026-06-11-104352.md) | 2026-06-11 | In Progress |
 <!-- dev-mwfix COMPLETED 2026-06-11 (Step 10a, user-approved merge+push+sync msg 3458). Matrix/workbench/avg-SC
      review fixes (items 1-5) + the NEW Workbench range-edit feature (apply-anchored-function w/ 7 shapes +
      2x-sticky linear c=0 detent + extend/shrink). MERGED to PianoidTunner dev 23a1d38 (--no-ff, off dev 5758019).
