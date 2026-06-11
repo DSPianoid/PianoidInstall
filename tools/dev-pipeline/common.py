@@ -35,20 +35,28 @@ _ROOT_MARKERS = ("docs", ".claude")
 
 
 def repo_root(start: Path | None = None) -> Path:
-    """Return the PianoidInstall repo root.
+    """Return the active project's repo root.
 
     Resolution order:
-    1. The PIANOID_REPO_ROOT env var, if set (lets tests point at a throwaway tree).
+    1. The DEVKIT_PROJECT_ROOT env var, if set (the generic, project-agnostic name — a generic
+       skill points the scripts at the ACTIVE project this way). PIANOID_REPO_ROOT is accepted as
+       a back-compat alias (DEVKIT_PROJECT_ROOT wins if both are set).
     2. Walk upward from this file (or `start`) until a directory containing all _ROOT_MARKERS
        is found.
 
     Raises FileNotFoundError if no marker directory is found (loud failure, never a guess).
+
+    Naming: this resolver started Pianoid-specific (PIANOID_REPO_ROOT) and is being generalized for
+    the shared dev-kit — DEVKIT_PROJECT_ROOT is the project-agnostic name; the old var keeps working
+    so nothing that already exports it breaks.
     """
-    env = os.environ.get("PIANOID_REPO_ROOT")
+    env = os.environ.get("DEVKIT_PROJECT_ROOT") or os.environ.get("PIANOID_REPO_ROOT")
     if env:
         p = Path(env).resolve()
         if not p.is_dir():
-            raise FileNotFoundError(f"PIANOID_REPO_ROOT={env!r} is not a directory")
+            raise FileNotFoundError(
+                f"project root env (DEVKIT_PROJECT_ROOT / PIANOID_REPO_ROOT)={env!r} is not a directory"
+            )
         return p
 
     here = (start or Path(__file__)).resolve()

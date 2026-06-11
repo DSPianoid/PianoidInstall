@@ -41,7 +41,8 @@ from collections import defaultdict
 
 # --- repo-root resolution (mirrors the other dev-pipeline scripts) ---------------------------------
 _THIS = os.path.abspath(__file__)
-_REPO_ROOT = os.environ.get("PIANOID_REPO_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(_THIS)))
+_REPO_ROOT = (os.environ.get("DEVKIT_PROJECT_ROOT") or os.environ.get("PIANOID_REPO_ROOT")
+              or os.path.dirname(os.path.dirname(os.path.dirname(_THIS))))
 _DEFAULT_COMMANDS_DIR = os.path.join(_REPO_ROOT, ".claude", "commands")
 
 # R1: any build_pianoid_cuda.bat invocation that ends up at `--heavy --release`.

@@ -134,3 +134,90 @@ python tools/dev-pipeline/env_sweep.py --no-kill  # inspect only
 5. **On unexpected build or startup failure → invoke `/startup`** rather than ad-hoc troubleshooting. `/startup` is the authoritative install/build/startup reference.
 
 > Skills reference this section (`PROJECT_CONFIG.md#docs-first-build--run`) instead of restating it — that is what prevents the build-command drift from recurring.
+
+## Key Paths {#key-paths}
+
+All repo-relative (apply the OS prefix from [Repos](#repos) when an absolute path is unavoidable). This is the consolidated path table the skills reference instead of each carrying their own `## Key Paths`.
+
+| Resource | Path |
+|----------|------|
+| PianoidCore (Flask + CUDA engine) | `PianoidCore` |
+| PianoidBasic (domain model) | `PianoidBasic` |
+| PianoidTunner (React frontend) | `PianoidTunner` |
+| Documentation | `docs/` |
+| MkDocs config | `mkdocs.yml` |
+| MkDocs preview | `http://localhost:8001/` |
+| Session logs | `docs/development/logs/` |
+| Log archive | `docs/development/logs/archive/` |
+| Module locks | `docs/development/MODULE_LOCKS.md` |
+| Work-in-progress | `docs/development/WORK_IN_PROGRESS.md` |
+| Code-quality / God-objects | `docs/development/CODE_QUALITY.md` |
+| Performance tests | `PianoidCore/tests/system/test_performance_audio_off.py` |
+| Audio-driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
+| venv Python | `PianoidCore/.venv/Scripts/python` (Win) · `PianoidCore/.venv/bin/python` (Linux) — see [Interpreters](#interpreters) |
+| Build script (CUDA) | `PianoidCore/build_pianoid_cuda.bat` (Win) · `build_pianoid_cuda.sh` (Linux) |
+| Build script (Basic) | `PianoidCore/build_pianoid_basic.bat` |
+| Default preset | `presets/BaselinePreset1.json` (relative to `pianoid_middleware/`) — see [Defaults](#defaults) |
+
+## Frontend stack {#frontend-stack}
+
+The frontend (PianoidTunner) design system + conventions. Skills/`CLAUDE.md` reference this instead of restating it.
+
+- **React 18 + MUI v6** (Material UI) — ALL UI uses MUI, never Tailwind/shadcn/CSS-utility frameworks.
+- **Emotion** (`@emotion/react`, `@emotion/styled`) — MUI's styling engine; `sx` for one-offs, `styled()` for reusables; never inline `style` objects; never standalone CSS/SCSS.
+- **ECharts 5** (`echarts-for-react`) — ALL data viz (stabilization diagrams, charts, heatmaps); no other charting libs. Respect the dark theme (`backgroundColor: 'transparent'`, palette colors).
+- **Socket.IO** — real-time WS to the Flask backend. **react-mosaic-component** — tiling window manager (panes need a `MosaicWindow` wrapper + title). **CRA** (`react-scripts 5.0.1`) — build toolchain.
+- **Theme:** MUI **dark** (`mode: 'dark'`) always — dense, information-rich, muted blues/teals, compact (`dense`, `size="small"`), tabular-nums for numerics, high-contrast controls, no decorative elements / gradients / neon / animation libs.
+- **Conventions:** use `useTheme()`/`theme.palette` (never hardcode hex); use `context7` MCP to fetch current MUI v6 docs before any MUI API (v6 has v5 breaking changes — `Grid2`, pigment-css); numeric inputs use the existing `NumInput` (`src/components/NumInput/NumInput.js`) — don't create new ones; parameter editors = optimistic update + 300ms-debounced API via `usePreset`; icon-only buttons need `aria-label`; sliders need units+value (`valueLabelDisplay="auto"`); color is never the only indicator.
+
+## Team {#team}
+
+| Item | Value |
+|---|---|
+| Agent-team name | `pianoid-dev` (the orchestrator's `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` team) |
+
+## Channel {#channel}
+
+The orchestrator's control + I/O channel(s).
+
+| Item | Value |
+|---|---|
+| Primary channel | Telegram (`mcp__plugin_telegram_telegram__*`) — inbox queue under `~/.claude/channels/telegram/inbox/` |
+| Inbox patch | `python tools/apply_telegram_patch.py` (file-queue; the plugin drops inbound msgs without it) |
+| Voice in (STT) | `PianoidCore/.venv/Scripts/python tools/transcribe_voice.py <audio>` (faster-whisper) |
+| Voice out (TTS) | `py -3 tools/tts_voice.py "<text>"` (edge-tts → `.ogg`); voice patch `python tools/apply_telegram_voice_patch.py` |
+| Optional channels | Email (`hostinger-email` MCP), WhatsApp (`whatsapp` / `whatsapp-work` MCP) — activate on request |
+| CLI keystroke control | `tools/cli_control.ps1` (drives the orchestrator's own VS Code/CLI window; transcripts under `~/.claude/projects/D--repos-PianoidInstall/`) |
+
+## Build holders {#build-holders}
+
+Native binaries that, when held open by a process, block a rebuild (`[WinError 5] Access is denied` → failed uninstall → broken venv). Stop the holder FIRST (launcher REST `POST /api/stop-backend`, else a PID-targeted kill — never `//IM python.exe`).
+
+| Holder | Find holders (Windows) | Find holders (Linux) |
+|---|---|---|
+| `pianoidCuda.cp312-win_amd64.pyd` (release) / `pianoidCuda_debug.cp312-win_amd64.pyd` (debug) | `tasklist //M pianoidCuda.cp312-win_amd64.pyd` | `lsof PianoidCore/.venv/lib/python3.12/site-packages/pianoidCuda*.so` |
+| `cudart64_12.dll` (CUDA runtime) | `tasklist //M cudart64_12.dll` | — |
+
+## MIDI listener flag {#midi-flag}
+
+| Item | Value |
+|---|---|
+| `listen_to_midi` | `POST /load_preset` param; `0` = no MIDI listener (default for tests), `1` = start the MIDI listener on load |
+| Cascade caveat | Pre-2026-05-10 baselines have a listener-cascade bug (a crashed listener thread leaves `self.listen=True`, silently dropping all `play` click frames). On current dev this is fixed; if a stack shows "no sound + no log entry", APPLY with `listen_to_midi=0`. |
+
+## Data-model facts — high-stakes inference categories {#data-model-facts}
+
+When a fix/diagnosis depends on any of these data-model facts, source-code inference alone is NEVER sufficient — the fact MUST have explicit doc support, or be measured against the live engine and written to docs BEFORE use (the Data Model Card gate). The categories (Pianoid-specific instances of the generic "high-stakes inference" rule):
+
+- **Axis semantics** — which dimension is pitch / channel / mode / string / block; transposed views (Python row-major vs CUDA column-major; the frontend strings-axis 128 offset).
+- **Dimension ordering** — `[pitch][channel]` vs `[channel][pitch]`, `[mode][pitch]` vs `[pitch][mode]`. C++ `arr[i][j]` syntax is not enough; the *semantic* axes need a doc.
+- **Index conventions** — 0- vs 1-based; piano pitches `0–127` vs output pitches `128–139`; channel offsets; sentinels (`-1` dummy mode, `127` damper-open).
+- **Stored vs effective entries** — a struct may store N rows but the kernel consumes only K (e.g. `string_coefficients[p][c]` is 140-pitch × num-channels but only output-pitch rows 128–N are read). Know K, not N.
+- **Unit ranges** — 0–1 normalised vs raw FFT magnitudes (~1e-4); ms vs samples; MIDI velocity 0–127 vs 0.0–1.0; volume_coefficient 0–1 vs dB; tension N vs N/m².
+- **"Same name, different thing" pairs** — `deck` (Python per-pitch coupling array) vs `deck` (CUDA `dev_deck_parameters` matrix); `sound_channel` (modes-coupling) vs `string_sound_channel` (strings gain); `feedin`/`feedback` (modes path vs strings path).
+
+Authoritative module docs for these: `docs/modules/pianoid-cuda/*.md`, `docs/architecture/DATA_FLOWS.md`.
+
+---
+
+> **This page is the COMPLETE project-config SSOT.** Every project-specific fact a skill needs has an anchor here. The generic (project-agnostic) skills resolve `<active-project>/docs/PROJECT_CONFIG.md` and reference these anchors — they inline none of these facts. New project facts that >1 skill needs get a new anchor here, never a second inline copy. The drift-guard lint (`tools/dev-pipeline/lint_skills.py`) enforces it.
