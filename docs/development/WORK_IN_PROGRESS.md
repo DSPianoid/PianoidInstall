@@ -22,7 +22,13 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mwfix | Matrix/workbench/avg-SC review fixes + avg-SC ruler-alignment bug (frontend, PianoidTunner) | [log](logs/dev-mwfix-2026-06-10-160214.md) | 2026-06-10 | In Progress |
+<!-- dev-mwfix COMPLETED 2026-06-11 (Step 10a, user-approved merge+push+sync msg 3458). Matrix/workbench/avg-SC
+     review fixes (items 1-5) + the NEW Workbench range-edit feature (apply-anchored-function w/ 7 shapes +
+     2x-sticky linear c=0 detent + extend/shrink). MERGED to PianoidTunner dev 23a1d38 (--no-ff, off dev 5758019).
+     Feature SHAs: 0c38c80/925c96a/b732b31/9bb71f9/71b2398 (items 1-5) + 079101d/30490cc/78e921c/9f3a8eb (Workbench).
+     ★SC channel-row decouple invariant preserved (only SC MODE axis ties global selection). Full Jest 96/1080 green,
+     eslint 0, build compiles. Frontend-only, NO CUDA rebuild. Origin reconcile (pull dev-cudaguard FE) + push origin dev.
+     Log archived to logs/archive/. -->
 <!-- dev-bug1rt COMPLETED 2026-06-10 (Step 10a Phase 2; user-confirmed live debug test "Works ok" msg 3438). BUG-1 = DEBUG
      addKernel cudaErrorCooperativeLaunchTooLarge (recordOutputData register pressure + online SDL3 audio-driver SM
      consumption exceed cooperative co-residency → realtime thread 0-cycles at launcher/APPLY boot → silent no-sound +

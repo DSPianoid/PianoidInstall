@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-mwfix locks RELEASED 2026-06-11 at Step 10a (Workbench feature wrap; user-approved merge+push+sync msg 3458).
+     Held: PianoidTunner/src/utils/curveShapes.js (NEW) + curveShapes.test.js (NEW) + WorkbenchFunctionTools.jsx (NEW) +
+     PianoidTuner.js. Workbench range-edit feature: apply-anchored-function (7 shapes, anchor value unchanged) + 2x-sticky
+     linear c=0 wheel detent + extend/shrink (Excitation-style); uniform-value control removed per user. Committed
+     079101d/30490cc/78e921c/9f3a8eb on feature/dev-mwfix-matrix-fixes, MERGED to PianoidTunner dev 23a1d38 (--no-ff).
+     Full Jest 96/1080 green, eslint 0, build compiles. Frontend-only. (The earlier items 1-5 locks were already released
+     at the prior Step 10a Phase 1 — see the comment below.) -->
+| <!-- (none active for dev-mwfix) --> | | | |
 <!-- dev-mwfix locks RELEASED 2026-06-10T18:30:00Z at Step 10a Phase 1 (all 5 items committed on
      PianoidTunner feature/dev-mwfix-matrix-fixes, off dev 5758019: 0c38c80 avg-SC ruler-align + ModesRule
      windowed positioning [item 1]; 925c96a P1-A tie/untie rollout complete + delete legacy shared-range zoom
