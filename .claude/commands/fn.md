@@ -21,12 +21,9 @@ This skill inherits its audio mode from the invoker (parent `/dev` session, `/te
 
 Before rebuilding or restarting anything, READ the canonical docs — skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
 
-- **Before ANY build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
-- **Canonical rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — silently reinstalls STALE `.pyd`, your edit never lands.
-- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; run release (or `--both`) first.
-- **Verify the rebuild landed** — `grep -a "<marker-string-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If missing, the build did not land — do NOT test.
-- **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. Locked `.pyd` causes `[WinError 5] Access is denied` → package uninstalled.
-- **When a build or startup fails unexpectedly** — invoke `/startup` instead of ad-hoc troubleshooting.
+- **Full docs-first build/run discipline: the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).** Read it before any build/restart.
+- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — in agent context use the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first). Verify-landed before testing: `grep -a "<marker>" …pianoidCuda…pyd`.
+- **On unexpected build or startup failure → invoke `/startup`** instead of ad-hoc troubleshooting.
 
 ## Input Contract
 
@@ -182,16 +179,15 @@ if [ -n "$locked_pids" ]; then
 fi
 ```
 
-**Build commands:**
-```bash
-# Heavy (C++/CUDA)
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy"
+**Build commands (agent context — DETACHED; `cmd //c --heavy` bricks the venv here, see [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)).** Stop the `.pyd` holder first (launcher REST `POST /api/stop-backend`, else a PID-targeted kill — never `//IM python.exe`), then launch detached with an absolute bat path after `cd /d`:
+```powershell
+# Heavy (C++/CUDA) — default --both (release + debug; --release alone leaves the debug .pyd stale)
+Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
+  '/c','set "VIRTUAL_ENV=D:\repos\PianoidInstall\PianoidCore\.venv" && cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both > D:\tmp\build.log 2>&1' -PassThru
 
-# Light (Python middleware)
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --light"
-
-# PianoidBasic
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_basic.bat"
+# Light (Python middleware) — swap --heavy for --light
+# PianoidBasic — swap build_pianoid_cuda.bat --heavy --both  for  build_pianoid_basic.bat
+# Poll D:\tmp\build.log; done at "[SUCCESS] Build completed."  (Or use tools/dev-pipeline/build_pianoid.py.)
 ```
 
 **Post-build verification:**

@@ -266,3 +266,33 @@ orchestrator/user — **proposed, not assumed**:
   }
 }
 ```
+
+---
+
+## `lint_skills.py` — drift guard for the skills (P0 SSOT guardrail)
+
+The "can't-recur" half of the P0 de-drift work. A one-time consolidation degrades again without a check,
+so this lint **fails (exit 2)** the moment a forbidden build form or a re-inlined duplicated prose block
+reappears in `.claude/commands/`. It would have caught the original `--heavy --release` drift across
+11 skills. Pure-Python, stdlib-only. Rationale: `docs/proposals/generic-dev-skillset-opensource-2026-06-11.md`
+(Part 3a item 1, Part B.5).
+
+```bash
+python tools/dev-pipeline/lint_skills.py            # exit 0 clean / 2 on a violation
+python tools/dev-pipeline/lint_skills.py --json
+python tools/dev-pipeline/lint_skills.py --strict   # also fail on R3 duplicate-block findings
+```
+
+Checks:
+
+| Rule | Flags | Severity |
+|---|---|---|
+| **R1 stale-release** | `build_pianoid_cuda.bat … --heavy --release` (release-only leaves the debug `.pyd` stale; `--heavy --both` is canonical) | violation (fails build) |
+| **R2 cmd-c-heavy** | the agent-context-DESTRUCTIVE `cmd //c "…build_pianoid_cuda…--heavy"` form **without** `--both` (removes the `.pyd` before reinstall → bricks the venv). The legitimate interactive-human line `… cmd //c "… --heavy --both"` (e.g. `update-pianoid.md`) is **NOT** flagged — the `--both` discriminator excludes it. | violation (fails build) |
+| **R3 dup-block** | a substantive prose block duplicated verbatim across >1 skill (the inline-duplication heuristic; ignores tables + fenced code) | advisory by default; violation with `--strict` |
+
+R1/R2 are the hazard gate. Authoritative build procedure lives in `docs/architecture/BUILD_SYSTEM.md`
+(Canonical Install / Rebuild) and `docs/PROJECT_CONFIG.md#docs-first-build--run`; skills reference those
+rather than inlining — this lint enforces that they keep doing so. **Run as a pre-commit / CI step.**
+Validated 2026-06-11: CLEAN (exit 0) against the post-Part-A tree (R1/R2 = 0); a negative test confirms
+both R1 and R2 fire on the bad forms and the legit `--both` line is not flagged.

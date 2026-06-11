@@ -29,13 +29,10 @@ Do not ship a change that pushes a file past the C4 thresholds without discussin
 
 Every rebuild, install, or server restart starts by reading the canonical docs — NOT by typing `pip install`. Skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
 
-- **Before ANY CUDA build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
-- **Canonical rebuild command** — `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both` (cd-safe `.\` path + default `--both`; in agent context use the detached `Start-Process` form — see [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)). Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your edit never lands.
-- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone does NOT copy CUDA DLLs; run release first (or `--both`). Missing DLLs look like import errors, not build errors.
-- **Verify the rebuild landed** — `grep -a "<new-string-you-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If your marker is absent, nothing changed — do NOT run tests.
-- **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. A locked `.pyd` causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks the venv.
-- **Before starting the backend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md`.
-- **On unexpected build or startup failure** — invoke `/startup` rather than troubleshooting blindly. `/startup` is the authoritative reference.
+- **The full docs-first build/run discipline is the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run)** (read-which-docs · canonical build · debug-variant trap · verify-landed · pre-build hygiene). Read it before any build/restart.
+- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — in agent context use the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Full procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
+- **Verify the rebuild landed** (`grep -a "<new-string>" …pianoidCuda…pyd`) — if your marker is absent, nothing changed; **do NOT run tests**.
+- **On unexpected build/startup failure → invoke `/startup`** rather than troubleshooting blindly.
 
 ## Documentation Folder Taxonomy (MANDATORY)
 
