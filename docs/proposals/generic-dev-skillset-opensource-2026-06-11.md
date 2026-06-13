@@ -60,7 +60,7 @@ personal-over-project memory model). A project rule may refine any CP.
 | **AP3** | **Generic/project separation** | Generic **methodology** vs project **(facts + project-specific normative rules)**. The core *resolves* the facts config and *observes* the project rules at runtime via the `PROJECT_ROOT` binding. The split is **not** data-vs-code. |
 | **AP4** | **Model tiering, gates on every tier** | Route each unit to the cheapest *correct* executor (script → cheap-model → frontier); the same test/review/verification gates apply regardless of tier. |
 | **AP5** | **Read-only compliance monitoring** | A permanent Controller watches state + markers and reports graduated alerts (warn → escalate → halt); it never edits, spawns, kills, or blocks. |
-| **AP6** | **Explicit state, isolation & recoverability** | Branches, module locks, WIP roster, append-only session logs + markers, pause/resume/recover exit procedures. |
+| **AP6** | **Explicit state, isolation & recoverability** | Branches, **deterministic partition + worktree isolation** (the §0.10e parallel-dev model — replaces advisory per-file locks), WIP roster, append-only session logs + markers, pause/resume/recover exit procedures. |
 | **AP7** | **Explicit multi-project binding** | The orchestrator passes an explicit `PROJECT_ROOT` per dispatch (per-subagent cwd is unshipped in the harness); per-project state/config resolve from it — so one system can run several projects, even two at once. |
 | **AP8** | **Pluggability** | Channels, model tiers, and MCP integrations are swappable interfaces, not hardwired. |
 
@@ -107,6 +107,10 @@ flow.)
 | **FI** | Recovery | pause/resume/recover; stall detection → orchestrator action; reconnect after reload/drift |
 | **FJ** | Approval / safety | confirm-before-destructive/outward; full clearance; the autonomy↔safety boundary |
 | **FK** | Version-control | branch → commit → merge → reconcile-with-origin (pull-merge, correct order) → push → tag/release → history/recovery (revert/reset/reflog) |
+| **FL** | Documentation-review (∥ FH) | the twin of FH that runs **in parallel** to code-review in the dev pipeline: per-change doc-coverage + freshness lint → doc-review of the touched docs/docstrings vs the change → blocks the merge alongside code-review; + periodic semantic doc-audit (docs match measured behavior) |
+| **FM** | Parallel-dev (deterministic conflict prevention) | decompose (write-sets → conflict graph → waves) → isolate (worktrees/edit-copies + per-worktree ports + GPU token) → develop in parallel → deterministic merge (file-disjoint ⟹ clean) → build+test (light: once on merged result; heavy: per-worktree + serial GPU) → rebuild gate |
+| **FN** | Adaptive user-interaction loop | shape every user-facing exchange by the per-user profile (language/modality/style/depth) → offer options + the 3 meta-choices → track response statistics → tune autonomy/style/depth by trend (control laws), under the CP7 safety floor |
+| **FO** | Wait → signal (monitoring) | a waiting agent registers a concrete completion condition (exit code / sentinel log line / port ready / marker file) → a light deterministic watcher fires when met → nudges the agent awake (a timeout is only a watchdog, never the primary signal) — replaces busy-poll + guessed sleep |
 
 ## 0.9 Work taxonomy
 
@@ -157,35 +161,49 @@ legacy skill names — hence the folds noted below.)*
 
 **M1 — Orchestrator** *(generic).* The thin coordinator and the user's interface: receive tasks over the
 channel, classify them (§0.9), dispatch sub-agents each with an explicit `PROJECT_ROOT` (AP7), and relay
-results + approvals back. Never does deep work and holds no deep project context — staying lean is what lets
-one session coordinate for hours and across projects. **Multi-task by nature:** it schedules several tasks
-into concurrent **waves** (independent in parallel; conflicting serialized — one heavy build at a time,
-producer before consumer), provisions a **per-agent git worktree** for same-repo parallelism, and runs the
-**merge sweep** afterward so the user never live-tests a partial state. Enforces **full clearance between
-tasks** and **never auto-commits** a sub-agent's work. Manages its own context two ways: **(a)** intra-session
+results + approvals back. It **runs the adaptive user-interaction loop (§0.10g, FN):** it shapes every
+user-facing exchange by the per-user profile (language / modality / style / depth), offers decisions with
+the three meta-choices (go-as-recommended / decide-yourself / explain), tracks the response statistics, and
+**self-tunes how many decisions to surface** by trend — under the CP7 safety floor (irreversible/outward
+actions are always surfaced). Never does deep work and holds no deep project context — staying lean is what
+lets one session coordinate for hours and across projects. **Multi-task by nature (the §0.10e parallel-dev model,
+FM):** it **decomposes** tasks by **write-sets → conflict graph → deterministic WAVES** of disjoint work
+(essential overlaps sequenced later), **isolates** each agent (light edit-copies or heavy worktrees + per-
+worktree ports + the GPU token), runs them in parallel, and integrates in a **deterministic merge order**
+(file-disjoint ⟹ clean by construction; a conflict means the decompose missed an essential overlap) — the
+**merge sweep** — so the user never live-tests a partial state, and conflicts are *prevented*, not detected
+after the fact. Enforces **full clearance between tasks** and **never auto-commits** a sub-agent's work. Manages its own context two ways: **(a)** intra-session
 self-clean+relaunch *with the user's OK* (snapshot → clear → re-bootstrap from WIP/locks/logs), **(b)**
 inter-session resume from the same durable state. *(Subsumes the former `/multitask`.)*
 
 **M2 — `/dev`** *(hybrid).* The workhorse for any code change. A disciplined lifecycle: (0) create session
-log + register in WIP + **lock files**; (1) study docs first; (2) **baseline test**; (3) branch; (4) edit +
-build (from `PROJECT_CONFIG.md`); (5) test + debug vs baseline; (6) **verify with measured evidence** on the
-change's surface — no "done" without it; (7) update docs; (8) **STOP and report for the user's approval** (it
-never auto-commits/merges); (9) on approval, commit (attributed) / merge, release locks, clean WIP.
-Decomposes function-level work and **delegates single functions to `/fn`** (tests written first), which is
-the cost-tiering seam.
+log + register in WIP + **lock files**; (1) study docs first; (2) **baseline test**; (3) branch; (4) **before
+writing any new function, run the REUSE-CHECK** (search the capability index + docstrings — §0.10d — and
+reuse if it already exists), then edit + build (from `PROJECT_CONFIG.md`); (5) test + debug vs baseline;
+(6) **verify with measured evidence** on the
+change's surface — no "done" without it; (7) **update the docstring + local module-doc inline** with the
+change (§0.10d) and pass the **doc-coverage/freshness gate** — its verification runs **code-review ∥
+doc-review** (FH ∥ FL), both gating the merge; (8) **STOP and report for the user's approval** (it never
+auto-commits/merges); (9) on approval, commit (attributed) / merge, release locks, clean WIP. Decomposes
+function-level work and **delegates single functions to `/fn`** (tests written first), which is the
+cost-tiering seam.
 
 **M3 — `/fn`** *(generic).* The atomic unit of delegation and the cheap-model handoff point: implement/modify
-**one** function against caller-supplied requirements + tests. It does not branch, lock, doc, or commit —
-those stay with the caller (`/dev` or the user). Because a single function with a hard test gate is the
-smallest verifiable unit, it is exactly where work routes to the cheapest correct executor — **routine bodies
-→ cheap model (DeepSeek), judgment → frontier — both through the same test gate.**
+**one** function against caller-supplied requirements + tests. **Mandatory pre-implementation REUSE-CHECK**
+(§0.10d): search the capability index + docstrings for an existing implementation and reuse if found —
+implement only if genuinely absent. It does not branch, lock, doc, or commit — those stay with the caller
+(`/dev` or the user). Because a single function with a hard test gate is the smallest verifiable unit, it is
+exactly where work routes to the cheapest correct executor — **routine bodies → cheap model (DeepSeek),
+judgment → frontier — both through the same test gate.**
 
 **M4 — `/review`** *(generic; ⚠ name collision — decide at the naming pass).* Graded, **read-only** code
 review against the documented quality principles (lean code, no-duplication, complexity/file-size limits, and
 **authority/concern boundaries** — single owner per piece of state, one job per module) at three levels —
 **local** (a diff, pre-commit), **module** (after a refactor), **system** (periodic audit). Findings:
 **Critical/High → BLOCK**, Medium/Low → advisory; the **same review applies to cheap-model output**. Produces
-a report; fixes go through `/dev`. *(Name collides with the built-in `/review` and overlaps `/code-review`;
+a report; fixes go through `/dev`. It also runs the **doc-level review/audit** (FL) — the periodic semantic
+**doc-audit** (docs match measured behavior; the understand-from-docs-alone test of §0.10d), the doc-side
+twin of its code review. *(Name collides with the built-in `/review` and overlaps `/code-review`;
 options: rename to `code-quality-review`, or wrap the built-in `/code-review` as the engine and keep only the
 project rubric.)*
 
@@ -217,9 +235,15 @@ canonical port-sweep — AP2). Two named functions: the **deterministic REBUILD 
 sync the environment from a codebase update — the post-pull/post-merge gate: detect a compiled-file change →
 rebuild → smoke-test), and the **drift lint** (a CI/pre-commit gate that fails the build if a forbidden or
 duplicated form reappears — a stale build command, a fact that belongs in the config, a skill name shadowing
-a built-in — the can't-recur guard for the SSOT). Scripts do plumbing + gather evidence; they never
-branch-on-meaning (the verdict/commit-message/diagnosis stay frontier). *(The drift lint and the rebuild
-function are dev-pipeline scripts, not separate modules.)*
+a built-in — the can't-recur guard for the SSOT). It also owns the **documentation-system tooling (§0.10d):**
+the **doc-coverage + freshness lint** (the per-change gate), and the **capability-index + docstring-index
+generators** that auto-build the capability-oriented "does X already exist?" view from the function
+docstrings (so it can't drift). And the **parallel-dev tooling (§0.10e):** the **overlap analysis**
+(per-task write-sets → conflict graph → waves) and the **resource allocation** (deterministic per-worktree
+port assignment + the serialized GPU/runtime token). Scripts do plumbing + gather evidence; they never
+branch-on-meaning (the verdict/commit-message/diagnosis stay frontier). *(The drift lint, the rebuild
+function, the doc/capability tooling, and the overlap/resource tooling are dev-pipeline scripts, not separate
+modules.)*
 
 **M9 — Version Control Manager** *(hybrid; `/sync` is one capability).* Owns the full git lifecycle (FK)
 across the project's repos: **branch** (isolation), **commit** (attribution), **merge** (feature→integration,
@@ -232,9 +256,11 @@ rebuild function; the orchestration is M9 then M8 in sequence.)*
 
 **M10 — Channel adapter** *(hybrid).* The pluggable remote interface between the user and the orchestrator —
 the drive-from-anywhere substrate. Carries tasks in and reports/questions/results/**approvals**/files/voice
-out (approvals are on the safety path, not just the status path). **Queued + recoverable delivery** (inbound
-messages aren't lost mid-task or across a reload). **Swappable** — Telegram is the reference channel, with
-email/WhatsApp/voice adapters; the orchestrator codes to the adapter contract, not to one channel.
+out (approvals are on the safety path, not just the status path). It carries the **voice/text modality**
+(STT in / TTS out) and honors the user **switching modality on the fly** mid-session (§0.10g) — voice while
+walking, text for precise content. **Queued + recoverable delivery** (inbound messages aren't lost mid-task
+or across a reload). **Swappable** — Telegram is the reference channel, with email/WhatsApp/voice adapters;
+the orchestrator codes to the adapter contract, not to one channel.
 
 **M11 — Init tool (`devkit init`)** *(generic; outputs are PROJECT-tier).* The onboarding tool that makes the
 generic core serve a specific project by **generating the project layer**: it interrogates the project and
@@ -322,6 +348,201 @@ workflow preferences; these **extend or, on conflict, override** the generic pri
 (§0.3). On every dispatch a skill resolves the facts config and observes the rules file (the `PROJECT_ROOT`
 binding, AP7).
 
+### (d) Project documentation system
+
+The **system's own durable documentation** — the corpus that docs-first reads. *(Distinct from §0.10(a),
+which is the dev/working/ephemeral record; this is the persistent, quality-gated knowledge base. It is CP2's
+elaboration — and CP5, because it is gated like code.)* Four facets + the pipeline:
+
+**1. Depth = function level.** The corpus + docstrings together must let an agent understand the system
+**with no code-body reading.** Every function documents: *what it does · params (semantics + units + ranges)
+· returns · side effects · non-obvious behavior.* Module docs describe **how the functions compose.** The
+acceptance test: *"answer how-does-X-work from docs + docstrings alone"* — needing the code body is a **GAP**.
+(This is documented-or-measured-never-inferred at function granularity.)
+
+**2. Audience = a tiered gradient** (mirrors the working-doc tiers): **TOP** (index · architecture ·
+system-overview · data-flows) is **HUMAN-readable** (narrative orientation); **MODULE-and-below** (module
+docs · docstrings) is **AGENT-readable** — dense, fact-first, precise signatures / axis-semantics / units /
+index-conventions, not narrative.
+
+**3. Robustness = no gaps.**
+- **Steady state:** a code change **⟹** a doc change, enforced by a gate — a change touching a function
+  without updating its docstring + module-doc **fails review**.
+- **Transition (incremental, ongoing dev):** **touch-it ⟹ document-it** — any function created or modified
+  is brought to standard as part of that change, so coverage grows **monotonically**; plus **opportunistic
+  legacy backfill** (when nearby work touches it) and **scheduled doc-audit Chores** targeting the biggest
+  gaps **high-stakes surfaces first** (the data model · public interfaces · axis/unit/index facts). A
+  **coverage metric ratchets** — it never drops, only rises.
+
+**4. Process & coordination.**
+- **Who updates = HYBRID.** The **dev-agent updates the docstring + local module-doc INLINE** with the change
+  (atomic = no drift; the author knows the change best). A **separate doc-agent / doc-audit Chore owns
+  cross-cutting consistency + architecture-level docs + periodic reconciliation.**
+- **Quality (three points):**
+  - **(i) Per-change GATE** — an automated **doc-coverage + freshness lint** (every touched function
+    documented; fails the merge), run **inside the dev-agent's verification**. *(The lint is an **M8
+    dev-pipeline** script, alongside the drift lint + the rebuild function.)*
+  - **(ii) DOC-REVIEW in parallel with CODE-REVIEW** — the dev pipeline runs **code-review ∥ doc-review** as
+    twin stages, **both gating the change** (flow **FL**, the twin of FH). Code-review checks the code;
+    doc-review checks that the touched docs/docstrings match the change and meet the depth + audience
+    standards.
+  - **(iii) Periodic system-wide DOC-AUDIT** — **semantic**: the docs match **measured** behavior (the
+    understand-from-docs-alone test), via **`/review`** at the doc level (M4) or **`/update-docs`**
+    reconciliation. This is where inferred-but-wrong docs are caught against the live system.
+
+**5. Discoverability = no redundant re-implementation (CP5/DRY, realised via the doc system).** *The
+problem:* the structural doc hierarchy is organised by **location**, not **capability** — so it doesn't
+answer *"does a function that does X already exist?"*, which is the question that prevents duplicate work.
+A **layered** defence — DISCOVER → GATE → REVIEW:
+- **DISCOVER — a CAPABILITY INDEX** (the reverse view of the structural hierarchy): **capability / verb →
+  location + signature + one-line what-it-does**, searchable by capability. **Ideally auto-generated from
+  the function docstrings** (facet 1 guarantees they exist), so it **can't drift** — a **tooling job (→
+  M8)**. Plus a **DOCSTRING SEARCH fallback:** facet 1's every-function-has-a-docstring guarantee makes a
+  docstring search a reliable *"does this exist?"* answer even when the index/hierarchy doesn't surface it.
+  *(Function-level depth ENABLES capability discovery.)*
+- **GATE — a mandatory REUSE-CHECK.** Before implementing any function, the **`/dev` / `/fn` agent MUST
+  search** (capability index + docstring search) for an existing implementation; **reuse if found, implement
+  only if genuinely absent.** A mandatory pre-implementation step (→ **M2** `/dev` + **M3** `/fn`).
+- **REVIEW — the backstop.** **Code-review (CP5)** flags redundant re-implementation; **doc-review (FL)**
+  flags a new function missing from the capability index. Catches what slips past the gate.
+
+> **Traces:** CP2 (it is CP2's function-level elaboration), CP5 (gated like code; + DRY/no-redundancy via
+> facet 5). **Realises FL** (the doc-review flow ∥ FH). Implementation: the per-change
+> doc-coverage/freshness lint **and** the capability-index + docstring-index generators → **M8**; the
+> pre-implementation reuse-check → **M2** `/dev` + **M3** `/fn`; doc-review ∥ code-review in the pipeline
+> (M2 verification + M4 `/review`); the semantic audit → **M4 `/review`** (doc level) + **`/update-docs`**.
+
+### (e) Parallel development & deterministic conflict prevention
+
+**Objective: truly parallel multi-agent development with conflict PREVENTION by construction** — not advisory
+locks, not after-the-fact detection. *(This **replaces** the advisory per-file MODULE_LOCKS concept.)* It
+realises **FM** (the parallel-dev flow).
+
+**Conflict classes → prevention mechanism:**
+1. **Shared working tree / build** → **ISOLATION** (per-agent git worktrees or edit-copies).
+2. **Overlapping code** → **PARTITIONING** by deterministic overlap analysis: per-task **write-sets** → a
+   **conflict graph** (an edge = write-sets intersect **OR** an interface-dependency) → **WAVES** of
+   mutually-disjoint tasks; tasks with *essential* overlap are sequenced to later waves.
+3. **Shared runtime** (ports / GPU) → **deterministic per-worktree port allocation** + a **serialized TOKEN**
+   for the singleton GPU.
+4. **Integration** → a **deterministic MERGE ORDER** (file-disjoint partitions ⟹ textually clean by
+   construction).
+
+**Invariants:** every task can run **solo**; **deterministic** — the same tasks + write-sets → the same waves
+→ the same merge order → the same result.
+
+**Two-tier model** (chosen by **isolation-need + overlap strength**, *not* overlap-weight alone — does the
+change need an isolated build/test to verify? is the overlap essential/strong or light/independent?):
+- **LIGHT — edit-parallel / build-once.** Each agent edits in a **cheap isolated copy** (edit-only worktree
+  or a patch; **no build in the copy**), so agents can edit the **same file / different function** in
+  parallel → **merge** the branches (git auto-merges non-overlapping hunks **cleanly**; overlapping lines =
+  essential overlap → escalate to heavy / sequence) → **one build + test on the merged result.** This solves
+  same-file/different-function parallelism *and* avoids serialized slow rebuilds (build **once per wave**, not
+  N times, not N serialized). *Caveat:* it tests the merged result, so a build failure needs a quick **bisect
+  among the contributors** — fine for independent, non-essential edits.
+- **HEAVY — fully isolated.** Per-worktree **build + test**, for changes needing **isolated verification** or
+  essential/overlapping logic. Compiles parallelize across cores; the merge is still deterministic.
+- **RESIDUAL:** the **GPU/runtime test serializes on the single GPU in BOTH tiers** — parallelism helps
+  edit + compile, never the single-GPU test (more test parallelism ⟹ more GPUs).
+
+**Procedure (replaces advisory MODULE_LOCKS):**
+1. **DECOMPOSE** — overlap analysis → write-sets → conflict graph → waves; essential-overlap sequenced **(M1)**.
+2. **ISOLATE** — light = edit-only copies; heavy = full worktrees + deterministic ports.
+3. **DEVELOP in parallel** — agents confined to their partition / copy.
+4. **MERGE** — deterministic order; non-overlapping hunks auto-clean; **a conflict = an essential overlap the
+   decompose step should have caught** (so a conflict is a decomposition bug, not a routine event).
+5. **BUILD + TEST** — light = **once** on the merged result; heavy = per-worktree (parallel compile) + serial
+   GPU test. Then the **post-merge rebuild gate** (§0.10d / M8).
+
+**What "locks" become.** The advisory MODULE_LOCKS (per-file, after-the-fact) are **replaced** by
+deterministic **partition + isolation + deterministic merge**. The only real "lock" that remains is the
+**GPU / runtime TOKEN** — a deterministic queue for the one resource that cannot be isolated (the single GPU).
+
+> **Traces:** CP1 (autonomy — parallel autonomous agents), CP4 (version-control/traceability — branches +
+> deterministic merge + commit trace), CP5 (quality — **correct, isolated test environments**: the light tier
+> tests the merged result, the heavy tier tests in isolation — both give a correct env, vs the broken
+> shared-tree contamination the advisory locks couldn't prevent) · **AP6** (explicit state, isolation &
+> recoverability). **Realises FM.** Implementation: the decompose / schedule-into-waves / merge-order → **M1**;
+> the overlap-analysis (write-sets → conflict graph → waves) + the resource-allocation (per-worktree ports +
+> the GPU token) tooling → **M8**; the per-agent worktree isolation → the Agent/sub-agent layer.
+
+### (f) Monitoring (light, deterministic wait-signaling)
+
+A **monitor** is a **light, deterministic watcher that wakes / signals a waiting agent when a defined
+completion condition is met** — replacing busy-polling and guessed timeouts. It realises **FO** and is what
+lets an agent **wait efficiently** for any async event.
+
+- **Deterministic.** It fires on a **concrete condition** — a process **exit code**, a **sentinel log line**
+  (e.g. `[SUCCESS]`), a **port becoming ready**, a **marker file** — **not a timed guess**; the same
+  condition → the same wake. A **timeout exists only as a safety watchdog** for a hung process, never as the
+  primary signal (so there is no flaky timing).
+- **Light.** A cheap condition-watcher (a condition-poll loop, or the harness's native background-completion
+  signal) — **not a context-burning reasoning agent.** No analysis: condition-check → nudge.
+- **Used for:** long **rebuilds** (wake on `[SUCCESS]` / exit), lengthy **tests** (wake on completion),
+  **server startup** (wake when the port is ready), the **§0.10e parallel-dev** build / GPU-token waits, and
+  any async wait — including the **test-yourself** (FF) measurement waits.
+
+**It enforces efficient waiting:** the agent waits with **no busy-poll and no guessed sleep** → **CP1**
+(autonomy — it waits without needing the user) + **CP6** (cost — no wasted polling cycles); and the wake is
+**caused by the real event** → determinism (no flaky timing).
+
+> **Traces:** CP1 (wait autonomously), CP6 (no wasted cycles). **Realises FO**; **supports FM** (§0.10e
+> build/test/GPU-token waits) and **test-yourself** (FF measurement waits). Implementation: the monitor /
+> condition-watcher tooling → **M8**; wiring the nudge to the waiting agent → **M1** / **M12** (the
+> orchestrator / host owns the wait→wake plumbing on its I/O bus).
+
+### (g) User-orchestrator interaction (adaptive profile)
+
+A **per-user (optionally per-context / per-category) configuration that shapes every user-facing exchange**,
+**adaptive** — tuned by tracked statistics. It is how the system delivers "full control over input/output"
+(§0.11) *to a specific person*. It realises **FN** and operationalises the §0.3 decision hierarchy
+(autonomy↔control) as a per-user self-tuning loop.
+
+**The profile — four axes:**
+1. **Language.** The **interaction** language (user-facing — the user's choice, e.g. Russian/English) is
+   **distinct** from the **artifact** language: code, docs, and commits stay **canonical English** for
+   portability / open-source.
+2. **Modality.** Voice (STT in / TTS out) + text, **switchable on the fly mid-session** (the user goes to
+   voice while walking/driving, back to text when settled; the orchestrator honors the switch). **Precise
+   content** (code / paths / numbers / tokens) **favors text** — voice is error-prone there.
+3. **Style.** Terseness / formality / structure, per user.
+4. **Technical depth.** Full mechanics (technical user) ↔ decisions + outcomes only, mechanics hidden
+   (non-technical). **Depth shapes HOW a decision is framed, NEVER WHETHER it is surfaced.**
+
+**The adaptive decision loop (the core).** Each one-by-one decision offers the actual options + a free
+comment + **three meta-choices with clear, distinct semantics:**
+- **GO AS RECOMMENDED** — *"I read it, understood, and AGREE"* (engaged agreement).
+- **DECIDE YOURSELF** — *"I trust you; I'm NOT going into the details"* (trusting delegation).
+- **EXPLAIN** — *"I want more before I decide."*
+
+> ★ **The GO-AS-RECOMMENDED vs DECIDE-YOURSELF distinction MUST be unmistakable** (clear labels + a one-line
+> gloss) — they carry **different adaptation signals**, and **only "decide yourself" lowers the decision
+> surface.** If the user blurs them, the statistics + adaptation corrupt.
+
+**Track** per-user response statistics: accept-rec / decide-yourself / explain / deviate-from-rec /
+comment-instead-of-choosing. **Control laws (statistics → adaptation):**
+- many **DECIDE-YOURSELF** → surface **fewer** decisions (raise agent autonomy; stop asking what the user
+  keeps delegating).
+- many **EXPLAIN** → adjust **style / depth** for clarity (simplify, more context).
+- many **DEVIATIONS-from-rec** and/or **COMMENTS-instead-of-choosing** → surface **more** decisions (the user
+  wants finer control).
+
+**Guards:**
+- **Safety floor (CP7).** The dial tunes **routine** decisions only; **safety-critical / irreversible /
+  outward-facing actions are ALWAYS surfaced.** The loop may delegate *which approach*, **never** *ok to
+  force-push / send / delete.* The autonomy dial cannot cross this floor.
+- **Transparent + overridable.** The user can inspect the current profile ("I've been deciding more /
+  explaining more") and reset / override it; **no silent lock-out** of a decision class.
+- **Smooth (hysteresis).** Adapt on a **trend**, not a single answer.
+- **Compact.** Once the convention is known, the three meta-choices are offered **tersely** (not a verbose
+  menu each time).
+
+> **Traces:** §0.3 decision hierarchy (autonomy↔control, made a per-user self-tuning dial), CP1 (autonomy),
+> CP7 (the safety floor), CP6 (efficient interaction — stop asking what the user delegates). **Realises FN.**
+> Implementation: **M1** shapes output + interprets input + runs the loop, with per-user state holding the
+> profile + the statistics; **M10** (channel adapter) carries the voice/text modality + the on-the-fly
+> switch. Ties to §0.11 "full control over input/output."
+
 ## 0.11 Key design mechanisms
 
 **Test-yourself (the central tenet) — the debugging-reproduction stance.** When something is wrong, **do not
@@ -372,33 +593,35 @@ authority.)*
 
 | Core principle | Architectural principles | Flows |
 |---|---|---|
-| **CP1 Autonomy** | AP1, AP7 | FD, FF, FI |
-| **CP2 Documentation** | AP2 | FE |
+| **CP1 Autonomy** | AP1, AP7 | FD, FF, FI, FM (parallel autonomous agents), FN (the autonomy dial), FO (wait autonomously) |
+| **CP2 Documentation** | AP2 | FE, FL (doc-review) |
 | **CP3 Remote connection** | AP1, AP8 | FI |
-| **CP4 Version control + traceability** | AP5, AP6 | **FK** (the version-control process); the traceability *property* is cross-cutting (FE + the `traces-to:` hierarchy) |
-| **CP5 Code quality** | AP2, AP3, AP5 | FF, FH, FG-gates |
-| **CP6 Cost** | AP1, AP2, AP3, AP4, AP8 | FG |
-| **CP7 Safety & guardrails** | AP5, AP6, AP7 | FJ |
+| **CP4 Version control + traceability** | AP5, AP6 | **FK** (the version-control process), FM (branches + deterministic merge); the traceability *property* is cross-cutting (FE + the `traces-to:` hierarchy) |
+| **CP5 Code quality** | AP2, AP3, AP5 | FF, FH, FL (doc-review), FG-gates, FM (correct isolated test envs); + DRY/no-redundancy via §0.10d (capability index + reuse-check) |
+| **CP6 Cost** | AP1, AP2, AP3, AP4, AP8 | FG, FN (efficient interaction — stop asking what's delegated), FO (no wasted polling) |
+| **CP7 Safety & guardrails** | AP5, AP6, AP7 | FJ, FN-floor (the autonomy dial can't cross the safety floor) |
 
 **Module → principles / flows / tier:**
 
 | Module | Tier | APs | CPs | Flows |
 |---|---|---|---|---|
-| **M1 Orchestrator** | generic | AP1, AP7 | CP1, CP3, CP4, CP6, CP7 | FD, FI, FJ, FK (merge-sweep) |
-| **M2 `/dev`** | hybrid | AP6, AP1, AP3 | CP1, CP5, CP2, CP4 | FD, FE, FF, FH, FK (wrap-up) |
-| **M3 `/fn`** | generic | AP4, AP1, AP3 | CP1, CP6, CP5 | FF, FG |
-| **M4 `/review`** ⚠ | generic | AP5 | CP5, CP7, CP4 | FH |
+| **M1 Orchestrator** | generic | AP1, AP7, AP6 | CP1, CP3, CP4, CP6, CP7 | FD, FI, FJ, FK (merge-sweep), FM (decompose/waves/merge-order), FN (runs the adaptive loop; + §0.3), FO (wires the wait→wake) |
+| **M2 `/dev`** | hybrid | AP6, AP1, AP3 | CP1, CP5, CP2, CP4 | FD, FE, FF, FH, FL (doc-review ∥), FK (wrap-up); + §0.10d reuse-check |
+| **M3 `/fn`** | generic | AP4, AP1, AP3 | CP1, CP6, CP5 | FF, FG; + §0.10d reuse-check |
+| **M4 `/review`** ⚠ | generic | AP5 | CP5, CP7, CP4, CP2 | FH, FL (doc-level audit) |
 | **M5 `/analyse`** | generic | AP5 | CP2, CP5, CP4, CP1 | FE |
 | **M6 Controller** | generic | AP5 | CP5, CP7, CP4 | FI |
 | **M7 Model-tier adapter** | generic (infra) | AP4, AP8 | CP6, CP5 | FG |
-| **M8 Dev-pipeline tooling** | generic (infra) | AP4, AP2 | CP6, CP5, CP4, CP2, CP1 | FG, FD |
+| **M8 Dev-pipeline tooling** | generic (infra) | AP4, AP2, AP6 | CP6, CP5, CP4, CP2, CP1 | FG, FD, FL (doc-coverage lint + capability-index/docstring-index generators), FM (overlap-analysis + resource/token tooling), FO (monitor/condition-watcher tooling) |
 | **M9 Version Control Manager** | hybrid | — (uses M8 scripts) | CP4, CP7, CP5, CP1 | FK (owns) |
-| **M10 Channel adapter** | hybrid | AP8 | CP3, CP7, CP1 | FD, FJ |
+| **M10 Channel adapter** | hybrid | AP8 | CP3, CP7, CP1 | FD, FJ, FN (voice/text modality + on-the-fly switch) |
 | **M11 Init tool** | generic | AP8, AP3, AP2 | CP2 | — |
-| **M12 Host / supervisor app** | generic | AP1, AP8 | CP3, CP1, CP7 | FI |
+| **M12 Host / supervisor app** | generic | AP1, AP8 | CP3, CP1, CP7 | FI, FO (wait→wake on the I/O bus) |
 
 Non-module elements (referenced, not modules): the **project layer** (config/facts) → §0.6 (a structure); the
-**working-documentation lifecycle**, **proposal lifecycle**, and **project-rules-observance** → §0.10
+**working-documentation lifecycle**, **proposal lifecycle**, **project-rules-observance**, the **project
+documentation system**, **parallel development & deterministic conflict prevention**, **monitoring
+(deterministic wait-signaling)**, and the **user-orchestrator interaction (adaptive profile)** → §0.10
 (cross-cutting); the **Implementation Report** → §0.10(0) (a T1 doc category).
 
 ---
