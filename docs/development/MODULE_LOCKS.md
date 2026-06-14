@@ -15,7 +15,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-tbmirror | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/useWindowManager.js`, `PianoidTunner/src/components/MidiComponent.jsx`, `PianoidTunner/src/hooks/useMidiStatus.js` (NEW), `PianoidTunner/src/hooks/__tests__/useMidiStatus.test.jsx` (NEW), `PianoidTunner/src/hooks/__tests__/useWindowManager.midiRemoved.test.jsx` (NEW), `PianoidTunner/src/components/__tests__/ToolBar.presetSelector.test.jsx`, `PianoidTunner/src/components/__tests__/toolbarMidiRemoved.source.test.js` (NEW) | 2026-06-14T11:16:00Z | MIDI button+indicator + popup + remove MIDI mosaic pane + toolbar reorder + preset-name removal (toolbar BATCH, same branch) |
+<!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 2 (user-approved merge msg 3506). Toolbar BATCH MERGED to
+     PianoidTunner dev 62696e4 (--no-ff, off 19756de) + PUSHED origin/dev. Held: ToolBar.jsx, PianoidTuner.js,
+     useWindowManager.js, MidiComponent.jsx (precautionary, not edited), useMidiStatus.js (NEW), + 4 NEW/edited test
+     files (useMidiStatus.test.jsx, useWindowManager.midiRemoved.test.jsx, ToolBar.presetSelector.test.jsx,
+     toolbarMidiRemoved.source.test.js). 5 feature commits: 25ce0de mirror-field removal (blur fix) · db624bb MIDI
+     button+indicator+popup+drop-mosaic-pane · 5982cc8 MIDI tests · cb34e5a reorder+preset-name removal · 8c52e03
+     BOTH-windowCategories guard. Frontend-only, NO CUDA. Full Jest 104/1108 green, eslint 0, build compiles.
+     ★dev-dynwb branched off the SAME dev 19756de in parallel — this merge moved dev to 62696e4; dev-dynwb reconciles
+     later (expected/planned). Session log archived to logs/archive/. -->
+| <!-- (none active for dev-tbmirror) --> | | | |
 <!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 1 commit (mirror-removal). Held: PianoidTunner/src/components/ToolBar.jsx,
      src/PianoidTuner.js, src/components/__tests__/ToolBar.commitKey.test.jsx (DELETED), src/components/__tests__/ToolBar.presetSelector.test.jsx.
      Removed the redundant top-toolbar "mirroring" selected-parameter NumInput (echoed selectedParameter.value — a second

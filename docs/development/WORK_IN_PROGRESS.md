@@ -22,7 +22,16 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-tbmirror | Recover orphaned dev-excwb wrap (done) + remove redundant top-toolbar mirroring param-entry field (also removes blur bug) | [log](logs/dev-tbmirror-2026-06-14-100633.md) | 2026-06-14 | In Progress |
+<!-- dev-tbmirror COMPLETED 2026-06-14 (Step 10a Phase 2, user-approved msg 3506 "toolbar is ok"). Toolbar BATCH on
+     PianoidTunner: (1) remove redundant mirroring selected-parameter NumInput (blur-contamination fix, 25ce0de);
+     (2) MIDI icon → button+3-state-indicator next to Fix-MIDI opening a popup Dialog + remove MIDI from the mosaic
+     pane list (new useMidiStatus hook reading GET /midi/ports; db624bb + 5982cc8); (3) toolbar reorder
+     (logo|load,save|library,+,basket|pitch|mode|level|fix-midi|midi|…) + remove redundant preset-name string
+     (cb34e5a) + BOTH-windowCategories guard test (8c52e03). MERGED to PianoidTunner dev 62696e4 (--no-ff, off
+     19756de) + PUSHED origin/dev. Frontend-only, NO CUDA. Full Jest 104/1108 green, eslint 0, build compiles.
+     Step-0 also confirmed dev-excwb's orphaned wrap was already self-committed (db2dae8/a32f046). Log archived. -->
+| dev-dynwb | Restore DYNAMIC workbench alongside FIXED workbenches; mosaic selector→dynamic, per-param buttons→fixed; avg-SC reuses workbench drawing (preserve 1→N emit + SC-LOCAL) | [log](logs/dev-dynwb-2026-06-14-113427.md) | 2026-06-14 | In Progress |
+| dev-dynwb | Restore DYNAMIC workbench alongside FIXED workbenches; mosaic selector→dynamic, per-param buttons→fixed; avg-SC reuses workbench drawing (preserve 1→N emit + SC-LOCAL) | [log](logs/dev-dynwb-2026-06-14-113427.md) | 2026-06-14 | In Progress |
 <!-- dev-excwb COMPLETED 2026-06-14 (Phase 2, user msg 3485 "commit merge push"). Three-part batch on PianoidTunner:
      (1) Excitation workbenches — every hammer + gauss param opens a Workbench, per-pitch, mirroring Strings/Modes
      (3941714); (2) maximized-pane Close-icon fix — general, all panes (b222b66); (3) A+B kernel-traffic fix — bulk
