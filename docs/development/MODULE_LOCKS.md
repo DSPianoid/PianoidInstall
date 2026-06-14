@@ -15,6 +15,27 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-dynwb locks RELEASED 2026-06-14 at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js,
+     src/utils/workbenchTitle.js (NEW), src/components/BarChart.jsx, src/components/RowEditor.js,
+     src/components/SoundChannelsAggregateChart.jsx (+ 2 NEW test files: utils/__tests__/workbenchPaneTitle.test.js,
+     components/__tests__/SoundChannelsAggregateChart.fanOutDecouple.test.jsx). SoundChannelsPane.jsx was locked but
+     NOT edited (the avg-SC drawing reuse landed entirely inside SoundChannelsAggregateChart, which SoundChannelsPane
+     already renders — no pane-level change needed). TWO independent pieces of the workbench batch (user msgs 3503+3512):
+     (1) TITLE (msg 3512): workbench pane title = the edited param, "Workbench" word dropped; pure
+         utils/workbenchTitle.js workbenchPaneTitle helper + collapsed PianoidTuner.renderTile's 2 duplicated branches
+         + non-empty "Workbench" fallback. Committed PianoidTunner feature/dev-dynwb-avgsc-workbench-reuse 329957c.
+     (2) AVG-SC reuses workbench DRAWING (msg 3503): avg-SC strings axis now renders via RowEditor→BarChart→DrawableChart
+         (shared workbench drawing) instead of its own DrawableChart+ruler; BarChart/RowEditor widened with optional
+         pass-throughs (omit=byte-identical for all existing callers); EMIT stays the 1→N fan-out (modesVectorDrawn/
+         pitch="averaged"), SC channel-decouple preserved (mode axis only, never selectedPitches). Committed 501d66c.
+     Branch feature/dev-dynwb-avgsc-workbench-reuse off dev 62696e4. Full Jest 106/1119 green (+2 suites/+11 tests,
+     ZERO regressions; named SC-decouple guards green); eslint 0 errors; production build compiles; live-verified
+     (avg-SC renders via RowEditor — docs/development/screenshots/dev-dynwb-avgsc-via-roweditor.png). Frontend-only,
+     NO CUDA. NOT merged — HOLD for user live test (Step 9). ★PARTS 1+2 (dynamic/fixed workbench WIRING) NOT touched —
+     verdict Q2 (already work in merged dev), held for the user's a/b/c/d answer. Docs (OVERVIEW
+     SoundChannelsAggregateChart/RowEditor/BarChart rows + NEW "Workbench pane title" subsection) + session log on
+     PianoidInstall master. -->
+| <!-- (none active for dev-dynwb) --> | | | |
 <!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 2 (user-approved merge msg 3506). Toolbar BATCH MERGED to
      PianoidTunner dev 62696e4 (--no-ff, off 19756de) + PUSHED origin/dev. Held: ToolBar.jsx, PianoidTuner.js,
      useWindowManager.js, MidiComponent.jsx (precautionary, not edited), useMidiStatus.js (NEW), + 4 NEW/edited test
