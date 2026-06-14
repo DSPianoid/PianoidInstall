@@ -77,6 +77,8 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 **User standing directive — handing a task over = the user's stack may be killed (NEVER ask).** When the user hands a task to the orchestrator, they EXPECT that any Pianoid stack they had running may be swept/killed by a sub-agent that needs the ports or a clean environment. Do NOT ask the user "is this your stack / may the agent take it over / should it wait" — just proceed; agents sweep ports 3000/3001/5000/5001 and relaunch as their work requires. This applies mid-session, not only at handoff. (User directive, 2026-06-04, after the orchestrator paused a UI-review agent to ask permission to reclaim a stack the user had open — the user does not want that courtesy round; killing their stack on hand-over is the expected, accepted default.) Corollary for dispatch: a sub-agent that finds a stack already up which it did not start may sweep it without checking back — the standard "sweep stale holders first" clearance is correct; the orchestrator should NOT add a "don't kill an unattributed stack, report first" caveat to dispatch prompts.
 
+**Reproduce-by-restart is the orchestrator's job — on a handed-over problem, kill + restart + test WITHOUT asking (2026-06-09).** When the user reports a stack-dependent symptom (silent audio, broken behavior, a wrong/needed build variant, "test X"), the DEFAULT response is: KILL the stack (with the canonical script below) → RESTART it in whatever variant the diagnosis needs (release or debug, per UI_TESTING.md) → REPRODUCE/TEST via a sub-agent → report what you found. Do NOT ask the user to clarify runtime state ("are you on debug or release? is it still silent?") and do NOT ask permission ("your call, since that's your session") — asking either IS the violation this clause exists to stop. (2026-06-09 incident: the orchestrator asked "your call, since that's your session" + three state-clarifying questions before a debug restart the user then had to explicitly order — "When I hand over to you, kill my stack and test, don't ask questions.") The user owns the stack's fate on handover (directive above); the orchestrator owns reproducing the problem. The only legitimate user round-trip here is a genuine DECISION the diagnosis can't resolve (e.g. two equally-valid design directions) — never state or permission for a restart.
+
 **How it's enforced:**
 - Each editing sub-agent shuts down servers it started and cleans its own tree on exit (see `/dev` "Full clearance before every handoff"). The **orchestrator is the final guarantor**: after the last active agent reports, run the port sweep across all four ports and verify `git status --short` is clean in every repo before telling the user the environment is clear.
 - The one in-session exception: if a concurrent agent is still actively using the stack, the orchestrator does NOT sweep mid-session — clearance applies at the handoff to the user, not between overlapping agents.
@@ -98,13 +100,13 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 **Why:** Concrete incident 2026-05-31 — orchestrator dispatched stest's Phase 2 with `pull --no-rebase origin dev` as W1 before W2 (merge feature branches → local dev). Pull-merge succeeded cleanly but the user immediately reversed the order: "Merge locally and wrap up agents BEFORE reconciling with origin." The pull-merge had to be undone via `git reset --hard <pre-W1-SHA>` on three repos, then the local-merge → wrap → push sequence re-done in the right order. This rule prevents the re-discovery of that ordering preference.
 
+**Use the canonical kill script — `tools/kill_pianoid.ps1` — do NOT reinvent a port-loop (2026-06-09).** It kills the full stack correctly: the `concurrently` supervisor TREE (`taskkill /F /T`) + port-owners (3000/3001/5000/5001) + marker-matched orphans (`backendServer.py` / `modal_adapter_server.py` / `server/launcher.js` / `PianoidTunner` / `pianoid_middleware`). A port-only `Stop-Process` loop is INSUFFICIENT — it misses the supervisor, so `concurrently`/`react-scripts` respawn the children. The script safely EXCLUDES the user's shell, VS Code, Claude Code, and MCP servers (never blanket-kills node/python). Linux equivalents (fuser/pkill) are in the script header.
+
 ```powershell
-# Port-targeted full-clearance sweep (run before declaring the environment clear)
-foreach ($port in 3000,3001,5000,5001) {
-  Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
-    Select-Object -Expand OwningProcess -Unique |
-    ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
-}
+# Preview (safe — kills nothing, lists what would die):
+powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1 -DryRun
+# Real kill (matched trees + re-check ports + one retry pass):
+powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1
 ```
 
 **Helper script (optional — one turn instead of pasting the loop + reading four `git status` outputs).** `python tools/dev-pipeline/env_sweep.py` runs exactly this port-scoped sweep, re-verifies the four ports are free, and prints per-repo `git status --short` — exit 0 = all clear, 2 = a port still in use. The port-scoped-only invariant is encoded structurally (it can only kill PIDs found *listening* on 3000/3001/5000/5001, never by image name), so it is the preferred form over hand-pasting the loop. `--no-kill` inspects without killing. Opus still owns WHETHER to sweep (a concurrent agent using the stack → scope down by NOT calling it, never by editing the port list).

@@ -63,6 +63,25 @@ for build commands.
 - Host D2H copies: `getOutputData()`, `getParameters()`, `getSoundRecords()` (note: `getPianoidState()` is now always active)
 - Per-cycle operations: `dev_output_data` memset (debug-only kernel writes)
 
+**Debug kernel register pressure & the cooperative launch (dev-bug1rt, 2026-06-10).**
+The `#ifdef PIANOID_DEBUG_DATA` `recordOutputData()` calls inflate `addKernel`'s
+per-thread register footprint, lowering the number of blocks that can be
+*co-resident* on the device. `addKernel` is launched with
+`cudaLaunchCooperativeKernel` (grid sync), which requires **all** grid blocks
+(`num_string_arrays` — e.g. 56 for Belarus) resident simultaneously. ONLINE
+playback also starts the SDL3 audio driver (`startAudioDriver()`) before the
+loop, which consumes GPU/SM resources. The combination — heavier debug kernel +
+audio-driver SM consumption — pushed the debug-online launch past the device
+co-residency limit, returning `cudaErrorCooperativeLaunchTooLarge` on the first
+online cycle (the realtime thread then died at 0 cycles → silent no-audio; the
+OFFLINE render, with no audio driver, fit and worked). Fix: `addKernel` carries
+a **debug-only** `__launch_bounds__(512, 1)` (macro `ADDKERNEL_LAUNCH_BOUNDS`,
+expands to nothing in release) that caps registers so ≥1 block of 512 threads
+stays resident per SM, restoring co-residency while preserving the debug writes.
+The release kernel is unchanged. `runSynthesisKernel` now also **checks the
+`cudaLaunchCooperativeKernel` return** and fails loudly (`PLOG_ERR` + non-200)
+instead of silently leaving `*kernel_status` at its prior value.
+
 ---
 
 ## C++ Extraction API

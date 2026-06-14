@@ -20,6 +20,80 @@
 
 ## Active Dev Sessions
 
+| Agent | Task | Log | Started | Status |
+|-------|------|-----|---------|--------|
+<!-- dev-tbmirror COMPLETED 2026-06-14 (Step 10a Phase 2, user-approved msg 3506 "toolbar is ok"). Toolbar BATCH on
+     PianoidTunner: (1) remove redundant mirroring selected-parameter NumInput (blur-contamination fix, 25ce0de);
+     (2) MIDI icon → button+3-state-indicator next to Fix-MIDI opening a popup Dialog + remove MIDI from the mosaic
+     pane list (new useMidiStatus hook reading GET /midi/ports; db624bb + 5982cc8); (3) toolbar reorder
+     (logo|load,save|library,+,basket|pitch|mode|level|fix-midi|midi|…) + remove redundant preset-name string
+     (cb34e5a) + BOTH-windowCategories guard test (8c52e03). MERGED to PianoidTunner dev 62696e4 (--no-ff, off
+     19756de) + PUSHED origin/dev. Frontend-only, NO CUDA. Full Jest 104/1108 green, eslint 0, build compiles.
+     Step-0 also confirmed dev-excwb's orphaned wrap was already self-committed (db2dae8/a32f046). Log archived. -->
+<!-- dev-dynwb COMPLETED 2026-06-14 (Step 10a Phase 2, user msg 3524 "Workbench ok. Commit and merge everything.
+     Sync with the origin"). Workbench batch on PianoidTunner (user msgs 3503/3512/3515): (a) workbench pane TITLE
+     shows the edited parameter, "Workbench" word dropped (329957c; pure utils/workbenchTitle.js); (b) AVERAGED Sound
+     Channels reuses the workbench RowEditor drawing — render via RowEditor→BarChart→DrawableChart (the canonical dense
+     path) while keeping the 1→N fan-out emit + tri-state mute + ★SC-LOCAL channel decouple SEPARATE (501d66c;
+     BarChart/RowEditor widened with omit=byte-identical pass-throughs); (c) DYNAMIC-vs-FIXED bar color (DrawableChart
+     isDynamic → secondary vs primary accent) + (d) bars FILL the field with a small gap (removed barMaxWidth cap)
+     (91266eb); BarChart passthrough guard test (4343779). MERGED to PianoidTunner dev 0f3cfe0 (--no-ff, off 62696e4) +
+     PUSHED origin. Full Jest 108/1127 green incl. SC-decouple guards (muteCycle/muteSet/localChannel/zeroPitch +
+     fanOutDecouple); eslint 0; build compiles; live pixel-verified (avg-SC via RowEditor; dynamic orange vs fixed blue;
+     bars fill). Frontend-only, NO CUDA. ★PARTS 1+2 (dynamic/fixed workbench WIRING) NOT touched — verdict Q2 (already
+     work, user-confirmed msg 3515). Log archived. ★DEFERRED to next session (user): save-mosaic-config + bottom-bar. -->
+<!-- (the earlier dev-dynwb diagnosis defect: clean-base avg-SC drew via its own NON-dense DrawableChart +
+     hand-rolled windowing/ruler — a parallel less-mature path vs the workbench's dense RowEditor→BarChart;
+     option-A RowEditor reuse gives the identical dense drawing path → fixed.) -->
+<!-- dev-excwb COMPLETED 2026-06-14 (Phase 2, user msg 3485 "commit merge push"). Three-part batch on PianoidTunner:
+     (1) Excitation workbenches — every hammer + gauss param opens a Workbench, per-pitch, mirroring Strings/Modes
+     (3941714); (2) maximized-pane Close-icon fix — general, all panes (b222b66); (3) A+B kernel-traffic fix — bulk
+     vector emit (N per-pitch → 1 from<lo>to<hi> range emit, general across strings/modes/excitation/drag/row-col) +
+     wheel emit-on-settle (a5e2fd0). MERGED to PianoidTunner dev 19756de (--no-ff) + PUSHED origin/dev (no force).
+     Frontend-only, NO CUDA rebuild. Full Jest 102/1101 green, eslint 0, build compiles. Backend bulk handler already
+     existed (parse_range from<lo>to<hi> + update_parameter pitch loop) → no backend edit. RE-MEASURED: workbench
+     gesture 83→1 emit; slow wheel sweep 415→4 (continuous→1). Deferred: string N-GPU-uploads-in-one-bulk-call
+     (GPU-batching follow-up). Log archived to logs/archive/. -->
+<!-- dev-mwfix COMPLETED 2026-06-11 (Step 10a, user-approved merge+push+sync msg 3458). Matrix/workbench/avg-SC
+     review fixes (items 1-5) + the NEW Workbench range-edit feature (apply-anchored-function w/ 7 shapes +
+     2x-sticky linear c=0 detent + extend/shrink). MERGED to PianoidTunner dev 23a1d38 (--no-ff, off dev 5758019).
+     Feature SHAs: 0c38c80/925c96a/b732b31/9bb71f9/71b2398 (items 1-5) + 079101d/30490cc/78e921c/9f3a8eb (Workbench).
+     ★SC channel-row decouple invariant preserved (only SC MODE axis ties global selection). Full Jest 96/1080 green,
+     eslint 0, build compiles. Frontend-only, NO CUDA rebuild. Origin reconcile (pull dev-cudaguard FE) + push origin dev.
+     Log archived to logs/archive/. -->
+<!-- dev-bug1rt COMPLETED 2026-06-10 (Step 10a Phase 2; user-confirmed live debug test "Works ok" msg 3438). BUG-1 = DEBUG
+     addKernel cudaErrorCooperativeLaunchTooLarge (recordOutputData register pressure + online SDL3 audio-driver SM
+     consumption exceed cooperative co-residency → realtime thread 0-cycles at launcher/APPLY boot → silent no-sound +
+     empty kernel). FIX-2 debug-only __launch_bounds__(512,1) on addKernel (#ifdef PIANOID_DEBUG_DATA → empty in release
+     → release codegen byte-identical; preserves live debug-online extraction feedback_diagnostic/block_output_data/
+     hammer_shape). FIX-3 check cudaLaunchCooperativeKernel return → PLOG_ERR + return 500 (fail-fast S5; also makes the
+     dev-steinway 58-block-on-56-SM kernel_status-500 failure LOUD, was silent). BUG-2 = _stop_online_engine clears
+     endMainLoop on stuck loop-flag regardless of isRunning() (P1; → "Cannot render offline" after dead thread).
+     Committed feature/debug-online-realtime-fix f96e266 (3 files +58/-4), MERGED to LOCAL PianoidCore dev d0136e5
+     (--no-ff). Docs (DEBUG_DATA.md RCA+fix) + log on PianoidInstall master. 5/5 verify gates + user live-test OK.
+     NOT pushed — origin reconcile + push HELD pending user push decision. Log archived to logs/archive/. -->
+| <!-- (none active — dev-bug1rt completed) --> | | | | |
+<!-- dev-debugboot-bacd COMPLETED 2026-06-09 (Step 10a Phase 2, user-approved "merge all to dev and push").
+     Fix A (debug-at-boot): select_cuda_variant_at_boot() honors PIANOID_USE_DEBUG at module import so the DEBUG
+     variant wins the FIRST pianoidCuda import (before any load_preset/APPLY can lock RELEASE) + no-downgrade rule
+     (release-request on a debug-active process is a no-op); RELEASE stays default when env unset.
+     Fix B (chart-realtime-thread restore): /get_chart_test offline render (note_playback/mode_test/sound_test) no
+     longer leaves the realtime playback thread stopped — backendServer._spawn_realtime_thread + the
+     pianoid._restart_realtime_thread hook (registered by load_preset) re-establish long_running_procedure + the
+     `running` flag; chartFunctions._restart_online_engine prefers the hook (falls back to start_pianoid for
+     serverless callers). Fixes "no sound, sound test fails" (was the pre-B silence bug on dev/master).
+     Committed PianoidCore feature/debug-at-boot (cdee490 Fix A + test, 3c4244a Fix B + test), MERGED to
+     PianoidCore dev d7f15ef (--no-ff). 8/8 unit (5 Fix A + 3 Fix B) + live-proven (debug variant loads, sound
+     test keeps thread TRUE + audio). Python-middleware only — NO CUDA rebuild. Docs (BUILD_SYSTEM Runtime
+     selection, SYSTEM_OVERVIEW threading) on master. ★Separate follow-up HELD (own future branch): the LAUNCHER
+     env-forward fix (option a) — launcher.js must pass PIANOID_USE_DEBUG into the spawned backend env when the UI
+     Debug toggle is on, so Fix A engages via the normal UI launch (currently debug-via-UI only works if the first
+     APPLY carries debug_mode=1). NOT part of this merge. -->
+<!-- dev-mzoom COMPLETED-PHASE 2026-06-09 (system-wide-selection MERGED to PianoidTunner dev 758f5d7): tie/untie
+     zoom + tri-state mute + ruler↔bar-chart x-axis alignment. ★REAL DEFERRED FOLLOW-UP — do NOT drop: (3) P2
+     (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) remain PENDING the
+     user's cross-system test of the P1 Feedin reference. Earlier sub-features (1) matrices-zoom f3ff30a + (2)
+     bar-chart toggle 795f559 + (3) P0/P1 Feedin 41b4737 were merged/pushed previously. Jest 88/941, eslint 0. -->
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 <!-- (none active — session 2026-06-10 fully wrapped) -->
@@ -411,6 +485,16 @@ the existing `setRangeOfPitches`/`setRangeOfModes` shared state. NOT in scope fo
 batch (M1 revert + SC flat-bars + bar-not-line). Owner: open — a fresh /dev task if the user wants it.
 
 ---
+
+## Future fix (user-requested 2026-06-09, during system-wide-selection testing) — matrix click should not change active pitch
+
+User: "click in the matrix should not change active pitch." Clicking a cell in a matrix editor
+(Feedin/Feedback/SC/Modes) currently changes the globally-active pitch as a side effect of the click.
+The user wants a matrix-cell click to NOT alter the active pitch — only perform its intended cell
+action. Logged as a FUTURE fix — explicitly NOT part of the current system-wide-selection batch
+(rulers/tie-untie). Likely in the matrix click handler (PitchesModesMatrixCanvas / MeasuredMatrix —
+the cell-click path probably calls setSelectedPitch/onPitchSelect; decouple the cell-click from the
+active-pitch change). Owner: open — pick up after the system-wide-selection feature lands.
 
 ## Deferred follow-ups — Sound Channels zoom unlock (dev-mzoom, 2026-06-05)
 

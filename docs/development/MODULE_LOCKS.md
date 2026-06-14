@@ -15,6 +15,130 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-dynwb refinement locks RELEASED 2026-06-14 at Step 10a Phase 1 (refinement commit). Held:
+     PianoidTunner/src/components/DrawableChart/DrawableChart.jsx, BarChart.jsx, PianoidTuner.js (+
+     NEW DrawableChart/__tests__/DrawableChart.dynamicColor.test.jsx). RowEditor.js + SoundChannelsAggregateChart.jsx
+     were re-locked but NOT edited this round (isDynamic threads PianoidTuner→RowEditor chartProps→BarChart→
+     DrawableChart; RowEditor's existing chartProps spread carries it unchanged). User msg 3515 refinements:
+     (c) DYNAMIC workbench bars in a DISTINCT theme accent (DrawableChart isDynamic → secondary.main vs
+     fixed primary.main; explicit seriesColor wins; default false = byte-identical); (d) bars FILL the field
+     with a small gap (removed barMaxWidth:40 cap, kept barCategoryGap:"10%"; ruler alignment unaffected).
+     Committed feature/dev-dynwb-avgsc-workbench-reuse 91266eb. Full Jest 107/1123 green, eslint 0, build
+     compiles. ★Live pixel-verified: dynamic=rgb(255,165,0) orange vs fixed=rgb(25,118,210) blue, bars fill
+     field (screenshots). Frontend-only, NO CUDA. NOT merged — held for user live test (same hold as the rest
+     of the batch). -->
+| <!-- (none active for dev-dynwb) --> | | | |
+<!-- dev-dynwb locks RELEASED 2026-06-14 at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js,
+     src/utils/workbenchTitle.js (NEW), src/components/BarChart.jsx, src/components/RowEditor.js,
+     src/components/SoundChannelsAggregateChart.jsx (+ 2 NEW test files: utils/__tests__/workbenchPaneTitle.test.js,
+     components/__tests__/SoundChannelsAggregateChart.fanOutDecouple.test.jsx). SoundChannelsPane.jsx was locked but
+     NOT edited (the avg-SC drawing reuse landed entirely inside SoundChannelsAggregateChart, which SoundChannelsPane
+     already renders — no pane-level change needed). TWO independent pieces of the workbench batch (user msgs 3503+3512):
+     (1) TITLE (msg 3512): workbench pane title = the edited param, "Workbench" word dropped; pure
+         utils/workbenchTitle.js workbenchPaneTitle helper + collapsed PianoidTuner.renderTile's 2 duplicated branches
+         + non-empty "Workbench" fallback. Committed PianoidTunner feature/dev-dynwb-avgsc-workbench-reuse 329957c.
+     (2) AVG-SC reuses workbench DRAWING (msg 3503): avg-SC strings axis now renders via RowEditor→BarChart→DrawableChart
+         (shared workbench drawing) instead of its own DrawableChart+ruler; BarChart/RowEditor widened with optional
+         pass-throughs (omit=byte-identical for all existing callers); EMIT stays the 1→N fan-out (modesVectorDrawn/
+         pitch="averaged"), SC channel-decouple preserved (mode axis only, never selectedPitches). Committed 501d66c.
+     Branch feature/dev-dynwb-avgsc-workbench-reuse off dev 62696e4. Full Jest 106/1119 green (+2 suites/+11 tests,
+     ZERO regressions; named SC-decouple guards green); eslint 0 errors; production build compiles; live-verified
+     (avg-SC renders via RowEditor — docs/development/screenshots/dev-dynwb-avgsc-via-roweditor.png). Frontend-only,
+     NO CUDA. NOT merged — HOLD for user live test (Step 9). ★PARTS 1+2 (dynamic/fixed workbench WIRING) NOT touched —
+     verdict Q2 (already work in merged dev), held for the user's a/b/c/d answer. Docs (OVERVIEW
+     SoundChannelsAggregateChart/RowEditor/BarChart rows + NEW "Workbench pane title" subsection) + session log on
+     PianoidInstall master. -->
+| <!-- (none active for dev-dynwb) --> | | | |
+<!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 2 (user-approved merge msg 3506). Toolbar BATCH MERGED to
+     PianoidTunner dev 62696e4 (--no-ff, off 19756de) + PUSHED origin/dev. Held: ToolBar.jsx, PianoidTuner.js,
+     useWindowManager.js, MidiComponent.jsx (precautionary, not edited), useMidiStatus.js (NEW), + 4 NEW/edited test
+     files (useMidiStatus.test.jsx, useWindowManager.midiRemoved.test.jsx, ToolBar.presetSelector.test.jsx,
+     toolbarMidiRemoved.source.test.js). 5 feature commits: 25ce0de mirror-field removal (blur fix) · db624bb MIDI
+     button+indicator+popup+drop-mosaic-pane · 5982cc8 MIDI tests · cb34e5a reorder+preset-name removal · 8c52e03
+     BOTH-windowCategories guard. Frontend-only, NO CUDA. Full Jest 104/1108 green, eslint 0, build compiles.
+     ★dev-dynwb branched off the SAME dev 19756de in parallel — this merge moved dev to 62696e4; dev-dynwb reconciles
+     later (expected/planned). Session log archived to logs/archive/. -->
+| <!-- (none active for dev-tbmirror) --> | | | |
+<!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 1 commit (mirror-removal). Held: PianoidTunner/src/components/ToolBar.jsx,
+     src/PianoidTuner.js, src/components/__tests__/ToolBar.commitKey.test.jsx (DELETED), src/components/__tests__/ToolBar.presetSelector.test.jsx.
+     Removed the redundant top-toolbar "mirroring" selected-parameter NumInput (echoed selectedParameter.value — a second
+     edit surface for a value every pane already edits in place; as a shared persist-on-blur instance it was the
+     contamination surface the dev-blur commitKey guard existed to patch). ToolBar.jsx: delete mirror block + Divider +
+     NumInput import + selectedParameter/onValueChange props + update responsive-overflow comment (695→650 LOC, YELLOW).
+     PianoidTuner.js: stop passing selectedParameter/onValueChange to <ToolBar> (both stay defined — pane-shared).
+     Deleted ToolBar.commitKey.test.jsx (tested the removed field); added a field-removed negative assertion to
+     ToolBar.presetSelector.test.jsx. Committed feature/dev-tbmirror-remove-toolbar-mirror 25ce0de (off dev 19756de).
+     Full Jest 101/1098 green (baseline 102/1101; -1 suite/-4 + 1 new = net -3), eslint 0 new errors, build compiles.
+     Frontend-only, NO CUDA. Live-verified (chrome-devtools): toolbar has no mirror field; all other controls + responsive
+     overflow intact. NOT merged — HOLD for user live test. Docs (OVERVIEW ToolBar+NumInput rows) + log on master. -->
+<!-- dev-excwb ALL locks RELEASED 2026-06-14 at Phase 2 (user msg 3485 "commit merge push"). The whole dev-excwb batch —
+     Excitation workbenches (3941714) + maximized-Close-icon fix (b222b66) + A+B kernel-traffic fix (a5e2fd0) — was
+     MERGED to PianoidTunner dev 19756de (--no-ff) and PUSHED origin/dev (1a2dba2..19756de, no force). Held files
+     across the batch: PianoidTuner.js, useLayout.js, useValuesHistory.js, components/Excitation.jsx,
+     ExcitationProperties.jsx, GaussEditor.jsx, GaussCell.jsx, hooks/usePreset.js, WorkbenchFunctionTools.jsx (+ 4 NEW
+     test files). Full Jest 102/1101 green, eslint 0, build compiles. Frontend-only, NO CUDA rebuild. User-tested +
+     approved. Deferred follow-up logged: string per-pitch GPU uploads inside one bulk backend call (GPU-batching). -->
+| <!-- (none active for dev-excwb) --> | | | |
+<!-- dev-excwb close-icon-fix locks RELEASED 2026-06-11 at Step 10a Phase 1 commit. Held PianoidTunner/src/PianoidTuner.js
+     + hooks/useLayout.js (+ 1 NEW test). GENERAL bug (user msg 3476): renderToolbarControls suppressed Close (X)
+     whenever isFullscreen → maximized panes (incl. Excitation workbenches) showed only Restore. Fix: render Close in
+     both states; maximized → useLayout.closeMaximized(id) (removeLeaf prunes the leaf from layoutBackup → restore
+     pruned backup → exit fullscreen; default-layout fallback). Committed feature/dev-excwb-excitation-workbench
+     b222b66. Full Jest 101/1098 green, eslint 0, build compiles, live-verified. Frontend-only. NOT merged — HOLD
+     (merge gate: this fix + Excitation-workbench feature + user axis-confirm + user live test). -->
+| <!-- (none active for dev-excwb) --> | | | |
+<!-- dev-excwb locks RELEASED 2026-06-11 at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js,
+     components/Excitation.jsx, components/ExcitationProperties.jsx, components/GaussEditor.jsx,
+     hooks/useValuesHistory.js (+ 2 NEW test files). GaussCell.jsx was locked but NOT edited (affordance lives on
+     the GaussEditor param-row label, not the cell). Excitation→Workbench: every hammer + gauss param now opens a
+     Workbench (BarChart IconButton) editing across pitches, mirroring Strings/Modes; reused the shared mechanism
+     (updateDefaultWorkbench/handleOpenWorkbench/computeWorkbenchValues/handleVectorChange). Fixed 2 latent bugs:
+     handleVectorChange Excitation branch wrote stringsHistory (→ excitationHistory) + calcChange pitchesVectorDrawn
+     was flat-only (→ gauss-aware nested write). Committed feature/dev-excwb-excitation-workbench 3941714 (off dev
+     1a2dba2). Full Jest 100/1095 green, eslint 0, build compiles. Frontend-only, NO CUDA. NOT merged — HOLD for
+     user live test. Docs (pianoid-tunner OVERVIEW) + log on PianoidInstall master. -->
+| <!-- (none active for dev-excwb) --> | | | |
+<!-- dev-mwfix locks RELEASED 2026-06-11 at Step 10a (Workbench feature wrap; user-approved merge+push+sync msg 3458).
+     Held: PianoidTunner/src/utils/curveShapes.js (NEW) + curveShapes.test.js (NEW) + WorkbenchFunctionTools.jsx (NEW) +
+     PianoidTuner.js. Workbench range-edit feature: apply-anchored-function (7 shapes, anchor value unchanged) + 2x-sticky
+     linear c=0 wheel detent + extend/shrink (Excitation-style); uniform-value control removed per user. Committed
+     079101d/30490cc/78e921c/9f3a8eb on feature/dev-mwfix-matrix-fixes, MERGED to PianoidTunner dev 23a1d38 (--no-ff).
+     Full Jest 96/1080 green, eslint 0, build compiles. Frontend-only. (The earlier items 1-5 locks were already released
+     at the prior Step 10a Phase 1 — see the comment below.) -->
+| <!-- (none active for dev-mwfix) --> | | | |
+<!-- dev-mwfix locks RELEASED 2026-06-10T18:30:00Z at Step 10a Phase 1 (all 5 items committed on
+     PianoidTunner feature/dev-mwfix-matrix-fixes, off dev 5758019: 0c38c80 avg-SC ruler-align + ModesRule
+     windowed positioning [item 1]; 925c96a P1-A tie/untie rollout complete + delete legacy shared-range zoom
+     [item 2]; b732b31 P1-B delete dead mute write-path [item 3]; 9bb71f9 P2 cleanups (double calcChange,
+     mutedMatrix, scListenToModes source, Feedback dead zoom) [item 4]; 71b2398 P3 render-without-range guard +
+     cell-click decouple + explicit row order [item 5]). Held 9 files: SoundChannelsAggregateChart.jsx, ModesRule.js,
+     PianoidTuner.js, useCurrentValues.js, SoundChannelsPane.jsx, MeasuredMatrix.jsx, usePreset.js, useSoundChannels.js,
+     useMatrixHistory.js, PitchesModesMatrixCanvas.jsx (+2 NEW test files). ★SC channel-row decouple PRESERVED
+     throughout (only SC MODE axis ties to global selection). Full Jest 95 suites/1030 tests green, eslint 0 errors,
+     production build compiles. Frontend-only, NO CUDA build. NOT merged — HOLD on feature branch for user's live test.
+     Docs (pianoid-tunner OVERVIEW) + session log on PianoidInstall master. -->
+| <!-- (none active for dev-mwfix) --> | | | |
+<!-- dev-bug1rt locks RELEASED 2026-06-10 at Step 10a Phase 2 (user-confirmed live debug test "Works ok" msg 3438; team-lead-authorized LOCAL merge + wrap). Held: PianoidCore pianoid_cuda/MainKernel.cu, Pianoid_synthesis.cu, OnlinePlaybackEngine.cu (probes-only, reverted to net-zero), Pianoid.cu (read-only, not edited), pianoid_middleware/chartFunctions.py.
+     BUG-1 = DEBUG addKernel cudaErrorCooperativeLaunchTooLarge (recordOutputData register pressure + online SDL3 audio-driver SM consumption exceed cooperative co-residency → realtime thread 0-cycles at launcher/APPLY boot → silent no-sound + empty kernel). FIX-2 = debug-only __launch_bounds__(512,1) on addKernel (#ifdef PIANOID_DEBUG_DATA macro → empty in release → release codegen byte-identical, preserves live debug-online extraction). FIX-3 = check cudaLaunchCooperativeKernel return → PLOG_ERR + return 500 (fail-fast; also makes the steinway 58-block-on-56-SM kernel_status-500 failure loud). BUG-2 = _stop_online_engine clears endMainLoop on stuck loop-flag regardless of isRunning() (→ "Cannot render offline" after dead thread). Committed feature/debug-online-realtime-fix f96e266 (3 files +58/-4), MERGED to LOCAL PianoidCore dev d0136e5 (--no-ff). Docs (DEBUG_DATA.md RCA+fix) + session log on PianoidInstall master (e58cc6a + Phase-2 wrap). All 5 verify gates PASS + user-tested OK. NOT pushed — origin reconcile + push HELD pending user push decision. Session log archived. -->
+| <!-- (none active for dev-bug1rt) --> | | | |
+<!-- dev-debugboot-bacd Fix-B locks RELEASED 2026-06-09 at Step 10a Phase 1 commit. Held:
+     PianoidCore/pianoid_middleware/backendServer.py + chartFunctions.py. /get_chart_test offline
+     render no longer leaves the realtime playback thread stopped: backendServer _spawn_realtime_thread
+     helper + pianoid._restart_realtime_thread hook (registered by load_preset); _restart_online_engine
+     prefers the hook (restores long_running_procedure + `running` flag), falls back to start_pianoid()
+     for serverless callers. Committed feature/debug-at-boot 3c4244a (+123/-5, incl.
+     tests/unit/test_chart_restart_realtime_thread.py 3/3). Docs (SYSTEM_OVERVIEW threading) on master.
+     3/3 Fix-B + 5/5 Fix-A unit; live: note_playback+mode_test keep backend_thread_running=TRUE (was
+     dropping to False). Python middleware — NO CUDA rebuild. NOT merged — awaits user test + approval. -->
+<!-- dev-debugboot-bacd lock RELEASED 2026-06-09 at Step 10a Phase 1 commit. Held:
+     PianoidCore/pianoid_middleware/pianoid.py. Honor PIANOID_USE_DEBUG at module-import
+     boot (select_cuda_variant_at_boot) so DEBUG wins the first pianoidCuda import + no-downgrade
+     rule (release-request on a debug-active process is a no-op). Fixes debug-via-UI first-import
+     race (frontend APPLY debug_mode=0 imported RELEASE first → later debug_mode=1 was a no-op).
+     Committed PianoidCore feature/debug-at-boot cdee490 (pianoid.py + tests/unit/test_debug_variant_at_boot.py,
+     +156/-1). Docs (BUILD_SYSTEM Runtime selection) + log on PianoidInstall master 40dc5c9. 5/5 unit +
+     4/4 live tests (a-d) PASS. Python middleware, loads from source — NO CUDA rebuild. NOT merged —
+     awaits user live-test + approval. -->
 <!-- dev-cudaguard locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — Phase 2
      after the user's live test on the no-CUDA box). No-CUDA graceful mode (Opt C). COMMITTED, 3 feature
      branches (held for the user's test, then merge per team-lead):
