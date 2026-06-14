@@ -15,7 +15,8 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-<!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 1 commit. Held: PianoidTunner/src/components/ToolBar.jsx,
+| dev-tbmirror | `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/useWindowManager.js`, `PianoidTunner/src/components/MidiComponent.jsx`, `PianoidTunner/src/hooks/useMidiStatus.js` (NEW), `PianoidTunner/src/hooks/__tests__/useMidiStatus.test.jsx` (NEW), `PianoidTunner/src/hooks/__tests__/useWindowManager.midiRemoved.test.jsx` (NEW), `PianoidTunner/src/components/__tests__/ToolBar.presetSelector.test.jsx` | 2026-06-14T11:16:00Z | MIDI icon → toolbar button+indicator + popup Dialog; remove MIDI mosaic pane (toolbar BATCH, same branch) |
+<!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 1 commit (mirror-removal). Held: PianoidTunner/src/components/ToolBar.jsx,
      src/PianoidTuner.js, src/components/__tests__/ToolBar.commitKey.test.jsx (DELETED), src/components/__tests__/ToolBar.presetSelector.test.jsx.
      Removed the redundant top-toolbar "mirroring" selected-parameter NumInput (echoed selectedParameter.value — a second
      edit surface for a value every pane already edits in place; as a shared persist-on-blur instance it was the
