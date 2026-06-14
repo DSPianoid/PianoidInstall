@@ -15,6 +15,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-dynwb refinement locks RELEASED 2026-06-14 at Step 10a Phase 1 (refinement commit). Held:
+     PianoidTunner/src/components/DrawableChart/DrawableChart.jsx, BarChart.jsx, PianoidTuner.js (+
+     NEW DrawableChart/__tests__/DrawableChart.dynamicColor.test.jsx). RowEditor.js + SoundChannelsAggregateChart.jsx
+     were re-locked but NOT edited this round (isDynamic threads PianoidTuner→RowEditor chartProps→BarChart→
+     DrawableChart; RowEditor's existing chartProps spread carries it unchanged). User msg 3515 refinements:
+     (c) DYNAMIC workbench bars in a DISTINCT theme accent (DrawableChart isDynamic → secondary.main vs
+     fixed primary.main; explicit seriesColor wins; default false = byte-identical); (d) bars FILL the field
+     with a small gap (removed barMaxWidth:40 cap, kept barCategoryGap:"10%"; ruler alignment unaffected).
+     Committed feature/dev-dynwb-avgsc-workbench-reuse 91266eb. Full Jest 107/1123 green, eslint 0, build
+     compiles. ★Live pixel-verified: dynamic=rgb(255,165,0) orange vs fixed=rgb(25,118,210) blue, bars fill
+     field (screenshots). Frontend-only, NO CUDA. NOT merged — held for user live test (same hold as the rest
+     of the batch). -->
+| <!-- (none active for dev-dynwb) --> | | | |
 <!-- dev-dynwb locks RELEASED 2026-06-14 at Step 10a Phase 1 commit. Held: PianoidTunner/src/PianoidTuner.js,
      src/utils/workbenchTitle.js (NEW), src/components/BarChart.jsx, src/components/RowEditor.js,
      src/components/SoundChannelsAggregateChart.jsx (+ 2 NEW test files: utils/__tests__/workbenchPaneTitle.test.js,
