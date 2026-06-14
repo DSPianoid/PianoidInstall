@@ -2,10 +2,17 @@
 name: orchestrator
 description: Telegram-based remote orchestrator — receive tasks, spawn sub-agents, coordinate work, communicate results via Telegram and other MCP channels.
 user-invocable: true
+tier: generic
 argument-hint: [start|status|stop]
 ---
 
 # Telegram Remote Orchestrator
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Long-running orchestrator that receives tasks via Telegram, spawns sub-agents for all project work, and reports results back. Acts as a thin coordination layer — never performs deep project work directly.
 
@@ -75,6 +82,7 @@ If you are about to ask the user to *do* something operational, **stop** — the
 **How it's enforced:**
 - Each editing sub-agent shuts down servers it started and cleans its own tree on exit (see `/dev` "Full clearance before every handoff"). The **orchestrator is the final guarantor**: after the last active agent reports, run the port sweep across all four ports and verify `git status --short` is clean in every repo before telling the user the environment is clear.
 - The one in-session exception: if a concurrent agent is still actively using the stack, the orchestrator does NOT sweep mid-session — clearance applies at the handoff to the user, not between overlapping agents.
+- **No orphan rows/logs at handoff.** Before declaring the environment clear, run the row-iterating sweep from "Periodic Health Check": the `## Active Dev Sessions` table must have NO row for any non-alive agent (a re-statused "MERGED" row counts as debt — DELETE it), every non-archive session log must map to a live agent THIS session (else archive-on-sight; only the live controller survives), and `MODULE_LOCKS.md` must show no active rows for non-alive agents.
 
 **Merge default — test-on-branch, merge-after-approval.** The default handoff leaves the work on its feature branch (unmerged) with the stack down, so the user can run their OWN live test before anything reaches the integration branch. The orchestrator does NOT direct a feature→dev merge until the user explicitly approves the FIX based on that test — a passing agent test is not approval. Never offer "merge to the integration branch so a restart picks it up, then test" — that inverts the order; the user tests on the feature branch first, the merge follows approval. (PianoidTunner's integration branch is `dev`, not `master`; root PianoidInstall is on `master`.) Merging and pushing are separate decisions — never push unless the user asks.
 
@@ -100,6 +108,8 @@ powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1 -DryRun
 # Real kill (matched trees + re-check ports + one retry pass):
 powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1
 ```
+
+**Helper script (optional — one turn instead of pasting the loop + reading four `git status` outputs).** `python tools/dev-pipeline/env_sweep.py` runs exactly this port-scoped sweep, re-verifies the four ports are free, and prints per-repo `git status --short` — exit 0 = all clear, 2 = a port still in use. The port-scoped-only invariant is encoded structurally (it can only kill PIDs found *listening* on 3000/3001/5000/5001, never by image name), so it is the preferred form over hand-pasting the loop. `--no-kill` inspects without killing. Opus still owns WHETHER to sweep (a concurrent agent using the stack → scope down by NOT calling it, never by editing the port list).
 
 ---
 
@@ -361,18 +371,22 @@ Dev agents complete Step 10a Phase 1 autonomously (commit, release locks) then S
 3. Agent's log is still in `logs/` (NOT archived yet — that's Phase 2)
 4. Agent's WIP entry is still in Active Dev Sessions (NOT cleaned yet — that's Phase 2)
 
+**Helper script (optional — runs all four checks in one orchestrator turn, where context is largest so each saved turn is the most expensive).** `python tools/dev-pipeline/verify_phase1.py <agent-id> [--repo PianoidCore | --scan-repos]` prints PASS/FAIL per check (exit 0 = clean Phase-1 handoff, 2 = any fail). Pure read-only — it changes nothing. Relaying the report and the approval decision stay with Opus. See `tools/dev-pipeline/README.md`.
+
 Relay the report to the user via Telegram. Wait for explicit approval.
 
 ### After User Approves
 
 Tell the agent to proceed with Step 10a Phase 2:
 ```
-SendMessage(to: agentId, message: "User approved. Proceed with Step 10a Phase 2: archive log, clean WIP, merge if needed.")
+SendMessage(to: agentId, message: "User approved. Proceed with Step 10a Phase 2: archive log → logs/archive/, REMOVE your WIP row entirely (do NOT just set its Status to 'MERGED' — Phase 2 = the row is GONE; put the outcome in a historical <!-- --> comment), merge if needed.")
 ```
 
-Then verify:
+**If the agent has already returned** (`SendMessage` reports no active task, or it reported then exited), do NOT assume Phase 2 happened — SendMessage to a dead agent is a no-op. The orchestrator performs Phase 2 DIRECTLY (`git mv` log → `logs/archive/`, DELETE the WIP row, release locks, commit `[orchestrator] chore: Phase 2 cleanup for <id> (agent returned earlier)`), exactly as in Queue Review §5.
+
+Then verify (gate on row ABSENCE, not status):
 1. Agent's log is moved to `logs/archive/`
-2. Agent's WIP entry is removed from Active Dev Sessions
+2. Agent's WIP row is **GONE** from the Active Dev Sessions table — grep the table and confirm NO row for this agent ID remains. **A row re-statused to "MERGED" is NOT done** — send the agent back to DELETE it (or do it directly if the agent returned). Do not report "closed" until the row is absent AND the log is archived.
 3. Feature branch is merged if applicable
 
 If the user requests changes instead, relay to the same agent — it still has full context.
@@ -970,7 +984,9 @@ Use when the agent made partial progress worth keeping.
 
 On startup (Step 1.5) and periodically: scan `docs/development/logs/` for logs that don't correspond to any running agent. These are orphaned from crashed/killed agents. Clean them up.
 
-**The invariant: every log in `docs/development/logs/` must correspond to an agent that is either ALIVE, RETURNED (awaiting user review), or CONFIRMED (awaiting commit). Anything else is orphaned and must be cleaned up immediately.**
+**Startup + periodic SWEEP (mandatory, orchestrator-direct) — iterate Active-Dev-Session ROWS, not just logs.** The dominant WIP debt is rows whose **log is ALREADY archived** but whose row was re-statused ("MERGED") instead of deleted — a logs-only scan MISSES these. So at Step 1.5 and after any parallel-agent burst, for EVERY row in the `## Active Dev Sessions` table: if its agent is NOT alive this session (no running Agent, not awaiting-review this session) OR its status reads terminal (MERGED/done/COMPLETED) OR its linked log already lives in `logs/archive/` → the row is terminal debt. DELETE the row (capture its outcome in a `<!-- -->` comment if not already recorded), `git mv` any still-non-archived log → `logs/archive/`, release any orphan `MODULE_LOCKS.md` rows, and commit `[orchestrator] chore: Phase 2 cleanup for <id>`. Separately, any non-archive log with NO matching row is also debt — archive it. The ONLY non-archive log/row that may survive a sweep is the current session's live controller.
+
+**The invariant: every log in `docs/development/logs/` must correspond to an agent that is either ALIVE, RETURNED (awaiting user review), or CONFIRMED (awaiting commit); and every row in `## Active Dev Sessions` must correspond to such a live/awaiting agent THIS session. Anything else is orphaned and must be cleaned up immediately (a re-statused "MERGED" row counts as orphaned).**
 
 ### Channel disconnects
 
@@ -1055,7 +1071,7 @@ When dispatching an `/analyse`, `/review`, or any agent that produces written ou
 - Diagnostic snippets -> `docs/development/diagnostics/<agent-id>-<purpose>.<ext>`
 - Standalone screenshots -> `docs/development/screenshots/<agent-id>-<view>.png`
 
-**One-doc-per-topic in `docs/proposals/` (MANDATORY).** The proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. When dispatching an agent that will produce a NEW proposal that supersedes or extends an existing one, instruct the agent to archive the prior version (`git mv` to `docs/proposals/archive/`) BEFORE adding the new one. When reviewing returned artefacts, reject and re-dispatch if you find two docs covering the same topic in `docs/proposals/`, or if a research Q&A or preparation analysis was filed in `docs/proposals/` rather than `docs/proposals/archive/`. Once a proposal has been fully implemented, archive it as part of the implementation `/dev` agent's wrap-up. The full rule lives in `.claude/commands/dev.md` ("Documentation Folder Taxonomy").
+**One-doc-per-topic in `docs/proposals/` (MANDATORY).** The proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. When dispatching an agent that will produce a NEW proposal that supersedes or extends an existing one, instruct the agent to archive the prior version (`git mv` to `docs/proposals/archive/`) BEFORE adding the new one. When reviewing returned artefacts, reject and re-dispatch if you find two docs covering the same topic in `docs/proposals/`, or if a research Q&A or preparation analysis was filed in `docs/proposals/` rather than `docs/proposals/archive/`. Once a proposal has been fully implemented, archive it as part of the implementation `/dev` agent's wrap-up. The full rule lives in `.claude/commands/dev.md` ("Documentation Folder Taxonomy"). **`docs/development/proposals/` is FORBIDDEN** — proposals (one per topic) go to `docs/proposals/`; all working/planning docs go directly under `docs/development/`. If an agent files into a `docs/development/proposals/` folder, reject and re-dispatch to re-home its contents and delete that folder.
 
 `docs/development/logs/` is exclusively for agent session logs (`dev-XXXX-...md`, `fn-XXXX-...md`). If a stale non-session-log file is found there during a periodic scan, treat it as a hygiene issue and dispatch a `/dev` agent to relocate it via `git mv` (do NOT delete history).
 
@@ -1074,7 +1090,7 @@ When reviewing returned artefacts before relaying to Telegram, verify the path m
 On `/orchestrator stop` or user saying "stop" / "done for now":
 1. List any active sub-agents still running
 2. Warn user about in-progress work; let each active agent finish its own clean exit (commit/stash/revert, release locks) — never leave an agent's tree dirty
-3. **Bring the environment to full clearance** (see "Full Clearance Before Every Handoff"): sweep all four ports (3000/3001/5000/5001) down and verify `git status --short` is clean in every repo
+3. **Bring the environment to full clearance** (see "Full Clearance Before Every Handoff"): sweep all four ports (3000/3001/5000/5001) down, verify `git status --short` is clean in every repo, AND run the row-iterating Periodic-Health-Check sweep (no Active-Dev-Session row or non-archive log for any non-alive agent — re-statused "MERGED" rows count as debt; only the live controller's log survives)
 4. Send final status summary via Telegram, explicitly confirming the environment is fully cleared
 5. **Notify the controller:** `SendMessage(to: "controller", "session ending")`. The controller produces a final compliance summary, sends it to team-lead, archives its own log, and exits.
 

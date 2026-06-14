@@ -2,10 +2,17 @@
 name: analyse
 description: Deep analysis of a Pianoid system/module — docs audit, code review, architecture assessment, improvement proposal.
 user-invocable: true
+tier: generic
 argument-hint: <system or module name — e.g. "excitation system", "playback engine", "parameter routing", "deck coupling">
 ---
 
 # Pianoid System/Module Analysis
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Deep-dive analysis workflow: audit documentation, verify against source code, update docs, then assess architecture and code quality. Produces two deliverables: an updated documentation report and an improvement proposal.
 
@@ -15,11 +22,9 @@ Deep-dive analysis workflow: audit documentation, verify against source code, up
 
 If this analysis requires reproducing behavior, running tests, or rebuilding to verify a finding — the rebuild MUST go through canonical paths. A silently-stale binary invalidates every "I verified this" claim. 2026-04-23 lost ~3h to exactly this.
 
-- **Before any rebuild** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
-- **Canonical CUDA rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently reinstalls STALE `.pyd`).
-- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; run release first (or `--both`).
-- **Verify the rebuild landed** — `grep -a "<marker>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If absent, any conclusion drawn from the rebuild is void.
-- **On unexpected build or server failure** — invoke `/startup` rather than ad-hoc fixes.
+- **Full docs-first build/run discipline: the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).**
+- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — in agent context use the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first). **Verify-landed** (`grep -a "<marker>" …pyd`) — if absent, any conclusion drawn from the rebuild is void.
+- **On unexpected build or server failure → invoke `/startup`** rather than ad-hoc fixes.
 
 ## Arguments
 
@@ -52,7 +57,7 @@ When `/analyse` produces a written artefact (proposal, analysis, review, diagnos
 
 Naming: `<topic>-<YYYY-MM-DD>.md` for proposals; `<scope>-review-<YYYY-MM-DD>.md` for reviews. The full taxonomy lives in `.claude/commands/dev.md` - the Phase 4 report and any saved proposal MUST be filed under `docs/proposals/`.
 
-**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When `/analyse` produces a NEW proposal that supersedes or extends an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When the analysis fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Research Q&A docs that answered a question without producing a future-work proposal go straight to `docs/proposals/archive/` (or skip `docs/proposals/` entirely). The full rule lives in `.claude/commands/dev.md`.
+**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When `/analyse` produces a NEW proposal that supersedes or extends an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When the analysis fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Research Q&A docs that answered a question without producing a future-work proposal go straight to `docs/proposals/archive/` (or skip `docs/proposals/` entirely). The full rule lives in `.claude/commands/dev.md`. Never create `docs/development/proposals/` — proposals go to `docs/proposals/`; working/planning docs go directly under `docs/development/`.
 
 ## Phase 1: Documentation Audit
 
@@ -284,14 +289,8 @@ Test types follow the project convention:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Documentation | `docs/` |
-| MkDocs config | `mkdocs.yml` |
-| MkDocs preview | `http://localhost:8001/` |
+Repo roots, the docs tree, and the docs-server URL are project facts — resolve them from the active
+project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths).
 
 ## Example Usage
 

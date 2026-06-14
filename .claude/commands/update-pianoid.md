@@ -2,6 +2,7 @@
 name: update-pianoid
 description: Update all Pianoid repos (PianoidInstall, PianoidCore, PianoidBasic, PianoidTunner) — fetch, rebuild, sync project skills.
 user-invocable: true
+tier: project
 argument-hint: [--force|-f] [--force-heavy|-h]
 ---
 
@@ -14,7 +15,7 @@ Update PianoidInstall (docs, skills, config), PianoidCore, PianoidBasic, and Pia
 This skill triggers rebuilds on fetched changes. A broken rebuild leaves a silently-stale `.pyd` that breaks every later action. 2026-04-23 lost ~3h to this exact trap.
 
 - **Before triggering CUDA rebuild** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
-- **Canonical rebuild — DEFAULT IS `--both`** — `build_pianoid_cuda.bat --heavy --both` (or `--light --both` for Python-only). The `--both` flag builds release **then** debug; the project's testing + profiling workflows require BOTH variants to be current. Use `--release` ONLY when the caller explicitly says "release only" — leaving the debug `.pyd` stale silently breaks every later debug-variant import (per `feedback_debug_variant_dll_trap.md`). Do NOT fall back to `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — silently reinstalls the STALE `.pyd`.
+- **Canonical rebuild — DEFAULT IS `--both`** — `build_pianoid_cuda.bat --heavy --both` (or `--light --both` for Python-only). The `--both` flag builds release **then** debug; the project's testing + profiling workflows require BOTH variants current. Use `--release` ONLY when the caller explicitly says "release only" — leaving the debug `.pyd` stale silently breaks every later debug-variant import (per `feedback_debug_variant_dll_trap.md`). In agent context build via the **detached `Start-Process`** form (NEVER `cmd //c … --heavy`, which bricks the venv); do NOT fall back to `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Full discipline + procedure: [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run) / [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
 - **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips the DLL copy step; the canonical `--both` invocation handles the release→debug order + DLL copy correctly. Never invoke `--debug` standalone.
 - **Pre-rebuild hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID. A locked `.pyd` causes `[WinError 5] Access is denied` and leaves the package uninstalled.
 - **Verify the rebuild landed** — after each rebuild: `PianoidCore/.venv/Scripts/python -c "import pianoidCuda; print(pianoidCuda.__file__)"`. Path must be under `PianoidCore/.venv/`, not root `.venv/`.

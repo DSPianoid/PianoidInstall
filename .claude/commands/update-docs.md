@@ -2,10 +2,17 @@
 name: update-docs
 description: Update Pianoid documentation to match current codebase state.
 user-invocable: true
+tier: generic
 argument-hint: [architecture|cuda|middleware|basic|tunner|development|all]
 ---
 
 # Update Pianoid Documentation
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Sync documentation in `docs\` with current source code.
 
@@ -131,7 +138,7 @@ When updating docs, respect the canonical folder layout (single source of truth 
 - `docs/development/screenshots/` - standalone UI screenshots
 - `docs/architecture/`, `docs/guides/`, `docs/modules/` - long-lived reference docs
 
-Never move agent session logs out of `docs/development/logs/`. Never deposit non-session-log artefacts into it. If a stray plan / review / diagnostic appears under `logs/`, file an issue or relocate via `git mv` to the correct folder.
+Never move agent session logs out of `docs/development/logs/`. Never deposit non-session-log artefacts into it. If a stray plan / review / diagnostic appears under `logs/`, file an issue or relocate via `git mv` to the correct folder. Likewise, `docs/development/proposals/` must NOT exist — proposals (one per topic) belong in `docs/proposals/`; working/planning docs go directly under `docs/development/`.
 
 ## Documentation Structure
 

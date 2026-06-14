@@ -2,10 +2,17 @@
 name: fn
 description: Single-function development — focused edit with clear requirements and test criteria. Designed for use standalone or as a sub-agent of /dev.
 user-invocable: true
+tier: generic
 argument-hint: <file path> <function name or description> [--test <test command>] [--context <comma-separated context files>]
 ---
 
 # Single-Function Development Workflow
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Focused, lightweight workflow for implementing or modifying a single function with clear requirements and test criteria. No branching, no WIP registration, no documentation updates, no commits — those belong to the caller (the `/dev` agent or the user).
 
@@ -21,12 +28,9 @@ This skill inherits its audio mode from the invoker (parent `/dev` session, `/te
 
 Before rebuilding or restarting anything, READ the canonical docs — skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
 
-- **Before ANY build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
-- **Canonical rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — silently reinstalls STALE `.pyd`, your edit never lands.
-- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; run release (or `--both`) first.
-- **Verify the rebuild landed** — `grep -a "<marker-string-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If missing, the build did not land — do NOT test.
-- **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. Locked `.pyd` causes `[WinError 5] Access is denied` → package uninstalled.
-- **When a build or startup fails unexpectedly** — invoke `/startup` instead of ad-hoc troubleshooting.
+- **Full docs-first build/run discipline: the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).** Read it before any build/restart.
+- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — in agent context use the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first). Verify-landed before testing: `grep -a "<marker>" …pianoidCuda…pyd`.
+- **On unexpected build or startup failure → invoke `/startup`** instead of ad-hoc troubleshooting.
 
 ## Input Contract
 
@@ -100,6 +104,16 @@ Keep entries terse — this log will be incorporated into the parent's log.
 
 The `[BASH-CALL]` / `[MCP-CALL]` pairs and the `[PROGRESS]` heartbeat feed the controller's freshness check (tiered: a fast 3-min scan with an 8-min stall threshold, plus a 15-min deep sweep). A `[PERM-RISK]` marker left as the newest line of a stale log is the single strongest signal of a CLI permission stall. The `[READ]` / `[GREP]` markers feed the Documentation-First compliance check. Failure to emit is itself a Tier-2 violation.
 
+## Context Hygiene (cost discipline)
+
+Every turn re-reads this agent's **entire accumulated context** before it does anything — that re-read, not the work itself, is the majority of the cost (~65%). Keep the resident working set small:
+
+- **Read narrowly.** Read the **target function span** with `offset`/`limit`, not the whole file, when only one function is in scope; read the **one gating test**, not the whole suite / `SUITE.md`. Don't load module docs "for context" the function doesn't touch — if a fact isn't cited in your reasoning, it needn't stay resident.
+- **Test once.** Run the gate **once** when the function is complete, not after each speculative edit — each full test turn re-reads your whole context; the 4×-incremental-pytest pattern is the canonical waste. Use the Step-4b debug loop only after the single run goes red.
+- **Prune stale output.** After the function is green, don't keep its full diff + every intermediate test dump resident — the durable record is the **session log**, not the live context. Prune *stale* output, never *load-bearing* context (the spec, the current test, cited doc facts).
+
+(Cost model + measurements: `docs/proposals/minimize-opus-calls-dev-pipeline-2026-06-06.md`.)
+
 ## Step 1: Read Context
 
 Read the files specified in `context_files` (if any) and the `target_file` itself.
@@ -130,6 +144,29 @@ The controller verifies parent-lock inheritance: if `target_file` is not in `hel
 
 Log the edit: what changed, line numbers, rationale.
 
+**Array-module-agnostic targets (MANDATORY dual-backend test).** If the function takes an array module (`xp`, or otherwise dispatches over numpy/cupy/torch), the test MUST exercise **both** backends — a numpy-only test does **not** validate the cupy path and ships latent host/device bugs (e.g. mixing a host `rng.standard_normal(...)` into a device array → `cupy + numpy` under `xp=cupy`). Parametrise the array module over `{numpy, cupy-if-importable}` (skip cupy cleanly when unavailable, but record that it was skipped — never hide it). Only after the test runs under both backends may you delegate the body to DeepSeek (Step 2a) or write it yourself. **The cupy parametrisation is the gate that forces `xp.asarray(...)` on any host-drawn array** — without it the bug ships green (2026-06-06 A/B: a `signal + numpy_noise` add passed the numpy-only gate and would have failed under cupy).
+
+## Step 2a (optional): Delegate codegen to DeepSeek
+
+Before writing the function yourself, you MAY offload the *body* to DeepSeek via the `deepseek-codegen` MCP tool — Claude still owns the test, the review, the build, the test run, the debug loop, and the commit. This is opt-in and falls back silently to writing it yourself.
+
+**Eligible ONLY when ALL hold:**
+- `target_file` is Python (`.py`, tested via pytest) OR JavaScript/TypeScript/React (`.js/.jsx/.ts/.tsx`, tested via Jest) — pass the matching `language` to the tool. HARD-EXCLUDED: `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++ — HC-1). Other languages are fine too wherever a fast isolated test gate exists.
+- The function is a single, pure, well-specified responsibility (the `/fn` envelope) — not a cross-cutting refactor.
+- A concrete test exists already (the caller's `test_command` + the test source) — HC-2: never delegate without the test.
+- If the target is **xp-agnostic**, that test must already be **dual-backend** (per the MANDATORY rule above). Delegating against a numpy-only test re-introduces the blind spot — DeepSeek will (correctly, per its prompt) make the numpy-only test pass and leave the cupy path broken.
+
+**Procedure:**
+1. Emit `[MCP-CALL] {ts} server=deepseek-codegen tool=delegate_codegen args_summary=<fn name>`.
+2. Call `mcp__deepseek-codegen__delegate_codegen(function_spec=<sig+behaviour>, test_or_signature=<the test source>, constraints=<requirements>, context_snippets=<the adjacent patterns from Step 1 — NOT the whole repo>)`.
+3. Emit `[MCP-RETURN] {ts} status=<ok|refused|error>`.
+4. On `status:"ok"`: REVIEW the returned `code` (style match, no speculative features, sane imports). If good, apply it via Edit/Write (the tool never writes files) and continue to Step 3. If the review rejects it, write the function yourself (normal Step 2).
+5. On `status:"refused"` or `status:"error"`: write the function yourself (normal Step 2) — no retry needed.
+
+Note: DeepSeek output is never trusted, only tested — Step 4 (the Claude-written test) is the gate. If the applied code fails the test after the Step 4b ≤3-iteration debug loop, discard it and rewrite from scratch.
+
+**Reuse existing helpers (don't let DeepSeek re-implement).** If the function should call an **existing** helper (in the repo, or one written earlier in this `/dev` run), put that helper's **signature** in `context_snippets` with an explicit "call this; do NOT re-implement." (To generate **several interdependent** functions at once, use the **batch pipeline** `tools/deepseek-codegen-mcp/batch_pipeline.py`, which declares dependencies, builds leaf helpers first, and exposes them automatically — a lone Step-2a delegation has no sibling context, so it WILL re-implement an undeclared helper.)
+
 ## Step 3: Build (if needed)
 
 Only rebuild if the edited file requires it:
@@ -149,16 +186,15 @@ if [ -n "$locked_pids" ]; then
 fi
 ```
 
-**Build commands:**
-```bash
-# Heavy (C++/CUDA)
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --heavy"
+**Build commands (agent context — DETACHED; `cmd //c --heavy` bricks the venv here, see [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)).** Stop the `.pyd` holder first (launcher REST `POST /api/stop-backend`, else a PID-targeted kill — never `//IM python.exe`), then launch detached with an absolute bat path after `cd /d`:
+```powershell
+# Heavy (C++/CUDA) — default --both (release + debug; --release alone leaves the debug .pyd stale)
+Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
+  '/c','set "VIRTUAL_ENV=D:\repos\PianoidInstall\PianoidCore\.venv" && cd /d D:\repos\PianoidInstall\PianoidCore && D:\repos\PianoidInstall\PianoidCore\build_pianoid_cuda.bat --heavy --both > D:\tmp\build.log 2>&1' -PassThru
 
-# Light (Python middleware)
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_cuda.bat --light"
-
-# PianoidBasic
-unset VIRTUAL_ENV && cmd //c "PianoidCore\build_pianoid_basic.bat"
+# Light (Python middleware) — swap --heavy for --light
+# PianoidBasic — swap build_pianoid_cuda.bat --heavy --both  for  build_pianoid_basic.bat
+# Poll D:\tmp\build.log; done at "[SUCCESS] Build completed."  (Or use tools/dev-pipeline/build_pianoid.py.)
 ```
 
 **Post-build verification:**
@@ -242,14 +278,9 @@ If standalone, print a summary to the user:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Session logs | `docs\development\logs/` |
-| Module locks | `docs\development\MODULE_LOCKS.md` |
-| venv Python | `PianoidCore/.venv/Scripts/python` |
+Repo roots, the venv interpreter (per-OS), and the lock/log locations are project facts — resolve them
+from the active project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths) and
+[→ Interpreters](../../docs/PROJECT_CONFIG.md#interpreters).
 
 ## Example Usage
 

@@ -139,6 +139,243 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      +156/-1). Docs (BUILD_SYSTEM Runtime selection) + log on PianoidInstall master 40dc5c9. 5/5 unit +
      4/4 live tests (a-d) PASS. Python middleware, loads from source — NO CUDA rebuild. NOT merged —
      awaits user live-test + approval. -->
+<!-- dev-cudaguard locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — Phase 2
+     after the user's live test on the no-CUDA box). No-CUDA graceful mode (Opt C). COMMITTED, 3 feature
+     branches (held for the user's test, then merge per team-lead):
+       - PianoidCore feature/no-cuda-gate `fa22dda` (off dev 8df0e56): pianoid_middleware/backendServer.py
+         (_gpu_available cached CuPy probe + /load_preset 503 gate BEFORE destroyPianoid + /health gpu_available)
+         + tests/system/test_no_cuda_gate.py (NEW, 7/7). Python-only, NO CUDA build.
+       - PianoidTunner feature/no-cuda-apply-gate `3c8dad5` (off dev 5758019): src/hooks/useBackendHealth.js
+         (gpuAvailable, default-true unless explicit false) + src/PianoidTuner.js (ensureBackendAndLoadPreset
+         no-CUDA short-circuit + dep) + src/components/BackendStatusIndicator.jsx ("No CUDA" amber chip) +
+         2 NEW Jest (BackendStatusIndicator.noCuda 5, useBackendHealth.gpuAvailable 3). Jest 8/8; BSI suite 11/11.
+       - Outer worktree feature/dev-cudaguard `d6142af`: check-cuda.ps1 (limited-mode warning wording; detection
+         logic from the prior broken-NVML fix). .ps1 only.
+     Diagnostic diagnose-cuda.ps1 already SHIPPED to master (fa2cde1). PianoidBasic CPU synth DEFERRED (docs only:
+     docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md + WIP). Bookkeeping/docs committed on PianoidInstall master.
+     start-pianoid.bat was locked precautionarily but NOT edited (contract sound; the gate lives in check-cuda.ps1
+     + the backend). NO merge, NO push (Phase 2 pending user live test). -->
+<!-- (no active dev-cudaguard locks — released at Phase 1) -->
+<!-- dev-nvmldiag locks RELEASED 2026-06-10 at orchestrator Phase-2 wrap. Held (OUTER PianoidInstall, master):
+     diagnose-cuda.ps1 (edit) + docs/development/diagnostics/dev-nvmldiag-mismatch-verdict-tests.ps1 (NEW harness).
+     diagnose-cuda.ps1 4-round hardening SHIPPED to master (fa2cde1 -> 2cef064 -> 9b53ad9 -> 27f908e); verdict
+     harness (28/28) PRESERVED to master in this wrap. .ps1-only, NO CUDA build. Tree clean. -->
+<!-- dev-drvinstall locks RELEASED 2026-06-10 at orchestrator Phase-2 wrap (lock row was working-tree-only, never
+     committed to master). Held (OUTER PianoidInstall, master): install-nvidia-driver.ps1, check-driver-health.ps1
+     (NEW), setup-packages.bat (option 7), setup-dev.ps1 + 2 NEW harnesses. Driver detect+reinstall option 7 SHIPPED
+     to master (ccf1b0c -> 04a3080 -> 60fcbeb); harnesses PRESERVED to master in this wrap. .ps1/.bat-only, NO CUDA
+     build. All driver ops logic-tested only (no real choco/pnputil/DDU/reboot on this box). Tree clean. -->
+<!-- dev-upcheck locks RELEASED 2026-06-10 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs
+     feature/check-updates-integration-branch onto master + pushes). Held (OUTER PianoidInstall repo root):
+     check-updates.ps1 (edit) + docs/development/diagnostics/dev-upcheck-edge-tests.ps1 (NEW, edge-test diagnostic).
+     Hardened the launcher origin-ahead detector: compare HEAD vs the explicit REMOTE INTEGRATION BRANCH
+     (origin/dev for Core/Tunner/Basic, origin/master for outer) instead of the current-branch upstream @{u},
+     so a no-upstream local feature branch (or detached HEAD / merged-but-not-deleted branch) no longer reports
+     "unknown" and silently skips the prompt. @{u} kept as secondary fallback; unresolvable ref + no upstream ->
+     -1 unknown/skip (never errors). Added -WhatIf dry-run (prints per-repo decision, no MessageBox). PRESERVED:
+     timeout-guarded fetch; git-missing/offline/any-failure -> exit 0 silent; Yes=10/No=0 pop-up; "+N" listing.
+     VERIFIED non-disruptively (NO launch/pull/modal): -WhatIf on this machine = Core +4 / Tunner +13 behind
+     origin/dev, Basic + outer up to date (exit 10); no-upstream bug condition still detects Core +4 (old code
+     skipped it); git-unreachable -> exit 0; edge unit tests 10/10; AST-clean (209 LOC). Committed on
+     feature/check-updates-integration-branch 6f99d68 (off master b5f9051, +222/-29, 6 files). .ps1-only — NO CUDA
+     build, NO backend, NO stack. Docs (QUICK_START update-check paragraph) + session log on this branch. -->
+<!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 (option-(a) /auto adjustment; NOT merged/pushed —
+     team-lead FFs the feature branch onto master + pushes). Held: check-running-servers.ps1 (edit), check-cuda.ps1
+     (edit); start-pianoid.bat NOT edited this round (already passes -Auto; per-case decision moved into the helpers).
+     Adjusted the /auto routing per the user's option (a): running-servers /auto → SHOW Kill&restart/Cancel pop-up
+     (timed WScript.Shell.Popup 30s; Yes→kill+0, No/timeout→cancel/20 = don't-kill-don't-launch); CUDA no-device /auto
+     → SHOW (timed; OK/timeout→0, Cancel→30); CUDA SM<60 /auto → SUPPRESS (informational, shown only bare/interactive);
+     bare/interactive → all 3 blocking MessageBox (unchanged). Show-ServerPrompt NEW; Show-CudaWarning gains -Kind
+     [no-device|low-sm]. POPUP_TIMEOUT_SEC=30. VERIFIED static/AST/sim only (stack LEFT RUNNING — NO launch, NO live-
+     port kill): both .ps1 AST-clean; REAL /auto+SM<60 on this 56-SM box → suppressed (exit0, no warning); REAL timed
+     WScript.Shell.Popup → rc=-1 on 2s timeout (no hang); decision matrix + .bat RC routing all pass team-lead's
+     required matrix (/auto+servers→shown, /auto+no-CUDA→shown, /auto+SM<60→NO popup, bare+SM<60→shown,
+     bare+servers→shown). Committed feature/launcher-prelaunch-checks 749aba5 (+125/-51). Docs (QUICK_START /auto
+     column) on this branch. NOT merged/pushed. Prior Phase-1 commits this branch: 2dff830 feat + 1951b83 docs +
+     e72f505 chore (off master c6baf4e). -->
+<!-- (none active for dev-syschecks — released at Phase 1) -->
+<!-- dev-syschecks locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs the
+     feature branch onto master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit),
+     check-running-servers.ps1 (NEW), check-cuda.ps1 (NEW). TWO best-effort pre-launch checks added to
+     start-pianoid.bat, each a self-contained PowerShell helper invoked like check-updates.ps1 (exit code read by
+     the .bat; any failure → exit 0 = launch): (1) check-running-servers.ps1 — Get-NetTCPConnection -State Listen on
+     3000/3001/5000/5001; if a stack is up → MessageBox (Yes=Kill&restart via PORT-TARGETED Stop-Process on those
+     ports' OwningProcess PIDs ONLY, never /IM; No=Cancel→exit 20). -Auto = warn+leave-untouched+proceed (never kills
+     a live stack unattended). (2) check-cuda.ps1 — venv python + cupy (getDeviceCount + multiProcessorCount) via a
+     TEMP FILE (python -c mangles embedded quotes), nvidia-smi availability fallback; no device → warn, SM<60 → warn
+     (cooperative block_count=strings/4 may exceed SMs; use *_56SM), ≥60 → silent; Cancel→exit 30; -Auto = print+proceed.
+     start-pianoid.bat: running-servers block (RC20→cancel) after node_modules check L97-124, CUDA block (RC30→cancel)
+     after :after_update_check L170-198; both gated by `if not exist ...ps1`+`where powershell`, pass -Auto when
+     NOPROMPT=1. FLAG DESIGN (flagged to team-lead): under /auto both run NON-interactively (safe-default+proceed) so
+     an unattended shortcut never hangs on a pop-up. VERIFIED static/AST/sim only (stack LEFT RUNNING — NO launch, NO
+     live-port kill): both .ps1 AST-clean; check-cuda -Auto via prod path detected RTX 4070 SUPER=56 SMs→correct <60
+     warning; check-running-servers -Auto detected live [3000,3001,5001]+left untouched; .bat full routing S1-S5 (bare
+     all-clear→LAUNCH, servers-up Cancel→abort, CUDA Cancel→abort, /auto→both run w/-Auto→LAUNCH, /auto-noupdate→update
+     skipped+both run→LAUNCH). Committed feature/launcher-prelaunch-checks (2dff830 feat + 1951b83 docs, off master
+     c6baf4e). NO CUDA build, NO backend, NO stack launched. Docs (QUICK_START Pre-launch-safety-checks subsection) +
+     session log on this branch. NOT merged/pushed. -->
+<!-- (none active for dev-syschecks — released at Phase 1) -->
+<!-- dev-b70f locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (NOT merged/pushed — team-lead FFs onto
+     master + pushes). Held (OUTER PianoidInstall repo root): start-pianoid.bat (edit), check-updates.ps1 (NEW),
+     make-shortcut.bat (NEW), make-shortcut.ps1 (NEW). Launcher enhancements: (1) start-pianoid.bat parses %1 →
+     /auto (alias --no-prompt) skips both keypress pauses; /auto-noupdate (alias /no-update-check) also skips the
+     update check; bare = current interactive prompts; error path still pauses in /auto so a shortcut-launched
+     failure stays visible. (2) Best-effort origin-ahead update check before launch via check-updates.ps1 →
+     Yes/No pop-up → Yes calls update-repos.bat then launches; fully guarded (git-missing/offline/no-upstream/any
+     failure → silent fall-through to launch, NEVER blocks/hangs/errors). check-updates.ps1 = timeout-guarded
+     git fetch + rev-list ahead-count for Core/Tunner/Basic(current branch)+Install(master); exit 10=update/0=skip.
+     (3) make-shortcut.ps1+.bat = WScript.Shell COM → Desktop\Pianoid.lnk targeting `start-pianoid.bat /auto`,
+     repo-root workdir, favicon.ico icon. VERIFIED non-disruptively (stack left running): both .ps1 AST-parse clean;
+     start-pianoid.bat all 4 flag branches sim-tested via stubbed copy through cmd /c; check-updates.ps1 git-unreachable→
+     exit 0 + ahead-detection unit-tested (up-to-date/ahead/no-upstream/missing) + real read-only 4-repo probe (6.0s,
+     no pop-up) + Main Yes→10/No→0 decision; make-shortcut real run → Desktop\Pianoid.lnk created, all props asserted.
+     Committed feature/launcher-update-check-shortcut da7c1d5 (off master d7465a3). NO CUDA/backend, NO stack launched,
+     NO real pull. Docs (QUICK_START.md launch subsection) + session log on this branch too. -->
+<!-- dev-09cf locks RELEASED 2026-06-09 at Step 10a Phase 1 commit (user-approved scroll fix, "OK"). Held:
+     PianoidTunner/src/components/ToolBar.jsx. Top-toolbar responsive truncation fix — `<Toolbar>` gets a contained
+     `sx` (overflowX:auto + overflowY:hidden + `& > * {flexShrink:0}` + thin dark-theme scrollbar) so the dense
+     heterogeneous control row scrolls instead of clipping its rightmost controls at narrow widths; wide layout
+     byte-identical. Verified live (chrome-devtools @1600/800/500 — all controls reachable, no page-level h-scroll,
+     wide unchanged) + full Jest 91 suites/1003 tests green + eslint 0 new. Committed on PianoidTunner
+     feature/toolbar-responsive-overflow (off current HEAD feature/eslint-casing-fix; SHA in session log). NOT
+     merged/pushed — team-lead FFs onto dev + pushes (+ Phase 2 wrap). Docs (OVERVIEW ToolBar row) + session log on
+     PianoidInstall master. Frontend-only, NO CUDA/backend. -->
+<!-- dev-pipefix locks RELEASED 2026-06-09 — merged: eslint fix → PianoidTunner dev (8b9acf3); synthetic-dataset → dev (Core a35800a, Tunner 8b9acf3); outer setup-pianoid scripts + update-repos.{bat,sh} (NEW) + docs (QUICK_START/LINUX_BUILD Status_indicator_OK→dev) → master. -->
+<!-- dev-setuppath locks RELEASED 2026-06-08 at Step 10a Phase 1 commit. Held (OUTER PianoidInstall repo root):
+     setup-dev.ps1, setup-path-guard.ps1 (NEW), tests/setup-path-guard.Tests.ps1 (NEW). PATH-preserving guard so
+     setup-dev.ps1 stops breaking NI LabWindows/CVI: the script doesn't persist PATH itself, but the installers it
+     launches (Python PrependPath, VS Build Tools, CUDA, Node MSI) rewrite the persistent PATH and drop NI/CVI
+     entries. Fix: setup-path-guard.ps1 (8 pure/unit-tested helpers) snapshots Machine+User PATH before installers +
+     writes a timestamped backup + NI/CVI heads-up, then reconciles dropped entries after (dedup, survivors-first,
+     2047-char truncation guard refuses-not-truncates); Python PrependPath=0 by default (-PythonPrependPath opt-in).
+     Also ASCII-cleaned the 4 pre-existing em-dashes (removes a latent no-BOM ParseFile fragility). Unit test 17/17
+     PASS (PS 5.1, no Pester dep); ParseFile clean. NO CUDA build, no stack, no audio, no servers. Committed on
+     feature/setup-path-preserve-cvi bec2ccf, MERGED to master d7df7f4 (--no-ff), pushed to origin. Docs (BUILD_SYSTEM.md Step-1
+     PATH-preservation subsection + encoding caveat) + session log on master. -->
+<!-- dev-synthfe Phase-4b locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     awaits user live-test + merge approval). Held (PianoidTunner repo, off dev): SynthesizeSection.jsx,
+     SynthComparisonView.jsx, SynthGridSelector.jsx (3 NEW under modules/panels/collection/), useSynthesize.js
+     (NEW hook), utils/synthScorecard.js (NEW, 8 DeepSeek helpers) + GridLayoutEditor.jsx (edit: additive
+     selectMode/onSelectCell/cellRender) + CollectionSubpanel.jsx (edit: Record|Synthesize toggle) + 3 NEW
+     test files. Synthetic-dataset Phase 4b FRONTEND — the MA Collect "Synthesize" sub-mode + the
+     reconstructed-vs-ground-truth comparison charts (the headline comment-1 deliverable). HYBRID routing
+     (dev.md Step 4b): 8 pure JS/Jest helpers via the DeepSeek batch pipeline (8/8 shipped first-try, $0.0043,
+     node --test gate); the hook + 4 components + 2 edits Opus-inline. REUSE per DECISIONS comment 2:
+     GridLayoutEditor EXTENDED (additive select-mode, not cloned), ImpulseShapeChart reused as the impulse
+     preview, NumInput for every numeric field — no recreation. ACCEPTANCE: 62 new Jest tests (synthScorecard
+     49 + SynthesizeSection 9 + GridLayoutEditor.selectMode 4) + 0 regression (CollectionSubpanel 4/4) + 0
+     eslint errors. ★LIVE UI end-to-end PASSED on the full stack (launcher+React 3000/3001 + modal adapter
+     5001): Record|Synthesize toggle → Synthesize section (mode table + dead-channel grid + impulse) →
+     Synthesize 201 → Validate 200 → comparison charts rendered with PASS verdict, MAC 1.000, recall 1.000,
+     both modes recovered exactly; live ECharts clean. Live-fix during verify: SYNTH_TIMEOUT_MS 180→600s (GPU
+     cold-start). Committed PianoidTunner feature/synthetic-dataset `e707408` (feat) + `a99a41f` (timeout fix).
+     Frontend-only, NO CUDA build. NOT merged/pushed. Docs (OVERVIEW Synthesize sub-mode + proposal status
+     PHASES 1-4 ALL BUILT) + log + ledger + screenshot on PianoidInstall master. -->
+<!-- (none active for dev-synthfe — released at Phase 1) -->
+<!-- dev-synth1 Phase-4a locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     orchestrator sequences Phase 4b frontend; team-lead said the backend is fully done after 4a).
+     Held (PianoidCore repo): synth/synth_routes.py (NEW), routes/__init__.py (edit: register_synth_routes),
+     tests/integration/test_synth_routes.py (NEW). Synthetic-dataset Phase 4a — the synthesize/validate REST
+     routes on modal_bp wiring the P1-3 backend into REST: POST /modal/measurements/synthesize (→201 +
+     synthetic Measurement) + POST /modal/measurements/<id>/validate (→200 + ValidationScorecard JSON).
+     Reuses import_folder_as_measurement UNCHANGED. 100% Opus-inline, 0 DeepSeek. 8/8 route tests; synth
+     integration 16/16 (1 PRE-EXISTING unrelated fail proven at clean HEAD). Committed PianoidCore
+     feature/synthetic-dataset `a35800a` (off P3 37bd432, +379/3 files). Pure Python + CuPy — NO CUDA/.cu, NO
+     rebuild. NOT merged/pushed. Docs (TESTING.md + proposal status BACKEND-COMPLETE) + log + ledger + the
+     REST contract on PianoidInstall master.
+     ★INCIDENT (recovered, no harm): a pre-existing-failure check used `git stash push -- <untracked files>`
+     (fails) + bare `git stash pop` → popped the unrelated preserved stash@{0} (dev-35a3 CUDA work) with
+     conflicts; restored via `git checkout HEAD -- <9 files>` + rm; the dev-35a3 stash is PRESERVED (intact).
+     LESSON: never stash/bare-pop in a shared tree with pre-existing stashes. -->
+<!-- dev-synth1 Phase-3 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+<!-- dev-synth1 Phase-3 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     orchestrator sequences Phase 4). Held (PianoidCore repo):
+       pianoid_middleware/modal_adapter/synth/validate.py (NEW — validation harness)
+       tests/integration/test_synth_validate.py (NEW)
+       pianoid_middleware/modal_adapter/synth/forward_model.py (re-edit: interior-receiver default fix)
+     Synthetic-dataset Phase 3 — validation harness: runs the REAL EspritRunner on a synthetic dataset →
+     match_modes#15 → precision_scorecard#17, scoring with the INDEPENDENT synth.metrics.compute_mac#12 (NOT
+     band_merging — circular-dep). 100% Opus-inline, 0 DeepSeek. ★Lowest-band-first surfaced + I root-caused
+     (by measurement, probe7) a DEAD-CHANNEL regime: default receivers sat on plate-boundary nodes (simply-
+     supported eigenmodes = 0 there) → noise poisoning ESPRIT. FIX: forward_model default receivers inset to
+     the plate INTERIOR (physics untouched — P2 CPU↔GPU parity still bit-exact) + harness amplitude-normalize
+     + a per-channel dead-channel diagnostic (channel_diagnostics, for the Phase-4 UI; captured into
+     DECISIONS.md comment 3 ★INTERIOR PLACEMENT). ACCEPTANCE both green: clean lowest-band hits thresholds on
+     5×5 AND 7×7 (median freq err 7e-5/1.3e-4 <1%, MAC 0.995 >0.95, recall 0.92 >0.9, all 4 modes); band-
+     mismatch → recall 0.0. 5/5 integration tests; 367 no-regression. Committed PianoidCore
+     feature/synthetic-dataset `37bd432` (off P2 e3658e4, +474/3 files). Pure Python + CuPy — NO CUDA/.cu, NO
+     rebuild. NOT merged/pushed. Docs (TESTING.md + proposal status PHASES-1-3) + log + ledger on
+     PianoidInstall master. -->
+<!-- dev-synth1 Phase-2 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+<!-- dev-synth1 Phase-2 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed —
+     orchestrator sequences Phases 3-4). Held 3 NEW PianoidCore files + the synth/__init__.py edit:
+       PianoidCore: pianoid_middleware/modal_adapter/synth/forward_model.py (NEW)
+       PianoidCore: pianoid_middleware/modal_adapter/synth/dataset_writer.py (NEW)
+       PianoidCore: tests/integration/test_synth_forward_model.py (NEW)
+       PianoidCore: pianoid_middleware/modal_adapter/synth/__init__.py (Phase-2 exports added)
+     Synthetic-dataset Phase 2 — GPU sim orchestration (forward_model.py xp-switch mirroring
+     esprit_core._to_gpu_or_cpu; oversample→scipy.signal.decimate→48kHz; grid/modes parametric, default
+     7×7+12) + dataset_writer.py (exact Measurement import layout). 100% Opus-inline, 0 DeepSeek. ACCEPTANCE:
+     CPU↔GPU parity BIT-EXACT (0.000e+00); live POST /modal/measurements/import_folder → HTTP 201 (3 sc /
+     25 ch / 48k — confirms the (samples,n_channels) float32 npy contract via the REAL importer); 11/11
+     integration tests. Committed PianoidCore feature/synthetic-dataset `e3658e4` (off Phase-1 b9c0380,
+     +619/4 files). Pure Python + CuPy — NO CUDA/.cu, NO rebuild. NOT merged/pushed (awaits Phases 3-4 + user
+     gate). Docs (TESTING.md + proposal status) + log + ledger on PianoidInstall master. -->
+<!-- dev-synth1 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed — orchestrator
+     sequences Phases 2-4). Held 11 NEW files, ALL in the **PianoidCore** repo (repo-relative paths;
+<!-- dev-synth1 locks RELEASED 2026-06-08 at Step 10a Phase 1 commit (NOT merged/pushed — orchestrator
+     sequences Phases 2-4). Held 11 NEW files, ALL in the **PianoidCore** repo (repo-relative paths;
+     all created this session, no conflict possible):
+       PianoidCore: pianoid_middleware/modal_adapter/synth/{__init__,geometry,pulse,oscillator,metrics}.py
+       PianoidCore: tests/unit/conftest.py (the `xp` fixture) + tests/unit/test_synth_{geometry,pulse,oscillator,metrics,parity}.py
+     Synthetic-dataset Phase 1 — pure-fn core (17 xp-agnostic numpy/cupy fns) via the dev.md Step-4b
+     delegation model: DeepSeek batch pipeline shipped 16 routine fns first-try ($0.0107, 0 escalated, 0
+     harness errors); Opus authored the 1 judgment fn integrate_modal_oscillator (#8, exact-ZOH IIR). 3
+     dependents CALL their deps (compute_mac/relative_error/oscillator_zoh_coeffs). DUAL-BACKEND GATE:
+     356/356 green on numpy AND cupy (178+178, cupy genuinely ran on GPU). §3.4.2 parity cross-check
+     <1e-2 at the validated band. Committed PianoidCore feature/synthetic-dataset `b9c0380` (off dev
+     9f2c3b5, +1634/11 files). Pure Python + CuPy — NO CUDA/.cu, NO rebuild. NOT merged, NOT pushed
+     (awaits Phases 2-4 + user gate). Docs (TESTING.md + proposal status header) + session log + ledger
+     ref on PianoidInstall master. Stats ledger: D:/tmp/synthds-build/{ledger.json,LEDGER.md}. -->
+<!-- dev-minopus locks RELEASED 2026-06-07 at Phase-2 merge. tools/dev-pipeline/ (common.py + the 4 bookkeeping
+     scripts + marker_hook.py + README + tests) committed 5be7efa, merged to master a02b67b + pushed (d60fb57). -->
+<!-- dev-dsfix locks RELEASED 2026-06-06 at Step 10a Phase 1 commit (user-approved option A — commit only, NO
+     merge/push). Took over dead deepseek-phase0's tools/deepseek-codegen-mcp/** lock and CONTINUED the
+     integration: FIX deepseek-codegen MCP reliability (dir-1) + add NON-THINKING codegen mode (dir-2).
+     Held: tools/deepseek-codegen-mcp/core.py, README.md, test_core.py (server.py + test_integration.py
+     locked precautionarily, NOT edited).
+     ROOT CAUSE (measured): deepseek-v4-flash is a dual-mode REASONING model; with thinking ENABLED it
+     spends reasoning_tokens (measured 1.1k-11.8k) before the answer, counting against max_tokens → the
+     4096 cap truncated complex bodies (no closing fence → unusable) or let reasoning eat the whole budget
+     (no visible content → "empty implementation"); intermittent because reasoning length varies.
+     FIX: (1) disable thinking for codegen (`{"thinking":{"type":"disabled"}}` = DEEPSEEK_THINKING_DISABLED)
+     — the real speed/cost lever, eliminates the failure structurally; (2) DEFAULT_MAX_TOKENS 4096→32768
+     (env-overridable DEEPSEEK_MAX_TOKENS) as defense-in-depth; (3) hardened extract_code (3-tier: closed
+     fence / unterminated-fence recovery / bare-code; never returns a ```lang marker as code). v4-flash pin
+     + temp 0.0 unchanged. +10 unit tests; README updated. NESTED-backtick extractor edge (review Medium #1)
+     DEFERRED.
+     MEASURED: thinking-fix 6/6 usable + oracle-correct (calc 71/71, csv 53/53); non-thinking 9/9 usable
+     (finish=stop, reasoning_tokens=0), ~3-19x fewer completion tokens/call, much faster, with a small
+     first-pass oracle dip on the hardest specs (csv 44-52/53; the /fn test is the correctness gate). Tool
+     suite 48/48 (46 unit + 2 integration incl. 1 live call). Pure-Python, NO CUDA/engine/middleware;
+     server.py untouched.
+     COMMITTED on feature/deepseek-codegen-mcp (Phase 1 — SHA in session log). NOT merged, NOT pushed
+     (awaiting user merge/push approval — Phase 2 pending team-lead relay). Session log NOT yet archived
+     (Phase 2). -->
+<!-- dev-dsfix locks RELEASED 2026-06-07 at Step 10a Phase 1 commit (user-approved "commit your scope ONLY",
+     NO merge/push). PRODUCTIONISED the L3 batch codegen pipeline: NEW tools/deepseek-codegen-mcp/
+     batch_pipeline.py + test_batch_pipeline.py (standalone CLI: manifest → parallel delegate → DeepSeek
+     self-review → test gate → re-delegate ≤K → escalate; never ships a failing body, invariant shipped-iff-
+     passed) + the 2 real-life gap fixes (conftest/_candidate gate convention; collection-error→harness_error
+     no-retry) + Gap A (dual-backend xp_untested signals) + Gap B (deps DAG: validate/topo-layer/expose,
+     --expose). core.py UNCHANGED (context_snippets already existed). Held: tools/deepseek-codegen-mcp/
+     batch_pipeline.py + test_batch_pipeline.py + README.md (server.py/test_integration.py/core.py NOT edited
+     this phase). PROVEN: full repo suite 67/67; real Arm B re-run 17/17 (dual-backend both [numpy]+[cupy],
+     3 dependents CALL their helpers). Committed on feature/deepseek-codegen-mcp (Phase-1 SHA in session log);
+     NOT merged, NOT pushed. Design/analysis proposals (docs/proposals/deepseek-*.md) committed by team-lead.
+     fn.md/dev.md = orchestrator-owned (untouched). Session log NOT archived (Phase 2 pending — not merged). -->
+<!-- (none active for dev-dsfix — released at Phase 1) -->
+| <!-- (none) --> | | | |
 <!-- dev-wave3split-f634 locks RELEASED 2026-06-06 at Step 10a Phase 2 (user-approved "Merge and push" via Telegram;
      executed by sync-release as part of the multi-repo release). Held 9 files: modal_adapter.py, chain_editor.py (NEW),
      project_store.py (NEW), apply_service.py, esprit_orchestrator.py (NEW), tests/unit/test_modal_adapter_state.py,
@@ -153,7 +390,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Pure-Python refactor — no CUDA rebuild. Literal ~400-LOC thin-facade rewrite DEFERRED to follow-up proposal
      docs/proposals/modal-adapter-facade-shim-removal-2026-06-06.md (300-test rewrite). Session log archived to
      logs/archive/. -->
-| <!-- (none active for dev-wave3split-f634) --> | | | |
+<!-- (none active for dev-wave3split-f634) -->
 <!-- dev-fbsl PianoidTunner locks RELEASED 2026-06-05 (team-lead-directed, to unblock dev-mzoom's PianoidTuner.js SC-zoom work). Frontend slider work is COMMITTED on feature/feedback-coeff-slider 9aa0e3e (usePreset.js + useBackendHealth.js + ToolBar.jsx + PianoidTuner.js); no further frontend edits needed. PianoidCore/PianoidBasic locks KEPT (switch-path test + merge). -->
 <!-- dev-fbsl locks RELEASED 2026-06-06 (Step 10a Phase 2, reconciled by sync-release — work already MERGED + PUSHED
      2026-06-06 by dev-mzoom per the user's "include in the push", all CLEAN no conflicts). Held: ModelParams.py,
@@ -164,7 +401,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      dev 05ce924 (slider 9aa0e3e). ★UNVERIFIED — needs a BACKEND REBUILD to function; preset-switch lifecycle test
      (9a88518) UNRUN; user rebuilds + live-tests on another system. Frontend Jest stays green (88/941, eslint 0).
      NO CUDA build done by dev-fbsl itself (frontend composition + middleware/Python). -->
-| <!-- (none active for dev-fbsl) --> | | | |
+<!-- (none active for dev-fbsl) -->
 <!-- dev-mzoom locks RELEASED 2026-06-06 (Step 10a Phase 2, reconciled by sync-release — (1)+(2) and the P0/P1 of (3)
      already MERGED to PianoidTunner dev + PUSHED to origin). Held: PianoidTuner.js, hooks/useCurrentValues.js,
      utils/chartView.js (NEW), SoundChannelsPane.jsx, MeasuredMatrix.jsx, RowEditor.js, BarChart.jsx,
@@ -176,7 +413,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      NO CUDA build. ★DEFERRED follow-up (REAL pending work — see WORK_IN_PROGRESS.md): (3) P2 (highlight band in
      DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) PENDING the user's cross-system test of the
      Feedin reference. Do NOT lose this — it is greenlit, partially-shipped work awaiting a user gate. -->
-| <!-- (none active for dev-mzoom) --> | | | |
+<!-- (none active for dev-mzoom) -->
 <!-- dev-mzoom locks RELEASED 2026-06-05 at Step 10a Phase 1 commit. Held:
      PianoidTunner/src/PianoidTuner.js + src/components/SoundChannelsPane.jsx. Unlock existing
      matrix zoom for Sound Channels (mode-axis): un-gate SC in renderToolbarControls zoom-button
@@ -191,7 +428,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Alert; mzoom=renderToolbarControls zoom buttons + SC call-site) → clean 3-way merge expected,
      team-lead sequences fbsl-then-mzoom at integration. Docs (OVERVIEW SC row + WIP follow-ups)
      + session log on PianoidInstall master. -->
-| <!-- (none active for dev-mzoom) --> | | | |
+<!-- (none active for dev-mzoom) -->
 <!-- dev-mtxfix locks RELEASED 2026-06-05 at Step 10a (team-lead-approved single batch wrap + push). Held:
      PianoidTunner MatrixTools.jsx/.css + __tests__/MatrixTools.theme.test.jsx (deleted), SoundChannelsPane.jsx,
      MeasuredMatrix.jsx, RowEditor.js, hooks/useSettings.js + 2 test files (RowEditor.axisVariant.test.jsx new +
@@ -205,7 +442,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (C1/H1/H2/H3/M3/bar-chart/clip) intact. Full Jest 83 suites/903 tests green; frontend-only, NO build.
      PianoidTunner feature/dev-mtxfix-revert-m1 278ee39 MERGED to dev e2aaacf (--no-ff). Docs (OVERVIEW RowEditor
      row + WIP matrix-zoom gap follow-up) + session log on PianoidInstall master. Pushed to origin. -->
-| <!-- (none active) --> | | | |
+<!-- (none active) -->
 <!-- dev-steinway-preset locks RELEASED 2026-06-05 at Step 10a Phase 2 (user-approved SHIP option A). Held:
      PianoidCore/pianoid_middleware/presets/Belarus_196modesC_Steinway1860 (NEW),
      .../Belarus_196modesC_Steinway1860_56SM (NEW), pianoid_middleware/auto_tuner.py,
@@ -215,7 +452,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Committed feature/steinway-1860-presets f30ba32 + 5655f02, MERGED to dev 7394188 (--no-ff, branch kept).
      NOT pushed (/sync handles origin reconcile + push-all). Regression: test_auto_tuner_robust 14/14 +
      test_tune_pipeline 59/59. Source preset Belarus_196modesC was READ-ONLY (untouched). -->
-| <!-- (none active) --> | | | |
+<!-- (none active) -->
 <!-- dev-asioload locks RELEASED 2026-06-03 at Step 10a Phase 2 (recovery wrap of the orphaned 2026-06-02 HOLD,
      same agent ID; user-approved merge + Phase 2 via Telegram). Held: PianoidCore/pianoid_cuda/Pianoid.cu,
      Pianoid.cuh, AddArraysWithCUDA.cpp, pianoid_middleware/backendServer.py, tests/system/test_asio_fallback.py (new).
@@ -450,7 +687,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      `71bc77f`; SHA reported in session log). NOT merged to dev — Phase 2 awaits user
      re-confirmation. No collision with dev-snmtxleak-7e3d (their files MeasuredMatrix.jsx /
      SoundChannelsPane.jsx / useSoundChannels.js / useHotkeys.js — disjoint). -->
-| dev-stest-4a7c | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
+<!-- dev-stest-4a7c row removed 2026-06-10 (cleanup-bkkp) — was a stale placeholder; release documented in the comment block above. -->
 <!-- dev-snmtxleak-7e3d locks RELEASED 2026-05-31 at Step 10a Phase 1. Held (architectural SC
      strings-axis decouple + useHotkeys falsy-zero guard hardening):
      PianoidTunner/src/components/SoundChannelsPane.jsx (~+24/-2 LOC: local `selectedChannel`
@@ -470,7 +707,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      `play({pitch: 60})` post-click (pre-fix the same gesture fired `play({pitch: 2})`).
      [LOCK RELEASED] 2026-05-31T18:25:00Z. -->
 
-| dev-m17-454a | (released — see comment block above) | 2026-05-31T19:00:00Z | Released at Phase 1 wrap. |
+<!-- dev-m17-454a row removed 2026-06-10 (cleanup-bkkp) — was a stale placeholder; release documented in the comment block above. -->
 <!-- dev-pyspawn-8b3a lock RELEASED 2026-05-31 at Step 10a Phase 1. Held:
      docs/guides/STARTUP_TROUBLESHOOTING.md (re-scoped from code to docs).
      Original brief targeted backendServer.py + launcher.js for an alleged
@@ -782,7 +1019,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      play/listen-gate). Python-middleware-only, NO CUDA build. PianoidCore feature/dev-lmode-health-listen-mode
      6125b69 MERGED to dev at a139971 (--no-ff). Docs (REST_API.md GET /health field semantics + TESTING.md
      test registration) + diagnostic probe + session log on PianoidInstall master. Pushed to origin. -->
-| <!-- (none active) --> | | | |
+<!-- (none active) -->
 <!-- dev-preset-bugs locks RELEASED 2026-05-23 at Step 10a wrap-up (user-approved merge). Held:
      ToolBar.jsx, useHotkeys.js, PianoidTuner.js, usePreset.js — all committed on
      feature/preset-library-bugs (99bed57, b7af146, bbe8638) and MERGED to PianoidTunner `dev` via

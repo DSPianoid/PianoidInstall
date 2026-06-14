@@ -160,7 +160,9 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 echo "Node.js version: $(node --version)"
 
-( cd "$TUNNER_DIR" && npm install )
+# npm ci installs exactly from the committed package-lock.json (reproducible,
+# clean node_modules) rather than resolving fresh like `npm install`.
+( cd "$TUNNER_DIR" && npm ci )
 echo "  OK  STEP 4 COMPLETED"
 echo
 

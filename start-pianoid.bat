@@ -1,6 +1,23 @@
 @echo off
 setlocal enabledelayedexpansion
 
+rem -------------------------------------------------------------------------
+rem Parse the launch flag (%1):
+rem   /auto, --no-prompt   -> skip the "press any key" pauses; launch straight
+rem                           through (used by the desktop shortcut). The
+rem                           update-available pop-up may STILL appear.
+rem   /auto-noupdate,
+rem   /no-update-check     -> /auto AND skip the origin-ahead update check
+rem                           (fully unattended).
+rem A bare invocation (no flag, terminal run) keeps the current prompts.
+rem -------------------------------------------------------------------------
+set "NOPROMPT=0"
+set "SKIP_UPDATE_CHECK=0"
+if /I "%~1"=="/auto"            set "NOPROMPT=1"
+if /I "%~1"=="--no-prompt"      set "NOPROMPT=1"
+if /I "%~1"=="/auto-noupdate"   ( set "NOPROMPT=1" & set "SKIP_UPDATE_CHECK=1" )
+if /I "%~1"=="/no-update-check" ( set "NOPROMPT=1" & set "SKIP_UPDATE_CHECK=1" )
+
 echo =========================================================================
 echo Starting Pianoid Application
 echo =========================================================================
@@ -77,6 +94,110 @@ echo   OK  Frontend dependencies found
 echo.
 
 rem =========================================================================
+rem Running-servers check: is a Pianoid stack already up?
+rem
+rem check-running-servers.ps1 detects LISTENING Pianoid ports (3000/3001/
+rem 5000/5001). If a stack is running it offers (pop-up) Kill & restart vs
+rem Cancel; Kill is PORT-TARGETED (owning PIDs only, never by image name).
+rem Exit codes:
+rem   20 -> a stack was up AND the user chose Cancel -> abort the launch.
+rem    0 -> proceed (nothing up / killed & restarting / best-effort failure).
+rem In /auto it runs non-interactively: warns on console, leaves the running
+rem stack untouched, and proceeds (never kills the user's stack unattended).
+rem Best-effort: a missing script or PowerShell falls through to launch.
+rem =========================================================================
+if not exist "%ROOT_DIR%check-running-servers.ps1" goto :after_running_check
+where powershell >nul 2>&1
+if errorlevel 1 goto :after_running_check
+
+set "RUNNING_AUTO="
+if "%NOPROMPT%"=="1" set "RUNNING_AUTO=-Auto"
+set "RUNNING_RC=0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-running-servers.ps1" %RUNNING_AUTO%
+set "RUNNING_RC=%errorlevel%"
+if "%RUNNING_RC%"=="20" (
+    echo.
+    echo Launch cancelled - a Pianoid stack is already running.
+    echo.
+    goto :end
+)
+:after_running_check
+
+rem =========================================================================
+rem Best-effort update check (origin ahead?) -> offer to run update-repos.bat
+rem
+rem check-updates.ps1 fetches each Pianoid repo (short timeout) and, if any
+rem origin is ahead, shows a Yes/No pop-up. It is fully self-contained and
+rem returns:
+rem    10  -> updates available AND the user clicked Yes  -> run update-repos
+rem     0  -> anything else (up to date / No / git unreachable / no network /
+rem           any failure) -> just launch
+rem
+rem The entire block is best-effort: if PowerShell or the script is missing,
+rem or anything goes wrong, we fall through to the normal launch. It NEVER
+rem blocks or errors the launch. Skipped entirely when /auto-noupdate is set.
+rem =========================================================================
+if "%SKIP_UPDATE_CHECK%"=="1" (
+    echo Skipping update check ^(--no-update-check^).
+    echo.
+    goto :after_update_check
+)
+if not exist "%ROOT_DIR%check-updates.ps1" goto :after_update_check
+where powershell >nul 2>&1
+if errorlevel 1 goto :after_update_check
+
+echo Checking for updates on origin ^(best-effort^)...
+set "UPDATE_RC=0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-updates.ps1"
+set "UPDATE_RC=%errorlevel%"
+
+if "%UPDATE_RC%"=="10" (
+    echo Updates accepted - running update-repos.bat ...
+    echo.
+    if exist "%ROOT_DIR%update-repos.bat" (
+        call "%ROOT_DIR%update-repos.bat"
+    ) else (
+        echo WARNING: update-repos.bat not found - skipping update, proceeding to launch.
+    )
+    echo.
+) else (
+    echo   No update selected - proceeding to launch.
+    echo.
+)
+:after_update_check
+
+rem =========================================================================
+rem CUDA device check (best-effort, before launch)
+rem
+rem check-cuda.ps1 queries the GPU via the engine venv + cupy (authoritative
+rem SM count; nvidia-smi availability fallback). Pianoid's synthesis engine
+rem runs a cooperative kernel whose block count (= strings / 4) must fit the
+rem GPU's SM-bounded cooperative budget, so it warns when no CUDA device is
+rem found or the device has < 60 SMs (full-keyboard presets may not run).
+rem Exit codes:
+rem   30 -> a warning was shown AND the user clicked Cancel -> abort the launch.
+rem    0 -> proceed (device OK / user clicked Continue / could not determine).
+rem In /auto the warnings are printed (informational) and the launch proceeds.
+rem Best-effort: a missing script / PowerShell / venv falls through to launch.
+rem =========================================================================
+if not exist "%ROOT_DIR%check-cuda.ps1" goto :after_cuda_check
+where powershell >nul 2>&1
+if errorlevel 1 goto :after_cuda_check
+
+set "CUDA_AUTO="
+if "%NOPROMPT%"=="1" set "CUDA_AUTO=-Auto"
+set "CUDA_RC=0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-cuda.ps1" %CUDA_AUTO%
+set "CUDA_RC=%errorlevel%"
+if "%CUDA_RC%"=="30" (
+    echo.
+    echo Launch cancelled at the CUDA check.
+    echo.
+    goto :end
+)
+:after_cuda_check
+
+rem =========================================================================
 rem Start application
 rem =========================================================================
 rem The launcher (server/launcher.js) manages the backend lifecycle:
@@ -98,8 +219,12 @@ echo     Frontend UI:  http://localhost:3000
 echo     Launcher WS:  http://localhost:3001
 echo     Backend API:  http://localhost:5000  (after APPLY)
 echo.
-echo Press any key to start...
-pause >nul
+if "%NOPROMPT%"=="1" (
+    echo Launching automatically ^(/auto^)...
+) else (
+    echo Press any key to start...
+    pause >nul
+)
 
 start "Pianoid" /D "%TUNNER_DIR%" cmd /k "npm run dev"
 
@@ -129,6 +254,9 @@ echo   cd %TUNNER_DIR%
 echo   npm start
 echo -------------------------------------------------------------------------
 
+rem Success path: in /auto mode the window must not hang on a keypress after
+rem spawning npm (the desktop shortcut launches this). Exit straight away.
+if "%NOPROMPT%"=="1" exit /b 0
 goto :end
 
 :error
@@ -142,6 +270,8 @@ echo Make sure you have run the setup scripts first:
 echo   1. setup-packages.bat (as admin) - install system dependencies
 echo   2. setup-pianoid.bat             - build all packages
 echo.
+rem NOTE: the error path always pauses (even in /auto) so a shortcut-launched
+rem window stays open long enough to read the failure instead of flashing away.
 
 :end
 echo.

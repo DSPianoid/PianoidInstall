@@ -149,9 +149,9 @@ root:
 mkdir -p ~/pianoid && cd ~/pianoid
 git clone https://github.com/DSPianoid/PianoidInstall
 cd PianoidInstall
-git clone https://github.com/DSPianoid/PianoidCore
-git clone https://github.com/DSPianoid/PianoidBasic
-git clone -b Status_indicator_OK https://github.com/DSPianoid/PianoidTunner
+git clone -b dev https://github.com/DSPianoid/PianoidCore
+git clone -b dev https://github.com/DSPianoid/PianoidBasic
+git clone -b dev https://github.com/DSPianoid/PianoidTunner
 ```
 
 ## Step 2 — Run the installer

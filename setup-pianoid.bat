@@ -48,19 +48,33 @@ rem =========================================================================
 echo [STEP 1/4] Setting up Python virtual environment...
 echo =========================================================================
 
-rem Verify Python 3.12+ is available
-python --version 2>nul | findstr /R "3\.1[2-9] 3\.[2-9][0-9]" >nul
-if !errorlevel! neq 0 (
-    echo ERROR: Python 3.12 or newer is required but not found on PATH.
-    echo Found:
-    python --version 2>&1
+rem Locate a Python 3.12+ launcher. Do NOT assume bare `python` is on PATH:
+rem the PATH guard installs Python with PrependPath=0 on the direct-installer
+rem fallback (winget-less machines), so `python` may be absent even though
+rem Python 3.12 is installed. Try `python`, then the `py` launcher (`py -3.12`,
+rem `py -3`). This command is used ONLY for the version check and venv creation;
+rem everything after uses the venv interpreter directly.
+set "PY_LAUNCHER="
+for %%C in ("python" "py -3.12" "py -3") do (
+    if not defined PY_LAUNCHER (
+        %%~C --version 2>nul | findstr /R "3\.1[2-9] 3\.[2-9][0-9]" >nul
+        if !errorlevel! equ 0 set "PY_LAUNCHER=%%~C"
+    )
+)
+if not defined PY_LAUNCHER (
+    echo ERROR: Python 3.12 or newer is required but was not found.
+    echo Tried: python, py -3.12, py -3
+    echo Found via `py` launcher:
+    py -0p 2>&1
     echo.
-    echo Install Python 3.12+ via setup-packages.bat or ensure it is on PATH.
+    echo Install Python 3.12+ via setup-packages.bat, or ensure `python` or the
+    echo `py` launcher resolves to Python 3.12+.
     goto :error
 )
 
+echo Python launcher: %PY_LAUNCHER%
 echo Python version:
-python --version
+%PY_LAUNCHER% --version
 echo.
 
 rem Honour PIANOID_VENV_DIR if set (used by Linux NTFS-relocation logic);
@@ -73,7 +87,7 @@ if defined PIANOID_VENV_DIR (
 
 if not exist "%VENV_DIR%" (
     echo Creating virtual environment at %VENV_DIR% ...
-    python -m venv "%VENV_DIR%"
+    %PY_LAUNCHER% -m venv "%VENV_DIR%"
     if !errorlevel! neq 0 (
         echo ERROR: Failed to create virtual environment
         goto :error
@@ -182,8 +196,10 @@ node --version
 echo.
 
 pushd "%TUNNER_DIR%"
-echo Running npm install...
-npm install
+echo Running npm ci...
+rem npm ci installs exactly from the committed package-lock.json (reproducible,
+rem clean node_modules) rather than resolving fresh like `npm install`.
+npm ci
 set "NPM_EXIT=!errorlevel!"
 popd
 

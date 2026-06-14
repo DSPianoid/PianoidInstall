@@ -96,6 +96,27 @@ git -C <repo> diff <pre-state>..<post-state> --name-only
 This is the gate that FAIL #1 skipped: new Python (`StringMap.pack_output_mask`) ran against
 stale binaries because merge→push had no rebuild step.
 
+#### `update-repos.{bat,sh}` — automated pull + post-pull rebuild
+
+`update-repos.bat` (Windows) / `update-repos.sh` (Linux), at the install root, automate
+this gate for a routine "pull latest and rebuild what's needed" sweep. They:
+
+1. `git pull --ff-only` each sub-repo (PianoidCore, PianoidTunner, PianoidBasic) on its
+   **current** branch — they do NOT switch branches, and WARN (but still pull) if a repo
+   is not on `dev`.
+2. Compute each repo's pulled diff and rebuild per the table above:
+   PianoidCore `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py` → CUDA build; any PianoidBasic
+   change → PianoidBasic build (+ CUDA, it is consumed by the engine); PianoidTunner
+   `package.json`/`package-lock.json` → `npm ci`. Nothing relevant → no-op (idempotent).
+3. Before any CUDA rebuild, stop the `.pyd`/`.so` holder (launcher REST
+   `POST /api/stop-backend`, else a port-targeted kill of the listener on 5000) so the
+   `--heavy` uninstall does not fail and brick the venv.
+
+CUDA variant flags mirror `build_pianoid_cuda.{bat,sh}`: default `--both` (release + debug);
+`--release` / `--debug` build a single variant; `--help` prints usage. Run it from a
+foreground terminal (it is interactive — it stops the backend itself). After a CUDA rebuild
+it reminds you to run the import + `/load_preset` 200 verification.
+
 ---
 
 ### 0xC0000142 Recovery (STATUS_DLL_INIT_FAILED)
@@ -215,6 +236,7 @@ Each pair is maintained as a single logical unit.
 |---|---|---|
 | Install system packages | `setup-packages.bat` | `setup-packages.sh` |
 | Install Pianoid (venv + builds) | `setup-pianoid.bat` | `setup-pianoid.sh` |
+| Update repos (pull + rebuild what changed) | `update-repos.bat` | `update-repos.sh` |
 | Launch full stack | `start-pianoid.bat` | `start-pianoid.sh` |
 | Build PianoidBasic wheel | `PianoidCore/build_pianoid_basic.bat` | `PianoidCore/build_pianoid_basic.sh` |
 | Build PianoidCuda extension | `PianoidCore/build_pianoid_cuda.bat` | `PianoidCore/build_pianoid_cuda.sh` |
@@ -446,6 +468,50 @@ SDL versions require exact patch numbers because they map to specific download U
 
 Options include selective reinstall of individual components (Python, CUDA, Node.js)
 or a full reinstall of all components.
+
+### PATH preservation (protects NI LabWindows/CVI)
+
+`setup-dev.ps1` does **not** itself persist any PATH change — it only refreshes the
+session `$env:PATH` and writes the MSVC bin path into `build_config.json`. The Pianoid
+build reads `cl.exe` from `build_config.json` (via `detect_paths.py`) and deliberately
+avoids `vcvars64`, so **Pianoid never needs MSVC (or any toolchain) on the global
+PATH**. The persistent PATH, however, is rewritten by the third-party installers the
+script launches — the Python installer, VS 2022 Build Tools, the CUDA Toolkit, and the
+Node.js MSI — and on machines with NI LabWindows/CVI installed, one of those can drop or
+reorder the National Instruments PATH entries, leaving CVI unable to find its
+dependencies.
+
+To prevent this, `setup-dev.ps1` brackets the installer run with a snapshot/restore
+guard implemented in `setup-path-guard.ps1` (dot-sourced; pure, unit-tested helpers):
+
+1. **Snapshot** the persistent Machine + User PATH before any installer runs, and write
+   a timestamped backup (`pianoid-setup-path-backup-<ts>.txt`, next to the script) for
+   manual recovery.
+2. **Detect** an NI/CVI footprint (the two NI install roots, any `*CVI*` directory, or an
+   NI/CVI entry already on PATH) and print a heads-up that PATH will be protected.
+3. **Reconcile** after all installers finish: re-read the persistent PATH, compute every
+   entry that was in the snapshot but is now missing, and re-append those dropped entries
+   (de-duplicated case-insensitively, surviving entries' order preserved).
+4. **Truncation guard:** if a reconciled PATH would exceed a safe length cap (2047 chars),
+   the guard refuses to write it and warns loudly rather than risk silently dropping
+   entries — the backup file is the recovery path.
+
+The Python installer is also invoked with `PrependPath=0` by default (was `1`), so it does
+not rewrite the persistent PATH at all; the script captures `python.exe`'s explicit path
+regardless. Pass `-PythonPrependPath` to opt back in.
+
+> **Encoding caveat (`setup-dev.ps1`).** The script is UTF-8 **without a BOM** and contains
+> a few non-ASCII em-dashes in comments/strings. It runs correctly via
+> `powershell.exe -Command "& '...setup-dev.ps1'"` (the `setup-packages.bat` path), but the
+> `[Parser]::ParseFile()` API defaults to the ANSI code page for no-BOM files and will
+> mis-report syntax errors. To parse-check it, decode as UTF-8 first:
+> `[Parser]::ParseInput([IO.File]::ReadAllText($f,[Text.Encoding]::UTF8), [ref]$t, [ref]$e)`.
+> New code added to the script should stay pure-ASCII (the PATH-guard additions do).
+
+The pure PATH helpers have a standalone unit test at `tests/setup-path-guard.Tests.ps1`
+(Windows PowerShell 5.1, no Pester dependency): run
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\setup-path-guard.Tests.ps1`
+(exit 0 = pass). It mocks PATH strings and never runs the installers.
 
 ---
 

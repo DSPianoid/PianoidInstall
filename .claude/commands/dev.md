@@ -2,10 +2,17 @@
 name: dev
 description: Development workflow — study context, baseline test, branch, edit, verify, debug, document, commit.
 user-invocable: true
+tier: generic
 argument-hint: <task description — bug fix, feature, or refactor>
 ---
 
 # Pianoid Development Workflow
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. Follow every step in order. Do not skip steps.
 
@@ -29,13 +36,10 @@ Do not ship a change that pushes a file past the C4 thresholds without discussin
 
 Every rebuild, install, or server restart starts by reading the canonical docs — NOT by typing `pip install`. Skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild.
 
-- **Before ANY CUDA build** — read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/QUICK_START.md`.
-- **Canonical rebuild command** — `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both` (cd-safe `.\` path + default `--both`; in agent context use the detached `Start-Process` form — see [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)). Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your edit never lands.
-- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone does NOT copy CUDA DLLs; run release first (or `--both`). Missing DLLs look like import errors, not build errors.
-- **Verify the rebuild landed** — `grep -a "<new-string-you-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If your marker is absent, nothing changed — do NOT run tests.
-- **Pre-build hygiene** — `tasklist //M pianoidCuda.cp312-win_amd64.pyd` to find stale holders; kill by PID before building. A locked `.pyd` causes `[WinError 5] Access is denied`, leaves the package uninstalled, and breaks the venv.
-- **Before starting the backend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md`.
-- **On unexpected build or startup failure** — invoke `/startup` rather than troubleshooting blindly. `/startup` is the authoritative reference.
+- **The full docs-first build/run discipline is the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run)** (read-which-docs · canonical build · debug-variant trap · verify-landed · pre-build hygiene). Read it before any build/restart.
+- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — in agent context use the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Full procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
+- **Verify the rebuild landed** (`grep -a "<new-string>" …pianoidCuda…pyd`) — if your marker is absent, nothing changed; **do NOT run tests**.
+- **On unexpected build/startup failure → invoke `/startup`** rather than troubleshooting blindly.
 
 ## Documentation Folder Taxonomy (MANDATORY)
 
@@ -45,7 +49,8 @@ Every doc artefact a `/dev` session produces (or moves) belongs in exactly one c
 |--------|----------|--------|
 | `docs/development/logs/` | Agent session logs ONLY - one file per `/dev` (or `/fn`) session | `dev-XXXX-YYYY-MM-DD-HHMMSS.md` |
 | `docs/development/logs/archive/` | Completed agents' session logs (moved here at Step 10 wrap-up) | same naming |
-| `docs/proposals/` | Refactor proposals, design analyses, plans, planning docs not yet implemented | `<topic>-<YYYY-MM-DD>.md` |
+| `docs/proposals/` | UPPER-LEVEL development/refactoring proposals ONLY — one doc per topic; future-work designs, not historical records | `<topic>-<YYYY-MM-DD>.md` |
+| `docs/development/` | Working/planning docs, investigation notes, substrate/context docs that feed a proposal (directly under `development/`, NOT a `proposals/` subfolder) | `<topic>-<YYYY-MM-DD>.md` |
 | `docs/development/reviews/` | Code reviews, system reviews, audits | `<scope>-review-<YYYY-MM-DD>.md` |
 | `docs/development/diagnostics/` | Diagnostic snippets, troubleshooting scripts (`.py`, `.js`, etc.) | `<agent-id>-<purpose>.<ext>` |
 | `docs/development/screenshots/` | Standalone UI screenshots not referenced from a session log | `<agent-id>-<view>.png` |
@@ -59,7 +64,7 @@ Every doc artefact a `/dev` session produces (or moves) belongs in exactly one c
 3. Plan / proposal output written to disk (Step 4 deferral, design doc, refactor analysis) -> `docs/proposals/`. Reference it from the session log via relative path.
 4. Diagnostic `.py` / `.js` / `.html` artefacts produced during investigation -> `docs/development/diagnostics/`, prefixed with the agent ID for traceability.
 
-**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When you produce a NEW proposal that supersedes an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When proposal work fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Once a proposal has been fully implemented, archive it too — `docs/proposals/` is for *future-work* designs, not historical records.
+**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When you produce a NEW proposal that supersedes an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When proposal work fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Once a proposal has been fully implemented, archive it too — `docs/proposals/` is for *future-work* designs, not historical records. **`docs/development/proposals/` MUST NOT exist:** proposals live in `docs/proposals/` ONLY; all working/planning, investigation, and substrate/context docs live directly under `docs/development/` (never a `proposals/` subfolder). If you encounter a `docs/development/proposals/` folder, re-home its contents (upper-level proposal → `docs/proposals/`; working/planning → `docs/development/`; already-shipped → `docs/proposals/archive/`) and delete the folder — never add to it.
 
 **Single-source-of-truth for plans (MANDATORY):** a planning document MUST NOT reference older versions of itself or earlier supersededs of the same plan. The current plan is the single source of truth — readers should never have to "compare against the previous version" to understand what's authoritative. Allowed references from a plan: research/measurement docs, analysis docs, code reviews, architecture docs, module reference docs, external-system specs (anything that's NOT another planning document on the same topic). When a new plan supersedes an old one, copy any still-relevant context FORWARD into the new plan body — don't link backward to the archived old plan. The "Investigation history" footer (when used) lists the supporting research/analysis docs only, never prior planning revisions.
 
@@ -114,6 +119,8 @@ Add a reference to `docs/development/WORK_IN_PROGRESS.md` under `## Active Dev S
 
 Append rows for new agents; do not replace existing entries from other agents.
 
+**This table is a TRANSIENT roster of IN-FLIGHT agents, not a status ledger.** Use EXACTLY the 4 columns above — do NOT add a "Status" column. A row exists only while the agent is active or awaiting close-out, and is **removed entirely at Phase 2** (its outcome goes into a historical `<!-- -->` comment, never into a status cell). Convey progress through your session LOG's `[STEP-X]` markers, not this row. A row left present with a terminal status ("MERGED"/"done") is the #1 source of WIP debt — see Step 10a Phase 2.
+
 ### Step 0 Completion Marker
 
 Once the log file exists, the WIP entry is added, and (if any) initial locks are acquired, emit `[STEP-0-COMPLETE] 2026-05-05T12:30:22Z` as the FIRST line under `## Actions` in your session log. The controller computes `spawn → STEP-0-COMPLETE` delta:
@@ -123,6 +130,8 @@ Once the log file exists, the WIP entry is added, and (if any) initial locks are
 These are not new requirements — they are the existing Step 0 rules with explicit timing. A controller is always active in orchestrator-driven sessions and watches every dev agent's session log.
 
 **Do not idle after `[STEP-0-COMPLETE]`.** Proceed directly into Step 1 (or Step 0b for a resume) and start emitting `[PROGRESS]` heartbeats. An agent that completes Step 0 then stops producing markers is flagged as idle-after-step by the controller's fast freshness check (> 8 min silent) within minutes, and will be nudged or re-spawned. A multi-step task is yours to carry through autonomously — don't stop and wait after the initial step.
+
+**Helper script (optional — collapses this scaffold into one turn).** `python tools/dev-pipeline/dev_init.py "<task>" [--agent-id dev-xxxx] [--branch feature/x --repo PianoidCore] [--plan docs/proposals/x.md]` generates the agent ID, writes the byte-faithful log header (with `[STEP-0-COMPLETE]` as the first `## Actions` line), adds the WIP `## Active Dev Sessions` row, and optionally creates the branch — then prints the agent ID + log path. Opus still owns the judgment the script never touches: whether to branch vs work on dev, and lock acquisition. See `tools/dev-pipeline/README.md`.
 
 ### Check for Paused or Stale Sessions
 
@@ -494,7 +503,7 @@ Before any code changes, run the performance test suite and save results:
 
 ```bash
 cd PianoidCore
-.venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/baseline_perf.log
+.venv/Scripts/python -m pytest tests/system/test_performance_audio_off.py -v -s 2>&1 | tee /tmp/baseline_perf.log
 ```
 
 Record these metrics from the output:
@@ -638,6 +647,8 @@ Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList `
 # Poll D:\tmp\build.log; done at "[SUCCESS] Build completed". Full procedure: BUILD_SYSTEM.md → Canonical Install / Rebuild.
 ```
 
+**Helper script (optional — the whole procedure above in one call).** `python tools/dev-pipeline/build_pianoid.py --heavy --both [--marker "<string from your edit>"]`: precheck `.pyd` holders → stop the holder FIRST (launcher REST, else PID-targeted, never `//IM`) → launch the detached build (absolute bat path) → poll the log for `[SUCCESS]` → grep-verify the `.pyd` for your marker → emit `[BUILD STARTED]`/`[BUILD OK]`/`[BUILD FAIL]`. It NEVER pip-installs (the stale-`.pyd` trap) and ABORTS rather than build against a held `.pyd` (the venv-brick guard). **Build-failure diagnosis stays Opus** — on `[BUILD FAIL]` it tails the log + flags the exit code (incl. 0xC0000142); you apply the documented recovery below. See `tools/dev-pipeline/README.md`.
+
 **If the build fails with exit code `3221225794` (0xC0000142 STATUS_DLL_INIT_FAILED):**
 
 Do NOT fall back to a manual `pip install --force-reinstall ... pianoid_cuda/` — that silently
@@ -659,9 +670,31 @@ Verify the path is inside `PianoidCore/.venv/` (not root `.venv/`).
 
 The controller alerts if Step 5 begins without a preceding `[BUILD OK] verified=yes` (Tier-1 warn). Any `pip install ... pianoid_cuda/` invocation lacking a paired `[BUILD STARTED]` is the canonical-build-script violation (Tier-2 escalate).
 
-## Step 4b: Delegate to `/fn` Sub-Agents (preferred)
+## Step 4b: Codegen delegation — /dev designs, DeepSeek does routine bodies, /fn is judgment + debug
 
-When a task can be decomposed into functions with clear requirements and testable acceptance criteria, **prefer delegating to `/fn` sub-agents** over editing code inline. This applies whether there's one function or many — the value is in enforced requirements clarity and test-driven implementation, not just parallelism.
+When a task decomposes into functions with clear, testable acceptance criteria, the **/dev agent itself owns the design** — it writes each function's spec + test + selects the context — and routes the work by KIND:
+
+- **Routine, DeepSeek-eligible function** (the common case) → **/dev does NOT spawn a `/fn` per function.** It writes the spec + test + picks the context snippets, then delegates the codegen to **DeepSeek through the batch pipeline** (`tools/deepseek-codegen-mcp/batch_pipeline.py`) — **uniformly, even for a single function** (a 1-function manifest; no direct-call special case). The pipeline delegates + runs the per-function test gate + flags failures in pure Python (zero Opus per function — the strategy-C win: one designing /dev agent beats N spawned `/fn` workers each re-paying the ~$0.15 startup tax). Clean pass → apply, done. Failure → see **On DeepSeek failure** below.
+  - *Eligible WHEN (all hold):* Python (`.py`/pytest) or JS/TS/React (`.js/.jsx/.ts/.tsx`/Jest — PianoidTunner included), or any language with a fast isolated test gate; a single, pure, well-specified unit; the test is written FIRST (see "Prepare tests FIRST" below).
+  - *Manifest layout + CLI:* one directory, per function `<name>`: `<name>.spec.md` (signature + behaviour) · `<name>.test.py` (the gate — imports the candidate as `import impl_<name>`) · `<name>.meta.json` (`{target_module, language, xp_agnostic, deps:[<sibling helpers it may call>]}`) · shared `conftest.py`/`pytest.ini` if needed. Run: `PianoidCore/.venv/Scripts/python tools/deepseek-codegen-mcp/batch_pipeline.py --manifest <dir> --out <outdir> --review-ds on --expose bodies --concurrency 4` → shipped bodies land in `<outdir>/impl_<name>.py` (or `<name>.escalated` on a gate failure). Full reference: `tools/deepseek-codegen-mcp/README.md` → "Batch pipeline".
+- **Judgment-heavy function** (genuine design judgment a hard test can't fully pin) → /dev's discretion: **write it inline** (pruning between functions per Context hygiene below), OR **spawn an Opus `/fn`** sub-agent for it (the enforced-clarity + isolation path — the Spawning procedure below). Reserve the `/fn` spawn for a unit large enough to clear the ~$0.15 spawn tax AND needing Opus judgment.
+- **HARD RULE — never DeepSeek:** any `.cu/.cpp/.cuh/.h/setup.py` (CUDA/C++) change, and any cross-cutting or multi-file refactor, stays on **Claude /dev** (write inline or via an Opus `/fn`) — never DeepSeek. (The MCP tool also refuses C++/CUDA as a backstop, but the gate is /dev's routing decision first.)
+
+So **`/fn` now has exactly two roles:** (1) implement a *judgment-heavy* function (Opus, when /dev chooses isolation over inline), and (2) **debug a DeepSeek failure** (below). The routine-codegen path no longer spawns a `/fn` per function — specs + context + delegation live in /dev; the codegen is DeepSeek-via-pipeline.
+
+**SAFETY (unchanged):** DeepSeek output is never trusted, only tested — the /dev-written test is the gate. DeepSeek never writes files, never commits, never updates docs. Mechanism + setup: `tools/deepseek-codegen-mcp/README.md` (+ `/fn` Step 2a for the single-unit envelope).
+
+### On DeepSeek failure (the `/fn` debug agent)
+
+When the pipeline flags a function as failed (DeepSeek couldn't pass the gate after its retries), /dev:
+1. **Tries ONE quick inline fix** — /dev already holds the spec + test + context; read the failure + the flagged body, attempt a targeted fix, re-run the gate. (Cheaper than a spawn for a trivial miss.)
+2. **If that doesn't land, or the bug is clearly deep** → spawn a **dedicated `/fn` debug agent** (Opus) for that ONE function: hand it the failing body + the test + the failure output + the spec; it debugs/rewrites to green. This is where Opus cognition earns the spawn.
+
+Never ship a failing body; never enter Step 5 with a red function.
+
+**Dual-backend tests for array-agnostic functions (MANDATORY).** When a function takes an array module (`xp`, numpy/cupy/torch), the test you prepare FIRST must exercise **both** numpy AND cupy — a numpy-only test ships latent cupy bugs (the 2026-06-06 A/B shipped a `cupy + numpy` add the numpy-only gate never caught). See the dual-backend rule in `/fn` Step 2a; it governs the tests `/dev` writes before delegating, too.
+
+**Declare deps in the manifest.** Since ALL DeepSeek codegen flows through the pipeline now, each function's `meta.json` declares its `deps` (the sibling helpers it may call). The pipeline builds leaf helpers first and exposes them in the delegate prompt — otherwise DeepSeek **re-implements** shared logic (the 2026-06-06 A/B re-implemented `compute_mac` in two functions instead of calling it). **Same for React:** a component declares the shared component it composes as a dep, so that component is built first and its prop interface exposed — don't let DeepSeek re-create a `NumInput` (divergent styling/a11y/debounce a Jest test rarely asserts).
 
 ### When to delegate
 
@@ -674,6 +707,17 @@ When a task can be decomposed into functions with clear requirements and testabl
 - The change is a cross-cutting refactor (rename across many call sites, structural reorganization)
 - The function's behavior can only be verified through the full system (no isolated test possible)
 - The change is so trivial that writing the spec would take longer than the edit
+
+### Context hygiene & spawn-cost discipline (cost control)
+
+Every Opus turn re-reads the agent's **entire accumulated context** as cache-read before it does anything — that re-read (not the work) is ~65% of cost. So the levers are: make fewer turns, and keep each turn's resident context small. Apply these to this agent AND to how it shapes `/fn` work:
+
+- **Read narrowly.** Read the target function span with `offset`/`limit`, not the whole file, when one function is in scope. Read the one gating test, not the whole suite / `SUITE.md`.
+- **Test once at the end** of a function, not after each speculative edit (review-on-red). The 4×-incremental-pytest pattern re-reads ~50k each time — three wasted turns ≈ $0.13 on a 3-function run.
+- **Prune stale tool output.** Once a function is green, don't keep its full diff + every intermediate pytest dump resident — summarize to one line in the **session log** (the durable record) and move on. Prune *stale* output, never *load-bearing* context (Data Model Card facts, the spec, the current test).
+- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **~$0.15 startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2 (measured: +38% at N=3, +60% at N=10). **Never spawn an Opus sub-agent for a unit of work smaller than ~$0.15 — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY when the unit is a *judgment* function needing Opus isolation — for ROUTINE codegen the cheaper path is the DeepSeek pipeline (Step 4b above), never a fanned-out Opus `/fn`.
+
+(Full cost model + measurements: `docs/proposals/minimize-opus-calls-dev-pipeline-2026-06-06.md`.)
 
 ### Prepare tests FIRST (dev agent responsibility)
 
@@ -697,7 +741,9 @@ The test file **persists in the project** — it is not disposable scaffolding. 
 
 **Write the test, commit-stage it, then reference it in the sub-agent spawn.** This way the test survives regardless of the sub-agent's outcome.
 
-### Spawning procedure
+### Spawning procedure (for a `/fn` spawn — judgment or debug, NOT the routine pipeline path)
+
+> The procedure + markers below (`[TEST-WRITTEN]` / `[FN-SPAWNED]` / `[FN-RESULT]`) apply when you SPAWN a `/fn` agent — i.e. a *judgment-heavy* function or a *debug-on-DeepSeek-failure*. The routine DeepSeek path (above) runs the **pipeline** instead and emits no `[FN-SPAWNED]` — its gate is the pipeline's per-function test run.
 
 1. **Decompose** — for each function, define:
    - `target_file`: absolute path to the file to edit
@@ -806,7 +852,7 @@ Agent({
 Run the same test suite:
 ```bash
 cd PianoidCore
-.venv/Scripts/python -m pytest tests/system/test_performance.py -v -s 2>&1 | tee /tmp/postchange_perf.log
+.venv/Scripts/python -m pytest tests/system/test_performance_audio_off.py -v -s 2>&1 | tee /tmp/postchange_perf.log
 ```
 
 Compare against baseline and print a table:
@@ -830,6 +876,8 @@ Compare against baseline and print a table:
 
 **Markers (MANDATORY):** after the comparison table, emit `[REGRESSION-CHECK] 2026-05-05T12:30:22Z gpu_mean_delta_pct=<N> sound_corr=<N> verdict=<pass\|warn\|fail>`. On `verdict=fail`, also emit `[REGRESSION-DETECTED] 2026-05-05T12:30:22Z file=<path> metric=<name> delta=<value>` per offending metric. The controller alerts if `[REGRESSION-DETECTED]` is followed by `[STEP-10A-PHASE-1]` without an intervening `[STEP-6-DEBUG]` marker (Tier-2 escalate — regression triggers debug, not commit).
 
+**Helper script (optional — runs the test + parses metrics + builds the delta table + emits the markers in one call).** `python tools/dev-pipeline/run_perf.py --baseline [--out baseline.json]` at Step 3 (writes the baseline JSON + emits `[BASELINE-TEST]`), then `--compare baseline.json` here (prints the Baseline/After/Delta table + emits `[REGRESSION-CHECK]` / `[REGRESSION-DETECTED]` with a `verdict_hint` from the thresholds above; `--audio-on` for the mic variant). **The regression VERDICT stays Opus** — the script computes the deltas + a hint; you decide whether a breach is acceptable for THIS change. See `tools/dev-pipeline/README.md`.
+
 ## Step 6: Debug (if tests fail)
 
 **Build failures:** If a build command fails (linker errors, missing libraries, DLL issues),
@@ -841,7 +889,7 @@ Iterative loop (max 5 iterations):
 1. Read failure output — identify root cause, not just symptom
 2. Make targeted fix
 3. Rebuild if needed (step 4 commands)
-4. Re-run failing test only: `.venv/Scripts/python -m pytest tests/system/test_performance.py::<TestClass>::<test_name> -v -s`
+4. Re-run failing test only: `.venv/Scripts/python -m pytest tests/system/test_performance_audio_off.py::<TestClass>::<test_name> -v -s`
 5. Once that test passes, re-run full suite (step 5)
 6. Repeat until all pass
 
@@ -885,7 +933,7 @@ Write tests in the appropriate level:
 - GPU, no audio → `tests/integration/`
 - Pure Python → `tests/unit/`
 
-Follow patterns from `test_performance.py` (fixtures, markers, assertions).
+Follow patterns from `test_performance_audio_off.py` (fixtures, markers, assertions).
 
 ## Step 8: Update Documentation
 
@@ -1020,6 +1068,8 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
    git add docs/ mkdocs.yml
    git commit -m "[${AGENT_ID}] docs: <description>"
    ```
+
+   **Helper script (optional — enforces the `[agent-id]` prefix + does the git in one call).** `python tools/dev-pipeline/dev_commit.py <agent-id> <type> "<subject>" <files...> [--repo PianoidCore] [--body "..."]` runs `git add -- <exactly those files>` (never `-A`) + `git commit -m "[<agent-id>] <type>: <subject>"`, refusing a bad agent-id / empty message / no files — removing the `[agent-id]`-prefix violations the controller Tier-1-catches. **You write the message wording**; the script only enforces the prefix + does the plumbing. See `tools/dev-pipeline/README.md`.
 4. **Release locks** — remove this agent's rows from `docs/development/MODULE_LOCKS.md`. Emit `[LOCK RELEASED] {file}` for each.
 5. **Pre-handoff process hygiene (MANDATORY).** Always leave a CLEAR environment before reporting "ready to test". Kill all running server instances. **Do NOT restart unless explicitly instructed to.** The user prefers to start fresh manually so their browser tab is guaranteed to bind to a known-new bundle on first connect (no HMR ghost state, no stale dev-server cache, no chance the orchestrator's restart timing misaligns with the user's hard-refresh).
 
@@ -1053,12 +1103,14 @@ Sequence: **Document → Audit locks → Final commit → Release locks**
 
 Emit `[STEP-10A-PHASE-2] 2026-05-05T12:30:22Z` as the first action of Phase 2. The Phase-2 timestamp must follow the orchestrator's approval-relay timestamp; the controller flags out-of-order Phase-2 starts as Tier-2 escalate.
 
+**Helper script (optional — collapses steps 7–9 into one turn; fires at max context, so it is the highest $/turn save).** After the approval above, `python tools/dev-pipeline/dev_wrap_phase2.py <agent-id> [--proposal docs/proposals/<name>.md --status "IMPLEMENTED <evidence>"]` performs the deterministic moves: `git mv` the log → `logs/archive/`, remove the agent's WIP row, and (when a shipped proposal is named) `git mv` it → `docs/proposals/archive/` + prepend the `**Status:**` line. The approval, WHICH proposal shipped, and the de-reference-from-working-code step (#9 first bullet) stay with Opus — the script refuses to archive a proposal unless explicitly told which one. See `tools/dev-pipeline/README.md`.
+
 7. **Archive log** — move log file to archive:
    ```bash
    mkdir -p docs/development/logs/archive
    mv "$LOG_FILE" docs/development/logs/archive/
    ```
-8. **Clean WIP** — remove this agent's row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`
+8. **Remove WIP row — do NOT re-status it.** DELETE this agent's entire row from the `## Active Dev Sessions` table in `WORK_IN_PROGRESS.md`. Phase 2 means the row is **GONE**, not set to "MERGED"/"done"/"COMPLETED". If the outcome (merge SHAs, branch, deferred follow-ups) is not already captured in a COMPLETED/RELEASED comment block elsewhere in the file, add a one-line historical `<!-- dev-xxxx COMPLETED <date> — <outcome> -->` comment in its place. **A row left present with a terminal status is NOT done** — it is the #1 source of WIP debt (the 2026-06-10 sweep cleared 6 such rows whose Phase-2 commits said "mark MERGED" instead of deleting the row).
 9. **Archive any proposal this work implemented (prevents backlog pile-up).** If this task IMPLEMENTED, COMPLETED, or SUPERSEDED a proposal in `docs/proposals/`, archive it now as part of the wrap — a shipped design must not linger at top-level (leaving them there is what let ~17 stale "draft/awaiting" proposals — already shipped — pile up before the 2026-06-06 triage):
    - **De-reference it from working code FIRST.** If any working file (`.claude/commands/*.md`, `CLAUDE.md`, or a `docs/` reference page) points at the proposal, move the content it relies on into a WORKING doc (`docs/development/` or `docs/architecture/`) and re-point the reference there — working code references working docs, NEVER a proposal. (Skill / `CLAUDE.md` edits are orchestrator-applied — flag them in your Phase-1 report for the orchestrator to apply before the archive.)
    - **Then archive:** `git mv docs/proposals/<name>.md docs/proposals/archive/` and prepend a `**Status:** IMPLEMENTED <commit/agent evidence> — Archived <YYYY-MM-DD>.` line. (Do the status edit AFTER the `git mv`, then `git add` the moved file, so the edit isn't stranded unstaged.)
@@ -1218,18 +1270,9 @@ Use this when an agent was paused (10c) due to a lock conflict and the blocking 
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Performance tests | `PianoidCore/tests/system/test_performance.py` |
-| Audio driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
-| Documentation | `docs/` |
-| Session logs | `docs\development\logs/` |
-| Log archive | `docs\development\logs\archive/` |
-| Module locks | `docs\development\MODULE_LOCKS.md` |
-| venv Python | `PianoidCore/.venv/Scripts/python` |
+Repo roots, venv interpreter (per-OS), test paths, and the lock/log locations are project facts —
+resolve them from the active project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths)
+and [→ Interpreters](../../docs/PROJECT_CONFIG.md#interpreters).
 
 ## Example Usage
 

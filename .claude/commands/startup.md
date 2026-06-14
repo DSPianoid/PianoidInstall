@@ -2,6 +2,7 @@
 name: startup
 description: Diagnose and fix Pianoid installation, build, and startup failures — toolchain detection, CUDA compilation, server launch, port conflicts, audio driver issues.
 user-invocable: true
+tier: project
 argument-hint: <problem description — e.g. "backend won't start", "CUDA build failed", "no audio output", "fresh install", "port 5000 in use">
 ---
 
@@ -25,7 +26,7 @@ This skill is the single reference for all installation, build, and startup oper
    - `docs/architecture/BUILD_SYSTEM.md` — build pipeline, environment variables, toolchain detection
    - `docs/modules/pianoid-cuda/AUDIO_DRIVERS.md` — driver selection and configuration
    - `docs/modules/pianoid-middleware/REST_API.md` — `/load_preset` parameters and health checks
-2. **Canonical CUDA rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Do NOT substitute `pip install --force-reinstall --no-cache-dir pianoid_cuda/` — it silently reinstalls the STALE `.pyd` and your changes never land.
+2. **Canonical CUDA rebuild** — `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`, via the **detached `Start-Process`** form in agent context (absolute bat path, stop the `.pyd` holder first). Do NOT use `cmd //c … --heavy` in agent context (bricks the venv) and do NOT substitute `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Full docs-first discipline + procedure: [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run) / [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
 3. **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone does not copy CUDA DLLs; run the release variant first (or `--both`). Missing DLLs surface as import errors that look like build failures.
 4. **Verify the rebuild landed** before trusting any result: `grep -a "<new-string-you-just-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If your marker is absent, the build did not land.
 5. **Never blanket-kill processes** — always kill by specific PID, never `taskkill /F /IM python.exe` or `taskkill /F /IM node.exe`

@@ -40,9 +40,9 @@ clone-packages.bat
 `clone-packages.bat` runs:
 
 ```bat
-git clone -b Status_indicator_OK https://github.com/DSPianoid/PianoidTunner
-git clone https://github.com/DSPianoid/PianoidCore
-git clone https://github.com/DSPianoid/PianoidBasic
+git clone -b dev https://github.com/DSPianoid/PianoidTunner
+git clone -b dev https://github.com/DSPianoid/PianoidCore
+git clone -b dev https://github.com/DSPianoid/PianoidBasic
 ```
 
 After this step the directory tree is:
@@ -106,10 +106,10 @@ setup-pianoid.bat
 
 This runs four steps in sequence:
 
-1. **Python venv** — creates `PianoidCore\.venv`, installs `requirements.txt`
+1. **Python venv** — creates `PianoidCore\.venv` (via `python`, falling back to the `py` launcher `py -3.12` / `py -3` when bare `python` is not on PATH), installs `requirements.txt`
 2. **PianoidBasic** — builds the domain model wheel, installs into `.venv`
 3. **PianoidCuda** — detects toolchain paths, compiles CUDA extension (release + debug)
-4. **Frontend** — runs `npm install` in PianoidTunner
+4. **Frontend** — runs `npm ci` in PianoidTunner (reproducible install from the committed `package-lock.json`)
 
 The build takes 5–15 minutes depending on GPU architecture count. Check `PianoidCore\build.log` for compiler output.
 
@@ -236,6 +236,37 @@ The backend (port 5000) is **not started yet** — it launches on demand when yo
 | `/api/kill-stale` | POST | Force-kill any process on port 5000 |
 | `/api/backend-status` | GET | Returns `{ running, pid }` |
 | `/ws/console` | WebSocket | Real-time backend log stream |
+
+### No-prompt launch, desktop shortcut & update check
+
+`start-pianoid.bat` accepts an optional flag (first argument):
+
+| Invocation | Behaviour |
+|---|---|
+| `start-pianoid.bat` | Interactive: prints status, waits for a keypress before launching, pauses again on exit. |
+| `start-pianoid.bat /auto` (or `--no-prompt`) | Skips both keypress pauses and launches straight through. The update-available pop-up may still appear. |
+| `start-pianoid.bat /auto-noupdate` (or `/no-update-check`) | `/auto` **and** skips the origin-ahead update check — fully unattended. |
+
+**Desktop shortcut.** Run `make-shortcut.bat` (or `make-shortcut.ps1`) once to drop a **Pianoid** shortcut on your Desktop. It points at `start-pianoid.bat /auto` (no-prompt launch), uses the repo root as the working directory, and carries the Pianoid icon (`PianoidTunner/public/favicon.ico`). Re-running overwrites the existing shortcut.
+
+**Startup update check (best-effort).** Before launching, `start-pianoid.bat` runs `check-updates.ps1`, which `git fetch`es each Pianoid repo with a short per-repo timeout and counts the commits the repo's **remote integration branch** has that the local `HEAD` lacks — `origin/dev` for PianoidCore / PianoidTunner / PianoidBasic and `origin/master` for the outer PianoidInstall. If any repo is **behind** its integration branch, a Yes/No pop-up offers to run [`update-repos.bat`](#) (pull + rebuild what changed). Comparing `HEAD` against the explicit integration ref (rather than the current branch's upstream `@{u}`) makes detection **independent of the local checked-out branch**: a development checkout sitting on a feature branch with no upstream — or a merged-but-not-deleted feature branch (an old `dev`) — is still measured correctly, so origin-ahead is never silently missed. The check is strictly best-effort: if git is unreachable, there is no network, the integration ref can't be resolved, or anything else goes wrong, it silently falls through to the normal launch — it never blocks, hangs, or errors startup. (Even in `/auto` mode the pop-up may still appear; use `/auto-noupdate` to suppress it.) For a non-disruptive dry run that prints the per-repo decision without the pop-up, invoke `check-updates.ps1 -WhatIf`.
+
+**Pre-launch safety checks (best-effort).** `start-pianoid.bat` also runs two correctness checks before launch. Both are strictly best-effort (a missing script / PowerShell / venv → silent fall-through to launch). Under `/auto` (the desktop shortcut) the safety pop-ups are still shown where it matters, but as **timed** dialogs (≈30 s) that take a safe default on timeout, so a truly headless launch never hangs.
+
+| Check | Helper | What it does | `/auto` (desktop-icon) behaviour |
+|---|---|---|---|
+| **Already-running stack** | `check-running-servers.ps1` | Detects a LISTENING Pianoid port (3000 React / 3001 launcher / 5000 backend / 5001 modal adapter). If a stack is already up, a pop-up offers **Kill & restart** (port-targeted PID kill — owning PIDs of those ports only, never a blanket `taskkill /IM`) or **Cancel** (abort). | **Shows** the Kill & restart / Cancel pop-up (timed). On timeout → don't kill, don't launch (a busy port can't be launched onto; never kills a live stack unattended). |
+| **CUDA device + SM count** | `check-cuda.ps1` | Queries the GPU via the engine venv + cupy (SM count; `nvidia-smi` availability fallback). Warns when **no CUDA device** is found, when **CUDA is present but broken** (the runtime/NVML failed to initialise — "NVML not found", driver/runtime mismatch, or a thrown device query — so APPLY/synthesis fails even though a GPU is visible), or when the device has **< 60 SMs** (full-keyboard 58-block presets may exceed the cooperative-kernel launch budget — one block per 4 strings; use a `*_56SM` preset). ≥ 60 SMs proceeds silently. | **No-device** and **CUDA-broken** warnings are **shown** (timed; timeout → continue). The **< 60-SM** warning is **suppressed** under `/auto` (informational, and would nag every launch on a sub-60-SM GPU) — it shows only on bare/interactive terminal runs. |
+
+Bare/interactive (terminal) runs show all warnings as normal blocking dialogs. The SM threshold comes from the synthesis engine's cooperative kernel, whose block count = `numStrings / 4` must fit the GPU's SM-bounded concurrent-block budget — see [`SYNTHESIS_ENGINE.md` § Kernel Grid Layout](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md).
+
+**Deep CUDA diagnostic.** When the CUDA-broken warning fires (or the backend crashes with "no CUDA-capable device is detected"), run `diagnose-cuda.ps1` for a full pinpoint:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File diagnose-cuda.ps1
+```
+
+It probes (and reports gracefully even when CUDA is completely broken): the GPU device (WMI — works without NVML), the NVIDIA kernel driver, **`nvml.dll`** presence/location (the classic "NVML not found" culprit — a *driver* component, version-locked to the display driver, **not** the CUDA toolkit, so a `setup-packages` toolkit re-install does not fix it), `nvidia-smi` (with the exact captured error), the CUDA toolkit/`CUDA_PATH`/`cudart`, the engine venv + its bundled runtime, and an optional cupy device query — ending with a **VERDICT + recommended fix**. The driver-vs-toolkit-vs-bundled-runtime split is what makes the diagnosis actionable. See [`STARTUP_TROUBLESHOOTING.md` § "NVML not found"](STARTUP_TROUBLESHOOTING.md#symptom-nvidia-smi-reports-nvml-not-found-gpu-visible-but-cuda-fails).
 
 ---
 

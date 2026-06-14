@@ -2,10 +2,17 @@
 name: review
 description: Code review at three levels — local (function/fix), module (post-refactor), system (periodic audit). Checks against CODE_QUALITY.md principles.
 user-invocable: true
+tier: generic
 argument-hint: <level> [scope] — e.g. "local mode_tracking.py", "module modal_adapter", "system"
 ---
 
 # Pianoid Code Review
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Three-level code review skill that checks code against the project's quality principles (`docs/development/CODE_QUALITY.md`). Each level has different scope, depth, and use case.
 

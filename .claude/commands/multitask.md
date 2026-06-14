@@ -2,10 +2,17 @@
 name: multitask
 description: Orchestrate multiple dev tasks — classify, detect conflicts, schedule parallel waves, spawn sub-agents, coordinate testing and merging.
 user-invocable: true
+tier: generic
 argument-hint: <task1> | <task2> | <task3> [...]
 ---
 
 # Pianoid Multi-Task Orchestrator
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Orchestrate a list of development tasks across PianoidCore, PianoidBasic, and PianoidTunner. Analyses dependencies, groups tasks into parallel waves, spawns sub-agents for each, and coordinates testing and merging.
 
@@ -22,11 +29,9 @@ Example:
 
 Each spawned sub-agent that rebuilds is subject to the canonical build procedure. The orchestrator MUST reinforce this in every sub-agent prompt — a single stale `.pyd` in any wave contaminates the post-wave test suite. 2026-04-23: ~3h lost to this.
 
-- **Before any sub-agent rebuilds** — the agent must read `docs/architecture/BUILD_SYSTEM.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
-- **Canonical CUDA rebuild** — `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. Reject any sub-agent that falls back to `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently reinstalls STALE `.pyd`).
-- **Debug variant trap** — `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy; release first (or `--both`).
-- **Verify each rebuild landed** before the wave tests run: `grep -a "<marker>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. If missing for any wave, mark that wave's tests INVALID and re-run post-rebuild.
-- **On unexpected build or startup failure in a wave** — halt the wave, spawn a `/startup` sub-agent, resume after green. Do NOT try to patch the build from the orchestrator.
+- **Every rebuilding sub-agent follows the single canonical docs-first build/run discipline at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).**
+- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — each sub-agent uses the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first). **Reject** any sub-agent that uses `cmd //c … --heavy` in agent context (bricks the venv) or `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first). **Verify each rebuild landed** before that wave's tests; if missing, mark the wave's tests INVALID and re-run.
+- **On unexpected build/startup failure in a wave** — halt the wave, spawn a `/startup` sub-agent, resume after green. Do NOT patch the build from the orchestrator.
 
 ---
 
@@ -314,12 +319,6 @@ Ask user before each action:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Documentation | `docs/` |
-| Performance tests | `PianoidCore/tests/system/test_performance.py` |
-| venv Python | `PianoidCore/.venv/Scripts/python` |
-| Build script | `PianoidCore/build_pianoid_cuda.bat` |
+Repo roots, venv interpreter, test paths, and the build script are project facts — resolve them from the
+active project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths),
+[→ Interpreters](../../docs/PROJECT_CONFIG.md#interpreters), and [→ Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).

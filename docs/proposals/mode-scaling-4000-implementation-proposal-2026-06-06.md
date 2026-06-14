@@ -16,8 +16,6 @@ framing is struck-through in place.
 `docs/development/string-mode-coupling-mode-scaling-context-2026-06-06.md`
 (read §0c corrected mode↔slot model and §0d block-grouping critique first).
 
-> **Folder note:** `docs/development/proposals/` already existed; this file was added to it.
-
 > **Evidence tags.** **[DOC]** = supported by existing project docs; **[SRC]** = confirmed by
 > reading source this session (file:line cited); **[SPEC]** = from published NVIDIA architecture
 > specs for the build's target SM (sm_80/86/89), not measured on this machine; **[EST]** = my

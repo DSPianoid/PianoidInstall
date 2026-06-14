@@ -94,6 +94,101 @@
      (highlight band in DrawableChart) + P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) remain PENDING the
      user's cross-system test of the P1 Feedin reference. Earlier sub-features (1) matrices-zoom f3ff30a + (2)
      bar-chart toggle 795f559 + (3) P0/P1 Feedin 41b4737 were merged/pushed previously. Jest 88/941, eslint 0. -->
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+<!-- (none active — session 2026-06-10 fully wrapped) -->
+
+<!-- ===== no-CUDA + CUDA-diagnostic + driver-reinstall session 2026-06-10 (orchestrator Phase-2 wrap).
+     Three agents COMPLETED; the user approved the full-clearance cleanup + stand-down. Outcomes: =====
+     - dev-cudaguard COMPLETED 2026-06-10 — launcher graceful-no-CUDA guard + no-CUDA backend/FE APPLY-gate +
+       standalone CUDA diagnostic seed. SHIPPED + PUSHED: PianoidCore no-CUDA gate (_gpu_available cached CuPy
+       probe + /load_preset 503 gpu_unavailable BEFORE destroyPianoid + /health gpu_available; tests/system/
+       test_no_cuda_gate.py 7/7) merged to PianoidCore dev `3f8280a` + pushed; PianoidTunner no-CUDA APPLY-gate
+       (useBackendHealth.gpuAvailable default-true-unless-false + PianoidTuner short-circuit + BackendStatusIndicator
+       "No CUDA" amber chip; Jest 8/8) merged to PianoidTunner dev `6b15121` + pushed; check-cuda.ps1 limited-mode
+       warning on PianoidInstall master `ccf1b0c`. Feature branches feature/no-cuda-gate (Core) +
+       feature/no-cuda-apply-gate (Tunner) merged + DELETED in this wrap; outer feature/dev-cudaguard (check-cuda
+       working copy) shipped to master via copy-commit + DELETED. PianoidBasic CPU synth DEFERRED -> kept proposal
+       docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md (top-level, future work). Implemented proposal
+       no-cuda-graceful-mode-2026-06-10.md ARCHIVED -> docs/proposals/archive/. Log archived to logs/archive/
+       dev-cudaguard-2026-06-10-071700.md.
+     - dev-nvmldiag COMPLETED 2026-06-10 — diagnose-cuda.ps1 hardened across 4 rounds into a comprehensive
+       read-only CUDA diagnostic (WMI GPU + PnP ConfigManagerErrorCode; nvlddmkm service State + loaded .sys
+       version; System32 nvml.dll/nvcuda.dll version-vs-driver compare; nvidia-smi -q/-L exact-error; PATH scan
+       for nvml/nvcuda/cudart/nvidia-smi shadowing; section-8 precedence so an NVML-error nvidia-smi outranks the
+       cupy-blame branch; round-4 verdict flags nvlddmkm State!=Running + stale-package conflict as the top cause).
+       SHIPPED to PianoidInstall master (fa2cde1 -> 2cef064 -> 9b53ad9 -> 27f908e). Verdict harness
+       docs/development/diagnostics/dev-nvmldiag-mismatch-verdict-tests.ps1 (28/28) PRESERVED to master in this wrap.
+       Log archived to logs/archive/dev-nvmldiag-2026-06-10-110441.md. ★Diagnosed Dmitri's box: driver installed but
+       nvlddmkm SERVICE not running (blocked by a stale v560.94 DriverStore package nv_dispig.inf on a hybrid RTX
+       3080 + Intel Iris); fix = manual Safe-Mode DDU + fresh driver + reboot, then re-run the diagnostic.
+     - dev-drvinstall COMPLETED 2026-06-10 — setup-packages.bat OPTION 7 driver detect+reinstall (separate opt-in,
+       prompt-once-then-automatic, chocolatey-primary, UNINSTALL-OLD-FIRST). SHIPPED to PianoidInstall master:
+       check-driver-health.ps1 ("if needed" detector exit 0/10/20) + install-nvidia-driver.ps1 (STEP-0 pnputil
+       uninstall of stale NVIDIA Display-class packages -> choco install nvidia-display-driver -y {0,1605,1614,1641,
+       3010} -> guided Safe-Mode-DDU Tier-2 fallback; risk-prompt + -DryRun/-Acknowledged/-NoReboot/-Force) +
+       setup-packages.bat option 7 + setup-dev.ps1 post-toolkit driver-health warn (ccf1b0c -> 04a3080 -> 60fcbeb).
+       Harnesses docs/development/diagnostics/dev-drvinstall-driver-health-tests.ps1 +
+       dev-drvinstall-installer-logic-tests.ps1 PRESERVED to master in this wrap. Implemented proposal
+       setup-packages-driver-reinstall-2026-06-10.md ARCHIVED -> docs/proposals/archive/. Outer feature/
+       setup-packages-driver-reinstall DELETED (code on origin/master). Log archived to logs/archive/
+       dev-drvinstall-2026-06-10-112335.md. .ps1/.bat only, NO CUDA build. ★SAFETY: all driver ops were
+       logic-tested only (-DryRun/mock) — no real choco/pnputil/DDU/reboot on this box. -->
+
+<!-- ===== Phase-2 debt sweep 2026-06-10 (cleanup-bkkp) — the 6 rows below were all MERGED but their
+     WIP rows had never been removed (Phase-2 half-done: 4 logs were already in logs/archive/ yet the
+     rows lingered; 2 logs were still in logs/). All 6 session logs archived; rows removed; outcomes
+     recorded here. =====
+     - dev-upcheck COMPLETED 2026-06-10 — check-updates.ps1 origin-ahead detection hardened (compare HEAD
+       vs explicit remote integration branch, not @{u}). MERGED to PianoidInstall master 2026-06-10
+       (master 1081147 Phase-2 wrap; fix 6f99d68 on feature/check-updates-integration-branch). .ps1-only,
+       no CUDA/backend. Log archived to logs/archive/dev-upcheck-2026-06-10-051210.md. Full lock-release
+       detail in MODULE_LOCKS.md RELEASED block.
+     - dev-syschecks COMPLETED 2026-06-09 — TWO launcher pre-launch checks (running-servers on
+       3000/3001/5000/5001 + CUDA device/SM-count) via NEW check-running-servers.ps1 + check-cuda.ps1,
+       /auto per-case routing (749aba5). MERGED to master 2026-06-09 (master b5f9051 Phase-2 wrap).
+       Log archived to logs/archive/dev-syschecks-2026-06-09-190000.md.
+     - dev-b70f COMPLETED 2026-06-09 — launcher: no-prompt flag + make-shortcut script + best-effort
+       origin-ahead update-check (update-repos.bat). MERGED to master 2026-06-09 (finalized at master
+       f5abcb3). Log archived to logs/archive/dev-b70f-2026-06-09-180000.md.
+     - dev-09cf COMPLETED 2026-06-09 — PianoidTunner ToolBar.jsx responsive fix (AppBar nowrap + flexGrow
+       spacer; all toolbar actions reachable at any width). MERGED to PianoidTunner dev 2026-06-09. Log
+       archived to logs/archive/dev-09cf-2026-06-09-155920.md.
+     - dev-synthfe COMPLETED 2026-06-09 — synthetic-dataset Phase 4b FRONTEND (PianoidTunner MA Collect
+       "Synthesize" section + reconstructed-vs-ground-truth comparison charts against the Phase-4a REST
+       contract). MERGED to PianoidTunner dev 2026-06-09. Log archived to
+       logs/archive/dev-synthfe-2026-06-08-122502.md.
+     - dev-mzoom COMPLETED 2026-06-06 (P0/P1) — PianoidTunner system-wide selection + per-chart tie/untie
+       zoom: (1) matrices-zoom f3ff30a + (2) bar-chart toggle 795f559 + (3) P0/P1 Feedin reference 41b4737
+       MERGED to PianoidTunner dev + PUSHED. Also merged dev-fbsl's feedback/feedin slider into the push.
+       Jest 88/941, eslint 0. Log archived to logs/archive/dev-mzoom-2026-06-05-102816.md.
+       ★REAL DEFERRED FOLLOW-UP — do NOT drop: zoom feature (3) P2 (highlight band in DrawableChart) +
+       P3 (rollout to Feedback/Modes/Workbench/SC mode-axis) are PENDING the user's cross-system test of
+       the P1 Feedin reference. (This is the system-wide-selection/tie-untie-zoom deferral, distinct from
+       the "Sound Channels zoom unlock" deferred section further below.) Resume P2/P3 only after the user's
+       Feedin-reference test gate. -->
+
+<!-- deepseek-phase0 + dev-dsfix + dev-minopus COMPLETED 2026-06-07 (Step 10a Phase 2, user-approved "merge+push"
+     via Telegram). DeepSeek codegen MCP + minimize-opus dev-pipeline tooling; merged feature/deepseek-codegen-mcp
+     -> master 2026-06-07.
+     - deepseek-phase0: built the deepseek-codegen MCP server (tools/deepseek-codegen-mcp/, one delegate_codegen tool,
+       model-pinned deepseek-v4-flash, key-from-env, .cu/.cpp refusal backstop) + README + /fn Step 2a; commits
+       f8eac6e -> 0abb73e -> 4e740ff -> 8a22e2b -> d80dc8a (incl. Python + JS/React broadening). Died on a VS Code
+       reload; its tools/deepseek-codegen-mcp/** lock + work were continued by dev-dsfix.
+     - dev-dsfix: (1) reliability fix b49fc51 (non-thinking codegen + max_tokens 4096->32768 + hardened extractor;
+       non-thinking was the real lever). (2) batch pipeline + dual-backend Gap A + deps-DAG Gap B 3f9ed60
+       (tools/deepseek-codegen-mcp/batch_pipeline.py, 80/80 tests).
+     - dev-minopus: minimize-opus P1+P2 5be7efa — tools/dev-pipeline/ bookkeeping scripts
+       (dev_init/dev_wrap_phase2/env_sweep/verify_phase1 + common.py, 80/80 tests + real-git e2e) + P1 marker-hook
+       verdict (DEFERRED: a PostToolUse hook cannot target the per-agent log under concurrency; marker_hook.py shipped
+       UNWIRED as a documented option).
+     - orchestrator: /fn + /dev skill rules + 3 DeepSeek proposals (fdbae56); minimize-opus P0 context-hygiene
+       (6ab40ba) + P2 integration prose into dev.md/orchestrator.md (eaa1631).
+     A/B RE-RUN (2026-06-07) validated the optimized system: pure-Opus vs optimized-DeepSeek on 17 xp-agnostic ESPRIT
+     fns -> BOTH 350/350 gate; optimized DeepSeek reached pure-Opus correctness for ~12-25x less total cost + ~30x
+     faster (Arm A $3.69 / 56 calls vs Arm B $0.0106 DeepSeek + thin orchestration, 0 escalations); the dual-backend
+     gate caught a cupy bug both arms shipped pre-upgrade. All 3 session logs archived to logs/archive/. The
+     minimize-opus proposal stays top-level (PARTIAL: P1 deferred; P3 test/build wrappers + P4 cheap-model lane pending). -->
 
 <!-- dev-wave3split-f634 COMPLETED 2026-06-06 (Step 10a Phase 2, user-approved "Merge and push" via Telegram;
      wrapped by sync-release as part of the multi-repo release). Wave 3 Modal Adapter facade split: extract ChainEditor +
@@ -279,19 +374,74 @@
      standing down, see MODULE_LOCKS.md). Sound Test stack + SC matrix fix LIVE on dev branches
      on both PianoidCore and PianoidTunner, ready for the user's next pull. -->
 
-| dev-cflt | Build a TEST environment: CFL stability guard (feature/cfl-stability-guard-v2 = 0d10675) merged ON TOP of the P1-1-fixed dev (a352b2f) on test branch feature/cfl-test-on-p1fix; --heavy --both build; run guard test suite; smoke-test the guard rejects an unstable FDTD edit; hand off CLEAN down-state. Guard stays on test branch — NOT merged to dev. | [log](logs/dev-cflt-2026-05-29-221621.md) | 2026-05-29 | In Progress |
-| dev-427c | Fix CRITICAL authority race (P1-1) on swappable GPU synthesis pointers (dev_physical_parameters/dev_mode_state/dev_deck_parameters/dev_hammer) — engine thread reads lock-free while UnifiedGpuMemoryManager poll thread rewrites them under update_mutex_ during swapBuffers. Single-owner fix (move pointer refresh onto engine thread). | [log](logs/dev-427c-2026-05-29-202054.md) | 2026-05-29 | ✅ DONE + USER-VERIFIED + COMMITTED + MERGED. ★Race CONFIRMED+MEASURED via compile-guarded probe: 1842 mid-cycle pointer mutations during a sustained note under a ~780-swap/note storm (Belarus MFeq/STRINGS). FIX (engine = sole writer; poll thread publishes base + swap_pending_ via release/acquire; engine refreshes at top of runSynthesisKernel, mirrors run_string_map_kernel_): same probe → **0** mid-cycle mutations (reproduced 2×). No regression: 5/5 perf (GPU mean ~unchanged, corr 0.9901), 11/11 preset-switch+feedback-coupling functional, control 55/56/57 clean+damping. **USER LIVE-TESTED the fixed build (feature/p1-authority-fix): 55/56/57 trichotomy GONE, no recurrence** → the correlational caveat is now resolved (the race WAS the bug). COMMITTED `80fc9ed` (+90/-20: UnifiedGpuMemoryManager.{h,cu}, Pianoid.cuh, Pianoid_synthesis.cu, Pianoid_presets.cu), MERGED to PianoidCore dev `a352b2f` (--no-ff) by the sync. Probe + harness: docs/development/diagnostics/dev-427c-p1-authority-race-stress.py (committed on root master). Locks RELEASED. NOT pushed yet (awaiting user push-confirm). |
-| dev-c317 | Build CLEAN current-dev (67148fa, --heavy --both) + bring full launcher stack up + verify sound server-side on 55/56/57 for the user's "total silence" test. Build/run/verify only — no code edits. | [log](logs/dev-c317-2026-05-29-180645.md) | 2026-05-29 | READY (pre-Step-10 halt) — clean 67148fa --heavy --both built (both .pyd fresh @15:20:38Z + import OK from PianoidCore/.venv + verified CLEAN: getRawSoundRecordInt/getMainVolumeCoefficient absent); offline 55/56/57 PROVEN audible+damping (p55=5.32/p56=23.03/p57=5.19, tail 1.57e-4 DAMPS); full launcher stack UP (launcher:3001/frontend:3000/backend:5000 healthy, /health 200 exception=false, pianoid_loaded=false pre-APPLY). Stack left UP for the user's live test. No commit (no code changed); no source locks held. |
-| dev-35a3 | BUILD-AND-TEST git bisect fdf3dd2..67148fa (103 commits) to find the commit that introduced the 55/56/57 trichotomy regression in PianoidCore. Stashes the paused dev-soundint-live work first, establishes an automated GOOD/BAD oracle, bisects if oracle found. | [log](logs/dev-35a3-2026-05-29-174509.md) | 2026-05-29 | KILLED 2026-05-29 by orchestrator (premature bisect → pivoted to the user's total-silence). Found an automated bisect INFEASIBLE: no oracle (clean current-dev 67148fa sounds fine on 55/56/57 offline AND on the real online-engine thread; the bug is live-frontend-only). Tree left detached @fdf3dd2 → reconciled by dev-c317. No source locks held. (★The stash it created — stash@{0} = 26799bf, preserving dev-soundint-live work — was later VERIFIED LOST 2026-05-30/31; see dev-soundint-live TERMINATED comment in the historical-comment section below.) |
-| dev-8085 | Online-synthesis measurement rig (Option A) — deterministic live capture comparable to offline note_playback (single + sequence); then isolate+fix the real online-only bug (superposition RULED OUT) and prove online==offline | [log](logs/dev-8085-2026-05-29-123705.md) | 2026-05-29 | TERMINATED 2026-05-29. Built the in-proc + REST online/offline rig (committed to PianoidCore `feature/online-offline-measure-rig`); ran many wrap-free measurements that showed clean decay on every *drivable surrogate* surface and proposed "artifact" conclusions. ★Those conclusions are SUPERSEDED by the USER CORRECTION above — the bug is REAL, intermittent, and was never reproduced on the surrogates the rig could drive (real-browser repro was hard-blocked all session). The over-hot volume mapping + Sint32-overflow findings are real but PARKED as separate follow-ups. Frontend volume 120→100 change is uncommitted on PianoidTunner `feature/lower-default-volume-100` (awaits user approval). |
-| dev-cfl | Courant/CFL stability guard: derive+document CFL_LIMIT (von-Neumann), parameterKernel per-string ratio + R1 reject (shadow-coeff fallback), middleware REST per-string ratio extraction + 4xx on reject | [log](logs/dev-cfl-2026-05-24-092641.md) | 2026-05-24 | In Progress |
-| dev-ratiochart | PianoidTunner CFL stability ratio-vs-pitch chart (ECharts pane, consumes `GET /get_parameter/stability_ratio/<key_no>`) — deferred companion to dev-cfl | [log](logs/dev-ratiochart-2026-05-24-184903.md) | 2026-05-24 | In Progress |
-| dev-cfl-v2 | CFL guard v2 RE-IMPLEMENTATION per docs/proposals/cfl-stability-guard-v2.md — host-side closed-form pre-upload reject; removes v1 kernel sweep + shadow/flag buffers; backs stability_ratio host-side; keeps tests + REST contract | [log](logs/dev-cfl-v2-2026-05-26-121700.md) | 2026-05-26 | Done (Phase 1) — committed on feature/cfl-stability-guard-v2; fresh --heavy build verified, 27/27 tests, live pitch-57 SUSTAIN; NOT merged (awaits user final re-test) |
-| dev-vpnoteoff | Fix VirtualPiano.js note-off pitch mismatch — handleMouseUp sends note-off to mouseup-position pitch instead of pressed pitch; pressed note never released on cursor drift or off-canvas release | [log](logs/dev-vpnoteoff-2026-05-27-184500.md) | 2026-05-27 | In Progress |
-| dev-3a08 | Regression hunt RESUMED — FIR-EQ hypothesis refuted at preset layer (presets carry NO FIR/EQ field, _MFeq suffix names an excitation variant not an EQ); continuing on excitation/geometry angle | [log](logs/dev-3a08-2026-05-27-114000.md) | 2026-05-28 | In Progress |
-| dev-3580 (noteoff-probe) | Diagnostic instrumentation: PLOG probe in `_add_string_for_playback` to bisect live note-off path (upstream EventQueue vs downstream preset re-init). NOT a real fix — revert after measure. | [log](logs/dev-3580-2026-05-28-220939.md) | 2026-05-28 | In Progress |
-| damper-probe-ea77 | Diagnostic DAMPER_PROBE — measure `damper_string[201..203]` live in `dev_physical_parameters` to test H1 (damper=0 strands note) vs H2 (mode ringout) for 55/56/57 trichotomy. NOT a real fix. | [log](logs/damper-probe-ea77-2026-05-29-210147.md) | 2026-05-29 | CLOSED — see [bug-55-56-57-trichotomy-state-2026-05-29.md](bug-55-56-57-trichotomy-state-2026-05-29.md). damper_string read as 3.6e-05 (matches preset, not wiped); all engine hypotheses refuted; root cause is VirtualPiano.js handleMouseUp. Probe still in source pending revert authorization. |
-| bisect-live-75 | READ-ONLY bisect of fdf3dd2..67148fa to localize live-only damping regression. | [log](logs/bisect-live-75-2026-05-29.md) | 2026-05-29 | CLOSED — see [bug-55-56-57-trichotomy-state-2026-05-29.md](bug-55-56-57-trichotomy-state-2026-05-29.md). CUDA range fully eliminated; subsequent S2 listener-toggle verify (`D:\tmp\s2-listener-verify.py`) measured decay_ratio ≈ 0.0001 in BOTH `listen_to_midi=0` and `=1` after `/capture` reset → S1 + S2 both refuted. Root cause is frontend `VirtualPiano.js handleMouseUp` (matches memory `project_55_56_57_repro`). |
+<!-- ===== Trichotomy-era (55/56/57) session table — ALL TERMINAL, removed in the 2026-06-10
+     Phase-2 debt sweep (cleanup-bkkp). The top-of-file resolution banner is the authoritative
+     record: the trichotomy was RESOLVED by dev-427c (P1-1 GPU-pointer authority race fix,
+     user-verified, merged to PianoidCore dev a352b2f). The dev-8085 / damper-probe-ea77 /
+     bisect-live-75 "artifact / handleMouseUp / phantom" conclusions are SUPERSEDED by that banner.
+     All 13 session logs archived to logs/archive/. Per-agent terminal outcomes:
+     - dev-427c — ✅ THE FIX. P1-1 authority race; engine = sole writer (release/acquire publish/consume).
+       COMMITTED 80fc9ed, MERGED to PianoidCore dev a352b2f (--no-ff). User live-verified: trichotomy GONE.
+       Probe/harness docs/development/diagnostics/dev-427c-p1-authority-race-stress.py.
+     - dev-c317 — build/verify-only (clean 67148fa --heavy --both + launcher stack up for the user's
+       total-silence test). No code change, no locks. Superseded by the dev-427c fix.
+     - dev-35a3 — BUILD-AND-TEST bisect fdf3dd2..67148fa; KILLED by orchestrator (premature); found an
+       automated bisect infeasible (no offline/online-engine oracle; bug was live-frontend-only). The
+       stash it created (26799bf, dev-soundint-live work) was later VERIFIED LOST — see dev-soundint-live
+       TERMINATED comment in the historical-comment section below. No locks.
+     - dev-8085 — online/offline measurement rig (committed PianoidCore feature/online-offline-measure-rig);
+       its "artifact" conclusions SUPERSEDED by the banner. Over-hot volume + Sint32-overflow findings PARKED
+       as separate follow-ups. Frontend volume 120→100 later landed (usePreset.js default = 100, dev tip).
+     - damper-probe-ea77 / bisect-live-75 — read-only diagnostics; CLOSED. Both refuted their own hypotheses;
+       superseded by the dev-427c fix. See bug-55-56-57-trichotomy-state-2026-05-29.md.
+     ----- CFL-guard cluster (all superseded by the shipped CFL guard v2; see the CFL comment blocks above
+           [dev-eac2/dev-395e/dev-7032] + the "Deferred follow-up — CFL stability guard" section below):
+     - dev-cfl — CFL guard v1 (kernel per-string ratio + R1 reject + REST 4xx). v1 SUPERSEDED by v2; the v2
+       host-side guard shipped + user-approved (CFL_LIMIT=1.0 exact |g| + CFL_MARGIN=0.99 on the Courant
+       number; granular-gate). v1 lock RELEASED (MODULE_LOCKS dev-cfl-3 block).
+     - dev-cfl-v2 — the v2 host-side closed-form re-implementation (feature/cfl-stability-guard-v2, 27/27
+       tests). Its substance shipped via dev-eac2's feature/cfl-test-on-p1fix → merged to PianoidCore dev
+       ce2818b. Branch kept for traceability.
+     - dev-ratiochart — CFL ratio-vs-pitch chart. SHIPPED as dev-7032's cfl_ratio chart (Courant-number
+       scatter), merged to PianoidCore dev ce2818b / PianoidTunner dev 9e7cb39. See the deferred-#1 section.
+     - dev-cflt — build a CFL-guard TEST environment on feature/cfl-test-on-p1fix. Test-only scaffolding;
+       the guard it validated shipped via dev-eac2 (above); guard intentionally NOT merged from this test branch.
+     ----- note-off / regression-hunt diagnostics (all subsumed by the dev-427c root-cause):
+     - dev-vpnoteoff — VirtualPiano.js handleMouseUp note-off pitch-mismatch fix. This was the FE-only
+       hypothesis the banner SUPERSEDES (real cause = P1-1 race). Any standalone handleMouseUp drift-on-release
+       robustness tweak, if still wanted, is a fresh low-priority FE /dev task — NOT the trichotomy fix.
+     - dev-3a08 — regression-hunt (FIR-EQ hypothesis refuted; excitation/geometry angle). Diagnosis only,
+       subsumed by the dev-427c root-cause. No code shipped.
+     - dev-3580 (noteoff-probe) — diagnostic PLOG instrumentation in _add_string_for_playback; NOT a real fix
+       (revert-after-measure). Subsumed by dev-427c. -->
+
+<!-- ===== Phase-2 debt sweep 2026-06-10 (cleanup-bkkp) — additional terminal logs archived that had NO
+     prior WIP record. Outcomes captured here so the archive filenames stay traceable. =====
+     - dev-synth1 COMPLETED 2026-06-08 — synthetic-dataset Phase 1 pure-function core (17 fns; first real
+       use of the Step-4b /dev-designs → DeepSeek-pipeline → Opus-judgment-fn model). Shipped + lifted into
+       repo unit tests (dual-backend numpy+cupy gate); fed Phase 2/3/4a (round-trip) + Phase 4b FE (dev-synthfe,
+       merged). Plan docs/proposals/synthetic-dataset-generator-esprit-2026-06-06.md. Log archived to
+       logs/archive/dev-synth1-2026-06-08-081806.md.
+     - dev-df69 COMPLETED 2026-05-31 — DONE per its own log ("consolidation pushed + clean; orchestrator may
+       archive"). Merge consolidation: only src/PianoidTuner.js conflicted (UU), all settings files + audioPlayback
+       merged clean. Log archived to logs/archive/dev-df69-2026-05-31-121359.md.
+     - upd-sync COMPLETED 2026-05-31 — /sync-style reconcile + rebuild session ([SUCCESS] Build completed, ~11 min,
+       empty stderr). Log archived to logs/archive/upd-sync-2026-05-31.md.
+     - dev-pipetest COMPLETE 2026-06-07 — dev-pipeline tooling end-to-end validation; validation PASS, NO repo
+       changes shipped (test-only). Log archived to logs/archive/dev-pipetest-2026-06-07-190220.md.
+     - orchestrator-handoff (2026-05-27) — stale pre-reload handoff note (ASIO no-sound blocker on UMC 1820).
+       The ASIO blocker was subsequently resolved by dev-asioload (ASIO→SDL3 auto-fallback, COMPLETED 2026-06-03,
+       see comment block above). Handoff superseded; archived to logs/archive/orchestrator-handoff-2026-05-27.md.
+     - Read-only trichotomy/CFL DIAGNOSTIC logs (no code shipped; subsumed by the trichotomy banner + the
+       CFL guard v2 ship), archived to logs/archive/: cfl-reviewer-rev-0a12-2026-05-26-000000.md +
+       cfl-reviewer-rev-0a12-pitch-string-trace-2026-05-27.md (per-pitch indexing hypothesis REFUTED) +
+       cfl-reviewer-rev-0a12-regression-hunt-2026-05-27.md; gpu-damping-b7e3-2026-05-28-234617.md;
+       noteoff-bisect-a1f2-2026-05-28-212642.md; dev-liveui-3a08-2026-05-27.md +
+       dev-3a08-ui-repro-2026-05-28-195712.md (live-UI repro of the trichotomy, now RESOLVED via dev-427c).
+     - Stale controller logs archived to logs/archive/: controller-5c20-2026-05-11-180500.md,
+       controller-53ed-2026-05-19-091444.md, controller-ctrl-c0a1-2026-06-06-155316.md,
+       controller-ctrl-f38b-2026-06-06-123459.md (those orchestrator sessions ended; the live controller for
+       the current session stays in logs/). -->
 
 ---
 
@@ -388,6 +538,28 @@ unlock zoom" scope):
    and Feedin/Feedback's canvas `normRangeStart = pianoRange[0] - firstAvailableNote` went
    negative → `matrix[-N]` undefined → crash. Fixed by no-op'ing SC's channel-row-axis
    range/selection callbacks so channel indices never enter the shared piano-pitch state.
+
+---
+
+## Deferred follow-up — CPU synthesis as the no-CUDA "cpu-sim" preset option (dev-cudaguard, 2026-06-10)
+
+The no-CUDA graceful mode (dev-cudaguard, user-approved "Opt C") ships a backend gate that blocks
+**all** GPU-synthesis preset loads when no CUDA device is available (`/load_preset` -> 503
+`gpu_unavailable` before `destroyPianoid()`; `/health gpu_available`; frontend APPLY-disable + "No
+CUDA" chip; launcher limited-mode warning). The user's spec includes gating "**except for the
+cpu-simulation option**" — clarified (user, authoritative) as **real CPU-based Pianoid synthesis in
+PianoidBasic** (exists, may be broken), NOT the Modal Adapter / synthetic-dataset path.
+
+**No working "play a preset on CPU" path is wired today** (the `use_simulation=1` placeholder is a
+non-functional mock, rejected with HTTP 400). So the shipped no-CUDA mode disables ALL GPU presets;
+the "except cpu-sim" allowance is this deferred feature.
+
+- **Owner:** unassigned. **ETA:** none (future). Needs the user's definition of what "CPU
+  simulation" should do (inspect-only vs real CPU audio) + which PianoidBasic entry point it maps to.
+- **Scope stub + build-on-this:** `docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md`. Likely
+  PianoidBasic + middleware (Python); confirm no CUDA/C++ involved before scoping. The cpu-sim
+  allowance hooks in right at the existing `_gpu_available()` gate in `load_preset_route`.
+- **Do NOT implement** without the user's cpu-sim spec.
 
 ---
 

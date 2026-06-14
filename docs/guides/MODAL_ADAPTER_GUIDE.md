@@ -186,7 +186,7 @@ measurements. The layout type is stored on `MappingConfig` and persisted to
 | Layout | Description | Pitch derivation? | Tracking method |
 |--------|-------------|-------------------|-----------------|
 | `line` (default) | Scenarios laid out along a 1-D bridge; bass/treble bridge split applies; `pitch = scenario_index + pitch_offset`. | Yes (line-mode `feedin_extractor` → `preset_injector`) | `nuclei_merge` (default since dev-d773 2026-05-05), `sliding_window` (legacy), or `sequential` (DEPRECATED — emits `DeprecationWarning`). See the "Tracking Section" below for the behaviour of each method. |
-| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md) | `nuclei_merge` (default) or `sliding_window` (both layout-agnostic; sequential raises `NotImplementedError`) |
+| `grid` | Scenarios laid out on a 2-D rectangular grid (square spacing); populated cells form an arbitrary shape inside the bounding box. | **Not in this PR** — see [`BRIDGE_FROM_GRID.md`](../proposals/BRIDGE_FROM_GRID.md) | `nuclei_merge` (default) or `sliding_window` (both layout-agnostic; sequential raises `NotImplementedError`) |
 
 For grid layout, the project schema gains four extra fields on `MappingConfig`:
 
@@ -225,7 +225,7 @@ than the grid covers), but the user has been warned. Existing projects with an a
 saved mismatch keep their state; the chip is the only retroactive surface for them.
 
 The grid layout terminates at the tracking visualisation step in this PR — no Apply / no
-preset injection. See [`BRIDGE_FROM_GRID.md`](../development/proposals/BRIDGE_FROM_GRID.md)
+preset injection. See [`BRIDGE_FROM_GRID.md`](../proposals/BRIDGE_FROM_GRID.md)
 for the deferred future work that closes the loop.
 
 Algorithmic deltas for grid mode versus line mode:

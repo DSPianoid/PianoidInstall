@@ -2,6 +2,7 @@
 name: diagnose
 description: Full system diagnostic — interactive configuration, backend/frontend startup, sound generation, performance, audio driver, and optional mic verification. Auto-fixes with /dev on failure when -fix flag is set.
 user-invocable: true
+tier: project
 argument-hint: <options — e.g. "-fix", "-cli-only", "-skip-mic", or blank for default interactive diagnostic>
 ---
 
@@ -30,14 +31,9 @@ Parse `$ARGUMENTS` for flags:
 
 1. **Environment ownership** — NEVER rely on servers already running. Always kill stale processes on Pianoid ports (5000, 5001, 3000, 3001) and start fresh with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state — check and fix it yourself. CWD for backend must be `PianoidCore/pianoid_middleware/` for relative paths.
 2. **Documentation first (MANDATORY) for compile + run** — before investigating ANY build or startup failure, read the canonical docs:
-   - `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md` before starting the backend.
-   - `docs/guides/STARTUP_TROUBLESHOOTING.md` on any startup/build failure (covers pip-stale-pyd, debug-variant DLL, locked-pyd traps).
-   - `docs/architecture/BUILD_SYSTEM.md` before any CUDA rebuild.
-   - Canonical CUDA rebuild: `cd PianoidCore && build_pianoid_cuda.bat --heavy --release`. NEVER `pip install --force-reinstall --no-cache-dir pianoid_cuda/` (silently returns stale `.pyd`).
-   - `PIANOID_BUILD_VARIANT=debug` alone skips DLL copy — run release first (or `--both`).
-   - Verify rebuild landed: `grep -a "<marker>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`.
-   - On unexpected build/startup failure → invoke `/startup` rather than burning diagnostic phases on ad-hoc fixes.
-   - 2026-04-23 volume-iter investigation burned ~3h exactly this way.
+   - Full docs-first build/run discipline (read-which-docs · canonical build · debug-variant trap · verify-landed) is the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).
+   - Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both` via the **detached `Start-Process`** form in agent context (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
+   - On unexpected build/startup failure → invoke `/startup` rather than burning diagnostic phases on ad-hoc fixes. (2026-04-23 volume-iter investigation burned ~3h exactly this way.)
 3. **Never blanket-kill processes** — kill by specific PID on specific ports only
 4. **Use correct venv** — always `PianoidCore/.venv/`, never root `.venv/` or system Python
 5. **Port-specific cleanup** — `netstat -ano | findstr :<port>` to identify PIDs
