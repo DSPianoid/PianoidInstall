@@ -1,12 +1,12 @@
 ---
 name: sync
-description: Clean, commit, and push all Pianoid repos — analyse changes, detect conflicts, update docs, commit, merge feature branches, push.
+description: Clean, commit, and push all project repos — analyse changes, detect conflicts, update docs, commit, merge feature branches, push.
 user-invocable: true
 tier: generic
 argument-hint: [--dry-run|-n] [--skip-docs]
 ---
 
-# Sync All Pianoid Repos
+# Sync All Project Repos
 
 > **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
 > and the project's `docs/PROJECT_CONFIG.md` per the machine-global `~/.claude/CLAUDE.md` "Config resolution" section (#config-resolution)
@@ -14,7 +14,9 @@ argument-hint: [--dry-run|-n] [--skip-docs]
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.
 
-Analyse, commit, and push all Pianoid repositories to origin. Follow every step in order.
+**Worked examples (project-tier):** concrete invocations for the active project — the repo/branch table, the per-repo `git -C` status/fetch/log loops, the post-merge rebuild matrix + holder-stop + import & smoke-test verify, and the per-repo push lines — live in [`.claude/skill-examples/sync.md`](../skill-examples/sync.md) ([`#skill-examples`](../../docs/PROJECT_CONFIG.md#skill-examples)).
+
+Analyse, commit, and push all of the active project's repositories to origin. Follow every step in order.
 
 ## Arguments
 
@@ -25,21 +27,21 @@ Analyse, commit, and push all Pianoid repositories to origin. Follow every step 
 
 ## Repository Map
 
-| Repo | Path | Main Branch |
-|------|------|-------------|
-| PianoidInstall | `.` | `master` |
-| PianoidCore | `PianoidCore` | `dev` |
-| PianoidBasic | `PianoidBasic` | `dev` |
-| PianoidTunner | `PianoidTunner` | `dev` |
+The active project's repos, their repo-relative paths, and their integration branches are project facts —
+resolve them from the active project's [`PROJECT_CONFIG.md` → Repos](../../docs/PROJECT_CONFIG.md#repos).
+Every per-repo step below iterates that repo list; substitute the project's repo-relative paths and
+integration branches wherever the examples show placeholders. (The concrete repo/branch table for the
+active project is in the [worked-examples companion](../skill-examples/sync.md).)
 
 ## Step 1: Full Change Analysis
 
-For each repo, collect:
+For each repo (iterate the repo list from [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos)), collect:
 
 ### 1a. Current branch and status
 
 ```bash
-for repo in "." "PianoidCore" "PianoidBasic" "PianoidTunner"; do
+# Iterate the repo-relative paths from PROJECT_CONFIG.md#repos
+for repo in <repo-relative-paths from PROJECT_CONFIG.md#repos>; do
   echo "=== $(basename $repo) ==="
   echo "Branch: $(git -C "$repo" branch --show-current)"
   echo "Status:"
@@ -60,34 +62,32 @@ git -C "$REPO" diff --cached     # staged
 
 Fetch first, then compare with origin:
 ```bash
-for repo in "." "PianoidCore" "PianoidBasic" "PianoidTunner"; do
+# Iterate the repo-relative paths from PROJECT_CONFIG.md#repos
+for repo in <repo-relative-paths from PROJECT_CONFIG.md#repos>; do
   git -C "$repo" fetch origin 2>/dev/null
 done
 ```
 
-Then for each repo, determine the main branch (`master` for PianoidInstall, `dev` for others) and show unpushed commits:
+Then for each repo, determine its integration branch (per [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos)) and show unpushed commits:
 ```bash
 git -C "$REPO" log origin/$BRANCH..HEAD --oneline
 ```
 
 ### 1d. Present summary
 
-Present a clear table to the user:
+Present a clear table to the user — one row per repo from [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos):
 
 | Repo | Branch | Uncommitted Files | Unpushed Commits | Notes |
 |------|--------|-------------------|------------------|-------|
-| PianoidInstall | master | ... | ... | ... |
-| PianoidCore | dev | ... | ... | ... |
-| PianoidBasic | dev | ... | ... | ... |
-| PianoidTunner | dev | ... | ... | ... |
+| *(per repo)* | ... | ... | ... | ... |
 
 ## Step 2: Conflict Detection
 
 Look for conflicting edits — changes touching related systems across different repos. Check for:
 
-1. **API contract mismatches**: Changes in PianoidCore that affect interfaces used by PianoidBasic or PianoidTunner (e.g., function signatures, data structures, message formats)
+1. **API contract mismatches**: Changes in one repo that affect interfaces used by another repo (e.g., function signatures, data structures, message formats)
 2. **Shared type/enum changes**: If constants, enums, or shared types changed in one repo but consumers in another repo weren't updated
-3. **Data flow breaks**: Using `docs/architecture/DATA_FLOWS.md` as reference, check if changes in one layer break assumptions in another layer
+3. **Data flow breaks**: Using the active project's data-flow doc as reference (resolve from [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy)), check if changes in one layer break assumptions in another layer
 4. **Version/dependency drift**: Package version changes that might cause incompatibilities
 
 For each potential conflict found:
@@ -99,14 +99,7 @@ If no conflicts found, report "No cross-repo conflicts detected" and continue.
 
 ## Step 3: Branch Check
 
-For each repo, verify the current branch matches the expected main branch:
-
-| Repo | Expected |
-|------|----------|
-| PianoidInstall | `master` |
-| PianoidCore | `dev` |
-| PianoidBasic | `dev` |
-| PianoidTunner | `dev` |
+For each repo, verify the current branch matches the expected integration branch (per [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos)).
 
 If any repo is on a **feature branch**:
 1. Show the user what commits are on the feature branch vs the main branch
@@ -127,11 +120,7 @@ Skip this step if `--skip-docs` flag is provided.
 
 Review all changes (uncommitted + unpushed commits) and check if documentation reflects them:
 
-1. Read the relevant docs based on which repos have changes:
-   - PianoidCore changes → check `docs/modules/pianoid-cuda/`, `docs/modules/pianoid-middleware/`, `docs/architecture/`
-   - PianoidBasic changes → check `docs/modules/pianoid-basic/OVERVIEW.md`
-   - PianoidTunner changes → check `docs/modules/pianoid-tunner/OVERVIEW.md`
-   - Any API changes → check `docs/architecture/DATA_FLOWS.md`
+1. Read the relevant docs based on which repos have changes — map each changed source area to its doc section via the active project's [`PROJECT_CONFIG.md` → Doc-hierarchy](../../docs/PROJECT_CONFIG.md#doc-hierarchy) (engine/module sources → their module docs; any API changes → the data-flows architecture doc).
 
 2. For each undocumented change:
    - Describe what's missing
@@ -171,35 +160,25 @@ For each repo with uncommitted changes:
 
 ## Step 5.5: Post-Merge Rebuild Gate (BLOCKING — before push)
 
-A merge that brings in compiled-code changes leaves the LOCAL binaries stale against the new source. Pushing without rebuilding publishes new source that the binaries don't match — the backend then runs new Python against a stale `.pyd` and fails only at runtime (e.g. `/load_preset` 500 `AttributeError`). **This gate is mandatory; its absence is exactly what shipped a broken build (the `pack_output_mask` regression, 2026-06-05).**
+A merge that brings in compiled-code changes leaves the LOCAL binaries stale against the new source. Pushing without rebuilding publishes new source that the binaries don't match — the backend then runs new code against a stale native build and fails only at runtime (e.g. a post-load smoke-test returns 500 / `AttributeError`). **This gate is mandatory** — its absence is exactly what ships a broken build (new source published against a stale binary).
 
 1. Compute what the Step-3 merges brought into each repo:
    ```bash
    git -C "$REPO" diff <pre-merge-SHA>..HEAD --name-only
    ```
-2. If the diff touches compiled code, REBUILD (canonical procedure — [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first)):
+2. If the diff touches compiled code, REBUILD per the active project's rebuild matrix and canonical build procedure — resolve the changed-files → build mapping from [`PROJECT_CONFIG.md#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix) and the build procedure from [`#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run). (Compiled-engine sources → a heavy/full rebuild; domain-model sources → the domain-model build; server/middleware-only sources → a light rebuild; frontend dependency changes → the frontend package install; docs/tests only → no rebuild.)
 
-   | Diff touches | Rebuild |
-   |---|---|
-   | `pianoid_cuda/*.cu`, `*.cpp`, `*.cuh`, `*.h`, `setup.py`, `detect_paths.py` | HEAVY CUDA `--both` |
-   | any `PianoidBasic/**` | PianoidBasic build (+ HEAVY CUDA if `.cu/.cpp` also changed) |
-   | `pianoid_middleware/*.py` only | LIGHT CUDA `--both` |
-   | `PianoidTunner` `package.json` / `package-lock.json` | `npm install` |
-   | docs / tests only | no rebuild |
+3. Stop the build holder first (per [`PROJECT_CONFIG.md#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders) — e.g. the project's start-API stop endpoint, or a PID-targeted kill), build DETACHED (`Start-Process -WindowStyle Hidden`, absolute build-script path), then **VERIFY both levels**: L1 the rebuilt module imports inside the project's venv (per [`#interpreters`](../../docs/PROJECT_CONFIG.md#interpreters)), AND L2 the post-load smoke-test returns **200** with no traceback (the API-divergence case that import-verify alone misses — see [`#rest-endpoints`](../../docs/PROJECT_CONFIG.md#rest-endpoints) / [`#verification-surfaces`](../../docs/PROJECT_CONFIG.md#verification-surfaces)). On unexpected build or server failure → invoke the project's startup/build-recovery skill (see [`#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run)).
 
-3. Stop the `.pyd` holder first (launcher REST `POST /api/stop-backend`, or a PID-targeted kill), build DETACHED (`Start-Process -WindowStyle Hidden`, absolute bat path), then **VERIFY both levels**: L1 `import pianoidCuda` resolves inside `PianoidCore/.venv/`, AND L2 `/load_preset` returns **200** with no Python traceback (the API-divergence case that import-verify alone misses).
-
-**Step 6 (push) is BLOCKED until the rebuild + `/load_preset` 200 smoke-test pass.** If no compiled code changed, record "post-merge gate: no compiled diff, no rebuild" and proceed.
+**Step 6 (push) is BLOCKED until the rebuild + the post-load 200 smoke-test pass.** If no compiled code changed, record "post-merge gate: no compiled diff, no rebuild" and proceed. (The active project's concrete rebuild command, holder-stop call, and verify commands are in the [worked-examples companion](../skill-examples/sync.md).)
 
 ## Step 6: Push to Origin
 
-For each repo, push the main branch to origin:
+For each repo, push its integration branch to origin (iterate the repo + branch list from [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos)):
 
 ```bash
-git -C "." push origin master
-git -C "PianoidCore" push origin dev
-git -C "PianoidBasic" push origin dev
-git -C "PianoidTunner" push origin dev
+# Per-repo push — substitute each repo-relative path + its integration branch from PROJECT_CONFIG.md#repos
+git -C "<repo>" push origin "<integration-branch>"
 ```
 
 If push fails (e.g., remote has new commits):
@@ -209,13 +188,10 @@ If push fails (e.g., remote has new commits):
 
 ## Step 7: Final Report
 
-Present a summary:
+Present a summary — one row per repo from [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos):
 
 | Repo | Branch | Commits Pushed | Status |
 |------|--------|----------------|--------|
-| PianoidInstall | master | N | OK / Error |
-| PianoidCore | dev | N | OK / Error |
-| PianoidBasic | dev | N | OK / Error |
-| PianoidTunner | dev | N | OK / Error |
+| *(per repo)* | ... | N | OK / Error |
 
 If `--dry-run` was specified, instead present what *would* happen without actually committing or pushing.
