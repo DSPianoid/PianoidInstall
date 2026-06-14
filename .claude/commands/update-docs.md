@@ -1,12 +1,12 @@
 ---
 name: update-docs
-description: Update Pianoid documentation to match current codebase state.
+description: Update documentation to match current codebase state.
 user-invocable: true
 tier: generic
-argument-hint: [architecture|cuda|middleware|basic|tunner|development|all]
+argument-hint: [architecture|<module/area keyword>|development|all]
 ---
 
-# Update Pianoid Documentation
+# Update Documentation
 
 > **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
 > and the project's `docs/PROJECT_CONFIG.md` per the machine-global `~/.claude/CLAUDE.md` "Config resolution" section (#config-resolution)
@@ -14,48 +14,43 @@ argument-hint: [architecture|cuda|middleware|basic|tunner|development|all]
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.
 
-Sync documentation in `docs\` with current source code.
+**Worked examples (project-tier):** concrete invocations for the active project — the per-repo diff scan, the change→section mapping, the module-doc tree, and the docs-server build/preview commands — live in [`.claude/skill-examples/update-docs.md`](../skill-examples/update-docs.md) ([`#skill-examples`](../../docs/PROJECT_CONFIG.md#skill-examples)).
+
+Sync documentation in `docs/` with current source code.
 
 **CRITICAL: Keep all documentation as lean and concise as possible. No filler, no verbose explanations. Prefer tables and code blocks over prose. Every sentence must earn its place.**
 
 ## Arguments
 
+The scope keywords map to the active project's documentation sections — resolve the doc tree and the change→section mapping from the active project's [`PROJECT_CONFIG.md` → Doc-hierarchy](../../docs/PROJECT_CONFIG.md#doc-hierarchy) and [→ Key Paths](../../docs/PROJECT_CONFIG.md#key-paths). The argument keywords are the per-module/per-area scopes the project declares; pass `all` for a full review of every section, or *(none)* to auto-detect from changed files.
+
 | Argument | Scope |
 |----------|-------|
 | *(none)* | Auto-detect from changed files |
-| `architecture` | `architecture/SYSTEM_OVERVIEW.md`, `BUILD_SYSTEM.md`, `DATA_FLOWS.md` |
-| `cuda` | `modules/pianoid-cuda/*.md` |
-| `middleware` | `modules/pianoid-middleware/*.md` |
-| `basic` | `modules/pianoid-basic/OVERVIEW.md` |
-| `tunner` | `modules/pianoid-tunner/OVERVIEW.md` |
-| `development` | `development/TESTING.md`, `development/WORK_IN_PROGRESS.md` |
+| `architecture` | The project's architecture docs (system overview, build system, data flows) |
+| *(per-area keyword)* | The project's module/area doc section (resolve the section list from the project's doc tree — [`#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy) / [`#key-paths`](../../docs/PROJECT_CONFIG.md#key-paths)) |
+| `development` | The development docs (testing inventory, work-in-progress) |
 | `all` | Full review of all sections |
+
+The concrete keyword set for the active project (its module/area scopes and the doc filenames each maps to) is a project fact — see the [worked-examples companion](../skill-examples/update-docs.md).
 
 ## Workflow
 
 ### 1. Detect Changes
 
-If no argument given, scan for uncommitted changes to infer affected sections:
+If no argument given, scan for uncommitted changes to infer affected sections (run the per-repo diff across every repo in the active project's [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos)):
 
 ```bash
-git -C "PianoidCore" diff --name-only
-git -C "PianoidCore" diff --name-only --cached
-git -C "PianoidBasic" diff --name-only
-git -C "PianoidTunner" diff --name-only
-git -C "." diff --name-only
+# Per-repo uncommitted change scan — resolve the repo list from PROJECT_CONFIG.md#repos
+for repo in <repo-relative-paths from PROJECT_CONFIG.md#repos>; do
+  git -C "$repo" diff --name-only
+  git -C "$repo" diff --name-only --cached
+done
 ```
 
-**Change → Section mapping:**
+The concrete repo list (and the resolved `git -C` invocations) is a project fact — see the [worked-examples companion](../skill-examples/update-docs.md).
 
-| Changed files | Section |
-|--------------|---------|
-| `pianoid_cuda/*.cu`, `*.cpp`, `*.h`, `*.cuh` | `cuda` |
-| `pianoid_middleware/*.py` | `middleware` |
-| PianoidBasic `*.py` | `basic` |
-| PianoidTunner `*.tsx`, `*.ts`, `*.jsx`, `*.js` | `tunner` |
-| `tests/**` | `development` |
-| Build scripts, `setup.py`, `detect_paths.py` | `architecture` (BUILD_SYSTEM) |
-| Playback/event/parameter flow changes | `architecture` (DATA_FLOWS) |
+**Change → Section mapping:** map each changed source area to its documentation section. The concrete file-glob → doc-section table is a project fact — resolve it from the active project's [`PROJECT_CONFIG.md` → Doc-hierarchy](../../docs/PROJECT_CONFIG.md#doc-hierarchy) and [→ Key Paths](../../docs/PROJECT_CONFIG.md#key-paths) (compiled-engine sources → the engine module docs; middleware/server sources → the middleware docs; domain-model sources → the domain-model docs; frontend sources → the frontend docs; tests → the development/testing docs; build scripts → the build-system architecture doc; cross-layer data-flow changes → the data-flows architecture doc).
 
 If no changes detected and no argument given, report "No changes detected" and exit.
 
@@ -85,7 +80,7 @@ blocks with `mermaid` language tag. For complex, high-visual-impact diagrams (he
 overviews, dense coupling diagrams), use **hand-crafted SVG** in `docs/images/`.
 
 SVG style rules:
-- Dark background (`#1a1a2e`), gradient fills matching Material theme (deep purple + amber)
+- Dark background, gradient fills matching the docs theme
 - `filter` with `feDropShadow` for depth, rounded rectangles (`rx="10-14"`)
 - Embed as `![Alt text](../images/filename.svg)` in markdown
 
@@ -113,16 +108,18 @@ If doc files were added/removed (after user approval):
 
 ### 5. Verify Build
 
+Build the docs site and confirm zero errors (the project's docs-server tooling — the concrete build/preview command is a project fact, see the [worked-examples companion](../skill-examples/update-docs.md)):
+
 ```bash
-pip show mkdocs-material > /dev/null 2>&1 || pip install mkdocs-material
-cd . && python -m mkdocs build 2>&1 | grep -c "ERROR"
+python -m mkdocs build 2>&1 | grep -c "ERROR"
 ```
 
 ### 6. Commit
 
-Ask user before pushing:
+Ask the user before pushing (commit the docs + config and push the docs repo to its integration branch — resolve the repo + branch from [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos)):
+
 ```bash
-cd . && git add docs/ mkdocs.yml && git commit -m "Update documentation" && git push origin master
+git add docs/ mkdocs.yml && git commit -m "Update documentation" && git push origin <docs-integration-branch>
 ```
 
 ## Documentation Folder Taxonomy
@@ -142,32 +139,28 @@ Never move agent session logs out of `docs/development/logs/`. Never deposit non
 
 ## Documentation Structure
 
+The concrete documentation tree is a project fact — resolve the module/area layout from the active project's [`PROJECT_CONFIG.md` → Doc-hierarchy](../../docs/PROJECT_CONFIG.md#doc-hierarchy) and [→ Key Paths](../../docs/PROJECT_CONFIG.md#key-paths). The tree typically follows this shape:
+
 ```
-docs\
-├── index.md                          # Entry point, documentation map
-├── architecture/
-│   ├── SYSTEM_OVERVIEW.md            # 4-layer architecture
-│   ├── BUILD_SYSTEM.md               # Build pipeline
-│   └── DATA_FLOWS.md                 # End-to-end data flows
-├── modules/
-│   ├── pianoid-cuda/                 # 6 docs: Overview, Synthesis, Playback, Memory, Drivers, Parameters
-│   ├── pianoid-middleware/           # 4 docs: Overview, REST API, MIDI, Chart System
-│   ├── pianoid-basic/OVERVIEW.md     # Domain model
-│   └── pianoid-tunner/OVERVIEW.md    # Frontend
-├── development/
-│   ├── TESTING.md                    # Test framework and inventory
-│   └── WORK_IN_PROGRESS.md          # Active investigations
-└── guides/QUICK_START.md            # Getting started
+docs/
+├── index.md                  # Entry point, documentation map
+├── architecture/             # System overview, build system, data flows
+├── modules/                  # One subtree per module/area (engine, middleware, domain model, frontend)
+├── development/              # Testing inventory, work-in-progress
+└── guides/                  # Getting-started + operational guides
 ```
 
+The active project's actual tree (module folder names, per-module doc counts) is in the [worked-examples companion](../skill-examples/update-docs.md).
+
 **MkDocs config:** `mkdocs.yml`
-**Local preview:** `cd . && mkdocs serve -a localhost:8001`
+**Local preview:** `mkdocs serve` at the project's docs-server address (resolve from [`PROJECT_CONFIG.md#key-paths`](../../docs/PROJECT_CONFIG.md#key-paths))
 
 ## Example Usage
 
 ```
 /update-docs                # Auto-detect from git changes
-/update-docs cuda           # Update CUDA engine docs only
+/update-docs architecture   # Update architecture docs only
+/update-docs <module>       # Update one module/area's docs only
 /update-docs development    # Update testing & WIP docs
 /update-docs all            # Full documentation review
 ```
