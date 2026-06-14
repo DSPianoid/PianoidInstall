@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-excwb ALL locks RELEASED 2026-06-14 at Phase 2 (user msg 3485 "commit merge push"). The whole dev-excwb batch —
+     Excitation workbenches (3941714) + maximized-Close-icon fix (b222b66) + A+B kernel-traffic fix (a5e2fd0) — was
+     MERGED to PianoidTunner dev 19756de (--no-ff) and PUSHED origin/dev (1a2dba2..19756de, no force). Held files
+     across the batch: PianoidTuner.js, useLayout.js, useValuesHistory.js, components/Excitation.jsx,
+     ExcitationProperties.jsx, GaussEditor.jsx, GaussCell.jsx, hooks/usePreset.js, WorkbenchFunctionTools.jsx (+ 4 NEW
+     test files). Full Jest 102/1101 green, eslint 0, build compiles. Frontend-only, NO CUDA rebuild. User-tested +
+     approved. Deferred follow-up logged: string per-pitch GPU uploads inside one bulk backend call (GPU-batching). -->
+| <!-- (none active for dev-excwb) --> | | | |
 <!-- dev-excwb close-icon-fix locks RELEASED 2026-06-11 at Step 10a Phase 1 commit. Held PianoidTunner/src/PianoidTuner.js
      + hooks/useLayout.js (+ 1 NEW test). GENERAL bug (user msg 3476): renderToolbarControls suppressed Close (X)
      whenever isFullscreen → maximized panes (incl. Excitation workbenches) showed only Restore. Fix: render Close in
