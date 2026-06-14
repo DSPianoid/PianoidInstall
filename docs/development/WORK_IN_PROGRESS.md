@@ -30,8 +30,21 @@
      (cb34e5a) + BOTH-windowCategories guard test (8c52e03). MERGED to PianoidTunner dev 62696e4 (--no-ff, off
      19756de) + PUSHED origin/dev. Frontend-only, NO CUDA. Full Jest 104/1108 green, eslint 0, build compiles.
      Step-0 also confirmed dev-excwb's orphaned wrap was already self-committed (db2dae8/a32f046). Log archived. -->
-| dev-dynwb | Restore DYNAMIC workbench alongside FIXED workbenches; mosaic selector→dynamic, per-param buttons→fixed; avg-SC reuses workbench drawing (preserve 1→N emit + SC-LOCAL) | [log](logs/dev-dynwb-2026-06-14-113427.md) | 2026-06-14 | In Progress |
-| dev-dynwb | Restore DYNAMIC workbench alongside FIXED workbenches; mosaic selector→dynamic, per-param buttons→fixed; avg-SC reuses workbench drawing (preserve 1→N emit + SC-LOCAL) | [log](logs/dev-dynwb-2026-06-14-113427.md) | 2026-06-14 | In Progress |
+<!-- dev-dynwb COMPLETED 2026-06-14 (Step 10a Phase 2, user msg 3524 "Workbench ok. Commit and merge everything.
+     Sync with the origin"). Workbench batch on PianoidTunner (user msgs 3503/3512/3515): (a) workbench pane TITLE
+     shows the edited parameter, "Workbench" word dropped (329957c; pure utils/workbenchTitle.js); (b) AVERAGED Sound
+     Channels reuses the workbench RowEditor drawing — render via RowEditor→BarChart→DrawableChart (the canonical dense
+     path) while keeping the 1→N fan-out emit + tri-state mute + ★SC-LOCAL channel decouple SEPARATE (501d66c;
+     BarChart/RowEditor widened with omit=byte-identical pass-throughs); (c) DYNAMIC-vs-FIXED bar color (DrawableChart
+     isDynamic → secondary vs primary accent) + (d) bars FILL the field with a small gap (removed barMaxWidth cap)
+     (91266eb); BarChart passthrough guard test (4343779). MERGED to PianoidTunner dev 0f3cfe0 (--no-ff, off 62696e4) +
+     PUSHED origin. Full Jest 108/1127 green incl. SC-decouple guards (muteCycle/muteSet/localChannel/zeroPitch +
+     fanOutDecouple); eslint 0; build compiles; live pixel-verified (avg-SC via RowEditor; dynamic orange vs fixed blue;
+     bars fill). Frontend-only, NO CUDA. ★PARTS 1+2 (dynamic/fixed workbench WIRING) NOT touched — verdict Q2 (already
+     work, user-confirmed msg 3515). Log archived. ★DEFERRED to next session (user): save-mosaic-config + bottom-bar. -->
+<!-- (the earlier dev-dynwb diagnosis defect: clean-base avg-SC drew via its own NON-dense DrawableChart +
+     hand-rolled windowing/ruler — a parallel less-mature path vs the workbench's dense RowEditor→BarChart;
+     option-A RowEditor reuse gives the identical dense drawing path → fixed.) -->
 <!-- dev-excwb COMPLETED 2026-06-14 (Phase 2, user msg 3485 "commit merge push"). Three-part batch on PianoidTunner:
      (1) Excitation workbenches — every hammer + gauss param opens a Workbench, per-pitch, mirroring Strings/Modes
      (3941714); (2) maximized-pane Close-icon fix — general, all panes (b222b66); (3) A+B kernel-traffic fix — bulk
