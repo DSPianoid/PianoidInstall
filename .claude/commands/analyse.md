@@ -1,12 +1,12 @@
 ---
 name: analyse
-description: Deep analysis of a Pianoid system/module — docs audit, code review, architecture assessment, improvement proposal.
+description: Deep analysis of a system/module in the active project — docs audit, code review, architecture assessment, improvement proposal.
 user-invocable: true
 tier: generic
 argument-hint: <system or module name — e.g. "excitation system", "playback engine", "parameter routing", "deck coupling">
 ---
 
-# Pianoid System/Module Analysis
+# System/Module Analysis
 
 > **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
 > and the project's `docs/PROJECT_CONFIG.md` per the machine-global `~/.claude/CLAUDE.md` "Config resolution" section (#config-resolution)
@@ -14,38 +14,40 @@ argument-hint: <system or module name — e.g. "excitation system", "playback en
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.
 
+**Worked examples (project-tier):** concrete invocations for the active project — the canonical rebuild command, the module-doc drill, the docs-server restart, and the test tiers — live in [`.claude/skill-examples/analyse.md`](../skill-examples/analyse.md) ([`#skill-examples`](../../docs/PROJECT_CONFIG.md#skill-examples)).
+
 Deep-dive analysis workflow: audit documentation, verify against source code, update docs, then assess architecture and code quality. Produces two deliverables: an updated documentation report and an improvement proposal.
 
 **CRITICAL: Documentation-first rule applies throughout.** Always check docs before reading source.
 
 ## Docs-first (MANDATORY) if the analysis triggers a rebuild
 
-If this analysis requires reproducing behavior, running tests, or rebuilding to verify a finding — the rebuild MUST go through canonical paths. A silently-stale binary invalidates every "I verified this" claim. 2026-04-23 lost ~3h to exactly this.
+If this analysis requires reproducing behavior, running tests, or rebuilding to verify a finding — the rebuild MUST go through canonical paths. A silently-stale binary invalidates every "I verified this" claim.
 
-- **Full docs-first build/run discipline: the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).**
-- **Canonical rebuild = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both`** — in agent context use the **detached `Start-Process`** form (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Procedure: [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first). **Verify-landed** (`grep -a "<marker>" …pyd`) — if absent, any conclusion drawn from the rebuild is void.
-- **On unexpected build or server failure → invoke `/startup`** rather than ad-hoc fixes.
+- **Full docs-first build/run discipline: the single canonical copy at the active project's [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).** Read it before any build/restart.
+- **Canonical rebuild** — use the project's canonical build command + the agent-context detached form (stop the build holder first); resolve the command, the verify-landed step, and the never-substitute traps from [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run), [`#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix), and [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders). **Verify-landed** before trusting any conclusion — if the marker is absent, the rebuild didn't land and any conclusion drawn from it is void.
+- **On unexpected build or server failure → invoke the project's startup/build-recovery skill** (see [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run)) rather than ad-hoc fixes.
 
 ## Arguments
 
-The argument is a system or module name, e.g.:
-- `excitation system` — Gaussian excitation pipeline (Python model → GPU kernel)
-- `playback engine` — online/offline playback, event dispatch, audio output
-- `parameter routing` — REST → Python → CUDA parameter flow
-- `deck coupling` — feedin/feedback matrices, string-mode coupling
-- `mode simulation` — harmonic oscillator modes
-- `string simulation` — FDTD wave equation solver
-- `midi system` — MIDI listener, event scheduling
-- `chart system` — chart registry, chart functions, actions
-- `preset system` — save/load/switch presets
-- `memory management` — GPU memory allocation, double-buffer swap
-- `audio drivers` — ASIO/SDL3 audio output
+The argument is a system or module name in the active project, e.g.:
+- `excitation system`
+- `playback engine`
+- `parameter routing`
+- `deck coupling`
+- `mode simulation`
+- `string simulation`
+- `midi system`
+- `chart system`
+- `preset system`
+- `memory management`
+- `audio drivers`
 
-Or any other subsystem the user names. Scope the analysis to the named system.
+Or any other subsystem the user names. Scope the analysis to the named system. (The example names above are illustrative; the real subsystem set is whatever the active project exposes — resolve the module map from [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy).)
 
 ## Documentation Folder Taxonomy (MANDATORY)
 
-When `/analyse` produces a written artefact (proposal, analysis, review, diagnostic snippet), route it to the canonical location - never to `docs/development/logs/` (that folder is for agent session logs only).
+When this skill produces a written artefact (proposal, analysis, review, diagnostic snippet), route it to the canonical location - never to `docs/development/logs/` (that folder is for agent session logs only).
 
 | Artefact | Folder |
 |----------|--------|
@@ -57,7 +59,7 @@ When `/analyse` produces a written artefact (proposal, analysis, review, diagnos
 
 Naming: `<topic>-<YYYY-MM-DD>.md` for proposals; `<scope>-review-<YYYY-MM-DD>.md` for reviews. The full taxonomy lives in `.claude/commands/dev.md` - the Phase 4 report and any saved proposal MUST be filed under `docs/proposals/`.
 
-**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When `/analyse` produces a NEW proposal that supersedes or extends an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When the analysis fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Research Q&A docs that answered a question without producing a future-work proposal go straight to `docs/proposals/archive/` (or skip `docs/proposals/` entirely). The full rule lives in `.claude/commands/dev.md`. Never create `docs/development/proposals/` — proposals go to `docs/proposals/`; working/planning docs go directly under `docs/development/`.
+**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When this skill produces a NEW proposal that supersedes or extends an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When the analysis fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Research Q&A docs that answered a question without producing a future-work proposal go straight to `docs/proposals/archive/` (or skip `docs/proposals/` entirely). The full rule lives in `.claude/commands/dev.md`. Never create `docs/development/proposals/` — proposals go to `docs/proposals/`; working/planning docs go directly under `docs/development/`.
 
 ## Phase 1: Documentation Audit
 
@@ -66,15 +68,13 @@ Naming: `<topic>-<YYYY-MM-DD>.md` for proposals; `<scope>-review-<YYYY-MM-DD>.md
 Read docs in this order to build context. Stop and note which docs cover the target system:
 
 1. `docs/index.md` — locate the system in the module map
-2. `docs/architecture/SYSTEM_OVERVIEW.md` — where the system sits in the 4-layer stack
-3. `docs/architecture/DATA_FLOWS.md` — trace the system's data flows
-4. Drill into module docs under `docs/modules/`:
-   - CUDA engine: `pianoid-cuda/*.md`
-   - Middleware: `pianoid-middleware/*.md`
-   - Domain model: `pianoid-basic/OVERVIEW.md`
-   - Frontend: `pianoid-tunner/OVERVIEW.md`
-5. `docs/development/TESTING.md` — test coverage for this system
+2. the system-overview architecture doc — where the system sits in the layered stack
+3. the data-flows architecture doc — trace the system's data flows
+4. Drill into the relevant module doc under `docs/modules/` (resolve the module→doc mapping from the active project's [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy) — engine/compute, middleware/server, domain-model, and frontend each have their own module doc)
+5. the development/testing doc — test coverage for this system
 6. `docs/development/WORK_IN_PROGRESS.md` — active investigations
+
+(The exact doc filenames are project facts — read them top-down per [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy).)
 
 **Output:** List of doc files that cover (or should cover) the target system.
 
@@ -116,22 +116,15 @@ If the analysis reveals the need for:
 
 **Stop and ask the user before proceeding.**
 
-### 2.3 Restart MkDocs
+### 2.3 Restart the docs server
 
-After doc updates, restart the MkDocs dev server so changes are reflected:
-
-```bash
-# Kill existing mkdocs process
-tasklist | grep -i mkdocs | awk '{print $2}' | xargs -r kill 2>/dev/null
-# Start fresh (run in background)
-cd . && mkdocs serve -a 0.0.0.0:8001
-```
+After doc updates, restart the docs/preview server so changes are reflected. Kill the running instance and relaunch it at the project's docs-server address ([`PROJECT_CONFIG.md#key-paths`](../../docs/PROJECT_CONFIG.md#key-paths)); the concrete project command (kill + serve) is in the [worked-examples companion](../skill-examples/analyse.md).
 
 ### 2.4 Documentation Report
 
 Present the user with a report listing:
 - Which docs were updated and what changed
-- MkDocs links (`http://localhost:8001/...`) to every updated section
+- MkDocs links (at the project's docs-server address — see [`PROJECT_CONFIG.md#key-paths`](../../docs/PROJECT_CONFIG.md#key-paths)) to every updated section
 - Any remaining coverage gaps (if structural changes are needed but not yet approved)
 
 **Ask user to review the docs and confirm correctness before proceeding to Phase 3.**
@@ -143,7 +136,7 @@ Once docs are approved, perform a deep analysis of the system's implementation. 
 ### 3.1 Architecture Cleanliness
 
 - Is the architecture clean and consistent?
-- Does the system follow the project's layered architecture (Frontend → Middleware → Domain Model → CUDA)?
+- Does the system follow the project's layered architecture (resolve the layer model from the system-overview doc — [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy))?
 - Are responsibilities clearly separated between layers?
 
 ### 3.2 Redundancy
@@ -191,11 +184,11 @@ Once docs are approved, perform a deep analysis of the system's implementation. 
 - Are all configurable values parameterized with a single source of truth?
 - Are there magic numbers in the code?
 - Are there duplicate constant definitions across files?
-- Are default values consistent between Python and C++?
+- Are default values consistent between layers (e.g. Python and C++)?
 
 ### 3.9 Naming
 
-- Is naming consistent across layers (Python ↔ C++ ↔ Frontend)?
+- Is naming consistent across layers (e.g. Python ↔ C++ ↔ Frontend)?
 - Are abbreviations used consistently?
 - Do names accurately describe what they represent?
 
@@ -223,7 +216,7 @@ Open the report with a concise overview of the system:
 | Memory | ... | ... |
 ```
 
-Derive purpose and use cases from the documentation and code. Derive performance criteria from the system's role in the real-time audio pipeline (e.g., must complete within one synthesis cycle, must not block the audio thread, must fit within GPU memory budget).
+Derive purpose and use cases from the documentation and code. Derive performance criteria from the system's role in the project's runtime (e.g., for a real-time pipeline: must complete within one processing cycle, must not block the latency-critical thread, must fit within the compute/memory budget).
 
 ### 4.2 Health Summary
 
@@ -280,10 +273,7 @@ Assess existing test coverage for the system and propose updates:
 - [Existing tests to extend or modify]
 ```
 
-Test types follow the project convention:
-- `tests/unit/` — pure Python, no GPU
-- `tests/integration/` — GPU, no audio driver
-- `tests/system/` — full stack including audio
+Test types follow the project's test convention (resolve the tiers + locations from [`PROJECT_CONFIG.md#key-paths`](../../docs/PROJECT_CONFIG.md#key-paths) / the development/testing doc) — typically a pure-logic tier, a compute/integration tier, and a full-stack/system tier.
 
 **Ask user which improvements and tests to implement.** If they select any, invoke `/dev` for each.
 
