@@ -1,0 +1,20 @@
+{
+  "files.watcherExclude": {
+    "**/site/**": true,
+    "**/.venv/**": true,
+    "**/__pycache__/**": true,
+    "**/node_modules/**": true,
+    "**/PianoidCore/**": true,
+    "**/PianoidTunner/**": true,
+    "**/PianoidBasic/**": true
+  },
+  "search.exclude": {
+    "**/site/**": true,
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/PianoidCore/**": true,
+    "**/PianoidTunner/**": true,
+    "**/PianoidBasic/**": true
+  },
+  "git.ignoreLimitWarning": true
+}
