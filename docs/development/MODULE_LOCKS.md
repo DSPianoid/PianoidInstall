@@ -15,6 +15,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-tbmirror locks RELEASED 2026-06-14 at Step 10a Phase 1 commit. Held: PianoidTunner/src/components/ToolBar.jsx,
+     src/PianoidTuner.js, src/components/__tests__/ToolBar.commitKey.test.jsx (DELETED), src/components/__tests__/ToolBar.presetSelector.test.jsx.
+     Removed the redundant top-toolbar "mirroring" selected-parameter NumInput (echoed selectedParameter.value — a second
+     edit surface for a value every pane already edits in place; as a shared persist-on-blur instance it was the
+     contamination surface the dev-blur commitKey guard existed to patch). ToolBar.jsx: delete mirror block + Divider +
+     NumInput import + selectedParameter/onValueChange props + update responsive-overflow comment (695→650 LOC, YELLOW).
+     PianoidTuner.js: stop passing selectedParameter/onValueChange to <ToolBar> (both stay defined — pane-shared).
+     Deleted ToolBar.commitKey.test.jsx (tested the removed field); added a field-removed negative assertion to
+     ToolBar.presetSelector.test.jsx. Committed feature/dev-tbmirror-remove-toolbar-mirror 25ce0de (off dev 19756de).
+     Full Jest 101/1098 green (baseline 102/1101; -1 suite/-4 + 1 new = net -3), eslint 0 new errors, build compiles.
+     Frontend-only, NO CUDA. Live-verified (chrome-devtools): toolbar has no mirror field; all other controls + responsive
+     overflow intact. NOT merged — HOLD for user live test. Docs (OVERVIEW ToolBar+NumInput rows) + log on master. -->
 <!-- dev-excwb ALL locks RELEASED 2026-06-14 at Phase 2 (user msg 3485 "commit merge push"). The whole dev-excwb batch —
      Excitation workbenches (3941714) + maximized-Close-icon fix (b222b66) + A+B kernel-traffic fix (a5e2fd0) — was
      MERGED to PianoidTunner dev 19756de (--no-ff) and PUSHED origin/dev (1a2dba2..19756de, no force). Held files
