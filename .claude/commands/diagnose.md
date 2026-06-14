@@ -2,6 +2,7 @@
 name: diagnose
 description: Full system diagnostic — interactive configuration, backend/frontend startup, sound generation, performance, audio driver, and optional mic verification. Auto-fixes with /dev on failure when -fix flag is set.
 user-invocable: true
+tier: project
 argument-hint: <options — e.g. "-fix", "-cli-only", "-skip-mic", or blank for default interactive diagnostic>
 ---
 

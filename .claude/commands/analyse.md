@@ -2,10 +2,17 @@
 name: analyse
 description: Deep analysis of a Pianoid system/module — docs audit, code review, architecture assessment, improvement proposal.
 user-invocable: true
+tier: generic
 argument-hint: <system or module name — e.g. "excitation system", "playback engine", "parameter routing", "deck coupling">
 ---
 
 # Pianoid System/Module Analysis
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Deep-dive analysis workflow: audit documentation, verify against source code, update docs, then assess architecture and code quality. Produces two deliverables: an updated documentation report and an improvement proposal.
 
@@ -282,14 +289,8 @@ Test types follow the project convention:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Documentation | `docs/` |
-| MkDocs config | `mkdocs.yml` |
-| MkDocs preview | `http://localhost:8001/` |
+Repo roots, the docs tree, and the docs-server URL are project facts — resolve them from the active
+project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths).
 
 ## Example Usage
 

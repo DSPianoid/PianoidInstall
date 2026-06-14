@@ -2,10 +2,17 @@
 name: multitask
 description: Orchestrate multiple dev tasks — classify, detect conflicts, schedule parallel waves, spawn sub-agents, coordinate testing and merging.
 user-invocable: true
+tier: generic
 argument-hint: <task1> | <task2> | <task3> [...]
 ---
 
 # Pianoid Multi-Task Orchestrator
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Orchestrate a list of development tasks across PianoidCore, PianoidBasic, and PianoidTunner. Analyses dependencies, groups tasks into parallel waves, spawns sub-agents for each, and coordinates testing and merging.
 
@@ -312,12 +319,6 @@ Ask user before each action:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Documentation | `docs/` |
-| Performance tests | `PianoidCore/tests/system/test_performance.py` |
-| venv Python | `PianoidCore/.venv/Scripts/python` |
-| Build script | `PianoidCore/build_pianoid_cuda.bat` |
+Repo roots, venv interpreter, test paths, and the build script are project facts — resolve them from the
+active project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths),
+[→ Interpreters](../../docs/PROJECT_CONFIG.md#interpreters), and [→ Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).

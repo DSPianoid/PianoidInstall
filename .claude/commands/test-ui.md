@@ -2,6 +2,7 @@
 name: test-ui
 description: Verify a Pianoid feature by launching the full stack, interacting via UI, measuring sound output, and reporting pass/fail with evidence.
 user-invocable: true
+tier: project
 argument-hint: <what to verify — e.g. "excitation volume slider doubles amplitude", "volume sensitivity range=2 narrows dynamic range">
 ---
 

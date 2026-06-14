@@ -2,10 +2,17 @@
 name: cli-control
 description: Establish keystroke control over the orchestrator's own Claude Code CLI window — remote /clear+relaunch, or release an agent stuck on an invisible CLI permission prompt.
 user-invocable: true
+tier: generic
 argument-hint: [verify | clear | release]
 ---
 
 # /cli-control — keystroke control of the orchestrator's own CLI
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Drives the orchestrator's **own** Claude Code CLI window by synthesizing keystrokes into it, via `tools/cli_control.ps1`. Two jobs:
 

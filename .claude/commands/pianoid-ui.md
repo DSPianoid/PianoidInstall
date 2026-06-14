@@ -2,6 +2,7 @@
 name: pianoid-ui
 description: Start and control the Pianoid interface — launch stack, navigate UI, adjust any synthesis parameter, capture sound, analyse results.
 user-invocable: true
+tier: project
 argument-hint: <action — e.g. "start", "set tension on C4 to 800", "capture sound after playing A4", "compare feedin before/after">
 ---
 
