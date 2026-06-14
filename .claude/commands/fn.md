@@ -2,10 +2,17 @@
 name: fn
 description: Single-function development — focused edit with clear requirements and test criteria. Designed for use standalone or as a sub-agent of /dev.
 user-invocable: true
+tier: generic
 argument-hint: <file path> <function name or description> [--test <test command>] [--context <comma-separated context files>]
 ---
 
 # Single-Function Development Workflow
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Focused, lightweight workflow for implementing or modifying a single function with clear requirements and test criteria. No branching, no WIP registration, no documentation updates, no commits — those belong to the caller (the `/dev` agent or the user).
 
@@ -271,14 +278,9 @@ If standalone, print a summary to the user:
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Session logs | `docs\development\logs/` |
-| Module locks | `docs\development\MODULE_LOCKS.md` |
-| venv Python | `PianoidCore/.venv/Scripts/python` |
+Repo roots, the venv interpreter (per-OS), and the lock/log locations are project facts — resolve them
+from the active project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths) and
+[→ Interpreters](../../docs/PROJECT_CONFIG.md#interpreters).
 
 ## Example Usage
 

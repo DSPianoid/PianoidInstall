@@ -2,6 +2,7 @@
 name: update-pianoid
 description: Update all Pianoid repos (PianoidInstall, PianoidCore, PianoidBasic, PianoidTunner) — fetch, rebuild, sync project skills.
 user-invocable: true
+tier: project
 argument-hint: [--force|-f] [--force-heavy|-h]
 ---
 

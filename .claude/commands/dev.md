@@ -2,10 +2,17 @@
 name: dev
 description: Development workflow — study context, baseline test, branch, edit, verify, debug, document, commit.
 user-invocable: true
+tier: generic
 argument-hint: <task description — bug fix, feature, or refactor>
 ---
 
 # Pianoid Development Workflow
+
+> **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
+> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
+> ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
+> resolves them there rather than hard-coding them.
 
 Disciplined development cycle for PianoidCore, PianoidBasic, and PianoidTunner. Follow every step in order. Do not skip steps.
 
@@ -1263,18 +1270,9 @@ Use this when an agent was paused (10c) due to a lock conflict and the blocking 
 
 ## Key Paths
 
-| Resource | Path |
-|----------|------|
-| PianoidCore | `PianoidCore` |
-| PianoidBasic | `PianoidBasic` |
-| PianoidTunner | `PianoidTunner` |
-| Performance tests | `PianoidCore/tests/system/test_performance_audio_off.py` |
-| Audio driver tests | `PianoidCore/tests/system/test_audio_drivers.py` |
-| Documentation | `docs/` |
-| Session logs | `docs\development\logs/` |
-| Log archive | `docs\development\logs\archive/` |
-| Module locks | `docs\development\MODULE_LOCKS.md` |
-| venv Python | `PianoidCore/.venv/Scripts/python` |
+Repo roots, venv interpreter (per-OS), test paths, and the lock/log locations are project facts —
+resolve them from the active project's [`PROJECT_CONFIG.md` → Key Paths](../../docs/PROJECT_CONFIG.md#key-paths)
+and [→ Interpreters](../../docs/PROJECT_CONFIG.md#interpreters).
 
 ## Example Usage
 

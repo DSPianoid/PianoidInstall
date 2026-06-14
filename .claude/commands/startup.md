@@ -2,6 +2,7 @@
 name: startup
 description: Diagnose and fix Pianoid installation, build, and startup failures — toolchain detection, CUDA compilation, server launch, port conflicts, audio driver issues.
 user-invocable: true
+tier: project
 argument-hint: <problem description — e.g. "backend won't start", "CUDA build failed", "no audio output", "fresh install", "port 5000 in use">
 ---
 
