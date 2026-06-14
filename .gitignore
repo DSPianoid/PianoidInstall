@@ -1,1 +1,14 @@
 modal_projects/
+
+# Build output / generated
+site/
+# Python venv + caches
+.venv/
+__pycache__/
+*.pyc
+# IDE
+.idea/
+# Nested independent clones (worked on in their own windows; not tracked by the outer repo)
+/PianoidCore/
+/PianoidTunner/
+/PianoidBasic/
