@@ -1,18 +1,20 @@
 ---
 name: review
-description: Code review at three levels — local (function/fix), module (post-refactor), system (periodic audit). Checks against CODE_QUALITY.md principles.
+description: Code review at three levels — local (function/fix), module (post-refactor), system (periodic audit). Checks against the project's code-quality principles.
 user-invocable: true
 tier: generic
-argument-hint: <level> [scope] — e.g. "local mode_tracking.py", "module modal_adapter", "system"
+argument-hint: <level> [scope] — e.g. "local <file>", "module <module-name>", "system"
 ---
 
-# Pianoid Code Review
+# Code Review
 
 > **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
 > and the project's `docs/PROJECT_CONFIG.md` per the machine-global `~/.claude/CLAUDE.md` "Config resolution" section (#config-resolution)
 > — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.
+
+**Worked examples (project-tier):** concrete invocations for the active project — the layer/server model, the module→path map, the persistence/dead-code grep paths, and the terminology synonym pairs — live in [`.claude/skill-examples/review.md`](../skill-examples/review.md) ([`#skill-examples`](../../docs/PROJECT_CONFIG.md#skill-examples)).
 
 Three-level code review skill that checks code against the project's quality principles (`docs/development/CODE_QUALITY.md`). Each level has different scope, depth, and use case.
 
@@ -74,9 +76,9 @@ Apply the C4 thresholds from CODE_QUALITY.md:
 
 Before line-by-line review, audit the change at the architectural level. Answer four questions:
 
-**2.1 Layer Audit.** Which of the 4 layers (CUDA engine → domain model → middleware → frontend) does the change belong to? Does it stay within that layer's responsibility, or does it leak? (E.g. frontend business logic, backend UI concerns, domain-model code making HTTP calls.)
+**2.1 Layer Audit.** Which of the project's architectural layers (resolve the layer model from the active project's [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy) system-overview doc) does the change belong to? Does it stay within that layer's responsibility, or does it leak? (E.g. frontend business logic, backend UI concerns, a domain-model module making HTTP calls.)
 
-**2.2 Server Audit.** For middleware changes: does the change land on the correct backend server (port 5000 main vs port 5001 modal adapter)? Are the import rules respected? (Routes on 5001 must not `import backendServer`; main server must not `import modal_adapter_server`.)
+**2.2 Server Audit.** For multi-server projects: does the change land on the correct backend server, and are the cross-server import rules respected? The project's server topology (which ports run which server, and the import-isolation rules between them) is a project fact — resolve it from the active project's [`PROJECT_CONFIG.md` → Ports](../../docs/PROJECT_CONFIG.md#ports) and the system-overview doc ([`#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy)). (A route owned by one server must not import the other server's module; each server keeps its own import surface.) Mark N/A if the project is single-server.
 
 **2.3 Authority Audit (P1).** List every piece of state touched by the change. For each: who is the owner (sole writer)? Does this change make a non-owner write it? Does it add a silent default that masks drift from the true owner?
 
@@ -213,17 +215,17 @@ For each changed file/function, evaluate:
 
 **4.1-4.2 Naming**
 - [ ] Follows naming conventions (snake_case Python, camelCase JS, PascalCase components/classes)
-- [ ] Domain terms match the terminology table (frequency, damping_ratio, decrement, etc.)
+- [ ] Domain terms match the project's terminology table (the canonical term list — see the project's CODE_QUALITY.md / data-model facts)
 - [ ] No new synonyms for existing terms
 
 **1.2-1.3 Layer Boundaries**
 - [ ] Frontend code doesn't contain business logic
 - [ ] Backend code doesn't contain UI concerns
-- [ ] The correct server owns the new functionality (port 5000 vs 5001)
+- [ ] The correct server owns the new functionality (resolve the server topology from [`PROJECT_CONFIG.md#ports`](../../docs/PROJECT_CONFIG.md#ports); N/A if single-server)
 
-**5.1-5.2 Real-Time (if touching engine/audio path)**
-- [ ] No blocking calls on audio thread
-- [ ] GPU budget impact assessed
+**5.1-5.2 Real-Time (if touching engine/audio/latency-critical path)**
+- [ ] No blocking calls on the latency-critical thread
+- [ ] Compute-budget impact assessed
 
 ### Output
 
@@ -251,13 +253,7 @@ If no findings: `Pass — no issues found.`
 
 ### Input
 
-Identify the module:
-- `modal_adapter` → `PianoidCore/pianoid_middleware/modal_adapter/` + frontend `useModalAdapter.js` + `ModalAdapter.jsx`
-- `parameter_manager` → `PianoidCore/pianoid_middleware/parameter_manager.py` + callers
-- `pianoid_cuda` → `PianoidCore/pianoid_cuda/` + pybind11 bindings + middleware callers
-- `domain_model` → `PianoidBasic/Pianoid/` + middleware consumers
-- `frontend` → `PianoidTunner/src/` (all hooks, components, modules)
-- Any other module name: search for it in the codebase
+Identify the module and its files + consumers. The concrete module→path mapping is a project fact — resolve module locations from the active project's [`PROJECT_CONFIG.md` → Repos](../../docs/PROJECT_CONFIG.md#repos) and [→ Key Paths](../../docs/PROJECT_CONFIG.md#key-paths), and find the module's callers by searching the codebase. A module review covers the module's own directory plus every file that imports from it or interfaces with it (a backend module + its frontend hook/component, a backend module + its callers, a native/compiled module + its bindings + middleware callers, the domain model + its consumers, the frontend tree, or any other module the user names). Concrete project module→path examples live in the [worked-examples companion](../skill-examples/review.md).
 
 ### Phase 1: Internal Consistency
 
@@ -319,7 +315,7 @@ Find all callers/consumers of the module. Check:
 ```bash
 # Check what changed recently in this module
 git log --oneline -20 -- <module_path>
-git diff main..HEAD -- <module_path>  # or dev..HEAD
+git diff main..HEAD -- <module_path>  # or <integration-branch>..HEAD
 ```
 
 - [ ] Recent changes don't contradict each other
@@ -334,7 +330,7 @@ git diff main..HEAD -- <module_path>  # or dev..HEAD
 ### Internal Consistency
 | # | Principle | Severity | File:Line | Description |
 |---|-----------|----------|-----------|-------------|
-| 1 | 1.4 | Medium | modal_adapter.py:245 | ... |
+| 1 | 1.4 | Medium | <file>:<line> | ... |
 
 ### Interface Issues
 | # | Principle | Severity | Boundary | Description |
@@ -358,14 +354,11 @@ git diff main..HEAD -- <module_path>  # or dev..HEAD
 
 **When to use:** Periodic audit (monthly or after a major development sprint). Checks the entire system's architectural health.
 
-**Scope:** All 4 repos, all layers, all interfaces.
+**Scope:** All repos, all layers, all interfaces (resolve the repo + layer set from [`PROJECT_CONFIG.md#repos`](../../docs/PROJECT_CONFIG.md#repos) and the system-overview doc).
 
 ### Phase 1: Architecture Health
 
-Read the architecture docs:
-- `docs/architecture/SYSTEM_OVERVIEW.md`
-- `docs/architecture/DATA_FLOWS.md`
-- `docs/architecture/BUILD_SYSTEM.md`
+Read the architecture docs (resolve the set from the active project's [`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy) — the system-overview, data-flows, and build-system docs).
 
 Then verify against code:
 
@@ -373,7 +366,7 @@ Then verify against code:
 - [ ] Each layer stays within its responsibility
 - [ ] No new cross-layer dependencies that bypass defined interfaces
 - [ ] Authority table in CODE_QUALITY.md still accurate
-- [ ] Both backend servers (5000, 5001) maintain clean separation
+- [ ] All backend servers maintain clean separation (resolve the server set from [`#ports`](../../docs/PROJECT_CONFIG.md#ports))
 
 **1.4 Modularity**
 - [ ] Module list in CODE_QUALITY.md is current
@@ -382,12 +375,12 @@ Then verify against code:
 
 ### Phase 2: State Management Audit
 
-For each backend server, inventory all persistent state:
+For each backend server, inventory all persistent state (resolve the server paths from [`PROJECT_CONFIG.md#key-paths`](../../docs/PROJECT_CONFIG.md#key-paths); substitute the project's server module dir for `<server-module-dir>` below — the concrete paths are in the [worked-examples companion](../skill-examples/review.md)):
 
 ```bash
 # Find all files written to disk by each server
-grep -rn "open(" --include="*.py" PianoidCore/pianoid_middleware/ | grep "'w'"
-grep -rn "json.dump\|np.save\|pickle" --include="*.py" PianoidCore/pianoid_middleware/
+grep -rn "open(" --include="*.py" <server-module-dir> | grep "'w'"
+grep -rn "json.dump\|np.save\|pickle" --include="*.py" <server-module-dir>
 ```
 
 - [ ] Every persistent value has a corresponding load path
@@ -398,8 +391,8 @@ grep -rn "json.dump\|np.save\|pickle" --include="*.py" PianoidCore/pianoid_middl
 ### Phase 3: Naming and Consistency Audit
 
 ```bash
-# Check for terminology violations
-grep -rn "dump_ratio\|damp_ratio" --include="*.py" --include="*.js" --include="*.jsx"
+# Check for terminology violations (substitute the project's known synonym pairs for <wrong-term>/<synonym>)
+grep -rn "<wrong-term>\|<synonym>" --include="*.py" --include="*.js" --include="*.jsx"
 # Check for naming convention violations (sample — adjust patterns as needed)
 grep -rn "def [A-Z]" --include="*.py"  # PascalCase function names in Python
 ```
@@ -412,17 +405,17 @@ grep -rn "def [A-Z]" --include="*.py"  # PascalCase function names in Python
 
 - [ ] Thread table in CODE_QUALITY.md is current
 - [ ] No new threads without documentation
-- [ ] `cuda_lock` usage consistent (every pybind11 call inside lock)
-- [ ] No shared mutable state between the two backend servers
-- [ ] Audio callback thread path is lock-free
+- [ ] The engine/compute lock usage is consistent (every native/bindings call inside the lock)
+- [ ] No shared mutable state between separate backend servers
+- [ ] The latency-critical (e.g. audio-callback) thread path is lock-free
 
 ### Phase 5: Dead Code and Technical Debt
 
 ```bash
-# Find potentially dead endpoints
-grep -rn "@.*route\|@modal_bp" --include="*.py" PianoidCore/pianoid_middleware/
-# Cross-reference with frontend API calls
-grep -rn "axios\.\|fetch(" --include="*.js" --include="*.jsx" PianoidTunner/src/
+# Find potentially dead endpoints — substitute the project's server module dir + route decorator (worked-examples companion)
+grep -rn "@.*route" --include="*.py" <server-module-dir>
+# Cross-reference with frontend API calls — substitute the project's frontend source dir
+grep -rn "axios\.\|fetch(" --include="*.js" --include="*.jsx" <frontend-source-dir>
 ```
 
 - [ ] Every endpoint has at least one frontend caller
@@ -432,7 +425,7 @@ grep -rn "axios\.\|fetch(" --include="*.js" --include="*.jsx" PianoidTunner/src/
 ### Phase 6: Documentation Accuracy
 
 - [ ] `docs/index.md` module map matches actual codebase
-- [ ] `docs/architecture/SYSTEM_OVERVIEW.md` matches current architecture
+- [ ] The system-overview doc matches current architecture
 - [ ] `docs/development/CODE_QUALITY.md` entity lists are current
 - [ ] `docs/development/WORK_IN_PROGRESS.md` has no stale entries
 - [ ] API documentation matches actual endpoints
@@ -449,8 +442,8 @@ grep -rn "axios\.\|fetch(" --include="*.js" --include="*.jsx" PianoidTunner/src/
 ### State Management
 | Server | Persistent Items | Load Paths | Gaps |
 |--------|-----------------|------------|------|
-| Main (5000) | N | N | ... |
-| Modal (5001) | N | N | ... |
+| <server-a> | N | N | ... |
+| <server-b> | N | N | ... |
 
 ### Naming & Consistency
 <N> violations found: <summary>
