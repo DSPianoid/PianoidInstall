@@ -77,9 +77,9 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 **This OVERRIDES the older "don't disrupt the user's running stack" default.** A running server or a dirty tree at handoff is the failure mode this clause exists to prevent — even a stack that was "working" comes down at handoff. The user explicitly prefers a guaranteed clean slate over a preserved-but-uncertain running environment.
 
-**User standing directive — handing a task over = the user's stack may be killed (NEVER ask).** When the user hands a task to the orchestrator, they EXPECT that any stack they had running may be swept/killed by a sub-agent that needs the ports or a clean environment. Do NOT ask the user "is this your stack / may the agent take it over / should it wait" — just proceed; agents sweep the project's ports ([`#ports`](../../docs/PROJECT_CONFIG.md#ports)) and relaunch as their work requires. This applies mid-session, not only at handoff. (User directive, 2026-06-04, after the orchestrator paused a UI-review agent to ask permission to reclaim a stack the user had open — the user does not want that courtesy round; killing their stack on hand-over is the expected, accepted default.) Corollary for dispatch: a sub-agent that finds a stack already up which it did not start may sweep it without checking back — the standard "sweep stale holders first" clearance is correct; the orchestrator should NOT add a "don't kill an unattributed stack, report first" caveat to dispatch prompts.
+**User standing directive — handing a task over = the user's stack may be killed (NEVER ask).** When the user hands a task to the orchestrator, they EXPECT that any stack they had running may be swept/killed by a sub-agent that needs the ports or a clean environment. Do NOT ask the user "is this your stack / may the agent take it over / should it wait" — just proceed; agents sweep the project's ports ([`#ports`](../../docs/PROJECT_CONFIG.md#ports)) and relaunch as their work requires. This applies mid-session, not only at handoff. (Learned 2026-06-04: killing the user's stack on hand-over is the expected, accepted default — no courtesy round.) Corollary for dispatch: a sub-agent that finds a stack already up which it did not start may sweep it without checking back — the standard "sweep stale holders first" clearance is correct; the orchestrator should NOT add a "don't kill an unattributed stack, report first" caveat to dispatch prompts.
 
-**Reproduce-by-restart is the orchestrator's job — on a handed-over problem, kill + restart + test WITHOUT asking (2026-06-09).** When the user reports a stack-dependent symptom (silent audio, broken behavior, a wrong/needed build variant, "test X"), the DEFAULT response is: KILL the stack (with the canonical script below) → RESTART it in whatever variant the diagnosis needs (per the project's live-UI guide) → REPRODUCE/TEST via a sub-agent → report what you found. Do NOT ask the user to clarify runtime state ("are you on debug or release? is it still silent?") and do NOT ask permission ("your call, since that's your session") — asking either IS the violation this clause exists to stop. (2026-06-09 incident: the orchestrator asked "your call, since that's your session" + three state-clarifying questions before a debug restart the user then had to explicitly order — "When I hand over to you, kill my stack and test, don't ask questions.") The user owns the stack's fate on handover (directive above); the orchestrator owns reproducing the problem. The only legitimate user round-trip here is a genuine DECISION the diagnosis can't resolve (e.g. two equally-valid design directions) — never state or permission for a restart.
+**Reproduce-by-restart is the orchestrator's job — on a handed-over problem, kill + restart + test WITHOUT asking (2026-06-09).** When the user reports a stack-dependent symptom (silent audio, broken behavior, a wrong/needed build variant, "test X"), the DEFAULT response is: KILL the stack (with the canonical script below) → RESTART it in whatever variant the diagnosis needs (per the project's live-UI guide) → REPRODUCE/TEST via a sub-agent → report what you found. Do NOT ask the user to clarify runtime state ("are you on debug or release? is it still silent?") and do NOT ask permission ("your call, since that's your session") — asking either IS the violation this clause exists to stop. (Learned 2026-06-09: state-clarifying questions + a permission round before a debug restart drew an explicit "kill my stack and test, don't ask questions.") The user owns the stack's fate on handover (directive above); the orchestrator owns reproducing the problem. The only legitimate user round-trip here is a genuine DECISION the diagnosis can't resolve (e.g. two equally-valid design directions) — never state or permission for a restart.
 
 **How it's enforced:**
 - Each editing sub-agent shuts down servers it started and cleans its own tree on exit (see `/dev` "Full clearance before every handoff"). The **orchestrator is the final guarantor**: after the last active agent reports, run the port sweep across all of the project's ports and verify `git status --short` is clean in every repo before telling the user the environment is clear.
@@ -100,7 +100,7 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 **If a pull from origin has already happened before the local merges** (orchestrator mistakenly did it, or a prior wrap-up step preceded this rule): hard-reset local integration branch back to the pre-pull SHA before proceeding with the local merges. Git's reflog preserves the pull-merge commits for ~30 days; nothing is lost. Skip the reset only if the pull-merge already incorporated conflict resolutions the user cared about — in which case surface to the user and let them decide.
 
-**Why:** Concrete incident 2026-05-31 — an agent's Phase 2 was dispatched with `pull --no-rebase origin <integration>` as the first wave before the merge-feature-branches wave. Pull-merge succeeded cleanly but the user immediately reversed the order: "Merge locally and wrap up agents BEFORE reconciling with origin." The pull-merge had to be undone via `git reset --hard <pre-merge-SHA>` on three repos, then the local-merge → wrap → push sequence re-done in the right order. This rule prevents the re-discovery of that ordering preference.
+**Why:** (Learned 2026-05-31: a Phase 2 dispatched pull-first had to be undone via `git reset --hard <pre-merge-SHA>` on three repos and re-done local-merge → wrap → push — the order this rule fixes.)
 
 **Use the canonical kill script — do NOT reinvent a port-loop (2026-06-09).** The project provides a canonical kill script ([`PROJECT_CONFIG.md#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep)) that kills the full stack correctly: the dev-server supervisor TREE (a tree-kill, so the supervisor can't respawn its children) + port-owners (all of the project's ports) + marker-matched orphans (the backend / adapter / launcher / frontend processes). A port-only kill loop is INSUFFICIENT — it misses the supervisor, so the supervisor respawns the children. The script safely EXCLUDES the user's shell, VS Code, Claude Code, and MCP servers (never blanket-kills node/python). The exact script path + dry-run/real-kill invocations (and the cross-platform equivalents) are in the [worked-examples companion](../skill-examples/orchestrator.md) and [`#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep).
 
@@ -337,7 +337,7 @@ The orchestrator must understand the /dev skill's lifecycle to correctly manage 
 
 ### Commit Convention
 
-All dev agent commits use: `[agent-id] <type>: <description>` (e.g., `[dev-a3f1] feat: add WS support`).
+Dev commits use `[agent-id] <type>: <desc>` — see [`/dev` Commit Convention](dev.md).
 
 ### Agent ID Persistence
 
@@ -822,7 +822,7 @@ Before relaying completion or asking the user to test, verify no stale processes
 
 **Never ask the user** to kill processes themselves. Check and kill yourself, then report what you cleaned.
 
-**Why:** User time is lost when a "ready to test" message is followed by the user discovering a port was held, a bundle was stale, or a native module was locked. The orchestrator owns the handoff quality gate.
+**Why:** the orchestrator owns the handoff quality gate — a "ready to test" followed by the user discovering a held port / stale bundle / locked native module wastes their time.
 
 ### Rebuild Default — full-variant (BLOCKING)
 
@@ -834,7 +834,7 @@ When the user requests "rebuild" / "build" / "rebuild all", interpret it as **bo
 
 This applies transitively: a `/dev` agent that delegates rebuild to a sub-agent must pass the same **both-variants** instruction.
 
-**Why:** Concrete incident 2026-05-30 — an update agent dispatched after a pull ran a release-only build (matching the then-current canonical line). The debug binary remained 13 days stale, invisibly broken until a debug-variant import would have surfaced a silent symbol error. User had to explicitly correct: "Build both, not just release." Centralizing the canonical build in the project config (so there is one line to fix, referenced everywhere) prevents the repeat.
+**Why:** (Learned 2026-05-30: a release-only build after a pull left the debug binary 13 days stale and silently broken; user corrected "Build both, not just release." The canonical build is centralized in the project config so there's one line to fix.)
 
 ### Parallel /dev Agents on Same Repo MUST Use Dedicated Worktrees (BLOCKING)
 
@@ -867,12 +867,7 @@ When dispatching 2+ /dev agents that touch the **same git repo** in parallel, ea
 - Don't rely on agents to detect each other's branch switches. The race is sub-second and recovery is messy.
 - Don't merge mid-flight. If Agent A is still committing, Agent B's worktree must not be merged to the integration branch yet — wait for both to reach Phase 1 stop.
 
-**Concrete incident (2026-05-26):** 3 agents dispatched in parallel on one frontend repo (dev-mstat, dev-collreorg, dev-dlgrm). All three reported the same race symptoms in their Phase 1 heads-up:
-- dev-mstat's commit landed on `feature/dev-collreorg-7a3f` (wrong branch); recovered via reset + stash + reapply. Bad commit dangling.
-- dev-dlgrm's commit swallowed dev-mstat's staged docs (content correct, attribution wrong — needs cross-agent acknowledgment).
-- dev-collreorg's Step 2 commit was soft-reset; Step 3 file edits swept into dev-mstat's commit. Recovered by switching to a dedicated worktree mid-session and re-applying via `git show | git apply`.
-
-All 3 agents independently recommended: dedicated worktree per agent. This rule encodes that.
+(Learned 2026-05-26: 3 agents in parallel on one frontend repo hit all the above race modes — wrong-branch commit, swallowed staged docs, soft-reset + swept edits; all 3 independently recommended a dedicated worktree per agent. This rule encodes that.)
 
 ### Merge Sweep Before Live Test (BLOCKING)
 
@@ -897,7 +892,7 @@ When 2+ /dev agents have shipped Phase 1 (commit + lock release) on parallel fea
 - Don't let the merge queue grow past 3 unmerged branches without proactively asking the user for sweep approval — the deeper the queue, the more confusing the partial-state failure becomes.
 - Don't trust that the user knows to switch branches. The orchestrator owns the working-tree state during a multi-agent session.
 
-**Why:** Per-feature-branch isolation is the correct /dev pattern, but it has a silent failure mode at the orchestrator boundary. Concrete incident: 2026-05-26, 4 sibling /dev agents shipped Phase 1 over 24h on one frontend repo. User pulled up the UI to test and saw a pre-refactor tab back because the working tree was on the last agent's branch, which only contained that agent's fix. The other 3 branches' work was invisible. User complaint: "the system got reverted to an old incorrect version". The merge sweep was waiting on user approval that the orchestrator had asked for multiple times — but the orchestrator should have just done it before saying "ready to test", not asked.
+**Why:** Per-feature-branch isolation is the correct /dev pattern, but it has a silent failure mode at the orchestrator boundary. (Learned 2026-05-26: 4 sibling agents shipped Phase 1 over 24h; the user saw only the last agent's branch and reported "the system got reverted to an old incorrect version." The orchestrator should run the sweep before saying "ready to test", not ask.)
 
 ### On User Approval
 
@@ -985,7 +980,7 @@ When the user asks to "review open devs", "go over open devs one by one", or sim
    - Release any orphan locks in `MODULE_LOCKS.md` belonging to that agent
    - Commit on the root repo with `[orchestrator] chore: Phase 2 cleanup for dev-XXXX (agent returned earlier)`
 
-   **Never skip Phase 2 just because the agent process is gone.** This is the failure mode that produced ~10 zombie WIP entries on 2026-05-06: user said "close, next" → orchestrator relayed but the agents had already returned → SendMessage was a no-op → no Phase 2 ever happened → WIP rotted. The skill update of 2026-05-06 makes orchestrator-direct cleanup explicit so this cannot recur.
+   **Never skip Phase 2 just because the agent process is gone.** (Learned 2026-05-06: "close, next" relayed to already-returned agents → SendMessage was a no-op → no Phase 2 happened → ~10 zombie WIP entries rotted. Orchestrator-direct cleanup is explicit so this cannot recur.)
 
 6. **Repeat from step 3** for the next agent.
 
@@ -1021,7 +1016,7 @@ When dispatching an `/analyse`, `/review`, or any agent that produces written ou
 - Diagnostic snippets -> `docs/development/diagnostics/<agent-id>-<purpose>.<ext>`
 - Standalone screenshots -> `docs/development/screenshots/<agent-id>-<view>.png`
 
-**One-doc-per-topic in `docs/proposals/` (MANDATORY).** The proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. When dispatching an agent that will produce a NEW proposal that supersedes or extends an existing one, instruct the agent to archive the prior version (`git mv` to `docs/proposals/archive/`) BEFORE adding the new one. When reviewing returned artefacts, reject and re-dispatch if you find two docs covering the same topic in `docs/proposals/`, or if a research Q&A or preparation analysis was filed in `docs/proposals/` rather than `docs/proposals/archive/`. Once a proposal has been fully implemented, archive it as part of the implementation `/dev` agent's wrap-up. The full rule lives in `.claude/commands/dev.md` ("Documentation Folder Taxonomy"). **`docs/development/proposals/` is FORBIDDEN** — proposals (one per topic) go to `docs/proposals/`; all working/planning docs go directly under `docs/development/`. If an agent files into a `docs/development/proposals/` folder, reject and re-dispatch to re-home its contents and delete that folder.
+**One-doc-per-topic in `docs/proposals/` (MANDATORY).** The canonical rule lives in [`.claude/commands/dev.md`](dev.md) ("Documentation Folder Taxonomy"). Orchestrator enforcement: instruct a NEW-proposal dispatch to `git mv` the prior version → `docs/proposals/archive/` BEFORE adding the new one; on review, reject + re-dispatch if two docs cover the same topic in `docs/proposals/` (or a research Q&A / prep analysis landed there instead of `archive/`); a fully-implemented proposal is archived in the implementing `/dev` agent's wrap-up. **`docs/development/proposals/` is FORBIDDEN** — proposals go to `docs/proposals/`, working/planning docs directly under `docs/development/`; if an agent files into `docs/development/proposals/`, reject + re-dispatch to re-home and delete that folder.
 
 `docs/development/logs/` is exclusively for agent session logs (`dev-XXXX-...md`, `fn-XXXX-...md`). If a stale non-session-log file is found there during a periodic scan, treat it as a hygiene issue and dispatch a `/dev` agent to relocate it via `git mv` (do NOT delete history).
 

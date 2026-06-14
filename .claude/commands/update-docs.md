@@ -135,7 +135,7 @@ When updating docs, respect the canonical folder layout (single source of truth 
 - `docs/development/screenshots/` - standalone UI screenshots
 - `docs/architecture/`, `docs/guides/`, `docs/modules/` - long-lived reference docs
 
-Never move agent session logs out of `docs/development/logs/`. Never deposit non-session-log artefacts into it. If a stray plan / review / diagnostic appears under `logs/`, file an issue or relocate via `git mv` to the correct folder. Likewise, `docs/development/proposals/` must NOT exist — proposals (one per topic) belong in `docs/proposals/`; working/planning docs go directly under `docs/development/`.
+Never move agent session logs out of `docs/development/logs/`, and never deposit non-session-log artefacts into it (relocate a stray plan / review / diagnostic via `git mv`). `docs/development/proposals/` must NOT exist — proposals (one per topic) go to `docs/proposals/`, working/planning docs directly under `docs/development/`. Full taxonomy + the One-doc-per-topic rule: [`.claude/commands/dev.md`](dev.md).
 
 ## Documentation Structure
 

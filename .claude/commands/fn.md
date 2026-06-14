@@ -28,10 +28,9 @@ This skill inherits its verification mode from the invoker (parent `/dev` sessio
 
 ## Docs-first (MANDATORY) for compile + run
 
-Before rebuilding or restarting anything, READ the canonical docs — skipping it is how a silently-stale binary masquerades as a working rebuild and invalidates every "I verified this" claim.
+Before rebuilding or restarting, READ the canonical docs (else a silently-stale binary masquerades as a working rebuild and voids every "I verified this" claim).
 
-- **Full docs-first build/run discipline: the single canonical copy at the active project's [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).** Read it before any build/restart.
-- **Canonical rebuild** — use the project's canonical build command + the agent-context detached form (stop the build holder first); resolve the command, the never-substitute traps, and the verify-landed step from [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run), [`#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix), and [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders). **Verify-landed** before testing — if the marker is absent, the rebuild didn't land and any conclusion drawn from it is void. (Concrete command + verify-grep: [worked-examples companion](../skill-examples/fn.md).)
+- **Full docs-first build/run discipline: the single canonical copy at the active project's [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run)** — the canonical build command + agent-context detached form (stop the build holder first), the **never-substitute traps**, and the **verify-landed** step (marker absent → the rebuild didn't land, any conclusion is void); also [`#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix) / [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders). (Concrete command + verify-grep: [worked-examples companion](../skill-examples/fn.md).)
 - **On unexpected build or startup failure → invoke the project's startup/build-recovery skill** (see [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run)) instead of ad-hoc troubleshooting.
 
 ## Input Contract

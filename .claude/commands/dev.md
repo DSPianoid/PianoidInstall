@@ -31,7 +31,7 @@ Do not ship a change that pushes a file past the file-size thresholds without di
 
 ## Docs-first (MANDATORY) for compile + run
 
-Every rebuild, install, or server restart starts by reading the canonical docs — NOT by typing a package-install command. Skipping this is how a silently-stale binary masquerades as a working rebuild and invalidates every "I verified this" claim.
+Every rebuild, install, or server restart starts by reading the canonical docs — NOT a package-install command (a silently-stale binary otherwise masquerades as a working rebuild and voids every "I verified this" claim).
 
 - **The full docs-first build/run discipline is the single canonical copy at [`docs/PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run)** (read-which-docs · canonical build · debug-variant trap · verify-landed · pre-build hygiene). Read it before any build/restart.
 - **Canonical rebuild** — use the project's canonical build command + the agent-context **detached** form (absolute build-script path, stop the build holder first); resolve the command, the never-substitute traps, and the verify-landed step from [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run), [`#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix), and [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders). (Concrete command + detached invocation: [worked-examples companion](../skill-examples/dev.md).)
@@ -600,14 +600,14 @@ Never ship a failing body; never enter Step 5 with a red function.
 
 ### Context hygiene & spawn-cost discipline (cost control)
 
-Every Opus turn re-reads the agent's **entire accumulated context** as cache-read before it does anything — that re-read (not the work) is ~65% of cost. So the levers are: make fewer turns, and keep each turn's resident context small. Apply these to this agent AND to how it shapes `/fn` work:
+Every Opus turn re-reads the agent's **entire accumulated context** as cache-read before it does anything — that re-read (not the work) dominates cost. So the levers are: make fewer turns, and keep each turn's resident context small. Apply these to this agent AND to how it shapes `/fn` work:
 
 - **Read narrowly.** Read the target function span with `offset`/`limit`, not the whole file, when one function is in scope. Read the one gating test, not the whole suite.
-- **Test once at the end** of a function, not after each speculative edit (review-on-red). The 4×-incremental-test pattern re-reads ~50k each time — three wasted turns add up.
+- **Test once at the end** of a function, not after each speculative edit (review-on-red). The incremental-test pattern re-reads the whole context each time — the wasted turns add up.
 - **Prune stale tool output.** Once a function is green, don't keep its full diff + every intermediate test dump resident — summarize to one line in the **session log** (the durable record) and move on. Prune *stale* output, never *load-bearing* context (Data Model Card facts, the spec, the current test).
-- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **per-spawn startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2 (measured: +38% at N=3, +60% at N=10). **Never spawn an Opus sub-agent for a unit of work smaller than that startup tax — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY when the unit is a *judgment* function needing Opus isolation — for ROUTINE codegen the cheaper path is the configured codegen pipeline (Step 4b above), never a fanned-out Opus `/fn`.
+- **Don't fan out Opus `/fn` workers for small units.** A fresh Opus sub-agent re-pays a fixed **per-spawn startup tax** (harness + `CLAUDE.md` prefix), so N isolated Opus workers LOSE to one context-pruned agent at every N ≥ 2. **Never spawn an Opus sub-agent for a unit of work smaller than that startup tax — do it inline or script it.** Group functions that share context (read the same files) into one agent that prunes between them, rather than one worker per function. Fan-out earns its startup tax ONLY when the unit is a *judgment* function needing Opus isolation — for ROUTINE codegen the cheaper path is the configured codegen pipeline (Step 4b above), never a fanned-out Opus `/fn`.
 
-(Full cost model + measurements: the project's dev-pipeline cost-model proposal — see the [worked-examples companion](../skill-examples/dev.md).)
+(Full cost model + the measured figures — the ~65% context-re-read share, the incremental-test waste, the +38%@N=3 / +60%@N=10 fan-out loss: the project's dev-pipeline cost-model proposal — see the [worked-examples companion](../skill-examples/dev.md).)
 
 ### Prepare tests FIRST (dev agent responsibility)
 
@@ -791,16 +791,7 @@ For each affected section, update the relevant doc file (resolve the source→do
 Keep docs lean and concise. Tables over prose. Every sentence earns its place.
 **Structural doc changes (new pages, nav changes) require user approval.**
 
-**Infographics** — whenever code changes affect logic that is depicted in an existing infographic, update that infographic to reflect the new state. Infographics live in `docs/images/` (SVGs) or inline in markdown (Mermaid). Check existing SVGs in `docs/images/` and Mermaid blocks in the affected doc files.
-
-When documentation would benefit from a new diagram (flow, architecture, state machine, sequence, etc.), prefer **Mermaid** over ASCII art. Mermaid is configured in `mkdocs.yml` (superfences custom fences) and renders natively in MkDocs Material. Use fenced code blocks with `mermaid` language tag. For complex, high-visual-impact diagrams (hero overviews, dense coupling diagrams), use **hand-crafted SVG** in `docs/images/`.
-
-SVG style rules:
-- Dark background (`#1a1a2e`), gradient fills matching Material theme (deep purple + amber)
-- `filter` with `feDropShadow` for depth, rounded rectangles (`rx="10-14"`)
-- Embed as `![Alt text](../images/filename.svg)` in markdown
-
-**Never add new ASCII art diagrams.** Replace existing ASCII diagrams with Mermaid or SVG when you are already editing that section.
+**Infographics** — whenever code changes affect logic depicted in an existing infographic, update it to reflect the new state (check the SVGs in `docs/images/` and Mermaid blocks in the affected docs). Diagram authoring + style rules (prefer Mermaid over ASCII, hand-SVG for hero diagrams, never add new ASCII art) live canonically in `/update-docs` §2b — follow them here.
 
 **Markers (MANDATORY):**
 - At the end of Step 8, emit `[STEP-8-COMPLETE] 2026-05-05T12:30:22Z docs_touched=<comma-separated-paths or "none">`. The controller alerts if `[STEP-10A-PHASE-1]`, `[STEP-10B-RESET]`, or `[STEP-10C-PAUSE]` appears without a preceding `[STEP-8-COMPLETE]` (Tier-2 escalate — Step 8 is mandatory for ALL exit procedures).

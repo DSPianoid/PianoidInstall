@@ -14,6 +14,8 @@ argument-hint: [verify | clear | release]
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.
 
+**Worked examples (project-tier):** concrete invocations for the active project — the detached `clear`/`verify` launches, the editor-window title to drive, the transcript dir, and the log-file path — live in [`.claude/skill-examples/cli-control.md`](../skill-examples/cli-control.md) ([`#skill-examples`](../../docs/PROJECT_CONFIG.md#skill-examples)).
+
 Drives the orchestrator's **own** Claude Code CLI window by synthesizing keystrokes into it, via the active project's CLI-control script ([`PROJECT_CONFIG.md#channel`](../../docs/PROJECT_CONFIG.md#channel)). Two jobs:
 
 1. **Remote context-clear** — when the orchestrator's context is too large, send `/clear` then relaunch with `/orchestrator start`, fully unattended.

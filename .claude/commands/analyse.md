@@ -22,10 +22,9 @@ Deep-dive analysis workflow: audit documentation, verify against source code, up
 
 ## Docs-first (MANDATORY) if the analysis triggers a rebuild
 
-If this analysis requires reproducing behavior, running tests, or rebuilding to verify a finding — the rebuild MUST go through canonical paths. A silently-stale binary invalidates every "I verified this" claim.
+If this analysis reproduces behavior, runs tests, or rebuilds to verify a finding, the rebuild MUST go through canonical paths (a silently-stale binary voids every "I verified this" claim).
 
-- **Full docs-first build/run discipline: the single canonical copy at the active project's [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).** Read it before any build/restart.
-- **Canonical rebuild** — use the project's canonical build command + the agent-context detached form (stop the build holder first); resolve the command, the verify-landed step, and the never-substitute traps from [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run), [`#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix), and [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders). **Verify-landed** before trusting any conclusion — if the marker is absent, the rebuild didn't land and any conclusion drawn from it is void.
+- **Full docs-first build/run discipline: the single canonical copy at the active project's [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run)** — the canonical build command + agent-context detached form (stop the build holder first), the **never-substitute traps**, and the **verify-landed** step (marker absent → the rebuild didn't land, any conclusion is void); also [`#rebuild-matrix`](../../docs/PROJECT_CONFIG.md#rebuild-matrix) / [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders).
 - **On unexpected build or server failure → invoke the project's startup/build-recovery skill** (see [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run)) rather than ad-hoc fixes.
 
 ## Arguments
@@ -59,7 +58,7 @@ When this skill produces a written artefact (proposal, analysis, review, diagnos
 
 Naming: `<topic>-<YYYY-MM-DD>.md` for proposals; `<scope>-review-<YYYY-MM-DD>.md` for reviews. The full taxonomy lives in `.claude/commands/dev.md` - the Phase 4 report and any saved proposal MUST be filed under `docs/proposals/`.
 
-**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the proposals folder contains ONLY currently-active design proposals — exactly ONE document per topic. Preparation analyses, older revisions, superseded versions, and research Q&A docs that fed into a proposal must be archived to `docs/proposals/archive/`. When this skill produces a NEW proposal that supersedes or extends an existing one, archive the prior version (via `git mv`) BEFORE adding the new one. When the analysis fans out into multiple investigation docs (e.g. analysis + experiment + plan), the FINAL plan stays in `docs/proposals/`; the supporting docs go to `docs/proposals/archive/` with cross-references in the plan's "Investigation history" footer pointing to the archived paths. Research Q&A docs that answered a question without producing a future-work proposal go straight to `docs/proposals/archive/` (or skip `docs/proposals/` entirely). The full rule lives in `.claude/commands/dev.md`. Never create `docs/development/proposals/` — proposals go to `docs/proposals/`; working/planning docs go directly under `docs/development/`.
+**One-doc-per-topic in `docs/proposals/` (MANDATORY):** the canonical rule lives in [`.claude/commands/dev.md`](dev.md) — `docs/proposals/` holds exactly ONE currently-active doc per topic; archive a superseded/preparation/research doc to `docs/proposals/archive/` (`git mv` the prior version BEFORE adding a new one). For this skill: the FINAL plan stays in `docs/proposals/`, its supporting investigation docs go to `archive/`. Never create `docs/development/proposals/` (working/planning docs go directly under `docs/development/`).
 
 ## Phase 1: Documentation Audit
 

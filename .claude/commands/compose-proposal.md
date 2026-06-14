@@ -6,6 +6,8 @@ tier: generic
 
 # compose-proposal — author a Campaign's governing proposal (governed, top-down)
 
+> **Generic composer skill** (`tier: generic`, agent-invoked). It names no project facts (it authors proposals from principles), so it has **no project worked-examples companion** — that absence is intentional; do not add one.
+
 A generic dev-kit skill, **invoked by an agent** (the orchestrator or a dev-agent) when it detects that the
 work in front of it is **Campaign-scale** and therefore needs a proposal. It is **not** a standalone
 user-typed command — the user initiates a Campaign (a new initiative, or a spin-off the agent surfaces), the

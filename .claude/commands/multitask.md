@@ -29,7 +29,7 @@ Example:
 
 ## Docs-first (MANDATORY) for every rebuild in every wave
 
-Each spawned sub-agent that rebuilds is subject to the canonical build procedure. The orchestrator MUST reinforce this in every sub-agent prompt — a single stale native build in any wave contaminates the post-wave test suite.
+Each rebuilding sub-agent follows the canonical build procedure; the orchestrator reinforces it in every sub-agent prompt (a single stale native build contaminates the whole post-wave test suite).
 
 - **Every rebuilding sub-agent follows the single canonical docs-first build/run discipline at the active project's [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run).**
 - **Canonical rebuild** — each sub-agent uses the project's canonical build command via the agent-context detached form (stop the build holder first). **Reject** any sub-agent that uses the project's known venv-bricking / stale-binary anti-patterns (resolve the canonical command + the traps from [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/PROJECT_CONFIG.md#docs-first-build--run) and [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders); the concrete command + the exact reject-patterns are in the [worked-examples companion](../skill-examples/multitask.md)). **Verify each rebuild landed** before that wave's tests; if missing, mark the wave's tests INVALID and re-run.
