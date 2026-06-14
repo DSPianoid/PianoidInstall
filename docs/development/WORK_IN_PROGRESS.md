@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-tbmirror | Recover orphaned dev-excwb wrap (done) + remove redundant top-toolbar mirroring param-entry field (also removes blur bug) | [log](logs/dev-tbmirror-2026-06-14-100633.md) | 2026-06-14 | In Progress |
 <!-- dev-excwb COMPLETED 2026-06-14 (Phase 2, user msg 3485 "commit merge push"). Three-part batch on PianoidTunner:
      (1) Excitation workbenches — every hammer + gauss param opens a Workbench, per-pitch, mirroring Strings/Modes
      (3941714); (2) maximized-pane Close-icon fix — general, all panes (b222b66); (3) A+B kernel-traffic fix — bulk
