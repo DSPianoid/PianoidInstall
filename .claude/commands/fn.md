@@ -9,7 +9,7 @@ argument-hint: <file path> <function name or description> [--test <test command>
 # Single-Function Development Workflow
 
 > **Project-agnostic skill** (`tier: generic`). Operates on an **active project**: resolve `$PROJECT_ROOT`
-> and the project's `docs/PROJECT_CONFIG.md` per [`CLAUDE.generic.md` → Config resolution](../CLAUDE.generic.md#config-resolution)
+> and the project's `docs/PROJECT_CONFIG.md` per the machine-global `~/.claude/CLAUDE.md` "Config resolution" section (#config-resolution)
 > — including the **graceful fallback** when no `PROJECT_CONFIG.md` is found. All project facts (build,
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.

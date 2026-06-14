@@ -1,12 +1,12 @@
 # Pianoid Project Instructions
 
-@CLAUDE.generic.md
+<!-- The generic agentic-development methodology now lives MACHINE-GLOBAL at ~/.claude/CLAUDE.md
+     (applies to every project on this machine; distributed via ~/claude-config + /self-update).
+     The rules below are PIANOID-SPECIFIC and OVERRIDE any conflicting generic default from the
+     machine-global core. Operational facts live in docs/PROJECT_CONFIG.md — referenced by anchor,
+     never re-inlined. -->
 
-<!-- ^ The generic agentic-development methodology (project-agnostic, liftable to ~/.claude/ at the
-     hoist step). The sections below are PIANOID-SPECIFIC and OVERRIDE any conflicting generic default
-     above. Operational facts live in docs/PROJECT_CONFIG.md — referenced by anchor, never re-inlined. -->
-
-## Project-specific rules (Pianoid) — these OVERRIDE conflicting generic defaults above
+## Project-specific rules (Pianoid) — these OVERRIDE conflicting generic (machine-global ~/.claude/CLAUDE.md) defaults
 
 ### Orchestrator sub-agent permission allow-list (Pianoid specifics)
 The orchestrator's agent-team name is `pianoid-dev` ([`PROJECT_CONFIG.md#team`](../docs/PROJECT_CONFIG.md#team)).
@@ -14,8 +14,8 @@ Team sub-agents are governed by `.claude/settings.local.json` `permissions.allow
 bypass mode — it MUST blanket-allow BOTH shells (`Bash(*)` AND `PowerShell(*)`) + the core tools
 (`Read`, `Edit`, `Write`, `Glob`, `Grep`, `Agent`, `Skill`, `SendMessage`, `Monitor`, `ToolSearch`, the
 `Task*` tools, MCP servers). The orchestrator verifies + repairs this at startup. The generic
-permission-suppression rule + the cross-cutting failure-mode catalogue are in `CLAUDE.generic.md`
-([Sub-agent permission rule + known gaps](CLAUDE.generic.md#permission-gaps)); the Pianoid-flavored
+permission-suppression rule + the cross-cutting failure-mode catalogue are in the machine-global
+generic core (`~/.claude/CLAUDE.md` → "Sub-agent permission rule + known gaps"); the Pianoid-flavored
 known gaps (the `cmd //c start-pianoid.bat` long-running-starter, the launcher REST `:3001/api/start-backend`
 workaround, `taskkill //F //PID` on system PIDs) are detailed in
 [`docs/guides/STARTUP_TROUBLESHOOTING.md`](../docs/guides/STARTUP_TROUBLESHOOTING.md) and `PROJECT_CONFIG.md`

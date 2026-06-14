@@ -11,8 +11,9 @@ Copy `recovery/global-CLAUDE.md` to your machine-global Claude config, then relo
 
 This file is the exact content verified live + working on the primary machine on 2026-06-14.
 
-## Project CLAUDE.md files (already tracked in the repo)
-`.claude/CLAUDE.md` (project) and `.claude/CLAUDE.generic.md` (generic methodology, @-imported
-by the project file) are versioned. If they look wrong, restore them from origin:
+## Project CLAUDE.md (tracked in the repo)
+`.claude/CLAUDE.md` is the self-contained Pianoid project instructions (versioned). The generic
+methodology now lives MACHINE-GLOBAL at `~/.claude/CLAUDE.md`, distributed via `~/claude-config` +
+`/self-update` (not in this repo). If the project file looks wrong, restore it from origin:
 
-    git checkout origin/master -- .claude/CLAUDE.md .claude/CLAUDE.generic.md
+    git checkout origin/master -- .claude/CLAUDE.md
