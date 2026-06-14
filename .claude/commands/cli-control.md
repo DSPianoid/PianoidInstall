@@ -14,7 +14,7 @@ argument-hint: [verify | clear | release]
 > ports, venv, repos, endpoints, verification surfaces) come from that config by anchor; this skill
 > resolves them there rather than hard-coding them.
 
-Drives the orchestrator's **own** Claude Code CLI window by synthesizing keystrokes into it, via `tools/cli_control.ps1`. Two jobs:
+Drives the orchestrator's **own** Claude Code CLI window by synthesizing keystrokes into it, via the active project's CLI-control script ([`PROJECT_CONFIG.md#channel`](../../docs/PROJECT_CONFIG.md#channel)). Two jobs:
 
 1. **Remote context-clear** — when the orchestrator's context is too large, send `/clear` then relaunch with `/orchestrator start`, fully unattended.
 2. **Release a stuck agent** — approve a CLI permission prompt that renders only in the local terminal and is therefore invisible to the Telegram user.
@@ -26,14 +26,14 @@ Drives the orchestrator's **own** Claude Code CLI window by synthesizing keystro
 
 ## The script
 
-`tools/cli_control.ps1` (Windows PowerShell 5.1). Key params:
+The active project's CLI-control script (Windows PowerShell 5.1; path from [`PROJECT_CONFIG.md#channel`](../../docs/PROJECT_CONFIG.md#channel)). Concrete project invocations: [`.claude/skill-examples/cli-control.md`](../skill-examples/cli-control.md) (the project's worked examples — [`#skill-examples`](../../docs/PROJECT_CONFIG.md#skill-examples)). Key params:
 
 | Param | Default | Meaning |
 |---|---|---|
 | `-Action` | `verify` | `verify` \| `clear` \| `release` |
 | `-DelaySeconds` | `8` | wait between `/clear` and relaunch |
 | `-OrchestratorCommand` | `/orchestrator start` | sent after clear |
-| `-ProjectDir` | `…\projects\D--repos-PianoidInstall` | holds live transcripts (receipt source) |
+| `-ProjectDir` | the active project's transcript dir ([`#channel`](../../docs/PROJECT_CONFIG.md#channel)) | holds live transcripts (receipt source) |
 | `-WindowMatch` | *(auto)* | title-substring override |
 | `-ReleaseKeys` | `{ENTER}` | keys for `release` |
 | `-VerifyTimeoutSec` | `25` | transcript-tail timeout |
@@ -44,7 +44,7 @@ Drives the orchestrator's **own** Claude Code CLI window by synthesizing keystro
 Exit codes: `0` ok · `1` fatal · `2` verify unverified · `3` clear aborted (unverified, no `-Force`) · `4` no target window.
 
 ### Window detection
-`claude.exe` runs inside VS Code's integrated terminal and has **no window of its own**. The driveable window is the first **ancestor** up the parent chain with a visible MainWindow — the top-level `Code.exe` window titled `"PianoidInstall - Visual Studio Code"`. Priority: (1) `-WindowMatch`, (2) auto = walk up from each `claude.exe` to its windowed ancestor, prefer a "Visual Studio Code" title, (3) fallback = any "Visual Studio Code" window. **Caveat:** VS Code prepends `●` to the title when there are unsaved edits — detection strips it.
+`claude.exe` runs inside VS Code's integrated terminal and has **no window of its own**. The driveable window is the first **ancestor** up the parent chain with a visible MainWindow — the top-level `Code.exe` window titled `"<project-root-folder> - Visual Studio Code"` (the active project's editor window — [`#channel`](../../docs/PROJECT_CONFIG.md#channel)). Priority: (1) `-WindowMatch`, (2) auto = walk up from each `claude.exe` to its windowed ancestor, prefer a "Visual Studio Code" title, (3) fallback = any "Visual Studio Code" window. **Caveat:** VS Code prepends `●` to the title when there are unsaved edits — detection strips it.
 
 ### Receipt verification
 When a line is submitted to the CLI it is appended to the live session transcript: the **newest top-level `*.jsonl`** directly under `-ProjectDir` (sub-agent transcripts under `<id>\subagents\` are excluded). The script sends `hi <nonce>` and tails that file (shared read handle, so the CLI's write-lock doesn't block it) for the nonce. Found → control **VERIFIED**.
@@ -71,7 +71,7 @@ The clear MUST run **detached** so it survives the `/clear`:
 ```powershell
 Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList `
   '-NoProfile','-ExecutionPolicy','Bypass','-File', `
-  'D:\repos\PianoidInstall\tools\cli_control.ps1','-Action','clear','-DelaySeconds','8'
+  '<cli-control-script>','-Action','clear','-DelaySeconds','8'
 ```
 
 Detached = a separate OS process, so it keeps running **through** the `/clear` (which tears down the orchestrator session) and still fires the relaunch afterward.
@@ -84,7 +84,7 @@ The orchestrator **launches the detached script, then ENDS ITS TURN** so the CLI
 
 - **`-DryRun` first, always.** It prints the exact keystrokes + resolved target window and sends nothing.
 - **Verify before clear.** `clear` self-verifies and aborts on failure unless `-Force` — a stray `/clear` wipes the orchestrator's context.
-- Confirm window auto-detect picked `"PianoidInstall - Visual Studio Code"` in the DryRun log before any live run; the `●` unsaved-edits prefix is handled.
+- Confirm window auto-detect picked the active project's editor-window title (per [`#channel`](../../docs/PROJECT_CONFIG.md#channel)) in the DryRun log before any live run; the `●` unsaved-edits prefix is handled.
 - Receipt method = transcript-tail of the newest top-level `*.jsonl`; **fallback** if a transcript can't be resolved/read = detection still works but `verify` returns unverified (exit 2) and `clear` aborts (exit 3) unless `-Force`.
 
 ## Test the verify path (safe)
@@ -93,7 +93,7 @@ The orchestrator **launches the detached script, then ENDS ITS TURN** so the CLI
    ```powershell
    Start-Process -WindowStyle Hidden -FilePath "powershell.exe" -ArgumentList `
      '-NoProfile','-ExecutionPolicy','Bypass','-File', `
-     'D:\repos\PianoidInstall\tools\cli_control.ps1','-Action','verify'
+     '<cli-control-script>','-Action','verify'
    ```
 2. The orchestrator should see a `hi cliok-<nonce>` line arrive in its CLI (it acks/no-ops).
 3. Confirm `D:\tmp\cli_control.log` logs `control VERIFIED` for that nonce.

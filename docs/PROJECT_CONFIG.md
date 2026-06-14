@@ -189,6 +189,14 @@ The orchestrator's control + I/O channel(s).
 | Optional channels | Email (`hostinger-email` MCP), WhatsApp (`whatsapp` / `whatsapp-work` MCP) — activate on request |
 | CLI keystroke control | `tools/cli_control.ps1` (drives the orchestrator's own VS Code/CLI window; transcripts under `~/.claude/projects/D--repos-PianoidInstall/`) |
 
+## Skill examples {#skill-examples}
+
+Project-specific worked examples for the generic (`tier: generic`) skills live under `.claude/skill-examples/<skill>.md` (one per skill). The generic skill **bodies** are project-agnostic — they reference the anchors on this page and point here for concrete invocations; the actual Pianoid commands they illustrate are kept in these companion files, **project-tier (not hoisted)**. A project-agnostic example set is authored separately for the open-source kit.
+
+| Resource | Path |
+|---|---|
+| Per-skill worked examples | `.claude/skill-examples/<skill>.md` |
+
 ## Build holders {#build-holders}
 
 Native binaries that, when held open by a process, block a rebuild (`[WinError 5] Access is denied` → failed uninstall → broken venv). Stop the holder FIRST (launcher REST `POST /api/stop-backend`, else a PID-targeted kill — never `//IM python.exe`).
