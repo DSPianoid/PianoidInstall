@@ -21,7 +21,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      + 2 NEW test files. Savable mosaic layouts (selector + Manage popup). Full Jest 110/1153 green, eslint 0,
      build compiles, live-verified. NOT merged — HOLD for user live test. T2 (bottom bar) NOT yet started —
      awaits team-lead go-ahead; will re-acquire PianoidTuner.js + ToolBar.jsx then. Agent STAYS ALIVE. -->
-| <!-- (none active for dev-uiqueue — T1 released, T2 not started) --> | | | |
+<!-- dev-uiqueue T2 locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit c301966 on
+     feature/dev-uiqueue-mosaic-bottombar). Held: PianoidTunner/src/PianoidTuner.js, src/components/ToolBar.jsx,
+     src/hooks/usePreset.js, + NEW src/components/BottomBar.jsx, src/components/__tests__/BottomBar.test.jsx.
+     Bottom bar (relocated Volume/Feedback/Reset large + always-visible inline Sensitivity); RESTORED
+     volume-sensitivity (regression = dev-09cf overflowY:hidden clipped the popover, measured ~2.2px/129px
+     visible) by relocation; NEW feedback-sensitivity (curve base). Full Jest 111/1159 green, eslint 0, build
+     compiles, live-verified (both Sensitivity fields commit; audible curve effect needs user's box — 56-SM GPU
+     audio_on crash here). NOT merged — HOLD for user live test. dev-uiqueue session COMPLETE (T1+T2 both on
+     this one branch, both unmerged). Agent stays alive for feedback. -->
+| <!-- (none active for dev-uiqueue — T1+T2 released, held for user test) --> | | | |
 <!-- dev-dynwb refinement locks RELEASED 2026-06-14 at Step 10a Phase 1 (refinement commit). Held:
      PianoidTunner/src/components/DrawableChart/DrawableChart.jsx, BarChart.jsx, PianoidTuner.js (+
      NEW DrawableChart/__tests__/DrawableChart.dynamicColor.test.jsx). RowEditor.js + SoundChannelsAggregateChart.jsx

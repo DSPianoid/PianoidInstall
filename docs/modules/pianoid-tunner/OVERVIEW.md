@@ -407,6 +407,38 @@ A gauss-param Workbench sweeps a param at a FIXED `(level, chart)` across all pi
 
 Every workbench pane's MosaicWindow title shows the **parameter it is editing**, with the word "Workbench" dropped — the DYNAMIC pane's title updates live as it re-targets (its `wb` is `workbenches["Workbench"]`, which changes on every param activate), each FIXED pane shows its pinned param. The descriptor is built by the pure `src/utils/workbenchTitle.js` `workbenchPaneTitle(wb)`: `"<groupe> · <name>[-<gaussIndex+1>][ (<levelCaption>)]"` (e.g. `"Strings · gamma"`, `"Excitation · mu-2 (fortissimo)"`, `"Modes · frequency"`), with NO `"Workbench — Piano./Modes. "` prefix. `gaussIndex` is stored 0-based and shown 1-based (chart `0` shows no `-N` suffix — preserved truthy-check behaviour). `PianoidTuner.renderTile`'s `title` collapsed its two duplicated workbench branches to one (`isWorkbench(id) ? workbenchPaneTitle(workbenches[id]) : id`). ★Non-empty fallback: a fresh dynamic pane with no param pinned yet returns the literal `"Workbench"` — mosaic panes must never have an empty title. Pinned by `src/utils/__tests__/workbenchPaneTitle.test.js` (descriptor shape + no "Workbench" word for a pinned param + non-empty fallback when unpinned).
 
+### Bottom bar — Volume / Feedback / Reset (dev-uiqueue T2, 2026-06-15)
+
+`src/components/BottomBar.jsx` is a dedicated control bar below the mosaic that hosts the three
+GLOBAL playback controls — **Volume**, **Feedback**, **Reset** — LARGE, each with an **inline,
+always-visible Sensitivity control**. It owns no state (P2: layout only); every value + handler is
+passed by `PianoidTuner` (usePreset is the sole owner of volume/feedback state, P1).
+
+**Why it exists (regression fix).** The volume-Sensitivity control used to be a double-click popover
+on the top toolbar's tiny "Volume" caption. dev-09cf (2026-06-09) added `overflowY:hidden` to the top
+`<Toolbar>` to fix horizontal control clipping — which then **clipped the downward-opening
+sensitivity popover** (measured live: ~2.2px of a 129px popover visible), so adjusting volume
+sensitivity appeared to "do nothing" (the reported regression). Relocating Volume + Feedback + Reset
+out of the overflow-constrained toolbar into this bar, with Sensitivity as an inline `NumInput` next
+to each slider, structurally restores it (no `overflow:hidden` ancestor). The top `ToolBar` no longer
+renders or receives those controls' props (`VolumeSlider`/`FeedbackSlider` defs deleted; Capture
+stays).
+
+**Volume sensitivity** = the `volumeRange` (curve "range ×"): the velocity-loudness spread around the
+midpoint. The field commits `onVolumeSensitivityChange(center, range)` where `center =
+exp((presetVolume+64)/8)`; usePreset sends `volume_center`/`volume_range` to the engine. **Feedback
+sensitivity** (NEW, the volume analogue) = the **base of the env-multiplier curve** —
+`envMultiplier(pos) = base^((pos-64)/63)` (was hardcoded `8`); a lower base = a gentler slider, higher
+= steeper, 64 stays ×1 at every base. It is frontend-only (reshapes the slider→effective-coeff
+mapping already sent via `feedback_coeff`), owned by usePreset as `feedbackSensitivity` +
+`changeFeedbackSensitivity`, NOT persisted (resets with the runtime surface, mirroring `volumeRange`).
+Feedback semantics (per `project_feedback_coeff_is_damping`): lower feedback = louder/sharper attack
+but STABLE (it is a damping coefficient, decays at all values) — the only risk is output CLIPPING at
+low feedback (headroom), NOT instability, so NO stability guard is added. The "Set" fold button
+(`foldFeedbackIntoPreset`) moved to the bottom bar with the slider. Pinned by
+`components/__tests__/BottomBar.test.jsx` (renders all three; Reset fires; Set fold disabled@neutral;
+volume + feedback Sensitivity fields commit through to their handlers).
+
 ### `useLayout`
 
 Manages the `react-mosaic-component` tile layout tree. The initial layout places the following named panes:
