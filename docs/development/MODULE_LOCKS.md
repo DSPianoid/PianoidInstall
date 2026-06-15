@@ -15,6 +15,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-uiqueue T1 locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit e78bc3e on
+     feature/dev-uiqueue-mosaic-bottombar off dev 0f3cfe0). Held: PianoidTunner/src/PianoidTuner.js,
+     src/components/ToolBar.jsx, + NEW src/hooks/mosaicConfigStore.js, src/components/MosaicConfigManager.jsx,
+     + 2 NEW test files. Savable mosaic layouts (selector + Manage popup). Full Jest 110/1153 green, eslint 0,
+     build compiles, live-verified. NOT merged — HOLD for user live test. T2 (bottom bar) NOT yet started —
+     awaits team-lead go-ahead; will re-acquire PianoidTuner.js + ToolBar.jsx then. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-uiqueue — T1 released, T2 not started) --> | | | |
 <!-- dev-dynwb refinement locks RELEASED 2026-06-14 at Step 10a Phase 1 (refinement commit). Held:
      PianoidTunner/src/components/DrawableChart/DrawableChart.jsx, BarChart.jsx, PianoidTuner.js (+
      NEW DrawableChart/__tests__/DrawableChart.dynamicColor.test.jsx). RowEditor.js + SoundChannelsAggregateChart.jsx

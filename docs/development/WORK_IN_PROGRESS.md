@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-uiqueue | Save-mosaic-config selector+Manage popup; bottom-bar volume/feedback/reset + restore volume-sensitivity | [log](logs/dev-uiqueue-2026-06-15-135134.md) | 2026-06-15 |
 <!-- dev-tbmirror COMPLETED 2026-06-14 (Step 10a Phase 2, user-approved msg 3506 "toolbar is ok"). Toolbar BATCH on
      PianoidTunner: (1) remove redundant mirroring selected-parameter NumInput (blur-contamination fix, 25ce0de);
      (2) MIDI icon → button+3-state-indicator next to Fix-MIDI opening a popup Dialog + remove MIDI from the mosaic

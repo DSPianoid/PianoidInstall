@@ -593,6 +593,45 @@ The application uses `react-mosaic-component` to implement a tiling window manag
 
 `useLayout` owns the tree and provides helpers to maximize a single pane (replacing the whole tree with the leaf ID string) and restore the previous tree. Layout changes are saved to localStorage on every update.
 
+### Savable mosaic layouts (dev-uiqueue, 2026-06-15)
+
+The toolbar `Widgets` control is a **selector of named, savable layouts** plus a Manage popup — the
+per-layout analogue of the named-startup-configuration feature (`presetConfigStore` + `useSettings`).
+The data model and pure transforms live in `src/hooks/mosaicConfigStore.js`; the stateful layer is part
+of `PianoidTuner.js` (P1: `PianoidTuner` is the layout owner — via `useLayout` — so it is the sole
+writer of the named-config maps; the store is pure, no React/state).
+
+**Storage shape (3 localStorage keys, mirroring the preset-config pattern):**
+
+- `mosaicLayout` — the **live/active** layout tree (unchanged, still owned by `useLayout`). Kept equal
+  to the active named layout.
+- `mosaicConfigs` — `{ name -> layoutTree }` map of all named layouts.
+- `activeMosaicConfig` — name of the currently selected layout.
+
+**Migration + live↔active sync.** On first run `mosaicConfigStore.loadConfigs` seeds `mosaicConfigs` as
+`{ "Default": <current mosaicLayout> }` (fail-soft: a corrupt/empty stored map is re-seeded, never
+throws). The `mosaicLayout` persist `useEffect` in `PianoidTuner` ALSO mirrors the live layout into
+`mosaicConfigs[activeMosaicConfig]` and persists the map — so editing panes / dragging splits updates
+the layout the user is on (same auto-persist model as `presetLoadSettings`). ★The mirror is **skipped
+while maximized** (`isFullscreen`): the live layout is then a single maximized leaf and mirroring it
+would clobber the saved multi-pane layout.
+
+**Actions (all in `PianoidTuner`, sole mutators — P1):** `handleMosaicConfigSelect(name)` (make active +
+apply the saved layout, exiting fullscreen), `handleSaveMosaicConfigAs(name)`, `handleRenameMosaicConfig`,
+`handleDeleteMosaicConfig` (refuses the last config; falls back + applies a remaining one when the active
+is deleted). The pure transforms (`saveConfigAs`/`renameConfig`/`deleteConfig`) return a new map +
+`{ok, error}` and never mutate; invalid ops surface via the existing `notification` Snackbar.
+
+**UI.** The toolbar (`ToolBar.jsx`) renders a layout-name `<Select>` (apply on change) next to the
+`Widgets` `IconButton` (now "Manage layouts"). The Manage popup is `MosaicConfigManager.jsx` (MUI
+`Dialog`): (a) the saved-layout list with inline rename + delete (delete disabled at the last entry),
+(b) "save current layout as", and (c) the EXISTING pane/window selector (the category checkboxes +
+open-workbenches list) passed in AS-IS via a `paneSelector` slot — not recreated — plus the unchanged
+"Reset to Default". The dev-a328 `useWindowManager.js` hook remains an unused duplicate of the inline
+window-management logic in `PianoidTuner.js`; this feature builds on the live inline copy. Pure store is
+unit-tested in `hooks/__tests__/mosaicConfigStore.test.jsx`; the Manage popup in
+`components/__tests__/MosaicConfigManager.test.jsx`.
+
 ---
 
 ## Preset Panel + Per-Pane Settings Popup Pattern (dev-a328, 2026-05-01)
