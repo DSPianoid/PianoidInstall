@@ -1,0 +1,14 @@
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Runtime state (supervisor's own state dir, if pointed here for local dev)
+.state/
+*.log
+
+# Secrets — never commit a token or .env
+.env
+.env.*
+!.env.example

@@ -1,0 +1,101 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
+import { Supervisor } from '../supervisor.js';
+import { Logger } from '../logger.js';
+import { Panel } from '../panel.js';
+import { TelegramAdapter } from '../adapters/telegram.js';
+import { AccessGate } from '../adapters/access-gate.js';
+import { LoopbackTelegramTransport } from '../adapters/loopback-transport.js';
+import { tmpDir } from './helpers.js';
+
+function silentLogger(): Logger {
+  return new Logger({ level: 'error', stderr: false });
+}
+
+async function withPanel(
+  dir: string,
+  fn: (base: string, supervisor: Supervisor) => Promise<void>,
+): Promise<void> {
+  const supervisor = new Supervisor({
+    captureFile: join(dir, 'capture.ndjson'),
+    logger: silentLogger(),
+    unbufferedCapture: true,
+  });
+  supervisor.register(
+    new TelegramAdapter({
+      transport: new LoopbackTelegramTransport(),
+      gate: new AccessGate({ staticConfig: { dmPolicy: 'allowlist', allowFrom: [], groups: {} } }),
+      queueDir: join(dir, 'q'),
+      downloadDir: join(dir, 'd'),
+    }),
+  );
+  await supervisor.start();
+  // Port 0 = ephemeral; read the actual port from the server.
+  const panel = new Panel({ port: 0, supervisor, logger: silentLogger() });
+  await panel.start();
+  const base = `http://127.0.0.1:${panel.boundPort}`;
+  try {
+    await fn(base, supervisor);
+  } finally {
+    await panel.stop();
+    await supervisor.stop();
+  }
+}
+
+test('panel /api/health returns supervisor health JSON', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/health`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { started: boolean; adapters: unknown[] };
+      assert.equal(body.started, true);
+      assert.equal(body.adapters.length, 1);
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('panel /api/capture returns the captured event stream', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/capture`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { count: number; records: unknown[] };
+      assert.ok(body.count >= 1); // lifecycle start at minimum
+      assert.ok(Array.isArray(body.records));
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('panel serves the read-only HTML page at /', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/`);
+      assert.equal(res.status, 200);
+      assert.match(res.headers.get('content-type') ?? '', /text\/html/);
+      const html = await res.text();
+      assert.match(html, /Pianoid Supervisor/);
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('panel is READ-ONLY: a POST is rejected 405', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/health`, { method: 'POST' });
+      assert.equal(res.status, 405);
+    });
+  } finally {
+    cleanup();
+  }
+});
