@@ -402,10 +402,18 @@ export class GridScreen {
 
   /** Is a working SPINNER currently rendered? = the engine is mid-turn (NOT complete). */
   spinnerActive(): boolean {
-    // scan the last ~6 non-empty rows for a spinner/status row (the spinner lives just
-    // above the footer while the engine works).
+    // scan the last ~8 non-empty rows for a spinner/status row (the spinner lives just
+    // above/below the footer while the engine works).
     const rows = this.allRows().filter((r) => r.trim());
-    return rows.slice(-6).some((r) => this.isStatusRow(r));
+    const tail = rows.slice(-8);
+    // AUTHORITATIVE completion signal: once Claude Code prints the past-tense summary
+    // "✻ Crunched/Baked/… for Ns", the turn has ENDED — even if a stale in-progress
+    // frame ("Precipitating… (Ns · tokens)") still lingers in the buffer above it. So a
+    // completion summary in the tail overrides any lingering active-looking row → NOT a
+    // spinner. (This was the USER-SILENCE bug: the lingering frame + the mis-classified
+    // summary both read as "working" → the result never fired.)
+    if (tail.some((r) => this.isCompletionSummary(r.trim()))) return false;
+    return tail.some((r) => this.isStatusRow(r));
   }
 
   /** Is the input box rendered + idle (no pending prompt)? (low-level — may flash mid-turn). */
@@ -465,12 +473,36 @@ export class GridScreen {
     // ("Baked for 6s", "(3s · ↑ 231 tokens)", "esc to interrupt"). We match the
     // PATTERN, NOT a hardcoded word list, and NOT only the rune-anchored form (the
     // gerund frame can lack a leading rune → that was the live spinner LEAK).
+    //
+    // NOTE: this is "is this row STATUS/SPINNER CHROME to exclude from answer content?".
+    // It returns TRUE for BOTH an active spinner AND the past-tense completion summary
+    // ("✻ Crunched for Ns") — both are chrome, neither belongs in the answer text. The
+    // "engine actively WORKING?" question is separate → spinnerActive() (which excludes
+    // the completion summary via isCompletionSummary), so a completed turn is recognized.
     if (/^[✽✻✶✢✼✺◌✦✧✩∗*·•◦]/.test(t)) return true; // leading animation rune
     if (/^\p{Lu}[\p{Ll}-]+…\s*$/u.test(t)) return true; // a bare gerund "Word…" status row
     if (/^[\p{L}][\p{L} -]*…\s*(\(?\d+s\b|·|esc to interrupt|↑|↓|tokens?)/u.test(t)) return true; // "Gerund… (Ns · …)"
     if (/\(\s*\d+s\b/.test(t) || /[↑↓]\s*\d+\s*tokens?/.test(t) || /esc to interrupt/i.test(t)) return true; // timer/token/interrupt chrome
     if (/^[\w-]+…\s+for\s+\d+s/.test(t)) return true; // "Baked for 6s"-style
     return false;
+  }
+
+  /**
+   * The COMPLETED-turn summary marker (NOT an active spinner): a (optional) leading
+   * animation rune + a PAST-TENSE verb + "for <time>", with NO trailing "…" and no
+   * active "(Ns · tokens)" / "esc to interrupt" chrome. E.g. "✻ Crunched for 3m 28s",
+   * "✻ Baked for 6s", "✻ Cooked for 12s", "✻ Sautéed for 1s". When this appears (the
+   * turn has ended), spinnerActive() must NOT classify the screen as still working —
+   * otherwise isTurnComplete() never fires and the finished answer is never surfaced
+   * (the live USER-SILENCE bug). It is STILL status chrome (kept out of answer text by
+   * isStatusRow); this predicate only governs the "actively working?" decision.
+   */
+  private isCompletionSummary(t: string): boolean {
+    if (/…/.test(t)) return false; // a "…" means an ACTIVE gerund, never a completion
+    if (/esc to interrupt/i.test(t) || /[↑↓]\s*\d+\s*tokens?/.test(t) || /\(\s*\d+s\b/.test(t)) return false; // active chrome
+    // [rune] <Word> for <time> — past-tense "Verbed for <Ns>" / "Verbed for <Nm Ns>".
+    // \p{L} so accented verbs ("Sautéed") match.
+    return /^[✽✻✶✢✼✺◌✦✧✩∗*·•◦]?\s*\p{Lu}[\p{L}]+\s+for\s+\d+m?\s*\d*s\b/u.test(t);
   }
   private argToInput(name: string, arg: string): Record<string, unknown> {
     const a = arg.trim();

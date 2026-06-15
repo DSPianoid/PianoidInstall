@@ -234,6 +234,55 @@ test('grid: isTurnComplete is FALSE while a permission prompt is pending (would 
   g.dispose();
 });
 
+test('grid: ★ "✻ Crunched for Ns" completion marker is NOT a spinner → turn IS complete (live USER-SILENCE regression)', async () => {
+  // VERBATIM the live frame (2026-06-15 user's first /orchestrator turn): the turn
+  // COMPLETED with a multi-line menu answer, but the final status row "✻ Crunched for
+  // 3m 28s" (past-tense completion summary) was mis-classified as an active spinner →
+  // isTurnComplete() never fired → the finished answer was NEVER surfaced → user silence.
+  // Note: a STALE in-progress frame "· Precipitating… (3m 28s · ↓ tokens)" + a stale
+  // "esc to interrupt" footer ALSO linger in the buffer — the completion summary must
+  // override them.
+  const g = new GridScreen({ cols: 120, rows: 30 });
+  await g.init();
+  g.write(
+    lines(
+      '● How far do you want me to go?',
+      '  1. Round-trip confirmed — stop here (you are testing the supervisor).',
+      '  2. Full orchestrator boot — health check + controller + loop, for real Pianoid work.',
+      '  3. Something else (e.g. drive the supervisor itself via /dev).',
+      '· Precipitating… (3m 28s · ↓ 14.7k tokens)',
+      '  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude',
+      '────────────────────────────────────────────────────────────────────────────',
+      '❯ ',
+      '────────────────────────────────────────────────────────────────────────────',
+      '  gh auth login · esc to interrupt',
+      '✻ Crunched for 3m 28s',
+      '────────────────────────────────────────────────────────────────────────────',
+      '❯ ',
+      '────────────────────────────────────────────────────────────────────────────',
+      '  gh auth login · ← for agents',
+    ),
+  );
+  await settle();
+  assert.equal(g.spinnerActive(), false, 'a "Crunched for Ns" completion marker is NOT an active spinner');
+  assert.equal(g.isTurnComplete(), true, 'the turn IS complete → the result must fire (the answer reaches the channel)');
+  const ans = g.currentAnswerText();
+  assert.ok(ans && /How far do you want me to go/.test(ans), `the menu answer is extractable (got ${JSON.stringify(ans)})`);
+  assert.ok(ans && /3\. Something else/.test(ans), 'the full numbered menu is in the answer');
+  g.dispose();
+});
+
+test('grid: an ACTIVE gerund spinner "✻ Crunching… (Ns)" still blocks turn-complete (no false completion)', async () => {
+  // guard the fix is not over-broad: an ACTIVE gerund (…) is STILL a spinner.
+  const g = new GridScreen({ cols: 100, rows: 20 });
+  await g.init();
+  g.write(lines('● working on it', '✻ Crunching… (12s · ↑ 400 tokens)', '  esc to interrupt'));
+  await settle();
+  assert.equal(g.spinnerActive(), true, 'an active gerund "Crunching…" IS a spinner');
+  assert.equal(g.isTurnComplete(), false, 'still working → NOT complete');
+  g.dispose();
+});
+
 test('grid: detectTrustGate + isInputReady', async () => {
   const g = new GridScreen({ cols: 80, rows: 20 });
   await g.init();
