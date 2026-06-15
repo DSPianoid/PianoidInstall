@@ -246,7 +246,15 @@ export class SessionHost {
       this.logger.warn('session produced output but no operator to send to', {});
       return;
     }
-    await this.opts.send(this.operator, { text });
+    // Log the outbound RESULT (ok + sentIds) so a forward to the channel is observable —
+    // delivery confirmation, not just an attempt. (Without this, a successful send was
+    // silent in the log, so we couldn't tell "delivered to the bot" from "never sent".)
+    const r = await this.opts.send(this.operator, { text });
+    if (r.ok) {
+      this.logger.info('outbound delivered to operator', { sentIds: r.sentIds, chars: text.length });
+    } else {
+      this.logger.error('outbound send FAILED', { error: r.error, chars: text.length });
+    }
   }
 
   /** Health across lifecycle + router + pending permission asks. */
