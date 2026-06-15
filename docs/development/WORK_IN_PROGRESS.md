@@ -22,6 +22,15 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+<!-- dev-m12p2 COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "close the demo, commit, proceed"). M12 Phase 2 —
+     supervisor subprocess ownership: LifecycleManager (Agent SDK query() owns the headless session, M1 prompt, session-id
+     capture, FI restart+resume) + PermissionRouter (the FC-1 fix: route safety-floor over the channel + BLOCK on reply) +
+     ChannelPermission + SessionHost (replaces the Phase-1 hook) + SdkSessionDriver (the one SDK-coupled file, behind the
+     SessionDriver seam). LIVE DEMO SUCCESS on the dedicated test bot (chat round-trip + Write→permission-prompt-over-Telegram).
+     Two live-surfaced bugs fixed+tested (start-ordering hang; streaming-input envelope). Review-hardened H1/H2/M1/M2/M3/M4.
+     106/106 node:test. Committed feature/m12-supervisor-phase2 770d1b3, MERGED --no-ff → master daafa6f. NOT pushed (separate
+     user call). Log → logs/archive/dev-m12p2-2026-06-15-083532.md. Phase 3 = production cut-over (awaiting team-lead brief).
+-->
 <!-- dev-m12p1 COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "proceed with implementation" + live connectivity verified).
      M12 Phase 1 — Host/Supervisor app, NEW isolated TS/Node subtree tools/supervisor/ (additive, zero-disruption; does NOT
      yet own the Claude subprocess = Phase 2). Built: supervisor skeleton + I/O bus + M10 ChannelAdapter contract + Telegram

@@ -15,6 +15,10 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-m12p2 locks RELEASED 2026-06-15 at Step 10a Phase 2 (user-approved "close+commit+proceed", merged). Held:
+     tools/supervisor/** (Phase 2 — subprocess ownership; added lifecycle/permission-router/channel-permission/session-host/
+     session-driver/sdk-session-driver + edits to index.ts/config.ts). M12 Phase 2 committed feature/m12-supervisor-phase2
+     770d1b3, MERGED --no-ff → master daafa6f. NOT pushed. -->
 <!-- dev-m12p1 locks RELEASED 2026-06-15 at Step 10a Phase 2 (user-approved, merged). Held: tools/supervisor/** (entire NEW
      TS/Node subtree, greenfield — no conflict possible). M12 Phase 1 committed feature/m12-supervisor-phase1 7db3dec, MERGED
      to master 93ffa66 (--no-ff). NOT pushed. -->
