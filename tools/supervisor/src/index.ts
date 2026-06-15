@@ -41,6 +41,8 @@ import { resolveTransportDecision } from './transport-policy.js';
 import { makeEchoHook } from './echo.js';
 import { SessionHost } from './session-host.js';
 import { SdkSessionDriver } from './adapters/sdk-session-driver.js';
+import { PtySessionDriver } from './adapters/pty-session-driver.js';
+import type { SessionDriver } from './session-driver.js';
 import { resolveProfile } from './profiles.js';
 import { loadMcpServers } from './mcp-config.js';
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
@@ -61,6 +63,15 @@ interface CliArgs {
    * --profile <name> or SUPERVISOR_PROFILE. Default 'demo'.
    */
   profile: 'demo' | 'orchestrator';
+  /**
+   * Phase 3 (Option 3c): which SessionDriver backs the hosted session —
+   *   'sdk' (DEFAULT) = the headless Agent SDK (structured stream-json, API-billed);
+   *   'pty'           = the interactive `claude` TUI in node-pty (subscription-billed,
+   *                     bounded render-parse output). The SDK driver stays the default +
+   *                     instant fallback; --driver pty is validated via this flag + a live
+   *                     smoke before the default is flipped. --driver <x> or SUPERVISOR_DRIVER.
+   */
+  driver: 'sdk' | 'pty';
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -69,14 +80,16 @@ function parseArgs(argv: string[]): CliArgs {
   let echo = process.env.SUPERVISOR_ECHO === '1';
   let session = process.env.SUPERVISOR_SESSION === '1';
   let profile: 'demo' | 'orchestrator' = process.env.SUPERVISOR_PROFILE === 'orchestrator' ? 'orchestrator' : 'demo';
+  let driver: 'sdk' | 'pty' = process.env.SUPERVISOR_DRIVER === 'pty' ? 'pty' : 'sdk';
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--live') live = true;
     else if (argv[i] === '--echo') echo = true;
     else if (argv[i] === '--session') session = true;
     else if (argv[i] === '--panel') panelPort = Number(argv[++i] ?? '0') || 0;
     else if (argv[i] === '--profile') profile = (argv[++i] === 'orchestrator' ? 'orchestrator' : 'demo');
+    else if (argv[i] === '--driver') driver = (argv[++i] === 'pty' ? 'pty' : 'sdk');
   }
-  return { live, panelPort, echo, session, profile };
+  return { live, panelPort, echo, session, profile, driver };
 }
 
 async function main(): Promise<void> {
@@ -126,11 +139,18 @@ async function main(): Promise<void> {
   let sessionHost: SessionHost | undefined;
   if (args.session) {
     const profile = resolveProfile(args.profile);
-    logger.info(`SESSION MODE — hosting a Claude Code session (profile: ${profile.name})`, {
+    logger.info(`SESSION MODE — hosting a Claude Code session (profile: ${profile.name}, driver: ${args.driver})`, {
       teams: profile.agentTeams,
       settingSources: profile.settingSources,
       roleBootstrap: profile.roleBootstrap,
+      driver: args.driver,
     });
+
+    // Phase-3 (3c) driver selection. SDK = default (structured stream, API-billed,
+    // already validated). PTY = interactive TUI (subscription-billed, bounded
+    // render-parse). The SDK driver stays the instant fallback; --driver pty is
+    // validated via a live smoke before we flip the default.
+    const sessionDriver: SessionDriver = args.driver === 'pty' ? new PtySessionDriver() : new SdkSessionDriver();
 
     // Build the MCP server map for the orchestrator profile: the in-process channel
     // reply tool + the project's servers (from ~/.claude.json, minus telegram).
@@ -154,7 +174,7 @@ async function main(): Promise<void> {
         : process.env.SUPERVISOR_SYSTEM_PROMPT;
 
     sessionHost = new SessionHost({
-      driver: new SdkSessionDriver(),
+      driver: sessionDriver,
       bus: supervisor.bus,
       logger,
       send: (handle, msg) => supervisor.sendOutbound('telegram', handle, msg),
