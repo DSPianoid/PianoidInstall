@@ -39,6 +39,8 @@ import { VoiceCodec } from './voice.js';
 import { Panel } from './panel.js';
 import { resolveTransportDecision } from './transport-policy.js';
 import { makeEchoHook } from './echo.js';
+import { SessionHost } from './session-host.js';
+import { SdkSessionDriver } from './adapters/sdk-session-driver.js';
 import type { TelegramTransport } from './adapters/telegram-transport.js';
 
 interface CliArgs {
@@ -46,18 +48,22 @@ interface CliArgs {
   panelPort: number;
   /** Dev/test echo mode (host hook echoes inbound back). --echo or SUPERVISOR_ECHO=1. */
   echo: boolean;
+  /** Phase 2: host a real Claude Code session as the inbound handler. --session or SUPERVISOR_SESSION=1. */
+  session: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   let live = false;
   let panelPort = 0;
   let echo = process.env.SUPERVISOR_ECHO === '1';
+  let session = process.env.SUPERVISOR_SESSION === '1';
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--live') live = true;
     else if (argv[i] === '--echo') echo = true;
+    else if (argv[i] === '--session') session = true;
     else if (argv[i] === '--panel') panelPort = Number(argv[++i] ?? '0') || 0;
   }
-  return { live, panelPort, echo };
+  return { live, panelPort, echo, session };
 }
 
 async function main(): Promise<void> {
@@ -65,10 +71,10 @@ async function main(): Promise<void> {
   const config = loadConfig({ panelPort: args.panelPort });
   const logger = new Logger({ level: config.logLevel, filePath: config.logFile, component: 'supervisor' });
 
-  // config carries only hasToken (never the secret) — safe to log.
-  logger.info('supervisor starting (Phase 1)', {
+  // config carries only the file-presence boolean (never the secret) — safe to log.
+  logger.info('supervisor starting', {
     stateDir: config.stateDir,
-    hasProductionToken: config.hasToken,
+    productionTokenFilePresent: config.productionTokenFilePresent,
     live: args.live,
     echo: args.echo,
     panelPort: config.panelPort,
@@ -98,13 +104,30 @@ async function main(): Promise<void> {
   });
   supervisor.register(telegram);
 
-  // Host inbound hook. In Phase 1 there is no hosted session yet (Phase 2
-  // replaces this with the real M1 session). Two modes:
+  // Host inbound hook — pick ONE of three modes (precedence: session > echo > log):
+  //   - SESSION (Phase 2, --session / SUPERVISOR_SESSION=1): host a REAL Claude
+  //     Code session via the SDK; inbound → session turns, session output →
+  //     channel, permission decisions routed over the channel (FC-1).
+  //   - ECHO (dev/test, --echo): echo inbound back (connectivity test).
   //   - DEFAULT: log inbound so the operator can see the shell working.
-  //   - ECHO (dev/test, --echo or SUPERVISOR_ECHO=1): echo each inbound back
-  //     through the adapter so a LIVE Telegram round-trip is demonstrable
-  //     against a DEDICATED test bot (text + voice both directions).
-  if (args.echo) {
+  let sessionHost: SessionHost | undefined;
+  if (args.session) {
+    logger.info('SESSION MODE (Phase 2) — hosting a Claude Code subprocess as the inbound handler');
+    sessionHost = new SessionHost({
+      driver: new SdkSessionDriver(),
+      bus: supervisor.bus,
+      logger,
+      send: (handle, msg) => supervisor.sendOutbound('telegram', handle, msg),
+      // Permission policy is resolved in config (review M2: not a literal here).
+      // Conservative default: read-only + channel tools auto-allow; everything
+      // else routes to the user (FC-1). Extend the allow-list via
+      // SUPERVISOR_PERMISSION_ALLOW; see DEFAULT_PERMISSION_POLICY.
+      policy: config.permissionPolicy,
+      systemPrompt: process.env.SUPERVISOR_SYSTEM_PROMPT,
+      cwd: process.cwd(),
+    });
+    supervisor.onInbound(sessionHost.handleInbound);
+  } else if (args.echo) {
     logger.warn('ECHO MODE (dev/test) — host hook echoes inbound back; NOT the real session');
     const echoHook = makeEchoHook(
       (channel, handle, msg) => supervisor.sendOutbound(channel, handle, msg),
@@ -113,7 +136,7 @@ async function main(): Promise<void> {
     supervisor.onInbound(echoHook);
   } else {
     supervisor.onInbound((msg) =>
-      logger.info('inbound (no session hosted yet — Phase 2)', {
+      logger.info('inbound (no session hosted — use --session to host one)', {
         channel: msg.channel,
         user: msg.user,
         hasText: !!msg.text,
@@ -123,6 +146,7 @@ async function main(): Promise<void> {
   }
 
   await supervisor.start();
+  if (sessionHost) await sessionHost.start();
 
   let panel: Panel | undefined;
   if (config.panelPort > 0) {
@@ -134,6 +158,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (sig: string): Promise<void> => {
     logger.info('shutting down', { signal: sig });
+    if (sessionHost) await sessionHost.stop();
     if (panel) await panel.stop();
     await supervisor.stop();
     await logger.close();

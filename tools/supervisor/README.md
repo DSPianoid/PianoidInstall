@@ -1,16 +1,24 @@
-# Pianoid Supervisor — M12 Host/Supervisor app (Phase 1)
+# Pianoid Supervisor — M12 Host/Supervisor app (Phases 1 + 2)
 
-> **Status: Phase 1 (additive, zero-disruption shell).** This is the runtime +
-> I/O-control module from the M12 proposal
-> (`docs/proposals/m12-host-supervisor-app-2026-06-14.md`). Phase 1 stands up the
-> supervisor skeleton + the M10 channel-adapter contract + the Telegram reference
-> adapter (folding in the inbox-queue and voice STT/TTS, so **both** Telegram
-> monkey-patches are obsoleted **without patching the plugin**) + a durable,
-> replayable stream-json/transcript **capture store**. It does **not** yet own the
-> Claude Code subprocess — that is **Phase 2**.
+> **Status: Phases 1 + 2 (additive — still no production cut-over).** The runtime
+> + I/O-control module from the M12 proposal
+> (`docs/proposals/m12-host-supervisor-app-2026-06-14.md`).
+> **Phase 1** stands up the supervisor skeleton + the M10 channel-adapter contract
+> + the Telegram reference adapter (folding in the inbox-queue and voice STT/TTS,
+> so **both** Telegram monkey-patches are obsoleted **without patching the
+> plugin**) + a durable, replayable **capture store**.
+> **Phase 2** adds **subprocess ownership**: a lifecycle manager that spawns +
+> owns a headless Claude Code session via the Agent SDK `query()`, a **`canUseTool`
+> permission router** that routes safety-floor decisions over the channel and
+> blocks on the user's reply (the FC-1 invisible-prompt eliminator), **stream-json
+> bidirectional I/O on the bus**, and **health-check + `--resume` restart** (FI).
+> The Phase-1 log/echo host hook is replaced by the real hosted session under
+> `--session`.
 
 A standalone TypeScript/Node app. It is built **alongside** today's in-CLI
 orchestrator and retires nothing — the live orchestrator keeps running unchanged.
+The **production cut-over** (the supervisor replacing the live orchestrator + the
+keystroke/monkey-patch glue) is **Phase 3**, not done here.
 
 ---
 
@@ -32,9 +40,28 @@ orchestrator and retires nothing — the live orchestrator keeps running unchang
 | **Voice codec** | `src/voice.ts` | STT/TTS via the existing Python helpers (`transcribe_voice.py` / `tts_voice.py`) as out-of-process steps. Degrades gracefully if absent. |
 | **Read-only web panel** | `src/panel.ts` | A thin operator view (OD-3: minimal web, **read-only** in Phase 1): `/api/health`, `/api/capture`, a live HTML page. Binds to loopback. |
 | **Echo host-hook (dev/test)** | `src/echo.ts` | A throwaway connectivity affordance behind `--echo` — echoes inbound back (text + voice). NOT the real host (Phase 2 replaces it). |
-| **Config** | `src/config.ts` | Resolves the supervisor's **own** state dir (never the live plugin's), token source, helper-script paths. Secret-safe (`hasToken` only). |
+| **Config** | `src/config.ts` | Resolves the supervisor's **own** state dir (never the live plugin's), token source, helper-script paths. Secret-safe (`productionTokenFilePresent` boolean only). |
 | **Logger** | `src/logger.ts` | Dependency-free NDJSON logger. |
 | **Entrypoint** | `src/index.ts` | Wires it all; **loopback-safe by default** (see Safety). |
+
+## What's built (Phase 2 — subprocess ownership)
+
+| Module | File | Role |
+|---|---|---|
+| **Session driver seam** | `src/session-driver.ts` | The normalized boundary between the supervisor and the SDK: `SessionDriver` interface + `SessionEvent`/`PermissionRequest`/`PermissionDecision` types. Confines all SDK-API uncertainty to one adapter. |
+| **SDK session driver** | `src/adapters/sdk-session-driver.ts` | The REAL driver — wraps `@anthropic-ai/claude-agent-sdk` `query()`, maps stream-json messages → `SessionEvent`, adapts `canUseTool`, pumps multi-turn input. The only SDK-coupled file (dynamic import; the SDK is an optional dep). |
+| **Lifecycle manager** | `src/lifecycle.ts` | Spawns + OWNS the session via the driver; captures the session id; publishes stream-json events to the bus (→ capture + outbound); health + **restart with `resume`** on an unexpected (crash) stream end (FI), bounded against crash-loops. |
+| **Permission router** | `src/permission-router.ts` | **The FC-1 killer.** Allow-list fast-path · deny-list · safety-floor → route over the channel and **block on the user's reply**; fail-safe **deny on timeout**. Pure + unit-tested. |
+| **Channel permission** | `src/channel-permission.ts` | The route-out + await-reply round-trip: sends `🔐 Approve '<tool>'? allow/deny <code>`, one-shot waiter resolved by a recognized inbound reply; fail-safe timeout. |
+| **Session host** | `src/session-host.ts` | Composes lifecycle + router + channel into the supervisor's host inbound hook (**replaces** the Phase-1 log/echo hook): inbound → user turn; permission reply intercepted; session output → channel. |
+
+### How it eliminates FC-1 (the invisible permission prompt)
+
+A gated tool the hosted session wants to run hits the SDK's `canUseTool` →
+normalized to the router. Allow-listed tools pass with no prompt; everything else
+is **sent to the user over Telegram** (`🔐 Approve 'Bash'? allow ab12`) and the
+session **blocks** on the reply. There is no terminal prompt to be invisible, no
+30-min sweep, no synthesized keystroke. No reply in the window → fail-safe deny.
 
 ### How it obsoletes the two monkey-patches
 
@@ -85,11 +112,11 @@ Requires Node ≥ 20.
 
 ```bash
 cd tools/supervisor
-npm install          # grammy + typescript + @types/node (lean)
+npm install          # grammy + typescript + @types/node (lean); the Agent SDK is an OPTIONAL dep
 npm run build        # tsc → dist/
-npm test             # build + node --test (68 tests)
+npm test             # build + node --test (95 tests)
 
-# Run the Phase-1 shell (SAFE — loopback transport, no live poller):
+# Run the shell (SAFE — loopback transport, no live poller, no hosted session):
 node dist/index.js
 node dist/index.js --panel 8790        # also serve the read-only panel
 #   → http://127.0.0.1:8790/  · /api/health · /api/capture
@@ -98,8 +125,13 @@ node dist/index.js --panel 8790        # also serve the read-only panel
 SUPERVISOR_TELEGRAM_TOKEN="<dedicated-bot-token>" node dist/index.js --live
 
 # Connectivity test — echo each inbound back (dev/test; text + voice round-trip).
-# Use a DEDICATED test bot token; --echo also works on loopback for local checks.
 SUPERVISOR_TELEGRAM_TOKEN="<dedicated-bot-token>" node dist/index.js --live --echo --panel 8790
+
+# Phase 2 — HOST a real Claude Code session (subprocess ownership). Inbound →
+# session turns; session output → channel; gated tools routed to the user (FC-1).
+# Needs the optional @anthropic-ai/claude-agent-sdk installed. Use the DEDICATED
+# test bot for any live run — never the production token.
+SUPERVISOR_TELEGRAM_TOKEN="<dedicated-bot-token>" node dist/index.js --live --session --panel 8790
 ```
 
 ### Echo mode (`--echo` / `SUPERVISOR_ECHO=1`) — a DEV/TEST affordance
@@ -123,40 +155,47 @@ as the existing orchestrator setup already provides.
 
 ---
 
-## Acceptance (Phase 1 — all demonstrated by the test suite)
+## Acceptance — all demonstrated by the test suite
+
+**Phase 1:**
 
 | Criterion | Proven by |
 |---|---|
-| (a) A Telegram message round-trips through the adapter contract incl. a **voice note both directions**, with **no plugin patch** | `src/test/telegram-adapter.test.ts` (text round-trip, voice-in STT, voice-out sendVoice, degrade paths, chunking) |
-| (b) Inbound **survives an adapter restart** (queue replay; nothing dropped) | `src/test/queue-replay.test.ts` (crash-before-ack → fresh adapter replays; acked item not replayed; voice durable + STT memoized) |
-| (c) The **capture store** holds a full replayable event stream | `src/test/supervisor-e2e.test.ts` (lifecycle + inbound + outbound captured, durable re-read) + `src/test/panel.test.ts` |
-| Loopback-safety (the live poller can only start on a dedicated token) | `src/test/transport-policy.test.ts` (all 3 branches + the production token never reaching a transport) |
+| (a) A Telegram message round-trips through the adapter contract incl. a **voice note both directions**, with **no plugin patch** | `src/test/telegram-adapter.test.ts` |
+| (b) Inbound **survives an adapter restart** (queue replay; nothing dropped) | `src/test/queue-replay.test.ts` |
+| (c) The **capture store** holds a full replayable event stream | `src/test/supervisor-e2e.test.ts` + `src/test/panel.test.ts` |
+| Loopback-safety (live poller only on a dedicated token) | `src/test/transport-policy.test.ts` |
 
-Run `npm test` → **64/64 green**. A live end-to-end smoke (`node dist/index.js
---panel …`) boots the shell on the loopback transport and serves `/api/health`
-with zero risk to the live channel.
+**Phase 2:**
+
+| Criterion | Proven by |
+|---|---|
+| **FC-1**: a gated tool is **routed to the user over the channel and the session BLOCKS** until the reply (no terminal prompt) | `src/test/session-host.test.ts` (route→allow, route→deny, allow-listed not routed) + `src/test/permission-router.test.ts` (incl. timeout→fail-safe-deny) |
+| **FI**: killing the session mid-task → **restart + `resume`** the same session id and continue | `src/test/lifecycle.test.ts` (crash→restart-with-resume; clean stop no restart; bounded crash-loop) |
+| **stream-json on the bus**: `system_init`/`assistant`/`result` captured; session id captured | `src/test/lifecycle.test.ts` + `src/test/sdk-session-driver.test.ts` (message mapping + canUseTool adaptation + resume/systemPrompt pass-through) |
+
+Run `npm test` → **95/95 green**. (Phase-2 logic is proven against a deterministic
+`FakeSessionDriver` + an injected fake `query` — no SDK, no subprocess, no network.)
+A live end-to-end smoke boots the shell on the loopback transport with zero risk to
+the live channel; a live SDK round-trip is optional and uses the dedicated test bot.
 
 ---
 
-## What's stubbed / deferred (Phase 2 & 3)
+## What's stubbed / deferred
 
-This is the **additive shell**; the following land in later phases (per the
-proposal PART E) and the code is structured so they plug into the existing bus +
-capture + registry seams:
+Phase 1 + Phase 2 are **built** (above). The code plugs into the existing bus +
+capture + registry + session-driver seams; the remaining work:
 
-**Phase 2 — subprocess ownership (FC-1, FC-3 eliminated):**
-- Lifecycle manager that **spawns and owns** headless Claude Code via the Agent
-  SDK (`@anthropic-ai/claude-agent-sdk` `query()`), with M1 as the system prompt;
-  capture the session id from `system/init`.
-- `canUseTool` **permission router**: allow-list fast-path + **route safety-floor
-  decisions over the channel** and block on the user's reply (no terminal prompt).
-- **stream-json bidirectional I/O** on the bus (inject user turns; consume
-  `system/init`/`assistant`/`tool_*`/`result`); the `BusEvent` envelope already
-  models these.
-- **Health-check + `--resume` restart** (FI) wired to the wait→wake (FO).
-- Programmatic **hooks + `mcpServers`** as SDK options (the controller marker hook).
-- In Phase 1, the host inbound hook just logs ("no session hosted yet"); Phase 2
-  replaces it with the session.
+**Phase 2 — DONE** (subprocess ownership, the `canUseTool` router, stream-json on
+the bus, restart+`resume`). Carried-forward inside Phase 2 (small, non-blocking):
+- **`hooks` + `mcpServers`** are accepted by the `SessionStartOptions`/SDK boundary
+  but the **controller marker hook** itself (Campaign P4) is wired in a later pass —
+  it depends on this Phase-2 plumbing, which now exists.
+- **Partial/streaming assistant deltas**: the driver maps whole `assistant`/`result`
+  messages; token-level partials (`includePartialMessages`) are not surfaced yet
+  (doc-FLAGGED option; add when needed).
+- The **operator** is single (the latest inbound user), matching the plugin's
+  single-user model; multi-operator routing is later.
 
 **Phase 3 — retire the glue + self-context-clean + live cut-over:**
 - Make the supervisor the default host; **delete** `cli_control.ps1` + the
