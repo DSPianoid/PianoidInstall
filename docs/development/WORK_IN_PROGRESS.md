@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-gausscp | Interactive hammer chart (ECharts) replacing position/width/sharpness sliders + width/sharpness units audit | [log](logs/dev-gausscp-2026-06-15-210006.md) | 2026-06-15 | |
 <!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "push it to dev"). Excitation Position
      (hammer_position) units fix: % display (ratio×100) / ratio send (÷100) via handlePositionChange; slider range
      0–50% (ratio 0–0.5, string symmetric); 1/11,1/9,1/7 chips write ratios (1/N) not (1/N)*100. Single file
