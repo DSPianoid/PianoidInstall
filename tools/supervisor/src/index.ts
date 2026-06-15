@@ -28,6 +28,7 @@
  *                                      # SUPERVISOR_ECHO=1 also enables echo
  */
 
+import { openSync, writeSync } from 'node:fs';
 import { loadConfig } from './config.js';
 import { Logger } from './logger.js';
 import { Supervisor } from './supervisor.js';
@@ -150,6 +151,23 @@ async function main(): Promise<void> {
     // already validated). PTY = interactive TUI (subscription-billed, bounded
     // render-parse). The SDK driver stays the instant fallback; --driver pty is
     // validated via a live smoke before we flip the default.
+    // Opt-in RAW render capture (diagnostics): when SUPERVISOR_RAW_CAPTURE=<path> is set,
+    // every node-pty render chunk is appended to that file. Lets us capture the EXACT
+    // rendered bytes of an intermittent TUI gate (e.g. the $()-subexpression security
+    // prompt) from a LIVE session to tune the grid detector. Off by default → zero impact.
+    const rawCapturePath = process.env.SUPERVISOR_RAW_CAPTURE;
+    let onRaw: ((chunk: string) => void) | undefined;
+    if (args.driver === 'pty' && rawCapturePath) {
+      const fd = openSync(rawCapturePath, 'a');
+      onRaw = (chunk: string): void => {
+        try {
+          writeSync(fd, chunk);
+        } catch {
+          /* best-effort diagnostic sink */
+        }
+      };
+      logger.warn(`RAW render capture ENABLED → ${rawCapturePath} (diagnostics; never the token)`);
+    }
     const sessionDriver: SessionDriver =
       args.driver === 'pty'
         ? new PtySessionDriver(
@@ -158,15 +176,18 @@ async function main(): Promise<void> {
             // (NOT destructive) so the state-dependent gate can't hang the startup; a
             // destructive `$()` command still routes through the safety floor. The demo
             // profile gets no auto-allow (every gate routes).
-            profile.name === 'orchestrator'
-              ? {
-                  autoAllowSubexpr: (toolName, input) => {
-                    if (toolName !== 'Bash' && toolName !== 'PowerShell') return false;
-                    const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
-                    return !isDestructiveShellCommand(cmd);
-                  },
-                }
-              : undefined,
+            {
+              ...(profile.name === 'orchestrator'
+                ? {
+                    autoAllowSubexpr: (toolName: string, input: Record<string, unknown>): boolean => {
+                      if (toolName !== 'Bash' && toolName !== 'PowerShell') return false;
+                      const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
+                      return !isDestructiveShellCommand(cmd);
+                    },
+                  }
+                : {}),
+              ...(onRaw ? { onRaw } : {}),
+            },
           )
         : new SdkSessionDriver();
 
