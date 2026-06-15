@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit 966f3d1 on
+     feature/dev-gausscp-position-units off dev 8049673). Held: PianoidTunner/src/components/ExcitationProperties.jsx
+     (+ NEW __tests__/ExcitationProperties.positionUnits.test.jsx). Position (hammer_position) units fix: % display
+     (ratio×100) / ratio send (÷100) via handlePositionChange; slider range 0–50% (ratio 0–0.5, string symmetric);
+     1/11,1/9,1/7 chips write ratios (1/N) not (1/N)*100. Jest 115/1183 green (+1/+5), eslint 0, live-verified
+     (slider max=50, field 0.15→"15", 1/9 chip sends ratio 0.1111). NOT merged/pushed — HOLD for user live test.
+     Docs (OVERVIEW Position-units paragraph) + screenshot + log on PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
 <!-- dev-gausscp locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit 3a99265 on
      feature/dev-gausscp-gauss-copy-paste off PianoidTunner dev b913ee4). Held: PianoidTunner/src/{PianoidTuner.js,
      components/GaussEditor.jsx, components/ExcitationProperties.jsx, components/Excitation.jsx, hooks/usePreset.js}

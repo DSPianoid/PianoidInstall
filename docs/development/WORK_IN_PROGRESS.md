@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-gausscp | Fix Excitation Position (hammer_position) units: %↔ratio conversion + 0–50% range + fix 1/N buttons | [log](logs/dev-gausscp-2026-06-15-203818.md) | 2026-06-15 | |
 <!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "Ok merge and push"). Excitation gauss-curve
      COPY/PASTE feature: 3 buttons (COPY/PASTE/ALL) left of the 5x4 gauss grid; selection = cell / chart-header(column) /
      param-row label(row) / none=whole; COPY → in-app clipboard (useGaussClipboard, {cells:{[chart]:{[name]:value}}});
