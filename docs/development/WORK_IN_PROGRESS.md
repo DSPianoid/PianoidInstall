@@ -22,7 +22,21 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-uiqueue | Save-mosaic-config selector+Manage popup; bottom-bar volume/feedback/reset + restore volume-sensitivity | [log](logs/dev-uiqueue-2026-06-15-135134.md) | 2026-06-15 |
+<!-- dev-uiqueue COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "commit merge and push on dev"). Two queued
+     PianoidTunner UI features + 2 Reset restyles, all on feature/dev-uiqueue-mosaic-bottombar, MERGED to PianoidTunner
+     dev b913ee4 (--no-ff, off 0f3cfe0) + PUSHED origin/dev. (T1) SAVE MOSAIC CONFIG: toolbar Widgets → selector of
+     named savable layouts + Manage popup (saved-list rename/delete + save-current-as + the existing pane selector
+     AS-IS); NEW hooks/mosaicConfigStore.js (mirrors presetConfigStore) + components/MosaicConfigManager.jsx; 2
+     localStorage keys (mosaicConfigs/activeMosaicConfig); commit e78bc3e. (T2) BOTTOM BAR: NEW components/BottomBar.jsx
+     below the mosaic hosts Volume+Feedback+Reset LARGE with always-visible inline Sensitivity; RESTORED
+     volume-sensitivity (regression = dev-09cf overflowY:hidden clipped the toolbar popover, measured ~2.2px/129px
+     visible — fixed structurally by relocation) + NEW feedback-sensitivity (curve base in usePreset); removed those
+     controls from ToolBar; commit c301966. (followups) Reset → large (37ed715) → wide RED "RESET" button (67cd5fe,
+     theme error palette). Full Jest 111/1159 green, eslint 0, build compiles, all live-verified (chrome-devtools).
+     Frontend-only, NO CUDA. ★UNVERIFIED-AUDIBLE: the synthesis effect of volume/feedback sensitivity needs the user's
+     box — this 56-SM dev box crashes on audio_on (GPU illegal-memory-access); UI→handler→WS wiring verified here.
+     User testing on another system. Docs on PianoidInstall master (836bf3a/1935b9a/0bb8a30/a2de2ff + Phase-2). Log
+     archived. -->
 <!-- dev-tbmirror COMPLETED 2026-06-14 (Step 10a Phase 2, user-approved msg 3506 "toolbar is ok"). Toolbar BATCH on
      PianoidTunner: (1) remove redundant mirroring selected-parameter NumInput (blur-contamination fix, 25ce0de);
      (2) MIDI icon → button+3-state-indicator next to Fix-MIDI opening a popup Dialog + remove MIDI from the mosaic
