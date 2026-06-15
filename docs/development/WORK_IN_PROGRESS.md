@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-gausscp | Excitation gauss-curve COPY/PASTE feature (3 buttons left of 5x4 grid) | [log](logs/dev-gausscp-2026-06-15-175331.md) | 2026-06-15 | |
 <!-- dev-uiqueue COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "commit merge and push on dev"). Two queued
      PianoidTunner UI features + 2 Reset restyles, all on feature/dev-uiqueue-mosaic-bottombar, MERGED to PianoidTunner
      dev b913ee4 (--no-ff, off 0f3cfe0) + PUSHED origin/dev. (T1) SAVE MOSAIC CONFIG: toolbar Widgets → selector of

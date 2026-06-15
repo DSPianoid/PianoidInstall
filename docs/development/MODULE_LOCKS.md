@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-gausscp | `PianoidTunner/src/components/GaussEditor.jsx`, `PianoidTunner/src/components/ExcitationProperties.jsx`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/usePreset.js`, `PianoidTunner/src/hooks/useGaussClipboard.js`, `PianoidTunner/src/utils/gaussClipboard.js`, `PianoidTunner/src/components/GaussCopyPasteButtons.jsx`, `PianoidTunner/src/components/GaussianParameterGrid.jsx`, `PianoidTunner/src/components/GaussianParameterGrid.css`, `PianoidTunner/src/components/CopyPastMenu.jsx` | 2026-06-15T15:08:00Z | Excitation gauss-curve COPY/PASTE feature (3 buttons left of 5x4 grid; copy cell/row/col/whole; paste current pitch; paste all pitches on level; delete dead GaussianParameterGrid/CopyPastMenu) |
 <!-- dev-uiqueue T2 FOLLOW-UP 2 lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
      Held: PianoidTunner/src/components/BottomBar.jsx. Reset → wide RED contained Button labelled "RESET"
      (theme error palette, 200x56) per user feedback. eslint 0, BottomBar Jest 6/6, live-verified
