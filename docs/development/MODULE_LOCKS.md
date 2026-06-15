@@ -15,6 +15,9 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-m12p1 locks RELEASED 2026-06-15 at Step 10a Phase 2 (user-approved, merged). Held: tools/supervisor/** (entire NEW
+     TS/Node subtree, greenfield — no conflict possible). M12 Phase 1 committed feature/m12-supervisor-phase1 7db3dec, MERGED
+     to master 93ffa66 (--no-ff). NOT pushed. -->
 <!-- dev-dynwb refinement locks RELEASED 2026-06-14 at Step 10a Phase 1 (refinement commit). Held:
      PianoidTunner/src/components/DrawableChart/DrawableChart.jsx, BarChart.jsx, PianoidTuner.js (+
      NEW DrawableChart/__tests__/DrawableChart.dynamicColor.test.jsx). RowEditor.js + SoundChannelsAggregateChart.jsx

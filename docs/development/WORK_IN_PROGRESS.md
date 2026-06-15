@@ -22,6 +22,16 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+<!-- dev-m12p1 COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "proceed with implementation" + live connectivity verified).
+     M12 Phase 1 — Host/Supervisor app, NEW isolated TS/Node subtree tools/supervisor/ (additive, zero-disruption; does NOT
+     yet own the Claude subprocess = Phase 2). Built: supervisor skeleton + I/O bus + M10 ChannelAdapter contract + Telegram
+     reference adapter (folds in inbox-queue=DeliveryQueue + voice STT/TTS → obsoletes BOTH apply_telegram_*.py monkey-patches
+     with NO plugin patch) + durable replayable CaptureStore + read-only web panel + transport-policy (loopback-safe) +
+     dev/test echo mode. 68/68 node:test green; review-hardened (H1 sync-capture, M1 no prod-token accessor, M2 voice-in-durable-
+     boundary, M3 collision-proof queue ids, M4 safe chunking + TG1-4 safety coverage); LIVE connectivity VERIFIED end-to-end
+     against a dedicated test bot (echo text round-trip captured seq0-2; user confirmed). Committed feature/m12-supervisor-phase1
+     7db3dec, MERGED to master 93ffa66 (--no-ff). NOT pushed (origin push = separate user call). Review doc:
+     docs/development/reviews/m12-supervisor-phase1-review-2026-06-15.md. Log archived. NEXT: M12 Phase 2 (subprocess ownership). -->
 <!-- dev-tbmirror COMPLETED 2026-06-14 (Step 10a Phase 2, user-approved msg 3506 "toolbar is ok"). Toolbar BATCH on
      PianoidTunner: (1) remove redundant mirroring selected-parameter NumInput (blur-contamination fix, 25ce0de);
      (2) MIDI icon → button+3-state-indicator next to Fix-MIDI opening a popup Dialog + remove MIDI from the mosaic
