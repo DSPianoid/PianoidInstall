@@ -15,6 +15,10 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-uiqueue T2 FOLLOW-UP 2 lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
+     Held: PianoidTunner/src/components/BottomBar.jsx. Reset → wide RED contained Button labelled "RESET"
+     (theme error palette, 200x56) per user feedback. eslint 0, BottomBar Jest 6/6, live-verified
+     (text=RESET, 200x56, error.main red). NOT merged — held with the dev-uiqueue batch. -->
 <!-- dev-uiqueue T2 FOLLOW-UP lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
      Held: PianoidTunner/src/components/BottomBar.jsx. Made the Reset button LARGE (64x64 square, 40px icon,
      rounded border) to match the big Volume/Feedback sliders per user feedback. eslint 0, BottomBar Jest 6/6,
