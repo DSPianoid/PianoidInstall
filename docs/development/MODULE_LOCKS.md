@@ -15,6 +15,10 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-uiqueue T2 FOLLOW-UP lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
+     Held: PianoidTunner/src/components/BottomBar.jsx. Made the Reset button LARGE (64x64 square, 40px icon,
+     rounded border) to match the big Volume/Feedback sliders per user feedback. eslint 0, BottomBar Jest 6/6,
+     live-verified (screenshot). NOT merged — held with the rest of the dev-uiqueue batch for user test. -->
 <!-- dev-uiqueue T1 locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit e78bc3e on
      feature/dev-uiqueue-mosaic-bottombar off dev 0f3cfe0). Held: PianoidTunner/src/PianoidTuner.js,
      src/components/ToolBar.jsx, + NEW src/hooks/mosaicConfigStore.js, src/components/MosaicConfigManager.jsx,
