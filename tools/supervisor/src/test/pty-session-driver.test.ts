@@ -350,6 +350,40 @@ test('driver: turn-complete is STRICT + de-duped — real answer + stable idle �
   assert.ok((results[0] as { result?: string }).result?.includes('Done. Here is the answer'), 'result carries the real answer');
 });
 
+test('driver: ★ FAST reply that goes SILENT still fires ONE result (self-reschedule; the "reply never reaches the bot" bug)', async () => {
+  // THE LIVE BUG: a quick reply finishes and the TUI STOPS repainting before N settled
+  // reads accumulate. readGrid was only driven by incoming PTY data (ingest), so the
+  // streak stalled < N → no result → nothing forwarded to the channel → user silence.
+  // The driver must POLL the settled grid itself until the streak latches, even with NO
+  // further data. Here: emit the completed reply ONCE, then send NO more data.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 3 });
+  await driver.send({ text: 'Hi' });
+  // a complete fast reply + a lingering "Cooked for Ns" completion marker + idle input —
+  // exactly the live end-state. Emitted ONCE; then the TUI is SILENT.
+  pty.emit(
+    lines(
+      '● Hi! Orchestrator is up. Standing by.',
+      '· Cascading… (6s · ↓ 150 tokens)',
+      '────────────',
+      '❯ ',
+      '────────────',
+      '  gh auth login · esc to interrupt',
+      '✻ Cooked for 7s',
+      '────────────',
+      '❯ ',
+      '  gh auth login · ← for agents',
+    ),
+  );
+  // wait LONG ENOUGH for several SELF-rescheduled reads (3 × settleMs) WITHOUT any new data.
+  await sleep(SETTLE * 6 + 80);
+  await driver.stop();
+  await pump;
+  const results = events.filter((e) => e.kind === 'result');
+  assert.equal(results.length, 1, `the fast reply fired exactly ONE result despite the TUI going silent (got ${results.length})`);
+  assert.ok((results[0] as { result?: string }).result?.includes('Orchestrator is up'), 'result carries the fast reply text');
+});
+
 test('driver: NO premature result on a transient input-box flash with a spinner active', async () => {
   const pty = new FakePty();
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });

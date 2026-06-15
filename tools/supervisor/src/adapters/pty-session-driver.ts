@@ -490,6 +490,19 @@ export class PtySessionDriver implements SessionDriver {
         this.turnCompleteStreak = 0;
         const finalText = this.grid.currentAnswerText() ?? this.lastAssistantText;
         this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
+      } else {
+        // ★SELF-RESCHEDULE: the streak needs N CONSECUTIVE settled reads, but readGrid is
+        // otherwise only driven by incoming PTY data (ingest). A FAST reply finishes and
+        // the TUI goes SILENT before N reads accumulate → the streak stalls < N → the
+        // result never fires → nothing forwards to the channel (the live "fast reply never
+        // reaches the test bot" bug). So while a turn is in flight and not yet confirmed
+        // complete, poll the settled grid ourselves until it latches — independent of
+        // whether the TUI keeps repainting. (A new turn / stop / result clears this.)
+        if (this.settleTimer) clearTimeout(this.settleTimer);
+        this.settleTimer = setTimeout(() => this.readGrid(), this.opts.settleMs ?? 250);
+        if (this.settleTimer && typeof this.settleTimer === 'object' && 'unref' in this.settleTimer) {
+          (this.settleTimer as { unref: () => void }).unref();
+        }
       }
     }
   }
