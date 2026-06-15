@@ -296,7 +296,34 @@ export class GridScreen {
         break;
       }
     }
-    if (qIdx < 0) return null;
+    // ROBUSTNESS — the UNIVERSAL signature: even if the QUESTION wording is unrecognized
+    // (a prompt variant we didn't anticipate), a numbered "❯ 1. Yes" list + a "3. No"/
+    // "Esc to cancel" footer is UNMISTAKABLY a permission prompt. If we see that structure
+    // but no matched question, STILL return a generic request — so an unanticipated prompt
+    // is ROUTED (the router + safety floor decide), NEVER ignored → the child never HANGS
+    // silently on an unparsed prompt. This is the structural guard for the $()-gate class.
+    if (qIdx < 0) {
+      // NOT the first-run trust gate (it ALSO has a "❯ 1. Yes …" list + Esc — but it's
+      // handled by detectTrustGate → Enter, not the permission router).
+      if (rows.some((r) => TRUST_GATE.test(r))) return null;
+      const hasList = rows.some((r) => PERM_LIST.test(r));
+      const hasCancel = rows.some((r) => PERM_NO_OPTION.test(r));
+      if (hasList && hasCancel) {
+        // pull a context line for the request (a "● Tool(arg)" indicator, else generic).
+        let toolName = 'Bash';
+        let command = 'unrecognized permission prompt';
+        for (let i = rows.length - 1; i >= 0 && i > rows.length - 14; i--) {
+          const m = rows[i]!.trim().match(TOOL_INDICATOR);
+          if (m) {
+            toolName = m[1]!;
+            command = m[2]!;
+            break;
+          }
+        }
+        return { toolName, input: toolName === 'Bash' ? { command } : { arg: command } };
+      }
+      return null;
+    }
     // CONFIRM it's a real permission block: a "1. Yes" list AND a "3. No"/"Esc to cancel"
     // within a few rows below the question (guards against a stray "do you want…" in prose).
     const below = rows.slice(qIdx, qIdx + 8);

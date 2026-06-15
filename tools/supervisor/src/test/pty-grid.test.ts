@@ -178,6 +178,28 @@ test('grid: isTurnComplete is FALSE on a transient input-box flash with a spinne
   g2.dispose();
 });
 
+test('grid: ★ detectPermission catches an UNRECOGNIZED-question prompt by its STRUCTURE (universal guard vs a silent hang)', async () => {
+  const g = new GridScreen({ cols: 100, rows: 24 });
+  await g.init();
+  // a permission prompt whose QUESTION wording we did NOT anticipate, but the numbered
+  // "❯ 1. Yes" list + "Esc to cancel" footer is unmistakable → must STILL be detected
+  // (routed), never ignored (which would HANG the child silently).
+  g.write(
+    lines(
+      '● Bash(some-novel-tool --weird-flag)',
+      ' This operation requires your confirmation for an unusual reason.',
+      ' ❯ 1. Yes',
+      '   2. Yes, and remember',
+      '   3. No',
+      ' Esc to cancel',
+    ),
+  );
+  await settle();
+  const perm = g.detectPermission();
+  assert.ok(perm, 'unrecognized-question prompt detected by its numbered-list+cancel STRUCTURE');
+  g.dispose();
+});
+
 test('grid: isTurnComplete is FALSE while a permission prompt is pending (would hang, not complete)', async () => {
   const g = new GridScreen({ cols: 100, rows: 24 });
   await g.init();
