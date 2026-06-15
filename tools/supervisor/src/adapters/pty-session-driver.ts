@@ -336,14 +336,25 @@ export class PtySessionDriver implements SessionDriver {
     const args: string[] = [];
     if (opts.model) args.push('--model', opts.model);
     if (opts.resume) args.push('--resume', opts.resume);
-    // systemPrompt: only the preset+append form maps to interactive (--append-…);
-    // a bare string (demo persona) has no interactive flag → carried via the role
-    // turn prefix instead, so we ignore it here.
-    if (opts.systemPrompt && typeof opts.systemPrompt === 'object' && opts.systemPrompt.append) {
-      args.push('--append-system-prompt', opts.systemPrompt.append);
-    }
+    // SECURITY-CRITICAL FIRST: the containment seal flags must come BEFORE
+    // --append-system-prompt. The preamble value is MULTI-LINE (embedded newlines);
+    // on Windows the `claude.cmd` shim truncates the spawned command line at the first
+    // newline in an argument, dropping everything after it. With --append-system-prompt
+    // LAST, a truncation only loses preamble prose — never the seal (which would
+    // re-open the production-telegram breach). Verified live: with the seal AFTER the
+    // multiline preamble, --strict-mcp-config/--mcp-config never reached claude.exe.
     if (this.opts.sealContainment) {
       args.push(...this.buildSealArgs(opts));
+    }
+    // systemPrompt LAST: only the preset+append form maps to interactive (--append-…);
+    // a bare string (demo persona) has no interactive flag → carried via the role turn
+    // prefix instead, so we ignore it here. SANITIZE newlines → spaces: a raw newline in
+    // a spawned-process argument truncates the `claude.cmd` command line on Windows (the
+    // bug that dropped the seal). Collapsing to single-line preserves the full prompt
+    // text without the truncation; paragraph structure isn't load-bearing for guidance.
+    if (opts.systemPrompt && typeof opts.systemPrompt === 'object' && opts.systemPrompt.append) {
+      const oneLine = opts.systemPrompt.append.replace(/\s*\r?\n\s*/g, ' ').trim();
+      args.push('--append-system-prompt', oneLine);
     }
     return args;
   }
