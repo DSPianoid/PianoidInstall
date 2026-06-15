@@ -15,6 +15,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-gausscp locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit e66435d on
+     feature/dev-gausscp-hammer-chart off dev 99b6f25). Held: PianoidTunner/src/components/ExcitationProperties.jsx
+     + NEW HammerStringChart.jsx (also edited Excitation.jsx + PianoidTuner.js + 2 tests, all this agent's). Interactive
+     ECharts hammer-on-string chart replacing position/width/sharpness sliders; 3 draggable handles (center=position
+     ratio 0–0.5, right-edge=width meters, peak=sharpness 0–1) + NumInputs; folded in width/sharpness units audit
+     (old Width-mm 0.1–13 over meters + Sharpness-% 1–100 over [0,1] both fixed). Jest 115/1184 green, eslint 0,
+     live-verified (screenshot). NOT merged/pushed — HOLD for user live test. Docs (OVERVIEW) + screenshot + log on
+     PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
 <!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit 966f3d1 on
      feature/dev-gausscp-position-units off dev 8049673). Held: PianoidTunner/src/components/ExcitationProperties.jsx
      (+ NEW __tests__/ExcitationProperties.positionUnits.test.jsx). Position (hammer_position) units fix: % display
