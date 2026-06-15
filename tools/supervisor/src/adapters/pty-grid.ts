@@ -151,51 +151,120 @@ export class GridScreen {
   }
 
   /**
-   * Read the NEW message-region content since the last call → GridEvents. We track
-   * how many message rows were already surfaced so repeated reads (the TUI repaints
-   * constantly) don't re-emit. Returns assistant-text + tool-result events in order.
+   * Read the NEW message-region content since the last call → GridEvents.
+   *
+   * MODEL (from the heavy-turn repro 2026-06-15): an assistant ANSWER is a "● <text>"
+   * head row followed by INDENTED CONTINUATION rows (no glyph) until the next
+   * structural boundary (a "● Tool(…)" indicator, a "⎿" result, a "────" rule, the
+   * input box, or a spinner/status row). A tool USE is "● Tool(arg)"; a tool RESULT
+   * is "⎿ …". Everything else (boot banner, input echo, spinner/status, footer
+   * chrome) is REJECTED — there is NO trust-any-unmatched-row catch-all (that was the
+   * spinner-leak vector). The assistant answer is assembled as the head + its
+   * continuation rows, so a multi-row reply (lists, the final token on its own line)
+   * comes through whole and clean.
+   *
+   * De-dup is content-keyed across reads (the TUI repaints rows in place).
    */
   readNewEvents(): GridEvent[] {
     const rows = this.allRows();
     const { messageRows } = this.regions(rows);
-    // Non-empty message rows (skip the boot banner art, the input echo, and the
-    // transient SPINNER/STATUS frames "✽ Dilly-dallying…" / "✻ Sautéed for 1s" that
-    // claude renders while thinking — never assistant content).
-    const contentRows = messageRows
-      .map((r) => r.replace(/\s+$/, ''))
-      .filter((r) => r.trim() && !this.isBanner(r) && !this.isInputEcho(r) && !this.isStatusRow(r));
-    // De-dup by CONTENT (the TUI repaints rows in place; a row already surfaced is
-    // not new even if it reappears at a different index). Spinner/status rows are
-    // excluded from content so they never poison the set.
-    const newRows = contentRows.filter((r) => !this.surfaced.has(r));
-    for (const r of newRows) this.surfaced.add(r);
-
     const events: GridEvent[] = [];
-    for (const row of newRows) {
+
+    let answer: string[] = []; // accumulating an assistant answer block
+    const flushAnswer = (): void => {
+      if (answer.length === 0) return;
+      const text = answer.join('\n').replace(/\s+$/g, '').trim();
+      answer = [];
+      if (text && !this.surfaced.has(text)) {
+        this.surfaced.add(text);
+        events.push({ kind: 'assistant', text, toolUses: [] });
+      }
+    };
+
+    for (const raw of messageRows) {
+      const row = raw.replace(/\s+$/, '');
       const t = row.trim();
+      if (!t) {
+        // A blank row is a PARAGRAPH BREAK within an answer, NOT a boundary — keep the
+        // block open (the answer often has blank lines between sections + the final
+        // token on its own line). Only a STRUCTURAL element below ends the answer.
+        if (answer.length > 0) answer.push('');
+        continue;
+      }
+      if (this.isBanner(row) || this.isInputEcho(row) || this.isStatusRow(row)) {
+        flushAnswer(); // a boundary
+        continue;
+      }
       const tool = t.match(TOOL_INDICATOR);
       if (tool) {
+        flushAnswer();
         const name = tool[1]!;
         const arg = tool[2]!;
-        events.push({ kind: 'assistant', text: '', toolUses: [{ id: `pty-${name}`, name, input: this.argToInput(name, arg) }] });
+        const sig = `tooluse:${name}(${arg})`;
+        if (!this.surfaced.has(sig)) {
+          this.surfaced.add(sig);
+          events.push({ kind: 'assistant', text: '', toolUses: [{ id: `pty-${name}`, name, input: this.argToInput(name, arg) }] });
+        }
         continue;
       }
       const tr = t.match(TOOLRESULT_GLYPH);
       if (tr) {
-        events.push({ kind: 'tool_result', toolUseId: 'pty-last', content: tr[1]!.trim() });
+        flushAnswer();
+        const content = tr[1]!.trim();
+        const sig = `toolres:${content}`;
+        if (content && !this.surfaced.has(sig)) {
+          this.surfaced.add(sig);
+          events.push({ kind: 'tool_result', toolUseId: 'pty-last', content });
+        }
         continue;
       }
       const a = t.match(ASSISTANT_GLYPH);
       if (a) {
-        // "● <text>" assistant content (not a Tool(...) line — handled above)
-        const text = a[1]!.trim();
-        if (text) events.push({ kind: 'assistant', text, toolUses: [] });
+        // "● <text>" = the HEAD of a new assistant answer block.
+        flushAnswer();
+        answer.push(a[1]!);
         continue;
       }
-      // a plain continuation row of assistant prose (no glyph): treat as assistant text
-      events.push({ kind: 'assistant', text: t, toolUses: [] });
+      // An INDENTED continuation row of the current answer block (no glyph). Accumulate
+      // it IF an answer block is open (a "●" head was seen); a stray no-glyph row with
+      // NO open block is chrome/noise → ignored (no trust-any-row catch-all).
+      if (answer.length > 0) answer.push(row);
     }
+    flushAnswer();
     return events;
+  }
+
+  /**
+   * The current FULL assistant answer text in the grid (the latest "●" answer block +
+   * its continuation rows). Used by the driver as the turn's result text — robust to
+   * the spinner being the last-rendered row (the spinner is not an answer block).
+   */
+  currentAnswerText(): string | undefined {
+    const rows = this.allRows();
+    const { messageRows } = this.regions(rows);
+    // Track the LAST NON-EMPTY answer block. A trailing boundary (e.g. the spinner
+    // "✻ Baked for 6s" that renders AFTER the answer) closes the current block but
+    // must NOT erase the answer we already accumulated — so we save it to `last`
+    // before resetting. The final answer = the last completed (or still-open) block.
+    let block: string[] = [];
+    let last: string[] = [];
+    const close = (): void => {
+      if (block.some((r) => r.trim())) last = block;
+      block = [];
+    };
+    for (const raw of messageRows) {
+      const row = raw.replace(/\s+$/, '');
+      const t = row.trim();
+      if (!t) { if (block.length) block.push(''); continue; } // paragraph break, keep open
+      if (this.isBanner(row) || this.isInputEcho(row) || this.isStatusRow(row)) { close(); continue; }
+      if (TOOL_INDICATOR.test(t) || TOOLRESULT_GLYPH.test(t)) { close(); continue; }
+      const a = t.match(ASSISTANT_GLYPH);
+      if (a) { close(); block = [a[1]!]; continue; } // a NEW "●" head starts a fresh answer
+      if (block.length > 0) block.push(row);
+    }
+    close();
+    const text = last.join('\n').replace(/\s+$/g, '').trim();
+    return text || undefined;
   }
 
   /** Detect a pending PERMISSION prompt on the grid (footer region carries it). */
@@ -275,11 +344,17 @@ export class GridScreen {
   }
   private isStatusRow(row: string): boolean {
     const t = row.trim();
-    // A leading spinner rune (any of claude's animation glyphs) → a transient
-    // "thinking" status row, e.g. "✽ Dilly-dallying…" / "✻ Sautéed for 1s".
-    if (/^[✽✻✶✢✼✺◌✦✧✩∗*]/.test(t)) return true;
-    // a "(Ns · …)" timer or a token counter row.
-    if (/\(\d+s\b/.test(t) || /[↑↓]\s*\d+\s*tokens?/.test(t) || /esc to interrupt/.test(t)) return true;
+    // Claude Code's WORKING SPINNER renders as: a (sometimes-absent after cell-render)
+    // leading animation rune + a random GERUND verb ending in "…" (Orchestrating… /
+    // Pondering… / Noodling… / Dilly-dallying…), OR an elapsed/interrupt/token status
+    // ("Baked for 6s", "(3s · ↑ 231 tokens)", "esc to interrupt"). We match the
+    // PATTERN, NOT a hardcoded word list, and NOT only the rune-anchored form (the
+    // gerund frame can lack a leading rune → that was the live spinner LEAK).
+    if (/^[✽✻✶✢✼✺◌✦✧✩∗*·•◦]/.test(t)) return true; // leading animation rune
+    if (/^\p{Lu}[\p{Ll}-]+…\s*$/u.test(t)) return true; // a bare gerund "Word…" status row
+    if (/^[\p{L}][\p{L} -]*…\s*(\(?\d+s\b|·|esc to interrupt|↑|↓|tokens?)/u.test(t)) return true; // "Gerund… (Ns · …)"
+    if (/\(\s*\d+s\b/.test(t) || /[↑↓]\s*\d+\s*tokens?/.test(t) || /esc to interrupt/i.test(t)) return true; // timer/token/interrupt chrome
+    if (/^[\w-]+…\s+for\s+\d+s/.test(t)) return true; // "Baked for 6s"-style
     return false;
   }
   private argToInput(name: string, arg: string): Record<string, unknown> {

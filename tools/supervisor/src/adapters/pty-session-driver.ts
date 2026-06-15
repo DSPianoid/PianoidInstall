@@ -322,7 +322,6 @@ export class PtySessionDriver implements SessionDriver {
     for (const ev of this.grid.readNewEvents()) {
       if (ev.kind === 'assistant') {
         this.turnHadContent = true;
-        if (ev.text && ev.text.trim()) this.lastAssistantText = ev.text;
         this.enqueue({ kind: 'assistant', text: ev.text, toolUses: ev.toolUses ?? [] });
       } else {
         this.turnHadContent = true;
@@ -330,10 +329,15 @@ export class PtySessionDriver implements SessionDriver {
       }
     }
     // (4) turn-complete: ONE result per turn, when the input box is idle (no prompt).
+    // The result text = the grid's CURRENT full assistant answer block (the "●" head
+    // + its continuation rows), NOT the last-surfaced row — so a spinner being the
+    // last-rendered thing can never become the "reply" (the live bug). This re-reads
+    // the grid at idle, so the answer is whole even under a heavy multi-tool turn.
     if (this.turnInFlight && !this.turnResultEmitted && this.grid.isInputReady()) {
       this.turnResultEmitted = true;
       this.turnInFlight = false;
-      this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: this.lastAssistantText });
+      const finalText = this.grid.currentAnswerText() ?? this.lastAssistantText;
+      this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
     }
   }
 

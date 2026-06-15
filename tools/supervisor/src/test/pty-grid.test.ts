@@ -64,6 +64,56 @@ test('grid: spinner/status frames are NOT surfaced as assistant content', async 
   g.dispose();
 });
 
+test('grid: GERUND spinner WITHOUT a leading rune is rejected (the live "Orchestrating…" leak)', async () => {
+  const g = new GridScreen({ cols: 80, rows: 20 });
+  await g.init();
+  // the live bug: the working-spinner gerund renders with NO leading rune
+  g.write(lines('● the real answer', 'Orchestrating…', 'Orchestrating… (3s · ↑ 12 tokens)', 'esc to interrupt', '❯ '));
+  await settle();
+  const texts = g.readNewEvents().filter((e) => e.kind === 'assistant').map((e) => (e as { text: string }).text);
+  assert.ok(texts.some((t) => t.includes('the real answer')), `real reply surfaced (got ${JSON.stringify(texts)})`);
+  assert.ok(!texts.some((t) => /Orchestrating|esc to interrupt|tokens/.test(t)), `bare gerund spinner rejected (got ${JSON.stringify(texts)})`);
+  g.dispose();
+});
+
+test('grid: ★ HEAVY multi-row answer (● head + continuations + blank paragraphs + trailing spinner) → ONE clean block + currentAnswerText', async () => {
+  const g = new GridScreen({ cols: 120, rows: 40 });
+  await g.init();
+  // the exact structure from the heavy-turn repro: a "●" head, a list, a blank
+  // paragraph break, a sub-section, the final token on its own line, THEN a trailing
+  // spinner + footer (the live failure shape that leaked the spinner + dropped this).
+  g.write(
+    lines(
+      '● Files in tools/supervisor/src:',
+      '  - capture-store.ts',
+      '  - index.ts',
+      '',
+      '  package.json:',
+      '  Version 0.2.0-phase2 — supervisor.',
+      '  Dependencies: @xterm/headless, grammy, node-pty.',
+      '',
+      '  HEAVYDONE-42',
+      '✻ Baked for 6s',
+      '────────────────────────────────────────',
+      '❯ ',
+      '  gh auth login · ← for agents          ⧉ In analyse.md',
+    ),
+  );
+  await settle();
+  const texts = g
+    .readNewEvents()
+    .filter((e) => e.kind === 'assistant' && (e as { text: string }).text)
+    .map((e) => (e as { text: string }).text);
+  assert.equal(texts.length, 1, `one assistant block (got ${texts.length}: ${JSON.stringify(texts)})`);
+  assert.ok(texts[0]!.includes('Files in tools/supervisor/src'), 'block has the head');
+  assert.ok(texts[0]!.includes('HEAVYDONE-42'), 'block has the final token (continuation rows kept across blank lines)');
+  assert.ok(!/Baked for|gh auth|for agents|esc to interrupt/.test(texts[0]!), 'no spinner/chrome in the block');
+  const ans = g.currentAnswerText();
+  assert.ok(ans && ans.includes('HEAVYDONE-42'), `currentAnswerText has the final token (got ${JSON.stringify(ans)})`);
+  assert.ok(ans && !/Baked for|gh auth|for agents/.test(ans), 'currentAnswerText is clean (no spinner/chrome)');
+  g.dispose();
+});
+
 test('grid: detectPermission reads the prompt header from the grid (tool + arg)', async () => {
   const g = new GridScreen({ cols: 80, rows: 24 });
   await g.init();
