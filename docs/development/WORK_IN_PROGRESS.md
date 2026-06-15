@@ -22,7 +22,19 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-gausscp | Excitation gauss-curve COPY/PASTE feature (3 buttons left of 5x4 grid) | [log](logs/dev-gausscp-2026-06-15-175331.md) | 2026-06-15 | |
+<!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "Ok merge and push"). Excitation gauss-curve
+     COPY/PASTE feature: 3 buttons (COPY/PASTE/ALL) left of the 5x4 gauss grid; selection = cell / chart-header(column) /
+     param-row label(row) / none=whole; COPY → in-app clipboard (useGaussClipboard, {cells:{[chart]:{[name]:value}}});
+     PASTE → current pitch+level via existing batch path; ALL → every pitch at level via NEW
+     usePreset.pasteExcitationToAllPitches (one bulk-range "from<lo>to<hi>" emit, reuses dev-excwb shape; backend
+     update_parameter('excitation') loops pitches via parse_range). Pure selection/payload math in utils/gaussClipboard.js.
+     DELETED dead/unwired GaussianParameterGrid.jsx + .css + CopyPastMenu.jsx (only on /gauss-demo) that this replaced.
+     MERGED to PianoidTunner dev 8049673 (--no-ff, off b913ee4) + PUSHED origin/dev (b913ee4..8049673). Feature commit
+     3a99265. Jest 114 suites/1178 tests green (+3/+19), eslint 0, prod build clean, live bundle mounts error-free.
+     ★UNVERIFIED-AUDIBLE/ENGINE: the live button click-through + bulk-range engine emit need the user's box — this 56-SM
+     dev box destabilizes the backend under audio_on/ASIO (same constraint as dev-uiqueue). Frontend-only, NO CUDA.
+     Docs (pianoid-tunner OVERVIEW) + 2 UI screenshots (docs/development/screenshots/dev-gausscp-*.png) + log archived
+     on PianoidInstall master. -->
 <!-- dev-uiqueue COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "commit merge and push on dev"). Two queued
      PianoidTunner UI features + 2 Reset restyles, all on feature/dev-uiqueue-mosaic-bottombar, MERGED to PianoidTunner
      dev b913ee4 (--no-ff, off 0f3cfe0) + PUSHED origin/dev. (T1) SAVE MOSAIC CONFIG: toolbar Widgets → selector of
