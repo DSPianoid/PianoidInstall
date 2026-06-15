@@ -88,11 +88,43 @@ test('panel serves the read-only HTML page at /', async () => {
   }
 });
 
-test('panel is READ-ONLY: a POST is rejected 405', async () => {
+test('panel /api/session reports hosted:false when no session is hosted', async () => {
   const { dir, cleanup } = tmpDir();
   try {
     await withPanel(dir, async (base) => {
-      const res = await fetch(`${base}/api/health`, { method: 'POST' });
+      const res = await fetch(`${base}/api/session`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { hosted: boolean; pendingApprovals: unknown[]; totalCostUsd: number };
+      assert.equal(body.hosted, false);
+      assert.deepEqual(body.pendingApprovals, []);
+      assert.equal(typeof body.totalCostUsd, 'number');
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('panel POST /api/approve without a hosted session → 409', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/approve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ verdict: 'allow' }),
+      });
+      assert.equal(res.status, 409);
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('panel rejects an unknown method (e.g. DELETE) with 405', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/health`, { method: 'DELETE' });
       assert.equal(res.status, 405);
     });
   } finally {

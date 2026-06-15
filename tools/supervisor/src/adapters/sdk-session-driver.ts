@@ -193,12 +193,20 @@ export class SdkSessionDriver implements SessionDriver {
       const queryFn = await self.resolveQueryFn();
       const options: Record<string, unknown> = {
         canUseTool: self.adaptPermission(opts.onPermission),
-        ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
+        ...(opts.systemPrompt ? { systemPrompt: self.mapSystemPrompt(opts.systemPrompt) } : {}),
         ...(opts.resume ? { resume: opts.resume } : {}),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
+        ...(opts.disallowedTools ? { disallowedTools: opts.disallowedTools } : {}),
+        ...(opts.settingSources ? { settingSources: opts.settingSources } : {}),
+        ...(opts.mcpServers ? { mcpServers: opts.mcpServers } : {}),
+        ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.permissionMode ? { permissionMode: opts.permissionMode } : {}),
       };
+      // Inject any bootstrap turns (e.g. '/orchestrator') BEFORE the run starts so
+      // the session adopts its role on the first turn, ahead of real user input.
+      for (const t of opts.bootstrapTurns ?? []) self.queue!.push(t);
       self.activeQuery = queryFn({ prompt: self.queue, options });
       try {
         for await (const raw of self.activeQuery) {
@@ -214,6 +222,16 @@ export class SdkSessionDriver implements SessionDriver {
       }
     }
     return gen();
+  }
+
+  /**
+   * Map our systemPrompt union to the SDK shape. A plain string passes through;
+   * the `{ preset:'claude_code', append }` form becomes the SDK's preset object
+   * (keep Claude Code's own prompt + append the supervisor/orchestrator preamble).
+   */
+  private mapSystemPrompt(sp: string | { preset: 'claude_code'; append?: string }): unknown {
+    if (typeof sp === 'string') return sp;
+    return { type: 'preset', preset: sp.preset, ...(sp.append ? { append: sp.append } : {}) };
   }
 
   /**
@@ -262,11 +280,19 @@ export class SdkSessionDriver implements SessionDriver {
     const m = raw as Record<string, unknown>;
     const type = m['type'];
     if (type === 'system' && m['subtype'] === 'init') {
+      const slashRaw = m['slash_commands'] ?? m['slashCommands'] ?? m['commands'];
+      const mcpRaw = m['mcp_servers'] ?? m['mcpServers'];
       return {
         kind: 'system_init',
         sessionId: String(m['session_id'] ?? ''),
         model: m['model'] != null ? String(m['model']) : undefined,
         tools: Array.isArray(m['tools']) ? (m['tools'] as unknown[]).map(String) : undefined,
+        slashCommands: Array.isArray(slashRaw)
+          ? (slashRaw as unknown[]).map((c) => String((c as { name?: string })?.name ?? c))
+          : undefined,
+        mcpServers: Array.isArray(mcpRaw)
+          ? (mcpRaw as unknown[]).map((s) => String((s as { name?: string })?.name ?? s)).filter(Boolean)
+          : undefined,
       };
     }
     if (type === 'assistant') {

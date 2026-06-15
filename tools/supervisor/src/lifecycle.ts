@@ -38,21 +38,62 @@ export interface LifecycleOptions {
   driver: SessionDriver;
   bus: IoBus;
   logger: Logger;
-  /** The M1 system prompt (orchestrator role). */
-  systemPrompt?: string;
+  /** The system prompt — plain string (demo) or preset+append (orchestrator). */
+  systemPrompt?: string | { preset: 'claude_code'; append?: string };
   /** The permission router's decide fn. */
   onPermission: PermissionHandler;
   cwd?: string;
   model?: string;
   allowedTools?: string[];
+  /** Tools always denied at the SDK level (e.g. the telegram plugin). */
+  disallowedTools?: string[];
+  /** Settings sources (project skills + CLAUDE.md + settings). */
+  settingSources?: ('user' | 'project' | 'local')[];
+  /** MCP servers wired into the session. */
+  mcpServers?: Record<string, unknown>;
+  /** Env for the spawned subprocess. */
+  env?: Record<string, string | undefined>;
+  /** SDK permission mode. */
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  /** Synthetic first turns (e.g. ['/orchestrator']) — injected once on the initial start. */
+  bootstrapTurns?: string[];
   /** Max automatic restart attempts on unexpected stream end. Default 5. */
   maxRestarts?: number;
   /** Base backoff between restarts, ms. Default 1000 (capped at 15s). */
   restartBackoffMs?: number;
-  /** Called after a result event with the final text (supervisor → outbound). */
+  /** Called with the final answer text to auto-send to the channel (supervisor → outbound). */
   onResult?: (text: string, sessionId: string) => void | Promise<void>;
-  /** Called for each assistant turn's text (supervisor → outbound). */
+  /** Called for each assistant turn's text (supervisor → outbound). Used by the DEMO profile. */
   onAssistant?: (text: string) => void | Promise<void>;
+  /**
+   * PER-TURN DE-DUP (orchestrator profile). When set to the channel reply tool
+   * name (e.g. 'mcp__supervisor_channel__reply'), the lifecycle tracks whether
+   * that tool fired during the current turn:
+   *  - reply tool FIRED this turn → its output is the channel-out → SUPPRESS the
+   *    auto-out of the final result text (avoid a double-send).
+   *  - reply tool NOT fired → the session answered in plain text → AUTO-OUT the
+   *    final result text via onResult (so the answer reaches the user).
+   * When unset (demo profile), onAssistant auto-outs each assistant text as before.
+   * (Live fix: a blanket suppress silenced plain-text answers; this gates per-turn.)
+   */
+  replyToolName?: string;
+  /**
+   * H2 HANG WATCHDOG. A per-turn deadline (ms): armed when a user turn is injected,
+   * reset on any session activity (assistant/tool/result), fired if the session
+   * goes silent for this long with a turn outstanding. 0 / omit = disabled.
+   * Closes the Phase-2 H2 ticket (interrupt() now has a caller).
+   */
+  turnTimeoutMs?: number;
+  /**
+   * What to do when the watchdog fires:
+   *  - 'surface' (default): publish a stall event + call onStall; leave the
+   *    session alone (the operator decides). Least disruptive.
+   *  - 'restart': interrupt() the wedged turn and let the run loop restart+resume
+   *    (the FI path) — for an unattended deployment.
+   */
+  onStallAction?: 'surface' | 'restart';
+  /** Called when the watchdog fires (operator surface; never receives secrets). */
+  onStall?: (info: { sessionId?: string; silentMs: number; action: 'surface' | 'restart' }) => void | Promise<void>;
 }
 
 export class LifecycleManager {
@@ -65,6 +106,12 @@ export class LifecycleManager {
   private restarts = 0;
   /** Resolves when the current run() loop has fully exited. */
   private runLoop: Promise<void> | null = null;
+  /** H2 watchdog: the active per-turn deadline timer (null = disarmed). */
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+  /** True while a user turn is outstanding (awaiting a result) — gates re-arming. */
+  private turnInFlight = false;
+  /** Per-turn de-dup: set when the channel reply tool fires this turn (→ suppress auto-out). */
+  private replyToolFiredThisTurn = false;
 
   constructor(opts: LifecycleOptions) {
     this.opts = opts;
@@ -120,13 +167,21 @@ export class LifecycleManager {
    * without a result (treated as a crash → caller restarts).
    */
   private async consumeOnce(): Promise<boolean> {
+    const resuming = !!this.sessionId;
     const startOpts: SessionStartOptions = {
       systemPrompt: this.opts.systemPrompt,
       onPermission: this.opts.onPermission,
       cwd: this.opts.cwd,
       model: this.opts.model,
       allowedTools: this.opts.allowedTools,
-      ...(this.sessionId ? { resume: this.sessionId } : {}),
+      disallowedTools: this.opts.disallowedTools,
+      settingSources: this.opts.settingSources,
+      mcpServers: this.opts.mcpServers,
+      env: this.opts.env,
+      permissionMode: this.opts.permissionMode,
+      // Inject role-bootstrap turns ONLY on the initial start — a resumed session
+      // already adopted its role (re-injecting /orchestrator would double-run it).
+      ...(resuming ? { resume: this.sessionId } : { bootstrapTurns: this.opts.bootstrapTurns }),
     };
     let sawResult = false;
     for await (const ev of this.opts.driver.start(startOpts)) {
@@ -138,15 +193,36 @@ export class LifecycleManager {
 
   /** Map a normalized session event to a bus event (+ supervisor callbacks). */
   private async handleEvent(ev: SessionEvent): Promise<void> {
+    // H2 watchdog: ANY event proves the session is alive → reset the deadline.
+    // 'result' ends the turn (disarm); other events re-arm while in flight.
+    if (ev.kind === 'result') this.watchdogDisarm();
+    else this.watchdogReset();
     switch (ev.kind) {
       case 'system_init':
         this.sessionId = ev.sessionId;
-        this.publish('stream.system_init', { sessionId: ev.sessionId, model: ev.model, tools: ev.tools });
-        this.logger.info('session init', { sessionId: ev.sessionId, model: ev.model });
+        this.publish('stream.system_init', {
+          sessionId: ev.sessionId,
+          model: ev.model,
+          tools: ev.tools,
+          slashCommands: ev.slashCommands,
+          mcpServers: ev.mcpServers,
+        });
+        this.logger.info('session init', {
+          sessionId: ev.sessionId,
+          model: ev.model,
+          toolCount: ev.tools?.length,
+          mcpServers: ev.mcpServers,
+          hasOrchestrator: ev.slashCommands?.some((c) => c.toLowerCase().includes('orchestrator')),
+        });
         break;
       case 'assistant':
         this.publish('stream.assistant', { text: ev.text, toolUses: ev.toolUses });
-        if (ev.text && this.opts.onAssistant) await this.opts.onAssistant(ev.text);
+        // Per-turn de-dup: note if the channel reply tool fired this turn.
+        if (this.opts.replyToolName && ev.toolUses?.some((t) => t.name === this.opts.replyToolName)) {
+          this.replyToolFiredThisTurn = true;
+        }
+        // DEMO profile (no replyToolName): auto-out each assistant text as before.
+        if (!this.opts.replyToolName && ev.text && this.opts.onAssistant) await this.opts.onAssistant(ev.text);
         break;
       case 'tool_result':
         this.publish('stream.tool_result', { toolUseId: ev.toolUseId, isError: ev.isError });
@@ -154,8 +230,71 @@ export class LifecycleManager {
       case 'result':
         this.publish('stream.result', { sessionId: ev.sessionId, subtype: ev.subtype, costUsd: ev.costUsd });
         this.logger.info('session result', { subtype: ev.subtype, costUsd: ev.costUsd });
-        if (this.opts.onResult) await this.opts.onResult(ev.result ?? '', ev.sessionId);
+        // ORCHESTRATOR profile (replyToolName set): auto-out the final answer text
+        // UNLESS the reply tool already sent it this turn (per-turn de-dup — the
+        // live fix for plain-text answers being silenced by a blanket suppress).
+        // DEMO profile (no replyToolName): onResult auto-outs the final text too.
+        if (this.opts.onResult) {
+          const suppress = !!this.opts.replyToolName && this.replyToolFiredThisTurn;
+          if (!suppress) await this.opts.onResult(ev.result ?? '', ev.sessionId);
+        }
         break;
+    }
+  }
+
+  // ── H2 hang watchdog ──────────────────────────────────────────────────────
+  /** Arm the per-turn deadline (called when a user turn is injected). */
+  private watchdogArm(): void {
+    const ms = this.opts.turnTimeoutMs ?? 0;
+    if (ms <= 0) return; // disabled
+    this.turnInFlight = true;
+    this.watchdogClear();
+    this.watchdog = setTimeout(() => void this.watchdogFire(ms), ms);
+    if (typeof this.watchdog === 'object' && 'unref' in this.watchdog) {
+      (this.watchdog as { unref: () => void }).unref(); // never keep the process alive on its own
+    }
+  }
+
+  /** Reset the deadline on session activity (re-arm only while a turn is in flight). */
+  private watchdogReset(): void {
+    if (!this.turnInFlight) return;
+    this.watchdogArm();
+  }
+
+  /** Disarm at end of turn (a `result` arrived) or on stop. */
+  private watchdogDisarm(): void {
+    this.turnInFlight = false;
+    this.watchdogClear();
+  }
+
+  private watchdogClear(): void {
+    if (this.watchdog) {
+      clearTimeout(this.watchdog);
+      this.watchdog = null;
+    }
+  }
+
+  /** The deadline elapsed with a turn outstanding → the session is wedged. */
+  private async watchdogFire(silentMs: number): Promise<void> {
+    if (!this.turnInFlight || this.stopping) return;
+    const action = this.opts.onStallAction ?? 'surface';
+    this.turnInFlight = false; // one-shot; don't loop on the same wedge
+    this.publish('lifecycle', { event: 'stall', silentMs, action, sessionId: this.sessionId });
+    this.logger.warn('hang watchdog fired — session silent with a turn outstanding', { silentMs, action, sessionId: this.sessionId });
+    try {
+      if (this.opts.onStall) await this.opts.onStall({ sessionId: this.sessionId, silentMs, action });
+    } catch (err) {
+      this.logger.warn('onStall callback threw', { err: String(err) });
+    }
+    if (action === 'restart') {
+      // Interrupt the wedged turn; the stream then ends without a clean result →
+      // runWithRestarts() restarts + resumes (the FI path). This is the first
+      // caller of interrupt() (closes the H2 ticket).
+      try {
+        await this.opts.driver.interrupt();
+      } catch (err) {
+        this.logger.warn('interrupt() during stall failed', { err: String(err) });
+      }
     }
   }
 
@@ -192,7 +331,41 @@ export class LifecycleManager {
   /** Inject a user turn into the running session (inbound → session). */
   async sendUserTurn(turn: UserTurn): Promise<void> {
     if (!this.running) throw new Error('lifecycle: no running session to send to');
+    this.replyToolFiredThisTurn = false; // per-turn de-dup: reset for the new turn
     await this.opts.driver.send(turn);
+    this.watchdogArm(); // H2: start the per-turn deadline (no-op if disabled)
+  }
+
+  /**
+   * SELF-CONTEXT-CLEAN (the supervisor's `/clear` equivalent). The SDK has no
+   * in-session compact API, so the documented pattern is END the current session
+   * and START A FRESH one. We tear down the current run (no resume → a brand-new
+   * context), DROP the captured session id, then re-start: the new run goes
+   * through `consumeOnce()` with NO resume, so it re-injects the role bootstrap
+   * (e.g. /orchestrator). Returns once the fresh run loop is kicked off.
+   *
+   * No keystroke synthesis (the Phase-3 mandate) — a programmatic stop+restart.
+   */
+  async clearContext(): Promise<void> {
+    if (!this.running && !this.runLoop) return;
+    this.publish('lifecycle', { event: 'context_clean', priorSessionId: this.sessionId });
+    this.logger.info('self-context-clean: ending session + starting fresh', { priorSessionId: this.sessionId });
+    // Tear down the current run loop (intentional stop — no restart).
+    this.stopping = true;
+    this.running = false;
+    this.watchdogDisarm();
+    await this.opts.driver.stop();
+    if (this.runLoop) {
+      await this.runLoop.catch(() => {});
+      this.runLoop = null;
+    }
+    // Forget the session id so the next run starts FRESH (no resume → clean context).
+    this.sessionId = undefined;
+    this.restarts = 0;
+    // Re-start: running set synchronously; the fresh run re-bootstraps the role.
+    this.running = true;
+    this.stopping = false;
+    this.runLoop = this.runWithRestarts();
   }
 
   /** Health snapshot (merges manager + driver state). */
@@ -210,6 +383,7 @@ export class LifecycleManager {
     if (!this.running && !this.runLoop) return;
     this.stopping = true;
     this.running = false;
+    this.watchdogDisarm(); // H2: cancel any pending deadline
     await this.opts.driver.stop();
     if (this.runLoop) {
       await this.runLoop.catch(() => {});

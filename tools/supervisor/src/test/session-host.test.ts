@@ -264,3 +264,137 @@ test('H1: a reply from a DIFFERENT user is ignored (not consumed, not injected)'
   await host.stop();
   bus.close();
 });
+
+// ── Phase 3a: profile wiring (de-dup + bootstrap turns) ──────────────────────
+
+const REPLY_TOOL = 'mcp__supervisor_channel__reply';
+
+test('per-turn de-dup: a turn that CALLS the reply tool → final text NOT auto-out (one out, no double)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      // The session calls the reply tool (its deliberate channel-out)…
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: REPLY_TOOL, input: {} }] } },
+      // …then a final result with text. With the reply tool fired this turn, the
+      // result text must be SUPPRESSED (the reply tool already sent the message).
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'duplicate of the reply' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    replyToolName: REPLY_TOOL, // orchestrator profile
+  });
+  await host.start();
+  await host.handleInbound(inbound('go'));
+  await new Promise((r) => setTimeout(r, 30));
+  // The reply tool's own send happens via the tool handler (not captured here);
+  // the key assertion is the supervisor did NOT auto-out the result text (no double).
+  assert.ok(!cap.sent.some((s) => s.text === 'duplicate of the reply'), 'result text NOT auto-sent when reply tool fired');
+  await host.stop();
+  bus.close();
+});
+
+test('per-turn de-dup: a turn that only PRODUCES TEXT (no reply tool) → that text auto-outs', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      // The session answers in PLAIN text — no reply-tool call this turn.
+      { do: 'emit', event: { kind: 'assistant', text: 'here is my direct answer', toolUses: [] } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'here is my direct answer' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    replyToolName: REPLY_TOOL, // orchestrator profile — but the tool wasn't used this turn
+  });
+  await host.start();
+  await host.handleInbound(inbound('describe your environment'));
+  await new Promise((r) => setTimeout(r, 30));
+  // The answer reached the user via auto-out (the live bug: this was silenced).
+  assert.ok(cap.sent.some((s) => s.text === 'here is my direct answer'), 'plain-text answer auto-out when no reply tool');
+  await host.stop();
+  bus.close();
+});
+
+test('demo (no replyToolName): assistant text IS auto-sent each turn', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'assistant', text: 'hi there', toolUses: [] } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: '' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    // replyToolName omitted → demo behavior: assistant text auto-sent.
+  });
+  await host.start();
+  await host.handleInbound(inbound('go'));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(cap.sent.some((s) => s.text === 'hi there'), 'assistant text auto-sent in demo mode');
+  await host.stop();
+  bus.close();
+});
+
+test('roleTurnPrefix is applied to the FIRST user turn, not a pre-user bootstrap (live fix)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'awaitTurn' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    roleTurnPrefix: '/orchestrator',
+  });
+  await host.start();
+  await new Promise((r) => setTimeout(r, 20));
+  // CRITICAL: no pre-user bootstrap turn was injected (the bug we fixed). The
+  // driver has NOT been sent anything until the user messages.
+  assert.equal(driver.sentTurns.length, 0, 'no pre-user role turn');
+  assert.equal(driver.startOpts[0]?.bootstrapTurns, undefined, 'no lifecycle bootstrap turns');
+
+  // The FIRST real user turn carries the role prefix prepended.
+  await host.handleInbound(inbound('please do task X'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(driver.sentTurns.length, 1);
+  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X$/);
+
+  // A SECOND user turn does NOT get the prefix again (one-shot).
+  await host.handleInbound(inbound('and task Y'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(driver.sentTurns[1]!.text, 'and task Y', 'prefix applied only once');
+  await host.stop();
+  bus.close();
+});

@@ -41,6 +41,10 @@ import { resolveTransportDecision } from './transport-policy.js';
 import { makeEchoHook } from './echo.js';
 import { SessionHost } from './session-host.js';
 import { SdkSessionDriver } from './adapters/sdk-session-driver.js';
+import { resolveProfile } from './profiles.js';
+import { loadMcpServers } from './mcp-config.js';
+import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
+import { ControllerBridge } from './controller-bridge.js';
 import type { TelegramTransport } from './adapters/telegram-transport.js';
 
 interface CliArgs {
@@ -50,6 +54,13 @@ interface CliArgs {
   echo: boolean;
   /** Phase 2: host a real Claude Code session as the inbound handler. --session or SUPERVISOR_SESSION=1. */
   session: boolean;
+  /**
+   * Phase 3a: which session profile to host — 'demo' (safe persona, route-most,
+   * Phase-2 behavior) or 'orchestrator' (the REAL orchestrator: project context,
+   * broad allow-list + safety floor, agent-teams, MCP wired, channel reply tool).
+   * --profile <name> or SUPERVISOR_PROFILE. Default 'demo'.
+   */
+  profile: 'demo' | 'orchestrator';
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -57,13 +68,15 @@ function parseArgs(argv: string[]): CliArgs {
   let panelPort = 0;
   let echo = process.env.SUPERVISOR_ECHO === '1';
   let session = process.env.SUPERVISOR_SESSION === '1';
+  let profile: 'demo' | 'orchestrator' = process.env.SUPERVISOR_PROFILE === 'orchestrator' ? 'orchestrator' : 'demo';
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--live') live = true;
     else if (argv[i] === '--echo') echo = true;
     else if (argv[i] === '--session') session = true;
     else if (argv[i] === '--panel') panelPort = Number(argv[++i] ?? '0') || 0;
+    else if (argv[i] === '--profile') profile = (argv[++i] === 'orchestrator' ? 'orchestrator' : 'demo');
   }
-  return { live, panelPort, echo, session };
+  return { live, panelPort, echo, session, profile };
 }
 
 async function main(): Promise<void> {
@@ -112,19 +125,56 @@ async function main(): Promise<void> {
   //   - DEFAULT: log inbound so the operator can see the shell working.
   let sessionHost: SessionHost | undefined;
   if (args.session) {
-    logger.info('SESSION MODE (Phase 2) — hosting a Claude Code subprocess as the inbound handler');
+    const profile = resolveProfile(args.profile);
+    logger.info(`SESSION MODE — hosting a Claude Code session (profile: ${profile.name})`, {
+      teams: profile.agentTeams,
+      settingSources: profile.settingSources,
+      roleBootstrap: profile.roleBootstrap,
+    });
+
+    // Build the MCP server map for the orchestrator profile: the in-process channel
+    // reply tool + the project's servers (from ~/.claude.json, minus telegram).
+    let mcpServers: Record<string, unknown> | undefined;
+    if (profile.wireProjectMcp) {
+      mcpServers = { ...loadMcpServers() };
+      const channelServer = await buildSupervisorChannelServer(async (text) => {
+        const operator = sessionHost?.currentOperator();
+        if (!operator) return { ok: false };
+        const r = await supervisor.sendOutbound('telegram', operator, { text });
+        return { ok: r.ok };
+      });
+      if (channelServer) mcpServers[SUPERVISOR_CHANNEL_SERVER_NAME] = channelServer;
+    }
+
+    // System prompt: orchestrator → preset 'claude_code' + the supervisor preamble;
+    // demo → the SUPERVISOR_SYSTEM_PROMPT persona string (Phase-2 behavior).
+    const systemPrompt =
+      profile.name === 'orchestrator'
+        ? { preset: 'claude_code' as const, append: profile.systemPromptAppend }
+        : process.env.SUPERVISOR_SYSTEM_PROMPT;
+
     sessionHost = new SessionHost({
       driver: new SdkSessionDriver(),
       bus: supervisor.bus,
       logger,
       send: (handle, msg) => supervisor.sendOutbound('telegram', handle, msg),
-      // Permission policy is resolved in config (review M2: not a literal here).
-      // Conservative default: read-only + channel tools auto-allow; everything
-      // else routes to the user (FC-1). Extend the allow-list via
-      // SUPERVISOR_PERMISSION_ALLOW; see DEFAULT_PERMISSION_POLICY.
-      policy: config.permissionPolicy,
-      systemPrompt: process.env.SUPERVISOR_SYSTEM_PROMPT,
+      // Profile-driven policy (demo = config default / route-most; orchestrator =
+      // broad allow-list + the safety-floor route predicate).
+      policy: profile.name === 'orchestrator' ? profile.policy : config.permissionPolicy,
+      systemPrompt,
       cwd: process.cwd(),
+      settingSources: profile.settingSources,
+      mcpServers,
+      disallowedTools: profile.policy.deny,
+      allowedTools: profile.policy.allow,
+      permissionMode: 'default',
+      env: profile.agentTeams ? { ...process.env, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' } : undefined,
+      // Role-adoption prefix applied to the FIRST user turn (NOT a pre-user
+      // bootstrap turn — see SessionHostOptions.roleTurnPrefix; live-surfaced fix).
+      roleTurnPrefix: profile.roleBootstrap === 'orchestrator-skill' ? '/orchestrator' : undefined,
+      // Per-turn de-dup: orchestrator profile (has the reply tool) → auto-out the
+      // final answer UNLESS the reply tool fired this turn. Demo → no reply tool.
+      replyToolName: profile.suppressAutoOutbound ? SUPERVISOR_CHANNEL_REPLY_TOOL : undefined,
     });
     supervisor.onInbound(sessionHost.handleInbound);
   } else if (args.echo) {
@@ -148,9 +198,19 @@ async function main(): Promise<void> {
   await supervisor.start();
   if (sessionHost) await sessionHost.start();
 
+  // CONTROLLER BRIDGE (Phase 3a, additive): route M6 signals through the captured
+  // bus. Observes stall/restart/lifecycle events from the bus and surfaces them as
+  // structured controller signals — additive to (not a replacement for) the
+  // log-scraping controller.
+  const controllerBridge = new ControllerBridge({
+    bus: supervisor.bus,
+    onSignal: (sig) => logger.info('controller signal', { kind: sig.kind, seq: sig.seq }),
+  });
+  controllerBridge.start();
+
   let panel: Panel | undefined;
   if (config.panelPort > 0) {
-    panel = new Panel({ port: config.panelPort, supervisor, logger });
+    panel = new Panel({ port: config.panelPort, supervisor, logger, sessionHost, controllerBridge });
     await panel.start();
   }
 

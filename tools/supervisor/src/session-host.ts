@@ -37,14 +37,42 @@ export interface SessionHostOptions {
   logger: Logger;
   /** Send an outbound over a channel (bound supervisor.sendOutbound for a channel). */
   send: (handle: ReplyHandle, msg: { text?: string }) => Promise<OutboundResult>;
-  /** Permission policy (allow-list / deny-list / fallback). */
+  /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
-  /** The M1 system prompt (orchestrator role). */
-  systemPrompt?: string;
+  /** The system prompt — plain string (demo persona) or preset+append (orchestrator). */
+  systemPrompt?: string | { preset: 'claude_code'; append?: string };
   cwd?: string;
   model?: string;
   /** Tools to pass to the SDK allow-list (router still gates the rest). */
   allowedTools?: string[];
+  /** Tools always denied at the SDK level (e.g. the telegram plugin). */
+  disallowedTools?: string[];
+  /** Settings sources to load (project skills + CLAUDE.md + settings). */
+  settingSources?: ('user' | 'project' | 'local')[];
+  /** MCP servers (Record<name, config>) wired into the session (telegram excluded). */
+  mcpServers?: Record<string, unknown>;
+  /** Env for the spawned subprocess (e.g. CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1). */
+  env?: Record<string, string | undefined>;
+  /** SDK permission mode (default 'default'). */
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  /**
+   * Role-adoption prefix (e.g. '/orchestrator'). Prepended to the FIRST real user
+   * turn — NOT fired as a standalone bootstrap turn at launch. Rationale (live-
+   * surfaced): a standalone bootstrap turn self-executes the whole orchestrator
+   * startup BEFORE any user is bound — so the channel reply tool fails
+   * (currentOperator() is null) and tokens burn pre-user. Prefixing the first user
+   * turn loads the role exactly when the user engages: operator bound, reply works,
+   * no pre-user execution.
+   */
+  roleTurnPrefix?: string;
+  /**
+   * Per-turn de-dup: the channel reply tool name (e.g.
+   * 'mcp__supervisor_channel__reply'). When set (orchestrator profile), the final
+   * answer auto-outs UNLESS the reply tool fired this turn. When unset (demo),
+   * assistant text auto-outs each turn. (Live fix: a blanket suppress silenced
+   * plain-text answers the orchestrator gives for direct questions.)
+   */
+  replyToolName?: string;
   /** Permission reply window, ms. */
   permissionTimeoutMs?: number;
 }
@@ -59,11 +87,14 @@ export class SessionHost {
   private operator: ReplyHandle | null = null;
   /** Stable id of the bound operator (H1: reject replies/turns from a DIFFERENT user). */
   private operatorId: string | null = null;
+  /** True until the role-adoption prefix has been applied to the first user turn. */
+  private rolePrefixPending: boolean;
   private started = false;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
     this.logger = opts.logger.child('session-host');
+    this.rolePrefixPending = !!opts.roleTurnPrefix;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -91,7 +122,23 @@ export class SessionHost {
       cwd: opts.cwd,
       model: opts.model,
       allowedTools: opts.allowedTools,
-      // Session output → back over the channel to the operator.
+      disallowedTools: opts.disallowedTools,
+      settingSources: opts.settingSources,
+      mcpServers: opts.mcpServers,
+      env: opts.env,
+      permissionMode: opts.permissionMode,
+      // NOTE: no lifecycle bootstrapTurns — the role-adoption prefix is applied to
+      // the FIRST real user turn in handleInbound (so it runs WITH a bound operator,
+      // not pre-user). See SessionHostOptions.roleTurnPrefix.
+      //
+      // PER-TURN DE-DUP (orchestrator profile): pass the reply-tool name so the
+      // lifecycle auto-outs the final answer text UNLESS the reply tool fired this
+      // turn (then the reply-tool output is the channel-out). The DEMO profile (no
+      // replyToolName) keeps the assistant-text auto-out. Both onAssistant/onResult
+      // are wired UNCONDITIONALLY; the lifecycle decides per-turn whether to call
+      // them. (Live fix: a blanket suppress silenced the orchestrator's plain-text
+      // answers — turns where it answered directly instead of via the reply tool.)
+      replyToolName: opts.replyToolName,
       onAssistant: (text) => this.sendToOperator(text),
       onResult: (text) => (text ? this.sendToOperator(text) : Promise.resolve()),
     });
@@ -155,9 +202,43 @@ export class SessionHost {
       return;
     }
 
-    // Otherwise inject as a user turn into the session.
-    await this.lifecycle.sendUserTurn({ text });
+    // Otherwise inject as a user turn into the session. On the FIRST real user
+    // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
+    // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
+    let turnText = text;
+    if (this.rolePrefixPending && this.opts.roleTurnPrefix) {
+      this.rolePrefixPending = false;
+      turnText = `${this.opts.roleTurnPrefix}\n\n${text}`;
+      this.logger.info('applied role-adoption prefix to the first user turn', { prefix: this.opts.roleTurnPrefix });
+    }
+    await this.lifecycle.sendUserTurn({ text: turnText });
   };
+
+  /** The currently-bound operator reply handle (null until the first inbound). */
+  currentOperator(): ReplyHandle | null {
+    return this.operator;
+  }
+
+  /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
+  async clearContext(): Promise<void> {
+    await this.lifecycle.clearContext();
+  }
+
+  /** Pending permission asks awaiting a decision (for the operator panel). */
+  pendingPermissions(): { code: string; toolName: string }[] {
+    return this.channelPermission?.pendingAsks() ?? [];
+  }
+
+  /**
+   * OPERATOR-GRADE PANEL: approve/deny a pending permission by CLICK (in addition
+   * to the Telegram reply). Returns true if it resolved a pending ask. With no
+   * `code` and exactly one pending, the single one is resolved (bare).
+   */
+  operatorDecide(verdict: 'allow' | 'deny', code?: string): boolean {
+    if (!this.channelPermission) return false;
+    if (code) return this.channelPermission.submitReply(code, verdict);
+    return this.channelPermission.submitBareReply(verdict);
+  }
 
   /** Send text back to the current operator over the channel. */
   private async sendToOperator(text: string): Promise<void> {

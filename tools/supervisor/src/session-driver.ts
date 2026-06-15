@@ -46,6 +46,10 @@ export type SessionEvent =
       model?: string;
       /** Tool names available to the session. */
       tools?: string[];
+      /** Slash-commands/skills loaded (e.g. 'orchestrator') — composition proof. */
+      slashCommands?: string[];
+      /** MCP server names wired into the session (telegram should be ABSENT). */
+      mcpServers?: string[];
     }
   | {
       kind: 'assistant';
@@ -106,18 +110,37 @@ export type PermissionHandler = (req: PermissionRequest) => Promise<PermissionDe
 
 /** Options to start a session. */
 export interface SessionStartOptions {
-  /** The system prompt = the M1 orchestrator role (string or undefined for SDK default). */
-  systemPrompt?: string;
+  /**
+   * The system prompt. Either a plain string (the demo persona / SDK default), OR
+   * the preset+append form `{ preset:'claude_code', append }` to keep Claude
+   * Code's own prompt and append a supervisor preamble (the orchestrator profile).
+   */
+  systemPrompt?: string | { preset: 'claude_code'; append?: string };
   /** Resume a prior session by id (FI restart). */
   resume?: string;
   /** The permission handler (the router). */
   onPermission: PermissionHandler;
-  /** Working directory for the session. */
+  /** Working directory for the session (loads that dir's CLAUDE.md/.claude when settingSources includes 'project'). */
   cwd?: string;
   /** Model override. */
   model?: string;
   /** Allow-list fast-path tools passed to the SDK (router still gates the rest). */
   allowedTools?: string[];
+  /** Tools always denied at the SDK level (deny-rules win — e.g. the telegram plugin). */
+  disallowedTools?: string[];
+  /** Which settings sources to load: project skills + CLAUDE.md + settings. [] = none. */
+  settingSources?: ('user' | 'project' | 'local')[];
+  /** MCP servers to wire (Record<name, config>) — the curated map minus telegram + the in-process channel tool. */
+  mcpServers?: Record<string, unknown>;
+  /** Env for the spawned subprocess (REPLACES; the driver spreads process.env + this). */
+  env?: Record<string, string | undefined>;
+  /** SDK permission mode (default 'default' — keeps canUseTool reachable). */
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  /**
+   * Synthetic user turns the supervisor injects BEFORE forwarding real user input
+   * (e.g. ['/orchestrator'] to adopt the orchestrator role on the first turn).
+   */
+  bootstrapTurns?: string[];
 }
 
 /** Liveness of a driven session. */
