@@ -24,6 +24,20 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { LogLevel } from './logger.js';
+import type { PermissionPolicy } from './permission-router.js';
+
+/**
+ * The conservative DEFAULT permission policy for the hosted session (review M2:
+ * lifted out of the entrypoint so policy is config, not a literal buried in
+ * index.ts). Read-only + channel tools auto-allow; everything else ROUTES to the
+ * user (the FC-1 path). The allow-list can be extended via the
+ * `SUPERVISOR_PERMISSION_ALLOW` env var (comma-separated); the fallback stays
+ * 'route' (never auto-allow) unless a future project config overrides it.
+ */
+export const DEFAULT_PERMISSION_POLICY: PermissionPolicy = {
+  allow: ['Read', 'Glob', 'Grep', 'mcp__telegram__*'],
+  fallback: 'route',
+};
 
 export interface SupervisorConfig {
   /** The supervisor's own state dir (queue + capture + logs live under here). */
@@ -40,8 +54,14 @@ export interface SupervisorConfig {
   logLevel: LogLevel;
   /** Read-only path to the live plugin's access.json (for the gate). */
   accessFile: string;
-  /** Whether a Telegram bot token is available (without exposing it). */
-  hasToken: boolean;
+  /**
+   * Whether the PRODUCTION Telegram token FILE is present (env var or the
+   * channel `.env`) — a file-presence boolean ONLY (review M12-P1 cleanup: was
+   * the misleadingly-named `hasToken`). It does NOT mean a production token was
+   * read into a value or reached a transport; the live `--live` path uses the
+   * DEDICATED `SUPERVISOR_TELEGRAM_TOKEN`, never this one.
+   */
+  productionTokenFilePresent: boolean;
   /** Python interpreter for the voice helpers. */
   python: string;
   /** Absolute path to transcribe_voice.py. */
@@ -50,6 +70,12 @@ export interface SupervisorConfig {
   ttsScript: string;
   /** Web panel port (read-only panel; 0 disables). */
   panelPort: number;
+  /**
+   * Permission policy for the hosted session (review M2: policy is config, not a
+   * literal in the entrypoint). Defaults to {@link DEFAULT_PERMISSION_POLICY};
+   * the allow-list extends via `SUPERVISOR_PERMISSION_ALLOW` (comma-separated).
+   */
+  permissionPolicy: PermissionPolicy;
 }
 
 export interface LoadConfigOptions {
@@ -97,12 +123,31 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     logFile: join(stateDir, 'supervisor.log'),
     logLevel: opts.logLevel ?? 'info',
     accessFile: join(channelDir, 'access.json'),
-    hasToken: resolveToken(channelDir) !== undefined,
+    productionTokenFilePresent: resolveToken(channelDir) !== undefined,
     python: opts.python ?? (process.platform === 'win32' ? 'python' : 'python3'),
     sttScript: join(toolsDir, 'transcribe_voice.py'),
     ttsScript: join(toolsDir, 'tts_voice.py'),
     panelPort: opts.panelPort ?? 0,
+    permissionPolicy: resolvePermissionPolicy(),
   };
+}
+
+/**
+ * Resolve the hosted-session permission policy (review M2). Starts from
+ * {@link DEFAULT_PERMISSION_POLICY}; if `SUPERVISOR_PERMISSION_ALLOW` is set
+ * (comma-separated tool names/patterns), those entries are ADDED to the allow-
+ * list. The fallback is NOT env-overridable to 'allow' here (M1: auto-allow is a
+ * footgun) — a locked-down 'deny' or a future project config can change it, but
+ * the env can only widen the explicit allow-list, never disable the safety floor.
+ */
+function resolvePermissionPolicy(): PermissionPolicy {
+  const extra = (process.env.SUPERVISOR_PERMISSION_ALLOW ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const allow = [...DEFAULT_PERMISSION_POLICY.allow];
+  for (const e of extra) if (!allow.includes(e)) allow.push(e);
+  return { ...DEFAULT_PERMISSION_POLICY, allow };
 }
 
 // NOTE (review M1): there is deliberately NO exported accessor for the raw

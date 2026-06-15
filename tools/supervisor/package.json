@@ -1,8 +1,8 @@
 {
   "name": "@pianoid/supervisor",
-  "version": "0.1.0-phase1",
+  "version": "0.2.0-phase2",
   "private": true,
-  "description": "M12 Host/Supervisor app (Phase 1) — supervisor skeleton + I/O bus + M10 channel-adapter contract + Telegram reference adapter + durable replayable capture store. Hosts the methodology's orchestrator as a managed process (subprocess ownership lands in Phase 2).",
+  "description": "M12 Host/Supervisor app — supervisor skeleton + I/O bus + M10 channel-adapter contract + Telegram reference adapter + durable replayable capture store (Phase 1); subprocess ownership via the Agent SDK + canUseTool permission router + stream-json bidi + resume/health (Phase 2). Hosts the methodology's orchestrator as a managed process.",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -21,6 +21,9 @@
   },
   "dependencies": {
     "grammy": "^1.21.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
