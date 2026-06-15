@@ -22,7 +22,15 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-gausscp | Fix Excitation Position (hammer_position) units: %↔ratio conversion + 0–50% range + fix 1/N buttons | [log](logs/dev-gausscp-2026-06-15-203818.md) | 2026-06-15 | |
+<!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "push it to dev"). Excitation Position
+     (hammer_position) units fix: % display (ratio×100) / ratio send (÷100) via handlePositionChange; slider range
+     0–50% (ratio 0–0.5, string symmetric); 1/11,1/9,1/7 chips write ratios (1/N) not (1/N)*100. Single file
+     ExcitationProperties.jsx + NEW positionUnits.test.jsx (5). MERGED to PianoidTunner dev 99b6f25 (--no-ff, off
+     8049673) + PUSHED origin/dev (8049673..99b6f25). Feature commit 966f3d1. Jest 115/1183 green (+1/+5), eslint 0,
+     live-verified (slider max=50, 0.15→"15", 1/9 chip→ratio 0.1111). Frontend-only, NO CUDA. Docs (OVERVIEW
+     Position-units paragraph) + screenshot (dev-gausscp-position-units.png) + log archived on PianoidInstall master.
+     ★Follow-up (NEXT, same agent): interactive hammer chart replacing the sliders — includes the deferred
+     width/sharpness units audit. -->
 <!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "Ok merge and push"). Excitation gauss-curve
      COPY/PASTE feature: 3 buttons (COPY/PASTE/ALL) left of the 5x4 gauss grid; selection = cell / chart-header(column) /
      param-row label(row) / none=whole; COPY → in-app clipboard (useGaussClipboard, {cells:{[chart]:{[name]:value}}});
