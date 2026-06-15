@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit a78d0c4 on
+     feature/dev-gausscp-hammer-chart). Held: HammerStringChart.jsx (ExcitationProperties.jsx re-locked precautionarily,
+     NOT edited this round). 3 hammer-chart enhancements: (1) style matched to Gauss/excitation chart (CHART_COLORS,
+     circle symbols, fill); (2) zoom toggle → discrete string-node view (scatter+stems+value labels; sampled from the
+     analytic curve — exact engine per-node needs backend hammer_shape exposure, flagged); (3) mouse-wheel on the
+     selected handle, emit-on-settle. Jest 115/1189 green (+5), eslint 0, live-verified (2 screenshots). NOT
+     merged/pushed — HOLD for user live test. Docs (OVERVIEW) + screenshots + log on PianoidInstall master. STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
 <!-- dev-gausscp locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit e66435d on
      feature/dev-gausscp-hammer-chart off dev 99b6f25). Held: PianoidTunner/src/components/ExcitationProperties.jsx
      + NEW HammerStringChart.jsx (also edited Excitation.jsx + PianoidTuner.js + 2 tests, all this agent's). Interactive
