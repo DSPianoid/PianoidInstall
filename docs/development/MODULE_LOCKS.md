@@ -15,7 +15,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-gausscp | `PianoidTunner/src/components/GaussEditor.jsx`, `PianoidTunner/src/components/ExcitationProperties.jsx`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/hooks/usePreset.js`, `PianoidTunner/src/hooks/useGaussClipboard.js`, `PianoidTunner/src/utils/gaussClipboard.js`, `PianoidTunner/src/components/GaussCopyPasteButtons.jsx`, `PianoidTunner/src/components/GaussianParameterGrid.jsx`, `PianoidTunner/src/components/GaussianParameterGrid.css`, `PianoidTunner/src/components/CopyPastMenu.jsx` | 2026-06-15T15:08:00Z | Excitation gauss-curve COPY/PASTE feature (3 buttons left of 5x4 grid; copy cell/row/col/whole; paste current pitch; paste all pitches on level; delete dead GaussianParameterGrid/CopyPastMenu) |
+<!-- dev-gausscp locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit 3a99265 on
+     feature/dev-gausscp-gauss-copy-paste off PianoidTunner dev b913ee4). Held: PianoidTunner/src/{PianoidTuner.js,
+     components/GaussEditor.jsx, components/ExcitationProperties.jsx, components/Excitation.jsx, hooks/usePreset.js}
+     + NEW {components/GaussCopyPasteButtons.jsx, hooks/useGaussClipboard.js, utils/gaussClipboard.js} + 3 NEW tests;
+     DELETED dead components/{GaussianParameterGrid.jsx,GaussianParameterGrid.css,CopyPastMenu.jsx}. Excitation gauss
+     copy/paste (COPY/PASTE/ALL buttons left of the 5x4 grid; cell/row/col/whole selection; paste current pitch via
+     existing batch path; paste ALL pitches via new usePreset.pasteExcitationToAllPitches bulk-range emit). Jest
+     114/1178 green (+3/+19), eslint 0, prod build clean, live bundle mounts error-free. NOT merged/pushed — HOLD for
+     user live test (★live click-through + bulk-range engine emit UNVERIFIED here: this 56-SM box destabilizes the
+     backend under audio_on/ASIO, same box constraint as dev-uiqueue). Docs (OVERVIEW) + log on PianoidInstall master
+     d738324. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
 <!-- dev-uiqueue T2 FOLLOW-UP 2 lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
      Held: PianoidTunner/src/components/BottomBar.jsx. Reset → wide RED contained Button labelled "RESET"
      (theme error palette, 200x56) per user feedback. eslint 0, BottomBar Jest 6/6, live-verified
