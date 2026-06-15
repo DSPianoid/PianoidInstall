@@ -96,6 +96,8 @@ export interface PtySessionDriverOptions {
   submitDelayMs?: number;
   /** ms of TUI quiet before reading the settled grid (debounce). Default 250. */
   settleMs?: number;
+  /** Consecutive settled "turn-complete" reads required before emitting the result. Default 3. */
+  turnCompleteStableNeeded?: number;
   /** Inject the @xterm/headless Terminal ctor (tests). Default = dynamic import. */
   gridCtor?: XtermCtor;
   /** Optional sink for the raw render stream (diagnostics; never the secret). */
@@ -183,6 +185,8 @@ export class PtySessionDriver implements SessionDriver {
   private turnHadContent = false;
   /** True between send() and the turn's surfaced result — gates the turn-complete de-dup. */
   private turnInFlight = false;
+  /** Consecutive settled reads where the grid looked turn-complete (debounce vs a flash). */
+  private turnCompleteStreak = 0;
 
   constructor(opts: PtySessionDriverOptions = {}) {
     this.opts = opts;
@@ -328,16 +332,24 @@ export class PtySessionDriver implements SessionDriver {
         this.enqueue({ kind: 'tool_result', toolUseId: ev.toolUseId, content: ev.content });
       }
     }
-    // (4) turn-complete: ONE result per turn, when the input box is idle (no prompt).
-    // The result text = the grid's CURRENT full assistant answer block (the "●" head
-    // + its continuation rows), NOT the last-surfaced row — so a spinner being the
-    // last-rendered thing can never become the "reply" (the live bug). This re-reads
-    // the grid at idle, so the answer is whole even under a heavy multi-tool turn.
-    if (this.turnInFlight && !this.turnResultEmitted && this.grid.isInputReady()) {
-      this.turnResultEmitted = true;
-      this.turnInFlight = false;
-      const finalText = this.grid.currentAnswerText() ?? this.lastAssistantText;
-      this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
+    // (4) turn-complete: ONE result per turn — STRICT + DEBOUNCED. The input box flashes
+    // "❯" transiently at the very START of a turn (before output), so a single idle read
+    // is NOT enough (the live bug fired a result ~3 s into a long startup). We require
+    // grid.isTurnComplete() (input idle + a real answer present + no spinner + no pending
+    // prompt) to hold across `turnCompleteStableNeeded` CONSECUTIVE settled reads.
+    if (this.turnInFlight && !this.turnResultEmitted) {
+      if (this.grid.isTurnComplete()) {
+        this.turnCompleteStreak += 1;
+      } else {
+        this.turnCompleteStreak = 0;
+      }
+      if (this.turnCompleteStreak >= (this.opts.turnCompleteStableNeeded ?? 3)) {
+        this.turnResultEmitted = true;
+        this.turnInFlight = false;
+        this.turnCompleteStreak = 0;
+        const finalText = this.grid.currentAnswerText() ?? this.lastAssistantText;
+        this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
+      }
     }
   }
 
@@ -400,6 +412,7 @@ export class PtySessionDriver implements SessionDriver {
     this.turnResultEmitted = false;
     this.turnHadContent = false;
     this.turnInFlight = true;
+    this.turnCompleteStreak = 0;
     this.lastAssistantText = undefined;
     this.term.write(turn.text);
     const delay = this.opts.submitDelayMs ?? 900;

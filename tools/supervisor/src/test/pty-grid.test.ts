@@ -135,6 +135,58 @@ test('grid: detectPermission reads the prompt header from the grid (tool + arg)'
   g.dispose();
 });
 
+test('grid: ★ detectPermission catches the GENERIC "$() subexpression" gate ("Do you want to proceed?")', async () => {
+  const g = new GridScreen({ cols: 120, rows: 24 });
+  await g.init();
+  // the live HANG: the PowerShell git-status one-liner with $() hit the subexpression
+  // gate, which renders a GENERIC block (no "Create file" header, "Do you want to
+  // proceed?" not "...create <file>?"). The old detector missed it → child hung.
+  g.write(
+    lines(
+      '● Bash(git -C D:/repos/PianoidInstall status --short)',
+      ' Command contains subexpressions $() which could run arbitrary commands.',
+      ' Do you want to proceed?',
+      ' ❯ 1. Yes',
+      "   2. Yes, and don't ask again",
+      '   3. No',
+      ' Esc to cancel',
+    ),
+  );
+  await settle();
+  const perm = g.detectPermission();
+  assert.ok(perm, 'generic $() permission prompt detected');
+  assert.equal(perm!.toolName, 'Bash');
+  assert.ok(JSON.stringify(perm!.input).length > 2, 'request carries the command/context');
+  g.dispose();
+});
+
+test('grid: isTurnComplete is FALSE on a transient input-box flash with a spinner active (premature-result guard)', async () => {
+  const g = new GridScreen({ cols: 80, rows: 20 });
+  await g.init();
+  // the premature-result shape: the input box flashed "❯" at the very START while the
+  // engine is still working (spinner active) and NO answer yet.
+  g.write(lines('❯ ', '✻ Orchestrating…', '  esc to interrupt'));
+  await settle();
+  assert.equal(g.isTurnComplete(), false, 'not complete: spinner active + no answer');
+  g.dispose();
+  // …but once a real answer is present + the spinner is gone + input idle → complete.
+  const g2 = new GridScreen({ cols: 80, rows: 20 });
+  await g2.init();
+  g2.write(lines('● Orchestrator active. Ready.', '────────────', '❯ Try "refactor"', '  ? for shortcuts'));
+  await settle();
+  assert.equal(g2.isTurnComplete(), true, 'complete: real answer + no spinner + idle input');
+  g2.dispose();
+});
+
+test('grid: isTurnComplete is FALSE while a permission prompt is pending (would hang, not complete)', async () => {
+  const g = new GridScreen({ cols: 100, rows: 24 });
+  await g.init();
+  g.write(lines('● Bash(rm x)', ' Do you want to proceed?', ' ❯ 1. Yes', '   3. No', ' Esc to cancel'));
+  await settle();
+  assert.equal(g.isTurnComplete(), false, 'a pending prompt is NOT turn-complete');
+  g.dispose();
+});
+
 test('grid: detectTrustGate + isInputReady', async () => {
   const g = new GridScreen({ cols: 80, rows: 20 });
   await g.init();

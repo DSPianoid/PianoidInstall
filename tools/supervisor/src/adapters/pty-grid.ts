@@ -57,9 +57,19 @@ const FOOTER_MARKERS =
 /** A horizontal rule row (────…) — the footer block is fenced by these. */
 const RULE_ROW = /^─{20,}$/;
 /** Permission prompt markers. */
+// The SPECIFIC file-action header ("Do you want to create probe.txt?") — verb + target.
 const PERM_HEADER = /Do you want to (\w+)\s+(.+?)\?/i;
+// The GENERIC permission QUESTION — ANY "Do you want to …?" incl. "proceed?" (the
+// $()-subexpression gate renders "Do you want to proceed?" with no target → the
+// specific PERM_HEADER misses it → the prompt goes undetected → the child HANGS).
+const PERM_QUESTION = /Do you want to .*\?|Do you want to proceed/i;
 const PERM_LIST = /❯?\s*1\.\s*Yes\b/i;
+// The numbered "1./2./3." options + an "Esc to cancel"/"No" footer = the permission
+// block signature (used to confirm a generic prompt even without a file action).
+const PERM_NO_OPTION = /^\s*3\.\s*No\b|Esc to cancel/i;
 const PROMPT_ACTION = /^(Create file|Edit file|Read file|Run command|Write file|Delete file)$/i;
+// The $()-subexpression gate body line ("Command contains subexpressions $()…").
+const PERM_SUBEXPR = /subexpressions?|contains?\s+\$\(/i;
 /** Trust gate marker. */
 const TRUST_GATE = /Is this a project you created or one you trust|Do you trust the files/i;
 /** Assistant response glyph / tool-result glyph (start-of-row). */
@@ -267,41 +277,76 @@ export class GridScreen {
     return text || undefined;
   }
 
-  /** Detect a pending PERMISSION prompt on the grid (footer region carries it). */
+  /**
+   * Detect a pending PERMISSION prompt on the grid. Handles BOTH:
+   *  - the SPECIFIC file action ("Create file / <name> / Do you want to create <name>?")
+   *  - the GENERIC block ("Do you want to proceed?" + "1./2./3." options + "Esc to
+   *    cancel") — e.g. the $()-subexpression gate on a shell command. The earlier
+   *    detector only matched the file format, so the generic gate went undetected and
+   *    the child HUNG waiting at the prompt (the live /orchestrator-startup bug).
+   * Returns a {toolName, input} for the router, or null if no prompt is rendered.
+   */
   detectPermission(): GridPermission | null {
     const rows = this.allRows().map((r) => r.replace(/\s+$/, ''));
-    // find the "Do you want to <verb> <target>?" row with a numbered list nearby
-    let headerIdx = -1;
+    // Find the permission QUESTION row (search from the bottom — it's near the footer).
+    let qIdx = -1;
     for (let i = rows.length - 1; i >= 0; i--) {
-      if (PERM_HEADER.test(rows[i]!)) {
-        headerIdx = i;
+      if (PERM_QUESTION.test(rows[i]!)) {
+        qIdx = i;
         break;
       }
     }
-    if (headerIdx < 0) return null;
-    // require the numbered list ("❯ 1. Yes") within a few rows below the header
-    const hasList = rows.slice(headerIdx, headerIdx + 6).some((r) => PERM_LIST.test(r));
-    if (!hasList) return null;
-    const m = rows[headerIdx]!.match(PERM_HEADER)!;
-    const verb = m[1]!;
-    let target = (m[2] ?? '').trim();
-    // The action header ("Create file") + the filename appear a few rows ABOVE the
-    // question. The FILENAME is the FIRST plain-path row immediately AFTER the action
-    // header (later rows are the diff preview, e.g. "  1 PROBE-OK-98765" — NOT the
-    // filename). So capture the filename ONCE, right after the action, then stop.
-    let action: string | undefined;
-    let filename: string | undefined;
-    for (let i = Math.max(0, headerIdx - 6); i < headerIdx; i++) {
+    if (qIdx < 0) return null;
+    // CONFIRM it's a real permission block: a "1. Yes" list AND a "3. No"/"Esc to cancel"
+    // within a few rows below the question (guards against a stray "do you want…" in prose).
+    const below = rows.slice(qIdx, qIdx + 8);
+    if (!below.some((r) => PERM_LIST.test(r)) || !below.some((r) => PERM_NO_OPTION.test(r))) return null;
+
+    // (A) SPECIFIC file action: "Do you want to <verb> <target>?" with a "Create file"
+    //     header + filename a few rows above.
+    const fileM = rows[qIdx]!.match(PERM_HEADER);
+    if (fileM && fileM[2] && fileM[2].trim()) {
+      const verb = fileM[1]!;
+      let target = fileM[2].trim();
+      let action: string | undefined;
+      let filename: string | undefined;
+      for (let i = Math.max(0, qIdx - 6); i < qIdx; i++) {
+        const t = rows[i]!.trim();
+        if (PROMPT_ACTION.test(t)) {
+          action = t;
+          filename = undefined;
+        } else if (action && filename === undefined && /^[\w][\w./\\-]*$/.test(t) && !/^\d/.test(t) && !PERM_LIST.test(t)) {
+          filename = t;
+        }
+      }
+      if (filename) target = filename;
+      return permissionFromHeader(verb, target, action);
+    }
+
+    // (B) GENERIC block ("Do you want to proceed?"). Build the request from the prompt
+    //     BODY a few rows above the question: a "● Tool(arg)" indicator names the
+    //     tool+arg; otherwise the command/context line (e.g. the $()-subexpr command).
+    //     Default to a Bash permission carrying the command text so the router + the
+    //     safety floor see it; an unknown shape still routes to the user (never auto-allowed).
+    let command = '';
+    let toolName = 'Bash';
+    for (let i = Math.max(0, qIdx - 10); i < qIdx; i++) {
       const t = rows[i]!.trim();
-      if (PROMPT_ACTION.test(t)) {
-        action = t;
-        filename = undefined; // reset; the next plain row is the filename
-      } else if (action && filename === undefined && /^[\w][\w./\\-]*$/.test(t) && !/^\d/.test(t) && !PERM_LIST.test(t)) {
-        filename = t; // first path-like row after the action = the filename
+      if (!t) continue;
+      const tool = t.match(TOOL_INDICATOR);
+      if (tool) {
+        toolName = tool[1]!;
+        command = tool[2]!;
+        continue; // a later body line may refine the command, but the tool name stands
+      }
+      // the "Command contains subexpressions $()…" advisory or a quoted command line
+      if (PERM_SUBEXPR.test(t)) continue; // it's the advisory, not the command itself
+      // a plausible command/argument line (not chrome / a menu option / the question)
+      if (!/^\d+\.\s/.test(t) && !PERM_QUESTION.test(t) && !PERM_NO_OPTION.test(t) && /[\w$./\\-]/.test(t)) {
+        if (t.length > command.length) command = t; // prefer the most specific body line
       }
     }
-    if (filename) target = filename;
-    return permissionFromHeader(verb, target, action);
+    return { toolName, input: toolName === 'Bash' ? { command: command || '(shell command)' } : { arg: command } };
   }
 
   /** Detect the first-run TRUST GATE on the grid. */
@@ -309,12 +354,36 @@ export class GridScreen {
     return this.allRows().some((r) => TRUST_GATE.test(r));
   }
 
-  /** Is the input box rendered + idle (no pending prompt)? = turn-ready / turn-complete. */
+  /** Is a working SPINNER currently rendered? = the engine is mid-turn (NOT complete). */
+  spinnerActive(): boolean {
+    // scan the last ~6 non-empty rows for a spinner/status row (the spinner lives just
+    // above the footer while the engine works).
+    const rows = this.allRows().filter((r) => r.trim());
+    return rows.slice(-6).some((r) => this.isStatusRow(r));
+  }
+
+  /** Is the input box rendered + idle (no pending prompt)? (low-level — may flash mid-turn). */
   isInputReady(): boolean {
     const rows = this.allRows();
     const { footerRows } = this.regions(rows);
     const hasInputBox = footerRows.some((r) => /❯\s*(Try ["“]|$)/.test(r.trim()) || /\? for shortcuts/.test(r));
     return hasInputBox && !this.detectPermission();
+  }
+
+  /**
+   * STRICT turn-complete: the input box is idle AND a real assistant ANSWER is present
+   * AND no spinner is active AND no permission prompt is pending. This guards against
+   * the PREMATURE turn-complete bug — the input box flashes "❯" transiently at the very
+   * start of a turn (before the engine produces output), which `isInputReady` alone
+   * would mistake for completion (the live bug fired a result ~3 s into a long startup).
+   * The driver additionally requires this to hold across a debounce of consecutive reads.
+   */
+  isTurnComplete(): boolean {
+    if (!this.isInputReady()) return false;
+    if (this.spinnerActive()) return false; // engine still working
+    if (this.detectPermission()) return false; // a prompt is pending (would hang, not complete)
+    const ans = this.currentAnswerText();
+    return !!ans && ans.trim().length > 0; // a real answer exists
   }
 
   dispose(): void {

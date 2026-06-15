@@ -241,18 +241,39 @@ test('driver: trust gate (grid-detected) → Enter keystroke (fresh-dir fallback
   assert.ok(pty.writes.includes('\r'), `trust gate → Enter written (writes=${JSON.stringify(pty.writes)})`);
 });
 
-test('driver: turn-complete is de-duped — input box settles → at most ONE result per turn', async () => {
+test('driver: turn-complete is STRICT + de-duped — real answer + stable idle → at most ONE result', async () => {
   const pty = new FakePty();
-  const { driver, events, pump } = startDriver(pty);
+  // turnCompleteStableNeeded=2 for a fast test; the answer + idle must persist across reads.
+  const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });
   await driver.send({ text: 'hi' });
-  pty.emit(TOOL_FRAME); // content + the input box re-rendered (idle)
-  await sleep(SETTLE + 40);
-  pty.emit(lines('❯ ', '  ? for shortcuts')); // more repaints
-  await sleep(SETTLE + 40);
+  // a real assistant ANSWER + the idle input box (no spinner) — the genuine end.
+  const doneFrame = lines('● Done. Here is the answer.', '────────────', '❯ Try "x"', '  ? for shortcuts');
+  pty.emit(doneFrame);
+  await sleep(SETTLE + 30); // read 1: streak 1
+  pty.emit(doneFrame); // a repaint of the same idle state
+  await sleep(SETTLE + 30); // read 2: streak 2 → fires ONE result
+  pty.emit(doneFrame);
+  await sleep(SETTLE + 30); // read 3: already emitted, no second result
   await driver.stop();
   await pump;
   const results = events.filter((e) => e.kind === 'result');
   assert.equal(results.length, 1, `exactly one result for the turn (got ${results.length})`);
+  assert.ok((results[0] as { result?: string }).result?.includes('Done. Here is the answer'), 'result carries the real answer');
+});
+
+test('driver: NO premature result on a transient input-box flash with a spinner active', async () => {
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });
+  await driver.send({ text: 'hi' });
+  // the input box flashes "❯" at the very start WHILE the engine works (spinner) + no answer.
+  pty.emit(lines('❯ ', '✻ Orchestrating…', '  esc to interrupt'));
+  await sleep(SETTLE + 30);
+  pty.emit(lines('❯ ', '✻ Orchestrating… (3s)', '  esc to interrupt'));
+  await sleep(SETTLE + 30);
+  await driver.stop();
+  await pump;
+  const results = events.filter((e) => e.kind === 'result');
+  assert.equal(results.length, 0, `NO result while the engine is still working (got ${results.length})`);
 });
 
 test('driver: send() types text then the submit key; interrupt() sends Esc', async () => {
