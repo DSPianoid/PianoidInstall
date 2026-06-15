@@ -1,6 +1,6 @@
 # M12 — Host / Supervisor App — Implementation Proposal
 
-**Status:** PROPOSAL for sign-off. Lean, top-down; every element traces to a governing principle.
+**Status:** ✅ APPROVED + **Phase 1 IMPLEMENTED** — merged to master 2026-06-15 (merge `93ffa66`; `tools/supervisor/`, 68/68 tests green, code-reviewed, live Telegram connectivity verified end-to-end against a dedicated test bot). **Phase 2** (subprocess ownership) IN PROGRESS; Phase 3 pending. Lean, top-down; every element traces to a governing principle.
 **traces-to:** [`generic-dev-skillset-opensource-2026-06-11.md#M12`](generic-dev-skillset-opensource-2026-06-11.md) (the Campaign proposal **GOVERNS** this doc; this is a T2 module-design under it). Realises **M12**; supports **M10** (channel adapter), **M1** (orchestrator), **M6** (controller). Principles: **AP1, AP8**; **CP3, CP1, CP7**. Flows: **FI** (recovery), **FO** (wait→wake on the I/O bus).
 
 **How to read.** PART A states *why* (the three failure classes, traced). PART B states *what* (architecture, runtime, subsume/retire). PART C states *how/when* (phases, repo, cross-platform). PART D is the decisions + risks the user signs off. Upstream (the Campaign proposal's PART 0) governs everything here; where this doc asserts a capability of Claude Code / the Agent SDK it carries a **[doc]** citation, and anything unconfirmed is **FLAGGED**, never invented.
