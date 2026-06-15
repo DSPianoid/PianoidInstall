@@ -49,6 +49,16 @@ export type GridEvent =
 export interface GridPermission {
   toolName: string;
   input: Record<string, unknown>;
+  /**
+   * True if this is the `$()` COMMAND-SUBSTITUTION security gate (the prompt block
+   * carried the "Command contains subexpressions $()…" advisory). This is a Claude
+   * Code security overlay that fires EVEN when the tool (Bash) is allow-listed and
+   * is NOT suppressible by any documented env-var/settings field (confirmed). The
+   * driver uses this flag to PRE-ALLOW the orchestrator's OWN routine `$()` startup
+   * commands (auto-answer "1. Yes" without routing) while genuinely destructive
+   * `$()` commands still route through the safety floor.
+   */
+  subexpressionGate?: boolean;
 }
 
 /** Markers that identify FOOTER rows (the fixed bottom block — input box + hints). */
@@ -320,7 +330,8 @@ export class GridScreen {
             break;
           }
         }
-        return { toolName, input: toolName === 'Bash' ? { command } : { arg: command } };
+        const subexpressionGate = rows.some((r) => PERM_SUBEXPR.test(r));
+        return { toolName, input: toolName === 'Bash' ? { command } : { arg: command }, subexpressionGate };
       }
       return null;
     }
@@ -357,6 +368,7 @@ export class GridScreen {
     //     safety floor see it; an unknown shape still routes to the user (never auto-allowed).
     let command = '';
     let toolName = 'Bash';
+    let subexpressionGate = false;
     for (let i = Math.max(0, qIdx - 10); i < qIdx; i++) {
       const t = rows[i]!.trim();
       if (!t) continue;
@@ -367,13 +379,20 @@ export class GridScreen {
         continue; // a later body line may refine the command, but the tool name stands
       }
       // the "Command contains subexpressions $()…" advisory or a quoted command line
-      if (PERM_SUBEXPR.test(t)) continue; // it's the advisory, not the command itself
+      if (PERM_SUBEXPR.test(t)) {
+        subexpressionGate = true; // this IS the $() security gate (label it for the pre-allow)
+        continue; // it's the advisory, not the command itself
+      }
       // a plausible command/argument line (not chrome / a menu option / the question)
       if (!/^\d+\.\s/.test(t) && !PERM_QUESTION.test(t) && !PERM_NO_OPTION.test(t) && /[\w$./\\-]/.test(t)) {
         if (t.length > command.length) command = t; // prefer the most specific body line
       }
     }
-    return { toolName, input: toolName === 'Bash' ? { command: command || '(shell command)' } : { arg: command } };
+    return {
+      toolName,
+      input: toolName === 'Bash' ? { command: command || '(shell command)' } : { arg: command },
+      subexpressionGate,
+    };
   }
 
   /** Detect the first-run TRUST GATE on the grid. */

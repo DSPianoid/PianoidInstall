@@ -26,6 +26,15 @@ import {
   type PtySpawnFn,
 } from '../adapters/pty-session-driver.js';
 import type { PermissionDecision, PermissionHandler, SessionEvent } from '../session-driver.js';
+import { isDestructiveShellCommand } from '../profiles.js';
+
+// The EXACT pre-allow predicate index.ts wires for the orchestrator profile: auto-allow
+// the $() gate iff the underlying shell command is NOT destructive.
+const orchestratorAutoAllowSubexpr = (toolName: string, input: Record<string, unknown>): boolean => {
+  if (toolName !== 'Bash' && toolName !== 'PowerShell') return false;
+  const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
+  return !isDestructiveShellCommand(cmd);
+};
 
 const CRLF = '\r\n';
 const lines = (...ls: string[]): string => ls.join(CRLF) + CRLF;
@@ -82,6 +91,31 @@ const TRUST_GATE_FRAME = lines(
   ' ❯ 1. Yes, I trust this folder',
   '   2. No, exit',
   ' Enter to confirm · Esc to cancel',
+);
+
+// The $() COMMAND-SUBSTITUTION SECURITY GATE — fires even when Bash is allow-listed.
+// A ROUTINE (non-destructive) one: the orchestrator's startup repo-health probe.
+const SUBEXPR_GATE_ROUTINE = lines(
+  '● Bash(echo "count=$(git rev-list --count HEAD)")',
+  '────────────',
+  ' Command contains subexpressions $()',
+  ' Do you want to proceed?',
+  ' ❯ 1. Yes',
+  '   2. Yes, don’t ask again',
+  '   3. No',
+  ' Esc to cancel',
+);
+
+// A DESTRUCTIVE $() gate — must STILL route (the safety floor), never auto-allowed.
+const SUBEXPR_GATE_DESTRUCTIVE = lines(
+  '● Bash(git push origin $(git branch --show-current))',
+  '────────────',
+  ' Command contains subexpressions $()',
+  ' Do you want to proceed?',
+  ' ❯ 1. Yes',
+  '   2. Yes, don’t ask again',
+  '   3. No',
+  ' Esc to cancel',
 );
 
 // ── FakePty: scriptable {onData,write,kill} double (buffers pre-onData emits) ──
@@ -229,6 +263,60 @@ test('driver: permission deny (grid-detected) → Esc keystroke', async () => {
   await driver.stop();
   await pump;
   assert.ok(pty.writes.includes('\x1b'), `deny → Esc written (writes=${JSON.stringify(pty.writes)})`);
+});
+
+test('driver: ★ $() gate PRE-ALLOW — routine command auto-answers "1\\r" WITHOUT routing', async () => {
+  const pty = new FakePty();
+  const routedBox: { v: unknown | null } = { v: null };
+  const { driver, pump } = startDriver(
+    pty,
+    async (req): Promise<PermissionDecision> => {
+      routedBox.v = req; // should NOT be consulted for a routine $() gate
+      return { behavior: 'allow' };
+    },
+    { autoAllowSubexpr: orchestratorAutoAllowSubexpr },
+  );
+  pty.emit(SUBEXPR_GATE_ROUTINE);
+  await sleep(SETTLE + 60);
+  await driver.stop();
+  await pump;
+  assert.equal(routedBox.v, null, 'router NOT consulted (pre-allowed, no operator click)');
+  assert.ok(pty.writes.includes('1\r'), `auto-allow keystroke "1\\r" written (writes=${JSON.stringify(pty.writes)})`);
+});
+
+test('driver: ★ $() gate SAFETY FLOOR — destructive command STILL routes (not auto-allowed)', async () => {
+  const pty = new FakePty();
+  const routedBox: { v: { toolName: string; input: Record<string, unknown> } | null } = { v: null };
+  const { driver, pump } = startDriver(
+    pty,
+    async (req): Promise<PermissionDecision> => {
+      routedBox.v = { toolName: req.toolName, input: req.input };
+      return { behavior: 'deny', message: 'destructive' };
+    },
+    { autoAllowSubexpr: orchestratorAutoAllowSubexpr },
+  );
+  pty.emit(SUBEXPR_GATE_DESTRUCTIVE);
+  await sleep(SETTLE + 60);
+  await driver.stop();
+  await pump;
+  assert.ok(routedBox.v, 'destructive $() command was ROUTED (safety floor), not auto-allowed');
+  assert.match(String(routedBox.v!.input['command'] ?? ''), /git push/);
+  // routed + denied → Esc, NOT an auto "1\r"
+  assert.ok(pty.writes.includes('\x1b'), `routed-deny → Esc written (writes=${JSON.stringify(pty.writes)})`);
+});
+
+test('driver: $() gate with NO autoAllowSubexpr (demo) → routes like any prompt', async () => {
+  const pty = new FakePty();
+  const routedBox: { v: unknown | null } = { v: null };
+  const { driver, pump } = startDriver(pty, async (req): Promise<PermissionDecision> => {
+    routedBox.v = req;
+    return { behavior: 'allow' };
+  }); // no autoAllowSubexpr option
+  pty.emit(SUBEXPR_GATE_ROUTINE);
+  await sleep(SETTLE + 60);
+  await driver.stop();
+  await pump;
+  assert.ok(routedBox.v, 'with no pre-allow predicate, the $() gate ROUTES (safe default)');
 });
 
 test('driver: trust gate (grid-detected) → Enter keystroke (fresh-dir fallback)', async () => {

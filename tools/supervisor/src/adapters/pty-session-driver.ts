@@ -102,6 +102,19 @@ export interface PtySessionDriverOptions {
   gridCtor?: XtermCtor;
   /** Optional sink for the raw render stream (diagnostics; never the secret). */
   onRaw?: (chunk: string) => void;
+  /**
+   * PRE-ALLOW predicate for the `$()` COMMAND-SUBSTITUTION security gate. When the
+   * grid detects that gate (a Claude Code security overlay that fires even when Bash
+   * is allow-listed, and is NOT suppressible by any documented env-var/settings
+   * field — confirmed), and this returns true for the underlying (toolName, input),
+   * the driver AUTO-ANSWERS "1. Yes" WITHOUT routing — so the orchestrator's OWN
+   * routine `$()` startup commands proceed without an operator click or a hang.
+   * A `$()` command for which this returns FALSE (e.g. a destructive one) STILL
+   * routes through the normal handler (safety floor). Default: undefined → the gate
+   * is NOT auto-allowed (it routes like any other prompt — the safe default). The
+   * orchestrator profile wires this to `!isDestructiveShellCommand(cmd)`.
+   */
+  autoAllowSubexpr?: (toolName: string, input: Record<string, unknown>) => boolean;
 }
 
 /** Default path to the interactive `claude` launcher on this platform. */
@@ -310,6 +323,27 @@ export class PtySessionDriver implements SessionDriver {
     // (1) pending permission prompt → route once (the FC-1 path, grid-detected).
     const perm = this.grid.detectPermission();
     if (perm && !this.permissionPending) {
+      // (1a) PRE-ALLOW the `$()` command-substitution gate for the orchestrator's OWN
+      // routine startup commands: if it's that gate AND the command is NOT destructive
+      // (autoAllowSubexpr), auto-answer "1. Yes" WITHOUT routing (no operator click, no
+      // hang). A destructive `$()` command falls through to the normal routed handler
+      // (the safety floor still confirms it). De-duped via permissionPending.
+      if (perm.subexpressionGate && this.opts.autoAllowSubexpr?.(perm.toolName, perm.input)) {
+        // Hold permissionPending across the re-render window (one settle cycle) so the
+        // still-rendered gate isn't re-detected → double-injected before the TUI consumes
+        // the keystroke. Mirrors how handlePermission's await spans the round-trip.
+        this.permissionPending = true;
+        try {
+          this.term?.write('1' + SUBMIT_KEY);
+        } catch {
+          /* term gone */
+        }
+        const clear = setTimeout(() => {
+          this.permissionPending = false;
+        }, this.opts.settleMs ?? 250);
+        if (clear && typeof clear === 'object' && 'unref' in clear) (clear as { unref: () => void }).unref();
+        return; // verdict injected; wait for the re-render before reading content
+      }
       void this.handlePermission(perm.toolName, perm.input);
       return; // wait for the verdict + re-render before reading content
     }

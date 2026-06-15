@@ -157,6 +157,31 @@ test('grid: ★ detectPermission catches the GENERIC "$() subexpression" gate ("
   assert.ok(perm, 'generic $() permission prompt detected');
   assert.equal(perm!.toolName, 'Bash');
   assert.ok(JSON.stringify(perm!.input).length > 2, 'request carries the command/context');
+  // ★ the $() gate is LABELLED (subexpressionGate) so the driver can pre-allow routine ones.
+  assert.equal(perm!.subexpressionGate, true, 'the $() command-substitution gate is flagged subexpressionGate');
+  g.dispose();
+});
+
+test('grid: detectPermission does NOT flag subexpressionGate on a normal file-format prompt', async () => {
+  const g = new GridScreen({ cols: 120, rows: 24 });
+  await g.init();
+  // a plain "Create file" prompt (no $() advisory) → subexpressionGate must be falsy
+  // (so the driver NEVER auto-allows a non-$() prompt — those always route).
+  g.write(
+    lines(
+      '────────────',
+      ' Create file',
+      ' notes.txt',
+      ' Do you want to create notes.txt?',
+      ' ❯ 1. Yes',
+      '   3. No',
+      ' Esc to cancel',
+    ),
+  );
+  await settle();
+  const perm = g.detectPermission();
+  assert.ok(perm, 'file-format prompt detected');
+  assert.ok(!perm!.subexpressionGate, 'a non-$() prompt is NOT flagged as the subexpression gate');
   g.dispose();
 });
 

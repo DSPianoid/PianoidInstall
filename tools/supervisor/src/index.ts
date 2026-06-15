@@ -43,7 +43,7 @@ import { SessionHost } from './session-host.js';
 import { SdkSessionDriver } from './adapters/sdk-session-driver.js';
 import { PtySessionDriver } from './adapters/pty-session-driver.js';
 import type { SessionDriver } from './session-driver.js';
-import { resolveProfile } from './profiles.js';
+import { resolveProfile, isDestructiveShellCommand } from './profiles.js';
 import { loadMcpServers } from './mcp-config.js';
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
 import { ControllerBridge } from './controller-bridge.js';
@@ -150,7 +150,25 @@ async function main(): Promise<void> {
     // already validated). PTY = interactive TUI (subscription-billed, bounded
     // render-parse). The SDK driver stays the instant fallback; --driver pty is
     // validated via a live smoke before we flip the default.
-    const sessionDriver: SessionDriver = args.driver === 'pty' ? new PtySessionDriver() : new SdkSessionDriver();
+    const sessionDriver: SessionDriver =
+      args.driver === 'pty'
+        ? new PtySessionDriver(
+            // ORCHESTRATOR-only pre-allow for the `$()` command-substitution security
+            // gate: auto-answer it for the orchestrator's OWN routine startup commands
+            // (NOT destructive) so the state-dependent gate can't hang the startup; a
+            // destructive `$()` command still routes through the safety floor. The demo
+            // profile gets no auto-allow (every gate routes).
+            profile.name === 'orchestrator'
+              ? {
+                  autoAllowSubexpr: (toolName, input) => {
+                    if (toolName !== 'Bash' && toolName !== 'PowerShell') return false;
+                    const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
+                    return !isDestructiveShellCommand(cmd);
+                  },
+                }
+              : undefined,
+          )
+        : new SdkSessionDriver();
 
     // Build the MCP server map for the orchestrator profile: the in-process channel
     // reply tool + the project's servers (from ~/.claude.json, minus telegram).
