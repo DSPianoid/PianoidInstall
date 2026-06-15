@@ -16,12 +16,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { permissionFromHeader, stripAnsi } from '../adapters/pty-render-parser.js';
 import {
   PtySessionDriver,
   preTrustProject,
   normalizeProjectKey,
+  filterSpawnableMcpServers,
   type PtyProcess,
   type PtySpawnFn,
 } from '../adapters/pty-session-driver.js';
@@ -399,4 +400,80 @@ test('driver: send() before start throws; health reflects state', async () => {
   await assert.rejects(() => driver.send({ text: 'hi' }), /not started/);
   assert.equal(driver.health().running, false);
   assert.equal(driver.health().detail, 'pty-session-driver');
+});
+
+// ── containment seal (the production-telegram isolation breach fix) ───────────
+test('filterSpawnableMcpServers keeps stdio/http servers, DROPS in-process (no command/url)', () => {
+  const out = filterSpawnableMcpServers({
+    'hostinger-email': { command: 'npx', args: ['mcp-mail-server'] }, // stdio → keep
+    context7: { type: 'http', url: 'https://ctx7.example/mcp' }, // http → keep
+    google: { url: 'https://gw.example/sse', type: 'sse' }, // sse → keep
+    supervisor_channel: { instanceRef: 'sdk-in-process' }, // no command/url → DROP
+    bogus: 'not-an-object', // → DROP
+  });
+  assert.deepEqual(Object.keys(out).sort(), ['context7', 'google', 'hostinger-email']);
+  assert.ok(!('supervisor_channel' in out), 'the in-process SDK server is NOT passed to the child');
+});
+
+test('driver: ★ sealContainment → --strict-mcp-config + --mcp-config + plugin-disable + telegram deny', async () => {
+  const pty = new FakePty();
+  let capturedArgs: string[] = [];
+  const driver = new PtySessionDriver({
+    spawnFn: fakeSpawn(pty, (_f, a) => (capturedArgs = a)),
+    skipPreTrust: true,
+    settleMs: SETTLE,
+    sealContainment: true,
+  });
+  const iter = driver
+    .start({
+      onPermission: allow,
+      cwd: 'x',
+      mcpServers: {
+        'hostinger-email': { command: 'npx', args: ['mcp-mail-server'] },
+        supervisor_channel: { instanceRef: 'sdk' }, // in-process → must be filtered out of the config
+      },
+      disallowedTools: ['mcp__plugin_telegram_telegram__*'],
+    })
+    [Symbol.asyncIterator]();
+  const pump = (async () => {
+    for (let r = await iter.next(); !r.done; r = await iter.next()) void r;
+  })();
+  await sleep(10);
+  // 1) the seal flags are present
+  assert.ok(capturedArgs.includes('--strict-mcp-config'), `--strict-mcp-config present (got ${JSON.stringify(capturedArgs)})`);
+  const mcpIdx = capturedArgs.indexOf('--mcp-config');
+  assert.ok(mcpIdx >= 0, '--mcp-config present');
+  // 2) the --mcp-config value is a temp file holding ONLY the spawnable server (no telegram, no in-process)
+  const cfgPath = capturedArgs[mcpIdx + 1]!;
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8')) as { mcpServers: Record<string, unknown> };
+  assert.deepEqual(Object.keys(cfg.mcpServers), ['hostinger-email'], 'only the spawnable work server is in the child config');
+  assert.ok(!('supervisor_channel' in cfg.mcpServers), 'in-process supervisor_channel excluded');
+  // 3) --settings disables the telegram PLUGIN
+  const setIdx = capturedArgs.indexOf('--settings');
+  assert.ok(setIdx >= 0, '--settings present');
+  const settings = JSON.parse(capturedArgs[setIdx + 1]!) as { enabledPlugins: Record<string, boolean> };
+  assert.equal(settings.enabledPlugins['telegram@claude-plugins-official'], false, 'telegram plugin disabled');
+  // 4) --disallowed-tools denies the telegram tool globs
+  const disIdx = capturedArgs.indexOf('--disallowed-tools');
+  assert.ok(disIdx >= 0, '--disallowed-tools present');
+  assert.match(capturedArgs[disIdx + 1]!, /mcp__plugin_telegram_telegram__\*/, 'telegram tools denied');
+  await driver.stop();
+  await pump;
+  // 5) the temp config file is cleaned on stop
+  assert.ok(!existsSync(cfgPath), 'the temp --mcp-config file is removed on stop');
+});
+
+test('driver: NO seal flags when sealContainment is unset (demo/default)', async () => {
+  const pty = new FakePty();
+  let capturedArgs: string[] = [];
+  const driver = new PtySessionDriver({ spawnFn: fakeSpawn(pty, (_f, a) => (capturedArgs = a)), skipPreTrust: true, settleMs: SETTLE });
+  const iter = driver.start({ onPermission: allow, cwd: 'x', mcpServers: { foo: { command: 'x' } } })[Symbol.asyncIterator]();
+  const pump = (async () => {
+    for (let r = await iter.next(); !r.done; r = await iter.next()) void r;
+  })();
+  await sleep(10);
+  await driver.stop();
+  await pump;
+  assert.ok(!capturedArgs.includes('--strict-mcp-config'), 'no seal without sealContainment');
+  assert.ok(!capturedArgs.includes('--mcp-config'), 'no --mcp-config without sealContainment');
 });

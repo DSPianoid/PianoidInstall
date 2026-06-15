@@ -184,6 +184,13 @@ async function main(): Promise<void> {
                       const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
                       return !isDestructiveShellCommand(cmd);
                     },
+                    // CONTAINMENT SEAL: the hosted orchestrator is a REAL claude child that
+                    // loads the full ~/.claude.json → without sealing it can reach the user's
+                    // PRODUCTION telegram plugin (an isolation breach, observed live). The seal
+                    // (--strict-mcp-config + curated --mcp-config + disable the telegram plugin
+                    // + deny its tools) forces the orchestrator to reach the user via plain
+                    // assistant text, which the supervisor forwards to the TEST bot.
+                    sealContainment: true,
                   }
                 : {}),
               ...(onRaw ? { onRaw } : {}),

@@ -191,18 +191,26 @@ channel (currently a dedicated test Telegram bot). The supervisor owns the chann
 — the production Telegram plugin is NOT available to you.
 
 To message the user:
-- Simply writing your reply as normal assistant text reaches the user (the
-  supervisor forwards it), OR
-- call the tool mcp__supervisor_channel__reply({ text }) to send a deliberate
-  message. Prefer the reply tool for status updates, questions, and summaries.
-- Do NOT attempt to use mcp__plugin_telegram_telegram__* or any telegram plugin
-  tool — it does not exist here; the reply tool replaces it.
+- Simply WRITE YOUR REPLY as normal assistant text — the supervisor forwards it to
+  the user's channel. That is the ONLY way to reach the user here. Write your status
+  updates, questions, and summaries as ordinary replies.
+- Do NOT attempt to use mcp__plugin_telegram_telegram__* or any telegram plugin tool
+  — it is NOT available in this sealed session, and must never be used (it would
+  reach a PRODUCTION channel). Just write your reply as text.
 
 Your tool use is governed by the supervisor's permission router: routine tools run
 freely, but genuinely destructive operations (rm -rf, killing processes by system
 PID, git push / git reset --hard, disk formatting, and outward third-party sends
 like email/WhatsApp) are routed to the user for approval over the channel and will
 BLOCK until they reply allow/deny. This is expected — narrate what you're doing.
+
+IMPORTANT — you are running INSIDE the supervisor's own development repository
+(tools/supervisor and its parent). There may be an ACTIVE /dev session (its own
+log + WORK_IN_PROGRESS entry + file locks) building the very supervisor that hosts
+you. Do NOT recover, archive, close out, or modify any dev session log, WIP entry,
+or lock that you did not create, and do NOT edit files under tools/supervisor —
+that is another agent's live work. If the user asks you to act on such a session,
+explain this hosting context and ask them to confirm before touching anything.
 --- END SUPERVISOR HOSTING CONTEXT ---
 `.trim();
 

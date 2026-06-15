@@ -44,8 +44,8 @@
  * Traces: design doc docs/development/m12-pty-driver-design-2026-06-15.md (§2 + §(e)/§(f) + PART 4).
  */
 
-import { homedir } from 'node:os';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { GridScreen, type XtermCtor } from './pty-grid.js';
 import { stripAnsi } from './pty-render-parser.js';
@@ -102,6 +102,28 @@ export interface PtySessionDriverOptions {
   gridCtor?: XtermCtor;
   /** Optional sink for the raw render stream (diagnostics; never the secret). */
   onRaw?: (chunk: string) => void;
+  /**
+   * CONTAINMENT SEAL (orchestrator profile). The PTY child is a REAL `claude`
+   * process → it loads the user's full ~/.claude.json, which includes the
+   * production telegram PLUGIN (mcp__plugin_telegram_telegram__*). Left unsealed, a
+   * hosted TEST orchestrator can reach the user's PRODUCTION channel (an isolation
+   * breach + wrong-channel bug — observed live 2026-06-15). When true, buildArgs
+   * seals the child:
+   *   - --strict-mcp-config --mcp-config <curated work servers from opts.mcpServers>
+   *     → the child uses ONLY the supervisor's servers, IGNORING ~/.claude.json's.
+   *   - --settings '{"enabledPlugins":{"<id>":false}}' for each pluginDisableIds →
+   *     disables the telegram PLUGIN (which --strict-mcp-config does NOT cover, since
+   *     a plugin is not an mcpServers entry).
+   *   - --disallowed-tools (opts.disallowedTools + the telegram tool globs) →
+   *     belt-and-suspenders deny.
+   * In PTY mode the in-process supervisor_channel reply tool is UNREACHABLE (a
+   * separate process can't receive an SDK instance), so the sealed orchestrator
+   * reaches the user via plain ASSISTANT TEXT (the supervisor forwards it). Off by
+   * default (demo profile / tests).
+   */
+  sealContainment?: boolean;
+  /** Plugin ids to disable via --settings enabledPlugins (default: the telegram plugin). */
+  pluginDisableIds?: string[];
   /**
    * PRE-ALLOW predicate for the `$()` COMMAND-SUBSTITUTION security gate. When the
    * grid detects that gate (a Claude Code security overlay that fires even when Bash
@@ -162,6 +184,35 @@ export function preTrustProject(claudeJsonPath: string, cwd: string): boolean {
 const SUBMIT_KEY = '\r';
 const ESC_KEY = '\x1b';
 
+/** The production telegram PLUGIN ids disabled by the containment seal (default). */
+const DEFAULT_DISABLE_PLUGIN_IDS = ['telegram@claude-plugins-official'];
+/** Telegram tool globs denied by the seal (belt-and-suspenders). */
+const TELEGRAM_TOOL_GLOBS = ['mcp__plugin_telegram_telegram__*', 'mcp__telegram__*'];
+
+/**
+ * Keep only SPAWNABLE MCP servers (stdio `command`, or http/sse `url`/`type`). An
+ * in-process SDK server (e.g. the supervisor_channel reply tool, an SDK instance
+ * with neither) CANNOT be passed to a child process via --mcp-config → it's dropped.
+ * Exported for the seal's unit test.
+ */
+export function filterSpawnableMcpServers(
+  servers: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, cfg] of Object.entries(servers)) {
+    if (!cfg || typeof cfg !== 'object') continue;
+    const c = cfg as Record<string, unknown>;
+    const spawnable =
+      typeof c['command'] === 'string' ||
+      typeof c['url'] === 'string' ||
+      c['type'] === 'http' ||
+      c['type'] === 'sse' ||
+      c['type'] === 'stdio';
+    if (spawnable) out[name] = cfg;
+  }
+  return out;
+}
+
 export class PtySessionDriver implements SessionDriver {
   private readonly opts: PtySessionDriverOptions;
   private term: PtyProcess | null = null;
@@ -187,6 +238,8 @@ export class PtySessionDriver implements SessionDriver {
   private permissionPending = false;
   /** Resolves once start()'s eager spawn has created the PTY (send/interrupt await it). */
   private setupPromise: Promise<void> | null = null;
+  /** Temp --mcp-config file written for the seal (deleted on stop). */
+  private mcpConfigPath: string | null = null;
   /**
    * Turn-complete de-dup. The TUI repaints the input box "❯" many times per turn
    * (spinner frames, redraws). We surface AT MOST ONE `result` per turn: armed on
@@ -273,8 +326,11 @@ export class PtySessionDriver implements SessionDriver {
    * Build interactive `claude` args from the start options. Subscription billing
    * requires the INTERACTIVE TUI (no --print), so we map what interactive flags
    * support: --model, --append-system-prompt (the orchestrator preamble),
-   * --resume (FI restart). allow/deny/settings/mcp are governed by the project's
-   * settings + the render-driven permission router (not headless flags).
+   * --resume (FI restart), and — when sealContainment is set — the MCP CONTAINMENT
+   * SEAL (--strict-mcp-config + --mcp-config + --settings enabledPlugins:false +
+   * --disallowed-tools) so a hosted test session can NEVER reach the user's
+   * production telegram plugin (the live isolation breach). allow/route is otherwise
+   * governed by the render-driven permission router.
    */
   private buildArgs(opts: SessionStartOptions): string[] {
     const args: string[] = [];
@@ -286,7 +342,47 @@ export class PtySessionDriver implements SessionDriver {
     if (opts.systemPrompt && typeof opts.systemPrompt === 'object' && opts.systemPrompt.append) {
       args.push('--append-system-prompt', opts.systemPrompt.append);
     }
+    if (this.opts.sealContainment) {
+      args.push(...this.buildSealArgs(opts));
+    }
     return args;
+  }
+
+  /**
+   * The CONTAINMENT SEAL flags (see PtySessionDriverOptions.sealContainment).
+   * Writes the curated spawnable MCP servers (from opts.mcpServers, filtering OUT
+   * the in-process supervisor_channel — a separate process can't receive an SDK
+   * instance) to a temp file and returns: --strict-mcp-config --mcp-config <file>,
+   * --settings disabling each plugin id, and --disallowed-tools for the telegram
+   * tools (+ any opts.disallowedTools). Pure-ish (writes ONE temp file, tracked for
+   * cleanup); the arg shape is unit-tested via spawnFn capture.
+   */
+  private buildSealArgs(opts: SessionStartOptions): string[] {
+    const out: string[] = [];
+    // 1) ONLY the supervisor's MCP servers; ignore ~/.claude.json's. The in-process
+    //    supervisor_channel (no `command`/`url`/http|sse `type`) can't be spawned by
+    //    a child → drop it (the orchestrator reaches the user via assistant text).
+    const spawnable = filterSpawnableMcpServers(opts.mcpServers ?? {});
+    try {
+      const p = join(tmpdir(), `supervisor-mcp-${process.pid}-${Date.now()}.json`);
+      writeFileSync(p, JSON.stringify({ mcpServers: spawnable }, null, 2));
+      this.mcpConfigPath = p;
+      out.push('--strict-mcp-config', '--mcp-config', p);
+    } catch {
+      // if we can't write the config, STILL pass --strict-mcp-config with an inline
+      // empty set so the production servers are excluded (fail-CLOSED for the seal).
+      out.push('--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: {} }));
+    }
+    // 2) disable the telegram PLUGIN (NOT covered by --strict-mcp-config — a plugin
+    //    is not an mcpServers entry). One --settings JSON with enabledPlugins=false.
+    const pluginIds = this.opts.pluginDisableIds ?? DEFAULT_DISABLE_PLUGIN_IDS;
+    const enabledPlugins: Record<string, boolean> = {};
+    for (const id of pluginIds) enabledPlugins[id] = false;
+    out.push('--settings', JSON.stringify({ enabledPlugins }));
+    // 3) belt-and-suspenders: deny the telegram tool globs (+ any caller deny-list).
+    const deny = [...TELEGRAM_TOOL_GLOBS, ...(opts.disallowedTools ?? [])];
+    out.push('--disallowed-tools', deny.join(' '));
+    return out;
   }
 
   /**
@@ -475,6 +571,15 @@ export class PtySessionDriver implements SessionDriver {
     }
     this.grid.dispose();
     this.term = null;
+    // clean the temp --mcp-config file the seal wrote (best-effort).
+    if (this.mcpConfigPath) {
+      try {
+        unlinkSync(this.mcpConfigPath);
+      } catch {
+        /* already gone / never written */
+      }
+      this.mcpConfigPath = null;
+    }
     if (this.resolveNext) {
       const r = this.resolveNext;
       this.resolveNext = null;
