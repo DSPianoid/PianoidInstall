@@ -47,10 +47,8 @@
 import { homedir } from 'node:os';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  parseRenderChunk,
-  type PtyRenderEvent,
-} from './pty-render-parser.js';
+import { GridScreen, type XtermCtor } from './pty-grid.js';
+import { stripAnsi } from './pty-render-parser.js';
 import type {
   PermissionDecision,
   PermissionHandler,
@@ -96,6 +94,10 @@ export interface PtySessionDriverOptions {
   rows?: number;
   /** ms to wait after typing a turn before sending the submit key. Default 900. */
   submitDelayMs?: number;
+  /** ms of TUI quiet before reading the settled grid (debounce). Default 250. */
+  settleMs?: number;
+  /** Inject the @xterm/headless Terminal ctor (tests). Default = dynamic import. */
+  gridCtor?: XtermCtor;
   /** Optional sink for the raw render stream (diagnostics; never the secret). */
   onRaw?: (chunk: string) => void;
 }
@@ -150,8 +152,16 @@ export class PtySessionDriver implements SessionDriver {
   private term: PtyProcess | null = null;
   private running = false;
   private sessionId: string | undefined;
-  /** Render parser carry-over (incomplete trailing line between chunks). */
-  private parseCarry = '';
+  /** The 2D grid model (A-variant): the driver feeds onData here + reads regions. */
+  private readonly grid: GridScreen;
+  /** The session cwd (for the synthetic system_init id). */
+  private cwd: string | undefined;
+  /** True once the boot banner produced a system_init event. */
+  private sawInit = false;
+  /** Debounce timer: read the settled grid after the TUI stops repainting. */
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The last assistant text surfaced this turn (carried into the result event). */
+  private lastAssistantText: string | undefined;
   /** Queue of normalized events the generator drains (push-driven from onData). */
   private eventQueue: SessionEvent[] = [];
   private resolveNext: ((v: IteratorResult<SessionEvent>) => void) | null = null;
@@ -164,19 +174,19 @@ export class PtySessionDriver implements SessionDriver {
   private setupPromise: Promise<void> | null = null;
   /**
    * Turn-complete de-dup. The TUI repaints the input box "❯" many times per turn
-   * (spinner frames, redraws), so the parser emits `turn_complete` repeatedly. We
-   * surface AT MOST ONE `result` per turn: armed when a turn is sent / content
-   * arrives, fired on the first turn_complete after content, then suppressed until
-   * the next turn. Without this the lifecycle sees many bogus "turn done" results.
+   * (spinner frames, redraws). We surface AT MOST ONE `result` per turn: armed on
+   * send(), fired on the first settled "input box idle" after the turn, then
+   * suppressed until the next turn. Without this the lifecycle sees bogus results.
    */
   private turnResultEmitted = false;
   /** True once real content (assistant text / tool) arrived for the current turn (diagnostic). */
   private turnHadContent = false;
-  /** True between send() and the turn's surfaced result — gates the turn_complete de-dup. */
+  /** True between send() and the turn's surfaced result — gates the turn-complete de-dup. */
   private turnInFlight = false;
 
   constructor(opts: PtySessionDriverOptions = {}) {
     this.opts = opts;
+    this.grid = new GridScreen({ cols: opts.cols ?? 120, rows: opts.rows ?? 40, termCtor: opts.gridCtor });
   }
 
   private async resolveSpawn(): Promise<PtySpawnFn> {
@@ -195,14 +205,17 @@ export class PtySessionDriver implements SessionDriver {
     this.onPermission = opts.onPermission;
     this.streamDone = false;
     this.eventQueue = [];
-    this.parseCarry = '';
+    this.sawInit = false;
+    this.lastAssistantText = undefined;
 
     // Spawn EAGERLY (not lazily inside the generator) so `send()`/`interrupt()`
     // work the instant start() returns — the lifecycle injects the first turn
     // without first pulling an event (mirrors the SDK driver's eager queue). The
     // setup promise is awaited by the generator before it drains events.
     const cwd = opts.cwd ?? process.cwd();
+    this.cwd = cwd;
     const setup = (async () => {
+      await self.grid.init(); // the 2D screen the onData chunks feed into
       const spawn = await self.resolveSpawn();
       if (!self.opts.skipPreTrust) {
         const p = self.opts.claudeJsonPath ?? join(homedir(), '.claude.json');
@@ -217,7 +230,7 @@ export class PtySessionDriver implements SessionDriver {
         cwd,
         env,
       });
-      self.term.onData((chunk) => self.ingest(chunk, cwd));
+      self.term.onData((chunk) => self.ingest(chunk));
       self.term.onExit(() => self.endStream());
     })();
     this.setupPromise = setup;
@@ -259,52 +272,68 @@ export class PtySessionDriver implements SessionDriver {
     return args;
   }
 
-  /** Feed a raw render chunk through the bounded parser → enqueue SessionEvents. */
-  private ingest(chunk: string, cwd: string): void {
+  /**
+   * Feed a raw PTY chunk into the GRID (the A-variant: a real 2D @xterm/headless
+   * screen, not a line-flatten). The TUI repaints rapidly, so we DEBOUNCE: each
+   * chunk (re)schedules a settle, and only the settled screen is read. On settle we
+   * (1) emit system_init once (from the boot banner), (2) read the NEW message-
+   * region content rows → assistant/tool_result events, (3) route a pending
+   * permission prompt, (4) emit ONE result per turn when the input box is idle.
+   */
+  private ingest(chunk: string): void {
     this.opts.onRaw?.(chunk);
-    const { events, carry } = parseRenderChunk(this.parseCarry + chunk, { cwd });
-    this.parseCarry = carry;
-    for (const re of events) this.handleRenderEvent(re);
+    this.grid.write(chunk);
+    // boot banner → system_init (once). The grid has the banner rows immediately.
+    if (!this.sawInit) {
+      const clean = stripAnsi(chunk);
+      if (/Claude Code v[\d.]+|·\s*Claude Max/.test(clean)) {
+        this.sawInit = true;
+        const model = clean.match(/(Opus|Sonnet|Haiku)[\w.\s()]*?(?=·|$)/i);
+        const sid = `pty-${(this.cwd ?? 'x').replace(/[^A-Za-z0-9]/g, '-').slice(-24)}-${Date.now().toString(36)}`;
+        this.sessionId = sid;
+        this.enqueue({ kind: 'system_init', sessionId: sid, model: model ? model[0].trim() : undefined, tools: undefined });
+      }
+    }
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => this.readGrid(), this.opts.settleMs ?? 250);
+    if (this.settleTimer && typeof this.settleTimer === 'object' && 'unref' in this.settleTimer) {
+      (this.settleTimer as { unref: () => void }).unref();
+    }
   }
 
-  /** Map a parser render-event → a normalized SessionEvent (+ permission round-trip). */
-  private handleRenderEvent(re: PtyRenderEvent): void {
-    switch (re.kind) {
-      case 'system_init':
-        this.enqueue({ kind: 'system_init', sessionId: re.sessionId, model: re.model, tools: undefined });
-        break;
-      case 'assistant':
-        // Only surface assistant events that carry real content (text or a tool).
-        // The parser is conservative but some chrome can slip through; an empty
-        // text with no toolUses is never useful downstream.
-        if ((re.text && re.text.trim()) || (re.toolUses && re.toolUses.length > 0)) {
-          this.turnHadContent = true;
-          this.enqueue({ kind: 'assistant', text: re.text, toolUses: re.toolUses ?? [] });
-        }
-        break;
-      case 'tool_result':
+  /** Read the settled grid: new content rows, a permission prompt, turn-complete. */
+  private readGrid(): void {
+    // (1) pending permission prompt → route once (the FC-1 path, grid-detected).
+    const perm = this.grid.detectPermission();
+    if (perm && !this.permissionPending) {
+      void this.handlePermission(perm.toolName, perm.input);
+      return; // wait for the verdict + re-render before reading content
+    }
+    // (2) trust gate (fresh dir, pre-trust missed) → send Enter (default "1. Yes").
+    if (this.grid.detectTrustGate()) {
+      try {
+        this.term?.write(SUBMIT_KEY);
+      } catch {
+        /* term gone */
+      }
+      return;
+    }
+    // (3) NEW message-region content since the last read → assistant / tool_result.
+    for (const ev of this.grid.readNewEvents()) {
+      if (ev.kind === 'assistant') {
         this.turnHadContent = true;
-        this.enqueue({ kind: 'tool_result', toolUseId: re.toolUseId, content: re.content, isError: re.isError });
-        break;
-      case 'turn_complete':
-        // De-dup: emit at most ONE result per turn. We surface it once the input box
-        // has settled AND a turn was actually in flight (a turn was sent). The
-        // 'turnHadContent' flag is recorded for diagnostics but does NOT gate the
-        // result — on the real noisy TUI, content + chrome interleave on the same
-        // lines, so recognized content can be empty even though the turn completed;
-        // gating the result on it would drop the turn-end signal entirely.
-        if (this.turnInFlight && !this.turnResultEmitted) {
-          this.turnResultEmitted = true;
-          this.turnInFlight = false;
-          this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: re.finalText });
-        }
-        break;
-      case 'permission':
-        void this.handlePermission(re.toolName, re.input);
-        break;
-      case 'error':
-        this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: re.subtype ?? 'error_during_execution', result: re.message });
-        break;
+        if (ev.text && ev.text.trim()) this.lastAssistantText = ev.text;
+        this.enqueue({ kind: 'assistant', text: ev.text, toolUses: ev.toolUses ?? [] });
+      } else {
+        this.turnHadContent = true;
+        this.enqueue({ kind: 'tool_result', toolUseId: ev.toolUseId, content: ev.content });
+      }
+    }
+    // (4) turn-complete: ONE result per turn, when the input box is idle (no prompt).
+    if (this.turnInFlight && !this.turnResultEmitted && this.grid.isInputReady()) {
+      this.turnResultEmitted = true;
+      this.turnInFlight = false;
+      this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: this.lastAssistantText });
     }
   }
 
@@ -367,6 +396,7 @@ export class PtySessionDriver implements SessionDriver {
     this.turnResultEmitted = false;
     this.turnHadContent = false;
     this.turnInFlight = true;
+    this.lastAssistantText = undefined;
     this.term.write(turn.text);
     const delay = this.opts.submitDelayMs ?? 900;
     await new Promise((r) => setTimeout(r, delay));
@@ -383,11 +413,16 @@ export class PtySessionDriver implements SessionDriver {
   async stop(): Promise<void> {
     this.running = false;
     this.streamDone = true;
+    if (this.settleTimer) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+    }
     try {
       this.term?.kill();
     } catch {
       /* already gone */
     }
+    this.grid.dispose();
     this.term = null;
     if (this.resolveNext) {
       const r = this.resolveNext;
