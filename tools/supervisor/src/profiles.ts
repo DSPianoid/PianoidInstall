@@ -175,9 +175,20 @@ export function makeOrchestratorPolicy(
       'WebSearch',
       'mcp__*', // all wired MCP servers (telegram excluded at the source + via disallow)
     ],
-    // The telegram plugin can never reach the session (the supervisor owns the
-    // channel); deny-rules win over everything in the SDK permission order.
-    deny: ['mcp__plugin_telegram_telegram__*', 'mcp__telegram__*'],
+    // OUTWARD-TO-THIRD-PARTY channels can never reach the session (containment): the
+    // telegram plugin + whatsapp servers are excluded at the MCP-config source AND
+    // denied here; the email SEND tools are denied (email read stays available).
+    // deny-rules win over everything in the SDK permission order; in PTY mode these
+    // names also feed the spawn's --disallowed-tools seal.
+    deny: [
+      'mcp__plugin_telegram_telegram__*',
+      'mcp__telegram__*',
+      'mcp__whatsapp__*',
+      'mcp__whatsapp-work__*',
+      'mcp__hostinger-email__send_email',
+      'mcp__hostinger-email__reply_to_email',
+      'mcp__google-workspace__send_gmail_message',
+    ],
     fallback: 'route', // an UNlisted tool still routes (keeps canUseTool reachable)
     routeWhen, // the safety floor: destructive ops route even when allow-listed
   };

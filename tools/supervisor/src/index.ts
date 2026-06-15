@@ -45,7 +45,7 @@ import { SdkSessionDriver } from './adapters/sdk-session-driver.js';
 import { PtySessionDriver } from './adapters/pty-session-driver.js';
 import type { SessionDriver } from './session-driver.js';
 import { resolveProfile, isDestructiveShellCommand } from './profiles.js';
-import { loadMcpServers } from './mcp-config.js';
+import { loadMcpServers, OUTWARD_SEND_EXCLUDE_SUBSTRINGS } from './mcp-config.js';
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
 import { ControllerBridge } from './controller-bridge.js';
 import type { TelegramTransport } from './adapters/telegram-transport.js';
@@ -199,10 +199,14 @@ async function main(): Promise<void> {
         : new SdkSessionDriver();
 
     // Build the MCP server map for the orchestrator profile: the in-process channel
-    // reply tool + the project's servers (from ~/.claude.json, minus telegram).
+    // reply tool + the project's servers (from ~/.claude.json), MINUS the
+    // outward-to-third-party channels. For a hosted TEST orchestrator we exclude the
+    // telegram plugin AND both whatsapp servers (a test orch sending real WhatsApp is a
+    // worse breach than telegram). Email is kept for READ; its send tools are denied via
+    // the policy deny-list → the seal's --disallowed-tools.
     let mcpServers: Record<string, unknown> | undefined;
     if (profile.wireProjectMcp) {
-      mcpServers = { ...loadMcpServers() };
+      mcpServers = { ...loadMcpServers({ excludeSubstrings: OUTWARD_SEND_EXCLUDE_SUBSTRINGS }) };
       const channelServer = await buildSupervisorChannelServer(async (text) => {
         const operator = sessionHost?.currentOperator();
         if (!operator) return { ok: false };

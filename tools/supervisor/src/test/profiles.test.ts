@@ -84,7 +84,13 @@ test('orchestrator profile: broad allow + safety floor + teams + project context
   assert.ok(p.policy.allow.includes('Bash'));
   assert.ok(p.policy.allow.includes('Agent'));
   assert.ok(p.policy.allow.includes('mcp__*'));
-  assert.ok((p.policy.deny ?? []).some((d) => d.includes('telegram')), 'telegram denied');
+  const deny = p.policy.deny ?? [];
+  assert.ok(deny.some((d) => d.includes('telegram')), 'telegram denied');
+  // CONTAINMENT: the outward-to-third-party channels are denied (feed the PTY seal's
+  // --disallowed-tools too). whatsapp servers + email SEND tools.
+  assert.ok(deny.some((d) => d.includes('whatsapp')), 'whatsapp denied');
+  assert.ok(deny.includes('mcp__hostinger-email__send_email'), 'email send denied');
+  assert.ok(deny.includes('mcp__google-workspace__send_gmail_message'), 'gmail send denied');
   assert.equal(typeof p.policy.routeWhen, 'function', 'has the safety-floor predicate');
   assert.equal(p.policy.routeWhen!('Bash', { command: 'rm -rf x' }), true);
   assert.equal(p.policy.routeWhen!('Read', {}), false);

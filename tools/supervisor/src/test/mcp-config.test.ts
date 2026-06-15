@@ -3,14 +3,37 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMcpServers, isExcludedServer, resolveEnvPlaceholders } from '../mcp-config.js';
+import {
+  buildMcpServers,
+  isExcludedServer,
+  resolveEnvPlaceholders,
+  OUTWARD_SEND_EXCLUDE_SUBSTRINGS,
+} from '../mcp-config.js';
 
-test('isExcludedServer excludes telegram (only)', () => {
+test('isExcludedServer excludes telegram (only) by default', () => {
   assert.equal(isExcludedServer('plugin_telegram_telegram'), true);
   assert.equal(isExcludedServer('telegram'), true);
   assert.equal(isExcludedServer('hostinger-email'), false);
   assert.equal(isExcludedServer('whatsapp'), false);
   assert.equal(isExcludedServer('context7'), false);
+});
+
+test('★ OUTWARD_SEND_EXCLUDE drops telegram AND whatsapp, keeps email/compute (test seal)', () => {
+  const ex = OUTWARD_SEND_EXCLUDE_SUBSTRINGS;
+  assert.equal(isExcludedServer('telegram', ex), true);
+  assert.equal(isExcludedServer('whatsapp', ex), true);
+  assert.equal(isExcludedServer('whatsapp-work', ex), true);
+  // email kept (read tools useful; SEND tools denied via the policy deny-list)
+  assert.equal(isExcludedServer('hostinger-email', ex), false);
+  assert.equal(isExcludedServer('context7', ex), false);
+  assert.equal(isExcludedServer('deepseek-codegen', ex), false);
+  assert.equal(isExcludedServer('google-workspace', ex), false);
+  const out = buildMcpServers(
+    { mcpServers: { telegram: { command: 't' }, whatsapp: { command: 'w' }, 'whatsapp-work': { command: 'ww' }, 'hostinger-email': { command: 'e' }, context7: { command: 'c' } } },
+    process.env,
+    ex,
+  );
+  assert.deepEqual(Object.keys(out).sort(), ['context7', 'hostinger-email']);
 });
 
 test('resolveEnvPlaceholders substitutes ${VAR}, leaves unknown as-is', () => {

@@ -25,13 +25,20 @@ import { join } from 'node:path';
 export type McpServerEntry = Record<string, unknown>;
 export type McpServerMap = Record<string, McpServerEntry>;
 
-/** Names matching any of these (case-insensitive substring) are EXCLUDED. */
-const EXCLUDE_NAME_SUBSTRINGS = ['telegram'];
+/** Default exclusion: the telegram plugin (the supervisor owns the channel). */
+export const DEFAULT_EXCLUDE_SUBSTRINGS = ['telegram'];
+/**
+ * STRICTER test-seal exclusion: telegram + BOTH whatsapp servers. A hosted test
+ * orchestrator sending real WhatsApp is a worse breach than telegram (a third
+ * party, not the user). Email is NOT excluded at the server level (its read tools
+ * are useful) — its send tools are denied via --disallowed-tools instead.
+ */
+export const OUTWARD_SEND_EXCLUDE_SUBSTRINGS = ['telegram', 'whatsapp'];
 
-/** Is this server name the telegram plugin (or otherwise excluded)? */
-export function isExcludedServer(name: string): boolean {
+/** Is this server name excluded by the given substring list (case-insensitive)? */
+export function isExcludedServer(name: string, excludeSubstrings: string[] = DEFAULT_EXCLUDE_SUBSTRINGS): boolean {
   const n = name.toLowerCase();
-  return EXCLUDE_NAME_SUBSTRINGS.some((s) => n.includes(s));
+  return excludeSubstrings.some((s) => n.includes(s.toLowerCase()));
 }
 
 /** Resolve `${VAR}` placeholders in a string from an env map (unknown → left as-is). */
@@ -56,14 +63,19 @@ function resolveEntry(entry: McpServerEntry, env: NodeJS.ProcessEnv): McpServerE
 
 /**
  * Build the curated SDK mcpServers map from a parsed `~/.claude.json` object.
- * Excludes telegram, resolves `${VAR}` from `env`. Pure.
+ * Excludes servers whose name matches `excludeSubstrings` (default: telegram),
+ * resolves `${VAR}` from `env`. Pure.
  */
-export function buildMcpServers(claudeJson: unknown, env: NodeJS.ProcessEnv = process.env): McpServerMap {
+export function buildMcpServers(
+  claudeJson: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+  excludeSubstrings: string[] = DEFAULT_EXCLUDE_SUBSTRINGS,
+): McpServerMap {
   const root = (claudeJson ?? {}) as { mcpServers?: Record<string, McpServerEntry> };
   const src = root.mcpServers ?? {};
   const out: McpServerMap = {};
   for (const [name, entry] of Object.entries(src)) {
-    if (isExcludedServer(name)) continue;
+    if (isExcludedServer(name, excludeSubstrings)) continue;
     if (!entry || typeof entry !== 'object') continue;
     out[name] = resolveEntry(entry, env);
   }
@@ -71,11 +83,13 @@ export function buildMcpServers(claudeJson: unknown, env: NodeJS.ProcessEnv = pr
 }
 
 /** Load + build the mcpServers map from `~/.claude.json` (best-effort; {} on any error). */
-export function loadMcpServers(opts: { claudeJsonPath?: string; env?: NodeJS.ProcessEnv } = {}): McpServerMap {
+export function loadMcpServers(
+  opts: { claudeJsonPath?: string; env?: NodeJS.ProcessEnv; excludeSubstrings?: string[] } = {},
+): McpServerMap {
   const path = opts.claudeJsonPath ?? join(homedir(), '.claude.json');
   try {
     const raw = readFileSync(path, 'utf8');
-    return buildMcpServers(JSON.parse(raw), opts.env ?? process.env);
+    return buildMcpServers(JSON.parse(raw), opts.env ?? process.env, opts.excludeSubstrings ?? DEFAULT_EXCLUDE_SUBSTRINGS);
   } catch {
     return {}; // no file / unparseable → no MCP servers (the session still works)
   }
