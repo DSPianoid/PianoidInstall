@@ -653,6 +653,46 @@ Response `200`:
 
 ---
 
+### `GET /get_hammer_shape/<pitch_no>`
+
+Read-only. Returns the **exact per-spatial-node hammer excitation** the engine
+applies to this pitch's string — the literal value at every FDTD grid node — plus
+the spatial geometry needed to place those nodes on the string. Reads the in-memory
+`pitch.physics.hammer.hammer_shape` numpy array, which is computed at preset load and
+recomputed on every hammer edit (`set_hammer_shape` → `_apply_parameter_request` →
+`Hammer.calculate_hammer_shape`). **No CUDA/GPU round-trip** — reflects host-side model
+state. Added dev-gausscp (2026-06-16) to drive the frontend hammer chart's discrete
+("exact string nodes") zoom view.
+
+`pitch_no`: integer pitch ID. Unknown / non-integer pitch → `416`.
+
+Response `200`:
+```json
+{
+  "pitch": 100,
+  "shape_type": "circular",
+  "values": [0.0, 0.00099, 0.00501, 0.00465, 0.0, ...],
+  "node_positions": [0.0, 0.005696, 0.011392, 0.017088, ...],
+  "geometry": {"l_main": 0.0911, "dx": 0.005696, "p_full": 22, "p_main": 16, "tail": 4},
+  "params": {"hammer_shape": "circular", "hammer_width": 0.00707,
+             "hammer_position": 0.15, "hammer_sharpness": 0.5, "hammer_radius": 0.0448}
+}
+```
+
+**Index/units contract:** `values[xi]` is the engine excitation (string displacement,
+metres) at grid node `xi`, located at `node_positions[xi] = xi * dx` metres from the
+start of the string. `len(values) == geometry.p_full == p_main + tail + STEM_LENGTH (2)`.
+The hammer is centred at `params.hammer_position * geometry.l_main` metres
+(`hammer_position` is the ratio in `[0,1]`, matching the value the frontend already
+consumes). `width` is metres; `sharpness` is `[0,1]`. At default `array_size` a real
+preset hammer is **sparse** (only a few nonzero nodes), which is the honest physical
+shape.
+
+Response `400` when pianoid is not initialized; `416` for an unknown/invalid pitch or
+an internal retrieval error.
+
+---
+
 ### `POST /set_mode_parameters`
 
 Writes mode parameters for one or more modes and sends all mode params to CUDA.
