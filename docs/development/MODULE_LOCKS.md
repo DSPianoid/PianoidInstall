@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-excenergy MainKernel.cu lock RELEASED 2026-06-16 (Option A energy-only revert DONE + pushed). Reverted
+     the two W5 commits on PianoidCore dev: 4c935b9 (reverts bf5f720 reset PRIMARY) + 81f0417 (reverts e3e31df
+     soft-limiter removal); dev 9aaaa2d..81f0417 → origin/dev. MainKernel.cu now byte-identical to pre-W5 044f375;
+     energy files + 654 init fix untouched. ENERGY-ONLY HEAVY --both rebuilt + L1 + L2 200 + energy linear
+     (mass×2→RMS×2.002). PRESERVED ORIGINALS for the separate re-merges: e3e31df (soft-limiter removal),
+     bf5f720 (reset PRIMARY). dev-excenergy STAYS ALIVE (decay + reset/soft-limiter re-merges ahead) — will
+     re-acquire MainKernel.cu then. -->
+| <!-- (no active locks) --> | | | |
 <!-- dev-mosaicref locks RELEASED 2026-06-16 at Step 10a Phase 1 (frontend commit c3f777f on
      feature/dev-mosaicref-snapshot-fix off dev 2f320f1). Held: PianoidTunner/src/hooks/mosaicConfigStore.js,
      src/PianoidTuner.js, src/hooks/__tests__/mosaicConfigStore.test.jsx. FIX the merged save-mosaic-config bug

@@ -42,7 +42,19 @@
      energy endpoint live. MEASURED: reset CONFIRMED FIXED (post-reset RMS→0, endpoints zero); energy linear
      (mass×2→RMS×2.000). AUDIBLE effects USER-GATED on the 56-SM box.
      ★NOT included: the aftersounds/DECAY fix (pending user decision — separate later merge; dev-excenergy
-     stays alive for the dev-reset Phase-11 decay spec). Log archived: logs/archive/. -->
+     stays alive for the dev-reset Phase-11 decay spec). Log archived: logs/archive/.
+     ★UPDATE 2026-06-16 (Option A, user-approved "make dev energy-only"): the reset fix + soft-limiter removal
+     were REVERTED on PianoidCore dev (they merge SEPARATELY later). PianoidCore dev is now ENERGY-ONLY:
+       - revert commits PUSHED: 4c935b9 (reverts bf5f720 reset PRIMARY) + 81f0417 (reverts e3e31df soft-limiter
+         removal); PianoidCore dev 9aaaa2d..81f0417 → origin/dev.
+       - ★PRESERVED ORIGINALS for the separate re-merges later: e3e31df = W5-A soft-limiter removal,
+         bf5f720 = W5-B reset PRIMARY accumulator-clear (re-apply via cherry-pick / revert-the-revert).
+       - VERIFIED: the reverts touched ONLY MainKernel.cu → now byte-identical to pre-W5 044f375 (limiter back,
+         no reset clear). ALL energy files (kernel coeff buffer + middleware) + the 654 init fix UNCHANGED.
+         ENERGY-ONLY HEAVY --both rebuilt + L1 + L2 (/load_preset 200); energy still linear (mass×2→RMS×2.002).
+         Reset is back to the original (broken) behaviour — EXPECTED for energy-only. PianoidBasic dev 445e87a +
+         PianoidTunner dev 7f03e90 UNCHANGED (energy untouched there). dev-excenergy still alive for decay +
+         the separate reset/soft-limiter re-merges. -->
 <!-- dev-mosaicref COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved merge). TWO mosaic-config fixes
      MERGED to PianoidTunner origin/dev (merge 2df8658, --no-ff of c3f777f + 7b1c520):
      (1) c3f777f — saved configs are FROZEN SNAPSHOTS: removed the live auto-mirror + deep-copy (cloneLayout)
