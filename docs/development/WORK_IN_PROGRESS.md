@@ -22,7 +22,21 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-gausscp | Interactive hammer chart (ECharts) replacing position/width/sharpness sliders + width/sharpness units audit | [log](logs/dev-gausscp-2026-06-15-210006.md) | 2026-06-15 | |
+<!-- dev-gausscp COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "Merge"). Interactive hammer chart unit
+     (3 commits): (1) HammerStringChart replaces the position/width/sharpness SLIDERS with a draggable ECharts
+     hammer-on-string (drag center=position / right-edge=width / peak=sharpness; real engine units — pos ratio
+     0–0.5, width m, sharp 0–1) + folded-in width/sharpness units audit; (2) style match to GaussChart + discrete
+     zoom + mouse-wheel-on-selected (emit-on-settle); (3) EXACT discrete zoom — fetches the NEW read-only backend
+     route GET /get_hammer_shape/<pitch> (PianoidCore) returning the engine's resident hammer_shape array (exact
+     per-node value) + geometry, rendering the true engine value at each string node with graceful analytic fallback.
+     MERGED PianoidTunner feature/dev-gausscp-hammer-chart → dev 2f320f1 (--no-ff, off 99b6f25) + PUSHED
+     (99b6f25..2f320f1). MERGED PianoidCore feature/dev-gausscp-hammer-shape-route → dev 974a19f (--no-ff, off
+     73ba54d) + PUSHED (73ba54d..974a19f). REBUILD: NONE (read-only Python middleware; no compiled file). FE Jest
+     115/1193 green, eslint 0; PianoidCore route integration test 7/7. Live-verified exact zoom end-to-end
+     (chrome-devtools + stub, sparse 3-node spike). ★dev-excenergy reuses GET /get_hammer_shape as its spatial
+     integrand + the width/sharpness emit path (HammerStringChart.onParamChange → handleHammerParamChange → usePreset)
+     + mapExactNodesToDisplay — see archived log handoff note. Docs (REST_API + pianoid-tunner OVERVIEW) + screenshots
+     + log archived on PianoidInstall master. -->
 <!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "push it to dev"). Excitation Position
      (hammer_position) units fix: % display (ratio×100) / ratio send (÷100) via handlePositionChange; slider range
      0–50% (ratio 0–0.5, string symmetric); 1/11,1/9,1/7 chips write ratios (1/N) not (1/N)*100. Single file
