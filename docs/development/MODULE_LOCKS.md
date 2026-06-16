@@ -15,6 +15,8 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-excenergy | `PianoidBasic/Pianoid/PhysicalParameters.py`, `PianoidBasic/Pianoid/ModelParams.py`, `PianoidBasic/Pianoid/StringExcitation.py`, `PianoidBasic/Pianoid/constants.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidBasic/Pianoid/Pitch.py` | 2026-06-16T09:55:00Z | Physics-based excitation energy (B2) Wave 1 — PianoidBasic model (COMPLETE, wheel rebuilt + L1 OK) |
+| dev-excenergy | `PianoidCore/pianoid_cuda/gaussTest.cu`, `PianoidCore/pianoid_cuda/Pianoid_excitation.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 2026-06-16T14:30:00Z | Physics-based excitation energy (B2) Wave 2 — kernel: uncomment per-note volume read+multiply; host excitation_coefficients_ table + setNewExcitationCoefficients setter + note-on slot write. HEAVY CUDA --both |
 <!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit a78d0c4 on
      feature/dev-gausscp-hammer-chart). Held: HammerStringChart.jsx (ExcitationProperties.jsx re-locked precautionarily,
      NOT edited this round). 3 hammer-chart enhancements: (1) style matched to Gauss/excitation chart (CHART_COLORS,
