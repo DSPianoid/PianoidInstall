@@ -22,7 +22,17 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-mosaicref | FIX mosaic save-by-reference aliasing (saved layouts all show the last config) | [log](logs/dev-mosaicref-2026-06-16-171122.md) | 2026-06-16 |
+<!-- dev-mosaicref COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved merge). TWO mosaic-config fixes
+     MERGED to PianoidTunner origin/dev (merge 2df8658, --no-ff of c3f777f + 7b1c520):
+     (1) c3f777f — saved configs are FROZEN SNAPSHOTS: removed the live auto-mirror + deep-copy (cloneLayout)
+         on save/select (fixes "saving a new config updates the current one" / "both names show the last config");
+     (2) 7b1c520 — a workbench's binding to its FIXED target param SURVIVES a config switch: persists each
+         config's workbench bindings in a companion map (localStorage.mosaicConfigWorkbenches) + re-wires on apply
+         (fixes "workbenches lose target params after a config switch").
+     Frontend-only (PianoidTunner), NO CUDA. Jest mosaicConfigStore 32/32; full suite green except 1 pre-existing
+     unrelated HammerStringChart/ECharts jsdom failure; eslint 0 errors. Docs: pianoid-tunner/OVERVIEW.md
+     "Savable mosaic layouts". Log archived: logs/archive/dev-mosaicref-2026-06-16-171122.md. -->
+
 <!-- dev-gausscp COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "Merge"). Interactive hammer chart unit
      (3 commits): (1) HammerStringChart replaces the position/width/sharpness SLIDERS with a draggable ECharts
      hammer-on-string (drag center=position / right-edge=width / peak=sharpness; real engine units — pos ratio

@@ -666,6 +666,22 @@ saved entry. Snapshot independence is pinned by `hooks/__tests__/mosaicConfigSto
 (`saveConfigAs` stores a non-aliased deep copy; two saves around an in-place mutation stay independent;
 `cloneLayout` deep-copies nested splits without touching the source).
 
+**★Workbench bindings persist with the config (dev-mosaicref, 2026-06-16).** A *dynamic workbench* pane
+(leaf id `Workbench:<groupe>.<name>[-<gaussIndex>]:<counter>`) binds to its target parameter via the
+in-memory `workbenches` map in `useCurrentValues` (`id → {parameter, matrixRowIsPiano}`); the layout tree
+stores ONLY the pane-id string, and that map was never persisted. A saved config keeps the `Workbench:*`
+leaf, so applying it restored the pane id but the binding was gone → `renderWindowContent`'s
+`workbenches[id]` was undefined → the pane rendered unlinked ("after switching configs the workbenches no
+longer follow their fixed target params" — the reported bug). Fix: a **companion map**
+`localStorage.mosaicConfigWorkbenches` (`{ [configName]: { [workbenchId]: binding } }`) is saved alongside
+each config. `mosaicConfigStore.pickWorkbenchBindings(workbenches, layout)` deep-copies the bindings for
+exactly the `Workbench:*` ids present in a layout (the bare default `Workbench` pane is excluded, unbound
+ids skipped) at save-as; select / delete-fallback call `useCurrentValues.restoreWorkbenches(bindings)`
+(which MERGES into the map, preserving the default pane + other open dynamic panes); rename/delete keep
+the companion map in sync; a mount effect re-wires the active config's bindings after reload. The layout
+tree shape is unchanged (bindings are a sibling map). Pinned by `collectWorkbenchIds` +
+`pickWorkbenchBindings` tests in `hooks/__tests__/mosaicConfigStore.test.jsx`.
+
 **Actions (all in `PianoidTuner`, sole mutators — P1):** `handleMosaicConfigSelect(name)` (make active +
 apply the saved layout, exiting fullscreen), `handleSaveMosaicConfigAs(name)`, `handleRenameMosaicConfig`,
 `handleDeleteMosaicConfig` (refuses the last config; falls back + applies a remaining one when the active
