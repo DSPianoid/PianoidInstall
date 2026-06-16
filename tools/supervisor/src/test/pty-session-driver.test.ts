@@ -28,6 +28,7 @@ import {
 } from '../adapters/pty-session-driver.js';
 import type { PermissionDecision, PermissionHandler, SessionEvent } from '../session-driver.js';
 import { isDestructiveShellCommand } from '../profiles.js';
+import { GridScreen } from '../adapters/pty-grid.js';
 
 // The EXACT pre-allow predicate index.ts wires for the orchestrator profile: auto-allow
 // the $() gate iff the underlying shell command is NOT destructive.
@@ -382,6 +383,43 @@ test('driver: ★ FAST reply that goes SILENT still fires ONE result (self-resch
   const results = events.filter((e) => e.kind === 'result');
   assert.equal(results.length, 1, `the fast reply fired exactly ONE result despite the TUI going silent (got ${results.length})`);
   assert.ok((results[0] as { result?: string }).result?.includes('Orchestrator is up'), 'result carries the fast reply text');
+});
+
+test('driver: ★ two DIFFERENT consecutive turns yield two DIFFERENT answers (the stale byte-identical resend bug)', async () => {
+  // THE LIVE BUG: turn 2 ("What MCP tools") re-sent turn 1's answer ("Describe env") BYTE-
+  // IDENTICAL because, when turn 2's turn-complete latched, the buffer STILL showed turn 1's
+  // answer as the last "●" block (turn 2's answer hadn't rendered yet) → currentAnswerText()
+  // returned the STALE prior answer. Fix: markTurnStart() snapshots the prior answer; the
+  // turn isn't complete until a DIFFERENT (current-turn) answer appears.
+  // The @xterm headless terminal APPENDS on write (it doesn't repaint a viewport like a real
+  // TUI), so we drive a clean grid directly to assert the GUARD: currentTurnAnswer() must not
+  // return the prior turn's answer after markTurnStart(). (The driver wires markTurnStart in
+  // send() + uses currentTurnAnswer for the result.)
+  const g = new GridScreen({ cols: 80, rows: 20 });
+  await g.init();
+  const rule = '─'.repeat(60); // full-width rule (Claude Code fences the footer with these)
+  const idle = `\r\n${rule}\r\n❯ \r\n${rule}\r\n  gh auth login · ← for agents\r\n`;
+  // turn 1's answer is on screen and was emitted as turn 1's result.
+  g.write('● ANSWER ALPHA about the environment' + idle + '✻ Brewed for 5s\r\n');
+  await sleep(25);
+  const turn1 = g.currentAnswerText();
+  assert.ok(turn1 && turn1.includes('ALPHA') && !turn1.includes('────'), `turn 1 answer is ALPHA, no rule-row chrome (got ${JSON.stringify(turn1)})`);
+
+  // turn 2 SUBMITS — snapshot the prior (ALPHA) as baseline. The buffer STILL shows ALPHA.
+  g.markTurnStart();
+  // ★ before turn 2's own answer renders, currentTurnAnswer() must NOT return ALPHA (the stale
+  // resend) — it must be undefined → isTurnComplete() false → the turn keeps waiting.
+  assert.equal(g.currentTurnAnswer(), undefined, 'while only the prior answer is on screen, the current-turn answer is undefined (no stale resend)');
+  assert.equal(g.isTurnComplete(), false, 'a stale prior answer does NOT count as turn-complete');
+
+  // turn 2's REAL answer renders → currentTurnAnswer() = BRAVO, isTurnComplete true.
+  g.write('● ANSWER BRAVO about the mcp tools' + idle + '✻ Brewed for 6s\r\n');
+  await sleep(25);
+  const turn2 = g.currentTurnAnswer();
+  assert.ok(turn2 && turn2.includes('BRAVO'), `turn 2 answer is BRAVO (got ${JSON.stringify(turn2)})`);
+  assert.notEqual(turn1, turn2, 'turn 2 answer DIFFERS from turn 1 (no byte-identical resend)');
+  assert.equal(g.isTurnComplete(), true, 'with the new answer present, the turn IS complete');
+  g.dispose();
 });
 
 test('driver: ★ a fast reply with a pinned "✘ Auto-update failed … /doctor" footer banner STILL fires a result (the subsequent-turn silence bug)', async () => {

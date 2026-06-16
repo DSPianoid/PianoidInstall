@@ -106,6 +106,14 @@ export class GridScreen {
   private readonly ctorOverride?: XtermCtor;
   /** Content of message rows already surfaced (de-dup across reads, content-keyed). */
   private surfaced = new Set<string>();
+  /**
+   * The answer text present at THIS turn's submission (= the PRIOR turn's answer, still
+   * in the message region/scrollback). currentTurnAnswer() refuses to return a block equal
+   * to this, so a completed turn can never re-emit the previous turn's answer byte-for-byte
+   * (the live STALE-ANSWER bug: turn 2 "What MCP tools" re-sent turn 1's answer because the
+   * new answer hadn't replaced the old one in the buffer when turn-complete latched).
+   */
+  private priorTurnAnswer: string | undefined;
 
   constructor(opts: GridScreenOptions = {}) {
     this.cols = opts.cols ?? 120;
@@ -281,6 +289,9 @@ export class GridScreen {
       const row = raw.replace(/\s+$/, '');
       const t = row.trim();
       if (!t) { if (block.length) block.push(''); continue; } // paragraph break, keep open
+      // A horizontal rule (────…) FENCES the footer/answer — it ends the answer block (it
+      // is chrome, not answer text; leaking it appended "────…" to the reply).
+      if (RULE_ROW.test(t)) { close(); continue; }
       if (this.isBanner(row) || this.isInputEcho(row) || this.isStatusRow(row)) { close(); continue; }
       if (TOOL_INDICATOR.test(t) || TOOLRESULT_GLYPH.test(t)) { close(); continue; }
       const a = t.match(ASSISTANT_GLYPH);
@@ -290,6 +301,29 @@ export class GridScreen {
     close();
     const text = last.join('\n').replace(/\s+$/g, '').trim();
     return text || undefined;
+  }
+
+  /**
+   * Snapshot the CURRENT answer as the prior-turn baseline. The driver calls this when it
+   * SUBMITS a turn — so the answer visible at that instant is the previous turn's, and
+   * currentTurnAnswer() will refuse to return it (forcing the wait for the genuinely-new
+   * answer). Prevents the stale byte-identical resend across consecutive turns.
+   */
+  markTurnStart(): void {
+    this.priorTurnAnswer = this.currentAnswerText();
+  }
+
+  /**
+   * The answer for the CURRENT turn: currentAnswerText(), but UNDEFINED while it still
+   * equals the prior-turn baseline (the new answer hasn't rendered yet). The driver uses
+   * THIS for the result text + turn-complete, so a turn never emits the previous turn's
+   * answer. (If two turns legitimately produce identical text, the driver's bounded
+   * fallback eventually accepts it — see PtySessionDriver turn-complete.)
+   */
+  currentTurnAnswer(): string | undefined {
+    const ans = this.currentAnswerText();
+    if (ans !== undefined && ans === this.priorTurnAnswer) return undefined; // still the prior answer
+    return ans;
   }
 
   /**
@@ -448,8 +482,10 @@ export class GridScreen {
     if (!this.isInputReady()) return false;
     if (this.spinnerActive()) return false; // engine still working
     if (this.detectPermission()) return false; // a prompt is pending (would hang, not complete)
-    const ans = this.currentAnswerText();
-    return !!ans && ans.trim().length > 0; // a real answer exists
+    // Require the CURRENT turn's answer (not equal to the prior turn's) — so a turn that
+    // hasn't produced its OWN new answer yet is NOT complete (the stale-resend guard).
+    const ans = this.currentTurnAnswer();
+    return !!ans && ans.trim().length > 0;
   }
 
   dispose(): void {

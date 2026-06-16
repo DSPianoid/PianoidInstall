@@ -186,6 +186,13 @@ const ESC_KEY = '\x1b';
 
 /** The production telegram PLUGIN ids disabled by the containment seal (default). */
 const DEFAULT_DISABLE_PLUGIN_IDS = ['telegram@claude-plugins-official'];
+/**
+ * Settle-poll cycles to wait before the stale-answer guard ACCEPTS an answer equal to the
+ * prior turn's (the rare legitimately-identical reply). ~40 cycles × settleMs(250) ≈ 10 s —
+ * long after a genuinely-new answer would have latched, so this only fires when a turn truly
+ * repeats the prior answer (prevents a hang) and never lets the stale-resend through early.
+ */
+const IDENTICAL_ANSWER_FALLBACK_CYCLES = 40;
 /** Telegram tool globs denied by the seal (belt-and-suspenders). */
 const TELEGRAM_TOOL_GLOBS = ['mcp__plugin_telegram_telegram__*', 'mcp__telegram__*'];
 
@@ -253,6 +260,8 @@ export class PtySessionDriver implements SessionDriver {
   private turnInFlight = false;
   /** Consecutive settled reads where the grid looked turn-complete (debounce vs a flash). */
   private turnCompleteStreak = 0;
+  /** Settle-poll cycles elapsed this turn (for the identical-answer bounded fallback). */
+  private turnPollCycles = 0;
 
   constructor(opts: PtySessionDriverOptions = {}) {
     this.opts = opts;
@@ -479,16 +488,27 @@ export class PtySessionDriver implements SessionDriver {
     // grid.isTurnComplete() (input idle + a real answer present + no spinner + no pending
     // prompt) to hold across `turnCompleteStableNeeded` CONSECUTIVE settled reads.
     if (this.turnInFlight && !this.turnResultEmitted) {
+      this.turnPollCycles += 1;
+      // BOUNDED FALLBACK for the rare LEGITIMATELY-identical answer: if a turn truly
+      // repeats the prior answer, currentTurnAnswer() stays undefined forever and the
+      // streak can never latch → it would hang. After a generous wait (input idle + no
+      // spinner + a real answer present, just == the prior), accept it so the turn still
+      // completes. Common case (a NEW answer) latches long before this.
+      const idleWithAnswer =
+        this.grid.isInputReady() && !this.grid.spinnerActive() && !!this.grid.currentAnswerText();
+      const identicalFallback =
+        idleWithAnswer && !this.grid.currentTurnAnswer() && this.turnPollCycles >= IDENTICAL_ANSWER_FALLBACK_CYCLES;
       if (this.grid.isTurnComplete()) {
         this.turnCompleteStreak += 1;
       } else {
         this.turnCompleteStreak = 0;
       }
-      if (this.turnCompleteStreak >= (this.opts.turnCompleteStableNeeded ?? 3)) {
+      if (this.turnCompleteStreak >= (this.opts.turnCompleteStableNeeded ?? 3) || identicalFallback) {
         this.turnResultEmitted = true;
         this.turnInFlight = false;
         this.turnCompleteStreak = 0;
-        const finalText = this.grid.currentAnswerText() ?? this.lastAssistantText;
+        // Prefer the CURRENT turn's answer; the fallback accepts the identical one.
+        const finalText = this.grid.currentTurnAnswer() ?? this.grid.currentAnswerText() ?? this.lastAssistantText;
         this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
       } else {
         // ★SELF-RESCHEDULE: the streak needs N CONSECUTIVE settled reads, but readGrid is
@@ -567,7 +587,12 @@ export class PtySessionDriver implements SessionDriver {
     this.turnHadContent = false;
     this.turnInFlight = true;
     this.turnCompleteStreak = 0;
+    this.turnPollCycles = 0;
     this.lastAssistantText = undefined;
+    // STALE-ANSWER guard: snapshot the answer present NOW (the PRIOR turn's) as the
+    // baseline, so the result for THIS turn can't be the previous turn's answer
+    // byte-for-byte (the live "turn 2 re-sent turn 1's answer" bug).
+    this.grid.markTurnStart();
     this.term.write(turn.text);
     const delay = this.opts.submitDelayMs ?? 900;
     await new Promise((r) => setTimeout(r, delay));
