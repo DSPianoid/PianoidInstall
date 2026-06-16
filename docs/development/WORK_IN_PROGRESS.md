@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-mosaicref | FIX mosaic save-by-reference aliasing (saved layouts all show the last config) | [log](logs/dev-mosaicref-2026-06-16-171122.md) | 2026-06-16 |
 <!-- dev-gausscp COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "Merge"). Interactive hammer chart unit
      (3 commits): (1) HammerStringChart replaces the position/width/sharpness SLIDERS with a draggable ECharts
      hammer-on-string (drag center=position / right-edge=width / peak=sharpness; real engine units — pos ratio

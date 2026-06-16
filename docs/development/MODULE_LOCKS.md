@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-mosaicref locks RELEASED 2026-06-16 at Step 10a Phase 1 (frontend commit c3f777f on
+     feature/dev-mosaicref-snapshot-fix off dev 2f320f1). Held: PianoidTunner/src/hooks/mosaicConfigStore.js,
+     src/PianoidTuner.js, src/hooks/__tests__/mosaicConfigStore.test.jsx. FIX the merged save-mosaic-config bug
+     (saved layouts all show the last one): cloneLayout deep-copy snapshots on save-as/seed/select/delete +
+     REMOVED the live→active auto-mirror (named configs are frozen, change only on explicit save/rename/delete).
+     Full Jest 115/1197 green, eslint 0, live-verified (save A w/Modes → remove Modes → save B ⇒ A frozen,
+     A!=B). Frontend-only, NO CUDA. NOT merged — HOLD for user test. ★Behaviour note: this removes the T1
+     auto-persist-into-active-config mirror (flagged to team-lead). -->
 | dev-excenergy | `PianoidBasic/Pianoid/PhysicalParameters.py`, `PianoidBasic/Pianoid/ModelParams.py`, `PianoidBasic/Pianoid/StringExcitation.py`, `PianoidBasic/Pianoid/constants.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidBasic/Pianoid/Pitch.py` | 2026-06-16T09:55:00Z | Physics-based excitation energy (B2) Wave 1 — PianoidBasic model (COMPLETE, wheel rebuilt + L1 OK) |
 | dev-excenergy | `PianoidCore/pianoid_cuda/gaussTest.cu`, `PianoidCore/pianoid_cuda/Pianoid_excitation.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 2026-06-16T14:30:00Z | Physics-based excitation energy (B2) Wave 2 — kernel: uncomment per-note volume read+multiply; host excitation_coefficients_ table + setNewExcitationCoefficients setter + note-on slot write. HEAVY CUDA --both |
 <!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit a78d0c4 on

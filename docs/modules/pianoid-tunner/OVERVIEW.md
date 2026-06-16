@@ -647,13 +647,24 @@ writer of the named-config maps; the store is pure, no React/state).
 - `mosaicConfigs` — `{ name -> layoutTree }` map of all named layouts.
 - `activeMosaicConfig` — name of the currently selected layout.
 
-**Migration + live↔active sync.** On first run `mosaicConfigStore.loadConfigs` seeds `mosaicConfigs` as
-`{ "Default": <current mosaicLayout> }` (fail-soft: a corrupt/empty stored map is re-seeded, never
-throws). The `mosaicLayout` persist `useEffect` in `PianoidTuner` ALSO mirrors the live layout into
-`mosaicConfigs[activeMosaicConfig]` and persists the map — so editing panes / dragging splits updates
-the layout the user is on (same auto-persist model as `presetLoadSettings`). ★The mirror is **skipped
-while maximized** (`isFullscreen`): the live layout is then a single maximized leaf and mirroring it
-would clobber the saved multi-pane layout.
+**Migration + persistence.** On first run `mosaicConfigStore.loadConfigs` seeds `mosaicConfigs` as
+`{ "Default": <deep-copy of current mosaicLayout> }` (fail-soft: a corrupt/empty stored map is
+re-seeded, never throws). The `mosaicLayout` persist `useEffect` in `PianoidTuner` writes the LIVE
+working layout to `localStorage.mosaicLayout` (so the working layout survives reload) — independent of
+the named saved configs.
+
+**★Frozen snapshots — no live auto-mirror (dev-mosaicref, 2026-06-16).** A named config changes ONLY on
+an explicit **save-as / rename / delete**; there is NO auto-mirror of the live layout into the active
+config. The original T1 design auto-mirrored every live edit into the active config (presetLoadSettings
+style), which made saving by NAME unreliable: "save A → reconfigure (A still active → A silently
+overwritten) → save B" left A == B ("both names show the last config" — the reported bug). Removing the
+mirror makes each save a frozen snapshot. **Deep-copy guard (`cloneLayout` = `structuredClone` with a
+JSON-roundtrip fallback; string leaf returned as-is):** save-as stores `cloneLayout(liveLayout)`, the
+seed clones, and select / delete-fallback apply `cloneLayout(stored)` — because react-mosaic mutates the
+live layout object in place, storing/loading it by reference would let one mutating object alias every
+saved entry. Snapshot independence is pinned by `hooks/__tests__/mosaicConfigStore.test.jsx`
+(`saveConfigAs` stores a non-aliased deep copy; two saves around an in-place mutation stay independent;
+`cloneLayout` deep-copies nested splits without touching the source).
 
 **Actions (all in `PianoidTuner`, sole mutators — P1):** `handleMosaicConfigSelect(name)` (make active +
 apply the saved layout, exiting fullscreen), `handleSaveMosaicConfigAs(name)`, `handleRenameMosaicConfig`,
