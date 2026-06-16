@@ -17,7 +17,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "PianoidBasic", "Pianoid"))
 
-from StringExcitation import temporal_curve_impulse  # noqa: E402
+from StringExcitation import (  # noqa: E402
+    temporal_curve_impulse,
+    compose_excitation_coefficient,
+    update_coefficient_factor,
+)
 
 FAILS = []
 def check(name, cond):
@@ -66,6 +70,24 @@ check("all-below-floor -> 0 impulse", temporal_curve_impulse(lp0, LEN, EF) == 0.
 lpA = lp.copy()
 lpB = lp.copy(); lpB[3, 0] = 2.0  # kill component 0 via its own shift
 check("per-component ReLU (killing one comp reduces impulse)", temporal_curve_impulse(lpB, LEN, EF) < temporal_curve_impulse(lpA, LEN, EF))
+
+# --- compose_excitation_coefficient: pure product of 5 factors -------------
+c, m, v, tI, sI = 2.5, 0.010, 1.8, val, 0.7
+coeff = compose_excitation_coefficient(c, m, v, tI, sI)
+check("coefficient == c*m*v*tImpulse*sImpulse", abs(coeff - (c*m*v*tI*sI)) <= 1e-12 * abs(c*m*v*tI*sI))
+check("coefficient linear in mass (x2 m -> x2 coeff)", abs(compose_excitation_coefficient(c, 2*m, v, tI, sI) - 2*coeff) <= 1e-9*2*coeff)
+check("coefficient linear in speed (x2 v -> x2 coeff)", abs(compose_excitation_coefficient(c, m, 2*v, tI, sI) - 2*coeff) <= 1e-9*2*coeff)
+
+# --- update_coefficient_factor: incremental ratio update == recompose -------
+# mass 0.010 -> 0.015 : ratio update must equal a full recompose
+inc = update_coefficient_factor(coeff, 0.010, 0.015)
+full = compose_excitation_coefficient(c, 0.015, v, tI, sI)
+check("incremental mass update == recompose", abs(inc - full) <= 1e-9 * full)
+# speed 1.8 -> 3.2 on top
+inc2 = update_coefficient_factor(inc, 1.8, 3.2)
+full2 = compose_excitation_coefficient(c, 0.015, 3.2, tI, sI)
+check("chained incremental (mass then speed) == recompose", abs(inc2 - full2) <= 1e-9 * full2)
+check("update with old_factor=0 -> 0.0 (signals recompose)", update_coefficient_factor(coeff, 0.0, 1.0) == 0.0)
 
 print()
 if FAILS:
