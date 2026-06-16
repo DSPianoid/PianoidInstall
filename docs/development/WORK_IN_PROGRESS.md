@@ -22,6 +22,27 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+<!-- dev-excenergy COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "merge and push energy model").
+     Physics-based excitation energy (B2, proposal docs/proposals/excitation-physical-energy-2026-06-16.md)
+     + reset fix + soft-limiter removal, MERGED + PUSHED across all 3 repos:
+       - PianoidBasic feature/dev-excenergy-physical-energy → dev 445e87a (--no-ff, off d86b477) PUSHED
+         (d86b477..445e87a): per-pitch hammer_mass + per-level speeds + per-(pitch,level) coefficient
+         (c*m*v*temporalImpulse*hammerSpatial, incremental) + GPU-formula temporal point-sum + StringMap pack.
+       - PianoidCore feature/dev-excenergy-physical-energy → dev 9aaaa2d (--no-ff, off 974a19f) PUSHED
+         (974a19f..9aaaa2d): kernel dedicated real per-note coeff buffer + setter + note-on write + multiply;
+         middleware coeff table build/upload + REST GET/POST /excitation_energy; f70af25 host-memset revert
+         (044f375); W5-A soft-limiter removal (e3e31df); W5-B reset PRIMARY accumulator full-clear (bf5f720);
+         init under-zero memset fix (d1d3c2f).
+       - PianoidTunner feature/dev-excenergy-physical-energy → dev 7f03e90 (--no-ff, off 2f320f1) PUSHED
+         (2df8658..7f03e90): excitationImpulse.js + useExcitationEnergy + ExcitationEnergyEditor + dual-
+         integration hooks. PianoidTuner.js auto-merged CLEAN with the mosaic fix (disjoint hunks);
+         verified post-merge: 58/58 Jest (energy+mosaic), prod build compiles.
+     REBUILD VERDICT: W5 HEAVY --both build STANDS (merged dev pianoid_cuda/+pianoid_middleware/ byte-
+     identical to built bf5f720; Pianoid/ byte-identical to built d23a7c6). Post-merge L2 /load_preset → 200,
+     energy endpoint live. MEASURED: reset CONFIRMED FIXED (post-reset RMS→0, endpoints zero); energy linear
+     (mass×2→RMS×2.000). AUDIBLE effects USER-GATED on the 56-SM box.
+     ★NOT included: the aftersounds/DECAY fix (pending user decision — separate later merge; dev-excenergy
+     stays alive for the dev-reset Phase-11 decay spec). Log archived: logs/archive/. -->
 <!-- dev-mosaicref COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved merge). TWO mosaic-config fixes
      MERGED to PianoidTunner origin/dev (merge 2df8658, --no-ff of c3f777f + 7b1c520):
      (1) c3f777f — saved configs are FROZEN SNAPSHOTS: removed the live auto-mirror + deep-copy (cloneLayout)

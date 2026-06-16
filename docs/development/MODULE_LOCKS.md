@@ -23,11 +23,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Full Jest 115/1197 green, eslint 0, live-verified (save A w/Modes → remove Modes → save B ⇒ A frozen,
      A!=B). Frontend-only, NO CUDA. NOT merged — HOLD for user test. ★Behaviour note: this removes the T1
      auto-persist-into-active-config mirror (flagged to team-lead). -->
-| dev-excenergy | `PianoidBasic/Pianoid/PhysicalParameters.py`, `PianoidBasic/Pianoid/ModelParams.py`, `PianoidBasic/Pianoid/StringExcitation.py`, `PianoidBasic/Pianoid/constants.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidBasic/Pianoid/Pitch.py` | 2026-06-16T09:55:00Z | Physics-based excitation energy (B2) Wave 1 — PianoidBasic model (COMPLETE, wheel rebuilt + L1 OK) |
-| dev-excenergy | `PianoidCore/pianoid_cuda/gaussTest.cu`, `PianoidCore/pianoid_cuda/Pianoid_excitation.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/Pianoid.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_cuda/MainKernel.cu` | 2026-06-16T14:30:00Z | Physics-based excitation energy (B2) Wave 2 — kernel: per-note real coeff buffer + setter + note-on write (DONE, HEAVY build landed + L1) + reset/init dev_string_state memset fixes (f70af25/d1d3c2f). +W5 MainKernel.cu (soft-limiter removal W5-A + reset PRIMARY accumulator-clear W5-B) acquired 2026-06-16T22:00:00Z |
-| dev-excenergy | `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/excitation_coefficients.py` (NEW) | 2026-06-16T18:30:00Z | Physics-based excitation energy (B2) Wave 3 — middleware: per-(string,level) coeff table from sm.pack_excitation_coefficients() → setNewExcitationCoefficients on load + edit (incremental D9); REST get/set hammer_mass/hammer_speeds/excitation_impulse_calibration. LIGHT (Python, no rebuild) |
-| dev-excenergy | `PianoidCore/pianoid_middleware/pianoid.py` | 2026-06-16T18:00:00Z | Physics-based excitation energy (B2) Wave 3 — middleware: build+upload per-(string,level) coefficient table to engine at load+edit (DONE, Wave 3a 1070535). Remaining: REST get/set mass/speeds/calibration + recalibration |
-| dev-excenergy | `PianoidTunner/src/utils/excitationImpulse.js` (NEW), `PianoidTunner/src/hooks/useExcitationEnergy.js` (NEW), `PianoidTunner/src/components/ExcitationEnergyEditor.jsx` (NEW), `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/components/ExcitationProperties.jsx` | 2026-06-16T20:30:00Z | Physics-based excitation energy (B2) Wave 4 — PianoidTunner FE: excitationImpulse.js pure helpers (curveImpulse/hammerSpatialImpulse/renormalizeToImpulse) + per-pitch mass & per-level speed editor (GET/POST /excitation_energy) + dual-integration renormalization hooks on gauss/hammer/paste edits |
+<!-- dev-excenergy locks RELEASED 2026-06-16 at Step 10a Phase 2 (user-approved "merge and push energy model").
+     Physics-based excitation energy (B2) + reset fix + soft-limiter removal MERGED + PUSHED across all 3 repos:
+     PianoidBasic dev 445e87a (d86b477..445e87a), PianoidCore dev 9aaaa2d (974a19f..9aaaa2d), PianoidTunner dev
+     7f03e90 (2df8658..7f03e90). All 5 lock-sets released:
+       - PianoidBasic model: PhysicalParameters.py, ModelParams.py, StringExcitation.py, constants.py, StringMap.py, Pitch.py.
+       - PianoidCore kernel: gaussTest.cu/.cuh, Pianoid_excitation.cu, Pianoid.cuh, Pianoid.cu, Pianoid_parameters.cu,
+         AddArraysWithCUDA.cpp, Pianoid_synthesis.cu, MainKernel.cu (W5-A soft-limiter removal e3e31df + W5-B reset
+         PRIMARY accumulator-clear bf5f720).
+       - PianoidCore middleware: pianoid.py, parameter_manager.py, backendServer.py, excitation_coefficients.py (NEW).
+       - PianoidTunner FE: excitationImpulse.js (NEW), useExcitationEnergy.js (NEW), ExcitationEnergyEditor.jsx (NEW),
+         PianoidTuner.js, Excitation.jsx, ExcitationProperties.jsx.
+     REBUILD: W5 HEAVY --both build STANDS (merged dev byte-identical to built tips); post-merge L2 200. Reset
+     CONFIRMED FIXED + energy linear (mass×2→RMS×2) by offline measurement. AUDIBLE USER-GATED on the 56-SM box.
+     ★dev-excenergy STAYS ALIVE for the aftersounds/DECAY follow-up (dev-reset Phase-11 spec, pending user decision)
+     — it will re-acquire MainKernel.cu (+ feedback files) for that separate later kernel change + HEAVY build + merge. -->
+| <!-- (no active locks) --> | | | |
 <!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit a78d0c4 on
      feature/dev-gausscp-hammer-chart). Held: HammerStringChart.jsx (ExcitationProperties.jsx re-locked precautionarily,
      NOT edited this round). 3 hammer-chart enhancements: (1) style matched to Gauss/excitation chart (CHART_COLORS,
