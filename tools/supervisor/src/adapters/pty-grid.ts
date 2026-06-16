@@ -62,8 +62,13 @@ export interface GridPermission {
 }
 
 /** Markers that identify FOOTER rows (the fixed bottom block — input box + hints). */
+// Includes persistent STATUS BANNERS Claude Code pins to the bottom (e.g.
+// "✘ Auto-update failed: claude.exe in use … · Run /doctor"). Without these in the
+// footer set, regions() stops the footer walk at the banner and EXCLUDES the input
+// box above it → isInputReady() returns false → a completed turn never latches →
+// the reply never forwards (the live "fast follow-up reply silent" bug).
 const FOOTER_MARKERS =
-  /❯|Try ["“]|\? for shortcuts|for agents|gh auth login|\/effort|esc to interrupt|◈ max|⧉ In |^─{10,}$/;
+  /❯|Try ["“]|\? for shortcuts|for agents|gh auth login|\/effort|esc to interrupt|◈ max|⧉ In |^─{10,}$|^[✘✗⚠⛔]|Auto-update|Run \/doctor|\/doctor\b|update failed/;
 /** A horizontal rule row (────…) — the footer block is fenced by these. */
 const RULE_ROW = /^─{20,}$/;
 /** Permission prompt markers. */
@@ -420,7 +425,14 @@ export class GridScreen {
   isInputReady(): boolean {
     const rows = this.allRows();
     const { footerRows } = this.regions(rows);
-    const hasInputBox = footerRows.some((r) => /❯\s*(Try ["“]|$)/.test(r.trim()) || /\? for shortcuts/.test(r));
+    const isInputRow = (r: string): boolean => /❯\s*(Try ["“]|$)/.test(r.trim()) || /\? for shortcuts/.test(r);
+    // PRIMARY: the idle input box in the footer region. BELT-AND-SUSPENDERS: also scan
+    // the last ~12 rows directly — an UNEXPECTED persistent bottom banner (e.g. the
+    // "✘ Auto-update failed … /doctor" line) can perturb the region split and hide the
+    // input box from footerRows; scanning the tail directly makes input-detection robust
+    // to any such chrome (this was the live fast-follow-up-reply silence bug).
+    const tail = rows.slice(-12);
+    const hasInputBox = footerRows.some(isInputRow) || tail.some(isInputRow);
     return hasInputBox && !this.detectPermission();
   }
 

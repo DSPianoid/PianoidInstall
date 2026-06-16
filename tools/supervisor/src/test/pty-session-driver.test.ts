@@ -384,6 +384,41 @@ test('driver: ★ FAST reply that goes SILENT still fires ONE result (self-resch
   assert.ok((results[0] as { result?: string }).result?.includes('Orchestrator is up'), 'result carries the fast reply text');
 });
 
+test('driver: ★ a fast reply with a pinned "✘ Auto-update failed … /doctor" footer banner STILL fires a result (the subsequent-turn silence bug)', async () => {
+  // THE SECOND live bug (a fast FOLLOW-UP turn went silent): when a 2nd claude.exe is
+  // running, Claude Code pins "✘ Auto-update failed: claude.exe in use … · Run /doctor"
+  // as the BOTTOM footer row. That row isn't footer-ish → regions() stopped the footer
+  // walk at it → the input box above was EXCLUDED from footerRows → isInputReady()=false
+  // → isTurnComplete() never latched → no result → no forward. Verbatim the live frame.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 3 });
+  await driver.send({ text: 'Hi, are you there?' });
+  pty.emit(
+    lines(
+      "● Yes — I'm here and ready.",
+      '  Orchestrator is up and idle, waiting for a task.',
+      '· Unfurling… (6s · ↓ 184 tokens · thought for 1s)',
+      '  ⎿  Tip: Use /memory to view and manage Claude memory',
+      '────────────',
+      '❯ ',
+      '────────────',
+      '  gh auth login · esc to interrupt',
+      '✘ Auto-update failed: claude.exe in use (close other Claude Code sessions, including VS Code) · Run /doctor',
+      '✻ Brewed for 7s',
+      '────────────',
+      '❯ ',
+      '  gh auth login · ← for agents',
+      '✘ Auto-update failed: claude.exe in use (close other Claude Code sessions, including VS Code) · Run /doctor',
+    ),
+  );
+  await sleep(SETTLE * 6 + 80);
+  await driver.stop();
+  await pump;
+  const results = events.filter((e) => e.kind === 'result');
+  assert.equal(results.length, 1, `fired ONE result despite the pinned auto-update banner (got ${results.length})`);
+  assert.ok((results[0] as { result?: string }).result?.includes("I'm here and ready"), 'result carries the reply text');
+});
+
 test('driver: NO premature result on a transient input-box flash with a spinner active', async () => {
   const pty = new FakePty();
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });
