@@ -169,6 +169,18 @@ function startDriver(
   return { driver, events, pump };
 }
 
+// A minimal IDLE input-box frame (boot-ready) — establishes grid.isInputReady() so the
+// turn QUEUE (#5) types the next turn. The real TUI renders this input box at boot and
+// after each turn; tests emit it before a send() so the queued turn is actually typed.
+const IDLE_INPUT = lines('────────────', '❯ Try "refactor <filepath>"', '  ? for shortcuts');
+/** Make the driver input-ready (emit the idle input box + let it settle), then send a turn. */
+async function readyAndSend(pty: FakePty, driver: PtySessionDriver, text: string): Promise<void> {
+  pty.emit(IDLE_INPUT);
+  await sleep(SETTLE + 20); // grid settles → isInputReady() true
+  await driver.send({ text }); // enqueues; drainQueue types it now (input box idle)
+  await sleep(20); // let the drain type + submit
+}
+
 // ── pure helper tests (the surviving pty-render-parser exports) ──────────────
 test('permissionFromHeader maps verbs/actions to tools', () => {
   assert.deepEqual(permissionFromHeader('create', 'a.txt', 'Create file'), { toolName: 'Write', input: { file_path: 'a.txt' } });
@@ -335,7 +347,7 @@ test('driver: turn-complete is STRICT + de-duped — real answer + stable idle �
   const pty = new FakePty();
   // turnCompleteStableNeeded=2 for a fast test; the answer + idle must persist across reads.
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });
-  await driver.send({ text: 'hi' });
+  await readyAndSend(pty, driver, 'hi');
   // a real assistant ANSWER + the idle input box (no spinner) — the genuine end.
   const doneFrame = lines('● Done. Here is the answer.', '────────────', '❯ Try "x"', '  ? for shortcuts');
   pty.emit(doneFrame);
@@ -359,7 +371,7 @@ test('driver: ★ FAST reply that goes SILENT still fires ONE result (self-resch
   // further data. Here: emit the completed reply ONCE, then send NO more data.
   const pty = new FakePty();
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 3 });
-  await driver.send({ text: 'Hi' });
+  await readyAndSend(pty, driver, 'Hi');
   // a complete fast reply + a lingering "Cooked for Ns" completion marker + idle input —
   // exactly the live end-state. Emitted ONCE; then the TUI is SILENT.
   pty.emit(
@@ -440,7 +452,7 @@ test('driver: ★ turn-2 result is the NEW answer once it renders, never the sta
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 3 });
 
   // ── Turn 1: ALPHA renders + completes → result #1 = ALPHA.
-  await driver.send({ text: 'Describe your environment' });
+  await readyAndSend(pty, driver, 'Describe your environment');
   pty.emit(completedTurn('ANSWER ALPHA about the environment', 5));
   await sleep(SETTLE * 6 + 80);
   let results = events.filter((e) => e.kind === 'result') as { result?: string }[];
@@ -448,10 +460,12 @@ test('driver: ★ turn-2 result is the NEW answer once it renders, never the sta
   assert.ok(results[0]!.result?.includes('ALPHA'), 'turn 1 result is ALPHA');
 
   // ── Turn 2: SUBMIT (markTurnStart snapshots ALPHA as the baseline). The buffer STILL
-  //    shows ALPHA. Render an IDLE footer (input box ready, no spinner) with NO new "●"
+  //    shows ALPHA (turn 1's completed frame left the input box idle → the queued turn 2
+  //    types now). Render an IDLE footer (input box ready, no spinner) with NO new "●"
   //    block yet — the stale window. The driver must NOT emit a 2nd result here (the
   //    streak can't latch: currentTurnAnswer() is undefined while ALPHA is stale).
   await driver.send({ text: 'What MCP tools do you have?' });
+  await sleep(20);
   pty.emit(idleNoNewAnswer);
   await sleep(SETTLE * 6 + 80);
   results = events.filter((e) => e.kind === 'result') as { result?: string }[];
@@ -484,17 +498,19 @@ test('driver: ★★ the ANTI-HANG fallback emits EMPTY, never the stale prior a
   });
 
   // ── Turn 1: ALPHA renders + completes → result #1 = ALPHA.
-  await driver.send({ text: 'Describe your environment' });
+  await readyAndSend(pty, driver, 'Describe your environment');
   pty.emit(completedTurn('ANSWER ALPHA about the environment', 5));
   await sleep(SETTLE * 6 + 80);
   let results = events.filter((e) => e.kind === 'result') as { result?: string }[];
   assert.equal(results.length, 1, 'turn 1 produced exactly one result');
   assert.ok(results[0]!.result?.includes('ALPHA'), 'turn 1 result is ALPHA');
 
-  // ── Turn 2: SUBMIT, then ONLY the idle frame with NO new "●" answer — and NEVER a new
+  // ── Turn 2: SUBMIT (turn 1's completed frame left the input box idle → queued turn 2
+  //    types now), then ONLY the idle frame with NO new "●" answer — and NEVER a new
   //    answer. After identicalAnswerFallbackCycles settle cycles the anti-hang fallback
   //    fires. OLD code → emits stale ALPHA (the bug). FIXED → emits EMPTY (no resend).
   await driver.send({ text: 'What MCP tools do you have?' });
+  await sleep(20);
   pty.emit(idleNoNewAnswer);
   await sleep(SETTLE * 10 + 120); // > identicalAnswerFallbackCycles settle cycles
   await driver.stop();
@@ -514,7 +530,7 @@ test('driver: ★ a fast reply with a pinned "✘ Auto-update failed … /doctor
   // → isTurnComplete() never latched → no result → no forward. Verbatim the live frame.
   const pty = new FakePty();
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 3 });
-  await driver.send({ text: 'Hi, are you there?' });
+  await readyAndSend(pty, driver, 'Hi, are you there?');
   pty.emit(
     lines(
       "● Yes — I'm here and ready.",
@@ -541,6 +557,94 @@ test('driver: ★ a fast reply with a pinned "✘ Auto-update failed … /doctor
   assert.ok((results[0] as { result?: string }).result?.includes("I'm here and ready"), 'result carries the reply text');
 });
 
+// ── #5 INBOUND-DROP: turn queue + input-ready gating ─────────────────────────
+test('driver #5 (a): a turn sent during BOOT waits for the input box, then is typed', async () => {
+  // The live "first question never reached me" boot race: the PTY is spawned but the TUI
+  // hasn't rendered its input box yet → the OLD send() typed immediately into a not-ready
+  // TUI → lost. Now send() ENQUEUES; the turn is typed only once the input box renders.
+  const pty = new FakePty();
+  const { driver, pump } = startDriver(pty);
+  // send BEFORE any input box exists (still booting).
+  await driver.send({ text: 'EARLY QUESTION' });
+  await sleep(SETTLE + 30);
+  assert.ok(!pty.writes.some((w) => w.includes('EARLY QUESTION')), 'the turn is HELD while the input box has not rendered (not typed into a not-ready TUI)');
+  // NOW the boot input box renders → the queued turn is typed.
+  pty.emit(IDLE_INPUT);
+  await sleep(SETTLE + 40);
+  assert.ok(pty.writes.some((w) => w.includes('EARLY QUESTION')), 'once the input box rendered, the queued turn was typed');
+  await driver.stop();
+  await pump;
+});
+
+test('driver #5 (b)+(c): a 2nd turn sent MID-TURN-1 is HELD until turn 1 completes, then typed — order preserved', async () => {
+  // THE CORE BUG (proved by the FakePty diagnostic): with no queue, send() typed turn 2
+  // into the PTY WHILE turn 1 was still in flight (TUI busy) → lost/garbled. Now turn 2 is
+  // held until turn 1's input box is idle again, then typed. FIFO → order preserved.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });
+  await readyAndSend(pty, driver, 'FIRST');
+  assert.ok(pty.writes.some((w) => w.includes('FIRST')), 'turn 1 typed (input box was idle)');
+  // turn 1 is now in flight; the TUI is BUSY (spinner, NO idle input box).
+  pty.emit(lines('● Working…', '· Orchestrating… (5s · ↑ 100 tokens)', '  esc to interrupt'));
+  await sleep(SETTLE + 20);
+  // turn 2 arrives WHILE turn 1 is busy → must be HELD (not typed).
+  await driver.send({ text: 'SECOND' });
+  await sleep(SETTLE + 40);
+  assert.ok(!pty.writes.some((w) => w.includes('SECOND')), '★ turn 2 is HELD while turn 1 is in flight (NOT typed into the busy TUI — the inbound-drop fix)');
+  // turn 1 COMPLETES (answer + idle input box, twice for the streak) → turn 2 drains.
+  const done1 = lines('● First answer.', '✻ Brewed for 5s', '────────────', '❯ ', '────────────', '  gh auth login · ← for agents');
+  pty.emit(done1);
+  await sleep(SETTLE + 30);
+  pty.emit(done1);
+  await sleep(SETTLE + 60);
+  assert.ok(pty.writes.some((w) => w.includes('SECOND')), '★ once turn 1 completed (input idle), the held turn 2 was typed');
+  // order preserved: FIRST was written before SECOND.
+  const idxFirst = pty.writes.findIndex((w) => w.includes('FIRST'));
+  const idxSecond = pty.writes.findIndex((w) => w.includes('SECOND'));
+  assert.ok(idxFirst >= 0 && idxSecond > idxFirst, 'FIFO order preserved (FIRST typed before SECOND)');
+  await driver.stop();
+  await pump;
+});
+
+test('driver #5 (d): NO-DEADLOCK — if the input box NEVER becomes ready, the queued turn surfaces an error (does not hang)', async () => {
+  // The queue must not re-introduce a hang: a wedged TUI that never renders an idle input
+  // box would otherwise hold the turn forever. With a short inputReadyTimeoutMs, the
+  // driver gives up on the head turn + surfaces an error result instead of hanging.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { inputReadyTimeoutMs: 120 });
+  // send a turn, but NEVER render an input box — only busy/spinner frames (wedged).
+  await driver.send({ text: 'WEDGED TURN' });
+  pty.emit(lines('● …', '· Spinning forever… (1s)', '  esc to interrupt'));
+  await sleep(SETTLE * 8 + 200); // > inputReadyTimeoutMs, with self-rescheduled drain polls
+  await driver.stop();
+  await pump;
+  assert.ok(!pty.writes.some((w) => w.includes('WEDGED TURN')), 'the turn was never typed (input box never became ready)');
+  const errs = events.filter((e) => e.kind === 'result' && (e as { subtype?: string }).subtype === 'error');
+  assert.ok(errs.length >= 1, 'an error result was surfaced (no silent hang)');
+  assert.match((errs[0] as { result?: string }).result ?? '', /never became ready|wedged/i, 'the error explains the input box never became ready');
+});
+
+test('driver #5 (e): a PENDING PERMISSION PROMPT is NOT "ready" — the next turn is held until it resolves', async () => {
+  // A pending permission prompt must never count as input-ready: typing a new question
+  // into a permission prompt would answer/garble it. The drainer holds the next turn while
+  // a prompt is on screen (isInputReady() excludes detectPermission()).
+  const pty = new FakePty();
+  let decided = false;
+  const onPermission: PermissionHandler = async () => { decided = true; return { behavior: 'allow' }; };
+  const { driver, pump } = startDriver(pty, onPermission, { turnCompleteStableNeeded: 2 });
+  // a turn is in flight + a permission prompt is rendered (NOT an idle input box).
+  await readyAndSend(pty, driver, 'do the thing');
+  pty.emit(PERMISSION_FRAME);
+  await sleep(SETTLE + 40);
+  assert.ok(decided, 'the permission prompt WAS detected + routed (driver consulted the handler)');
+  // a SECOND turn arrives while the prompt is still on screen → must be HELD.
+  await driver.send({ text: 'NEXT QUESTION' });
+  await sleep(SETTLE + 40);
+  assert.ok(!pty.writes.some((w) => w.includes('NEXT QUESTION')), '★ the next turn is HELD while a permission prompt is pending (never typed into the prompt)');
+  await driver.stop();
+  await pump;
+});
+
 test('driver: NO premature result on a transient input-box flash with a spinner active', async () => {
   const pty = new FakePty();
   const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 2 });
@@ -556,12 +660,15 @@ test('driver: NO premature result on a transient input-box flash with a spinner 
   assert.equal(results.length, 0, `NO result while the engine is still working (got ${results.length})`);
 });
 
-test('driver: send() types text then the submit key; interrupt() sends Esc', async () => {
+test('driver: a queued turn is typed (text + submit) once the input box is idle; interrupt() sends Esc', async () => {
   const pty = new FakePty();
   const { driver, pump } = startDriver(pty);
-  await driver.send({ text: 'hello world' });
-  assert.equal(pty.writes[0], 'hello world');
-  assert.equal(pty.writes[1], '\r');
+  // #5: send() ENQUEUES — the turn is typed by the drainer when the input box is idle.
+  // Establish the idle input box first (the real TUI renders it at boot), then send.
+  await readyAndSend(pty, driver, 'hello world');
+  await sleep(20); // the submit key follows after submitDelayMs (5ms) via a timer
+  assert.equal(pty.writes[0], 'hello world', 'the queued turn text was typed once input-ready');
+  assert.equal(pty.writes[1], '\r', 'the submit key followed');
   await driver.interrupt();
   assert.ok(pty.writes.includes('\x1b'), 'interrupt sends Esc');
   await driver.stop();

@@ -104,6 +104,16 @@ export interface PtySessionDriverOptions {
    * IDENTICAL_ANSWER_FALLBACK_CYCLES (~40 ≈ 10s at the default settle). Exposed for tests.
    */
   identicalAnswerFallbackCycles?: number;
+  /**
+   * NO-DEADLOCK bound for the turn QUEUE. A queued turn is only typed when the TUI's
+   * input box is idle (grid.isInputReady() — which also excludes a pending permission
+   * prompt). If the input box NEVER becomes ready (a wedged TUI that never re-renders
+   * the box), the queued turn would hang forever — re-introducing the very bug class
+   * we fix. After this many ms waiting to type the HEAD turn, the driver surfaces an
+   * error result for that turn (drops it from the queue) rather than hang. Default
+   * INPUT_READY_TIMEOUT_MS (~60s). Exposed for tests.
+   */
+  inputReadyTimeoutMs?: number;
   /** Inject the @xterm/headless Terminal ctor (tests). Default = dynamic import. */
   gridCtor?: XtermCtor;
   /** Optional sink for the raw render stream (diagnostics; never the secret). */
@@ -199,6 +209,12 @@ const DEFAULT_DISABLE_PLUGIN_IDS = ['telegram@claude-plugins-official'];
  * repeats the prior answer (prevents a hang) and never lets the stale-resend through early.
  */
 const IDENTICAL_ANSWER_FALLBACK_CYCLES = 40;
+/**
+ * NO-DEADLOCK bound for a QUEUED turn waiting for the input box to be idle before it's
+ * typed. If the TUI never renders an idle input box (wedged), the queued turn is dropped
+ * with an error result after this long rather than hang forever (~60s default).
+ */
+const INPUT_READY_TIMEOUT_MS = 60000;
 /** Telegram tool globs denied by the seal (belt-and-suspenders). */
 const TELEGRAM_TOOL_GLOBS = ['mcp__plugin_telegram_telegram__*', 'mcp__telegram__*'];
 
@@ -262,8 +278,20 @@ export class PtySessionDriver implements SessionDriver {
   private turnResultEmitted = false;
   /** True once real content (assistant text / tool) arrived for the current turn (diagnostic). */
   private turnHadContent = false;
-  /** True between send() and the turn's surfaced result — gates the turn-complete de-dup. */
+  /** True between TYPING a turn and its surfaced result — gates the turn-complete de-dup. */
   private turnInFlight = false;
+  /**
+   * INBOUND TURN QUEUE (#5 fix). send() ENQUEUES the turn text here; it is NOT typed
+   * directly. A single drainer (drainQueue) types the HEAD turn into the PTY ONLY when
+   * the TUI's input box is idle (grid.isInputReady() — excludes a pending permission
+   * prompt AND a turn in flight). This serializes turns + waits for the TUI to be ready,
+   * so a turn that arrives DURING boot or while a prior turn is mid-flight is held until
+   * the box is ready instead of being typed into a busy/not-yet-rendered prompt and LOST
+   * (the live "inbound never reached me" drop). FIFO → ordering preserved.
+   */
+  private pendingTurns: string[] = [];
+  /** Wall-clock (ms) when the current HEAD turn began waiting to be typed (no-deadlock bound). */
+  private headTurnWaitStart: number | null = null;
   /** Consecutive settled reads where the grid looked turn-complete (debounce vs a flash). */
   private turnCompleteStreak = 0;
   /** Settle-poll cycles elapsed this turn (for the identical-answer bounded fallback). */
@@ -433,6 +461,11 @@ export class PtySessionDriver implements SessionDriver {
         this.enqueue({ kind: 'system_init', sessionId: sid, model: model ? model[0].trim() : undefined, tools: undefined });
       }
     }
+    this.scheduleSettle();
+  }
+
+  /** (Re)arm the settle timer to read the grid after the TUI quiets (or to retry a drain). */
+  private scheduleSettle(): void {
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.settleTimer = setTimeout(() => this.readGrid(), this.opts.settleMs ?? 250);
     if (this.settleTimer && typeof this.settleTimer === 'object' && 'unref' in this.settleTimer) {
@@ -536,6 +569,9 @@ export class PtySessionDriver implements SessionDriver {
         //    additional backstop for any near-identical drift that slips the exact compare.)
         const finalText = streakLatched ? (this.grid.currentTurnAnswer() ?? this.lastAssistantText) : '';
         this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
+        // This turn is done (turnInFlight cleared) → a queued NEXT turn can now be typed
+        // once the input box is idle. Drain it (the #5 serialized-turn-queue handoff).
+        this.drainQueue();
       } else {
         // ★SELF-RESCHEDULE: the streak needs N CONSECUTIVE settled reads, but readGrid is
         // otherwise only driven by incoming PTY data (ingest). A FAST reply finishes and
@@ -544,12 +580,13 @@ export class PtySessionDriver implements SessionDriver {
         // reaches the test bot" bug). So while a turn is in flight and not yet confirmed
         // complete, poll the settled grid ourselves until it latches — independent of
         // whether the TUI keeps repainting. (A new turn / stop / result clears this.)
-        if (this.settleTimer) clearTimeout(this.settleTimer);
-        this.settleTimer = setTimeout(() => this.readGrid(), this.opts.settleMs ?? 250);
-        if (this.settleTimer && typeof this.settleTimer === 'object' && 'unref' in this.settleTimer) {
-          (this.settleTimer as { unref: () => void }).unref();
-        }
+        this.scheduleSettle();
       }
+    } else {
+      // No turn in flight: if a turn is QUEUED (waiting for boot / a prior turn / a
+      // permission prompt to clear), retry the drain on this settled read. drainQueue
+      // re-arms the settle poll itself while it waits, so this can't stall.
+      if (this.pendingTurns.length > 0) this.drainQueue();
     }
   }
 
@@ -604,10 +641,67 @@ export class PtySessionDriver implements SessionDriver {
     }
   }
 
-  /** Inject a user turn: type the text, then the submit key after a settle delay. */
+  /**
+   * Inject a user turn. #5 FIX: ENQUEUE the turn — do NOT type it directly. A turn is
+   * typed only when the TUI's input box is idle (drainQueue → grid.isInputReady()), so a
+   * turn arriving during boot or while a prior turn is mid-flight is HELD (FIFO), not
+   * typed into a busy/not-yet-rendered prompt and lost (the live inbound-drop). The
+   * drainer is kicked here and re-runs on each settled grid read.
+   */
   async send(turn: UserTurn): Promise<void> {
     if (this.setupPromise) await this.setupPromise; // wait for the eager spawn
     if (!this.term) throw new Error('pty session driver: not started');
+    this.pendingTurns.push(turn.text);
+    this.drainQueue();
+  }
+
+  /**
+   * Drain the turn queue: if a turn is queued AND no turn is in flight AND the TUI input
+   * box is idle (grid.isInputReady() — excludes a pending permission prompt), TYPE the
+   * head turn. Otherwise (boot not finished / prior turn in flight / permission pending)
+   * leave it queued and re-arm a settle poll to retry. NO-DEADLOCK (d): if the head turn
+   * has waited longer than inputReadyTimeoutMs without the box becoming ready, surface an
+   * error result + drop it (a wedged TUI must not hang the queue forever). Called from
+   * send() and from readGrid() after each settle.
+   */
+  private drainQueue(): void {
+    if (this.pendingTurns.length === 0) {
+      this.headTurnWaitStart = null;
+      return;
+    }
+    if (this.turnInFlight) return; // a turn is being processed — hold the rest
+    if (!this.term) return;
+    // Ready to type? input box idle + not booting + no pending permission prompt.
+    if (this.grid.isInputReady()) {
+      this.headTurnWaitStart = null;
+      const text = this.pendingTurns.shift()!;
+      this.typeTurn(text);
+      return;
+    }
+    // NOT ready — bound the wait so the queue can't deadlock on a wedged TUI.
+    if (this.headTurnWaitStart === null) this.headTurnWaitStart = Date.now();
+    const waited = Date.now() - this.headTurnWaitStart;
+    const limit = this.opts.inputReadyTimeoutMs ?? INPUT_READY_TIMEOUT_MS;
+    if (waited >= limit) {
+      // give up on this head turn: drop it + surface an error so the caller/operator
+      // knows it wasn't delivered (never silently hang).
+      this.pendingTurns.shift();
+      this.headTurnWaitStart = null;
+      this.enqueue({
+        kind: 'result',
+        sessionId: this.sessionId ?? '',
+        subtype: 'error',
+        result: 'turn not delivered: the session input box never became ready (TUI wedged)',
+      });
+      // try the next queued turn (if any) on the next poll.
+    }
+    // re-arm a settle poll to retry the drain (independent of incoming PTY data).
+    this.scheduleSettle();
+  }
+
+  /** Type a turn into the PTY: reset per-turn state, snapshot the stale-answer baseline, write + submit. */
+  private typeTurn(text: string): void {
+    if (!this.term) return;
     // New turn → re-arm the turn-complete de-dup (one result per turn).
     this.turnResultEmitted = false;
     this.turnHadContent = false;
@@ -619,10 +713,10 @@ export class PtySessionDriver implements SessionDriver {
     // baseline, so the result for THIS turn can't be the previous turn's answer
     // byte-for-byte (the live "turn 2 re-sent turn 1's answer" bug).
     this.grid.markTurnStart();
-    this.term.write(turn.text);
+    this.term.write(text);
     const delay = this.opts.submitDelayMs ?? 900;
-    await new Promise((r) => setTimeout(r, delay));
-    this.term.write(SUBMIT_KEY);
+    const submit = setTimeout(() => this.term?.write(SUBMIT_KEY), delay);
+    if (submit && typeof submit === 'object' && 'unref' in submit) (submit as { unref: () => void }).unref();
   }
 
   /** Interrupt the current turn — Esc into the PTY (the interactive analog of query().interrupt()). */
@@ -635,6 +729,8 @@ export class PtySessionDriver implements SessionDriver {
   async stop(): Promise<void> {
     this.running = false;
     this.streamDone = true;
+    this.pendingTurns = []; // drop any queued-but-untyped turns
+    this.headTurnWaitStart = null;
     if (this.settleTimer) {
       clearTimeout(this.settleTimer);
       this.settleTimer = null;
