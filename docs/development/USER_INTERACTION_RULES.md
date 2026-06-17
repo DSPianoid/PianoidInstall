@@ -25,7 +25,9 @@ When the user reports a bug:
   soft-limiter issue from a computed `raw_output × mvc` value, without ever measuring the engine's real
   output at different volume settings.
 
-### G2 — Hand over a clean stack at every handoff
+## Project-specific (Pianoid)
+
+### P1 — Hand over a clean stack at every handoff
 Before EVERY handoff back to the user — finishing a task, going idle awaiting the next instruction,
 SETTING UP FOR THE USER TO TEST, or shutdown — bring the environment to full clearance: all project
 servers down, all working trees clean, ready for the user to launch a fresh slate.
@@ -35,11 +37,18 @@ servers down, all working trees clean, ready for the user to launch a fresh slat
   waits triggers a stack-down sweep first.
 - The only exception: a concurrent agent is still actively using the stack for its own in-flight work
   (clearance applies at the handoff to the USER, not between overlapping agents).
+- Clearance uses the canonical port-scoped sweep — see
+  [`PROJECT_CONFIG.md#process-sweep`](../PROJECT_CONFIG.md#process-sweep) — over the project's stack ports
+  ([`#ports`](../PROJECT_CONFIG.md#ports)); never blanket-kill node/python.
 
-## Project-specific (Pianoid)
-
-Collect Pianoid-specific interaction rules here as they arise. Clearance (G2) uses the canonical
-port-scoped sweep — see [`PROJECT_CONFIG.md#process-sweep`](../PROJECT_CONFIG.md#process-sweep) — over the
-project's stack ports ([`#ports`](../PROJECT_CONFIG.md#ports)); never blanket-kill node/python.
-
-_(No project-specific interaction rules recorded yet beyond the above.)_
+### P2 — Merge a verified fix to `dev` BEFORE the user tests it
+The user tests on the `dev` branch. Merge a verified fix to `dev` BEFORE the user tests it — do NOT keep
+it on a feature branch awaiting the user's test. This OVERRIDES the generic
+"test-on-feature-branch-first, merge-after-approval" default FOR THIS PROJECT: here the order is
+verify (agent, on branch) → merge to `dev` → user tests on `dev` → revert if rejected.
+(Rationale: the user's workflow launches/tests on `dev`; a fix sitting on an unmerged feature branch is
+invisible to their test — which caused real friction.)
+- Corollary (restart-after-merge): After merging a frontend change to `dev`, RESTART the dev server —
+  CRA does not reliably hot-reload a git merge, so a server started before the merge serves a stale
+  bundle (this caused repeated "fix not showing" confusion). Verify the served bundle/render before
+  telling the user it's live.
