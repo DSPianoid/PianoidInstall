@@ -15,6 +15,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-excenergy's constants.py calibration lock RELEASED 2026-06-17 by dev-energycal-20260617-124636 at Step 10a Phase 1.
+     COLLISION-GUARD RESOLUTION: dev-excenergy had ALREADY committed the exact calibration on
+     feature/dev-excenergy-energy-calibration (PianoidBasic commit 44218c5: EXCITATION_IMPULSE_CALIBRATION 1.0 -> 2.2e-05)
+     + installed it into the wheel, but went idle without reporting/merging. dev-energycal INDEPENDENTLY re-measured offline
+     (audio_off): reference Belarus_196modesC p60 v127 init-vol100 slider64 peaked 6.93e13 = 32251x the INT32 rail (+90 dBFS)
+     at c=1.0; AFTER c=2.2e-05 -> 1.53e9 (-2.94 dBFS, within range, no clip). CONFIRMS 44218c5 exactly. No duplicate branch
+     made (redundant feature/dev-energycal-loudness deleted). 44218c5 is the deliverable; HOLD for team-lead merge approval.
+     ★dev-excenergy RESUMED 2026-06-17 (team-lead confirmed it owns the calibration; dev-energycal stood down): restored the
+     working tree to feature/dev-excenergy-energy-calibration @ 44218c5, rebuilt the wheel from it, verified the INSTALLED
+     default = 2.2e-05 + built-wheel render in-range (-2.94 dBFS). Calibration harness committed on master
+     (docs/development/diagnostics/dev-excenergy-energy-calibration.py). Still HELD for team-lead merge. -->
+| <!-- (none active for energy calibration — dev-excenergy 44218c5 verified by dev-energycal, held for merge) --> | | | |
+| dev-msave | `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/components/MosaicConfigManager.jsx`, `PianoidTunner/src/components/ToolBar.jsx`, `PianoidTunner/src/hooks/__tests__/mosaicConfigStore.test.jsx` | 2026-06-17T09:48:00Z | Mosaic "save current config under current name" (update active in place) |
 <!-- dev-excenergy MainKernel.cu lock RELEASED 2026-06-16 (Option A energy-only revert DONE + pushed). Reverted
      the two W5 commits on PianoidCore dev: 4c935b9 (reverts bf5f720 reset PRIMARY) + 81f0417 (reverts e3e31df
      soft-limiter removal); dev 9aaaa2d..81f0417 → origin/dev. MainKernel.cu now byte-identical to pre-W5 044f375;
