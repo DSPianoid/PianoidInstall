@@ -435,6 +435,137 @@ test('★ send-side idempotency: a LEGITIMATELY-identical answer to a DIFFERENT 
   bus.close();
 });
 
+// ── #8 HEARTBEAT: throttled "still working…" progress ping ───────────────────
+test('★ #8 heartbeat: a LONG turn emits a throttled "still working…" ping (then the answer)', async () => {
+  // The 3-4min silent heavy startup looked hung. Now mid-turn activity drives a throttled
+  // ping. Here: a turn runs, emits activity AFTER the (tiny) ping interval → ONE ping; then
+  // the answer arrives. Uses a 'delay' step to cross the wall-clock throttle deterministically.
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const PING = '⏳ still working…';
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      // mid-turn activity, but BEFORE the interval → no ping yet.
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: 'Bash', input: {} }] } },
+      { do: 'delay', ms: 60 }, // cross the 40ms ping interval
+      // more activity AFTER the interval → ONE ping.
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 't1', content: 'ok' } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'final answer' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read', 'Bash'] },
+    replyToolName: REPLY_TOOL, // orchestrator profile
+    progressPingMs: 40, // tiny interval for the test
+    progressPingText: PING,
+  });
+  await host.start();
+  await host.handleInbound(inbound('do a long task'));
+  await new Promise((r) => setTimeout(r, 140));
+  const pings = cap.sent.filter((s) => s.text === PING);
+  assert.ok(pings.length >= 1, `at least one progress ping was sent during the long turn (got ${pings.length})`);
+  assert.ok(cap.sent.some((s) => s.text === 'final answer'), 'the final answer still arrived');
+  await host.stop();
+  bus.close();
+});
+
+test('★ #8 heartbeat: NO ping after the result (the turn is done → the answer is the signal)', async () => {
+  // Progress pings must STOP once the turn completes — they must not double with / trail
+  // the answer. The lifecycle clears progressActive on the result, so onProgress is not
+  // called afterwards. We assert no ping is sent in a window AFTER the result.
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const PING = '⏳ still working…';
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'done' } },
+      // post-result activity (a stray late event) must NOT trigger a ping.
+      { do: 'delay', ms: 60 },
+      { do: 'emit', event: { kind: 'assistant', text: 'late stray', toolUses: [] } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    replyToolName: REPLY_TOOL,
+    progressPingMs: 40,
+    progressPingText: PING,
+  });
+  await host.start();
+  await host.handleInbound(inbound('quick'));
+  await new Promise((r) => setTimeout(r, 140));
+  assert.ok(!cap.sent.some((s) => s.text === PING), 'NO progress ping after the result');
+  await host.stop();
+  bus.close();
+});
+
+test('★ #8 heartbeat: a FAST turn (finishes within the interval) sends NO ping', async () => {
+  // A fast reply must not ping — the answer arrives before the interval elapses. Activity
+  // + result all within the interval → the throttle never fires.
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const PING = '⏳ still working…';
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: 'Read', input: {} }] } },
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 't1', content: 'ok' } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'fast answer' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    replyToolName: REPLY_TOOL,
+    progressPingMs: 1000, // a long interval; the fast turn finishes well within it
+    progressPingText: PING,
+  });
+  await host.start();
+  await host.handleInbound(inbound('quick q'));
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(!cap.sent.some((s) => s.text === PING), 'a fast turn sends NO progress ping');
+  assert.ok(cap.sent.some((s) => s.text === 'fast answer'), 'the fast answer arrived');
+  await host.stop();
+  bus.close();
+});
+
+test('★ #8 heartbeat: DISABLED by default (no progressPingMs) → no pings even on a long turn', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: 'Bash', input: {} }] } },
+      { do: 'delay', ms: 60 },
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 't1', content: 'ok' } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'answer' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read', 'Bash'] },
+    // progressPingMs omitted → heartbeat disabled (demo default).
+  });
+  await host.start();
+  await host.handleInbound(inbound('go'));
+  await new Promise((r) => setTimeout(r, 140));
+  // only real outputs (the answer) — no "still working" pings since the feature is off.
+  assert.ok(!cap.sent.some((s) => /still working/i.test(s.text)), 'no progress ping when disabled');
+  await host.stop();
+  bus.close();
+});
+
 test('roleTurnPrefix is applied to the FIRST user turn, not a pre-user bootstrap (live fix)', async () => {
   const bus = new IoBus();
   const cap = makeSendCapture();

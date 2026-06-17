@@ -245,6 +245,10 @@ async function main(): Promise<void> {
       // Per-turn de-dup: orchestrator profile (has the reply tool) → auto-out the
       // final answer UNLESS the reply tool fired this turn. Demo → no reply tool.
       replyToolName: profile.suppressAutoOutbound ? SUPERVISOR_CHANNEL_REPLY_TOOL : undefined,
+      // #8 HEARTBEAT (orchestrator profile only): a long turn (e.g. the 3-4min heavy
+      // /orchestrator startup) emits a throttled "still working…" ping every ~40s so the
+      // user can tell working-from-hung. Demo profile → disabled (off by default).
+      progressPingMs: profile.name === 'orchestrator' ? 40000 : undefined,
     });
     supervisor.onInbound(sessionHost.handleInbound);
   } else if (args.echo) {

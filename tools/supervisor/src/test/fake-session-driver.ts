@@ -27,6 +27,7 @@ export type ScriptStep =
   | { do: 'emit'; event: SessionEvent }
   | { do: 'permission'; toolName: string; input?: Record<string, unknown>; record?: (d: PermissionDecision) => void }
   | { do: 'awaitTurn' } // pause until the next send() — models an idle session waiting for a user turn
+  | { do: 'delay'; ms: number } // pause ms before the next step (real-time gap — e.g. a slow turn for the #8 heartbeat)
   | { do: 'silence' } // pause indefinitely (emit nothing) — models a WEDGED session after a turn (H2 watchdog target); released only by interrupt()/stop()
   | { do: 'endClean' } // stream ends normally (after a result was emitted)
   | { do: 'crash' }; // stream ends abruptly with NO result → lifecycle should restart+resume
@@ -93,6 +94,10 @@ export class FakeSessionDriver implements SessionDriver {
               self.turnWaiter = resolve;
             });
           }
+        } else if (step.do === 'delay') {
+          // A real-time gap before the next step (models a slow turn — e.g. drive the
+          // #8 heartbeat: emit activity, delay past the ping interval, emit more activity).
+          await new Promise<void>((resolve) => setTimeout(resolve, step.ms));
         } else if (step.do === 'silence') {
           // Model a WEDGED session: emit nothing, pause indefinitely. The H2
           // watchdog should fire on the outstanding turn. interrupt()/stop()

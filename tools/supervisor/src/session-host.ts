@@ -75,6 +75,15 @@ export interface SessionHostOptions {
   replyToolName?: string;
   /** Permission reply window, ms. */
   permissionTimeoutMs?: number;
+  /**
+   * #8 HEARTBEAT. When set (> 0), a long turn that stays silent for this many ms emits a
+   * throttled "still working…" ping to the channel (driven by mid-turn activity), so the
+   * user can tell working-from-hung during a heavy startup. At most one ping per interval;
+   * none after the turn's result. 0 / omit = disabled (e.g. demo). Default disabled.
+   */
+  progressPingMs?: number;
+  /** The "still working…" ping text (default a generic one). */
+  progressPingText?: string;
 }
 
 export class SessionHost {
@@ -101,6 +110,8 @@ export class SessionHost {
    * belt-and-suspenders against doubling AND byte-identical stale resends.
    */
   private lastSentText: string | null = null;
+  /** #8 heartbeat: wall-clock (ms) of the last progress ping (or turn start) — throttle anchor. */
+  private lastProgressAt = 0;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -152,6 +163,8 @@ export class SessionHost {
       replyToolName: opts.replyToolName,
       onAssistant: (text) => this.sendToOperator(text),
       onResult: (text) => (text ? this.sendToOperator(text) : Promise.resolve()),
+      // #8 heartbeat: throttle mid-turn activity into an occasional "still working…" ping.
+      onProgress: () => this.maybeProgressPing(),
     });
   }
 
@@ -226,6 +239,9 @@ export class SessionHost {
     // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
     // The guard only catches same-turn duplicates (a double-emit / the stale-resend race).
     this.lastSentText = null;
+    // #8 heartbeat: anchor the throttle at the turn start so the FIRST progress ping waits
+    // a full interval (a fast turn finishes before then → no ping; the answer is enough).
+    this.lastProgressAt = Date.now();
     await this.lifecycle.sendUserTurn({ text: turnText });
   };
 
@@ -253,6 +269,27 @@ export class SessionHost {
     if (!this.channelPermission) return false;
     if (code) return this.channelPermission.submitReply(code, verdict);
     return this.channelPermission.submitBareReply(verdict);
+  }
+
+  /**
+   * #8 HEARTBEAT. Called on each mid-turn activity (via the lifecycle's onProgress). If
+   * progress pings are enabled AND at least progressPingMs has elapsed since the last
+   * ping (or the turn start), send ONE "still working…" ping to the operator. Throttled,
+   * so a fast turn (finishes before the interval) never pings — only a genuinely long turn
+   * shows life. NOT sent after the result (the lifecycle stops calling onProgress then).
+   * Goes through opts.send DIRECTLY (not sendToOperator) so it's never deduped as a
+   * "duplicate answer" and never becomes the lastSentText baseline.
+   */
+  private async maybeProgressPing(): Promise<void> {
+    const interval = this.opts.progressPingMs ?? 0;
+    if (interval <= 0 || !this.operator) return; // disabled / no operator
+    const now = Date.now();
+    if (now - this.lastProgressAt < interval) return; // throttled
+    this.lastProgressAt = now;
+    const text = this.opts.progressPingText ?? '⏳ still working…';
+    const r = await this.opts.send(this.operator, { text });
+    if (r.ok) this.logger.info('progress ping sent', { sentIds: r.sentIds });
+    else this.logger.warn('progress ping send failed', { error: r.error });
   }
 
   /** Send text back to the current operator over the channel. */

@@ -66,6 +66,14 @@ export interface LifecycleOptions {
   /** Called for each assistant turn's text (supervisor → outbound). Used by the DEMO profile. */
   onAssistant?: (text: string) => void | Promise<void>;
   /**
+   * MID-TURN PROGRESS (#8 heartbeat). Called on each assistant/tool activity event WHILE
+   * a turn is in flight (between sendUserTurn and the turn's result). The SessionHost
+   * THROTTLES these into an occasional "still working…" ping to the channel, so a long
+   * silent turn (e.g. the 3-4min heavy /orchestrator startup) shows life instead of
+   * looking hung. NOT called after the result fires (the answer is the signal then).
+   */
+  onProgress?: (info: { kind: 'assistant' | 'tool_result'; toolName?: string }) => void | Promise<void>;
+  /**
    * PER-TURN DE-DUP (orchestrator profile). When set to the channel reply tool
    * name (e.g. 'mcp__supervisor_channel__reply'), the lifecycle tracks whether
    * that tool fired during the current turn:
@@ -112,6 +120,12 @@ export class LifecycleManager {
   private turnInFlight = false;
   /** Per-turn de-dup: set when the channel reply tool fires this turn (→ suppress auto-out). */
   private replyToolFiredThisTurn = false;
+  /**
+   * #8 heartbeat: true between a user turn's injection and its result. Gates onProgress
+   * so mid-turn activity drives a "still working…" ping but post-result activity does not.
+   * (Independent of the watchdog's turnInFlight, which only tracks when the watchdog is on.)
+   */
+  private progressActive = false;
 
   constructor(opts: LifecycleOptions) {
     this.opts = opts;
@@ -221,13 +235,20 @@ export class LifecycleManager {
         if (this.opts.replyToolName && ev.toolUses?.some((t) => t.name === this.opts.replyToolName)) {
           this.replyToolFiredThisTurn = true;
         }
+        // #8 heartbeat: mid-turn activity → throttled progress ping (host decides cadence).
+        if (this.progressActive && this.opts.onProgress) {
+          await this.opts.onProgress({ kind: 'assistant', toolName: ev.toolUses?.[0]?.name });
+        }
         // DEMO profile (no replyToolName): auto-out each assistant text as before.
         if (!this.opts.replyToolName && ev.text && this.opts.onAssistant) await this.opts.onAssistant(ev.text);
         break;
       case 'tool_result':
         this.publish('stream.tool_result', { toolUseId: ev.toolUseId, isError: ev.isError });
+        // #8 heartbeat: a tool finishing is mid-turn activity too.
+        if (this.progressActive && this.opts.onProgress) await this.opts.onProgress({ kind: 'tool_result' });
         break;
       case 'result':
+        this.progressActive = false; // #8: turn ended → stop progress pings (the answer is the signal)
         this.publish('stream.result', { sessionId: ev.sessionId, subtype: ev.subtype, costUsd: ev.costUsd });
         this.logger.info('session result', { subtype: ev.subtype, costUsd: ev.costUsd });
         // ORCHESTRATOR profile (replyToolName set): auto-out the final answer text
@@ -332,6 +353,7 @@ export class LifecycleManager {
   async sendUserTurn(turn: UserTurn): Promise<void> {
     if (!this.running) throw new Error('lifecycle: no running session to send to');
     this.replyToolFiredThisTurn = false; // per-turn de-dup: reset for the new turn
+    this.progressActive = true; // #8: a turn is now in flight → mid-turn activity pings
     await this.opts.driver.send(turn);
     this.watchdogArm(); // H2: start the per-turn deadline (no-op if disabled)
   }
