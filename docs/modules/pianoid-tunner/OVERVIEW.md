@@ -330,7 +330,7 @@ Manages all UI configuration state, persisted to `localStorage`. Parameter categ
 | `feedInSettings` | `feedInSettings` | Piano height, modes width, `visualization` (bar/line), `autoScale` (bar-chart y-axis auto-range on/off; default ON, dev-mzoom Option P) |
 | `feedbackSettings` | `feedbackSettings` | Piano height, modes width, `visualization` (bar/line), `autoScale` (bar y-axis auto-range; default ON) |
 | `soundChannelSettings` | `soundChannelSettings` | Piano height, modes width, aggregate mode, `visualization` (bar/line; **default `line`** per Wave 3 of drawable-chart merge — aggregate view reads smoother as a line), `autoScale` (bar y-axis auto-range; default ON — applies to both the aggregate curve and the per-channel matrix bars) |
-| `workbenchSettings` | `workbenchSettings` | `visualization` (bar/line) — governs both the default Workbench pane and every dynamic workbench clone — plus `autoScale` (bar y-axis auto-range; default ON) |
+| `workbenchSettings` | `workbenchSettings` | `visualization` (bar/line) — governs both the default Workbench pane and every dynamic workbench clone — plus `autoScale` (bar y-axis auto-range; default ON) plus `placementMode` (`"screen-bottom"` default / `"panel-bottom"`) — where a newly-spawned workbench docks; see "Workbench spawn placement" under Mosaic Window Management |
 | `excitationSettings` | `excitationSettings` | `stretchStep` (positive float, default `1.2`) — multiplier applied per click of the four Excitation pane stretch/shrink toolbar buttons. See "Excitation stretch/shrink toolbar" below |
 
 Includes `migratePresetSettings()` which renames old parameter keys (`user_1` → `audio_driver_type`, `user_3` → `audio_buffer_size`) in-place in localStorage on first load. `loadSetting()` merges stored values on top of current defaults (`{ ...prev, ...parsed }`) so that new fields added to a settings object — such as `visualization` in Wave 2 of the drawable-chart merge — are present even for users whose localStorage predates the field.
@@ -631,6 +631,17 @@ Coexistence with the (now-removed) inline gear injector: prior to the dev-a328 r
 The application uses `react-mosaic-component` to implement a tiling window manager. The layout is a binary tree where each leaf node is a string ID (e.g., `"Feedin"`, `"Modes"`, `"Virtual Piano"`) and each internal node specifies a split direction and percentage.
 
 `useLayout` owns the tree and provides helpers to maximize a single pane (replacing the whole tree with the leaf ID string) and restore the previous tree. Layout changes are saved to localStorage on every update.
+
+### Workbench spawn placement (dev-wbspawn, 2026-06-17)
+
+Spawning a new workbench (the BarChart icon on a Strings/Modes/Excitation param row, or the per-pane "Open workbench for this parameter" toolbar button) inserts the new pane **without relocating any already-visible pane**. Two placement modes, switchable in the **Workbench Settings** gear dialog ("New Workbench Placement"):
+
+- **Bottom of screen** (default, `workbenchSettings.placementMode = "screen-bottom"`) — the new pane is appended to the screen's bottom stack: the canonical layout's root `direction:"column"` `second` child (the bottom-pinned stack) is grown in place; if no bottom stack exists yet, one is created beneath the current layout. Every other pane — including bottom-pinned panes (`Workbench:*`, `Virtual Piano`) the user manually moved elsewhere — keeps its exact position and size.
+- **Bottom of source panel** (`"panel-bottom"`) — the new pane docks directly under the pane that owns the source parameter (the source leaf is split into a column `{ sourcePane / newWorkbench }` in place); all other panes are untouched. Falls back to the screen-bottom append when the source pane is not in the layout.
+
+**The bug this fixed:** the previous `addBottomPinnedToLayout` gathered EVERY bottom-pinned pane from anywhere in the tree (`collectBottomPinned` + `stripBottomPinned`) and rebuilt them into one full-width balanced stack on every spawn — so spawning a new workbench yanked all already-placed workbenches (and Virtual Piano) to the bottom, full width ("all the workbenches are relocated to the bottom of the screen" — the reported bug).
+
+The pure tree transforms (`isBottomPinned`, `appendToScreenBottom`, `dockUnderPanel`) live in `src/utils/workbenchPlacement.js` (extracted from the 3.6k-LOC `PianoidTuner.js` shell so the layout algebra is single-concern + unit-testable); `PianoidTuner` holds thin `setLayout(transform(layout, …))` wrappers and routes by `placementMode` in `handleOpenWorkbench(parameter, isPiano, sourcePaneId)`. The setting auto-renders as a `<Select>` via the `placementMode` `PARAMETER_CONFIG` entry in `ObjectInspector.jsx` (no extra UI plumbing), persists in the `workbenchSettings` localStorage bucket (merged-over-defaults on load, so existing users get the new key + the default). Pinned by `src/utils/__tests__/workbenchPlacement.test.js` (no-relocate, canonical extend, fresh-stack-create, dock-under-panel, source-absent fallback, no-mutate).
 
 ### Savable mosaic layouts (dev-uiqueue, 2026-06-15)
 
