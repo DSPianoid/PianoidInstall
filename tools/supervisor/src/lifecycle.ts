@@ -268,7 +268,17 @@ export class LifecycleManager {
   }
 
   // ── H2 hang watchdog ──────────────────────────────────────────────────────
-  /** Arm the per-turn deadline (called when a user turn is injected). */
+  /**
+   * Arm the per-turn deadline (called from sendUserTurn when a user turn is INJECTED).
+   *
+   * ⚠️ WATCHDOG × #5 TURN QUEUE (latent — the watchdog is currently DISABLED: turnTimeoutMs
+   * defaults to 0 and is NOT wired in index.ts/session-host). When the watchdog IS wired in
+   * a future task: a turn injected via sendUserTurn may be HELD in the PtySessionDriver's
+   * input-ready queue (#5) and only TYPED later. Arming here (at enqueue) would let a turn
+   * that simply waited in the queue > turnTimeoutMs FALSE-STALL before it ever ran. FIX WHEN
+   * WIRING: arm the deadline when the turn is actually TYPED (the driver would need to signal
+   * "turn started"), NOT at enqueue. See the dev-m12p3a log (2026-06-17 self-review, edge #2).
+   */
   private watchdogArm(): void {
     const ms = this.opts.turnTimeoutMs ?? 0;
     if (ms <= 0) return; // disabled

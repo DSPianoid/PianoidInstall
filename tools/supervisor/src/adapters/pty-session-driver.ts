@@ -699,7 +699,13 @@ export class PtySessionDriver implements SessionDriver {
     this.scheduleSettle();
   }
 
-  /** Type a turn into the PTY: reset per-turn state, snapshot the stale-answer baseline, write + submit. */
+  /**
+   * Type a turn into the PTY: reset per-turn state, snapshot the stale-answer baseline,
+   * write + submit. This is the moment a QUEUED turn actually STARTS (vs being enqueued in
+   * send()). NOTE for a future H2-watchdog wiring: the per-turn deadline should be armed
+   * HERE (turn typed = turn started), not at enqueue — a turn held in the queue must not
+   * count against the stall deadline. See lifecycle.ts watchdogArm() (edge #2).
+   */
   private typeTurn(text: string): void {
     if (!this.term) return;
     // New turn → re-arm the turn-complete de-dup (one result per turn).
