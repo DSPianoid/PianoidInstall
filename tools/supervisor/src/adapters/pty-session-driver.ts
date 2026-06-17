@@ -98,6 +98,12 @@ export interface PtySessionDriverOptions {
   settleMs?: number;
   /** Consecutive settled "turn-complete" reads required before emitting the result. Default 3. */
   turnCompleteStableNeeded?: number;
+  /**
+   * Settle-poll cycles to wait before the ANTI-HANG fallback ends a turn that never
+   * produced its own new answer (currentTurnAnswer() stayed undefined). Default
+   * IDENTICAL_ANSWER_FALLBACK_CYCLES (~40 ≈ 10s at the default settle). Exposed for tests.
+   */
+  identicalAnswerFallbackCycles?: number;
   /** Inject the @xterm/headless Terminal ctor (tests). Default = dynamic import. */
   gridCtor?: XtermCtor;
   /** Optional sink for the raw render stream (diagnostics; never the secret). */
@@ -489,26 +495,46 @@ export class PtySessionDriver implements SessionDriver {
     // prompt) to hold across `turnCompleteStableNeeded` CONSECUTIVE settled reads.
     if (this.turnInFlight && !this.turnResultEmitted) {
       this.turnPollCycles += 1;
-      // BOUNDED FALLBACK for the rare LEGITIMATELY-identical answer: if a turn truly
-      // repeats the prior answer, currentTurnAnswer() stays undefined forever and the
-      // streak can never latch → it would hang. After a generous wait (input idle + no
-      // spinner + a real answer present, just == the prior), accept it so the turn still
-      // completes. Common case (a NEW answer) latches long before this.
+      // BOUNDED ANTI-HANG fallback: if a turn never produces its OWN new answer block
+      // (currentTurnAnswer() stays undefined — e.g. it legitimately repeats the prior
+      // answer, OR the new answer never rendered cleanly), the streak can never latch and
+      // the turn would hang forever. After a generous wait (input idle + no spinner + a
+      // real answer on screen, just == the prior), END the turn so it can't wedge.
       const idleWithAnswer =
         this.grid.isInputReady() && !this.grid.spinnerActive() && !!this.grid.currentAnswerText();
       const identicalFallback =
-        idleWithAnswer && !this.grid.currentTurnAnswer() && this.turnPollCycles >= IDENTICAL_ANSWER_FALLBACK_CYCLES;
-      if (this.grid.isTurnComplete()) {
+        idleWithAnswer &&
+        !this.grid.currentTurnAnswer() &&
+        this.turnPollCycles >= (this.opts.identicalAnswerFallbackCycles ?? IDENTICAL_ANSWER_FALLBACK_CYCLES);
+      const streakComplete = this.grid.isTurnComplete();
+      if (streakComplete) {
         this.turnCompleteStreak += 1;
       } else {
         this.turnCompleteStreak = 0;
       }
-      if (this.turnCompleteStreak >= (this.opts.turnCompleteStableNeeded ?? 3) || identicalFallback) {
+      const streakLatched = this.turnCompleteStreak >= (this.opts.turnCompleteStableNeeded ?? 3);
+      if (streakLatched || identicalFallback) {
         this.turnResultEmitted = true;
         this.turnInFlight = false;
         this.turnCompleteStreak = 0;
-        // Prefer the CURRENT turn's answer; the fallback accepts the identical one.
-        const finalText = this.grid.currentTurnAnswer() ?? this.grid.currentAnswerText() ?? this.lastAssistantText;
+        // ★STALE-ANSWER FIX (seq-221 self-diagnosis #2: "never let the fallback emit text
+        // equal to priorTurnAnswer — defer/emit empty instead of resending the baseline").
+        // Choose the result text PER PATH:
+        //  - NORMAL path (streakLatched): isTurnComplete() was true → currentTurnAnswer()
+        //    is GUARANTEED present + NOT equal to the prior turn's answer. Use it. We do
+        //    NOT `?? currentAnswerText()`: that reads the LAST "●" block in the whole
+        //    scrollback with NO staleness check, so if the new answer hasn't rendered it
+        //    returns the PRIOR turn's answer → the byte-identical stale resend (the live
+        //    bug: turn 2 re-sent turn 1's 2807-char answer verbatim).
+        //  - ANTI-HANG fallback path: by construction currentTurnAnswer() is undefined
+        //    (currentAnswerText() == priorTurnAnswer EXACTLY). The OLD code emitted
+        //    currentAnswerText() here = the stale prior answer = THE BUG. We emit EMPTY
+        //    instead: the turn completes (no wedge) but onResult sends nothing — far better
+        //    than confidently resending a stale answer to a DIFFERENT question. A genuinely-
+        //    identical legitimate reply becomes silence for that one turn (rare, acceptable);
+        //    the user can rephrase. (The send-side idempotency guard in SessionHost is the
+        //    additional backstop for any near-identical drift that slips the exact compare.)
+        const finalText = streakLatched ? (this.grid.currentTurnAnswer() ?? this.lastAssistantText) : '';
         this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
       } else {
         // ★SELF-RESCHEDULE: the streak needs N CONSECUTIVE settled reads, but readGrid is

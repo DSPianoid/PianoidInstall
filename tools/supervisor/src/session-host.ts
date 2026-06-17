@@ -90,6 +90,17 @@ export class SessionHost {
   /** True until the role-adoption prefix has been applied to the first user turn. */
   private rolePrefixPending: boolean;
   private started = false;
+  /**
+   * SEND-SIDE IDEMPOTENCY GUARD (the seq-221 self-diagnosis #1 fix). The text last
+   * delivered to the operator for the CURRENT turn. A second outbound byte-identical
+   * to it — without an intervening user turn — is a DUPLICATE (a duplicate `result`
+   * event, the PTY render race that re-grabs the prior turn's stale answer, or any
+   * double-emit) and is SUPPRESSED. Reset to null on each new user turn, so two
+   * legitimately-identical answers to two DIFFERENT user messages both go through;
+   * only a same-turn duplicate is dropped. Independent of the render-side guard —
+   * belt-and-suspenders against doubling AND byte-identical stale resends.
+   */
+  private lastSentText: string | null = null;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -211,6 +222,10 @@ export class SessionHost {
       turnText = `${this.opts.roleTurnPrefix}\n\n${text}`;
       this.logger.info('applied role-adoption prefix to the first user turn', { prefix: this.opts.roleTurnPrefix });
     }
+    // New user turn → reset the send-side idempotency guard so this turn's (possibly
+    // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
+    // The guard only catches same-turn duplicates (a double-emit / the stale-resend race).
+    this.lastSentText = null;
     await this.lifecycle.sendUserTurn({ text: turnText });
   };
 
@@ -246,11 +261,25 @@ export class SessionHost {
       this.logger.warn('session produced output but no operator to send to', {});
       return;
     }
+    // SEND-SIDE IDEMPOTENCY GUARD (seq-221 #1): suppress a same-turn duplicate — text
+    // byte-identical to what we last delivered for THIS turn (reset on each new user
+    // turn). Catches a duplicate result event, the PTY render race re-grabbing the prior
+    // turn's stale answer, and any other double-emit — independent of the render-side
+    // fix. A legitimately-identical answer to a DIFFERENT user turn still goes through
+    // (the guard was reset by handleInbound). Empty text is a no-op anyway (onResult
+    // already skips it), so don't treat "" as a meaningful last-sent.
+    if (text && text === this.lastSentText) {
+      this.logger.warn('suppressed duplicate outbound (same-turn, byte-identical)', { chars: text.length });
+      return;
+    }
     // Log the outbound RESULT (ok + sentIds) so a forward to the channel is observable —
     // delivery confirmation, not just an attempt. (Without this, a successful send was
     // silent in the log, so we couldn't tell "delivered to the bot" from "never sent".)
     const r = await this.opts.send(this.operator, { text });
     if (r.ok) {
+      // Record as last-sent ONLY on success — a failed send must not poison the guard
+      // (a legitimate retry of the same text would otherwise be suppressed).
+      if (text) this.lastSentText = text;
       this.logger.info('outbound delivered to operator', { sentIds: r.sentIds, chars: text.length });
     } else {
       this.logger.error('outbound send FAILED', { error: r.error, chars: text.length });

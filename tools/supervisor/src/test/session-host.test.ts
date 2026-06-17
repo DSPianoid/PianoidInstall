@@ -360,6 +360,81 @@ test('demo (no replyToolName): assistant text IS auto-sent each turn', async () 
   bus.close();
 });
 
+test('★ send-side idempotency: a SAME-TURN byte-identical duplicate outbound is suppressed (the stale-resend / doubling bug)', async () => {
+  // THE seq-221 self-diagnosis #1 fix. The PTY render race could emit the prior turn's
+  // answer a SECOND time (a duplicate result event, or currentAnswerText() re-grabbing
+  // the stale scrollback block) → the user saw a DOUBLE / a stale resend. The send-side
+  // guard suppresses an outbound byte-identical to the one already delivered THIS turn —
+  // independent of any render-side fix. Modeled here as two identical `result` events in
+  // ONE turn (no intervening user inbound): exactly ONE reaches the channel.
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const dup = 'Here is the full environment description (2807 chars worth).';
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      // First result for this turn → forwarded.
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: dup } },
+      // A SECOND, byte-identical result for the SAME turn (the duplicate/stale-resend) →
+      // must be SUPPRESSED by the send-side guard (no intervening user turn reset it).
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: dup } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    replyToolName: REPLY_TOOL, // orchestrator profile → onResult auto-outs the final text
+  });
+  await host.start();
+  await host.handleInbound(inbound('describe your environment'));
+  await new Promise((r) => setTimeout(r, 40));
+  const copies = cap.sent.filter((s) => s.text === dup);
+  assert.equal(copies.length, 1, `the duplicate outbound was suppressed — exactly ONE copy reached the channel (got ${copies.length})`);
+  await host.stop();
+  bus.close();
+});
+
+test('★ send-side idempotency: a LEGITIMATELY-identical answer to a DIFFERENT user turn STILL goes through (guard is per-turn)', async () => {
+  // The guard must NOT swallow a real repeat: if the user asks the same thing twice (two
+  // DISTINCT user turns), each identical answer is delivered. handleInbound resets the
+  // last-sent baseline on every new turn, so only a SAME-TURN duplicate is dropped.
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const same = 'Yes.';
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: same } },
+      { do: 'awaitTurn' }, // a SECOND, distinct user turn
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: same } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    replyToolName: REPLY_TOOL,
+  });
+  await host.start();
+  await host.handleInbound(inbound('are you there?'));
+  await new Promise((r) => setTimeout(r, 30));
+  await host.handleInbound(inbound('are you there?')); // same question again → same answer
+  await new Promise((r) => setTimeout(r, 30));
+  const copies = cap.sent.filter((s) => s.text === same);
+  assert.equal(copies.length, 2, `both identical answers to two DISTINCT turns were delivered (got ${copies.length})`);
+  await host.stop();
+  bus.close();
+});
+
 test('roleTurnPrefix is applied to the FIRST user turn, not a pre-user bootstrap (live fix)', async () => {
   const bus = new IoBus();
   const cap = makeSendCapture();

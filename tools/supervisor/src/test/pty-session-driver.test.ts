@@ -422,6 +422,90 @@ test('driver: ★ two DIFFERENT consecutive turns yield two DIFFERENT answers (t
   g.dispose();
 });
 
+// A COMPLETED-turn frame in the real TUI geometry: the "●" answer, the past-tense
+// completion summary, then the footer block with the idle input box LAST.
+const completedTurn = (answer: string, secs: number): string =>
+  lines('● ' + answer, '✻ Brewed for ' + secs + 's', '────────────', '❯ ', '────────────', '  gh auth login · ← for agents');
+// An IDLE footer with NO new "●" answer block — the input box is ready + no spinner, but
+// the prior turn's answer is still the last "●" in the buffer (the stale window).
+const idleNoNewAnswer = lines('✻ Brewed for 9s', '────────────', '❯ ', '────────────', '  gh auth login · ← for agents');
+
+test('driver: ★ turn-2 result is the NEW answer once it renders, never the stale prior one (streak path picks currentTurnAnswer)', async () => {
+  // The grid-guard (currentTurnAnswer() undefined while stale) + the driver picking
+  // currentTurnAnswer() on the streak path together guarantee turn 2's result is its OWN
+  // answer. @xterm APPENDS, so turn-1's answer stays in the buffer when turn-2 completes —
+  // the live race condition. The driver must NOT emit a stale result in the window where
+  // only the prior answer is on screen, and must emit BRAVO once it renders.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { turnCompleteStableNeeded: 3 });
+
+  // ── Turn 1: ALPHA renders + completes → result #1 = ALPHA.
+  await driver.send({ text: 'Describe your environment' });
+  pty.emit(completedTurn('ANSWER ALPHA about the environment', 5));
+  await sleep(SETTLE * 6 + 80);
+  let results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 1, 'turn 1 produced exactly one result');
+  assert.ok(results[0]!.result?.includes('ALPHA'), 'turn 1 result is ALPHA');
+
+  // ── Turn 2: SUBMIT (markTurnStart snapshots ALPHA as the baseline). The buffer STILL
+  //    shows ALPHA. Render an IDLE footer (input box ready, no spinner) with NO new "●"
+  //    block yet — the stale window. The driver must NOT emit a 2nd result here (the
+  //    streak can't latch: currentTurnAnswer() is undefined while ALPHA is stale).
+  await driver.send({ text: 'What MCP tools do you have?' });
+  pty.emit(idleNoNewAnswer);
+  await sleep(SETTLE * 6 + 80);
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 1, 'turn 2 did NOT emit a stale result while only ALPHA is on screen (no byte-identical resend)');
+
+  // ── Turn 2's REAL answer (BRAVO) renders → result #2 = BRAVO, never the stale ALPHA.
+  pty.emit(completedTurn('ANSWER BRAVO about the mcp tools', 6));
+  await sleep(SETTLE * 6 + 80);
+  await driver.stop();
+  await pump;
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 2, 'turn 2 emitted its result once BRAVO rendered');
+  assert.ok(results[1]!.result?.includes('BRAVO'), `turn 2 result is BRAVO (got ${JSON.stringify(results[1]!.result)})`);
+  assert.ok(!results[1]!.result?.includes('ALPHA'), 'turn 2 result does NOT contain the stale ALPHA');
+});
+
+test('driver: ★★ the ANTI-HANG fallback emits EMPTY, never the stale prior answer (the seq-221 byte-identical-resend bug)', async () => {
+  // ★ THE HEADLINE BUG (capture seq 221): turn 2 went idle with NO new "●" answer block
+  // (its answer never rendered cleanly / it produced none), so currentTurnAnswer() stayed
+  // undefined → the streak could never latch → the bounded ANTI-HANG fallback fired. The
+  // OLD code then emitted currentAnswerText() = the PRIOR turn's answer (== priorTurnAnswer
+  // EXACTLY) → turn 2 re-sent turn 1's 2807-char answer BYTE-IDENTICAL. The FIX (seq-221
+  // self-diagnosis #2): the fallback emits EMPTY (the turn completes — no hang — but sends
+  // NOTHING; onResult skips empty), never the stale baseline. We force the fallback fast via
+  // identicalAnswerFallbackCycles:3 and assert turn 2's result text is EMPTY, NOT ALPHA.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, {
+    turnCompleteStableNeeded: 3,
+    identicalAnswerFallbackCycles: 3, // fire the fallback after ~3 settle cycles (fast for the test)
+  });
+
+  // ── Turn 1: ALPHA renders + completes → result #1 = ALPHA.
+  await driver.send({ text: 'Describe your environment' });
+  pty.emit(completedTurn('ANSWER ALPHA about the environment', 5));
+  await sleep(SETTLE * 6 + 80);
+  let results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 1, 'turn 1 produced exactly one result');
+  assert.ok(results[0]!.result?.includes('ALPHA'), 'turn 1 result is ALPHA');
+
+  // ── Turn 2: SUBMIT, then ONLY the idle frame with NO new "●" answer — and NEVER a new
+  //    answer. After identicalAnswerFallbackCycles settle cycles the anti-hang fallback
+  //    fires. OLD code → emits stale ALPHA (the bug). FIXED → emits EMPTY (no resend).
+  await driver.send({ text: 'What MCP tools do you have?' });
+  pty.emit(idleNoNewAnswer);
+  await sleep(SETTLE * 10 + 120); // > identicalAnswerFallbackCycles settle cycles
+  await driver.stop();
+  await pump;
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 2, 'turn 2 completed via the anti-hang fallback (no wedge)');
+  const turn2Text = results[1]!.result ?? '';
+  assert.ok(!turn2Text.includes('ALPHA'), `★ turn 2 did NOT resend the stale ALPHA (got ${JSON.stringify(turn2Text)})`);
+  assert.equal(turn2Text, '', 'turn 2 fallback result is EMPTY (sends nothing — never the stale baseline)');
+});
+
 test('driver: ★ a fast reply with a pinned "✘ Auto-update failed … /doctor" footer banner STILL fires a result (the subsequent-turn silence bug)', async () => {
   // THE SECOND live bug (a fast FOLLOW-UP turn went silent): when a 2nd claude.exe is
   // running, Claude Code pins "✘ Auto-update failed: claude.exe in use … · Run /doctor"
