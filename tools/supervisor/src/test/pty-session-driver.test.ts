@@ -144,9 +144,12 @@ class FakePty implements PtyProcess {
     else this.buffered.push(frame);
   }
 }
-function fakeSpawn(pty: FakePty, capture?: (file: string, args: string[]) => void): PtySpawnFn {
-  return (file, args) => {
-    capture?.(file, args);
+function fakeSpawn(
+  pty: FakePty,
+  capture?: (file: string, args: string[], opts?: { cwd: string }) => void,
+): PtySpawnFn {
+  return (file, args, opts) => {
+    capture?.(file, args, opts as { cwd: string });
     return pty;
   };
 }
@@ -698,6 +701,28 @@ test('driver: send() before start throws; health reflects state', async () => {
   await assert.rejects(() => driver.send({ text: 'hi' }), /not started/);
   assert.equal(driver.health().running, false);
   assert.equal(driver.health().detail, 'pty-session-driver');
+});
+
+test('driver #2: the session cwd is passed to the spawn (the worktree-isolation mechanism)', async () => {
+  // #2 WORKTREE HARD ISOLATION relies on the hosted PTY child running in a SEPARATE worktree.
+  // The supervisor passes that path as start({cwd}); the driver must spawn claude with that
+  // exact cwd (so the orchestrator's file writes land in the worktree, not the real tree).
+  const pty = new FakePty();
+  let capturedCwd: string | undefined;
+  const driver = new PtySessionDriver({
+    spawnFn: fakeSpawn(pty, (_f, _a, opts) => (capturedCwd = opts?.cwd)),
+    skipPreTrust: true,
+    settleMs: SETTLE,
+  });
+  const worktree = 'D:/tmp/supervisor-worktree-12345';
+  const iter = driver.start({ onPermission: allow, cwd: worktree })[Symbol.asyncIterator]();
+  const pump = (async () => {
+    for (let r = await iter.next(); !r.done; r = await iter.next()) void r;
+  })();
+  await sleep(10);
+  await driver.stop();
+  await pump;
+  assert.equal(capturedCwd, worktree, 'the spawn ran in the isolation-worktree cwd');
 });
 
 // ── containment seal (the production-telegram isolation breach fix) ───────────

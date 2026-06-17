@@ -232,7 +232,13 @@ async function main(): Promise<void> {
       // broad allow-list + the safety-floor route predicate).
       policy: profile.name === 'orchestrator' ? profile.policy : config.permissionPolicy,
       systemPrompt,
-      cwd: process.cwd(),
+      // SESSION CWD = where the hosted PTY child runs. Default = the supervisor's own cwd.
+      // OVERRIDE via SUPERVISOR_SESSION_CWD → #2 WORKTREE HARD ISOLATION: the launcher points
+      // the hosted orchestrator at a SEPARATE git worktree of the repo, so its file writes
+      // land there, NOT in the real working tree under an active /dev. The worktree is a full
+      // checkout (CLAUDE.md + .claude/commands + settingSources all present) → role/skills
+      // still load. The supervisor process itself keeps cwd=tools/supervisor (to find dist/).
+      cwd: process.env.SUPERVISOR_SESSION_CWD || process.cwd(),
       settingSources: profile.settingSources,
       mcpServers,
       disallowedTools: profile.policy.deny,
@@ -295,6 +301,22 @@ async function main(): Promise<void> {
     if (sessionHost) await sessionHost.stop();
     if (panel) await panel.stop();
     await supervisor.stop();
+    // #2 WORKTREE HARD ISOLATION teardown: if the launcher created an isolation worktree
+    // for the hosted orchestrator (SUPERVISOR_WORKTREE_CLEANUP=<path>), remove it now that
+    // the session is stopped (its claude child is dead). Best-effort: a leftover worktree is
+    // harmless (just disk) and `git worktree prune` reaps it later. Tied to the SUPERVISOR's
+    // shutdown (the session-lifecycle owner) since the launcher is detached + already exited.
+    const wt = process.env.SUPERVISOR_WORKTREE_CLEANUP;
+    if (wt) {
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync(`git worktree remove --force "${wt}"`, { cwd: process.cwd(), stdio: 'ignore' });
+        execSync('git worktree prune', { cwd: process.cwd(), stdio: 'ignore' });
+        logger.info('removed isolation worktree', { worktree: wt });
+      } catch (err) {
+        logger.warn('worktree cleanup failed (harmless — prune will reap it)', { worktree: wt, err: String(err) });
+      }
+    }
     await logger.close();
     process.exit(0);
   };
