@@ -365,3 +365,47 @@ test('H2 watchdog disabled (turnTimeoutMs=0): a silent turn does NOT fire', asyn
   await lm.stop();
   bus.close();
 });
+
+test('★ #8×#5: a QUEUED 2nd turn still gets heartbeat progress (outstanding-turns COUNTER, not a boolean)', async () => {
+  // The cross-fix interaction: with the #5 turn queue, turn 2's sendUserTurn runs BEFORE
+  // turn 1's result (turn 2 is held in the driver queue). A boolean progressActive cleared
+  // on turn 1's result would lose turn 2's heartbeat entirely. A COUNTER keeps progress
+  // active while ANY turn is outstanding → turn 2's mid-turn activity still pings.
+  const bus = new IoBus();
+  const progress: { kind: string; toolName?: string }[] = [];
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 'a', name: 'Bash', input: {} }] } }, // turn1 activity
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'a1' } }, // turn1 done
+      { do: 'awaitTurn' }, // turn 2
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 'b', name: 'Read', input: {} }] } }, // turn2 activity → MUST ping
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 'b', content: 'ok' } }, // turn2 activity → MUST ping
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'a2' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    onProgress: (info) => {
+      progress.push(info);
+    },
+    onResult: () => {},
+  });
+  await lm.start();
+  // BOTH turns injected before turn 1's result is processed (the queued-turn ordering):
+  // the counter reaches 2, so turn 1's result decrements to 1 (still active) — turn 2's
+  // activity then sees the counter > 0 and pings.
+  await lm.sendUserTurn({ text: 'turn one' });
+  await lm.sendUserTurn({ text: 'turn two' });
+  await new Promise((r) => setTimeout(r, 80));
+  await lm.stop();
+  // turn 2 produced TWO activity events (Read + tool_result) — both must have pinged.
+  const turn2Pings = progress.filter((p) => p.toolName === 'Read' || p.kind === 'tool_result').length;
+  assert.ok(turn2Pings >= 2, `the queued turn 2 still got heartbeat pings (got ${turn2Pings}; 0 = the boolean bug)`);
+  bus.close();
+});

@@ -121,11 +121,15 @@ export class LifecycleManager {
   /** Per-turn de-dup: set when the channel reply tool fires this turn (→ suppress auto-out). */
   private replyToolFiredThisTurn = false;
   /**
-   * #8 heartbeat: true between a user turn's injection and its result. Gates onProgress
-   * so mid-turn activity drives a "still working…" ping but post-result activity does not.
+   * #8 heartbeat: count of user turns INJECTED but not yet resolved (a result seen).
+   * Gates onProgress so mid-turn activity drives a "still working…" ping but post-result
+   * activity does not. A COUNTER (not a boolean) because turns can be QUEUED (#5): if
+   * turn 2's sendUserTurn runs before turn 1's result, a boolean cleared on turn 1's
+   * result would lose turn 2's heartbeat. With a counter, progress stays active while ANY
+   * turn is outstanding (t1 send=1, t2 send=2, t1 result=1 [still active], t2 result=0).
    * (Independent of the watchdog's turnInFlight, which only tracks when the watchdog is on.)
    */
-  private progressActive = false;
+  private outstandingTurns = 0;
 
   constructor(opts: LifecycleOptions) {
     this.opts = opts;
@@ -236,7 +240,7 @@ export class LifecycleManager {
           this.replyToolFiredThisTurn = true;
         }
         // #8 heartbeat: mid-turn activity → throttled progress ping (host decides cadence).
-        if (this.progressActive && this.opts.onProgress) {
+        if (this.outstandingTurns > 0 && this.opts.onProgress) {
           await this.opts.onProgress({ kind: 'assistant', toolName: ev.toolUses?.[0]?.name });
         }
         // DEMO profile (no replyToolName): auto-out each assistant text as before.
@@ -245,10 +249,10 @@ export class LifecycleManager {
       case 'tool_result':
         this.publish('stream.tool_result', { toolUseId: ev.toolUseId, isError: ev.isError });
         // #8 heartbeat: a tool finishing is mid-turn activity too.
-        if (this.progressActive && this.opts.onProgress) await this.opts.onProgress({ kind: 'tool_result' });
+        if (this.outstandingTurns > 0 && this.opts.onProgress) await this.opts.onProgress({ kind: 'tool_result' });
         break;
       case 'result':
-        this.progressActive = false; // #8: turn ended → stop progress pings (the answer is the signal)
+        if (this.outstandingTurns > 0) this.outstandingTurns -= 1; // #8: one turn resolved (others may still be outstanding)
         this.publish('stream.result', { sessionId: ev.sessionId, subtype: ev.subtype, costUsd: ev.costUsd });
         this.logger.info('session result', { subtype: ev.subtype, costUsd: ev.costUsd });
         // ORCHESTRATOR profile (replyToolName set): auto-out the final answer text
@@ -353,7 +357,7 @@ export class LifecycleManager {
   async sendUserTurn(turn: UserTurn): Promise<void> {
     if (!this.running) throw new Error('lifecycle: no running session to send to');
     this.replyToolFiredThisTurn = false; // per-turn de-dup: reset for the new turn
-    this.progressActive = true; // #8: a turn is now in flight → mid-turn activity pings
+    this.outstandingTurns += 1; // #8: a turn is now outstanding → mid-turn activity pings (counter handles queued turns)
     await this.opts.driver.send(turn);
     this.watchdogArm(); // H2: start the per-turn deadline (no-op if disabled)
   }
@@ -384,6 +388,7 @@ export class LifecycleManager {
     // Forget the session id so the next run starts FRESH (no resume → clean context).
     this.sessionId = undefined;
     this.restarts = 0;
+    this.outstandingTurns = 0; // #8: fresh context → no turns outstanding
     // Re-start: running set synchronously; the fresh run re-bootstraps the role.
     this.running = true;
     this.stopping = false;
@@ -405,6 +410,7 @@ export class LifecycleManager {
     if (!this.running && !this.runLoop) return;
     this.stopping = true;
     this.running = false;
+    this.outstandingTurns = 0; // #8: stopping → no turns outstanding
     this.watchdogDisarm(); // H2: cancel any pending deadline
     await this.opts.driver.stop();
     if (this.runLoop) {
