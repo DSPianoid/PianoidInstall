@@ -439,6 +439,18 @@ export class GridScreen {
     return this.allRows().some((r) => TRUST_GATE.test(r));
   }
 
+  /**
+   * A coarse SIGNATURE of the current screen content (all non-empty rows joined). Used by
+   * the driver to detect "the screen changed since the last settled read" = the engine is
+   * still WORKING/rendering (a spinner frame advancing, an elapsed-timer/token-counter
+   * ticking, new answer rows appearing). A STABLE signature across reads = a genuinely
+   * static screen. This is what makes the destructive timeouts (anti-hang fallback,
+   * no-deadlock drop) count only on real inactivity, never mid-think.
+   */
+  signature(): string {
+    return this.allRows().filter((r) => r.trim()).join('\n');
+  }
+
   /** Is a working SPINNER currently rendered? = the engine is mid-turn (NOT complete). */
   spinnerActive(): boolean {
     // scan the last ~8 non-empty rows for a spinner/status row (the spinner lives just

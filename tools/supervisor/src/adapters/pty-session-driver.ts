@@ -290,12 +290,39 @@ export class PtySessionDriver implements SessionDriver {
    * (the live "inbound never reached me" drop). FIFO → ordering preserved.
    */
   private pendingTurns: string[] = [];
-  /** Wall-clock (ms) when the current HEAD turn began waiting to be typed (no-deadlock bound). */
+  /** Wall-clock (ms) when the current HEAD turn began waiting on a STATIC screen (no-deadlock bound). */
   private headTurnWaitStart: number | null = null;
+  /** Grid signature at the last drain check — resets the static-wait when the screen changes. */
+  private drainLastSig: string | null = null;
   /** Consecutive settled reads where the grid looked turn-complete (debounce vs a flash). */
   private turnCompleteStreak = 0;
   /** Settle-poll cycles elapsed this turn (for the identical-answer bounded fallback). */
   private turnPollCycles = 0;
+  /**
+   * ACTIVITY-GATED COUNTDOWNS (the real-timing fix). The destructive timeouts — the
+   * anti-hang fallback (emit-empty) and the queue no-deadlock (drop-turn) — must count
+   * ONLY while the screen is genuinely STATIC, never while the engine is WORKING/THINKING.
+   * `staticReadStreak` = consecutive settled reads where NOTHING changed (no spinner, no
+   * advancing elapsed-timer/token-counter, no new rows). It RESETS to 0 on ANY activity.
+   * The live bug: an 84s "Composing…" think looked "idle" to the elapsed-cycle counter (the
+   * garbled spinner repaints had gaps) → the fallback fired mid-think → empty result →
+   * the answer (rendered 30s later) was orphaned. Keying off STATIC reads, a long think
+   * keeps resetting the streak → the fallback never fires while it's working.
+   */
+  private staticReadStreak = 0;
+  /** Signature of the last settled grid (full rows) — to detect "nothing changed since". */
+  private lastGridSignature = '';
+  /**
+   * B(ii) LATE-ANSWER FORWARD. When the anti-hang fallback emits an EMPTY result (nothing
+   * delivered for the turn), the engine may STILL render the real answer shortly after (the
+   * live bug: the answer came 30s after the premature empty result). If a genuinely-new
+   * answer appears before the next turn, forward it via a follow-up result. Guarded: only
+   * while this flag is set (an empty result was the turn's delivery) → cleared the moment a
+   * real answer is forwarded or a new turn starts, so it can NEVER double a delivered answer.
+   */
+  private awaitingLateAnswer = false;
+  /** The prior-turn answer baseline captured when the empty result fired (for B(ii) novelty check). */
+  private lateAnswerBaseline: string | undefined;
 
   constructor(opts: PtySessionDriverOptions = {}) {
     this.opts = opts;
@@ -528,17 +555,27 @@ export class PtySessionDriver implements SessionDriver {
     // prompt) to hold across `turnCompleteStableNeeded` CONSECUTIVE settled reads.
     if (this.turnInFlight && !this.turnResultEmitted) {
       this.turnPollCycles += 1;
-      // BOUNDED ANTI-HANG fallback: if a turn never produces its OWN new answer block
-      // (currentTurnAnswer() stays undefined — e.g. it legitimately repeats the prior
-      // answer, OR the new answer never rendered cleanly), the streak can never latch and
-      // the turn would hang forever. After a generous wait (input idle + no spinner + a
-      // real answer on screen, just == the prior), END the turn so it can't wedge.
+      // ★ACTIVITY GATE (real-timing fix): the anti-hang fallback must count only STATIC
+      // reads, never mid-think. Reset the static streak on ANY activity — a working spinner
+      // OR a changed screen (advancing timer/token-counter, new rows). A long "Composing…"
+      // think (84s live) keeps the screen changing → staticReadStreak stays low → the
+      // fallback never fires while the engine works. (Then it fires only on a truly static
+      // screen showing the prior answer = the real identical-repeat case.)
+      const sig = this.grid.signature();
+      const changed = sig !== this.lastGridSignature;
+      this.lastGridSignature = sig;
+      if (changed || this.grid.spinnerActive()) this.staticReadStreak = 0;
+      else this.staticReadStreak += 1;
+      // BOUNDED ANTI-HANG fallback: if a turn never produces its OWN new answer block AND the
+      // screen has been genuinely STATIC for the window (no spinner, no change), END the turn
+      // so it can't wedge — but emit EMPTY (never the stale prior answer), and B(ii) will
+      // forward a late real answer if one renders.
       const idleWithAnswer =
         this.grid.isInputReady() && !this.grid.spinnerActive() && !!this.grid.currentAnswerText();
       const identicalFallback =
         idleWithAnswer &&
         !this.grid.currentTurnAnswer() &&
-        this.turnPollCycles >= (this.opts.identicalAnswerFallbackCycles ?? IDENTICAL_ANSWER_FALLBACK_CYCLES);
+        this.staticReadStreak >= (this.opts.identicalAnswerFallbackCycles ?? IDENTICAL_ANSWER_FALLBACK_CYCLES);
       const streakComplete = this.grid.isTurnComplete();
       if (streakComplete) {
         this.turnCompleteStreak += 1;
@@ -568,10 +605,24 @@ export class PtySessionDriver implements SessionDriver {
         //    the user can rephrase. (The send-side idempotency guard in SessionHost is the
         //    additional backstop for any near-identical drift that slips the exact compare.)
         const finalText = streakLatched ? (this.grid.currentTurnAnswer() ?? this.lastAssistantText) : '';
+        // B(ii): if this turn delivered NOTHING (the anti-hang fallback emitted empty), keep
+        // watching for a LATE real answer — the engine may still render it (the live bug: the
+        // answer came 30s after the premature empty result). Arm the late-answer watch with
+        // the current answer as the baseline so only a genuinely-NEW block forwards.
+        if (!finalText) {
+          this.awaitingLateAnswer = true;
+          this.lateAnswerBaseline = this.grid.currentAnswerText();
+        } else {
+          this.awaitingLateAnswer = false;
+        }
         this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: finalText });
         // This turn is done (turnInFlight cleared) → a queued NEXT turn can now be typed
         // once the input box is idle. Drain it (the #5 serialized-turn-queue handoff).
+        // (If we armed the late-answer watch AND a turn is queued, the queued turn takes
+        // precedence — typing it ends the late-answer window, which is correct.)
         this.drainQueue();
+        // Keep polling so B(ii) can catch a late answer even if the TUI goes quiet.
+        if (this.awaitingLateAnswer) this.scheduleSettle();
       } else {
         // ★SELF-RESCHEDULE: the streak needs N CONSECUTIVE settled reads, but readGrid is
         // otherwise only driven by incoming PTY data (ingest). A FAST reply finishes and
@@ -583,9 +634,23 @@ export class PtySessionDriver implements SessionDriver {
         this.scheduleSettle();
       }
     } else {
-      // No turn in flight: if a turn is QUEUED (waiting for boot / a prior turn / a
-      // permission prompt to clear), retry the drain on this settled read. drainQueue
-      // re-arms the settle poll itself while it waits, so this can't stall.
+      // No turn in flight.
+      // B(ii) LATE-ANSWER FORWARD: the prior turn delivered nothing (anti-hang fallback →
+      // empty). If the engine has now rendered a genuinely-NEW answer (a "●" block different
+      // from the empty-result baseline), forward it so the answer still reaches the user.
+      // Guarded by awaitingLateAnswer (cleared on forward / on a new turn) → can't double.
+      if (this.awaitingLateAnswer) {
+        const ans = this.grid.currentAnswerText();
+        if (ans && ans.trim() && ans !== this.lateAnswerBaseline && !this.grid.spinnerActive()) {
+          this.awaitingLateAnswer = false;
+          this.enqueue({ kind: 'result', sessionId: this.sessionId ?? '', subtype: 'success', result: ans });
+        } else {
+          // still waiting (no new answer yet / still working) — keep polling a bounded while.
+          this.scheduleSettle();
+        }
+      }
+      // if a turn is QUEUED (waiting for boot / a prior turn / a permission prompt to clear),
+      // retry the drain on this settled read. drainQueue re-arms the settle poll while it waits.
       if (this.pendingTurns.length > 0) this.drainQueue();
     }
   }
@@ -678,15 +743,28 @@ export class PtySessionDriver implements SessionDriver {
       this.typeTurn(text);
       return;
     }
-    // NOT ready — bound the wait so the queue can't deadlock on a wedged TUI.
-    if (this.headTurnWaitStart === null) this.headTurnWaitStart = Date.now();
-    const waited = Date.now() - this.headTurnWaitStart;
+    // NOT ready. ★C(ii) ACTIVITY-GATED no-deadlock: only count toward the timeout while the
+    // screen is genuinely STATIC. A legitimately long/working turn (spinner, advancing
+    // timer, new rows) or the prior turn still rendering keeps RESETTING the static-wait, so
+    // it never trips on a busy-but-progressing TUI — the timeout fires ONLY on a truly
+    // static screen with no input box (genuinely wedged). The live bug: a 60s flat timeout
+    // dropped a deliverable turn while the orchestrator was legitimately working/idle-mis-read.
+    const sig = this.grid.signature();
+    if (this.grid.spinnerActive() || sig !== this.drainLastSig) {
+      // activity (engine working / screen changing) → NOT wedged → reset the static-wait.
+      this.headTurnWaitStart = null;
+    } else if (this.headTurnWaitStart === null) {
+      this.headTurnWaitStart = Date.now(); // screen just went static → start the wedged-clock
+    }
+    this.drainLastSig = sig;
+    const staticWaited = this.headTurnWaitStart === null ? 0 : Date.now() - this.headTurnWaitStart;
     const limit = this.opts.inputReadyTimeoutMs ?? INPUT_READY_TIMEOUT_MS;
-    if (waited >= limit) {
-      // give up on this head turn: drop it + surface an error so the caller/operator
-      // knows it wasn't delivered (never silently hang).
+    if (staticWaited >= limit) {
+      // genuinely wedged (static screen, no input box, for the full window) → give up on this
+      // head turn + surface an error so it's never a silent hang.
       this.pendingTurns.shift();
       this.headTurnWaitStart = null;
+      this.drainLastSig = null;
       this.enqueue({
         kind: 'result',
         sessionId: this.sessionId ?? '',
@@ -714,6 +792,10 @@ export class PtySessionDriver implements SessionDriver {
     this.turnInFlight = true;
     this.turnCompleteStreak = 0;
     this.turnPollCycles = 0;
+    this.staticReadStreak = 0; // reset the activity gate for the new turn
+    this.lastGridSignature = '';
+    this.awaitingLateAnswer = false; // a new turn ends any pending late-answer watch (no double)
+    this.lateAnswerBaseline = undefined;
     this.lastAssistantText = undefined;
     // STALE-ANSWER guard: snapshot the answer present NOW (the PRIOR turn's) as the
     // baseline, so the result for THIS turn can't be the previous turn's answer

@@ -525,6 +525,86 @@ test('driver: ★★ the ANTI-HANG fallback emits EMPTY, never the stale prior a
   assert.equal(turn2Text, '', 'turn 2 fallback result is EMPTY (sends nothing — never the stale baseline)');
 });
 
+test('driver: ★★ a LONG THINK (84s-style, changing spinner) does NOT fire the anti-hang fallback mid-think (live FAILURE-1)', async () => {
+  // THE LIVE FAILURE 1: turn 2 spent 84s "Composing…" (a long think) with turn 1's answer
+  // still in scrollback. The OLD elapsed-cycle fallback fired ~63s in → EMPTY result → the
+  // real answer (rendered 30s later) was orphaned. The ACTIVITY GATE: while the screen keeps
+  // CHANGING (advancing "Composing… (Ns · ↓ tokens · thinking)" timer), the static streak
+  // resets → the fallback NEVER fires mid-think → when the real answer renders, it's delivered.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, {
+    turnCompleteStableNeeded: 2,
+    identicalAnswerFallbackCycles: 3, // tiny: the OLD elapsed counter would fire almost immediately
+  });
+  // turn 1 completes with an answer (left in scrollback — the FAILURE-1 precondition).
+  await readyAndSend(pty, driver, 'first question');
+  pty.emit(completedTurn('ANSWER ONE about the first thing', 5));
+  await sleep(SETTLE * 4 + 60);
+  let results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 1, 'turn 1 delivered');
+
+  // turn 2 — a LONG THINK. ★Faithful to the live FAILURE-1: the screen KEEPS CHANGING (a
+  // growing think trace) BUT spinnerActive() is FALSE (the garbled cursor-positioned spinner
+  // had gaps where no clean spinner row matched) AND turn 1's answer is still the last "●"
+  // block with an idle box → idleWithAnswer is TRUE and currentTurnAnswer() undefined. The
+  // OLD elapsed-cycle gate would FIRE the empty fallback here (~3 cycles); the ACTIVITY gate
+  // keeps resetting on the changing signature → it must NOT fire.
+  await driver.send({ text: 'a hard question needing a long think' });
+  await sleep(20);
+  for (let i = 0; i < 10; i++) {
+    // prior answer + a CHANGING tool-output line (no spinner rune / gerund…) + idle box.
+    pty.emit(lines('● ANSWER ONE about the first thing', '  ⎿ ' + 'x'.repeat(3 + i * 4), '────────────', '❯ ', '────────────', '  gh auth login · ← for agents'));
+    await sleep(40); // 10×40=400ms; with fallbackCycles=3 the OLD elapsed counter fired long ago
+  }
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 1, '★ NO premature (empty) result fired during the long think — still just turn 1');
+
+  // now the real answer renders → turn 2 completes with ITS answer (not empty, not stale).
+  pty.emit(completedTurn('ANSWER TWO the considered reply', 90));
+  await sleep(SETTLE * 6 + 100);
+  await driver.stop();
+  await pump;
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 2, 'turn 2 fired its result once the answer rendered');
+  assert.ok(results[1]!.result?.includes('TWO'), `turn 2 result is its real answer (got ${JSON.stringify(results[1]!.result)})`);
+  assert.ok(!results[1]!.result?.includes('ANSWER ONE'), 'turn 2 did NOT resend turn 1');
+});
+
+test('driver: ★ B(ii) a LATE answer after an empty fallback result is still forwarded', async () => {
+  // B(ii) belt-and-suspenders: if the anti-hang fallback DID emit empty (truly static, no
+  // new answer), but the engine THEN renders the real answer before the next turn, forward
+  // it so the user still gets it (the live FAILURE-1 shape: answer 30s after the empty result).
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, {
+    turnCompleteStableNeeded: 2,
+    identicalAnswerFallbackCycles: 3,
+  });
+  await readyAndSend(pty, driver, 'first');
+  pty.emit(completedTurn('PRIOR answer alpha', 5));
+  await sleep(SETTLE * 4 + 60);
+  let results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 1, 'turn 1 delivered');
+
+  // turn 2: static screen with only the prior answer (no spinner, no change) → fallback fires EMPTY.
+  await driver.send({ text: 'second' });
+  await sleep(20);
+  pty.emit(idleNoNewAnswer); // static; prior answer is the last "●"
+  await sleep(SETTLE * 8 + 120); // static streak elapses → empty fallback result
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.equal(results.length, 2, 'turn 2 emitted the empty anti-hang result');
+  assert.equal(results[1]!.result ?? '', '', 'and it was EMPTY (no stale resend)');
+
+  // NOW the real answer renders LATE (before any next turn) → B(ii) forwards it.
+  pty.emit(completedTurn('LATE real answer bravo', 95));
+  await sleep(SETTLE * 6 + 120);
+  await driver.stop();
+  await pump;
+  results = events.filter((e) => e.kind === 'result') as { result?: string }[];
+  assert.ok(results.length >= 3, `B(ii) forwarded a follow-up result for the late answer (got ${results.length})`);
+  const lateText = results[results.length - 1]!.result ?? '';
+  assert.ok(lateText.includes('LATE real answer bravo'), `★ the late answer was forwarded (got ${JSON.stringify(lateText)})`);
+});
+
 test('driver: ★ a fast reply with a pinned "✘ Auto-update failed … /doctor" footer banner STILL fires a result (the subsequent-turn silence bug)', async () => {
   // THE SECOND live bug (a fast FOLLOW-UP turn went silent): when a 2nd claude.exe is
   // running, Claude Code pins "✘ Auto-update failed: claude.exe in use … · Run /doctor"
@@ -609,22 +689,47 @@ test('driver #5 (b)+(c): a 2nd turn sent MID-TURN-1 is HELD until turn 1 complet
   await pump;
 });
 
-test('driver #5 (d): NO-DEADLOCK — if the input box NEVER becomes ready, the queued turn surfaces an error (does not hang)', async () => {
-  // The queue must not re-introduce a hang: a wedged TUI that never renders an idle input
-  // box would otherwise hold the turn forever. With a short inputReadyTimeoutMs, the
-  // driver gives up on the head turn + surfaces an error result instead of hanging.
+test('driver #5 (d): NO-DEADLOCK — a truly STATIC wedged TUI (no box, no change) surfaces an error (does not hang)', async () => {
+  // The queue must not re-introduce a hang: a TRULY WEDGED TUI — a STATIC screen with no
+  // input box and NO change/spinner — would otherwise hold the turn forever. The activity-
+  // gated no-deadlock (C-ii) fires ONLY on such a static screen. (A spinner / changing
+  // screen is "working", NOT wedged — covered by the next test.)
   const pty = new FakePty();
   const { driver, events, pump } = startDriver(pty, allow, { inputReadyTimeoutMs: 120 });
-  // send a turn, but NEVER render an input box — only busy/spinner frames (wedged).
+  // send a turn, then render a FROZEN screen: a partial line, NO input box, NO spinner, and
+  // NEVER changing again — a genuinely wedged TUI.
   await driver.send({ text: 'WEDGED TURN' });
-  pty.emit(lines('● …', '· Spinning forever… (1s)', '  esc to interrupt'));
-  await sleep(SETTLE * 8 + 200); // > inputReadyTimeoutMs, with self-rescheduled drain polls
+  pty.emit(lines('  (some frozen partial output with no input box)'));
+  await sleep(SETTLE * 8 + 250); // static the whole time → the wedged-clock elapses
   await driver.stop();
   await pump;
   assert.ok(!pty.writes.some((w) => w.includes('WEDGED TURN')), 'the turn was never typed (input box never became ready)');
   const errs = events.filter((e) => e.kind === 'result' && (e as { subtype?: string }).subtype === 'error');
   assert.ok(errs.length >= 1, 'an error result was surfaced (no silent hang)');
   assert.match((errs[0] as { result?: string }).result ?? '', /never became ready|wedged/i, 'the error explains the input box never became ready');
+});
+
+test('driver #5 (d2): a long WORKING turn (spinner/changing) does NOT trip the no-deadlock drop (FAILURE-2 guard)', async () => {
+  // THE LIVE FAILURE 2 regression: a 60s flat timeout dropped a turn while the orchestrator
+  // was legitimately WORKING (a long think). The activity gate must keep RESETTING the
+  // wedged-clock while the screen changes / a spinner runs → a long working turn is NEVER
+  // dropped, even past inputReadyTimeoutMs. Here: a queued turn behind a turn-1 that keeps
+  // rendering changing spinner frames for longer than the timeout → it must NOT error.
+  const pty = new FakePty();
+  const { driver, events, pump } = startDriver(pty, allow, { inputReadyTimeoutMs: 120, turnCompleteStableNeeded: 2 });
+  await readyAndSend(pty, driver, 'long turn one');
+  // turn 1 keeps WORKING: emit CHANGING spinner frames across a span > inputReadyTimeoutMs.
+  await driver.send({ text: 'QUEUED TWO' }); // queues behind the busy turn 1
+  for (let i = 0; i < 8; i++) {
+    pty.emit(lines('● Working on it…', `· Composing… (${i + 1}s · ↓ ${100 * (i + 1)} tokens · thinking)`, '  esc to interrupt'));
+    await sleep(40); // 8×40 = 320ms > 120ms timeout, but the screen keeps CHANGING
+  }
+  // turn 2 must NOT have been dropped with an error while turn 1 was working.
+  const errsDuring = events.filter((e) => e.kind === 'result' && (e as { subtype?: string }).subtype === 'error');
+  assert.equal(errsDuring.length, 0, '★ a long WORKING turn does NOT trip the no-deadlock drop (no error while the screen changes)');
+  assert.ok(!pty.writes.some((w) => w.includes('QUEUED TWO')), 'turn 2 still correctly HELD (turn 1 busy), just not dropped');
+  await driver.stop();
+  await pump;
 });
 
 test('driver #5 (e): a PENDING PERMISSION PROMPT is NOT "ready" — the next turn is held until it resolves', async () => {
