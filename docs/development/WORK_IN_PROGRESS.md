@@ -25,6 +25,7 @@
 | dev-msave | Mosaic "save current config under current name" (update active in place) | [log](logs/dev-msave-2026-06-17-124652.md) | 2026-06-17 | In Progress |
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
 | dev-wbspawn | Workbench spawn placement — fix relocate bug + new bottom-of-panel mode + global setting | [log](logs/dev-wbspawn-2026-06-17-114341.md) | 2026-06-17 | In Progress |
+| dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
 <!-- dev-excenergy COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "merge and push energy model").
      Physics-based excitation energy (B2, proposal docs/proposals/excitation-physical-energy-2026-06-16.md)
      + reset fix + soft-limiter removal, MERGED + PUSHED across all 3 repos:

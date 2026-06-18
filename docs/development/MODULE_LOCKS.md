@@ -16,6 +16,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 | dev-excenergy | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/excitation_coefficients.py` | 2026-06-17T16:00:00Z | Hammer-latency fix (D9 incremental): on a hammer width/sharpness/position edit, scale the cached per-(string,level) coefficient by hammerSpatial_new/old for the affected pitch (O(strings), ~ms) instead of the full ~800ms rebuild. Middleware-only Python, LIGHT (no CUDA rebuild). Branch off PianoidCore dev. |
+| dev-pitchfix | `PianoidTunner/src/PianoidTuner.js` | 2026-06-18T08:20:00Z | Fix pitch-selection failure: (A) re-issue loadPreset when FE detects a bare/not_started backend (pianoid_loaded=false) so notes load after any restart; (B) stop the beforeunload POST /api/stop-backend that kills the backend on RELOAD. Frontend-only, NO CUDA. Branch off PianoidTunner dev ee0df28. |
 <!-- dev-excpopup locks RELEASED 2026-06-17 at Step 10a Phase 1 — FINAL: 2 commits on
      feature/dev-excpopup-energy-popup off dev 7f03e90, worktree D:/repos/wt-excpopup. Held + released:
      ExcitationProperties.jsx, Excitation.jsx, ExcitationProperties.energyPopup.test.jsx (HammerStringChart.jsx
