@@ -605,13 +605,6 @@ The canonical procedure for agents running `/test-ui` or verifying features in t
 3. Open `http://localhost:3000`. Click **APPLY** (or POST `/api/start-backend` to :3001). The launcher spawns the backend (5000).
 4. Do **not** start the backend directly with `python backendserver.py` — the frontend will kill it on the next APPLY (see [Three-Process Architecture](#three-process-architecture)).
 
-### Reloading the browser tab is safe (dev-pitchfix, 2026-06-18)
-
-A plain page **reload** no longer tears the backend down, and you no longer have to avoid reloading. Previously a `beforeunload` handler POSTed `/api/stop-backend` on every reload (browsers fire `beforeunload` on reload, not just on close), which killed the launcher-owned backend; the freshly-loaded page then restarted a **bare** backend and, on some paths, never re-issued `/load_preset`, leaving `pianoid_loaded=false` / 0 available notes → **"cannot select a pitch on any path"** (manual selector, virtual keyboard, and MIDI all need a loaded preset + note range). Two frontend changes (`PianoidTuner.js`) fixed this:
-
-- **No reload-kill** — the `beforeunload` → `/api/stop-backend` handler was removed. Orphan-backend cleanup is already handled by the launcher (it serializes a single backend and clears port 5000 on start), the `ensureBackendAndLoadPreset` stale-kill branch, and the clean-stack sweep at handoff.
-- **Bare-backend safety net** — a health-watch effect re-issues `loadPreset(settings)` whenever the frontend sees a reachable backend reporting `pianoid_loaded=false` (e.g. the launcher restarted it fresh), so notes are restored automatically (~1 s) without a reload or any user action.
-
 ## Shutdown Sequence
 
 Correct shutdown order is **frontend → launcher → modal → backend** (reverse of startup dependency). The launcher already handles this for its children; you only need manual cleanup if the launcher itself dies.

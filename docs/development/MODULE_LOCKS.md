@@ -21,9 +21,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      reachable && pianoid_loaded=false; (B) removed beforeunload→POST /api/stop-backend (killed backend on
      reload). Committed feature/dev-pitchfix-reload-bootstrap ccfbf06 (off dev ee0df28), MERGED to PianoidTunner
      dev bfd1d88 (--no-ff). Full Jest 119/1245 green, live-verified audio_off (reload keeps backend up 12/12;
-     forced-bare auto-recovers ~1s; pitch selectable post-reload). :3000 restarted on dev, bundle carries fix.
-     NOT pushed — HOLD for team-lead go. Pre-existing bug (02caf5f), not the batch merges. -->
-| <!-- (none active for dev-pitchfix — released at Phase 1) --> | | | |
+     forced-bare auto-recovers ~1s; pitch selectable post-reload). Pre-existing bug (02caf5f), not the batch merges.
+     ★REVERTED 2026-06-18 per team-lead/user: the diagnosis was a SYMPTOM-MATCH (a reload-triggered backend-kill
+     that yields the same "no notes / can't select pitch") but NOT the user's confirmed bug — the user never
+     reloaded, and their failure is on a different (broken-wheel) system (G1 look-alike). git revert -m 1 bfd1d88
+     → revert commit eb36729, PUSHED origin/dev (bfd1d88..eb36729); PianoidTuner.js now byte-identical to ee0df28.
+     STARTUP_TROUBLESHOOTING "reload is safe" note also reverted. feature/dev-pitchfix-reload-bootstrap (ccfbf06)
+     kept for reference but OFF dev. Awaiting the user's ACTUAL error before re-approaching. -->
+| <!-- (none active for dev-pitchfix — released + reverted) --> | | | |
 <!-- dev-excpopup locks RELEASED 2026-06-17 at Step 10a Phase 1 — FINAL: 2 commits on
      feature/dev-excpopup-energy-popup off dev 7f03e90, worktree D:/repos/wt-excpopup. Held + released:
      ExcitationProperties.jsx, Excitation.jsx, ExcitationProperties.energyPopup.test.jsx (HammerStringChart.jsx
