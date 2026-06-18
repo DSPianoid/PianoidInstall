@@ -21,9 +21,19 @@ When the user reports a bug:
   value you computed yourself ("what the output *should* be") are proxies. Measure the real path the user
   exercises (e.g. realtime audio, the actual UI control the user drags) and read the engine's ACTUAL
   output — never a number you derived by assuming the system behaves as expected.
+- Same-symptom is NOT same-bug: reproducing a bug that shows the SAME SYMPTOM is not the same as
+  reproducing the USER'S bug. A plausible look-alike (same observable symptom, e.g. "no notes / can't
+  select pitch") reproduced on a DIFFERENT scenario or environment than the user's must NOT be accepted as
+  the diagnosis. Confirm the reproduced failure matches the user's ACTUAL error and exact conditions
+  (their environment, their steps) — not just the symptom category — before proposing a fix. When the
+  user's environment is inaccessible, get their exact error text + exact steps (allowed clarification) and
+  reproduce THAT, rather than fixing a same-symptom stand-in.
 - Worked failure this rule encodes: a "volume slider doesn't work" report was twice misdiagnosed as a
   soft-limiter issue from a computed `raw_output × mvc` value, without ever measuring the engine's real
   output at different volume settings.
+- Worked failure (same-symptom trap): a "cannot select pitch" report was diagnosed from a reload-triggered
+  backend-kill bug reproduced on a correctly-built local system — but the user was on a broken-wheel
+  system and hadn't reported reloading; the fix addressed the look-alike, not their bug, and was reverted.
 
 ## Project-specific (Pianoid)
 
