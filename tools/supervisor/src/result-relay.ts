@@ -93,8 +93,15 @@ export interface DispatchRoleAgentOptions {
    * is required by the contract; a default deny-all is supplied if absent.
    */
   startOptions?: Partial<SessionStartOptions>;
-  /** The env asserted key-free by the claude-cli seal (default process.env). */
+  /** The env asserted key-free (claude-cli) / own-key-scoped (api-adapter) by the seal (default process.env). */
   env?: NodeJS.ProcessEnv;
+  /**
+   * For an api-adapter selection ONLY: the env var name of the backend's own metered key
+   * (e.g. 'DEEPSEEK_API_KEY'), threaded to the seal so it scopes the foreign-key assertion
+   * correctly. Ignored for claude-cli (subscription-billed — no own secret). Optional; when
+   * omitted for an api-adapter, the seal treats EVERY known backend key as foreign.
+   */
+  ownSecretName?: string;
 }
 
 /**
@@ -104,7 +111,10 @@ export interface DispatchRoleAgentOptions {
  * Returns the selection + the sealed options.
  */
 export function planRoleDispatch(
-  opts: Pick<DispatchRoleAgentOptions, 'role' | 'task' | 'config' | 'override' | 'startOptions' | 'env'>,
+  opts: Pick<
+    DispatchRoleAgentOptions,
+    'role' | 'task' | 'config' | 'override' | 'startOptions' | 'env' | 'ownSecretName'
+  >,
 ): { selection: BackendSelection; sealed: SessionStartOptions } {
   const selection = resolveRoleBackend(opts.role, opts.config, opts.override);
   // The base options: the caller's extras + the task as a bootstrap turn + the model
@@ -119,7 +129,12 @@ export function planRoleDispatch(
     // The selection's model wins unless the caller pinned one explicitly.
     ...(selection.model !== undefined && opts.startOptions?.model === undefined ? { model: selection.model } : {}),
   };
-  const sealed = sealBackendOptions({ backend: selection.backend, base, env: opts.env });
+  const sealed = sealBackendOptions({
+    backend: selection.backend,
+    base,
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.ownSecretName ? { ownSecretName: opts.ownSecretName } : {}),
+  });
   return { selection, sealed };
 }
 

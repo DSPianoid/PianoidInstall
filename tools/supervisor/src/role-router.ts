@@ -74,6 +74,26 @@ export interface RoleDispatchOverride {
 }
 
 /**
+ * The DEFAULT role→backend routing config (the proposal's initial map — DATA, hot-swappable):
+ *   - planning  → claude-cli (judgment/architecture; premium reasoning; has teams) — P1.
+ *   - coding    → api-adapter, model 'deepseek-v4-flash' (routine codegen, cheap tier) — P3,
+ *     with fallbackBackend claude-cli (FD6, EXECUTED at P5; declared here for the taxonomy).
+ *   - reviewing → api-adapter, model 'gpt-5-codex' (second-opinion; OD-4 Codex=OpenAI-API) — P4.
+ *
+ * DORMANT: this map is consumed ONLY when role-routing is activated (P6); the default-OFF switch
+ * (SUPERVISOR_ROLE_ROUTING) gates whether the composition root EVER dispatches. The router itself
+ * is pure and always resolves; this constant is the data it resolves against. Models pin to the
+ * same ids the backend-registry's api-adapter config map keys on (DeepSeek=coding config).
+ */
+export const DEFAULT_ROLE_ROUTING_CONFIG: RoleRouterConfig = {
+  roles: {
+    planning: { backend: 'claude-cli' },
+    coding: { backend: 'api-adapter', model: 'deepseek-v4-flash', fallbackBackend: 'claude-cli' },
+    reviewing: { backend: 'api-adapter', model: 'gpt-5-codex', fallbackBackend: 'claude-cli' },
+  },
+};
+
+/**
  * Resolve a role to a {@link BackendSelection}. Pure. Precedence: explicit override >
  * config map > fail-safe default (claude-cli). An unrecognized role → the default
  * backend (never throws). `model`/`fallbackBackend` are carried through from whichever

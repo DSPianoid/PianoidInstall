@@ -9,8 +9,27 @@ import {
   resolveRoleBackend,
   isRoleRoutingEnabled,
   ROLE_ROUTING_ENV_VAR,
+  DEFAULT_ROLE_ROUTING_CONFIG,
   type RoleRouterConfig,
 } from '../role-router.js';
+
+test('★ DEFAULT_ROLE_ROUTING_CONFIG routes planning→claude-cli, coding→DeepSeek, reviewing→Codex', () => {
+  const planning = resolveRoleBackend('planning', DEFAULT_ROLE_ROUTING_CONFIG);
+  assert.equal(planning.backend, 'claude-cli');
+
+  const coding = resolveRoleBackend('coding', DEFAULT_ROLE_ROUTING_CONFIG);
+  assert.equal(coding.backend, 'api-adapter');
+  assert.equal(coding.model, 'deepseek-v4-flash');
+  assert.equal(coding.fallbackBackend, 'claude-cli'); // FD6 (executed at P5)
+
+  const reviewing = resolveRoleBackend('reviewing', DEFAULT_ROLE_ROUTING_CONFIG);
+  assert.equal(reviewing.backend, 'api-adapter');
+  assert.equal(reviewing.model, 'gpt-5-codex');
+  assert.equal(reviewing.fallbackBackend, 'claude-cli');
+
+  // an unmapped role still falls through to the fail-safe default
+  assert.equal(resolveRoleBackend('mystery', DEFAULT_ROLE_ROUTING_CONFIG).backend, 'claude-cli');
+});
 
 test('★ unmapped role resolves to the fail-safe default (claude-cli), never throws', () => {
   // empty config, unknown role

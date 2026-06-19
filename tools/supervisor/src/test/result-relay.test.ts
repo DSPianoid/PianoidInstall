@@ -17,8 +17,14 @@ import {
   type AgentReport,
 } from '../result-relay.js';
 import { BackendRegistry } from '../backend-registry.js';
-import { isRoleRoutingEnabled, ROLE_ROUTING_ENV_VAR, type RoleRouterConfig } from '../role-router.js';
+import {
+  isRoleRoutingEnabled,
+  ROLE_ROUTING_ENV_VAR,
+  DEFAULT_ROLE_ROUTING_CONFIG,
+  type RoleRouterConfig,
+} from '../role-router.js';
 import { FakeSessionDriver } from './fake-session-driver.js';
+import type { ApiAdapterHttpClient, ApiAdapterHttpRequest } from '../api-adapter-driver.js';
 import type { BackendSelection, Role } from '../backend-kinds.js';
 import type { SessionEvent } from '../session-driver.js';
 
@@ -192,4 +198,89 @@ test('★★ switch ON (in the harness): planning dispatches to a sealed standal
   assert.equal(report!.backend, 'claude-cli');
   assert.equal(fake.starts, 1);
   assert.deepEqual(fake.startOpts[0]!.settingSources, ['project', 'local']); // sealed
+});
+
+// ── P3: dispatch coding → api-adapter (DeepSeek) end-to-end via the registry ───────
+/** An SSE body (text chunks) for a canned DeepSeek completion. */
+function dsSseBody(text: string, costUsd = 0.0002): AsyncIterable<string> {
+  const chunks = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], total_cost_usd: costUsd })}\n\n`,
+    'data: [DONE]\n\n',
+  ];
+  return (async function* () {
+    for (const c of chunks) yield c;
+  })();
+}
+
+test('★★ P3 END-TO-END: dispatch coding → SEALED api-adapter (DeepSeek) agent returns code as ONE report', async () => {
+  let captured: ApiAdapterHttpRequest | undefined;
+  const httpClient: ApiAdapterHttpClient = {
+    async stream(req) {
+      captured = req;
+      return dsSseBody('def add(a, b):\n    return a + b', 0.0002);
+    },
+  };
+  // The registry constructs a REAL ApiAdapterDriver but with the injected (fake) HTTP client →
+  // NO network, NO real paid call. The key is read from the injected env.
+  const registry = new BackendRegistry({
+    apiAdapterHttpClient: httpClient,
+    apiAdapterEnv: { DEEPSEEK_API_KEY: 'ds-key' } as NodeJS.ProcessEnv,
+  });
+
+  const report = await dispatchRoleAgent({
+    role: 'coding',
+    task: 'implement add(a,b)',
+    registry,
+    config: DEFAULT_ROLE_ROUTING_CONFIG, // coding → api-adapter deepseek-v4-flash
+    env: { DEEPSEEK_API_KEY: 'ds-key' } as NodeJS.ProcessEnv, // the seal asserts own-key-only
+    ownSecretName: 'DEEPSEEK_API_KEY',
+  });
+
+  assert.equal(report.backend, 'api-adapter');
+  assert.equal(report.role, 'coding');
+  assert.equal(report.ok, true);
+  assert.equal(report.subtype, 'success');
+  assert.equal(report.text, 'def add(a, b):\n    return a + b');
+  assert.equal(report.costUsd, 0.0002);
+  // the request was the pinned DeepSeek model
+  assert.ok(captured);
+  assert.equal(captured!.body.model, 'deepseek-v4-flash');
+});
+
+test('★ P3 END-TO-END: a foreign key (stray ANTHROPIC_API_KEY) in a DeepSeek dispatch is REFUSED by the seal', async () => {
+  const registry = new BackendRegistry({ apiAdapterHttpClient: { async stream() { return dsSseBody('x'); } } });
+  await assert.rejects(
+    () =>
+      dispatchRoleAgent({
+        role: 'coding',
+        task: 't',
+        registry,
+        config: DEFAULT_ROLE_ROUTING_CONFIG,
+        env: { DEEPSEEK_API_KEY: 'ds', ANTHROPIC_API_KEY: 'sk-ant-x' } as NodeJS.ProcessEnv,
+        ownSecretName: 'DEEPSEEK_API_KEY',
+      }),
+    /Refusing to spawn|foreign|ANTHROPIC_API_KEY/,
+  );
+});
+
+test('P3 END-TO-END: a forced DeepSeek API error surfaces as a report with ok=false (FD6 fallback is P5)', async () => {
+  // The api-adapter driver converts an API error into a terminal error result → relay maps ok=false
+  // (it does NOT throw AgentDispatchError; the stream DID produce a terminal result). FD6 fallback
+  // to claude-cli is a later phase (P5) — here we assert the clean surfaced failure.
+  const registry = new BackendRegistry({
+    apiAdapterHttpClient: { async stream() { throw new Error('boom'); } },
+    apiAdapterEnv: { DEEPSEEK_API_KEY: 'ds-key' } as NodeJS.ProcessEnv,
+  });
+  const report = await dispatchRoleAgent({
+    role: 'coding',
+    task: 't',
+    registry,
+    config: DEFAULT_ROLE_ROUTING_CONFIG,
+    env: { DEEPSEEK_API_KEY: 'ds-key' } as NodeJS.ProcessEnv,
+    ownSecretName: 'DEEPSEEK_API_KEY',
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.backend, 'api-adapter');
+  assert.equal(report.subtype, 'error_network');
 });

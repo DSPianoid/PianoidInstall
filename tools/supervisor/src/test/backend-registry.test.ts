@@ -8,11 +8,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BackendRegistry, BackendRegistryError } from '../backend-registry.js';
 import { CliStreamDriver } from '../adapters/cli-stream-driver.js';
+import { ApiAdapterDriver } from '../api-adapter-driver.js';
 import type { BackendSelection } from '../backend-kinds.js';
 import { FakeSessionDriver } from './fake-session-driver.js';
 
 const claudeSel: BackendSelection = { role: 'planning', backend: 'claude-cli', model: 'claude-opus-4-8[1m]' };
-const apiSel: BackendSelection = { role: 'coding', backend: 'api-adapter' };
+const apiSel: BackendSelection = { role: 'coding', backend: 'api-adapter', model: 'deepseek-v4-flash' };
+/** An HTTP client that never makes a real call (and is never invoked by mere construction). */
+const NOOP_HTTP = { stream: async () => (async function* () {})() };
 
 test('★ claude-cli selection constructs a CliStreamDriver (reuse, not reinvent)', () => {
   const registry = new BackendRegistry();
@@ -47,18 +50,40 @@ test('the default claude-cli factory forwards CliStreamDriver options (injectabl
   assert.equal(spawnCalls, 0);
 });
 
-test('★ api-adapter selection THROWS in P1 (DeepSeek/Codex are P3/P4 — not implemented)', () => {
+test('★ api-adapter selection NOW constructs an ApiAdapterDriver (P3 — DeepSeek=coding)', () => {
+  // injected HTTP client → NO real (paid) call is possible; construction alone never calls it.
+  const registry = new BackendRegistry({ apiAdapterHttpClient: NOOP_HTTP });
+  assert.equal(registry.has('api-adapter'), true);
+  const driver = registry.create(apiSel);
+  assert.ok(driver instanceof ApiAdapterDriver, 'api-adapter must construct an ApiAdapterDriver');
+  assert.equal(typeof driver.start, 'function');
+  assert.equal(driver.health().detail, 'api-adapter-driver:deepseek');
+});
+
+test('api-adapter falls back to the DeepSeek config when the model is unmapped', () => {
+  const registry = new BackendRegistry({ apiAdapterHttpClient: NOOP_HTTP });
+  const driver = registry.create({ role: 'coding', backend: 'api-adapter', model: 'some-unknown-model' });
+  assert.ok(driver instanceof ApiAdapterDriver);
+  assert.equal(driver.health().detail, 'api-adapter-driver:deepseek');
+});
+
+test('api-adapter config map can be overridden (forward-compat for Codex at P4)', () => {
+  const registry = new BackendRegistry({
+    apiAdapterHttpClient: NOOP_HTTP,
+    apiAdapterConfigs: {
+      'gpt-5-codex': { baseUrl: 'https://api.openai.com/v1', model: 'gpt-5-codex', secretEnvVar: 'OPENAI_API_KEY', label: 'codex' },
+    },
+  });
+  const driver = registry.create({ role: 'reviewing', backend: 'api-adapter', model: 'gpt-5-codex' });
+  assert.ok(driver instanceof ApiAdapterDriver);
+  assert.equal(driver.health().detail, 'api-adapter-driver:codex');
+});
+
+test('an UNKNOWN backend kind throws BackendRegistryError', () => {
   const registry = new BackendRegistry();
-  assert.equal(registry.has('api-adapter'), false);
-  assert.throws(() => registry.create(apiSel), BackendRegistryError);
-  try {
-    registry.create(apiSel);
-    assert.fail('should have thrown');
-  } catch (e) {
-    assert.ok(e instanceof BackendRegistryError);
-    assert.equal((e as BackendRegistryError).backend, 'api-adapter');
-    assert.ok((e as Error).message.includes('P3/P4'));
-  }
+  // cast through unknown to construct a deliberately invalid selection (a future/unregistered kind).
+  const bad = { role: 'x', backend: 'mystery-backend' } as unknown as BackendSelection;
+  assert.throws(() => registry.create(bad), BackendRegistryError);
 });
 
 test('★ an injected factory WINS over the built-in (tests substitute a fake driver)', () => {
