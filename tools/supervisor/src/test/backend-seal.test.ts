@@ -8,12 +8,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   sealBackendOptions,
+  sealClaudeOptions,
+  sealApiAdapterOptions,
   inspectClaudeSeal,
-  BackendSealError,
   CLAUDE_SEAL_SETTING_SOURCES,
   UNIVERSAL_CHANNEL_DENY,
 } from '../backend-seal.js';
-import { CostSafetyError } from '../cost-safety.js';
+import { CostSafetyError, BackendCostSafetyError } from '../cost-safety.js';
 import type { SessionStartOptions } from '../session-driver.js';
 
 const baseOpts = (over: Partial<SessionStartOptions> = {}): SessionStartOptions => ({
@@ -90,10 +91,76 @@ test('seal does NOT inject any key into the env (claude-cli stays key-free) + ca
   assert.equal(sealed.env, undefined);
 });
 
-test('★ a NON-claude-cli backend is REFUSED in P1 (no key-bearing/api-adapter seal yet)', () => {
+/* ────────────────────────────────────────────────────────────────────────────
+ * api-adapter SEAL (P3 / M4 full) — NOT Claude Code: NO settingSources forced;
+ * channel-mute deny merged; BACKEND-AWARE foreign-key assertion (own key only).
+ * ──────────────────────────────────────────────────────────────────────────── */
+const DEEPSEEK_ENV = { DEEPSEEK_API_KEY: 'ds-secret', PATH: '/usr/bin' } as NodeJS.ProcessEnv;
+
+test('★ api-adapter seal PASSES with only its own key (DEEPSEEK_API_KEY) and does NOT force settingSources', () => {
+  const sealed = sealBackendOptions({
+    backend: 'api-adapter',
+    base: baseOpts({ settingSources: ['user', 'project'] }), // caller value — NOT forced/altered
+    env: DEEPSEEK_ENV,
+    ownSecretName: 'DEEPSEEK_API_KEY',
+  });
+  // settingSources left exactly as the caller set them (api-adapter is not Claude Code → no plugin surface)
+  assert.deepEqual(sealed.settingSources, ['user', 'project']);
+  // channel-mute deny merged (defensive)
+  for (const name of UNIVERSAL_CHANNEL_DENY) assert.ok(sealed.disallowedTools!.includes(name));
+});
+
+test('★ api-adapter seal merges the universal channel-deny (channel-mute) with the caller deny-list', () => {
+  const sealed = sealApiAdapterOptions({
+    backend: 'api-adapter',
+    base: baseOpts({ disallowedTools: ['CustomTool'] }),
+    env: DEEPSEEK_ENV,
+    ownSecretName: 'DEEPSEEK_API_KEY',
+  });
+  assert.ok(sealed.disallowedTools!.includes('CustomTool'));
+  for (const name of UNIVERSAL_CHANNEL_DENY) assert.ok(sealed.disallowedTools!.includes(name));
+});
+
+test('★ api-adapter seal THROWS BackendCostSafetyError on a foreign key (stray ANTHROPIC_API_KEY)', () => {
+  const env = { DEEPSEEK_API_KEY: 'ds', ANTHROPIC_API_KEY: 'sk-ant-x' } as NodeJS.ProcessEnv;
   assert.throws(
-    () => sealBackendOptions({ backend: 'api-adapter', base: baseOpts(), env: KEY_FREE_ENV }),
-    BackendSealError,
+    () => sealBackendOptions({ backend: 'api-adapter', base: baseOpts(), env, ownSecretName: 'DEEPSEEK_API_KEY' }),
+    BackendCostSafetyError,
+  );
+});
+
+test('★ api-adapter seal THROWS on another backend’s key (stray OPENAI_API_KEY in a DeepSeek agent)', () => {
+  const env = { DEEPSEEK_API_KEY: 'ds', OPENAI_API_KEY: 'oa' } as NodeJS.ProcessEnv;
+  assert.throws(
+    () => sealApiAdapterOptions({ backend: 'api-adapter', base: baseOpts(), env, ownSecretName: 'DEEPSEEK_API_KEY' }),
+    BackendCostSafetyError,
+  );
+});
+
+test('api-adapter seal does NOT throw when its OWN key is merely absent (driver surfaces a clean error later)', () => {
+  const env = { PATH: '/usr/bin' } as NodeJS.ProcessEnv; // no DEEPSEEK_API_KEY
+  assert.doesNotThrow(() =>
+    sealApiAdapterOptions({ backend: 'api-adapter', base: baseOpts(), env, ownSecretName: 'DEEPSEEK_API_KEY' }),
+  );
+});
+
+test('api-adapter seal does NOT inject the key into options.env (driver reads it from the process env)', () => {
+  const sealed = sealApiAdapterOptions({
+    backend: 'api-adapter',
+    base: baseOpts(),
+    env: DEEPSEEK_ENV,
+    ownSecretName: 'DEEPSEEK_API_KEY',
+  });
+  assert.equal(sealed.env, undefined);
+});
+
+test('sealClaudeOptions still behaves exactly as the P1 claude seal (byte-for-byte path preserved)', () => {
+  const sealed = sealClaudeOptions({ backend: 'claude-cli', base: baseOpts(), env: KEY_FREE_ENV });
+  assert.deepEqual(sealed.settingSources, [...CLAUDE_SEAL_SETTING_SOURCES]);
+  for (const name of UNIVERSAL_CHANNEL_DENY) assert.ok(sealed.disallowedTools!.includes(name));
+  assert.throws(
+    () => sealClaudeOptions({ backend: 'claude-cli', base: baseOpts(), env: { ANTHROPIC_API_KEY: 'k' } as NodeJS.ProcessEnv }),
+    CostSafetyError,
   );
 });
 
