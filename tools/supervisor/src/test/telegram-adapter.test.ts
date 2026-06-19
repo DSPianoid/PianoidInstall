@@ -222,6 +222,71 @@ test('DUAL OUT with empty text: nothing synthesized, nothing sent', async () => 
   }
 });
 
+test('MODALITY ROUTING: voice→sendVoice(generated audio), text→sendMessage, dual→both (regression guard for the outbound-voice fix)', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const { transport, adapter, voice } = makeAdapter(dir);
+    await adapter.start(async () => {});
+
+    // (1) voice → exactly one voice bubble, NO text; the bubble carries the
+    // GENERATED audio (the .ogg the codec.synthesize produced for THIS text).
+    const rVoice = await adapter.outbound(
+      { to: '555' },
+      { text: 'speak only', options: { modality: 'voice' } },
+    );
+    assert.ok(rVoice.ok);
+    assert.deepEqual(voice.synthesizeCalls, ['speak only'], 'TTS rendered the exact reply text');
+    const voiceFiles = transport.sent.filter((s) => s.kind === 'file' && s.fileKind === 'voice');
+    assert.equal(voiceFiles.length, 1, 'voice mode → one sendVoice');
+    assert.equal(transport.sent.filter((s) => s.kind === 'text').length, 0, 'voice mode → no sendMessage');
+    // The bubble body is a real file path under the fake codec's out dir (the
+    // generated audio), not arbitrary text — proves the GENERATED audio is sent.
+    assert.ok(
+      voiceFiles[0]!.body.startsWith(dir) && voiceFiles[0]!.body.endsWith('.ogg'),
+      `voice bubble sends the generated .ogg (got ${voiceFiles[0]!.body})`,
+    );
+
+    // (2) text → exactly one sendMessage, NO voice bubble, NO further TTS.
+    const before = voice.synthesizeCalls.length;
+    const rText = await adapter.outbound(
+      { to: '555' },
+      { text: 'type only', options: { modality: 'text' } },
+    );
+    assert.ok(rText.ok);
+    assert.equal(voice.synthesizeCalls.length, before, 'text mode → no TTS');
+    const textOnly = transport.sent.filter((s) => s.kind === 'text' && s.body === 'type only');
+    assert.equal(textOnly.length, 1, 'text mode → one sendMessage');
+    assert.equal(
+      transport.sent.filter((s) => s.kind === 'file' && s.body.includes('type only')).length,
+      0,
+      'text mode → no voice bubble',
+    );
+
+    // (3) dual → BOTH one sendMessage AND one sendVoice for the same text.
+    const rDual = await adapter.outbound(
+      { to: '555' },
+      { text: 'both now', options: { modality: 'dual' } },
+    );
+    assert.ok(rDual.ok);
+    assert.ok(voice.synthesizeCalls.includes('both now'), 'dual mode → TTS rendered the text');
+    assert.equal(
+      transport.sent.filter((s) => s.kind === 'text' && s.body === 'both now').length,
+      1,
+      'dual mode → one sendMessage',
+    );
+    // One NEW voice bubble appeared for the dual send (total voice bubbles now 2).
+    assert.equal(
+      transport.sent.filter((s) => s.kind === 'file' && s.fileKind === 'voice').length,
+      2,
+      'dual mode → one more sendVoice (2 total across voice+dual sends)',
+    );
+
+    await adapter.stop();
+  } finally {
+    cleanup();
+  }
+});
+
 test('a pre-rendered voiceOggPath sends as a voice bubble', async () => {
   const { dir, cleanup } = tmpDir();
   try {
