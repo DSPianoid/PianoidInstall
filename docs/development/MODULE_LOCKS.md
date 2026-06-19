@@ -15,6 +15,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2870 P4+P5 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P4 commit f436812 + P5 commit cb2460c on
+     feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
+     Edited (existing): tools/supervisor/src/{api-adapter-driver,backend-registry,role-router}.ts (P4) +
+     {backend-kinds,result-relay}.ts (P5). NEW: agent-concurrency.ts + agent-worktree.ts (P5) +
+     test/{p4-codex,agent-concurrency,worktree-isolation,fallback}.test.ts. P4 = second api-adapter backend
+     (Codex/OpenAI=reviewing) — ZERO new driver, pure config (CODEX_REVIEWING_CONFIG configurable default +
+     DEFAULT_API_ADAPTER_CONFIGS so reviewing→Codex resolves with no override; OPENAI_API_KEY scoping via the
+     existing assertBackendCostSafe). P5 = X2 concurrency/token cap (AgentConcurrencyGate, pure) + X3
+     worktree-for-FS-writers (planAgentWorktree REUSES SUPERVISOR_SESSION_CWD; pure planning, no git) + FD6
+     fallback EXECUTION (dispatchRoleAgentWithFallback — ADDITIVE; re-dispatch ONCE then surface; env scrubbed).
+     DORMANT (default-OFF SUPERVISOR_ROLE_ROUTING); index.ts / live path / prod dist / running supervisor
+     UNTOUCHED; LIVE assertCostSafe byte-for-byte unchanged. +39 tests (11 P4 + 28 P5), full node:test 375/375,
+     tsc clean (built to throwaway dist-test-p4p5/, removed — prod dist/ NOT regenerated). NO real paid API call. -->
 <!-- dev-2870 P2+P3 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P2 commit 30ecb15 + P3 commit 9d23a12 on
      feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
      Edited (existing): tools/supervisor/src/{cost-safety,backend-seal,backend-registry,role-router,result-relay}.ts

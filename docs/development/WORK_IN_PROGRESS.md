@@ -5,7 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
-| dev-2870 | Model-agnostic agents P0+P1+P2+P3 DONE (committed; Phase-1 HELD for P6 activation/merge): contract + role-router/registry/seal/result-relay + backend-aware cost/secret guard + api-adapter driver (DeepSeek=coding); dormant, default-OFF | [log](logs/dev-2870-2026-06-19-194544.md) | 2026-06-19 |
+| dev-2870 | Model-agnostic agents P0-P5 DONE (committed; Phase-1 HELD for P6 activation/merge): P4 second api-adapter backend (Codex/OpenAI=reviewing) + P5 cross-cutting guardrails (X2 concurrency/token cap, X3 worktree-for-FS-writers, FD6 fallback execution). The WHOLE P0-P5 dormant build is complete; only P6 (index.ts wiring + user-triggered rebuild/restart) remains. Dormant, default-OFF | [log](logs/dev-2870-2026-06-19-233000.md) | 2026-06-19 |
 
 <!-- DOC DEFERRAL (dev-93e1, 2026-06-19): the supervisor README.md permission section (L54-58 "Channel
      permission" + "How it eliminates FC-1") should gain a line on the NEW native inline-keyboard BUTTON
