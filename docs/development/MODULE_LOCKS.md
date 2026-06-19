@@ -15,7 +15,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-underrun2 | `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu`, `PianoidCore/pianoid_middleware/chartFunctions.py` | 2026-06-19 | (1) e5/add_ms fix: record add_ms event AFTER cudaDeviceSynchronize so add_ms = true addKernel device time (HEAVY build). (2) sound_test profiling chart: plot getGpuProfilingData add_ms (pure kernel) instead of full-cycle span r[4]-r[1]; re-check every-3rd-cycle artifact gone. |
+| dev-reset | `PianoidCore/pianoid_cuda/MainKernel.cu` | 2026-06-19 | RE-APPLY parked W5-B reset PRIMARY fix (orig bf5f720, reverted as collateral in dev-excenergy Option-A revert 4c935b9, never re-merged; Phase-12 parked pending user confirm — user now re-reports runaway-reset = confirmation). On `*status==500`, before main loop, full-clear feedback_cycle_matrix + feedin_cycle_matrix. Worktree D:/repos/wt-reset, branch feature/dev-reset-runaway-accumulator-clear off PianoidCore dev 89b1e9f. HEAVY --both build (GPU/.pyd free; sequenced via team-lead vs dev-underrun2 profiling branch). |
+<!-- dev-underrun2 locks RELEASED 2026-06-19 after team-lead-approved merge. Held: Pianoid_synthesis.cu (COMMENT-ONLY — e5
+     placement already correct; the brief's "move e5 after sync" zeroes add_ms via cudaErrorNotReady, reverted to byte-identical
+     code + doc comment) + chartFunctions.py (sound_test profiling chart switched from full-cycle host span to getGpuProfilingData
+     add_ms = pure addKernel device time; every-3rd over-budget proven to live in the host audio-clock sync wait, 0% on add_ms).
+     Tests 16+52 green. feature/dev-underrun2-kernel-profiling 80782a5 MERGED --no-ff → PianoidCore dev 9c2dd51 (off 89b1e9f, in
+     throwaway worktree wt-underrun2-dev now removed), PUSHED origin/dev (89b1e9f..9c2dd51); dev left checked out NOWHERE (dev-reset's
+     wt-reset + :5000 untouched). Rate-sweep verdict: underruns = SYSTEM HICCUPS not GPU slowdown (add_ms FLAT ~537us idle->40/s).
+     Temp /diag_rate_sweep endpoint reverted out of backendServer.py. -->
+| <!-- (none active for dev-underrun2 — released after merge) --> | | | |
 <!-- dev-pitchfix lock RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTuner.js. ITEM 2 ALIGNMENT FIX (dev-workbench review of
      merged 5ab2d40): Mass workbench read (computeWorkbenchValues "Mass") + write (handleVectorChange "Mass") switched from
      excitationHistory.values key order → availableNotes (the RowEditor x-axis) — fixes a real defect where sparse/pitchID-keyed
