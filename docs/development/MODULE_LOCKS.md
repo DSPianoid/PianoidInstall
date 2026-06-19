@@ -15,6 +15,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-vio1 RESUME locks RELEASED 2026-06-19 at Step 10a Phase 1 (inbound-STT FIX committed on feature/supervisor-voice-io;
+     NOT merged/pushed — held for the user's live-test after the orchestrator-coordinated supervisor RESTART, then Phase 2
+     merge handled by the post-restart orchestrator). Held: tools/supervisor/src/config.ts + launch-prod-orch.mjs +
+     src/test/voice-stt-isolation.test.ts (NEW) + README.md. (config.test.ts was locked then RELEASED un-edited — the pure
+     path-resolution tests live in the new dedicated voice file.) FIX: the running supervisor delivered the literal
+     "(voice message)" placeholder instead of the faster-whisper transcript because config.ts loadConfig had TWO wrong
+     defaults — toolsDir→~/.claude (sttScript not found → isSttAvailable() false → silent placeholder) AND python→bare
+     `python` (lacks faster-whisper → transcribe() throws → placeholder). Now: toolsDir defaults to the repo tools/ (derived
+     from the module's import.meta.url, cwd-independent) + python to the repo venv (PianoidCore/.venv/.../python) when present,
+     both env-overridable (SUPERVISOR_TOOLS_DIR / SUPERVISOR_PYTHON); launcher pins both belt-and-suspenders. 219/219 green
+     (the 2 real-STT tests actually transcribe the captured sample .oga end-to-end → real transcript, not the placeholder).
+     Safety gates UNCHANGED (only config.ts among src/). dist/ rebuilt clean. SHA in the session log. -->
 <!-- dev-vio1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit 1025079 on feature/supervisor-voice-io; NOT merged/pushed —
      held for the user's live-test after the supervisor RESTART, then Phase 2 merge handled by the post-restart orchestrator).
      Held: tools/supervisor/src/{contract,config,session-host,index}.ts + adapters/telegram.ts + test/{telegram-adapter,voice-modality}.test.ts.

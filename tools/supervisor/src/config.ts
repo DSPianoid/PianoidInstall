@@ -22,9 +22,46 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { LogLevel } from './logger.js';
 import type { PermissionPolicy } from './permission-router.js';
+
+/**
+ * The supervisor PACKAGE root (`tools/supervisor`), derived from THIS module's
+ * own location so it is independent of the process cwd. At runtime this compiled
+ * module lives at `tools/supervisor/dist/config.js`, so the package root is two
+ * dirs up. The repo root is one further up from `tools/`. Used to locate the
+ * Python voice helpers (`<repo>/tools/*.py`) and the repo venv interpreter —
+ * which the running supervisor previously MISSED (it defaulted to `~/.claude`,
+ * where the scripts do not live, and bare `python`, which lacks faster-whisper),
+ * so STT silently fell back to the "(voice message)" placeholder.
+ */
+const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url))); // tools/supervisor
+const REPO_TOOLS_DIR = dirname(PACKAGE_ROOT); // tools/  (where transcribe_voice.py / tts_voice.py live)
+const REPO_ROOT = dirname(REPO_TOOLS_DIR); // the repo root  (PianoidInstall)
+
+/**
+ * Resolve the Python interpreter for the voice helpers (STT/TTS). The faster-
+ * whisper + edge-tts deps live ONLY in the Pianoid venv, NOT in a bare system
+ * `python` — so the running supervisor delivered "(voice message)" because bare
+ * `python` threw `ModuleNotFoundError: faster_whisper`. Precedence:
+ *   1. `opts.python` (explicit, e.g. a test) ,
+ *   2. `SUPERVISOR_PYTHON` env (the launcher pins this) ,
+ *   3. the repo venv interpreter IF it exists (`PianoidCore/.venv/Scripts/python.exe`
+ *      on win32, `.../bin/python` elsewhere) — the validated STT/TTS environment ,
+ *   4. fallback to bare `python`/`python3` (degrades gracefully if neither is set up).
+ */
+function resolvePythonInterpreter(optsPython?: string): string {
+  if (optsPython) return optsPython;
+  if (process.env.SUPERVISOR_PYTHON) return process.env.SUPERVISOR_PYTHON;
+  const venvPython =
+    process.platform === 'win32'
+      ? join(REPO_ROOT, 'PianoidCore', '.venv', 'Scripts', 'python.exe')
+      : join(REPO_ROOT, 'PianoidCore', '.venv', 'bin', 'python');
+  if (existsSync(venvPython)) return venvPython;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
 
 /**
  * The switchable OUTPUT modality for the orchestrator's replies (the user's
@@ -75,11 +112,21 @@ export interface SupervisorConfig {
    * DEDICATED `SUPERVISOR_TELEGRAM_TOKEN`, never this one.
    */
   productionTokenFilePresent: boolean;
-  /** Python interpreter for the voice helpers. */
+  /**
+   * Python interpreter for the voice helpers (STT/TTS). Defaults to the repo
+   * venv (`PianoidCore/.venv/.../python`) when present — the validated faster-
+   * whisper/edge-tts environment — else bare `python`/`python3`. Override with
+   * `SUPERVISOR_PYTHON` (the launcher pins it). A bare system python that lacks
+   * faster-whisper makes inbound STT silently degrade to "(voice message)".
+   */
   python: string;
-  /** Absolute path to transcribe_voice.py. */
+  /**
+   * Absolute path to transcribe_voice.py. Lives under the repo `tools/`
+   * (the toolsDir); the prior `~/.claude` default did NOT exist, so
+   * `isSttAvailable()` was false and inbound voice fell back to a placeholder.
+   */
   sttScript: string;
-  /** Absolute path to tts_voice.py. */
+  /** Absolute path to tts_voice.py (under the repo `tools/`). */
   ttsScript: string;
   /** Web panel port (read-only panel; 0 disables). */
   panelPort: number;
@@ -101,7 +148,11 @@ export interface SupervisorConfig {
 export interface LoadConfigOptions {
   /** Override the supervisor state dir (default ~/.claude/supervisor). */
   stateDir?: string;
-  /** Override the repo's tools dir (to locate the Python helpers). */
+  /**
+   * Override the repo's tools dir (to locate the Python voice helpers). Defaults
+   * to the repo `tools/` derived from this module's location; `SUPERVISOR_TOOLS_DIR`
+   * env also overrides it (opts wins over env).
+   */
   toolsDir?: string;
   /** Override the channel state dir (where the live plugin's .env/access.json live). */
   channelDir?: string;
@@ -132,8 +183,12 @@ function resolveToken(channelDir: string): string | undefined {
 export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
   const stateDir = resolve(opts.stateDir ?? join(homedir(), '.claude', 'supervisor'));
   const channelDir = resolve(opts.channelDir ?? join(homedir(), '.claude', 'channels', 'telegram'));
-  // Default the tools dir to this package's repo siblings (tools/).
-  const toolsDir = resolve(opts.toolsDir ?? join(homedir(), '.claude'));
+  // Default the tools dir to the REPO `tools/` (derived from this module's own
+  // location — where transcribe_voice.py / tts_voice.py actually live), NOT
+  // `~/.claude` (the prior default, where they do NOT exist → STT silently fell
+  // back to "(voice message)"). Precedence: opts.toolsDir > SUPERVISOR_TOOLS_DIR
+  // env (the launcher pins it) > the derived repo tools/.
+  const toolsDir = resolve(opts.toolsDir ?? process.env.SUPERVISOR_TOOLS_DIR ?? REPO_TOOLS_DIR);
 
   return {
     stateDir,
@@ -144,7 +199,7 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     logLevel: opts.logLevel ?? 'info',
     accessFile: join(channelDir, 'access.json'),
     productionTokenFilePresent: resolveToken(channelDir) !== undefined,
-    python: opts.python ?? (process.platform === 'win32' ? 'python' : 'python3'),
+    python: resolvePythonInterpreter(opts.python),
     sttScript: join(toolsDir, 'transcribe_voice.py'),
     ttsScript: join(toolsDir, 'tts_voice.py'),
     panelPort: opts.panelPort ?? 0,

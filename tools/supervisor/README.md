@@ -177,10 +177,25 @@ voice`), and is **NOT forwarded** to the orchestrator. Bare/invalid `/mode`
 replies with the current mode + the valid options. (`src/session-host.ts`
 `parseModeCommand` / `handleModeCommand`.)
 
-Voice helpers shell out to the repo's Python scripts (`config.ts` resolves
-`transcribe_voice.py` / `tts_voice.py`). Without them, voice degrades gracefully
-(inbound → `(voice message)`; outbound → text). They need `faster-whisper` (STT)
-and `edge-tts` + `ffmpeg` (TTS), as the existing orchestrator setup provides.
+Voice helpers shell out to the repo's Python scripts. `config.ts` resolves them
+from its OWN module location (cwd-independent): the **tools dir** defaults to the
+repo `tools/` (where `transcribe_voice.py` / `tts_voice.py` live) and the **python
+interpreter** defaults to the repo venv (`PianoidCore/.venv/.../python`) — the
+validated `faster-whisper` (STT) + `edge-tts`/`ffmpeg` (TTS) environment — falling
+back to a bare `python`/`python3` only if the venv is absent. Both are overridable:
+`SUPERVISOR_TOOLS_DIR` (script dir) and `SUPERVISOR_PYTHON` (interpreter); the
+production launcher (`launch-prod-orch.mjs`) pins both belt-and-suspenders. Without
+a working interpreter+script, voice degrades gracefully (inbound → `(voice
+message)`; outbound → text).
+
+> **★ Inbound-STT fix (2026-06-19):** the running supervisor delivered the literal
+> `(voice message)` placeholder instead of the transcript because the OLD defaults
+> were wrong — the tools dir defaulted to `~/.claude` (the scripts are NOT there →
+> `isSttAvailable()` false → silent placeholder) and python to a bare `python`
+> (lacks `faster-whisper` → `transcribe()` throws → placeholder). The repo-`tools/`
+> + venv-python defaults above fix it; `src/test/voice-stt-isolation.test.ts`
+> proves the REAL `VoiceCodec` (built from `loadConfig()` defaults) transcribes the
+> captured sample `.oga` end-to-end through the adapter.
 
 > **Note (file size):** `src/session-host.ts` is 838 LOC (YELLOW, > 500). The
 > modality work kept the parser a standalone exported pure fn (`parseModeCommand`);
@@ -213,15 +228,19 @@ and `edge-tts` + `ffmpeg` (TTS), as the existing orchestrator setup provides.
 | Criterion | Proven by |
 |---|---|
 | **Input**: inbound voice → **auto-STT** → transcribed text delivered (voicePath preserved); STT-fail → `(voice message)` placeholder, no crash | `src/test/telegram-adapter.test.ts` ("VOICE IN …") |
+| **Input (REAL wiring)**: `config.ts` defaults resolve the repo `tools/` script + venv python (not `~/.claude`/bare python); env overrides; the REAL `VoiceCodec` transcribes the captured sample `.oga` end-to-end → real transcript, NOT `(voice message)` | `src/test/voice-stt-isolation.test.ts` |
 | **Output `voice`**: reply rendered TTS → `sendVoice` bubble; TTS-unavailable → text fallback | `src/test/telegram-adapter.test.ts` ("VOICE OUT …") |
 | **Output `dual`**: reply sent as BOTH text AND a voice bubble; TTS-fail keeps text (no double-send); empty text skips TTS | `src/test/telegram-adapter.test.ts` ("DUAL OUT …") |
 | **`/mode` switch** intercepted (state flips, ACK sent, NOT forwarded); bare/invalid → query; modality carried onto the substantive reply; default = `text` | `src/test/voice-modality.test.ts` |
 
-Run `npm test` → **215/215 green**. (Logic is proven against a deterministic
+Run `npm test` → **219/219 green**. (Most logic is proven against a deterministic
 `FakeSessionDriver` + a loopback transport + a fake `VoiceCodec` — no SDK, no
-subprocess, no Python, no network, no real Telegram.) A live end-to-end smoke boots
-the shell on the loopback transport with zero risk to the live channel; a live SDK
-round-trip is optional and uses the dedicated test bot.
+network, no real Telegram. The ONE exception is `voice-stt-isolation.test.ts`,
+which deliberately spawns the REAL `transcribe_voice.py` via the venv python on the
+captured sample `.oga` to prove the inbound-STT wiring; it SKIPS cleanly on a box
+without the sample/venv.) A live end-to-end smoke boots the shell on the loopback
+transport with zero risk to the live channel; a live SDK round-trip is optional and
+uses the dedicated test bot.
 
 ---
 

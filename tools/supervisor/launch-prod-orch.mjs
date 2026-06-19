@@ -30,11 +30,18 @@
 //
 // The token only ever lives in the child's env — never on a command line or in output.
 import { spawn, execSync } from 'node:child_process';
-import { readFileSync, openSync } from 'node:fs';
+import { readFileSync, openSync, existsSync } from 'node:fs';
 
 const REPO_ROOT = 'D:\\repos\\PianoidInstall';
 const SUP_DIR = 'D:\\repos\\PianoidInstall\\tools\\supervisor';
 const PROD_ENV_FILE = 'C:\\Users\\astri\\.claude\\channels\\telegram\\.env';
+// ── VOICE I/O: the STT (faster-whisper) + TTS (edge-tts) helpers live under the
+// repo tools/, and their deps live ONLY in the Pianoid venv — NOT a bare system
+// python. We PIN both so inbound voice notes transcribe (not the "(voice message)"
+// placeholder) regardless of the supervisor's cwd. config.ts derives the same
+// defaults from its own module location; this is belt-and-suspenders for prod.
+const REPO_TOOLS_DIR = 'D:\\repos\\PianoidInstall\\tools';
+const VENV_PYTHON = 'D:\\repos\\PianoidInstall\\PianoidCore\\.venv\\Scripts\\python.exe';
 
 // ── SINGLE-INSTANCE GUARD: refuse a 2nd supervisor if panel 8790 is already owned. ──
 try {
@@ -71,6 +78,18 @@ delete env.TELEGRAM_BOT_TOKEN; // defense in depth: the hosted claude's plugin (
 delete env.SUPERVISOR_SYSTEM_PROMPT; // orchestrator uses preset+append, not the demo persona
 delete env.SUPERVISOR_WORKTREE_CLEANUP; // PRODUCTION: no isolation worktree to clean up
 env.SUPERVISOR_SESSION_CWD = REPO_ROOT; // ★ the hosted orchestrator runs on the REAL repo
+// ★ VOICE I/O pin: the repo tools/ (STT/TTS helper scripts) + the venv python
+//   (faster-whisper/edge-tts deps). Without these the supervisor defaulted to a
+//   non-existent ~/.claude script path + a bare python that lacks faster-whisper,
+//   so inbound voice notes were delivered as the literal "(voice message)".
+env.SUPERVISOR_TOOLS_DIR = REPO_TOOLS_DIR;
+if (existsSync(VENV_PYTHON)) {
+  env.SUPERVISOR_PYTHON = VENV_PYTHON;
+} else {
+  process.stderr.write(
+    `launch-prod: WARN — venv python not found at ${VENV_PYTHON}; voice STT/TTS may degrade to text (config falls back to system python)\n`,
+  );
+}
 // (We deliberately do NOT set ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN — the cost guard
 //  asserts the env is key-free so the hosted session stays on the subscription.)
 
