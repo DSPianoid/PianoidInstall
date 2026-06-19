@@ -15,8 +15,33 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-wbspawn lock RELEASED 2026-06-19T14:50:00Z at Step 10a Phase 1 (frontend commit 9ac5002 on
+     feature/dev-wbspawn-orphan-fix off PianoidTunner dev acbf9e6, worktree D:/repos/wt-wbspawn). Held:
+     PianoidTunner/src/PianoidTuner.js (+ test src/hooks/__tests__/mosaicConfigStore.test.jsx, this agent's).
+     FIX fixed-workbench orphaned-after-layout-switch: (a) DELETED the layout-watching prune useEffect that
+     deleted workbench bindings whenever the pane was absent from the LIVE layout (orphaned other configs'
+     WBs on every switch + mis-fired on maximize); binding-GC now EXPLICIT at the close action (pane Close X
+     button — maximized closeMaximized + non-max mosaicActions.remove — and removeWindowFromLayout each call
+     closeWorkbench for a dynamic Workbench:* pane). (c) handleOpenWorkbench AUTO-SNAPSHOTS the active
+     config's WB bindings (incl. the just-spawned one) into mosaicConfigWorkbenches on spawn (frozen-config
+     gap). Removed now-unused addPanelBottomToLayout wrapper. Jest 119/1254 green (+4 orphan-fix tests),
+     closeMaximized regression-guarded, CRA build clean. Frontend-only, NO CUDA. NOT merged — dev is not
+     checked out anywhere (main checkout busy with dev-mosaicsave's uncommitted excitation work); merge
+     sequenced with dev-mosaicsave (it rebases onto 9ac5002). Lock released so dev-mosaicsave can proceed.
+     Docs (OVERVIEW) + log on PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-wbspawn) --> | | | |
 | dev-excenergy | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/excitation_coefficients.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/tests/unit/test_excitation_coeff_incremental.py` | 2026-06-18T15:18:00Z | CONSOLIDATED coeff-update refactor: single factor-cache recompose path (mass/speed/calibration/curve all incremental <50ms, byte-identical to full rebuild). StringMap split pack_excitation_coefficients → pack_excitation_factors + compose_from_factors; excitation_coefficients CoefficientCache+recompose; parameter_manager branches → one recompose call. Middleware Python + PianoidBasic wheel, NO CUDA rebuild. Branch off PianoidCore dev + PianoidBasic dev. |
-| dev-pitchfix | `PianoidTunner/src/components/HammerStringChart.jsx` | 2026-06-19T08:00:00Z | WIDTH CLAMP (user-approved): clamp hammer width control to per-pitch floor = 3·dx (dx from GET /get_hammer_shape geometry.dx, already exposed — no new route). Apply to NumInput + chart width-handle + wheel; nudge default up to floor; show min. Sub-floor widths are ineffective (engine Hammer.calculate_hammer_shape floors width at 3·dx). Frontend-only, NO CUDA. Branch off PianoidTunner dev d642dd9. (Prior pitch fix 02d2662 + BUG1 backdrop fix d642dd9 already merged+pushed.) |
+| dev-pitchfix | `PianoidTunner/src/components/ExcitationProperties.jsx`, `PianoidTunner/src/components/ExcitationEnergyEditor.jsx`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/components/MatrixTools.jsx` (+ new tests) | 2026-06-19T15:40:00Z | EXCITATION-PANEL RESTRUCTURE items 1/3/4 (user-confirmed): (1) extract per-pitch MASS from the energy popup → STANDALONE control where the Energy button sits (ExcitationProperties); (3) energy popup → speeds+calibration only, move Energy BUTTON into the pane toolbar next to the horizontal/width gauss pair (Excitation/MatrixTools); (4) REMOVE the VERTICAL height/volume gauss-scale pair + its handlers/props/wheel refs. Frontend-only, NO PianoidTuner.js (item 2 mass→workbench waits for dev-wbspawn's orphaning fix + partners with it). NO CUDA. Off PianoidTunner dev acbf9e6. |
+<!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTunner/src/components/HammerStringChart.jsx,
+     src/PianoidTuner.js, src/components/__tests__/HammerStringChart.test.jsx. HAMMER-CHART 3 FIXES (team-lead greenlit):
+     (1) tooltip-null crash — hideTipSafely(dispatchAction hideTip, isDisposed-guarded) before the debounced exactShape
+     rebuild + in placeHandles setOption + tooltip confine/enterable belt (PRE-EXISTING e744160, width clamp exonerated);
+     (2a) DEBOUNCE the zoomed exactShape /get_hammer_shape refetch EXACT_REFETCH_DEBOUNCE_MS=150 (position kept in deps —
+     engine shape shifts with position, Hammer.py:154); (3) EMIT GUARANTEE — excitation diff-sync now diffs flat hammer_*
+     params unconditionally (was skipped when a gauss cell selected → hammer edit never emitted). Committed
+     feature/dev-pitchfix-hammer-fixes 4410f46 (off dev 2aab192), MERGED → dev acbf9e6 (--no-ff), PUSHED 2aab192..acbf9e6.
+     origin/dev = acbf9e6. Jest 119/1250 green (+2), eslint clean, CRA build OK. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
 <!-- dev-profchart locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidCore/pianoid_middleware/chartFunctions.py + tests/unit/test_sound_test_profiling.py (also chart_config.json). Profiling MVP (kernel cycle-timing + over-budget/underrun markers in sound_test via render_hints, online-only, include_profiling toggle). MERGED to PianoidCore dev 89b1e9f (--no-ff, off 818bd9b) + PUSHED origin/dev (818bd9b..89b1e9f). Backend Python only, NO CUDA rebuild. Tests 13 new + 52 existing green; live audio_on population check PASSED (430 cycles, 31.6% over-budget, 2/424 underruns). Worktree wt-profchart removed. -->
 | <!-- (none active for dev-profchart) --> | | | |
 <!-- dev-pitchfix lock RELEASED 2026-06-18 at Step 10a Phase 1. PianoidTunner/src/PianoidTuner.js.

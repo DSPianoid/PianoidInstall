@@ -26,6 +26,7 @@
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
 | dev-wbspawn | Workbench spawn placement — fix relocate bug + new bottom-of-panel mode + global setting | [log](logs/dev-wbspawn-2026-06-17-114341.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
+| dev-wbspawn | Fix fixed-workbench orphaned-after-layout-switch (gate prune effect + auto-snapshot on spawn) | [log](logs/dev-wbspawn-orphan-2026-06-19-141000.md) | 2026-06-19 | In Progress |
 <!-- dev-profchart COMPLETED 2026-06-19 (Step 10a Phase 1; team-lead-authorized merge-after-verify). Profiling MVP:
      kernel cycle-timing + over-budget/underrun markers added to the Sound Test chart set (sound_test_function
      online branch) via the existing render_hints contract — NEW include_profiling toggle, online-only.
