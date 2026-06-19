@@ -74,7 +74,8 @@ The Pianoid subrepos were pulled + rebuilt this campaign (the `/update-pianoid` 
 `dev`):
 
 - **PianoidCore** `818bd9b` — `Merge feature/dev-excenergy-coeff-consolidation into dev` (consolidated coeff
-  updater; all edits <10ms). HEAVY CUDA rebuilt this session (`--heavy --both` → `.venv` `.pyd`).
+  updater; all edits <10ms). The last round (818bd9b) was a LIGHT update (middleware `.py` only — no `.cu`
+  change); the `.venv` `.pyd` is current + verified. (Earlier dev-excenergy rounds did the HEAVY CUDA rebuild.)
 - **PianoidBasic** `5d28b67` — `Merge feature/dev-excenergy-coeff-consolidation into dev` (pack_excitation_factors
   split). Wheel rebuilt this session.
 - **PianoidTunner** `02d2662` — `…dev-pitchfix-hammerchart-convertpixel…` (the excitation-API pair, up to date).
