@@ -23,7 +23,8 @@
  * real session) + 2 (route permissions) + 3 (stream-json on the bus).
  */
 
-import type { InboundMessage, OutboundResult, ReplyHandle } from './contract.js';
+import type { InboundMessage, OutboundMessage, OutboundResult, ReplyHandle } from './contract.js';
+import type { OutputMode } from './config.js';
 import { ChannelPermission, type SendPrompt } from './channel-permission.js';
 import { LifecycleManager } from './lifecycle.js';
 import { PermissionRouter, type PermissionPolicy } from './permission-router.js';
@@ -33,6 +34,36 @@ import type { SessionDriver } from './session-driver.js';
 
 /** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
 export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
+
+/**
+ * The reserved OUTPUT-MODALITY switch command (the user's "switchable output
+ * channel"). `/mode text|voice|dual` (case/space-insensitive) is INTERCEPTED by
+ * the supervisor — applied to the in-memory modality state, ACK'd to the user,
+ * and NOT forwarded to the orchestrator. `/mode` with no/invalid arg → the
+ * current mode + the valid options. See {@link parseModeCommand}.
+ */
+export const MODE_CMD_RE = /^\/mode\b/i;
+
+/** The parsed result of a `/mode …` channel command (see {@link parseModeCommand}). */
+export type ModeCommand =
+  | { kind: 'set'; mode: OutputMode } // a valid `/mode text|voice|dual`
+  | { kind: 'query' }; // `/mode` with no arg, or an invalid/unknown arg
+
+/**
+ * Parse a `/mode …` channel command. Returns `null` when the text is NOT a
+ * `/mode` command at all (so the caller falls through to a normal turn). A
+ * recognized command yields `{kind:'set', mode}` for a valid text|voice|dual
+ * argument, else `{kind:'query'}` (bare `/mode` or an unknown arg → report the
+ * current mode + options). Tolerates surrounding/extra whitespace and case.
+ */
+export function parseModeCommand(text: string): ModeCommand | null {
+  const trimmed = text.trim();
+  if (!MODE_CMD_RE.test(trimmed)) return null;
+  // Everything after the '/mode' token, lower-cased, first whitespace-token only.
+  const arg = trimmed.replace(MODE_CMD_RE, '').trim().toLowerCase().split(/\s+/)[0] ?? '';
+  if (arg === 'text' || arg === 'voice' || arg === 'dual') return { kind: 'set', mode: arg };
+  return { kind: 'query' };
+}
 
 /** M3: at most one delivery-failure notice per this window (outage cooldown). */
 export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
@@ -51,10 +82,23 @@ export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
   logger: Logger;
-  /** Send an outbound over a channel (bound supervisor.sendOutbound for a channel). */
-  send: (handle: ReplyHandle, msg: { text?: string }) => Promise<OutboundResult>;
+  /**
+   * Send an outbound over a channel (bound supervisor.sendOutbound for a channel).
+   * `msg.options` carries the modality (text/voice/dual) — the supervisor sets it
+   * on the orchestrator's substantive replies from the current output mode; the
+   * adapter renders TTS / sends the bubble accordingly. Control messages
+   * (permission prompts, ACKs, system notices) omit it and go as plain text.
+   */
+  send: (handle: ReplyHandle, msg: OutboundMessage) => Promise<OutboundResult>;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
+  /**
+   * The STARTUP output modality for the orchestrator's substantive replies
+   * (text/voice/dual). The SessionHost holds this as switchable in-memory state
+   * and flips it via the intercepted `/mode` command; this is just the boot value
+   * (resets here on a restart). From config ({@link OutputMode}). Default 'text'.
+   */
+  outputMode?: OutputMode;
   /** The system prompt — plain string (demo persona) or preset+append (orchestrator). */
   systemPrompt?: string | { preset: 'claude_code'; append?: string };
   cwd?: string;
@@ -171,11 +215,19 @@ export class SessionHost {
   private restartRequestTimes: number[] = [];
   /** Lifecycle-restart: a restart confirm is already in flight (don't open a second dialog). */
   private restartConfirmInFlight = false;
+  /**
+   * OUTPUT MODALITY (the user's switchable "output channel"). SOLE OWNER of this
+   * state (P1): the `/mode` command (intercepted in handleInbound) is the only
+   * writer; `sendToOperator` reads it to set the outbound modality. In-memory
+   * (resets to the configured default on restart, per v1 scope).
+   */
+  private outputMode: OutputMode;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
     this.logger = opts.logger.child('session-host');
     this.rolePrefixPending = !!opts.roleTurnPrefix;
+    this.outputMode = opts.outputMode ?? 'text';
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -370,6 +422,15 @@ export class SessionHost {
       return;
     }
 
+    // ★ OUTPUT-MODALITY SWITCH — reserved '/mode text|voice|dual'. INTERCEPTED here
+    // (same seam): applied to the in-memory modality state + ACK'd to the user, and
+    // NOT forwarded to the orchestrator. Bare/invalid `/mode` → report current + options.
+    const modeCmd = parseModeCommand(text);
+    if (modeCmd) {
+      await this.handleModeCommand(modeCmd);
+      return;
+    }
+
     // Otherwise inject as a user turn into the session. On the FIRST real user
     // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
     // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
@@ -389,6 +450,47 @@ export class SessionHost {
   /** The currently-bound operator reply handle (null until the first inbound). */
   currentOperator(): ReplyHandle | null {
     return this.operator;
+  }
+
+  /** The current output modality (text/voice/dual) — for the panel / tests. */
+  outputModeState(): OutputMode {
+    return this.outputMode;
+  }
+
+  /**
+   * Apply an intercepted `/mode` command: `set` flips the modality state + ACKs
+   * the new mode; `query` (bare/invalid `/mode`) replies with the current mode +
+   * the valid options. The ACK is a CONTROL message — plain text (no modality), so
+   * a "/mode voice" ACK is not itself voiced. NOT forwarded to the orchestrator.
+   */
+  private async handleModeCommand(cmd: ModeCommand): Promise<void> {
+    if (cmd.kind === 'set') {
+      const prev = this.outputMode;
+      this.outputMode = cmd.mode;
+      this.logger.info('output modality switched via /mode', { from: prev, to: cmd.mode });
+      this.publishLifecycle('output_mode_changed', { from: prev, to: cmd.mode });
+      await this.ackToOperator(`Output mode → ${cmd.mode}`);
+    } else {
+      this.logger.info('output modality queried via /mode', { current: this.outputMode });
+      await this.ackToOperator(
+        `Output mode is "${this.outputMode}". Set it with: /mode text | /mode voice | /mode dual.`,
+      );
+    }
+  }
+
+  /**
+   * Send a CONTROL/ACK line to the operator as PLAIN TEXT (bypasses the modality —
+   * a `/mode` ack / system notice is never voiced — and the lastSentText dedup
+   * baseline, like the other direct control sends). Best-effort: a failure is logged,
+   * not thrown (a `/mode` switch still took effect even if its ack didn't deliver).
+   */
+  private async ackToOperator(text: string): Promise<void> {
+    if (!this.operator) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('mode-ack send failed (non-fatal)', { err: String(err) });
+    }
   }
 
   /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
@@ -652,7 +754,11 @@ export class SessionHost {
     // Log the outbound RESULT (ok + sentIds) so a forward to the channel is observable —
     // delivery confirmation, not just an attempt. (Without this, a successful send was
     // silent in the log, so we couldn't tell "delivered to the bot" from "never sent".)
-    const r = await this.opts.send(this.operator, { text });
+    // ★ OUTPUT MODALITY: the orchestrator's substantive reply carries the current mode
+    // (text/voice/dual) — the adapter renders TTS / sends the voice bubble accordingly.
+    // (Control sends — prompts, acks, system notices — go via opts.send WITHOUT options,
+    // so they stay text.) Empty text would be a no-op; the guard above already returned.
+    const r = await this.opts.send(this.operator, { text, options: { modality: this.outputMode } });
     if (r.ok) {
       // Record as last-sent ONLY on success — a failed send must not poison the guard
       // (a legitimate retry of the same text would otherwise be suppressed).

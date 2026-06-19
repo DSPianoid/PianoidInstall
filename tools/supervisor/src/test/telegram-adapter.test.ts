@@ -158,6 +158,70 @@ test('VOICE OUT falls back to text when TTS is unavailable', async () => {
   }
 });
 
+test('DUAL OUT: modality=dual → BOTH a text message AND a TTS voice bubble', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const { transport, adapter, voice } = makeAdapter(dir);
+    await adapter.start(async () => {});
+    const res = await adapter.outbound(
+      { to: '555' },
+      { text: 'both ways', options: { modality: 'dual' } },
+    );
+    assert.ok(res.ok);
+    // TTS ran once.
+    assert.equal(voice.synthesizeCalls.length, 1);
+    // A text record AND a voice-file record are both present.
+    const txt = transport.sent.find((s) => s.kind === 'text');
+    const vox = transport.sent.find((s) => s.kind === 'file' && s.fileKind === 'voice');
+    assert.ok(txt, 'a text message was sent');
+    assert.equal(txt!.body, 'both ways');
+    assert.ok(vox, 'a voice bubble was also sent');
+    // Exactly one of each (no double-text).
+    assert.equal(transport.sent.filter((s) => s.kind === 'text').length, 1);
+    assert.equal(transport.sent.filter((s) => s.kind === 'file' && s.fileKind === 'voice').length, 1);
+    await adapter.stop();
+  } finally {
+    cleanup();
+  }
+});
+
+test('DUAL OUT with TTS unavailable: text still sent, NO double-text, no voice', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const { transport, adapter } = makeAdapter(dir, { tts: false });
+    await adapter.start(async () => {});
+    const res = await adapter.outbound(
+      { to: '555' },
+      { text: 'text survives', options: { modality: 'dual' } },
+    );
+    assert.ok(res.ok);
+    const textSends = transport.sent.filter((s) => s.kind === 'text');
+    const voiceSends = transport.sent.filter((s) => s.kind === 'file' && s.fileKind === 'voice');
+    assert.equal(textSends.length, 1, 'exactly one text send (no fallback double-text)');
+    assert.equal(textSends[0]!.body, 'text survives');
+    assert.equal(voiceSends.length, 0, 'no voice bubble when TTS is unavailable');
+    await adapter.stop();
+  } finally {
+    cleanup();
+  }
+});
+
+test('DUAL OUT with empty text: nothing synthesized, nothing sent', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const { transport, adapter, voice } = makeAdapter(dir);
+    await adapter.start(async () => {});
+    const res = await adapter.outbound({ to: '555' }, { text: '   ', options: { modality: 'dual' } });
+    assert.ok(res.ok);
+    // Whitespace-only text: TTS is skipped; the empty text send is a no-op chunk.
+    assert.equal(voice.synthesizeCalls.length, 0, 'TTS skipped for empty/whitespace text');
+    assert.equal(transport.sent.filter((s) => s.kind === 'file').length, 0, 'no voice bubble');
+    await adapter.stop();
+  } finally {
+    cleanup();
+  }
+});
+
 test('a pre-rendered voiceOggPath sends as a voice bubble', async () => {
   const { dir, cleanup } = tmpDir();
   try {

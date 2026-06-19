@@ -90,13 +90,24 @@ export interface OutboundMessage {
   options?: OutboundOptions;
 }
 
+/**
+ * Outbound modality (the §0.10g on-the-fly switch the adapter honors):
+ *  - 'text'  — send `text` as-is (the default).
+ *  - 'voice' — render `text` to a voice note via TTS and send ONLY the bubble.
+ *  - 'dual'  — send BOTH the text AND a TTS voice note (each reply twice over).
+ *  - 'auto'  — voice iff the inbound was voice (caller may pre-resolve).
+ * The switchable supervisor-level state is held by the SessionHost (set via the
+ * intercepted `/mode` command); the adapter just renders per this field.
+ */
+export type OutboundModality = 'text' | 'voice' | 'dual' | 'auto';
+
 export interface OutboundOptions {
   /**
-   * Modality. 'text' = send `text` as-is. 'voice' = render `text` to a voice
-   * note via TTS (honors the §0.10g on-the-fly switch). 'auto' = voice iff the
-   * inbound was voice (caller may pre-resolve). Default: 'text'.
+   * Modality. See {@link OutboundModality}. 'text' = send `text` as-is; 'voice' =
+   * TTS bubble only; 'dual' = text AND a TTS bubble; 'auto' = voice iff the inbound
+   * was voice. Default: 'text'.
    */
-  modality?: 'text' | 'voice' | 'auto';
+  modality?: OutboundModality;
   /** Rendering mode for text channels that support it. */
   format?: 'text' | 'markdown';
 }

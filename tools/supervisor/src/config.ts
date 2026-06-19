@@ -27,6 +27,19 @@ import type { LogLevel } from './logger.js';
 import type { PermissionPolicy } from './permission-router.js';
 
 /**
+ * The switchable OUTPUT modality for the orchestrator's replies (the user's
+ * "output channel"): 'text' (text only), 'voice' (a TTS voice note only), or
+ * 'dual' (both text and a voice note). Held in-memory by the SessionHost and
+ * flipped on-the-fly via the intercepted `/mode` command — this is only the
+ * STARTUP DEFAULT (it resets to this on a supervisor restart). The user chose
+ * 'text' as the default.
+ */
+export type OutputMode = 'text' | 'voice' | 'dual';
+
+/** The startup default output modality (the user's choice). */
+export const DEFAULT_OUTPUT_MODE: OutputMode = 'text';
+
+/**
  * The conservative DEFAULT permission policy for the hosted session (review M2:
  * lifted out of the entrypoint so policy is config, not a literal buried in
  * index.ts). Read-only + channel tools auto-allow; everything else ROUTES to the
@@ -76,6 +89,13 @@ export interface SupervisorConfig {
    * the allow-list extends via `SUPERVISOR_PERMISSION_ALLOW` (comma-separated).
    */
   permissionPolicy: PermissionPolicy;
+  /**
+   * The STARTUP default output modality for the orchestrator's replies
+   * ({@link OutputMode}). Defaults to {@link DEFAULT_OUTPUT_MODE} ('text'); the
+   * env `SUPERVISOR_OUTPUT_MODE` overrides it (text|voice|dual, invalid → default).
+   * The SessionHost flips it at runtime via `/mode`; this is only the boot value.
+   */
+  outputModeDefault: OutputMode;
 }
 
 export interface LoadConfigOptions {
@@ -129,7 +149,19 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     ttsScript: join(toolsDir, 'tts_voice.py'),
     panelPort: opts.panelPort ?? 0,
     permissionPolicy: resolvePermissionPolicy(),
+    outputModeDefault: resolveOutputMode(),
   };
+}
+
+/**
+ * Resolve the startup output modality from `SUPERVISOR_OUTPUT_MODE` (text|voice|
+ * dual, case/space-insensitive). Anything else (unset or invalid) falls back to
+ * {@link DEFAULT_OUTPUT_MODE} ('text') — the user's chosen default.
+ */
+export function resolveOutputMode(raw = process.env.SUPERVISOR_OUTPUT_MODE): OutputMode {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'text' || v === 'voice' || v === 'dual') return v;
+  return DEFAULT_OUTPUT_MODE;
 }
 
 /**

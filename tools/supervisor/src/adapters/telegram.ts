@@ -269,9 +269,14 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   /**
-   * Send a reply. Honors modality: 'voice' (or 'auto' when an inbound voice is
-   * being answered) renders `text` to a voice note via TTS and sends it as a
-   * bubble; otherwise chunked text + any explicit files are sent.
+   * Send a reply. Honors modality:
+   *  - 'text' (default, or 'auto' answering a text inbound): chunked text.
+   *  - 'voice': render `text` → TTS voice note (sendVoice bubble) ONLY; falls
+   *    back to text if TTS is unavailable/fails so a reply is never lost.
+   *  - 'dual': send BOTH the chunked text AND a TTS voice note. A TTS failure
+   *    here leaves the text (already sent) standing — no fallback double-text.
+   * Then any explicit pre-rendered `voiceOggPath` + `files` are sent.
+   * Empty/whitespace `text` skips TTS (nothing to synthesize).
    */
   async outbound(handle: ReplyHandle, msg: OutboundMessage): Promise<OutboundResult> {
     const sentIds: string[] = [];
@@ -282,20 +287,35 @@ export class TelegramAdapter implements ChannelAdapter {
 
     try {
       const modality = msg.options?.modality ?? 'text';
-      const wantVoice = modality === 'voice';
+      const wantVoice = modality === 'voice' || modality === 'dual';
+      const wantText = modality === 'text' || modality === 'dual' || modality === 'auto';
+      const hasText = !!msg.text && msg.text.trim() !== '';
 
-      // Voice-out: render text → OGG and send as a bubble. Fall back to text if
-      // TTS is unavailable so a reply is never lost.
-      if (wantVoice && msg.text && this.voice?.isTtsAvailable()) {
-        try {
-          const ogg = await this.voice.synthesize(msg.text);
-          sentIds.push(await this.transport.sendFile(handle.to, ogg, 'voice', opts));
-        } catch (err) {
-          process.stderr.write(`telegram adapter: TTS failed, falling back to text: ${err}\n`);
-          sentIds.push(...(await this.sendTextChunks(handle.to, msg.text, opts)));
-        }
-      } else if (msg.text) {
+      // TEXT first (so in 'dual' the bubble follows the readable text). 'voice'
+      // mode skips this — voice-only — unless the TTS fallback below restores it.
+      let textSent = false;
+      if (wantText && msg.text) {
         sentIds.push(...(await this.sendTextChunks(handle.to, msg.text, opts)));
+        textSent = true;
+      }
+
+      // VOICE-out: render text → OGG and send as a bubble. Skip empty text (nothing
+      // to synthesize). On TTS unavailable/failure, fall back to a text send ONLY if
+      // the text was not already sent (i.e. 'voice' mode) — so a reply is never lost
+      // and 'dual' never double-sends text.
+      if (wantVoice && hasText) {
+        if (this.voice?.isTtsAvailable()) {
+          try {
+            const ogg = await this.voice.synthesize(msg.text!);
+            sentIds.push(await this.transport.sendFile(handle.to, ogg, 'voice', opts));
+          } catch (err) {
+            process.stderr.write(`telegram adapter: TTS failed${textSent ? '' : ', falling back to text'}: ${err}\n`);
+            if (!textSent) sentIds.push(...(await this.sendTextChunks(handle.to, msg.text!, opts)));
+          }
+        } else if (!textSent) {
+          // TTS capability absent → ensure the reply still reaches the user as text.
+          sentIds.push(...(await this.sendTextChunks(handle.to, msg.text!, opts)));
+        }
       }
 
       // An explicit pre-rendered voice OGG (voiceOggPath) always sends as a bubble.

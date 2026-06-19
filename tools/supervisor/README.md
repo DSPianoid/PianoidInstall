@@ -28,7 +28,7 @@ keystroke/monkey-patch glue) is **Phase 3**, not done here.
 |---|---|---|
 | **Supervisor** | `src/supervisor.ts` | Lifecycle + adapter registry + wires bus↔capture↔adapters. Routes inbound→bus (captured)→host hook; routes outbound back through the originating adapter. *Does not own the Claude subprocess yet.* |
 | **I/O bus** | `src/io-bus.ts` | In-memory, captured fan-out broker. Monotonic `seq`, fail-soft fan-out. The spine of FC-3 ("every byte on a captured bus"). |
-| **Channel-adapter contract (M10)** | `src/contract.ts` | The interface the supervisor codes to: `start(onInbound)`, `outbound(handle, msg)`, `stop()`, `health()`; normalized inbound `{text?, voicePath?, attachments[], user, ts, replyHandle}`; outbound `{text?, voiceOggPath?, files[]}`. Queued + recoverable + voice-aware. |
+| **Channel-adapter contract (M10)** | `src/contract.ts` | The interface the supervisor codes to: `start(onInbound)`, `outbound(handle, msg)`, `stop()`, `health()`; normalized inbound `{text?, voicePath?, attachments[], user, ts, replyHandle}`; outbound `{text?, voiceOggPath?, files[], options:{modality}}` where `modality` ∈ `text\|voice\|dual\|auto`. Queued + recoverable + voice-aware. |
 | **Delivery queue** | `src/delivery-queue.ts` | Durable, ack'd, replayable inbound persistence — the inbox-queue patch made first-class. Enqueue-before-handle, ack-after-success; un-acked items replay on restart (FC-2). |
 | **Capture store** | `src/capture-store.ts` | Durable, append-only NDJSON event store. Subscribes to the bus; `replay()`/`query()`; tolerant of a torn final line. The seed of §2c observability. |
 | **Telegram adapter** | `src/adapters/telegram.ts` | The reference `ChannelAdapter`. Composes transport + gate + queue + voice. Obsoletes **both** monkey-patches natively. |
@@ -144,14 +144,48 @@ round-trip is demonstrable against a dedicated test bot. **It is not the real
 host** — Phase 2 replaces the host hook with the hosted Claude Code session.
 Default runs never enable it.
 
-### Voice helpers (optional)
+### Input & output channels (voice + modality)
 
-STT/TTS shell out to the repo's Python helpers. With them on the resolved path
-(`transcribe_voice.py`, `tts_voice.py` — `config.ts` resolves these), inbound
-voice notes are transcribed and outbound `modality:'voice'` renders a voice note.
-Without them, voice degrades gracefully (inbound → `(voice message)`; outbound →
-text fallback). They need `faster-whisper` (STT) and `edge-tts` + `ffmpeg` (TTS),
-as the existing orchestrator setup already provides.
+The supervisor owns BOTH directions of the channel (proposal §B.4):
+
+**Input channel — auto-STT.** An inbound voice note is downloaded and transcribed
+by the **adapter** (`transcribe_voice.py` faster-whisper, via `VoiceCodec`)
+*before* it reaches the hosted session — so the session receives the **transcribed
+text** as the message body (the `.oga` path is preserved on `voicePath`). STT
+failure degrades gracefully to the `(voice message)` placeholder; the inbound path
+never crashes. (`src/adapters/telegram.ts` `resolveVoiceIfPending`.)
+
+**Output channel — switchable modality.** The orchestrator's substantive replies
+are sent in one of three modes, held as in-memory state in the SessionHost:
+
+| Mode | Behaviour |
+|---|---|
+| `text` (**default**) | text only (current behaviour) |
+| `voice` | a TTS voice note ONLY (`tts_voice.py` edge-tts → OGG → `sendVoice` bubble) |
+| `dual` | BOTH the text AND a TTS voice note |
+
+The startup default is **`text`** (env `SUPERVISOR_OUTPUT_MODE=text|voice|dual`
+overrides it; `config.ts` `outputModeDefault`). Control messages — permission
+prompts, the `/mode` ack, system notices — always go as **text** (never voiced).
+TTS is skipped for empty replies; on TTS unavailability a `voice`/`dual` reply
+still reaches the user as text (never lost, never double-sent).
+
+**Switch command — `/mode`.** Inbound `/mode text | /mode voice | /mode dual`
+(case/space-insensitive) is **intercepted by the supervisor** (same seam as
+`/channel-check`): it flips the modality state, ACKs the user (`Output mode →
+voice`), and is **NOT forwarded** to the orchestrator. Bare/invalid `/mode`
+replies with the current mode + the valid options. (`src/session-host.ts`
+`parseModeCommand` / `handleModeCommand`.)
+
+Voice helpers shell out to the repo's Python scripts (`config.ts` resolves
+`transcribe_voice.py` / `tts_voice.py`). Without them, voice degrades gracefully
+(inbound → `(voice message)`; outbound → text). They need `faster-whisper` (STT)
+and `edge-tts` + `ffmpeg` (TTS), as the existing orchestrator setup provides.
+
+> **Note (file size):** `src/session-host.ts` is 838 LOC (YELLOW, > 500). The
+> modality work kept the parser a standalone exported pure fn (`parseModeCommand`);
+> a future split of the lifecycle-restart / liveness-ping concerns out of the host
+> is the next reduction (not bundled with this feature).
 
 ---
 
@@ -174,10 +208,20 @@ as the existing orchestrator setup already provides.
 | **FI**: killing the session mid-task → **restart + `resume`** the same session id and continue | `src/test/lifecycle.test.ts` (crash→restart-with-resume; clean stop no restart; bounded crash-loop) |
 | **stream-json on the bus**: `system_init`/`assistant`/`result` captured; session id captured | `src/test/lifecycle.test.ts` + `src/test/sdk-session-driver.test.ts` (message mapping + canUseTool adaptation + resume/systemPrompt pass-through) |
 
-Run `npm test` → **95/95 green**. (Phase-2 logic is proven against a deterministic
-`FakeSessionDriver` + an injected fake `query` — no SDK, no subprocess, no network.)
-A live end-to-end smoke boots the shell on the loopback transport with zero risk to
-the live channel; a live SDK round-trip is optional and uses the dedicated test bot.
+**Input & output channels (voice + modality):**
+
+| Criterion | Proven by |
+|---|---|
+| **Input**: inbound voice → **auto-STT** → transcribed text delivered (voicePath preserved); STT-fail → `(voice message)` placeholder, no crash | `src/test/telegram-adapter.test.ts` ("VOICE IN …") |
+| **Output `voice`**: reply rendered TTS → `sendVoice` bubble; TTS-unavailable → text fallback | `src/test/telegram-adapter.test.ts` ("VOICE OUT …") |
+| **Output `dual`**: reply sent as BOTH text AND a voice bubble; TTS-fail keeps text (no double-send); empty text skips TTS | `src/test/telegram-adapter.test.ts` ("DUAL OUT …") |
+| **`/mode` switch** intercepted (state flips, ACK sent, NOT forwarded); bare/invalid → query; modality carried onto the substantive reply; default = `text` | `src/test/voice-modality.test.ts` |
+
+Run `npm test` → **215/215 green**. (Logic is proven against a deterministic
+`FakeSessionDriver` + a loopback transport + a fake `VoiceCodec` — no SDK, no
+subprocess, no Python, no network, no real Telegram.) A live end-to-end smoke boots
+the shell on the loopback transport with zero risk to the live channel; a live SDK
+round-trip is optional and uses the dedicated test bot.
 
 ---
 

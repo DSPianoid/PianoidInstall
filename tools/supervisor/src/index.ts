@@ -211,7 +211,10 @@ async function main(): Promise<void> {
         const channelServer = await buildSupervisorChannelServer(async (text) => {
           const operator = sessionHost?.currentOperator();
           if (!operator) return { ok: false };
-          const r = await supervisor.sendOutbound('telegram', operator, { text });
+          // The reply tool is the orchestrator's SUBSTANTIVE reply → honor the current
+          // output modality (text/voice/dual), same as the auto-outbound path.
+          const modality = sessionHost?.outputModeState() ?? 'text';
+          const r = await supervisor.sendOutbound('telegram', operator, { text, options: { modality } });
           return { ok: r.ok };
         });
         if (channelServer) mcpServers[SUPERVISOR_CHANNEL_SERVER_NAME] = channelServer;
@@ -245,6 +248,10 @@ async function main(): Promise<void> {
       bus: supervisor.bus,
       logger,
       send: (handle, msg) => supervisor.sendOutbound('telegram', handle, msg),
+      // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
+      // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
+      // flips it at runtime via the intercepted `/mode` command.
+      outputMode: config.outputModeDefault,
       // Profile-driven policy (demo = config default / route-most; orchestrator =
       // broad allow-list + the safety-floor route predicate).
       policy: profile.name === 'orchestrator' ? profile.policy : config.permissionPolicy,
