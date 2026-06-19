@@ -279,14 +279,19 @@ export class SdkSessionDriver implements SessionDriver {
   private mapMessage(raw: unknown): SessionEvent | null {
     const m = raw as Record<string, unknown>;
     const type = m['type'];
-    // ★ FLOOD FIX (2026-06-19) — parity with cli-stream-driver.mapCliMessage: DROP
-    // SUB-AGENT (sidechain) content. A sub-agent's (Agent/Task) assistant narration rides
-    // the same stream tagged with a non-null `parent_tool_use_id`; without this guard each
-    // line a background agent narrates is forwarded to the channel (the flood). The
-    // orchestrator's OWN messages (parent null/absent) — incl. the spawning Agent tool_use —
-    // pass through. (This is the HEDGE driver, not active; fixed for parity so a future
-    // --driver sdk flip doesn't reintroduce the flood.)
-    if (m['parent_tool_use_id'] != null) return null;
+    // ★ FLOOD FIX (2026-06-19) — parity with cli-stream-driver.mapCliMessage: DROP SUB-AGENT
+    // content. A sub-agent's (Agent/Task) assistant narration rides the same stream; without
+    // this guard each line a sub-agent narrates is forwarded to the channel (the flood). TWO
+    // markers, BOTH required (measured against raw `claude -p` stream-json):
+    //   1. FOREGROUND sidechain → non-null `parent_tool_use_id`.
+    //   2. BACKGROUND task (run_in_background) → top-level `subagent_type` (+ `task_description`);
+    //      a background sub-agent message is NOT reliably tagged with parent_tool_use_id (it
+    //      leaked with parent_tool_use_id==null — what the original 2224ed4 guard missed), so key
+    //      on `subagent_type` to catch the background case independently.
+    // The orchestrator's OWN messages carry NEITHER (parent null/absent, no subagent_type) —
+    // incl. the spawning Agent tool_use — and pass through. (This is the HEDGE driver, not
+    // active; fixed for parity so a future --driver sdk flip doesn't reintroduce the flood.)
+    if (m['parent_tool_use_id'] != null || m['subagent_type'] != null) return null;
     if (type === 'system' && m['subtype'] === 'init') {
       const slashRaw = m['slash_commands'] ?? m['slashCommands'] ?? m['commands'];
       const mcpRaw = m['mcp_servers'] ?? m['mcpServers'];
