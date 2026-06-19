@@ -28,6 +28,7 @@ import { CliStreamDriver, type CliStreamDriverOptions } from './adapters/cli-str
 import {
   ApiAdapterDriver,
   DEEPSEEK_CODING_CONFIG,
+  DEFAULT_API_ADAPTER_CONFIGS,
   type ApiAdapterConfig,
   type ApiAdapterHttpClient,
 } from './api-adapter-driver.js';
@@ -58,8 +59,10 @@ export interface BackendRegistryOptions {
   /**
    * The api-adapter config map (model id → {@link ApiAdapterConfig}). The default
    * api-adapter factory resolves a selection's `model` here; an unmapped model falls back
-   * to {@link DEEPSEEK_CODING_CONFIG} (coding is the P3 target). Override to add a backend
-   * (e.g. Codex at P4) or to point a model at a test base-URL.
+   * to {@link DEEPSEEK_CODING_CONFIG}. DEFAULT = {@link DEFAULT_API_ADAPTER_CONFIGS} —
+   * BOTH DeepSeek (coding, P3) AND Codex (reviewing, P4), so `reviewing`→Codex resolves
+   * end-to-end with no override. Override to add a backend or to point a model at a test
+   * base-URL (tests inject this to avoid the real OpenAI/DeepSeek endpoints).
    */
   apiAdapterConfigs?: Record<string, ApiAdapterConfig>;
   /**
@@ -92,10 +95,12 @@ export class BackendRegistry {
     const cliStreamOptions = opts.cliStreamOptions;
     this.factories.set('claude-cli', () => new CliStreamDriver(cliStreamOptions ?? {}));
 
-    // Built-in api-adapter factory (P3) — construct an ApiAdapterDriver from the per-model
-    // config (default: DeepSeek=coding). The HTTP client is injectable (tests feed canned
-    // responses → NO real paid call). An unmapped model falls back to the DeepSeek config.
-    const apiConfigs = opts.apiAdapterConfigs ?? { [DEEPSEEK_CODING_CONFIG.model]: DEEPSEEK_CODING_CONFIG };
+    // Built-in api-adapter factory (P3 DeepSeek=coding + P4 Codex=reviewing) — construct an
+    // ApiAdapterDriver from the per-model config. DEFAULT map = DEFAULT_API_ADAPTER_CONFIGS (BOTH
+    // DeepSeek + Codex), so a `reviewing`→Codex selection resolves with no override. The HTTP client
+    // is injectable (tests feed canned responses → NO real paid call). An unmapped model falls back
+    // to the DeepSeek config (a safe known shape; the seal still scopes the key by ownSecretName).
+    const apiConfigs = opts.apiAdapterConfigs ?? DEFAULT_API_ADAPTER_CONFIGS;
     const apiHttpClient = opts.apiAdapterHttpClient;
     const apiEnv = opts.apiAdapterEnv;
     this.factories.set('api-adapter', (selection: BackendSelection) => {

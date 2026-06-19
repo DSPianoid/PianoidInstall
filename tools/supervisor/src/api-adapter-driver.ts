@@ -65,10 +65,17 @@ export const DEEPSEEK_CODING_CONFIG: ApiAdapterConfig = {
 };
 
 /**
- * The Codex/OpenAI (reviewing) backend config — proposal OD-4 (Codex = OpenAI-API, OpenAI-compatible).
- * The exact model id is confirmed at P4 (reviewing is P4 scope); this is the parameterization proof
- * that the SAME ApiAdapterDriver serves a second backend by config (base-URL/model/key). Thinking is
- * an OpenAI no-op here (omitted). Declared now for completeness; NOT routed by P3.
+ * The Codex/OpenAI (reviewing) backend config — proposal OD-4 (Codex = OpenAI-API, OpenAI-compatible;
+ * USER-APPROVED: ONE adapter serves both DeepSeek + Codex by config). P4: this is the SECOND
+ * api-adapter backend, the parameterization proof that the SAME {@link ApiAdapterDriver} serves a
+ * second vendor purely by config (base-URL/model/key) — ZERO new driver. The reviewing role routes
+ * here (role-router DEFAULT_ROLE_ROUTING_CONFIG).
+ *
+ * MODEL ID IS A CONFIGURABLE DEFAULT, not a hardcoded constant: `gpt-5-codex` is a PLACEHOLDER pin —
+ * the exact OpenAI model id is confirmed by the user BEFORE activation (P6). Override it by supplying a
+ * different `BackendRegistryOptions.apiAdapterConfigs` entry (or a different role-router model) — the
+ * registry keys on the model id, so changing it in ONE place (here, or via the config map) re-points the
+ * whole route. `temperature`/`disableThinking` likewise tunable. Thinking is an OpenAI no-op (omitted).
  */
 export const CODEX_REVIEWING_CONFIG: ApiAdapterConfig = {
   baseUrl: 'https://api.openai.com/v1',
@@ -77,6 +84,19 @@ export const CODEX_REVIEWING_CONFIG: ApiAdapterConfig = {
   temperature: 0.0,
   disableThinking: false,
   label: 'codex',
+};
+
+/**
+ * The DEFAULT api-adapter config map (model id → {@link ApiAdapterConfig}) — the SINGLE source of
+ * truth the {@link BackendRegistry} keys on, so DeepSeek (coding, P3) AND Codex (reviewing, P4) both
+ * resolve end-to-end with NO per-call override. Keyed by the PINNED model id (the same id the
+ * role-router's DEFAULT_ROLE_ROUTING_CONFIG carries for each role), so a selection's `model` looks up
+ * its full backend config here. Add a backend = one entry (e.g. a future local model). Override the
+ * whole map via BackendRegistryOptions.apiAdapterConfigs (tests point a model at a fake base-URL).
+ */
+export const DEFAULT_API_ADAPTER_CONFIGS: Readonly<Record<string, ApiAdapterConfig>> = {
+  [DEEPSEEK_CODING_CONFIG.model]: DEEPSEEK_CODING_CONFIG,
+  [CODEX_REVIEWING_CONFIG.model]: CODEX_REVIEWING_CONFIG,
 };
 
 /** Static configuration for one api-adapter backend (parameterized per backend — DeepSeek/Codex). */
