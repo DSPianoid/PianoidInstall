@@ -15,6 +15,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2870 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P0 commit 655af72 + P1 commit 66357c8 on
+     feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
+     Held + edited: tools/supervisor/src/session-driver.ts (additive BackendCapabilities type only). NEW files
+     (no lock conflict): backend-kinds.ts, role-router.ts, backend-registry.ts, backend-seal.ts, result-relay.ts
+     + test/{backend-kinds,role-router,backend-seal,backend-registry,result-relay}.test.ts. DORMANT model-agnostic
+     agent-routing (default-OFF SUPERVISOR_ROLE_ROUTING); index.ts/live path/dist/running supervisor UNTOUCHED.
+     +39 tests, full node:test 294/294, tsc clean (built to throwaway dist-test/, reverted — prod dist/ not regenerated). -->
 <!-- dev-f982 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit f7f9bb5 on feature/supervisor-voice-io;
      NOT merged/pushed — held for the orchestrator-owned supervisor RESTART + verification, then Phase 2).
      Held: tools/supervisor/src/adapters/{cli-stream-driver,sdk-session-driver}.ts + test/{cli-stream-sidechain,

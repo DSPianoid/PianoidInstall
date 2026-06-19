@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
+| dev-2870 | Model-agnostic agents P0+P1 (dormant, default-OFF): contract capability descriptor + role-router/backend-registry/backend-seal(claude)/result-relay; route planning→sealed standalone claude in a test harness | [log](logs/dev-2870-2026-06-19-194544.md) | 2026-06-19 |
 
 <!-- DOC DEFERRAL (dev-93e1, 2026-06-19): the supervisor README.md permission section (L54-58 "Channel
      permission" + "How it eliminates FC-1") should gain a line on the NEW native inline-keyboard BUTTON
@@ -15,6 +16,16 @@
      dev-vio1's ACTIVE lock (voice OUTBOUND fix). OWNER: whoever holds README next (dev-vio1 on its next
      touch, or the Phase-2 merge orchestrator) — apply the one-paragraph update then. The code + tests
      are the source of truth meanwhile (src/test/permission-buttons.test.ts documents the behavior). -->
+
+<!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the
+     DORMANT model-agnostic agent-routing layer (P0+P1, feature/model-agnostic-agents): a role→backend
+     router + backend-registry + claude-cli seal + result-relay that can route a role (e.g. planning) to a
+     SEALED standalone `claude -p` agent, gated by SUPERVISOR_ROLE_ROUTING (DEFAULT OFF → live path
+     byte-for-byte unchanged). NOT wired into index.ts (activation is P6). NOT done THIS session because
+     README.md is held by dev-vio1's ACTIVE lock. OWNER: whoever holds README next (or the P6 activation
+     agent). Authoritative design = docs/proposals/model-agnostic-agents-2026-06-19.md; the code carries
+     traces-to headers + src/test/{backend-kinds,role-router,backend-seal,backend-registry,result-relay}.test.ts
+     document the behavior. -->
 
 ---
 
