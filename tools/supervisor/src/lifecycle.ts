@@ -34,6 +34,28 @@ import type {
   UserTurn,
 } from './session-driver.js';
 
+/**
+ * A SHORT, channel-safe hint for a tool's input — for the "forward all output" feed
+ * (e.g. `Bash(git status)`, `Agent(dev-fix: …)`, `Write(src/x.ts)`). Picks the most
+ * salient field and truncates; never dumps a large payload to the channel. Pure.
+ */
+export function summarizeToolInput(input: Record<string, unknown> | undefined): string | undefined {
+  if (!input) return undefined;
+  const pick =
+    input['command'] ??
+    input['cmd'] ??
+    input['description'] ??
+    input['prompt'] ??
+    input['file_path'] ??
+    input['path'] ??
+    input['pattern'] ??
+    input['message'] ??
+    input['url'];
+  if (pick == null) return undefined;
+  const s = String(pick).replace(/\s+/g, ' ').trim();
+  return s.length > 120 ? s.slice(0, 117) + '…' : s;
+}
+
 export interface LifecycleOptions {
   driver: SessionDriver;
   bus: IoBus;
@@ -66,13 +88,38 @@ export interface LifecycleOptions {
   /** Called for each assistant turn's text (supervisor → outbound). Used by the DEMO profile. */
   onAssistant?: (text: string) => void | Promise<void>;
   /**
-   * MID-TURN PROGRESS (#8 heartbeat). Called on each assistant/tool activity event WHILE
-   * a turn is in flight (between sendUserTurn and the turn's result). The SessionHost
-   * THROTTLES these into an occasional "still working…" ping to the channel, so a long
-   * silent turn (e.g. the 3-4min heavy /orchestrator startup) shows life instead of
-   * looking hung. NOT called after the result fires (the answer is the signal then).
+   * INTERNAL-TURN RESULT (D4 liveness). Called instead of onResult when an INTERNAL turn
+   * (e.g. the liveness ping) completes — so the SessionHost can observe responsiveness
+   * (clear the ping deadline) WITHOUT forwarding the turn's text (the ping + its pong stay
+   * internal, never reaching the user). The text is passed for logging only.
+   */
+  onInternalResult?: (text: string, sessionId: string) => void | Promise<void>;
+  /**
+   * MID-TURN PROGRESS. Called on each assistant/tool activity event WHILE a turn is in
+   * flight (between sendUserTurn and the turn's result). The SessionHost uses this ONLY as
+   * an INTERNAL liveness signal (D4 belt: it clears the ping deadline — mid-turn activity
+   * proves the orchestrator is alive). It NO LONGER drives a user-facing "still working…"
+   * message (removed 2026-06-18 — it flooded the channel + fired even while idle). NOT
+   * called after the result fires.
    */
   onProgress?: (info: { kind: 'assistant' | 'tool_result'; toolName?: string }) => void | Promise<void>;
+  /**
+   * FORWARD ALL OUTPUT (the user's core objective — gap B). Called for tool activity
+   * the orchestrator performs so the supervisor can mirror it to the channel, NOT just
+   * the final assistant text:
+   *  - kind 'tool_use'    → the session invoked tool(s) this turn (incl. Agent/Task/
+   *    SendMessage = sub-agent spawn / teammate message — the team-coordination the
+   *    user wants to SEE). `tools` = the tool names + a short input hint.
+   *  - kind 'tool_result' → a tool returned (incl. errors). `isError` flags failures.
+   * The SessionHost formats + throttles these to the channel (orchestrator profile
+   * only). Distinct from onProgress (which throttles into a generic "still working"
+   * ping); this carries the actual content. Unset = no forwarding (demo).
+   */
+  onToolActivity?: (
+    info:
+      | { kind: 'tool_use'; tools: { name: string; hint?: string }[] }
+      | { kind: 'tool_result'; isError?: boolean; content?: string },
+  ) => void | Promise<void>;
   /**
    * PER-TURN DE-DUP (orchestrator profile). When set to the channel reply tool
    * name (e.g. 'mcp__supervisor_channel__reply'), the lifecycle tracks whether
@@ -130,6 +177,15 @@ export class LifecycleManager {
    * (Independent of the watchdog's turnInFlight, which only tracks when the watchdog is on.)
    */
   private outstandingTurns = 0;
+  /**
+   * D4 liveness: a FIFO of the INTERNAL-ness of each outstanding turn (one entry per
+   * injected-not-yet-resolved turn, in order). An internal turn (e.g. the liveness ping)
+   * has its assistant text + result SUPPRESSED from the user channel and fires
+   * onInternalResult instead of onResult — so the ping + pong stay internal. Turns
+   * resolve in order, so the head entry describes the resolving turn's assistant events,
+   * and is shifted on its result.
+   */
+  private readonly turnInternalQueue: boolean[] = [];
 
   constructor(opts: LifecycleOptions) {
     this.opts = opts;
@@ -233,37 +289,65 @@ export class LifecycleManager {
           hasOrchestrator: ev.slashCommands?.some((c) => c.toLowerCase().includes('orchestrator')),
         });
         break;
-      case 'assistant':
+      case 'assistant': {
         this.publish('stream.assistant', { text: ev.text, toolUses: ev.toolUses });
+        // D4: is the CURRENTLY-resolving turn internal (the liveness ping)? If so, its
+        // assistant text + tool activity are NOT forwarded to the user (it stays internal).
+        const internal = this.turnInternalQueue[0] === true;
         // Per-turn de-dup: note if the channel reply tool fired this turn.
         if (this.opts.replyToolName && ev.toolUses?.some((t) => t.name === this.opts.replyToolName)) {
           this.replyToolFiredThisTurn = true;
         }
-        // #8 heartbeat: mid-turn activity → throttled progress ping (host decides cadence).
+        // INTERNAL LIVENESS SIGNAL (D4 belt): mid-turn activity proves the orchestrator is
+        // alive → the SessionHost clears the ping deadline. This is INTERNAL (not user-facing),
+        // so it fires for ALL turns including the internal ping turn (its progress is still
+        // proof of life). (The old user-facing "still working…" message was removed.)
         if (this.outstandingTurns > 0 && this.opts.onProgress) {
           await this.opts.onProgress({ kind: 'assistant', toolName: ev.toolUses?.[0]?.name });
         }
-        // DEMO profile (no replyToolName): auto-out each assistant text as before.
-        if (!this.opts.replyToolName && ev.text && this.opts.onAssistant) await this.opts.onAssistant(ev.text);
+        // FORWARD ALL OUTPUT: surface the tool calls this turn (Agent/Task/SendMessage),
+        // excluding the channel reply tool. SUPPRESSED for an internal turn.
+        if (!internal && this.opts.onToolActivity && ev.toolUses && ev.toolUses.length > 0) {
+          const tools = ev.toolUses
+            .filter((t) => t.name !== this.opts.replyToolName)
+            .map((t) => ({ name: t.name, hint: summarizeToolInput(t.input) }));
+          if (tools.length > 0) await this.opts.onToolActivity({ kind: 'tool_use', tools });
+        }
+        // DEMO profile (no replyToolName): auto-out each assistant text — but NEVER for an
+        // internal turn (the ping's "alive" answer must not reach the user).
+        if (!internal && !this.opts.replyToolName && ev.text && this.opts.onAssistant) {
+          await this.opts.onAssistant(ev.text);
+        }
         break;
-      case 'tool_result':
+      }
+      case 'tool_result': {
         this.publish('stream.tool_result', { toolUseId: ev.toolUseId, isError: ev.isError });
-        // #8 heartbeat: a tool finishing is mid-turn activity too.
+        const internal = this.turnInternalQueue[0] === true;
+        // D4 liveness belt (internal) fires for all turns; user-facing forwarding is suppressed for internal.
         if (this.outstandingTurns > 0 && this.opts.onProgress) await this.opts.onProgress({ kind: 'tool_result' });
+        if (!internal && this.opts.onToolActivity) {
+          await this.opts.onToolActivity({ kind: 'tool_result', isError: ev.isError, content: ev.content });
+        }
         break;
-      case 'result':
-        if (this.outstandingTurns > 0) this.outstandingTurns -= 1; // #8: one turn resolved (others may still be outstanding)
+      }
+      case 'result': {
+        if (this.outstandingTurns > 0) this.outstandingTurns -= 1; // one turn resolved (others may still be outstanding)
+        // D4: shift the internal-ness of the RESOLVING turn off the FIFO (turns resolve in order).
+        const internal = this.turnInternalQueue.shift() === true;
         this.publish('stream.result', { sessionId: ev.sessionId, subtype: ev.subtype, costUsd: ev.costUsd });
-        this.logger.info('session result', { subtype: ev.subtype, costUsd: ev.costUsd });
-        // ORCHESTRATOR profile (replyToolName set): auto-out the final answer text
-        // UNLESS the reply tool already sent it this turn (per-turn de-dup — the
-        // live fix for plain-text answers being silenced by a blanket suppress).
-        // DEMO profile (no replyToolName): onResult auto-outs the final text too.
-        if (this.opts.onResult) {
+        this.logger.info('session result', { subtype: ev.subtype, costUsd: ev.costUsd, internal });
+        if (internal) {
+          // D4 liveness: an internal turn (the ping) → fire onInternalResult so the host
+          // confirms responsiveness (clears the ping deadline) WITHOUT forwarding the pong.
+          if (this.opts.onInternalResult) await this.opts.onInternalResult(ev.result ?? '', ev.sessionId);
+        } else if (this.opts.onResult) {
+          // ORCHESTRATOR profile (replyToolName set): auto-out the final answer UNLESS the
+          // reply tool already sent it this turn. DEMO: onResult auto-outs the final text.
           const suppress = !!this.opts.replyToolName && this.replyToolFiredThisTurn;
           if (!suppress) await this.opts.onResult(ev.result ?? '', ev.sessionId);
         }
         break;
+      }
     }
   }
 
@@ -271,13 +355,13 @@ export class LifecycleManager {
   /**
    * Arm the per-turn deadline (called from sendUserTurn when a user turn is INJECTED).
    *
-   * ⚠️ WATCHDOG × #5 TURN QUEUE (latent — the watchdog is currently DISABLED: turnTimeoutMs
-   * defaults to 0 and is NOT wired in index.ts/session-host). When the watchdog IS wired in
-   * a future task: a turn injected via sendUserTurn may be HELD in the PtySessionDriver's
-   * input-ready queue (#5) and only TYPED later. Arming here (at enqueue) would let a turn
-   * that simply waited in the queue > turnTimeoutMs FALSE-STALL before it ever ran. FIX WHEN
-   * WIRING: arm the deadline when the turn is actually TYPED (the driver would need to signal
-   * "turn started"), NOT at enqueue. See the dev-m12p3a log (2026-06-17 self-review, edge #2).
+   * ⚠️ WATCHDOG (latent — currently DISABLED: turnTimeoutMs defaults to 0 and is NOT wired
+   * in index.ts/session-host). The structured drivers (SDK / cli-stream) feed turns into
+   * the live session promptly, so arming the deadline at injection is fine for them. If a
+   * future driver buffers a turn before it actually runs, arm the deadline when the turn
+   * STARTS rather than at injection (the driver would need to signal "turn started") to
+   * avoid a queued-but-not-yet-running turn false-stalling. (Historical note: the retired
+   * PTY driver had an input-ready queue that motivated this caveat.)
    */
   private watchdogArm(): void {
     const ms = this.opts.turnTimeoutMs ?? 0;
@@ -363,11 +447,17 @@ export class LifecycleManager {
     }
   }
 
-  /** Inject a user turn into the running session (inbound → session). */
-  async sendUserTurn(turn: UserTurn): Promise<void> {
+  /**
+   * Inject a user turn into the running session (inbound → session). When `internal`
+   * (D4 liveness ping), the turn's assistant text + result are NOT forwarded to the user
+   * — the ping + its pong stay internal; the result fires onInternalResult (the
+   * SessionHost uses it only to confirm responsiveness / clear the ping deadline).
+   */
+  async sendUserTurn(turn: UserTurn, opts?: { internal?: boolean }): Promise<void> {
     if (!this.running) throw new Error('lifecycle: no running session to send to');
     this.replyToolFiredThisTurn = false; // per-turn de-dup: reset for the new turn
-    this.outstandingTurns += 1; // #8: a turn is now outstanding → mid-turn activity pings (counter handles queued turns)
+    this.outstandingTurns += 1; // a turn is now outstanding (counter handles queued turns)
+    this.turnInternalQueue.push(!!opts?.internal); // D4: track internal-ness per turn (FIFO)
     await this.opts.driver.send(turn);
     this.watchdogArm(); // H2: start the per-turn deadline (no-op if disabled)
   }
@@ -398,8 +488,41 @@ export class LifecycleManager {
     // Forget the session id so the next run starts FRESH (no resume → clean context).
     this.sessionId = undefined;
     this.restarts = 0;
-    this.outstandingTurns = 0; // #8: fresh context → no turns outstanding
+    this.outstandingTurns = 0; // fresh context → no turns outstanding
+    this.turnInternalQueue.length = 0; // D4: drop any pending internal-turn markers
     // Re-start: running set synchronously; the fresh run re-bootstraps the role.
+    this.running = true;
+    this.stopping = false;
+    this.runLoop = this.runWithRestarts();
+  }
+
+  /**
+   * AGENT-REQUESTED RESTART (lifecycle-restart control). Like clearContext: ABRUPT
+   * teardown of the driver (driver.stop() — ★M-1 now tree-kills the child + AWAITS its
+   * exit, but does NOT drain an in-flight turn) → FRESH session, new sessionId, NO resume
+   * = true context reset. There is intentionally no in-flight drain: the fresh context
+   * shares no state with the old one, so finishing the old turn would be wasted work (and
+   * the agent requested the reset). Differs from clearContext ONLY in that it INCREMENTS
+   * `restarts` (so `/api/session` reflects the restart) instead of zeroing it. The channel
+   * adapter is supervisor-owned (NOT torn down here) → the conversation is preserved; only
+   * the agent context resets. The SessionHost re-arms the role bootstrap + injects an
+   * optional handoff note on the fresh session's first turn.
+   */
+  async restartFresh(): Promise<void> {
+    this.publish('lifecycle', { event: 'restart_fresh', priorSessionId: this.sessionId, restarts: this.restarts + 1 });
+    this.logger.info('agent-requested restart: ending session + starting fresh', { priorSessionId: this.sessionId, restarts: this.restarts + 1 });
+    this.stopping = true;
+    this.running = false;
+    this.watchdogDisarm();
+    await this.opts.driver.stop();
+    if (this.runLoop) {
+      await this.runLoop.catch(() => {});
+      this.runLoop = null;
+    }
+    this.sessionId = undefined;
+    this.restarts += 1; // ★ count the restart (NOT zeroed — distinguishes from clearContext)
+    this.outstandingTurns = 0;
+    this.turnInternalQueue.length = 0;
     this.running = true;
     this.stopping = false;
     this.runLoop = this.runWithRestarts();
@@ -415,12 +538,23 @@ export class LifecycleManager {
     };
   }
 
+  /**
+   * D4 idle-aware liveness: true when NO turn is in flight (the orchestrator is
+   * between turns and can answer a ping promptly). A busy/long turn OR a turn blocked
+   * waiting on a sub-agent has outstandingTurns > 0 → NOT idle → the scheduler skips
+   * the ping, so a progressing orchestrator is never false-restarted.
+   */
+  isIdle(): boolean {
+    return this.outstandingTurns === 0;
+  }
+
   /** Stop owning the session (clean shutdown — no restart). */
   async stop(): Promise<void> {
     if (!this.running && !this.runLoop) return;
     this.stopping = true;
     this.running = false;
-    this.outstandingTurns = 0; // #8: stopping → no turns outstanding
+    this.outstandingTurns = 0; // stopping → no turns outstanding
+    this.turnInternalQueue.length = 0; // D4: drop pending internal-turn markers
     this.watchdogDisarm(); // H2: cancel any pending deadline
     await this.opts.driver.stop();
     if (this.runLoop) {

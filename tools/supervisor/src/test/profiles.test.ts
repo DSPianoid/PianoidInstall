@@ -74,16 +74,21 @@ test('demo profile: narrow allow, route-most, auto-out ON, no teams/skills', () 
   assert.equal(p.policy.fallback, 'route');
   assert.equal(p.suppressAutoOutbound, false, 'demo auto-sends assistant text');
   assert.equal(p.agentTeams, false);
+  assert.equal(p.defaultDriver, 'sdk', 'demo defaults to the lighter SDK driver (no teams needed)');
+  assert.equal(p.model, undefined, 'demo does not pin a model');
   assert.deepEqual(p.settingSources, []);
   assert.equal(p.policy.routeWhen, undefined, 'demo has no safety-floor predicate (everything routes anyway)');
 });
 
-test('orchestrator profile: broad allow + safety floor + teams + project context + de-dup', () => {
+test('orchestrator profile: broad allow + safety floor + teams + project context + cli-stream default + Opus 4.8[1m]', () => {
   const p = makeOrchestratorProfile();
   assert.equal(p.name, 'orchestrator');
   assert.ok(p.policy.allow.includes('Bash'));
   assert.ok(p.policy.allow.includes('Agent'));
-  assert.ok(p.policy.allow.includes('mcp__*'));
+  assert.ok(p.policy.allow.includes('SendMessage'), 'agent-teams SendMessage allow-listed');
+  // MCP allow uses PER-SERVER prefixes (the claude -p CLI rejects a bare mcp__* in allow).
+  assert.ok(p.policy.allow.some((a) => a.startsWith('mcp__') && a.endsWith('__*')), 'per-server mcp allow patterns');
+  assert.ok(!p.policy.allow.includes('mcp__*'), 'no bare mcp__* (CLI-invalid in allow position)');
   const deny = p.policy.deny ?? [];
   assert.ok(deny.some((d) => d.includes('telegram')), 'telegram denied');
   // CONTAINMENT: the outward-to-third-party channels are denied (feed the PTY seal's
@@ -96,8 +101,18 @@ test('orchestrator profile: broad allow + safety floor + teams + project context
   assert.equal(p.policy.routeWhen!('Read', {}), false);
   assert.equal(p.agentTeams, true);
   assert.equal(p.wireProjectMcp, true);
-  assert.equal(p.suppressAutoOutbound, true, 'orchestrator de-dups (reply tool is the deliberate out)');
-  assert.deepEqual(p.settingSources, ['user', 'project', 'local']);
+  // ★ Corrected design (2026-06-18): orchestrator DEFAULTS to the cli-stream (claude -p)
+  // driver — the only backend exposing agent-teams — and pins Opus 4.8 with the 1M window.
+  assert.equal(p.defaultDriver, 'cli-stream', 'orchestrator defaults to claude -p (has agent-teams)');
+  assert.equal(p.model, 'claude-opus-4-8[1m]', 'orchestrator pins Opus 4.8 1M');
+  // Under cli-stream the in-process reply tool can't reach the child → auto-FORWARD
+  // assistant text (no reply tool) → suppressAutoOutbound is FALSE.
+  assert.equal(p.suppressAutoOutbound, false, 'cli-stream orchestrator auto-forwards assistant text (no in-proc reply tool)');
+  // ★ CONTAINMENT (token-hijack fix 2026-06-18): NO 'user' setting source — it would
+  // load the prod telegram PLUGIN (enabledPlugins, user-scope) whose server seizes the
+  // user's getUpdates token + kills their real orchestrator's channel on every launch.
+  assert.deepEqual(p.settingSources, ['project', 'local'], 'user source EXCLUDED (no prod telegram plugin load)');
+  assert.ok(!p.settingSources.includes('user'), 'never load user-scope enabledPlugins (the prod telegram plugin)');
   assert.equal(p.roleBootstrap, 'orchestrator-skill');
 });
 

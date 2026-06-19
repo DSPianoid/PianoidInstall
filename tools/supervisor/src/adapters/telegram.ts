@@ -339,6 +339,25 @@ export class TelegramAdapter implements ChannelAdapter {
     this.onInbound = null;
   }
 
+  /**
+   * CHANNEL REPAIR (D2): re-establish the transport (stop → start) to recover a
+   * wedged/dropped connection or re-acquire the single getUpdates poller. The
+   * supervisor re-supplies the inbound handler.
+   */
+  async reconnect(onInbound: InboundHandler): Promise<void> {
+    await this.stop();
+    await this.start(onInbound);
+  }
+
+  /**
+   * CHANNEL REPAIR (D2): drop all un-acked INBOUND items from the durable inbox queue;
+   * returns the count dropped. ⚠️ Discards pending inbound user messages (NOT an
+   * outbound backlog — there is none). Use to clear a wedged inbound replay.
+   */
+  flush(): number {
+    return this.queue.clear();
+  }
+
   health(): AdapterHealth {
     return {
       channel: this.channel,

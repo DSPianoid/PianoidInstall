@@ -131,3 +131,65 @@ test('panel rejects an unknown method (e.g. DELETE) with 405', async () => {
     cleanup();
   }
 });
+
+// ── D2: channel state + repair endpoints ──
+test('★ D2: GET /api/channel/state returns adapters + recentDeliveries + pid', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/channel/state`);
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { pid: number; adapters: unknown[]; recentDeliveries: unknown[] };
+      assert.equal(typeof body.pid, 'number');
+      assert.equal(body.adapters.length, 1, 'the telegram adapter');
+      assert.ok(Array.isArray(body.recentDeliveries));
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('★ D2: POST /api/channel/reconnect re-establishes the transport (ok:true)', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/channel/reconnect`, { method: 'POST' });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { action: string; ok: boolean };
+      assert.equal(body.action, 'reconnect');
+      assert.equal(body.ok, true, 'loopback adapter reconnects');
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('★ D2: POST /api/channel/flush returns ok + dropped count', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/channel/flush`, { method: 'POST' });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean; dropped: number };
+      assert.equal(body.ok, true);
+      assert.equal(typeof body.dropped, 'number');
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('★ D2: POST /api/channel/kill-stale-sender reports the current sender pid + reconnects', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/channel/kill-stale-sender`, { method: 'POST' });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { action: string; currentSenderPid: number; reconnected: boolean };
+      assert.equal(body.action, 'kill-stale-sender');
+      assert.equal(body.currentSenderPid, process.pid);
+    });
+  } finally {
+    cleanup();
+  }
+});

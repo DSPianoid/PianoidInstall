@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionHost } from '../session-host.js';
-import { IoBus } from '../io-bus.js';
+import { IoBus, type BusEvent } from '../io-bus.js';
 import { Logger } from '../logger.js';
 import { ChannelPermission } from '../channel-permission.js';
 import { FakeSessionDriver } from './fake-session-driver.js';
@@ -435,22 +435,18 @@ test('★ send-side idempotency: a LEGITIMATELY-identical answer to a DIFFERENT 
   bus.close();
 });
 
-// ── #8 HEARTBEAT: throttled "still working…" progress ping ───────────────────
-test('★ #8 heartbeat: a LONG turn emits a throttled "still working…" ping (then the answer)', async () => {
-  // The 3-4min silent heavy startup looked hung. Now mid-turn activity drives a throttled
-  // ping. Here: a turn runs, emits activity AFTER the (tiny) ping interval → ONE ping; then
-  // the answer arrives. Uses a 'delay' step to cross the wall-clock throttle deterministically.
+// ── FIX A (2026-06-18): the user-facing "still working…" heartbeat is REMOVED ──
+test('★ FIX A: a LONG turn with mid-turn activity emits NO "still working…" message (heartbeat removed)', async () => {
+  // Previously a long turn drove a throttled "still working…" ping. That flooded the channel
+  // (and fired while idle) → removed. Mid-turn activity is now ONLY the internal liveness belt.
   const bus = new IoBus();
   const cap = makeSendCapture();
-  const PING = '⏳ still working…';
   const driver = new FakeSessionDriver([
     [
       { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
       { do: 'awaitTurn' },
-      // mid-turn activity, but BEFORE the interval → no ping yet.
       { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: 'Bash', input: {} }] } },
-      { do: 'delay', ms: 60 }, // cross the 40ms ping interval
-      // more activity AFTER the interval → ONE ping.
+      { do: 'delay', ms: 60 },
       { do: 'emit', event: { kind: 'tool_result', toolUseId: 't1', content: 'ok' } },
       { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'final answer' } },
       { do: 'endClean' },
@@ -460,108 +456,15 @@ test('★ #8 heartbeat: a LONG turn emits a throttled "still working…" ping (t
     driver, bus, logger: silentLogger(), send: cap.send,
     policy: { allow: ['Read', 'Bash'] },
     replyToolName: REPLY_TOOL, // orchestrator profile
-    progressPingMs: 40, // tiny interval for the test
-    progressPingText: PING,
+    pingResponseTimeoutMs: 60, // liveness on — but the belt must not emit a user message
   });
   await host.start();
   await host.handleInbound(inbound('do a long task'));
   await new Promise((r) => setTimeout(r, 140));
-  const pings = cap.sent.filter((s) => s.text === PING);
-  assert.ok(pings.length >= 1, `at least one progress ping was sent during the long turn (got ${pings.length})`);
+  // ★ NO "still working" message to the channel — at all.
+  assert.ok(!cap.sent.some((s) => /still working/i.test(s.text)), 'no "still working…" heartbeat sent');
+  // the substantive answer still arrives.
   assert.ok(cap.sent.some((s) => s.text === 'final answer'), 'the final answer still arrived');
-  await host.stop();
-  bus.close();
-});
-
-test('★ #8 heartbeat: NO ping after the result (the turn is done → the answer is the signal)', async () => {
-  // Progress pings must STOP once the turn completes — they must not double with / trail
-  // the answer. The lifecycle clears progressActive on the result, so onProgress is not
-  // called afterwards. We assert no ping is sent in a window AFTER the result.
-  const bus = new IoBus();
-  const cap = makeSendCapture();
-  const PING = '⏳ still working…';
-  const driver = new FakeSessionDriver([
-    [
-      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
-      { do: 'awaitTurn' },
-      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'done' } },
-      // post-result activity (a stray late event) must NOT trigger a ping.
-      { do: 'delay', ms: 60 },
-      { do: 'emit', event: { kind: 'assistant', text: 'late stray', toolUses: [] } },
-      { do: 'endClean' },
-    ],
-  ]);
-  const host = new SessionHost({
-    driver, bus, logger: silentLogger(), send: cap.send,
-    policy: { allow: ['Read'] },
-    replyToolName: REPLY_TOOL,
-    progressPingMs: 40,
-    progressPingText: PING,
-  });
-  await host.start();
-  await host.handleInbound(inbound('quick'));
-  await new Promise((r) => setTimeout(r, 140));
-  assert.ok(!cap.sent.some((s) => s.text === PING), 'NO progress ping after the result');
-  await host.stop();
-  bus.close();
-});
-
-test('★ #8 heartbeat: a FAST turn (finishes within the interval) sends NO ping', async () => {
-  // A fast reply must not ping — the answer arrives before the interval elapses. Activity
-  // + result all within the interval → the throttle never fires.
-  const bus = new IoBus();
-  const cap = makeSendCapture();
-  const PING = '⏳ still working…';
-  const driver = new FakeSessionDriver([
-    [
-      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
-      { do: 'awaitTurn' },
-      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: 'Read', input: {} }] } },
-      { do: 'emit', event: { kind: 'tool_result', toolUseId: 't1', content: 'ok' } },
-      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'fast answer' } },
-      { do: 'endClean' },
-    ],
-  ]);
-  const host = new SessionHost({
-    driver, bus, logger: silentLogger(), send: cap.send,
-    policy: { allow: ['Read'] },
-    replyToolName: REPLY_TOOL,
-    progressPingMs: 1000, // a long interval; the fast turn finishes well within it
-    progressPingText: PING,
-  });
-  await host.start();
-  await host.handleInbound(inbound('quick q'));
-  await new Promise((r) => setTimeout(r, 60));
-  assert.ok(!cap.sent.some((s) => s.text === PING), 'a fast turn sends NO progress ping');
-  assert.ok(cap.sent.some((s) => s.text === 'fast answer'), 'the fast answer arrived');
-  await host.stop();
-  bus.close();
-});
-
-test('★ #8 heartbeat: DISABLED by default (no progressPingMs) → no pings even on a long turn', async () => {
-  const bus = new IoBus();
-  const cap = makeSendCapture();
-  const driver = new FakeSessionDriver([
-    [
-      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
-      { do: 'awaitTurn' },
-      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 't1', name: 'Bash', input: {} }] } },
-      { do: 'delay', ms: 60 },
-      { do: 'emit', event: { kind: 'tool_result', toolUseId: 't1', content: 'ok' } },
-      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'answer' } },
-      { do: 'endClean' },
-    ],
-  ]);
-  const host = new SessionHost({
-    driver, bus, logger: silentLogger(), send: cap.send,
-    policy: { allow: ['Read', 'Bash'] },
-    // progressPingMs omitted → heartbeat disabled (demo default).
-  });
-  await host.start();
-  await host.handleInbound(inbound('go'));
-  await new Promise((r) => setTimeout(r, 140));
-  // only real outputs (the answer) — no "still working" pings since the feature is off.
-  assert.ok(!cap.sent.some((s) => /still working/i.test(s.text)), 'no progress ping when disabled');
   await host.stop();
   bus.close();
 });
@@ -601,6 +504,551 @@ test('roleTurnPrefix is applied to the FIRST user turn, not a pre-user bootstrap
   await host.handleInbound(inbound('and task Y'));
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(driver.sentTurns[1]!.text, 'and task Y', 'prefix applied only once');
+  await host.stop();
+  bus.close();
+});
+
+// ── FORWARD ALL OUTPUT (item iii — the user's "catch every error/output" objective) ──
+test('★ forwardToolActivity: tool CALLS (incl. Agent/SendMessage) + tool ERRORS reach the channel; non-error results do NOT (default)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      // the orchestrator spawns a sub-agent + messages a teammate (the coordination the user wants to SEE)
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [
+        { id: 'a1', name: 'Agent', input: { description: 'fix the bug', subagent_type: 'dev' } },
+        { id: 's1', name: 'SendMessage', input: { message: 'start on task 1' } },
+      ] } },
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 'a1', content: 'spawned', isError: false } }, // non-error → NOT forwarded by default
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 's1', content: 'connection refused', isError: true } }, // error → ALWAYS forwarded
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'done' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Agent', 'SendMessage'] },
+    forwardToolActivity: true, // orchestrator profile
+  });
+  await host.start();
+  await host.handleInbound(inbound('do the work'));
+  await new Promise((r) => setTimeout(r, 40));
+  const texts = cap.sent.map((s) => s.text).join('\n');
+  assert.ok(texts.includes('Agent'), 'sub-agent spawn forwarded');
+  assert.ok(texts.includes('fix the bug'), 'spawn hint forwarded');
+  assert.ok(texts.includes('SendMessage'), 'teammate message forwarded');
+  assert.ok(/tool error/i.test(texts) && texts.includes('connection refused'), 'tool ERROR forwarded');
+  assert.ok(!texts.includes('spawned'), 'non-error tool result NOT forwarded by default');
+  await host.stop();
+  bus.close();
+});
+
+test('forwardToolActivity OFF (demo) → no tool activity reaches the channel', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'assistant', text: 'hi', toolUses: [{ id: 'b1', name: 'Bash', input: { command: 'ls' } }] } },
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 'b1', content: 'boom', isError: true } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: '' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Bash'] },
+    // forwardToolActivity omitted → off
+  });
+  await host.start();
+  await host.handleInbound(inbound('go'));
+  await new Promise((r) => setTimeout(r, 40));
+  const texts = cap.sent.map((s) => s.text).join('\n');
+  assert.ok(!/tool error/i.test(texts) && !texts.includes('⚙️'), 'no tool activity forwarded when off');
+  assert.ok(texts.includes('hi'), 'assistant text still auto-sent (demo)');
+  await host.stop();
+  bus.close();
+});
+
+// ── D1: /channel-check interceptor ──
+test('★ D1: /channel-check is INTERCEPTED (not typed) → injects a diagnostic turn referencing the panel', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // the first turn (binds operator) — a real one
+      { do: 'awaitTurn' }, // the /channel-check diagnostic turn
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Bash'] },
+    panelUrl: 'http://127.0.0.1:8790',
+  });
+  await host.start();
+  await host.handleInbound(inbound('hello')); // turn 1 (binds operator)
+  await new Promise((r) => setTimeout(r, 15));
+  await host.handleInbound(inbound('/channel-check')); // should be intercepted
+  await new Promise((r) => setTimeout(r, 15));
+  // the LITERAL '/channel-check' was NOT sent as a turn; a crafted diagnostic was
+  assert.ok(!driver.sentTurns.some((t) => t.text.trim() === '/channel-check'), 'literal /channel-check not typed');
+  const diag = driver.sentTurns.find((t) => /\[SUPERVISOR \/channel-check\]/.test(t.text));
+  assert.ok(diag, 'diagnostic turn injected');
+  assert.ok(diag!.text.includes('http://127.0.0.1:8790/api/channel/state'), 'panel state endpoint referenced');
+  assert.ok(diag!.text.includes('/api/channel/reconnect'), 'repair endpoint referenced');
+  await host.stop();
+  bus.close();
+});
+
+// ── F1: delivery-failure feedback ──
+test('★ F1: a FAILED outbound feeds a [SUPERVISOR delivery-status] note back into the session', async () => {
+  const bus = new IoBus();
+  // a send that FAILS
+  const sentTexts: string[] = [];
+  const send = async (_h: ReplyHandle, msg: { text?: string }): Promise<OutboundResult> => {
+    sentTexts.push(msg.text ?? '');
+    return { ok: false, sentIds: [], error: 'bot blocked' };
+  };
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'assistant', text: 'my answer', toolUses: [] } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'my answer' } },
+      { do: 'awaitTurn' }, // the F1 feedback note injected as a follow-up turn
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send,
+    policy: { allow: ['Read'] },
+    panelUrl: 'http://127.0.0.1:8790',
+  });
+  await host.start();
+  await host.handleInbound(inbound('question'));
+  await new Promise((r) => setTimeout(r, 30));
+  // the orchestrator's answer failed to send → a delivery-status note was injected
+  const note = driver.sentTurns.find((t) => /\[SUPERVISOR delivery-status\]/.test(t.text));
+  assert.ok(note, 'delivery-status feedback turn injected');
+  assert.ok(note!.text.includes('did NOT reach the user'), 'note states non-delivery');
+  assert.ok(note!.text.includes('bot blocked'), 'note carries the error');
+  await host.stop();
+  bus.close();
+});
+
+test('★★ M3: a SUSTAINED outage (multiple failed turns) yields ONE delivery-status notice, not one per turn', async () => {
+  const bus = new IoBus();
+  let failCount = 0;
+  const send = async (_h: ReplyHandle, msg: { text?: string }): Promise<OutboundResult> => {
+    failCount++;
+    return { ok: false, sentIds: [], error: 'outage' };
+  };
+  // Two user turns, each producing an answer that FAILS to send → without the cooldown
+  // each would inject its own delivery-status note (the per-turn cascade).
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'assistant', text: 'answer 1', toolUses: [] } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'answer 1' } },
+      { do: 'awaitTurn' }, // the (sole) delivery-status note's turn
+      { do: 'awaitTurn' }, // user turn 2
+      { do: 'emit', event: { kind: 'assistant', text: 'answer 2', toolUses: [] } },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'answer 2' } },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send,
+    policy: { allow: ['Read'] },
+    panelUrl: 'http://127.0.0.1:8790',
+  });
+  await host.start();
+  await host.handleInbound(inbound('q1'));
+  await new Promise((r) => setTimeout(r, 30));
+  await host.handleInbound(inbound('q2'));
+  await new Promise((r) => setTimeout(r, 30));
+  // Both answers failed to send, but only ONE delivery-status note was injected (cooldown).
+  const notes = driver.sentTurns.filter((t) => /\[SUPERVISOR delivery-status\]/.test(t.text));
+  assert.equal(notes.length, 1, 'exactly one outage notice despite multiple failed turns');
+  await host.stop();
+  bus.close();
+});
+
+// ── D4: IDLE-AWARE ping/pong liveness ──
+test('★ D4: IDLE + ping ANSWERED in time → alive (onUnresponsive NOT called)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let unresponsive = false;
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1 (binds operator)
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'ok' } }, // turn 1 COMPLETES → IDLE
+      { do: 'awaitTurn' }, // the ping turn
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'alive' } }, // the PONG
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    pingResponseTimeoutMs: 80,
+    onUnresponsive: () => { unresponsive = true; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 20)); // turn 1 completes → idle
+  const armed = await host.pingLiveness();
+  assert.equal(armed, true, 'ping armed (orchestrator was idle)');
+  assert.ok(driver.sentTurns.some((t) => /\[SUPERVISOR ping\]/.test(t.text)), 'ping turn injected');
+  await new Promise((r) => setTimeout(r, 130)); // > timeout; but the PONG result cleared it
+  assert.equal(unresponsive, false, 'answered in time → not unresponsive');
+  await host.stop();
+  bus.close();
+});
+
+test('★ D4: IDLE but UNRESPONSIVE (no pong) → tier-b (onUnresponsive called)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let reason = '';
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1 (binds operator)
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'ok' } }, // turn 1 COMPLETES → IDLE
+      { do: 'awaitTurn' }, // the ping turn — but NO result emitted (hung while idle)
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    pingResponseTimeoutMs: 50,
+    onUnresponsive: (r) => { reason = r; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 20)); // idle
+  await host.pingLiveness();
+  await new Promise((r) => setTimeout(r, 90)); // past the 50ms deadline, no pong
+  assert.ok(/no turn result within 50ms/.test(reason) && /idle but unresponsive/.test(reason), 'onUnresponsive fired (idle but unresponsive)');
+  await host.stop();
+  bus.close();
+});
+
+test('★★ D4 SAFETY: a turn IN FLIGHT (long turn / sub-agent wait) → ping SKIPPED, NO restart', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let unresponsive = false;
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1 — STAYS in flight (no result; e.g. a long turn blocked on a sub-agent)
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read', 'Agent'] },
+    pingResponseTimeoutMs: 40,
+    onUnresponsive: () => { unresponsive = true; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('do a long thing')); // turn in flight, never completes here
+  await new Promise((r) => setTimeout(r, 10));
+  const armed = await host.pingLiveness(); // a turn is in flight → MUST skip
+  assert.equal(armed, false, 'ping SKIPPED while a turn is in flight');
+  assert.ok(!driver.sentTurns.some((t) => /\[SUPERVISOR ping\]/.test(t.text)), 'no ping turn injected mid-work');
+  await new Promise((r) => setTimeout(r, 80)); // well past the 40ms deadline
+  assert.equal(unresponsive, false, '★ a busy/long turn is NEVER false-restarted');
+  await host.stop();
+  bus.close();
+});
+
+test('★★ D4 SAFETY: mid-turn PROGRESS clears an armed deadline (no false restart if a turn starts after a ping)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let unresponsive = false;
+  // idle first (turn 1 completes), arm a ping, THEN a turn produces progress → clears the deadline.
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'ok' } }, // → idle
+      { do: 'awaitTurn' }, // the ping turn
+      { do: 'emit', event: { kind: 'assistant', text: 'working on it', toolUses: [{ id: 't1', name: 'Bash', input: {} }] } }, // PROGRESS (no result yet)
+      // deliberately NO result — only progress; the progress must clear the deadline
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read', 'Bash'] },
+    pingResponseTimeoutMs: 60,
+    onUnresponsive: () => { unresponsive = true; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 20)); // idle
+  await host.pingLiveness(); // arms the 60ms deadline + injects the ping turn
+  await new Promise((r) => setTimeout(r, 100)); // > 60ms, but the assistant PROGRESS event cleared it
+  assert.equal(unresponsive, false, 'mid-turn progress cleared the deadline → no false restart');
+  await host.stop();
+  bus.close();
+});
+
+test('★★ FIX A: the liveness ping turn + its pong are INTERNAL — NEITHER reaches the user channel', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1 (binds operator)
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'hi back' } }, // → idle (forwarded)
+      { do: 'awaitTurn' }, // the INTERNAL ping turn
+      { do: 'emit', event: { kind: 'assistant', text: 'Alive ✓', toolUses: [] } }, // the pong assistant text — MUST NOT forward
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'Alive ✓' } }, // the pong result — MUST NOT forward
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    pingResponseTimeoutMs: 80,
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 20)); // turn 1 done → idle
+  await host.pingLiveness();
+  await new Promise((r) => setTimeout(r, 40)); // the pong arrives
+  // The user saw turn 1's answer, but NOTHING from the liveness exchange.
+  assert.ok(cap.sent.some((s) => s.text === 'hi back'), 'turn 1 answer reached the user');
+  assert.ok(!cap.sent.some((s) => /Alive/.test(s.text)), 'the pong was NOT forwarded');
+  assert.ok(!cap.sent.some((s) => /SUPERVISOR ping/.test(s.text)), 'the ping prompt was NOT forwarded');
+  await host.stop();
+  bus.close();
+});
+
+// ── FIX B: hosted-agent lifecycle restart control (request → user-confirm → execute) ──
+function collectEvents(bus: IoBus): BusEvent[] {
+  const events: BusEvent[] = [];
+  bus.subscribe((e) => events.push(e));
+  return events;
+}
+const lifecycleEvents = (events: BusEvent[]): string[] =>
+  events.filter((e) => e.type === 'lifecycle').map((e) => (e.payload as { event?: string }).event ?? '');
+
+/** Poll the capture until a sent message matches `re` (the restart confirm prompt
+ * arrives out-of-band after the context line — so a fixed nextSend() ordering is
+ * brittle). Returns the matching code, or throws after the budget. */
+async function waitForRestartCode(cap: { sent: { text: string }[] }): Promise<string> {
+  for (let i = 0; i < 50; i++) {
+    const prompt = cap.sent.find((s) => /Approve tool 'lifecycle\.restart'/.test(s.text));
+    const m = prompt && /allow ([0-9a-f]{4})/.exec(prompt.text);
+    if (m) return m[1]!;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error('restart approval prompt never arrived');
+}
+
+test('★★ FIX B: agent requests a restart → user APPROVES → FRESH session (restarts:1, new id, channel preserved, handoff injected)', async () => {
+  const bus = new IoBus();
+  const events = collectEvents(bus);
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    // Run 1 — the live session before the restart (binds operator, then idle).
+    // (Two awaitTurns: the establishing inbound consumes the first; the second PARKS the
+    //  session idle so it is still live when restartFresh tears it down — a single trailing
+    //  awaitTurn would let the generator END after the inbound = a spurious crash-resume.)
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // establishing inbound (binds operator + channelPermission)
+      { do: 'awaitTurn' }, // park idle (released only by restartFresh's driver.stop())
+    ],
+    // Run 2 — the FRESH session after restartFresh (different id), accepts the handoff turn
+    // then parks idle (same reason as run 1).
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } },
+      { do: 'awaitTurn' }, // the injected handoff first-turn
+      { do: 'awaitTurn' }, // park idle
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    permissionTimeoutMs: 5000,
+    roleTurnPrefix: '/orchestrator',
+  });
+  await host.start();
+  await host.handleInbound(inbound('hello')); // binds the operator
+  await new Promise((r) => setTimeout(r, 20));
+
+  // The agent asks to restart (the loopback the panel exposes).
+  const outcome = host.requestRestart('context is bloated', 'we were mid-way through task 42');
+  assert.equal(outcome.status, 'queued', 'request accepted (queued; confirm is out-of-band)');
+
+  // A context line + the approve/deny prompt are sent to the user (out-of-band).
+  const code = await waitForRestartCode(cap);
+  assert.ok(cap.sent.some((s) => /requests a FULL RESTART/.test(s.text)), 'user got the restart context line');
+
+  // The user approves.
+  await host.handleInbound(inbound(`allow ${code}`));
+  await new Promise((r) => setTimeout(r, 40)); // let the restart + handoff run
+
+  // A FRESH session is now live: NEW id, restarts incremented (NOT zeroed like /clear).
+  assert.equal(driver.starts, 2, 'a fresh session was started');
+  assert.equal(host.health().lifecycle.sessionId, 's2', 'now on the fresh session id');
+  assert.equal(host.health().lifecycle.restarts, 1, 'restarts incremented to 1 (distinguishes from /clear which zeroes)');
+  assert.equal(driver.startOpts[1]?.resume, undefined, 'fresh start does NOT resume (true context reset)');
+
+  // The handoff first-turn carries the role prefix + the restart context + the note.
+  const handoff = driver.sentTurns.find((t) => /\[SUPERVISOR lifecycle\] You restarted at your own request/.test(t.text));
+  assert.ok(handoff, 'a handoff first-turn was injected into the fresh session');
+  assert.ok(handoff!.text.startsWith('/orchestrator'), 'the role is re-bootstrapped on the fresh session');
+  assert.ok(handoff!.text.includes('we were mid-way through task 42'), 'the handoff note was carried over');
+
+  // Audit signals + the user-facing "restarted" notice.
+  const evs = lifecycleEvents(events);
+  assert.ok(evs.includes('lifecycle_restart_requested'), 'requested signal published');
+  assert.ok(evs.includes('lifecycle_restart_approved'), 'approved signal published');
+  assert.ok(evs.includes('lifecycle_restart_completed'), 'completed signal published');
+  assert.ok(cap.sent.some((s) => /has been restarted/.test(s.text)), 'user told the restart happened');
+  await host.stop();
+  bus.close();
+});
+
+test('★★ FIX B: user DENIES the restart → NO teardown (same session), agent told to continue', async () => {
+  const bus = new IoBus();
+  const events = collectEvents(bus);
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // establishing inbound
+      { do: 'awaitTurn' }, // the "denied — continue" follow-up turn
+      { do: 'awaitTurn' }, // park idle (NO restart on denial → session must stay live, no crash-resume)
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    permissionTimeoutMs: 5000,
+    roleTurnPrefix: '/orchestrator',
+  });
+  await host.start();
+  await host.handleInbound(inbound('hello'));
+  await new Promise((r) => setTimeout(r, 20));
+
+  host.requestRestart('I feel like a reset');
+  const code = await waitForRestartCode(cap);
+
+  // The user DENIES.
+  await host.handleInbound(inbound(`deny ${code}`));
+  await new Promise((r) => setTimeout(r, 30));
+
+  // NO restart happened: same session id, restarts still 0, only one start.
+  assert.equal(driver.starts, 1, 'no fresh session started on denial');
+  assert.equal(host.health().lifecycle.sessionId, 's1', 'still on the original session');
+  assert.equal(host.health().lifecycle.restarts, 0, 'restarts unchanged on denial');
+
+  // The agent was told it was denied and to continue.
+  const note = driver.sentTurns.find((t) => /\[SUPERVISOR lifecycle\] Your restart request was DENIED/.test(t.text));
+  assert.ok(note, 'agent notified of the denial');
+  assert.ok(/Continue as normal/.test(note!.text), 'agent told to continue');
+
+  const evs = lifecycleEvents(events);
+  assert.ok(evs.includes('lifecycle_restart_denied'), 'denied signal published');
+  assert.ok(!evs.includes('lifecycle_restart_completed'), 'NO completed signal on denial');
+  await host.stop();
+  bus.close();
+});
+
+test('★★ FIX B: rapid repeated requests are RATE-LIMITED (loop guardrail) → surfaced to the user, not executed', async () => {
+  const bus = new IoBus();
+  const events = collectEvents(bus);
+  const cap = makeSendCapture();
+  // Each request is DENIED so the confirm completes (clears restartConfirmInFlight),
+  // letting the next request through — the timestamps accumulate to the rate limit.
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // establishing inbound
+      { do: 'awaitTurn' }, // denial notice 1
+      { do: 'awaitTurn' }, // denial notice 2
+      { do: 'awaitTurn' }, // denial notice 3
+      { do: 'awaitTurn' }, // park idle (no restart ever executes → no crash-resume)
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    permissionTimeoutMs: 5000,
+  });
+  await host.start();
+  await host.handleInbound(inbound('hello'));
+  await new Promise((r) => setTimeout(r, 20));
+
+  // Drive 3 request→deny cycles (the in-window allowance is 3).
+  for (let i = 0; i < 3; i++) {
+    const out = host.requestRestart(`reset attempt ${i}`);
+    assert.equal(out.status, 'queued', `request ${i} accepted`);
+    // answer the confirm with a DENY (resolves the single pending ask via bare reply)
+    await new Promise((r) => setTimeout(r, 10));
+    await host.handleInbound(inbound('deny'));
+    await new Promise((r) => setTimeout(r, 15));
+  }
+
+  // The 4th request within the window is REFUSED outright (loop guardrail).
+  const refused = host.requestRestart('reset attempt 4 (the loop)');
+  assert.equal(refused.status, 'rate_limited', '4th in-window request is rate-limited');
+  assert.ok(typeof (refused as { retryAfterMs?: number }).retryAfterMs === 'number', 'reports a retry-after window');
+
+  // It was NOT executed; the user was warned about the loop.
+  assert.equal(driver.starts, 1, 'no restart executed for the rate-limited request');
+  assert.ok(cap.sent.some((s) => /requesting restarts too frequently/.test(s.text)), 'user warned about the restart loop');
+  const evs = lifecycleEvents(events);
+  assert.ok(evs.filter((e) => e === 'lifecycle_restart_denied').length >= 1, 'a denied(rate_limited) signal published');
+  await host.stop();
+  bus.close();
+});
+
+test('★ M-2: an INVOLUNTARY tier-b restart (restartUnresponsive) INCREMENTS restarts (visible in /api/session), unlike clearContext', async () => {
+  const bus = new IoBus();
+  const events = collectEvents(bus);
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    // Run 1 — live session (binds operator), then parks idle.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // establishing inbound
+      { do: 'awaitTurn' }, // park idle until restartUnresponsive tears it down
+    ],
+    // Run 2 — the FRESH session after the tier-b restart (the role re-bootstraps via the
+    // lifecycle's non-resume start; here we just confirm a new id + the counter). ONE
+    // awaitTurn: restartUnresponsive injects NO turn, so run 2 parks at this awaitTurn —
+    // host.stop() then releases it cleanly (no crash-resume; stop() sets `stopping`).
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } },
+      { do: 'awaitTurn' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    roleTurnPrefix: '/orchestrator',
+  });
+  await host.start();
+  await host.handleInbound(inbound('hello'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(host.health().lifecycle.restarts, 0, 'starts at 0');
+
+  // D4 tier-b fires (the orchestrator went unresponsive).
+  await host.restartUnresponsive();
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.equal(driver.starts, 2, 'a fresh session was started');
+  assert.equal(host.health().lifecycle.sessionId, 's2', 'now on the fresh session');
+  assert.equal(host.health().lifecycle.restarts, 1, '★ the involuntary restart is COUNTED (not zeroed like clearContext)');
+  const evs = lifecycleEvents(events);
+  assert.ok(evs.includes('lifecycle_restart_unresponsive'), 'an unresponsive-restart audit signal was published');
   await host.stop();
   bus.close();
 });

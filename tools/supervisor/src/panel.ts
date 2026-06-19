@@ -95,6 +95,22 @@ export class Panel {
         this.handleApprove(req, res);
       } else if (method === 'POST' && url.startsWith('/api/clear')) {
         this.handleClear(res);
+      } else if (method === 'GET' && url.startsWith('/api/channel/state')) {
+        // D2: channel state for the orchestrator's self-check.
+        this.json(res, this.supervisor.channelState());
+      } else if (method === 'POST' && url.startsWith('/api/channel/reconnect')) {
+        void this.handleChannelReconnect(res);
+      } else if (method === 'POST' && url.startsWith('/api/channel/flush')) {
+        this.json(res, this.supervisor.flushChannel('telegram'));
+      } else if (method === 'POST' && url.startsWith('/api/channel/kill-stale-sender')) {
+        // D2: the supervisor can't safely kill an EXTERNAL process from inside; it
+        // reports the current sender (its own PID) + reconnects to re-acquire the token.
+        // The orchestrator does any actual stale-PID kill via Bash at its discretion.
+        void this.handleKillStaleSender(res);
+      } else if (method === 'POST' && url.startsWith('/api/lifecycle/restart-request')) {
+        // LIFECYCLE-RESTART: the hosted agent requests its own restart; the supervisor
+        // confirms with the user + executes OUT-OF-BAND. Returns queued/refused immediately.
+        this.handleRestartRequest(req, res);
       } else if (method === 'GET' && (url === '/' || url.startsWith('/index'))) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(this.html());
@@ -158,6 +174,51 @@ export class Panel {
       const ok = this.sessionHost!.operatorDecide(verdict, typeof body.code === 'string' ? body.code : undefined);
       this.logger.info('operator panel decision', { verdict, code: body.code, ok });
       this.json(res, { ok, verdict, code: body.code ?? null });
+    });
+  }
+
+  /**
+   * POST /api/lifecycle/restart-request { reason, handoffNote? } → the hosted agent
+   * requests its own restart. Returns the queued/refused outcome IMMEDIATELY; the
+   * user-confirm + teardown happen out-of-band.
+   */
+  private handleRestartRequest(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+    if (!this.sessionHost) {
+      res.writeHead(409, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'error', error: 'no hosted session' }));
+      return;
+    }
+    this.readBody(req, (body) => {
+      const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : '(no reason given)';
+      const handoffNote = typeof body.handoffNote === 'string' ? body.handoffNote : undefined;
+      const outcome = this.sessionHost!.requestRestart(reason, handoffNote);
+      this.logger.info('lifecycle restart-request received', { reason, status: outcome.status });
+      this.json(res, outcome);
+    });
+  }
+
+  /** POST /api/channel/reconnect → re-establish the telegram transport (D2 repair). */
+  private async handleChannelReconnect(res: import('node:http').ServerResponse): Promise<void> {
+    const r = await this.supervisor.reconnectChannel('telegram');
+    this.logger.info('panel: channel reconnect requested', r);
+    this.json(res, { action: 'reconnect', ...r });
+  }
+
+  /**
+   * POST /api/channel/kill-stale-sender → reconnect to re-acquire the single getUpdates
+   * poller (the supervisor can't kill an external process safely from inside). Returns
+   * the current sender (this supervisor's PID) so the orchestrator can kill a DIFFERENT
+   * stale process via Bash if one is found. (D2 repair.)
+   */
+  private async handleKillStaleSender(res: import('node:http').ServerResponse): Promise<void> {
+    const r = await this.supervisor.reconnectChannel('telegram');
+    this.logger.info('panel: kill-stale-sender (reconnect to re-acquire poller)', r);
+    this.json(res, {
+      action: 'kill-stale-sender',
+      reconnected: r.ok,
+      error: r.error,
+      currentSenderPid: process.pid,
+      note: 'reconnected to re-acquire the single getUpdates poller; kill any DIFFERENT stale sender PID via Bash',
     });
   }
 

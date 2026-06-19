@@ -1,4 +1,9 @@
-// Launch wrapper for the test-bot supervisor (--driver pty --profile orchestrator).
+// Launch wrapper for the test-bot supervisor (--profile orchestrator).
+// No --driver override: the ORCHESTRATOR profile DEFAULTS to 'cli-stream' (`claude -p`
+// stream-json) — the only backend that exposes agent-teams (SendMessage/Monitor/Task*),
+// which the orchestrator skill requires. It runs Opus 4.8 [1m] on the user's
+// subscription (cost guard enforces a key-free env). The PTY/TUI scraper was retired
+// (2026-06-17 review); the SDK driver stays selectable (--driver sdk) for non-team use.
 // Reads the dedicated test token from D:\tmp\supervisor-test.env (NEVER logged/printed),
 // sets SUPERVISOR_TELEGRAM_TOKEN, UNSETS the prod token, spawns dist/index.js detached.
 // The token only ever lives in the child's env — never on a command line or in output.
@@ -75,19 +80,19 @@ const env = { ...process.env };
 env.SUPERVISOR_TELEGRAM_TOKEN = token; // dedicated test token
 delete env.TELEGRAM_BOT_TOKEN; // never the production token
 delete env.SUPERVISOR_SYSTEM_PROMPT; // orchestrator uses preset+append, not the demo persona
-env.SUPERVISOR_RAW_CAPTURE = 'D:\\tmp\\supervisor-pty-raw.log'; // RAW render dump → capture a live gate's real bytes
 env.SUPERVISOR_SESSION_CWD = worktreePath; // #2: the hosted orchestrator runs in the worktree
 env.SUPERVISOR_WORKTREE_CLEANUP = worktreePath; // #2: the supervisor removes it on graceful stop
 
-const errLog = openSync('D:\\tmp\\supervisor-pty-orch.err.log', 'a');
-const outLog = openSync('D:\\tmp\\supervisor-pty-orch.out.log', 'a');
+const errLog = openSync('D:\\tmp\\supervisor-orch.err.log', 'a');
+const outLog = openSync('D:\\tmp\\supervisor-orch.out.log', 'a');
 
 const child = spawn(
   process.execPath,
-  ['dist/index.js', '--live', '--session', '--driver', 'pty', '--profile', 'orchestrator', '--panel', '8790'],
+  // No --driver: the orchestrator profile defaults to cli-stream (claude -p + teams).
+  ['dist/index.js', '--live', '--session', '--profile', 'orchestrator', '--panel', '8790'],
   { cwd: SUP_DIR, env, detached: true, stdio: ['ignore', outLog, errLog] },
 );
 child.unref();
 // print ONLY the pid (never the token)
-process.stdout.write(`LAUNCHED supervisor pid=${child.pid} (driver=pty profile=orchestrator panel=8790; prod token UNSET; isolated=${isolated} cwd=${worktreePath})\n`);
+process.stdout.write(`LAUNCHED supervisor pid=${child.pid} (driver=cli-stream[claude -p] profile=orchestrator model=opus-4-8[1m] panel=8790; prod token UNSET; isolated=${isolated} cwd=${worktreePath})\n`);
 process.exit(0);

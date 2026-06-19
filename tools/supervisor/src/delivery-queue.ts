@@ -159,6 +159,24 @@ export class DeliveryQueue<T = unknown> {
   }
 
   /**
+   * CHANNEL REPAIR (D2): drop ALL pending items (ack each) and return the count
+   * dropped — clears a backlog. Best-effort per item (an unremovable file is skipped).
+   */
+  clear(): number {
+    const items = this.pending();
+    let dropped = 0;
+    for (const it of items) {
+      try {
+        this.ack(it.id);
+        dropped++;
+      } catch {
+        /* skip an unremovable item */
+      }
+    }
+    return dropped;
+  }
+
+  /**
    * Replay every pending item through `deliver`, acking each that the handler
    * accepts (returns normally). An item whose handler throws is LEFT in the
    * queue for a future replay — fail-safe, never drop. Returns the count

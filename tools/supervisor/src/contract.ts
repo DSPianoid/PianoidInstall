@@ -152,4 +152,22 @@ export interface ChannelAdapter {
 
   /** Current health snapshot. */
   health(): AdapterHealth;
+
+  /**
+   * CHANNEL REPAIR (D2, optional). Re-establish the transport (stop → start) to
+   * recover a dropped/wedged connection or re-acquire a single-poller token. The
+   * supervisor re-supplies the inbound handler. NOTE: on start() the adapter REPLAYS
+   * its un-acked durable INBOUND queue, so reconnect re-delivers any pending inbound.
+   * Adapters that can't reconnect omit this.
+   */
+  reconnect?(onInbound: InboundHandler): Promise<void>;
+
+  /**
+   * CHANNEL REPAIR (D2, optional). Drop all PENDING (un-acked) INBOUND items from the
+   * durable inbox queue and return how many were dropped. ⚠️ This discards inbound user
+   * messages that have NOT yet been acked (e.g. a poison message wedged in replay) — it
+   * is NOT an outbound backlog (outbound sends directly; there is no outbound queue).
+   * Use to clear a wedged inbound replay. Adapters with no inbox queue omit this.
+   */
+  flush?(): number;
 }

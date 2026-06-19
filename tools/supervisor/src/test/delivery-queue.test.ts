@@ -179,3 +179,20 @@ test('M2: update() on an acked (no longer pending) item is a no-op', () => {
     cleanup();
   }
 });
+
+test('★ D2: clear() drops all pending items and returns the count', () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const q = new DeliveryQueue<{ msg: string }>({ dir });
+    q.enqueue({ msg: 'a' });
+    q.enqueue({ msg: 'b' });
+    q.enqueue({ msg: 'c' });
+    assert.equal(q.depth(), 3);
+    const dropped = q.clear();
+    assert.equal(dropped, 3);
+    assert.equal(q.depth(), 0);
+    assert.equal(q.clear(), 0, 'clearing an empty queue drops 0');
+  } finally {
+    cleanup();
+  }
+});

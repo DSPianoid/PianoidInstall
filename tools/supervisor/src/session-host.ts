@@ -31,6 +31,22 @@ import type { Logger } from './logger.js';
 import type { IoBus } from './io-bus.js';
 import type { SessionDriver } from './session-driver.js';
 
+/** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
+export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
+
+/** M3: at most one delivery-failure notice per this window (outage cooldown). */
+export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
+
+/** Lifecycle-restart guardrail: max agent-initiated restart REQUESTS per window (kills loops). */
+export const RESTART_RATE_LIMIT = 3;
+export const RESTART_RATE_WINDOW_MS = 30 * 60_000; // 30 minutes
+
+/** The outcome of an agent restart request (returned by requestRestart). */
+export type RestartRequestOutcome =
+  | { status: 'queued' } // accepted; confirm + teardown happen out-of-band
+  | { status: 'rate_limited'; retryAfterMs: number }
+  | { status: 'busy' }; // a restart confirm is already in flight
+
 export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
@@ -76,14 +92,47 @@ export interface SessionHostOptions {
   /** Permission reply window, ms. */
   permissionTimeoutMs?: number;
   /**
-   * #8 HEARTBEAT. When set (> 0), a long turn that stays silent for this many ms emits a
-   * throttled "still working…" ping to the channel (driven by mid-turn activity), so the
-   * user can tell working-from-hung during a heavy startup. At most one ping per interval;
-   * none after the turn's result. 0 / omit = disabled (e.g. demo). Default disabled.
+   * FORWARD ALL OUTPUT (the user's core objective). When true (orchestrator profile),
+   * the supervisor mirrors the session's TOOL ACTIVITY to the channel — not just the
+   * final assistant text: tool calls (incl. Agent/Task/SendMessage = sub-agent spawns
+   * + teammate messages) and tool RESULTS, with errors always surfaced. So the remote
+   * user SEES the orchestrator coordinating its sub-agents and any error it hits, which
+   * is the whole point of the supervisor. Off (demo) = only assistant text is sent.
    */
-  progressPingMs?: number;
-  /** The "still working…" ping text (default a generic one). */
-  progressPingText?: string;
+  forwardToolActivity?: boolean;
+  /**
+   * When forwarding tool activity, also forward NON-error tool RESULTS (verbose). Most
+   * tool results are noise on a phone; default false = forward tool CALLS + tool ERRORS
+   * only (the actionable signal). Errors are always forwarded regardless.
+   */
+  forwardToolResultsVerbose?: boolean;
+  /**
+   * D1/D2: the loopback Panel base URL (e.g. 'http://127.0.0.1:8790'). When set, the
+   * '/channel-check' diagnostic turn (and the orchestrator preamble) reference it so
+   * the orchestrator can curl the read + repair endpoints. Undefined → /channel-check
+   * still injects a diagnostic turn but without a concrete URL.
+   */
+  panelUrl?: string;
+  /**
+   * D4: supervisor→orchestrator liveness. When set (> 0), after a ping is injected the
+   * orchestrator must produce a turn result within this many ms or it is treated as
+   * HUNG → tier-b (restart+resume + notify the user). 0/omit = liveness ping disabled.
+   */
+  pingResponseTimeoutMs?: number;
+  /**
+   * D4: how often the periodic scheduler fires an IDLE-AWARE liveness ping (ms). The
+   * ping is a no-op while a turn is in flight (a busy orchestrator is never restarted),
+   * so this is the cadence at which a genuinely-IDLE-but-unresponsive orchestrator is
+   * detected. Should be comfortably larger than pingResponseTimeoutMs. 0/omit = no
+   * scheduler (the ping can still be triggered manually). Default off.
+   */
+  pingIntervalMs?: number;
+  /**
+   * D4 tier-b: called when the orchestrator fails to answer a liveness ping in time —
+   * the supervisor restarts it (LifecycleManager restart+resume) and notifies the user.
+   * Injected by index.ts (it owns the relaunch decision). Receives a reason string.
+   */
+  onUnresponsive?: (reason: string) => void | Promise<void>;
 }
 
 export class SessionHost {
@@ -110,8 +159,18 @@ export class SessionHost {
    * belt-and-suspenders against doubling AND byte-identical stale resends.
    */
   private lastSentText: string | null = null;
-  /** #8 heartbeat: wall-clock (ms) of the last progress ping (or turn start) — throttle anchor. */
-  private lastProgressAt = 0;
+  /** F1: re-entrancy guard so a delivery-failure note's OWN failed send doesn't loop. */
+  private feedingDeliveryFailure = false;
+  /** M3: wall-clock (ms) of the last delivery-failure notice — outage-cooldown anchor. */
+  private lastDeliveryFailureNotifiedAt = 0;
+  /** D4: pending liveness-ping deadline timer (cleared when the orchestrator answers). */
+  private pingTimer: ReturnType<typeof setTimeout> | null = null;
+  /** D4: the periodic liveness scheduler (fires an idle-aware ping every pingIntervalMs). */
+  private pingScheduler: ReturnType<typeof setInterval> | null = null;
+  /** Lifecycle-restart: wall-clock (ms) timestamps of recent agent restart REQUESTS (rate-limit). */
+  private restartRequestTimes: number[] = [];
+  /** Lifecycle-restart: a restart confirm is already in flight (don't open a second dialog). */
+  private restartConfirmInFlight = false;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -162,10 +221,83 @@ export class SessionHost {
       // answers — turns where it answered directly instead of via the reply tool.)
       replyToolName: opts.replyToolName,
       onAssistant: (text) => this.sendToOperator(text),
-      onResult: (text) => (text ? this.sendToOperator(text) : Promise.resolve()),
-      // #8 heartbeat: throttle mid-turn activity into an occasional "still working…" ping.
-      onProgress: () => this.maybeProgressPing(),
+      onResult: (text) => {
+        // D4: ANY real turn result proves the orchestrator is responsive → clear the
+        // liveness-ping deadline (it answered, whether the ping or another turn).
+        this.clearPingTimer();
+        return text ? this.sendToOperator(text) : Promise.resolve();
+      },
+      // D4: an INTERNAL turn (the liveness ping) → confirm responsiveness WITHOUT
+      // forwarding the pong to the user. Just clears the deadline (= alive, tier-a).
+      onInternalResult: () => {
+        this.clearPingTimer();
+        this.logger.info('liveness pong received (internal) — orchestrator responsive');
+      },
+      // D4 BELT: mid-turn activity is the INTERNAL liveness signal (clears the ping
+      // deadline — proves the orchestrator is alive). No user-facing message (the
+      // "still working…" heartbeat was removed).
+      onProgress: () => this.onMidTurnProgress(),
+      // FORWARD ALL OUTPUT (orchestrator profile): mirror tool activity to the channel.
+      onToolActivity: opts.forwardToolActivity ? (info) => this.forwardToolActivity(info) : undefined,
     });
+  }
+
+  /**
+   * FORWARD ALL OUTPUT (the user's core objective): mirror the session's tool activity
+   * to the channel — sub-agent spawns / teammate messages (Agent/Task/SendMessage) and
+   * tool errors are the signal the remote user must see (the supervisor exists to make
+   * the orchestrator's coordination + failures visible). Goes via opts.send DIRECTLY
+   * (like the heartbeat) so it's never deduped by the final-answer guard and never
+   * pollutes the lastSentText turn-baseline. Best-effort: a forward failure never breaks
+   * the turn. Non-error tool RESULTS are forwarded only when forwardToolResultsVerbose
+   * (default off — most are phone-noise); tool CALLS and ERRORS always go.
+   */
+  private async forwardToolActivity(
+    info:
+      | { kind: 'tool_use'; tools: { name: string; hint?: string }[] }
+      | { kind: 'tool_result'; isError?: boolean; content?: string },
+  ): Promise<void> {
+    if (!this.operator) return; // no user bound yet → nothing to forward to
+    let text: string | undefined;
+    if (info.kind === 'tool_use') {
+      const lines = info.tools.map((t) => `⚙️ ${t.name}${t.hint ? `(${t.hint})` : ''}`);
+      text = lines.join('\n');
+    } else if (info.isError) {
+      const body = (info.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      text = `❌ tool error${body ? `: ${body}` : ''}`;
+    } else if (this.opts.forwardToolResultsVerbose) {
+      const body = (info.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (body) text = `✓ ${body}`;
+    }
+    if (!text) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('tool-activity forward failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * D1 — inject the '/channel-check' DIAGNOSTIC turn. The supervisor grants the
+   * orchestrator the self-check/repair surface (the loopback panel) and asks it to
+   * inspect the channel, report to the user, and repair at its own discretion. This is
+   * a SUPERVISOR-CRAFTED turn (not the user's literal text) so the orchestrator gets a
+   * precise instruction + the endpoint list, every time.
+   */
+  private async injectChannelCheckTurn(): Promise<void> {
+    const base = this.opts.panelUrl ?? 'http://127.0.0.1:<panel-port>';
+    const turn =
+      `[SUPERVISOR /channel-check] The user asked you to check the messaging channel. ` +
+      `You have FULL channel-control access via the supervisor's loopback panel (use Bash/PowerShell + curl):\n` +
+      `READ: GET ${base}/api/channel/state (adapters, recent delivery results, pending sends, sender PIDs), ` +
+      `GET ${base}/api/capture (raw inbound+outbound+delivery events), GET ${base}/api/health, GET ${base}/api/session.\n` +
+      `REPAIR (use at your discretion, coordinate with the user): POST ${base}/api/channel/reconnect, ` +
+      `POST ${base}/api/channel/flush, POST ${base}/api/channel/kill-stale-sender.\n` +
+      `Inspect the channel state, tell the user what you find (delivery failures? a stale double-sender? a backlog?), ` +
+      `take any repair action you judge appropriate, and confirm the outcome.`;
+    // A diagnostic turn is a real turn — reset the per-turn guard like any inbound.
+    this.lastSentText = null;
+    await this.lifecycle.sendUserTurn({ text: turn });
   }
 
   /** Start the hosted session (spawns/owns the subprocess via the lifecycle). */
@@ -173,6 +305,8 @@ export class SessionHost {
     if (this.started) return;
     await this.lifecycle.start();
     this.started = true;
+    // D4: arm the periodic idle-aware liveness scheduler (no-op if disabled).
+    this.startLivenessScheduler();
     this.logger.info('session host started', this.lifecycle.health());
   }
 
@@ -226,6 +360,16 @@ export class SessionHost {
       return;
     }
 
+    // ★ D1 — reserved '/channel-check' command. HANDLED here (NOT typed verbatim to
+    // the AI): the supervisor crafts a DIAGNOSTIC turn that grants the orchestrator the
+    // self-check/repair surface (the loopback panel) + asks it to inspect + report +
+    // repair at its discretion. Same seam as the permission-reply interception above.
+    if (CHANNEL_CHECK_RE.test(text.trim())) {
+      this.logger.info('inbound consumed as /channel-check (diagnostic turn injected)');
+      await this.injectChannelCheckTurn();
+      return;
+    }
+
     // Otherwise inject as a user turn into the session. On the FIRST real user
     // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
     // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
@@ -239,9 +383,6 @@ export class SessionHost {
     // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
     // The guard only catches same-turn duplicates (a double-emit / the stale-resend race).
     this.lastSentText = null;
-    // #8 heartbeat: anchor the throttle at the turn start so the FIRST progress ping waits
-    // a full interval (a fast turn finishes before then → no ping; the answer is enough).
-    this.lastProgressAt = Date.now();
     await this.lifecycle.sendUserTurn({ text: turnText });
   };
 
@@ -253,6 +394,21 @@ export class SessionHost {
   /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
   async clearContext(): Promise<void> {
     await this.lifecycle.clearContext();
+  }
+
+  /**
+   * ★M-2 — INVOLUNTARY restart (D4 tier-b: the orchestrator went unresponsive). Same
+   * end→fresh-start as clearContext BUT routes through restartFresh() so the `restarts`
+   * counter INCREMENTS — an involuntary restart must be visible in /api/session, exactly
+   * like an agent-requested one (clearContext zeroes the counter, hiding it). The fresh
+   * session re-bootstraps the role via the lifecycle's bootstrapTurns (non-resume start);
+   * we also re-arm the role prefix for the first inbound for parity with the other paths.
+   */
+  async restartUnresponsive(): Promise<void> {
+    this.rolePrefixPending = !!this.opts.roleTurnPrefix;
+    this.clearPingTimer(); // drop any armed liveness deadline; the fresh session re-arms via the scheduler
+    await this.lifecycle.restartFresh();
+    this.publishLifecycle('lifecycle_restart_unresponsive', { restarts: this.lifecycle.health().restarts });
   }
 
   /** Pending permission asks awaiting a decision (for the operator panel). */
@@ -272,24 +428,208 @@ export class SessionHost {
   }
 
   /**
-   * #8 HEARTBEAT. Called on each mid-turn activity (via the lifecycle's onProgress). If
-   * progress pings are enabled AND at least progressPingMs has elapsed since the last
-   * ping (or the turn start), send ONE "still working…" ping to the operator. Throttled,
-   * so a fast turn (finishes before the interval) never pings — only a genuinely long turn
-   * shows life. NOT sent after the result (the lifecycle stops calling onProgress then).
-   * Goes through opts.send DIRECTLY (not sendToOperator) so it's never deduped as a
-   * "duplicate answer" and never becomes the lastSentText baseline.
+   * D4 LIVENESS BELT. Called on each mid-turn activity (via the lifecycle's onProgress).
+   * Its ONLY job now is to clear any pending liveness-ping deadline — mid-turn activity
+   * proves the orchestrator is alive (covers the race where a ping armed an instant before
+   * a real turn began producing output). The user-facing "still working…" heartbeat that
+   * used to live here was REMOVED (2026-06-18 — it flooded the channel + fired while idle).
    */
-  private async maybeProgressPing(): Promise<void> {
-    const interval = this.opts.progressPingMs ?? 0;
-    if (interval <= 0 || !this.operator) return; // disabled / no operator
+  private async onMidTurnProgress(): Promise<void> {
+    // ★ The user-facing "⏳ still working…" heartbeat was REMOVED (2026-06-18): it flooded
+    // the channel + fired even while idle (misleading). This handler is now PURELY the D4
+    // liveness BELT: mid-turn activity PROVES the orchestrator is alive → clear any pending
+    // liveness-ping deadline (covers the race where a ping armed an instant before a real
+    // turn began producing output). No message is sent to the user.
+    this.clearPingTimer();
+  }
+
+  /**
+   * D4 — LIVENESS PING (IDLE-AWARE). Inject a reserved supervisor→orchestrator ping turn
+   * and ARM a response deadline — but ONLY when the orchestrator is IDLE (no turn in
+   * flight). A busy/long turn or a turn blocked on a sub-agent has a turn in flight →
+   * we SKIP the ping (it's demonstrably working), so a progressing orchestrator is NEVER
+   * false-restarted. When idle: the ping queues, the orchestrator answers, and ANY turn
+   * result clears the deadline (onResult) → alive (tier-a). Mid-turn PROGRESS also clears
+   * it (maybeProgressPing) as a belt. If the deadline fires first → HUNG → tier-b
+   * (onUnresponsive). The "wedged mid-turn" case (a turn that never completes) is covered
+   * by the passive turn-timeout watchdog, NOT by this ping. Returns true if a ping was
+   * armed; false if disabled / no operator / a turn is in flight (skipped).
+   */
+  async pingLiveness(): Promise<boolean> {
+    const timeout = this.opts.pingResponseTimeoutMs ?? 0;
+    if (timeout <= 0) return false; // disabled
+    if (!this.operator) return false; // no one to be responsive to yet
+    if (!this.lifecycle.isIdle()) {
+      // A turn is in flight → the orchestrator is provably working. Do NOT ping (and
+      // do NOT arm a deadline) — that is exactly the false-restart we must avoid.
+      this.logger.info('liveness ping SKIPPED — a turn is in flight (orchestrator is working)');
+      return false;
+    }
+    this.clearPingTimer();
+    this.pingTimer = setTimeout(() => {
+      this.pingTimer = null;
+      this.logger.error('liveness ping TIMED OUT — orchestrator unresponsive (tier-b)', { timeoutMs: timeout });
+      void this.opts.onUnresponsive?.(`no turn result within ${timeout}ms of the liveness ping (orchestrator idle but unresponsive)`);
+    }, timeout);
+    if (typeof this.pingTimer === 'object' && 'unref' in this.pingTimer) {
+      (this.pingTimer as { unref: () => void }).unref();
+    }
+    // The ping turn is HANDLED (not user text) + INTERNAL — the ping AND the orchestrator's
+    // pong are NOT forwarded to the user (no liveness chatter on the channel); the
+    // supervisor only reads the pong (onInternalResult → clearPingTimer) for hung-detection.
+    this.logger.info('liveness ping injected (internal)', { timeoutMs: timeout });
+    try {
+      await this.lifecycle.sendUserTurn(
+        {
+          text: '[SUPERVISOR ping] Internal liveness check — reply with a single short line (e.g. "alive"). This exchange is NOT shown to the user; just confirm you are responsive.',
+        },
+        { internal: true },
+      );
+    } catch (err) {
+      // ★ M2 — sendUserTurn THROWS if the session isn't running (e.g. the transient
+      // clearContext/restart window). The ping never reached the orchestrator, so the
+      // armed deadline would FALSE-fire tier-b. Clear it and bail — the next scheduler
+      // tick re-pings once the session is back. (Not a hang; a normal restart race.)
+      this.clearPingTimer();
+      this.logger.warn('liveness ping send failed (session restarting?) — deadline cleared, will retry', { err: String(err) });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * D4 — start the periodic liveness scheduler. Every `pingIntervalMs`, fire an
+   * idle-aware `pingLiveness()` (a no-op while a turn is in flight). Off if the interval
+   * or the response-timeout is unset. Idempotent. Started by `start()`.
+   */
+  startLivenessScheduler(): void {
+    const interval = this.opts.pingIntervalMs ?? 0;
+    if (interval <= 0 || (this.opts.pingResponseTimeoutMs ?? 0) <= 0) return; // disabled
+    if (this.pingScheduler) return; // already running
+    this.pingScheduler = setInterval(() => void this.pingLiveness().catch(() => undefined), interval);
+    if (typeof this.pingScheduler === 'object' && 'unref' in this.pingScheduler) {
+      (this.pingScheduler as { unref: () => void }).unref();
+    }
+    this.logger.info('liveness scheduler started', { intervalMs: interval, responseTimeoutMs: this.opts.pingResponseTimeoutMs });
+  }
+
+  /** D4 — stop the periodic liveness scheduler + any pending ping deadline. */
+  private stopLivenessScheduler(): void {
+    if (this.pingScheduler) {
+      clearInterval(this.pingScheduler);
+      this.pingScheduler = null;
+    }
+    this.clearPingTimer();
+  }
+
+  /** D4: clear the pending liveness-ping deadline (the orchestrator answered / teardown). */
+  private clearPingTimer(): void {
+    if (this.pingTimer) {
+      clearTimeout(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  /**
+   * LIFECYCLE-RESTART CONTROL (the hosted agent requests its OWN full restart; the
+   * supervisor confirms with the user + executes — authority split). Returns IMMEDIATELY
+   * with the queued/refused outcome; the confirm + teardown happen OUT-OF-BAND (the agent
+   * may be mid-turn and must NOT assume a synchronous restart). On the user's approval the
+   * agent context is fully reset (new sessionId, no resume, restarts++), the CHANNEL is
+   * preserved (the conversation survives), and an optional handoff note is injected into the
+   * fresh session's first turn. Guardrails: rate-limit (loop killer) + user-confirm ALWAYS.
+   */
+  requestRestart(reason: string, handoffNote?: string): RestartRequestOutcome {
     const now = Date.now();
-    if (now - this.lastProgressAt < interval) return; // throttled
-    this.lastProgressAt = now;
-    const text = this.opts.progressPingText ?? '⏳ still working…';
-    const r = await this.opts.send(this.operator, { text });
-    if (r.ok) this.logger.info('progress ping sent', { sentIds: r.sentIds });
-    else this.logger.warn('progress ping send failed', { error: r.error });
+    // Rate-limit: drop expired timestamps, then enforce the window cap.
+    this.restartRequestTimes = this.restartRequestTimes.filter((t) => now - t < RESTART_RATE_WINDOW_MS);
+    if (this.restartRequestTimes.length >= RESTART_RATE_LIMIT) {
+      const oldest = this.restartRequestTimes[0]!;
+      const retryAfterMs = RESTART_RATE_WINDOW_MS - (now - oldest);
+      this.logger.warn('lifecycle restart REFUSED — rate limit', { reason, count: this.restartRequestTimes.length, retryAfterMs });
+      this.publishLifecycle('lifecycle_restart_denied', { reason, cause: 'rate_limited', retryAfterMs });
+      // Surface the loop to the user (the agent is misbehaving).
+      if (this.operator) {
+        void this.opts
+          .send(this.operator, {
+            text: `⚠️ The hosted agent is requesting restarts too frequently (≥${RESTART_RATE_LIMIT} in ${Math.round(RESTART_RATE_WINDOW_MS / 60000)} min) — refusing (possible loop). Reason given: "${reason}".`,
+          })
+          .catch(() => undefined);
+      }
+      return { status: 'rate_limited', retryAfterMs };
+    }
+    if (this.restartConfirmInFlight) {
+      this.logger.info('lifecycle restart request ignored — a confirm is already in flight');
+      return { status: 'busy' };
+    }
+    this.restartRequestTimes.push(now);
+    this.publishLifecycle('lifecycle_restart_requested', { reason, hasHandoff: !!handoffNote });
+    this.logger.info('lifecycle restart REQUESTED by the agent', { reason, hasHandoff: !!handoffNote });
+    // Run the confirm + teardown OUT-OF-BAND (don't block the caller / the agent's turn).
+    void this.runRestartConfirm(reason, handoffNote);
+    return { status: 'queued' };
+  }
+
+  /** Out-of-band: confirm the restart with the user, then execute (or notify the agent of denial). */
+  private async runRestartConfirm(reason: string, handoffNote?: string): Promise<void> {
+    this.restartConfirmInFlight = true;
+    try {
+      if (!this.channelPermission || !this.operator) {
+        this.logger.warn('lifecycle restart: no operator to confirm with — denying (safe)');
+        this.publishLifecycle('lifecycle_restart_denied', { reason, cause: 'no_operator' });
+        return;
+      }
+      // Context line so the user understands the prompt that follows (the approve/deny prompt
+      // reuses the familiar destructive-op routing — action 'lifecycle.restart').
+      await this.opts
+        .send(this.operator, {
+          text: `🔄 The hosted agent requests a FULL RESTART (this RESETS its context — conversation continues, but it forgets the current session). Reason: "${reason}".`,
+        })
+        .catch(() => undefined);
+      const verdict = await this.channelPermission.askUser({ toolName: 'lifecycle.restart', input: { reason } });
+      if (verdict !== 'allow') {
+        this.logger.info('lifecycle restart DENIED', { reason, verdict });
+        this.publishLifecycle('lifecycle_restart_denied', { reason, cause: verdict });
+        // Notify the AGENT it was denied (a follow-up turn — it continues unchanged).
+        await this.lifecycle
+          .sendUserTurn({
+            text: `[SUPERVISOR lifecycle] Your restart request was ${verdict === 'timeout' ? 'NOT approved in time (default deny)' : 'DENIED by the user'}. Continue as normal.`,
+          })
+          .catch(() => undefined);
+        return;
+      }
+      // APPROVED → execute the restart.
+      this.publishLifecycle('lifecycle_restart_approved', { reason });
+      this.logger.info('lifecycle restart APPROVED — executing', { reason });
+      this.clearPingTimer(); // teardown any pending liveness deadline
+      // Re-arm the role bootstrap so the fresh session re-loads /orchestrator on its first turn.
+      this.rolePrefixPending = !!this.opts.roleTurnPrefix;
+      await this.lifecycle.restartFresh();
+      // Handoff: inject the fresh session's FIRST turn (role prefix + the restart context + note).
+      // (Done here, not waiting for a user message, so the agent re-establishes itself immediately.)
+      const prefix = this.rolePrefixPending && this.opts.roleTurnPrefix ? `${this.opts.roleTurnPrefix}\n\n` : '';
+      this.rolePrefixPending = false; // consumed by this synthetic first turn
+      const handoff =
+        `[SUPERVISOR lifecycle] You restarted at your own request (context reset; the channel is preserved). Reason: "${reason}".` +
+        (handoffNote ? `\nPrior context / handoff note:\n${handoffNote}` : '\nNo handoff note was provided — start clean.');
+      this.lastSentText = null;
+      await this.lifecycle.sendUserTurn({ text: prefix + handoff }).catch((err) => {
+        this.logger.warn('lifecycle restart: handoff-turn injection failed (non-fatal)', { err: String(err) });
+      });
+      this.publishLifecycle('lifecycle_restart_completed', { reason, sessionId: this.lifecycle.health().sessionId, restarts: this.lifecycle.health().restarts });
+      this.logger.info('lifecycle restart COMPLETED', { restarts: this.lifecycle.health().restarts });
+      // Tell the user the restart happened (a meaningful, non-routine notice).
+      if (this.operator) {
+        await this.opts.send(this.operator, { text: '✅ The hosted agent has been restarted (context reset). The conversation continues.' }).catch(() => undefined);
+      }
+    } finally {
+      this.restartConfirmInFlight = false;
+    }
+  }
+
+  /** Publish a lifecycle-restart audit signal onto the bus (captured + controller-bridged). */
+  private publishLifecycle(event: string, fields: Record<string, unknown>): void {
+    this.opts.bus.publish({ direction: 'internal', type: 'lifecycle', source: 'supervisor', payload: { event, ...fields } });
   }
 
   /** Send text back to the current operator over the channel. */
@@ -320,6 +660,46 @@ export class SessionHost {
       this.logger.info('outbound delivered to operator', { sentIds: r.sentIds, chars: text.length });
     } else {
       this.logger.error('outbound send FAILED', { error: r.error, chars: text.length });
+      // ★ F1 — feed the DELIVERY FAILURE back into the session so the orchestrator KNOWS
+      // its own message did not reach the user (it is otherwise blind to its outbound).
+      // Inject as a follow-up turn (the driver queues it after the current turn). Success
+      // is implicit (no note); only failures are surfaced, to avoid chatter.
+      await this.feedDeliveryFailureToSession(r, text);
+    }
+  }
+
+  /**
+   * F1 — inject an out-of-band note telling the orchestrator its last reply did NOT
+   * reach the user (with the error + a hint to /channel-check). Best-effort, guarded
+   * two ways: (1) re-entrancy (the note's OWN send failure doesn't re-trigger), and
+   * (2) ★M3 — an OUTAGE COOLDOWN: at most one notice per DELIVERY_FAILURE_COOLDOWN_MS,
+   * so a sustained outage (note → orchestrator answers → answer-send fails → new note → …)
+   * yields ONE notice, not one per turn. After the cooldown a fresh failure re-notifies.
+   */
+  private async feedDeliveryFailureToSession(result: OutboundResult, failedText: string): Promise<void> {
+    if (this.feedingDeliveryFailure) return; // guard 1: don't loop on the note's own send
+    const now = Date.now();
+    if (now - this.lastDeliveryFailureNotifiedAt < DELIVERY_FAILURE_COOLDOWN_MS) {
+      // guard 2 (M3): still inside the outage cooldown — log but do NOT inject another
+      // note (avoids the per-turn cascade during a sustained channel outage).
+      this.logger.warn('delivery failure within outage cooldown — note suppressed', { error: result.error });
+      return;
+    }
+    this.lastDeliveryFailureNotifiedAt = now;
+    this.feedingDeliveryFailure = true;
+    try {
+      const preview = failedText.replace(/\s+/g, ' ').trim().slice(0, 80);
+      const note =
+        `[SUPERVISOR delivery-status] Your last reply did NOT reach the user ` +
+        `(error: ${result.error ?? 'unknown'}). Preview: "${preview}". ` +
+        `The user did NOT see it. Run /channel-check semantics — inspect the panel ` +
+        `(GET ${this.opts.panelUrl ?? 'the loopback panel'}/api/channel/state) and repair, ` +
+        `then resend if appropriate.`;
+      await this.lifecycle.sendUserTurn({ text: note });
+    } catch (err) {
+      this.logger.warn('delivery-failure feedback injection failed (non-fatal)', { err: String(err) });
+    } finally {
+      this.feedingDeliveryFailure = false;
     }
   }
 
@@ -340,6 +720,7 @@ export class SessionHost {
 
   /** Stop the hosted session. */
   async stop(): Promise<void> {
+    this.stopLivenessScheduler();
     await this.lifecycle.stop();
     this.started = false;
   }

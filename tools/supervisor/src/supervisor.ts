@@ -30,7 +30,7 @@ import type {
   ReplyHandle,
 } from './contract.js';
 import { CaptureStore } from './capture-store.js';
-import { IoBus } from './io-bus.js';
+import { IoBus, type BusEvent } from './io-bus.js';
 import { Logger } from './logger.js';
 
 /** A hook the host (Phase 2: the session) registers to react to inbound. */
@@ -175,6 +175,71 @@ export class Supervisor {
   /** Registered adapters (read-only view). */
   get registeredChannels(): string[] {
     return [...this.adapters.keys()];
+  }
+
+  /**
+   * CHANNEL STATE (D2) — a focused snapshot for the orchestrator's self-check:
+   * per-adapter health + the recent outbound delivery results from the capture stream
+   * + the supervisor PID. Read-only; the orchestrator curls this via the panel.
+   */
+  channelState(recentN = 20): {
+    pid: number;
+    adapters: AdapterHealth[];
+    recentDeliveries: { ts?: string; channel: string; ok: boolean; sentIds?: string[]; error?: string }[];
+  } {
+    const recentDeliveries: { ts?: string; channel: string; ok: boolean; sentIds?: string[]; error?: string }[] = [];
+    for (const r of this.capture.replay()) {
+      const e = ((r as { event?: BusEvent }).event ?? r) as BusEvent;
+      if (e && e.type === 'channel.outbound') {
+        const p = e.payload as { result?: OutboundResult };
+        if (p.result) {
+          recentDeliveries.push({
+            ts: e.ts,
+            channel: e.source,
+            ok: p.result.ok,
+            sentIds: p.result.sentIds,
+            error: p.result.error,
+          });
+        }
+      }
+    }
+    return {
+      pid: process.pid,
+      adapters: [...this.adapters.values()].map((a) => a.health()),
+      recentDeliveries: recentDeliveries.slice(-recentN),
+    };
+  }
+
+  /**
+   * CHANNEL REPAIR (D2) — reconnect an adapter's transport (re-acquire the poller).
+   * Re-supplies the SAME inbound publish+hook path. Returns ok/error.
+   */
+  async reconnectChannel(channel: string): Promise<{ ok: boolean; error?: string }> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) return { ok: false, error: `no adapter for channel '${channel}'` };
+    if (!adapter.reconnect) return { ok: false, error: `adapter '${channel}' does not support reconnect` };
+    try {
+      await adapter.reconnect((msg) => this.handleInbound(adapter.channel, msg));
+      this.logger.info('channel reconnected', { ...adapter.health() });
+      return { ok: true };
+    } catch (err) {
+      this.logger.error('channel reconnect failed', { channel, err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /**
+   * CHANNEL REPAIR (D2) — drop an adapter's un-acked INBOUND inbox-queue items (NOT an
+   * outbound backlog — outbound sends directly). ⚠️ Discards pending inbound user
+   * messages; use to clear a wedged inbound replay.
+   */
+  flushChannel(channel: string): { ok: boolean; dropped?: number; error?: string } {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) return { ok: false, error: `no adapter for channel '${channel}'` };
+    if (!adapter.flush) return { ok: false, error: `adapter '${channel}' does not support flush` };
+    const dropped = adapter.flush();
+    this.logger.info('channel flushed', { channel, dropped });
+    return { ok: true, dropped };
   }
 
   /** Graceful stop: stop adapters, detach + flush capture, close the bus. */
