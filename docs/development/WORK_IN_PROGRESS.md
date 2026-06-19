@@ -5,7 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
-| dev-2870 | Model-agnostic agents P0+P1 (dormant, default-OFF): contract capability descriptor + role-router/backend-registry/backend-seal(claude)/result-relay; route planning→sealed standalone claude in a test harness | [log](logs/dev-2870-2026-06-19-194544.md) | 2026-06-19 |
+| dev-2870 | Model-agnostic agents P0+P1+P2+P3 DONE (committed; Phase-1 HELD for P6 activation/merge): contract + role-router/registry/seal/result-relay + backend-aware cost/secret guard + api-adapter driver (DeepSeek=coding); dormant, default-OFF | [log](logs/dev-2870-2026-06-19-194544.md) | 2026-06-19 |
 
 <!-- DOC DEFERRAL (dev-93e1, 2026-06-19): the supervisor README.md permission section (L54-58 "Channel
      permission" + "How it eliminates FC-1") should gain a line on the NEW native inline-keyboard BUTTON
@@ -21,11 +21,17 @@
      DORMANT model-agnostic agent-routing layer (P0+P1, feature/model-agnostic-agents): a role→backend
      router + backend-registry + claude-cli seal + result-relay that can route a role (e.g. planning) to a
      SEALED standalone `claude -p` agent, gated by SUPERVISOR_ROLE_ROUTING (DEFAULT OFF → live path
-     byte-for-byte unchanged). NOT wired into index.ts (activation is P6). NOT done THIS session because
-     README.md is held by dev-vio1's ACTIVE lock. OWNER: whoever holds README next (or the P6 activation
-     agent). Authoritative design = docs/proposals/model-agnostic-agents-2026-06-19.md; the code carries
-     traces-to headers + src/test/{backend-kinds,role-router,backend-seal,backend-registry,result-relay}.test.ts
-     document the behavior. -->
+     byte-for-byte unchanged). NOW EXTENDED P2+P3 (same agent dev-2870): a BACKEND-AWARE cost/secret
+     guard (cost-safety.ts assertBackendCostSafe — per-backend key scoping OD-1: claude env stays
+     Anthropic-key-free, a DeepSeek agent env carries ONLY DEEPSEEK_API_KEY + no foreign billing key) +
+     an API-ADAPTER driver (api-adapter-driver.ts — a SessionDriver for OpenAI-compatible backends;
+     coding→DeepSeek deepseek-v4-flash; injectable HTTP client, no tools/permission routing per OD-5).
+     The LIVE assertCostSafe is byte-for-byte unchanged (additive). NOT wired into index.ts (activation
+     is P6). NOT done THIS session because README.md is held by dev-vio1's ACTIVE lock. OWNER: whoever
+     holds README next (or the P6 activation agent). Authoritative design =
+     docs/proposals/model-agnostic-agents-2026-06-19.md; the code carries traces-to headers +
+     src/test/{backend-kinds,role-router,backend-seal,backend-registry,result-relay,cost-safety,
+     api-adapter-driver}.test.ts document the behavior. -->
 
 ---
 

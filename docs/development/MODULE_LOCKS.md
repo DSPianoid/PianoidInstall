@@ -15,7 +15,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-<!-- dev-2870 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P0 commit 655af72 + P1 commit 66357c8 on
+<!-- dev-2870 P2+P3 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P2 commit 30ecb15 + P3 commit 9d23a12 on
+     feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
+     Edited (existing): tools/supervisor/src/{cost-safety,backend-seal,backend-registry,role-router,result-relay}.ts
+     + test/{cost-safety,backend-seal,backend-registry,role-router,result-relay}.test.ts. NEW:
+     api-adapter-driver.ts + test/api-adapter-driver.test.ts. P2 = backend-aware cost/secret guard (assertBackendCostSafe,
+     per-backend key scoping OD-1) — LIVE assertCostSafe byte-for-byte UNCHANGED (pure append). P3 = api-adapter
+     SessionDriver (DeepSeek=coding deepseek-v4-flash; injectable HTTP, zero spend; no tools/permission routing OD-5)
+     + registry registration + DEFAULT_ROLE_ROUTING_CONFIG. DORMANT (default-OFF SUPERVISOR_ROLE_ROUTING);
+     index.ts/live path/prod dist/running supervisor UNTOUCHED. +42 tests, full node:test 336/336, tsc clean
+     (built to throwaway dist-test/, reverted — prod dist/ not regenerated). NO real paid API call. -->
+<!-- dev-2870 P0+P1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P0 commit 655af72 + P1 commit 66357c8 on
      feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
      Held + edited: tools/supervisor/src/session-driver.ts (additive BackendCapabilities type only). NEW files
      (no lock conflict): backend-kinds.ts, role-router.ts, backend-registry.ts, backend-seal.ts, result-relay.ts
