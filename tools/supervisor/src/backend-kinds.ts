@@ -89,6 +89,29 @@ export function capabilitiesFor(kind: BackendKind): BackendCapabilities {
 }
 
 /**
+ * Whether a backend kind MAY WRITE THE FILESYSTEM by default (X3) — the classification the
+ * worktree-isolation rule keys on. An FS-writing agent runs in its OWN git worktree (so its
+ * writes don't land in the real working tree under an active /dev); a read-only/compute agent
+ * needs none.
+ *
+ * - claude-cli: a full Claude Code session with Edit/Write/Bash → MAY write the repo → true.
+ * - api-adapter: a bare compute-in/text-out turn with NO tools (OD-5) → cannot touch the FS →
+ *   false. (A FUTURE tool-granted api-adapter would flip this — gated per backend, not here.)
+ *
+ * DATA, not behavior — the worktree create/teardown itself is REUSED from the existing
+ * mechanism (index.ts SUPERVISOR_SESSION_CWD / SUPERVISOR_WORKTREE_CLEANUP), NOT re-implemented.
+ */
+export const BACKEND_FS_WRITES: Readonly<Record<BackendKind, boolean>> = {
+  'claude-cli': true,
+  'api-adapter': false,
+};
+
+/** Does this backend kind write the filesystem by default (→ needs worktree isolation, X3)? */
+export function backendWritesFilesystem(kind: BackendKind): boolean {
+  return BACKEND_FS_WRITES[kind];
+}
+
+/**
  * A resolved routing decision: which backend kind + (optional) model a role maps to,
  * plus an optional fallback backend (FD6, used from P3 on). Produced by the
  * role-router (M2), consumed by the backend-registry (M3). Pure data.

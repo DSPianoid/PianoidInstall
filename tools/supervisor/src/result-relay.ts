@@ -22,6 +22,7 @@
 import { resolveRoleBackend, type RoleDispatchOverride, type RoleRouterConfig } from './role-router.js';
 import { sealBackendOptions } from './backend-seal.js';
 import { BackendRegistry } from './backend-registry.js';
+import { ALL_BACKEND_SECRET_ENV_VARS } from './cost-safety.js';
 import type { BackendSelection, Role } from './backend-kinds.js';
 import type { SessionEvent, SessionStartOptions } from './session-driver.js';
 
@@ -172,4 +173,146 @@ export async function dispatchRoleAgent(opts: DispatchRoleAgentOptions): Promise
 
   if (!report) throw new AgentDispatchError(selection, 'agent stream ended with no result event (crash)');
   return report;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * FD6 — CONFIG-DRIVEN FALLBACK POLICY (proposal §C transition graph
+ * FAILED→FALLBACK-RESOLVED→RESOLVED(new backend), or →SURFACED; PART P P5).
+ *
+ * ADDITIVE: {@link dispatchRoleAgent} above is UNCHANGED (the P1 single-attempt
+ * primitive). This wrapper adds the OPTIONAL fallback EXECUTION: on a FAILED outcome
+ * (a crash → AgentDispatchError, OR a surfaced error report ok:false), if the role's
+ * resolved selection carries a `fallbackBackend` AND fallback is enabled, RE-DISPATCH
+ * EXACTLY ONCE against that fallback backend; otherwise SURFACE the original failure.
+ *
+ * CONTAINED (CP5): at most ONE retry — the fallback dispatch does NOT itself fall back
+ * (no chains, no loops), so a failure can never wedge the orchestrator or the host. The
+ * fallback re-dispatch pins the fallback backend via an explicit override (highest
+ * routing precedence) and DROPS the original backend's `ownSecretName` (the fallback —
+ * claude-cli in the proposal's coding→claude path — is key-free; a non-Claude fallback
+ * would supply its own via `fallbackOwnSecretName`).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Why a fallback did or didn't happen — attached to the report so the caller can see the path taken. */
+export interface FallbackTrace {
+  /** True iff a fallback dispatch was actually run (the primary FAILED + a fallback was configured + enabled). */
+  used: boolean;
+  /** The primary backend that failed (present only when used). */
+  fromBackend?: BackendSelection['backend'];
+  /** The fallback backend that ran (present only when used). */
+  toBackend?: BackendSelection['backend'];
+  /** The primary failure's subtype ('crash' for an AgentDispatchError, else the error report subtype). */
+  primarySubtype?: string;
+  /** When a fallback was NOT used despite a failure, the reason (so a no-op is explained, not silent). */
+  reason?: 'no-fallback-configured' | 'fallback-disabled' | 'primary-succeeded';
+}
+
+/** An {@link AgentReport} plus the {@link FallbackTrace} describing whether/how FD6 fired. */
+export type AgentReportWithFallback = AgentReport & { fallback: FallbackTrace };
+
+/**
+ * Return a COPY of `env` with every known api-adapter secret removed (DeepSeek/OpenAI keys) — used
+ * when falling back to the key-free claude-cli backend so no foreign metered key rides into a Claude
+ * agent's env (CP3 leak hygiene). Pure; never mutates the input; never logs a value.
+ */
+function scrubBackendSecrets(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const copy: NodeJS.ProcessEnv = { ...env };
+  for (const name of ALL_BACKEND_SECRET_ENV_VARS) delete copy[name];
+  return copy;
+}
+
+/** Options for {@link dispatchRoleAgentWithFallback} — the dispatch opts + the FD6 policy knobs. */
+export interface DispatchWithFallbackOptions extends DispatchRoleAgentOptions {
+  /**
+   * Master switch for the fallback EXECUTION (default TRUE when a fallbackBackend is configured).
+   * Set false to surface failures without ever falling back (e.g. to preserve a "fail-fast" role).
+   */
+  enableFallback?: boolean;
+  /**
+   * For a NON-Claude fallback backend ONLY: the env var name of the fallback backend's own metered
+   * key. Omitted for the proposal's claude-cli fallback (key-free). The primary's `ownSecretName`
+   * is NOT reused for the fallback (different backend, different/no key).
+   */
+  fallbackOwnSecretName?: string;
+}
+
+/**
+ * Dispatch a routed agent WITH the FD6 fallback policy. Runs the primary (via
+ * {@link dispatchRoleAgent}); on a FAILED outcome, re-dispatches ONCE against the role's
+ * configured `fallbackBackend` (if enabled), else surfaces the primary failure. Returns the
+ * winning report annotated with a {@link FallbackTrace}.
+ *
+ * A FAILED primary is EITHER a crash ({@link AgentDispatchError} — the stream ended with no
+ * result) OR a clean error report (`ok:false`, e.g. an api-adapter API error). Both trigger the
+ * single fallback attempt. The fallback dispatch is a plain {@link dispatchRoleAgent} (NO further
+ * fallback) → exactly one retry, contained.
+ */
+export async function dispatchRoleAgentWithFallback(
+  opts: DispatchWithFallbackOptions,
+): Promise<AgentReportWithFallback> {
+  // Resolve the selection ONCE to read its fallbackBackend (pure; the seal assertion in
+  // planRoleDispatch is re-run inside dispatchRoleAgent — harmless, deterministic).
+  const selection = resolveRoleBackend(opts.role, opts.config, opts.override);
+  const fallbackBackend = selection.fallbackBackend;
+  const fallbackEnabled = opts.enableFallback ?? true;
+
+  // Run the PRIMARY. A crash is caught (so it can fall back like an error report would).
+  let primary: AgentReport | undefined;
+  let primaryCrash: AgentDispatchError | undefined;
+  try {
+    primary = await dispatchRoleAgent(opts);
+  } catch (e) {
+    if (e instanceof AgentDispatchError) primaryCrash = e;
+    else throw e; // a non-dispatch error (e.g. a seal cost-safety throw) is NOT a fallbackable failure
+  }
+
+  const primaryFailed = primaryCrash !== undefined || (primary !== undefined && !primary.ok);
+
+  // SUCCESS → return as-is (no fallback).
+  if (!primaryFailed && primary) {
+    return { ...primary, fallback: { used: false, reason: 'primary-succeeded' } };
+  }
+
+  const primarySubtype = primaryCrash ? 'crash' : primary?.subtype;
+
+  // FAILED but no fallback path → SURFACE the original failure.
+  if (!fallbackBackend) {
+    if (primary) return { ...primary, fallback: { used: false, reason: 'no-fallback-configured', primarySubtype } };
+    throw primaryCrash; // a crash with no fallback configured → surface the crash unchanged
+  }
+  if (!fallbackEnabled) {
+    if (primary) return { ...primary, fallback: { used: false, reason: 'fallback-disabled', primarySubtype } };
+    throw primaryCrash; // a crash with fallback disabled → surface the crash unchanged
+  }
+
+  // FALLBACK-RESOLVED → re-dispatch ONCE against the fallback backend (explicit override; no further
+  // fallback — dispatchRoleAgent never falls back). The fallback backend's key scoping is its own.
+  //
+  // KEY HYGIENE on fallback to claude-cli (the proposal's coding DeepSeek→claude path): the
+  // fallback env is SCRUBBED of every known api-adapter secret so the key-free claude-cli seal
+  // (assertCostSafe) sees a clean env AND no foreign metered key leaks into a Claude agent (CP3).
+  // (Anthropic keys are NOT added here either — claude-cli stays subscription-billed.)
+  const fallbackEnv =
+    fallbackBackend === 'claude-cli' && opts.env ? scrubBackendSecrets(opts.env) : opts.env;
+  const fallbackReport = await dispatchRoleAgent({
+    role: opts.role,
+    task: opts.task,
+    registry: opts.registry,
+    ...(opts.config ? { config: opts.config } : {}),
+    // Pin the fallback backend; drop the primary model/secret (different backend).
+    override: { backend: fallbackBackend },
+    ...(opts.startOptions ? { startOptions: opts.startOptions } : {}),
+    ...(fallbackEnv ? { env: fallbackEnv } : {}),
+    ...(opts.fallbackOwnSecretName ? { ownSecretName: opts.fallbackOwnSecretName } : {}),
+  });
+
+  return {
+    ...fallbackReport,
+    fallback: {
+      used: true,
+      fromBackend: selection.backend,
+      toBackend: fallbackBackend,
+      primarySubtype,
+    },
+  };
 }
