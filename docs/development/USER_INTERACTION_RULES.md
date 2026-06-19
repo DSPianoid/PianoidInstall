@@ -35,6 +35,30 @@ When the user reports a bug:
   backend-kill bug reproduced on a correctly-built local system — but the user was on a broken-wheel
   system and hadn't reported reloading; the fix addressed the look-alike, not their bug, and was reverted.
 
+### G2 — Check yourself before asking; never ask what you can determine
+> "never ask user a question if you can check yourself"
+
+This is the autonomy principle applied to QUESTIONS — the generalization of G1's diagnose-first /
+reproduce-yourself stance to ALL user-facing questions, not just diagnoses. Do NOT ask the user
+anything you can determine yourself by checking the system.
+
+- **The gate:** before sending ANY question to the user, ask yourself — "can I answer this by checking
+  the repo / the installed build / the running stack / the logs / git state / the docs / or by
+  reproducing it?" If YES: DO THAT and answer it yourself; do NOT ask.
+- **The ONLY questions that legitimately go to the user** are genuine DECISIONS (a design preference,
+  which of two valid approaches), APPROVALS (a merge, a destructive action), or INFORMATION ONLY THEY
+  HOLD (knowledge that is not in the system — a fact about their intent, an external constraint, a
+  preference). Everything else is a check you owe yourself first.
+- This extends, and is the parent of, G1 (no-guess-diagnosis) and the generic diagnose-first /
+  reproduce-yourself stance: G1 forbids guessing a *diagnosis*; G2 forbids *asking* the user for any
+  fact you could check. The family hangs together — reproduce/measure for failures (G1), check-the-
+  system for questions (G2).
+- Worked example this rule encodes: instead of asking the user "did your test system have the
+  consolidation rebuilt?", the correct move was to CHECK the installed wheel/middleware directly —
+  grep the installed package for the consolidation marker + the calibration constant, and read the
+  wheel's mtime — and answer the question myself. The fact lived in the system; asking the user for it
+  was the violation.
+
 ## Project-specific (Pianoid)
 
 ### P1 — Hand over a clean stack at every handoff
