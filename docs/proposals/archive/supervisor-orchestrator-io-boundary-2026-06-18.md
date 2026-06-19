@@ -1,9 +1,10 @@
 # Supervisor ↔ Orchestrator I/O Boundary — Diagnosis + Hybrid Redesign
 
 **Date:** 2026-06-18
-**Status:** Architecture-review finding (M12 supervisor; fix-work on HOLD, nothing committed). Produced
-in-context by the hosted orchestrator (no subagents) to avoid the live channel flood under investigation;
-**persisted + corrected by dev-m12p3a** (the original on-disk copy lived only in a since-deleted worktree).
+**Status:** IMPLEMENTED (M12 supervisor; merged to master 5b0c501 at the 2026-06-19 production cut-over —
+LOCAL, origin push pending the user). D1-D4 + F1/F3 built, tsc clean, node:test green. Produced in-context
+by the hosted orchestrator (no subagents) to avoid the live channel flood under investigation;
+**persisted + corrected + implemented by dev-m12p3a** (the original on-disk copy lived only in a since-deleted worktree).
 **Scope:** the I/O boundary between the supervisor and the hosted orchestrator — how channel messages flow
 in/out, why the orchestrator can't self-diagnose the channel, and the redesign that closes that gap.
 

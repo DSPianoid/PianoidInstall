@@ -22,7 +22,20 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-m12p3a | M12 Phase 3a — ADDITIVE infra (self-context-clean, operator-grade panel, Controller-via-bus, H2 watchdog) + fully-functional-orchestrator wiring DESIGN (test-bot only; NO prod cut-over) | [log](logs/dev-m12p3a-2026-06-15-082752.md) | 2026-06-15 | In Progress |
+<!-- dev-m12p3a COMPLETED 2026-06-19 — M12 supervisor production cut-over (Stage 2). Phase 3a delivered: the
+     structured I/O drivers (cli-stream[claude -p] default w/ agent-teams + SDK hedge behind the SessionDriver seam;
+     the PTY/TUI screen-scraper RETIRED), the hosted-agent lifecycle-restart control (POST /api/lifecycle/restart-request
+     → user-confirm → fresh session preserving the channel + handoff; rate-limited + audited), the I/O-boundary redesign
+     (D1 /channel-check, D2 channel-control panel, D3 own-messages-only forwarding, D4 idle-aware ping/pong liveness +
+     F1/F3), the internal-liveness heartbeat (FIX A), and the production safety gates (cost guard → subscription-only;
+     permission router for the orchestrator + its sub-agents; settingSources=project,local containment / telegram-hijack
+     fix; outward-send seal; Windows tree-kill teardown M-1; tier-b restart counter M-2). Production launcher
+     launch-prod-orch.mjs (prod telegram token via SUPERVISOR_TELEGRAM_TOKEN, real-repo cwd, no worktree). tsc clean;
+     node:test 200/200. Committed feature/m12-supervisor-phase3a d06e087, MERGED --no-ff → master 5b0c501. NOT pushed
+     (origin push pending the user's yes — LOCAL on master). Session log archived to logs/archive/. The hosted orchestrator
+     takes over via docs/development/SESSION_HANDOFF_2026-06-19.md. -->
+<!-- upd-rebuild CLEARED 2026-06-19 (working-tree-only row, never committed). /update-pianoid (scoped) pull+rebuild of
+     PianoidCore/PianoidBasic/PianoidTunner (origin/dev FF + HEAVY CUDA) completed; stack DOWN/clean. Log archived. -->
 <!-- dev-m12p2 COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "close the demo, commit, proceed"). M12 Phase 2 —
      supervisor subprocess ownership: LifecycleManager (Agent SDK query() owns the headless session, M1 prompt, session-id
      capture, FI restart+resume) + PermissionRouter (the FC-1 fix: route safety-floor over the channel + BLOCK on reply) +

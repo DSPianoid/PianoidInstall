@@ -1,12 +1,13 @@
 # Hosted-Agent Lifecycle Restart Control
 
 **Date:** 2026-06-18
-**Status:** ✅ BUILT + green (held/uncommitted like the rest of the M12 work). Drafted in-context by the hosted
-orchestrator during the M12 re-test (user-directed); persisted + implemented by **dev-m12p3a**. The hosted draft
-was text-only (it runs in the isolated worktree and couldn't write to the live repo). Implemented 2026-06-18:
-tsc clean, the §9 acceptance test is the three `★★ FIX B` node:test cases (suite 196/196), and the
-`POST /api/lifecycle/restart-request` loopback was smoke-tested over real HTTP. NOT relaunched; the §8 flagged
-defaults still await the user's confirm.
+**Status:** IMPLEMENTED (merged to master 5b0c501 at the 2026-06-19 M12 production cut-over — LOCAL, origin
+push pending the user). Drafted in-context by the hosted orchestrator during the M12 re-test (user-directed);
+persisted + implemented by **dev-m12p3a**. The hosted draft was text-only (it runs in the isolated worktree and
+couldn't write to the live repo). Implemented 2026-06-18: tsc clean, the §9 acceptance test is the three
+`★★ FIX B` node:test cases (later +M-1/M-2 hardening → suite 200/200), and the
+`POST /api/lifecycle/restart-request` loopback was smoke-tested over real HTTP. The §8 flagged defaults
+(env-teardown scope = minimal; rate-limit = 3/30min) still await the user's confirm.
 **Scope:** a NEW `lifecycle/*` loopback control surface complementing the existing `channel/*` surface — the
 hosted agent can REQUEST its own full restart; the supervisor CONFIRMS with the user and EXECUTES.
 
