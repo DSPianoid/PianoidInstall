@@ -15,7 +15,24 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-reset | `PianoidCore/pianoid_cuda/MainKernel.cu` | 2026-06-19 | RE-APPLY parked W5-B reset PRIMARY fix (orig bf5f720, reverted as collateral in dev-excenergy Option-A revert 4c935b9, never re-merged; Phase-12 parked pending user confirm — user now re-reports runaway-reset = confirmation). On `*status==500`, before main loop, full-clear feedback_cycle_matrix + feedin_cycle_matrix. Worktree D:/repos/wt-reset, branch feature/dev-reset-runaway-accumulator-clear off PianoidCore dev 89b1e9f. HEAVY --both build (GPU/.pyd free; sequenced via team-lead vs dev-underrun2 profiling branch). |
+<!-- dev-reset lock RELEASED 2026-06-19 at wrap (user "commit and push all to dev"). Held:
+     PianoidCore/pianoid_cuda/MainKernel.cu. RE-APPLIED the parked W5-B reset PRIMARY accumulator
+     full-clear (orig dev-excenergy bf5f720, reverted as collateral in Option-A revert 4c935b9,
+     never re-merged; dev-reset Phase-12 parked it pending user confirm — the user's runaway-reset
+     re-report was the confirmation). On *status==500, before the main loop, full-clear
+     feedback_cycle_matrix + feedin_cycle_matrix (byte-identical to bf5f720, comment updated).
+     Branch feature/dev-reset-runaway-accumulator-clear (off PianoidCore dev 89b1e9f, rebased onto
+     9c2dd51 = 1f839ac), MERGED --no-ff -> PianoidCore dev df0fa58, PUSHED origin/dev
+     (9c2dd51..df0fa58). HEAVY --both built off 89b1e9f+fix; installed .pyd 02F9E03C is
+     binary-equivalent to a build off df0fa58 (only other compiled delta = comment-only
+     Pianoid_synthesis.cu) -> NO rebuild needed; installed .pyd MATCHES dev. Verified offline
+     (audio_off): normal note ring rms=171.5 -> post-reset string=0/mode=0/RMS=0 for 6 cyc
+     (RESET_CONFIRMED_FIXED), no regression. ★OPEN: the user's AUDIBLE realtime runaway could not be
+     reproduced in the offline harness (drives kernel synchronously, not the live audio-tap loop) —
+     the fix is correct for the accumulator-residual mechanism + regression-free, but its efficacy
+     vs the user's specific runaway needs a live-device confirm or the user's exact trigger. Worktree
+     D:/repos/wt-reset removed; feature branch deleted (merged); dev checked out nowhere. -->
+| <!-- (none active for dev-reset) --> | | | |
 <!-- dev-underrun2 locks RELEASED 2026-06-19 after team-lead-approved merge. Held: Pianoid_synthesis.cu (COMMENT-ONLY — e5
      placement already correct; the brief's "move e5 after sync" zeroes add_ms via cudaErrorNotReady, reverted to byte-identical
      code + doc comment) + chartFunctions.py (sound_test profiling chart switched from full-cycle host span to getGpuProfilingData
