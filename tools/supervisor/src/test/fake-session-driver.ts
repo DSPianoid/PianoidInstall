@@ -27,6 +27,8 @@ export type ScriptStep =
   | { do: 'emit'; event: SessionEvent }
   | { do: 'permission'; toolName: string; input?: Record<string, unknown>; record?: (d: PermissionDecision) => void }
   | { do: 'awaitTurn' } // pause until the next send() — models an idle session waiting for a user turn
+  | { do: 'delay'; ms: number } // pause ms before the next step (real-time gap — e.g. a slow turn for the #8 heartbeat)
+  | { do: 'silence' } // pause indefinitely (emit nothing) — models a WEDGED session after a turn (H2 watchdog target); released only by interrupt()/stop()
   | { do: 'endClean' } // stream ends normally (after a result was emitted)
   | { do: 'crash' }; // stream ends abruptly with NO result → lifecycle should restart+resume
 
@@ -43,6 +45,10 @@ export class FakeSessionDriver implements SessionDriver {
   private turnWaiter: (() => void) | null = null;
   /** True if a send() arrived BEFORE the generator reached `awaitTurn` (release-on-arrival). */
   private pendingTurnRelease = false;
+  /** Resolver for a `silence` step (a wedged session) — released by interrupt()/stop(). */
+  private silenceWaiter: (() => void) | null = null;
+  /** True once interrupt() was called (a `silence` step then ends the stream = crash). */
+  private interrupted = false;
   /** Records the start opts of every start() (to assert resume was passed). */
   readonly startOpts: SessionStartOptions[] = [];
   /** Records user turns injected via send(). */
@@ -88,6 +94,22 @@ export class FakeSessionDriver implements SessionDriver {
               self.turnWaiter = resolve;
             });
           }
+        } else if (step.do === 'delay') {
+          // A real-time gap before the next step (models a slow turn — e.g. drive the
+          // #8 heartbeat: emit activity, delay past the ping interval, emit more activity).
+          await new Promise<void>((resolve) => setTimeout(resolve, step.ms));
+        } else if (step.do === 'silence') {
+          // Model a WEDGED session: emit nothing, pause indefinitely. The H2
+          // watchdog should fire on the outstanding turn. interrupt()/stop()
+          // releases us; if interrupted, the stream ends with NO result (= crash
+          // → lifecycle restarts+resumes, the 'restart' stall action).
+          await new Promise<void>((resolve) => {
+            self.silenceWaiter = resolve;
+          });
+          if (self.interrupted) {
+            self.running = false;
+            return; // ended by interrupt → no result → crash → restart
+          }
         } else if (step.do === 'endClean') {
           self.running = false;
           return; // generator completes → stream ended (clean if a result was emitted)
@@ -125,7 +147,14 @@ export class FakeSessionDriver implements SessionDriver {
   }
 
   async interrupt(): Promise<void> {
-    /* no-op for the fake */
+    // Release a `silence` (wedged) step and mark interrupted → the generator ends
+    // with no result → crash → lifecycle restarts+resumes (the 'restart' stall path).
+    this.interrupted = true;
+    if (this.silenceWaiter) {
+      const w = this.silenceWaiter;
+      this.silenceWaiter = null;
+      w();
+    }
   }
 
   async stop(): Promise<void> {
@@ -134,6 +163,12 @@ export class FakeSessionDriver implements SessionDriver {
     if (this.turnWaiter) {
       const w = this.turnWaiter;
       this.turnWaiter = null;
+      w();
+    }
+    // Release a paused silence step too (clean shutdown of a wedged session).
+    if (this.silenceWaiter) {
+      const w = this.silenceWaiter;
+      this.silenceWaiter = null;
       w();
     }
   }

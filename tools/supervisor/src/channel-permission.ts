@@ -126,6 +126,11 @@ export class ChannelPermission implements PermissionChannel {
     return this.waiters.size;
   }
 
+  /** Snapshot of pending asks (code + tool) for the operator panel (no secrets). */
+  pendingAsks(): { code: string; toolName: string }[] {
+    return [...this.waiters.entries()].map(([code, w]) => ({ code, toolName: w.toolName }));
+  }
+
   /** Parse an inbound text for a CODED permission reply. Returns code+verdict or null. */
   static parseReply(text: string): { code: string; verdict: 'allow' | 'deny' } | null {
     const m = /^\s*(allow|deny|y|n|yes|no)\s+([0-9a-f]{4})\s*$/i.exec(text);

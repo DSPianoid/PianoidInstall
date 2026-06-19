@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-m12p3a | `D:/repos/PianoidInstall/tools/supervisor/**` (Phase 3a — ADDITIVE infra: self-context-clean, operator-grade panel, Controller-via-bus, H2 watchdog + orchestrator-wiring; greenfield TS subtree, no conflict) | 2026-06-15T08:27:52Z | M12 Phase 3a — additive infra + fully-functional-orchestrator wiring (test-bot only; NO prod cut-over) |
 <!-- dev-m12p2 locks RELEASED 2026-06-15 at Step 10a Phase 2 (user-approved "close+commit+proceed", merged). Held:
      tools/supervisor/** (Phase 2 — subprocess ownership; added lifecycle/permission-router/channel-permission/session-host/
      session-driver/sdk-session-driver + edits to index.ts/config.ts). M12 Phase 2 committed feature/m12-supervisor-phase2

@@ -188,3 +188,224 @@ test('restart is bounded by maxRestarts (no infinite crash-loop)', async () => {
   await lm.stop();
   bus.close();
 });
+
+// ── H2 hang watchdog ────────────────────────────────────────────────────────
+
+test('H2 watchdog (surface): a wedged turn fires onStall + a stall event, no restart', async () => {
+  const bus = new IoBus();
+  const events = collect(bus);
+  // system_init, then idle for the turn, then SILENCE (wedged — emits nothing).
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-w', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'silence' },
+    ],
+  ]);
+  const stalls: { silentMs: number; action: string }[] = [];
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    turnTimeoutMs: 40, // short deadline for the test
+    onStallAction: 'surface',
+    onStall: (info) => {
+      stalls.push({ silentMs: info.silentMs, action: info.action });
+    },
+  });
+  await lm.start();
+  await lm.sendUserTurn({ text: 'do something slow' }); // arms the watchdog
+  await new Promise((r) => setTimeout(r, 120)); // let the deadline elapse
+
+  assert.equal(stalls.length, 1, 'onStall fired once');
+  assert.equal(stalls[0]!.action, 'surface');
+  assert.ok(
+    events.some((e) => e.type === 'lifecycle' && (e.payload as { event?: string }).event === 'stall'),
+    'a stall lifecycle event was published',
+  );
+  assert.equal(driver.starts, 1, 'surface action does NOT restart');
+  await lm.stop();
+  bus.close();
+});
+
+test('H2 watchdog (restart): a wedged turn interrupts → restart + resume', async () => {
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver([
+    // Run 1: init, await the turn, then wedge (silence). interrupt() ends it.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-wr', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'silence' },
+    ],
+    // Run 2 (resume): clean result.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-wr', model: 'm' } },
+      { do: 'emit', event: { kind: 'result', sessionId: 'sess-wr', subtype: 'success' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    turnTimeoutMs: 40,
+    onStallAction: 'restart',
+    restartBackoffMs: 5,
+  });
+  await lm.start();
+  await lm.sendUserTurn({ text: 'wedge me' });
+  await new Promise((r) => setTimeout(r, 150)); // deadline → interrupt → restart → resume
+
+  assert.ok(driver.starts >= 2, 'restart action restarted the session');
+  assert.equal(driver.startOpts[1]?.resume, 'sess-wr', 'restart resumed the session id');
+  await lm.stop();
+  bus.close();
+});
+
+test('clearContext: ends the session + starts FRESH (no resume) + re-bootstraps the role', async () => {
+  const bus = new IoBus();
+  const events = collect(bus);
+  const driver = new FakeSessionDriver([
+    // Run 1: init then idle (awaiting a turn) — the live session before /clear.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-old', model: 'm' } },
+      { do: 'awaitTurn' },
+    ],
+    // Run 2 (after clearContext): a FRESH session (different id), idle.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-new', model: 'm' } },
+      { do: 'awaitTurn' },
+    ],
+  ]);
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    bootstrapTurns: ['/orchestrator'],
+  });
+  await lm.start();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(lm.health().sessionId, 'sess-old', 'first session live');
+
+  await lm.clearContext();
+  await new Promise((r) => setTimeout(r, 30));
+
+  // A fresh session was started (2 starts), NOT a resume, and the role was re-bootstrapped.
+  assert.equal(driver.starts, 2, 'a fresh session was started');
+  assert.equal(driver.startOpts[1]?.resume, undefined, 'fresh start does NOT resume (clean context)');
+  assert.deepEqual(driver.startOpts[1]?.bootstrapTurns, ['/orchestrator'], 'role re-bootstrapped on the fresh session');
+  assert.equal(lm.health().sessionId, 'sess-new', 'now on the fresh session');
+  assert.ok(
+    events.some((e) => e.type === 'lifecycle' && (e.payload as { event?: string }).event === 'context_clean'),
+    'a context_clean event was published',
+  );
+  await lm.stop();
+  bus.close();
+});
+
+test('bootstrapTurns: passed on the INITIAL start, NOT on a resume', async () => {
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver([
+    // Run 1: init then crash (no result) → restart+resume.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-b', model: 'm' } },
+      { do: 'crash' },
+    ],
+    // Run 2 (resume): clean result.
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-b', model: 'm' } },
+      { do: 'emit', event: { kind: 'result', sessionId: 'sess-b', subtype: 'success' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    bootstrapTurns: ['/orchestrator'],
+    restartBackoffMs: 5,
+  });
+  await lm.start();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(driver.startOpts[0]?.bootstrapTurns, ['/orchestrator'], 'initial start bootstrapped');
+  assert.equal(driver.startOpts[1]?.bootstrapTurns, undefined, 'resume does NOT re-bootstrap');
+  assert.equal(driver.startOpts[1]?.resume, 'sess-b', 'resume carried the session id');
+  await lm.stop();
+  bus.close();
+});
+
+test('H2 watchdog disabled (turnTimeoutMs=0): a silent turn does NOT fire', async () => {
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 'sess-off', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'silence' },
+    ],
+  ]);
+  let stalled = false;
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    // turnTimeoutMs omitted → disabled.
+    onStall: () => {
+      stalled = true;
+    },
+  });
+  await lm.start();
+  await lm.sendUserTurn({ text: 'no watchdog' });
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(stalled, false, 'no stall when the watchdog is disabled');
+  await lm.stop();
+  bus.close();
+});
+
+test('★ #8×#5: a QUEUED 2nd turn still gets heartbeat progress (outstanding-turns COUNTER, not a boolean)', async () => {
+  // The cross-fix interaction: with the #5 turn queue, turn 2's sendUserTurn runs BEFORE
+  // turn 1's result (turn 2 is held in the driver queue). A boolean progressActive cleared
+  // on turn 1's result would lose turn 2's heartbeat entirely. A COUNTER keeps progress
+  // active while ANY turn is outstanding → turn 2's mid-turn activity still pings.
+  const bus = new IoBus();
+  const progress: { kind: string; toolName?: string }[] = [];
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 'a', name: 'Bash', input: {} }] } }, // turn1 activity
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'a1' } }, // turn1 done
+      { do: 'awaitTurn' }, // turn 2
+      { do: 'emit', event: { kind: 'assistant', text: '', toolUses: [{ id: 'b', name: 'Read', input: {} }] } }, // turn2 activity → MUST ping
+      { do: 'emit', event: { kind: 'tool_result', toolUseId: 'b', content: 'ok' } }, // turn2 activity → MUST ping
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'a2' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const lm = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: allow,
+    onProgress: (info) => {
+      progress.push(info);
+    },
+    onResult: () => {},
+  });
+  await lm.start();
+  // BOTH turns injected before turn 1's result is processed (the queued-turn ordering):
+  // the counter reaches 2, so turn 1's result decrements to 1 (still active) — turn 2's
+  // activity then sees the counter > 0 and pings.
+  await lm.sendUserTurn({ text: 'turn one' });
+  await lm.sendUserTurn({ text: 'turn two' });
+  await new Promise((r) => setTimeout(r, 80));
+  await lm.stop();
+  // turn 2 produced TWO activity events (Read + tool_result) — both must have pinged.
+  const turn2Pings = progress.filter((p) => p.toolName === 'Read' || p.kind === 'tool_result').length;
+  assert.ok(turn2Pings >= 2, `the queued turn 2 still got heartbeat pings (got ${turn2Pings}; 0 = the boolean bug)`);
+  bus.close();
+});

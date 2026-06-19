@@ -59,6 +59,15 @@ export interface PermissionPolicy {
    *  - 'allow': allow without asking (a trusting policy; discouraged).
    */
   fallback?: 'route' | 'deny' | 'allow';
+  /**
+   * SAFETY-FLOOR predicate (the orchestrator-profile mechanism). If it returns
+   * true for a (toolName, input), the request is ROUTED to the user REGARDLESS of
+   * the allow-list — so a broad allow-list can still cover the routine 95% while
+   * genuinely destructive ops (rm -rf, system-PID kill, git push/reset --hard,
+   * disk-format, outward third-party sends) are always confirmed. Evaluated BEFORE
+   * the allow-list (but AFTER the deny-list). Pure + injectable → unit-testable.
+   */
+  routeWhen?: (toolName: string, input: Record<string, unknown>) => boolean;
 }
 
 /** Match a tool name against a pattern list (exact or trailing-`*` wildcard). */
@@ -111,6 +120,13 @@ export class PermissionRouter {
       this.onDecision?.('permission: deny (deny-list)', { tool: req.toolName });
       return { behavior: 'deny', message: `Tool '${req.toolName}' is denied by policy.` };
     }
+    // SAFETY FLOOR (orchestrator profile): a destructive op is ROUTED to the user
+    // even if the tool is on the broad allow-list. Runs before the allow-list so a
+    // wide allow-list can't bypass it.
+    if (this.policy.routeWhen && this.policy.routeWhen(req.toolName, req.input ?? {})) {
+      this.onDecision?.('permission: routing to user (safety floor — destructive op)', { tool: req.toolName });
+      return this.routeToUser(req);
+    }
     // Allow-list fast-path.
     if (matches(req.toolName, this.policy.allow)) {
       this.stats.allowed++;
@@ -132,8 +148,12 @@ export class PermissionRouter {
       return { behavior: 'deny', message: `Tool '${req.toolName}' requires approval; denied by policy.` };
     }
     // fallback === 'route' → ask the user, BLOCK on reply.
+    return this.routeToUser(req);
+  };
+
+  /** Ask the user over the channel and BLOCK on the reply (the FC-1 round-trip). */
+  private async routeToUser(req: PermissionRequest): Promise<PermissionDecision> {
     this.stats.routed++;
-    this.onDecision?.('permission: routing to user', { tool: req.toolName });
     const verdict = await this.channel.askUser(req);
     if (verdict === 'allow') {
       this.stats.allowed++;
@@ -148,7 +168,7 @@ export class PermissionRouter {
     this.stats.denied++;
     this.onDecision?.('permission: deny (user)', { tool: req.toolName });
     return { behavior: 'deny', message: `User denied '${req.toolName}'.` };
-  };
+  }
 
   /** Decision counters (for health/observability). */
   getStats(): Readonly<typeof this.stats> {

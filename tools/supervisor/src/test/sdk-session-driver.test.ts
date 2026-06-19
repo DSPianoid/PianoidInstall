@@ -42,7 +42,11 @@ test('maps system/init, assistant (text + tool_use), and result messages', async
   for await (const ev of driver.start({ onPermission: allow })) events.push(ev);
 
   assert.equal(events.length, 3);
-  assert.deepEqual(events[0], { kind: 'system_init', sessionId: 'sdk-1', model: 'claude-opus', tools: ['Read', 'Bash'] });
+  const init = events[0] as Extract<SessionEvent, { kind: 'system_init' }>;
+  assert.equal(init.kind, 'system_init');
+  assert.equal(init.sessionId, 'sdk-1');
+  assert.equal(init.model, 'claude-opus');
+  assert.deepEqual(init.tools, ['Read', 'Bash']);
   const a = events[1] as Extract<SessionEvent, { kind: 'assistant' }>;
   assert.equal(a.kind, 'assistant');
   assert.equal(a.text, 'working...');

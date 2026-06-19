@@ -92,3 +92,47 @@ test('wildcard matching: prefix* matches, non-prefix does not', async () => {
   assert.equal((await r.decide(req('mcp__telegram__reply'))).behavior, 'allow');
   assert.equal((await r.decide(req('mcp__github__issue'))).behavior, 'deny'); // routed→deny
 });
+
+// ── Safety-floor predicate (routeWhen) — the orchestrator profile ────────────
+
+const reqWith = (toolName: string, input: Record<string, unknown>): PermissionRequest => ({ toolName, input });
+
+test('routeWhen ROUTES a destructive op even when the tool is allow-listed', async () => {
+  const ch = fakeChannel('deny'); // user denies the routed destructive op
+  const r = new PermissionRouter({
+    policy: {
+      allow: ['Bash'], // Bash is broadly allowed …
+      routeWhen: (name, input) => name === 'Bash' && String(input['command'] ?? '').includes('rm -rf'),
+    },
+    channel: ch,
+  });
+  // A safe Bash command is allowed WITHOUT asking (allow-list).
+  assert.equal((await r.decide(reqWith('Bash', { command: 'ls' }))).behavior, 'allow');
+  assert.equal(ch.asks.length, 0, 'safe command not routed');
+  // A destructive Bash command is ROUTED (the predicate wins over the allow-list).
+  const d = await r.decide(reqWith('Bash', { command: 'rm -rf /' }));
+  assert.equal(ch.asks.length, 1, 'destructive command routed to the user');
+  assert.equal(d.behavior, 'deny', 'user denied → denied');
+});
+
+test('routeWhen does NOT fire for non-matching ops (allow-list still fast-paths)', async () => {
+  const ch = fakeChannel('deny');
+  const r = new PermissionRouter({
+    policy: { allow: ['Read', 'Bash'], routeWhen: () => false },
+    channel: ch,
+  });
+  assert.equal((await r.decide(reqWith('Read', {}))).behavior, 'allow');
+  assert.equal((await r.decide(reqWith('Bash', { command: 'git status' }))).behavior, 'allow');
+  assert.equal(ch.asks.length, 0);
+});
+
+test('deny-list still wins over routeWhen', async () => {
+  const ch = fakeChannel('allow');
+  const r = new PermissionRouter({
+    policy: { allow: ['Bash'], deny: ['Bash'], routeWhen: () => true },
+    channel: ch,
+  });
+  const d = await r.decide(reqWith('Bash', { command: 'rm -rf x' }));
+  assert.equal(d.behavior, 'deny', 'deny-list beats the safety-floor route');
+  assert.equal(ch.asks.length, 0, 'denied outright, never asked');
+});
