@@ -15,6 +15,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-f982 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit f7f9bb5 on feature/supervisor-voice-io;
+     NOT merged/pushed — held for the orchestrator-owned supervisor RESTART + verification, then Phase 2).
+     Held: tools/supervisor/src/adapters/{cli-stream-driver,sdk-session-driver}.ts + test/{cli-stream-sidechain,
+     sdk-session-driver}.test.ts (cli-stream-driver.test.ts + sdk-envelope.test.ts were locked precautionarily but
+     NOT edited — the new cases live in cli-stream-sidechain + sdk-session-driver tests) + the raw-envelope diagnostic.
+     FIX: completes 2224ed4 — drop BACKGROUND-task sub-agent narration (Agent run_in_background) from channel
+     forwarding. 2224ed4 dropped only foreground sidechain (parent_tool_use_id != null); background sub-agents leaked
+     (their assistant messages arrive with parent_tool_use_id == null). Discriminator MEASURED from raw claude -p
+     stream-json (diagnostics/dev-f982-raw-envelope-probe.mjs): a sub-agent assistant carries top-level `subagent_type`
+     (+task_description); orchestrator-OWN messages carry neither → no over-drop. Both mappers now drop
+     `if (parent_tool_use_id != null || subagent_type != null)`. +6 unit tests, full node:test 235/235, tsc clean.
+     dist/ is gitignored → rebuilt in the working tree (verify-landed done); needs the orchestrator-owned restart to
+     load. NO restart performed by dev-f982. -->
+| dev-vio1 | tools/supervisor/src/test/voice-tts-isolation.test.ts (NEW), tools/supervisor/README.md | 2026-06-19T14:33Z | RESUME (2nd restart): OUTBOUND-voice fix. Root cause MEASURED — edge-tts not installed in PianoidCore/.venv → tts_voice.py fails at `import edge_tts` → VoiceCodec.synthesize() throws → telegram.ts outbound catch falls back to text (adapter+config logic CORRECT). Fix = install edge-tts into that venv (env, no src-logic change) + ADD a real-TTS isolation test + an adapter-modality unit test (in the existing telegram-adapter.test.ts, already locked-clear: covered by this lock). dist/ rebuild. NO restart of the live supervisor. |
 <!-- dev-vio1 RESUME locks RELEASED 2026-06-19 at Step 10a Phase 1 (inbound-STT FIX committed on feature/supervisor-voice-io;
      NOT merged/pushed — held for the user's live-test after the orchestrator-coordinated supervisor RESTART, then Phase 2
      merge handled by the post-restart orchestrator). Held: tools/supervisor/src/config.ts + launch-prod-orch.mjs +
