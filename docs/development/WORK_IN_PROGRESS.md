@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-vio1 | Supervisor input+output channels (inbound auto-STT; switchable text/voice/dual outbound, default=text; /mode switch cmd) | [log](logs/dev-vio1-2026-06-19-110708.md) | 2026-06-19 | Phase 1 committed (feature/supervisor-voice-io @ 1025079; 215/215 green) — HELD for user live-test after supervisor restart, then Phase 2 merge by the post-restart orchestrator |
 <!-- dev-m12p3a COMPLETED 2026-06-19 — M12 supervisor production cut-over (Stage 2). Phase 3a delivered: the
      structured I/O drivers (cli-stream[claude -p] default w/ agent-teams + SDK hedge behind the SessionDriver seam;
      the PTY/TUI screen-scraper RETIRED), the hosted-agent lifecycle-restart control (POST /api/lifecycle/restart-request

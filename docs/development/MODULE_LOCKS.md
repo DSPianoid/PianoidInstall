@@ -15,6 +15,12 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-vio1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit 1025079 on feature/supervisor-voice-io; NOT merged/pushed —
+     held for the user's live-test after the supervisor RESTART, then Phase 2 merge handled by the post-restart orchestrator).
+     Held: tools/supervisor/src/{contract,config,session-host,index}.ts + adapters/telegram.ts + test/{telegram-adapter,voice-modality}.test.ts.
+     Feature: input+output channels — inbound auto-STT (already at adapter layer, re-verified) + switchable text/voice/dual outbound
+     (default text, in-memory SessionHost state) + /mode switch command (supervisor-intercepted, ACK'd, not forwarded). 215/215 green.
+     Safety gates (permission router / settingSources containment / outward-send seal / cost guard) UNCHANGED. -->
 <!-- dev-m12p3a locks RELEASED 2026-06-19 at the M12 production cut-over wrap (Stage 2). Held:
      tools/supervisor/** (Phase 3a — the structured I/O drivers [cli-stream default w/ agent-teams + SDK hedge
      behind the SessionDriver seam; PTY/TUI scraper RETIRED], the hosted-agent lifecycle-restart control, the
