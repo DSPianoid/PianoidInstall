@@ -28,6 +28,25 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      `if (parent_tool_use_id != null || subagent_type != null)`. +6 unit tests, full node:test 235/235, tsc clean.
      dist/ is gitignored → rebuilt in the working tree (verify-landed done); needs the orchestrator-owned restart to
      load. NO restart performed by dev-f982. -->
+<!-- dev-93e1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit on feature/supervisor-voice-io;
+     NOT merged/pushed — held for the orchestrator-owned supervisor RESTART that loads the rebuilt dist/,
+     then Phase 2). Held: tools/supervisor/src/{channel-permission,contract,session-host,supervisor,config,
+     index}.ts + adapters/{telegram-transport,grammy-transport,telegram,loopback-transport}.ts +
+     test/{channel-permission,config,session-host}.test.ts + test/permission-buttons.test.ts (NEW).
+     FIX1: native Telegram inline-keyboard BUTTONS for permission + lifecycle-restart-confirm prompts —
+     ChannelPermission.askUser now attaches ✅ Allow / ❌ Deny (callback_data `perm:allow:<code>` /
+     `perm:deny:<code>`, the existing 4-hex code, ≤15 bytes); inbound callback_query handled in the grammy
+     transport → adapter (toCallbackInbound, transient — NOT queued) → SessionHost.handlePermissionCallback
+     resolves the SAME pending promise via submitReplyDetailed, ACKs (answerCallbackQuery), and edits the
+     prompt to its outcome. Text `allow/deny <code>` parser KEPT as fallback. ★permission-router.ts core
+     UNTOUCHED (merge-hazard avoided vs dev-ee27 feature/supervisor-permission-robustness-p0). FIX2:
+     supervisor auto-initiates `/orchestrator` on startup — config.roleTurnPrefix (DEFAULT_ROLE_TURN_PREFIX
+     '/orchestrator', DEFAULT ON; env SUPERVISOR_ROLE_TURN_PREFIX; off via ''/none/off); index.ts uses the
+     config value for the orchestrator profile (was hardcoded); applied to the first turn (NOT a pre-user
+     bootstrap — documented anti-pattern); composes with restart-handoff (no double-invoke). +20 unit tests,
+     full node:test 255/255, tsc clean. dist/ gitignored → rebuilt in the working tree (verify-landed done);
+     needs the orchestrator-owned restart to load. NO restart performed. README.md doc update DEFERRED
+     (dev-vio1 holds it) — WIP doc-deferral note filed. SHA in the session log. -->
 | dev-vio1 | tools/supervisor/src/test/voice-tts-isolation.test.ts (NEW), tools/supervisor/README.md | 2026-06-19T14:33Z | RESUME (2nd restart): OUTBOUND-voice fix. Root cause MEASURED — edge-tts not installed in PianoidCore/.venv → tts_voice.py fails at `import edge_tts` → VoiceCodec.synthesize() throws → telegram.ts outbound catch falls back to text (adapter+config logic CORRECT). Fix = install edge-tts into that venv (env, no src-logic change) + ADD a real-TTS isolation test + an adapter-modality unit test (in the existing telegram-adapter.test.ts, already locked-clear: covered by this lock). dist/ rebuild. NO restart of the live supervisor. |
 <!-- dev-vio1 RESUME locks RELEASED 2026-06-19 at Step 10a Phase 1 (inbound-STT FIX committed on feature/supervisor-voice-io;
      NOT merged/pushed — held for the user's live-test after the orchestrator-coordinated supervisor RESTART, then Phase 2

@@ -16,6 +16,14 @@
  * This mirrors the plugin's `y/n xxxxx` permission-reply convention, but the
  * decision is now OWNED by the supervisor (no terminal prompt to be invisible).
  *
+ * PRIMARY UX = native inline-keyboard BUTTONS. `askUser` attaches a ✅ Allow / ❌
+ * Deny inline keyboard whose `callback_data` encodes the decision + the code
+ * (`perm:allow:<code>` / `perm:deny:<code>`). A tapped button comes back as an
+ * inbound callback the supervisor parses ({@link parseCallbackData}) and resolves
+ * via {@link submitReply} — then ACKs + edits the prompt to show the outcome. The
+ * `allow/deny <code>` TEXT parser ({@link parseReply}/{@link parseBareReply}) is
+ * kept as a backstop for clients that can't tap.
+ *
  * Concern (P2): the prompt-out + await-reply round-trip ONLY. It does not decide
  * policy (the router does) and does not parse raw inbound (the supervisor routes
  * a recognized reply here).
@@ -25,7 +33,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { ReplyHandle } from './contract.js';
+import type { InlineButton, ReplyHandle } from './contract.js';
 import type { PermissionChannel } from './permission-router.js';
 import type { PermissionRequest } from './session-driver.js';
 
@@ -34,10 +42,29 @@ interface Waiter {
   resolve: (verdict: 'allow' | 'deny' | 'timeout') => void;
   timer: ReturnType<typeof setTimeout>;
   toolName: string;
+  /** Id of the outbound prompt message (so a resolved ask can be edited). */
+  messageId?: string;
 }
 
-/** How the channel sends the outbound prompt (the supervisor's sendOutbound, bound). */
-export type SendPrompt = (handle: ReplyHandle, text: string) => Promise<unknown>;
+/** The result of sending a prompt: the channel-native message id, if known. */
+export interface SendPromptResult {
+  /** Message id of the sent prompt (lets the resolver edit it to show the outcome). */
+  messageId?: string;
+}
+
+/**
+ * How the channel sends the outbound prompt (the supervisor's sendOutbound, bound).
+ * `buttons`, when present, attach a native inline keyboard. Returns the sent
+ * message id (best-effort) so a decided prompt can be edited to its outcome.
+ */
+export type SendPrompt = (
+  handle: ReplyHandle,
+  text: string,
+  buttons?: InlineButton[],
+) => Promise<SendPromptResult | void>;
+
+/** Prefix for the inline-button callback_data scheme: `perm:<verdict>:<code>`. */
+export const PERM_CALLBACK_PREFIX = 'perm';
 
 export interface ChannelPermissionOptions {
   /** Send an outbound message over the channel (bound supervisor.sendOutbound). */
@@ -63,9 +90,15 @@ export class ChannelPermission implements PermissionChannel {
   /** Ask the user; resolves with their verdict or 'timeout'. (PermissionChannel) */
   askUser(req: PermissionRequest): Promise<'allow' | 'deny' | 'timeout'> {
     const code = randomBytes(2).toString('hex'); // 4 hex chars
+    // PRIMARY UX: native inline buttons (tap ✅/❌). The text still spells out the
+    // `allow/deny <code>` fallback for clients that can't render buttons.
+    const buttons: InlineButton[] = [
+      { text: '✅ Allow', callbackData: `${PERM_CALLBACK_PREFIX}:allow:${code}` },
+      { text: '❌ Deny', callbackData: `${PERM_CALLBACK_PREFIX}:deny:${code}` },
+    ];
     const prompt =
       `🔐 Approve tool '${req.toolName}'?\n` +
-      `Reply: allow ${code}   (or)   deny ${code}\n` +
+      `Tap a button below — or reply: allow ${code} / deny ${code}\n` +
       `(no reply in ${Math.round(this.timeoutMs / 1000)}s → denied)`;
     this.opts.onAsk?.('permission prompt sent', { tool: req.toolName, code });
 
@@ -77,16 +110,25 @@ export class ChannelPermission implements PermissionChannel {
       // unref so a pending prompt never keeps the process alive on its own.
       if (typeof timer === 'object' && 'unref' in timer) (timer as { unref: () => void }).unref();
       this.waiters.set(code, { resolve, timer, toolName: req.toolName });
-      // Fire the outbound; if it fails, deny immediately (can't ask → fail-safe).
-      void this.opts.send(this.opts.operator, prompt).catch((err) => {
-        const w = this.waiters.get(code);
-        if (w) {
-          clearTimeout(w.timer);
-          this.waiters.delete(code);
-          this.opts.onAsk?.('permission prompt send failed → deny', { tool: req.toolName, err: String(err) });
-          resolve('timeout');
-        }
-      });
+      // Fire the outbound WITH the buttons; capture the message id so a resolved ask
+      // can edit the prompt to show its outcome. If the send fails, deny immediately
+      // (can't ask → fail-safe).
+      void this.opts
+        .send(this.opts.operator, prompt, buttons)
+        .then((res) => {
+          const w = this.waiters.get(code);
+          // Only record the id if still pending (a fast tap could have resolved it).
+          if (w && res && res.messageId) w.messageId = res.messageId;
+        })
+        .catch((err) => {
+          const w = this.waiters.get(code);
+          if (w) {
+            clearTimeout(w.timer);
+            this.waiters.delete(code);
+            this.opts.onAsk?.('permission prompt send failed → deny', { tool: req.toolName, err: String(err) });
+            resolve('timeout');
+          }
+        });
     });
   }
 
@@ -95,13 +137,26 @@ export class ChannelPermission implements PermissionChannel {
    * code matched a pending waiter. Called by the supervisor's inbound parser.
    */
   submitReply(code: string, verdict: 'allow' | 'deny'): boolean {
+    return this.submitReplyDetailed(code, verdict).resolved;
+  }
+
+  /**
+   * Like {@link submitReply} but returns the resolved ask's details — its prompt
+   * `messageId` and `toolName` — so a caller (the button-tap path) can edit the
+   * prompt message to show the outcome. `resolved` is false (others undefined) if
+   * the code matched nothing.
+   */
+  submitReplyDetailed(
+    code: string,
+    verdict: 'allow' | 'deny',
+  ): { resolved: boolean; messageId?: string; toolName?: string } {
     const w = this.waiters.get(code);
-    if (!w) return false;
+    if (!w) return { resolved: false };
     clearTimeout(w.timer);
     this.waiters.delete(code);
     this.opts.onAsk?.('permission reply received', { code, verdict, tool: w.toolName });
     w.resolve(verdict);
-    return true;
+    return { resolved: true, ...(w.messageId ? { messageId: w.messageId } : {}), toolName: w.toolName };
   }
 
   /**
@@ -129,6 +184,19 @@ export class ChannelPermission implements PermissionChannel {
   /** Snapshot of pending asks (code + tool) for the operator panel (no secrets). */
   pendingAsks(): { code: string; toolName: string }[] {
     return [...this.waiters.entries()].map(([code, w]) => ({ code, toolName: w.toolName }));
+  }
+
+  /**
+   * Parse an inline-button tap's `callback_data` (the BUTTON path). Recognizes the
+   * `perm:allow:<code>` / `perm:deny:<code>` scheme {@link askUser} mints (code =
+   * 4 hex). Returns code+verdict, or null if it's not a permission callback (so a
+   * sibling feature's callback_data is left alone). The whole string is ≤ 15 bytes,
+   * well under Telegram's 64-byte callback_data cap.
+   */
+  static parseCallbackData(data: string): { code: string; verdict: 'allow' | 'deny' } | null {
+    const m = new RegExp(`^${PERM_CALLBACK_PREFIX}:(allow|deny):([0-9a-f]{4})$`, 'i').exec(data.trim());
+    if (!m) return null;
+    return { code: m[2]!.toLowerCase(), verdict: m[1]!.toLowerCase() as 'allow' | 'deny' };
   }
 
   /** Parse an inbound text for a CODED permission reply. Returns code+verdict or null. */

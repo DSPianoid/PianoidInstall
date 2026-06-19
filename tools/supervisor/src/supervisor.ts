@@ -158,6 +158,36 @@ export class Supervisor {
     return result;
   }
 
+  /**
+   * INLINE-BUTTON ACK — acknowledge a button tap on `channel` (dismiss the client
+   * spinner; optional toast). Best-effort + silent if the adapter can't (no inline
+   * keyboards). Used by the SessionHost when a permission decision arrives by tap.
+   */
+  async answerCallback(channel: string, callbackId: string, text?: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.answerCallback) return;
+    try {
+      await adapter.answerCallback(callbackId, text);
+    } catch (err) {
+      this.logger.warn('answerCallback failed (non-fatal)', { channel, err: String(err) });
+    }
+  }
+
+  /**
+   * INLINE-BUTTON FOLLOW-UP — replace a message's text + drop its keyboard on
+   * `channel` (so a decided prompt shows its outcome). Best-effort + silent if the
+   * adapter can't edit.
+   */
+  async editMessage(channel: string, handle: ReplyHandle, messageId: string, text: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.editMessage) return;
+    try {
+      await adapter.editMessage(handle, messageId, text);
+    } catch (err) {
+      this.logger.warn('editMessage failed (non-fatal)', { channel, err: String(err) });
+    }
+  }
+
   /** Health snapshot across all adapters. */
   health(): SupervisorHealth {
     return {

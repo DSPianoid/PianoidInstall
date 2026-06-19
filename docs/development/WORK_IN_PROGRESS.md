@@ -1,5 +1,23 @@
 # Work in Progress
 
+## Active Dev Sessions
+
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+| dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
+
+<!-- DOC DEFERRAL (dev-93e1, 2026-06-19): the supervisor README.md permission section (L54-58 "Channel
+     permission" + "How it eliminates FC-1") should gain a line on the NEW native inline-keyboard BUTTON
+     UX (tap ✅ Allow / ❌ Deny; callback_data `perm:allow:<code>`/`perm:deny:<code>`; text `allow/deny
+     <code>` kept as fallback; covers the restart-confirm too) + a note that the orchestrator profile
+     auto-initiates `/orchestrator` on startup by default (config.roleTurnPrefix; env
+     SUPERVISOR_ROLE_TURN_PREFIX; off via none). NOT done THIS session because README.md is held by
+     dev-vio1's ACTIVE lock (voice OUTBOUND fix). OWNER: whoever holds README next (dev-vio1 on its next
+     touch, or the Phase-2 merge orchestrator) — apply the one-paragraph update then. The code + tests
+     are the source of truth meanwhile (src/test/permission-buttons.test.ts documents the behavior). -->
+
+---
+
 ## ★ POST-RESTART CONTINUATION — 2026-06-19 (2nd restart — voice STT *FIX* live-test: READ FIRST; delete once live-test + Phase 2 done)
 
 The supervisor was just restarted (user-sanctioned) to ACTIVATE dev-vio1's **inbound-STT FIX**. You are the fresh orchestrator; Telegram chat preserved. **Immediate job: LIVE-TEST voice with the user, then Phase-2 merge on success.** Output **default = `text`** on this boot.

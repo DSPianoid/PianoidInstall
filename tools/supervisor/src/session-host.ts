@@ -90,6 +90,18 @@ export interface SessionHostOptions {
    * (permission prompts, ACKs, system notices) omit it and go as plain text.
    */
   send: (handle: ReplyHandle, msg: OutboundMessage) => Promise<OutboundResult>;
+  /**
+   * INLINE-BUTTON ACK (optional) — acknowledge a button tap (dismiss the client
+   * spinner; optional toast). Bound to supervisor.answerCallback for a channel.
+   * When absent, button-tap decisions still resolve (the ACK is best-effort UX).
+   */
+  answerCallback?: (callbackId: string, text?: string) => Promise<void>;
+  /**
+   * INLINE-BUTTON FOLLOW-UP (optional) — replace a prompt message's text + drop its
+   * keyboard (so a decided prompt shows its outcome). Bound to supervisor.editMessage
+   * for a channel. Best-effort.
+   */
+  editMessage?: (handle: ReplyHandle, messageId: string, text: string) => Promise<void>;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -378,7 +390,12 @@ export class SessionHost {
       this.operator = msg.replyHandle;
       this.operatorId = incomingId;
       this.channelPermission = new ChannelPermission({
-        send: ((handle, text) => this.opts.send(handle, { text })) as SendPrompt,
+        // Send the prompt (optionally WITH inline buttons) and surface the sent
+        // message id back so a tapped-decision can edit the prompt to its outcome.
+        send: (async (handle, text, buttons) => {
+          const r = await this.opts.send(handle, { text, ...(buttons ? { options: { buttons } } : {}) });
+          return { ...(r.sentIds[0] ? { messageId: r.sentIds[0] } : {}) };
+        }) as SendPrompt,
         operator: this.operator,
         timeoutMs: this.opts.permissionTimeoutMs,
         onAsk: (note, fields) => this.logger.info(note, fields),
@@ -393,6 +410,16 @@ export class SessionHost {
 
     const cp = this.channelPermission!;
     const text = msg.text ?? '';
+
+    // ★ BUTTON TAP (callback_query) — the PRIMARY permission UX. If the inbound is a
+    // tap on a `perm:allow:<code>` / `perm:deny:<code>` button, resolve the matching
+    // pending ask, ACK the tap (dismiss the spinner), and edit the prompt to show the
+    // outcome (buttons disappear). A non-permission callback, or a stale/unknown code,
+    // is ACK'd quietly and dropped (never typed to the AI).
+    if (msg.callback) {
+      await this.handlePermissionCallback(msg.callback);
+      return;
+    }
 
     // Intercept a CODED permission reply (allow/deny <code>) first.
     const coded = ChannelPermission.parseReply(text);
@@ -446,6 +473,57 @@ export class SessionHost {
     this.lastSentText = null;
     await this.lifecycle.sendUserTurn({ text: turnText });
   };
+
+  /**
+   * Handle an inbound BUTTON TAP (callback_query). Parses the `perm:<verdict>:<code>`
+   * scheme, resolves the matching pending permission ask, ACKs the tap (dismiss the
+   * spinner with a brief toast), and edits the prompt message to show the outcome
+   * (so the buttons disappear and a record remains). Covers BOTH the permission-gate
+   * prompts AND the lifecycle restart-confirmation (both route through ChannelPermission).
+   * A non-permission or stale/unknown callback is ACK'd quietly (no error to the user).
+   */
+  private async handlePermissionCallback(cb: { id: string; data: string; messageId?: string }): Promise<void> {
+    const parsed = ChannelPermission.parseCallbackData(cb.data);
+    if (!parsed) {
+      // Not our scheme (or malformed) — ACK so the client spinner clears, then ignore.
+      await this.answerCallbackSafe(cb.id);
+      this.logger.info('ignoring non-permission callback', { data: cb.data.slice(0, 32) });
+      return;
+    }
+    const cp = this.channelPermission!;
+    const res = cp.submitReplyDetailed(parsed.code, parsed.verdict);
+    if (!res.resolved) {
+      // A stale/expired/already-answered code — ACK with a toast so the user sees why.
+      await this.answerCallbackSafe(cb.id, 'This request is no longer pending.');
+      this.logger.info('button tap for a non-pending permission code (ignored)', { verdict: parsed.verdict });
+      return;
+    }
+    this.logger.info('inbound consumed as permission button tap', { verdict: parsed.verdict });
+    const allowed = parsed.verdict === 'allow';
+    // 1) ACK the tap (dismiss the spinner) with a short toast.
+    await this.answerCallbackSafe(cb.id, allowed ? 'Allowed ✅' : 'Denied ❌');
+    // 2) Edit the prompt message so the buttons disappear + the outcome is on record.
+    const messageId = res.messageId ?? cb.messageId;
+    if (messageId && this.opts.editMessage && this.operator) {
+      const tool = res.toolName ? ` '${res.toolName}'` : '';
+      const outcome = allowed ? `✅ Allowed${tool}` : `❌ Denied${tool}`;
+      try {
+        await this.opts.editMessage(this.operator, messageId, outcome);
+      } catch (err) {
+        this.logger.warn('permission prompt edit failed (non-fatal)', { err: String(err) });
+      }
+    }
+  }
+
+  /** Best-effort callback ACK (never throws — the decision already resolved). */
+  private async answerCallbackSafe(callbackId: string, text?: string): Promise<void> {
+    if (!this.opts.answerCallback) return;
+    try {
+      await this.opts.answerCallback(callbackId, text);
+    } catch (err) {
+      this.logger.warn('answerCallback failed (non-fatal)', { err: String(err) });
+    }
+  }
 
   /** The currently-bound operator reply handle (null until the first inbound). */
   currentOperator(): ReplyHandle | null {

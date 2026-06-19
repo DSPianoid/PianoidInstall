@@ -248,6 +248,10 @@ async function main(): Promise<void> {
       bus: supervisor.bus,
       logger,
       send: (handle, msg) => supervisor.sendOutbound('telegram', handle, msg),
+      // INLINE-BUTTON permission UX: ACK a tap + edit the prompt to its outcome
+      // (best-effort; the loopback transport records them, grammy calls the Bot API).
+      answerCallback: (callbackId, text) => supervisor.answerCallback('telegram', callbackId, text),
+      editMessage: (handle, messageId, text) => supervisor.editMessage('telegram', handle, messageId, text),
       // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
       // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
       // flips it at runtime via the intercepted `/mode` command.
@@ -272,9 +276,15 @@ async function main(): Promise<void> {
       allowedTools: profile.policy.allow,
       permissionMode: 'default',
       env: profile.agentTeams ? { ...process.env, CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' } : undefined,
-      // Role-adoption prefix applied to the FIRST user turn (NOT a pre-user
-      // bootstrap turn — see SessionHostOptions.roleTurnPrefix; live-surfaced fix).
-      roleTurnPrefix: profile.roleBootstrap === 'orchestrator-skill' ? '/orchestrator' : undefined,
+      // AUTO-INITIATE THE ORCHESTRATOR SKILL ON STARTUP (FIX 2). The role-adoption
+      // prefix (default '/orchestrator', DEFAULT ON; config.roleTurnPrefix, env
+      // SUPERVISOR_ROLE_TURN_PREFIX, OFF via empty/none/off) is prepended to the
+      // session's FIRST turn so it boots AS the orchestrator. Applied to the first
+      // turn — NOT a pre-user standalone bootstrap (that self-executes before an
+      // operator is bound → reply fails + tokens burn pre-user; live-surfaced). The
+      // restart-handoff path re-arms + consumes the same prefix → no double-invoke.
+      // Gated to the orchestrator profile (the demo persona adopts no skill role).
+      roleTurnPrefix: profile.roleBootstrap === 'orchestrator-skill' ? config.roleTurnPrefix : undefined,
       // Per-turn de-dup applies ONLY when the in-process reply tool is wired (SDK
       // driver): auto-out the final answer UNLESS the reply tool fired this turn.
       // Under cli-stream there is NO reply tool → auto-forward assistant text (the

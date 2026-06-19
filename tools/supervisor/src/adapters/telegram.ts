@@ -159,6 +159,17 @@ export class TelegramAdapter implements ChannelAdapter {
   private async handleRaw(raw: RawInbound): Promise<void> {
     if (this.gate.decide(raw) === 'drop') return;
 
+    // BUTTON TAP (callback_query): a transient decision signal, NOT a durable
+    // message — route it straight to the handler as an InboundMessage carrying
+    // `callback` (no inbox-queue persistence; there is no content to replay, and the
+    // supervisor resolves the matching pending ask in-memory). The text + the
+    // `allow/deny <code>` fallback remain the durable path for everything else.
+    if (raw.callbackQuery) {
+      if (!this.onInbound) throw new Error('telegram adapter: no inbound handler registered');
+      await this.onInbound(this.toCallbackInbound(raw));
+      return;
+    }
+
     const payload = this.toRawPayload(raw);
 
     // Durable-first: persist the RAW payload BEFORE any download/STT or handling,
@@ -237,6 +248,28 @@ export class TelegramAdapter implements ChannelAdapter {
     await this.onInbound(msg);
   }
 
+  /** Map a raw callback_query (button tap) to a normalized InboundMessage. */
+  private toCallbackInbound(raw: RawInbound): InboundMessage {
+    const cq = raw.callbackQuery!;
+    const replyHandle: ReplyHandle = {
+      to: raw.chatId,
+      ...(raw.messageId ? { replyToMessageId: raw.messageId } : {}),
+    };
+    return {
+      attachments: [],
+      callback: {
+        id: cq.id,
+        data: cq.data,
+        ...(cq.messageId ? { messageId: cq.messageId } : {}),
+      },
+      user: raw.fromUser,
+      userId: raw.fromUserId,
+      ts: new Date((raw.dateSec || 0) * 1000).toISOString(),
+      replyHandle,
+      channel: this.channel,
+    };
+  }
+
   /** Map a durable payload to the contract's normalized InboundMessage. */
   private toInbound(payload: TelegramQueuePayload): InboundMessage {
     const m = payload.meta;
@@ -283,6 +316,10 @@ export class TelegramAdapter implements ChannelAdapter {
     const opts: RawSendOptions = {
       ...(handle.replyToMessageId ? { replyToMessageId: handle.replyToMessageId } : {}),
       ...(msg.options?.format === 'markdown' ? { format: 'markdown' as const } : {}),
+      // Inline buttons attach to the TEXT send only (a voice bubble can't carry them).
+      ...(msg.options?.buttons && msg.options.buttons.length > 0
+        ? { inlineButtons: msg.options.buttons.map((b) => ({ text: b.text, callbackData: b.callbackData })) }
+        : {}),
     };
 
     try {
@@ -376,6 +413,19 @@ export class TelegramAdapter implements ChannelAdapter {
    */
   flush(): number {
     return this.queue.clear();
+  }
+
+  /** ACK a button tap (dismiss the client spinner; optional toast). Best-effort. */
+  async answerCallback(callbackId: string, text?: string): Promise<void> {
+    await this.transport.answerCallback(callbackId, text);
+  }
+
+  /**
+   * Replace a previously-sent message's text + DROP its inline keyboard (so a
+   * decided permission prompt shows its outcome and the buttons disappear).
+   */
+  async editMessage(handle: ReplyHandle, messageId: string, text: string): Promise<void> {
+    await this.transport.editMessageText(handle.to, messageId, text);
   }
 
   health(): AdapterHealth {

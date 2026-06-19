@@ -77,6 +77,18 @@ export type OutputMode = 'text' | 'voice' | 'dual';
 export const DEFAULT_OUTPUT_MODE: OutputMode = 'text';
 
 /**
+ * The DEFAULT role-adoption skill the hosted orchestrator session boots into.
+ * The supervisor prepends this to the session's FIRST turn so the session starts
+ * AS the orchestrator (the user's "by default initiate /orchestrator on startup").
+ * It is applied to the first turn — NOT fired as a standalone pre-user bootstrap
+ * turn — because a pre-user bootstrap self-executes before an operator is bound
+ * (the channel reply tool then fails + tokens burn pre-user; live-surfaced). The
+ * value is env-overridable (`SUPERVISOR_ROLE_TURN_PREFIX`) and can be turned OFF
+ * with an empty string / `none` / `off`. Default ON.
+ */
+export const DEFAULT_ROLE_TURN_PREFIX = '/orchestrator';
+
+/**
  * The conservative DEFAULT permission policy for the hosted session (review M2:
  * lifted out of the entrypoint so policy is config, not a literal buried in
  * index.ts). Read-only + channel tools auto-allow; everything else ROUTES to the
@@ -143,6 +155,15 @@ export interface SupervisorConfig {
    * The SessionHost flips it at runtime via `/mode`; this is only the boot value.
    */
   outputModeDefault: OutputMode;
+  /**
+   * The role-adoption skill prepended to the orchestrator session's FIRST turn so
+   * it boots AS the orchestrator (FIX: "auto-initiate /orchestrator on startup").
+   * Defaults to {@link DEFAULT_ROLE_TURN_PREFIX} ('/orchestrator') — DEFAULT ON;
+   * env `SUPERVISOR_ROLE_TURN_PREFIX` overrides; empty / `none` / `off` → undefined
+   * (no auto-role). Applied to the first turn (NOT a pre-user bootstrap; see the
+   * const doc). index.ts uses this for the orchestrator profile.
+   */
+  roleTurnPrefix?: string;
 }
 
 export interface LoadConfigOptions {
@@ -205,7 +226,22 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     panelPort: opts.panelPort ?? 0,
     permissionPolicy: resolvePermissionPolicy(),
     outputModeDefault: resolveOutputMode(),
+    roleTurnPrefix: resolveRoleTurnPrefix(),
   };
+}
+
+/**
+ * Resolve the startup role-adoption prefix. DEFAULT ON →
+ * {@link DEFAULT_ROLE_TURN_PREFIX} ('/orchestrator'). `SUPERVISOR_ROLE_TURN_PREFIX`
+ * overrides; an empty string / `none` / `off` (case-insensitive) disables it
+ * (returns undefined → no auto-role). Any other value is used verbatim (trimmed),
+ * so a project can boot a different skill.
+ */
+export function resolveRoleTurnPrefix(raw = process.env.SUPERVISOR_ROLE_TURN_PREFIX): string | undefined {
+  if (raw === undefined) return DEFAULT_ROLE_TURN_PREFIX; // unset → default ON
+  const v = raw.trim();
+  if (v === '' || v.toLowerCase() === 'none' || v.toLowerCase() === 'off') return undefined; // explicit OFF
+  return v;
 }
 
 /**

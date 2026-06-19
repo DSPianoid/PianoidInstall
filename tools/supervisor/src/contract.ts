@@ -34,6 +34,23 @@ export interface InboundAttachment {
 }
 
 /**
+ * An inbound BUTTON-TAP (a Telegram `callback_query`, or a sibling channel's
+ * equivalent). When an inbound message carries this, the user tapped an inline
+ * keyboard button the adapter previously sent (e.g. a ✅ Allow / ❌ Deny
+ * permission button). The supervisor parses `data` to resolve the matching
+ * pending action, then ACKs via the adapter (`answerCallback`) and edits the
+ * source message (`editMessage`) so the buttons disappear and a record remains.
+ */
+export interface InboundCallback {
+  /** Channel-native id needed to ACK the tap (Telegram `callback_query.id`). */
+  id: string;
+  /** The opaque `callback_data` the button carried (e.g. 'perm:allow:ab12'). */
+  data: string;
+  /** Id of the message the keyboard was attached to (so the adapter can edit it). */
+  messageId?: string;
+}
+
+/**
  * A normalized inbound message. Channel-agnostic: every adapter maps its native
  * event onto this shape. `replyHandle` is the opaque token the caller passes
  * back to `outbound()` to address the reply on the originating channel.
@@ -45,6 +62,12 @@ export interface InboundMessage {
   voicePath?: string;
   /** Non-voice attachments. */
   attachments: InboundAttachment[];
+  /**
+   * An inbound BUTTON-TAP (a Telegram callback_query) — set when the user tapped
+   * an inline-keyboard button instead of typing. The supervisor routes this to
+   * the pending action (e.g. a permission decision) BEFORE any text handling.
+   */
+  callback?: InboundCallback;
   /** Display handle of the sender (username or id). */
   user: string;
   /** Stable per-user id (for allow-listing / addressing). */
@@ -58,6 +81,18 @@ export interface InboundMessage {
    * Set by the registry on delivery; adapters may leave it undefined.
    */
   channel?: string;
+}
+
+/**
+ * One inline-keyboard button: a visible `text` label + the opaque `callbackData`
+ * the channel echoes back when the user taps it. The supervisor encodes its
+ * decision + the pending code into `callbackData` (e.g. 'perm:allow:ab12') and
+ * recognizes it on the inbound `callback`. Telegram caps `callbackData` at 64
+ * bytes — keep it short.
+ */
+export interface InlineButton {
+  text: string;
+  callbackData: string;
 }
 
 /**
@@ -110,6 +145,15 @@ export interface OutboundOptions {
   modality?: OutboundModality;
   /** Rendering mode for text channels that support it. */
   format?: 'text' | 'markdown';
+  /**
+   * Inline-keyboard buttons to attach to the (text) message — the native
+   * tap-to-decide UX (e.g. ✅ Allow / ❌ Deny for a permission prompt). Rendered
+   * as a single row by the adapter; a tapped button comes back as an inbound
+   * {@link InboundCallback}. Channels without inline keyboards ignore this (the
+   * text + the `allow/deny <code>` fallback still work). Only honored on a TEXT
+   * send (modality text/dual), never on a voice bubble.
+   */
+  buttons?: InlineButton[];
 }
 
 /** Result of an outbound send. */
@@ -181,4 +225,19 @@ export interface ChannelAdapter {
    * Use to clear a wedged inbound replay. Adapters with no inbox queue omit this.
    */
   flush?(): number;
+
+  /**
+   * INLINE-BUTTON ACK (optional). Acknowledge a button tap (Telegram
+   * `answerCallbackQuery`) — dismisses the client's loading spinner and optionally
+   * shows a toast. Best-effort; channels without inline keyboards omit this.
+   */
+  answerCallback?(callbackId: string, text?: string): Promise<void>;
+
+  /**
+   * INLINE-BUTTON FOLLOW-UP (optional). Replace a previously-sent message's text
+   * (and DROP its inline keyboard) so a decided permission prompt shows its outcome
+   * and the buttons disappear. `handle` addresses the chat; `messageId` is the
+   * message to edit. Best-effort; channels that can't edit omit this.
+   */
+  editMessage?(handle: ReplyHandle, messageId: string, text: string): Promise<void>;
 }
