@@ -15,6 +15,25 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-underrun2 | `PianoidCore/pianoid_cuda/Pianoid_synthesis.cu`, `PianoidCore/pianoid_middleware/chartFunctions.py` | 2026-06-19 | (1) e5/add_ms fix: record add_ms event AFTER cudaDeviceSynchronize so add_ms = true addKernel device time (HEAVY build). (2) sound_test profiling chart: plot getGpuProfilingData add_ms (pure kernel) instead of full-cycle span r[4]-r[1]; re-check every-3rd-cycle artifact gone. |
+<!-- dev-pitchfix lock RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTuner.js. ITEM 2 ALIGNMENT FIX (dev-workbench review of
+     merged 5ab2d40): Mass workbench read (computeWorkbenchValues "Mass") + write (handleVectorChange "Mass") switched from
+     excitationHistory.values key order → availableNotes (the RowEditor x-axis) — fixes a real defect where sparse/pitchID-keyed
+     hammerMass could misalign bars + edit the WRONG pitch; + diff-guard (only changed pitches POST). dev-workbench OK'd all 4 checks;
+     team-lead Q1/Q2/Q3 answered (in-scope correctness, user re-tests Mass WB). Committed feature/dev-pitchfix-mass-axis-fix 7cba39b
+     (off 5ab2d40), MERGED --no-ff dev fe93b5d, PUSHED 5ab2d40..fe93b5d. origin/dev = fe93b5d. Jest green, eslint clean, build OK.
+     :3000 restarted (serving fe93b5d). EXCITATION RESTRUCTURE fully COMPLETE + corrected. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
+<!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTuner.js, Excitation.jsx, ExcitationProperties.jsx,
+     ExcitationEnergyEditor.jsx (+ ExcitationEnergyEditor.massControl.test.jsx). EXCITATION RESTRUCTURE item 2 (mass→workbench-link,
+     LEAD; partnered dev-workbench): "Mass" workbench groupe — computeWorkbenchValues case "Mass" reads excitationEnergy.hammerMass
+     over excitationHistory.values pitch order (grams); handleVectorChange "Mass" branch writes setMassForPitch per pitch (g→kg, same
+     order); onOpenMassWorkbench glue PianoidTuner→Excitation→ExcitationProperties→HammerMassControl → {groupe:"Mass",name:"hammer_mass"}.
+     No groupe allow-list needed (isWorkbench/openWorkbench/restore groupe-generic); rides dev-wbspawn's fixed binding. Committed
+     feature/dev-pitchfix-mass-workbench 5fe7525 (off 9472b47), MERGED → dev 5ab2d40 (--no-ff, dev free of worktrees), PUSHED
+     9472b47..5ab2d40. origin/dev = 5ab2d40. Jest 120/1261 green, eslint clean, CRA build OK. :3000 restarted (serving 5ab2d40).
+     EXCITATION RESTRUCTURE COMPLETE (items 1/2/3/4). Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
 <!-- dev-wbspawn lock RELEASED 2026-06-19T14:50:00Z at Step 10a Phase 1 (frontend commit 9ac5002 on
      feature/dev-wbspawn-orphan-fix off PianoidTunner dev acbf9e6, worktree D:/repos/wt-wbspawn). Held:
      PianoidTunner/src/PianoidTuner.js (+ test src/hooks/__tests__/mosaicConfigStore.test.jsx, this agent's).
@@ -31,7 +50,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Docs (OVERVIEW) + log on PianoidInstall master. Agent STAYS ALIVE. -->
 | <!-- (none active for dev-wbspawn) --> | | | |
 | dev-excenergy | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/excitation_coefficients.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/tests/unit/test_excitation_coeff_incremental.py` | 2026-06-18T15:18:00Z | CONSOLIDATED coeff-update refactor: single factor-cache recompose path (mass/speed/calibration/curve all incremental <50ms, byte-identical to full rebuild). StringMap split pack_excitation_coefficients → pack_excitation_factors + compose_from_factors; excitation_coefficients CoefficientCache+recompose; parameter_manager branches → one recompose call. Middleware Python + PianoidBasic wheel, NO CUDA rebuild. Branch off PianoidCore dev + PianoidBasic dev. |
-| dev-pitchfix | `PianoidTunner/src/components/ExcitationProperties.jsx`, `PianoidTunner/src/components/ExcitationEnergyEditor.jsx`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/components/MatrixTools.jsx` (+ new tests) | 2026-06-19T15:40:00Z | EXCITATION-PANEL RESTRUCTURE items 1/3/4 (user-confirmed): (1) extract per-pitch MASS from the energy popup → STANDALONE control where the Energy button sits (ExcitationProperties); (3) energy popup → speeds+calibration only, move Energy BUTTON into the pane toolbar next to the horizontal/width gauss pair (Excitation/MatrixTools); (4) REMOVE the VERTICAL height/volume gauss-scale pair + its handlers/props/wheel refs. Frontend-only, NO PianoidTuner.js (item 2 mass→workbench waits for dev-wbspawn's orphaning fix + partners with it). NO CUDA. Off PianoidTunner dev acbf9e6. |
+<!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: ExcitationProperties.jsx, ExcitationEnergyEditor.jsx,
+     Excitation.jsx, MatrixTools.jsx (+ NEW ExcitationEnergyEditor.massControl.test.jsx; rewrote ExcitationProperties.energyPopup.test.jsx).
+     EXCITATION-PANEL RESTRUCTURE items 1/3/4 (user-confirmed): (1) MASS extracted to standalone HammerMassControl rendered inline where
+     the Energy button was; (3) energy popup = speeds+calibration only, Energy button moved to pane toolbar next to the horizontal/width
+     pair (energyOpen lifted to Excitation.jsx, popup prop-driven); (4) REMOVED the vertical height/volume gauss-scale pair + its
+     handlers/props/wheel refs (horizontal kept). Item 2 (mass→workbench) NOT done — deferred, partners with dev-wbspawn (its orphan
+     fix is now on origin/dev, so the rebase target is available). Committed feature/dev-pitchfix-exc-restructure ebe92a9 (off acbf9e6);
+     REBASED onto origin/dev 62974f6 (dev-wbspawn orphan fix merged meanwhile; CLEAN, disjoint files) → 9472b47; PUSHED HEAD:dev FF
+     (62974f6..9472b47). origin/dev = 9472b47. Jest 120/1256 green, eslint clean, CRA build OK. Frontend-only, NO PianoidTuner.js, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
 <!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTunner/src/components/HammerStringChart.jsx,
      src/PianoidTuner.js, src/components/__tests__/HammerStringChart.test.jsx. HAMMER-CHART 3 FIXES (team-lead greenlit):
      (1) tooltip-null crash — hideTipSafely(dispatchAction hideTip, isDisposed-guarded) before the debounced exactShape
