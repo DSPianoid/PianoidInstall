@@ -105,6 +105,19 @@ export function makeCliUserTurn(content: string): string {
 export function mapCliMessage(raw: unknown, lastSessionId?: string): SessionEvent | null {
   const m = (raw ?? {}) as Record<string, unknown>;
   const type = m['type'];
+  // ★ FLOOD FIX (2026-06-19) — DROP SUB-AGENT (sidechain) content. When the orchestrator
+  // spawns a sub-agent (Agent/Task tool), the sub-agent's assistant narration + tool_result
+  // messages ride this SAME stdout stream, tagged with a NON-NULL `parent_tool_use_id`.
+  // Without this guard each line a background agent "thinks out loud" mapped to a normal
+  // assistant event → onAssistant → sendToOperator → forwarded to the channel = the flood
+  // (one /dev run sent ~16 sub-agent narration messages to the user). The orchestrator's OWN
+  // messages — incl. the Agent/Task tool_use that SPAWNS the sub-agent, and the sub-agent's
+  // FINAL report (which returns as the orchestrator's own tool_result, parent === null) — are
+  // KEPT, so the user still sees the orchestrator coordinating + relaying summaries. Sub-agent
+  // PERMISSION requests are unaffected: they arrive as `control_request` (carrying agent_id)
+  // and are serviced out-of-band above, before this mapper. system_init/result are
+  // session-level (parent always null) so this guard never drops them.
+  if (m['parent_tool_use_id'] != null) return null;
   if (type === 'system' && m['subtype'] === 'init') {
     const slashRaw = m['slash_commands'] ?? m['slashCommands'] ?? m['commands'];
     const mcpRaw = m['mcp_servers'] ?? m['mcpServers'];

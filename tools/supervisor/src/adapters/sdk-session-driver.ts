@@ -279,6 +279,14 @@ export class SdkSessionDriver implements SessionDriver {
   private mapMessage(raw: unknown): SessionEvent | null {
     const m = raw as Record<string, unknown>;
     const type = m['type'];
+    // ★ FLOOD FIX (2026-06-19) — parity with cli-stream-driver.mapCliMessage: DROP
+    // SUB-AGENT (sidechain) content. A sub-agent's (Agent/Task) assistant narration rides
+    // the same stream tagged with a non-null `parent_tool_use_id`; without this guard each
+    // line a background agent narrates is forwarded to the channel (the flood). The
+    // orchestrator's OWN messages (parent null/absent) — incl. the spawning Agent tool_use —
+    // pass through. (This is the HEDGE driver, not active; fixed for parity so a future
+    // --driver sdk flip doesn't reintroduce the flood.)
+    if (m['parent_tool_use_id'] != null) return null;
     if (type === 'system' && m['subtype'] === 'init') {
       const slashRaw = m['slash_commands'] ?? m['slashCommands'] ?? m['commands'];
       const mcpRaw = m['mcp_servers'] ?? m['mcpServers'];
