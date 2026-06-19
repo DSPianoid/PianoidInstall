@@ -144,7 +144,7 @@ The file contains 27 entries: 16 chart types, 9 action types, and 2 dynamic_char
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
 | `tuning_report` | `tuning_report_function` | `type` (choice: frequency/volume/both, default both) |
 | `cfl_ratio` | `cfl_ratio_function` | `key_range` (choice: all/from21to108/output, default "all") |
-| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_full_result` |
+| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_profiling` (kernel cycle timing + underrun markers, online-only), `include_full_result` |
 
 ### Action Types
 
@@ -257,6 +257,47 @@ host rings fill and mic capture can run (requires `audio_driver_type` 2/3/4 — 
 Notice rather than rendering. The `dev_soundInt` tap is the only Python/REST path
 to the post-volume buffer — every other readout returns pre-volume float — so
 this chart is the canonical way to observe driver-input clipping/overflow.
+
+### Profiling overlay — kernel cycle timing + underrun markers (dev-profchart, 2026-06-19)
+
+An opt-in `include_profiling` boolean adds a **performance** chart to the Sound
+Test set, alongside the audio-tap charts. MVP scope: per-cycle kernel compute
+time + over-budget/underrun markers, rendered entirely through the existing
+[`render_hints`](#optional-render_hints--richer-chart-rendering-dev-ratiochart-2026-05-24)
+contract (no new frontend component).
+
+What it adds when `include_profiling=True` **and** `mode="online"`:
+
+| Output | Source | Shape |
+|--------|--------|-------|
+| **"Kernel cycle time (us)"** chart | `pianoid.getTimeRecord()` per-cycle checkpoints → full-cycle span (the `cycle_profile.py` Stage-full math: `r[4]−r[1]` for 5-checkpoint records) | one line series, **no AudioPlayer** (it is a timing series, not audio) |
+| **Budget markLine** | `samples_per_cycle × 1e6 / sample_rate` (1333.33us at 64@48k) | `render_hints.threshold` (red dashed line) |
+| **Over-budget markers** | per-cycle `full_cycle_us > budget` | `render_hints.point_styles` — over-budget cycles = red diamond, on-budget = teal circle; `point_meta` carries `{cycle, us, over_budget}` into the tooltip |
+| **Underrun + jitter summary** | `pianoid.getCallbackStats()` (`CallbackTimingStats`) | `text_fields`: `Underruns` (count / callbacks / %), `Callback interval (us)` (avg/max/std), `Cycle timing` (cycles, budget, over-budget %, median/max) |
+
+**Capture window.** The online branch wraps the playback-capture sleep with
+`resetCallbackStats()` + `initTimeRecord()` **before** and `stopTimeRecord()` +
+`getTimeRecord()` + `getCallbackStats()` **after** (the same order
+`tests/system/cycle_profile.py` uses), so the timing window spans exactly the
+rendered note. The five telemetry primitives are added to
+`_SOUND_TEST_ALLOWED_PIANOID_CALLS` so the architectural-contract test still
+passes. A build lacking these methods degrades gracefully (a `Profiling note`
+text field, no chart) rather than failing the whole render.
+
+**Underrun-marker semantics (honest mapping).** `getCallbackStats()` exposes only
+a **cumulative** `underrunCount` over the window, not a per-cycle underrun
+timeline (no such binding exists). So the per-cycle MARKERS are the **over-budget
+cycles** — which *are* per-cycle and are the proximate cause of underruns — while
+the total underrun count + callback jitter go to `text_fields`. A precise
+per-cycle underrun timeline would need a new C++ ring-of-timestamps binding (a
+heavy build; out of MVP scope).
+
+**Online-only.** Offline mode has no live cycle/underrun data, so
+`include_profiling` in offline mode emits only a `Profiling note` (no chart).
+Covered by `tests/unit/test_sound_test_profiling.py` (13 tests: pure-helper math,
+chart/threshold/marker structure, online population + telemetry call-order,
+profiling-off no-op, graceful-degrade, offline note-only). Live-verified with a
+real audio_on engine (430 cycles, 31.6% over-budget, 2/424 underruns measured).
 
 ---
 
