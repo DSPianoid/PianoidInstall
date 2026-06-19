@@ -26,7 +26,24 @@
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
 | dev-wbspawn | Workbench spawn placement — fix relocate bug + new bottom-of-panel mode + global setting | [log](logs/dev-wbspawn-2026-06-17-114341.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
-| dev-profchart | Profiling MVP — kernel cycle-timing + underrun markers into sound_test_function (online branch, render_hints, no rebuild) | [log](logs/dev-profchart-2026-06-19-154026.md) | 2026-06-19 | In Progress |
+<!-- dev-profchart COMPLETED 2026-06-19 (Step 10a Phase 1; team-lead-authorized merge-after-verify). Profiling MVP:
+     kernel cycle-timing + over-budget/underrun markers added to the Sound Test chart set (sound_test_function
+     online branch) via the existing render_hints contract — NEW include_profiling toggle, online-only.
+     - "Kernel cycle time (us)" line series (getTimeRecord full-cycle math) + budget markLine
+       (samples_per_cycle*1e6/sample_rate = 1333us@64@48k) + per-cycle over-budget point_styles (red diamond) +
+       point_meta tooltip; underrun/callback-jitter summary (getCallbackStats) in text_fields. Timing chart gets
+       NO audio player; graceful-degrade if engine telemetry absent; offline emits a note only.
+     - Capture window wraps the online playback sleep: resetCallbackStats+initTimeRecord BEFORE,
+       stopTimeRecord+getTimeRecord+getCallbackStats AFTER (cycle_profile.py order). 5 telemetry primitives added
+       to _SOUND_TEST_ALLOWED_PIANOID_CALLS. include_profiling param in chart_config.json.
+     Backend Python ONLY, NO CUDA rebuild. Committed PianoidCore feature/dev-profchart-sound-test-profiling 0adb956,
+     MERGED to dev 89b1e9f (--no-ff, off 818bd9b) + PUSHED origin/dev (818bd9b..89b1e9f). Tests: 13 new
+     (tests/unit/test_sound_test_profiling.py) + 52 existing (test_sound_test_chart.py) green; L1 import OK on merged dev.
+     LIVE audio_on population check PASSED (single in-process Pianoid, ASIO callback active): 430 cycles, real
+     911-3573us, budget markLine 1333us, 136/430 (31.6%) over-budget, 2/424 (0.47%) underruns, avg cb 1337us.
+     Docs (CHART_SYSTEM.md Sound Test profiling subsection) + log + diagnostic on PianoidInstall master.
+     ★"for starters" — more profiling series likely after the user sees these (buffer-fill needs a C++/pybind +
+     heavy build; per-cycle underrun timeline likewise out of MVP scope). dev-profchart STAYS ALIVE for follow-ups. -->
 <!-- dev-excenergy COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "merge and push energy model").
      Physics-based excitation energy (B2, proposal docs/proposals/excitation-physical-energy-2026-06-16.md)
      + reset fix + soft-limiter removal, MERGED + PUSHED across all 3 repos:
