@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_PROACTIVE_WATCH_INTERVAL_MS, DEFAULT_TURN_WATCHDOG_MS } from './control-command.js';
 import type { LogLevel } from './logger.js';
 import type { PermissionPolicy } from './permission-router.js';
 import { isRoleRoutingEnabled } from './role-router.js';
@@ -187,6 +188,35 @@ export interface SupervisorConfig {
    * orchestrator session, independent of role-routing); the default keeps today's behavior.
    */
   orchestratorModel?: string;
+  /**
+   * ★ A5 ACTIVATION SWITCH (proactive stuck/dead PUSH + in-flight turn-watchdog). Whether the
+   * supervisor PROACTIVELY pushes a (debounced, one-per-event) channel alert when it detects the
+   * orchestrator is STUCK (idle + a missed liveness ping / a surfaced stall) or DEAD (child not
+   * running), and ENABLES the latent in-flight turn-watchdog in ALERT-ONLY mode (a turn running
+   * past {@link turnWatchdogMs} → alert, NEVER kill). Resolved from `SUPERVISOR_PROACTIVE_ALERTS`,
+   * ON only for '1'/'true'/'on'. DEFAULT OFF. When false (the default), the SessionHost does NOT
+   * enable the watchdog (its timers do not arm), does NOT start the proactive-watch scheduler, and
+   * NEVER pushes an alert → the running supervisor behaves BYTE-FOR-BYTE as before this feature. A
+   * change requires a supervisor RESTART (it is read at construction). The watchdog is ALERT-ONLY:
+   * it adds NO auto-kill/restart path (it composes with the EXISTING auto-restart-on-unresponsive).
+   */
+  proactiveAlerts: boolean;
+  /**
+   * ★ A5 — the in-flight turn-watchdog deadline (ms): a turn running longer than this with no
+   * completion is flagged STUCK → an ALERT is pushed (the watchdog action is fixed to 'surface' —
+   * it NEVER kills/restarts; a legitimately long /dev build must not be murdered). Resolved from
+   * `SUPERVISOR_TURN_WATCHDOG_MS`; default {@link DEFAULT_TURN_WATCHDOG_MS} (180s, decision (c)).
+   * Only consulted when {@link proactiveAlerts} is ON (else the watchdog stays disabled).
+   */
+  turnWatchdogMs: number;
+  /**
+   * ★ A5 — the proactive-watch re-check cadence (ms): how often the supervisor re-evaluates
+   * liveness to catch a DEAD child (which emits no events to react to). Resolved from
+   * `SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS`; default {@link DEFAULT_PROACTIVE_WATCH_INTERVAL_MS}
+   * (20s). Only armed when {@link proactiveAlerts} is ON (the timer is `.unref()`'d so it never
+   * keeps the process alive on its own).
+   */
+  proactiveWatchIntervalMs: number;
 }
 
 export interface LoadConfigOptions {
@@ -255,7 +285,45 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     roleRoutingEnabled: isRoleRoutingEnabled(process.env),
     // ★ Tier-1: the orchestrator's own model override (undefined → keep the profile default).
     orchestratorModel: resolveOrchestratorModel(),
+    // ★ A5: the proactive stuck/dead-alert activation switch (default OFF → byte-for-byte today)
+    // + the watchdog/re-check thresholds (consulted only when the switch is ON).
+    proactiveAlerts: resolveProactiveAlerts(),
+    turnWatchdogMs: resolveTurnWatchdogMs(),
+    proactiveWatchIntervalMs: resolveProactiveWatchIntervalMs(),
   };
+}
+
+/**
+ * ★ A5 — resolve the proactive-alert activation switch from `SUPERVISOR_PROACTIVE_ALERTS`.
+ * ON only for '1'/'true'/'on' (case/space-insensitive); anything else (incl. unset) → false
+ * (DEFAULT OFF → the supervisor pushes no proactive alerts + the in-flight watchdog stays
+ * disabled = byte-for-byte today). Read at construction → a change needs a restart. Pure; exported
+ * for the test.
+ */
+export function resolveProactiveAlerts(raw = process.env.SUPERVISOR_PROACTIVE_ALERTS): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
+/**
+ * ★ A5 — resolve the in-flight turn-watchdog deadline (ms) from `SUPERVISOR_TURN_WATCHDOG_MS`.
+ * A positive integer is used verbatim; an unset/blank/non-positive/non-numeric value →
+ * {@link DEFAULT_TURN_WATCHDOG_MS} (180s). Pure; exported for the test.
+ */
+export function resolveTurnWatchdogMs(raw = process.env.SUPERVISOR_TURN_WATCHDOG_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_TURN_WATCHDOG_MS;
+}
+
+/**
+ * ★ A5 — resolve the proactive-watch re-check cadence (ms) from
+ * `SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS`. A positive integer is used verbatim; an
+ * unset/blank/non-positive/non-numeric value → {@link DEFAULT_PROACTIVE_WATCH_INTERVAL_MS} (20s).
+ * Pure; exported for the test.
+ */
+export function resolveProactiveWatchIntervalMs(raw = process.env.SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PROACTIVE_WATCH_INTERVAL_MS;
 }
 
 /**

@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-acb7 | Supervisor control-plane Phase A5 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c/dev-c9fb): PROACTIVE stuck/dead PUSH + in-flight turn-watchdog enablement (ALERT-not-kill). Detect STUCK (idle + missed-ping/stall) / DEAD (child not running) / a long-running turn (>180s default) → push ONE debounced alert per event to the channel (re-arm only after the condition clears). Wires `status`'s STUCK end-to-end. The whole A5 behavior is gated behind a NEW config flag DEFAULT-OFF (watchdog timers do not even arm when off → byte-for-byte today). NEVER auto-kills/restarts (alert-only; composes with the existing auto-restart-on-death, adds no kill path). Clock/timers injectable + `.unref()`'d → fake clock in tests (no 180s waits). The LIVE host NEVER killed/restarted (fakes + fake clock + fake transport only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-acb7-2026-06-20-150800.md) | 2026-06-20 |
 | dev-c9fb | Supervisor control-plane Phase A4 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c): the `interrupt` (alias `cancel`) menu action — STOP the orchestrator's current turn WITHOUT killing it (a fast ESC). NEW public `lifecycle.interruptTurn()` (additive; NOT auto-invoked) calling the driver's `interrupt()`; a `CONTROL_ACTIONS` row + `ctl:interrupt` handler. NO confirm sub-menu (non-destructive). Calls the live interrupt ONLY via an injected `interruptTurn()` dep (dormant when unwired → "not available"); index.ts wires it AT ACTIVATION (not this phase). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER interrupted/restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-c9fb-2026-06-20-145002.md) | 2026-06-20 |
 | dev-ce3c | Supervisor control-plane Phase A3 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2): the restart/lifecycle menu actions — `restart` (GRACEFUL: drain→handoff snapshot→relaunch preserving channel, via the existing lifecycle restart path) / `kill` (HARD: no-drain) / `clear`+`new` (fresh context, no handoff) / `resume`+`handoff` (snapshot store + re-inject) + the `change-model` restart wiring (set Tier-1 model + restart on it with handoff). Each = a `CONTROL_ACTIONS` row + a `ctl:*` handler, ALL destructive → CONFIRM sub-menu (like flush). Restart performed ONLY via an injected lifecycle dep (dormant when unwired). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-ce3c-2026-06-20-112947.md) | 2026-06-20 |
 | dev-ctl1 | Supervisor control-plane Phase 1 (`feature/supervisor-control-plane`): single supervisor-intercepted `/control` command → Telegram inline-keyboard MENU + extensible `ctl:*` callback ROUTER (action registry) + actions status/ping/help + a change-model menu scaffold. OUT-OF-BAND (survives a dead orchestrator child); reuses the permission-button callback infra. Additive/gated to `/control`+`ctl:*` only; non-control inbound byte-for-byte. prod dist/ NOT rebuilt (throwaway build dir); supervisor NOT restarted; NO push. | [log](logs/dev-ctl1-2026-06-20-135036.md) | 2026-06-20 |
@@ -46,7 +47,20 @@
      non-watchdog caller; the action reaches it ONLY through an injected `interruptTurn` dep (dormant when
      unwired ⇒ "not available"; index.ts wires it to lifecycle.interruptTurn() AT ACTIVATION). Same README
      deferral (dev-vio1 holds the lock). Source of truth meanwhile: control-command.ts + lifecycle.ts +
-     session-host.ts + src/test/control-plane.test.ts (A4 section). -->
+     session-host.ts + src/test/control-plane.test.ts (A4 section).
+     EXTENDED (dev-acb7, 2026-06-20): + the A5 PROACTIVE stuck/dead PUSH + the in-flight turn-watchdog
+     (ALERT-not-kill). The supervisor now PUSHES a debounced channel alert (at most ONE per stuck/dead
+     EVENT; re-armed only after the condition clears) when it detects: STUCK (orchestrator idle + a missed
+     liveness ping / a surfaced stall), DEAD (child not running), or a turn running longer than a watchdog
+     threshold (180s default — ALERT, never kill). This closes the A1 "stuck needs the watchdog" gap so
+     `status`'s STUCK classification resolves end-to-end. ★The WHOLE A5 behavior is gated behind a NEW
+     config flag `proactiveAlerts` DEFAULT-OFF (the watchdog timers do not even arm when off → byte-for-byte
+     today); the watchdog NEVER auto-kills/restarts (it composes with the existing auto-restart-on-death,
+     introducing NO new kill path); thresholds config-tunable (decision (c): ping 20s / no-response 45s /
+     STUCK ~45-65s idle / in-flight 180s / DEAD = child not running). Clock/timers injectable + `.unref()`'d
+     so tests use a fake clock (no real 180s waits). Same README deferral (dev-vio1 holds the lock). Source
+     of truth meanwhile: control-command.ts + lifecycle.ts + session-host.ts + config.ts +
+     src/test/control-plane.test.ts (A5 section). -->
 
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the

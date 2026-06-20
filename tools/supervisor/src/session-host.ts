@@ -87,8 +87,12 @@ import {
   formatStatus,
   formatControlLog,
   classifyLiveness,
+  formatProactiveAlert,
+  DEFAULT_TURN_WATCHDOG_MS,
+  DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
   type ControlCallback,
   type ControlLogRecord,
+  type Liveness,
   type StatusSnapshot,
 } from './control-command.js';
 
@@ -483,6 +487,40 @@ export interface SessionHostOptions {
    * Injected by index.ts (it owns the relaunch decision). Receives a reason string.
    */
   onUnresponsive?: (reason: string) => void | Promise<void>;
+  /**
+   * ★ A5 ACTIVATION SWITCH — proactive stuck/dead PUSH + in-flight turn-watchdog (ALERT-only).
+   * When true, the SessionHost (a) ENABLES the latent in-flight turn-watchdog in `surface` mode
+   * (a turn outstanding longer than {@link turnWatchdogMs} → an ALERT is pushed; it NEVER kills/
+   * restarts), (b) arms a periodic proactive-watch that catches a DEAD child (which emits no
+   * events), and (c) on a transition INTO stuck/dead PUSHES exactly ONE debounced alert to the
+   * channel (re-arming only after liveness returns to active). When false (the DEFAULT — index.ts
+   * does not set it), NONE of this arms: the watchdog timers do not start, the proactive-watch does
+   * not start, and no alert is ever pushed → the running supervisor is BYTE-FOR-BYTE as today. The
+   * watchdog is ALERT-ONLY: A5 adds NO auto-kill/restart (it composes with the EXISTING
+   * auto-restart-on-unresponsive `onUnresponsive` path, which is unchanged).
+   */
+  proactiveAlerts?: boolean;
+  /**
+   * ★ A5 — the in-flight turn-watchdog deadline (ms): a turn outstanding longer than this is
+   * flagged STUCK → an ALERT (the action is fixed to 'surface' — NEVER kill, so a legitimately
+   * long /dev build is not murdered). Only consulted when {@link proactiveAlerts} is true.
+   * Default {@link DEFAULT_TURN_WATCHDOG_MS} (180s, decision (c)).
+   */
+  turnWatchdogMs?: number;
+  /**
+   * ★ A5 — the proactive-watch re-check cadence (ms) for catching a DEAD child. Only armed when
+   * {@link proactiveAlerts} is true. Default {@link DEFAULT_PROACTIVE_WATCH_INTERVAL_MS} (20s).
+   */
+  proactiveWatchIntervalMs?: number;
+  /**
+   * ★ A5 — INJECTABLE timer factory for the proactive-watch scheduler (so a test drives ticks via a
+   * fake clock — NO real wait, the test process never hangs). Defaults to the Node globals. The
+   * returned handle is `.unref()`'d when possible so the real timer never keeps the process alive.
+   */
+  proactiveWatchTimers?: {
+    setInterval: (cb: () => void, ms: number) => unknown;
+    clearInterval: (handle: unknown) => void;
+  };
 }
 
 export class SessionHost {
@@ -602,6 +640,24 @@ export class SessionHost {
    * enables it — byte-for-byte today.
    */
   private lastStall: { silentMs: number; action: 'surface' | 'restart' } | null = null;
+  /**
+   * ★ A5 — proactive stuck/dead alert configuration, resolved ONCE in the ctor. When
+   * `enabled` is false (the DEFAULT — index.ts does not pass `proactiveAlerts`), NOTHING
+   * arms (the watchdog stays off, the proactive-watch never starts, no alert ever pushes)
+   * → byte-for-byte today. The watchdog is ALERT-ONLY (`surface`) — A5 introduces no kill path.
+   */
+  private readonly proactive: { enabled: boolean; turnWatchdogMs: number; watchIntervalMs: number };
+  /**
+   * ★ A5 — the DEBOUNCE latch for the proactive alert: the liveness state we have ALREADY
+   * pushed an alert for, or null if none outstanding. SOLE OWNER (P1): only
+   * {@link maybeProactiveAlert} writes it. We push AT MOST ONE alert per stuck/dead EVENT
+   * (a repeated tick in the same state does NOT re-push — the user is flood-sensitive) and
+   * RE-ARM (clear it) only when liveness returns to 'active'. A stuck→dead transition is a
+   * distinct event (pushes once for dead). 'active' is never alerted.
+   */
+  private alertedState: Exclude<Liveness, 'active'> | null = null;
+  /** ★ A5 — the periodic proactive-watch timer handle (catches a DEAD child; null = not armed). */
+  private proactiveWatchTimer: unknown = null;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -617,6 +673,14 @@ export class SessionHost {
     this.captureRecent = opts.captureRecent ?? null;
     this.restartControl = opts.restartControl ?? null;
     this.interruptTurn = opts.interruptTurn ?? null;
+    // ★ A5: resolve the proactive-alert config ONCE. enabled=false (the default) ⇒ the watchdog is
+    // NOT enabled below, the proactive-watch never starts, and maybeProactiveAlert() early-returns
+    // → byte-for-byte today. The thresholds are only consulted when enabled.
+    this.proactive = {
+      enabled: opts.proactiveAlerts === true,
+      turnWatchdogMs: opts.turnWatchdogMs ?? DEFAULT_TURN_WATCHDOG_MS,
+      watchIntervalMs: opts.proactiveWatchIntervalMs ?? DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
+    };
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -666,12 +730,14 @@ export class SessionHost {
         // D4: ANY real turn result proves the orchestrator is responsive → clear the
         // liveness-ping deadline (it answered, whether the ping or another turn).
         this.clearPingTimer();
+        this.onProactiveRecovery(); // ★ A5: a result = proof of life → clear a stale stall + re-arm
         return text ? this.sendToOperator(text) : Promise.resolve();
       },
       // D4: an INTERNAL turn (the liveness ping) → confirm responsiveness WITHOUT
       // forwarding the pong to the user. Just clears the deadline (= alive, tier-a).
       onInternalResult: () => {
         this.clearPingTimer();
+        this.onProactiveRecovery(); // ★ A5: a pong = proof of life → clear a stale stall + re-arm
         this.logger.info('liveness pong received (internal) — orchestrator responsive');
       },
       // D4 BELT: mid-turn activity is the INTERNAL liveness signal (clears the ping
@@ -680,12 +746,24 @@ export class SessionHost {
       onProgress: () => this.onMidTurnProgress(),
       // FORWARD ALL OUTPUT (orchestrator profile): mirror tool activity to the channel.
       onToolActivity: opts.forwardToolActivity ? (info) => this.forwardToolActivity(info) : undefined,
+      // ★ A5 — ENABLE the latent in-flight turn-watchdog in ALERT-ONLY mode, but ONLY when the
+      // proactive switch is on (else these keys are omitted ⇒ turnTimeoutMs stays 0 ⇒ the watchdog
+      // timers do NOT arm ⇒ byte-for-byte today). The action is FIXED to 'surface' — NEVER 'restart'
+      // — so a turn outstanding past the deadline produces an ALERT, never a kill (decision (c): a
+      // legitimately long /dev build must not be murdered). The conditional-spread mirrors the P6
+      // dormant-default pattern.
+      ...(this.proactive.enabled
+        ? { turnTimeoutMs: this.proactive.turnWatchdogMs, onStallAction: 'surface' as const }
+        : {}),
       // CONTROL PLANE — record the last stall the lifecycle watchdog surfaces, so the
       // `/control` `status` action can classify STUCK (proposal §5). The lifecycle owns
       // stall DETECTION (P1); this just latches the last-seen snapshot. The watchdog is
       // dormant by default (turnTimeoutMs=0), so onStall never fires today → byte-for-byte.
+      // ★ A5: when the proactive switch is on, the latched stall ALSO drives a debounced
+      // proactive PUSH (the in-flight-watchdog STUCK case) — alert-only, never a kill.
       onStall: (info) => {
         this.lastStall = { silentMs: info.silentMs, action: info.action };
+        if (this.proactive.enabled) void this.maybeProactiveAlert();
       },
     });
   }
@@ -757,6 +835,9 @@ export class SessionHost {
     this.startedAt = Date.now();
     // D4: arm the periodic idle-aware liveness scheduler (no-op if disabled).
     this.startLivenessScheduler();
+    // ★ A5: arm the periodic proactive-watch (no-op unless proactiveAlerts is on) — catches a DEAD
+    // child (which emits no events). The in-flight watchdog + the missed-ping path arm themselves.
+    this.startProactiveWatch();
     this.logger.info('session host started', this.lifecycle.health());
   }
 
@@ -1862,6 +1943,24 @@ export class SessionHost {
     // liveness-ping deadline (covers the race where a ping armed an instant before a real
     // turn began producing output). No message is sent to the user.
     this.clearPingTimer();
+    this.onProactiveRecovery(); // ★ A5: live activity = proof of life → clear a stale stall + re-arm
+  }
+
+  /**
+   * ★ A5 — RECOVERY: the orchestrator produced output (a result, a pong, or mid-turn activity),
+   * so it is demonstrably alive again. Clear any sticky `lastStall` (so `status` no longer shows
+   * STUCK and {@link classifyLiveness} sees ACTIVE), then re-evaluate — which RE-ARMS the
+   * proactive-alert debounce (a future stuck/dead event will alert again). No-op unless the
+   * proactive switch is on (the dormant default never touches `lastStall` → byte-for-byte; the
+   * `status` STUCK signal stays exactly as the A1/A4 phases shipped it). This is what makes
+   * "push at most one alert per EVENT, re-arm only after the condition clears" hold end-to-end.
+   */
+  private onProactiveRecovery(): void {
+    if (!this.proactive.enabled) return; // dormant default — leave lastStall untouched
+    if (this.lastStall !== null) {
+      this.lastStall = null; // recovered → no longer stuck
+    }
+    void this.maybeProactiveAlert(); // now classifies ACTIVE → re-arms the debounce latch
   }
 
   /**
@@ -1890,6 +1989,14 @@ export class SessionHost {
     this.pingTimer = setTimeout(() => {
       this.pingTimer = null;
       this.logger.error('liveness ping TIMED OUT — orchestrator unresponsive (tier-b)', { timeoutMs: timeout });
+      // ★ A5: a missed ping IS the idle-STUCK signal → latch it so `status` classifies STUCK
+      // end-to-end, and PUSH a debounced proactive alert. Gated on the proactive switch (OFF ⇒
+      // no latch, no push → byte-for-byte). This runs BEFORE onUnresponsive so the alert precedes
+      // the existing auto-restart; A5 adds NO kill path — onUnresponsive (index.ts) is unchanged.
+      if (this.proactive.enabled) {
+        this.lastStall = { silentMs: timeout, action: 'surface' };
+        void this.maybeProactiveAlert();
+      }
       void this.opts.onUnresponsive?.(`no turn result within ${timeout}ms of the liveness ping (orchestrator idle but unresponsive)`);
     }, timeout);
     if (typeof this.pingTimer === 'object' && 'unref' in this.pingTimer) {
@@ -1949,6 +2056,80 @@ export class SessionHost {
       clearTimeout(this.pingTimer);
       this.pingTimer = null;
     }
+  }
+
+  // ── ★ A5 — PROACTIVE stuck/dead PUSH (debounced, one-per-event; ALERT-only) ──────────────
+  /**
+   * A5 — evaluate the orchestrator's liveness and, on a TRANSITION INTO stuck/dead, PUSH exactly
+   * ONE debounced alert to the channel. Called from the three detection signals — the in-flight
+   * watchdog (`onStall`), the missed liveness ping (`pingLiveness` timeout), and the periodic
+   * proactive-watch (catches a DEAD child, which emits no events). Debounce (flood-safe): the last
+   * alerted state is latched; a repeated tick in the SAME state does NOT re-push; liveness returning
+   * to 'active' RE-ARMS (clears the latch) so the next stuck/dead event alerts again. ALERT-ONLY —
+   * this method NEVER kills/restarts (recovery is the operator's `/control` action or the existing
+   * auto-restart). No-op unless {@link proactive}.enabled (the dormant default → byte-for-byte). The
+   * push is best-effort (a send failure is logged, not thrown) and goes to the bound operator only.
+   */
+  private async maybeProactiveAlert(): Promise<void> {
+    if (!this.proactive.enabled) return; // dormant default — never pushes
+    const snap = this.controlStatusSnapshot();
+    const live = classifyLiveness(snap);
+    if (live === 'active') {
+      // Healthy again → RE-ARM (so the next stuck/dead transition pushes a fresh alert).
+      if (this.alertedState !== null) {
+        this.logger.info('proactive watch: orchestrator recovered to active — alert re-armed', { prior: this.alertedState });
+        this.alertedState = null;
+      }
+      return;
+    }
+    // STUCK or DEAD. Debounce: only push when this is a NEW event (state changed since last alert).
+    if (this.alertedState === live) return; // already alerted for this event — stay silent (flood-safe)
+    this.alertedState = live;
+    const text = formatProactiveAlert(live, { ...(snap.lastStall?.silentMs != null ? { silentMs: snap.lastStall.silentMs } : {}) });
+    if (!text) return; // (active returns null — already handled above)
+    this.publishLifecycle('proactive_alert', { state: live, silentMs: snap.lastStall?.silentMs });
+    this.logger.warn('proactive alert PUSHED to channel', { state: live });
+    if (!this.operator) return; // no one bound yet → nothing to push to (still latched, so we don't spam later)
+    try {
+      // A CONTROL message: plain text, no modality (never voiced), does NOT touch the per-turn
+      // lastSentText baseline — exactly like forwardToolActivity / the control acks.
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('proactive alert push failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * A5 — start the periodic PROACTIVE-WATCH (only when {@link proactive}.enabled). A dead child
+   * emits no events, so a timer re-checks liveness every {@link proactive}.watchIntervalMs and lets
+   * {@link maybeProactiveAlert} push a DEAD alert (and pick up a persistent STUCK). Idempotent. The
+   * timer factory is INJECTABLE (so tests fire ticks via a fake clock — no real wait); the real
+   * handle is `.unref()`'d so it never keeps the process alive. NO-OP when disabled → no timer arms
+   * (byte-for-byte today). Started by {@link start}.
+   */
+  private startProactiveWatch(): void {
+    if (!this.proactive.enabled) return; // dormant default — no timer
+    if (this.proactiveWatchTimer) return; // already running
+    const timers = this.opts.proactiveWatchTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    this.proactiveWatchTimer = timers.setInterval(() => void this.maybeProactiveAlert().catch(() => undefined), this.proactive.watchIntervalMs);
+    if (typeof this.proactiveWatchTimer === 'object' && this.proactiveWatchTimer !== null && 'unref' in this.proactiveWatchTimer) {
+      (this.proactiveWatchTimer as { unref: () => void }).unref();
+    }
+    this.logger.info('proactive watch started', { intervalMs: this.proactive.watchIntervalMs, turnWatchdogMs: this.proactive.turnWatchdogMs });
+  }
+
+  /** A5 — stop the periodic proactive-watch timer (teardown). Safe when not armed. */
+  private stopProactiveWatch(): void {
+    if (!this.proactiveWatchTimer) return;
+    const timers = this.opts.proactiveWatchTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    timers.clearInterval(this.proactiveWatchTimer);
+    this.proactiveWatchTimer = null;
   }
 
   /**
@@ -2146,6 +2327,7 @@ export class SessionHost {
   /** Stop the hosted session. */
   async stop(): Promise<void> {
     this.stopLivenessScheduler();
+    this.stopProactiveWatch(); // ★ A5: tear down the proactive-watch timer (safe when not armed)
     await this.lifecycle.stop();
     this.started = false;
   }

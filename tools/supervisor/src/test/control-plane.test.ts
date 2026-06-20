@@ -41,6 +41,9 @@ import {
   formatStatus,
   formatUptime,
   formatControlLog,
+  formatProactiveAlert,
+  DEFAULT_TURN_WATCHDOG_MS,
+  DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
   CONTROL_ACTIONS,
   CONTROL_MODEL_CHOICES,
   CONTROL_MENU_TEXT,
@@ -313,12 +316,16 @@ test('A3 buildModelSetConfirmMenu(model): a Confirm carrying the model (ctl:mode
 // 1d. control-command.ts — classify active/stuck/dead + format status (faked states)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('classifyLiveness: dead when not running, stuck when idle+stall, else active', () => {
+test('classifyLiveness: dead when not running, stuck when a stall signal is present, else active', () => {
   assert.equal(classifyLiveness(baseSnap({ running: false })), 'dead');
   assert.equal(classifyLiveness(baseSnap({ running: true, idle: true, lastStall: { silentMs: 200000, action: 'surface' } })), 'stuck');
   assert.equal(classifyLiveness(baseSnap({ running: true, idle: true, lastStall: null })), 'active');
-  // A turn in flight (not idle) is ACTIVE even if a prior stall was recorded.
-  assert.equal(classifyLiveness(baseSnap({ running: true, idle: false, lastStall: { silentMs: 1, action: 'surface' } })), 'active');
+  // ★ A5: a stall signal means STUCK regardless of idle — the in-flight turn-watchdog wedges a
+  // turn (not idle) and that IS stuck (proposal §5). A5 clears lastStall on recovery, so a present
+  // lastStall always denotes a CURRENT stall (never a stale prior one).
+  assert.equal(classifyLiveness(baseSnap({ running: true, idle: false, lastStall: { silentMs: 1, action: 'surface' } })), 'stuck');
+  // No stall signal + in flight → ACTIVE (a busy, progressing turn).
+  assert.equal(classifyLiveness(baseSnap({ running: true, idle: false, lastStall: null })), 'active');
 });
 
 test('formatStatus surfaces the model + badge + uptime + restarts; DEAD/STUCK add a detail line', () => {
@@ -1246,6 +1253,310 @@ test('a perm:* callback is NOT eaten by the control router — the permission de
   await new Promise((r) => setTimeout(r, 20));
   assert.equal((decision as PermissionDecision).behavior, 'allow', 'perm:* still resolves the permission');
   assert.match(cap.answered.at(-1)!.text!, /Allowed/);
+  await host.stop();
+  bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. A5 — PROACTIVE stuck/dead PUSH + in-flight turn-watchdog (ALERT-not-kill).
+//    HOST-SAFETY: detection NEVER kills/restarts (the watchdog action is fixed to
+//    'surface'); every assertion checks `driver.starts` stays 1. The proactive-watch
+//    timer is driven by an INJECTED fake clock (a captured tick callback fired
+//    synchronously) — NO real 180s wait, the test process never hangs. The push goes
+//    to the FAKE capture transport, never real Telegram.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 4a. control-command.ts — the proactive-alert text (pure)
+
+test('A5 formatProactiveAlert: stuck/dead produce a directive alert; active → null', () => {
+  const stuck = formatProactiveAlert('stuck', { silentMs: 47_000 });
+  assert.ok(stuck, 'stuck produces an alert');
+  assert.match(stuck!, /unresponsive/i);
+  assert.match(stuck!, /~47s/);
+  assert.match(stuck!, /\/control/); // tells the user what to do
+  assert.match(stuck!, /Restart/);
+  // stuck with no silentMs → a graceful "a while".
+  assert.match(formatProactiveAlert('stuck')!, /a while/);
+  const dead = formatProactiveAlert('dead');
+  assert.ok(dead, 'dead produces an alert');
+  assert.match(dead!, /DIED/);
+  assert.match(dead!, /\/control/);
+  // active is NEVER alerted.
+  assert.equal(formatProactiveAlert('active'), null);
+  // The default thresholds are the decision-(c) values.
+  assert.equal(DEFAULT_TURN_WATCHDOG_MS, 180_000);
+  assert.equal(DEFAULT_PROACTIVE_WATCH_INTERVAL_MS, 20_000);
+});
+
+// 4b. SessionHost — host builders with the A5 proactive switch + a fake-clock watch
+
+/** A captured fake interval: records the callback so a test can fire ticks synchronously. */
+function makeFakeWatchTimers() {
+  let cb: (() => void) | null = null;
+  const intervals: number[] = [];
+  let cleared = 0;
+  return {
+    timers: {
+      setInterval: (fn: () => void, ms: number) => {
+        cb = fn;
+        intervals.push(ms);
+        return { id: 1 } as unknown;
+      },
+      clearInterval: (_h: unknown) => {
+        cleared += 1;
+      },
+    },
+    /** Fire one proactive-watch tick (what the real interval would do). */
+    tick: async () => {
+      cb?.();
+      await new Promise((r) => setTimeout(r, 0)); // let the async push settle
+    },
+    get intervals() {
+      return intervals;
+    },
+    get cleared() {
+      return cleared;
+    },
+    get armed() {
+      return cb !== null;
+    },
+  };
+}
+
+/** A5 host: an idle session + the proactive switch on + a fake-clock watch + the given watchdog/ping ms. */
+function makeProactiveHost(
+  cap: ReturnType<typeof makeCapture>,
+  opts: {
+    proactiveAlerts?: boolean;
+    turnWatchdogMs?: number;
+    pingResponseTimeoutMs?: number;
+    fakeWatch?: ReturnType<typeof makeFakeWatchTimers>;
+    program?: ConstructorParameters<typeof FakeSessionDriver>[0];
+  } = {},
+) {
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver(
+    opts.program ?? [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }]],
+  );
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    answerCallback: cap.answerCallback,
+    editMessage: cap.editMessage,
+    policy: { allow: ['Read'], fallback: 'route' },
+    ...(opts.proactiveAlerts ? { proactiveAlerts: true } : {}),
+    ...(opts.turnWatchdogMs != null ? { turnWatchdogMs: opts.turnWatchdogMs } : {}),
+    ...(opts.pingResponseTimeoutMs != null ? { pingResponseTimeoutMs: opts.pingResponseTimeoutMs } : {}),
+    ...(opts.fakeWatch ? { proactiveWatchTimers: opts.fakeWatch.timers } : {}),
+  });
+  return { bus, driver, host };
+}
+
+/** Count the alert pushes the supervisor made (stuck OR dead), by their leading emoji/word. */
+function alertPushes(cap: ReturnType<typeof makeCapture>): { msg: OutboundMessage }[] {
+  return cap.sent.filter((s) => /Orchestrator (unresponsive|DIED)/.test(s.msg.text ?? ''));
+}
+
+test('A5 in-flight watchdog (proactive ON): a wedged turn past the deadline PUSHES one alert, does NOT kill', async () => {
+  const cap = makeCapture();
+  // A turn that wedges (silence) after injection; a SHORT watchdog so the deadline elapses fast (no 180s wait).
+  const { bus, driver, host } = makeProactiveHost(cap, {
+    proactiveAlerts: true,
+    turnWatchdogMs: 30,
+    program: [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }]],
+  });
+  await host.start();
+  await host.handleInbound(inbound('do a very long thing')); // binds operator + arms the watchdog
+  assert.equal(driver.sentTurns.length, 1, 'the turn was injected');
+  await new Promise((r) => setTimeout(r, 120)); // let the watchdog deadline elapse + the push settle
+  // Exactly ONE proactive alert was pushed (the in-flight STUCK case), and it is directive.
+  const pushes = alertPushes(cap);
+  assert.equal(pushes.length, 1, 'one stuck alert pushed by the in-flight watchdog');
+  assert.match(pushes[0]!.msg.text!, /unresponsive/i);
+  // ★ HOST-SAFETY: ALERT-not-kill — the watchdog did NOT restart/kill the session.
+  assert.equal(driver.starts, 1, 'the watchdog NEVER restarted the orchestrator (alert-only)');
+  assert.equal(driver.interrupts, 0, 'the watchdog NEVER interrupted the turn (surface, not restart)');
+  await host.stop();
+  bus.close();
+});
+
+test('A5 in-flight watchdog (proactive ON): the alert is DEBOUNCED — one per event, not per tick', async () => {
+  const cap = makeCapture();
+  const fakeWatch = makeFakeWatchTimers();
+  const { bus, driver, host } = makeProactiveHost(cap, {
+    proactiveAlerts: true,
+    turnWatchdogMs: 30,
+    fakeWatch,
+    program: [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }]],
+  });
+  await host.start();
+  await host.handleInbound(inbound('do a very long thing'));
+  await new Promise((r) => setTimeout(r, 120)); // watchdog fires once → one push
+  assert.equal(alertPushes(cap).length, 1, 'one push from the watchdog');
+  // Now fire SEVERAL proactive-watch ticks while STILL stuck — NO additional pushes (debounced).
+  await fakeWatch.tick();
+  await fakeWatch.tick();
+  await fakeWatch.tick();
+  assert.equal(alertPushes(cap).length, 1, 'repeated ticks in the same stuck state do NOT re-push (flood-safe)');
+  assert.equal(driver.starts, 1, 'still no restart');
+  await host.stop();
+  bus.close();
+});
+
+test('A5 missed liveness ping (proactive ON): STUCK classified end-to-end + one alert pushed (no kill)', async () => {
+  const cap = makeCapture();
+  // pingResponseTimeoutMs short → the ping deadline fires fast. No onUnresponsive is wired here, so
+  // there is NO restart path at all in this test — A5 adds none. The program keeps the session ALIVE
+  // after the ping (a trailing `silence` → the stream stays open, the ping is never answered, no
+  // crash → no restart) so driver.starts stays 1.
+  const { bus, driver, host } = makeProactiveHost(cap, {
+    proactiveAlerts: true,
+    pingResponseTimeoutMs: 30,
+    program: [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }]],
+  });
+  await host.start();
+  await host.handleInbound(inbound('/control')); // bind the operator (idle session)
+  // Manually fire an idle-aware liveness ping; the orchestrator never answers (it idles) → deadline.
+  await host.pingLiveness();
+  await new Promise((r) => setTimeout(r, 80)); // let the ping deadline elapse + the push settle
+  // The missed ping pushed exactly one STUCK alert.
+  const pushes = alertPushes(cap);
+  assert.equal(pushes.length, 1, 'one stuck alert pushed on the missed ping');
+  assert.match(pushes[0]!.msg.text!, /unresponsive/i);
+  // ★ status now classifies STUCK end-to-end (the A1 "stuck needs the watchdog" gap is closed).
+  await host.handleInbound(callbackInbound('ctl:status', 'cb-stk', 'm-stk'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-stk');
+  assert.ok(ed, 'status edited');
+  assert.match(ed!.text, /🟡 STUCK/, 'status reports STUCK after the missed ping');
+  // ★ HOST-SAFETY: nothing was killed/restarted by detection.
+  assert.equal(driver.starts, 1, 'the missed ping did NOT restart the orchestrator (A5 adds no kill path)');
+  await host.stop();
+  bus.close();
+});
+
+test('A5 DEAD detection (proactive ON, fake clock): a watch tick on a dead child PUSHES one alert; no kill', async () => {
+  const cap = makeCapture();
+  const fakeWatch = makeFakeWatchTimers();
+  const { bus, driver, host } = makeProactiveHost(cap, { proactiveAlerts: true, fakeWatch });
+  await host.start();
+  await host.handleInbound(inbound('/control')); // bind the operator
+  // The proactive-watch timer was armed via the INJECTED factory (no real timer).
+  assert.equal(fakeWatch.armed, true, 'the proactive-watch was armed via the injected timer factory');
+  assert.ok(fakeWatch.intervals.includes(DEFAULT_PROACTIVE_WATCH_INTERVAL_MS), 'armed at the default 20s cadence');
+  // Make the child DEAD (lifecycle no longer running), then fire a watch tick (the fake clock).
+  await host.stop(); // child not running → DEAD; the captured tick callback still reads live health
+  await fakeWatch.tick();
+  const pushes = alertPushes(cap);
+  assert.equal(pushes.length, 1, 'one DEAD alert pushed by the watch tick');
+  assert.match(pushes[0]!.msg.text!, /DIED/);
+  // Firing more ticks while still dead does NOT re-push (debounced one-per-event).
+  await fakeWatch.tick();
+  await fakeWatch.tick();
+  assert.equal(alertPushes(cap).length, 1, 'repeated dead ticks do NOT re-push');
+  // ★ HOST-SAFETY: detection never restarted the child (driver.starts stays 1).
+  assert.equal(driver.starts, 1, 'DEAD detection did NOT restart the orchestrator');
+  bus.close();
+});
+
+test('A5 re-arm: after RECOVERY (a late pong), a fresh stuck event alerts AGAIN (one-per-event holds across events)', async () => {
+  const cap = makeCapture();
+  // The program: park for ping1 → DELAY past the deadline (so ping1 times out = STUCK) → then emit a
+  // (late) result that RESOLVES ping1 = recovery (back to idle) → park for ping2 → silence (keep the
+  // stream open after ping2 so there is no crash/restart).
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // ping1 consumes this
+      { do: 'delay', ms: 60 }, // > the 30ms deadline → ping1 times out (STUCK) before the late pong
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'late pong' } }, // recovery
+      { do: 'awaitTurn' }, // ping2 consumes this
+      { do: 'silence' }, // keep the stream open after ping2 (no crash → no restart)
+    ],
+  ]);
+  const bus = new IoBus();
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    answerCallback: cap.answerCallback,
+    editMessage: cap.editMessage,
+    policy: { allow: ['Read'], fallback: 'route' },
+    proactiveAlerts: true,
+    pingResponseTimeoutMs: 30,
+  });
+  await host.start();
+  await host.handleInbound(inbound('/control')); // bind operator (idle)
+  // EVENT 1: missed ping → STUCK push #1.
+  await host.pingLiveness();
+  await new Promise((r) => setTimeout(r, 45)); // past the 30ms deadline, before the 60ms late pong
+  assert.equal(alertPushes(cap).length, 1, 'first stuck event alerts');
+  // RECOVERY: the late result resolves ping1 → onInternalResult → onProactiveRecovery clears lastStall + re-arms.
+  await new Promise((r) => setTimeout(r, 40)); // let the 60ms delay + the result settle
+  await host.handleInbound(callbackInbound('ctl:status', 'cb-rec', 'm-rec'));
+  assert.match(cap.edited.find((e) => e.messageId === 'm-rec')!.text, /🟢 ACTIVE/, 'recovered → ACTIVE (sticky stall cleared)');
+  // EVENT 2: another missed ping (now idle again) → STUCK push #2 (re-armed).
+  await host.pingLiveness();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(alertPushes(cap).length, 2, 'a NEW stuck event after recovery alerts AGAIN (re-armed)');
+  assert.equal(driver.starts, 1, 'no restart across the whole sequence (alert-only)');
+  await host.stop();
+  bus.close();
+});
+
+// 4c. SACRED INVARIANT — switch OFF ⇒ byte-for-byte (timers never arm, no push, no behavior change)
+
+test('A5 switch OFF (default): the in-flight watchdog NEVER arms — a wedged turn does NOT push, NOT kill', async () => {
+  const cap = makeCapture();
+  // proactiveAlerts OMITTED (the default). Even with a (would-be) tiny watchdog value passed, it is
+  // NOT wired into the lifecycle when the switch is off → the watchdog timer never arms.
+  const { bus, driver, host } = makeProactiveHost(cap, {
+    turnWatchdogMs: 30, // ignored while the switch is off
+    program: [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }]],
+  });
+  await host.start();
+  await host.handleInbound(inbound('do a very long thing'));
+  await new Promise((r) => setTimeout(r, 120)); // a generous window — nothing should fire
+  assert.equal(alertPushes(cap).length, 0, 'OFF: no proactive alert pushed (watchdog never armed)');
+  assert.equal(driver.starts, 1, 'OFF: no restart');
+  assert.equal(driver.interrupts, 0, 'OFF: no interrupt');
+  await host.stop();
+  bus.close();
+});
+
+test('A5 switch OFF (default): the proactive-watch timer never arms; a missed ping does NOT push', async () => {
+  const cap = makeCapture();
+  const fakeWatch = makeFakeWatchTimers();
+  // proactiveAlerts OFF + a short ping timeout. The ping path still does its EXISTING tier-b behavior
+  // (here onUnresponsive is unwired → nothing), but A5 adds NO latch + NO push when the switch is off.
+  const { bus, driver, host } = makeProactiveHost(cap, { pingResponseTimeoutMs: 30, fakeWatch });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  // The proactive-watch was NOT armed (the injected factory was never called).
+  assert.equal(fakeWatch.armed, false, 'OFF: the proactive-watch timer never armed');
+  await host.pingLiveness();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(alertPushes(cap).length, 0, 'OFF: a missed ping pushes no proactive alert');
+  // status does NOT report STUCK from the missed ping (A5 latched nothing) — byte-for-byte the A1/A4 behavior.
+  await host.handleInbound(callbackInbound('ctl:status', 'cb-off', 'm-off'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-off');
+  assert.ok(ed, 'status edited');
+  assert.equal(/🟡 STUCK/.test(ed!.text), false, 'OFF: status does not show STUCK from a missed ping (no A5 latch)');
+  assert.equal(driver.starts, 1, 'OFF: no restart');
+  await host.stop();
+  bus.close();
+});
+
+test('A5 switch OFF: a non-/control message is still a normal turn (additive — A5 changes nothing off-path)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeProactiveHost(cap); // all A5 off
+  await host.start();
+  await host.handleInbound(inbound('please render the build'));
+  assert.equal(driver.sentTurns.length, 1, 'a normal message is forwarded as a turn');
+  assert.equal(driver.sentTurns[0]!.text, 'please render the build');
+  assert.equal(alertPushes(cap).length, 0, 'no proactive alert on a normal turn');
   await host.stop();
   bus.close();
 });

@@ -364,19 +364,24 @@ export type Liveness = 'active' | 'stuck' | 'dead';
 
 /**
  * Classify the orchestrator child as active / stuck / dead from a
- * {@link StatusSnapshot} (proposal §5, Phase-1 read-only form):
+ * {@link StatusSnapshot} (proposal §5):
  *  - **dead**   — the child is not running (`running === false`).
- *  - **stuck**  — running but IDLE and a stall signal was observed (a turn went
- *    silent past the watchdog without completing). The proactive ping/watchdog
- *    that PRODUCES the stall signal is wired in a later phase; this classifier
- *    reads whatever signal is present.
- *  - **active** — running and not classified stuck (a turn is in flight, or it is
- *    idle and healthy).
+ *  - **stuck**  — running but a stall signal is present (`lastStall != null`).
+ *    A5 produces this signal from EITHER the idle-missed-ping path (idle + an
+ *    unanswered liveness ping) OR the in-flight turn-watchdog (a turn outstanding
+ *    past the watchdog deadline — `!idle`). Because A5 CLEARS `lastStall` on any
+ *    recovery (a result / pong / mid-turn activity, via the SessionHost's
+ *    onProactiveRecovery), a present `lastStall` always denotes a CURRENT stall —
+ *    NOT a stale prior one — so the classifier no longer gates on `idle` (the
+ *    in-flight-wedged case is genuinely STUCK; proposal §5 includes it). When the
+ *    proactive switch is OFF the watchdog/ping never set `lastStall`, so it stays
+ *    null and this still reports ACTIVE — byte-for-byte today.
+ *  - **active** — running and no stall signal present.
  * Pure.
  */
 export function classifyLiveness(s: StatusSnapshot): Liveness {
   if (!s.running) return 'dead';
-  if (s.idle && s.lastStall != null) return 'stuck';
+  if (s.lastStall != null) return 'stuck';
   return 'active';
 }
 
@@ -416,6 +421,43 @@ export function formatStatus(s: StatusSnapshot): string {
     lines.push('the orchestrator child is not running — use the menu to restart it (wired in a later phase).');
   }
   return lines.join('\n');
+}
+
+/**
+ * ★ A5 — DEFAULT thresholds for the proactive stuck/dead watch (proposal §5 +
+ * decision (c)). All overridable via {@link SupervisorConfig} (resolved in config.ts);
+ * exported here so the pure layer + the tests share one source of truth.
+ *  - {@link DEFAULT_TURN_WATCHDOG_MS} — a turn in flight longer than this is flagged
+ *    STUCK by the in-flight watchdog → ALERT (never kill).
+ *  - {@link DEFAULT_PROACTIVE_WATCH_INTERVAL_MS} — how often the proactive-watch
+ *    re-checks liveness (to catch a DEAD child, which emits no events).
+ */
+export const DEFAULT_TURN_WATCHDOG_MS = 180_000; // 180s — alert-not-kill (decision (c))
+export const DEFAULT_PROACTIVE_WATCH_INTERVAL_MS = 20_000; // 20s re-check cadence
+
+/**
+ * ★ A5 — format the PROACTIVE alert text the supervisor PUSHES to the channel when it
+ * detects the orchestrator is STUCK or DEAD (proposal §2 "PROACTIVE push", CF5). States
+ * WHAT is detected + WHAT to do, and (for STUCK) the silent duration. ONLY STUCK/DEAD
+ * produce an alert ('active' returns null — never alert on a healthy transition). Pure, so
+ * the message strings are unit-testable. The SessionHost pushes the returned text once per
+ * event (debounced) via its operator-send path.
+ */
+export function formatProactiveAlert(live: Liveness, ctx: { silentMs?: number } = {}): string | null {
+  if (live === 'stuck') {
+    const secs = ctx.silentMs != null ? `~${Math.round(ctx.silentMs / 1000)}s` : 'a while';
+    return (
+      `⚠️ Orchestrator unresponsive (${secs}) — it stopped answering. ` +
+      `Tap /control → Restart (or Kill) to recover, or it keeps retrying on its own.`
+    );
+  }
+  if (live === 'dead') {
+    return (
+      `🔴 Orchestrator DIED (the child process is not running) — restarting it now. ` +
+      `Tap /control → Status to check, or Resume to re-inject the last handoff.`
+    );
+  }
+  return null; // active → no alert
 }
 
 /**

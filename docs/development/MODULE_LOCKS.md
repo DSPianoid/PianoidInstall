@@ -15,6 +15,48 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-acb7 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, config.ts,
+     session-host.ts, test/control-plane.test.ts}. tools/supervisor/src/lifecycle.ts was LOCKED precautionarily but
+     NOT edited (A5 only USES the existing latent in-flight watchdog → ZERO structural change to lifecycle.ts; git
+     shows no M on it) → released untouched. Supervisor control-plane Phase A5 (P-A5) = the PROACTIVE stuck/dead PUSH
+     + the in-flight turn-watchdog ENABLEMENT (ALERT-not-kill). When the orchestrator goes STUCK (idle + a missed
+     liveness ping OR a surfaced in-flight-watchdog stall) or DEAD (child not running), the supervisor PUSHES exactly
+     ONE DEBOUNCED alert to the channel (one per stuck/dead EVENT; re-armed only after recovery — the user is
+     flood-sensitive). Three detection signals, all REUSING existing machinery: (1) the latent in-flight watchdog is
+     now CONFIG-ENABLED in `surface` mode at turnWatchdogMs (default 180s) — a turn outstanding past the deadline →
+     an ALERT, NEVER a kill; its onStall latches lastStall + alerts; (2) the missed-ping pingLiveness timeout latches
+     lastStall + alerts BEFORE the EXISTING onUnresponsive (the existing auto-restart-on-unresponsive is UNCHANGED —
+     A5 adds NO new kill path); (3) a periodic proactive-watch re-checks liveness to catch a DEAD child (which emits
+     no events). classifyLiveness widened to STUCK on `running && lastStall != null` (the in-flight-wedged case is
+     genuinely STUCK, §5) — SAFE because A5 CLEARS lastStall on any recovery (a result/pong/mid-turn activity →
+     onProactiveRecovery), so a present lastStall always denotes a CURRENT stall, never a stale one; this CLOSES the
+     A1 "stuck needs the watchdog" gap so `status` resolves STUCK end-to-end. control-command.ts = PURE (+formatProactiveAlert
+     + DEFAULT_TURN_WATCHDOG_MS(180000)/DEFAULT_PROACTIVE_WATCH_INTERVAL_MS(20000) + the classifyLiveness widen;
+     491→533 LOC, crossed 500→YELLOW, a single cohesive control-plane-pure concern). config.ts = +proactiveAlerts
+     (SUPERVISOR_PROACTIVE_ALERTS, default OFF) + turnWatchdogMs (SUPERVISOR_TURN_WATCHDOG_MS) + proactiveWatchIntervalMs
+     (SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS) fields + 3 pure resolvers; 324→392 LOC. session-host.ts WIRES it
+     (+4 opts incl. an INJECTABLE proactiveWatchTimers + private proactive{enabled,turnWatchdogMs,watchIntervalMs} +
+     alertedState debounce latch + proactiveWatchTimer; ctor conditional-spread of turnTimeoutMs+onStallAction:'surface'
+     into the LifecycleManager ONLY when enabled; onStall + the ping-timeout both call maybeProactiveAlert; +maybeProactiveAlert/
+     startProactiveWatch/stopProactiveWatch/onProactiveRecovery; onResult/onInternalResult/onMidTurnProgress call
+     onProactiveRecovery [gated]; 2157→2339 LOC, pre-existing RED, additive within its inbound-routing/control concern).
+     ★HOST-SAFETY: the WHOLE A5 behavior is gated behind the NEW SUPERVISOR_PROACTIVE_ALERTS flag DEFAULT-OFF — OFF ⇒
+     the watchdog is NOT wired (its timers do not arm), the proactive-watch never starts, maybeProactiveAlert
+     early-returns, onProactiveRecovery leaves lastStall untouched → BYTE-FOR-BYTE today (SACRED INVARIANT). The
+     watchdog is ALERT-ONLY (onStallAction fixed to 'surface') — A5 introduces NO auto-kill/restart (it composes with
+     the existing auto-restart-on-unresponsive). The watchdog/proactive-watch timers are clock-INJECTABLE + .unref()'d
+     → the fake clock fires ticks synchronously (NO real 180s wait, the test process never hangs); the push goes to a
+     FAKE transport. Additive + gated → non-control inbound BYTE-FOR-BYTE. +9 tests (1 pure + 5 host ON [in-flight
+     watchdog alert-not-kill, watchdog debounce, missed-ping STUCK end-to-end, DEAD fake-clock, re-arm] + 3 host OFF
+     [watchdog never arms, watch+ping never arm, normal turn forwarded]), full supervisor node:test 540/540 (531
+     baseline +9), tsc clean (built ONLY to throwaway dist-test-a5[+-base], removed — prod dist/ NOT regenerated
+     [dist/{index,lifecycle,session-host,config,control-command}.js mtime 2026-06-19 20:21:52 UNCHANGED]; the live
+     supervisor [8790] + the Pianoid stack [3000/3001/5000] were ALREADY RUNNING [user/production-owned] — NOT started,
+     NOT touched, NOT killed by this agent; NO /api/lifecycle/* call, NO restart). README doc-deferred (dev-vio1 holds
+     the lock; dev-ctl1's deferral note extended with the A5 line). Proposal: P-A5 marked SHIPPED + the proactive-push/
+     watchdog/alert-not-kill/debounce design documented (§2 row, §5 note, §6 P-A5 row, A4+A5 summary blocks). SHA in the
+     session log. -->
 <!-- dev-c9fb locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, lifecycle.ts,
      session-host.ts, test/control-plane.test.ts, test/fake-session-driver.ts}. Supervisor control-plane Phase A4 (P-A4) =
