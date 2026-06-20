@@ -19,6 +19,33 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
 
 **Deferred hygiene (AFTER the live-test, not before):** merge `feature/supervisor-control-plane` → master (worktree; conflict-free, it's ahead of master `2e0d35b`); then Phase-2 the control-plane phase logs (dev-ctl1/ctl2/ce3c/c9fb/acb7/2503) + their WIP rows. The pre-existing dirty `dev-vio1` log + untracked `controller-7f3a/8441` logs + 2 untracked proposals = OTHER agents' / deferred voice debt — do NOT disturb. `tools/supervisor/dist.bak/` = the pre-activation build (rollback); delete once activation is confirmed good.
 
+<!-- DOC DEFERRAL (dev-3e66, 2026-06-20): the CONTROL-PANEL REDESIGN (PART 1 menu restructure +
+     PART 2 automatic behaviors) shipped on feature/supervisor-control-plane (commits ff30dcb + the PART-2
+     commit). At Phase 2 / merge: (1) FOLD docs/proposals/control-panel-redesign-2026-06-20.md into the
+     parent docs/proposals/supervisor-control-plane-and-activation-2026-06-20.md (amend §2/§2.5/§6 with the
+     10-button menu + Advanced/Mode submenus + supervisor-side Parent restart + the 4 automatic behaviors)
+     THEN git mv the redesign spec → docs/proposals/archive/ with a **Status: IMPLEMENTED** header (the spec
+     itself instructs this). (2) README operator-control-plane section (held by dev-vio1's lock): update to the
+     redesigned menu + note the new env vars. NEW activation env vars (ALL default OFF/0 → byte-for-byte today):
+     SUPERVISOR_RECOVERY_LADDER, SUPERVISOR_AUTO_SNAPSHOT(+_INTERVAL_MS), SUPERVISOR_RESTART_DRAIN_MS,
+     SUPERVISOR_STATUS_PROBE_MS, SUPERVISOR_PARENT_RESTART_SCRIPT/_LAUNCHER. Source of truth meanwhile:
+     control-command.ts + config.ts + session-host.ts + the +27 tests (control-plane.test.ts / config.test.ts).
+     ★ PART-2 NOTE for activation: the 4 behaviors are gated default-OFF; turn each on deliberately after the
+     menu is confirmed (recovery ladder + auto-snapshot pair well; statusProbeMs gives Status its live ping;
+     restartDrainMs>0 enables the graceful-restart hard-kill escalation). Parent restart is wired + functional
+     (supervisor-side, confirm-gated) regardless of those flags. -->
+<!-- LOCK NOTE (dev-3e66): config.ts was also in dev-vio1's lock row, but dev-vio1 is PAUSED on the SEPARATE
+     feature/supervisor-voice-io branch (its config.ts edits committed @71074cc THERE — an env/default fix);
+     my config.ts edits are ADDITIVE new default-OFF flags on THIS branch (no field overlap), matching the
+     precedent of dev-acb7/dev-fa3d already editing config.ts here. The only reconciliation is the eventual
+     cross-branch merge, which the merge-owner already handles. -->
+<!-- FILE-SIZE FLAG (dev-3e66): tools/supervisor/src/session-host.ts is now ~2866 LOC (pre-existing RED, grew
+     +331 this redesign — additive within its inbound-routing/control-plane + lifecycle-wiring concern, no new
+     responsibility). It remains the top supervisor god-object; a split (e.g. extract the /control router +
+     handlers into a control-host module, and the liveness/recovery machinery into a liveness module) is a
+     worthwhile FOLLOW-UP for the periodic system audit — out of scope for this UX/behavior redesign. -->
+
+
 ## Active Dev Sessions
 
 | Agent | Task | Log | Started |

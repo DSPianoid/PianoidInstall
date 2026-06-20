@@ -554,6 +554,14 @@ export const DEFAULT_TURN_WATCHDOG_MS = 180_000; // 180s — alert-not-kill (dec
 export const DEFAULT_PROACTIVE_WATCH_INTERVAL_MS = 20_000; // 20s re-check cadence
 
 /**
+ * ★ REDESIGN — DEFAULT cadence for the AUTO-SNAPSHOT periodic timer (control-panel-redesign
+ * §"Auto-snapshot"). Snapshots context every this-many ms when `SUPERVISOR_AUTO_SNAPSHOT` is ON, so
+ * any restart (incl. an unexpected watchdog restart) re-injects a recent context snapshot. Exported
+ * so config.ts + the tests share one source of truth.
+ */
+export const DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS = 120_000; // 120s periodic snapshot cadence
+
+/**
  * ★ A5 — format the PROACTIVE alert text the supervisor PUSHES to the channel when it
  * detects the orchestrator is STUCK or DEAD (proposal §2 "PROACTIVE push", CF5). States
  * WHAT is detected + WHAT to do, and (for STUCK) the silent duration. ONLY STUCK/DEAD

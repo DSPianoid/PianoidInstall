@@ -24,7 +24,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_PROACTIVE_WATCH_INTERVAL_MS, DEFAULT_TURN_WATCHDOG_MS } from './control-command.js';
+import {
+  DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
+  DEFAULT_TURN_WATCHDOG_MS,
+  DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS,
+} from './control-command.js';
 import type { LogLevel } from './logger.js';
 import type { PermissionPolicy } from './permission-router.js';
 import { isRoleRoutingEnabled } from './role-router.js';
@@ -237,6 +241,49 @@ export interface SupervisorConfig {
    * keeps the process alive on its own).
    */
   proactiveWatchIntervalMs: number;
+  /**
+   * ★ REDESIGN (control-panel-redesign-2026-06-20) — RECOVERY LADDER switch. When ON, an
+   * unresponsive orchestrator is recovered in two steps — first AUTO-RECONNECT the channel, and only
+   * if it is STILL unresponsive, RESET (restart) — instead of restarting directly. Resolved from
+   * `SUPERVISOR_RECOVERY_LADDER`, ON only for '1'/'true'/'on'. DEFAULT OFF → the existing direct
+   * tier-b restart-on-unresponsive is used UNCHANGED (byte-for-byte today). Read at construction;
+   * a change needs a supervisor restart. Replaces the manual Reconnect button.
+   */
+  recoveryLadder: boolean;
+  /**
+   * ★ REDESIGN — AUTO-SNAPSHOT switch. When ON, the supervisor periodically snapshots the agent
+   * context AND snapshots before EVERY restart — including an unexpected/cold watchdog restart — so
+   * any restart re-injects context into the fresh session (closing the cold-watchdog-restart gap).
+   * Resolved from `SUPERVISOR_AUTO_SNAPSHOT`, ON only for '1'/'true'/'on'. DEFAULT OFF → no periodic
+   * snapshot timer arms and the involuntary restart path is byte-for-byte today. Replaces the manual
+   * Handoff button. Read at construction.
+   */
+  autoSnapshot: boolean;
+  /**
+   * ★ REDESIGN — AUTO-SNAPSHOT cadence (ms): how often the periodic snapshot runs when
+   * {@link autoSnapshot} is ON. Resolved from `SUPERVISOR_AUTO_SNAPSHOT_INTERVAL_MS`; default
+   * {@link DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS} (120s). Only armed when {@link autoSnapshot} is ON (the
+   * timer is `.unref()`'d so it never keeps the process alive on its own).
+   */
+  autoSnapshotIntervalMs: number;
+  /**
+   * ★ REDESIGN — RESTART DRAIN deadline (ms) for the hard-kill ESCALATION. When > 0, a GRACEFUL
+   * restart first waits up to this long for the in-flight turn to drain (the agent goes idle), then
+   * escalates to a hard restart regardless (so a stalled drain can never wedge the restart). Resolved
+   * from `SUPERVISOR_RESTART_DRAIN_MS`; DEFAULT 0 = NO drain wait = the existing immediate restart
+   * (byte-for-byte today — the graceful path already hard-kills via restartFresh). Absorbs the manual
+   * Kill button (escalation). Read at construction.
+   */
+  restartDrainMs: number;
+  /**
+   * ★ REDESIGN — STATUS LIVE-PROBE deadline (ms): the bound on the live responsiveness ping the
+   * `status` action fires (reporting latency + last-turn time). When > 0, `status` injects a probe
+   * turn and waits up to this long for a reply; the status snapshot ALWAYS returns even if the probe
+   * times out. Resolved from `SUPERVISOR_STATUS_PROBE_MS`; DEFAULT 0 = NO live probe = `status`
+   * reports the cheap snapshot only (byte-for-byte today). Absorbs the manual Ping button. Read at
+   * construction.
+   */
+  statusProbeMs: number;
 }
 
 export interface LoadConfigOptions {
@@ -314,6 +361,14 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     proactiveAlerts: resolveProactiveAlerts(),
     turnWatchdogMs: resolveTurnWatchdogMs(),
     proactiveWatchIntervalMs: resolveProactiveWatchIntervalMs(),
+    // ★ REDESIGN — the 4 control-panel automatic behaviors (ALL default-OFF / no-op → byte-for-byte
+    // today): the recovery ladder, auto-snapshot (+ its cadence), the restart drain deadline (0 =
+    // no escalation wait), and the status live-probe deadline (0 = no live probe).
+    recoveryLadder: resolveRecoveryLadder(),
+    autoSnapshot: resolveAutoSnapshot(),
+    autoSnapshotIntervalMs: resolveAutoSnapshotIntervalMs(),
+    restartDrainMs: resolveRestartDrainMs(),
+    statusProbeMs: resolveStatusProbeMs(),
   };
 }
 
@@ -348,6 +403,59 @@ export function resolveTurnWatchdogMs(raw = process.env.SUPERVISOR_TURN_WATCHDOG
 export function resolveProactiveWatchIntervalMs(raw = process.env.SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS): number {
   const n = Number((raw ?? '').trim());
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PROACTIVE_WATCH_INTERVAL_MS;
+}
+
+/**
+ * ★ REDESIGN — resolve the RECOVERY-LADDER switch from `SUPERVISOR_RECOVERY_LADDER`. ON only for
+ * '1'/'true'/'on'; anything else (incl. unset) → false (DEFAULT OFF → the existing direct restart-
+ * on-unresponsive is used unchanged = byte-for-byte today). Pure; exported for the test.
+ */
+export function resolveRecoveryLadder(raw = process.env.SUPERVISOR_RECOVERY_LADDER): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
+/**
+ * ★ REDESIGN — resolve the AUTO-SNAPSHOT switch from `SUPERVISOR_AUTO_SNAPSHOT`. ON only for
+ * '1'/'true'/'on'; anything else (incl. unset) → false (DEFAULT OFF → no periodic snapshot + the
+ * involuntary restart path stays byte-for-byte today). Pure; exported for the test.
+ */
+export function resolveAutoSnapshot(raw = process.env.SUPERVISOR_AUTO_SNAPSHOT): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
+/**
+ * ★ REDESIGN — resolve the AUTO-SNAPSHOT cadence (ms) from `SUPERVISOR_AUTO_SNAPSHOT_INTERVAL_MS`.
+ * A positive integer is used verbatim; an unset/blank/non-positive/non-numeric value →
+ * {@link DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS} (120s). Pure; exported for the test.
+ */
+export function resolveAutoSnapshotIntervalMs(raw = process.env.SUPERVISOR_AUTO_SNAPSHOT_INTERVAL_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS;
+}
+
+/**
+ * ★ REDESIGN — resolve the RESTART DRAIN deadline (ms) for the hard-kill escalation from
+ * `SUPERVISOR_RESTART_DRAIN_MS`. A positive integer is used verbatim (a graceful restart waits up to
+ * this long for the in-flight turn to drain, then hard-restarts regardless); an
+ * unset/blank/non-positive/non-numeric value → 0 (DEFAULT — NO drain wait = the existing immediate
+ * restart, byte-for-byte today). Pure; exported for the test.
+ */
+export function resolveRestartDrainMs(raw = process.env.SUPERVISOR_RESTART_DRAIN_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * ★ REDESIGN — resolve the STATUS LIVE-PROBE deadline (ms) from `SUPERVISOR_STATUS_PROBE_MS`. A
+ * positive integer is used verbatim (the `status` action fires a live ping bounded by this); an
+ * unset/blank/non-positive/non-numeric value → 0 (DEFAULT — NO live probe = `status` reports the
+ * cheap snapshot only, byte-for-byte today). Pure; exported for the test.
+ */
+export function resolveStatusProbeMs(raw = process.env.SUPERVISOR_STATUS_PROBE_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 /**

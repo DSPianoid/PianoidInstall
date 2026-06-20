@@ -1813,3 +1813,378 @@ test('REDESIGN ctl:parent-restart-confirm refusal/throw is surfaced cleanly; no 
   bus.close();
   bus2.close();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ REDESIGN (dev-3e66) — PART 2 automatic behaviors: recovery ladder, auto-snapshot
+//   (incl. the cold watchdog path), restart hard-kill escalation, status live-probe.
+//   ALL host-safe: fake driver + capturing send + an injectable `delay` that resolves
+//   immediately (NO real wait) — nothing real is restarted; driver.starts is asserted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A host with the PART-2 automatic behaviors configurable + an immediate (fake) delay. */
+function makeAutoHost(
+  cap: ReturnType<typeof makeCapture>,
+  opts: {
+    program?: ConstructorParameters<typeof FakeSessionDriver>[0];
+    recoveryLadder?: boolean;
+    autoSnapshot?: boolean;
+    restartDrainMs?: number;
+    statusProbeMs?: number;
+    pingResponseTimeoutMs?: number;
+    reconnectChannel?: () => Promise<{ ok: boolean; error?: string }>;
+    autoSnapshotTimers?: { setInterval: (cb: () => void, ms: number) => unknown; clearInterval: (h: unknown) => void };
+  } = {},
+) {
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver(
+    opts.program ?? [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }]],
+  );
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    answerCallback: cap.answerCallback,
+    editMessage: cap.editMessage,
+    policy: { allow: ['Read'], fallback: 'route' },
+    model: 'claude-opus-4-8[1m]',
+    // A near-instant delay that YIELDS a macrotask each poll iteration (setTimeout 0) — so the fake
+    // driver's generator can run its pending emit between polls — WITHOUT a real wait (each step is
+    // sub-ms; the loops are iteration-bounded so they finish in a few ms, never the real deadline).
+    delay: () => new Promise<void>((r) => setTimeout(r, 0)),
+    ...(opts.recoveryLadder ? { recoveryLadder: true } : {}),
+    ...(opts.autoSnapshot ? { autoSnapshot: true } : {}),
+    ...(opts.restartDrainMs != null ? { restartDrainMs: opts.restartDrainMs } : {}),
+    ...(opts.statusProbeMs != null ? { statusProbeMs: opts.statusProbeMs } : {}),
+    ...(opts.pingResponseTimeoutMs != null ? { pingResponseTimeoutMs: opts.pingResponseTimeoutMs } : {}),
+    ...(opts.reconnectChannel ? { reconnectChannel: opts.reconnectChannel } : {}),
+    ...(opts.autoSnapshotTimers ? { autoSnapshotTimers: opts.autoSnapshotTimers } : {}),
+  });
+  return { bus, driver, host };
+}
+
+// ── Recovery ladder (reconnect → reset) ──────────────────────────────────────
+
+test('REDESIGN recovery ladder: a reconnect that brings the agent back → reconnected (NO restart)', async () => {
+  const cap = makeCapture();
+  let reconnected = 0;
+  // After reconnect, the agent answers the probe ping → probeResponsive true → no reset. The 'hi'
+  // turn AND the probe ping turn each get a result so the agent is responsive throughout.
+  const { bus, driver, host } = makeAutoHost(cap, {
+    recoveryLadder: true,
+    statusProbeMs: 1000,
+    pingResponseTimeoutMs: 1000,
+    reconnectChannel: async () => {
+      reconnected += 1;
+      return { ok: true };
+    },
+    program: [
+      [
+        { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+        { do: 'awaitTurn' },
+        { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'hi-ack' } }, // the 'hi' turn
+        { do: 'awaitTurn' },
+        { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'pong' } }, // the probe ping
+        { do: 'awaitTurn' },
+      ],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi')); // bind operator + a turn that gets a result
+  await new Promise((r) => setTimeout(r, 0)); // let the 'hi' result settle (idle)
+  const startsBefore = driver.starts;
+  const action = await host.handleUnresponsiveRecovery('liveness timeout');
+  assert.equal(reconnected, 1, 'the channel reconnect was attempted FIRST');
+  assert.equal(action, 'reconnected', 'the agent answered after reconnect → recovered without a reset');
+  assert.equal(driver.starts, startsBefore, 'NO restart happened (the ladder stopped at reconnect)');
+  assert.ok(cap.sent.some((s) => /reconnected/i.test(s.msg.text ?? '')), 'the user was told it reconnected');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN recovery ladder: still unresponsive after reconnect → RESET (restart), snapshot carried', async () => {
+  const cap = makeCapture();
+  let reconnected = 0;
+  // The probe never gets a result (the agent stays wedged) → probeResponsive false → escalate to reset.
+  const { bus, driver, host } = makeAutoHost(cap, {
+    recoveryLadder: true,
+    autoSnapshot: true, // so the reset carries a snapshot
+    statusProbeMs: 1000,
+    pingResponseTimeoutMs: 1000,
+    reconnectChannel: async () => {
+      reconnected += 1;
+      return { ok: true };
+    },
+    program: [
+      // 1st run: init, then wedge (no result to the probe ping)
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }],
+      // 2nd run after restartFresh: a fresh init (the reset relaunched)
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } }, { do: 'awaitTurn' }],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  const startsBefore = driver.starts;
+  const action = await host.handleUnresponsiveRecovery('liveness timeout');
+  assert.equal(reconnected, 1, 'reconnect was tried first');
+  assert.equal(action, 'reset', 'still unresponsive → reset');
+  assert.equal(driver.starts, startsBefore + 1, 'exactly one restart (restartFresh) happened');
+  // The reset injected a snapshot into the fresh first turn (auto-recovery handoff).
+  assert.ok(driver.sentTurns.some((t) => /auto-recovery|auto-captured snapshot/i.test(t.text)), 'the fresh session got the snapshot');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN recovery ladder UNWIRED reconnect → falls straight through to a RESET', async () => {
+  const cap = makeCapture();
+  // No reconnectChannel wired → step 1 is skipped → straight to reset.
+  const { bus, driver, host } = makeAutoHost(cap, {
+    recoveryLadder: true,
+    statusProbeMs: 1000,
+    program: [
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } }, { do: 'awaitTurn' }],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  const startsBefore = driver.starts;
+  const action = await host.handleUnresponsiveRecovery('liveness timeout');
+  assert.equal(action, 'reset', 'no reconnect dep → reset directly');
+  assert.equal(driver.starts, startsBefore + 1, 'one restart');
+  await host.stop();
+  bus.close();
+});
+
+// ── Auto-snapshot (periodic + pre-EVERY-restart incl. the cold watchdog path) ──
+
+test('REDESIGN auto-snapshot: the involuntary (watchdog) restart re-injects context — closes the cold gap', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeAutoHost(cap, {
+    autoSnapshot: true,
+    program: [
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } }, { do: 'awaitTurn' }],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  const startsBefore = driver.starts;
+  // Directly exercise the involuntary path (what the tier-b watchdog calls).
+  await host.restartUnresponsive();
+  assert.equal(driver.starts, startsBefore + 1, 'the involuntary restart happened');
+  // ★ the fresh session came up WITH context (the cold-watchdog gap is closed).
+  assert.ok(
+    driver.sentTurns.some((t) => /auto-recovery|auto-captured snapshot/i.test(t.text)),
+    'the cold restart re-injected the auto-snapshot into the fresh first turn',
+  );
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN auto-snapshot OFF: the involuntary restart is byte-for-byte today (NO injected first turn)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeAutoHost(cap, {
+    autoSnapshot: false, // default
+    program: [
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } }, { do: 'awaitTurn' }, { do: 'awaitTurn' }],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await host.restartUnresponsive();
+  // OFF → no snapshot-recovery turn injected into the fresh session (it boots blank, as before).
+  assert.equal(
+    driver.sentTurns.some((t) => /auto-recovery|auto-captured snapshot/i.test(t.text)),
+    false,
+    'no auto-recovery turn injected when auto-snapshot is OFF',
+  );
+  // Drain run 2's awaitTurn with a normal turn so the fake-driver generator completes cleanly
+  // (no dangling paused promise after the test) — this is harness hygiene, not the assertion.
+  await host.handleInbound(inbound('ok'));
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN auto-snapshot periodic timer: arms only when ON; a tick captures a snapshot a later restart carries', async () => {
+  const cap = makeCapture();
+  const snap: { cb: (() => void) | null } = { cb: null };
+  const fakeTimers = {
+    setInterval: (cb: () => void, _ms: number) => {
+      snap.cb = cb;
+      return { id: 9 } as unknown;
+    },
+    clearInterval: (_h: unknown) => undefined,
+  };
+  const { bus, driver, host } = makeAutoHost(cap, {
+    autoSnapshot: true,
+    autoSnapshotTimers: fakeTimers,
+    program: [
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } }, { do: 'awaitTurn' }],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  assert.ok(snap.cb, 'the periodic auto-snapshot timer armed (ON)');
+  snap.cb!(); // fire one periodic snapshot tick (what the real interval would do)
+  // A subsequent involuntary restart carries the (now-present) snapshot into the fresh first turn.
+  await host.restartUnresponsive();
+  assert.ok(driver.sentTurns.some((t) => /auto-recovery|auto-captured snapshot/i.test(t.text)), 'the periodic snapshot was carried into the restart');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN auto-snapshot timer does NOT arm when OFF (byte-for-byte today)', async () => {
+  const cap = makeCapture();
+  let armed = false;
+  const fakeTimers = {
+    setInterval: (_cb: () => void, _ms: number) => {
+      armed = true;
+      return { id: 9 } as unknown;
+    },
+    clearInterval: (_h: unknown) => undefined,
+  };
+  const { bus, host } = makeAutoHost(cap, { autoSnapshot: false, autoSnapshotTimers: fakeTimers });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  assert.equal(armed, false, 'no auto-snapshot timer arms when the switch is OFF');
+  await host.stop();
+  bus.close();
+});
+
+// ── Restart hard-kill escalation ─────────────────────────────────────────────
+
+test('REDESIGN restart escalation: a STALLED drain escalates to a hard restart (drainMs>0)', async () => {
+  const cap = makeCapture();
+  // A turn is left in flight (silence after the user turn) → isIdle() stays false → the drain stalls.
+  const { bus, driver, host } = makeAutoHost(cap, {
+    restartDrainMs: 500,
+    program: [
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }],
+      [{ do: 'emit', event: { kind: 'system_init', sessionId: 's2', model: 'm' } }, { do: 'awaitTurn' }],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('do a long thing')); // a turn now in flight (wedged) → isIdle() false
+  let restarted = 0;
+  const outcome = await host.gracefulRestartWithEscalation(async () => {
+    restarted += 1;
+  });
+  assert.equal(outcome, 'escalated', 'the stalled drain escalated to a hard restart');
+  assert.equal(restarted, 1, 'the restart was performed despite the stalled drain');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN restart escalation: an IDLE agent drains cleanly (no escalation needed)', async () => {
+  const cap = makeCapture();
+  // The 'hi' turn gets a result → the agent returns to idle (outstandingTurns back to 0).
+  const { bus, host } = makeAutoHost(cap, {
+    restartDrainMs: 500,
+    program: [
+      [
+        { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+        { do: 'awaitTurn' },
+        { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'done' } },
+        { do: 'awaitTurn' },
+      ],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 0)); // let the result settle → idle
+  let restarted = 0;
+  const outcome = await host.gracefulRestartWithEscalation(async () => {
+    restarted += 1;
+  });
+  assert.equal(outcome, 'drained', 'an idle agent drains cleanly');
+  assert.equal(restarted, 1, 'the restart still happened');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN restart escalation OFF (drainMs=0): immediate restart, byte-for-byte today', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeAutoHost(cap, { restartDrainMs: 0 });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  let restarted = 0;
+  const outcome = await host.gracefulRestartWithEscalation(async () => {
+    restarted += 1;
+  });
+  assert.equal(outcome, 'immediate', 'drainMs=0 → no drain wait, immediate restart');
+  assert.equal(restarted, 1);
+  await host.stop();
+  bus.close();
+});
+
+// ── Status live-probe ────────────────────────────────────────────────────────
+
+test('REDESIGN status live-probe: reports latency + last-turn time when the agent answers', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeAutoHost(cap, {
+    statusProbeMs: 1000,
+    pingResponseTimeoutMs: 1000,
+    program: [
+      [
+        { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+        { do: 'awaitTurn' },
+        // the 'hi' turn → a result (sets lastTurnAt + returns to idle)
+        { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'earlier' } },
+        { do: 'awaitTurn' },
+        // the probe ping turn → a result (answered → probeResponsive true)
+        { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'pong' } },
+        { do: 'awaitTurn' },
+      ],
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 0)); // let the 'hi' result settle (lastTurnAt set, idle)
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:status', 'cb-st', 'm-st'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-st');
+  assert.ok(ed, 'status edited');
+  assert.match(ed!.text, /🟢 ACTIVE/, 'the snapshot is present');
+  assert.match(ed!.text, /probe:/, 'a live-probe line is appended');
+  assert.match(ed!.text, /last turn:/, 'the last-turn time is reported');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN status live-probe: the snapshot STILL returns even if the probe times out', async () => {
+  const cap = makeCapture();
+  // The probe ping never gets a result (wedged) → probe times out, but status must still report.
+  const { bus, host } = makeAutoHost(cap, {
+    statusProbeMs: 1000,
+    pingResponseTimeoutMs: 1000,
+    program: [[{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }]],
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:status', 'cb-st', 'm-st'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-st');
+  assert.ok(ed, 'status STILL returned despite the probe');
+  assert.match(ed!.text, /🟢 ACTIVE|🟡 STUCK|🔴 DEAD/, 'the snapshot badge is present (snapshot never lost)');
+  assert.match(ed!.text, /probe: timed out/, 'the probe timeout is reported, not swallowed');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN status live-probe OFF (probeMs=0): status is the cheap snapshot only (byte-for-byte)', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeAutoHost(cap, { statusProbeMs: 0 });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:status', 'cb-st', 'm-st'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-st');
+  assert.ok(ed, 'status edited');
+  assert.match(ed!.text, /🟢 ACTIVE/);
+  assert.equal(/probe:/.test(ed!.text), false, 'no live-probe line when probeMs=0');
+  await host.stop();
+  bus.close();
+});

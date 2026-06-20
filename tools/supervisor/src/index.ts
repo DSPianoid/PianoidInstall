@@ -474,6 +474,17 @@ async function main(): Promise<void> {
       interruptTurn: interruptTurnControl,
       // ★ REDESIGN — supervisor-side PARENT restart (the detached restart-supervisor.ps1 relaunch).
       parentRestart: parentRestartControl,
+      // ★ REDESIGN — the 4 control-panel automatic behaviors, from config (ALL default-OFF / no-op →
+      // the running host is byte-for-byte until the operator-triggered activation restart loads them):
+      //   • recoveryLadder → reconnect-then-reset on unresponsive (handleUnresponsive routes here below);
+      //   • autoSnapshot (+ cadence) → periodic snapshot + carry into EVERY restart incl. the cold one;
+      //   • restartDrainMs>0 → graceful restart escalates to a hard kill if the drain stalls;
+      //   • statusProbeMs>0 → the status action fires a live responsiveness probe (latency + last-turn).
+      recoveryLadder: config.recoveryLadder,
+      autoSnapshot: config.autoSnapshot,
+      autoSnapshotIntervalMs: config.autoSnapshotIntervalMs,
+      restartDrainMs: config.restartDrainMs,
+      statusProbeMs: config.statusProbeMs,
       // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
       // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
       // flips it at runtime via the intercepted `/mode` command.
@@ -566,7 +577,14 @@ async function main(): Promise<void> {
     }
     // D4 tier-b handler (defined here so it closes over sessionHost + supervisor).
     handleUnresponsive = async (reason: string): Promise<void> => {
-      logger.error('TIER-B: orchestrator unresponsive — restarting + notifying the user', { reason });
+      logger.error('TIER-B: orchestrator unresponsive', { reason, recoveryLadder: config.recoveryLadder });
+      // ★ REDESIGN — RECOVERY LADDER (reconnect → reset): when enabled, try a channel reconnect FIRST
+      // and only reset if still unresponsive (the SessionHost owns the ladder + its own user notices).
+      // When disabled (the default), the existing direct tier-b restart runs UNCHANGED (byte-for-byte).
+      if (config.recoveryLadder && sessionHost) {
+        await sessionHost.handleUnresponsiveRecovery(reason).catch((e) => logger.error('recovery ladder failed', { err: String(e) }));
+        return;
+      }
       const op = sessionHost?.currentOperator();
       if (op) {
         await supervisor

@@ -93,11 +93,13 @@ import {
   approvalsMenuText,
   controlHelpText,
   formatStatus,
+  formatUptime,
   formatControlLog,
   classifyLiveness,
   formatProactiveAlert,
   DEFAULT_TURN_WATCHDOG_MS,
   DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
+  DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS,
   type ControlCallback,
   type ControlLogRecord,
   type Liveness,
@@ -106,6 +108,14 @@ import {
 
 /** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
 export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
+
+/**
+ * ★ REDESIGN — the poll step (ms) for the bounded drain-escalation + status-live-probe loops. The
+ * loops are ITERATION-bounded (≈deadline/step iterations), NOT wall-clock-bounded, so an injected
+ * immediate `delay` (tests) makes them deterministic + fast (no real wait) while the real
+ * `.unref()`'d setTimeout paces them in production. Kept small so live pacing is responsive.
+ */
+const POLL_STEP_MS = 50;
 
 /**
  * The reserved OUTPUT-MODALITY switch command (the user's "switchable output
@@ -567,6 +577,55 @@ export interface SessionHostOptions {
     setInterval: (cb: () => void, ms: number) => unknown;
     clearInterval: (handle: unknown) => void;
   };
+  /**
+   * ★ REDESIGN — RECOVERY LADDER (optional, default off). When true, {@link handleUnresponsiveRecovery}
+   * recovers an unresponsive orchestrator in two steps — AUTO-RECONNECT the channel first (via the
+   * injected {@link reconnectChannel}), re-probe, and only if STILL unresponsive RESET (restart via
+   * {@link restartUnresponsive}). When false (the default), index.ts uses the existing direct tier-b
+   * restart (byte-for-byte today). The ladder needs {@link reconnectChannel} wired to actually
+   * reconnect (else it falls straight through to the reset). Replaces the manual Reconnect button.
+   */
+  recoveryLadder?: boolean;
+  /**
+   * ★ REDESIGN — AUTO-SNAPSHOT (optional, default off). When true, the SessionHost (a) arms a periodic
+   * timer that captures a context snapshot every {@link autoSnapshotIntervalMs}, and (b) carries the
+   * latest snapshot into EVERY restart — including the involuntary watchdog/unresponsive restart
+   * ({@link restartUnresponsive}), closing the cold-watchdog-restart gap. When false (the default), no
+   * snapshot timer arms and the involuntary restart path is byte-for-byte today. Replaces the manual
+   * Handoff button.
+   */
+  autoSnapshot?: boolean;
+  /** ★ REDESIGN — the auto-snapshot cadence (ms). Only armed when {@link autoSnapshot} is true. Default {@link DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS} (120s). */
+  autoSnapshotIntervalMs?: number;
+  /**
+   * ★ REDESIGN — INJECTABLE timer factory for the auto-snapshot scheduler (so a test drives snapshots
+   * via a fake clock — NO real wait). Defaults to the Node globals; the handle is `.unref()`'d when
+   * possible so the real timer never keeps the process alive.
+   */
+  autoSnapshotTimers?: {
+    setInterval: (cb: () => void, ms: number) => unknown;
+    clearInterval: (handle: unknown) => void;
+  };
+  /**
+   * ★ REDESIGN — RESTART DRAIN deadline (ms) for the hard-kill ESCALATION (optional, default 0). When
+   * > 0, a graceful restart ({@link gracefulRestartWithEscalation}) waits up to this long for the
+   * in-flight turn to drain (the agent goes idle), then escalates to a hard restart regardless. 0 (the
+   * default) = no drain wait = the existing immediate restart (byte-for-byte today). Absorbs Kill.
+   */
+  restartDrainMs?: number;
+  /**
+   * ★ REDESIGN — STATUS LIVE-PROBE deadline (ms) for the `status` action (optional, default 0). When
+   * > 0, `status` fires a live responsiveness ping and waits up to this long for a reply, reporting
+   * latency + last-turn time; the snapshot ALWAYS returns even if the probe times out. 0 (the default)
+   * = no live probe = `status` reports the cheap snapshot only (byte-for-byte today). Absorbs Ping.
+   */
+  statusProbeMs?: number;
+  /**
+   * ★ REDESIGN — INJECTABLE bounded-delay helper used by the drain-escalation poll + the status
+   * live-probe timeout (so tests advance time deterministically — NO real wait). `delay(ms)` resolves
+   * after ms; tests stub it to resolve immediately / on command. Defaults to a `.unref()`'d setTimeout.
+   */
+  delay?: (ms: number) => Promise<void>;
 }
 
 export class SessionHost {
@@ -728,6 +787,34 @@ export class SessionHost {
   private alertedState: Exclude<Liveness, 'active'> | null = null;
   /** ★ A5 — the periodic proactive-watch timer handle (catches a DEAD child; null = not armed). */
   private proactiveWatchTimer: unknown = null;
+  /**
+   * ★ REDESIGN — the control-panel automatic-behavior config, resolved ONCE in the ctor. Every field
+   * defaults to the OFF/no-op value (index.ts passes nothing today) → byte-for-byte today. `drain`>0
+   * enables the restart hard-kill escalation; `probe`>0 enables the status live-probe; `recoveryLadder`
+   * / `autoSnapshot` gate the reconnect-then-reset ladder + the periodic-snapshot / pre-restart-carry.
+   */
+  private readonly autoBehavior: {
+    recoveryLadder: boolean;
+    autoSnapshot: boolean;
+    autoSnapshotIntervalMs: number;
+    drainMs: number;
+    probeMs: number;
+  };
+  /** ★ REDESIGN — the periodic auto-snapshot timer handle (null = not armed). */
+  private autoSnapshotTimer: unknown = null;
+  /**
+   * ★ REDESIGN — the wall-clock time (ms) of the last real turn RESULT, or 0 if none yet. SOLE OWNER
+   * (P1): set in the lifecycle onResult hook. Surfaced by the status live-probe as "last turn N ago".
+   */
+  private lastTurnAt = 0;
+  /**
+   * ★ REDESIGN — the wall-clock time (ms) of the last PROOF-OF-LIFE from the agent (a real result, an
+   * internal pong, OR mid-turn progress), or 0 if none yet. SOLE OWNER (P1): set in the onResult /
+   * onInternalResult / onProgress hooks. The live-probe ({@link probeResponsive}) polls THIS (not
+   * {@link lastTurnAt}) because a liveness ping's reply is INTERNAL (it does not produce a user-facing
+   * turn result), so it must still count as "the agent answered the probe".
+   */
+  private lastResponsiveAt = 0;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -753,6 +840,15 @@ export class SessionHost {
       enabled: opts.proactiveAlerts === true,
       turnWatchdogMs: opts.turnWatchdogMs ?? DEFAULT_TURN_WATCHDOG_MS,
       watchIntervalMs: opts.proactiveWatchIntervalMs ?? DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
+    };
+    // ★ REDESIGN: resolve the 4 control-panel automatic behaviors ONCE. All default to OFF/0 (index.ts
+    // passes nothing) → byte-for-byte today. drainMs/probeMs>0 enable the escalation/live-probe.
+    this.autoBehavior = {
+      recoveryLadder: opts.recoveryLadder === true,
+      autoSnapshot: opts.autoSnapshot === true,
+      autoSnapshotIntervalMs: opts.autoSnapshotIntervalMs ?? DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS,
+      drainMs: opts.restartDrainMs && opts.restartDrainMs > 0 ? Math.floor(opts.restartDrainMs) : 0,
+      probeMs: opts.statusProbeMs && opts.statusProbeMs > 0 ? Math.floor(opts.statusProbeMs) : 0,
     };
 
     // The router needs a PermissionChannel; we give it one that defers to the
@@ -804,6 +900,8 @@ export class SessionHost {
         // liveness-ping deadline (it answered, whether the ping or another turn).
         this.clearPingTimer();
         this.onProactiveRecovery(); // ★ A5: a result = proof of life → clear a stale stall + re-arm
+        this.lastTurnAt = Date.now(); // ★ REDESIGN: record last-turn time for the status display
+        this.lastResponsiveAt = Date.now(); // ★ REDESIGN: a real result = proof of life (probe signal)
         return text ? this.sendToOperator(text) : Promise.resolve();
       },
       // D4: an INTERNAL turn (the liveness ping) → confirm responsiveness WITHOUT
@@ -811,6 +909,7 @@ export class SessionHost {
       onInternalResult: () => {
         this.clearPingTimer();
         this.onProactiveRecovery(); // ★ A5: a pong = proof of life → clear a stale stall + re-arm
+        this.lastResponsiveAt = Date.now(); // ★ REDESIGN: an internal pong = proof of life (probe signal)
         this.logger.info('liveness pong received (internal) — orchestrator responsive');
       },
       // D4 BELT: mid-turn activity is the INTERNAL liveness signal (clears the ping
@@ -911,6 +1010,8 @@ export class SessionHost {
     // ★ A5: arm the periodic proactive-watch (no-op unless proactiveAlerts is on) — catches a DEAD
     // child (which emits no events). The in-flight watchdog + the missed-ping path arm themselves.
     this.startProactiveWatch();
+    // ★ REDESIGN: arm the periodic auto-snapshot timer (no-op unless autoSnapshot is on).
+    this.startAutoSnapshot();
     this.logger.info('session host started', this.lifecycle.health());
   }
 
@@ -1202,7 +1303,7 @@ export class SessionHost {
     // 2) Dispatch.
     switch (ctl.action) {
       case 'status':
-        await this.editControlResult(callback, formatStatus(this.controlStatusSnapshot()));
+        await this.editControlResult(callback, await this.controlStatus());
         return;
       case 'ping':
         await this.editControlResult(callback, await this.controlPing());
@@ -1604,6 +1705,32 @@ export class SessionHost {
     const spec =
       CONTROL_ACTIONS.find((a) => a.id === action) ?? CONTROL_ADVANCED_ACTIONS.find((a) => a.id === action);
     return spec ? spec.label.replace(/^[^\sA-Za-z]+\s*/, '') : 'OK';
+  }
+
+  /**
+   * ★ REDESIGN — the `status` action result: the out-of-band snapshot ALWAYS returns (it is gathered
+   * from supervisor-owned telemetry, so it works even if the agent is hung), and — when a live-probe
+   * deadline is configured ({@link autoBehavior}.probeMs > 0) — it ALSO fires a live responsiveness
+   * ping and appends latency + last-turn time (absorbing the old Ping button). The probe is bounded by
+   * the deadline and CANNOT block the snapshot: if it times out, status still reports (with "probe:
+   * timed out"). With probeMs = 0 (the default), status is the cheap snapshot only (byte-for-byte).
+   */
+  private async controlStatus(): Promise<string> {
+    const base = formatStatus(this.controlStatusSnapshot());
+    if (this.autoBehavior.probeMs <= 0) return base; // no live probe configured
+    const lastTurnLine = this.lastTurnAt > 0 ? `last turn: ${formatUptime(Date.now() - this.lastTurnAt)} ago` : 'last turn: none yet';
+    // The snapshot is already in hand — the probe only ADDS a line; a timeout never loses the snapshot.
+    const t0 = Date.now();
+    let probeLine: string;
+    try {
+      const answered = await this.probeResponsive(this.autoBehavior.probeMs);
+      const rttMs = Date.now() - t0;
+      probeLine = answered ? `probe: answered in ${rttMs}ms` : `probe: timed out (>${this.autoBehavior.probeMs}ms — not responding)`;
+    } catch (err) {
+      this.logger.warn('status live-probe threw (snapshot still returned)', { err: String(err) });
+      probeLine = 'probe: error (see logs)';
+    }
+    return `${base}\n${lastTurnLine}\n${probeLine}`;
   }
 
   /**
@@ -2101,12 +2228,34 @@ export class SessionHost {
    * like an agent-requested one (clearContext zeroes the counter, hiding it). The fresh
    * session re-bootstraps the role via the lifecycle's bootstrapTurns (non-resume start);
    * we also re-arm the role prefix for the first inbound for parity with the other paths.
+   *
+   * ★ REDESIGN — AUTO-SNAPSHOT re-inject (closes the cold-watchdog-restart gap): when
+   * {@link autoBehavior}.autoSnapshot is ON, capture a fresh snapshot, then inject it (after the role
+   * prefix) into the fresh session's FIRST turn — so even this INVOLUNTARY/cold restart comes up WITH
+   * context, instead of blank (the pre-redesign behavior). When auto-snapshot is OFF, this is
+   * byte-for-byte today (no capture, no injected first turn — the fresh session boots blank as before).
    */
   async restartUnresponsive(): Promise<void> {
     this.rolePrefixPending = !!this.opts.roleTurnPrefix;
     this.clearPingTimer(); // drop any armed liveness deadline; the fresh session re-arms via the scheduler
+    // ★ REDESIGN: snapshot BEFORE the restart so the fresh session can re-inject context (cold-gap fix).
+    this.captureAutoSnapshot('pre-unresponsive-restart');
+    const note = this.autoBehavior.autoSnapshot ? this.handoffSnapshot?.note : undefined;
     await this.lifecycle.restartFresh();
-    this.publishLifecycle('lifecycle_restart_unresponsive', { restarts: this.lifecycle.health().restarts });
+    this.publishLifecycle('lifecycle_restart_unresponsive', { restarts: this.lifecycle.health().restarts, reinjected: !!note });
+    // ★ REDESIGN: inject the snapshot into the fresh first turn (mirrors runRestartConfirm's handoff
+    // inject). Only when auto-snapshot produced a note → otherwise the fresh session boots blank (today).
+    if (note) {
+      const prefix = this.rolePrefixPending && this.opts.roleTurnPrefix ? `${this.opts.roleTurnPrefix}\n\n` : '';
+      this.rolePrefixPending = false; // consumed by this synthetic first turn
+      const handoff =
+        `[SUPERVISOR auto-recovery] The orchestrator was restarted after going unresponsive (context reset; ` +
+        `the channel is preserved). Resume from this auto-captured snapshot:\n${note}`;
+      this.lastSentText = null;
+      await this.lifecycle.sendUserTurn({ text: prefix + handoff }).catch((err) => {
+        this.logger.warn('unresponsive-restart: snapshot re-inject failed (non-fatal)', { err: String(err) });
+      });
+    }
   }
 
   /** Pending permission asks awaiting a decision (for the operator panel). */
@@ -2140,6 +2289,7 @@ export class SessionHost {
     // turn began producing output). No message is sent to the user.
     this.clearPingTimer();
     this.onProactiveRecovery(); // ★ A5: live activity = proof of life → clear a stale stall + re-arm
+    this.lastResponsiveAt = Date.now(); // ★ REDESIGN: mid-turn activity = proof of life (probe signal)
   }
 
   /**
@@ -2328,6 +2478,183 @@ export class SessionHost {
     this.proactiveWatchTimer = null;
   }
 
+  // ── ★ REDESIGN — control-panel AUTOMATIC behaviors (all default-OFF; the running host is
+  //    byte-for-byte until activation) ────────────────────────────────────────────────────────
+
+  /**
+   * ★ REDESIGN — AUTO-SNAPSHOT: capture a context snapshot into the supervisor-owned
+   * {@link handoffSnapshot} store (the SAME store the manual handoff used + the SAME note shape a
+   * restart re-injects). Used by the periodic timer AND just before an involuntary restart, so EVERY
+   * restart — including the cold watchdog restart — can re-inject recent context. SOLE WRITER of the
+   * snapshot store (P1). No-op unless {@link autoBehavior}.autoSnapshot. Pure read of supervisor
+   * telemetry (no child interaction → works when the child is dead).
+   */
+  private captureAutoSnapshot(reason: string): void {
+    if (!this.autoBehavior.autoSnapshot) return;
+    const note = this.composeHandoffNote();
+    this.handoffSnapshot = { note, capturedAt: Date.now() };
+    this.logger.info('auto-snapshot captured', { reason, length: note.length });
+  }
+
+  /**
+   * ★ REDESIGN — arm the periodic AUTO-SNAPSHOT timer (only when {@link autoBehavior}.autoSnapshot).
+   * Every {@link autoBehavior}.autoSnapshotIntervalMs it captures a fresh snapshot, so an unexpected
+   * restart always has a recent one to re-inject. The timer factory is INJECTABLE (fake clock in
+   * tests — no real wait) + the real handle is `.unref()`'d. NO-OP when off → no timer arms
+   * (byte-for-byte today). Idempotent. Started by {@link start}.
+   */
+  private startAutoSnapshot(): void {
+    if (!this.autoBehavior.autoSnapshot) return; // default — no timer
+    if (this.autoSnapshotTimer) return; // already running
+    const timers = this.opts.autoSnapshotTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    this.autoSnapshotTimer = timers.setInterval(() => this.captureAutoSnapshot('periodic'), this.autoBehavior.autoSnapshotIntervalMs);
+    if (typeof this.autoSnapshotTimer === 'object' && this.autoSnapshotTimer !== null && 'unref' in this.autoSnapshotTimer) {
+      (this.autoSnapshotTimer as { unref: () => void }).unref();
+    }
+    this.logger.info('auto-snapshot timer started', { intervalMs: this.autoBehavior.autoSnapshotIntervalMs });
+  }
+
+  /** ★ REDESIGN — stop the periodic auto-snapshot timer (teardown). Safe when not armed. */
+  private stopAutoSnapshot(): void {
+    if (!this.autoSnapshotTimer) return;
+    const timers = this.opts.autoSnapshotTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    timers.clearInterval(this.autoSnapshotTimer);
+    this.autoSnapshotTimer = null;
+  }
+
+  /** ★ REDESIGN — the injectable bounded delay (fake clock in tests; real = a `.unref()`'d setTimeout). */
+  private delayMs(ms: number): Promise<void> {
+    if (this.opts.delay) return Promise.resolve(this.opts.delay(ms));
+    return new Promise<void>((res) => {
+      const t = setTimeout(res, ms);
+      if (typeof t === 'object' && 'unref' in t) (t as { unref: () => void }).unref();
+    });
+  }
+
+  /**
+   * ★ REDESIGN — RECOVERY LADDER (reconnect → reset). The supervisor's response to an unresponsive
+   * orchestrator when {@link autoBehavior}.recoveryLadder is ON: (1) AUTO-RECONNECT the channel first
+   * (a dropped channel is the cheaper, non-destructive failure) and re-probe; (2) only if the agent is
+   * STILL unresponsive, RESET (restart) via {@link restartUnresponsive} — which (with auto-snapshot on)
+   * carries the latest snapshot into the fresh session. The existing direct restart-on-unresponsive
+   * (index.ts `handleUnresponsive`) is the DEFAULT (ladder off) and is unchanged. index.ts routes
+   * `handleUnresponsive` here only when the ladder is on. Best-effort: a reconnect/probe error falls
+   * through to the reset (never leaves the agent wedged). Returns the action taken (for tests/logs).
+   */
+  async handleUnresponsiveRecovery(reason: string): Promise<'reconnected' | 'reset'> {
+    this.logger.warn('recovery ladder: orchestrator unresponsive — reconnect-then-reset', { reason });
+    this.publishLifecycle('recovery_ladder_started', { reason });
+    // Step 1: try a channel reconnect first (cheaper, non-destructive) — IF a reconnect dep is wired.
+    if (this.reconnectChannel) {
+      try {
+        const r = await this.reconnectChannel();
+        this.logger.info('recovery ladder: channel reconnect attempted', { ok: r.ok, error: r.error });
+        if (r.ok && (await this.probeResponsive())) {
+          // The channel was the problem; the agent answers now → recovered WITHOUT a reset.
+          this.publishLifecycle('recovery_ladder_reconnected', { reason });
+          if (this.operator) {
+            await this.opts
+              .send(this.operator, { text: '🔌 Channel reconnected — the orchestrator is responding again (no restart needed).' })
+              .catch(() => undefined);
+          }
+          return 'reconnected';
+        }
+      } catch (err) {
+        this.logger.warn('recovery ladder: reconnect threw — falling through to reset', { err: String(err) });
+      }
+    }
+    // Step 2: still unresponsive → RESET (restart). Snapshot first so the fresh session has context.
+    this.captureAutoSnapshot('pre-recovery-reset');
+    if (this.operator) {
+      await this.opts
+        .send(this.operator, { text: '⚠️ The orchestrator is still unresponsive after a reconnect — restarting it now (context is restored from the last snapshot).' })
+        .catch(() => undefined);
+    }
+    this.publishLifecycle('recovery_ladder_reset', { reason });
+    await this.restartUnresponsive();
+    return 'reset';
+  }
+
+  /**
+   * ★ REDESIGN — a bounded liveness PROBE: inject a real liveness ping and wait up to `timeoutMs`
+   * (default the status-probe deadline) for the agent to answer. Returns true iff it answered in time.
+   * Used by the recovery ladder (did the reconnect bring it back?) and the status live-probe. Resolves
+   * a no-op `false` when the child is not running or no operator is bound. The wait uses the injectable
+   * {@link delayMs} so tests are deterministic (no real wait). Never throws.
+   */
+  private async probeResponsive(timeoutMs?: number): Promise<boolean> {
+    const t = timeoutMs ?? this.autoBehavior.probeMs;
+    if (t <= 0) return false; // no probe deadline configured
+    if (!this.lifecycle.health().running) return false; // dead child can't answer
+    if (!this.operator) return false; // no one to be responsive to
+    // PROOF-OF-LIFE within the window = responsive: a real result, an INTERNAL pong (the ping's reply —
+    // which is why we poll {@link lastResponsiveAt}, NOT lastTurnAt, since the ping produces no
+    // user-facing turn result), OR mid-turn progress. We fire an idle-aware ping (it queues only when
+    // idle; a busy turn is left alone — its OWN progress/result is the proof we poll for), then poll
+    // lastResponsiveAt for fresh activity. The poll is ITERATION-bounded (not wall-clock) so an injected
+    // delay that yields a macrotask makes it deterministic + fast (each step lets the driver's pending
+    // pong land) instead of busy-looping for `t` real ms. A wedged turn never advances lastResponsiveAt
+    // → returns false (correctly: a silent in-flight turn IS the unresponsive condition we are probing).
+    const before = this.lastResponsiveAt;
+    const stepMs = Math.min(POLL_STEP_MS, t);
+    const maxIters = Math.max(1, Math.ceil(t / stepMs));
+    try {
+      await this.pingLiveness(); // idle-aware: a no-op while a turn is in flight (we still poll below)
+      for (let i = 0; i < maxIters; i++) {
+        if (this.lastResponsiveAt > before) return true; // answered (result / internal pong / progress)
+        await this.delayMs(stepMs);
+      }
+    } catch {
+      // probe errors are non-fatal — treat as "no answer"
+    } finally {
+      // ★ don't leave the ping's response deadline armed past the probe (it would later false-fire the
+      // tier-b auto-restart). The probe is its OWN bounded check; clear any deadline it armed.
+      this.clearPingTimer();
+    }
+    return this.lastResponsiveAt > before;
+  }
+
+  /**
+   * ★ REDESIGN — GRACEFUL RESTART with HARD-KILL ESCALATION. When a drain deadline is configured
+   * ({@link autoBehavior}.drainMs > 0), wait up to that long for the in-flight turn to drain (the agent
+   * goes idle), then perform the restart REGARDLESS — so a STALLED drain escalates to the hard kill and
+   * can never wedge the restart. With drainMs = 0 (the default), there is no wait — it restarts
+   * immediately, exactly as today. The actual relaunch is the caller-supplied `doRestart` (the existing
+   * `restartFresh`/`requestRestart` path — this method only adds the bounded drain in front of it). The
+   * drain poll uses the injectable {@link delayMs} (deterministic in tests). Returns whether it drained
+   * cleanly or escalated (for tests/logs).
+   */
+  async gracefulRestartWithEscalation(doRestart: () => Promise<void>): Promise<'drained' | 'escalated' | 'immediate'> {
+    const drainMs = this.autoBehavior.drainMs;
+    if (drainMs <= 0) {
+      await doRestart();
+      return 'immediate';
+    }
+    // ITERATION-bounded poll (not wall-clock) so an injected immediate {@link delayMs} is deterministic
+    // + fast in tests (no real `drainMs` wait), while the real `.unref()`'d setTimeout paces it live.
+    const stepMs = Math.min(POLL_STEP_MS, drainMs);
+    const maxIters = Math.max(1, Math.ceil(drainMs / stepMs));
+    let drained = this.lifecycle.isIdle();
+    for (let i = 0; i < maxIters && !drained; i++) {
+      await this.delayMs(stepMs);
+      drained = this.lifecycle.isIdle();
+    }
+    if (drained) {
+      this.logger.info('graceful restart: drained cleanly before the deadline', { drainMs });
+    } else {
+      this.logger.warn('graceful restart: drain STALLED past the deadline — escalating to a hard restart', { drainMs });
+      this.publishLifecycle('restart_drain_escalated', { drainMs });
+    }
+    await doRestart();
+    return drained ? 'drained' : 'escalated';
+  }
+
   /**
    * LIFECYCLE-RESTART CONTROL (the hosted agent requests its OWN full restart; the
    * supervisor confirms with the user + executes — authority split). Returns IMMEDIATELY
@@ -2402,7 +2729,10 @@ export class SessionHost {
       this.clearPingTimer(); // teardown any pending liveness deadline
       // Re-arm the role bootstrap so the fresh session re-loads /orchestrator on its first turn.
       this.rolePrefixPending = !!this.opts.roleTurnPrefix;
-      await this.lifecycle.restartFresh();
+      // ★ REDESIGN — HARD-KILL ESCALATION: when a drain deadline is configured, wait up to it for the
+      // in-flight turn to drain, then restart REGARDLESS (a stalled drain escalates to the hard kill).
+      // With drainMs = 0 (the default) this is the immediate restartFresh() — byte-for-byte today.
+      await this.gracefulRestartWithEscalation(() => this.lifecycle.restartFresh());
       // Handoff: inject the fresh session's FIRST turn (role prefix + the restart context + note).
       // (Done here, not waiting for a user message, so the agent re-establishes itself immediately.)
       const prefix = this.rolePrefixPending && this.opts.roleTurnPrefix ? `${this.opts.roleTurnPrefix}\n\n` : '';
@@ -2524,6 +2854,7 @@ export class SessionHost {
   async stop(): Promise<void> {
     this.stopLivenessScheduler();
     this.stopProactiveWatch(); // ★ A5: tear down the proactive-watch timer (safe when not armed)
+    this.stopAutoSnapshot(); // ★ REDESIGN: tear down the auto-snapshot timer (safe when not armed)
     await this.lifecycle.stop();
     this.started = false;
   }
