@@ -15,6 +15,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-ae2a locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit fd52a41 on PianoidTunner
+     fix/dev-ae2a-workbench-empty-render; NOT merged/pushed — held for the user's live test, then Phase 2).
+     EDITED (existing): PianoidTunner/src/PianoidTuner.js + src/index.css. NEW: src/__tests__/workbenchTileGeometry.source.test.js.
+     FIX: the renderTile `.wb-accent-host` wrapper (commit 941fedd, 2-D workbench color schema) used `display:contents`
+     → generates no box → react-mosaic's `.mosaic-tile > * {height:100%;width:100%}` no-op'd → the grandchild
+     `.mosaic-window` got no height, collapsed to its 30px toolbar, workbench BODY = 0px → all 3 workbench TYPES
+     (global-dynamic/panel-following/fixed) spawned EMPTY (no ruler/barchart). Wrapper now FILLS the tile
+     (100%×100%, not display:contents) + `.wb-accent-host > .mosaic-window {height/width:100%}` CSS so the window
+     fills the wrapper; --wb-accent delivery kept (accent feature intact). Measured live (CDP): Workbench body 0→115px.
+     Full Jest 1315/1315, eslint 0 err, CRA build OK. Frontend-only, NO CUDA. -->
 <!-- dev-0efd locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
      that rebuilds dist/ also loads this fix). EDITED (existing): tools/supervisor/src/{profiles,index}.ts +
