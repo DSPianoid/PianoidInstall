@@ -15,6 +15,11 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-gausscp locks RELEASED 2026-06-20 at Step 10a Phase 2 (team-lead pre-authorized merge-after-verify).
+     Held: ExcitationProperties.jsx, GaussEditor.jsx, GaussCell.jsx (locked, not edited), GaussCopyPasteButtons.jsx.
+     Reverse gauss-copy flow → Copy-first selection mode + one-click capture + top-left whole-table selector.
+     MERGED feature/dev-gausscp-copy-selmode → PianoidTunner dev 23ef3df (--no-ff, off fe93b5d) + PUSHED
+     origin/dev (fe93b5d..23ef3df). FE Jest 121/1267 green, eslint 0, prod build clean. Frontend-only, NO CUDA. -->
 <!-- dev-reset lock RELEASED 2026-06-19 at wrap (user "commit and push all to dev"). Held:
      PianoidCore/pianoid_cuda/MainKernel.cu. RE-APPLIED the parked W5-B reset PRIMARY accumulator
      full-clear (orig dev-excenergy bf5f720, reverted as collateral in Option-A revert 4c935b9,

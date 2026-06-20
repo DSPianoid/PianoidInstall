@@ -27,6 +27,18 @@
 | dev-wbspawn | Workbench spawn placement — fix relocate bug + new bottom-of-panel mode + global setting | [log](logs/dev-wbspawn-2026-06-17-114341.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
 | dev-wbspawn | Fix fixed-workbench orphaned-after-layout-switch (gate prune effect + auto-snapshot on spawn) | [log](logs/dev-wbspawn-orphan-2026-06-19-141000.md) | 2026-06-19 | In Progress |
+<!-- dev-gausscp COMPLETED 2026-06-20 (Step 10a Phase 2, team-lead pre-authorized merge-after-verify). Reversed the
+     gauss copy/paste selection flow: clicking COPY now ARMS a selection mode (dashed cue + banner + pressed button);
+     the next single click on a cell / chart-column / param-row / NEW top-left whole-table "ALL" corner captures that
+     selection to the clipboard AND auto-exits (one click, no second COPY press). Copy always enabled (starts the flow).
+     Removed the old select-then-COPY + COPY-with-nothing=whole-grid interaction. Paste/All/renormalize/immediate-write/
+     Level-context UNCHANGED; data layer (useGaussClipboard/gaussClipboard) UNCHANGED. Files: ExcitationProperties.jsx
+     (copyMode state + captureGaussSelection/handleGaussSelect/handleStartCopy), GaussEditor.jsx (copyMode cue + corner
+     whole-table selector + armed-aware header/row handlers), GaussCopyPasteButtons.jsx (Copy always-on + aria-pressed).
+     NEW GaussEditor.copySelMode.test.jsx; updated GaussCopyPasteButtons.test.jsx. MERGED feature/dev-gausscp-copy-selmode
+     → PianoidTunner dev 23ef3df (--no-ff, off fe93b5d) + PUSHED (fe93b5d..23ef3df). FE Jest 121/1267 green, eslint 0,
+     prod build clean. Frontend-only, NO CUDA. Docs (pianoid-tunner OVERVIEW) + log archived on PianoidInstall master.
+     :3000 restarted for the user's live test. -->
 <!-- dev-profchart COMPLETED 2026-06-19 (Step 10a Phase 1; team-lead-authorized merge-after-verify). Profiling MVP:
      kernel cycle-timing + over-budget/underrun markers added to the Sound Test chart set (sound_test_function
      online branch) via the existing render_hints contract — NEW include_profiling toggle, online-only.
