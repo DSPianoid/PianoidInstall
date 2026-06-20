@@ -15,6 +15,27 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2870 P6 locks RELEASED 2026-06-20 at Step 10a Phase 1 (config commit 62cb2ff + session-host commit
+     b375fb1 + index.ts+tests commit 007d3a8 + proposal commit 96d9f71, on feature/model-agnostic-agents;
+     NOT merged/pushed — activation/merge is the separately-approved P6 step the USER triggers). EDITED
+     (existing): tools/supervisor/src/{index.ts, config.ts, session-host.ts}. NEW: test/p6-activation-wiring.test.ts.
+     Phase P6 = the activation WIRING (switch-gated, DORMANT) into the LIVE orchestrator construction path —
+     the FIRST + ONLY edit to index.ts in the whole Campaign. index.ts: a SINGLE `if (config.roleRoutingEnabled)
+     { construct secretStore + roleRoutingStore + deleteMessage + the dispatchRoleAgent FD1 closure }` block
+     (else all four undefined) + conditional-spread of those into the SessionHost ctor (OFF passes ZERO P6
+     keys → identical ctor args to today) + Tier-1 `model: config.orchestratorModel ?? profile.model`
+     (env unset → EXACTLY profile.model). config.ts: roleRoutingEnabled (SUPERVISOR_ROLE_ROUTING, same gate
+     as isRoleRoutingEnabled, default OFF) + resolveOrchestratorModel (SUPERVISOR_ORCHESTRATOR_MODEL Tier-1).
+     session-host.ts: RoleDispatchFn/RoleDispatchResult + optional dispatchRoleAgent option + the
+     orchestrator-invokable dispatchRole() (mirror of setRoleRouting; dormant when not wired). FD1 mechanism
+     = a supervisor-provided method (the cli-stream orchestrator can't receive an in-process MCP tool);
+     scoped-key loading at spawn (secretStore.loadAll() overlaid onto the dispatch env) + ownSecretName from
+     the resolved selection (seal scoping) + FD6 no-key clean fallback. THE SACRED INVARIANT proven: switch
+     OFF ⇒ byte-for-byte today (test/p6-activation-wiring.test.ts OFF-path tests). +12 tests, full supervisor
+     node:test 478/478, tsc clean (built ONLY to a throwaway dir, removed — prod dist/ NOT regenerated; the
+     live supervisor NOT restarted). NO real paid API call (fakes + temp .state/ + fake keys). Held docs
+     (dev-vio1 log, controller logs, standalone-process proposal, .process seed) NOT touched. SHAs in the
+     session log. Mechanism + activation sequence: proposal §Q.6. -->
 <!-- dev-2870 Q.5/M8 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commits 2df2ab4 persisted-store + 5d075eb
      /setrole+/roles + fbc2b70 proposal, on feature/model-agnostic-agents; NOT merged/pushed — activation/merge
      is the separately-approved P6 step). EDITED (existing): tools/supervisor/src/{role-router,session-host}.ts.
