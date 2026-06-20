@@ -62,6 +62,8 @@ export const DEEPSEEK_CODING_CONFIG: ApiAdapterConfig = {
   temperature: 0.0,
   disableThinking: true,
   label: 'deepseek',
+  // No explicit `rate` — the driver resolves it from DEFAULT_MODEL_RATES by model id (M-1). DeepSeek
+  // also reports total_cost_usd itself, so the rate is only the fallback. Set this field to override.
 };
 
 /**
@@ -99,6 +101,18 @@ export const DEFAULT_API_ADAPTER_CONFIGS: Readonly<Record<string, ApiAdapterConf
   [CODEX_REVIEWING_CONFIG.model]: CODEX_REVIEWING_CONFIG,
 };
 
+/**
+ * M-1 — a per-model USD rate (price per 1M tokens, USD). Used to COMPUTE spend when the backend does
+ * NOT return a `total_cost_usd` of its own (DeepSeek does report cost; OpenAI does not → we price from
+ * the returned token usage). All fields optional; a missing rate just means "cost stays unknown".
+ */
+export interface ModelRate {
+  /** USD per 1,000,000 PROMPT (input) tokens. */
+  inputPerMTok?: number;
+  /** USD per 1,000,000 COMPLETION (output) tokens. */
+  outputPerMTok?: number;
+}
+
 /** Static configuration for one api-adapter backend (parameterized per backend — DeepSeek/Codex). */
 export interface ApiAdapterConfig {
   /** The backend's base URL, e.g. 'https://api.deepseek.com' (no trailing /chat/completions). */
@@ -117,6 +131,57 @@ export interface ApiAdapterConfig {
   timeoutMs?: number;
   /** A human label for the backend (diagnostics / health detail). Default = the model id. */
   label?: string;
+  /**
+   * M-1 — the per-1M-token USD rate, used to COMPUTE costUsd from the returned token usage when the
+   * backend itself does not report a `total_cost_usd`. CONFIGURABLE: a default lives in
+   * {@link DEFAULT_MODEL_RATES} (overridable via this field). Omit it and an unknown-cost call simply
+   * leaves costUsd undefined (token counts are still forwarded). These are conservative DEFAULTS — the
+   * operator confirms/updates real prices before activation (P6, OD-3).
+   */
+  rate?: ModelRate;
+}
+
+/**
+ * The DEFAULT per-model USD rate table (USD per 1M tokens) — CONFIGURABLE. Keyed by model id. Used to
+ * price a call from its token usage when the backend returns no `total_cost_usd`. Conservative
+ * placeholders confirmed by the operator before real spend (OD-3); override per-call via
+ * {@link ApiAdapterConfig.rate} or by editing this map in ONE place. Claude is NOT here — it is
+ * subscription-billed (CP4), so no per-token USD is computed for claude-cli.
+ */
+export const DEFAULT_MODEL_RATES: Readonly<Record<string, ModelRate>> = {
+  // DeepSeek also reports total_cost_usd itself; this is the fallback if a future response omits it.
+  'deepseek-v4-flash': { inputPerMTok: 0.27, outputPerMTok: 1.1 },
+  // OpenAI/Codex does NOT report cost → priced from usage. Placeholder until OD-4 confirms the model id+price.
+  'gpt-5-codex': { inputPerMTok: 1.25, outputPerMTok: 10.0 },
+};
+
+/**
+ * Resolve the USD rate for a backend config: the config's explicit `rate` wins; else the
+ * {@link DEFAULT_MODEL_RATES} entry for its model id; else undefined (cost stays unknown). Pure.
+ */
+export function resolveRate(config: ApiAdapterConfig): ModelRate | undefined {
+  return config.rate ?? DEFAULT_MODEL_RATES[config.model];
+}
+
+/**
+ * Compute USD from a token usage block + a rate (per 1M tokens). Returns undefined when neither side can
+ * produce a number (no usage, or no rate fields) — "unknown cost" rather than a misleading 0. Pure.
+ */
+export function computeCostUsd(usage: TokenUsage | undefined, rate: ModelRate | undefined): number | undefined {
+  if (!usage || !rate) return undefined;
+  const inTok = usage.promptTokens;
+  const outTok = usage.completionTokens;
+  let usd = 0;
+  let known = false;
+  if (typeof inTok === 'number' && typeof rate.inputPerMTok === 'number') {
+    usd += (inTok / 1_000_000) * rate.inputPerMTok;
+    known = true;
+  }
+  if (typeof outTok === 'number' && typeof rate.outputPerMTok === 'number') {
+    usd += (outTok / 1_000_000) * rate.outputPerMTok;
+    known = true;
+  }
+  return known ? usd : undefined;
 }
 
 /** The request the driver builds (OpenAI-compatible chat/completions). Pure data — asserted by tests. */
@@ -127,6 +192,12 @@ export interface ChatCompletionRequest {
   max_tokens: number;
   /** Streamed by default (the driver maps deltas → assistant events). */
   stream: boolean;
+  /**
+   * M-1 — ask the backend to emit a usage block on the FINAL streamed chunk (token accounting).
+   * OpenAI AND DeepSeek both honor `stream_options:{include_usage:true}` on a streamed completion;
+   * without it the streamed response carries no token totals. Present only when streaming.
+   */
+  stream_options?: { include_usage: true };
   /** DeepSeek dual-mode toggle; present only when disableThinking (omitted otherwise). */
   thinking?: { type: 'disabled' };
 }
@@ -212,9 +283,21 @@ export function buildChatCompletionRequest(
     temperature: config.temperature ?? DEFAULT_TEMPERATURE,
     max_tokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
     stream: true,
+    // M-1: request the per-call usage block on the final streamed chunk (OpenAI + DeepSeek both support it).
+    stream_options: { include_usage: true },
   };
   if (config.disableThinking ?? true) req.thinking = THINKING_DISABLED;
   return req;
+}
+
+/** Token usage from a completion's `usage` block (OpenAI/DeepSeek shape). All fields optional/defensive. */
+export interface TokenUsage {
+  /** usage.prompt_tokens (input). */
+  promptTokens?: number;
+  /** usage.completion_tokens (output). */
+  completionTokens?: number;
+  /** usage.total_tokens (prompt + completion). */
+  totalTokens?: number;
 }
 
 /** A parsed streamed delta: incremental assistant text and/or a usage/cost report on the final chunk. */
@@ -225,8 +308,10 @@ export interface ParsedStreamChunk {
   finishReason?: string;
   /** total_cost_usd if the backend reports it on a (usually final) chunk. */
   costUsd?: number;
-  /** usage.total_tokens if reported (diagnostics). */
+  /** usage.total_tokens if reported (back-compat convenience; mirrors usage.totalTokens). */
   totalTokens?: number;
+  /** M-1: the full token usage block (prompt/completion/total), if the backend reported one. */
+  usage?: TokenUsage;
 }
 
 /**
@@ -248,8 +333,16 @@ export function parseStreamPayload(obj: unknown): ParsedStreamChunk {
   if (text) out.textDelta = text;
   if (typeof c0['finish_reason'] === 'string') out.finishReason = c0['finish_reason'] as string;
   if (typeof m['total_cost_usd'] === 'number') out.costUsd = m['total_cost_usd'] as number;
-  const usage = (m['usage'] ?? {}) as Record<string, unknown>;
-  if (typeof usage['total_tokens'] === 'number') out.totalTokens = usage['total_tokens'] as number;
+  // M-1: extract the usage block (prompt/completion/total). Defensive — any subset may be present.
+  const usageRaw = (m['usage'] ?? {}) as Record<string, unknown>;
+  const usage: TokenUsage = {};
+  if (typeof usageRaw['prompt_tokens'] === 'number') usage.promptTokens = usageRaw['prompt_tokens'] as number;
+  if (typeof usageRaw['completion_tokens'] === 'number') usage.completionTokens = usageRaw['completion_tokens'] as number;
+  if (typeof usageRaw['total_tokens'] === 'number') usage.totalTokens = usageRaw['total_tokens'] as number;
+  if (usage.promptTokens !== undefined || usage.completionTokens !== undefined || usage.totalTokens !== undefined) {
+    out.usage = usage;
+    if (usage.totalTokens !== undefined) out.totalTokens = usage.totalTokens; // back-compat mirror
+  }
   return out;
 }
 
@@ -431,8 +524,10 @@ export class ApiAdapterDriver implements SessionDriver {
         };
 
         // 4) Stream the response; accumulate assistant text; emit a delta event per non-empty delta.
+        //    M-1: also accumulate the usage block (it arrives on the final include_usage chunk).
         let assembled = '';
         let costUsd: number | undefined;
+        let usage: TokenUsage | undefined;
         let body: AsyncIterable<string | Uint8Array>;
         try {
           body = await self.httpClient.stream(httpReq);
@@ -444,6 +539,7 @@ export class ApiAdapterDriver implements SessionDriver {
           for await (const payload of iterateSsePayloads(body)) {
             const parsed = parseStreamPayload(payload);
             if (parsed.costUsd !== undefined) costUsd = parsed.costUsd;
+            if (parsed.usage) usage = parsed.usage; // M-1: keep the latest usage block (final chunk)
             if (parsed.textDelta) {
               assembled += parsed.textDelta;
               yield { kind: 'assistant', text: parsed.textDelta, toolUses: [] };
@@ -470,6 +566,16 @@ export class ApiAdapterDriver implements SessionDriver {
           subtype: 'success',
           result: assembled,
         };
+        // M-1: forward token counts when the backend reported a usage block, and COMPUTE costUsd from
+        // the per-model rate when the backend did NOT report its own total_cost_usd (OpenAI/Codex case).
+        if (usage) {
+          const tokens: { prompt?: number; completion?: number; total?: number } = {};
+          if (usage.promptTokens !== undefined) tokens.prompt = usage.promptTokens;
+          if (usage.completionTokens !== undefined) tokens.completion = usage.completionTokens;
+          if (usage.totalTokens !== undefined) tokens.total = usage.totalTokens;
+          if (Object.keys(tokens).length > 0) result.tokens = tokens;
+          if (costUsd === undefined) costUsd = computeCostUsd(usage, resolveRate(self.config));
+        }
         if (costUsd !== undefined) result.costUsd = costUsd;
         yield result;
       } catch (e) {

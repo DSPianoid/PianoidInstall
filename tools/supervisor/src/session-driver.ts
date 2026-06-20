@@ -76,6 +76,12 @@ export type SessionEvent =
       result?: string;
       /** Total cost in USD, if reported. */
       costUsd?: number;
+      /**
+       * Token usage for the turn (M-1) — input/output/total — when the backend reported a usage block.
+       * The api-adapter driver populates this from the streamed `usage` block (include_usage); the relay
+       * forwards it into the AgentReport and the X2 budget gate. Absent when the backend reports none.
+       */
+      tokens?: { prompt?: number; completion?: number; total?: number };
     };
 
 /** A normalized inbound user turn injected into the session. */

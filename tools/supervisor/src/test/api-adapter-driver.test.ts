@@ -14,7 +14,10 @@ import {
   buildChatCompletionRequest,
   parseStreamPayload,
   iterateSsePayloads,
+  computeCostUsd,
+  resolveRate,
   THINKING_DISABLED,
+  DEFAULT_MODEL_RATES,
   DEEPSEEK_CODING_CONFIG,
   CODEX_REVIEWING_CONFIG,
   ApiAdapterHttpError,
@@ -276,4 +279,74 @@ test('send() is rejected (one-shot compute turn in v1); stop()/interrupt() are s
   await assert.doesNotReject(() => driver.stop());
   await assert.doesNotReject(() => driver.interrupt());
   assert.equal(driver.health().running, false);
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// M-1 — token/cost metering (include_usage → usage block → result.tokens + cost)
+// ════════════════════════════════════════════════════════════════════════════════
+
+test('★ M-1 buildChatCompletionRequest asks for the usage block (stream_options.include_usage)', () => {
+  const req = buildChatCompletionRequest(CONFIG, startOpts());
+  assert.deepEqual(req.stream_options, { include_usage: true });
+});
+
+test('★ M-1 parseStreamPayload extracts the full usage block (prompt/completion/total)', () => {
+  const p = parseStreamPayload({ choices: [{ delta: {} }], usage: { prompt_tokens: 11, completion_tokens: 22, total_tokens: 33 } });
+  assert.deepEqual(p.usage, { promptTokens: 11, completionTokens: 22, totalTokens: 33 });
+  assert.equal(p.totalTokens, 33, 'back-compat mirror still set');
+});
+
+test('M-1 parseStreamPayload tolerates a partial usage block (only total) + no usage at all', () => {
+  assert.deepEqual(parseStreamPayload({ usage: { total_tokens: 9 } }).usage, { totalTokens: 9 });
+  assert.equal(parseStreamPayload({ choices: [{ delta: { content: 'x' } }] }).usage, undefined);
+});
+
+test('★ M-1 resolveRate + computeCostUsd: rate from the table, USD from token usage', () => {
+  // DeepSeek rate resolves from DEFAULT_MODEL_RATES by model id (config has no explicit rate)
+  const dsRate = resolveRate(DEEPSEEK_CODING_CONFIG);
+  assert.deepEqual(dsRate, DEFAULT_MODEL_RATES['deepseek-v4-flash']);
+  // 1M in @0.27 + 1M out @1.1 = 1.37
+  assert.equal(computeCostUsd({ promptTokens: 1_000_000, completionTokens: 1_000_000 }, dsRate), 1.37);
+  // an explicit config.rate OVERRIDES the table
+  const overridden = resolveRate({ ...DEEPSEEK_CODING_CONFIG, rate: { inputPerMTok: 2, outputPerMTok: 4 } });
+  assert.equal(computeCostUsd({ promptTokens: 1_000_000, completionTokens: 0 }, overridden), 2);
+  // no usage OR no rate → undefined (unknown, not a misleading 0)
+  assert.equal(computeCostUsd(undefined, dsRate), undefined);
+  assert.equal(computeCostUsd({ promptTokens: 100 }, undefined), undefined);
+  assert.equal(computeCostUsd({}, dsRate), undefined);
+});
+
+test('★★ M-1 start() attaches result.tokens from the usage block AND keeps the backend-reported cost', async () => {
+  const body = sseBody([
+    { choices: [{ delta: { content: 'hi' } }] },
+    { choices: [{ delta: {}, finish_reason: 'stop' }], total_cost_usd: 0.0005, usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } },
+  ]);
+  const driver = new ApiAdapterDriver({ config: CONFIG, env: KEY_ENV, httpClient: fakeClient(body), sessionIdFn: () => 's' });
+  const events = await collect(driver.start(startOpts()));
+  const result = events.find((e) => e.kind === 'result') as Extract<SessionEvent, { kind: 'result' }>;
+  assert.deepEqual(result.tokens, { prompt: 7, completion: 3, total: 10 });
+  assert.equal(result.costUsd, 0.0005, 'backend-reported cost wins over the computed rate');
+});
+
+test('★★ M-1 start() COMPUTES cost from the rate when the backend reports NO total_cost_usd (Codex shape)', async () => {
+  const body = sseBody([
+    { choices: [{ delta: { content: 'review' } }] },
+    { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1_000_000, completion_tokens: 0, total_tokens: 1_000_000 } },
+  ]);
+  const driver = new ApiAdapterDriver({ config: { ...CODEX_REVIEWING_CONFIG }, env: { OPENAI_API_KEY: 'oa' } as NodeJS.ProcessEnv, httpClient: fakeClient(body), sessionIdFn: () => 's' });
+  const events = await collect(driver.start(startOpts()));
+  const result = events.find((e) => e.kind === 'result') as Extract<SessionEvent, { kind: 'result' }>;
+  assert.deepEqual(result.tokens, { prompt: 1_000_000, completion: 0, total: 1_000_000 });
+  // 1M input @ $1.25/M = 1.25 (the gpt-5-codex placeholder rate)
+  assert.equal(result.costUsd, 1.25);
+});
+
+test('★ M-1 a success with NO usage block → result has NO tokens, NO crash (graceful degrade)', async () => {
+  const body = sseBody([{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }]); // no usage
+  const driver = new ApiAdapterDriver({ config: CONFIG, env: KEY_ENV, httpClient: fakeClient(body), sessionIdFn: () => 's' });
+  const events = await collect(driver.start(startOpts()));
+  const result = events.find((e) => e.kind === 'result') as Extract<SessionEvent, { kind: 'result' }>;
+  assert.equal(result.subtype, 'success');
+  assert.equal(result.tokens, undefined);
+  assert.equal(result.costUsd, undefined); // no cost reported AND none computable
 });
