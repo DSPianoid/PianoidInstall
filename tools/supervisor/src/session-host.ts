@@ -641,6 +641,16 @@ export class SessionHost {
    */
   private lastStall: { silentMs: number; action: 'surface' | 'restart' } | null = null;
   /**
+   * ★ CONTROL PLANE — the orchestrator's CURRENT/next-launch Tier-1 model, shown by the
+   * `/control` `status` action + marked in the `change-model` sub-menu. Initialized from
+   * `opts.model` (the construction-time model). The `change-model` action mutates it (via
+   * {@link setOrchestratorModel}, ALONGSIDE {@link LifecycleManager.setModel}) so the operator
+   * immediately sees the pending model — without this the status would read the never-mutated
+   * `opts.model` and show a stale model even after a model-change restart. SOLE OWNER (P1):
+   * only {@link setOrchestratorModel} writes it post-construction.
+   */
+  private currentModel: string | undefined;
+  /**
    * ★ A5 — proactive stuck/dead alert configuration, resolved ONCE in the ctor. When
    * `enabled` is false (the DEFAULT — index.ts does not pass `proactiveAlerts`), NOTHING
    * arms (the watchdog stays off, the proactive-watch never starts, no alert ever pushes)
@@ -673,6 +683,7 @@ export class SessionHost {
     this.captureRecent = opts.captureRecent ?? null;
     this.restartControl = opts.restartControl ?? null;
     this.interruptTurn = opts.interruptTurn ?? null;
+    this.currentModel = opts.model; // CONTROL PLANE: the live model shown in status; change-model mutates it.
     // ★ A5: resolve the proactive-alert config ONCE. enabled=false (the default) ⇒ the watchdog is
     // NOT enabled below, the proactive-watch never starts, and maybeProactiveAlert() early-returns
     // → byte-for-byte today. The thresholds are only consulted when enabled.
@@ -1123,13 +1134,13 @@ export class SessionHost {
         return;
       case 'change-model':
         // An edit drops the keyboard → send the sub-menu as a NEW message.
-        await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.opts.model));
+        await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.currentModel));
         return;
       case 'model-set':
         // A pick RESTARTS the orchestrator → open the confirm step (a NEW message). The
         // bare pick does NOT restart. A missing model arg falls back to the model sub-menu.
         if (!ctl.arg) {
-          await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.opts.model));
+          await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.currentModel));
           return;
         }
         await this.sendControlMenu(
@@ -1455,7 +1466,7 @@ export class SessionHost {
       idle: this.lifecycle.isIdle(),
       ...(h.sessionId ? { sessionId: h.sessionId } : {}),
       restarts: h.restarts,
-      ...(this.opts.model ? { model: this.opts.model } : {}),
+      ...(this.currentModel ? { model: this.currentModel } : {}),
       uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
       pendingApprovals: this.pendingPermissions().length,
       lastStall: this.lastStall,
@@ -1896,6 +1907,31 @@ export class SessionHost {
   /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
   async clearContext(): Promise<void> {
     await this.lifecycle.clearContext();
+  }
+
+  /**
+   * ★ ACTIVATION PASSTHROUGH — interrupt the orchestrator's CURRENT turn WITHOUT killing it
+   * (the operator ESC). A thin delegate to {@link LifecycleManager.interruptTurn} (→
+   * `driver.interrupt()`); the LifecycleManager stays the sole driver EXECUTOR. index.ts wires the
+   * injected {@link interruptTurn} control dep to THIS method at activation (the dep field — the
+   * `controlInterrupt` handler's seam — cannot share this method's name, so the passthrough is
+   * `interruptCurrentTurn`). Tears down NOTHING (no restart/sessionId-drop/counter bump). ADDITIVE:
+   * no behavior change unless called.
+   */
+  async interruptCurrentTurn(): Promise<void> {
+    await this.lifecycle.interruptTurn();
+  }
+
+  /**
+   * ★ ACTIVATION PASSTHROUGH — set the NEXT-LAUNCH Tier-1 orchestrator model (the control-plane
+   * `change-model` action). Delegates to {@link LifecycleManager.setModel} (the lifecycle OWNS its
+   * start options — P1). Does NOT restart; the change-model control closure (wired by index.ts at
+   * activation) calls this THEN `requestRestart` (drain + handoff) so the fresh session launches on
+   * the new model with context carried across. ADDITIVE: no behavior change unless called.
+   */
+  setOrchestratorModel(model: string): void {
+    this.lifecycle.setModel(model); // next-launch model (the fresh session launches on it)
+    this.currentModel = model; // so `status` + the change-model sub-menu immediately reflect the pending model
   }
 
   /**

@@ -545,6 +545,21 @@ export class LifecycleManager {
     await this.opts.driver.interrupt();
   }
 
+  /**
+   * SET THE NEXT-LAUNCH MODEL (the control-plane `change-model` action). Mutates the
+   * start-options model the lifecycle OWNS (P1: the LifecycleManager is the sole owner of its
+   * driver-start options) — `consumeOnce()` reads `this.opts.model` on EVERY (re)start, so the
+   * NEXT fresh session (a `restartFresh()` from the change-model restart) launches on it; an
+   * in-flight session is unaffected until it restarts. ADDITIVE: this method changes NOTHING
+   * unless CALLED (the change-model control closure is its only caller, AT ACTIVATION). It does
+   * NOT itself restart — the caller pairs it with `requestRestart` so context carries across the
+   * switch (drain + handoff).
+   */
+  setModel(model: string): void {
+    this.opts.model = model;
+    this.logger.info('next-launch model set (takes effect on the next fresh start)', { model });
+  }
+
   /** Health snapshot (merges manager + driver state). */
   health(): { running: boolean; sessionId?: string; restarts: number; driver: ReturnType<SessionDriver['health']> } {
     return {

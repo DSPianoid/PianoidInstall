@@ -63,7 +63,7 @@ import { BackendRegistry } from './backend-registry.js';
 import { dispatchRoleAgentWithFallback } from './result-relay.js';
 import { mergeRoleRoutingOverrides, resolveRoleBackend, DEFAULT_ROLE_ROUTING_CONFIG } from './role-router.js';
 import { DEFAULT_API_ADAPTER_CONFIGS } from './api-adapter-driver.js';
-import type { RoleDispatchFn, RoleDispatchResult } from './session-host.js';
+import type { RoleDispatchFn, RoleDispatchResult, RestartIntent, RestartControlResult } from './session-host.js';
 
 interface CliArgs {
   live: boolean;
@@ -331,6 +331,63 @@ async function main(): Promise<void> {
       });
     }
 
+    // ★ OPERATOR CONTROL PLANE ACTIVATION (Parts A1–A5) — the `/control` menu's injected
+    // capabilities. UNLIKE P6 these are NOT gated on SUPERVISOR_ROLE_ROUTING: the control plane is
+    // GENERAL supervisor control (proposal §6 "Activation": "Part A's control plane is live as soon
+    // as the matcher ships"), so the deps wire UNCONDITIONALLY for the hosted session here. They
+    // COEXIST with the P6 block above (no overlap — different opts). Each is an ADDITIVE optional
+    // ctor opt (the proven P6 conditional-spread); unwired ⇒ the action reports "not available".
+    // HOST-SAFETY: wiring them does NOT itself touch the live host — they fire only when the operator
+    // taps an action AFTER the user-triggered restart loads this build.
+    //   • reconnect / flush / log → the SAME supervisor methods the loopback panel exposes
+    //     (panel.ts /api/channel/{reconnect,flush} + /api/capture) — supervisor-owned, child-independent.
+    //   • restart (restart/kill/clear/resume/change-model) → a closure over the EXISTING audited
+    //     restart machinery (SessionHost.requestRestart's confirm/rate-limit/audit graceful path, or
+    //     clearContext for a clean slate) — it does NOT bypass the safety gate; the LifecycleManager
+    //     stays the sole restart EXECUTOR. change-model additionally sets the next-launch Tier-1 model
+    //     (setOrchestratorModel) before the restart so context carries across the switch (drain+handoff).
+    //   • interrupt → SessionHost.interruptCurrentTurn() (→ lifecycle.interruptTurn → driver.interrupt):
+    //     stop the in-flight turn WITHOUT killing the process.
+    // restartControl + interruptTurn close over `sessionHost` (assigned just below) — read lazily at
+    // tap-time, exactly like the handleUnresponsive closure further down (never called during construction).
+    const reconnectChannelControl = (): Promise<{ ok: boolean; error?: string }> =>
+      supervisor.reconnectChannel('telegram');
+    const flushChannelControl = (): { ok: boolean; dropped?: number; error?: string } =>
+      supervisor.flushChannel('telegram');
+    const captureRecentControl = () => supervisor.captureStore.replay();
+    const restartControl = async (intent: RestartIntent): Promise<RestartControlResult> => {
+      const host = sessionHost;
+      if (!host) return { ok: false, detail: 'session not ready' };
+      // `clear` = a clean slate (no confirm, no handoff) — the panel /api/clear path.
+      if (intent.kind === 'clear') {
+        await host.clearContext();
+        return { ok: true, detail: 'context cleared (fresh slate)' };
+      }
+      // change-model: set the next-launch Tier-1 model BEFORE the restart (drain + handoff so the
+      // conversation carries across the switch).
+      if (intent.kind === 'change-model' && intent.model) {
+        host.setOrchestratorModel(intent.model);
+      }
+      // restart / kill / resume / change-model → the EXISTING audited graceful restart (user-confirm
+      // + rate-limit + handoff re-inject). The menu already confirmed; this is the lifecycle's own
+      // safety gate (CP7) — intentionally NOT bypassed.
+      const reason =
+        intent.kind === 'change-model'
+          ? `operator change-model${intent.model ? ` → ${intent.model}` : ''}`
+          : `operator ${intent.kind}`;
+      const outcome = host.requestRestart(reason, intent.handoff);
+      if (outcome.status === 'queued') return { ok: true, detail: 'restart queued (awaiting your confirm)' };
+      if (outcome.status === 'rate_limited') {
+        return { ok: false, detail: `rate-limited — retry in ~${Math.round(outcome.retryAfterMs / 1000)}s` };
+      }
+      return { ok: false, detail: 'a restart confirm is already in flight' };
+    };
+    const interruptTurnControl = (): Promise<void> => {
+      const host = sessionHost;
+      if (!host) return Promise.resolve();
+      return host.interruptCurrentTurn();
+    };
+
     sessionHost = new SessionHost({
       driver: sessionDriver,
       bus: supervisor.bus,
@@ -348,6 +405,15 @@ async function main(): Promise<void> {
       ...(roleRoutingStore ? { roleRoutingStore } : {}),
       ...(deleteMessage ? { deleteMessage } : {}),
       ...(dispatchRoleAgent ? { dispatchRoleAgent } : {}),
+      // ★ CONTROL-PLANE deps (Parts A1–A5) — wired UNCONDITIONALLY for the hosted session (general
+      // supervisor control, not switch-gated). Built just above; restart/interrupt close over
+      // sessionHost lazily. These make the `/control` menu's reconnect/flush/log + restart/kill/
+      // clear/resume/handoff/change-model + interrupt actions functional after the activation restart.
+      reconnectChannel: reconnectChannelControl,
+      flushChannel: flushChannelControl,
+      captureRecent: captureRecentControl,
+      restartControl,
+      interruptTurn: interruptTurnControl,
       // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
       // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
       // flips it at runtime via the intercepted `/mode` command.

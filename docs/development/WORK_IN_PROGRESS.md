@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-2503 | Supervisor control-plane ACTIVATION (`feature/supervisor-control-plane`, continues dev-ctl1/ctl2/ce3c/c9fb/acb7): WIRE the A1–A5 `/control` injected deps (`reconnectChannel`/`flushChannel`/`captureRecent`/`restartControl`/`interruptTurn`) into `index.ts` SessionHost ctor (mirror the P6 conditional-spread; COEXIST with P6). After wiring `/control` + its menu actions go live on the next supervisor restart. Keep `SUPERVISOR_PROACTIVE_ALERTS` OFF. Then REBUILD prod `dist/` (intentional — activation), verify full `node --test dist/test/` suite green + tsc clean + `dist/control-command.js` present + a new wiring test, back up `dist/`→`dist.bak/`. DOCUMENT the supervisor-`dist/`-reload restart procedure (do NOT execute). ⚠️ DO NOT restart/kill the supervisor, NO push/merge, preserve dirty/untracked. | [log](logs/dev-2503-2026-06-20-130447.md) | 2026-06-20 |
 | dev-acb7 | Supervisor control-plane Phase A5 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c/dev-c9fb): PROACTIVE stuck/dead PUSH + in-flight turn-watchdog enablement (ALERT-not-kill). Detect STUCK (idle + missed-ping/stall) / DEAD (child not running) / a long-running turn (>180s default) → push ONE debounced alert per event to the channel (re-arm only after the condition clears). Wires `status`'s STUCK end-to-end. The whole A5 behavior is gated behind a NEW config flag DEFAULT-OFF (watchdog timers do not even arm when off → byte-for-byte today). NEVER auto-kills/restarts (alert-only; composes with the existing auto-restart-on-death, adds no kill path). Clock/timers injectable + `.unref()`'d → fake clock in tests (no 180s waits). The LIVE host NEVER killed/restarted (fakes + fake clock + fake transport only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-acb7-2026-06-20-150800.md) | 2026-06-20 |
 | dev-c9fb | Supervisor control-plane Phase A4 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c): the `interrupt` (alias `cancel`) menu action — STOP the orchestrator's current turn WITHOUT killing it (a fast ESC). NEW public `lifecycle.interruptTurn()` (additive; NOT auto-invoked) calling the driver's `interrupt()`; a `CONTROL_ACTIONS` row + `ctl:interrupt` handler. NO confirm sub-menu (non-destructive). Calls the live interrupt ONLY via an injected `interruptTurn()` dep (dormant when unwired → "not available"); index.ts wires it AT ACTIVATION (not this phase). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER interrupted/restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-c9fb-2026-06-20-145002.md) | 2026-06-20 |
 | dev-ce3c | Supervisor control-plane Phase A3 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2): the restart/lifecycle menu actions — `restart` (GRACEFUL: drain→handoff snapshot→relaunch preserving channel, via the existing lifecycle restart path) / `kill` (HARD: no-drain) / `clear`+`new` (fresh context, no handoff) / `resume`+`handoff` (snapshot store + re-inject) + the `change-model` restart wiring (set Tier-1 model + restart on it with handoff). Each = a `CONTROL_ACTIONS` row + a `ctl:*` handler, ALL destructive → CONFIRM sub-menu (like flush). Restart performed ONLY via an injected lifecycle dep (dormant when unwired). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-ce3c-2026-06-20-112947.md) | 2026-06-20 |
@@ -60,7 +61,24 @@
      STUCK ~45-65s idle / in-flight 180s / DEAD = child not running). Clock/timers injectable + `.unref()`'d
      so tests use a fake clock (no real 180s waits). Same README deferral (dev-vio1 holds the lock). Source
      of truth meanwhile: control-command.ts + lifecycle.ts + session-host.ts + config.ts +
-     src/test/control-plane.test.ts (A5 section). -->
+     src/test/control-plane.test.ts (A5 section).
+     EXTENDED (dev-2503, 2026-06-20 — ★ACTIVATION WIRING SHIPPED): index.ts now WIRES the five A1–A5
+     control-plane deps into the hosted SessionHost ctor (reconnectChannel→supervisor.reconnectChannel,
+     flushChannel→supervisor.flushChannel, captureRecent→supervisor.captureStore.replay, restartControl→a
+     closure composing the EXISTING requestRestart [restart/kill/resume/change-model] + clearContext [clear]
+     — NOT a bypass, interruptTurn→SessionHost.interruptCurrentTurn→lifecycle.interruptTurn→driver.interrupt),
+     UNCONDITIONALLY (general supervisor control, not SUPERVISOR_ROLE_ROUTING-gated), COEXISTING with the
+     untouched P6 block. +3 additive dormant-safe passthroughs (LifecycleManager.setModel,
+     SessionHost.interruptCurrentTurn, SessionHost.setOrchestratorModel [sets BOTH the lifecycle next-launch
+     model AND the SessionHost currentModel the status/sub-menu display → change-model now coherent]) + a
+     trivial panel POST /api/interrupt (mirrors /api/clear; closes A4's deferred panel route). So the README
+     control-plane line should ALSO note the panel parallels + that the control plane is LIVE after the
+     supervisor restart. SUPERVISOR_PROACTIVE_ALERTS left OFF (A5 auto-push = a separate later follow-up).
+     The prod dist/ WAS rebuilt (the activation step); the live supervisor was NOT restarted (the
+     orchestrator triggers it via D:\tmp\restart-supervisor.ps1 -Launcher prod, DETACHED — POST
+     /api/lifecycle/restart-request only cycles the claude -p CHILD, not the supervisor PARENT, so it does
+     NOT reload dist/). Rollback: restore dist.bak/→dist/ + restart. +11 tests (control-activation-wiring.test.ts);
+     full node:test 551/551. Same README deferral (dev-vio1 holds the lock). -->
 
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the

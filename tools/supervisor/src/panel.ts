@@ -95,6 +95,8 @@ export class Panel {
         this.handleApprove(req, res);
       } else if (method === 'POST' && url.startsWith('/api/clear')) {
         this.handleClear(res);
+      } else if (method === 'POST' && url.startsWith('/api/interrupt')) {
+        void this.handleInterrupt(res);
       } else if (method === 'GET' && url.startsWith('/api/channel/state')) {
         // D2: channel state for the orchestrator's self-check.
         this.json(res, this.supervisor.channelState());
@@ -232,6 +234,29 @@ export class Panel {
     void this.sessionHost.clearContext();
     this.logger.info('operator panel: context clear requested', {});
     this.json(res, { ok: true, action: 'clear' });
+  }
+
+  /**
+   * POST /api/interrupt → stop the hosted session's CURRENT turn WITHOUT killing it (the
+   * operator ESC; the panel parallel of the `/control` `interrupt` action). Mirrors /api/clear:
+   * a child-independent operator action relayed to the session host. Non-destructive — the
+   * process + context stay alive (no restart, no sessionId drop).
+   */
+  private async handleInterrupt(res: import('node:http').ServerResponse): Promise<void> {
+    if (!this.sessionHost) {
+      res.writeHead(409, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'no hosted session' }));
+      return;
+    }
+    try {
+      await this.sessionHost.interruptCurrentTurn();
+      this.logger.info('operator panel: interrupt requested', {});
+      this.json(res, { ok: true, action: 'interrupt' });
+    } catch (err) {
+      this.logger.warn('operator panel: interrupt failed', { err: String(err) });
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, action: 'interrupt', error: String(err) }));
+    }
   }
 
   /** Read + parse a small JSON request body (bounded; loopback only). */

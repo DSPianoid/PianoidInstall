@@ -15,6 +15,38 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2503 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2; the orchestrator triggers the supervisor RESTART that loads the
+     rebuilt dist/, then Phase 2). EDITED (existing): tools/supervisor/src/{index.ts, session-host.ts,
+     lifecycle.ts, panel.ts}. NEW: tools/supervisor/src/test/control-activation-wiring.test.ts. Supervisor
+     control-plane ACTIVATION WIRING (the index.ts composition-root cut-over that makes the A1–A5 `/control`
+     menu FUNCTIONAL): wired the FIVE dormant injected control-plane deps into the hosted SessionHost ctor —
+     reconnectChannel→supervisor.reconnectChannel('telegram'), flushChannel→supervisor.flushChannel('telegram'),
+     captureRecent→supervisor.captureStore.replay(), restartControl→a closure composing the EXISTING audited
+     SessionHost.requestRestart (restart/kill/resume/change-model) + clearContext (clear) [the menu confirm +
+     the lifecycle user-confirm both STAND — NOT bypassed; change-model also sets the next-launch model first],
+     interruptTurn→SessionHost.interruptCurrentTurn()→lifecycle.interruptTurn()→driver.interrupt(). UNLIKE P6
+     these wire UNCONDITIONALLY for the hosted session (general supervisor control, not SUPERVISOR_ROLE_ROUTING-
+     gated) + COEXIST with the UNTOUCHED P6 conditional-spread block. +3 ADDITIVE dormant-safe passthroughs so
+     the closures reach their targets via SessionHost's existing delegate pattern: LifecycleManager.setModel
+     (mutates this.opts.model, the next-launch model consumeOnce reads), SessionHost.interruptCurrentTurn
+     (→lifecycle.interruptTurn; named NOT `interruptTurn` to avoid the private-field clash), SessionHost.
+     setOrchestratorModel (sets BOTH lifecycle.setModel AND a NEW SessionHost-held `currentModel` the status/
+     change-model-submenu display → closes a latent stale-model-display gap so change-model is fully coherent).
+     +trivial panel POST /api/interrupt→sessionHost.interruptCurrentTurn() (mirrors /api/clear; the only missing
+     panel route — closes A4's deferred panel-interrupt). SUPERVISOR_PROACTIVE_ALERTS left OFF (A5 auto-push =
+     a separate later follow-up; the on-demand /control menu doesn't need it). index.ts +68, session-host.ts +42,
+     lifecycle.ts +15, panel.ts +25 (all additive, within concern; session-host.ts pre-existing RED). ★ACTIVATION:
+     the prod dist/ WAS rebuilt this round (the intentional activation step — npm run build; dist/control-command.js
+     now PRESENT [was absent in the stale 2026-06-19 build]; sits on disk READY) — but the live supervisor was NOT
+     restarted (the orchestrator triggers it). NO /api/lifecycle/* call, NO restart-supervisor.ps1 run, NO supervisor
+     PID touched; dist.bak/ = the byte-copy rollback net. +11 tests (control-activation-wiring.test.ts, mirrors
+     p6-activation-wiring.test.ts: the wired SessionHost exposes /control end-to-end — all 14 actions reach their
+     REAL targets; UNWIRED host → every action "not available"). Full supervisor node:test 551/551 (540 A5 baseline
+     +11) on the REAL dist/, tsc --noEmit clean. NO real Telegram/claude spawn/spend (loopback + fakes). Dirty/
+     untracked files (dev-c9fb/ce3c/vio1 logs, controller logs, 2 proposals) NOT touched; dist/ gitignored. Restart
+     procedure (to reload the supervisor dist/) documented in the session log: D:\tmp\restart-supervisor.ps1 -Launcher
+     prod (DETACHED by design). SHA in the session log. -->
 <!-- dev-acb7 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, config.ts,
      session-host.ts, test/control-plane.test.ts}. tools/supervisor/src/lifecycle.ts was LOCKED precautionarily but
