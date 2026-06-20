@@ -38,8 +38,8 @@ export function isBackendKind(v: unknown): v is BackendKind {
 
 /**
  * The routing keys — the ROLE an orchestrator names when it dispatches work. DATA,
- * hot-swappable via config (the initial map lives in {@link DEFAULT_ROLE_BACKENDS}).
- * 'planning' is the only role exercised end-to-end in P1 (→ claude-cli).
+ * hot-swappable via config (the initial map lives in `DEFAULT_ROLE_ROUTING_CONFIG`
+ * in role-router.ts). 'planning' is the only role exercised end-to-end in P1 (→ claude-cli).
  */
 export type Role = 'planning' | 'coding' | 'reviewing';
 

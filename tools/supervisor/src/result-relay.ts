@@ -23,6 +23,13 @@ import { resolveRoleBackend, type RoleDispatchOverride, type RoleRouterConfig } 
 import { sealBackendOptions } from './backend-seal.js';
 import { BackendRegistry } from './backend-registry.js';
 import { ALL_BACKEND_SECRET_ENV_VARS } from './cost-safety.js';
+import {
+  planAgentWorktree,
+  ensureAgentWorktree,
+  type AgentWorktreeHandle,
+  type GitWorktreeRunner,
+} from './agent-worktree.js';
+import type { AgentLease } from './agent-concurrency.js';
 import type { BackendSelection, Role } from './backend-kinds.js';
 import type { SessionEvent, SessionStartOptions } from './session-driver.js';
 
@@ -38,10 +45,28 @@ export interface AgentReport {
   ok: boolean;
   /** The agent's final report text (the `result.result` field), if any. */
   text?: string;
-  /** Total cost in USD, if the backend reported it. */
+  /** Total cost in USD, if the backend reported it OR it was computed from token usage (M-1). */
   costUsd?: number;
+  /**
+   * Token usage for the turn (M-1) — prompt/completion/total — when the backend reported it (api-adapter
+   * via include_usage). The dispatcher also forwards `total` (or prompt+completion) into the X2 budget
+   * gate's release() so window spend is REAL. Absent for a backend that reports no usage (claude-cli).
+   */
+  tokens?: { prompt?: number; completion?: number; total?: number };
   /** The session id (for resume/attribution). */
   sessionId?: string;
+}
+
+/**
+ * The token count to charge the X2 budget gate for a report (M-1): prefer `tokens.total`; else the sum
+ * of prompt+completion; else 0 (no usage reported → nothing to charge). Pure + exported for the test.
+ */
+export function reportTokensUsed(report: Pick<AgentReport, 'tokens'>): number {
+  const t = report.tokens;
+  if (!t) return 0;
+  if (typeof t.total === 'number') return t.total;
+  const sum = (t.prompt ?? 0) + (t.completion ?? 0);
+  return sum;
 }
 
 /**
@@ -61,6 +86,7 @@ export function mapResultEventToReport(
   };
   if (ev.result !== undefined) report.text = ev.result;
   if (ev.costUsd !== undefined) report.costUsd = ev.costUsd;
+  if (ev.tokens !== undefined) report.tokens = ev.tokens; // M-1: forward token usage
   if (ev.sessionId) report.sessionId = ev.sessionId;
   return report;
 }
@@ -103,6 +129,28 @@ export interface DispatchRoleAgentOptions {
    * omitted for an api-adapter, the seal treats EVERY known backend key as foreign.
    */
   ownSecretName?: string;
+  /**
+   * H-1 — OPT-IN per-agent git-worktree ISOLATION (default OFF, so the existing single-attempt
+   * primitive is byte-for-byte unchanged unless a caller asks). When TRUE and the resolved backend
+   * is FS-writing (claude-cli) AND no isolation cwd was already provided (`startOptions.cwd` unset
+   * AND env SUPERVISOR_SESSION_CWD unset), the dispatcher CREATES a fresh per-agent worktree before
+   * launch, threads its path in as the agent's `cwd`, and tears it down on teardown (incl. on
+   * failure). A compute api-adapter agent (no FS writes) gets none. If an isolation cwd already
+   * exists, it is REUSED and no worktree is created (today's launcher behavior, unchanged).
+   */
+  manageWorktree?: boolean;
+  /** The injectable git runner for {@link manageWorktree} (tests mock it → NO real worktree in this repo). */
+  worktreeRunner?: GitWorktreeRunner;
+  /**
+   * M-1 — an OPTIONAL X2 concurrency-gate {@link AgentLease} acquired by the caller for THIS dispatch.
+   * When supplied, the dispatcher RELEASES it exactly once on teardown with the REAL token count from
+   * the agent's report ({@link reportTokensUsed}) — so the gate's window-spend reflects actual usage
+   * (CP4/FD5), not an up-front estimate. The lease's own idempotency makes a crash-path release safe
+   * (it charges 0 when no usage was reported). When omitted, the dispatcher touches no gate (the caller
+   * may manage the lease itself). The gate remains the sole owner of the spend counter (P1); the
+   * dispatcher only reports the actual number to it.
+   */
+  lease?: AgentLease;
 }
 
 /**
@@ -153,11 +201,37 @@ export function planRoleDispatch(
  */
 export async function dispatchRoleAgent(opts: DispatchRoleAgentOptions): Promise<AgentReport> {
   const { selection, sealed } = planRoleDispatch(opts);
+
+  // H-1: if worktree management is opted in, create a per-agent isolation worktree for an FS-writing
+  // backend that didn't already get one (and thread its cwd into the start options). A compute agent or
+  // an already-isolated agent gets a no-op handle. Created BEFORE the driver launches; torn down in the
+  // finally (so it is reaped even if the agent crashes — no leaked worktree). The git side effect runs
+  // through opts.worktreeRunner (tests mock it). FAIL-CLOSED: a create failure throws BEFORE any launch.
+  let worktree: AgentWorktreeHandle | undefined;
+  let started: SessionStartOptions = sealed;
+  if (opts.manageWorktree) {
+    const plan = planAgentWorktree(selection, {
+      ...(opts.env ? { env: opts.env } : {}),
+      // The plan must see the cwd the caller already pinned (startOptions.cwd) as a "provided isolation
+      // cwd" too — if the caller set a cwd, we reuse it and create nothing.
+    });
+    // A caller-pinned startOptions.cwd counts as an already-provided isolation cwd (reuse, don't create).
+    const alreadyIsolated = plan.sessionCwd !== undefined || sealed.cwd !== undefined;
+    worktree = ensureAgentWorktree(
+      { ...plan, sessionCwd: alreadyIsolated ? (plan.sessionCwd ?? sealed.cwd) : undefined },
+      {
+        selection,
+        ...(opts.worktreeRunner ? { runner: opts.worktreeRunner } : {}),
+      },
+    );
+    if (worktree.created) started = { ...sealed, cwd: worktree.worktreePath };
+  }
+
   const driver = opts.registry.create(selection);
 
   let report: AgentReport | undefined;
   try {
-    for await (const ev of driver.start(sealed)) {
+    for await (const ev of driver.start(started)) {
       if (ev.kind === 'result') {
         report = mapResultEventToReport(selection, ev);
         break; // one result is the terminal event — done
@@ -169,6 +243,12 @@ export async function dispatchRoleAgent(opts: DispatchRoleAgentOptions): Promise
   } finally {
     // Always tear the driver down (kills the child + its tree for CliStreamDriver).
     await driver.stop().catch(() => undefined);
+    // H-1: always reap the per-agent worktree (idempotent, best-effort, never throws) — even on a crash,
+    // so a failed agent never leaks a worktree.
+    worktree?.teardown();
+    // M-1: release the X2 budget lease (if any) with the REAL token count from the report (0 on a crash,
+    // where no usage was reported). Idempotent release → safe in the finally on every path.
+    if (opts.lease) opts.lease.release(report ? reportTokensUsed(report) : 0);
   }
 
   if (!report) throw new AgentDispatchError(selection, 'agent stream ended with no result event (crash)');
