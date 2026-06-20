@@ -78,6 +78,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      needs the orchestrator-owned restart to load. NO restart performed. README.md doc update DEFERRED
      (dev-vio1 holds it) — WIP doc-deferral note filed. SHA in the session log. -->
 | dev-vio1 | tools/supervisor/src/test/voice-tts-isolation.test.ts (NEW), tools/supervisor/README.md | 2026-06-19T14:33Z | RESUME (2nd restart): OUTBOUND-voice fix. Root cause MEASURED — edge-tts not installed in PianoidCore/.venv → tts_voice.py fails at `import edge_tts` → VoiceCodec.synthesize() throws → telegram.ts outbound catch falls back to text (adapter+config logic CORRECT). Fix = install edge-tts into that venv (env, no src-logic change) + ADD a real-TTS isolation test + an adapter-modality unit test (in the existing telegram-adapter.test.ts, already locked-clear: covered by this lock). dist/ rebuild. NO restart of the live supervisor. |
+<!-- dev-2870 H-1+M-1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (M-1 commit a3ddc2c + H-1 commit 1763430 +
+     review-doc commit 8e18633 on feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the
+     separately-approved P6 step). Edited (existing): tools/supervisor/src/{agent-worktree,result-relay,
+     api-adapter-driver,session-driver,backend-kinds}.ts + test/{worktree-isolation,result-relay,
+     api-adapter-driver}.test.ts. NEW doc: docs/development/reviews/model-agnostic-agents-review-2026-06-20.md.
+     H-1 = REAL per-agent git-worktree create+teardown for FS-writing claude agents (injectable
+     GitWorktreeRunner REUSES the index.ts/launch git pattern; created at the result-relay choke-point opt-in
+     manageWorktree, torn down in finally incl. on crash; compute agent gets none; already-isolated reuses;
+     tests MOCK git → NO real worktree in this repo, verified via git worktree list). M-1 = real token/cost
+     metering for api-adapter (stream_options.include_usage → usage block → result.tokens + costUsd computed
+     from a CONFIGURABLE per-model rate table when the backend reports none → AgentReport.tokens + X2 gate
+     lease released with the REAL token count). + stale-docstring cleanup. DORMANT default-OFF
+     (SUPERVISOR_ROLE_ROUTING); index.ts / live path / prod dist / running supervisor UNTOUCHED; LIVE
+     assertCostSafe byte-for-byte unchanged; NO real paid API call (injected fake clients). Full supervisor
+     node:test 404/404 (+29), tsc clean (--noEmit + a throwaway dist dir, removed — prod dist/ NOT regenerated). -->
+| <!-- (none active for dev-2870) --> | | | |
 <!-- dev-vio1 RESUME locks RELEASED 2026-06-19 at Step 10a Phase 1 (inbound-STT FIX committed on feature/supervisor-voice-io;
      NOT merged/pushed — held for the user's live-test after the orchestrator-coordinated supervisor RESTART, then Phase 2
      merge handled by the post-restart orchestrator). Held: tools/supervisor/src/config.ts + launch-prod-orch.mjs +
