@@ -50,6 +50,7 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-85bb | Wire 3 MCP servers (deepseek-codegen, hostinger-email, whatsapp) into the supervisor-hosted `claude -p` orchestrator (`feature/supervisor-control-plane`), containment-safe — WITHOUT re-enabling the 'user' setting source or the Telegram plugin (would re-introduce the channel-hijack bug). cli-stream-driver.ts: honour `opts.mcpServers` → write a 0600 temp `--mcp-config` file (NO `--strict-mcp-config`), unlink on stop, never log. index.ts: curate the hosted MCP map excluding ONLY 'telegram' (keep whatsapp+deepseek+hostinger). WhatsApp policy: reading allowed (remove blanket `mcp__whatsapp__*` deny from profiles.ts + backend-seal UNIVERSAL_CHANNEL_DENY); SEND tools routed for user approval (not hard-denied, NOT allow-listed). Telegram stays FULLY denied; hostinger send stays gated. ⚠️ DO NOT restart/kill the supervisor; throwaway dist build only (prod dist/ NOT regenerated); NO push/merge. Phase 1 → commit, release locks, STOP. | [log](logs/dev-85bb-2026-06-20-205557.md) | 2026-06-20 |
 | dev-3e66 | Supervisor Control Panel REDESIGN (`feature/supervisor-control-plane`, per docs/proposals/control-panel-redesign-2026-06-20.md). PART 1: menu restructure — remove Ping/Reconnect/Handoff/Kill top-level; main panel = 10 buttons 2/row (Status/Approvals/Log/New session/Resume/Interrupt/Change model/Mode/Advanced/Help); NEW Mode submenu (Voice/Text/Dual, no confirm, surfaces /mode); NEW Advanced submenu (Restart/Parent restart/Flush, each confirm-gated); NEW SUPERVISOR-SIDE Parent restart (relaunch the supervisor process — control-plane handler performs it, NOT agent shell, so it bypasses dev-0efd's agent-side guard); Help explains every remaining button. PART 2: automatic behaviors — recovery ladder (reconnect→reset), auto-snapshot periodic+pre-every-restart (closes cold-watchdog gap), restart hard-kill escalation, status live-probe (latency+last-turn). Source-only; throwaway dist build; prod dist/ untouched; supervisor/port-8790 NOT touched. Phase 1 → commit, release locks, STOP. | [log](logs/dev-3e66-2026-06-20-195153.md) | 2026-06-20 |
 | dev-ae2a | Fix PianoidTunner REGRESSION — 3 workbench types spawn but render EMPTY (no ruler, no barchart). Root cause = last commit 941fedd (2-D color schema) wrapping the MosaicWindow in a `display:contents` div in renderTile → breaks react-mosaic tile geometry → chart+ruler collapse to 0 height. Frontend-only, NO CUDA. Phase 1 only. | [log](logs/dev-ae2a-2026-06-20-191230.md) | 2026-06-20 |
 | dev-0efd | Fix supervisor PARENT-RESTART permission gate HOLE (`feature/supervisor-control-plane`, continues dev-fa3d): a `bypassPermissions` and/or background/Task sub-agent SUPPRESSES the `can_use_tool` control-request → the safety floor (`isSupervisorRelaunchCommand` in profiles.ts) is NEVER evaluated → a relaunch command from such a sub-agent runs UN-GATED. Enforce relaunch-blocking REGARDLESS of permission mode (in the cli-stream driver, before execution), + harden `isSupervisorRelaunchCommand` against shell-mangled (separator-stripped) forms. Unit-tested only. ⚠️ DO NOT restart/kill the supervisor; do NOT regenerate prod dist/; NO push/merge; preserve dirty/untracked. Phase 1 → commit, release locks, STOP. | [log](logs/dev-0efd-2026-06-20-184642.md) | 2026-06-20 |
@@ -148,6 +149,37 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
      a single row (byte-for-byte). +15 tests, full node:test 566/566 (551 +15), tsc clean; dist/ rebuilt (folds into the
      activation build). So the README control-plane line should ALSO note: the orchestrator self-restart is now confirm-
      gated, and a parent restart auto-resumes via SUPERVISOR_STARTUP_HANDOFF_FILE. Same README deferral (dev-vio1 holds the lock). -->
+
+<!-- DOC DEFERRAL (dev-85bb, 2026-06-20): the supervisor README.md should gain a SHORT section on the
+     HOSTED-ORCHESTRATOR MCP WIRING + the WhatsApp permission policy (feature/supervisor-control-plane,
+     SOURCE-ONLY — NOT yet in dist/; folds into the SAME activation/merge rebuild). Three points:
+     (1) The hosted `claude -p` orchestrator now actually RECEIVES the curated MCP servers. WHY it didn't
+         before: it runs settingSources ['project','local'] (NOT 'user' — the token-hijack containment), and
+         the user's ~/.claude.json mcpServers are USER-scope → they do NOT auto-load → the child saw ZERO
+         servers. FIX: the cli-stream driver now writes the curated map to a private 0600 temp file under
+         os.tmpdir() (cli-stream-driver.writeMcpConfigFile, unlinked on stop()/teardown, contents NEVER
+         logged) and passes `claude -p --mcp-config <file>`. ★Deliberately NO `--strict-mcp-config` — that
+         would drop the claude.ai connector servers (Drive/Gmail/Calendar); omitting it ADDS our curated map
+         alongside them. (The SDK driver still reads the same map as options.mcpServers.)
+     (2) The curated hosted map now excludes ONLY telegram (mcp-config.HOSTED_MCP_EXCLUDE_SUBSTRINGS=['telegram'],
+         replacing OUTWARD_SEND_EXCLUDE which also dropped whatsapp). So the hosted orchestrator gets
+         deepseek-codegen + hostinger-email + BOTH whatsapp servers (+ context7/chrome-devtools/google-workspace).
+         Telegram alone is excluded at the source (the channel-hijack vector). DeepSeek+Hostinger secrets are
+         inline in ~/.claude.json and flow through loadMcpServers — no host env change.
+     (3) WhatsApp policy = "reading allowed, sending approval-gated" (user-chosen): the orchestrator profile
+         ALLOW-lists the whatsapp/whatsapp-work READ tools by name (search_contacts/list_messages/list_chats/
+         get_chat/get_direct_chat_by_contact/get_contact_chats/get_last_interaction/get_message_context/
+         download_media) so reads run with no prompt; the SEND tools (send_message/send_file/send_audio_message)
+         are NOT allow-listed and NOT hard-denied → the safety floor (routeWhen=isDestructiveOp) ROUTES them to
+         the user for an allow/deny. The blanket `mcp__whatsapp__*` deny was REMOVED from BOTH the orchestrator
+         profile deny-list AND backend-seal.UNIVERSAL_CHANNEL_DENY (now telegram-only). Telegram + email/gmail
+         SEND stay hard-denied; email/whatsapp READ stay reachable. NOT done THIS session because README.md is
+         held by dev-vio1's ACTIVE lock. OWNER: whoever holds README next (dev-vio1 on its next touch, or the
+         Phase-2 merge orchestrator). Source of truth meanwhile: mcp-config.ts + adapters/cli-stream-driver.ts +
+         profiles.ts + backend-seal.ts + index.ts + their tests (mcp-config/cli-stream-driver/profiles/backend-seal
+         .test.ts — all 6 criteria a-f covered). ★ACTIVATION NOTE: like the rest of this branch, this is
+         source-only — the eventual activation restart that rebuilds dist/ must include it (the running host has
+         the OLD behavior until then). -->
 
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the

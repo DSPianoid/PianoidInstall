@@ -15,6 +15,41 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-ae2a | `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/index.css`, `PianoidTunner/src/__tests__/workbenchTileGeometry.source.test.js` | 2026-06-20T18:08Z | RESUME (follow-up on fix/dev-ae2a-workbench-empty-render): ISSUE 1 — move the 2-D `--wb-accent` color from the workbench TITLE to the BAR CHART bars (titles uniform). ISSUE 2 — make the panel-following open-workbench toolbar icon distinct from the fixed-workbench icon (INVESTIGATING — code shows they may already differ: fixed=BarChart, panel=Timeline; will verify live + flag if already distinct). |
+<!-- dev-85bb locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 9898793 on feature/supervisor-control-plane;
+     NOT merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that rebuilds dist/ also loads this MCP wiring). EDITED (existing): tools/supervisor/src/{mcp-config,index,
+     profiles,backend-seal}.ts + adapters/cli-stream-driver.ts + test/{mcp-config,cli-stream-driver,profiles,
+     backend-seal}.test.ts. Wired deepseek-codegen + hostinger-email + whatsapp(+whatsapp-work) MCP into the
+     hosted `claude -p` orchestrator, containment-safe. ROOT: the hosted child got ZERO MCP servers — it runs
+     settingSources ['project','local'] (NOT 'user', the token-hijack containment) so the user-scope ~/.claude.json
+     mcpServers don't auto-load, AND the cli-stream driver ignored opts.mcpServers. FIX: (1) cli-stream-driver
+     honours opts.mcpServers — NEW pure writeMcpConfigFile() writes the curated map to a private 0600 temp file in
+     os.tmpdir() (unlinked on stop()/blockRelaunch/re-start; contents NEVER logged), buildCliArgs (KEPT PURE; new
+     optional path param) passes `--mcp-config <file>`; ★NO --strict-mcp-config (keeps the claude.ai Drive/Gmail/
+     Calendar connector servers). (2) mcp-config NEW HOSTED_MCP_EXCLUDE_SUBSTRINGS=['telegram'] (hosted map excludes
+     ONLY telegram); index.ts uses it (was OUTWARD_SEND_EXCLUDE which also dropped whatsapp). (3) profiles WhatsApp
+     read-allowed/send-gated: allow-list the 9 READ tools per account (search_contacts/list_messages/list_chats/
+     get_chat/get_direct_chat_by_contact/get_contact_chats/get_last_interaction/get_message_context/download_media);
+     REMOVE the blanket mcp__whatsapp__*/-work deny so SEND tools (send_message/send_file/send_audio_message) route
+     via the EXISTING safety floor (routeWhen=isDestructiveOp, unchanged) for user allow/deny — NOT auto-allowed,
+     NOT hard-denied. (4) backend-seal UNIVERSAL_CHANNEL_DENY now TELEGRAM-ONLY (whatsapp removed). Telegram (both
+     name forms) + email/gmail SEND stay HARD-DENIED everywhere; whatsapp/email READ reachable. DeepSeek+Hostinger
+     secrets inline in ~/.claude.json → flow through loadMcpServers, no host env change. +13 tests covering all 6
+     criteria (a --mcp-config + never --strict / b hosted-map telegram-only / c whatsapp READ allowed / d whatsapp
+     SEND routed [via the REAL PermissionRouter: not allow-listed, not hard-denied] / e telegram fully blocked / f
+     temp file 0600 + unlinked on stop + secrets never logged). Full supervisor node:test 617/617 (604 baseline +13,
+     env -u SUPERVISOR_STARTUP_HANDOFF_FILE for the pre-existing dev-0efd-documented startup-handoff env-leak), tsc
+     --noEmit clean. cli-stream-driver.ts 733→805 LOC (was already YELLOW; +72 additive within concern). ★HOST-SAFETY:
+     prod dist/ NOT regenerated (built ONLY to throwaway dist-test-85bb[+-base/-cnt], all removed; prod
+     dist/{index,profiles,mcp-config,backend-seal}.js + dist/adapters/cli-stream-driver.js mtime 2026-06-20T17:29
+     [dev-3e66 build] UNCHANGED, verified before+after); the live supervisor [8790] NOT started/touched/killed, NO
+     /api/lifecycle/* call, NO restart-script run, NO supervisor PID touched (all behavior verified via fakes +
+     FakeCliChild + the REAL PermissionRouter with a fake channel — NO real claude spawn / Telegram / WhatsApp send /
+     spend). README doc-deferred (dev-vio1 holds the README lock; NEW DOC DEFERRAL block filed in WIP). NOTED
+     pre-existing out-of-scope: the dev-fa3d startup-handoff.test env-leak (run with SUPERVISOR_STARTUP_HANDOFF_FILE
+     cleared). The eventual activation rebuild includes this. SHA in the session log. -->
+<!-- dev-3e66 locks RELEASED 2026-06-20 at Step 10a Phase 1 (PART 1 commit ff30dcb + PART 2 commit 9427195 on
 <!-- dev-3e66 locks RELEASED 2026-06-20 at Step 10a Phase 1 (PART 1 commit ff30dcb + PART 2 commit 9427195 on
      feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
      master merge; the activation restart that rebuilds dist/ also loads this redesign). EDITED (existing):
