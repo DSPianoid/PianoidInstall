@@ -1312,7 +1312,10 @@ test('a non-/control message is a normal turn (forwarded) — control path is ad
   await host.start();
   await host.handleInbound(inbound('what is the status of the build?')); // contains "status" but is NOT /control
   assert.equal(driver.sentTurns.length, 1, 'a normal message is forwarded as a turn');
-  assert.equal(driver.sentTurns[0]!.text, 'what is the status of the build?');
+  // ★ MODE-AWARENESS (dev-6ca1): the FIRST turn now carries the user message FIRST, then a
+  // one-shot current-mode notice appended (so a restarted orchestrator knows the mode).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('what is the status of the build?'), 'the user message leads the turn');
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: text/);
   // No control menu was rendered.
   assert.equal(cap.sent.some((s) => s.msg.text === CONTROL_MENU_TEXT), false);
   await host.stop();
@@ -1657,7 +1660,9 @@ test('A5 switch OFF: a non-/control message is still a normal turn (additive —
   await host.start();
   await host.handleInbound(inbound('please render the build'));
   assert.equal(driver.sentTurns.length, 1, 'a normal message is forwarded as a turn');
-  assert.equal(driver.sentTurns[0]!.text, 'please render the build');
+  // ★ MODE-AWARENESS (dev-6ca1): first turn = user message + one-shot appended mode notice.
+  assert.ok(driver.sentTurns[0]!.text.startsWith('please render the build'), 'the user message leads the turn');
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: text/);
   assert.equal(alertPushes(cap).length, 0, 'no proactive alert on a normal turn');
   await host.stop();
   bus.close();
@@ -1713,7 +1718,13 @@ test('REDESIGN ctl:mode-set:<v> → sets the output modality IMMEDIATELY (no con
   await host.handleInbound(callbackInbound('ctl:mode-set:bogus', 'cb-mb', 'm-mb'));
   assert.match(cap.edited.find((e) => e.messageId === 'm-mb')!.text, /Unknown mode/);
   assert.equal(host.outputModeState(), 'dual', 'an unknown value did NOT change the mode');
-  assert.equal(driver.sentTurns.length, 0, 'mode-set never injects a turn');
+  // ★ MODE-AWARENESS (dev-6ca1): a REAL menu-driven mode change now injects an out-of-band
+  // notice so the orchestrator can adapt (was "never injects"); the two real changes here
+  // (text→voice, voice→dual) inject one notice each; the bogus no-op injects nothing.
+  await new Promise((r) => setTimeout(r, 20)); // controlSetMode injects fire-and-forget
+  const notices = driver.sentTurns.filter((t) => /\[SUPERVISOR output-mode\]/.test(t.text));
+  assert.equal(notices.length, 2, 'one mode-change notice per real change (text→voice, voice→dual)');
+  assert.ok(!driver.sentTurns.some((t) => /ctl:mode-set/.test(t.text)), 'the raw tap is never forwarded');
   await host.stop();
   bus.close();
 });

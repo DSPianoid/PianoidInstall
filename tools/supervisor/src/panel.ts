@@ -6,8 +6,8 @@
  *   GET  /api/health  → supervisor + adapter health JSON
  *   GET  /api/capture → the recent captured event stream (JSON)
  *   GET  /api/session → hosted-session view: pending approvals, cost, stall,
- *                       verification-evidence, session id (Phase 3a; if a session
- *                       is hosted)
+ *                       verification-evidence, session id, outputMode (Phase 3a;
+ *                       if a session is hosted)
  *   POST /api/approve → CLICK-approve/deny a pending permission (Phase 3a)
  *   POST /api/clear   → self-context-clean the hosted session (Phase 3a)
  *
@@ -154,6 +154,10 @@ export class Panel {
       totalCostUsd: Number(totalCostUsd.toFixed(6)),
       lastResult,
       lastStall,
+      // ★ MODE-AWARENESS: the current output modality (text/voice/dual) so the orchestrator
+      // (or an operator) can QUERY/recover the mode via the loopback (e.g. after a restart, or
+      // if it missed the on-change/first-turn notice). null when no session is hosted.
+      outputMode: this.sessionHost?.outputModeState() ?? null,
       // Controller (M6) signals derived from the bus (additive).
       controllerSignals: this.controllerBridge?.signals().slice(-20) ?? [],
     };

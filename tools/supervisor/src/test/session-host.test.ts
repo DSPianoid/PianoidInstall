@@ -73,7 +73,10 @@ test('inbound text → injected as a session user turn', async () => {
   await host.start();
   await host.handleInbound(inbound('hello session'));
   assert.equal(driver.sentTurns.length, 1);
-  assert.equal(driver.sentTurns[0]!.text, 'hello session');
+  // ★ MODE-AWARENESS (dev-6ca1): the FIRST turn carries the user message FIRST, then a
+  // one-shot current-output-mode notice appended (so a restarted orchestrator knows the mode).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('hello session'), 'the user message leads the first turn');
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: text/);
   await host.stop();
   bus.close();
 });
@@ -498,7 +501,10 @@ test('roleTurnPrefix is applied to the FIRST user turn, not a pre-user bootstrap
   await host.handleInbound(inbound('please do task X'));
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(driver.sentTurns.length, 1);
-  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X$/);
+  // role prefix THEN the user message lead the first turn (the ★ MODE-AWARENESS one-shot
+  // mode notice is appended after, dev-6ca1 — assert the lead + the notice, not a $ anchor).
+  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X/);
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: text/);
 
   // A SECOND user turn does NOT get the prefix again (one-shot).
   await host.handleInbound(inbound('and task Y'));
@@ -1098,7 +1104,10 @@ test('FIX2: roleTurnPrefix undefined (auto-start OFF) → the first turn is the 
   });
   await host.start();
   await host.handleInbound(inbound('hello'));
-  assert.equal(driver.sentTurns[0]!.text, 'hello', 'no role prefix when auto-start is OFF');
+  // No role prefix when auto-start is OFF → the user text LEADS (the ★ MODE-AWARENESS one-shot
+  // mode notice is appended after it, dev-6ca1; assert no prefix precedes the message).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('hello'), 'no role prefix when auto-start is OFF');
+  assert.ok(!driver.sentTurns[0]!.text.startsWith('/orchestrator'), 'no role prefix prepended');
   await host.stop();
   bus.close();
 });

@@ -357,7 +357,9 @@ test('★ with NO routingStore wired (dormant default), /setrole + /roles are no
   await host.handleInbound(inbound('/roles'));
   // Both were forwarded as normal user turns (the dormant default — no interception).
   assert.equal(driver.sentTurns.length, 2);
-  assert.equal(driver.sentTurns[0]!.text, '/setrole coding groq');
+  // ★ MODE-AWARENESS (dev-6ca1): the FIRST turn leads with the user text + a one-shot mode
+  // notice appended; the second turn is exact (the notice is one-shot).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('/setrole coding groq'), 'first turn forwarded (leads)');
   assert.equal(driver.sentTurns[1]!.text, '/roles');
   await host.stop();
   bus.close();

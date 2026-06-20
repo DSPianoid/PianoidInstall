@@ -148,6 +148,81 @@ export function parseModeCommand(text: string): ModeCommand | null {
 }
 
 /**
+ * The FORCE-TEXT MARKER — an orchestrator→supervisor delivery directive that forces a
+ * SINGLE reply to be delivered as plain TEXT even when the output mode is voice/dual
+ * (so a link / file path / code / QR reference is never rendered uselessly into a voice
+ * note). The orchestrator includes this token anywhere in a reply; the supervisor (in
+ * {@link SessionHost.sendToOperator}) detects it, delivers that ONE message as text-only,
+ * and STRIPS the token before sending — it never reaches the user.
+ *
+ * The token is double-bracketed ALL-CAPS with an underscore (`[[FORCE_TEXT]]`) — chosen to
+ * be unambiguous and exceedingly unlikely to occur in natural prose or inside a URL/path/
+ * code/QR payload (the very content this protects). It is NOT a persistent mode change:
+ * {@link SessionHost.outputMode} (the single-writer state) is untouched; only THIS send is
+ * forced to text. v1 = whole-message (the entire reply goes text-only). In text mode it is a
+ * no-op beyond stripping; in dual mode the voice copy is suppressed for that message.
+ *
+ * The orchestrator skill doc must reference THIS exact token.
+ */
+export const FORCE_TEXT_MARKER = '[[FORCE_TEXT]]';
+
+/**
+ * Detect + strip the {@link FORCE_TEXT_MARKER} from a reply. Pure (no I/O, no state) so it
+ * is directly unit-testable. Returns whether the marker was present (→ force the send to
+ * text-only) and the text with EVERY occurrence removed and surrounding whitespace tidied.
+ *
+ * Robustness: the token is matched case-INSENSITIVELY and is removed wherever it appears
+ * (start, middle, end, or repeated). After removal, runs of blank space left by a stripped
+ * marker are collapsed to a single space and the result is trimmed, so a reply that was
+ * ONLY the marker becomes '' and a marker embedded mid-sentence leaves clean prose.
+ */
+export function applyForceText(text: string): { forced: boolean; text: string } {
+  // Escape the literal token for a case-insensitive global regex.
+  const escaped = FORCE_TEXT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escaped, 'gi');
+  if (!re.test(text)) return { forced: false, text };
+  const stripped = text
+    .replace(re, ' ') // remove every occurrence, leaving a space so adjacent words don't fuse
+    .replace(/[ \t]{2,}/g, ' ') // collapse runs of spaces/tabs the removal introduced
+    .replace(/ *\n */g, '\n') // tidy spaces around newlines
+    .trim();
+  return { forced: true, text: stripped };
+}
+
+/**
+ * Compose the out-of-band note that tells the hosted orchestrator the current OUTPUT MODE
+ * (voice/text/dual) so it can adapt its replies. Pure (no I/O) → unit-testable. Used both
+ * for the ON-CHANGE notice (the `/mode` command or the panel Mode submenu) and the
+ * FIRST-TURN notice (a freshly-(re)started orchestrator learns the mode immediately).
+ *
+ * For voice/dual it spells out the force-text escape hatch ({@link FORCE_TEXT_MARKER}) so
+ * the orchestrator knows to tag links / paths / codes / QR references for text delivery
+ * instead of having them voiced into uselessness — the concrete reason mode-awareness exists.
+ *
+ * @param onChange true for the on-change form ("is now"); false for the first-turn form ("is").
+ */
+export function buildOutputModeNotice(mode: OutputMode, onChange: boolean): string {
+  const head = onChange
+    ? `[SUPERVISOR output-mode] The output mode is now: ${mode}.`
+    : `[SUPERVISOR output-mode] The current output mode is: ${mode}.`;
+  const meaning =
+    mode === 'voice'
+      ? ` Your replies are read aloud as voice notes (text-to-speech).`
+      : mode === 'dual'
+        ? ` Your replies are delivered as BOTH text and a voice note.`
+        : ` Your replies are delivered as plain text.`;
+  // The actionable guidance only matters when speech is involved.
+  const guidance =
+    mode === 'voice' || mode === 'dual'
+      ? ` Speak naturally and keep replies concise for listening. For any content that does ` +
+        `not survive being spoken (links, file paths, commands, codes, QR references), put ` +
+        `the token ${FORCE_TEXT_MARKER} anywhere in that reply — the supervisor will deliver ` +
+        `THAT message as plain text (the token is stripped before sending) regardless of mode.`
+      : ` (No need to use ${FORCE_TEXT_MARKER} in text mode — it is a no-op here.)`;
+  return head + meaning + guidance;
+}
+
+/**
  * The reserved IN-CHANNEL PROVIDER-KEY intake command — `/setkey <provider> <key>` (the
  * model-agnostic agent system's secret-intake). Like `/mode`, it is INTERCEPTED by the supervisor
  * (handled in {@link SessionHost.handleInbound}) and NEVER forwarded to the orchestrator, so the raw
@@ -645,6 +720,13 @@ export class SessionHost {
    * (`opts.startupHandoff`) has been appended to the first real user turn. Consumed once.
    */
   private startupHandoffPending: boolean;
+  /**
+   * ★ MODE-AWARENESS (first turn) — true until the current {@link outputMode} has been
+   * announced to the orchestrator on its first real user turn (so a restarted orchestrator
+   * knows the mode immediately, not only after the next /mode change). Consumed once; re-armed
+   * on a self-context-clean/restart (same seam as {@link rolePrefixPending}).
+   */
+  private modeNoticePending: boolean;
   private started = false;
   /**
    * SEND-SIDE IDEMPOTENCY GUARD (the seq-221 self-diagnosis #1 fix). The text last
@@ -822,6 +904,10 @@ export class SessionHost {
     this.rolePrefixPending = !!opts.roleTurnPrefix;
     this.startupHandoffPending = !!opts.startupHandoff; // one-shot parent-restart context pickup
     this.outputMode = opts.outputMode ?? 'text';
+    // ★ MODE-AWARENESS: announce the (initial) output mode on the first real user turn so a
+    // freshly-(re)started orchestrator knows the mode immediately. One-shot; re-armed on a
+    // self-context-clean restart alongside rolePrefixPending (consumeOnce path).
+    this.modeNoticePending = true;
     this.secretStore = opts.secretStore ?? null;
     this.providers = opts.providers ?? DEFAULT_PROVIDERS;
     this.roleRoutingStore = opts.roleRoutingStore ?? null;
@@ -1175,6 +1261,15 @@ export class SessionHost {
       this.logger.info('injected startup handoff into the first user turn (parent-restart context pickup)', {
         handoffChars: this.opts.startupHandoff.length,
       });
+    }
+    // ★ MODE-AWARENESS (first turn): announce the current output mode ONCE on the first real
+    // user turn, AFTER the role prefix + startup handoff (so the role loads + the prior brief
+    // is read first), so a restarted orchestrator knows the mode immediately. Same one-shot
+    // first-turn seam; a later /mode change is announced separately by injectModeChangeNotice.
+    if (this.modeNoticePending) {
+      this.modeNoticePending = false;
+      turnText = `${turnText}\n\n${buildOutputModeNotice(this.outputMode, false)}`;
+      this.logger.info('injected current output-mode notice into the first user turn', { mode: this.outputMode });
     }
     // New user turn → reset the send-side idempotency guard so this turn's (possibly
     // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
@@ -1612,6 +1707,10 @@ export class SessionHost {
     this.outputMode = value;
     this.logger.info('output modality switched via /control Mode submenu', { from: prev, to: value });
     this.publishLifecycle('output_mode_changed', { from: prev, to: value, via: 'control-menu' });
+    // ★ MODE-AWARENESS: tell the orchestrator the mode changed (same as the typed `/mode`).
+    // Fire-and-forget — this control handler returns its menu text synchronously; the notice
+    // is a best-effort side-effect (injectModeChangeNotice no-ops on prev===next / no session).
+    void this.injectModeChangeNotice(prev, value);
     return `🔊 Output mode → ${value}. (Replies arrive as ${value === 'dual' ? 'voice + text' : value}.)`;
   }
 
@@ -1844,6 +1943,9 @@ export class SessionHost {
       this.logger.info('output modality switched via /mode', { from: prev, to: cmd.mode });
       this.publishLifecycle('output_mode_changed', { from: prev, to: cmd.mode });
       await this.ackToOperator(`Output mode → ${cmd.mode}`);
+      // ★ MODE-AWARENESS: tell the orchestrator the mode changed so it can adapt (e.g. use
+      // the force-text marker for links/paths once replies are voiced). Best-effort.
+      await this.injectModeChangeNotice(prev, cmd.mode);
     } else {
       this.logger.info('output modality queried via /mode', { current: this.outputMode });
       await this.ackToOperator(
@@ -2237,6 +2339,7 @@ export class SessionHost {
    */
   async restartUnresponsive(): Promise<void> {
     this.rolePrefixPending = !!this.opts.roleTurnPrefix;
+    this.modeNoticePending = true; // ★ fresh session → re-announce the output mode on its first turn
     this.clearPingTimer(); // drop any armed liveness deadline; the fresh session re-arms via the scheduler
     // ★ REDESIGN: snapshot BEFORE the restart so the fresh session can re-inject context (cold-gap fix).
     this.captureAutoSnapshot('pre-unresponsive-restart');
@@ -2729,6 +2832,7 @@ export class SessionHost {
       this.clearPingTimer(); // teardown any pending liveness deadline
       // Re-arm the role bootstrap so the fresh session re-loads /orchestrator on its first turn.
       this.rolePrefixPending = !!this.opts.roleTurnPrefix;
+      this.modeNoticePending = true; // ★ fresh session → re-announce the output mode on its first turn
       // ★ REDESIGN — HARD-KILL ESCALATION: when a drain deadline is configured, wait up to it for the
       // in-flight turn to drain, then restart REGARDLESS (a stalled drain escalates to the hard kill).
       // With drainMs = 0 (the default) this is the immediate restartFresh() — byte-for-byte today.
@@ -2761,10 +2865,25 @@ export class SessionHost {
   }
 
   /** Send text back to the current operator over the channel. */
-  private async sendToOperator(text: string): Promise<void> {
+  private async sendToOperator(rawText: string): Promise<void> {
     if (!this.operator) {
       this.logger.warn('session produced output but no operator to send to', {});
       return;
+    }
+    // ★ FORCE-TEXT MARKER: if the orchestrator tagged this reply with FORCE_TEXT_MARKER,
+    // deliver it as plain TEXT (skip TTS) regardless of the current output mode, and strip
+    // the marker so the user never sees it. The persistent outputMode is NOT changed (P1 —
+    // only THIS send is forced; the single-writer state is untouched). In text mode this is
+    // just a strip (no-op on modality); in voice/dual it suppresses the voice copy for this
+    // one message (the reported QR/link-in-voice failure). A reply that was ONLY the marker
+    // strips to '' → onResult already skips empty text, but guard below handles it anyway.
+    const { forced, text } = applyForceText(rawText);
+    const modality = forced ? 'text' : this.outputMode;
+    if (forced) {
+      this.logger.info('force-text marker honored — delivering this reply as text-only', {
+        outputMode: this.outputMode,
+        chars: text.length,
+      });
     }
     // SEND-SIDE IDEMPOTENCY GUARD (seq-221 #1): suppress a same-turn duplicate — text
     // byte-identical to what we last delivered for THIS turn (reset on each new user
@@ -2781,10 +2900,11 @@ export class SessionHost {
     // delivery confirmation, not just an attempt. (Without this, a successful send was
     // silent in the log, so we couldn't tell "delivered to the bot" from "never sent".)
     // ★ OUTPUT MODALITY: the orchestrator's substantive reply carries the current mode
-    // (text/voice/dual) — the adapter renders TTS / sends the voice bubble accordingly.
+    // (text/voice/dual) — the adapter renders TTS / sends the voice bubble accordingly —
+    // UNLESS the force-text marker forced it to 'text' for this one message (above).
     // (Control sends — prompts, acks, system notices — go via opts.send WITHOUT options,
     // so they stay text.) Empty text would be a no-op; the guard above already returned.
-    const r = await this.opts.send(this.operator, { text, options: { modality: this.outputMode } });
+    const r = await this.opts.send(this.operator, { text, options: { modality } });
     if (r.ok) {
       // Record as last-sent ONLY on success — a failed send must not poison the guard
       // (a legitimate retry of the same text would otherwise be suppressed).
@@ -2832,6 +2952,34 @@ export class SessionHost {
       this.logger.warn('delivery-failure feedback injection failed (non-fatal)', { err: String(err) });
     } finally {
       this.feedingDeliveryFailure = false;
+    }
+  }
+
+  /**
+   * ★ MODE-AWARENESS (on-change): inject an out-of-band note telling the orchestrator the
+   * output mode CHANGED (via the `/mode` command OR the panel Mode submenu), so it can adapt
+   * its replies (e.g. start using {@link FORCE_TEXT_MARKER} for links/paths once voiced).
+   * Best-effort and lightweight — only on a REAL change (`prev !== next`) and only when a
+   * session is running (sendUserTurn throws otherwise; we swallow it). NOT an `internal` turn:
+   * the orchestrator should carry the knowledge into its next user-visible reply. This is a
+   * READER of {@link outputMode} — it never writes it (P1: the caller already set the state).
+   */
+  private async injectModeChangeNotice(prev: OutputMode, next: OutputMode): Promise<void> {
+    if (prev === next) return; // no real change → nothing to tell the orchestrator
+    if (!this.lifecycle.health().running) {
+      // No running session to inject into yet — the FIRST-turn notice (handleInbound) will
+      // carry the current mode when the session next takes a turn. Avoid the throw + noise.
+      this.logger.info('output-mode change not injected (no running session); first-turn notice will carry it', {
+        from: prev,
+        to: next,
+      });
+      return;
+    }
+    try {
+      await this.lifecycle.sendUserTurn({ text: buildOutputModeNotice(next, true) });
+      this.logger.info('injected output-mode change notice into the orchestrator turn', { from: prev, to: next });
+    } catch (err) {
+      this.logger.warn('output-mode change notice injection failed (non-fatal)', { err: String(err) });
     }
   }
 

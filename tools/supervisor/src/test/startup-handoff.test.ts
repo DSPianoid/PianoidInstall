@@ -156,8 +156,11 @@ test('NO startupHandoff → byte-for-byte: the first turn is exactly the role pr
   await host.handleInbound(inbound('please do task X'));
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(driver.sentTurns.length, 1);
-  // EXACTLY the pre-feature shape (the roleTurnPrefix test's invariant) — no handoff spliced in.
-  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X$/);
+  // The role prefix + user text LEAD the first turn and NO startup-handoff is spliced in
+  // (this test's invariant). The ★ MODE-AWARENESS one-shot mode notice IS appended after
+  // (dev-6ca1) — a separate feature; assert the lead + the absence of a handoff, not a $ anchor.
+  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X/);
+  assert.ok(!/SUPERVISOR startup handoff/.test(driver.sentTurns[0]!.text), 'no startup handoff spliced in');
   await host.stop();
   bus.close();
 });
