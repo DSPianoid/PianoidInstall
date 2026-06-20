@@ -693,6 +693,27 @@ the companion map in sync; a mount effect re-wires the active config's bindings 
 tree shape is unchanged (bindings are a sibling map). Pinned by `collectWorkbenchIds` +
 `pickWorkbenchBindings` tests in `hooks/__tests__/mosaicConfigStore.test.jsx`.
 
+**★Bindings survive a config switch — prune-on-switch removed + spawn auto-snapshot (dev-wbspawn, 2026-06-19).**
+The dev-mosaicref save/restore above persisted the binding, but a *second* path still orphaned fixed
+workbenches on a config switch: a layout-watching `useEffect([layout])` in `PianoidTuner` ("clean up
+workbench state when panes are removed") deleted every `workbenches[id]` whose pane id was absent from the
+**live** layout. On a config switch the live layout becomes the *other* config's tree, so the effect
+nuked the previous config's workbench bindings from memory — and it mis-fired the same way on a
+**maximize** (the live layout is then a single leaf, so every other pane is transiently absent). The
+effect could not tell "user closed the pane" from "pane transiently absent (switch / maximize)". **Fix
+(a):** the layout-watching prune effect was **removed**; binding-GC is now explicit at the close ACTION —
+the pane Close (X) button (both maximized → `closeMaximized` and non-maximized → `mosaicActions.remove`
+branches) and `removeWindowFromLayout` (the checkbox path) each call `closeWorkbench(id)` for a dynamic
+`Workbench:*` pane. A binding is dropped only on a real close, never on a switch/maximize/default-layout.
+**Fix (c):** because named configs are FROZEN snapshots (no live auto-mirror), a workbench *spawned* into
+config A was never written to `mosaicConfigWorkbenches[A]` until an explicit Save — so spawn → switch away
+→ back lost it. `handleOpenWorkbench` now **auto-snapshots** the active config's bindings (the just-spawned
+one included) into `mosaicConfigWorkbenches[activeMosaicConfig]` immediately on spawn, via
+`pickWorkbenchBindings(nextBindings, nextLayout)` (the next layout computed from the same pure placement
+transform the spawn applies). Pinned by the "workbench binding survives a config switch (orphan-fix)"
+suite in `hooks/__tests__/mosaicConfigStore.test.jsx` (A→B→A preserves the binding; the removed prune
+would have orphaned it; restore-from-empty after reload; spawn-in-A survives switch-away-and-back).
+
 **Actions (all in `PianoidTuner`, sole mutators — P1):** `handleMosaicConfigSelect(name)` (make active +
 apply the saved layout, exiting fullscreen), `handleSaveMosaicConfigAs(name)`, `handleRenameMosaicConfig`,
 `handleDeleteMosaicConfig` (refuses the last config; falls back + applies a remaining one when the active

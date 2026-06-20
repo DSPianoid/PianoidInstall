@@ -144,7 +144,7 @@ The file contains 27 entries: 16 chart types, 9 action types, and 2 dynamic_char
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
 | `tuning_report` | `tuning_report_function` | `type` (choice: frequency/volume/both, default both) |
 | `cfl_ratio` | `cfl_ratio_function` | `key_range` (choice: all/from21to108/output, default "all") |
-| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_full_result` |
+| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_profiling` (pure add-kernel device time + underrun markers, online-only), `include_full_result` |
 
 ### Action Types
 
@@ -257,6 +257,70 @@ host rings fill and mic capture can run (requires `audio_driver_type` 2/3/4 — 
 Notice rather than rendering. The `dev_soundInt` tap is the only Python/REST path
 to the post-volume buffer — every other readout returns pre-volume float — so
 this chart is the canonical way to observe driver-input clipping/overflow.
+
+### Profiling overlay — kernel cycle timing + underrun markers (dev-profchart, 2026-06-19)
+
+An opt-in `include_profiling` boolean adds a **performance** chart to the Sound
+Test set, alongside the audio-tap charts. Scope: per-cycle PURE GPU-kernel
+device time + over-budget/underrun markers, rendered entirely through the existing
+[`render_hints`](#optional-render_hints--richer-chart-rendering-dev-ratiochart-2026-05-24)
+contract (no new frontend component).
+
+> **Series switched to pure kernel device time (dev-underrun2, 2026-06-19).** The
+> chart originally plotted the **full-cycle host span** (`getTimeRecord()` r[4]−r[1]),
+> which carried an **every-3rd-cycle over-budget spike** — *not* a GPU problem but
+> the normal **audio-clock sync wait**: the engine runs faster than realtime, so
+> periodically a cycle blocks on `pushCycleAudioToDriver` to re-sync with the audio
+> clock (back-pressure). To show GPU compute cost free of that host wait, the series
+> now plots **`getGpuProfilingData()` `add_ms`** (the addKernel/main-synthesis DEVICE
+> time, CUDA-event measured). Measured proof: across the every-3rd cadence the full
+> span is over-budget 7–20% by phase while `add_ms` is **0% over-budget every phase**
+> (flat ~537us = 40% of the 1333us budget) — the periodicity lives entirely in the
+> host sync wait, not the kernel. The full-cycle host span is still reported as
+> **context text** (`Full-cycle host span (us)`).
+
+What it adds when `include_profiling=True` **and** `mode="online"`:
+
+| Output | Source | Shape |
+|--------|--------|-------|
+| **"Add-kernel device time (us)"** chart | `pianoid.getGpuProfilingData()` per-cycle `[cycle, parameter_ms, gauss_ms, add_ms, filter_ms]` → `add_ms` (index 3) ×1000 = us | one line series, **no AudioPlayer** (it is a timing series, not audio) |
+| **Budget markLine** | `samples_per_cycle × 1e6 / sample_rate` (1333.33us at 64@48k) | `render_hints.threshold` (red dashed line) |
+| **Over-budget markers** | per-cycle `add_us > budget` | `render_hints.point_styles` — over-budget cycles = red diamond, on-budget = teal circle; `point_meta` carries `{cycle, us, over_budget}` into the tooltip |
+| **Underrun + jitter summary** | `pianoid.getCallbackStats()` (`CallbackTimingStats`) + `getTimeRecord()` | `text_fields`: `Underruns` (count / callbacks / %), `Callback interval (us)` (avg/max/std), `Add-kernel device time` (cycles, budget, over-budget %, median/max), `Full-cycle host span (us)` (median/max — host D2H/driver/scheduler overhead, context only) |
+
+**Capture window.** The online branch wraps the playback-capture sleep with
+`resetProfiling()` + `startProfiling()` + `resetCallbackStats()` + `initTimeRecord()`
+**before** and `stopTimeRecord()` + `stopProfiling()` + `getTimeRecord()` +
+`getCallbackStats()` + `getGpuProfilingData()` **after**, so the window spans exactly
+the rendered note. The telemetry primitives (incl. `resetProfiling`/`startProfiling`/
+`stopProfiling`/`getGpuProfilingData`) are in `_SOUND_TEST_ALLOWED_PIANOID_CALLS` so the
+architectural-contract test still passes. A build lacking these methods (or without
+`PIANOID_ENABLE_PROFILING`) degrades gracefully (a `Profiling note` text field, no
+chart) rather than failing the whole render.
+
+**Underrun-marker semantics (honest mapping).** `getCallbackStats()` exposes only
+a **cumulative** `underrunCount` over the window, not a per-cycle underrun
+timeline (no such binding exists). So the per-cycle MARKERS are the **over-budget
+cycles** (now over-budget on the pure `add_ms` kernel series), while the total
+underrun count + callback jitter go to `text_fields`. A precise per-cycle underrun
+timeline would need a new C++ ring-of-timestamps binding (out of scope).
+
+**GPU-vs-host attribution (dev-underrun2 rate-sweep, 2026-06-19).** A realtime
+note-on rate sweep (idle/2/8/20/40 per sec, IversPond 128modes, SDL3, 30s each)
+established that the true GPU kernel device time (`add_ms`) is **FLAT at ~537us
+(0.1% spread) regardless of note rate** and never approaches the 1333us budget,
+while the over-budget cycles (~13%) and rare real underruns (<1.4%, no rate trend)
+are host-side (the every-3rd sync wait + occasional scheduler/callback jitter,
+`cb_max` ~11ms). Verdict: under load the bottleneck is **system hiccups, not GPU
+slowdown**. This is precisely why the chart plots `add_ms` — it isolates the flat
+GPU cost from the host sync wait.
+
+**Online-only.** Offline mode has no live cycle/underrun data, so
+`include_profiling` in offline mode emits only a `Profiling note` (no chart).
+Covered by `tests/unit/test_sound_test_profiling.py` (16 tests: pure-helper math
+for both full-cycle span and `add_ms` extraction, chart/threshold/marker structure,
+online population + telemetry call-order, profiling-off no-op, graceful-degrade,
+offline note-only).
 
 ---
 
