@@ -25,6 +25,7 @@ import {
   type BackendSelection,
   type Role,
 } from './backend-kinds.js';
+import { isProviderId, type ProviderId } from './provider-registry.js';
 
 /**
  * The default-OFF feature switch (X5 / AP5). Role-routing is DORMANT unless this env
@@ -130,4 +131,92 @@ export function resolveRoleBackend(
   if (model !== undefined) selection.model = model;
   if (fallbackBackend !== undefined) selection.fallbackBackend = fallbackBackend;
   return selection;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────────────────────
+ * TIER-2 PERSISTED-OVERRIDE LAYER (PART Q.3 — the `/setrole` runtime control).
+ *
+ * The user selects the model for EACH role in-channel; the supervisor persists that choice (in the
+ * RoleRoutingStore, role-routing-store.ts — the FS owner) and the router layers it OVER the in-code
+ * DEFAULT_ROLE_ROUTING_CONFIG. The resolution precedence the task requires —
+ *     persisted override  >  DEFAULT_ROLE_ROUTING_CONFIG  >  fail-safe default (claude-cli)
+ * — is realized by MERGING the override map into the base config, then reusing the EXISTING pure
+ * resolveRoleBackend (no new resolution logic). The override DATA MODEL + merge live HERE (the
+ * resolution concern, P2); the store owns ONLY the persistence of this map (so router↔store is a
+ * clean one-way dependency: store imports these types, the router imports nothing from the store).
+ *
+ * Pure: no I/O. The persisted layer is INJECTABLE — tests (and the store) pass a plain map.
+ * ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * One persisted per-role override — the {provider, model?} the user selected for a role via
+ * `/setrole`. `provider` is a registry provider id; `model` is optional (absent ⇒ the provider's
+ * configurable default resolves downstream). Pure data; the RoleRoutingStore persists this shape.
+ */
+export interface RoleRoutingOverride {
+  provider: ProviderId;
+  model?: string;
+}
+
+/** The persisted override map: role → override. (The injectable Tier-2 layer.) */
+export type RoleRoutingOverrideMap = Partial<Record<Role, RoleRoutingOverride>>;
+
+/**
+ * Project one persisted override → a {@link RoleBackendEntry}. The provider id maps to its backend
+ * KIND: claude-cli has no provider entry, so EVERY registry provider here is an `api-adapter`
+ * backend (the Q.1/OD-4 invariant — one ApiAdapterDriver serves all OpenAI-compatible providers).
+ * The chosen `model` is carried through (absent ⇒ left undefined so the provider's default model
+ * resolves downstream). A `fallbackBackend` of claude-cli is attached (FD6 — the proven key-free
+ * backend) so a Tier-2 override keeps the same safety net the DEFAULT map gives coding/reviewing.
+ * Pure. (A bogus provider id is ignored by callers via {@link isRoleRoutingOverride}.)
+ */
+export function routingOverrideToBackendEntry(ov: RoleRoutingOverride): RoleBackendEntry {
+  const entry: RoleBackendEntry = { backend: 'api-adapter', fallbackBackend: 'claude-cli' };
+  if (ov.model !== undefined) entry.model = ov.model;
+  return entry;
+}
+
+/** Runtime guard: is `v` a well-formed {@link RoleRoutingOverride} (known provider id; model optional string)? */
+export function isRoleRoutingOverride(v: unknown): v is RoleRoutingOverride {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  if (!isProviderId(o.provider)) return false;
+  return o.model === undefined || typeof o.model === 'string';
+}
+
+/**
+ * Merge a persisted override map ON TOP OF a base role-router config (default
+ * DEFAULT_ROLE_ROUTING_CONFIG), producing a NEW {@link RoleRouterConfig} whose `roles` map has each
+ * overridden role replaced by the projection of its override. Roles with no override keep the base
+ * entry; an invalid override entry is skipped (defensive). Pure — does NOT mutate either input.
+ * This is the bridge so the EXISTING pure {@link resolveRoleBackend} yields override > default >
+ * fail-safe with no new resolution logic.
+ */
+export function mergeRoleRoutingOverrides(
+  overrides: RoleRoutingOverrideMap | undefined,
+  base: RoleRouterConfig = DEFAULT_ROLE_ROUTING_CONFIG,
+): RoleRouterConfig {
+  const mergedRoles: Partial<Record<Role | string, RoleBackendEntry>> = { ...(base.roles ?? {}) };
+  for (const [role, ov] of Object.entries(overrides ?? {})) {
+    if (isRoleRoutingOverride(ov)) mergedRoles[role as Role] = routingOverrideToBackendEntry(ov);
+  }
+  const out: RoleRouterConfig = { roles: mergedRoles };
+  if (base.defaultBackend !== undefined) out.defaultBackend = base.defaultBackend;
+  return out;
+}
+
+/**
+ * Resolve a role to a {@link BackendSelection} WITH the Tier-2 persisted-override layer applied:
+ *     persisted override  >  base config (default DEFAULT_ROLE_ROUTING_CONFIG)  >  fail-safe claude-cli.
+ * Convenience wrapper = {@link mergeRoleRoutingOverrides} then {@link resolveRoleBackend}. Pure; the
+ * override map is injected by the caller (the supervisor loads it from the RoleRoutingStore; tests
+ * pass a literal). A per-dispatch `override` (highest precedence, unchanged) is still honored.
+ */
+export function resolveRoleBackendWithOverrides(
+  role: Role | string,
+  overrides: RoleRoutingOverrideMap | undefined,
+  base: RoleRouterConfig = DEFAULT_ROLE_ROUTING_CONFIG,
+  override?: RoleDispatchOverride,
+): BackendSelection {
+  return resolveRoleBackend(role, mergeRoleRoutingOverrides(overrides, base), override);
 }
