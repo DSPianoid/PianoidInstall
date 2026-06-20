@@ -154,22 +154,59 @@ export interface ControlActionSpec {
  * It is NON-destructive (only the in-flight turn is abandoned; the process + context stay
  * alive), so — UNLIKE the restart family — it runs DIRECTLY with NO confirm sub-menu (a
  * fast ESC). The handler routes through an injected interrupt dep (dormant when unwired).
+ *
+ * ★ REDESIGN (dev-3e66, control-panel-redesign-2026-06-20): the MAIN menu is now 10 buttons
+ * (2 per row): the four heavier/rarer lifecycle actions (`restart`/`flush` + the NEW
+ * `parent-restart`) move into an **Advanced** SUBMENU pivot, the channel `reconnect` button
+ * and the manual `ping`/`handoff`/`kill` buttons are REMOVED (folded into automatic
+ * behaviors — recovery ladder / status live-probe / auto-snapshot / restart hard-kill
+ * escalation; PART 2), `clear` is relabelled **New session**, and a NEW **Mode** submenu
+ * pivot surfaces the existing `/mode` voice/text/dual switch as panel buttons. The Advanced
+ * + Mode submenu actions live in {@link CONTROL_ADVANCED_ACTIONS} / {@link CONTROL_MODE_OPTIONS}
+ * (NOT in this main registry), so {@link buildControlMenu} renders exactly the 10 main rows
+ * while {@link controlHelpText} still documents every button across both levels.
  */
 export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
   { id: 'status', label: '📊 Status' },
-  { id: 'ping', label: '📡 Ping' },
   { id: 'approvals', label: '🔐 Approvals' },
   { id: 'log', label: '📜 Log' },
-  { id: 'reconnect', label: '🔌 Reconnect' },
-  { id: 'flush', label: '🧹 Flush', submenu: true },
-  { id: 'restart', label: '🔄 Restart', submenu: true },
-  { id: 'kill', label: '💥 Kill (hard)', submenu: true },
-  { id: 'clear', label: '🧠 Clear / New', submenu: true },
-  { id: 'handoff', label: '📌 Handoff (snapshot)' },
-  { id: 'resume', label: '⏪ Resume (last snapshot)', submenu: true },
-  { id: 'interrupt', label: '✋ Interrupt (stop turn)' },
+  { id: 'clear', label: '🧠 New session', submenu: true },
+  { id: 'resume', label: '⏪ Resume', submenu: true },
+  { id: 'interrupt', label: '✋ Interrupt' },
   { id: 'change-model', label: '🤖 Change model', submenu: true },
+  { id: 'mode', label: '🔊 Mode', submenu: true },
+  { id: 'advanced', label: '⚙️ Advanced', submenu: true },
   { id: 'help', label: '❓ Help' },
+];
+
+/**
+ * ★ REDESIGN — the **Advanced** SUBMENU actions (the heavier, rarer lifecycle controls grouped
+ * off the main menu): `restart` (graceful, auto-escalates to a hard kill if the drain stalls —
+ * absorbs the old Kill), the NEW `parent-restart` (restart the SUPERVISOR PROCESS itself to load
+ * a new build — performed supervisor-side, NOT by the agent firing a shell command), and `flush`
+ * (drop unacknowledged inbound). Each is DESTRUCTIVE → it keeps its own CONFIRM sub-menu even
+ * inside Advanced (control-panel-redesign §"Advanced submenu"). These ids route through the SAME
+ * {@link parseControlCallback} `ctl:*` scheme + the SAME router switch as the main actions — the
+ * Advanced menu is just a different render surface, not a different router.
+ */
+export const CONTROL_ADVANCED_ACTIONS: readonly ControlActionSpec[] = [
+  { id: 'restart', label: '🔄 Restart', submenu: true },
+  { id: 'parent-restart', label: '♻️ Parent restart', submenu: true },
+  { id: 'flush', label: '🧹 Flush', submenu: true },
+];
+
+/**
+ * ★ REDESIGN — the **Mode** SUBMENU options (the output modality the existing `/mode` command
+ * sets, surfaced as panel buttons): Voice, Text, Dual. NON-destructive (no confirm) — a tap
+ * sets the modality immediately, exactly like typing `/mode voice|text|dual`. The `value` is
+ * the {@link OutputMode} token passed to the same handler the typed command uses; carried as
+ * `ctl:mode-set:<value>`. The list is the submenu's source of truth (one row per option + a
+ * Back button).
+ */
+export const CONTROL_MODE_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: 'voice', label: '🎙️ Voice' },
+  { value: 'text', label: '💬 Text' },
+  { value: 'dual', label: '🔉 Dual' },
 ];
 
 /**
@@ -187,18 +224,48 @@ export const CONTROL_MODEL_CHOICES: readonly string[] = [
 
 /**
  * Buttons PER ROW for the `/control` menu + its sub-menus (the layout hint the adapter
- * honors). The main menu has 14 actions; rendered as a single flat row each button is
- * squeezed to ~1/14 width and the label truncates to just the emoji. Chunking at 2/row
- * gives 7 readable rows (and keeps each approvals ask's Allow/Deny pair side-by-side; a
- * 2-button confirm stays one row). The supervisor passes this on every control-menu send
- * (the permission Allow/Deny prompt sets NO per-row hint → it stays a single row,
- * byte-for-byte). 2 = a sensible grid; bump if the labels ever shorten.
+ * honors). ★ REDESIGN: the main menu is now 10 actions (was 14); rendered as a single flat
+ * row each button is squeezed to ~1/10 width and the label truncates to just the emoji.
+ * Chunking at 2/row gives 5 readable rows (and keeps each approvals ask's Allow/Deny pair
+ * side-by-side; a 2-button confirm stays one row). The supervisor passes this on every
+ * control-menu send (the permission Allow/Deny prompt sets NO per-row hint → it stays a
+ * single row, byte-for-byte). 2 = a sensible grid; bump if the labels ever shorten.
  */
 export const CONTROL_MENU_BUTTONS_PER_ROW = 2;
 
 /** Build the MAIN control menu inline keyboard from the action registry. Pure. */
 export function buildControlMenu(): InlineButton[] {
   return CONTROL_ACTIONS.map((a) => ({ text: a.label, callbackData: controlCallbackData(a.id) }));
+}
+
+/**
+ * ★ REDESIGN — build the **Advanced** SUBMENU inline keyboard: one button per
+ * {@link CONTROL_ADVANCED_ACTIONS} entry (`restart` / `parent-restart` / `flush`, each a
+ * confirm-gated `ctl:<id>` that opens its own confirm step) plus a Back button (`ctl:menu`).
+ * Pure.
+ */
+export function buildAdvancedSubmenu(): InlineButton[] {
+  const buttons: InlineButton[] = CONTROL_ADVANCED_ACTIONS.map((a) => ({
+    text: a.label,
+    callbackData: controlCallbackData(a.id),
+  }));
+  buttons.push({ text: '⬅️ Back', callbackData: controlCallbackData('menu') });
+  return buttons;
+}
+
+/**
+ * ★ REDESIGN — build the **Mode** SUBMENU inline keyboard: one button per
+ * {@link CONTROL_MODE_OPTIONS} (`ctl:mode-set:<value>`), the currently-active mode marked with a
+ * check, plus a Back button (`ctl:menu`). NON-destructive (no confirm step) — a pick sets the
+ * modality immediately. Pure.
+ */
+export function buildModeSubmenu(currentMode?: string): InlineButton[] {
+  const buttons: InlineButton[] = CONTROL_MODE_OPTIONS.map((o) => ({
+    text: o.value === currentMode ? `✅ ${o.label}` : o.label,
+    callbackData: controlCallbackData('mode-set', o.value),
+  }));
+  buttons.push({ text: '⬅️ Back', callbackData: controlCallbackData('menu') });
+  return buttons;
 }
 
 /**
@@ -305,8 +372,27 @@ export const CONTROL_CLEAR_CONFIRM_TEXT =
 
 /** The `resume` CONFIRM sub-menu header text. */
 export const CONTROL_RESUME_CONFIRM_TEXT =
-  '⏪ Resume from the last handoff snapshot? Restarts the orchestrator and re-injects the ' +
-  'snapshot you captured (the conversation/channel is preserved).';
+  '⏪ Resume from the last automatic snapshot? Restarts the orchestrator and re-injects the ' +
+  'last saved context (the conversation/channel is preserved). Mainly an undo after a New session.';
+
+/**
+ * ★ REDESIGN — the `parent-restart` CONFIRM sub-menu header text. Parent restart relaunches the
+ * SUPERVISOR PROCESS ITSELF (not the orchestrator child) to load a new build — a heavier action
+ * than a child restart, so it is confirm-gated. Performed supervisor-side (operator-tapped), NOT
+ * by the agent firing a shell command.
+ */
+export const CONTROL_PARENT_RESTART_CONFIRM_TEXT =
+  '♻️ Restart the SUPERVISOR ITSELF to load a new build? This relaunches the whole supervisor ' +
+  'process (not just the agent). The conversation/channel is preserved and the fresh agent ' +
+  'auto-resumes from the last snapshot. Use this after a code update.';
+
+/** ★ REDESIGN — the **Advanced** SUB-MENU header text (rendered with {@link buildAdvancedSubmenu}). */
+export const CONTROL_ADVANCED_MENU_TEXT =
+  '⚙️ Advanced — heavier, less common actions:';
+
+/** ★ REDESIGN — the **Mode** SUB-MENU header text (rendered with {@link buildModeSubmenu}). */
+export const CONTROL_MODE_MENU_TEXT =
+  '🔊 Output mode — how replies arrive (voice, text, or both):';
 
 /** The control-plane MENU header text (rendered with {@link buildControlMenu}). */
 export const CONTROL_MENU_TEXT =
@@ -320,20 +406,41 @@ export const CONTROL_MODEL_MENU_TEXT = '🤖 Change orchestrator model — pick 
 export const CONTROL_FLUSH_CONFIRM_TEXT =
   '⚠️ Drop pending inbound? This discards un-acked inbound messages from the channel queue.';
 
-/** The static `help` text — lists every control action + how the menu works. Pure. */
+/**
+ * The static `help` text — explains EVERY button (main menu + the Advanced and Mode submenus).
+ * ★ REDESIGN (control-panel-redesign-2026-06-20 §"Per-button spec + help text"): the help lines
+ * are authored verbatim from the spec (plain/spoken — no symbols beyond the leading bullet —
+ * because the output may be read aloud via voice mode), so they no longer derive from the button
+ * labels. Pure.
+ */
 export function controlHelpText(): string {
-  const lines = CONTROL_ACTIONS.map((a) => {
-    const note = a.scaffold ? ' (wired in a later phase)' : '';
-    return `• ${a.label}${note}`;
-  });
-  return (
-    '🛠️ Supervisor control plane\n' +
-    'Type /control to open the menu, then tap a button. Every action is handled by ' +
-    'the supervisor itself (out-of-band), so it works even when the orchestrator is ' +
-    'stuck or dead.\n\n' +
-    'Actions:\n' +
-    lines.join('\n')
-  );
+  return [
+    '🛠️ Supervisor control plane',
+    'Type /control to open the menu, then tap a button. Every action is handled by the ' +
+      'supervisor itself (out-of-band), so it works even when the agent is stuck or dead.',
+    '',
+    'Main menu:',
+    '• Status — health at a glance plus a live responsiveness check: connected bot, queue depth, ' +
+      'session and restart count, pending approvals, cost, and whether the agent answered and how fast.',
+    '• Approvals — resolve permission requests the agent is waiting on, like restart, force-push, ' +
+      'or outward sends. Allow or deny each, or deny all to clear a stuck queue.',
+    '• Log — recent channel activity: messages in, replies out, and delivery results.',
+    '• New session — restart the agent with a clean slate, dropping the current context. Use it ' +
+      'when the conversation is bloated or tangled.',
+    '• Resume — restore the last saved context snapshot. Handy as an undo after a New session.',
+    '• Interrupt — stop whatever the agent is doing right now, without restarting it or losing context.',
+    '• Change model — switch the model the agent runs on. It restarts on the new model and keeps your context.',
+    '• Mode — choose how replies arrive: voice, text, or both.',
+    '• Advanced — less common, heavier actions: Restart, Parent restart, and Flush.',
+    '• Help — what each button does.',
+    '',
+    'Advanced:',
+    '• Restart — cleanly restart the agent, keeping your context. If it is too wedged to drain, ' +
+      'it escalates to a hard kill on its own.',
+    '• Parent restart — restart the supervisor itself to load a new build. Use this after a code update.',
+    '• Flush — discard stuck pending messages. A last resort for a message that keeps crashing the ' +
+      'agent on every restart.',
+  ].join('\n');
 }
 
 /**

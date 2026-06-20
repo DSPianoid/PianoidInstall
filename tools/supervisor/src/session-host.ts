@@ -76,8 +76,15 @@ import {
   CONTROL_KILL_CONFIRM_TEXT,
   CONTROL_CLEAR_CONFIRM_TEXT,
   CONTROL_RESUME_CONFIRM_TEXT,
+  CONTROL_PARENT_RESTART_CONFIRM_TEXT,
+  CONTROL_ADVANCED_MENU_TEXT,
+  CONTROL_MODE_MENU_TEXT,
   CONTROL_MENU_BUTTONS_PER_ROW,
+  CONTROL_ADVANCED_ACTIONS,
+  CONTROL_MODE_OPTIONS,
   buildControlMenu,
+  buildAdvancedSubmenu,
+  buildModeSubmenu,
   buildModelSubmenu,
   buildModelSetConfirmMenu,
   buildFlushConfirmMenu,
@@ -281,6 +288,22 @@ export type RestartControlFn = (intent: RestartIntent) => Promise<RestartControl
  */
 export type InterruptTurnFn = () => Promise<void> | void;
 
+/**
+ * ★ REDESIGN (control-panel-redesign-2026-06-20) — the INJECTED **parent-restart** capability:
+ * restart the SUPERVISOR PROCESS ITSELF to load a new build (distinct from {@link RestartControlFn},
+ * which only cycles the orchestrator CHILD). The `/control` → Advanced → Parent restart action
+ * (confirm-gated) REQUESTS through this; index.ts wires it AT ACTIVATION to a closure that spawns
+ * the canonical DETACHED, out-of-process-tree relaunch (the `restart-supervisor.ps1` path) — so the
+ * relaunch is performed SUPERVISOR-SIDE on an operator tap, NOT by the agent issuing a shell command
+ * (which the cli-stream driver's relaunch guard hard-blocks, dev-0efd). When ABSENT (the dormant
+ * default + the tests), the action reports it is unavailable and NOTHING is relaunched — so the live
+ * host is NEVER torn down by a test and the switch-OFF behavior is byte-for-byte unchanged. Returns
+ * the dispatch outcome; NEVER throws for an operational refusal (it returns `ok:false`). The CALLER
+ * does NOT await the actual process death — the closure dispatches the detached relaunch and returns
+ * (the supervisor is killed asynchronously by the out-of-tree child).
+ */
+export type ParentRestartFn = () => Promise<RestartControlResult> | RestartControlResult;
+
 export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
@@ -401,6 +424,17 @@ export interface SessionHostOptions {
    * and the switch-OFF behavior is byte-for-byte unchanged. Best-effort; may reject on a driver failure.
    */
   interruptTurn?: InterruptTurnFn;
+  /**
+   * ★ REDESIGN CONTROL PLANE — SUPERVISOR (PARENT) RESTART (optional). The supervisor-side
+   * relaunch behind the `/control` → Advanced → `parent-restart` action (confirm-gated). When wired
+   * (by index.ts at ACTIVATION to the detached `restart-supervisor.ps1` relaunch), tapping the
+   * confirmed action restarts the SUPERVISOR PROCESS ITSELF to load a new build — performed
+   * supervisor-side on the operator tap, NOT by the agent firing a shell command (which the driver's
+   * relaunch guard hard-blocks). When ABSENT (the dormant default + the tests), the action reports it
+   * is unavailable and NOTHING is relaunched — so the live host is NEVER torn down by a test and the
+   * switch-OFF behavior is byte-for-byte unchanged. Best-effort; returns `{ok, detail?}`.
+   */
+  parentRestart?: ParentRestartFn;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -635,6 +669,15 @@ export class SessionHost {
    */
   private readonly interruptTurn: InterruptTurnFn | null;
   /**
+   * ★ REDESIGN CONTROL PLANE — the INJECTED parent (supervisor-process) restart capability (null
+   * when not wired — the dormant default). When set, the `/control` → Advanced → `parent-restart`
+   * action relaunches the SUPERVISOR ITSELF through it (the detached out-of-tree relaunch); when
+   * null, the action reports unavailable and NOTHING is relaunched. index.ts wires this ONLY at
+   * activation. P2: the host stays a thin wirer — the actual process spawn lives in the index.ts
+   * composition root, never in the SessionHost.
+   */
+  private readonly parentRestart: ParentRestartFn | null;
+  /**
    * ★ A3 CONTROL PLANE — the last HANDOFF SNAPSHOT the operator captured via the `handoff`
    * action (the note a future `restart`/`resume` re-injects), or null if none captured this
    * session. SOLE OWNER of this datum (P1): only `handoff` writes it; `resume` (and a
@@ -701,6 +744,7 @@ export class SessionHost {
     this.captureRecent = opts.captureRecent ?? null;
     this.restartControl = opts.restartControl ?? null;
     this.interruptTurn = opts.interruptTurn ?? null;
+    this.parentRestart = opts.parentRestart ?? null;
     this.currentModel = opts.model; // CONTROL PLANE: the live model shown in status; change-model mutates it.
     // ★ A5: resolve the proactive-alert config ONCE. enabled=false (the default) ⇒ the watchdog is
     // NOT enabled below, the proactive-watch never starts, and maybeProactiveAlert() early-returns
@@ -1170,6 +1214,29 @@ export class SessionHost {
         // An edit drops the keyboard → send the sub-menu as a NEW message.
         await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.currentModel));
         return;
+      // ── REDESIGN: Mode submenu (output modality — surfaces the existing /mode switch) ──────
+      case 'mode':
+        // NON-destructive submenu (a NEW message — an edit can't carry a fresh keyboard).
+        await this.sendControlMenu(CONTROL_MODE_MENU_TEXT, buildModeSubmenu(this.outputMode));
+        return;
+      case 'mode-set':
+        // A pick sets the modality IMMEDIATELY (no confirm — non-destructive, same as typing
+        // `/mode <value>`). Edit the tapped message to the outcome.
+        await this.editControlResult(callback, this.controlSetMode(ctl.arg));
+        return;
+      // ── REDESIGN: Advanced submenu (heavier/rarer lifecycle actions) ───────────────────────
+      case 'advanced':
+        await this.sendControlMenu(CONTROL_ADVANCED_MENU_TEXT, buildAdvancedSubmenu());
+        return;
+      // ── REDESIGN: Parent restart (restart the SUPERVISOR PROCESS itself — supervisor-side) ──
+      case 'parent-restart':
+        // DESTRUCTIVE (relaunches the whole supervisor) → open a CONFIRM sub-menu (a NEW message);
+        // a bare tap does NOT relaunch. Only `parent-restart-confirm` calls the parentRestart dep.
+        await this.sendControlMenu(CONTROL_PARENT_RESTART_CONFIRM_TEXT, buildConfirmMenu('parent-restart'));
+        return;
+      case 'parent-restart-confirm':
+        await this.editControlResult(callback, await this.controlParentRestart());
+        return;
       case 'model-set':
         // A pick RESTARTS the orchestrator → open the confirm step (a NEW message). The
         // bare pick does NOT restart. A missing model arg falls back to the model sub-menu.
@@ -1430,6 +1497,54 @@ export class SessionHost {
   }
 
   /**
+   * ★ REDESIGN `mode-set:<value>` handler — set the OUTPUT MODALITY (voice/text/dual) from the
+   * Mode submenu. NON-destructive (no confirm): a pick applies immediately, exactly like the typed
+   * `/mode <value>` command — it reuses the SAME modality state ({@link outputMode}) the typed
+   * command sets (so the two surfaces never diverge; P1 — `outputMode` keeps its single writer-set).
+   * An unknown/missing value is rejected (the menu only offers valid options, so this is defensive).
+   */
+  private controlSetMode(value?: string): string {
+    if (value !== 'text' && value !== 'voice' && value !== 'dual') {
+      return `🔊 Unknown mode "${value ?? ''}" — pick Voice, Text, or Dual.`;
+    }
+    const prev = this.outputMode;
+    this.outputMode = value;
+    this.logger.info('output modality switched via /control Mode submenu', { from: prev, to: value });
+    this.publishLifecycle('output_mode_changed', { from: prev, to: value, via: 'control-menu' });
+    return `🔊 Output mode → ${value}. (Replies arrive as ${value === 'dual' ? 'voice + text' : value}.)`;
+  }
+
+  /**
+   * ★ REDESIGN `parent-restart-confirm` handler — restart the SUPERVISOR PROCESS ITSELF to load a
+   * new build, through the INJECTED {@link parentRestart} dep (wired by index.ts at activation to
+   * the detached out-of-tree relaunch). Performed SUPERVISOR-SIDE on the operator tap — NOT by the
+   * agent firing a shell command (which the cli-stream relaunch guard hard-blocks, dev-0efd). The
+   * handler never spawns a process itself (P2 — that concern lives in the index.ts composition root),
+   * so UNWIRED ⇒ reports unavailable and NOTHING is relaunched (the dormant default — the live host
+   * is never torn down by a test). The dep dispatches the DETACHED relaunch and returns immediately;
+   * the supervisor is killed asynchronously by the out-of-tree child shortly after this reply is sent.
+   */
+  private async controlParentRestart(): Promise<string> {
+    if (!this.parentRestart) {
+      return '♻️ Parent restart is not available (the supervisor-relaunch capability is not wired in this build).';
+    }
+    this.publishLifecycle('control_parent_restart_requested', {});
+    try {
+      const r = await this.parentRestart();
+      if (r.ok) {
+        return (
+          `♻️ Parent restart dispatched${r.detail ? ` (${r.detail})` : ''}. The supervisor is reloading its ` +
+          `build now — give it a moment, then send a message; the fresh agent resumes from the last snapshot.`
+        );
+      }
+      return `♻️ Parent restart refused: ${r.detail ?? '(unknown reason)'}`;
+    } catch (err) {
+      this.logger.warn('control parent-restart threw', { err: String(err) });
+      return `♻️ Parent restart failed: ${String(err)}`;
+    }
+  }
+
+  /**
    * Build the {@link RestartIntent} for a confirmed restart-family action. The handoff note
    * for `restart`/`kill`/`resume` is the captured snapshot (if any); `clear` deliberately
    * carries NO handoff (a clean slate). Kept separate so the mapping is unit-testable.
@@ -1480,9 +1595,14 @@ export class SessionHost {
     }
   }
 
-  /** A short toast for a tapped control action (the answerCallback spinner text). */
+  /**
+   * A short toast for a tapped control action (the answerCallback spinner text). Searches the
+   * main registry AND the Advanced submenu (REDESIGN) so a tap on an Advanced action still names
+   * itself; unknown/derived actions (confirm steps, `mode-set`, `model-set`) fall back to 'OK'.
+   */
   private controlToast(action: string): string {
-    const spec = CONTROL_ACTIONS.find((a) => a.id === action);
+    const spec =
+      CONTROL_ACTIONS.find((a) => a.id === action) ?? CONTROL_ADVANCED_ACTIONS.find((a) => a.id === action);
     return spec ? spec.label.replace(/^[^\sA-Za-z]+\s*/, '') : 'OK';
   }
 

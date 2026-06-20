@@ -45,20 +45,27 @@ import {
   DEFAULT_TURN_WATCHDOG_MS,
   DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
   CONTROL_ACTIONS,
+  CONTROL_ADVANCED_ACTIONS,
+  CONTROL_MODE_OPTIONS,
   CONTROL_MODEL_CHOICES,
   CONTROL_MENU_TEXT,
   CONTROL_MENU_BUTTONS_PER_ROW,
   CONTROL_MODEL_MENU_TEXT,
+  CONTROL_MODE_MENU_TEXT,
+  CONTROL_ADVANCED_MENU_TEXT,
   CONTROL_FLUSH_CONFIRM_TEXT,
   CONTROL_RESTART_CONFIRM_TEXT,
   CONTROL_KILL_CONFIRM_TEXT,
   CONTROL_CLEAR_CONFIRM_TEXT,
   CONTROL_RESUME_CONFIRM_TEXT,
+  CONTROL_PARENT_RESTART_CONFIRM_TEXT,
+  buildAdvancedSubmenu,
+  buildModeSubmenu,
   type StatusSnapshot,
 } from '../control-command.js';
 import { ChannelPermission } from '../channel-permission.js';
 import { SessionHost } from '../session-host.js';
-import type { RestartControlFn, RestartIntent, InterruptTurnFn } from '../session-host.js';
+import type { RestartControlFn, RestartIntent, InterruptTurnFn, ParentRestartFn, RestartControlResult } from '../session-host.js';
 import { LifecycleManager } from '../lifecycle.js';
 import { IoBus } from '../io-bus.js';
 import { Logger } from '../logger.js';
@@ -139,9 +146,18 @@ test('buildControlMenu: one button per registry action, each carrying its ctl:<i
     assert.equal(menu[i]!.text, spec.label);
     assert.deepEqual(parseControlCallback(menu[i]!.callbackData), { action: spec.id });
   }
-  // The v1 actions are present.
+  // ★ REDESIGN: the main menu is the 10 redesigned actions (status/approvals/log/clear[New session]/
+  // resume/interrupt/change-model/mode/advanced/help). ping/reconnect are REMOVED; restart/kill/flush
+  // moved to the Advanced submenu.
   const ids = CONTROL_ACTIONS.map((a) => a.id);
-  for (const id of ['status', 'ping', 'help', 'change-model']) assert.ok(ids.includes(id), `${id} in menu`);
+  for (const id of ['status', 'approvals', 'log', 'clear', 'resume', 'interrupt', 'change-model', 'mode', 'advanced', 'help']) {
+    assert.ok(ids.includes(id), `${id} in main menu`);
+  }
+  assert.equal(CONTROL_ACTIONS.length, 10, 'exactly 10 main buttons');
+  // The removed-from-main top-level buttons are gone.
+  for (const id of ['ping', 'reconnect', 'restart', 'kill', 'flush', 'handoff', 'parent-restart']) {
+    assert.equal(ids.includes(id), false, `${id} is NOT a main-menu button`);
+  }
 });
 
 test('A4: the registry includes interrupt as a DIRECT action (no submenu, no scaffold) + help lists it', () => {
@@ -150,9 +166,10 @@ test('A4: the registry includes interrupt as a DIRECT action (no submenu, no sca
   // NON-destructive → it is a fast ESC: NOT a confirm/submenu pivot, NOT a later-phase scaffold.
   assert.notEqual(spec!.submenu, true, 'interrupt is NOT a submenu pivot (no confirm)');
   assert.notEqual(spec!.scaffold, true, 'interrupt is NOT a scaffold');
-  // It renders one menu button carrying ctl:interrupt, and the help lists it.
+  // It renders one menu button carrying ctl:interrupt, and the help lists it (by word — the redesign
+  // help is authored spoken text, not label-derived, so it carries no emoji).
   assert.ok(buildControlMenu().some((b) => b.callbackData === controlCallbackData('interrupt')), 'menu has ctl:interrupt');
-  assert.ok(controlHelpText().includes(spec!.label), 'help lists the interrupt action');
+  assert.ok(controlHelpText().includes('Interrupt'), 'help lists the interrupt action');
 });
 
 test('buildModelSubmenu: one button per model choice (ctl:model-set:<m>) + a back button; marks current', () => {
@@ -171,30 +188,71 @@ test('buildModelSubmenu: one button per model choice (ctl:model-set:<m>) + a bac
   assert.deepEqual(parseControlCallback(sub.at(-1)!.callbackData), { action: 'menu' });
 });
 
-test('controlHelpText lists every action (no scaffold remains after A3)', () => {
-  const help = controlHelpText();
-  for (const a of CONTROL_ACTIONS) assert.ok(help.includes(a.label), `help lists ${a.label}`);
-  // A3 finished change-model's wiring → NO action is a "later phase" scaffold anymore.
-  assert.equal(/later phase/.test(help), false, 'no scaffold note after A3');
-  // The A3 restart-family actions are listed.
-  for (const label of ['Restart', 'Kill', 'Clear', 'Handoff', 'Resume']) {
-    assert.ok(help.includes(label), `help lists ${label}`);
+test('REDESIGN buildAdvancedSubmenu: one button per Advanced action (restart/parent-restart/flush) + back', () => {
+  const sub = buildAdvancedSubmenu();
+  assert.equal(sub.length, CONTROL_ADVANCED_ACTIONS.length + 1, 'advanced actions + a back button');
+  for (let i = 0; i < CONTROL_ADVANCED_ACTIONS.length; i++) {
+    assert.deepEqual(parseControlCallback(sub[i]!.callbackData), { action: CONTROL_ADVANCED_ACTIONS[i]!.id });
   }
+  // The three Advanced actions are present, in order.
+  assert.deepEqual(CONTROL_ADVANCED_ACTIONS.map((a) => a.id), ['restart', 'parent-restart', 'flush']);
+  // The last button returns to the main menu.
+  assert.deepEqual(parseControlCallback(sub.at(-1)!.callbackData), { action: 'menu' });
+  for (const b of sub) assert.ok(Buffer.byteLength(b.callbackData, 'utf8') <= 64, `${b.callbackData} ≤64B`);
+});
+
+test('REDESIGN buildModeSubmenu: one button per mode option (ctl:mode-set:<v>) + back; marks current; no confirm', () => {
+  const sub = buildModeSubmenu('voice');
+  assert.equal(sub.length, CONTROL_MODE_OPTIONS.length + 1, 'mode options + a back button');
+  for (let i = 0; i < CONTROL_MODE_OPTIONS.length; i++) {
+    assert.deepEqual(parseControlCallback(sub[i]!.callbackData), { action: 'mode-set', arg: CONTROL_MODE_OPTIONS[i]!.value });
+  }
+  // The three options are voice/text/dual.
+  assert.deepEqual(CONTROL_MODE_OPTIONS.map((o) => o.value), ['voice', 'text', 'dual']);
+  // The current mode (voice) is checkmarked; a different mode is not.
+  assert.match(sub[0]!.text, /✅/);
+  assert.equal(/✅/.test(sub[1]!.text), false);
+  // The last button returns to the main menu.
+  assert.deepEqual(parseControlCallback(sub.at(-1)!.callbackData), { action: 'menu' });
+});
+
+test('controlHelpText explains every button (main menu + Advanced) per the redesign spec', () => {
+  const help = controlHelpText();
+  // Every MAIN-menu button is explained (by its spoken name — the redesign help carries no emoji).
+  for (const name of ['Status', 'Approvals', 'Log', 'New session', 'Resume', 'Interrupt', 'Change model', 'Mode', 'Advanced', 'Help']) {
+    assert.ok(help.includes(name), `help explains ${name}`);
+  }
+  // The Advanced submenu buttons are explained too (Restart / Parent restart / Flush).
+  for (const name of ['Restart', 'Parent restart', 'Flush']) {
+    assert.ok(help.includes(name), `help explains ${name}`);
+  }
+  // No scaffold/later-phase note remains.
+  assert.equal(/later phase/.test(help), false, 'no scaffold note');
+  // The Restart help mentions the auto-escalation to a hard kill (absorbs the old Kill button).
+  assert.match(help, /escalates to a hard kill/);
+  // The Parent restart help mentions reloading the supervisor build.
+  assert.match(help, /restart the supervisor itself to load a new build/i);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1e. control-command.ts — A2 actions: registry rows + sub-menu builders + log fmt
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('A2: the registry includes reconnect / flush / log / approvals; flush is a submenu pivot', () => {
+test('A2 (post-redesign): log / approvals stay on the MAIN menu; flush moved to Advanced; reconnect removed', () => {
   const ids = CONTROL_ACTIONS.map((a) => a.id);
-  for (const id of ['reconnect', 'flush', 'log', 'approvals']) assert.ok(ids.includes(id), `${id} in registry`);
-  // flush is DESTRUCTIVE → a submenu pivot (so a tap opens the confirm, not the action).
-  assert.equal(CONTROL_ACTIONS.find((a) => a.id === 'flush')!.submenu, true);
-  // clear LANDED in A3 (it was deferred from A2) — now a destructive submenu pivot.
-  assert.ok(ids.includes('clear'), 'clear landed in A3');
-  // Every registry row's callbackData round-trips (incl. the new ones, ≤64 bytes).
-  for (const a of CONTROL_ACTIONS) {
+  for (const id of ['log', 'approvals']) assert.ok(ids.includes(id), `${id} on the main menu`);
+  // reconnect is REMOVED (folded into the automatic recovery ladder).
+  assert.equal(ids.includes('reconnect'), false, 'reconnect removed from the main menu');
+  // flush moved to the Advanced submenu (no longer a main-menu button).
+  assert.equal(ids.includes('flush'), false, 'flush is not a main-menu button');
+  const advIds = CONTROL_ADVANCED_ACTIONS.map((a) => a.id);
+  assert.ok(advIds.includes('flush'), 'flush is in Advanced');
+  assert.equal(CONTROL_ADVANCED_ACTIONS.find((a) => a.id === 'flush')!.submenu, true, 'flush stays a confirm pivot in Advanced');
+  // clear (relabelled "New session") stays a destructive submenu pivot on the main menu.
+  assert.ok(ids.includes('clear'), 'clear (New session) on the main menu');
+  assert.equal(CONTROL_ACTIONS.find((a) => a.id === 'clear')!.label, '🧠 New session', 'clear relabelled New session');
+  // Every main + Advanced row's callbackData round-trips (≤64 bytes).
+  for (const a of [...CONTROL_ACTIONS, ...CONTROL_ADVANCED_ACTIONS]) {
     const data = controlCallbackData(a.id);
     assert.ok(Buffer.byteLength(data, 'utf8') <= 64);
     assert.deepEqual(parseControlCallback(data), { action: a.id });
@@ -265,23 +323,22 @@ test('A2 formatControlLog: compact inbound/outbound/delivery lines, newest last,
 // 1f. control-command.ts — A3 restart-family registry rows + confirm builders (pure)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('A3: the registry includes restart / kill / clear / handoff / resume; the destructive ones are submenu pivots', () => {
+test('A3 (post-redesign): clear/resume stay on main (confirm pivots); restart in Advanced; kill/handoff removed', () => {
   const ids = CONTROL_ACTIONS.map((a) => a.id);
-  for (const id of ['restart', 'kill', 'clear', 'handoff', 'resume']) assert.ok(ids.includes(id), `${id} in registry`);
-  // restart/kill/clear/resume RESET the orchestrator context → submenu pivots (a tap opens the confirm).
-  for (const id of ['restart', 'kill', 'clear', 'resume']) {
+  // clear (New session) + resume stay on the main menu as confirm pivots (they reset/restore context).
+  for (const id of ['clear', 'resume']) {
+    assert.ok(ids.includes(id), `${id} on the main menu`);
     assert.equal(CONTROL_ACTIONS.find((a) => a.id === id)!.submenu, true, `${id} is a confirm pivot`);
   }
-  // handoff is NON-destructive (it only snapshots) → NOT a submenu pivot (it runs directly).
-  assert.notEqual(CONTROL_ACTIONS.find((a) => a.id === 'handoff')!.submenu, true);
-  // change-model is no longer a scaffold (A3 finished its wiring).
+  // restart moved to Advanced (a confirm pivot there).
+  assert.equal(ids.includes('restart'), false, 'restart not a main-menu button');
+  const advIds = CONTROL_ADVANCED_ACTIONS.map((a) => a.id);
+  assert.ok(advIds.includes('restart'), 'restart is in Advanced');
+  assert.equal(CONTROL_ADVANCED_ACTIONS.find((a) => a.id === 'restart')!.submenu, true, 'restart stays a confirm pivot');
+  // kill + handoff are REMOVED (kill folded into Restart auto-escalation; handoff into auto-snapshots).
+  for (const id of ['kill', 'handoff']) assert.equal(ids.includes(id), false, `${id} removed`);
+  // change-model is no longer a scaffold.
   assert.notEqual(CONTROL_ACTIONS.find((a) => a.id === 'change-model')!.scaffold, true);
-  // Every row's callbackData still round-trips ≤64 bytes.
-  for (const a of CONTROL_ACTIONS) {
-    const data = controlCallbackData(a.id);
-    assert.ok(Buffer.byteLength(data, 'utf8') <= 64);
-    assert.deepEqual(parseControlCallback(data), { action: a.id });
-  }
 });
 
 test('A3 buildConfirmMenu(action): a Confirm (ctl:<action>-confirm) + a Cancel (ctl:menu)', () => {
@@ -297,7 +354,7 @@ test('A3 buildConfirmMenu(action): a Confirm (ctl:<action>-confirm) + a Cancel (
   assert.match(CONTROL_RESTART_CONFIRM_TEXT, /GRACEFULLY/);
   assert.match(CONTROL_KILL_CONFIRM_TEXT, /HARD-restart/);
   assert.match(CONTROL_CLEAR_CONFIRM_TEXT, /FRESH/);
-  assert.match(CONTROL_RESUME_CONFIRM_TEXT, /last handoff snapshot/);
+  assert.match(CONTROL_RESUME_CONFIRM_TEXT, /last automatic snapshot/); // ★ REDESIGN: Resume = re-inject the last AUTO snapshot
 });
 
 test('A3 buildModelSetConfirmMenu(model): a Confirm carrying the model (ctl:model-set-confirm:<m>) + back to change-model', () => {
@@ -413,6 +470,7 @@ interface ControlDeps {
   captureRecent?: () => readonly { event?: { ts?: string; type?: string; payload?: unknown } }[];
   restartControl?: RestartControlFn;
   interruptTurn?: InterruptTurnFn;
+  parentRestart?: ParentRestartFn;
 }
 
 /** A host idling after system_init, awaiting the first user turn. `model` sets opts.model. */
@@ -435,6 +493,7 @@ function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, deps: Con
     ...(deps.captureRecent ? { captureRecent: deps.captureRecent } : {}),
     ...(deps.restartControl ? { restartControl: deps.restartControl } : {}),
     ...(deps.interruptTurn ? { interruptTurn: deps.interruptTurn } : {}),
+    ...(deps.parentRestart ? { parentRestart: deps.parentRestart } : {}),
   });
   return { bus, driver, host };
 }
@@ -468,6 +527,22 @@ function makeFakeInterrupt(opts: { throws?: Error } = {}) {
   return { fn, get calls() { return calls; } };
 }
 
+/**
+ * ★ REDESIGN — a FAKE parentRestart that COUNTS each call WITHOUT spawning any real process (the
+ * host-safety contract: in tests the supervisor relaunch is asserted as REQUESTED; NOTHING is
+ * actually relaunched — no process spawn, `driver.starts` stays constant). Returns `{ok:true}` by
+ * default; pass `result` to simulate a refusal, or `throws` for a dispatch failure.
+ */
+function makeFakeParentRestart(opts: { result?: RestartControlResult; throws?: Error } = {}) {
+  let calls = 0;
+  const fn: ParentRestartFn = () => {
+    calls += 1;
+    if (opts.throws) throw opts.throws;
+    return opts.result ?? { ok: true, detail: 'relaunching via prod launcher' };
+  };
+  return { fn, get calls() { return calls; } };
+}
+
 test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrator', async () => {
   const cap = makeCapture();
   const { bus, driver, host } = makeHost(cap);
@@ -481,7 +556,8 @@ test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrat
   assert.ok(menu, 'the control menu was rendered');
   const buttons = menu!.msg.options?.buttons;
   assert.ok(buttons && buttons.length === CONTROL_ACTIONS.length, 'menu has one button per action');
-  for (const id of ['status', 'ping', 'help', 'change-model', 'interrupt']) {
+  assert.equal(buttons!.length, 10, 'the redesigned main menu is 10 buttons');
+  for (const id of ['status', 'help', 'change-model', 'interrupt', 'mode', 'advanced']) {
     assert.ok(buttons!.some((b) => b.callbackData === controlCallbackData(id)), `menu has ${id}`);
   }
   // NOT forwarded: still only the one earlier 'hi' turn.
@@ -490,7 +566,7 @@ test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrat
   bus.close();
 });
 
-test('the /control menu carries a buttonsPerRow layout hint (so 14 buttons wrap into a readable grid)', async () => {
+test('the /control menu carries a buttonsPerRow layout hint (so the 10 buttons wrap into a readable grid)', async () => {
   const cap = makeCapture();
   const { bus, host } = makeHost(cap);
   await host.start();
@@ -498,7 +574,7 @@ test('the /control menu carries a buttonsPerRow layout hint (so 14 buttons wrap 
   await host.handleInbound(inbound('/control'));
   const menu = cap.sent.find((s) => s.msg.text === CONTROL_MENU_TEXT);
   assert.ok(menu, 'the control menu was rendered');
-  // The menu has 14 actions → a SINGLE flat row would squeeze every label to ~1/14 width.
+  // The menu has 10 actions → a SINGLE flat row would squeeze every label to ~1/10 width.
   // It must request a per-row layout (2) so the adapter wraps it into a grid.
   assert.equal(menu!.msg.options?.buttonsPerRow, CONTROL_MENU_BUTTONS_PER_ROW, 'menu sets buttonsPerRow=2');
   assert.equal(CONTROL_MENU_BUTTONS_PER_ROW, 2);
@@ -571,7 +647,11 @@ test('ctl:help → ACKed + edits to the help text listing the actions', async ()
   assert.ok(ed, 'help edited in');
   assert.match(ed!.text, /Supervisor control plane/);
   assert.match(ed!.text, /Status/);
-  assert.match(ed!.text, /Ping/);
+  // ★ REDESIGN: the help explains the redesigned buttons (Mode/Advanced/Parent restart), not Ping.
+  assert.match(ed!.text, /Mode/);
+  assert.match(ed!.text, /Advanced/);
+  assert.match(ed!.text, /Parent restart/);
+  assert.equal(/Ping/.test(ed!.text), false, 'Ping was removed');
   await host.stop();
   bus.close();
 });
@@ -1581,4 +1661,155 @@ test('A5 switch OFF: a non-/control message is still a normal turn (additive —
   assert.equal(alertPushes(cap).length, 0, 'no proactive alert on a normal turn');
   await host.stop();
   bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REDESIGN (dev-3e66) — Mode submenu, Advanced submenu, supervisor-side Parent restart
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('REDESIGN ctl:mode → renders the Mode sub-menu (voice/text/dual) marking the current mode; no confirm, no turn', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap); // default outputMode = 'text'
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:mode', 'cb-mode', 'm-mode'));
+  assert.equal(cap.answered.at(-1)!.callbackId, 'cb-mode', 'the Mode tap was ACKed');
+  const sub = cap.sent.find((s) => s.msg.text === CONTROL_MODE_MENU_TEXT);
+  assert.ok(sub, 'the Mode sub-menu was rendered');
+  const buttons = sub!.msg.options?.buttons ?? [];
+  // voice/text/dual + back.
+  assert.equal(buttons.length, CONTROL_MODE_OPTIONS.length + 1);
+  for (const o of CONTROL_MODE_OPTIONS) {
+    assert.ok(buttons.some((b) => b.callbackData === controlCallbackData('mode-set', o.value)), `Mode has ${o.value}`);
+  }
+  // The current mode (text) is checkmarked.
+  const textBtn = buttons.find((b) => b.callbackData === controlCallbackData('mode-set', 'text'));
+  assert.match(textBtn!.text, /✅/, 'the current mode text is checkmarked');
+  assert.equal(driver.sentTurns.length, 0, 'opening the Mode sub-menu injected no turn');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN ctl:mode-set:<v> → sets the output modality IMMEDIATELY (no confirm), reusing the /mode state', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap); // starts text
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  // Pick voice — applied directly (no confirm step), edits the tapped message to the outcome.
+  await host.handleInbound(callbackInbound('ctl:mode-set:voice', 'cb-mv', 'm-mv'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-mv');
+  assert.ok(ed, 'mode-set produced a result edit');
+  assert.match(ed!.text, /Output mode → voice/);
+  // The state actually flipped (the SAME state the typed /mode command sets).
+  assert.equal(host.outputModeState(), 'voice', 'outputMode is now voice');
+  // Re-opening the Mode sub-menu shows voice checkmarked now.
+  await host.handleInbound(callbackInbound('ctl:mode', 'cb-m2', 'm-m2'));
+  const sub2 = cap.sent.filter((s) => s.msg.text === CONTROL_MODE_MENU_TEXT).at(-1);
+  const voiceBtn = sub2!.msg.options?.buttons?.find((b) => b.callbackData === controlCallbackData('mode-set', 'voice'));
+  assert.match(voiceBtn!.text, /✅/, 'voice is now the checkmarked current mode');
+  // Dual works too; an unknown value is rejected cleanly (defensive).
+  await host.handleInbound(callbackInbound('ctl:mode-set:dual', 'cb-md', 'm-md'));
+  assert.equal(host.outputModeState(), 'dual');
+  await host.handleInbound(callbackInbound('ctl:mode-set:bogus', 'cb-mb', 'm-mb'));
+  assert.match(cap.edited.find((e) => e.messageId === 'm-mb')!.text, /Unknown mode/);
+  assert.equal(host.outputModeState(), 'dual', 'an unknown value did NOT change the mode');
+  assert.equal(driver.sentTurns.length, 0, 'mode-set never injects a turn');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN ctl:advanced → renders the Advanced sub-menu (restart/parent-restart/flush + back); no turn', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap);
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:advanced', 'cb-adv', 'm-adv'));
+  assert.equal(cap.answered.at(-1)!.callbackId, 'cb-adv', 'the Advanced tap was ACKed');
+  const sub = cap.sent.find((s) => s.msg.text === CONTROL_ADVANCED_MENU_TEXT);
+  assert.ok(sub, 'the Advanced sub-menu was rendered');
+  const buttons = sub!.msg.options?.buttons ?? [];
+  for (const id of ['restart', 'parent-restart', 'flush']) {
+    assert.ok(buttons.some((b) => b.callbackData === controlCallbackData(id)), `Advanced has ${id}`);
+  }
+  assert.ok(buttons.some((b) => b.callbackData === controlCallbackData('menu')), 'Advanced has a Back button');
+  assert.equal(driver.sentTurns.length, 0, 'opening Advanced injected no turn');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN ctl:parent-restart (bare) → renders the CONFIRM sub-menu and does NOT relaunch', async () => {
+  const cap = makeCapture();
+  const pr = makeFakeParentRestart();
+  const { bus, driver, host } = makeHost(cap, undefined, { parentRestart: pr.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:parent-restart', 'cb-pr', 'm-pr'));
+  // A confirm sub-menu was sent (a NEW message), with a Confirm carrying ctl:parent-restart-confirm.
+  const confirm = cap.sent.find((s) => s.msg.text === CONTROL_PARENT_RESTART_CONFIRM_TEXT);
+  assert.ok(confirm, 'the parent-restart confirm sub-menu was rendered');
+  const buttons = confirm!.msg.options?.buttons ?? [];
+  assert.ok(buttons.some((b) => b.callbackData === 'ctl:parent-restart-confirm'), 'a Confirm button');
+  assert.ok(buttons.some((b) => b.callbackData === 'ctl:menu'), 'a Cancel/back button');
+  // HOST-SAFETY: a bare tap did NOT relaunch anything.
+  assert.equal(pr.calls, 0, 'a bare parent-restart did NOT relaunch');
+  assert.equal(driver.starts, 1, 'no orchestrator-child restart either');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN ctl:parent-restart-confirm → dispatches the supervisor relaunch via the injected dep (supervisor-side); child untouched', async () => {
+  const cap = makeCapture();
+  const pr = makeFakeParentRestart();
+  const { bus, driver, host } = makeHost(cap, undefined, { parentRestart: pr.fn });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:parent-restart', 'cb-pr', 'm-pr')); // open confirm
+  await host.handleInbound(callbackInbound('ctl:parent-restart-confirm', 'cb-prc', 'm-prc')); // confirm
+  assert.equal(pr.calls, 1, 'the parent-restart was dispatched once on confirm');
+  const ed = cap.edited.find((e) => e.messageId === 'm-prc');
+  assert.ok(ed, 'parent-restart-confirm produced a result edit');
+  assert.match(ed!.text, /Parent restart dispatched/);
+  // HOST-SAFETY: the orchestrator CHILD was not cycled (parent restart relaunches the supervisor itself),
+  // and no orchestrator turn was injected (the relaunch is supervisor-side, not an agent shell command).
+  assert.equal(driver.starts, 1, 'parent-restart did NOT cycle the orchestrator child');
+  assert.equal(driver.sentTurns.length, 1, 'parent-restart injected no orchestrator turn (only the earlier hi)');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN ctl:parent-restart-confirm when UNWIRED → reports unavailable; NOTHING relaunches (dormant default)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap); // no parentRestart wired
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:parent-restart-confirm', 'cb-pr0', 'm-pr0'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-pr0');
+  assert.ok(ed, 'edited');
+  assert.match(ed!.text, /not available/i, 'reports unavailable when unwired');
+  assert.equal(driver.starts, 1, 'nothing relaunched (dormant default)');
+  await host.stop();
+  bus.close();
+});
+
+test('REDESIGN ctl:parent-restart-confirm refusal/throw is surfaced cleanly; no crash', async () => {
+  const cap = makeCapture();
+  const prRefuse = makeFakeParentRestart({ result: { ok: false, detail: 'relaunch script not found: X' } });
+  const { bus, host } = makeHost(cap, undefined, { parentRestart: prRefuse.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:parent-restart-confirm', 'cb-prr', 'm-prr'));
+  assert.match(cap.edited.find((e) => e.messageId === 'm-prr')!.text, /refused/i);
+  // A thrown dispatch error is caught + surfaced (not a crash).
+  const prThrow = makeFakeParentRestart({ throws: new Error('spawn EACCES') });
+  const cap2 = makeCapture();
+  const { bus: bus2, host: host2 } = makeHost(cap2, undefined, { parentRestart: prThrow.fn });
+  await host2.start();
+  await host2.handleInbound(inbound('/control'));
+  await host2.handleInbound(callbackInbound('ctl:parent-restart-confirm', 'cb-prt', 'm-prt'));
+  assert.match(cap2.edited.find((e) => e.messageId === 'm-prt')!.text, /failed/i);
+  await host.stop();
+  await host2.stop();
+  bus.close();
+  bus2.close();
 });

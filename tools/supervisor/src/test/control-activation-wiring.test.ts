@@ -40,6 +40,7 @@ import { FakeSessionDriver, type Program } from './fake-session-driver.js';
 import {
   CONTROL_MENU_TEXT,
   CONTROL_FLUSH_CONFIRM_TEXT,
+  CONTROL_PARENT_RESTART_CONFIRM_TEXT,
   CONTROL_ACTIONS,
   controlCallbackData,
 } from '../control-command.js';
@@ -127,6 +128,7 @@ function makeWiredHost(supervisor: Supervisor, cap: ReturnType<typeof makeCaptur
   // restartControl/interruptTurn close over `host` lazily — exactly like index.ts closes over
   // `sessionHost` (assigned after the ctor); read only at tap-time, never during construction.
   let host: SessionHost;
+  const parentRestartCalls: number[] = []; // ★ REDESIGN — records each parent-restart dispatch (no real spawn)
   const restartControl = async (intent: RestartIntent): Promise<RestartControlResult> => {
     if (intent.kind === 'clear') {
       await host.clearContext();
@@ -159,8 +161,15 @@ function makeWiredHost(supervisor: Supervisor, cap: ReturnType<typeof makeCaptur
     captureRecent: () => supervisor.captureStore.replay(),
     restartControl,
     interruptTurn: () => host.interruptCurrentTurn(),
+    // ★ REDESIGN — parent restart: a FAKE that only RECORDS the request (the real index.ts closure
+    // spawns the detached restart-supervisor.ps1; a TEST must NEVER spawn a real relaunch). It
+    // mirrors the dispatch-and-return contract: returns ok WITHOUT killing anything.
+    parentRestart: () => {
+      parentRestartCalls.push(Date.now());
+      return { ok: true, detail: 'relaunching via prod launcher' };
+    },
   });
-  return { host, driver, get s() { return host; } };
+  return { host, driver, parentRestartCalls, get s() { return host; } };
 }
 
 /** A SessionHost with NONE of the control-plane deps wired (the dormant / pre-activation host). */
@@ -197,8 +206,9 @@ test('★ wiring shape: the control-plane deps are passed as PRESENT keys (uncon
     captureRecent: () => [],
     restartControl: () => ({ ok: true }),
     interruptTurn: () => undefined,
+    parentRestart: () => ({ ok: true }), // ★ REDESIGN — supervisor-side parent restart
   };
-  for (const k of ['reconnectChannel', 'flushChannel', 'captureRecent', 'restartControl', 'interruptTurn']) {
+  for (const k of ['reconnectChannel', 'flushChannel', 'captureRecent', 'restartControl', 'interruptTurn', 'parentRestart']) {
     assert.equal(k in ctorControlKeys, true, `${k} present unconditionally`);
   }
 });
@@ -224,8 +234,9 @@ test('★ ACTIVATION: /control renders the menu with one button per action (the 
     assert.ok(menu, 'the control menu rendered');
     const buttons = menu!.msg.options?.buttons ?? [];
     assert.equal(buttons.length, CONTROL_ACTIONS.length, 'one button per registry action');
-    // The full activated action set is reachable as buttons.
-    for (const id of ['status', 'ping', 'help', 'change-model', 'reconnect', 'flush', 'log', 'approvals', 'restart', 'kill', 'clear', 'resume', 'handoff', 'interrupt']) {
+    // ★ REDESIGN — the 10 main-menu buttons are reachable (ping/reconnect removed; restart/kill/flush
+    // moved into the Advanced submenu, parent-restart is a NEW Advanced action).
+    for (const id of ['status', 'approvals', 'log', 'clear', 'resume', 'interrupt', 'change-model', 'mode', 'advanced', 'help']) {
       assert.ok(buttons.some((b) => b.callbackData === controlCallbackData(id)), `menu has ${id}`);
     }
     assert.equal(driver.sentTurns.length, 1, '/control did not inject a turn');
@@ -459,7 +470,48 @@ test('★ ACTIVATION interrupt: ctl:interrupt reaches the REAL lifecycle.interru
 });
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * 4) ★ DORMANT (pre-activation): a host with NONE of the five deps wired reports every action
+ * 3b) ★ REDESIGN WIRED parent restart — ctl:parent-restart renders a confirm (no relaunch);
+ *     ctl:parent-restart-confirm reaches the injected parentRestart dep. The wired-host fake only
+ *     RECORDS the dispatch — NO real supervisor relaunch in a test (host-safety).
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+test('★ ACTIVATION parent-restart: a bare tap renders a confirm (no relaunch); confirm reaches the injected parentRestart (driver untouched)', async () => {
+  const r = tmpRoot();
+  const supervisor = makeSupervisor(r.dir);
+  const cap = makeCapture();
+  const { host, driver, parentRestartCalls } = makeWiredHost(supervisor, cap);
+  try {
+    await supervisor.start();
+    await host.start();
+    await host.handleInbound(inbound('hi'));
+    const startsBefore = driver.starts;
+    await host.handleInbound(inbound('/control'));
+    // A BARE parent-restart tap → a confirm SUB-MENU (a NEW message), NOT a relaunch.
+    await host.handleInbound(callbackInbound('ctl:parent-restart', 'cb-pr', 'm-pr'));
+    assert.ok(
+      cap.sent.some((s) => s.msg.text === CONTROL_PARENT_RESTART_CONFIRM_TEXT),
+      'the parent-restart confirm sub-menu was rendered',
+    );
+    assert.equal(parentRestartCalls.length, 0, 'a BARE parent-restart did NOT relaunch');
+    // The confirm tap → the injected parentRestart dep (recorded; in prod it spawns the detached relaunch).
+    await host.handleInbound(callbackInbound('ctl:parent-restart-confirm', 'cb-prc', 'm-prc'));
+    assert.equal(parentRestartCalls.length, 1, 'the parent-restart was dispatched once on confirm');
+    const ed = cap.editsFor('m-prc').at(-1);
+    assert.ok(ed, 'parent-restart-confirm produced a result edit');
+    assert.doesNotMatch(ed!.text, /not available/i, 'parent-restart is wired (not dormant)');
+    assert.match(ed!.text, /reload/i, 'the relaunch dispatch is surfaced');
+    // HOST-SAFETY: no orchestrator-child restart, no turn injected.
+    assert.equal(driver.starts, startsBefore, 'parent-restart did NOT cycle the orchestrator child (it relaunches the supervisor itself)');
+    assert.equal(driver.sentTurns.length, 1, 'parent-restart injected no orchestrator turn');
+  } finally {
+    await host.stop();
+    await supervisor.stop();
+    r.cleanup();
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 4) ★ DORMANT (pre-activation): a host with NONE of the deps wired reports every action
  *    "not available" — proving the wiring (not the handlers) is what activates them.
  * ───────────────────────────────────────────────────────────────────────────── */
 
@@ -477,6 +529,7 @@ test('★ DORMANT: an UNWIRED host reports reconnect / flush-confirm / log / res
       { data: 'ctl:log', mid: 'd-lg' },
       { data: 'ctl:restart-confirm', mid: 'd-rcf' },
       { data: 'ctl:interrupt', mid: 'd-it' },
+      { data: 'ctl:parent-restart-confirm', mid: 'd-prc' }, // ★ REDESIGN — dormant when unwired
     ];
     for (const c of cases) {
       await host.handleInbound(callbackInbound(c.data, `cb-${c.mid}`, c.mid));

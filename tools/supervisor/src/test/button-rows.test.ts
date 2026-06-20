@@ -55,15 +55,15 @@ test('buildInlineKeyboard: an empty button list yields a keyboard with no button
   assert.equal(rows(buildInlineKeyboard([], 2)).flat().length, 0, 'no buttons for an empty list');
 });
 
-test('the /control menu (14 actions) at CONTROL_MENU_BUTTONS_PER_ROW wraps into a multi-row grid', () => {
+test('the /control menu (10 actions) at CONTROL_MENU_BUTTONS_PER_ROW wraps into a multi-row grid', () => {
   const menu = buildControlMenu();
   assert.equal(menu.length, CONTROL_ACTIONS.length, 'one button per action');
-  assert.ok(menu.length >= 14, '14 actions today (the flat-row problem case)');
+  assert.equal(menu.length, 10, '★ REDESIGN: 10 main actions (was 14 — the flat-row problem case)');
   const kb = buildInlineKeyboard(menu, CONTROL_MENU_BUTTONS_PER_ROW);
   const r = rows(kb);
-  // Multiple rows (the fix) — NOT a single 14-wide row.
+  // Multiple rows (the fix) — NOT a single 10-wide row.
   assert.ok(r.length > 1, 'the menu renders as multiple rows, not one');
-  assert.equal(r.length, Math.ceil(menu.length / CONTROL_MENU_BUTTONS_PER_ROW), '⌈14/2⌉ = 7 rows');
+  assert.equal(r.length, Math.ceil(menu.length / CONTROL_MENU_BUTTONS_PER_ROW), '⌈10/2⌉ = 5 rows');
   for (const row of r) {
     assert.ok(row.length <= CONTROL_MENU_BUTTONS_PER_ROW, `each row ≤ ${CONTROL_MENU_BUTTONS_PER_ROW} buttons`);
   }

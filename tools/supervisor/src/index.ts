@@ -406,6 +406,45 @@ async function main(): Promise<void> {
       if (!host) return Promise.resolve();
       return host.interruptCurrentTurn();
     };
+    // ★ REDESIGN — PARENT (supervisor-process) restart: dispatch the canonical DETACHED,
+    // out-of-process-tree relaunch (restart-supervisor.ps1) so the SUPERVISOR ITSELF reloads its
+    // build. Performed SUPERVISOR-SIDE on the operator's confirmed `/control` → Advanced → Parent
+    // restart tap — NOT by the agent issuing a shell command (the cli-stream relaunch guard hard-
+    // blocks agent-issued relaunches, dev-0efd; this closure runs in the SUPERVISOR process, which
+    // the guard does not touch). The script self-detaches via WMI (its child is parented to
+    // WmiPrvSE, NOT to this supervisor), then kills this supervisor + re-runs the launcher — so we
+    // launch it once, detached, and return immediately (the supervisor dies asynchronously). Only
+    // the supervisor-side path triggers it (the agent-side guard stays a pure hard block). Env
+    // overrides: SUPERVISOR_PARENT_RESTART_SCRIPT (path; default D:\tmp\restart-supervisor.ps1) +
+    // SUPERVISOR_PARENT_RESTART_LAUNCHER (prod|test; default prod — the live host runs the prod
+    // launcher). The hosted orchestrator (per dev-fa3d) auto-resumes from the staged handoff file.
+    const parentRestartControl = async (): Promise<RestartControlResult> => {
+      const script = process.env.SUPERVISOR_PARENT_RESTART_SCRIPT || 'D:\\tmp\\restart-supervisor.ps1';
+      const launcher = process.env.SUPERVISOR_PARENT_RESTART_LAUNCHER === 'test' ? 'test' : 'prod';
+      if (!existsSync(script)) {
+        logger.error('parent-restart: relaunch script not found', { script });
+        return { ok: false, detail: `relaunch script not found: ${script}` };
+      }
+      try {
+        const { spawn } = await import('node:child_process');
+        // Detached + ignored stdio + unref → the child outlives this process (which the script then
+        // kills). The script's own WMI self-detach re-parents it outside our tree before the kill.
+        const child = spawn(
+          'powershell.exe',
+          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Launcher', launcher],
+          { detached: true, stdio: 'ignore', windowsHide: true },
+        );
+        child.unref();
+        logger.warn('parent-restart: dispatched detached supervisor relaunch (the supervisor will be cycled shortly)', {
+          script,
+          launcher,
+        });
+        return { ok: true, detail: `relaunching via ${launcher} launcher` };
+      } catch (err) {
+        logger.error('parent-restart: failed to dispatch the relaunch', { err: String(err) });
+        return { ok: false, detail: `dispatch failed: ${String(err)}` };
+      }
+    };
 
     sessionHost = new SessionHost({
       driver: sessionDriver,
@@ -433,6 +472,8 @@ async function main(): Promise<void> {
       captureRecent: captureRecentControl,
       restartControl,
       interruptTurn: interruptTurnControl,
+      // ★ REDESIGN — supervisor-side PARENT restart (the detached restart-supervisor.ps1 relaunch).
+      parentRestart: parentRestartControl,
       // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
       // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
       // flips it at runtime via the intercepted `/mode` command.
