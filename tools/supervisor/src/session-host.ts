@@ -135,6 +135,39 @@ export type RestartRequestOutcome =
   | { status: 'rate_limited'; retryAfterMs: number }
   | { status: 'busy' }; // a restart confirm is already in flight
 
+/**
+ * ★ P6 — the structured result of ONE routed-agent dispatch ({@link SessionHost.dispatchRole}). This
+ * is the SHAPE the injected {@link RoleDispatchFn} returns and that the orchestrator relays to the
+ * user (AP6 — the agent itself is channel-mute; only this report comes back). A thin projection of
+ * result-relay's `AgentReport` (kept local so SessionHost imports no result-relay concretes). On a
+ * dormant/unwired host, {@link dispatchRole} synthesizes `{ok:false, enabled:false}` WITHOUT calling
+ * the function.
+ */
+export interface RoleDispatchResult {
+  /** True when the dispatched agent finished successfully (subtype 'success'). */
+  ok: boolean;
+  /** The role that was dispatched. */
+  role: string;
+  /** The backend kind that ran it ('claude-cli' | 'api-adapter' | …). */
+  backend?: string;
+  /** The agent's final report text (relayed to the user by the orchestrator). */
+  text?: string;
+  /** Total cost in USD, if the backend reported/computed it. */
+  costUsd?: number;
+  /** True iff a configured fallback backend actually ran (FD6). */
+  fellBack?: boolean;
+}
+
+/**
+ * ★ P6 — the INJECTED routed-dispatch capability (FD1). Given a role + a task, run the role's routed
+ * backend agent to completion and return its {@link RoleDispatchResult}. index.ts builds this closure
+ * ONLY when role-routing is activated (so it stays dormant by default); it closes over the backend
+ * registry, the persisted-override loader, and the scoped-key env, and calls result-relay's
+ * dispatchRoleAgentWithFallback. NEVER throws for an agent-level failure (it returns `ok:false`);
+ * may reject only on a programmer error.
+ */
+export type RoleDispatchFn = (role: string, task: string) => Promise<RoleDispatchResult>;
+
 export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
@@ -195,6 +228,19 @@ export interface SessionHostOptions {
    * store's PRESENCE is the activation signal (P6). The store path is gitignored (under `.state/`).
    */
   roleRoutingStore?: RoleRoutingStore;
+  /**
+   * ★ P6 — ROUTED-AGENT DISPATCH CAPABILITY (FD1). When supplied, {@link SessionHost.dispatchRole}
+   * is ACTIVE: the orchestrator can ask the supervisor to run a ROLE + task on its routed backend
+   * (role-router → provider-registry → backend-seal → driver → result), and the structured result is
+   * relayed back to the orchestrator (AP6 — never the channel). The function is the INJECTED
+   * choke-point: index.ts builds it (gated on the activation switch) to close over the backend
+   * registry + the persisted-override loader + the scoped-key env, and it ultimately calls
+   * result-relay's dispatchRoleAgentWithFallback. SessionHost stays decoupled from result-relay's
+   * concretes (and trivially fake-able in tests). When ABSENT (the dormant default — index.ts does
+   * NOT wire it unless SUPERVISOR_ROLE_ROUTING is ON), {@link dispatchRole} returns
+   * `{ok:false, enabled:false}` and NOTHING dispatches — byte-for-byte unchanged.
+   */
+  dispatchRoleAgent?: RoleDispatchFn;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -343,6 +389,13 @@ export class SessionHost {
    * a normal turn, byte-for-byte unchanged.
    */
   private readonly roleRoutingStore: RoleRoutingStore | null;
+  /**
+   * ★ P6 — the INJECTED routed-dispatch capability (null when not wired — the dormant default). When
+   * set, {@link dispatchRole} runs a role's routed agent through it and relays the result; when null,
+   * {@link dispatchRole} returns `{ok:false, enabled:false}` and dispatches nothing. index.ts wires
+   * this ONLY when SUPERVISOR_ROLE_ROUTING is ON.
+   */
+  private readonly dispatchRoleAgent: RoleDispatchFn | null;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -352,6 +405,7 @@ export class SessionHost {
     this.secretStore = opts.secretStore ?? null;
     this.providers = opts.providers ?? DEFAULT_PROVIDERS;
     this.roleRoutingStore = opts.roleRoutingStore ?? null;
+    this.dispatchRoleAgent = opts.dispatchRoleAgent ?? null;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -931,6 +985,52 @@ export class SessionHost {
     const result = this.applyRoleRouting(roleNorm, providerId, model);
     if (!result.ok) return { ok: false, enabled: true, error: result.error };
     return { ok: true, role: roleNorm, provider: providerId, model: result.model, keyPresent: result.keyPresent };
+  }
+
+  /**
+   * ★ P6 — ORCHESTRATOR-INVOKABLE ROUTED DISPATCH (FD1). Run a ROLE + task on its routed backend
+   * (role-router → provider-registry → backend-seal → driver → result) and return the structured
+   * {@link RoleDispatchResult} for the orchestrator to relay (AP6 — the agent is channel-mute; only
+   * this report comes back here). Routed THROUGH the injected {@link dispatchRoleAgent} capability so
+   * SessionHost stays decoupled from result-relay's concretes.
+   *
+   * DORMANT-BY-DEFAULT: when no dispatch capability is wired (the default — index.ts does NOT wire it
+   * unless SUPERVISOR_ROLE_ROUTING is ON), this returns `{ok:false, enabled:false}` and dispatches
+   * NOTHING (the orchestrator can tell the user routing is inactive). Never throws for an agent-level
+   * failure — a crash/error surfaces as `ok:false` with the failure text. The `enabled` flag mirrors
+   * the {@link setRoleRouting} dormant contract.
+   */
+  async dispatchRole(
+    role: string,
+    task: string,
+  ): Promise<RoleDispatchResult & { enabled: boolean }> {
+    if (!this.dispatchRoleAgent) {
+      return { ok: false, enabled: false, role, text: 'role routing is not enabled (no dispatch capability wired)' };
+    }
+    const roleNorm = (role ?? '').trim();
+    if (roleNorm.length === 0) {
+      return { ok: false, enabled: true, role: roleNorm, text: 'a role is required' };
+    }
+    if ((task ?? '').trim().length === 0) {
+      return { ok: false, enabled: true, role: roleNorm, text: 'a task is required' };
+    }
+    this.logger.info('dispatching routed agent', { role: roleNorm, taskChars: task.length });
+    this.publishLifecycle('role_dispatch', { role: roleNorm });
+    try {
+      const result = await this.dispatchRoleAgent(roleNorm, task);
+      this.logger.info('routed agent reported', {
+        role: roleNorm,
+        backend: result.backend,
+        ok: result.ok,
+        fellBack: result.fellBack ?? false,
+      });
+      return { ...result, enabled: true };
+    } catch (err) {
+      // A dispatch-capability throw is a programmer/infra error (not an agent failure, which the
+      // capability returns as ok:false). Surface it as a failed result — never wedge the orchestrator.
+      this.logger.error('routed dispatch threw', { role: roleNorm, err: String(err) });
+      return { ok: false, enabled: true, role: roleNorm, text: `dispatch failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
   }
 
   /**
