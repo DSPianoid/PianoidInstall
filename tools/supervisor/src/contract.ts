@@ -240,4 +240,14 @@ export interface ChannelAdapter {
    * message to edit. Best-effort; channels that can't edit omit this.
    */
   editMessage?(handle: ReplyHandle, messageId: string, text: string): Promise<void>;
+
+  /**
+   * MESSAGE DELETE (optional). Remove a previously-received/-sent message from the chat
+   * (Telegram `deleteMessage`). `handle` addresses the chat; `messageId` is the message to
+   * delete. Used by the `/setkey` in-channel secret-intake so the plaintext key does NOT linger
+   * in the chat history after it has been stored. Best-effort; channels that can't delete omit
+   * this (the key is still redacted from capture + never echoed regardless). DORMANT until the
+   * `/setkey` path is wired (P6).
+   */
+  deleteMessage?(handle: ReplyHandle, messageId: string): Promise<void>;
 }

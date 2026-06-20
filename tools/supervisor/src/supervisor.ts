@@ -57,6 +57,17 @@ export interface SupervisorOptions {
    * changes behavior; it is threaded through for callers that still set it.
    */
   unbufferedCapture?: boolean;
+  /**
+   * INBOUND REDACTION (additive; OFF by default → byte-for-byte unchanged when absent). When
+   * supplied, the supervisor passes EVERY inbound through this redactor and publishes the
+   * REDACTED copy to the bus (and thereby the capture store / panel), while still forwarding the
+   * ORIGINAL inbound to the host hook. This is how an in-channel SECRET (`/setkey <provider> <key>`)
+   * is kept OUT of the durable capture log: the launcher wires a redactor that masks the key in a
+   * `/setkey` message's text (and leaves every other message untouched). A non-`/setkey` inbound is
+   * returned unchanged by the redactor, so capture is identical for all normal traffic. Pure +
+   * total: it must never throw and must never need network. DORMANT until the launcher wires it (P6).
+   */
+  redactInbound?: (msg: InboundMessage) => InboundMessage;
 }
 
 export class Supervisor {
@@ -66,9 +77,12 @@ export class Supervisor {
   private readonly adapters = new Map<string, ChannelAdapter>();
   private inboundHook: SupervisorInboundHook | null = null;
   private started = false;
+  /** Optional inbound redactor (additive; null = capture the inbound verbatim, as before). */
+  private readonly redactInbound: ((msg: InboundMessage) => InboundMessage) | null;
 
   constructor(opts: SupervisorOptions) {
     this.logger = opts.logger.child('supervisor');
+    this.redactInbound = opts.redactInbound ?? null;
     this.capture = new CaptureStore({
       filePath: opts.captureFile,
       buffered: !opts.unbufferedCapture,
@@ -122,11 +136,26 @@ export class Supervisor {
   /** Publish an inbound to the bus (captured) and forward to the host hook. */
   private async handleInbound(channel: string, msg: InboundMessage): Promise<void> {
     const enriched: InboundMessage = { ...msg, channel: msg.channel ?? channel };
+    // REDACTION (additive): publish the REDACTED copy to the bus/capture so an in-channel secret
+    // (`/setkey <provider> <key>`) never lands in the durable capture log; forward the ORIGINAL to
+    // the host hook (which needs the raw key to store it + then deletes the message). When no
+    // redactor is wired (default), `forCapture === enriched` → capture is byte-for-byte unchanged.
+    let forCapture = enriched;
+    if (this.redactInbound) {
+      try {
+        forCapture = this.redactInbound(enriched);
+      } catch (err) {
+        // A redactor must be total; if it ever throws, FAIL SAFE — do NOT publish the raw inbound
+        // (it might carry a secret). Drop the original text to a placeholder for capture only.
+        this.logger.warn('inbound redactor threw — capturing a placeholder (fail-safe)', { err: String(err) });
+        forCapture = { ...enriched, text: enriched.text !== undefined ? '[redaction-error]' : enriched.text };
+      }
+    }
     this.bus.publish({
       direction: 'inbound',
       type: 'channel.inbound',
       source: channel,
-      payload: enriched,
+      payload: forCapture,
     });
     if (this.inboundHook) {
       // Let the hook throw to signal "not handled" — the adapter's queue will
@@ -185,6 +214,22 @@ export class Supervisor {
       await adapter.editMessage(handle, messageId, text);
     } catch (err) {
       this.logger.warn('editMessage failed (non-fatal)', { channel, err: String(err) });
+    }
+  }
+
+  /**
+   * MESSAGE DELETE — remove a message from the chat on `channel` (Telegram deleteMessage).
+   * Best-effort + silent if the adapter can't delete. Used by the SessionHost `/setkey` path to
+   * remove the user's plaintext-key message from the chat history after the key is stored.
+   * ADDITIVE: nothing calls this until the `/setkey` path is wired (P6).
+   */
+  async deleteMessage(channel: string, handle: ReplyHandle, messageId: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.deleteMessage) return;
+    try {
+      await adapter.deleteMessage(handle, messageId);
+    } catch (err) {
+      this.logger.warn('deleteMessage failed (non-fatal)', { channel, err: String(err) });
     }
   }
 

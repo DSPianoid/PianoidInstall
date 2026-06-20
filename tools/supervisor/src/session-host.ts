@@ -31,6 +31,21 @@ import { PermissionRouter, type PermissionPolicy } from './permission-router.js'
 import type { Logger } from './logger.js';
 import type { IoBus } from './io-bus.js';
 import type { SessionDriver } from './session-driver.js';
+import type { SecretStore } from './secret-store.js';
+import {
+  parseSetKeyCommand,
+  setKeyUsageMessage,
+  setKeyUnknownProviderMessage,
+  type SetKeyCommand,
+} from './setkey-command.js';
+import {
+  DEFAULT_PROVIDERS,
+  resolveProviderId,
+  getProvider,
+  PROVIDER_IDS,
+  type Provider,
+  type ProviderId,
+} from './provider-registry.js';
 
 /** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
 export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
@@ -64,6 +79,17 @@ export function parseModeCommand(text: string): ModeCommand | null {
   if (arg === 'text' || arg === 'voice' || arg === 'dual') return { kind: 'set', mode: arg };
   return { kind: 'query' };
 }
+
+/**
+ * The reserved IN-CHANNEL PROVIDER-KEY intake command — `/setkey <provider> <key>` (the
+ * model-agnostic agent system's secret-intake). Like `/mode`, it is INTERCEPTED by the supervisor
+ * (handled in {@link SessionHost.handleInbound}) and NEVER forwarded to the orchestrator, so the raw
+ * key never enters the orchestrator's context/stream. The parse + redaction live in setkey-command.ts
+ * ({@link parseSetKeyCommand} / redactSetKeyText); this re-export keeps the command discoverable here
+ * alongside `/mode`. The interception is gated on a wired {@link SessionHostOptions.secretStore} —
+ * absent (the current default), `/setkey` falls through to a normal turn unchanged.
+ */
+export { SETKEY_CMD_RE, parseSetKeyCommand, redactSetKeyText } from './setkey-command.js';
 
 /** M3: at most one delivery-failure notice per this window (outage cooldown). */
 export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
@@ -102,6 +128,29 @@ export interface SessionHostOptions {
    * for a channel. Best-effort.
    */
   editMessage?: (handle: ReplyHandle, messageId: string, text: string) => Promise<void>;
+  /**
+   * MESSAGE DELETE (optional) — remove a message from the chat (Telegram deleteMessage). Bound to
+   * supervisor.deleteMessage for a channel. Used by the `/setkey` path to delete the user's
+   * plaintext-key message after the key is stored, so it does not linger in chat history.
+   * Best-effort; absent → the key is still redacted from capture + never echoed.
+   */
+  deleteMessage?: (handle: ReplyHandle, messageId: string) => Promise<void>;
+  /**
+   * `/setkey` IN-CHANNEL SECRET STORE (optional). When supplied, the SessionHost INTERCEPTS
+   * `/setkey <provider> <key>` (like `/mode`): it stores the key SCOPED to that provider, replies a
+   * MASKED confirmation, deletes the user's message (via {@link deleteMessage}), and does NOT forward
+   * the command to the orchestrator (the raw key never enters the orchestrator's context). When ABSENT
+   * (the current/dormant default — index.ts does not wire it), `/setkey` is NOT intercepted and falls
+   * through to a normal turn EXACTLY as today (byte-for-byte unchanged). The store's PRESENCE is the
+   * activation signal (P6). The store path is gitignored (secret-store.ts under `.state/`).
+   */
+  secretStore?: SecretStore;
+  /**
+   * `/setkey` provider table (optional; default {@link DEFAULT_PROVIDERS}). The set of providers a
+   * `/setkey <provider>` token may name; an unknown token gets a helpful error listing these. Only
+   * consulted when {@link secretStore} is wired.
+   */
+  providers?: Readonly<Record<ProviderId, Provider>>;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -234,12 +283,22 @@ export class SessionHost {
    * (resets to the configured default on restart, per v1 scope).
    */
   private outputMode: OutputMode;
+  /**
+   * `/setkey` IN-CHANNEL SECRET STORE (null when not wired — the dormant default). When set, the
+   * host intercepts `/setkey` and stores keys here scoped per provider; when null, `/setkey` is NOT
+   * intercepted (falls through to a normal turn, byte-for-byte unchanged). SOLE READER here.
+   */
+  private readonly secretStore: SecretStore | null;
+  /** The provider table the `/setkey` token resolves against (DEFAULT_PROVIDERS unless overridden). */
+  private readonly providers: Readonly<Record<ProviderId, Provider>>;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
     this.logger = opts.logger.child('session-host');
     this.rolePrefixPending = !!opts.roleTurnPrefix;
     this.outputMode = opts.outputMode ?? 'text';
+    this.secretStore = opts.secretStore ?? null;
+    this.providers = opts.providers ?? DEFAULT_PROVIDERS;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -458,6 +517,19 @@ export class SessionHost {
       return;
     }
 
+    // ★ IN-CHANNEL PROVIDER-KEY INTAKE — reserved '/setkey <provider> <key>'. INTERCEPTED here
+    // (same seam) so the RAW KEY NEVER reaches the orchestrator: store it scoped per provider,
+    // reply a MASKED confirmation, delete the user's message, and return WITHOUT forwarding.
+    // GATED on a wired secretStore — when absent (the dormant default), `/setkey` is NOT
+    // intercepted and falls through to a normal turn exactly as today (byte-for-byte unchanged).
+    if (this.secretStore) {
+      const setKeyCmd = parseSetKeyCommand(text);
+      if (setKeyCmd) {
+        await this.handleSetKeyCommand(setKeyCmd, msg);
+        return;
+      }
+    }
+
     // Otherwise inject as a user turn into the session. On the FIRST real user
     // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
     // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
@@ -568,6 +640,97 @@ export class SessionHost {
       await this.opts.send(this.operator, { text });
     } catch (err) {
       this.logger.warn('mode-ack send failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Apply an intercepted `/setkey <provider> <key>` command (only reached when a secretStore is
+   * wired). The RAW KEY IS NEVER FORWARDED to the orchestrator (we return without injecting a turn)
+   * and is NEVER echoed/logged in full. Steps:
+   *   1. validate the shape (usage form → reply usage, no key stored);
+   *   2. resolve the provider token against the registry (unknown → helpful error listing providers;
+   *      a provider with no secretEnvVar → warn — should not happen for the wired set);
+   *   3. store the key SCOPED under the provider's secretEnvVar (the store returns a MASKED form);
+   *   4. reply a MASKED confirmation only (e.g. "GROQ_API_KEY set: gsk…1234 ✓") — plain text, never voiced;
+   *   5. DELETE the user's original message (best-effort) so the plaintext key does not linger in chat.
+   * Every reply is a CONTROL message (ackToOperator → plain text, bypasses modality + dedup).
+   */
+  private async handleSetKeyCommand(cmd: SetKeyCommand, msg: InboundMessage): Promise<void> {
+    const store = this.secretStore;
+    if (!store) return; // defensive — only called when wired
+    const knownProviders = [...PROVIDER_IDS];
+
+    if (cmd.kind === 'usage') {
+      this.logger.info('/setkey usage form (no key stored)', { reason: cmd.reason });
+      await this.ackToOperator(setKeyUsageMessage(knownProviders));
+      // Still delete the message if it somehow carried a stray token (defensive; usually nothing secret).
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    // Resolve the provider token (canonical id or alias; case-insensitive).
+    const providerId = resolveProviderId(cmd.providerToken, this.providers);
+    if (!providerId) {
+      this.logger.info('/setkey unknown provider', { token: cmd.providerToken });
+      await this.ackToOperator(setKeyUnknownProviderMessage(cmd.providerToken, knownProviders));
+      // The message DID carry a key value (unknown provider, but a key was typed) → delete it.
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    const provider = getProvider(providerId, this.providers);
+    const secretEnvVar = provider.secretEnvVar;
+    if (!secretEnvVar) {
+      // A registered provider with no secret env var (shouldn't happen for the wired set) → warn,
+      // do NOT store, still delete the message (it carried a key).
+      this.logger.warn('/setkey provider has no secretEnvVar — not storing', { providerId });
+      await this.ackToOperator(`Provider "${providerId}" has no configured secret variable — key NOT stored.`);
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    // Store the key SCOPED under the provider's secret env var. NEVER log the value; the store
+    // returns the masked form for the confirmation.
+    let masked: string;
+    try {
+      const r = store.setKey(secretEnvVar, cmd.key);
+      masked = r.masked;
+    } catch (err) {
+      // e.g. empty key rejected by the store. Reply a generic failure (NO key value), delete the msg.
+      this.logger.warn('/setkey store rejected the key', { providerId, err: String(err) });
+      await this.ackToOperator(`Could not store the ${secretEnvVar} key (rejected as invalid/empty).`);
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    this.logger.info('/setkey stored a provider key (masked)', { providerId, secretEnvVar, masked });
+    // MASKED confirmation only — never the full value. Plain text (ackToOperator → not voiced).
+    await this.ackToOperator(`${secretEnvVar} set: ${masked} ✓`);
+    // DELETE the user's plaintext-key message so it does not linger in chat history (best-effort).
+    await this.deleteOperatorMessage(msg);
+  }
+
+  /**
+   * Best-effort delete of an inbound message from the chat (used by `/setkey` to remove the
+   * plaintext-key message). Resolves the message id from the inbound (the adapter's replyHandle
+   * carries the originating message id) and calls the wired {@link SessionHostOptions.deleteMessage}.
+   * Never throws (a failed delete is logged; the key is already redacted from capture + never echoed).
+   */
+  private async deleteOperatorMessage(msg: InboundMessage): Promise<void> {
+    if (!this.opts.deleteMessage || !this.operator) return;
+    // The originating message id: Telegram's replyHandle carries replyToMessageId (the inbound msg id);
+    // some adapters also surface a top-level messageId. Try both; if neither, skip (nothing to delete).
+    const handleAny = msg.replyHandle as { replyToMessageId?: string | number; messageId?: string | number };
+    const rawId = handleAny.replyToMessageId ?? handleAny.messageId;
+    if (rawId === undefined || rawId === null || `${rawId}`.length === 0) {
+      this.logger.info('/setkey: no message id on the inbound — cannot delete (key still redacted)');
+      return;
+    }
+    try {
+      await this.opts.deleteMessage(this.operator, `${rawId}`);
+      this.logger.info('/setkey: deleted the user plaintext-key message from chat');
+    } catch (err) {
+      this.logger.warn('/setkey: deleteMessage failed (non-fatal; key already redacted)', { err: String(err) });
     }
   }
 
