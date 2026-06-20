@@ -122,3 +122,32 @@ test('submitBareReply does NOT resolve when 0 or >1 asks are pending (ambiguous)
   // Let them time out (keep the loop alive for the unref'd timers).
   assert.deepEqual(await awaitWithKeepAlive(Promise.all([p1, p2]), 70), ['timeout', 'timeout']);
 });
+
+// FIX 1 — native inline-keyboard BUTTONS (callback_data scheme + send + resolution).
+test('parseCallbackData recognizes the perm:allow/deny:<code> button scheme, rejects junk', () => {
+  assert.deepEqual(ChannelPermission.parseCallbackData('perm:allow:ab12'), { code: 'ab12', verdict: 'allow' });
+  assert.deepEqual(ChannelPermission.parseCallbackData('perm:deny:0f0f'), { code: '0f0f', verdict: 'deny' });
+  assert.equal(ChannelPermission.parseCallbackData('other:allow:ab12'), null, 'foreign callback_data left alone');
+  assert.equal(ChannelPermission.parseCallbackData('perm:allow:zz'), null, 'bad code rejected');
+});
+
+test('askUser attaches the ✅/❌ buttons; submitReplyDetailed returns the prompt message id', async () => {
+  let buttons: { text: string; callbackData: string }[] | undefined;
+  const cp = new ChannelPermission({
+    send: async (_h, _text, b) => {
+      buttons = b;
+      return { messageId: 'm-42' };
+    },
+    operator,
+    timeoutMs: 5000,
+  });
+  const p = cp.askUser(req);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.ok(buttons && buttons.length === 2, 'two inline buttons attached');
+  const cb = ChannelPermission.parseCallbackData(buttons![0]!.callbackData)!;
+  const res = cp.submitReplyDetailed(cb.code, 'allow');
+  assert.equal(res.resolved, true);
+  assert.equal(res.messageId, 'm-42', 'the prompt message id is returned so it can be edited');
+  assert.equal(res.toolName, 'Bash');
+  assert.equal(await p, 'allow');
+});

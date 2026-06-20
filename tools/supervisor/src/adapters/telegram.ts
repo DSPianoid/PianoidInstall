@@ -159,6 +159,17 @@ export class TelegramAdapter implements ChannelAdapter {
   private async handleRaw(raw: RawInbound): Promise<void> {
     if (this.gate.decide(raw) === 'drop') return;
 
+    // BUTTON TAP (callback_query): a transient decision signal, NOT a durable
+    // message — route it straight to the handler as an InboundMessage carrying
+    // `callback` (no inbox-queue persistence; there is no content to replay, and the
+    // supervisor resolves the matching pending ask in-memory). The text + the
+    // `allow/deny <code>` fallback remain the durable path for everything else.
+    if (raw.callbackQuery) {
+      if (!this.onInbound) throw new Error('telegram adapter: no inbound handler registered');
+      await this.onInbound(this.toCallbackInbound(raw));
+      return;
+    }
+
     const payload = this.toRawPayload(raw);
 
     // Durable-first: persist the RAW payload BEFORE any download/STT or handling,
@@ -237,6 +248,28 @@ export class TelegramAdapter implements ChannelAdapter {
     await this.onInbound(msg);
   }
 
+  /** Map a raw callback_query (button tap) to a normalized InboundMessage. */
+  private toCallbackInbound(raw: RawInbound): InboundMessage {
+    const cq = raw.callbackQuery!;
+    const replyHandle: ReplyHandle = {
+      to: raw.chatId,
+      ...(raw.messageId ? { replyToMessageId: raw.messageId } : {}),
+    };
+    return {
+      attachments: [],
+      callback: {
+        id: cq.id,
+        data: cq.data,
+        ...(cq.messageId ? { messageId: cq.messageId } : {}),
+      },
+      user: raw.fromUser,
+      userId: raw.fromUserId,
+      ts: new Date((raw.dateSec || 0) * 1000).toISOString(),
+      replyHandle,
+      channel: this.channel,
+    };
+  }
+
   /** Map a durable payload to the contract's normalized InboundMessage. */
   private toInbound(payload: TelegramQueuePayload): InboundMessage {
     const m = payload.meta;
@@ -269,33 +302,57 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   /**
-   * Send a reply. Honors modality: 'voice' (or 'auto' when an inbound voice is
-   * being answered) renders `text` to a voice note via TTS and sends it as a
-   * bubble; otherwise chunked text + any explicit files are sent.
+   * Send a reply. Honors modality:
+   *  - 'text' (default, or 'auto' answering a text inbound): chunked text.
+   *  - 'voice': render `text` → TTS voice note (sendVoice bubble) ONLY; falls
+   *    back to text if TTS is unavailable/fails so a reply is never lost.
+   *  - 'dual': send BOTH the chunked text AND a TTS voice note. A TTS failure
+   *    here leaves the text (already sent) standing — no fallback double-text.
+   * Then any explicit pre-rendered `voiceOggPath` + `files` are sent.
+   * Empty/whitespace `text` skips TTS (nothing to synthesize).
    */
   async outbound(handle: ReplyHandle, msg: OutboundMessage): Promise<OutboundResult> {
     const sentIds: string[] = [];
     const opts: RawSendOptions = {
       ...(handle.replyToMessageId ? { replyToMessageId: handle.replyToMessageId } : {}),
       ...(msg.options?.format === 'markdown' ? { format: 'markdown' as const } : {}),
+      // Inline buttons attach to the TEXT send only (a voice bubble can't carry them).
+      ...(msg.options?.buttons && msg.options.buttons.length > 0
+        ? { inlineButtons: msg.options.buttons.map((b) => ({ text: b.text, callbackData: b.callbackData })) }
+        : {}),
     };
 
     try {
       const modality = msg.options?.modality ?? 'text';
-      const wantVoice = modality === 'voice';
+      const wantVoice = modality === 'voice' || modality === 'dual';
+      const wantText = modality === 'text' || modality === 'dual' || modality === 'auto';
+      const hasText = !!msg.text && msg.text.trim() !== '';
 
-      // Voice-out: render text → OGG and send as a bubble. Fall back to text if
-      // TTS is unavailable so a reply is never lost.
-      if (wantVoice && msg.text && this.voice?.isTtsAvailable()) {
-        try {
-          const ogg = await this.voice.synthesize(msg.text);
-          sentIds.push(await this.transport.sendFile(handle.to, ogg, 'voice', opts));
-        } catch (err) {
-          process.stderr.write(`telegram adapter: TTS failed, falling back to text: ${err}\n`);
-          sentIds.push(...(await this.sendTextChunks(handle.to, msg.text, opts)));
-        }
-      } else if (msg.text) {
+      // TEXT first (so in 'dual' the bubble follows the readable text). 'voice'
+      // mode skips this — voice-only — unless the TTS fallback below restores it.
+      let textSent = false;
+      if (wantText && msg.text) {
         sentIds.push(...(await this.sendTextChunks(handle.to, msg.text, opts)));
+        textSent = true;
+      }
+
+      // VOICE-out: render text → OGG and send as a bubble. Skip empty text (nothing
+      // to synthesize). On TTS unavailable/failure, fall back to a text send ONLY if
+      // the text was not already sent (i.e. 'voice' mode) — so a reply is never lost
+      // and 'dual' never double-sends text.
+      if (wantVoice && hasText) {
+        if (this.voice?.isTtsAvailable()) {
+          try {
+            const ogg = await this.voice.synthesize(msg.text!);
+            sentIds.push(await this.transport.sendFile(handle.to, ogg, 'voice', opts));
+          } catch (err) {
+            process.stderr.write(`telegram adapter: TTS failed${textSent ? '' : ', falling back to text'}: ${err}\n`);
+            if (!textSent) sentIds.push(...(await this.sendTextChunks(handle.to, msg.text!, opts)));
+          }
+        } else if (!textSent) {
+          // TTS capability absent → ensure the reply still reaches the user as text.
+          sentIds.push(...(await this.sendTextChunks(handle.to, msg.text!, opts)));
+        }
       }
 
       // An explicit pre-rendered voice OGG (voiceOggPath) always sends as a bubble.
@@ -356,6 +413,19 @@ export class TelegramAdapter implements ChannelAdapter {
    */
   flush(): number {
     return this.queue.clear();
+  }
+
+  /** ACK a button tap (dismiss the client spinner; optional toast). Best-effort. */
+  async answerCallback(callbackId: string, text?: string): Promise<void> {
+    await this.transport.answerCallback(callbackId, text);
+  }
+
+  /**
+   * Replace a previously-sent message's text + DROP its inline keyboard (so a
+   * decided permission prompt shows its outcome and the buttons disappear).
+   */
+  async editMessage(handle: ReplyHandle, messageId: string, text: string): Promise<void> {
+    await this.transport.editMessageText(handle.to, messageId, text);
   }
 
   health(): AdapterHealth {

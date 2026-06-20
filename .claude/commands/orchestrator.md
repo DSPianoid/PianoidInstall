@@ -110,18 +110,36 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 ---
 
+## Agent Coordination Modes (Teams vs Independent)
+
+The orchestrator coordinates sub-agents in one of **two modes**. Both are supported — pick per task, and you may mix within a session. This generalizes the older teams-only design: **Agent Teams are no longer a hard requirement.**
+
+**Mode A — In-process Agent Teams (existing default for multi-round /dev).** Sub-agents are in-process agent-team members (`team_name` + `name`), kept alive across rounds via `SendMessage`, with a permanent `controller` teammate and `Monitor` watching. Best when you will iterate with the *same* agent over several rounds ("fix this too", "adjust X") and want live continuation without re-briefing. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (Step 0). Caveat: the team-lead inbox has a known silent-delivery failure mode (Spawning rule 3 warning).
+
+**Mode B — Independent agents (no teams infrastructure).** Sub-agents run self-contained; the orchestrator coordinates through their **returned reports**, not `SendMessage`. Two forms:
+- **B1 — In-process non-team agents (works today):** `Agent(prompt=..., run_in_background: true)` with NO `team_name`. Each agent owns its complete task loop and returns its full report reliably as a tool result (no inbox race). For multi-round work, instead of `SendMessage` you **re-dispatch a fresh independent agent** with the prior agent's session log + the new instruction as its brief — the session log carries the context. Trades live continuation for crash isolation, reliable delivery, and zero team dependency.
+- **B2 — Supervisor-owned standalone processes (forward-looking):** each heavy/long/crash-prone role in its OWN sealed, worktree-isolated `claude -p` process, coordinated by the supervisor — reliability + flood isolation by construction. Design + billing verification (concurrent sessions are **rate-limit-gated, not seat-gated**) + the mandatory choke-point seal are in [`docs/proposals/standalone-process-agents-2026-06-19.md`](../../docs/proposals/standalone-process-agents-2026-06-19.md). Do not hand-roll standalone spawns until that supervisor infra exists; until then use B1.
+
+**Choosing.** Default to **Mode A** for iterative multi-round /dev with the same agent. Use **Mode B1** when teams are unavailable (`SendMessage` missing), the task is one-shot/self-contained, you want guaranteed result delivery, or you need crash/flood isolation — when in doubt on bounded work, B1 is simpler and safer. Reserve **B2** for the heavy roles in the proposal, once built.
+
+**Mode-conditional machinery.** The team-specific steps below apply **only in Mode A**: the Step-0 `SendMessage` requirement, the permanent `controller` agent, the `SendMessage`-based per-dispatch + approval-relay notifications, and `SendMessage`-based conflict-resolution / queue-review continuation. In **Mode B**: `SendMessage` is not required; there is no persistent controller (its role is covered by the orchestrator's own Step-1.5 + Periodic Health Check sweeps — run them attentively — and each agent's own /dev discipline); and follow-ups + conflict handling use **re-dispatch with the prior session log** rather than messaging a live agent.
+
+**Hosting / flood safety.** When hosted by the supervisor, background sub-agent narration reaches the user's channel unless the forwarding filter drops BOTH `parent_tool_use_id` (foreground sidechain) AND `subagent_type` (background task) messages. If that fix is not loaded, prefer **foreground** agents (they don't leak) until it is.
+
+---
+
 ## Step 0: Verify Agent Infrastructure
 
-### SendMessage tool (required)
+### SendMessage tool (required for Mode A; optional for Mode B)
 
-The orchestrator depends on `SendMessage` to keep sub-agents alive across feedback rounds. This tool requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`.
+Mode A (Agent Teams) depends on `SendMessage` to keep sub-agents alive across feedback rounds; it requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`. Mode B (independent agents) does NOT need it.
 
 1. Check if `SendMessage` is available by running `ToolSearch(query: "select:SendMessage")`
 2. If **not found**:
    - Read `~/.claude/settings.json` and check for `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }`
-   - If missing, add it and instruct the user to reload Claude Code
-   - **Do NOT proceed without SendMessage** — the orchestrator cannot function correctly without agent continuation
-3. If **found**: proceed to Step 1
+   - If missing and you intend to use Mode A, add it and instruct the user to reload Claude Code
+   - **If teams cannot be enabled (or the user prefers not to), do NOT block** — fall back to **Mode B (independent agents)**, which needs no team infrastructure. The orchestrator stays fully functional in Mode B; only live same-agent continuation is replaced by re-dispatch-with-session-log.
+3. If **found**: Mode A is available (you may still choose Mode B per task). Proceed to Step 1.
 
 ---
 
@@ -223,6 +241,8 @@ After the health check completes and before exiting Step 1.5, **spawn the contro
 ## Controller Agent
 
 The orchestrator runs alongside a permanent **controller agent** for the full session. The controller is a read-only compliance monitor: it watches `MODULE_LOCKS.md`, `WORK_IN_PROGRESS.md`, dev-agent session logs, and `git status` and reports graduated alerts (warn → escalate → halt) to the orchestrator. It never edits source, never spawns or kills agents, never messages the user.
+
+> **Mode A (Agent Teams) only.** The controller is itself a team agent, so it applies when running in Mode A. In **Mode B (independent agents)** there is no persistent controller — its compliance role is covered by the orchestrator's own Step-1.5 health check + the Periodic Health Check sweep (run them more attentively in Mode B) and by each independent agent's own /dev discipline. See "Fallback when no controller exists" below.
 
 See [`docs/development/CONTROLLER.md`](../../docs/development/CONTROLLER.md) for the complete invariant catalogue, marker conventions, and tier rules.
 
@@ -564,7 +584,7 @@ Classify and dispatch:
 
 2. **Never edit code or read source files in the orchestrator.** The orchestrator is a dispatcher. The moment you start reading source code or editing files, you are doing it wrong. Spawn a sub-agent instead.
 
-3. **Use Agent Teams when SendMessage continuation across rounds is genuinely needed; use non-team `Agent(prompt=...)` for one-shot research and bounded tasks.** Non-team agents return their result reliably as a tool result — the orchestrator sees their full report. Team agents stay alive for follow-ups but their messages flow through the team-lead inbox, which has known silent-delivery failure modes (see warning below).
+3. **Pick a coordination mode per task (see "Agent Coordination Modes" above): Mode A Agent Teams when `SendMessage` continuation across rounds is genuinely needed; Mode B1 independent `Agent(prompt=...)` (no `team_name`) for one-shot research, bounded tasks, or whenever teams are unavailable/undesired.** Non-team (independent) agents return their result reliably as a tool result — the orchestrator sees their full report. Team agents stay alive for follow-ups but their messages flow through the team-lead inbox, which has known silent-delivery failure modes (see warning below). In Mode B, follow-ups are handled by **re-dispatching a fresh independent agent with the prior agent's session log as context**, not by `SendMessage`.
 
    **Decision rule:**
    - One-shot research, doc lookup, single explore — `Agent(prompt=..., run_in_background: true)` (no team)
@@ -588,9 +608,9 @@ Classify and dispatch:
 
 4. **Scope agents broadly, not narrowly.** An agent for "fix bug X in module Y" should be scoped as "fix and debug module Y until user approves." The agent will handle the initial bug, follow-up bugs, UI testing, and iterations — all in one session with full context. Never spawn a new agent for a follow-up bug in the same module.
 
-5. **Controller agent.** The team includes a permanent controller agent spawned at orchestrator startup (Step 1.5) and alive for the full session. See the "Controller Agent" section above for the spawn template, lifecycle, and tier rules.
+5. **Controller agent (Mode A only).** In Mode A, the team includes a permanent controller agent spawned at orchestrator startup (Step 1.5) and alive for the full session. See the "Controller Agent" section above for the spawn template, lifecycle, and tier rules. In Mode B there is no controller — its role is covered by the orchestrator's own Step-1.5 + Periodic Health Check sweeps.
 
-6. **Per-dispatch controller notification.** Every Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, /test-ui, the UI-interaction skill, /analyse, /diagnose, /sync) MUST be preceded by a `SendMessage` to the controller. Send BEFORE spawning the agent so the controller is armed for the Step-0 SLA timer:
+6. **Per-dispatch controller notification (Mode A only — in Mode B there is no controller, so skip this).** Every Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, /test-ui, the UI-interaction skill, /analyse, /diagnose, /sync) MUST be preceded by a `SendMessage` to the controller. Send BEFORE spawning the agent so the controller is armed for the Step-0 SLA timer:
 
    ```
    SendMessage({

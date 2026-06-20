@@ -110,3 +110,43 @@ test('send() before start throws; health reflects not-running initially', async 
   await assert.rejects(() => driver.send({ text: 'hi' }), /not started/);
   assert.equal(driver.health().running, false);
 });
+
+// ── FLOOD FIX parity: sub-agent suppression in mapMessage (mirrors cli-stream-sidechain.test.ts) ──
+// mapMessage is private; a dropped (null) message simply does NOT appear in the start() output
+// events. So we feed sub-agent + own messages and assert only the own ones survive.
+
+test('mapMessage DROPS sub-agent messages (foreground sidechain AND background task) but KEEPS the orchestrator-own message', async () => {
+  const driver = new SdkSessionDriver({
+    queryFn: fakeQuery([
+      // (b) FOREGROUND sidechain — non-null parent_tool_use_id
+      {
+        type: 'assistant',
+        parent_tool_use_id: 'toolu_fg',
+        message: { content: [{ type: 'text', text: 'sidechain narration — must be dropped' }] },
+      },
+      // (a) BACKGROUND task — subagent_type set, parent_tool_use_id NULL (the 2224ed4 gap)
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        subagent_type: 'general-purpose',
+        task_description: 'probe bg',
+        message: { content: [{ type: 'text', text: 'I now have a strong grasp — must be dropped' }] },
+      },
+      // (c) orchestrator OWN main-session message — neither marker → MUST be kept
+      {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        message: { content: [{ type: 'text', text: 'On it — relaying the result.' }] },
+      },
+    ]),
+  });
+
+  const events: SessionEvent[] = [];
+  for await (const ev of driver.start({ onPermission: allow })) events.push(ev);
+
+  // Only the orchestrator-own assistant message survives; both sub-agent messages are dropped.
+  assert.equal(events.length, 1);
+  const a = events[0] as Extract<SessionEvent, { kind: 'assistant' }>;
+  assert.equal(a.kind, 'assistant');
+  assert.equal(a.text, 'On it — relaying the result.');
+});

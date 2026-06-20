@@ -21,7 +21,7 @@
  * voice-out path".
  */
 
-import { Bot, GrammyError, InputFile } from 'grammy';
+import { Bot, GrammyError, InlineKeyboard, InputFile } from 'grammy';
 import type { Context } from 'grammy';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -38,6 +38,13 @@ export interface GrammyTransportOptions {
   token: string;
   /** Backoff cap for poll retries, ms. Default 15000. */
   maxBackoffMs?: number;
+}
+
+/** Build a grammY InlineKeyboard (single row) from the transport-layer buttons. */
+function buildInlineKeyboard(buttons: { text: string; callbackData: string }[]): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const b of buttons) kb.text(b.text, b.callbackData);
+  return kb;
 }
 
 export class GrammyTelegramTransport implements TelegramTransport {
@@ -94,6 +101,22 @@ export class GrammyTelegramTransport implements TelegramTransport {
         }),
       );
     });
+    // INLINE-BUTTON tap (callback_query with data) — the native tap-to-decide path
+    // (e.g. a ✅ Allow / ❌ Deny permission button). Surfaced as a RawInbound carrying
+    // a `callbackQuery` (no text/attachment); the adapter routes it to the pending
+    // decision, then ACKs (answerCallback) + edits the source message. We do NOT
+    // answerCallbackQuery here — the adapter/supervisor does, after resolving, so the
+    // toast can reflect the outcome.
+    this.bot.on('callback_query:data', (ctx) => {
+      const cq = ctx.callbackQuery;
+      deliver(
+        this.toRaw(ctx, undefined, undefined, {
+          id: cq.id,
+          data: cq.data,
+          ...(cq.message?.message_id != null ? { messageId: String(cq.message.message_id) } : {}),
+        }),
+      );
+    });
 
     // Without a catch handler, any throw stops polling permanently.
     this.bot.catch((err) => {
@@ -138,7 +161,12 @@ export class GrammyTelegramTransport implements TelegramTransport {
     });
   }
 
-  private toRaw(ctx: Context, text: string | undefined, attachment?: RawAttachment): RawInbound {
+  private toRaw(
+    ctx: Context,
+    text: string | undefined,
+    attachment?: RawAttachment,
+    callbackQuery?: RawInbound['callbackQuery'],
+  ): RawInbound {
     const chat = ctx.chat!;
     const from = ctx.from!;
     return {
@@ -147,9 +175,10 @@ export class GrammyTelegramTransport implements TelegramTransport {
       messageId: ctx.message?.message_id != null ? String(ctx.message.message_id) : undefined,
       fromUser: from.username ?? String(from.id),
       fromUserId: String(from.id),
-      dateSec: ctx.message?.date ?? 0,
+      dateSec: ctx.message?.date ?? ctx.callbackQuery?.message?.date ?? 0,
       text,
       attachment,
+      callbackQuery,
     };
   }
 
@@ -159,8 +188,22 @@ export class GrammyTelegramTransport implements TelegramTransport {
         ? { reply_parameters: { message_id: Number(opts.replyToMessageId) } }
         : {}),
       ...(opts?.format === 'markdown' ? { parse_mode: 'MarkdownV2' as const } : {}),
+      ...(opts?.inlineButtons && opts.inlineButtons.length > 0
+        ? { reply_markup: buildInlineKeyboard(opts.inlineButtons) }
+        : {}),
     });
     return String(sent.message_id);
+  }
+
+  /** ACK a button tap (dismiss the spinner; optional toast). Best-effort. */
+  async answerCallback(callbackId: string, text?: string): Promise<void> {
+    await this.bot.api.answerCallbackQuery(callbackId, text ? { text } : undefined);
+  }
+
+  /** Replace a message's text and DROP its inline keyboard. Best-effort. */
+  async editMessageText(chatId: string, messageId: string, text: string): Promise<void> {
+    // No reply_markup passed → the keyboard is removed (buttons disappear).
+    await this.bot.api.editMessageText(chatId, Number(messageId), text);
   }
 
   async sendFile(

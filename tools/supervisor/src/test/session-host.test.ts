@@ -1052,3 +1052,53 @@ test('★ M-2: an INVOLUNTARY tier-b restart (restartUnresponsive) INCREMENTS re
   await host.stop();
   bus.close();
 });
+
+// ── FIX 2: auto-initiate the /orchestrator skill on startup (roleTurnPrefix) ─────
+
+test('FIX2: the startup input carries the /orchestrator invocation (prepended to the first turn)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    roleTurnPrefix: '/orchestrator', // DEFAULT ON (config.roleTurnPrefix); auto-start the orchestrator
+  });
+  await host.start();
+  await host.handleInbound(inbound('do the thing'));
+  assert.equal(driver.sentTurns.length, 1);
+  // The first turn boots the session AS the orchestrator: /orchestrator prefixes the user text.
+  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\b/, 'first turn starts with /orchestrator');
+  assert.match(driver.sentTurns[0]!.text, /do the thing/, 'the user text still follows');
+  // It is consumed ONCE — a second turn is plain (no double-invoke).
+  await host.handleInbound(inbound('second message'));
+  assert.equal(driver.sentTurns[1]!.text, 'second message', 'role prefix applied only to the first turn');
+  await host.stop();
+  bus.close();
+});
+
+test('FIX2: roleTurnPrefix undefined (auto-start OFF) → the first turn is the raw user text', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  const driver = new FakeSessionDriver([
+    [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    // roleTurnPrefix omitted → OFF (env SUPERVISOR_ROLE_TURN_PREFIX=none / demo profile)
+  });
+  await host.start();
+  await host.handleInbound(inbound('hello'));
+  assert.equal(driver.sentTurns[0]!.text, 'hello', 'no role prefix when auto-start is OFF');
+  await host.stop();
+  bus.close();
+});

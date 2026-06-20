@@ -23,16 +23,104 @@
  * real session) + 2 (route permissions) + 3 (stream-json on the bus).
  */
 
-import type { InboundMessage, OutboundResult, ReplyHandle } from './contract.js';
+import type { InboundMessage, OutboundMessage, OutboundResult, ReplyHandle } from './contract.js';
+import type { OutputMode } from './config.js';
 import { ChannelPermission, type SendPrompt } from './channel-permission.js';
 import { LifecycleManager } from './lifecycle.js';
 import { PermissionRouter, type PermissionPolicy } from './permission-router.js';
 import type { Logger } from './logger.js';
 import type { IoBus } from './io-bus.js';
 import type { SessionDriver } from './session-driver.js';
+import type { SecretStore } from './secret-store.js';
+import {
+  parseSetKeyCommand,
+  setKeyUsageMessage,
+  setKeyUnknownProviderMessage,
+  type SetKeyCommand,
+} from './setkey-command.js';
+import {
+  DEFAULT_PROVIDERS,
+  resolveProviderId,
+  getProvider,
+  PROVIDER_IDS,
+  type Provider,
+  type ProviderId,
+} from './provider-registry.js';
+import { RoleRoutingStore } from './role-routing-store.js';
+import {
+  DEFAULT_ROLE_ROUTING_CONFIG,
+  resolveRoleBackendWithOverrides,
+  type RoleRoutingOverride,
+} from './role-router.js';
+import { ROLES, isRole, type Role } from './backend-kinds.js';
+import {
+  parseSetRoleCommand,
+  isRolesCommand,
+  setRoleUsageMessage,
+  setRoleUnknownRoleMessage,
+  setRoleUnknownProviderMessage,
+  setRoleNoKeyWarning,
+  setRoleConfirmMessage,
+  rolesListMessage,
+  type SetRoleCommand,
+  type RolesListRow,
+} from './setrole-command.js';
 
 /** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
 export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
+
+/**
+ * The reserved OUTPUT-MODALITY switch command (the user's "switchable output
+ * channel"). `/mode text|voice|dual` (case/space-insensitive) is INTERCEPTED by
+ * the supervisor — applied to the in-memory modality state, ACK'd to the user,
+ * and NOT forwarded to the orchestrator. `/mode` with no/invalid arg → the
+ * current mode + the valid options. See {@link parseModeCommand}.
+ */
+export const MODE_CMD_RE = /^\/mode\b/i;
+
+/** The parsed result of a `/mode …` channel command (see {@link parseModeCommand}). */
+export type ModeCommand =
+  | { kind: 'set'; mode: OutputMode } // a valid `/mode text|voice|dual`
+  | { kind: 'query' }; // `/mode` with no arg, or an invalid/unknown arg
+
+/**
+ * Parse a `/mode …` channel command. Returns `null` when the text is NOT a
+ * `/mode` command at all (so the caller falls through to a normal turn). A
+ * recognized command yields `{kind:'set', mode}` for a valid text|voice|dual
+ * argument, else `{kind:'query'}` (bare `/mode` or an unknown arg → report the
+ * current mode + options). Tolerates surrounding/extra whitespace and case.
+ */
+export function parseModeCommand(text: string): ModeCommand | null {
+  const trimmed = text.trim();
+  if (!MODE_CMD_RE.test(trimmed)) return null;
+  // Everything after the '/mode' token, lower-cased, first whitespace-token only.
+  const arg = trimmed.replace(MODE_CMD_RE, '').trim().toLowerCase().split(/\s+/)[0] ?? '';
+  if (arg === 'text' || arg === 'voice' || arg === 'dual') return { kind: 'set', mode: arg };
+  return { kind: 'query' };
+}
+
+/**
+ * The reserved IN-CHANNEL PROVIDER-KEY intake command — `/setkey <provider> <key>` (the
+ * model-agnostic agent system's secret-intake). Like `/mode`, it is INTERCEPTED by the supervisor
+ * (handled in {@link SessionHost.handleInbound}) and NEVER forwarded to the orchestrator, so the raw
+ * key never enters the orchestrator's context/stream. The parse + redaction live in setkey-command.ts
+ * ({@link parseSetKeyCommand} / redactSetKeyText); this re-export keeps the command discoverable here
+ * alongside `/mode`. The interception is gated on a wired {@link SessionHostOptions.secretStore} —
+ * absent (the current default), `/setkey` falls through to a normal turn unchanged.
+ */
+export { SETKEY_CMD_RE, parseSetKeyCommand, redactSetKeyText } from './setkey-command.js';
+
+/**
+ * The reserved TIER-2 PER-ROLE MODEL-SELECTION commands — `/setrole <role> <provider> [model]` and
+ * `/roles` (the model-agnostic agent system's runtime role-router edit, PART Q.3). Like `/setkey`,
+ * both are INTERCEPTED by the supervisor (handled in {@link SessionHost.handleInbound}) and NEVER
+ * forwarded to the orchestrator. The parse + message logic lives in setrole-command.ts; these
+ * re-exports keep the commands discoverable here alongside `/mode` + `/setkey`. The interception is
+ * gated on a wired {@link SessionHostOptions.roleRoutingStore} — absent (the current default),
+ * `/setrole` + `/roles` fall through to a normal turn unchanged. NOTHING here is secret (a role /
+ * provider / model are not credentials), so — unlike `/setkey` — there is NO redaction.
+ */
+export { SETROLE_CMD_RE, ROLES_CMD_RE, parseSetRoleCommand, isRolesCommand } from './setrole-command.js';
 
 /** M3: at most one delivery-failure notice per this window (outage cooldown). */
 export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
@@ -47,14 +135,121 @@ export type RestartRequestOutcome =
   | { status: 'rate_limited'; retryAfterMs: number }
   | { status: 'busy' }; // a restart confirm is already in flight
 
+/**
+ * ★ P6 — the structured result of ONE routed-agent dispatch ({@link SessionHost.dispatchRole}). This
+ * is the SHAPE the injected {@link RoleDispatchFn} returns and that the orchestrator relays to the
+ * user (AP6 — the agent itself is channel-mute; only this report comes back). A thin projection of
+ * result-relay's `AgentReport` (kept local so SessionHost imports no result-relay concretes). On a
+ * dormant/unwired host, {@link dispatchRole} synthesizes `{ok:false, enabled:false}` WITHOUT calling
+ * the function.
+ */
+export interface RoleDispatchResult {
+  /** True when the dispatched agent finished successfully (subtype 'success'). */
+  ok: boolean;
+  /** The role that was dispatched. */
+  role: string;
+  /** The backend kind that ran it ('claude-cli' | 'api-adapter' | …). */
+  backend?: string;
+  /** The agent's final report text (relayed to the user by the orchestrator). */
+  text?: string;
+  /** Total cost in USD, if the backend reported/computed it. */
+  costUsd?: number;
+  /** True iff a configured fallback backend actually ran (FD6). */
+  fellBack?: boolean;
+}
+
+/**
+ * ★ P6 — the INJECTED routed-dispatch capability (FD1). Given a role + a task, run the role's routed
+ * backend agent to completion and return its {@link RoleDispatchResult}. index.ts builds this closure
+ * ONLY when role-routing is activated (so it stays dormant by default); it closes over the backend
+ * registry, the persisted-override loader, and the scoped-key env, and calls result-relay's
+ * dispatchRoleAgentWithFallback. NEVER throws for an agent-level failure (it returns `ok:false`);
+ * may reject only on a programmer error.
+ */
+export type RoleDispatchFn = (role: string, task: string) => Promise<RoleDispatchResult>;
+
 export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
   logger: Logger;
-  /** Send an outbound over a channel (bound supervisor.sendOutbound for a channel). */
-  send: (handle: ReplyHandle, msg: { text?: string }) => Promise<OutboundResult>;
+  /**
+   * Send an outbound over a channel (bound supervisor.sendOutbound for a channel).
+   * `msg.options` carries the modality (text/voice/dual) — the supervisor sets it
+   * on the orchestrator's substantive replies from the current output mode; the
+   * adapter renders TTS / sends the bubble accordingly. Control messages
+   * (permission prompts, ACKs, system notices) omit it and go as plain text.
+   */
+  send: (handle: ReplyHandle, msg: OutboundMessage) => Promise<OutboundResult>;
+  /**
+   * INLINE-BUTTON ACK (optional) — acknowledge a button tap (dismiss the client
+   * spinner; optional toast). Bound to supervisor.answerCallback for a channel.
+   * When absent, button-tap decisions still resolve (the ACK is best-effort UX).
+   */
+  answerCallback?: (callbackId: string, text?: string) => Promise<void>;
+  /**
+   * INLINE-BUTTON FOLLOW-UP (optional) — replace a prompt message's text + drop its
+   * keyboard (so a decided prompt shows its outcome). Bound to supervisor.editMessage
+   * for a channel. Best-effort.
+   */
+  editMessage?: (handle: ReplyHandle, messageId: string, text: string) => Promise<void>;
+  /**
+   * MESSAGE DELETE (optional) — remove a message from the chat (Telegram deleteMessage). Bound to
+   * supervisor.deleteMessage for a channel. Used by the `/setkey` path to delete the user's
+   * plaintext-key message after the key is stored, so it does not linger in chat history.
+   * Best-effort; absent → the key is still redacted from capture + never echoed.
+   */
+  deleteMessage?: (handle: ReplyHandle, messageId: string) => Promise<void>;
+  /**
+   * `/setkey` IN-CHANNEL SECRET STORE (optional). When supplied, the SessionHost INTERCEPTS
+   * `/setkey <provider> <key>` (like `/mode`): it stores the key SCOPED to that provider, replies a
+   * MASKED confirmation, deletes the user's message (via {@link deleteMessage}), and does NOT forward
+   * the command to the orchestrator (the raw key never enters the orchestrator's context). When ABSENT
+   * (the current/dormant default — index.ts does not wire it), `/setkey` is NOT intercepted and falls
+   * through to a normal turn EXACTLY as today (byte-for-byte unchanged). The store's PRESENCE is the
+   * activation signal (P6). The store path is gitignored (secret-store.ts under `.state/`).
+   */
+  secretStore?: SecretStore;
+  /**
+   * `/setkey` provider table (optional; default {@link DEFAULT_PROVIDERS}). The set of providers a
+   * `/setkey <provider>` token may name; an unknown token gets a helpful error listing these. Only
+   * consulted when {@link secretStore} is wired. Shared by the `/setrole` path (same registry).
+   */
+  providers?: Readonly<Record<ProviderId, Provider>>;
+  /**
+   * TIER-2 ROLE-ROUTING STORE (optional). When supplied, the SessionHost INTERCEPTS `/setrole
+   * <role> <provider> [model]` + `/roles` (like `/setkey`): `/setrole` persists the role→{provider,
+   * model} override (so the NEXT dispatch of that role uses it — runtime, no restart) and replies a
+   * confirmation; `/roles` lists the effective role→provider/model map merged over the in-code
+   * default plus per-provider key-PRESENCE booleans (NEVER a key value). Neither is forwarded to the
+   * orchestrator. The supervisor is the SOLE WRITER of this store — both the typed `/setrole` AND the
+   * orchestrator-invokable {@link SessionHost.setRoleRouting} route through ONE private writer. When
+   * ABSENT (the current/dormant default — index.ts does not wire it), `/setrole` + `/roles` are NOT
+   * intercepted and fall through to a normal turn EXACTLY as today (byte-for-byte unchanged). The
+   * store's PRESENCE is the activation signal (P6). The store path is gitignored (under `.state/`).
+   */
+  roleRoutingStore?: RoleRoutingStore;
+  /**
+   * ★ P6 — ROUTED-AGENT DISPATCH CAPABILITY (FD1). When supplied, {@link SessionHost.dispatchRole}
+   * is ACTIVE: the orchestrator can ask the supervisor to run a ROLE + task on its routed backend
+   * (role-router → provider-registry → backend-seal → driver → result), and the structured result is
+   * relayed back to the orchestrator (AP6 — never the channel). The function is the INJECTED
+   * choke-point: index.ts builds it (gated on the activation switch) to close over the backend
+   * registry + the persisted-override loader + the scoped-key env, and it ultimately calls
+   * result-relay's dispatchRoleAgentWithFallback. SessionHost stays decoupled from result-relay's
+   * concretes (and trivially fake-able in tests). When ABSENT (the dormant default — index.ts does
+   * NOT wire it unless SUPERVISOR_ROLE_ROUTING is ON), {@link dispatchRole} returns
+   * `{ok:false, enabled:false}` and NOTHING dispatches — byte-for-byte unchanged.
+   */
+  dispatchRoleAgent?: RoleDispatchFn;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
+  /**
+   * The STARTUP output modality for the orchestrator's substantive replies
+   * (text/voice/dual). The SessionHost holds this as switchable in-memory state
+   * and flips it via the intercepted `/mode` command; this is just the boot value
+   * (resets here on a restart). From config ({@link OutputMode}). Default 'text'.
+   */
+  outputMode?: OutputMode;
   /** The system prompt — plain string (demo persona) or preset+append (orchestrator). */
   systemPrompt?: string | { preset: 'claude_code'; append?: string };
   cwd?: string;
@@ -171,11 +366,46 @@ export class SessionHost {
   private restartRequestTimes: number[] = [];
   /** Lifecycle-restart: a restart confirm is already in flight (don't open a second dialog). */
   private restartConfirmInFlight = false;
+  /**
+   * OUTPUT MODALITY (the user's switchable "output channel"). SOLE OWNER of this
+   * state (P1): the `/mode` command (intercepted in handleInbound) is the only
+   * writer; `sendToOperator` reads it to set the outbound modality. In-memory
+   * (resets to the configured default on restart, per v1 scope).
+   */
+  private outputMode: OutputMode;
+  /**
+   * `/setkey` IN-CHANNEL SECRET STORE (null when not wired — the dormant default). When set, the
+   * host intercepts `/setkey` and stores keys here scoped per provider; when null, `/setkey` is NOT
+   * intercepted (falls through to a normal turn, byte-for-byte unchanged). SOLE READER here.
+   */
+  private readonly secretStore: SecretStore | null;
+  /** The provider table the `/setkey` + `/setrole` tokens resolve against (DEFAULT_PROVIDERS unless overridden). */
+  private readonly providers: Readonly<Record<ProviderId, Provider>>;
+  /**
+   * TIER-2 ROLE-ROUTING STORE (null when not wired — the dormant default). When set, the host
+   * intercepts `/setrole` + `/roles` and is the SOLE WRITER of the persisted role-routing override.
+   * Both the typed `/setrole` and the orchestrator-invokable {@link setRoleRouting} funnel through
+   * the ONE private writer {@link applyRoleRouting}. When null, `/setrole` + `/roles` fall through to
+   * a normal turn, byte-for-byte unchanged.
+   */
+  private readonly roleRoutingStore: RoleRoutingStore | null;
+  /**
+   * ★ P6 — the INJECTED routed-dispatch capability (null when not wired — the dormant default). When
+   * set, {@link dispatchRole} runs a role's routed agent through it and relays the result; when null,
+   * {@link dispatchRole} returns `{ok:false, enabled:false}` and dispatches nothing. index.ts wires
+   * this ONLY when SUPERVISOR_ROLE_ROUTING is ON.
+   */
+  private readonly dispatchRoleAgent: RoleDispatchFn | null;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
     this.logger = opts.logger.child('session-host');
     this.rolePrefixPending = !!opts.roleTurnPrefix;
+    this.outputMode = opts.outputMode ?? 'text';
+    this.secretStore = opts.secretStore ?? null;
+    this.providers = opts.providers ?? DEFAULT_PROVIDERS;
+    this.roleRoutingStore = opts.roleRoutingStore ?? null;
+    this.dispatchRoleAgent = opts.dispatchRoleAgent ?? null;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -326,7 +556,12 @@ export class SessionHost {
       this.operator = msg.replyHandle;
       this.operatorId = incomingId;
       this.channelPermission = new ChannelPermission({
-        send: ((handle, text) => this.opts.send(handle, { text })) as SendPrompt,
+        // Send the prompt (optionally WITH inline buttons) and surface the sent
+        // message id back so a tapped-decision can edit the prompt to its outcome.
+        send: (async (handle, text, buttons) => {
+          const r = await this.opts.send(handle, { text, ...(buttons ? { options: { buttons } } : {}) });
+          return { ...(r.sentIds[0] ? { messageId: r.sentIds[0] } : {}) };
+        }) as SendPrompt,
         operator: this.operator,
         timeoutMs: this.opts.permissionTimeoutMs,
         onAsk: (note, fields) => this.logger.info(note, fields),
@@ -341,6 +576,16 @@ export class SessionHost {
 
     const cp = this.channelPermission!;
     const text = msg.text ?? '';
+
+    // ★ BUTTON TAP (callback_query) — the PRIMARY permission UX. If the inbound is a
+    // tap on a `perm:allow:<code>` / `perm:deny:<code>` button, resolve the matching
+    // pending ask, ACK the tap (dismiss the spinner), and edit the prompt to show the
+    // outcome (buttons disappear). A non-permission callback, or a stale/unknown code,
+    // is ACK'd quietly and dropped (never typed to the AI).
+    if (msg.callback) {
+      await this.handlePermissionCallback(msg.callback);
+      return;
+    }
 
     // Intercept a CODED permission reply (allow/deny <code>) first.
     const coded = ChannelPermission.parseReply(text);
@@ -370,6 +615,46 @@ export class SessionHost {
       return;
     }
 
+    // ★ OUTPUT-MODALITY SWITCH — reserved '/mode text|voice|dual'. INTERCEPTED here
+    // (same seam): applied to the in-memory modality state + ACK'd to the user, and
+    // NOT forwarded to the orchestrator. Bare/invalid `/mode` → report current + options.
+    const modeCmd = parseModeCommand(text);
+    if (modeCmd) {
+      await this.handleModeCommand(modeCmd);
+      return;
+    }
+
+    // ★ IN-CHANNEL PROVIDER-KEY INTAKE — reserved '/setkey <provider> <key>'. INTERCEPTED here
+    // (same seam) so the RAW KEY NEVER reaches the orchestrator: store it scoped per provider,
+    // reply a MASKED confirmation, delete the user's message, and return WITHOUT forwarding.
+    // GATED on a wired secretStore — when absent (the dormant default), `/setkey` is NOT
+    // intercepted and falls through to a normal turn exactly as today (byte-for-byte unchanged).
+    if (this.secretStore) {
+      const setKeyCmd = parseSetKeyCommand(text);
+      if (setKeyCmd) {
+        await this.handleSetKeyCommand(setKeyCmd, msg);
+        return;
+      }
+    }
+
+    // ★ TIER-2 PER-ROLE MODEL SELECTION — reserved '/setrole <role> <provider> [model]' + '/roles'.
+    // INTERCEPTED here (same seam) and NOT forwarded to the orchestrator. `/setrole` persists the
+    // role→{provider,model} override (next dispatch uses it — runtime, no restart); `/roles` lists
+    // the effective merged map + per-provider key-PRESENCE booleans (never values). GATED on a wired
+    // roleRoutingStore — when absent (the dormant default), both fall through to a normal turn exactly
+    // as today (byte-for-byte unchanged). `/roles` is matched first (a distinct word from /setrole).
+    if (this.roleRoutingStore) {
+      if (isRolesCommand(text)) {
+        await this.handleRolesCommand();
+        return;
+      }
+      const setRoleCmd = parseSetRoleCommand(text);
+      if (setRoleCmd) {
+        await this.handleSetRoleCommand(setRoleCmd);
+        return;
+      }
+    }
+
     // Otherwise inject as a user turn into the session. On the FIRST real user
     // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
     // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
@@ -386,9 +671,425 @@ export class SessionHost {
     await this.lifecycle.sendUserTurn({ text: turnText });
   };
 
+  /**
+   * Handle an inbound BUTTON TAP (callback_query). Parses the `perm:<verdict>:<code>`
+   * scheme, resolves the matching pending permission ask, ACKs the tap (dismiss the
+   * spinner with a brief toast), and edits the prompt message to show the outcome
+   * (so the buttons disappear and a record remains). Covers BOTH the permission-gate
+   * prompts AND the lifecycle restart-confirmation (both route through ChannelPermission).
+   * A non-permission or stale/unknown callback is ACK'd quietly (no error to the user).
+   */
+  private async handlePermissionCallback(cb: { id: string; data: string; messageId?: string }): Promise<void> {
+    const parsed = ChannelPermission.parseCallbackData(cb.data);
+    if (!parsed) {
+      // Not our scheme (or malformed) — ACK so the client spinner clears, then ignore.
+      await this.answerCallbackSafe(cb.id);
+      this.logger.info('ignoring non-permission callback', { data: cb.data.slice(0, 32) });
+      return;
+    }
+    const cp = this.channelPermission!;
+    const res = cp.submitReplyDetailed(parsed.code, parsed.verdict);
+    if (!res.resolved) {
+      // A stale/expired/already-answered code — ACK with a toast so the user sees why.
+      await this.answerCallbackSafe(cb.id, 'This request is no longer pending.');
+      this.logger.info('button tap for a non-pending permission code (ignored)', { verdict: parsed.verdict });
+      return;
+    }
+    this.logger.info('inbound consumed as permission button tap', { verdict: parsed.verdict });
+    const allowed = parsed.verdict === 'allow';
+    // 1) ACK the tap (dismiss the spinner) with a short toast.
+    await this.answerCallbackSafe(cb.id, allowed ? 'Allowed ✅' : 'Denied ❌');
+    // 2) Edit the prompt message so the buttons disappear + the outcome is on record.
+    const messageId = res.messageId ?? cb.messageId;
+    if (messageId && this.opts.editMessage && this.operator) {
+      const tool = res.toolName ? ` '${res.toolName}'` : '';
+      const outcome = allowed ? `✅ Allowed${tool}` : `❌ Denied${tool}`;
+      try {
+        await this.opts.editMessage(this.operator, messageId, outcome);
+      } catch (err) {
+        this.logger.warn('permission prompt edit failed (non-fatal)', { err: String(err) });
+      }
+    }
+  }
+
+  /** Best-effort callback ACK (never throws — the decision already resolved). */
+  private async answerCallbackSafe(callbackId: string, text?: string): Promise<void> {
+    if (!this.opts.answerCallback) return;
+    try {
+      await this.opts.answerCallback(callbackId, text);
+    } catch (err) {
+      this.logger.warn('answerCallback failed (non-fatal)', { err: String(err) });
+    }
+  }
+
   /** The currently-bound operator reply handle (null until the first inbound). */
   currentOperator(): ReplyHandle | null {
     return this.operator;
+  }
+
+  /** The current output modality (text/voice/dual) — for the panel / tests. */
+  outputModeState(): OutputMode {
+    return this.outputMode;
+  }
+
+  /**
+   * Apply an intercepted `/mode` command: `set` flips the modality state + ACKs
+   * the new mode; `query` (bare/invalid `/mode`) replies with the current mode +
+   * the valid options. The ACK is a CONTROL message — plain text (no modality), so
+   * a "/mode voice" ACK is not itself voiced. NOT forwarded to the orchestrator.
+   */
+  private async handleModeCommand(cmd: ModeCommand): Promise<void> {
+    if (cmd.kind === 'set') {
+      const prev = this.outputMode;
+      this.outputMode = cmd.mode;
+      this.logger.info('output modality switched via /mode', { from: prev, to: cmd.mode });
+      this.publishLifecycle('output_mode_changed', { from: prev, to: cmd.mode });
+      await this.ackToOperator(`Output mode → ${cmd.mode}`);
+    } else {
+      this.logger.info('output modality queried via /mode', { current: this.outputMode });
+      await this.ackToOperator(
+        `Output mode is "${this.outputMode}". Set it with: /mode text | /mode voice | /mode dual.`,
+      );
+    }
+  }
+
+  /**
+   * Send a CONTROL/ACK line to the operator as PLAIN TEXT (bypasses the modality —
+   * a `/mode` ack / system notice is never voiced — and the lastSentText dedup
+   * baseline, like the other direct control sends). Best-effort: a failure is logged,
+   * not thrown (a `/mode` switch still took effect even if its ack didn't deliver).
+   */
+  private async ackToOperator(text: string): Promise<void> {
+    if (!this.operator) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('mode-ack send failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Apply an intercepted `/setkey <provider> <key>` command (only reached when a secretStore is
+   * wired). The RAW KEY IS NEVER FORWARDED to the orchestrator (we return without injecting a turn)
+   * and is NEVER echoed/logged in full. Steps:
+   *   1. validate the shape (usage form → reply usage, no key stored);
+   *   2. resolve the provider token against the registry (unknown → helpful error listing providers;
+   *      a provider with no secretEnvVar → warn — should not happen for the wired set);
+   *   3. store the key SCOPED under the provider's secretEnvVar (the store returns a MASKED form);
+   *   4. reply a MASKED confirmation only (e.g. "GROQ_API_KEY set: gsk…1234 ✓") — plain text, never voiced;
+   *   5. DELETE the user's original message (best-effort) so the plaintext key does not linger in chat.
+   * Every reply is a CONTROL message (ackToOperator → plain text, bypasses modality + dedup).
+   */
+  private async handleSetKeyCommand(cmd: SetKeyCommand, msg: InboundMessage): Promise<void> {
+    const store = this.secretStore;
+    if (!store) return; // defensive — only called when wired
+    const knownProviders = [...PROVIDER_IDS];
+
+    if (cmd.kind === 'usage') {
+      this.logger.info('/setkey usage form (no key stored)', { reason: cmd.reason });
+      await this.ackToOperator(setKeyUsageMessage(knownProviders));
+      // Still delete the message if it somehow carried a stray token (defensive; usually nothing secret).
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    // Resolve the provider token (canonical id or alias; case-insensitive).
+    const providerId = resolveProviderId(cmd.providerToken, this.providers);
+    if (!providerId) {
+      this.logger.info('/setkey unknown provider', { token: cmd.providerToken });
+      await this.ackToOperator(setKeyUnknownProviderMessage(cmd.providerToken, knownProviders));
+      // The message DID carry a key value (unknown provider, but a key was typed) → delete it.
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    const provider = getProvider(providerId, this.providers);
+    const secretEnvVar = provider.secretEnvVar;
+    if (!secretEnvVar) {
+      // A registered provider with no secret env var (shouldn't happen for the wired set) → warn,
+      // do NOT store, still delete the message (it carried a key).
+      this.logger.warn('/setkey provider has no secretEnvVar — not storing', { providerId });
+      await this.ackToOperator(`Provider "${providerId}" has no configured secret variable — key NOT stored.`);
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    // Store the key SCOPED under the provider's secret env var. NEVER log the value; the store
+    // returns the masked form for the confirmation.
+    let masked: string;
+    try {
+      const r = store.setKey(secretEnvVar, cmd.key);
+      masked = r.masked;
+    } catch (err) {
+      // e.g. empty key rejected by the store. Reply a generic failure (NO key value), delete the msg.
+      this.logger.warn('/setkey store rejected the key', { providerId, err: String(err) });
+      await this.ackToOperator(`Could not store the ${secretEnvVar} key (rejected as invalid/empty).`);
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    this.logger.info('/setkey stored a provider key (masked)', { providerId, secretEnvVar, masked });
+    // MASKED confirmation only — never the full value. Plain text (ackToOperator → not voiced).
+    await this.ackToOperator(`${secretEnvVar} set: ${masked} ✓`);
+    // DELETE the user's plaintext-key message so it does not linger in chat history (best-effort).
+    await this.deleteOperatorMessage(msg);
+  }
+
+  /**
+   * Best-effort delete of an inbound message from the chat (used by `/setkey` to remove the
+   * plaintext-key message). Resolves the message id from the inbound (the adapter's replyHandle
+   * carries the originating message id) and calls the wired {@link SessionHostOptions.deleteMessage}.
+   * Never throws (a failed delete is logged; the key is already redacted from capture + never echoed).
+   */
+  private async deleteOperatorMessage(msg: InboundMessage): Promise<void> {
+    if (!this.opts.deleteMessage || !this.operator) return;
+    // The originating message id: Telegram's replyHandle carries replyToMessageId (the inbound msg id);
+    // some adapters also surface a top-level messageId. Try both; if neither, skip (nothing to delete).
+    const handleAny = msg.replyHandle as { replyToMessageId?: string | number; messageId?: string | number };
+    const rawId = handleAny.replyToMessageId ?? handleAny.messageId;
+    if (rawId === undefined || rawId === null || `${rawId}`.length === 0) {
+      this.logger.info('/setkey: no message id on the inbound — cannot delete (key still redacted)');
+      return;
+    }
+    try {
+      await this.opts.deleteMessage(this.operator, `${rawId}`);
+      this.logger.info('/setkey: deleted the user plaintext-key message from chat');
+    } catch (err) {
+      this.logger.warn('/setkey: deleteMessage failed (non-fatal; key already redacted)', { err: String(err) });
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────────────────────
+   * TIER-2 PER-ROLE MODEL SELECTION (PART Q.3 — `/setrole` + `/roles`). Only reached when a
+   * roleRoutingStore is wired. The supervisor is the SOLE WRITER of the routing store; both the
+   * typed `/setrole` and the orchestrator-invokable {@link setRoleRouting} funnel through ONE
+   * private writer ({@link applyRoleRouting}). Nothing here is secret → no redaction, no delete.
+   * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Apply an intercepted `/setrole <role> <provider> [model]` command. Validates the role + provider
+   * against their registries (helpful errors listing the known set), records the override via the
+   * SOLE writer, then replies a confirmation (e.g. "coding → groq (llama-3.3-70b) ✓"), WARNING if the
+   * chosen provider has no key set yet (the selection is still recorded). NOT forwarded to the
+   * orchestrator. Every reply is a CONTROL message (ackToOperator → plain text).
+   */
+  private async handleSetRoleCommand(cmd: SetRoleCommand): Promise<void> {
+    const knownRoles = [...ROLES];
+    const knownProviders = [...PROVIDER_IDS];
+
+    if (cmd.kind === 'usage') {
+      this.logger.info('/setrole usage form (nothing set)', { reason: cmd.reason });
+      await this.ackToOperator(setRoleUsageMessage(knownRoles, knownProviders));
+      return;
+    }
+
+    // Validate the role (case-insensitive — normalize to lower for the known-role check).
+    const roleNorm = cmd.roleToken.trim().toLowerCase();
+    if (!isRole(roleNorm)) {
+      this.logger.info('/setrole unknown role', { token: cmd.roleToken });
+      await this.ackToOperator(setRoleUnknownRoleMessage(cmd.roleToken, knownRoles));
+      return;
+    }
+
+    // Resolve the provider token (canonical id or alias; case-insensitive).
+    const providerId = resolveProviderId(cmd.providerToken, this.providers);
+    if (!providerId) {
+      this.logger.info('/setrole unknown provider', { token: cmd.providerToken });
+      await this.ackToOperator(setRoleUnknownProviderMessage(cmd.providerToken, knownProviders));
+      return;
+    }
+
+    // Record via the SOLE writer (the typed-command path → the same writer the orchestrator uses).
+    const result = this.applyRoleRouting(roleNorm, providerId, cmd.modelToken);
+    if (!result.ok) {
+      await this.ackToOperator(`Could not set role "${roleNorm}" → ${providerId}: ${result.error}.`);
+      return;
+    }
+
+    const warning =
+      result.keyPresent === false
+        ? setRoleNoKeyWarning(providerId, getProvider(providerId, this.providers).secretEnvVar)
+        : undefined;
+    await this.ackToOperator(setRoleConfirmMessage(roleNorm, providerId, result.model, warning));
+  }
+
+  /**
+   * Apply an intercepted `/roles` command — list the EFFECTIVE role→provider/model map (the merged
+   * persisted-override-over-default config) plus, per row, whether a key is present for that
+   * provider (BOOLEAN ONLY — never a key value; claude-cli rows show key n/a). NOT forwarded.
+   */
+  private async handleRolesCommand(): Promise<void> {
+    this.logger.info('/roles listing requested');
+    await this.ackToOperator(rolesListMessage(this.effectiveRoleRows()));
+  }
+
+  /**
+   * THE SOLE WRITER of the role-routing store (P1). Validates + records `role → {provider, model?}`
+   * and returns the effective model + the provider's key-presence boolean. Called by BOTH the typed
+   * `/setrole` handler AND the public {@link setRoleRouting} (the orchestrator-on-user-request path),
+   * so every routing write goes through ONE place. Pure-local (FS only); never throws (errors are
+   * returned). When no store is wired this is a no-op error (defensive — callers gate on the store).
+   */
+  private applyRoleRouting(
+    role: Role,
+    provider: ProviderId,
+    model?: string,
+  ): { ok: true; model: string; keyPresent: boolean } | { ok: false; error: string } {
+    const store = this.roleRoutingStore;
+    if (!store) return { ok: false, error: 'role routing is not enabled' };
+    try {
+      const stored = store.setRole(role, provider, model);
+      // The effective model shown to the user: the explicit one, else the provider's default.
+      const effModel = stored.model ?? getProvider(provider, this.providers).defaultModel;
+      const secretEnvVar = getProvider(provider, this.providers).secretEnvVar;
+      const keyPresent = this.secretStore ? this.secretStore.has(secretEnvVar) : false;
+      this.logger.info('role routing override written', { role, provider, model: effModel, keyPresent });
+      this.publishLifecycle('role_routing_changed', { role, provider, model: effModel });
+      return { ok: true, model: effModel, keyPresent };
+    } catch (err) {
+      this.logger.warn('role routing write failed', { role, provider, err: String(err) });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * ORCHESTRATOR-INVOKABLE Tier-2 control: set a role's provider/model on the user's natural-language
+   * request ("use Gemini for coding"). Routes through the SAME sole writer ({@link applyRoleRouting})
+   * as the typed `/setrole`, so the supervisor stays the SOLE WRITER of the routing store. Accepts a
+   * provider token (canonical id OR alias, case-insensitive) + a role token; validates both and
+   * returns a structured result the orchestrator can relay (no throw). Returns `enabled:false` when
+   * no routing store is wired (dormant default) so the orchestrator can tell the user it's inactive.
+   */
+  setRoleRouting(
+    roleToken: string,
+    providerToken: string,
+    model?: string,
+  ):
+    | { ok: true; role: Role; provider: ProviderId; model: string; keyPresent: boolean }
+    | { ok: false; enabled: boolean; error: string } {
+    if (!this.roleRoutingStore) {
+      return { ok: false, enabled: false, error: 'role routing is not enabled (no routing store wired)' };
+    }
+    const roleNorm = (roleToken ?? '').trim().toLowerCase();
+    if (!isRole(roleNorm)) {
+      return { ok: false, enabled: true, error: `unknown role "${roleToken}" (known: ${ROLES.join(', ')})` };
+    }
+    const providerId = resolveProviderId(providerToken ?? '', this.providers);
+    if (!providerId) {
+      return {
+        ok: false,
+        enabled: true,
+        error: `unknown provider "${providerToken}" (known: ${PROVIDER_IDS.join(', ')})`,
+      };
+    }
+    const result = this.applyRoleRouting(roleNorm, providerId, model);
+    if (!result.ok) return { ok: false, enabled: true, error: result.error };
+    return { ok: true, role: roleNorm, provider: providerId, model: result.model, keyPresent: result.keyPresent };
+  }
+
+  /**
+   * ★ P6 — ORCHESTRATOR-INVOKABLE ROUTED DISPATCH (FD1). Run a ROLE + task on its routed backend
+   * (role-router → provider-registry → backend-seal → driver → result) and return the structured
+   * {@link RoleDispatchResult} for the orchestrator to relay (AP6 — the agent is channel-mute; only
+   * this report comes back here). Routed THROUGH the injected {@link dispatchRoleAgent} capability so
+   * SessionHost stays decoupled from result-relay's concretes.
+   *
+   * DORMANT-BY-DEFAULT: when no dispatch capability is wired (the default — index.ts does NOT wire it
+   * unless SUPERVISOR_ROLE_ROUTING is ON), this returns `{ok:false, enabled:false}` and dispatches
+   * NOTHING (the orchestrator can tell the user routing is inactive). Never throws for an agent-level
+   * failure — a crash/error surfaces as `ok:false` with the failure text. The `enabled` flag mirrors
+   * the {@link setRoleRouting} dormant contract.
+   */
+  async dispatchRole(
+    role: string,
+    task: string,
+  ): Promise<RoleDispatchResult & { enabled: boolean }> {
+    if (!this.dispatchRoleAgent) {
+      return { ok: false, enabled: false, role, text: 'role routing is not enabled (no dispatch capability wired)' };
+    }
+    const roleNorm = (role ?? '').trim();
+    if (roleNorm.length === 0) {
+      return { ok: false, enabled: true, role: roleNorm, text: 'a role is required' };
+    }
+    if ((task ?? '').trim().length === 0) {
+      return { ok: false, enabled: true, role: roleNorm, text: 'a task is required' };
+    }
+    this.logger.info('dispatching routed agent', { role: roleNorm, taskChars: task.length });
+    this.publishLifecycle('role_dispatch', { role: roleNorm });
+    try {
+      const result = await this.dispatchRoleAgent(roleNorm, task);
+      this.logger.info('routed agent reported', {
+        role: roleNorm,
+        backend: result.backend,
+        ok: result.ok,
+        fellBack: result.fellBack ?? false,
+      });
+      return { ...result, enabled: true };
+    } catch (err) {
+      // A dispatch-capability throw is a programmer/infra error (not an agent failure, which the
+      // capability returns as ok:false). Surface it as a failed result — never wedge the orchestrator.
+      this.logger.error('routed dispatch threw', { role: roleNorm, err: String(err) });
+      return { ok: false, enabled: true, role: roleNorm, text: `dispatch failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  /**
+   * Build the `/roles` rows: the EFFECTIVE role routing = the persisted overrides merged over the
+   * in-code DEFAULT_ROLE_ROUTING_CONFIG, resolved per role via the router's pure
+   * {@link resolveRoleBackendWithOverrides}. For each role: the effective provider label ('claude'
+   * for claude-cli, else the provider id), the effective model, whether it is an override vs the
+   * default, and whether a key is present for that provider (boolean; null for claude-cli). NEVER
+   * surfaces a key value — only `secretStore.has()` booleans. Also used by the panel.
+   */
+  effectiveRoleRows(): RolesListRow[] {
+    const overrides = this.roleRoutingStore ? this.roleRoutingStore.loadAll() : {};
+    const rows: RolesListRow[] = [];
+    for (const role of ROLES) {
+      const sel = resolveRoleBackendWithOverrides(role, overrides, DEFAULT_ROLE_ROUTING_CONFIG);
+      const overridden = overrides[role] !== undefined;
+      if (sel.backend === 'claude-cli') {
+        rows.push({
+          role,
+          provider: 'claude',
+          model: sel.model ?? '(default)',
+          overridden,
+          keyPresent: null, // claude-cli needs no provider key
+        });
+        continue;
+      }
+      // api-adapter backend → the chosen provider. Prefer the override's provider id (exact), else
+      // map the selection's model back to a provider via the default config's provider for the role.
+      const ov: RoleRoutingOverride | undefined = overrides[role];
+      const providerId: ProviderId | undefined = ov?.provider ?? this.defaultProviderForRole(role);
+      const provider = providerId ? getProvider(providerId, this.providers) : undefined;
+      const effModel = sel.model ?? provider?.defaultModel ?? '(default)';
+      const keyPresent =
+        provider && this.secretStore ? this.secretStore.has(provider.secretEnvVar) : false;
+      rows.push({
+        role,
+        provider: providerId ?? 'api-adapter',
+        model: effModel,
+        overridden,
+        keyPresent,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * The default provider id for a role per the in-code DEFAULT_ROLE_ROUTING_CONFIG, mapped from the
+   * default entry's model id back to the registry provider whose defaultModel matches it (coding→
+   * deepseek, reviewing→openai). Returns undefined for a role whose default is claude-cli / has no
+   * matching provider. Pure helper for {@link effectiveRoleRows}'s non-override rows.
+   */
+  private defaultProviderForRole(role: Role): ProviderId | undefined {
+    const entry = DEFAULT_ROLE_ROUTING_CONFIG.roles?.[role];
+    if (!entry || entry.backend !== 'api-adapter') return undefined;
+    const model = entry.model;
+    for (const id of PROVIDER_IDS) {
+      if (getProvider(id, this.providers).defaultModel === model) return id;
+    }
+    return undefined;
   }
 
   /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
@@ -652,7 +1353,11 @@ export class SessionHost {
     // Log the outbound RESULT (ok + sentIds) so a forward to the channel is observable —
     // delivery confirmation, not just an attempt. (Without this, a successful send was
     // silent in the log, so we couldn't tell "delivered to the bot" from "never sent".)
-    const r = await this.opts.send(this.operator, { text });
+    // ★ OUTPUT MODALITY: the orchestrator's substantive reply carries the current mode
+    // (text/voice/dual) — the adapter renders TTS / sends the voice bubble accordingly.
+    // (Control sends — prompts, acks, system notices — go via opts.send WITHOUT options,
+    // so they stay text.) Empty text would be a no-op; the guard above already returned.
+    const r = await this.opts.send(this.operator, { text, options: { modality: this.outputMode } });
     if (r.ok) {
       // Record as last-sent ONLY on success — a failed send must not poison the guard
       // (a legitimate retry of the same text would otherwise be suppressed).

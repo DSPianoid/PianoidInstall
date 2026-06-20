@@ -15,6 +15,159 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2870 P6 locks RELEASED 2026-06-20 at Step 10a Phase 1 (config commit 62cb2ff + session-host commit
+     b375fb1 + index.ts+tests commit 007d3a8 + proposal commit 96d9f71, on feature/model-agnostic-agents;
+     NOT merged/pushed — activation/merge is the separately-approved P6 step the USER triggers). EDITED
+     (existing): tools/supervisor/src/{index.ts, config.ts, session-host.ts}. NEW: test/p6-activation-wiring.test.ts.
+     Phase P6 = the activation WIRING (switch-gated, DORMANT) into the LIVE orchestrator construction path —
+     the FIRST + ONLY edit to index.ts in the whole Campaign. index.ts: a SINGLE `if (config.roleRoutingEnabled)
+     { construct secretStore + roleRoutingStore + deleteMessage + the dispatchRoleAgent FD1 closure }` block
+     (else all four undefined) + conditional-spread of those into the SessionHost ctor (OFF passes ZERO P6
+     keys → identical ctor args to today) + Tier-1 `model: config.orchestratorModel ?? profile.model`
+     (env unset → EXACTLY profile.model). config.ts: roleRoutingEnabled (SUPERVISOR_ROLE_ROUTING, same gate
+     as isRoleRoutingEnabled, default OFF) + resolveOrchestratorModel (SUPERVISOR_ORCHESTRATOR_MODEL Tier-1).
+     session-host.ts: RoleDispatchFn/RoleDispatchResult + optional dispatchRoleAgent option + the
+     orchestrator-invokable dispatchRole() (mirror of setRoleRouting; dormant when not wired). FD1 mechanism
+     = a supervisor-provided method (the cli-stream orchestrator can't receive an in-process MCP tool);
+     scoped-key loading at spawn (secretStore.loadAll() overlaid onto the dispatch env) + ownSecretName from
+     the resolved selection (seal scoping) + FD6 no-key clean fallback. THE SACRED INVARIANT proven: switch
+     OFF ⇒ byte-for-byte today (test/p6-activation-wiring.test.ts OFF-path tests). +12 tests, full supervisor
+     node:test 478/478, tsc clean (built ONLY to a throwaway dir, removed — prod dist/ NOT regenerated; the
+     live supervisor NOT restarted). NO real paid API call (fakes + temp .state/ + fake keys). Held docs
+     (dev-vio1 log, controller logs, standalone-process proposal, .process seed) NOT touched. SHAs in the
+     session log. Mechanism + activation sequence: proposal §Q.6. -->
+<!-- dev-2870 Q.5/M8 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commits 2df2ab4 persisted-store + 5d075eb
+     /setrole+/roles + fbc2b70 proposal, on feature/model-agnostic-agents; NOT merged/pushed — activation/merge
+     is the separately-approved P6 step). EDITED (existing): tools/supervisor/src/{role-router,session-host}.ts.
+     supervisor.ts was locked precautionarily but NOT edited (/setrole+/roles carry no secret → no redaction needed)
+     → released untouched. NEW: role-routing-store.ts + setrole-command.ts + test/{role-routing-store,setrole-command,
+     setrole-roles-host}.test.ts. Q.5 = Tier-2 per-role model selection: a gitignored .state/role-routing.json
+     persisted override store (SOLE writer) + /setrole <role> <provider> [model] + /roles SUPERVISOR-INTERCEPTED
+     commands (symmetric with /setkey + /mode; NOT forwarded) + an orchestrator-invokable setRoleRouting() routing
+     through the ONE writer applyRoleRouting(). role-router precedence: persisted override > DEFAULT_ROLE_ROUTING_CONFIG
+     > fail-safe claude-cli (existing resolveRoleBackend UNCHANGED). /roles shows merged map + key-PRESENCE booleans
+     (never values). DORMANT (default-OFF SUPERVISOR_ROLE_ROUTING; gated on a wired roleRoutingStore); index.ts /
+     live path / prod dist/ / running supervisor UNTOUCHED. +30 tests, full node:test 466/466, tsc clean (built to
+     throwaway dist-test-q6/ then dist-test-final/, both removed — prod dist/ NOT regenerated). NO real paid API call. -->
+
+<!-- dev-2870 P4+P5 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P4 commit f436812 + P5 commit cb2460c on
+     feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
+     Edited (existing): tools/supervisor/src/{api-adapter-driver,backend-registry,role-router}.ts (P4) +
+     {backend-kinds,result-relay}.ts (P5). NEW: agent-concurrency.ts + agent-worktree.ts (P5) +
+     test/{p4-codex,agent-concurrency,worktree-isolation,fallback}.test.ts. P4 = second api-adapter backend
+     (Codex/OpenAI=reviewing) — ZERO new driver, pure config (CODEX_REVIEWING_CONFIG configurable default +
+     DEFAULT_API_ADAPTER_CONFIGS so reviewing→Codex resolves with no override; OPENAI_API_KEY scoping via the
+     existing assertBackendCostSafe). P5 = X2 concurrency/token cap (AgentConcurrencyGate, pure) + X3
+     worktree-for-FS-writers (planAgentWorktree REUSES SUPERVISOR_SESSION_CWD; pure planning, no git) + FD6
+     fallback EXECUTION (dispatchRoleAgentWithFallback — ADDITIVE; re-dispatch ONCE then surface; env scrubbed).
+     DORMANT (default-OFF SUPERVISOR_ROLE_ROUTING); index.ts / live path / prod dist / running supervisor
+     UNTOUCHED; LIVE assertCostSafe byte-for-byte unchanged. +39 tests (11 P4 + 28 P5), full node:test 375/375,
+     tsc clean (built to throwaway dist-test-p4p5/, removed — prod dist/ NOT regenerated). NO real paid API call. -->
+<!-- dev-2870 P2+P3 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P2 commit 30ecb15 + P3 commit 9d23a12 on
+     feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
+     Edited (existing): tools/supervisor/src/{cost-safety,backend-seal,backend-registry,role-router,result-relay}.ts
+     + test/{cost-safety,backend-seal,backend-registry,role-router,result-relay}.test.ts. NEW:
+     api-adapter-driver.ts + test/api-adapter-driver.test.ts. P2 = backend-aware cost/secret guard (assertBackendCostSafe,
+     per-backend key scoping OD-1) — LIVE assertCostSafe byte-for-byte UNCHANGED (pure append). P3 = api-adapter
+     SessionDriver (DeepSeek=coding deepseek-v4-flash; injectable HTTP, zero spend; no tools/permission routing OD-5)
+     + registry registration + DEFAULT_ROLE_ROUTING_CONFIG. DORMANT (default-OFF SUPERVISOR_ROLE_ROUTING);
+     index.ts/live path/prod dist/running supervisor UNTOUCHED. +42 tests, full node:test 336/336, tsc clean
+     (built to throwaway dist-test/, reverted — prod dist/ not regenerated). NO real paid API call. -->
+<!-- dev-2870 P0+P1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P0 commit 655af72 + P1 commit 66357c8 on
+     feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
+     Held + edited: tools/supervisor/src/session-driver.ts (additive BackendCapabilities type only). NEW files
+     (no lock conflict): backend-kinds.ts, role-router.ts, backend-registry.ts, backend-seal.ts, result-relay.ts
+     + test/{backend-kinds,role-router,backend-seal,backend-registry,result-relay}.test.ts. DORMANT model-agnostic
+     agent-routing (default-OFF SUPERVISOR_ROLE_ROUTING); index.ts/live path/dist/running supervisor UNTOUCHED.
+     +39 tests, full node:test 294/294, tsc clean (built to throwaway dist-test/, reverted — prod dist/ not regenerated). -->
+<!-- dev-f982 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit f7f9bb5 on feature/supervisor-voice-io;
+     NOT merged/pushed — held for the orchestrator-owned supervisor RESTART + verification, then Phase 2).
+     Held: tools/supervisor/src/adapters/{cli-stream-driver,sdk-session-driver}.ts + test/{cli-stream-sidechain,
+     sdk-session-driver}.test.ts (cli-stream-driver.test.ts + sdk-envelope.test.ts were locked precautionarily but
+     NOT edited — the new cases live in cli-stream-sidechain + sdk-session-driver tests) + the raw-envelope diagnostic.
+     FIX: completes 2224ed4 — drop BACKGROUND-task sub-agent narration (Agent run_in_background) from channel
+     forwarding. 2224ed4 dropped only foreground sidechain (parent_tool_use_id != null); background sub-agents leaked
+     (their assistant messages arrive with parent_tool_use_id == null). Discriminator MEASURED from raw claude -p
+     stream-json (diagnostics/dev-f982-raw-envelope-probe.mjs): a sub-agent assistant carries top-level `subagent_type`
+     (+task_description); orchestrator-OWN messages carry neither → no over-drop. Both mappers now drop
+     `if (parent_tool_use_id != null || subagent_type != null)`. +6 unit tests, full node:test 235/235, tsc clean.
+     dist/ is gitignored → rebuilt in the working tree (verify-landed done); needs the orchestrator-owned restart to
+     load. NO restart performed by dev-f982. -->
+<!-- dev-93e1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit on feature/supervisor-voice-io;
+     NOT merged/pushed — held for the orchestrator-owned supervisor RESTART that loads the rebuilt dist/,
+     then Phase 2). Held: tools/supervisor/src/{channel-permission,contract,session-host,supervisor,config,
+     index}.ts + adapters/{telegram-transport,grammy-transport,telegram,loopback-transport}.ts +
+     test/{channel-permission,config,session-host}.test.ts + test/permission-buttons.test.ts (NEW).
+     FIX1: native Telegram inline-keyboard BUTTONS for permission + lifecycle-restart-confirm prompts —
+     ChannelPermission.askUser now attaches ✅ Allow / ❌ Deny (callback_data `perm:allow:<code>` /
+     `perm:deny:<code>`, the existing 4-hex code, ≤15 bytes); inbound callback_query handled in the grammy
+     transport → adapter (toCallbackInbound, transient — NOT queued) → SessionHost.handlePermissionCallback
+     resolves the SAME pending promise via submitReplyDetailed, ACKs (answerCallbackQuery), and edits the
+     prompt to its outcome. Text `allow/deny <code>` parser KEPT as fallback. ★permission-router.ts core
+     UNTOUCHED (merge-hazard avoided vs dev-ee27 feature/supervisor-permission-robustness-p0). FIX2:
+     supervisor auto-initiates `/orchestrator` on startup — config.roleTurnPrefix (DEFAULT_ROLE_TURN_PREFIX
+     '/orchestrator', DEFAULT ON; env SUPERVISOR_ROLE_TURN_PREFIX; off via ''/none/off); index.ts uses the
+     config value for the orchestrator profile (was hardcoded); applied to the first turn (NOT a pre-user
+     bootstrap — documented anti-pattern); composes with restart-handoff (no double-invoke). +20 unit tests,
+     full node:test 255/255, tsc clean. dist/ gitignored → rebuilt in the working tree (verify-landed done);
+     needs the orchestrator-owned restart to load. NO restart performed. README.md doc update DEFERRED
+     (dev-vio1 holds it) — WIP doc-deferral note filed. SHA in the session log. -->
+| dev-vio1 | tools/supervisor/src/test/voice-tts-isolation.test.ts (NEW), tools/supervisor/README.md | 2026-06-19T14:33Z | RESUME (2nd restart): OUTBOUND-voice fix. Root cause MEASURED — edge-tts not installed in PianoidCore/.venv → tts_voice.py fails at `import edge_tts` → VoiceCodec.synthesize() throws → telegram.ts outbound catch falls back to text (adapter+config logic CORRECT). Fix = install edge-tts into that venv (env, no src-logic change) + ADD a real-TTS isolation test + an adapter-modality unit test (in the existing telegram-adapter.test.ts, already locked-clear: covered by this lock). dist/ rebuild. NO restart of the live supervisor. |
+<!-- dev-2870 H-1+M-1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (M-1 commit a3ddc2c + H-1 commit 1763430 +
+     review-doc commit 8e18633 on feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the
+     separately-approved P6 step). Edited (existing): tools/supervisor/src/{agent-worktree,result-relay,
+     api-adapter-driver,session-driver,backend-kinds}.ts + test/{worktree-isolation,result-relay,
+     api-adapter-driver}.test.ts. NEW doc: docs/development/reviews/model-agnostic-agents-review-2026-06-20.md.
+     H-1 = REAL per-agent git-worktree create+teardown for FS-writing claude agents (injectable
+     GitWorktreeRunner REUSES the index.ts/launch git pattern; created at the result-relay choke-point opt-in
+     manageWorktree, torn down in finally incl. on crash; compute agent gets none; already-isolated reuses;
+     tests MOCK git → NO real worktree in this repo, verified via git worktree list). M-1 = real token/cost
+     metering for api-adapter (stream_options.include_usage → usage block → result.tokens + costUsd computed
+     from a CONFIGURABLE per-model rate table when the backend reports none → AgentReport.tokens + X2 gate
+     lease released with the REAL token count). + stale-docstring cleanup. DORMANT default-OFF
+     (SUPERVISOR_ROLE_ROUTING); index.ts / live path / prod dist / running supervisor UNTOUCHED; LIVE
+     assertCostSafe byte-for-byte unchanged; NO real paid API call (injected fake clients). Full supervisor
+     node:test 404/404 (+29), tsc clean (--noEmit + a throwaway dist dir, removed — prod dist/ NOT regenerated). -->
+<!-- dev-2870 multi-provider + /setkey locks RELEASED 2026-06-20 at Step 10a Phase 1 (provider-registry commit ce11890
+     + /setkey commit 6d1199a + proposal/bookkeeping commit on feature/model-agnostic-agents; NOT merged/pushed —
+     activation/merge is the separately-approved P6 step). Edited (existing): tools/supervisor/src/{cost-safety,
+     api-adapter-driver,session-host,supervisor,contract}.ts + test/cost-safety.test.ts. NEW:
+     {provider-registry,secret-store,setkey-command}.ts + test/{provider-registry,secret-store,setkey-command}.test.ts.
+     (backend-registry.ts was locked precautionarily but NOT edited — DEFAULT_API_ADAPTER_CONFIGS it imports is now
+     registry-derived in api-adapter-driver.ts, no registry-code change needed.)
+     PROVIDER REGISTRY: generalized the api-adapter config into a Provider table (provider-registry.ts) — any
+     OpenAI-compatible provider pluggable by ONE entry; DeepSeek/Codex (byte-identical) + NEW Groq + NEW Gemini (via
+     its OpenAI-compat endpoint → same ApiAdapterDriver, no new driver); DEFAULT_API_ADAPTER_CONFIGS + BACKEND_SECRET_ENV_VARS
+     DERIVED from it → cross-provider key scoping covers every provider/pair for free; LIVE assertCostSafe byte-for-byte
+     unchanged. /SETKEY: supervisor-intercepted `/setkey <provider> <key>` (same seam as /mode) — raw key NEVER reaches
+     the orchestrator; gitignored per-provider scoped store (secret-store.ts under .state/); key REDACTED from capture
+     (supervisor redactInbound hook, default-OFF) + logs; MASKED confirm only; deleteMessage of the user's message;
+     unknown-provider/empty-key handled; GATED on a wired secretStore → absent (current default) /setkey falls through
+     to a normal turn BYTE-FOR-BYTE unchanged. Two-tier model selection documented in the proposal (Tier-1 supervisor
+     model/restart; Tier-2 runtime role models — /setrole NEXT batch). DORMANT default-OFF (SUPERVISOR_ROLE_ROUTING);
+     index.ts / live orchestrator construction / prod dist / running supervisor UNTOUCHED; NO real paid API call (injected
+     fakes + temp store dirs + fake keys). +32 tests; full supervisor node:test 436/436 (404 baseline + 32), tsc clean
+     (--noEmit prod tsconfig + a throwaway dist dir, removed — prod dist/ NOT regenerated). Held docs (dev-vio1 log,
+     controller logs, standalone-process proposal, .process seed) NOT touched. SHAs in the session log. -->
+| <!-- (none active for dev-2870) --> | | | |
+<!-- dev-vio1 RESUME locks RELEASED 2026-06-19 at Step 10a Phase 1 (inbound-STT FIX committed on feature/supervisor-voice-io;
+     NOT merged/pushed — held for the user's live-test after the orchestrator-coordinated supervisor RESTART, then Phase 2
+     merge handled by the post-restart orchestrator). Held: tools/supervisor/src/config.ts + launch-prod-orch.mjs +
+     src/test/voice-stt-isolation.test.ts (NEW) + README.md. (config.test.ts was locked then RELEASED un-edited — the pure
+     path-resolution tests live in the new dedicated voice file.) FIX: the running supervisor delivered the literal
+     "(voice message)" placeholder instead of the faster-whisper transcript because config.ts loadConfig had TWO wrong
+     defaults — toolsDir→~/.claude (sttScript not found → isSttAvailable() false → silent placeholder) AND python→bare
+     `python` (lacks faster-whisper → transcribe() throws → placeholder). Now: toolsDir defaults to the repo tools/ (derived
+     from the module's import.meta.url, cwd-independent) + python to the repo venv (PianoidCore/.venv/.../python) when present,
+     both env-overridable (SUPERVISOR_TOOLS_DIR / SUPERVISOR_PYTHON); launcher pins both belt-and-suspenders. 219/219 green
+     (the 2 real-STT tests actually transcribe the captured sample .oga end-to-end → real transcript, not the placeholder).
+     Safety gates UNCHANGED (only config.ts among src/). dist/ rebuilt clean. SHA in the session log. -->
+<!-- dev-vio1 locks RELEASED 2026-06-19 at Step 10a Phase 1 (commit 1025079 on feature/supervisor-voice-io; NOT merged/pushed —
+     held for the user's live-test after the supervisor RESTART, then Phase 2 merge handled by the post-restart orchestrator).
+     Held: tools/supervisor/src/{contract,config,session-host,index}.ts + adapters/telegram.ts + test/{telegram-adapter,voice-modality}.test.ts.
+     Feature: input+output channels — inbound auto-STT (already at adapter layer, re-verified) + switchable text/voice/dual outbound
+     (default text, in-memory SessionHost state) + /mode switch command (supervisor-intercepted, ACK'd, not forwarded). 215/215 green.
+     Safety gates (permission router / settingSources containment / outward-send seal / cost guard) UNCHANGED. -->
 <!-- dev-m12p3a locks RELEASED 2026-06-19 at the M12 production cut-over wrap (Stage 2). Held:
      tools/supervisor/** (Phase 3a — the structured I/O drivers [cli-stream default w/ agent-teams + SDK hedge
      behind the SessionDriver seam; PTY/TUI scraper RETIRED], the hosted-agent lifecycle-restart control, the

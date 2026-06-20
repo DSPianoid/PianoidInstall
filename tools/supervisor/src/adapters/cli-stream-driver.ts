@@ -105,6 +105,29 @@ export function makeCliUserTurn(content: string): string {
 export function mapCliMessage(raw: unknown, lastSessionId?: string): SessionEvent | null {
   const m = (raw ?? {}) as Record<string, unknown>;
   const type = m['type'];
+  // ★ FLOOD FIX (2026-06-19) — DROP SUB-AGENT content. When the orchestrator spawns a
+  // sub-agent (Agent/Task tool), the sub-agent's assistant narration + tool_result messages
+  // ride this SAME stdout stream. Without this guard each line a sub-agent "thinks out loud"
+  // mapped to a normal assistant event → onAssistant → sendToOperator → forwarded to the
+  // channel = the flood (one /dev run sent ~16 sub-agent narration messages to the user).
+  //
+  // TWO sub-agent markers, BOTH required (measured against raw `claude -p` stream-json —
+  // docs/development/diagnostics/dev-f982-raw-envelope-probe.mjs):
+  //   1. FOREGROUND sidechain (Agent/Task run inline): a non-null `parent_tool_use_id`.
+  //   2. BACKGROUND task (Agent run_in_background:true): a top-level `subagent_type` (e.g.
+  //      "general-purpose") + `task_description`. A background sub-agent's assistant message
+  //      is NOT reliably tagged with parent_tool_use_id (it leaked to the user with
+  //      parent_tool_use_id==null — the original 2224ed4 guard missed exactly this), but it
+  //      ALWAYS carries `subagent_type`. So key on `subagent_type` to catch the background
+  //      case independently of parent_tool_use_id.
+  // The orchestrator's OWN messages carry NEITHER marker (parent_tool_use_id null/absent and
+  // no subagent_type) — incl. the Agent/Task tool_use that SPAWNS the sub-agent, and the
+  // sub-agent's FINAL report (returns as the orchestrator's own tool_result, parent null) —
+  // so the user still sees the orchestrator coordinating + relaying summaries. Sub-agent
+  // PERMISSION requests are unaffected: they arrive as `control_request` (carrying agent_id)
+  // and are serviced out-of-band above, before this mapper. system_init/result are
+  // session-level (no subagent_type, parent always null) so this guard never drops them.
+  if (m['parent_tool_use_id'] != null || m['subagent_type'] != null) return null;
   if (type === 'system' && m['subtype'] === 'init') {
     const slashRaw = m['slash_commands'] ?? m['slashCommands'] ?? m['commands'];
     const mcpRaw = m['mcp_servers'] ?? m['mcpServers'];

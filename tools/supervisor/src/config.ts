@@ -22,9 +22,72 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { LogLevel } from './logger.js';
 import type { PermissionPolicy } from './permission-router.js';
+import { isRoleRoutingEnabled } from './role-router.js';
+
+/**
+ * The supervisor PACKAGE root (`tools/supervisor`), derived from THIS module's
+ * own location so it is independent of the process cwd. At runtime this compiled
+ * module lives at `tools/supervisor/dist/config.js`, so the package root is two
+ * dirs up. The repo root is one further up from `tools/`. Used to locate the
+ * Python voice helpers (`<repo>/tools/*.py`) and the repo venv interpreter —
+ * which the running supervisor previously MISSED (it defaulted to `~/.claude`,
+ * where the scripts do not live, and bare `python`, which lacks faster-whisper),
+ * so STT silently fell back to the "(voice message)" placeholder.
+ */
+const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url))); // tools/supervisor
+const REPO_TOOLS_DIR = dirname(PACKAGE_ROOT); // tools/  (where transcribe_voice.py / tts_voice.py live)
+const REPO_ROOT = dirname(REPO_TOOLS_DIR); // the repo root  (PianoidInstall)
+
+/**
+ * Resolve the Python interpreter for the voice helpers (STT/TTS). The faster-
+ * whisper + edge-tts deps live ONLY in the Pianoid venv, NOT in a bare system
+ * `python` — so the running supervisor delivered "(voice message)" because bare
+ * `python` threw `ModuleNotFoundError: faster_whisper`. Precedence:
+ *   1. `opts.python` (explicit, e.g. a test) ,
+ *   2. `SUPERVISOR_PYTHON` env (the launcher pins this) ,
+ *   3. the repo venv interpreter IF it exists (`PianoidCore/.venv/Scripts/python.exe`
+ *      on win32, `.../bin/python` elsewhere) — the validated STT/TTS environment ,
+ *   4. fallback to bare `python`/`python3` (degrades gracefully if neither is set up).
+ */
+function resolvePythonInterpreter(optsPython?: string): string {
+  if (optsPython) return optsPython;
+  if (process.env.SUPERVISOR_PYTHON) return process.env.SUPERVISOR_PYTHON;
+  const venvPython =
+    process.platform === 'win32'
+      ? join(REPO_ROOT, 'PianoidCore', '.venv', 'Scripts', 'python.exe')
+      : join(REPO_ROOT, 'PianoidCore', '.venv', 'bin', 'python');
+  if (existsSync(venvPython)) return venvPython;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+/**
+ * The switchable OUTPUT modality for the orchestrator's replies (the user's
+ * "output channel"): 'text' (text only), 'voice' (a TTS voice note only), or
+ * 'dual' (both text and a voice note). Held in-memory by the SessionHost and
+ * flipped on-the-fly via the intercepted `/mode` command — this is only the
+ * STARTUP DEFAULT (it resets to this on a supervisor restart). The user chose
+ * 'text' as the default.
+ */
+export type OutputMode = 'text' | 'voice' | 'dual';
+
+/** The startup default output modality (the user's choice). */
+export const DEFAULT_OUTPUT_MODE: OutputMode = 'text';
+
+/**
+ * The DEFAULT role-adoption skill the hosted orchestrator session boots into.
+ * The supervisor prepends this to the session's FIRST turn so the session starts
+ * AS the orchestrator (the user's "by default initiate /orchestrator on startup").
+ * It is applied to the first turn — NOT fired as a standalone pre-user bootstrap
+ * turn — because a pre-user bootstrap self-executes before an operator is bound
+ * (the channel reply tool then fails + tokens burn pre-user; live-surfaced). The
+ * value is env-overridable (`SUPERVISOR_ROLE_TURN_PREFIX`) and can be turned OFF
+ * with an empty string / `none` / `off`. Default ON.
+ */
+export const DEFAULT_ROLE_TURN_PREFIX = '/orchestrator';
 
 /**
  * The conservative DEFAULT permission policy for the hosted session (review M2:
@@ -62,11 +125,21 @@ export interface SupervisorConfig {
    * DEDICATED `SUPERVISOR_TELEGRAM_TOKEN`, never this one.
    */
   productionTokenFilePresent: boolean;
-  /** Python interpreter for the voice helpers. */
+  /**
+   * Python interpreter for the voice helpers (STT/TTS). Defaults to the repo
+   * venv (`PianoidCore/.venv/.../python`) when present — the validated faster-
+   * whisper/edge-tts environment — else bare `python`/`python3`. Override with
+   * `SUPERVISOR_PYTHON` (the launcher pins it). A bare system python that lacks
+   * faster-whisper makes inbound STT silently degrade to "(voice message)".
+   */
   python: string;
-  /** Absolute path to transcribe_voice.py. */
+  /**
+   * Absolute path to transcribe_voice.py. Lives under the repo `tools/`
+   * (the toolsDir); the prior `~/.claude` default did NOT exist, so
+   * `isSttAvailable()` was false and inbound voice fell back to a placeholder.
+   */
   sttScript: string;
-  /** Absolute path to tts_voice.py. */
+  /** Absolute path to tts_voice.py (under the repo `tools/`). */
   ttsScript: string;
   /** Web panel port (read-only panel; 0 disables). */
   panelPort: number;
@@ -76,12 +149,54 @@ export interface SupervisorConfig {
    * the allow-list extends via `SUPERVISOR_PERMISSION_ALLOW` (comma-separated).
    */
   permissionPolicy: PermissionPolicy;
+  /**
+   * The STARTUP default output modality for the orchestrator's replies
+   * ({@link OutputMode}). Defaults to {@link DEFAULT_OUTPUT_MODE} ('text'); the
+   * env `SUPERVISOR_OUTPUT_MODE` overrides it (text|voice|dual, invalid → default).
+   * The SessionHost flips it at runtime via `/mode`; this is only the boot value.
+   */
+  outputModeDefault: OutputMode;
+  /**
+   * The role-adoption skill prepended to the orchestrator session's FIRST turn so
+   * it boots AS the orchestrator (FIX: "auto-initiate /orchestrator on startup").
+   * Defaults to {@link DEFAULT_ROLE_TURN_PREFIX} ('/orchestrator') — DEFAULT ON;
+   * env `SUPERVISOR_ROLE_TURN_PREFIX` overrides; empty / `none` / `off` → undefined
+   * (no auto-role). Applied to the first turn (NOT a pre-user bootstrap; see the
+   * const doc). index.ts uses this for the orchestrator profile.
+   */
+  roleTurnPrefix?: string;
+  /**
+   * ★ P6 ACTIVATION SWITCH (model-agnostic agent routing — X5/AP5). Whether the
+   * model-agnostic ROLE-ROUTING layer is ACTIVE. Resolved from `SUPERVISOR_ROLE_ROUTING`
+   * (the SAME env var the pure {@link isRoleRoutingEnabled} reads — single switch), ON
+   * only for '1'/'true'/'on'. DEFAULT OFF. When false (the default), index.ts wires NONE
+   * of the routing path (no stores, no registry, no dispatch capability) → the constructed
+   * supervisor behaves BYTE-FOR-BYTE as before this feature existed. When true, index.ts
+   * wires the in-channel `/setkey`/`/setrole`/`/roles` stores + the routed-dispatch
+   * capability (still nothing runs until the orchestrator dispatches a role / the user
+   * sets a key). A change requires a supervisor RESTART (it is read at construction).
+   */
+  roleRoutingEnabled: boolean;
+  /**
+   * ★ TIER-1 — the hosted ORCHESTRATOR session's OWN model (proposal Q.3 Tier-1). The model
+   * the orchestrator itself runs on (NOT the per-role dispatch models — those are Tier-2).
+   * Resolved from `SUPERVISOR_ORCHESTRATOR_MODEL`; when unset, undefined → index.ts keeps the
+   * profile's default model (orchestrator → 'claude-opus-4-8[1m]'), UNCHANGED. Read at
+   * construction → changing it requires a supervisor RESTART (it is the session's model). This
+   * surface is ALWAYS available (not gated by the routing switch — it tunes the existing
+   * orchestrator session, independent of role-routing); the default keeps today's behavior.
+   */
+  orchestratorModel?: string;
 }
 
 export interface LoadConfigOptions {
   /** Override the supervisor state dir (default ~/.claude/supervisor). */
   stateDir?: string;
-  /** Override the repo's tools dir (to locate the Python helpers). */
+  /**
+   * Override the repo's tools dir (to locate the Python voice helpers). Defaults
+   * to the repo `tools/` derived from this module's location; `SUPERVISOR_TOOLS_DIR`
+   * env also overrides it (opts wins over env).
+   */
   toolsDir?: string;
   /** Override the channel state dir (where the live plugin's .env/access.json live). */
   channelDir?: string;
@@ -112,8 +227,12 @@ function resolveToken(channelDir: string): string | undefined {
 export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
   const stateDir = resolve(opts.stateDir ?? join(homedir(), '.claude', 'supervisor'));
   const channelDir = resolve(opts.channelDir ?? join(homedir(), '.claude', 'channels', 'telegram'));
-  // Default the tools dir to this package's repo siblings (tools/).
-  const toolsDir = resolve(opts.toolsDir ?? join(homedir(), '.claude'));
+  // Default the tools dir to the REPO `tools/` (derived from this module's own
+  // location — where transcribe_voice.py / tts_voice.py actually live), NOT
+  // `~/.claude` (the prior default, where they do NOT exist → STT silently fell
+  // back to "(voice message)"). Precedence: opts.toolsDir > SUPERVISOR_TOOLS_DIR
+  // env (the launcher pins it) > the derived repo tools/.
+  const toolsDir = resolve(opts.toolsDir ?? process.env.SUPERVISOR_TOOLS_DIR ?? REPO_TOOLS_DIR);
 
   return {
     stateDir,
@@ -124,12 +243,57 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     logLevel: opts.logLevel ?? 'info',
     accessFile: join(channelDir, 'access.json'),
     productionTokenFilePresent: resolveToken(channelDir) !== undefined,
-    python: opts.python ?? (process.platform === 'win32' ? 'python' : 'python3'),
+    python: resolvePythonInterpreter(opts.python),
     sttScript: join(toolsDir, 'transcribe_voice.py'),
     ttsScript: join(toolsDir, 'tts_voice.py'),
     panelPort: opts.panelPort ?? 0,
     permissionPolicy: resolvePermissionPolicy(),
+    outputModeDefault: resolveOutputMode(),
+    roleTurnPrefix: resolveRoleTurnPrefix(),
+    // ★ P6: the model-agnostic role-routing activation switch (default OFF). Reads the SAME
+    // env var the pure isRoleRoutingEnabled gates on, so the config flag + the resolver agree.
+    roleRoutingEnabled: isRoleRoutingEnabled(process.env),
+    // ★ Tier-1: the orchestrator's own model override (undefined → keep the profile default).
+    orchestratorModel: resolveOrchestratorModel(),
   };
+}
+
+/**
+ * Resolve the Tier-1 orchestrator model override from `SUPERVISOR_ORCHESTRATOR_MODEL`
+ * (proposal Q.3 Tier-1 — the hosted orchestrator session's OWN model). An unset/blank
+ * value → undefined, so the composition root keeps the profile's default model
+ * (orchestrator → 'claude-opus-4-8[1m]') UNCHANGED. A non-blank value is used verbatim
+ * (trimmed) as the session's `--model`. Read at construction → a change needs a restart.
+ * Pure; exported for the test.
+ */
+export function resolveOrchestratorModel(raw = process.env.SUPERVISOR_ORCHESTRATOR_MODEL): string | undefined {
+  const v = (raw ?? '').trim();
+  return v.length > 0 ? v : undefined;
+}
+
+/**
+ * Resolve the startup role-adoption prefix. DEFAULT ON →
+ * {@link DEFAULT_ROLE_TURN_PREFIX} ('/orchestrator'). `SUPERVISOR_ROLE_TURN_PREFIX`
+ * overrides; an empty string / `none` / `off` (case-insensitive) disables it
+ * (returns undefined → no auto-role). Any other value is used verbatim (trimmed),
+ * so a project can boot a different skill.
+ */
+export function resolveRoleTurnPrefix(raw = process.env.SUPERVISOR_ROLE_TURN_PREFIX): string | undefined {
+  if (raw === undefined) return DEFAULT_ROLE_TURN_PREFIX; // unset → default ON
+  const v = raw.trim();
+  if (v === '' || v.toLowerCase() === 'none' || v.toLowerCase() === 'off') return undefined; // explicit OFF
+  return v;
+}
+
+/**
+ * Resolve the startup output modality from `SUPERVISOR_OUTPUT_MODE` (text|voice|
+ * dual, case/space-insensitive). Anything else (unset or invalid) falls back to
+ * {@link DEFAULT_OUTPUT_MODE} ('text') — the user's chosen default.
+ */
+export function resolveOutputMode(raw = process.env.SUPERVISOR_OUTPUT_MODE): OutputMode {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'text' || v === 'voice' || v === 'dual') return v;
+  return DEFAULT_OUTPUT_MODE;
 }
 
 /**

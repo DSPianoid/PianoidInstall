@@ -76,6 +76,12 @@ export type SessionEvent =
       result?: string;
       /** Total cost in USD, if reported. */
       costUsd?: number;
+      /**
+       * Token usage for the turn (M-1) — input/output/total — when the backend reported a usage block.
+       * The api-adapter driver populates this from the streamed `usage` block (include_usage); the relay
+       * forwards it into the AgentReport and the X2 budget gate. Absent when the backend reports none.
+       */
+      tokens?: { prompt?: number; completion?: number; total?: number };
     };
 
 /** A normalized inbound user turn injected into the session. */
@@ -187,4 +193,33 @@ export interface SessionDriver {
 
   /** Current health snapshot. */
   health(): SessionDriverHealth;
+}
+
+/**
+ * ── Model-agnostic agents (proposal model-agnostic-agents-2026-06-19, M1) ──
+ *
+ * The ONE extension the model-agnostic Campaign adds to this contract: a small
+ * per-BACKEND capability descriptor. It tells the routing runtime what a backend
+ * can and can't do, so a non-Claude backend (e.g. a bare api-adapter with no tool
+ * surface) is wired correctly rather than mis-treated as a full Claude Code session
+ * (FD4: a backend with `supportsPermissionRouting:false` has no gated-tool surface,
+ * so the permission router skips it instead of mis-wiring it).
+ *
+ * Pure type + a const map of the known backends' descriptors — NO runtime behavior,
+ * NO existing code path touched. Dormant until role-routing is activated (P6).
+ *
+ * Traces: proposal AP1, CP1, CP6; §M M1; PART P P0.
+ */
+export interface BackendCapabilities {
+  /** The backend exposes callable tools (Bash/Edit/MCP …). A bare API turn does not. */
+  supportsTools: boolean;
+  /**
+   * The backend surfaces gated tools as permission requests the router can decide
+   * (the `PermissionHandler` path). False → no tool-permission surface (FD4 skips it).
+   */
+  supportsPermissionRouting: boolean;
+  /** The backend can resume a prior session by id (`SessionStartOptions.resume`). */
+  supportsResume: boolean;
+  /** The backend exposes agent-teams (SendMessage/Monitor/Task*). claude-cli does; the SDK + a bare api-adapter do not. */
+  supportsTeams: boolean;
 }

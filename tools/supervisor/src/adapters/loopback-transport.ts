@@ -35,9 +35,26 @@ export interface SentRecord {
   messageId: string;
 }
 
+/** A recorded button-tap ACK (answerCallback), for test assertions. */
+export interface AnsweredRecord {
+  callbackId: string;
+  text?: string;
+}
+
+/** A recorded message edit (editMessageText), for test assertions. */
+export interface EditRecord {
+  chatId: string;
+  messageId: string;
+  text: string;
+}
+
 export class LoopbackTelegramTransport implements TelegramTransport {
   /** Every outbound send, in order. Inspect this in tests. */
   readonly sent: SentRecord[] = [];
+  /** Every button-tap ACK (answerCallback), in order. */
+  readonly answered: AnsweredRecord[] = [];
+  /** Every message edit (editMessageText), in order. */
+  readonly edited: EditRecord[] = [];
 
   private onUpdate: ((raw: RawInbound) => void | Promise<void>) | null = null;
   private running = false;
@@ -60,6 +77,32 @@ export class LoopbackTelegramTransport implements TelegramTransport {
       throw new Error('loopback transport not started');
     }
     await this.onUpdate(raw);
+  }
+
+  /**
+   * Simulate an inbound BUTTON TAP (a Telegram callback_query). `data` is the
+   * tapped button's callback_data; `from`/`chatId`/`messageId` default to a single
+   * test user/chat. Awaits the adapter's handler (like {@link inject}).
+   */
+  async injectCallback(
+    data: string,
+    opts: { id?: string; chatId?: string; fromUser?: string; fromUserId?: string; messageId?: string } = {},
+  ): Promise<void> {
+    if (!this.running || !this.onUpdate) {
+      throw new Error('loopback transport not started');
+    }
+    await this.onUpdate({
+      chatId: opts.chatId ?? '555',
+      chatType: 'private',
+      fromUser: opts.fromUser ?? 'tester',
+      fromUserId: opts.fromUserId ?? 'u-tester',
+      dateSec: 0,
+      callbackQuery: {
+        id: opts.id ?? `cb-${this.msgSeq++}`,
+        data,
+        ...(opts.messageId ? { messageId: opts.messageId } : {}),
+      },
+    });
   }
 
   /** Register a local fixture to be returned by downloadFile for this fileId. */
@@ -93,6 +136,14 @@ export class LoopbackTelegramTransport implements TelegramTransport {
     const dest = join(destDir, `${Date.now()}-${basename(seed)}`);
     copyFileSync(seed, dest);
     return dest;
+  }
+
+  async answerCallback(callbackId: string, text?: string): Promise<void> {
+    this.answered.push({ callbackId, ...(text !== undefined ? { text } : {}) });
+  }
+
+  async editMessageText(chatId: string, messageId: string, text: string): Promise<void> {
+    this.edited.push({ chatId, messageId, text });
   }
 
   async stop(): Promise<void> {

@@ -1,5 +1,84 @@
 # Work in Progress
 
+## Active Dev Sessions
+
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+| dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
+| dev-2870 | Model-agnostic agents — MULTI-PROVIDER foundation + in-channel `/setkey` (campaign `feature/model-agnostic-agents`): generalize the api-adapter config into a PROVIDER registry (DeepSeek/Codex exist; + Groq + Gemini via OpenAI-compat); per-provider key scoping (foreign-key reject for every pair); `/setkey <provider> <key>` SUPERVISOR-INTERCEPTED secret intake (gitignored scoped store, key redacted from capture/logs, masked confirm, deleteMessage; NOT forwarded to orchestrator). Two-tier model selection documented (Tier-1 supervisor model w/ restart; Tier-2 runtime role models = NEXT batch /setrole). DORMANT/default-OFF/zero-spend; index.ts untouched; prod dist/ NOT regenerated; supervisor NOT restarted | [log](logs/dev-2870-2026-06-20-060756.md) | 2026-06-20 |
+| dev-2870 | Tier-2 per-role model selection (campaign `feature/model-agnostic-agents`): persisted runtime role-routing override store (gitignored `.state/role-routing.json`, supervisor SOLE writer) + `/setrole <role> <provider> [model]` + `/roles` SUPERVISOR-INTERCEPTED commands (symmetric with /setkey + /mode; NOT forwarded) + an orchestrator-invokable `setRoleRouting()` so the typed command AND the orchestrator-on-user-request route through ONE writer. role-router resolves: persisted override > DEFAULT_ROLE_ROUTING_CONFIG > fail-safe claude-cli; runtime-mutable (next dispatch), persisted across restart. `/roles` shows merged map + per-provider key-presence BOOLEANS (never values). DORMANT/default-OFF/zero-spend; index.ts untouched; prod dist/ NOT regenerated; supervisor NOT restarted | [log](logs/dev-2870-2026-06-20-063200.md) | 2026-06-20 |
+| dev-2870 | Model-agnostic agents Phase P6 — activation WIRING (switch-gated, DORMANT) into the live orchestrator construction path (campaign `feature/model-agnostic-agents`): the FIRST+ONLY edit to index.ts. Gate the routed-dispatch path + the secretStore/roleRoutingStore wiring + the Tier-1 orchestrator-model env on SUPERVISOR_ROLE_ROUTING (default-OFF). Switch OFF ⇒ constructed system BYTE-FOR-BYTE today. NO spend, NO prod dist/ regen, NO supervisor restart — activation is the user-triggered rebuild+restart. | [log](logs/dev-2870-2026-06-20-102010.md) | 2026-06-20 |
+
+<!-- DOC DEFERRAL (dev-93e1, 2026-06-19): the supervisor README.md permission section (L54-58 "Channel
+     permission" + "How it eliminates FC-1") should gain a line on the NEW native inline-keyboard BUTTON
+     UX (tap ✅ Allow / ❌ Deny; callback_data `perm:allow:<code>`/`perm:deny:<code>`; text `allow/deny
+     <code>` kept as fallback; covers the restart-confirm too) + a note that the orchestrator profile
+     auto-initiates `/orchestrator` on startup by default (config.roleTurnPrefix; env
+     SUPERVISOR_ROLE_TURN_PREFIX; off via none). NOT done THIS session because README.md is held by
+     dev-vio1's ACTIVE lock (voice OUTBOUND fix). OWNER: whoever holds README next (dev-vio1 on its next
+     touch, or the Phase-2 merge orchestrator) — apply the one-paragraph update then. The code + tests
+     are the source of truth meanwhile (src/test/permission-buttons.test.ts documents the behavior). -->
+
+<!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the
+     DORMANT model-agnostic agent-routing layer (P0+P1, feature/model-agnostic-agents): a role→backend
+     router + backend-registry + claude-cli seal + result-relay that can route a role (e.g. planning) to a
+     SEALED standalone `claude -p` agent, gated by SUPERVISOR_ROLE_ROUTING (DEFAULT OFF → live path
+     byte-for-byte unchanged). NOW EXTENDED P2+P3 (same agent dev-2870): a BACKEND-AWARE cost/secret
+     guard (cost-safety.ts assertBackendCostSafe — per-backend key scoping OD-1: claude env stays
+     Anthropic-key-free, a DeepSeek agent env carries ONLY DEEPSEEK_API_KEY + no foreign billing key) +
+     an API-ADAPTER driver (api-adapter-driver.ts — a SessionDriver for OpenAI-compatible backends;
+     coding→DeepSeek deepseek-v4-flash; injectable HTTP client, no tools/permission routing per OD-5).
+     The LIVE assertCostSafe is byte-for-byte unchanged (additive). NOT wired into index.ts (activation
+     is P6). NOT done THIS session because README.md is held by dev-vio1's ACTIVE lock. OWNER: whoever
+     holds README next (or the P6 activation agent). Authoritative design =
+     docs/proposals/model-agnostic-agents-2026-06-19.md; the code carries traces-to headers +
+     src/test/{backend-kinds,role-router,backend-seal,backend-registry,result-relay,cost-safety,
+     api-adapter-driver}.test.ts document the behavior. -->
+
+---
+
+## ★ POST-RESTART CONTINUATION — 2026-06-19 (2nd restart — voice STT *FIX* live-test: READ FIRST; delete once live-test + Phase 2 done)
+
+The supervisor was just restarted (user-sanctioned) to ACTIVATE dev-vio1's **inbound-STT FIX**. You are the fresh orchestrator; Telegram chat preserved. **Immediate job: LIVE-TEST voice with the user, then Phase-2 merge on success.** Output **default = `text`** on this boot.
+
+**What was wrong (prior boot):** voice I/O was activated (commit `1025079`) but inbound voice delivered a `(voice message)` placeholder. Root cause (MEASURED): `tools/supervisor/src/config.ts` defaulted `toolsDir`→`~/.claude` (STT script not found) and `python`→bare `python` (no faster-whisper) → `isSttAvailable()` false → placeholder. faster-whisper itself is fine.
+
+**The FIX (committed + built + verified — under test THIS boot):** `config.ts` now defaults `toolsDir`→repo `tools/` and `python`→`PianoidCore/.venv` (both env-overridable: `SUPERVISOR_TOOLS_DIR`/`SUPERVISOR_PYTHON`); `launch-prod-orch.mjs` pins both. Committed `feature/supervisor-voice-io` @ **`71074cc`** (parent `bdd58c9`; 219/219 node:test incl. real faster-whisper on the sample `.oga`). `dist/config.js` rebuilt + verified to carry the fix → **this boot loaded the fixed dist/.** NOT merged/pushed. dev-vio1 log (HELD, Phase-1): `logs/dev-vio1-2026-06-19-110708.md`.
+
+**LIVE-TEST now (with the user):**
+1. **★Inbound STT (the fix under test):** ask the user to send a voice note → it should now arrive as **TRANSCRIBED TEXT** (not `(voice message)`). On FAIL: spawn a /dev reusing dev-vio1 (log above) → diagnose → fix → rebuild `dist/` → re-restart via `powershell -NoProfile -ExecutionPolicy Bypass -File D:\tmp\restart-supervisor.ps1 -Launcher prod`. (Manual STT check: `GET http://127.0.0.1:8790/api/capture` → newest inbound `voicePath` → `PianoidCore/.venv/Scripts/python tools/transcribe_voice.py "<path>"`.)
+2. **`/mode voice`** (outbound TTS — still UNtested) → ACK "Output mode → voice"; next reply should arrive as a VOICE note. **`/mode dual`** → both; **`/mode text`** → text-only.
+
+**On live-test PASS (explicit user approval): Phase 2** — merge `feature/supervisor-voice-io` → master. The STT-fix files do NOT touch `session-host.ts`, so this commit adds no conflict; a `session-host.ts` conflict appears ONLY if dev-ee27's `feature/supervisor-permission-robustness-p0` merged first → KEEP BOTH. Then archive dev-vio1's log → `logs/archive/`, remove its WIP row; archive orphan controller logs (`controller-8441-*`, `controller-7f3a-*`) in the Step 1.5 sweep. Push only if the user asks.
+
+**★FLOOD (open item — fix AFTER voice works):** user flagged a message flood (3 inbound ⇒ ~35 outbound) because (a) the supervisor splits each long reply into ~4 Telegram messages and (b) the orchestrator narrated internal coordination. INTERIM rule (KEEP DOING): replies SHORT; SILENT on internal coordination — do NOT relay controller/agent chatter or post status ticks; message the user ONLY for results/decisions/errors/answers. PENDING CODE FIX (user-greenlit): a supervisor forwarding change to coalesce each reply into one/few messages — it's in the **safety-sensitive forwarding path**, so a focused well-tested dev-vio1 follow-up, NOT a rush.
+> **★SUB-AGENT-NARRATION-LEAK fixed 2026-06-19 (dev-f982, Phase 1 — committed on `feature/supervisor-voice-io`, NOT merged/pushed).** A distinct flood facet: 2224ed4 dropped only FOREGROUND sidechain sub-agent messages (`parent_tool_use_id != null`); BACKGROUND-task sub-agents (Agent `run_in_background:true`) still LEAKED their narration to the channel (their assistant messages arrive with `parent_tool_use_id == null`). Discriminator MEASURED from raw `claude -p` stream-json (`docs/development/diagnostics/dev-f982-raw-envelope-probe.mjs`): a sub-agent's assistant message carries a top-level **`subagent_type`** (+`task_description`); the orchestrator's OWN messages carry neither. FIX (both mappers, symmetric): `mapCliMessage` (cli-stream, active) + `mapMessage` (SDK hedge) now drop `if (parent_tool_use_id != null || subagent_type != null)`. +6 unit tests (235/235); dist/ rebuilt; needs the orchestrator-owned supervisor RESTART to load. Does NOT address the message-SPLITTING/self-narration coalescing above — that remains open.
+
+**Separately HELD (do NOT conflate):** dev-ee27's permission-robustness P0 on `feature/supervisor-permission-robustness-p0` — its own decision pending.
+
+**Benign pre-existing dirty (do NOT touch):** PianoidBasic 5 `.py` = CRLF-only churn (empty content diff); PianoidCore 1 untracked `.xlsx` (user data). `D:\tmp\restart-supervisor.ps1` + `launch-prod-orch.mjs` = harmless tooling copies.
+
+<!-- ↓ SUPERSEDED — the block below was the PRIOR boot's handoff (voice-IO activation). Its job is DONE: voice I/O was activated and the inbound-STT bug it told you to hunt is now FIXED (see the block ABOVE). Ignore it; delete both blocks after Phase 2. ↓ -->
+
+## ★ POST-RESTART CONTINUATION — 2026-06-19 (fresh orchestrator: READ FIRST; delete this block once voice live-test + Phase 2 are done)
+
+The supervisor was just restarted (user-sanctioned, by the prior orchestrator) to ACTIVATE **supervisor voice I/O**. You are the fresh orchestrator; the Telegram chat is preserved. **Immediate job: LIVE-TEST voice with the user, then Phase-2 merge on success.** The user had switched to voice and asked for this feature.
+
+**Activated:** dev-vio1's voice I/O — committed on `feature/supervisor-voice-io` (code `1025079`, docs `bdd58c9`), built into `tools/supervisor/dist/` (the launcher loads `dist/`, no rebuild). Working tree is on that branch; NOT merged/pushed. Output **default = `text`** on this boot.
+
+**LIVE-TEST now (with the user):**
+1. **★Inbound STT (the uncertain one):** ask the user to send a voice note → does it reach you as TRANSCRIBED TEXT (not `(voice message)`)? Pre-restart the running build delivered `(voice message)` + a `voicePath`, UNtranscribed — so VERIFY. If still untranscribed → real faster-whisper STT is broken at runtime; spawn a /dev (reuse dev-vio1's context: `logs/dev-vio1-2026-06-19-110708.md`) to fix the VoiceCodec spawn. (Manual STT fallback if needed: `GET http://127.0.0.1:8790/api/capture` → newest inbound `voicePath` → `PianoidCore/.venv/Scripts/python tools/transcribe_voice.py "<path>"`.)
+2. **`/mode voice`** → supervisor should ACK "Output mode → voice"; your NEXT reply should arrive as a VOICE note.
+3. **`/mode dual`** → next reply arrives as BOTH text + voice. **`/mode text`** → back to text-only.
+
+**On live-test PASS (after explicit user approval of the fix): Phase 2** — merge `feature/supervisor-voice-io` → master. ★EXPECT a `session-host.ts` conflict IF dev-ee27's `feature/supervisor-permission-robustness-p0` merged first (both edited that file) → resolve by KEEPING BOTH dev-ee27's permission additions AND dev-vio1's modality additions. Then archive dev-vio1's log → `logs/archive/`, remove its WIP row. Push only if the user asks.
+
+**On live-test FAIL:** the code is committed on the branch; spawn a /dev (reuse dev-vio1 context) → fix → rebuild `dist/` → re-restart via `powershell -File D:\tmp\restart-supervisor.ps1 -Launcher prod`.
+
+**Separately HELD (do NOT conflate):** dev-ee27's permission-robustness P0 on `feature/supervisor-permission-robustness-p0` — still awaiting its own live-test/merge decision.
+
+**Cleanup:** the restart ran from `D:\tmp\restart-supervisor.ps1` (copy of p0 commit `1bad4d9`) + `D:\tmp\launch-prod-orch.mjs` (copy) — harmless tooling copies, ignore/delete. The prior controller log (`controller-8441-*`) is a session-scoped orphan → archive in the Step 1.5 sweep. dev-vio1's log is intentionally HELD (Phase 1, awaiting live-test) — do NOT archive it until Phase 2.
+
 > **55/56/57 trichotomy — RESOLVED 2026-05-29 (dev-427c, user-verified).** The deep static
 > review found it: a **P1-1 GPU-pointer authority race** — the parameter-poll thread
 > refreshed the engine's swappable TUNABLE sub-pointers mid-cycle while the engine thread
@@ -22,6 +101,8 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-f982 | Supervisor channel-FLOOD fix: drop BACKGROUND-task sub-agent narration in mapCliMessage + SDK mapMessage (extends 2224ed4 which only caught foreground sidechain `parent_tool_use_id`); KEEP orchestrator-own messages | [log](logs/dev-f982-2026-06-19-192338.md) | 2026-06-19 | In Progress |
+| dev-vio1 | Supervisor input+output channels (inbound auto-STT; switchable text/voice/dual outbound, default=text; /mode switch cmd) + OUTBOUND-voice FIX (edge-tts missing from PianoidCore/.venv) | [log](logs/dev-vio1-2026-06-19-110708.md) | 2026-06-19 | RESUME (2nd restart): outbound-voice root cause MEASURED = edge-tts not installed in PianoidCore/.venv → TTS spawn throws → adapter silently falls back to text (adapter+config logic CORRECT). Fixing on feature/supervisor-voice-io. HELD for user live-test after the orchestrator-coordinated restart, then Phase 2 merge |
 <!-- dev-m12p3a COMPLETED 2026-06-19 — M12 supervisor production cut-over (Stage 2). Phase 3a delivered: the
      structured I/O drivers (cli-stream[claude -p] default w/ agent-teams + SDK hedge behind the SessionDriver seam;
      the PTY/TUI screen-scraper RETIRED), the hosted-agent lifecycle-restart control (POST /api/lifecycle/restart-request

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig } from '../config.js';
+import { DEFAULT_ROLE_TURN_PREFIX, loadConfig, resolveRoleTurnPrefix } from '../config.js';
 import { tmpDir } from './helpers.js';
 
 function mkChannel(dir: string): string {
@@ -75,6 +75,39 @@ test('loadConfig.permissionPolicy defaults conservative; env widens the allow-li
   } finally {
     if (prev === undefined) delete process.env.SUPERVISOR_PERMISSION_ALLOW;
     else process.env.SUPERVISOR_PERMISSION_ALLOW = prev;
+    cleanup();
+  }
+});
+
+// FIX 2 — auto-initiate the /orchestrator skill on startup (DEFAULT ON, env-overridable).
+test('resolveRoleTurnPrefix DEFAULTS to /orchestrator (auto-start ON) when unset', () => {
+  assert.equal(DEFAULT_ROLE_TURN_PREFIX, '/orchestrator');
+  assert.equal(resolveRoleTurnPrefix(undefined), '/orchestrator', 'unset → default ON');
+});
+
+test('resolveRoleTurnPrefix: env overrides, and empty/none/off disable it', () => {
+  assert.equal(resolveRoleTurnPrefix('/orchestrator'), '/orchestrator');
+  assert.equal(resolveRoleTurnPrefix('/some-other-skill'), '/some-other-skill', 'custom skill used verbatim');
+  assert.equal(resolveRoleTurnPrefix('  /orchestrator  '), '/orchestrator', 'trimmed');
+  assert.equal(resolveRoleTurnPrefix(''), undefined, 'empty → OFF');
+  assert.equal(resolveRoleTurnPrefix('none'), undefined, 'none → OFF');
+  assert.equal(resolveRoleTurnPrefix('OFF'), undefined, 'off (case-insensitive) → OFF');
+});
+
+test('loadConfig.roleTurnPrefix defaults ON to /orchestrator; env disables it', () => {
+  const { dir, cleanup } = tmpDir();
+  const prev = process.env.SUPERVISOR_ROLE_TURN_PREFIX;
+  try {
+    delete process.env.SUPERVISOR_ROLE_TURN_PREFIX;
+    const def = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(def.roleTurnPrefix, '/orchestrator', 'startup input carries the orchestrator invocation by default');
+
+    process.env.SUPERVISOR_ROLE_TURN_PREFIX = 'none';
+    const off = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(off.roleTurnPrefix, undefined, 'env none → no auto-role');
+  } finally {
+    if (prev === undefined) delete process.env.SUPERVISOR_ROLE_TURN_PREFIX;
+    else process.env.SUPERVISOR_ROLE_TURN_PREFIX = prev;
     cleanup();
   }
 });
