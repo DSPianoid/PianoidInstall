@@ -15,6 +15,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2870 Q.5/M8 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commits 2df2ab4 persisted-store + 5d075eb
+     /setrole+/roles + fbc2b70 proposal, on feature/model-agnostic-agents; NOT merged/pushed — activation/merge
+     is the separately-approved P6 step). EDITED (existing): tools/supervisor/src/{role-router,session-host}.ts.
+     supervisor.ts was locked precautionarily but NOT edited (/setrole+/roles carry no secret → no redaction needed)
+     → released untouched. NEW: role-routing-store.ts + setrole-command.ts + test/{role-routing-store,setrole-command,
+     setrole-roles-host}.test.ts. Q.5 = Tier-2 per-role model selection: a gitignored .state/role-routing.json
+     persisted override store (SOLE writer) + /setrole <role> <provider> [model] + /roles SUPERVISOR-INTERCEPTED
+     commands (symmetric with /setkey + /mode; NOT forwarded) + an orchestrator-invokable setRoleRouting() routing
+     through the ONE writer applyRoleRouting(). role-router precedence: persisted override > DEFAULT_ROLE_ROUTING_CONFIG
+     > fail-safe claude-cli (existing resolveRoleBackend UNCHANGED). /roles shows merged map + key-PRESENCE booleans
+     (never values). DORMANT (default-OFF SUPERVISOR_ROLE_ROUTING; gated on a wired roleRoutingStore); index.ts /
+     live path / prod dist/ / running supervisor UNTOUCHED. +30 tests, full node:test 466/466, tsc clean (built to
+     throwaway dist-test-q6/ then dist-test-final/, both removed — prod dist/ NOT regenerated). NO real paid API call. -->
+
 <!-- dev-2870 P4+P5 locks RELEASED 2026-06-19 at Step 10a Phase 1 (P4 commit f436812 + P5 commit cb2460c on
      feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the separately-approved P6 step).
      Edited (existing): tools/supervisor/src/{api-adapter-driver,backend-registry,role-router}.ts (P4) +
