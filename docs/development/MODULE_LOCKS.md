@@ -15,7 +15,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-ae2a | `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/index.css`, `PianoidTunner/src/__tests__/workbenchTileGeometry.source.test.js` | 2026-06-20T18:08Z | RESUME (follow-up on fix/dev-ae2a-workbench-empty-render): ISSUE 1 — move the 2-D `--wb-accent` color from the workbench TITLE to the BAR CHART bars (titles uniform). ISSUE 2 — make the panel-following open-workbench toolbar icon distinct from the fixed-workbench icon (INVESTIGATING — code shows they may already differ: fixed=BarChart, panel=Timeline; will verify live + flag if already distinct). |
+<!-- dev-ae2a FOLLOW-UP locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit f48c0c6 on
+     fix/dev-ae2a-workbench-empty-render, stacked on render fix fd52a41; NOT merged/pushed — held for the
+     user's live test, then Phase 2). EDITED: PianoidTunner/src/PianoidTuner.js + src/index.css +
+     src/__tests__/workbenchTileGeometry.source.test.js. ISSUE 1 DONE: moved the 2-D workbench accent
+     color (workbenchColor: hue[param groupe]×brightness[type]) from the pane TITLE to the BAR CHART bars
+     via chartProps.seriesColor (seriesColor wins over isDynamic in DrawableChart); titles now plain+uniform;
+     removed the .wb-accent-host wrapper + the --wb-accent var + the title CSS rules → renderTile returns
+     MosaicWindow directly (also the cleanest empty-workbench geometry fix). Verified live (CDP pixel sample):
+     Strings·damper_string bar = rgb(90,137,174)=#5a89ae, title bar white/no accent. ISSUE 2 = ★FLAGGED, NOT
+     CHANGED: code+live show fixed=BarChartIcon vs panel-following=TimelineIcon are ALREADY DISTINCT (coordinator's
+     "currently same" premise is wrong); per the coordinator's own flag-if-distinct instruction, left as-is pending
+     the user's direct confirmation. Full Jest 1316/1316, eslint 0 err, CRA build OK. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-ae2a) --> | | | |
 <!-- dev-85bb locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 9898793 on feature/supervisor-control-plane;
      NOT merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
      that rebuilds dist/ also loads this MCP wiring). EDITED (existing): tools/supervisor/src/{mcp-config,index,
