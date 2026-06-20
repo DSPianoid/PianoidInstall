@@ -15,6 +15,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-ae2a RESUME#2 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 3a00c34 on
+     fix/dev-ae2a-workbench-empty-render, stacked on f48c0c6/fd52a41; NOT merged/pushed — held for the user's
+     live test, then Phase 2). EDITED: PianoidTunner/src/PianoidTuner.js. ISSUE 2 (reversed by coordinator
+     clarification — user wants the icons IDENTICAL): panel-following open-workbench toolbar button icon
+     TimelineIcon → BarChartIcon (matches the fixed-workbench per-row BarChartIcon exactly, all panels);
+     import TimelineIcon→BarChartIcon; comment updated. Verified live (CDP): every panel toolbar workbench
+     button = BarChartIcon, Timeline gone. Full Jest 1316/1316, eslint 0 err. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-ae2a) --> | | | |
 <!-- dev-ae2a FOLLOW-UP locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit f48c0c6 on
      fix/dev-ae2a-workbench-empty-render, stacked on render fix fd52a41; NOT merged/pushed — held for the
      user's live test, then Phase 2). EDITED: PianoidTunner/src/PianoidTuner.js + src/index.css +
