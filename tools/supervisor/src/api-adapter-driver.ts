@@ -37,6 +37,10 @@
  */
 
 import { capabilitiesFor } from './backend-kinds.js';
+// The provider registry is the single source of truth for the wired providers; the default
+// api-adapter config map is DERIVED from it (so Groq + Gemini come from one table, no new driver).
+// provider-registry imports only TYPES from this file → erased at compile, no runtime import cycle.
+import { buildDefaultApiAdapterConfigs } from './provider-registry.js';
 import type { BackendCapabilities } from './session-driver.js';
 import type {
   SessionDriver,
@@ -89,14 +93,24 @@ export const CODEX_REVIEWING_CONFIG: ApiAdapterConfig = {
 };
 
 /**
- * The DEFAULT api-adapter config map (model id → {@link ApiAdapterConfig}) — the SINGLE source of
- * truth the {@link BackendRegistry} keys on, so DeepSeek (coding, P3) AND Codex (reviewing, P4) both
- * resolve end-to-end with NO per-call override. Keyed by the PINNED model id (the same id the
- * role-router's DEFAULT_ROLE_ROUTING_CONFIG carries for each role), so a selection's `model` looks up
- * its full backend config here. Add a backend = one entry (e.g. a future local model). Override the
- * whole map via BackendRegistryOptions.apiAdapterConfigs (tests point a model at a fake base-URL).
+ * The DEFAULT api-adapter config map (model id → {@link ApiAdapterConfig}) — the map the
+ * {@link BackendRegistry} keys on, so a selection's `model` looks up its full backend config here.
+ *
+ * DERIVED FROM THE PROVIDER REGISTRY (provider-registry.ts), the single source of truth for the
+ * provider set: {@link buildDefaultApiAdapterConfigs} produces one entry per provider keyed by the
+ * provider's (configurable, placeholder) default model id — DeepSeek + OpenAI/Codex (which already
+ * existed) AND Groq + Gemini (new), all from ONE table. Adding a provider there adds an entry here
+ * automatically (the model-agnostic "add a provider = one config entry" property).
+ *
+ * The explicit {@link DEEPSEEK_CODING_CONFIG} + {@link CODEX_REVIEWING_CONFIG} then OVERRIDE their
+ * registry-derived entries so the coding/reviewing backends stay BYTE-IDENTICAL to the prior pins
+ * (they carry temperature/disableThinking the bare provider projection leaves to the driver's
+ * defaults — same effective behavior, but pinned explicitly here for those two production backends).
+ * Override the whole map via BackendRegistryOptions.apiAdapterConfigs (tests point a model at a fake
+ * base-URL). Models are CONFIGURABLE placeholders the user sets via /setrole (next batch) / before P6.
  */
 export const DEFAULT_API_ADAPTER_CONFIGS: Readonly<Record<string, ApiAdapterConfig>> = {
+  ...buildDefaultApiAdapterConfigs(),
   [DEEPSEEK_CODING_CONFIG.model]: DEEPSEEK_CODING_CONFIG,
   [CODEX_REVIEWING_CONFIG.model]: CODEX_REVIEWING_CONFIG,
 };

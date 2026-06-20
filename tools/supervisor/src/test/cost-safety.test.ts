@@ -86,10 +86,16 @@ test('refusal message is singular/plural correct and actionable', () => {
 const DEEPSEEK = BACKEND_SECRET_ENV_VARS.deepseek; // 'DEEPSEEK_API_KEY'
 const OPENAI = BACKEND_SECRET_ENV_VARS.openai; // 'OPENAI_API_KEY'
 
-test('the secret-name maps are the documented values', () => {
+test('the secret-name maps are the documented values (now DERIVED from the provider registry — DeepSeek/OpenAI/Groq/Gemini)', () => {
   assert.equal(DEEPSEEK, 'DEEPSEEK_API_KEY');
   assert.equal(OPENAI, 'OPENAI_API_KEY');
-  assert.deepEqual([...ALL_BACKEND_SECRET_ENV_VARS].sort(), ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']);
+  // The map is derived from provider-registry.ts → adding Groq + Gemini extended the scoping set.
+  assert.equal(BACKEND_SECRET_ENV_VARS.groq, 'GROQ_API_KEY');
+  assert.equal(BACKEND_SECRET_ENV_VARS.gemini, 'GEMINI_API_KEY');
+  assert.deepEqual(
+    [...ALL_BACKEND_SECRET_ENV_VARS].sort(),
+    ['DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'GROQ_API_KEY', 'OPENAI_API_KEY'],
+  );
 });
 
 // ── claude-cli env ────────────────────────────────────────────────────────────

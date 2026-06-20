@@ -27,6 +27,8 @@
  * that a named variable is present.
  */
 
+import { buildProviderSecretEnvVars, type ProviderId } from './provider-registry.js';
+
 /**
  * Environment variables whose presence flips Claude usage from the subscription to
  * the pay-per-token Platform API. If ANY is set (to a non-empty value) in the env a
@@ -125,21 +127,21 @@ export type CostBackendKind = 'claude-cli' | 'api-adapter';
 
 /**
  * The complete set of metered/billing-flipping API-key env var names this guard knows
- * about, keyed by the backend that LEGITIMATELY owns each. Used to compute, for any
- * given backend, which keys are FOREIGN (must be absent). Anthropic keys are owned by
- * NO api-adapter — they are the subscription-flipping keys (always foreign to a routed
- * agent's env unless that agent IS the subscription-billed claude-cli, which still must
- * stay key-free). Extend this map when a new api-adapter backend is added (e.g. a future
- * Anthropic-API adapter), NOT the claude-cli subscription path.
+ * about, keyed by the PROVIDER (api-adapter backend) that LEGITIMATELY owns each. Used to
+ * compute, for any given backend, which keys are FOREIGN (must be absent). Anthropic keys
+ * are owned by NO api-adapter provider — they are the subscription-flipping keys (always
+ * foreign to a routed agent's env unless that agent IS the subscription-billed claude-cli,
+ * which still must stay key-free).
+ *
+ * DERIVED FROM THE PROVIDER REGISTRY (provider-registry.ts) — the SINGLE source of truth for
+ * the provider set. Adding a provider there (DeepSeek/OpenAI/Groq/Gemini + more) AUTOMATICALLY
+ * extends this map, so cross-provider key scoping covers every provider for free: a Groq agent
+ * rejects DEEPSEEK/OPENAI/GEMINI keys, a Gemini agent rejects the others, etc., for every pair.
+ * (Provider-registry imports only a TYPE from api-adapter-driver → no runtime cycle back here.)
  */
-export const BACKEND_SECRET_ENV_VARS = {
-  /** DeepSeek (api-adapter) — the coding backend (proposal coding=DeepSeek). */
-  deepseek: 'DEEPSEEK_API_KEY',
-  /** OpenAI / Codex (api-adapter) — the reviewing backend (proposal OD-4 Codex=OpenAI-API). */
-  openai: 'OPENAI_API_KEY',
-} as const;
+export const BACKEND_SECRET_ENV_VARS: Readonly<Record<ProviderId, string>> = buildProviderSecretEnvVars();
 
-/** Every known api-adapter secret env var name (the values of {@link BACKEND_SECRET_ENV_VARS}). */
+/** Every known api-adapter (provider) secret env var name (the values of {@link BACKEND_SECRET_ENV_VARS}). */
 export const ALL_BACKEND_SECRET_ENV_VARS: readonly string[] = Object.values(BACKEND_SECRET_ENV_VARS);
 
 /** True iff `name` is set to a NON-EMPTY (non-whitespace) value in `env` (the same "present" test as inspectCostSafety). */
