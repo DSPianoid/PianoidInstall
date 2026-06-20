@@ -26,7 +26,9 @@
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
 <!-- dev-wbspawn workbench work all MERGED to PianoidTunner dev (placement+orphan-fix earlier; 3rd type
-     panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20). Rows removed at Phase 2. -->
+     panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20; PER-TYPE placement refinement
+     31941cc on 2026-06-20 — placement.{fixed,panelFollowing,globalDynamic}, 3 global-⚙ controls,
+     placementForSpawn per-type resolver, log dev-wbspawn-pertype-2026-06-20.md). Rows removed at Phase 2. -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, merged dc3a732). -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, orphan-fix merged 62974f6). -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, placement merged 73f32f0). -->

@@ -15,6 +15,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-wbspawn (per-type placement) locks RELEASED 2026-06-20T02:40:00Z — MERGED + PUSHED. Per-type
+     workbench spawn placement: replaced single placementMode with placement.{fixed, panelFollowing,
+     globalDynamic} (defaults panel-bottom/panel-bottom/screen-bottom); 3 labeled controls in global
+     top-bar ⚙ (GlobalSettingsDialog); placementForSpawn(placement, kind) resolves spawn TYPE at
+     handleOpenWorkbench (panel-dynamic→panelFollowing, else→fixed); global-dynamic Workbench is re-add
+     only (panel-bottom degenerates to screen-bottom, helper text states fallback). Files edited:
+     PianoidTuner.js, useSettings.js, GlobalSettingsDialog.jsx, ObjectInspector.jsx (placement:{hidden}),
+     workbenchPlacement.js (+placementForSpawn), workbenchPlacement.test.js (+per-type suite). Jest
+     1293/1293 green, CRA build clean. MERGED --no-ff to PianoidTunner dev (off dc3a732; feature commit
+     0a90c61; merge 31941cc) + PUSHED origin/dev (dc3a732..31941cc); :3000 restarted (serving 31941cc,
+     HTTP 200). Frontend-only, NO CUDA. User live-tests. Docs (OVERVIEW Workbench-types/spawn-placement
+     + settings-table row) + log dev-wbspawn-pertype-2026-06-20.md on PianoidInstall master. -->
 <!-- dev-wbspawn locks RELEASED 2026-06-20T01:30:00Z at Step 10a Phase 2 (MERGED + PUSHED, user M2 + Q-A
      confirmed). Workbench 3rd type (panel-specific dynamic) + placement-setting-to-global, MERGED to
      PianoidTunner dev dc3a732 (--no-ff, off 5b57d08; commits cfad905 + 8eb33f1) + PUSHED origin/dev
