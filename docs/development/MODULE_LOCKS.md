@@ -15,6 +15,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-wbspawn locks RELEASED 2026-06-20T01:30:00Z at Step 10a Phase 2 (MERGED + PUSHED, user M2 + Q-A
+     confirmed). Workbench 3rd type (panel-specific dynamic) + placement-setting-to-global, MERGED to
+     PianoidTunner dev dc3a732 (--no-ff, off 5b57d08; commits cfad905 + 8eb33f1) + PUSHED origin/dev
+     (5b57d08..dc3a732); :3000 restarted (serving dc3a732). Held: PianoidTuner.js, useCurrentValues.js,
+     useSettings.js (not edited), ObjectInspector.jsx (+ NEW GlobalSettingsDialog.jsx, ToolBar.jsx,
+     workbenchTitle.js + 2 test files). PANEL-SPECIFIC DYNAMIC type: {kind,scopeGroupe} binding +
+     groupe-gated re-target folded into updateDefaultWorkbench (follows active param within its panel,
+     frozen out-of-panel); panel-toolbar Timeline button on all 6 panels (row-based keep fixed on per-row
+     icons; matrix Feedin/Feedback/Sound Channels panel-following-only per M2). "New Workbench Placement"
+     moved to global top-bar ⚙ (GlobalSettingsDialog, was-dead button wired), removed from pane gear.
+     Jest 126/1289 green (+9), CRA build clean. Frontend-only, NO CUDA. User live-tests. Docs (OVERVIEW
+     Workbench-types) + log on PianoidInstall master. -->
+| <!-- (none active for dev-wbspawn) --> | | | |
 <!-- dev-gausscp locks RELEASED 2026-06-20 at Step 10a Phase 2 (team-lead pre-authorized merge-after-verify).
      Held: ExcitationProperties.jsx, GaussEditor.jsx, GaussCell.jsx (locked, not edited), GaussCopyPasteButtons.jsx.
      Reverse gauss-copy flow → Copy-first selection mode + one-click capture + top-left whole-table selector.

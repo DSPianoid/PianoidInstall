@@ -24,9 +24,12 @@
 |-------|------|-----|---------|--------|
 | dev-msave | Mosaic "save current config under current name" (update active in place) | [log](logs/dev-msave-2026-06-17-124652.md) | 2026-06-17 | In Progress |
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
-| dev-wbspawn | Workbench spawn placement — fix relocate bug + new bottom-of-panel mode + global setting | [log](logs/dev-wbspawn-2026-06-17-114341.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
-| dev-wbspawn | Fix fixed-workbench orphaned-after-layout-switch (gate prune effect + auto-snapshot on spawn) | [log](logs/dev-wbspawn-orphan-2026-06-19-141000.md) | 2026-06-19 | In Progress |
+<!-- dev-wbspawn workbench work all MERGED to PianoidTunner dev (placement+orphan-fix earlier; 3rd type
+     panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20). Rows removed at Phase 2. -->
+<!-- dev-wbspawn ROW REMOVED (Phase 2, merged dc3a732). -->
+<!-- dev-wbspawn ROW REMOVED (Phase 2, orphan-fix merged 62974f6). -->
+<!-- dev-wbspawn ROW REMOVED (Phase 2, placement merged 73f32f0). -->
 <!-- dev-gausscp COMPLETED 2026-06-20 (Step 10a Phase 2, team-lead pre-authorized merge-after-verify). Reversed the
      gauss copy/paste selection flow: clicking COPY now ARMS a selection mode (dashed cue + banner + pressed button);
      the next single click on a cell / chart-column / param-row / NEW top-left whole-table "ALL" corner captures that
