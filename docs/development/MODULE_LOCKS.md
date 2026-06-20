@@ -15,6 +15,32 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-ce3c locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, session-host.ts,
+     test/control-plane.test.ts}. Supervisor control-plane Phase A3 (P-A3) = the restart/lifecycle menu actions, each a
+     CONTROL_ACTIONS row + a `ctl:*` handler, ALL destructive → a CONFIRM sub-menu (the flush pattern): `restart` (GRACEFUL —
+     drain + handoff snapshot + relaunch preserving the channel; intent {kind:restart,drain:true,handoff?}) · `kill` (HARD —
+     no drain, for a wedged child; {kind:kill,drain:false}) · `clear`/`new` (fresh orchestrator context, NO handoff = a clean
+     slate; {kind:clear,drain:false}) · `handoff` (NON-destructive — capture a state SNAPSHOT now into the supervisor-owned
+     in-memory store, the note a future restart/resume re-injects) · `resume` (re-inject the last snapshot; {kind:resume,handoff})
+     + the `change-model` restart wiring (a model pick → CONFIRM ctl:model-set-confirm:<model> → set the next-launch Tier-1 model
+     + restart on it with drain+handoff so context carries across the switch; {kind:change-model,model,drain:true,handoff}).
+     ★HOST-SAFETY: the actual restart/relaunch is performed ONLY through a NEW optional injected dep `restartControl(intent)`
+     (RestartIntent {kind,drain,handoff?,model?} → RestartControlResult {ok,detail?}) — dormant/unavailable when unwired ⇒
+     NOTHING restarts; index.ts wires it AT ACTIVATION (NOT this agent) to a closure composing the EXISTING requestRestart
+     (confirm/rate-limit/audit graceful path) + clearContext — the safety gate is NOT bypassed; the LifecycleManager stays the
+     sole restart EXECUTOR. control-command.ts = PURE (+rows restart/kill/clear/handoff/resume + buildConfirmMenu +
+     buildModelSetConfirmMenu + the confirm-text consts; 418→484 LOC, still <YELLOW). session-host.ts WIRES it (+RestartIntent/
+     RestartControlFn/RestartControlResult types + the optional restartControl opt + the handoffSnapshot store [SOLE WRITER =
+     the host] + the switch cases + handlers controlRestart/controlChangeModel/controlHandoff/buildRestartIntent/
+     composeHandoffNote/restartOkMessage; 1820→2009 LOC, pre-existing RED, additive within its inbound-routing/control concern).
+     `clear` landed HERE (moved from A2). Additive + gated to the new `ctl:*` actions → non-control inbound BYTE-FOR-BYTE.
+     +13 tests (3 pure builder + 10 SessionHost), full supervisor node:test 524/524 (511 baseline +13), tsc clean (built ONLY
+     to throwaway dist-test-a3[+-base], removed — prod dist/ NOT regenerated [session-host.js/index.js mtime 2026-06-19 20:21:52
+     unchanged]; the live supervisor NEVER restarted/killed/relaunched — FAKE restartControl only RECORDS the intent, driver.starts
+     stays constant; NO /api/lifecycle/* call, NO restart script). README doc-deferred (dev-vio1 holds the lock; dev-ctl1's
+     deferral note extended with the A2+A3 lines). Proposal: P-A3 marked SHIPPED + the restart/handoff/change-model design
+     documented. SHA in the session log. -->
 <!-- dev-ctl2 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, session-host.ts,
      test/control-plane.test.ts}. Supervisor control-plane Phase A2 (P-A2) = channel↔panel parity menu actions, each a

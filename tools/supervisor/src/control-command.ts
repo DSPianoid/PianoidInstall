@@ -134,8 +134,20 @@ export interface ControlActionSpec {
  * (DESTRUCTIVE → a confirm sub-menu pivot; only the confirm drops pending inbound),
  * `log` (recent capture-buffer activity), `approvals` (list pending permission asks
  * with per-ask Allow/Deny buttons resolving via the SAME permission path as the
- * `perm:*` buttons). `clear` is DEFERRED to A3 (it is a child-restart/lifecycle
- * variant, not panel parity).
+ * `perm:*` buttons).
+ *
+ * Phase-A3 ACTIONS (the restart/lifecycle family — each performs (or arms) an
+ * orchestrator-child restart through the supervisor's EXISTING lifecycle restart
+ * machinery, so they work out-of-band when the child is wedged): `restart`
+ * (GRACEFUL — drain + handoff snapshot + relaunch preserving the channel), `kill`
+ * (HARD — no drain, for a wedged child), `clear`/`new` (fresh orchestrator context,
+ * channel preserved, NO handoff), `handoff` (capture a state snapshot NOW — the note
+ * a future restart re-injects), `resume` (re-inject the last snapshot via a restart).
+ * `restart`/`kill`/`clear`/`resume` are ALL DESTRUCTIVE (they reset the orchestrator
+ * context) → each is a confirm sub-menu pivot (CP7); `handoff` is non-destructive
+ * (it only records a snapshot) → it runs directly. `change-model` is now a REAL
+ * action (A3 finishes its A1 scaffold): the model sub-menu's pick (`model-set`)
+ * confirms, then sets the Tier-1 model + restarts on it.
  */
 export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
   { id: 'status', label: '📊 Status' },
@@ -144,7 +156,12 @@ export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
   { id: 'log', label: '📜 Log' },
   { id: 'reconnect', label: '🔌 Reconnect' },
   { id: 'flush', label: '🧹 Flush', submenu: true },
-  { id: 'change-model', label: '🤖 Change model', submenu: true, scaffold: true },
+  { id: 'restart', label: '🔄 Restart', submenu: true },
+  { id: 'kill', label: '💥 Kill (hard)', submenu: true },
+  { id: 'clear', label: '🧠 Clear / New', submenu: true },
+  { id: 'handoff', label: '📌 Handoff (snapshot)' },
+  { id: 'resume', label: '⏪ Resume (last snapshot)', submenu: true },
+  { id: 'change-model', label: '🤖 Change model', submenu: true },
   { id: 'help', label: '❓ Help' },
 ];
 
@@ -170,7 +187,8 @@ export function buildControlMenu(): InlineButton[] {
  * Build the `change-model` SUB-MENU inline keyboard: one button per Tier-1 model
  * choice (`ctl:model-set:<model>`) plus a back button (`ctl:menu`). The currently-
  * active model (if known) is marked with a check so the operator sees the current
- * selection. Pure.
+ * selection. A pick opens the model-set CONFIRM step ({@link buildModelSetConfirmMenu})
+ * — applying a model restarts the orchestrator (A3), so it is confirmed first. Pure.
  */
 export function buildModelSubmenu(currentModel?: string): InlineButton[] {
   const buttons: InlineButton[] = CONTROL_MODEL_CHOICES.map((m) => ({
@@ -223,6 +241,54 @@ export function approvalsMenuText(pending: readonly { code: string; toolName: st
   const lines = pending.map((p) => `• ${p.toolName} (${p.code})`);
   return `🔐 Pending approvals (${pending.length}) — tap Allow/Deny:\n${lines.join('\n')}`;
 }
+
+/**
+ * Build a generic DESTRUCTIVE-CONFIRM sub-menu inline keyboard (A3) for a lifecycle
+ * action: a Confirm button (`ctl:<action>-confirm`) + a Cancel/back button
+ * (`ctl:menu`). Used by `restart` / `kill` / `clear` / `resume` — each resets the
+ * orchestrator context, so a bare tap opens this confirm step and only the
+ * `<action>-confirm` tap actually performs it (CP7 — destructive actions confirmed,
+ * mirroring the flush + change-model confirms). Pure.
+ */
+export function buildConfirmMenu(action: string): InlineButton[] {
+  return [
+    { text: '✅ Confirm', callbackData: controlCallbackData(`${action}-confirm`) },
+    { text: '⬅️ Cancel', callbackData: controlCallbackData('menu') },
+  ];
+}
+
+/**
+ * Build the `model-set` CONFIRM sub-menu inline keyboard (A3): a Confirm button that
+ * carries the chosen model (`ctl:model-set-confirm:<model>`) + a back button to the
+ * model sub-menu (`ctl:change-model`). Applying a model RESTARTS the orchestrator, so
+ * the pick is confirmed before it acts (CP7). Pure.
+ */
+export function buildModelSetConfirmMenu(model: string): InlineButton[] {
+  return [
+    { text: `✅ Restart on ${model}`, callbackData: controlCallbackData('model-set-confirm', model) },
+    { text: '⬅️ Back', callbackData: controlCallbackData('change-model') },
+  ];
+}
+
+/** The `restart` (graceful) CONFIRM sub-menu header text. */
+export const CONTROL_RESTART_CONFIRM_TEXT =
+  '🔄 Restart the orchestrator GRACEFULLY? It drains the current turn, captures a handoff ' +
+  'snapshot, then relaunches with a fresh context (the conversation/channel is preserved).';
+
+/** The `kill` (hard) CONFIRM sub-menu header text. */
+export const CONTROL_KILL_CONFIRM_TEXT =
+  '💥 HARD-restart the orchestrator NOW? No drain (for a wedged child) — the in-flight turn ' +
+  'is abandoned and the context is reset (the conversation/channel is preserved).';
+
+/** The `clear`/`new` CONFIRM sub-menu header text. */
+export const CONTROL_CLEAR_CONFIRM_TEXT =
+  '🧠 Start a FRESH orchestrator context? Clears the current context with NO handoff note ' +
+  '(a clean slate); the conversation/channel is preserved.';
+
+/** The `resume` CONFIRM sub-menu header text. */
+export const CONTROL_RESUME_CONFIRM_TEXT =
+  '⏪ Resume from the last handoff snapshot? Restarts the orchestrator and re-injects the ' +
+  'snapshot you captured (the conversation/channel is preserved).';
 
 /** The control-plane MENU header text (rendered with {@link buildControlMenu}). */
 export const CONTROL_MENU_TEXT =

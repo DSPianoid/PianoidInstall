@@ -72,9 +72,15 @@ import {
   CONTROL_MENU_TEXT,
   CONTROL_MODEL_MENU_TEXT,
   CONTROL_FLUSH_CONFIRM_TEXT,
+  CONTROL_RESTART_CONFIRM_TEXT,
+  CONTROL_KILL_CONFIRM_TEXT,
+  CONTROL_CLEAR_CONFIRM_TEXT,
+  CONTROL_RESUME_CONFIRM_TEXT,
   buildControlMenu,
   buildModelSubmenu,
+  buildModelSetConfirmMenu,
   buildFlushConfirmMenu,
+  buildConfirmMenu,
   buildApprovalsSubmenu,
   approvalsMenuText,
   controlHelpText,
@@ -209,6 +215,54 @@ export interface RoleDispatchResult {
  */
 export type RoleDispatchFn = (role: string, task: string) => Promise<RoleDispatchResult>;
 
+/**
+ * ★ A3 CONTROL PLANE — a structured orchestrator-child RESTART intent the `/control`
+ * restart-family actions (`restart`/`kill`/`clear`/`resume`/`change-model`) hand to the
+ * INJECTED {@link RestartControlFn}. It says WHAT restart to perform; the injected
+ * function (wired by index.ts at activation) DECIDES HOW — composing the EXISTING
+ * supervisor restart machinery (the user-confirm + rate-limit + audit
+ * {@link SessionHost.requestRestart} graceful path, or {@link SessionHost.clearContext}
+ * for a clean slate). The handlers never touch the lifecycle directly, so with the
+ * function UNWIRED (the dormant default + the menu-routing tests) NOTHING restarts.
+ */
+export interface RestartIntent {
+  /**
+   * The restart flavour:
+   *  - `restart` — GRACEFUL: drain the in-flight turn, capture a handoff snapshot, relaunch (channel preserved).
+   *  - `kill`    — HARD: no drain (a wedged child); relaunch immediately (channel preserved).
+   *  - `clear`   — fresh orchestrator context with NO handoff note (a clean slate).
+   *  - `resume`  — relaunch and re-inject the supplied handoff snapshot.
+   *  - `change-model` — set the next-launch Tier-1 model, then relaunch (drain + handoff so context carries across the switch).
+   */
+  kind: 'restart' | 'kill' | 'clear' | 'resume' | 'change-model';
+  /** Drain the in-flight turn before relaunching? true for graceful restart/change-model; false for kill. */
+  drain: boolean;
+  /** The handoff note to re-inject on the fresh session's first turn (omitted for a clean `clear`). */
+  handoff?: string;
+  /** The Tier-1 orchestrator model to set for the next launch (change-model only). */
+  model?: string;
+}
+
+/** The outcome an injected {@link RestartControlFn} reports back to the control handler. */
+export interface RestartControlResult {
+  /** True iff the restart was accepted/queued (false ⇒ refused, with a reason). */
+  ok: boolean;
+  /** A short human-readable status (e.g. "queued", "rate-limited", or an error). */
+  detail?: string;
+}
+
+/**
+ * ★ A3 — the INJECTED restart capability. Given a {@link RestartIntent}, perform (or arm)
+ * the orchestrator-child restart through the supervisor's existing lifecycle machinery and
+ * report the outcome. index.ts wires this AT ACTIVATION to a closure composing
+ * {@link SessionHost.requestRestart} (the confirm/rate-limit/audit graceful path) +
+ * {@link SessionHost.clearContext}; the control handlers only REQUEST through it. When ABSENT
+ * (the dormant default), the restart actions report unavailable and NOTHING restarts —
+ * byte-for-byte unchanged, and the live host is never torn down by a test. NEVER throws for
+ * an operational refusal (it returns `ok:false`).
+ */
+export type RestartControlFn = (intent: RestartIntent) => Promise<RestartControlResult> | RestartControlResult;
+
 export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
@@ -307,6 +361,18 @@ export interface SessionHostOptions {
    * records are shape-compatible with {@link ControlLogRecord} (`{event}`).
    */
   captureRecent?: () => readonly ControlLogRecord[];
+  /**
+   * ★ A3 CONTROL PLANE — ORCHESTRATOR RESTART (optional). The supervisor-side restart
+   * capability behind the `/control` restart-family actions (`restart`/`kill`/`clear`/
+   * `resume`/`change-model`). When wired (by index.ts at ACTIVATION), tapping a confirmed
+   * restart action hands a {@link RestartIntent} here; the closure composes the EXISTING
+   * restart machinery (the confirm/rate-limit/audit {@link SessionHost.requestRestart}
+   * graceful path, or {@link SessionHost.clearContext} for a clean slate) and never bypasses
+   * the safety gate. When ABSENT (the dormant default), the restart actions report they are
+   * unavailable and NOTHING restarts — so the live host is NEVER torn down by a test and the
+   * switch-OFF behavior is byte-for-byte unchanged. Best-effort; returns `{ok, detail?}`.
+   */
+  restartControl?: RestartControlFn;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -474,6 +540,23 @@ export class SessionHost {
   private readonly flushChannel: (() => { ok: boolean; dropped?: number; error?: string }) | null;
   private readonly captureRecent: (() => readonly ControlLogRecord[]) | null;
   /**
+   * ★ A3 CONTROL PLANE — the INJECTED restart capability (null when not wired — the
+   * dormant default). When set, the confirmed `/control` restart-family actions hand a
+   * {@link RestartIntent} here; when null, those actions report unavailable and NOTHING
+   * restarts. index.ts wires this ONLY at activation. P2: the host stays a thin wirer; the
+   * LifecycleManager remains the sole restart EXECUTOR (the closure routes back through the
+   * host's own {@link requestRestart}/{@link clearContext}).
+   */
+  private readonly restartControl: RestartControlFn | null;
+  /**
+   * ★ A3 CONTROL PLANE — the last HANDOFF SNAPSHOT the operator captured via the `handoff`
+   * action (the note a future `restart`/`resume` re-injects), or null if none captured this
+   * session. SOLE OWNER of this datum (P1): only `handoff` writes it; `resume` (and a
+   * graceful `restart`) read it. In-memory (resets on a process restart) — the supervisor
+   * owns the store, reusing the existing handoffNote/SESSION_HANDOFF re-injection mechanism.
+   */
+  private handoffSnapshot: { note: string; capturedAt: number } | null = null;
+  /**
    * CONTROL PLANE — supervisor start wall-clock (ms), set in {@link start}. SOLE
    * OWNER of this datum (P1): only `start()` writes it; the `/control` `status`
    * action reads it (now − startedAt = uptime). 0 until started.
@@ -501,6 +584,7 @@ export class SessionHost {
     this.reconnectChannel = opts.reconnectChannel ?? null;
     this.flushChannel = opts.flushChannel ?? null;
     this.captureRecent = opts.captureRecent ?? null;
+    this.restartControl = opts.restartControl ?? null;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -874,10 +958,11 @@ export class SessionHost {
    *      - `ping`   → liveness round-trip → edit to alive/idle/in-flight + ms;
    *      - `help`   → edit to the help text (the action list);
    *      - `change-model` → render the model SUB-MENU (a NEW message — an edit can't
-   *        carry a fresh keyboard); the model choices are a SCAFFOLD (their restart
-   *        wiring lands in a later phase);
-   *      - `model-set:<model>` → report the choice is recorded but the restart is
-   *        wired in a later phase (NO live restart in Phase 1);
+   *        carry a fresh keyboard);
+   *      - `model-set:<model>` → render the model-set CONFIRM sub-menu (applying a
+   *        model RESTARTS the orchestrator → confirmed first, CP7);
+   *      - `model-set-confirm:<model>` → set the Tier-1 model + restart on it (drain +
+   *        handoff so context carries across the switch) via the injected restartControl;
    *      - `menu` → re-render the main menu (the submenu "back").
    *   A2 channel↔panel parity (each runs the SAME out-of-band supervisor logic the
    *   loopback panel exposes; works when the orchestrator child is dead/stuck):
@@ -888,6 +973,16 @@ export class SessionHost {
    *      - `approvals` → render the approvals SUB-MENU (a NEW message) with per-ask
    *        Allow/Deny buttons; `appr-allow:<code>` / `appr-deny:<code>` resolve that
    *        ask via the SAME permission path the `perm:*` buttons use (operatorDecide).
+   *   A3 restart/lifecycle family (each performed ONLY through the injected
+   *   restartControl — UNWIRED ⇒ reports unavailable, NOTHING restarts; ALL destructive
+   *   ones gated behind a CONFIRM sub-menu, CP7):
+   *      - `restart` / `kill` / `clear` / `resume` → render the DESTRUCTIVE-confirm
+   *        SUB-MENU (a NEW message); a bare tap does NOT restart;
+   *      - `restart-confirm` (graceful: drain+handoff) / `kill-confirm` (hard: no drain)
+   *        / `clear-confirm` (fresh context, no handoff) / `resume-confirm` (re-inject the
+   *        last snapshot) → request that restart via restartControl → edit the outcome;
+   *      - `handoff` → capture a state snapshot NOW (non-destructive — no restart) → edit
+   *        the confirmation; the note a future restart/resume re-injects.
    * An unknown action is ACK'd + ignored (never crashes, never a typed turn).
    */
   private async handleControlCallback(
@@ -913,12 +1008,49 @@ export class SessionHost {
         await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.opts.model));
         return;
       case 'model-set':
-        await this.editControlResult(
-          callback,
-          `🤖 Model "${ctl.arg ?? '?'}" selected. Applying it restarts the orchestrator — ` +
-            `that wiring lands in a later phase (the change-model action is a scaffold for now), ` +
-            `so nothing was restarted.`,
+        // A pick RESTARTS the orchestrator → open the confirm step (a NEW message). The
+        // bare pick does NOT restart. A missing model arg falls back to the model sub-menu.
+        if (!ctl.arg) {
+          await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.opts.model));
+          return;
+        }
+        await this.sendControlMenu(
+          `🤖 Switch the orchestrator to "${ctl.arg}"? This sets the Tier-1 model for the next ` +
+            `launch and RESTARTS (drain + handoff so context carries across the switch).`,
+          buildModelSetConfirmMenu(ctl.arg),
         );
+        return;
+      case 'model-set-confirm':
+        await this.editControlResult(callback, await this.controlChangeModel(ctl.arg));
+        return;
+      // ── A3 restart / lifecycle family (all destructive → confirm sub-menus) ────
+      case 'restart':
+        await this.sendControlMenu(CONTROL_RESTART_CONFIRM_TEXT, buildConfirmMenu('restart'));
+        return;
+      case 'restart-confirm':
+        await this.editControlResult(callback, await this.controlRestart('restart'));
+        return;
+      case 'kill':
+        await this.sendControlMenu(CONTROL_KILL_CONFIRM_TEXT, buildConfirmMenu('kill'));
+        return;
+      case 'kill-confirm':
+        await this.editControlResult(callback, await this.controlRestart('kill'));
+        return;
+      case 'clear':
+        await this.sendControlMenu(CONTROL_CLEAR_CONFIRM_TEXT, buildConfirmMenu('clear'));
+        return;
+      case 'clear-confirm':
+        await this.editControlResult(callback, await this.controlRestart('clear'));
+        return;
+      case 'resume':
+        await this.sendControlMenu(CONTROL_RESUME_CONFIRM_TEXT, buildConfirmMenu('resume'));
+        return;
+      case 'resume-confirm':
+        await this.editControlResult(callback, await this.controlRestart('resume'));
+        return;
+      case 'handoff':
+        // Non-destructive — captures a snapshot NOW (no restart). Edit the confirmation in.
+        await this.editControlResult(callback, this.controlHandoff());
         return;
       // ── A2 channel↔panel parity ───────────────────────────────────────────────
       case 'reconnect':
@@ -1015,6 +1147,141 @@ export class SessionHost {
     const resolved = this.operatorDecide(verdict, code);
     if (resolved) return `${icon} ${verdict === 'allow' ? 'Allowed' : 'Denied'} (${code}).`;
     return `${icon} No pending approval matched ${code} (already resolved or expired).`;
+  }
+
+  /**
+   * A3 `restart`/`kill`/`clear`/`resume` CONFIRM handler: build the {@link RestartIntent}
+   * for the (already-confirmed) action and hand it to the INJECTED restartControl. The
+   * supervisor performs the restart ONLY through that dep, which composes the EXISTING
+   * lifecycle restart machinery (the confirm/rate-limit/audit graceful path / clearContext)
+   * — the handler never touches the lifecycle directly, so UNWIRED ⇒ nothing restarts. Maps:
+   *   - `restart` → GRACEFUL: drain=true + the last handoff snapshot (if any);
+   *   - `kill`    → HARD: drain=false (a wedged child) + the snapshot (best-effort);
+   *   - `clear`   → fresh context: drain=false + NO handoff (a clean slate);
+   *   - `resume`  → re-inject the last snapshot (requires one to have been captured).
+   * Returns the surfaced outcome (queued / unavailable / refused / no-snapshot).
+   */
+  private async controlRestart(kind: 'restart' | 'kill' | 'clear' | 'resume'): Promise<string> {
+    if (!this.restartControl) {
+      return '⚠️ Restart is not available (the restart capability is not wired in this build).';
+    }
+    // `resume` requires a previously-captured snapshot to re-inject.
+    if (kind === 'resume' && !this.handoffSnapshot) {
+      return '⏪ No handoff snapshot to resume from — capture one first with the Handoff action.';
+    }
+    const intent = this.buildRestartIntent(kind);
+    this.publishLifecycle('control_restart_requested', {
+      kind,
+      drain: intent.drain,
+      hasHandoff: !!intent.handoff,
+      ...(intent.model ? { model: intent.model } : {}),
+    });
+    try {
+      const r = await this.restartControl(intent);
+      if (r.ok) return this.restartOkMessage(kind, r.detail);
+      return `⚠️ Restart refused: ${r.detail ?? '(unknown reason)'}`;
+    } catch (err) {
+      this.logger.warn('control restart threw', { kind, err: String(err) });
+      return `⚠️ Restart failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * A3 `model-set-confirm:<model>` handler: set the Tier-1 orchestrator model for the next
+   * launch AND restart on it (drain + handoff so context carries across the model switch),
+   * through the injected restartControl (which owns the config mutation + the restart). The
+   * handler only passes the chosen model through the intent. UNWIRED ⇒ unavailable; an
+   * unknown/empty model is rejected.
+   */
+  private async controlChangeModel(model?: string): Promise<string> {
+    if (!model) return '🤖 No model supplied — pick one from the change-model menu.';
+    if (!this.restartControl) {
+      return '🤖 Change-model is not available (the restart capability is not wired in this build).';
+    }
+    const handoff = this.composeHandoffNote();
+    const intent: RestartIntent = {
+      kind: 'change-model',
+      drain: true,
+      model,
+      ...(handoff ? { handoff } : {}),
+    };
+    this.publishLifecycle('control_change_model_requested', { model, drain: true, hasHandoff: !!intent.handoff });
+    try {
+      const r = await this.restartControl(intent);
+      if (r.ok) return `🤖 Switching to "${model}" and restarting${r.detail ? ` (${r.detail})` : ''}. The conversation continues.`;
+      return `🤖 Change-model refused: ${r.detail ?? '(unknown reason)'}`;
+    } catch (err) {
+      this.logger.warn('control change-model threw', { model, err: String(err) });
+      return `🤖 Change-model failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * A3 `handoff` handler (non-destructive): capture a state SNAPSHOT now — the note a future
+   * `restart`/`resume` re-injects. The supervisor owns the in-memory store (SOLE WRITER, P1);
+   * it reuses the existing handoffNote/SESSION_HANDOFF re-injection mechanism (the same note
+   * shape requestRestart/runRestartConfirm inject on the fresh first turn). Does NOT restart.
+   */
+  private controlHandoff(): string {
+    const note = this.composeHandoffNote();
+    this.handoffSnapshot = { note, capturedAt: Date.now() };
+    this.publishLifecycle('control_handoff_captured', { length: note.length });
+    this.logger.info('control handoff snapshot captured', { length: note.length });
+    return (
+      '📌 Handoff snapshot captured. The next Restart or Resume will re-inject it into the ' +
+      'fresh orchestrator context. (Capturing again overwrites it.)'
+    );
+  }
+
+  /**
+   * Build the {@link RestartIntent} for a confirmed restart-family action. The handoff note
+   * for `restart`/`kill`/`resume` is the captured snapshot (if any); `clear` deliberately
+   * carries NO handoff (a clean slate). Kept separate so the mapping is unit-testable.
+   */
+  private buildRestartIntent(kind: 'restart' | 'kill' | 'clear' | 'resume'): RestartIntent {
+    const note = this.handoffSnapshot?.note;
+    switch (kind) {
+      case 'restart':
+        return { kind: 'restart', drain: true, ...(note ? { handoff: note } : {}) };
+      case 'kill':
+        return { kind: 'kill', drain: false, ...(note ? { handoff: note } : {}) };
+      case 'clear':
+        return { kind: 'clear', drain: false }; // a clean slate — no handoff
+      case 'resume':
+        // `resume` is only reached with a snapshot present (guarded in controlRestart).
+        return { kind: 'resume', drain: false, ...(note ? { handoff: note } : {}) };
+    }
+  }
+
+  /**
+   * Compose the handoff note the snapshot stores / a graceful restart re-injects: the
+   * operator-captured snapshot is just the current control-plane status (the supervisor has no
+   * privileged window into the orchestrator's in-context state — it relays what it can observe).
+   * This is the SAME status the `status` action shows, framed as a handoff. Pure-ish (reads
+   * supervisor telemetry only; no child interaction → works when the child is dead).
+   */
+  private composeHandoffNote(): string {
+    const snap = this.controlStatusSnapshot();
+    return (
+      `Operator-captured handoff (control plane). Prior orchestrator state: ` +
+      `model=${snap.model ?? '(default)'}, restarts=${snap.restarts}, ` +
+      `pending-approvals=${snap.pendingApprovals}. Resume the prior task from the conversation above.`
+    );
+  }
+
+  /** The success message for a confirmed restart action (per kind). */
+  private restartOkMessage(kind: 'restart' | 'kill' | 'clear' | 'resume', detail?: string): string {
+    const tail = detail ? ` (${detail})` : '';
+    switch (kind) {
+      case 'restart':
+        return `🔄 Graceful restart requested${tail}. Draining, then relaunching with the handoff — the conversation continues.`;
+      case 'kill':
+        return `💥 Hard restart requested${tail}. Relaunching now (no drain) — the conversation continues.`;
+      case 'clear':
+        return `🧠 Fresh context requested${tail}. Relaunching with a clean slate — the conversation continues.`;
+      case 'resume':
+        return `⏪ Resume requested${tail}. Relaunching and re-injecting the last snapshot — the conversation continues.`;
+    }
   }
 
   /** A short toast for a tapped control action (the answerCallback spinner text). */

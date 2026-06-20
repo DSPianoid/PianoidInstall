@@ -1,21 +1,26 @@
 /**
- * OPERATOR CONTROL PLANE (`/control`) — Phase 1 tests.
+ * OPERATOR CONTROL PLANE (`/control`) — Phase 1 + A2 + A3 tests.
  *
  * Covers the single supervisor-intercepted `/control` command, the native
- * inline-keyboard MENU, the extensible `ctl:*` callback ROUTER, and the v1
- * actions (status / ping / help) + the change-model sub-menu scaffold. Proven
- * deterministically with the FakeSessionDriver + a capturing send (the
- * voice-modality / permission-buttons idioms) — no SDK, no network, no real
- * Telegram, no live process restart.
+ * inline-keyboard MENU, the extensible `ctl:*` callback ROUTER, and the actions:
+ * Phase-1 read-only (status / ping / help) + the change-model sub-menu; A2
+ * channel↔panel parity (reconnect / flush-confirm / log / approvals allow-deny); and
+ * A3 the restart/lifecycle family (restart / kill / clear / handoff / resume + the
+ * change-model restart wiring). Proven deterministically with the FakeSessionDriver +
+ * a capturing send (the voice-modality / permission-buttons idioms) — no SDK, no
+ * network, no real Telegram, and (A3 host-safety) NO real process restart: every
+ * restart is REQUESTED via an injected FAKE restartControl that only RECORDS the
+ * intent, so `driver.starts` stays constant and the live host is never torn down.
  *
  * Two layers:
  *   1. control-command.ts (PURE) — the command matcher, the `ctl:*` callback
- *      scheme parse, the menu builders, the action registry, and the
+ *      scheme parse, the menu + confirm builders, the action registry, and the
  *      active/stuck/dead classifier + status formatter (faked StatusSnapshots).
  *   2. SessionHost — `/control` is intercepted + ACKed + renders the menu and is
- *      NOT forwarded; each `ctl:*` tap routes to the right result; a non-control
- *      message is a normal turn; a `perm:*` callback still resolves (the control
- *      router does not eat it).
+ *      NOT forwarded; each `ctl:*` tap routes to the right result; the destructive
+ *      A3 actions REQUIRE a confirm (a bare tap does nothing) and request the restart
+ *      with the right params (drain/handoff/model) via the injected restartControl; a
+ *      non-control message is a normal turn; a `perm:*` callback still resolves.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,7 +31,9 @@ import {
   controlCallbackData,
   buildControlMenu,
   buildModelSubmenu,
+  buildModelSetConfirmMenu,
   buildFlushConfirmMenu,
+  buildConfirmMenu,
   buildApprovalsSubmenu,
   approvalsMenuText,
   controlHelpText,
@@ -39,10 +46,15 @@ import {
   CONTROL_MENU_TEXT,
   CONTROL_MODEL_MENU_TEXT,
   CONTROL_FLUSH_CONFIRM_TEXT,
+  CONTROL_RESTART_CONFIRM_TEXT,
+  CONTROL_KILL_CONFIRM_TEXT,
+  CONTROL_CLEAR_CONFIRM_TEXT,
+  CONTROL_RESUME_CONFIRM_TEXT,
   type StatusSnapshot,
 } from '../control-command.js';
 import { ChannelPermission } from '../channel-permission.js';
 import { SessionHost } from '../session-host.js';
+import type { RestartControlFn, RestartIntent } from '../session-host.js';
 import { IoBus } from '../io-bus.js';
 import { Logger } from '../logger.js';
 import { FakeSessionDriver } from './fake-session-driver.js';
@@ -143,11 +155,15 @@ test('buildModelSubmenu: one button per model choice (ctl:model-set:<m>) + a bac
   assert.deepEqual(parseControlCallback(sub.at(-1)!.callbackData), { action: 'menu' });
 });
 
-test('controlHelpText lists every action + flags the scaffold ones', () => {
+test('controlHelpText lists every action (no scaffold remains after A3)', () => {
   const help = controlHelpText();
   for (const a of CONTROL_ACTIONS) assert.ok(help.includes(a.label), `help lists ${a.label}`);
-  // change-model is a scaffold → flagged.
-  assert.match(help, /Change model.*later phase/s);
+  // A3 finished change-model's wiring → NO action is a "later phase" scaffold anymore.
+  assert.equal(/later phase/.test(help), false, 'no scaffold note after A3');
+  // The A3 restart-family actions are listed.
+  for (const label of ['Restart', 'Kill', 'Clear', 'Handoff', 'Resume']) {
+    assert.ok(help.includes(label), `help lists ${label}`);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,8 +175,8 @@ test('A2: the registry includes reconnect / flush / log / approvals; flush is a 
   for (const id of ['reconnect', 'flush', 'log', 'approvals']) assert.ok(ids.includes(id), `${id} in registry`);
   // flush is DESTRUCTIVE → a submenu pivot (so a tap opens the confirm, not the action).
   assert.equal(CONTROL_ACTIONS.find((a) => a.id === 'flush')!.submenu, true);
-  // clear is DEFERRED to A3 — NOT in the registry yet.
-  assert.equal(ids.includes('clear'), false, 'clear is deferred to A3');
+  // clear LANDED in A3 (it was deferred from A2) — now a destructive submenu pivot.
+  assert.ok(ids.includes('clear'), 'clear landed in A3');
   // Every registry row's callbackData round-trips (incl. the new ones, ≤64 bytes).
   for (const a of CONTROL_ACTIONS) {
     const data = controlCallbackData(a.id);
@@ -227,6 +243,58 @@ test('A2 formatControlLog: compact inbound/outbound/delivery lines, newest last,
   assert.match(capped, /last 5/);
   assert.match(capped, /m29/);
   assert.equal(/m24/.test(capped), false, 'older than the last 5 is dropped');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1f. control-command.ts — A3 restart-family registry rows + confirm builders (pure)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('A3: the registry includes restart / kill / clear / handoff / resume; the destructive ones are submenu pivots', () => {
+  const ids = CONTROL_ACTIONS.map((a) => a.id);
+  for (const id of ['restart', 'kill', 'clear', 'handoff', 'resume']) assert.ok(ids.includes(id), `${id} in registry`);
+  // restart/kill/clear/resume RESET the orchestrator context → submenu pivots (a tap opens the confirm).
+  for (const id of ['restart', 'kill', 'clear', 'resume']) {
+    assert.equal(CONTROL_ACTIONS.find((a) => a.id === id)!.submenu, true, `${id} is a confirm pivot`);
+  }
+  // handoff is NON-destructive (it only snapshots) → NOT a submenu pivot (it runs directly).
+  assert.notEqual(CONTROL_ACTIONS.find((a) => a.id === 'handoff')!.submenu, true);
+  // change-model is no longer a scaffold (A3 finished its wiring).
+  assert.notEqual(CONTROL_ACTIONS.find((a) => a.id === 'change-model')!.scaffold, true);
+  // Every row's callbackData still round-trips ≤64 bytes.
+  for (const a of CONTROL_ACTIONS) {
+    const data = controlCallbackData(a.id);
+    assert.ok(Buffer.byteLength(data, 'utf8') <= 64);
+    assert.deepEqual(parseControlCallback(data), { action: a.id });
+  }
+});
+
+test('A3 buildConfirmMenu(action): a Confirm (ctl:<action>-confirm) + a Cancel (ctl:menu)', () => {
+  for (const action of ['restart', 'kill', 'clear', 'resume']) {
+    const menu = buildConfirmMenu(action);
+    assert.equal(menu.length, 2);
+    assert.deepEqual(parseControlCallback(menu[0]!.callbackData), { action: `${action}-confirm` });
+    assert.match(menu[0]!.text, /Confirm/);
+    assert.deepEqual(parseControlCallback(menu[1]!.callbackData), { action: 'menu' }); // cancel = back
+    assert.ok(Buffer.byteLength(menu[0]!.callbackData, 'utf8') <= 64);
+  }
+  // The confirm headers each warn (channel/conversation preserved, context reset).
+  assert.match(CONTROL_RESTART_CONFIRM_TEXT, /GRACEFULLY/);
+  assert.match(CONTROL_KILL_CONFIRM_TEXT, /HARD-restart/);
+  assert.match(CONTROL_CLEAR_CONFIRM_TEXT, /FRESH/);
+  assert.match(CONTROL_RESUME_CONFIRM_TEXT, /last handoff snapshot/);
+});
+
+test('A3 buildModelSetConfirmMenu(model): a Confirm carrying the model (ctl:model-set-confirm:<m>) + back to change-model', () => {
+  const m = 'claude-sonnet-4-6';
+  const menu = buildModelSetConfirmMenu(m);
+  assert.equal(menu.length, 2);
+  assert.deepEqual(parseControlCallback(menu[0]!.callbackData), { action: 'model-set-confirm', arg: m });
+  assert.match(menu[0]!.text, new RegExp(m));
+  assert.deepEqual(parseControlCallback(menu[1]!.callbackData), { action: 'change-model' }); // back to the model list
+  // The confirm callbackData stays ≤64 bytes for every model choice.
+  for (const c of CONTROL_MODEL_CHOICES) {
+    assert.ok(Buffer.byteLength(controlCallbackData('model-set-confirm', c), 'utf8') <= 64, `${c} ≤64B`);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -314,18 +382,20 @@ function makeCapture() {
 }
 
 /**
- * A2 injectable supervisor-side surfaces (the loopback `reconnect`/`flush`/`log`
- * dependencies) for the control-plane host. All optional — omitting one keeps the
- * action UNWIRED (so the dormant-default path is testable too).
+ * Injectable supervisor-side surfaces for the control-plane host — the A2 loopback
+ * `reconnect`/`flush`/`log` deps + the A3 `restartControl` restart capability. All
+ * optional — omitting one keeps the corresponding action UNWIRED (so the
+ * dormant-default path is testable too).
  */
-interface A2Deps {
+interface ControlDeps {
   reconnectChannel?: () => Promise<{ ok: boolean; error?: string }>;
   flushChannel?: () => { ok: boolean; dropped?: number; error?: string };
   captureRecent?: () => readonly { event?: { ts?: string; type?: string; payload?: unknown } }[];
+  restartControl?: RestartControlFn;
 }
 
 /** A host idling after system_init, awaiting the first user turn. `model` sets opts.model. */
-function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, a2: A2Deps = {}) {
+function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, deps: ControlDeps = {}) {
   const bus = new IoBus();
   const driver = new FakeSessionDriver([
     [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
@@ -339,11 +409,27 @@ function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, a2: A2Dep
     editMessage: cap.editMessage,
     policy: { allow: ['Read'], fallback: 'route' },
     ...(model ? { model } : {}),
-    ...(a2.reconnectChannel ? { reconnectChannel: a2.reconnectChannel } : {}),
-    ...(a2.flushChannel ? { flushChannel: a2.flushChannel } : {}),
-    ...(a2.captureRecent ? { captureRecent: a2.captureRecent } : {}),
+    ...(deps.reconnectChannel ? { reconnectChannel: deps.reconnectChannel } : {}),
+    ...(deps.flushChannel ? { flushChannel: deps.flushChannel } : {}),
+    ...(deps.captureRecent ? { captureRecent: deps.captureRecent } : {}),
+    ...(deps.restartControl ? { restartControl: deps.restartControl } : {}),
   });
   return { bus, driver, host };
+}
+
+/**
+ * A FAKE restartControl that RECORDS each {@link RestartIntent} WITHOUT touching any real
+ * lifecycle (the host-safety contract: in tests the restart is asserted as REQUESTED with
+ * the right params; nothing actually restarts/kills/relaunches — `driver.starts` stays
+ * constant). Returns `{ok:true}` by default; override `result` to simulate a refusal.
+ */
+function makeFakeRestartControl(result: { ok: boolean; detail?: string } = { ok: true }) {
+  const calls: RestartIntent[] = [];
+  const fn: RestartControlFn = (intent: RestartIntent) => {
+    calls.push(intent);
+    return result;
+  };
+  return { calls, fn };
 }
 
 test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrator', async () => {
@@ -452,18 +538,21 @@ test('ctl:change-model → renders the model SUB-MENU (new message), marking the
   bus.close();
 });
 
-test('ctl:model-set:<m> → ACKed + reports the scaffold (NO restart in Phase 1)', async () => {
+test('ctl:model-set:<m> (a model pick) → opens the model-set CONFIRM (no restart on the bare pick)', async () => {
+  // A3 finished the change-model wiring: a model PICK now opens a confirm step (it no longer
+  // reports a "later phase" scaffold). The bare pick still does NOT restart — the confirm does.
   const cap = makeCapture();
   const { bus, driver, host } = makeHost(cap, 'claude-opus-4-8[1m]');
   await host.start();
   await host.handleInbound(inbound('/control'));
   await host.handleInbound(callbackInbound('ctl:model-set:claude-sonnet-4-6', 'cb-ms', 'm-ms'));
-  const ed = cap.edited.find((e) => e.messageId === 'm-ms');
-  assert.ok(ed, 'model-set result edited in');
-  assert.match(ed!.text, /claude-sonnet-4-6/);
-  assert.match(ed!.text, /later phase/);
-  // Crucially: the live session was NOT restarted (no extra start, no turn).
-  assert.equal(driver.starts, 1, 'the orchestrator was NOT restarted by a model-set tap');
+  // A confirm sub-menu (a NEW message) carrying the chosen model was sent.
+  const confirm = cap.sent.find((s) => /Switch the orchestrator to "claude-sonnet-4-6"/.test(s.msg.text ?? ''));
+  assert.ok(confirm, 'a model-set confirm sub-menu was sent');
+  assert.ok(confirm!.msg.options?.buttons?.some((b) => b.callbackData === 'ctl:model-set-confirm:claude-sonnet-4-6'), 'a Confirm carrying the model');
+  // Crucially: the live session was NOT restarted by a bare model pick (no extra start, no turn).
+  assert.equal(driver.starts, 1, 'the orchestrator was NOT restarted by a bare model pick');
+  assert.equal(driver.sentTurns.length, 0, 'no turn injected by a bare model pick');
   await host.stop();
   bus.close();
 });
@@ -708,6 +797,229 @@ test('ctl:appr-allow with a stale/unknown code → reports no match (no crash, n
   assert.ok(ed, 'a result was edited in');
   assert.match(ed!.text, /No pending approval matched/);
   assert.equal(driver.sentTurns.length, 0, 'no turn injected');
+  await host.stop();
+  bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2c. SessionHost — A3 restart/lifecycle family (restart/kill/clear/resume/handoff
+//     + change-model restart wiring). HOST-SAFETY: every restart is REQUESTED via the
+//     injected FAKE restartControl — the real lifecycle is NEVER torn down; `driver.starts`
+//     stays 1 throughout (no relaunch), and a BARE tap (no confirm) does nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('ctl:restart (bare) → renders the GRACEFUL confirm sub-menu and does NOT restart', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  const before = cap.sent.length;
+  await host.handleInbound(callbackInbound('ctl:restart', 'cb-r', 'm-r'));
+  // A confirm sub-menu (a NEW message) was sent — Confirm + Cancel.
+  assert.ok(cap.sent.length > before, 'a restart-confirm sub-menu was sent');
+  const confirm = cap.sent.find((s) => s.msg.text === CONTROL_RESTART_CONFIRM_TEXT);
+  assert.ok(confirm, 'the restart-confirm sub-menu was rendered');
+  const buttons = confirm!.msg.options?.buttons;
+  assert.ok(buttons!.some((b) => b.callbackData === 'ctl:restart-confirm'), 'a Confirm button');
+  assert.ok(buttons!.some((b) => b.callbackData === 'ctl:menu'), 'a Cancel/back button');
+  // CRUCIAL host-safety: a bare restart tap did NOT request a restart and did NOT relaunch.
+  assert.equal(rc.calls.length, 0, 'a bare restart tap does NOT request a restart');
+  assert.equal(driver.starts, 1, 'the orchestrator was NOT restarted by a bare restart tap');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:restart-confirm → requests a GRACEFUL restart (drain=true) via restartControl; live driver untouched', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:restart', 'cb-r', 'm-r')); // open confirm
+  await host.handleInbound(callbackInbound('ctl:restart-confirm', 'cb-rc', 'm-rc')); // confirm
+  // The restart was REQUESTED exactly once with the graceful params.
+  assert.equal(rc.calls.length, 1, 'restartControl called once');
+  assert.equal(rc.calls[0]!.kind, 'restart');
+  assert.equal(rc.calls[0]!.drain, true, 'graceful restart drains');
+  const ed = cap.edited.find((e) => e.messageId === 'm-rc');
+  assert.ok(ed, 'restart result edited in');
+  assert.match(ed!.text, /Graceful restart requested/);
+  // HOST-SAFETY: the fake only RECORDED the intent — the real driver never restarted.
+  assert.equal(driver.starts, 1, 'no real relaunch (driver.starts unchanged)');
+  assert.equal(driver.sentTurns.length, 0, 'no turn injected by the restart request');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:kill-confirm → requests a HARD restart (drain=false) via restartControl', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:kill', 'cb-k', 'm-k')); // open confirm
+  // A bare kill does not act.
+  assert.equal(rc.calls.length, 0, 'a bare kill tap does NOT request a restart');
+  const confirm = cap.sent.find((s) => s.msg.text === CONTROL_KILL_CONFIRM_TEXT);
+  assert.ok(confirm, 'the kill-confirm sub-menu was rendered');
+  assert.ok(confirm!.msg.options?.buttons?.some((b) => b.callbackData === 'ctl:kill-confirm'), 'a Confirm button');
+  await host.handleInbound(callbackInbound('ctl:kill-confirm', 'cb-kc', 'm-kc')); // confirm
+  assert.equal(rc.calls.length, 1, 'restartControl called once');
+  assert.equal(rc.calls[0]!.kind, 'kill');
+  assert.equal(rc.calls[0]!.drain, false, 'a hard restart does NOT drain');
+  const ed = cap.edited.find((e) => e.messageId === 'm-kc');
+  assert.match(ed!.text, /Hard restart requested/);
+  assert.equal(driver.starts, 1, 'no real relaunch');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:clear-confirm → requests a fresh context (kind=clear, NO handoff) via restartControl', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:clear', 'cb-c', 'm-c')); // open confirm
+  const confirm = cap.sent.find((s) => s.msg.text === CONTROL_CLEAR_CONFIRM_TEXT);
+  assert.ok(confirm, 'the clear-confirm sub-menu was rendered');
+  await host.handleInbound(callbackInbound('ctl:clear-confirm', 'cb-cc', 'm-cc')); // confirm
+  assert.equal(rc.calls.length, 1, 'restartControl called once');
+  assert.equal(rc.calls[0]!.kind, 'clear');
+  assert.equal(rc.calls[0]!.handoff, undefined, 'clear carries NO handoff (clean slate)');
+  const ed = cap.edited.find((e) => e.messageId === 'm-cc');
+  assert.match(ed!.text, /Fresh context requested/);
+  assert.equal(driver.starts, 1, 'no real relaunch');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:handoff (non-destructive) → captures a snapshot WITHOUT restarting; a later restart carries it', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, 'claude-opus-4-8[1m]', { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:handoff', 'cb-h', 'm-h'));
+  // handoff is direct (no confirm) — it edits a confirmation and does NOT restart.
+  const ed = cap.edited.find((e) => e.messageId === 'm-h');
+  assert.ok(ed, 'handoff confirmation edited in');
+  assert.match(ed!.text, /Handoff snapshot captured/);
+  assert.equal(rc.calls.length, 0, 'handoff does NOT restart');
+  assert.equal(driver.starts, 1, 'handoff does NOT relaunch');
+  // Now a GRACEFUL restart re-injects the captured snapshot as its handoff note.
+  await host.handleInbound(callbackInbound('ctl:restart', 'cb-r2', 'm-r2'));
+  await host.handleInbound(callbackInbound('ctl:restart-confirm', 'cb-rc2', 'm-rc2'));
+  assert.equal(rc.calls.length, 1, 'restart requested after handoff');
+  assert.ok(rc.calls[0]!.handoff, 'the restart carries the captured handoff note');
+  assert.match(rc.calls[0]!.handoff!, /Operator-captured handoff/);
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:resume-confirm with NO snapshot → reports nothing to resume; does NOT restart', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:resume', 'cb-rs', 'm-rs')); // open confirm
+  await host.handleInbound(callbackInbound('ctl:resume-confirm', 'cb-rsc', 'm-rsc')); // confirm w/o snapshot
+  const ed = cap.edited.find((e) => e.messageId === 'm-rsc');
+  assert.ok(ed, 'resume result edited in');
+  assert.match(ed!.text, /No handoff snapshot to resume/);
+  assert.equal(rc.calls.length, 0, 'resume with no snapshot does NOT request a restart');
+  assert.equal(driver.starts, 1, 'no real relaunch');
+  await host.stop();
+  bus.close();
+});
+
+test('handoff → resume re-injects the captured snapshot (kind=resume + the note) via restartControl', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:handoff', 'cb-h', 'm-h')); // capture a snapshot
+  await host.handleInbound(callbackInbound('ctl:resume', 'cb-rs', 'm-rs')); // open confirm
+  await host.handleInbound(callbackInbound('ctl:resume-confirm', 'cb-rsc', 'm-rsc')); // confirm
+  assert.equal(rc.calls.length, 1, 'resume requested once');
+  assert.equal(rc.calls[0]!.kind, 'resume');
+  assert.ok(rc.calls[0]!.handoff, 'resume re-injects the captured snapshot');
+  const ed = cap.edited.find((e) => e.messageId === 'm-rsc');
+  assert.match(ed!.text, /Resume requested/);
+  assert.equal(driver.starts, 1, 'no real relaunch');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:model-set:<m> → opens the model-set CONFIRM (no restart); model-set-confirm → restarts with the model + handoff', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl();
+  const { bus, driver, host } = makeHost(cap, 'claude-opus-4-8[1m]', { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  // A model PICK opens a confirm (a NEW message) — it does NOT restart yet.
+  await host.handleInbound(callbackInbound('ctl:model-set:claude-sonnet-4-6', 'cb-ms', 'm-ms'));
+  const confirm = cap.sent.find((s) => /Switch the orchestrator to "claude-sonnet-4-6"/.test(s.msg.text ?? ''));
+  assert.ok(confirm, 'a model-set confirm sub-menu was sent');
+  assert.ok(confirm!.msg.options?.buttons?.some((b) => b.callbackData === 'ctl:model-set-confirm:claude-sonnet-4-6'), 'a Confirm carrying the model');
+  assert.equal(rc.calls.length, 0, 'a bare model pick does NOT restart');
+  assert.equal(driver.starts, 1, 'no relaunch on a bare model pick');
+  // The CONFIRM sets the model + restarts (drain + handoff so context carries across the switch).
+  await host.handleInbound(callbackInbound('ctl:model-set-confirm:claude-sonnet-4-6', 'cb-msc', 'm-msc'));
+  assert.equal(rc.calls.length, 1, 'change-model requested once');
+  assert.equal(rc.calls[0]!.kind, 'change-model');
+  assert.equal(rc.calls[0]!.model, 'claude-sonnet-4-6', 'the chosen model is passed through');
+  assert.equal(rc.calls[0]!.drain, true, 'change-model drains');
+  assert.ok(rc.calls[0]!.handoff, 'change-model carries a handoff so context survives the switch');
+  const ed = cap.edited.find((e) => e.messageId === 'm-msc');
+  assert.match(ed!.text, /Switching to "claude-sonnet-4-6"/);
+  assert.equal(driver.starts, 1, 'the live driver was NOT restarted (fake restartControl only recorded the intent)');
+  await host.stop();
+  bus.close();
+});
+
+test('A3 restart actions when restartControl is UNWIRED → report unavailable; NOTHING restarts (dormant default)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap, 'claude-opus-4-8[1m]'); // no restartControl wired
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  // Each destructive action still renders its confirm, but the CONFIRM reports unavailable.
+  for (const [action, msgId] of [
+    ['restart', 'm-u1'],
+    ['kill', 'm-u2'],
+    ['clear', 'm-u3'],
+  ] as const) {
+    await host.handleInbound(callbackInbound(`ctl:${action}-confirm`, `cb-${action}`, msgId));
+    const ed = cap.edited.find((e) => e.messageId === msgId);
+    assert.ok(ed, `${action} result edited in`);
+    assert.match(ed!.text, /not available/i, `${action} reports unavailable when unwired`);
+  }
+  // change-model confirm also reports unavailable.
+  await host.handleInbound(callbackInbound('ctl:model-set-confirm:claude-sonnet-4-6', 'cb-mu', 'm-u4'));
+  assert.match(cap.edited.find((e) => e.messageId === 'm-u4')!.text, /not available/i);
+  // HOST-SAFETY: nothing restarted across all of them.
+  assert.equal(driver.starts, 1, 'the orchestrator was NEVER restarted (dormant default)');
+  assert.equal(driver.sentTurns.length, 0, 'no turn injected');
+  await host.stop();
+  bus.close();
+});
+
+test('A3 restartControl refusal (e.g. rate-limited) is surfaced cleanly; no crash', async () => {
+  const cap = makeCapture();
+  const rc = makeFakeRestartControl({ ok: false, detail: 'rate-limited (retry in 12m)' });
+  const { bus, driver, host } = makeHost(cap, undefined, { restartControl: rc.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:restart-confirm', 'cb-rc', 'm-rc'));
+  assert.equal(rc.calls.length, 1, 'the restart was requested');
+  const ed = cap.edited.find((e) => e.messageId === 'm-rc');
+  assert.ok(ed, 'a refusal result edited in');
+  assert.match(ed!.text, /refused/i);
+  assert.match(ed!.text, /rate-limited/);
+  assert.equal(driver.starts, 1, 'no relaunch on a refusal');
   await host.stop();
   bus.close();
 });

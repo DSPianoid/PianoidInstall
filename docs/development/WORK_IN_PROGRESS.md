@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-ce3c | Supervisor control-plane Phase A3 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2): the restart/lifecycle menu actions — `restart` (GRACEFUL: drain→handoff snapshot→relaunch preserving channel, via the existing lifecycle restart path) / `kill` (HARD: no-drain) / `clear`+`new` (fresh context, no handoff) / `resume`+`handoff` (snapshot store + re-inject) + the `change-model` restart wiring (set Tier-1 model + restart on it with handoff). Each = a `CONTROL_ACTIONS` row + a `ctl:*` handler, ALL destructive → CONFIRM sub-menu (like flush). Restart performed ONLY via an injected lifecycle dep (dormant when unwired). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-ce3c-2026-06-20-112947.md) | 2026-06-20 |
 | dev-ctl1 | Supervisor control-plane Phase 1 (`feature/supervisor-control-plane`): single supervisor-intercepted `/control` command → Telegram inline-keyboard MENU + extensible `ctl:*` callback ROUTER (action registry) + actions status/ping/help + a change-model menu scaffold. OUT-OF-BAND (survives a dead orchestrator child); reuses the permission-button callback infra. Additive/gated to `/control`+`ctl:*` only; non-control inbound byte-for-byte. prod dist/ NOT rebuilt (throwaway build dir); supervisor NOT restarted; NO push. | [log](logs/dev-ctl1-2026-06-20-135036.md) | 2026-06-20 |
 | dev-ctl2 | Supervisor control-plane Phase A2 (`feature/supervisor-control-plane`, continues dev-ctl1): channel↔panel parity menu actions — `reconnect` / `flush` (DESTRUCTIVE → confirm sub-menu) / `log` (capture tail) / `approvals` (list pending perms with Allow/Deny buttons resolving via the SAME permission path the perm:* buttons use). Each = a `CONTROL_ACTIONS` row + a `ctl:*` handler reusing the Phase-1 framework. Additive/gated to `ctl:*`; non-control inbound byte-for-byte. `clear` deferred to A3. prod dist/ NOT rebuilt (throwaway dir); supervisor NOT restarted; NO merge/push. | [log](logs/dev-ctl2-2026-06-20-111220.md) | 2026-06-20 |
 | dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
@@ -29,7 +30,16 @@
      (restart-on-model wiring → a later phase). Additive + gated to `/control`+`ctl:*` (non-control inbound
      byte-for-byte). NOT done THIS session because README.md is held by dev-vio1's ACTIVE lock. OWNER:
      whoever holds README next. Source of truth meanwhile: control-command.ts + src/test/control-plane.test.ts
-     + docs/proposals/supervisor-control-plane-and-activation-2026-06-20.md (§2.5 interface, §2 actions). -->
+     + docs/proposals/supervisor-control-plane-and-activation-2026-06-20.md (§2.5 interface, §2 actions).
+     EXTENDED (dev-ctl2, 2026-06-20): + the A2 channel↔panel-parity actions reconnect / flush (confirm) /
+     log / approvals (Allow/Deny via the perm path).
+     EXTENDED (dev-ce3c, 2026-06-20): + the A3 restart/lifecycle family — restart (graceful) / kill (hard) /
+     clear+new (fresh context) / handoff (snapshot) + resume (re-inject) + the change-model restart wiring,
+     ALL destructive → confirm sub-menus. The actual restart is performed ONLY through an injected
+     `restartControl` dep (dormant when unwired → nothing restarts; index.ts wires it AT ACTIVATION to the
+     existing requestRestart/clearContext machinery — the confirm/rate-limit/audit safety gate is NOT
+     bypassed). Same README deferral (dev-vio1 holds the lock). -->
+
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the
      DORMANT model-agnostic agent-routing layer (P0+P1, feature/model-agnostic-agents): a role→backend
