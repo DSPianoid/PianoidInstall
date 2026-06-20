@@ -77,6 +77,35 @@ test('isSupervisorRelaunchCommand routes a PARENT/dist supervisor restart (the h
   }
 });
 
+test('isSupervisorRelaunchCommand catches SHELL-MANGLED (separator-stripped) forms (the predicate-miss fix)', () => {
+  // Git-Bash strips backslashes before we ever see the command — `\brestart-supervisor\.ps1\b`
+  // / `dist[\\/]index.js` / `\blaunch-…` anchored patterns would MISS these. The hardened
+  // predicate tests a separator-stripped copy too, so the mangled forms still route.
+  for (const c of [
+    // backslash path collapsed onto the script name + the execution marker survives
+    "powershell -noprofile -executionpolicy bypass -file 'd:tmprestart-supervisor.ps1' -launcher prod",
+    // backslash-stripped direct host launch: dist\index.js → distindex.js
+    'node distindex.js --session --profile orchestrator',
+    'node distindex.js --live --session',
+    // backslash-stripped launcher path: tools\supervisor\launch-prod-orch.mjs → no boundary before launch-
+    'node toolssupervisorlaunch-prod-orch.mjs',
+    'node toolssupervisorlaunch-pty-orch.mjs',
+  ]) {
+    assert.equal(isSupervisorRelaunchCommand(c.toLowerCase()), true, `mangled relaunch should route: ${c}`);
+    assert.equal(isDestructiveShellCommand(c), true, `floor should route mangled relaunch: ${c}`);
+  }
+  // The mangled normalization must NOT create false positives on benign / read commands.
+  for (const c of [
+    'cat d:tmprestart-supervisor.ps1', // reading the (mangled-path) script ≠ running it
+    'node distindex.js --panel 8790', // mangled path but NO --session → a dev shell, not a host
+    'echo restart-supervisor.ps1 launch-prod-orch.mjs', // bare mentions, no node/powershell/-file exec marker
+    'grep -rn session distindex.js', // a read
+  ]) {
+    assert.equal(isSupervisorRelaunchCommand(c.toLowerCase()), false, `mangled but NOT a relaunch: ${c}`);
+    assert.equal(isDestructiveShellCommand(c), false, `floor must NOT route: ${c}`);
+  }
+});
+
 test('the orchestrator safety floor routes a parent-restart via routeWhen (Bash + PowerShell)', () => {
   const p = makeOrchestratorProfile();
   // The full path the PermissionRouter takes: routeWhen(toolName, input) on the shell input.

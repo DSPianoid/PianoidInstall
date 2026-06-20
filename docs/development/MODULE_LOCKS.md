@@ -15,6 +15,30 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-0efd locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that rebuilds dist/ also loads this fix). EDITED (existing): tools/supervisor/src/{profiles,index}.ts +
+     adapters/cli-stream-driver.ts + test/profiles.test.ts. NEW: test/cli-stream-relaunch-guard.test.ts.
+     CLOSED the PARENT-RESTART gate HOLE: dev-fa3d's isSupervisorRelaunchCommand floor branch only ran on a
+     can_use_tool permission request, and MEASURED against live `claude -p` (a) an allow-listed Bash/PowerShell
+     raises NO such request + (b) a bypassPermissions/background/Task sub-agent suppresses it entirely → a
+     relaunch from a bypass sub-agent ran UN-GATED (defeatable by bypass). FIX = a MODE-INDEPENDENT relaunch
+     guard in the cli-stream driver: NEW pure detectRelaunchToolUse(raw) scans every assistant tool_use on
+     stdout (the one chokepoint independent of permission mode, BEFORE the control-protocol + sub-agent drop)
+     for a relaunch carrier (Bash/PowerShell command OR Agent/Task prompt matching isSupervisorRelaunchCommand;
+     fromSubAgent from parent_tool_use_id/subagent_type) → HARD-KILLS the child tree (the tool_use line precedes
+     execution, measured) before the relaunch tears the host down, then fires onRelaunchBlocked (index.ts → an
+     operator "blocked a host-restart" note; the kill is UNCONDITIONAL, works without the callback). + hardened
+     isSupervisorRelaunchCommand to also test a separator-stripped copy (extracted matchesRelaunch) so backslash-
+     mangled forms match (distindex.js --session / …supervisorlaunch-prod-orch.mjs / …tmprestart-supervisor.ps1),
+     no false positives on reads. +11 tests (6 pure detect + 4 driver e2e + 1 mangled-forms in profiles.test),
+     full supervisor node --test 577/577 (566 baseline +11), tsc --noEmit clean. ★Verification UNIT-TEST ONLY
+     (cannot restart the live host). Prod dist/ NOT regenerated (built only to throwaway dist-test-0efd, removed;
+     prod dist/ byte-for-byte dev-fa3d's build — grep confirms prod dist/ lacks the fix); live supervisor NOT
+     restarted/killed, NO /api/lifecycle/* call, NO restart script. The eventual activation rebuild includes it.
+     README doc-deferred (dev-vio1 holds it). Proposal §6 follow-on block + WIP note added. NOTED out-of-scope:
+     dev-fa3d startup-handoff.test.js env-leak (reads process.env directly → 1/566 fails inside a launched
+     supervisor env; run with SUPERVISOR_STARTUP_HANDOFF_FILE cleared). SHA in the session log. -->
 <!-- dev-fa3d locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
      that loads the rebuilt dist/ also live-tests these fixes). EDITED (existing): tools/supervisor/src/{profiles,

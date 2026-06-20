@@ -166,6 +166,11 @@ async function main(): Promise<void> {
   let sessionHost: SessionHost | undefined;
   // D4 tier-b handler — assigned in the session branch (closes over sessionHost+supervisor).
   let handleUnresponsive: (reason: string) => Promise<void> = async () => undefined;
+  // ★ RELAUNCH-GUARD notify — assigned in the session branch (closes over sessionHost+supervisor).
+  // The cli-stream driver has ALREADY killed the child to block the relaunch; this only surfaces
+  // an operator-facing note. No-op default (e.g. the SDK driver / pre-binding).
+  let handleRelaunchBlocked: (info: { toolName: string; command: string; fromSubAgent: boolean }) => void =
+    () => undefined;
   if (args.session) {
     const profile = resolveProfile(args.profile);
     // DRIVER SELECTION (the single construction site). Precedence: explicit
@@ -197,7 +202,21 @@ async function main(): Promise<void> {
 
     const sessionDriver: SessionDriver =
       driver === 'cli-stream'
-        ? new CliStreamDriver({ onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`) })
+        ? new CliStreamDriver({
+            onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`),
+            // ★ RELAUNCH GUARD: the driver intercepts a supervisor-relaunch tool_use (from the
+            // orchestrator OR any sub-agent — incl. a bypassPermissions/background one that raises
+            // NO permission request) and HARD-KILLS the child to prevent the host teardown, then
+            // fires this. We log it + surface a note to the operator. The kill is unconditional
+            // (works without this callback); this only informs the user.
+            onRelaunchBlocked: (info) => {
+              logger.error('RELAUNCH GUARD: blocked a supervisor-relaunch tool call (child killed to protect the live host)', {
+                tool: info.toolName,
+                fromSubAgent: info.fromSubAgent,
+              });
+              handleRelaunchBlocked(info);
+            },
+          })
         : new SdkSessionDriver();
 
     // The in-process channel reply tool (createSdkMcpServer) can ONLY be wired into the
@@ -520,6 +539,23 @@ async function main(): Promise<void> {
       // restartUnresponsive() (not clearContext) so the involuntary restart INCREMENTS the
       // `restarts` counter and is visible in /api/session.
       await sessionHost?.restartUnresponsive().catch((e) => logger.error('tier-b restart failed', { err: String(e) }));
+    };
+    // ★ RELAUNCH-GUARD notify (defined here so it closes over sessionHost + supervisor). The
+    // driver already KILLED the child to block the relaunch (the host is protected); tell the
+    // operator a host-restart attempt was blocked. The lifecycle's existing death-detection then
+    // brings the orchestrator back (so the session recovers, minus the dangerous relaunch).
+    handleRelaunchBlocked = (info): void => {
+      const op = sessionHost?.currentOperator();
+      if (!op) return;
+      const who = info.fromSubAgent ? 'a sub-agent' : 'the orchestrator';
+      void supervisor
+        .sendOutbound('telegram', op, {
+          text:
+            `⛔ Blocked a supervisor host-restart that ${who} tried to run directly (\`${info.toolName}\`). ` +
+            `Restarting the host this way would silently sever this channel, so it was prevented and the ` +
+            `session was reset instead. To restart the host deliberately, use the control panel / \`/control\` → restart (it confirms first).`,
+        })
+        .catch(() => undefined);
     };
   } else if (args.echo) {
     logger.warn('ECHO MODE (dev/test) — host hook echoes inbound back; NOT the real session');

@@ -151,15 +151,38 @@ export function isDestructiveShellCommand(cmd: string): boolean {
 export function isSupervisorRelaunchCommand(c: string): boolean {
   // A leading read/inspect verb ⇒ NOT a relaunch (reading the script/launcher source, listing dirs).
   if (/^\s*(cat|type|more|less|head|tail|grep|rg|findstr|ls|dir|get-content|gc)\b/.test(c)) return false;
+  // ★ HARDENING (2026-06-20): test BOTH the raw command AND a SEPARATOR-STRIPPED copy. A shell
+  // can mangle path separators before we ever see the string — most notably Git-Bash strips
+  // backslashes, so `node dist\index.js --session` arrives as `node distindex.js --session` and
+  // `powershell -File D:\tmp\restart-supervisor.ps1` as `…d:tmprestart-supervisor.ps1`. A pattern
+  // anchored on `dist[\\/]index.js` or a `\b` before `launch-…` would then MISS. Stripping ALL
+  // path separators (\ and /) collapses every separator variant (`dist\`, `dist/`, `dist`) to one
+  // canonical form we can match filename-anchored. We OR the two tests so a normal `dist/index.js`
+  // still matches via the raw pass, and the mangled `distindex.js` matches via the stripped pass.
+  const stripped = c.replace(/[\\/]+/g, '');
+  return matchesRelaunch(c) || matchesRelaunch(stripped);
+}
+
+/**
+ * Core relaunch matcher, run against BOTH the raw and the separator-stripped command (see
+ * {@link isSupervisorRelaunchCommand}). Filename tokens are matched WITHOUT requiring a path
+ * separator (or word boundary) immediately before them, so a separator-stripped run like
+ * `toolssupervisorlaunch-prod-orch.mjs` (no boundary before `launch-`) still matches.
+ */
+function matchesRelaunch(c: string): boolean {
   // PowerShell relaunch script: the script name in an EXECUTION context (-file / a powershell|pwsh
-  // invocation / a `&`|`.` call operator) — NOT a bare mention.
+  // invocation / a `&`|`.` call operator) — NOT a bare mention. The filename is matched without a
+  // leading boundary (a preceding path run may have been collapsed onto it).
   const relaunchScript =
-    /\brestart-supervisor\.ps1\b/.test(c) &&
+    /restart-supervisor\.ps1\b/.test(c) &&
     (/(^|\s)(powershell|pwsh)(\.exe)?\b/.test(c) || /-file\b/.test(c) || /(^|\s)[&.]\s/.test(c));
   // Either supervisor launcher, run via node (the relaunch entrypoint the script itself calls).
+  // No `\b` before `launch-` — a stripped path (`…supervisorlaunch-prod-orch.mjs`) has none.
   const launcher = /\bnode\b[^|]*launch-(prod|pty)-orch\.mjs\b/.test(c);
-  // A direct host launch: node … dist/index.js … --session (booting another hosted supervisor).
-  const directHost = /\bnode\b[^|]*\bdist[\\/]index\.js\b[^|]*--session\b/.test(c);
+  // A direct host launch: node … dist[/ or \]index.js … --session (booting another hosted supervisor).
+  // The separator between `dist` and `index.js` is OPTIONAL so the backslash-stripped
+  // `distindex.js` still matches (`dist[\\/]?index\.js`).
+  const directHost = /\bnode\b[^|]*\bdist[\\/]?index\.js\b[^|]*--session\b/.test(c);
   return relaunchScript || launcher || directHost;
 }
 
