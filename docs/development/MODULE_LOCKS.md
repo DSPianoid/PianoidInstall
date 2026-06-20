@@ -15,6 +15,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-wbspawn (2-D COLOR schema) locks RELEASED 2026-06-20T13:40:00Z — MERGED + PUSHED. Replaced the
+     flat wb-kind-* 3-color scheme with a 2-D schema: HUE=param groupe × BRIGHTNESS-tier=workbench type;
+     colour=hue(current param's groupe)×tier(type); global-dynamic hue follows the active param. Defaults
+     Strings#2196f3/Modes#4caf50/Excitation#e53935(+hammer,H1)/Feedin#00bcd4/Feedback#fb8c00/Sound
+     Channels#e91e63/Mass#8d6e63; tiers global1.0/panel0.7/fixed0.4 — all distinct from SC-avg #42a5f5/
+     #ba68c8. NEW utils/workbenchColor.js (workbenchColor + applyTier + DEFAULT_*); workbenchTitle.js
+     workbenchKindClass→workbenchKind; useSettings workbenchSettings.colors={hues,tiers}; PianoTuner
+     renderTile delivers colour via --wb-accent CSS var on a display:contents wrapper; index.css single
+     .wb-accent rule (color-mix); GlobalSettingsDialog new "Workbench colours" section (7 swatches + 3
+     sliders + reset). Tests NEW workbenchColor.test.js + workbenchKind suite. Jest 1312/1312 green, CRA
+     build clean. MERGED --no-ff to PianoTunner dev (off 644aebd; feature 941fedd; merge b510c63) + PUSHED
+     origin/dev (644aebd..b510c63); :3000 restarted (serving b510c63, HTTP 200). Frontend-only, NO CUDA.
+     User live-tests. Docs (OVERVIEW "Workbench color coding — 2-D schema") + log
+     dev-wbspawn-color2d-2026-06-20.md on PianoidInstall master. -->
 <!-- dev-wbspawn (per-type COLOR CODING) locks RELEASED 2026-06-20T03:25:00Z — MERGED + PUSHED. 3
      workbench types each get a distinct title-bar accent, all distinct from the SC-average chart accent
      (MUI default-theme primary.light #42a5f5 modes / secondary.light #ba68c8 strings — found in

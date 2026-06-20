@@ -30,7 +30,9 @@
      31941cc on 2026-06-20 — placement.{fixed,panelFollowing,globalDynamic}, 3 global-⚙ controls,
      placementForSpawn per-type resolver, log dev-wbspawn-pertype-2026-06-20.md; per-type COLOR CODING
      644aebd on 2026-06-20 — 3 distinct title-bar accents amber/teal/coral via workbenchKindClass, all
-     distinct from SC-average #42a5f5/#ba68c8). Rows removed at Phase 2. -->
+     distinct from SC-average #42a5f5/#ba68c8 — SUPERSEDED next; 2-D COLOR schema b510c63 on 2026-06-20 —
+     hue=param groupe × brightness-tier=workbench type, editable 7 hue swatches + 3 tier sliders in global
+     ⚙, workbenchColor resolver, log dev-wbspawn-color2d-2026-06-20.md). Rows removed at Phase 2. -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, merged dc3a732). -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, orphan-fix merged 62974f6). -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, placement merged 73f32f0). -->
