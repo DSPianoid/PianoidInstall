@@ -30,7 +30,8 @@
 
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { Logger } from './logger.js';
 import { Supervisor } from './supervisor.js';
@@ -53,6 +54,16 @@ import { loadMcpServers, OUTWARD_SEND_EXCLUDE_SUBSTRINGS } from './mcp-config.js
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
 import { ControllerBridge } from './controller-bridge.js';
 import type { TelegramTransport } from './adapters/telegram-transport.js';
+// ★ P6 — model-agnostic agent routing (DORMANT unless SUPERVISOR_ROLE_ROUTING is ON). All of the
+// machinery below was built + unit-tested in P0–P5/Q; index.ts is the ONLY composition-root edit
+// (the activation cut-over). NONE of these are constructed when the switch is OFF (the default).
+import { SecretStore, defaultSecretStorePath } from './secret-store.js';
+import { RoleRoutingStore, defaultRoleRoutingStorePath } from './role-routing-store.js';
+import { BackendRegistry } from './backend-registry.js';
+import { dispatchRoleAgentWithFallback } from './result-relay.js';
+import { mergeRoleRoutingOverrides, resolveRoleBackend, DEFAULT_ROLE_ROUTING_CONFIG } from './role-router.js';
+import { DEFAULT_API_ADAPTER_CONFIGS } from './api-adapter-driver.js';
+import type { RoleDispatchFn, RoleDispatchResult } from './session-host.js';
 
 interface CliArgs {
   live: boolean;
@@ -243,6 +254,83 @@ async function main(): Promise<void> {
       systemPrompt = process.env.SUPERVISOR_SYSTEM_PROMPT;
     }
 
+    // ★ P6 — MODEL-AGNOSTIC ROLE-ROUTING ACTIVATION (switch-gated; the cut-over).
+    // When SUPERVISOR_ROLE_ROUTING is OFF (the DEFAULT — config.roleRoutingEnabled === false),
+    // ALL FOUR locals below stay `undefined`, so the SessionHost is constructed EXACTLY as before
+    // this feature existed: `/setkey`/`/setrole`/`/roles` are NOT intercepted (their interception is
+    // gated on a wired store) and `dispatchRole()` returns {enabled:false}. The OFF path is therefore
+    // byte-for-byte today. When ON, we wire: the gitignored scoped secret store (Q.2/`/setkey`), the
+    // gitignored role-routing override store (Q.5/`/setrole`+`/roles`), the message-delete hook (so
+    // `/setkey` can scrub the plaintext-key message), and the routed-dispatch capability (FD1) — a
+    // closure that loads the persisted overrides, projects the stored provider keys into the dispatch
+    // env (scoped-key loading at spawn), and runs result-relay's fallback dispatcher.
+    let secretStore: SecretStore | undefined;
+    let roleRoutingStore: RoleRoutingStore | undefined;
+    let deleteMessage: ((handle: import('./contract.js').ReplyHandle, messageId: string) => Promise<void>) | undefined;
+    let dispatchRoleAgent: RoleDispatchFn | undefined;
+    if (config.roleRoutingEnabled) {
+      // The supervisor PACKAGE root (tools/supervisor) — where the gitignored `.state/` dir lives.
+      // Derived from this compiled module's location (dist/index.js → up one), cwd-independent.
+      const supervisorRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+      secretStore = new SecretStore({
+        filePath: defaultSecretStorePath(supervisorRoot),
+        onNote: (line) => logger.info(line), // masked-only diagnostics (never a key value)
+      });
+      roleRoutingStore = new RoleRoutingStore({
+        filePath: defaultRoleRoutingStorePath(supervisorRoot),
+        onNote: (line) => logger.info(line),
+      });
+      // The plaintext-key message delete used by `/setkey` (best-effort).
+      deleteMessage = (handle, messageId) => supervisor.deleteMessage('telegram', handle, messageId);
+      // ★ FD1 — the routed-dispatch capability. ONE backend registry; the api-adapter env is the
+      // PROCESS env OVERLAID with the scoped provider keys from the secret store (each provider's
+      // key under its own secretEnvVar) → an api-adapter agent gets ONLY its provider's key and the
+      // backend-aware seal rejects every foreign key. The persisted role-routing overrides are merged
+      // over DEFAULT_ROLE_ROUTING_CONFIG per dispatch (so a `/setrole` change takes effect on the NEXT
+      // dispatch, no restart). dispatchRoleAgentWithFallback runs the primary + (FD6) one fallback.
+      const registry = new BackendRegistry();
+      const storeForDispatch = secretStore;
+      const routingForDispatch = roleRoutingStore;
+      dispatchRoleAgent = async (role: string, task: string): Promise<RoleDispatchResult> => {
+        // Project the stored provider keys into the dispatch env (scoped-key loading at spawn).
+        const apiAdapterEnv: NodeJS.ProcessEnv = { ...process.env, ...storeForDispatch.loadAll() };
+        const overrides = routingForDispatch.loadAll();
+        const merged = mergeRoleRoutingOverrides(overrides, DEFAULT_ROLE_ROUTING_CONFIG);
+        // The own-secret name for the RESOLVED selection (covers BOTH a /setrole override AND a
+        // default-map api-adapter role like coding/reviewing): resolve the role → if it lands on an
+        // api-adapter backend, look its model up in the registry-derived config map to read that
+        // provider's secretEnvVar. claude-cli selections carry no own secret (subscription-billed) →
+        // undefined, so the seal asserts the env is fully key-free. This is what lets the seal scope
+        // the foreign-key assertion to ONLY this backend's key (rather than rejecting its own).
+        const selection = resolveRoleBackend(role, merged);
+        const ownSecretName =
+          selection.backend === 'api-adapter' && selection.model
+            ? DEFAULT_API_ADAPTER_CONFIGS[selection.model]?.secretEnvVar
+            : undefined;
+        const report = await dispatchRoleAgentWithFallback({
+          role,
+          task,
+          registry,
+          config: merged,
+          env: apiAdapterEnv,
+          ...(ownSecretName ? { ownSecretName } : {}),
+        });
+        const result: RoleDispatchResult = {
+          ok: report.ok,
+          role: String(report.role),
+          backend: report.backend,
+          fellBack: report.fallback.used,
+        };
+        if (report.text !== undefined) result.text = report.text;
+        if (report.costUsd !== undefined) result.costUsd = report.costUsd;
+        return result;
+      };
+      logger.info('ROLE-ROUTING ACTIVE (SUPERVISOR_ROLE_ROUTING on) — /setkey + /setrole + /roles wired; routed dispatch enabled', {
+        secretStore: secretStore.path,
+        roleRoutingStore: roleRoutingStore.path,
+      });
+    }
+
     sessionHost = new SessionHost({
       driver: sessionDriver,
       bus: supervisor.bus,
@@ -252,6 +340,14 @@ async function main(): Promise<void> {
       // (best-effort; the loopback transport records them, grammy calls the Bot API).
       answerCallback: (callbackId, text) => supervisor.answerCallback('telegram', callbackId, text),
       editMessage: (handle, messageId, text) => supervisor.editMessage('telegram', handle, messageId, text),
+      // ★ P6 (DORMANT unless SUPERVISOR_ROLE_ROUTING is ON): the in-channel secret/role stores +
+      // the message-delete hook + the routed-dispatch capability. When the switch is OFF these are
+      // all `undefined` → `/setkey`/`/setrole`/`/roles` are NOT intercepted and dispatchRole() is
+      // disabled → byte-for-byte the pre-feature behavior.
+      ...(secretStore ? { secretStore } : {}),
+      ...(roleRoutingStore ? { roleRoutingStore } : {}),
+      ...(deleteMessage ? { deleteMessage } : {}),
+      ...(dispatchRoleAgent ? { dispatchRoleAgent } : {}),
       // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
       // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
       // flips it at runtime via the intercepted `/mode` command.
@@ -260,9 +356,13 @@ async function main(): Promise<void> {
       // broad allow-list + the safety-floor route predicate).
       policy: profile.name === 'orchestrator' ? profile.policy : config.permissionPolicy,
       systemPrompt,
-      // Pin the profile's model (orchestrator → claude-opus-4-8[1m]); undefined = the
-      // driver's own default. Threaded to the driver as --model (cli-stream) / SDK model.
-      model: profile.model,
+      // ★ TIER-1 (proposal Q.3): the hosted orchestrator session's OWN model. Default = the
+      // profile's pinned model (orchestrator → claude-opus-4-8[1m]); undefined = the driver's
+      // own default. SUPERVISOR_ORCHESTRATOR_MODEL (config.orchestratorModel) overrides it for
+      // THIS session (read at construction → a change needs a restart). When the env is UNSET,
+      // config.orchestratorModel is undefined → this is EXACTLY `profile.model` (byte-for-byte
+      // unchanged). Threaded to the driver as --model (cli-stream) / SDK model.
+      model: config.orchestratorModel ?? profile.model,
       // SESSION CWD = where the hosted session runs. Default = the supervisor's own cwd.
       // OVERRIDE via SUPERVISOR_SESSION_CWD → #2 WORKTREE HARD ISOLATION: the launcher points
       // the hosted orchestrator at a SEPARATE git worktree of the repo, so its file writes
