@@ -50,7 +50,7 @@ import { resolveDriverSelection, type DriverName } from './driver-policy.js';
 import type { SessionDriver } from './session-driver.js';
 import { resolveProfile } from './profiles.js';
 import { assertCostSafe } from './cost-safety.js';
-import { loadMcpServers, OUTWARD_SEND_EXCLUDE_SUBSTRINGS } from './mcp-config.js';
+import { loadMcpServers, HOSTED_MCP_EXCLUDE_SUBSTRINGS } from './mcp-config.js';
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
 import { ControllerBridge } from './controller-bridge.js';
 import type { TelegramTransport } from './adapters/telegram-transport.js';
@@ -226,17 +226,22 @@ async function main(): Promise<void> {
     const useInProcessReplyTool = profile.wireProjectMcp && driver === 'sdk';
 
     // Build the MCP server map for the orchestrator profile: the project's servers
-    // (from ~/.claude.json) MINUS the outward-to-third-party channels (telegram +
-    // BOTH whatsapp servers — a test orch sending real WhatsApp is a worse breach than
-    // telegram). Email is kept for READ; its send tools are denied via the policy
-    // deny-list (disallowedTools — deny wins). The in-process reply tool is added ONLY
-    // for the SDK driver. NOTE: with cli-stream the child loads the project's MCP from
-    // settingSources (its own ~/.claude.json) — the SEAL there is the disallowedTools
-    // deny-list (telegram/whatsapp/send_*) carried by the policy; the orchestrator
-    // ALSO runs worktree-isolated. (mcpServers here is consumed by the SDK driver.)
+    // (from ~/.claude.json) MINUS only telegram (the channel-hijack vector — the prod
+    // plugin would seize the getUpdates token). The user chose to give the LIVE hosted
+    // orchestrator WhatsApp ("reading allowed, sending approval-gated"), Email, and
+    // DeepSeek-codegen, so BOTH whatsapp servers + hostinger-email + deepseek-codegen are
+    // KEPT in the map; the per-tool POLICY (profiles.ts) then ALLOWS whatsapp READ tools
+    // and ROUTES whatsapp/email SEND tools to the user for approval (deny-list still hard-
+    // blocks telegram). The in-process reply tool is added ONLY for the SDK driver.
+    // ★ This map is now consumed by BOTH drivers: the SDK driver reads it as
+    // options.mcpServers; the cli-stream (`claude -p`) driver writes it to a private 0600
+    // --mcp-config temp file (cli-stream-driver.writeMcpConfigFile) — necessary because the
+    // hosted child runs settingSources ['project','local'] (NOT 'user'), so the user-scope
+    // ~/.claude.json mcpServers do NOT auto-load (the child would otherwise see ZERO servers).
+    // (The earlier assumption that cli-stream loads MCP from settingSources was wrong.)
     let mcpServers: Record<string, unknown> | undefined;
     if (profile.wireProjectMcp) {
-      mcpServers = { ...loadMcpServers({ excludeSubstrings: OUTWARD_SEND_EXCLUDE_SUBSTRINGS }) };
+      mcpServers = { ...loadMcpServers({ excludeSubstrings: HOSTED_MCP_EXCLUDE_SUBSTRINGS }) };
       if (useInProcessReplyTool) {
         const channelServer = await buildSupervisorChannelServer(async (text) => {
           const operator = sessionHost?.currentOperator();

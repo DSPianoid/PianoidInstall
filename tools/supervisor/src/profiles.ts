@@ -281,26 +281,58 @@ export function makeOrchestratorPolicy(
       // MCP servers — per-server prefixes. The `claude -p` CLI REJECTS a bare `mcp__*`
       // in an ALLOW rule ("must name the scope it widens"; globs allowed only AFTER a
       // literal mcp__<server>__ prefix) — so we enumerate the wired read/compute servers.
-      // The SEND tools inside them are still DENIED below (deny wins); telegram + whatsapp
-      // are excluded at the MCP-config source AND denied. (The SDK driver tolerated
-      // `mcp__*`; the CLI needs these explicit forms.)
-      'mcp__hostinger-email__*',
+      // The SEND tools inside them are still DENIED below (deny wins); telegram is excluded
+      // at the MCP-config source AND denied. (The SDK driver tolerated `mcp__*`; the CLI
+      // needs these explicit forms.)
+      'mcp__hostinger-email__*', // email READ allowed (send tools denied below); whole-server glob
       'mcp__context7__*',
       'mcp__chrome-devtools__*',
       'mcp__google-workspace__*',
       'mcp__deepseek-codegen__*',
       'mcp__supervisor_channel__*', // the in-process reply tool (SDK-driver path)
+      // ★ WHATSAPP READ-ALLOWED / SEND-GATED (2026-06-20, user-chosen). WhatsApp is no longer
+      // excluded at the server level (it's a sanctioned capability for the live host) — so we
+      // ALLOW its READ tools by NAME here (auto-allow, no prompt). The SEND tools
+      // (send_message/send_file/send_audio_message) are DELIBERATELY NOT listed — an unlisted
+      // tool falls through to fallback:'route' AND the safety floor (routeWhen=isDestructiveOp
+      // catches `mcp__whatsapp*…send…`), so sending ROUTES to the user for approval. We do NOT
+      // use a whole-server `mcp__whatsapp__*` glob (it would auto-allow sends too — and the CLI
+      // rejects a too-broad allow anyway). download_media is a READ (fetch to a local path, not a
+      // third-party send) → allowed. Both the personal + work accounts get the same read tools.
+      'mcp__whatsapp__search_contacts',
+      'mcp__whatsapp__list_messages',
+      'mcp__whatsapp__list_chats',
+      'mcp__whatsapp__get_chat',
+      'mcp__whatsapp__get_direct_chat_by_contact',
+      'mcp__whatsapp__get_contact_chats',
+      'mcp__whatsapp__get_last_interaction',
+      'mcp__whatsapp__get_message_context',
+      'mcp__whatsapp__download_media',
+      'mcp__whatsapp-work__search_contacts',
+      'mcp__whatsapp-work__list_messages',
+      'mcp__whatsapp-work__list_chats',
+      'mcp__whatsapp-work__get_chat',
+      'mcp__whatsapp-work__get_direct_chat_by_contact',
+      'mcp__whatsapp-work__get_contact_chats',
+      'mcp__whatsapp-work__get_last_interaction',
+      'mcp__whatsapp-work__get_message_context',
+      'mcp__whatsapp-work__download_media',
     ],
-    // OUTWARD-TO-THIRD-PARTY channels can never reach the session (containment): the
-    // telegram plugin + whatsapp servers are excluded at the MCP-config source AND
-    // denied here; the email SEND tools are denied (email read stays available).
-    // deny-rules win over everything in the SDK permission order; in PTY mode these
-    // names also feed the spawn's --disallowed-tools seal.
+    // OUTWARD-TO-THIRD-PARTY hard denies (containment): TELEGRAM can NEVER reach the
+    // session — it is excluded at the MCP-config source AND hard-denied here (it is the
+    // channel-hijack vector; the prod plugin would seize the getUpdates token). The email
+    // + gmail SEND tools are hard-denied (their READ stays available). deny-rules win over
+    // everything in the permission order; in PTY mode these names also feed the spawn's
+    // --disallowed-tools seal.
+    // ★ WHATSAPP IS NOT HARD-DENIED HERE (2026-06-20): the user chose "reading allowed,
+    // sending approval-gated". A blanket `mcp__whatsapp__*` deny would block the READ tools
+    // too. Instead, whatsapp READ tools are allow-listed above, and whatsapp SEND tools are
+    // left UN-listed so the safety floor (routeWhen=isDestructiveOp) ROUTES them to the user
+    // for an allow/deny — NOT a silent hard-deny and NOT an auto-allow. (Hard-denying send
+    // would make sending impossible; allow-listing send would skip the approval prompt.)
     deny: [
       'mcp__plugin_telegram_telegram__*',
       'mcp__telegram__*',
-      'mcp__whatsapp__*',
-      'mcp__whatsapp-work__*',
       'mcp__hostinger-email__send_email',
       'mcp__hostinger-email__reply_to_email',
       'mcp__google-workspace__send_gmail_message',

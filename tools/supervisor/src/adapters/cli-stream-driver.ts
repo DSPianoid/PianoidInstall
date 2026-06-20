@@ -38,7 +38,9 @@
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
-import { statSync, readFileSync } from 'node:fs';
+import { statSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
   PermissionHandler,
@@ -466,10 +468,51 @@ export function extractSystemPromptAppend(sp: SessionStartOptions['systemPrompt'
   return sp.append ?? '';
 }
 
-export function buildCliArgs(opts: SessionStartOptions): string[] {
+/**
+ * Write the curated MCP server map to a private temp file for `--mcp-config`, and return its
+ * path (or undefined when there is nothing to write). The file is created with mode 0600
+ * (owner read/write only) under os.tmpdir() — OUTSIDE the repo working tree, so it can never be
+ * committed and is not visible to other repo users. The JSON shape is the CLI's expected
+ * `{ "mcpServers": { <name>: <config> } }` (the same shape as `~/.claude.json` / `.mcp.json`).
+ *
+ * ★ SECRET HYGIENE: the map already carries RESOLVED secrets (DEEPSEEK_API_KEY, EMAIL_PASS, …
+ * inline from ~/.claude.json) — this function writes them to the 0600 file ONLY; the CONTENTS are
+ * NEVER logged or printed (the caller logs at most the path + the server NAMES). The driver unlinks
+ * the file on stop()/teardown. Pure given its inputs (the only effect is the file write); the
+ * filename uses crypto.randomBytes so concurrent sessions don't collide. Exported for the test
+ * (which asserts the 0600 mode + the `{mcpServers}` shape without reading any secret).
+ *
+ * @returns the temp file path, or undefined if `mcpServers` is absent/empty (no flag needed).
+ */
+export function writeMcpConfigFile(
+  mcpServers: Record<string, unknown> | undefined,
+  dir: string = tmpdir(),
+): string | undefined {
+  if (!mcpServers || Object.keys(mcpServers).length === 0) return undefined;
+  const path = join(dir, `supervisor-mcp-${process.pid}-${randomBytes(6).toString('hex')}.json`);
+  // mode 0o600 at create time (owner-only). On Windows the POSIX bits are advisory, but the file
+  // still lands in the per-user temp dir (not the repo), so it is not exposed to other repo users.
+  writeFileSync(path, JSON.stringify({ mcpServers }), { encoding: 'utf8', mode: 0o600 });
+  return path;
+}
+
+export function buildCliArgs(opts: SessionStartOptions, mcpConfigPath?: string): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose'];
   // Route every gated tool over the stdio control protocol → the PermissionRouter.
   args.push('--permission-prompt-tool', 'stdio');
+  // ★ MCP CONFIG (2026-06-20) — when a curated MCP map was written to a temp file, point the
+  // child at it with `--mcp-config <file>`. WHY THIS IS NEEDED: the hosted orchestrator runs
+  // with settingSources ['project','local'] (NEVER 'user' — the token-hijack containment), and
+  // the user's `~/.claude.json` mcpServers are USER-scope config → they do NOT auto-load under
+  // project/local. So without this flag the child sees ZERO MCP servers. We pass an explicit,
+  // curated map (telegram excluded; whatsapp/email/deepseek kept; secrets resolved in-memory by
+  // mcp-config.ts) via the file. ★ DELIBERATELY NO `--strict-mcp-config`: that would make the
+  // child use ONLY these servers and DROP the claude.ai connector servers (Drive/Gmail/Calendar)
+  // the orchestrator also relies on. Omitting it ADDS our curated map alongside them (measured:
+  // `--strict-mcp-config` = "Only use MCP servers from --mcp-config, ignoring all other MCP
+  // configurations"). The file path is the ONLY thing on the command line — the resolved secrets
+  // live in the file (0600, os.tmpdir, unlinked on stop), never in argv and never logged.
+  if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath);
   if (opts.resume) args.push('--resume', opts.resume);
   if (opts.model) args.push('--model', opts.model);
   if (opts.cwd) {
@@ -509,6 +552,8 @@ export class CliStreamDriver implements SessionDriver {
   private child: CliChildProcess | null = null;
   private running = false;
   private sessionId: string | undefined;
+  /** The private 0600 temp file holding the curated --mcp-config map; unlinked on stop()/teardown. */
+  private mcpConfigFile: string | undefined;
   /** True once we've intercepted a relaunch + killed the child (suppresses further events). */
   private relaunchBlocked = false;
   /** The permission handler (PermissionRouter), set in start() — services can_use_tool. */
@@ -529,11 +574,19 @@ export class CliStreamDriver implements SessionDriver {
     // `can_use_tool` control_request the CLI raises over stdio (R4).
     this.onPermission = opts.onPermission;
 
+    // ★ MCP CONFIG (2026-06-20): if the supervisor passed a curated MCP map, materialize it to a
+    // private 0600 temp file (outside the repo) and point the child at it via --mcp-config. The
+    // file write happens HERE (not in the pure buildCliArgs) so buildCliArgs stays pure/unit-tested;
+    // the contents (resolved secrets) are never logged. A stale file from a prior start (e.g. a
+    // crash-restart that re-enters start()) is cleaned up first.
+    this.cleanupMcpConfigFile();
+    this.mcpConfigFile = writeMcpConfigFile(opts.mcpServers);
+
     // Spawn the child SYNCHRONOUSLY in start() (not inside the generator) so the
     // contract matches the SDK driver: send() works as soon as start() returns,
     // before the caller begins draining events. (`node:child_process` is a builtin,
     // so no async import is needed.)
-    const cliArgs = buildCliArgs(opts);
+    const cliArgs = buildCliArgs(opts, this.mcpConfigFile);
     // Env: spread the caller's env (or process.env) UNCHANGED — no api-key injected.
     const env = opts.env ? ({ ...process.env, ...opts.env } as NodeJS.ProcessEnv) : process.env;
     const child = this.spawnFnOverride
@@ -650,6 +703,8 @@ export class CliStreamDriver implements SessionDriver {
     this.running = false;
     const child = this.child;
     this.child = null;
+    // The child we fed is being torn down → drop its private --mcp-config temp file too.
+    this.cleanupMcpConfigFile();
     // Notify FIRST (so the operator-facing note is queued even if the kill races the exit).
     try {
       this.onRelaunchBlocked?.(info);
@@ -665,6 +720,22 @@ export class CliStreamDriver implements SessionDriver {
       // Fire-and-forget the tree kill (terminateChildTree awaits the exit; we don't block the
       // generator's return on it — the child is doomed either way).
       void terminateChildTree(child).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Unlink the private --mcp-config temp file (best-effort; idempotent). Called on stop(), on a
+   * relaunch-block teardown, and at the start of a fresh start() so the resolved-secret file never
+   * lingers on disk after the child it fed has exited.
+   */
+  private cleanupMcpConfigFile(): void {
+    const f = this.mcpConfigFile;
+    if (!f) return;
+    this.mcpConfigFile = undefined;
+    try {
+      unlinkSync(f);
+    } catch {
+      /* already gone / unreadable — best-effort */
     }
   }
 
@@ -693,6 +764,8 @@ export class CliStreamDriver implements SessionDriver {
     this.running = false;
     const child = this.child;
     this.child = null;
+    // Remove the private --mcp-config temp file (resolved secrets) now the child is going down.
+    this.cleanupMcpConfigFile();
     if (!child) return;
     try {
       child.stdin.end();
