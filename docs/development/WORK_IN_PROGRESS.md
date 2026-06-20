@@ -28,7 +28,9 @@
 <!-- dev-wbspawn workbench work all MERGED to PianoidTunner dev (placement+orphan-fix earlier; 3rd type
      panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20; PER-TYPE placement refinement
      31941cc on 2026-06-20 — placement.{fixed,panelFollowing,globalDynamic}, 3 global-⚙ controls,
-     placementForSpawn per-type resolver, log dev-wbspawn-pertype-2026-06-20.md). Rows removed at Phase 2. -->
+     placementForSpawn per-type resolver, log dev-wbspawn-pertype-2026-06-20.md; per-type COLOR CODING
+     644aebd on 2026-06-20 — 3 distinct title-bar accents amber/teal/coral via workbenchKindClass, all
+     distinct from SC-average #42a5f5/#ba68c8). Rows removed at Phase 2. -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, merged dc3a732). -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, orphan-fix merged 62974f6). -->
 <!-- dev-wbspawn ROW REMOVED (Phase 2, placement merged 73f32f0). -->

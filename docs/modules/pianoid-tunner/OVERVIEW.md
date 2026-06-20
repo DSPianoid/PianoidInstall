@@ -669,6 +669,18 @@ Each setting takes one of two **placement modes**:
 
 The pure tree transforms (`isBottomPinned`, `appendToScreenBottom`, `dockUnderPanel`) plus the per-type resolver (`placementForSpawn`) live in `src/utils/workbenchPlacement.js`; `PianoidTuner` holds thin `setLayout(transform(layout, …))` wrappers. The three settings render as labeled `<Select>` controls in `GlobalSettingsDialog.jsx`; the nested `placement` object is hidden from the per-pane gear's ObjectInspector (`placement: { hidden: true }`) so it never renders as `[object Object]`. Persists in the `workbenchSettings` localStorage bucket (merged-over-defaults on load; the old single `placementMode` key is dropped, the three per-type keys default per the table — a minor UI pref, no precise migration). Pinned by `src/utils/__tests__/workbenchPlacement.test.js` (no-relocate, canonical extend, fresh-stack-create, dock-under-panel, source-absent fallback, no-mutate, **plus `placementForSpawn` per-type**).
 
+### Workbench type color coding (dev-wbspawn, 2026-06-20)
+
+Each workbench TYPE carries a distinct **title-bar accent** so the user can tell the three apart at a glance. All three accents are chosen distinct from each other AND from the **Sound Channels average chart** accent — which uses the MUI default-theme tokens `primary.light` (**#42a5f5**, blue) on the modes axis and `secondary.light` (**#ba68c8**, purple) on the strings axis (`SoundChannelsAggregateChart.jsx` `seriesColor`). The three type colors are warm/green hues well clear of that blue/purple:
+
+| Type | CSS class | Accent | Note |
+|------|-----------|--------|------|
+| **Fixed** | `wb-kind-fixed` | amber **#ffb300** | bound to one param forever |
+| **Panel-following** | `wb-kind-panel` | teal **#26a69a** | follows active param within its host panel |
+| **Global dynamic** | `wb-kind-global` | coral **#ff7043** | the single always-present "Workbench" pane |
+
+Application: the pure `workbenchKindClass(id, wb)` helper (`src/utils/workbenchTitle.js`, alongside `workbenchPaneTitle`) maps a pane id + its binding to one of the three classes — `id === "Workbench"` → global; a `Workbench:` pane with binding `kind === "panel-dynamic"` → panel-following; else → fixed; non-workbench panes → `""` (no accent). `PianoidTuner` folds that class into the `MosaicWindow` `className` (alongside the existing `highlighted-window` active-panel cue). The accent itself is a translucent toolbar fill + a solid 4px left-border in `index.css` (mirroring the `.highlighted-window` pattern); the type rules are declared **before** `.highlighted-window` so the transient active-panel orange cue still wins by source order when both apply. Pinned by the `workbenchKindClass — per-type color coding` suite in `src/utils/__tests__/workbenchPaneTitle.test.js`. (Colors are an accessible default — easy to retune in `index.css` if the user wants specific hues.)
+
 ### Savable mosaic layouts (dev-uiqueue, 2026-06-15)
 
 The toolbar `Widgets` control is a **selector of named, savable layouts** plus a Manage popup — the

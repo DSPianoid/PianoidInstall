@@ -15,6 +15,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-wbspawn (per-type COLOR CODING) locks RELEASED 2026-06-20T03:25:00Z — MERGED + PUSHED. 3
+     workbench types each get a distinct title-bar accent, all distinct from the SC-average chart accent
+     (MUI default-theme primary.light #42a5f5 modes / secondary.light #ba68c8 strings — found in
+     SoundChannelsAggregateChart seriesColor). Colors: fixed=amber #ffb300 / panel-following=teal #26a69a
+     / global-dynamic=coral #ff7043. New pure workbenchKindClass(id, wb) in workbenchTitle.js → CSS class;
+     PianoidTuner folds it into MosaicWindow className; index.css accent rules (translucent fill + 4px
+     left-border) declared BEFORE .highlighted-window so active-panel orange still wins on overlap. Files:
+     PianoTuner.js, utils/workbenchTitle.js, index.css, utils/__tests__/workbenchPaneTitle.test.js
+     (+per-type class suite). Jest 1298/1298 green, CRA build clean. MERGED --no-ff to PianoTunner dev (off
+     31941cc; feature commit 5aba136; merge 644aebd) + PUSHED origin/dev (31941cc..644aebd); :3000
+     restarted (serving 644aebd, HTTP 200). Frontend-only, NO CUDA. User live-tests. Docs (OVERVIEW
+     "Workbench type color coding") + log appended on PianoidInstall master. -->
 <!-- dev-wbspawn (per-type placement) locks RELEASED 2026-06-20T02:40:00Z — MERGED + PUSHED. Per-type
      workbench spawn placement: replaced single placementMode with placement.{fixed, panelFollowing,
      globalDynamic} (defaults panel-bottom/panel-bottom/screen-bottom); 3 labeled controls in global

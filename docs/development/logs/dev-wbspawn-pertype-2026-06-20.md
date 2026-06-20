@@ -46,3 +46,32 @@
 - `:3000` killed (react-scripts tree PID 49816/59568) + restarted detached from main checkout; serving 31941cc, HTTP 200.
 - Locks RELEASED, WIP updated, this log finalized.
 - **Status: COMPLETE.**
+
+---
+
+## ADD: Per-type COLOR CODING (folded into the same cycle) — 2026-06-20T03:25:00Z
+
+User refinement: "all three types of workbenches should have different color coding, and all three of them should be distinct from the Sound Channels average chart."
+
+### SC-average color found (the one to avoid)
+`SoundChannelsAggregateChart.jsx` `seriesColor` = `theme.palette.primary.light` on the **modes** axis, `theme.palette.secondary.light` on the **strings** axis. The app uses MUI's default theme (no app-level `createTheme`), so these resolve to:
+- `primary.light` = **#42a5f5** (blue)
+- `secondary.light` = **#ba68c8** (purple)
+
+### The 3 type colors (distinct from each other AND from #42a5f5/#ba68c8; dark-theme-friendly, warm/green hues clear of blue/purple)
+- FIXED → amber **#ffb300** (`wb-kind-fixed`)
+- PANEL-FOLLOWING → teal **#26a69a** (`wb-kind-panel`)
+- GLOBAL DYNAMIC → coral **#ff7043** (`wb-kind-global`)
+
+### Surface + implementation
+- Surface chosen = the **pane title-bar** (most visible at a glance), mirroring the existing `.highlighted-window` pattern: translucent toolbar fill + 4px solid left-border accent in `index.css`.
+- New pure helper `workbenchKindClass(id, wb)` in `utils/workbenchTitle.js` (home of pane-title presentation): `id === "Workbench"` → global; `Workbench:` pane with binding `kind === "panel-dynamic"` → panel; else → fixed; non-workbench → `""`.
+- `PianoTuner.js` folds the class into the `MosaicWindow` `className` next to the active-panel `highlighted-window` cue.
+- CSS type rules declared BEFORE `.highlighted-window` so the transient active-panel orange cue still wins by source order on overlap.
+- Tests: `workbenchPaneTitle.test.js` +`workbenchKindClass — per-type color coding` suite (global/panel/fixed mapping, non-workbench → "", all-3-distinct).
+
+### Verification
+- Full Jest: **126 suites / 1298 tests PASS** (+5). CRA build: **Compiled successfully**. chrome-devtools DOWN → user live-tests.
+
+### Close
+- Feature commit `5aba136`; MERGED --no-ff to PianoTunner dev (off 31941cc) → merge `644aebd`; PUSHED origin/dev (`31941cc..644aebd`); `:3000` restarted (serving 644aebd, HTTP 200). Locks RELEASED, WIP updated. **Color-coding COMPLETE.**
