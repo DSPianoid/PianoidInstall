@@ -23,7 +23,7 @@
  * real session) + 2 (route permissions) + 3 (stream-json on the bus).
  */
 
-import type { InboundMessage, OutboundMessage, OutboundResult, ReplyHandle } from './contract.js';
+import type { InboundMessage, InlineButton, OutboundMessage, OutboundResult, ReplyHandle } from './contract.js';
 import type { OutputMode } from './config.js';
 import { ChannelPermission, type SendPrompt } from './channel-permission.js';
 import { LifecycleManager } from './lifecycle.js';
@@ -65,6 +65,20 @@ import {
   type SetRoleCommand,
   type RolesListRow,
 } from './setrole-command.js';
+import {
+  isControlCommand,
+  parseControlCallback,
+  CONTROL_ACTIONS,
+  CONTROL_MENU_TEXT,
+  CONTROL_MODEL_MENU_TEXT,
+  buildControlMenu,
+  buildModelSubmenu,
+  controlHelpText,
+  formatStatus,
+  classifyLiveness,
+  type ControlCallback,
+  type StatusSnapshot,
+} from './control-command.js';
 
 /** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
 export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
@@ -121,6 +135,27 @@ export { SETKEY_CMD_RE, parseSetKeyCommand, redactSetKeyText } from './setkey-co
  * provider / model are not credentials), so — unlike `/setkey` — there is NO redaction.
  */
 export { SETROLE_CMD_RE, ROLES_CMD_RE, parseSetRoleCommand, isRolesCommand } from './setrole-command.js';
+
+/**
+ * The reserved OUT-OF-BAND OPERATOR CONTROL command — `/control` (the supervisor
+ * control plane). Like `/mode`, it is INTERCEPTED by the supervisor (handled in
+ * {@link SessionHost.handleInbound}) and NEVER forwarded to the orchestrator: it
+ * renders a native inline-keyboard MENU whose buttons carry `ctl:<action>`
+ * `callback_data`, and the taps are routed supervisor-side (so the whole plane
+ * works when the orchestrator child is dead/stuck). The parse + menu + action
+ * registry + formatters live in control-command.ts ({@link isControlCommand} /
+ * {@link parseControlCallback} / {@link CONTROL_ACTIONS}); these re-exports keep the
+ * command discoverable here alongside `/mode` + `/setrole`. UNLIKE the routing
+ * commands it is NOT gated on a wired store — supervisor control is always
+ * available (the matcher only fires on the reserved `/control` prefix + `ctl:*`
+ * callbacks, so non-control inbound is byte-for-byte unchanged).
+ */
+export {
+  CONTROL_CMD_RE,
+  CTL_CALLBACK_PREFIX,
+  isControlCommand,
+  parseControlCallback,
+} from './control-command.js';
 
 /** M3: at most one delivery-failure notice per this window (outage cooldown). */
 export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
@@ -396,6 +431,21 @@ export class SessionHost {
    * this ONLY when SUPERVISOR_ROLE_ROUTING is ON.
    */
   private readonly dispatchRoleAgent: RoleDispatchFn | null;
+  /**
+   * CONTROL PLANE — supervisor start wall-clock (ms), set in {@link start}. SOLE
+   * OWNER of this datum (P1): only `start()` writes it; the `/control` `status`
+   * action reads it (now − startedAt = uptime). 0 until started.
+   */
+  private startedAt = 0;
+  /**
+   * CONTROL PLANE — the last stall signal the lifecycle watchdog surfaced (via the
+   * `onStall` hook), or null if none seen this session. Read by the `/control`
+   * `status` action to classify STUCK (proposal §5). The lifecycle is the SOLE
+   * DETECTOR of stalls (P1); this only records the last-seen snapshot. The watchdog
+   * is dormant by default (turnTimeoutMs=0), so this stays null until a later phase
+   * enables it — byte-for-byte today.
+   */
+  private lastStall: { silentMs: number; action: 'surface' | 'restart' } | null = null;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -469,6 +519,13 @@ export class SessionHost {
       onProgress: () => this.onMidTurnProgress(),
       // FORWARD ALL OUTPUT (orchestrator profile): mirror tool activity to the channel.
       onToolActivity: opts.forwardToolActivity ? (info) => this.forwardToolActivity(info) : undefined,
+      // CONTROL PLANE — record the last stall the lifecycle watchdog surfaces, so the
+      // `/control` `status` action can classify STUCK (proposal §5). The lifecycle owns
+      // stall DETECTION (P1); this just latches the last-seen snapshot. The watchdog is
+      // dormant by default (turnTimeoutMs=0), so onStall never fires today → byte-for-byte.
+      onStall: (info) => {
+        this.lastStall = { silentMs: info.silentMs, action: info.action };
+      },
     });
   }
 
@@ -535,6 +592,8 @@ export class SessionHost {
     if (this.started) return;
     await this.lifecycle.start();
     this.started = true;
+    // CONTROL PLANE — anchor the uptime clock for the `/control` status action.
+    this.startedAt = Date.now();
     // D4: arm the periodic idle-aware liveness scheduler (no-op if disabled).
     this.startLivenessScheduler();
     this.logger.info('session host started', this.lifecycle.health());
@@ -583,6 +642,15 @@ export class SessionHost {
     // outcome (buttons disappear). A non-permission callback, or a stale/unknown code,
     // is ACK'd quietly and dropped (never typed to the AI).
     if (msg.callback) {
+      // ★ CONTROL PLANE — a `ctl:*` tap (the supervisor control menu) is routed
+      // supervisor-side FIRST (it answers from supervisor-owned state, so it works
+      // even when the orchestrator child is dead/stuck). A non-`ctl:` callback
+      // (e.g. a `perm:*` permission decision) falls through to the permission path.
+      const ctl = parseControlCallback(msg.callback.data);
+      if (ctl) {
+        await this.handleControlCallback(ctl, msg.callback);
+        return;
+      }
       await this.handlePermissionCallback(msg.callback);
       return;
     }
@@ -621,6 +689,18 @@ export class SessionHost {
     const modeCmd = parseModeCommand(text);
     if (modeCmd) {
       await this.handleModeCommand(modeCmd);
+      return;
+    }
+
+    // ★ OPERATOR CONTROL PLANE — reserved '/control'. INTERCEPTED here (same seam) and
+    // NOT forwarded to the orchestrator: render a native inline-keyboard MENU whose
+    // buttons carry `ctl:<action>` callback_data; the taps are routed supervisor-side
+    // (handleControlCallback). Handled from supervisor-owned state, so the whole plane
+    // works when the orchestrator child is dead/stuck (proposal CP1). NOT gated on any
+    // store — supervisor control is always available; the matcher only fires on the
+    // reserved '/control' prefix, so non-control inbound is byte-for-byte unchanged.
+    if (isControlCommand(text)) {
+      await this.handleControlCommand();
       return;
     }
 
@@ -719,6 +799,167 @@ export class SessionHost {
       await this.opts.answerCallback(callbackId, text);
     } catch (err) {
       this.logger.warn('answerCallback failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // OPERATOR CONTROL PLANE (`/control`) — OUT-OF-BAND, supervisor-side. The menu
+  // render + the `ctl:*` callback ROUTER (an extensible action registry). All
+  // handled from supervisor-owned state, so the plane works when the orchestrator
+  // child is dead/stuck (proposal PART A / CP1).
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Handle the intercepted `/control` command: render the main control MENU as a
+   * native inline-keyboard (one button per {@link CONTROL_ACTIONS} entry). The
+   * buttons carry `ctl:<action>` callback_data; taps land in
+   * {@link handleControlCallback}. A CONTROL message — plain text, no modality.
+   */
+  private async handleControlCommand(): Promise<void> {
+    this.logger.info('control menu opened via /control');
+    this.publishLifecycle('control_menu_opened', {});
+    await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
+  }
+
+  /**
+   * Route a control-plane button tap (`ctl:<action>` / `ctl:<action>:<arg>`):
+   *   1. ACK the tap (dismiss the client spinner) — best-effort.
+   *   2. Dispatch on the action id via the registry-backed switch:
+   *      - `status` → edit the tapped message to the active/stuck/dead status report;
+   *      - `ping`   → liveness round-trip → edit to alive/idle/in-flight + ms;
+   *      - `help`   → edit to the help text (the action list);
+   *      - `change-model` → render the model SUB-MENU (a NEW message — an edit can't
+   *        carry a fresh keyboard); the model choices are a SCAFFOLD (their restart
+   *        wiring lands in a later phase);
+   *      - `model-set:<model>` → report the choice is recorded but the restart is
+   *        wired in a later phase (NO live restart in Phase 1);
+   *      - `menu` → re-render the main menu (the submenu "back").
+   * An unknown action is ACK'd + ignored (never crashes, never a typed turn).
+   */
+  private async handleControlCallback(
+    ctl: ControlCallback,
+    callback: { id: string; data: string; messageId?: string },
+  ): Promise<void> {
+    this.logger.info('control callback', { action: ctl.action, ...(ctl.arg ? { arg: ctl.arg } : {}) });
+    // 1) ACK the tap so the client spinner clears (a brief toast names the action).
+    await this.answerCallbackSafe(callback.id, this.controlToast(ctl.action));
+    // 2) Dispatch.
+    switch (ctl.action) {
+      case 'status':
+        await this.editControlResult(callback, formatStatus(this.controlStatusSnapshot()));
+        return;
+      case 'ping':
+        await this.editControlResult(callback, await this.controlPing());
+        return;
+      case 'help':
+        await this.editControlResult(callback, controlHelpText());
+        return;
+      case 'change-model':
+        // An edit drops the keyboard → send the sub-menu as a NEW message.
+        await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.opts.model));
+        return;
+      case 'model-set':
+        await this.editControlResult(
+          callback,
+          `🤖 Model "${ctl.arg ?? '?'}" selected. Applying it restarts the orchestrator — ` +
+            `that wiring lands in a later phase (the change-model action is a scaffold for now), ` +
+            `so nothing was restarted.`,
+        );
+        return;
+      case 'menu':
+        await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
+        return;
+      default:
+        this.logger.info('unknown control action (ignored)', { action: ctl.action });
+        return;
+    }
+  }
+
+  /** A short toast for a tapped control action (the answerCallback spinner text). */
+  private controlToast(action: string): string {
+    const spec = CONTROL_ACTIONS.find((a) => a.id === action);
+    return spec ? spec.label.replace(/^[^\sA-Za-z]+\s*/, '') : 'OK';
+  }
+
+  /**
+   * Gather the live status SNAPSHOT for the `status` action from supervisor-owned
+   * telemetry: lifecycle health (running/sessionId/restarts) + idle + the resolved
+   * orchestrator model (opts.model) + uptime (now − startedAt) + pending approvals
+   * + the last stall. Context-window % is not exposed by the driver today →
+   * undefined (reported as n/a). Pure read — no child interaction (works when dead).
+   */
+  private controlStatusSnapshot(): StatusSnapshot {
+    const h = this.lifecycle.health();
+    return {
+      running: h.running,
+      idle: this.lifecycle.isIdle(),
+      ...(h.sessionId ? { sessionId: h.sessionId } : {}),
+      restarts: h.restarts,
+      ...(this.opts.model ? { model: this.opts.model } : {}),
+      uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
+      pendingApprovals: this.pendingPermissions().length,
+      lastStall: this.lastStall,
+    };
+  }
+
+  /**
+   * The `ping` action: report supervisor↔orchestrator liveness with a round-trip.
+   * The supervisor itself is alive (it is answering), so this reports the CHILD's
+   * reachability cheaply WITHOUT injecting a turn: running + idle/in-flight, from
+   * lifecycle state (a full ping-turn round-trip is the D4 machinery a later phase
+   * surfaces). The classify gives active/stuck/dead. Round-trip ms is the handler
+   * latency (sub-ms — it confirms the control plane itself is responsive).
+   */
+  private async controlPing(): Promise<string> {
+    const t0 = Date.now();
+    const snap = this.controlStatusSnapshot();
+    const live = classifyLiveness(snap);
+    const rttMs = Date.now() - t0;
+    if (live === 'dead') return `📡 pong — supervisor alive; orchestrator child is DOWN (round-trip ${rttMs}ms)`;
+    const state = snap.idle ? 'idle (between turns)' : 'busy (a turn is in flight)';
+    const tag = live === 'stuck' ? 'STUCK' : 'OK';
+    return `📡 pong — ${tag}: orchestrator running, ${state} (round-trip ${rttMs}ms)`;
+  }
+
+  /**
+   * Send a control MENU/SUB-MENU message (plain text + an inline keyboard). A
+   * CONTROL message — no modality (never voiced) and it does NOT touch the
+   * lastSentText turn-baseline (like the permission prompts + acks). Best-effort:
+   * a send failure is logged, not thrown.
+   */
+  private async sendControlMenu(text: string, buttons: InlineButton[]): Promise<void> {
+    if (!this.operator) return;
+    try {
+      await this.opts.send(this.operator, { text, options: { buttons } });
+    } catch (err) {
+      this.logger.warn('control menu send failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Edit the TAPPED menu message to show an action RESULT (dropping its keyboard,
+   * like the resolved-permission-prompt edit) so the result replaces the menu and a
+   * record remains. Falls back to a fresh send when editMessage is unavailable or
+   * the message id is unknown. Best-effort.
+   */
+  private async editControlResult(
+    callback: { messageId?: string },
+    text: string,
+  ): Promise<void> {
+    if (this.opts.editMessage && this.operator && callback.messageId) {
+      try {
+        await this.opts.editMessage(this.operator, callback.messageId, text);
+        return;
+      } catch (err) {
+        this.logger.warn('control result edit failed — falling back to a send', { err: String(err) });
+      }
+    }
+    // No edit surface / no message id → send the result as a plain control message.
+    if (!this.operator) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('control result send failed (non-fatal)', { err: String(err) });
     }
   }
 

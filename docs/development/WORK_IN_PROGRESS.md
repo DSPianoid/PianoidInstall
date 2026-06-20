@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-ctl1 | Supervisor control-plane Phase 1 (`feature/supervisor-control-plane`): single supervisor-intercepted `/control` command → Telegram inline-keyboard MENU + extensible `ctl:*` callback ROUTER (action registry) + actions status/ping/help + a change-model menu scaffold. OUT-OF-BAND (survives a dead orchestrator child); reuses the permission-button callback infra. Additive/gated to `/control`+`ctl:*` only; non-control inbound byte-for-byte. prod dist/ NOT rebuilt (throwaway build dir); supervisor NOT restarted; NO push. | [log](logs/dev-ctl1-2026-06-20-135036.md) | 2026-06-20 |
 | dev-93e1 | Supervisor: Telegram inline-keyboard buttons for permission/confirm prompts (FIX 1) + auto-/orchestrator on startup (FIX 2) | [log](logs/dev-93e1-2026-06-19-200322.md) | 2026-06-19 |
 | dev-2870 | Model-agnostic agents — MULTI-PROVIDER foundation + in-channel `/setkey` (campaign `feature/model-agnostic-agents`): generalize the api-adapter config into a PROVIDER registry (DeepSeek/Codex exist; + Groq + Gemini via OpenAI-compat); per-provider key scoping (foreign-key reject for every pair); `/setkey <provider> <key>` SUPERVISOR-INTERCEPTED secret intake (gitignored scoped store, key redacted from capture/logs, masked confirm, deleteMessage; NOT forwarded to orchestrator). Two-tier model selection documented (Tier-1 supervisor model w/ restart; Tier-2 runtime role models = NEXT batch /setrole). DORMANT/default-OFF/zero-spend; index.ts untouched; prod dist/ NOT regenerated; supervisor NOT restarted | [log](logs/dev-2870-2026-06-20-060756.md) | 2026-06-20 |
 | dev-2870 | Tier-2 per-role model selection (campaign `feature/model-agnostic-agents`): persisted runtime role-routing override store (gitignored `.state/role-routing.json`, supervisor SOLE writer) + `/setrole <role> <provider> [model]` + `/roles` SUPERVISOR-INTERCEPTED commands (symmetric with /setkey + /mode; NOT forwarded) + an orchestrator-invokable `setRoleRouting()` so the typed command AND the orchestrator-on-user-request route through ONE writer. role-router resolves: persisted override > DEFAULT_ROLE_ROUTING_CONFIG > fail-safe claude-cli; runtime-mutable (next dispatch), persisted across restart. `/roles` shows merged map + per-provider key-presence BOOLEANS (never values). DORMANT/default-OFF/zero-spend; index.ts untouched; prod dist/ NOT regenerated; supervisor NOT restarted | [log](logs/dev-2870-2026-06-20-063200.md) | 2026-06-20 |
@@ -18,6 +19,16 @@
      dev-vio1's ACTIVE lock (voice OUTBOUND fix). OWNER: whoever holds README next (dev-vio1 on its next
      touch, or the Phase-2 merge orchestrator) — apply the one-paragraph update then. The code + tests
      are the source of truth meanwhile (src/test/permission-buttons.test.ts documents the behavior). -->
+
+<!-- DOC DEFERRAL (dev-ctl1, 2026-06-20): the supervisor README.md should gain a SHORT line on the
+     OPERATOR CONTROL PLANE (Phase 1, feature/supervisor-control-plane): a single supervisor-intercepted
+     `/control` command renders a native inline-keyboard MENU; each button → a `ctl:<action>` callback the
+     supervisor routes OUT-OF-BAND (so it works when the orchestrator child is dead/stuck). v1 actions:
+     status (active/stuck/dead + model + uptime + restarts), ping, help, + a change-model sub-menu scaffold
+     (restart-on-model wiring → a later phase). Additive + gated to `/control`+`ctl:*` (non-control inbound
+     byte-for-byte). NOT done THIS session because README.md is held by dev-vio1's ACTIVE lock. OWNER:
+     whoever holds README next. Source of truth meanwhile: control-command.ts + src/test/control-plane.test.ts
+     + docs/proposals/supervisor-control-plane-and-activation-2026-06-20.md (§2.5 interface, §2 actions). -->
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the
      DORMANT model-agnostic agent-routing layer (P0+P1, feature/model-agnostic-agents): a role→backend

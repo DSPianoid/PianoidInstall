@@ -15,6 +15,22 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-ctl1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/session-host.ts. NEW:
+     tools/supervisor/src/control-command.ts + test/control-plane.test.ts. Supervisor control-plane Phase 1 (P-A1):
+     a single supervisor-intercepted `/control` command renders a native inline-keyboard MENU; an extensible
+     `ctl:*` callback ROUTER (the CONTROL_ACTIONS registry) routes taps OUT-OF-BAND (works when the orchestrator
+     child is dead/stuck). v1 ACTIONS: status (active/stuck/dead + model + uptime + context%[n/a] + pending
+     approvals + restarts), ping (liveness round-trip), help (lists actions) + a change-model menu entry & model
+     sub-menu SCAFFOLD (restart-on-model wiring → A3). control-command.ts = pure (matcher/`ctl:*` parse/registry/
+     menu builders/classifyLiveness+formatStatus); session-host.ts WIRES it (intercept after /mode before
+     sendUserTurn; `ctl:*` routed first in the callback block, perm:* falls through; startedAt for uptime;
+     lastStall latched via the lifecycle onStall — dormant watchdog → byte-for-byte today). Additive + gated to
+     `/control`+`ctl:*` → non-control inbound BYTE-FOR-BYTE. +20 tests, full supervisor node:test 498/498 (478
+     baseline +20), tsc clean (built ONLY to throwaway dist-test-ctrl, removed — prod dist/ NOT regenerated; the
+     live supervisor NOT restarted). NO real Telegram, NO model restart (loopback fakes). Proposal revised to the
+     `/control`-menu interface (§2.5) + the change-model action. README doc-deferred (dev-vio1 holds the lock).
+     SHA in the session log. -->
 <!-- dev-2870 P6 locks RELEASED 2026-06-20 at Step 10a Phase 1 (config commit 62cb2ff + session-host commit
      b375fb1 + index.ts+tests commit 007d3a8 + proposal commit 96d9f71, on feature/model-agnostic-agents;
      NOT merged/pushed — activation/merge is the separately-approved P6 step the USER triggers). EDITED
