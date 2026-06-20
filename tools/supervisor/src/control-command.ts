@@ -185,6 +185,17 @@ export const CONTROL_MODEL_CHOICES: readonly string[] = [
   'claude-haiku-4-5',
 ];
 
+/**
+ * Buttons PER ROW for the `/control` menu + its sub-menus (the layout hint the adapter
+ * honors). The main menu has 14 actions; rendered as a single flat row each button is
+ * squeezed to ~1/14 width and the label truncates to just the emoji. Chunking at 2/row
+ * gives 7 readable rows (and keeps each approvals ask's Allow/Deny pair side-by-side; a
+ * 2-button confirm stays one row). The supervisor passes this on every control-menu send
+ * (the permission Allow/Deny prompt sets NO per-row hint → it stays a single row,
+ * byte-for-byte). 2 = a sensible grid; bump if the labels ever shorten.
+ */
+export const CONTROL_MENU_BUTTONS_PER_ROW = 2;
+
 /** Build the MAIN control menu inline keyboard from the action registry. Pure. */
 export function buildControlMenu(): InlineButton[] {
   return CONTROL_ACTIONS.map((a) => ({ text: a.label, callbackData: controlCallbackData(a.id) }));

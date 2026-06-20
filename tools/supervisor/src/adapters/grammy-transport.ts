@@ -40,10 +40,23 @@ export interface GrammyTransportOptions {
   maxBackoffMs?: number;
 }
 
-/** Build a grammY InlineKeyboard (single row) from the transport-layer buttons. */
-function buildInlineKeyboard(buttons: { text: string; callbackData: string }[]): InlineKeyboard {
+/**
+ * Build a grammY InlineKeyboard from the transport-layer buttons, laid out at most
+ * `perRow` buttons per row. `perRow` omitted / ≤ 0 → a SINGLE row (the prior
+ * behavior — keeps a 2-button permission Allow/Deny prompt byte-for-byte). `perRow`
+ * > 0 → wrap the flat list into rows of at most N (the readable grid for a long
+ * menu like `/control`). Pure aside from constructing the keyboard.
+ */
+export function buildInlineKeyboard(
+  buttons: { text: string; callbackData: string }[],
+  perRow?: number,
+): InlineKeyboard {
   const kb = new InlineKeyboard();
-  for (const b of buttons) kb.text(b.text, b.callbackData);
+  const n = perRow && perRow > 0 ? Math.floor(perRow) : buttons.length || 1;
+  buttons.forEach((b, i) => {
+    if (i > 0 && i % n === 0) kb.row(); // start a new row every N buttons
+    kb.text(b.text, b.callbackData);
+  });
   return kb;
 }
 
@@ -189,7 +202,7 @@ export class GrammyTelegramTransport implements TelegramTransport {
         : {}),
       ...(opts?.format === 'markdown' ? { parse_mode: 'MarkdownV2' as const } : {}),
       ...(opts?.inlineButtons && opts.inlineButtons.length > 0
-        ? { reply_markup: buildInlineKeyboard(opts.inlineButtons) }
+        ? { reply_markup: buildInlineKeyboard(opts.inlineButtons, opts.buttonsPerRow) }
         : {}),
     });
     return String(sent.message_id);

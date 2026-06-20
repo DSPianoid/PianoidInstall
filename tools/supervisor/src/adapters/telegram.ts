@@ -317,8 +317,15 @@ export class TelegramAdapter implements ChannelAdapter {
       ...(handle.replyToMessageId ? { replyToMessageId: handle.replyToMessageId } : {}),
       ...(msg.options?.format === 'markdown' ? { format: 'markdown' as const } : {}),
       // Inline buttons attach to the TEXT send only (a voice bubble can't carry them).
+      // buttonsPerRow (the layout hint) carries through so a long menu (e.g. /control)
+      // renders as a readable grid; omitted → a single row (the permission-prompt default).
       ...(msg.options?.buttons && msg.options.buttons.length > 0
-        ? { inlineButtons: msg.options.buttons.map((b) => ({ text: b.text, callbackData: b.callbackData })) }
+        ? {
+            inlineButtons: msg.options.buttons.map((b) => ({ text: b.text, callbackData: b.callbackData })),
+            ...(msg.options.buttonsPerRow && msg.options.buttonsPerRow > 0
+              ? { buttonsPerRow: msg.options.buttonsPerRow }
+              : {}),
+          }
         : {}),
     };
 

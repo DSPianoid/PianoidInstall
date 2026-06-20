@@ -47,6 +47,7 @@ import {
   CONTROL_ACTIONS,
   CONTROL_MODEL_CHOICES,
   CONTROL_MENU_TEXT,
+  CONTROL_MENU_BUTTONS_PER_ROW,
   CONTROL_MODEL_MENU_TEXT,
   CONTROL_FLUSH_CONFIRM_TEXT,
   CONTROL_RESTART_CONFIRM_TEXT,
@@ -485,6 +486,27 @@ test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrat
   }
   // NOT forwarded: still only the one earlier 'hi' turn.
   assert.equal(driver.sentTurns.length, 1, '/control did not inject a turn');
+  await host.stop();
+  bus.close();
+});
+
+test('the /control menu carries a buttonsPerRow layout hint (so 14 buttons wrap into a readable grid)', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeHost(cap);
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await host.handleInbound(inbound('/control'));
+  const menu = cap.sent.find((s) => s.msg.text === CONTROL_MENU_TEXT);
+  assert.ok(menu, 'the control menu was rendered');
+  // The menu has 14 actions → a SINGLE flat row would squeeze every label to ~1/14 width.
+  // It must request a per-row layout (2) so the adapter wraps it into a grid.
+  assert.equal(menu!.msg.options?.buttonsPerRow, CONTROL_MENU_BUTTONS_PER_ROW, 'menu sets buttonsPerRow=2');
+  assert.equal(CONTROL_MENU_BUTTONS_PER_ROW, 2);
+  // A sub-menu (change-model) carries the SAME layout hint (it routes through sendControlMenu too).
+  await host.handleInbound(callbackInbound('ctl:change-model', 'cb-cm', 'menu-msg-1'));
+  const sub = cap.sent.find((s) => s.msg.text === CONTROL_MODEL_MENU_TEXT);
+  assert.ok(sub, 'the change-model sub-menu was rendered');
+  assert.equal(sub!.msg.options?.buttonsPerRow, CONTROL_MENU_BUTTONS_PER_ROW, 'sub-menu sets buttonsPerRow=2');
   await host.stop();
   bus.close();
 });

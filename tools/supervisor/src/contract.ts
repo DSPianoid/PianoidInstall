@@ -147,13 +147,25 @@ export interface OutboundOptions {
   format?: 'text' | 'markdown';
   /**
    * Inline-keyboard buttons to attach to the (text) message — the native
-   * tap-to-decide UX (e.g. ✅ Allow / ❌ Deny for a permission prompt). Rendered
-   * as a single row by the adapter; a tapped button comes back as an inbound
-   * {@link InboundCallback}. Channels without inline keyboards ignore this (the
-   * text + the `allow/deny <code>` fallback still work). Only honored on a TEXT
-   * send (modality text/dual), never on a voice bubble.
+   * tap-to-decide UX (e.g. ✅ Allow / ❌ Deny for a permission prompt). A tapped
+   * button comes back as an inbound {@link InboundCallback}. Channels without inline
+   * keyboards ignore this (the text + the `allow/deny <code>` fallback still work).
+   * Only honored on a TEXT send (modality text/dual), never on a voice bubble.
+   *
+   * Row layout is controlled by {@link buttonsPerRow}: by default the adapter renders
+   * all buttons in a SINGLE row (the permission Allow/Deny prompt — 2 buttons — is
+   * fine that way); set `buttonsPerRow` to wrap a longer keyboard (e.g. the `/control`
+   * menu's 14 actions) into a readable grid so labels are not squeezed to 1/N width.
    */
   buttons?: InlineButton[];
+  /**
+   * Buttons PER ROW for the inline keyboard (the layout hint the adapter honors). When
+   * omitted or ≤ 0, all {@link buttons} render in a SINGLE row (the previous behavior —
+   * byte-for-byte for the permission prompt). When set to N > 0, the adapter chunks the
+   * flat button list into rows of at most N (e.g. N=2 → a 14-button menu becomes 7 rows
+   * of 2 → readable labels). Channels without inline keyboards ignore it.
+   */
+  buttonsPerRow?: number;
 }
 
 /** Result of an outbound send. */

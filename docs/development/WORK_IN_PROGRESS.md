@@ -1,9 +1,27 @@
 # Work in Progress
 
+## ★ POST-RESTART CONTINUATION — 2026-06-20 (CONTROL-PLANE activation: READ FIRST; delete after live-test + B1/C1 are sorted)
+
+The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator control plane** (`/control`). You are the fresh orchestrator hosted by the supervisor; the Telegram chat is preserved; output default = text. You run INSIDE the supervisor's own dev repo (see your system hosting context — the `tools/supervisor` self-modification cautions apply; don't disturb other agents' sessions).
+
+**What this restart loaded:** control-plane phases A1–A5, wired into `index.ts` + built into `tools/supervisor/dist/`, on branch `feature/supervisor-control-plane` (HEAD `4b5c9ae`, 551/551 tests green). Also now LIVE for the first time (previously committed, loaded only by this restart): the voice fixes **dev-93e1** (permission inline-keyboard BUTTONS) + **dev-f982** (background-sub-agent-narration FLOOD fix) + the dormant model-agnostic campaign. `SUPERVISOR_ROLE_ROUTING`=OFF (model-agnostic dormant). `SUPERVISOR_PROACTIVE_ALERTS`=OFF (no auto stuck/dead push this round — on-demand `/control` only).
+
+**IMMEDIATE JOB — live-test `/control` WITH the user (have them drive):**
+1. Ask the user to send **`/control`** → expect a native inline-keyboard MENU (status / ping / restart / kill / clear / resume / handoff / change-model / interrupt / reconnect / flush / log / approvals / help).
+2. **status** → expect active + model `claude-opus-4-8[1m]` + uptime + channel health + restarts. **ping** + **help**. A confirm-gated action (tap **restart** → ⚠️ confirm sub-menu; DON'T confirm).
+3. Report results. ★If `/control` is BROKEN (no menu / actions fail): ROLLBACK = restore `tools/supervisor/dist.bak/` → `dist/`, then re-run `powershell -NoProfile -ExecutionPolicy Bypass -File D:\tmp\restart-supervisor.ps1 -Launcher prod`; then a /dev (reuse the control-plane context) diagnoses.
+
+> **★ dev-fa3d FOLLOW-ON FIXES are NOW IN `dist/` (2026-06-20, on this same branch, 566/566)** — the CURRENT `dist/` build (rebuilt by dev-fa3d) ADDS three fixes the user surfaced live-testing `/control`, so the activation restart that loads this build ALSO live-tests them: (1) the orchestrator's OWN host restart (`restart-supervisor.ps1` / the launchers / a `--session` host launch) is now CONFIRM-GATED — firing it routes an approve/deny over the channel and BLOCKS (it no longer tears the host down silently); (2) a parent restart now AUTO-RESUMES from a staged brief via the NEW `SUPERVISOR_STARTUP_HANDOFF_FILE` startup parameter — to use it, before firing `restart-supervisor.ps1` write the POST-RESTART brief to `D:\tmp\supervisor-startup-handoff.txt` (the launcher passes it; the fresh orchestrator's first turn carries it after `/orchestrator`; the supervisor deletes the file after); (3) the `/control` menu now renders as a READABLE GRID (≈2 buttons/row), not one squeezed 14-wide row. ★ROLLBACK target nuance: dev-fa3d backed up the PRE-fix control-plane build to `tools/supervisor/dist.bak.prectlfix/` (distinct from `dist.bak/` = the OLDER pre-control-plane build). To revert ONLY the fa3d fixes while keeping the A1–A5 activation: restore `dist.bak.prectlfix/`→`dist/`. To revert the WHOLE control plane: restore `dist.bak/`→`dist/`. Then restart. (These fixes are NOT separately merged — they fold into the control-plane → master merge.)
+
+**THEN (after the user confirms `/control` works): the last 2 phases** — **B1** (model-agnostic dispatch surface) + **C1** (enforced spend cap), pending the user's **OD-3 real-spend sign-off** (cap defaults $0.50/dispatch, $5 per 5h, DeepSeek-first). Spec + phase tracker: `docs/proposals/supervisor-control-plane-and-activation-2026-06-20.md`. Plus a quick follow-up to ENABLE proactive-push (`SUPERVISOR_PROACTIVE_ALERTS`) once the user OKs the menu behavior.
+
+**Deferred hygiene (AFTER the live-test, not before):** merge `feature/supervisor-control-plane` → master (worktree; conflict-free, it's ahead of master `2e0d35b`); then Phase-2 the control-plane phase logs (dev-ctl1/ctl2/ce3c/c9fb/acb7/2503) + their WIP rows. The pre-existing dirty `dev-vio1` log + untracked `controller-7f3a/8441` logs + 2 untracked proposals = OTHER agents' / deferred voice debt — do NOT disturb. `tools/supervisor/dist.bak/` = the pre-activation build (rollback); delete once activation is confirmed good.
+
 ## Active Dev Sessions
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-fa3d | Supervisor control-plane FOLLOW-ON FIXES (`feature/supervisor-control-plane`, continues dev-2503): (1) RESTORE the regressed PARENT-restart confirmation gate (the `restart-supervisor.ps1 -Launcher prod` path ran un-gated, tore the live host down silently) — route a channel confirm + BLOCK, matching the child `ctl:restart`/restart-request gate; (2) NEW supervisor-STARTUP context-pickup mechanism so a fresh session after a PARENT restart auto-injects the prior handoff into its first turn (extend dev-ce3c A3 handoff-snapshot + dev-93e1 roleTurnPrefix first-turn path); (3) chunk the `/control` flat 14-button list into rows (~2/row) so labels are readable, regression-check the perm/confirm Allow/Deny buttons. Unit-tested via fakes/injected deps ONLY. ⚠️ DO NOT restart/kill the supervisor; NO push/merge; preserve dirty/untracked. Phase 1 → commit, release locks, STOP. | [log](logs/dev-fa3d-2026-06-20-170844.md) | 2026-06-20 |
 | dev-2503 | Supervisor control-plane ACTIVATION (`feature/supervisor-control-plane`, continues dev-ctl1/ctl2/ce3c/c9fb/acb7): WIRE the A1–A5 `/control` injected deps (`reconnectChannel`/`flushChannel`/`captureRecent`/`restartControl`/`interruptTurn`) into `index.ts` SessionHost ctor (mirror the P6 conditional-spread; COEXIST with P6). After wiring `/control` + its menu actions go live on the next supervisor restart. Keep `SUPERVISOR_PROACTIVE_ALERTS` OFF. Then REBUILD prod `dist/` (intentional — activation), verify full `node --test dist/test/` suite green + tsc clean + `dist/control-command.js` present + a new wiring test, back up `dist/`→`dist.bak/`. DOCUMENT the supervisor-`dist/`-reload restart procedure (do NOT execute). ⚠️ DO NOT restart/kill the supervisor, NO push/merge, preserve dirty/untracked. | [log](logs/dev-2503-2026-06-20-130447.md) | 2026-06-20 |
 | dev-acb7 | Supervisor control-plane Phase A5 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c/dev-c9fb): PROACTIVE stuck/dead PUSH + in-flight turn-watchdog enablement (ALERT-not-kill). Detect STUCK (idle + missed-ping/stall) / DEAD (child not running) / a long-running turn (>180s default) → push ONE debounced alert per event to the channel (re-arm only after the condition clears). Wires `status`'s STUCK end-to-end. The whole A5 behavior is gated behind a NEW config flag DEFAULT-OFF (watchdog timers do not even arm when off → byte-for-byte today). NEVER auto-kills/restarts (alert-only; composes with the existing auto-restart-on-death, adds no kill path). Clock/timers injectable + `.unref()`'d → fake clock in tests (no 180s waits). The LIVE host NEVER killed/restarted (fakes + fake clock + fake transport only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-acb7-2026-06-20-150800.md) | 2026-06-20 |
 | dev-c9fb | Supervisor control-plane Phase A4 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c): the `interrupt` (alias `cancel`) menu action — STOP the orchestrator's current turn WITHOUT killing it (a fast ESC). NEW public `lifecycle.interruptTurn()` (additive; NOT auto-invoked) calling the driver's `interrupt()`; a `CONTROL_ACTIONS` row + `ctl:interrupt` handler. NO confirm sub-menu (non-destructive). Calls the live interrupt ONLY via an injected `interruptTurn()` dep (dormant when unwired → "not available"); index.ts wires it AT ACTIVATION (not this phase). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER interrupted/restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-c9fb-2026-06-20-145002.md) | 2026-06-20 |
@@ -78,7 +96,26 @@
      orchestrator triggers it via D:\tmp\restart-supervisor.ps1 -Launcher prod, DETACHED — POST
      /api/lifecycle/restart-request only cycles the claude -p CHILD, not the supervisor PARENT, so it does
      NOT reload dist/). Rollback: restore dist.bak/→dist/ + restart. +11 tests (control-activation-wiring.test.ts);
-     full node:test 551/551. Same README deferral (dev-vio1 holds the lock). -->
+     full node:test 551/551. Same README deferral (dev-vio1 holds the lock).
+     EXTENDED (dev-fa3d, 2026-06-20 — POST-ACTIVATION FOLLOW-ON FIXES, user-surfaced live-testing /control):
+     three fixes on feature/supervisor-control-plane (NOT merged; fold into the SAME activation restart). (1) RESTORED
+     the regressed PARENT-restart confirmation gate: a NEW isSupervisorRelaunchCommand branch in the safety floor
+     (profiles.ts isDestructiveShellCommand) routes the orchestrator firing restart-supervisor.ps1 / launch-(prod|pty)-
+     orch.mjs / a `node dist/index.js --session` host launch → a confirm over the channel that BLOCKS (matching the
+     in-channel ctl:restart/restart-request gate). Execution-context-aware (fires on INVOKE, not a cat/grep/ls read).
+     Root cause: the parent-restart capability (restart-supervisor.ps1, commit 1bad4d9) shipped with only an ADVISORY
+     orchestrator-skill "user-gated" note + NO structural floor entry (the script's own taskkill /PID is inside the
+     script, not on the orchestrator's command line). (2) NEW supervisor-STARTUP context-pickup: SUPERVISOR_STARTUP_HANDOFF_FILE
+     (env→config.startupHandoff via resolveStartupHandoff, FAIL-SOFT) → the fresh session's FIRST turn carries the staged
+     parent-restart brief AFTER the /orchestrator prefix (SessionHost.startupHandoff, one-shot, same first-turn seam as
+     roleTurnPrefix; index.ts deletes the file after use). launch-prod-orch.mjs auto-points the env at D:\tmp\supervisor-
+     startup-handoff.txt when present+non-empty. UNSET → byte-for-byte today. So after a parent restart the orchestrator
+     auto-resumes instead of needing the human to re-send "Hi". (3) /control 14-button menu LAYOUT: a NEW optional
+     buttonsPerRow hint (OutboundOptions→RawSendOptions→telegram adapter→grammy buildInlineKeyboard, default 1=single row);
+     sendControlMenu passes CONTROL_MENU_BUTTONS_PER_ROW=2 → 7 readable rows; perm Allow/Deny prompts send NO hint → still
+     a single row (byte-for-byte). +15 tests, full node:test 566/566 (551 +15), tsc clean; dist/ rebuilt (folds into the
+     activation build). So the README control-plane line should ALSO note: the orchestrator self-restart is now confirm-
+     gated, and a parent restart auto-resumes via SUPERVISOR_STARTUP_HANDOFF_FILE. Same README deferral (dev-vio1 holds the lock). -->
 
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the

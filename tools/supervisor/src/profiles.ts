@@ -117,8 +117,50 @@ export function isDestructiveShellCommand(cmd: string): boolean {
     /\b(taskkill)\b[^|]*\/pid\b/.test(c) || // taskkill /PID <n> (system PID)
     /\bstop-process\b[^|]*-id\b/.test(c) || // Stop-Process -Id <n>
     /\b(mkfs|format|diskpart|fdisk)\b/.test(c) || // disk format
-    /\b(shutdown|reboot)\b/.test(c)
+    /\b(shutdown|reboot)\b/.test(c) ||
+    isSupervisorRelaunchCommand(c) // PARENT/dist supervisor restart — tears down the live host (this session)
   );
+}
+
+/**
+ * True if a (lower-cased) shell command is a SUPERVISOR PARENT-RESTART / relaunch — the
+ * orchestrator cycling its OWN host process. This is the most destructive op a hosted
+ * orchestrator can run: it TEARS DOWN the live supervisor that hosts this very session
+ * (and a fresh one boots), so it MUST be confirmation-gated just like the in-channel
+ * `ctl:restart` / `POST /api/lifecycle/restart-request` paths (which DO confirm).
+ *
+ * REGRESSION FIX (2026-06-20): the parent-restart capability (`restart-supervisor.ps1`,
+ * commit 1bad4d9) was added with an ADVISORY orchestrator-skill instruction ("user-gated,
+ * say go") but NO structural floor entry — so the orchestrator firing
+ * `powershell -File restart-supervisor.ps1 -Launcher prod` ran UN-gated (the existing
+ * floor patterns don't match it: the script's own `taskkill /PID` is INSIDE the script,
+ * not on the orchestrator's command line) and silently severed the live channel. Routing
+ * it restores the confirm round-trip the user expects.
+ *
+ * Matches the EXECUTION of: the canonical relaunch script (`restart-supervisor.ps1`),
+ * either supervisor launcher (`launch-prod-orch.mjs` / `launch-pty-orch.mjs`), or a direct
+ * host launch (`node … dist/index.js … --session` — booting a second hosted supervisor).
+ *
+ * It distinguishes INVOKING from merely READING/inspecting: a relaunch script runs via
+ * `powershell … -File …restart-supervisor.ps1` (or a `&`/`.` call), and a launcher/host runs
+ * via `node …` — so the predicate requires an EXECUTION marker near the token and explicitly
+ * does NOT fire for a read verb (`cat`/`type`/`more`/`less`/`head`/`tail`/`grep`/`rg`/`ls`/`dir`/
+ * `Get-Content`/`gc`). False-positives here are only mildly annoying (an extra confirm) while a
+ * false-negative would silently sever the live host — but we still avoid flagging an obvious read.
+ */
+export function isSupervisorRelaunchCommand(c: string): boolean {
+  // A leading read/inspect verb ⇒ NOT a relaunch (reading the script/launcher source, listing dirs).
+  if (/^\s*(cat|type|more|less|head|tail|grep|rg|findstr|ls|dir|get-content|gc)\b/.test(c)) return false;
+  // PowerShell relaunch script: the script name in an EXECUTION context (-file / a powershell|pwsh
+  // invocation / a `&`|`.` call operator) — NOT a bare mention.
+  const relaunchScript =
+    /\brestart-supervisor\.ps1\b/.test(c) &&
+    (/(^|\s)(powershell|pwsh)(\.exe)?\b/.test(c) || /-file\b/.test(c) || /(^|\s)[&.]\s/.test(c));
+  // Either supervisor launcher, run via node (the relaunch entrypoint the script itself calls).
+  const launcher = /\bnode\b[^|]*launch-(prod|pty)-orch\.mjs\b/.test(c);
+  // A direct host launch: node … dist/index.js … --session (booting another hosted supervisor).
+  const directHost = /\bnode\b[^|]*\bdist[\\/]index\.js\b[^|]*--session\b/.test(c);
+  return relaunchScript || launcher || directHost;
 }
 
 /** The DEMO profile (Phase-2 behavior): narrow allow-list, route-most, auto-out. */

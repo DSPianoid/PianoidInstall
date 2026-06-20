@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   isDestructiveOp,
   isDestructiveShellCommand,
+  isSupervisorRelaunchCommand,
   makeDemoProfile,
   makeOrchestratorProfile,
   resolveProfile,
@@ -45,6 +46,50 @@ test('isDestructiveShellCommand routes the destructive set, allows routine comma
   ]) {
     assert.equal(isDestructiveShellCommand(c), false, `should allow: ${c}`);
   }
+});
+
+test('isSupervisorRelaunchCommand routes a PARENT/dist supervisor restart (the host-cycle gate)', () => {
+  // The orchestrator cycling its OWN host (parent-restart) → must be confirmed (route).
+  for (const c of [
+    "powershell -noprofile -executionpolicy bypass -file 'd:\\tmp\\restart-supervisor.ps1' -launcher prod",
+    'powershell -file tools/supervisor/restart-supervisor.ps1 -launcher test',
+    'node launch-prod-orch.mjs',
+    'node tools/supervisor/launch-pty-orch.mjs',
+    'node dist/index.js --live --session --profile orchestrator --panel 8790',
+    'node dist\\index.js --session', // backslash path variant (windows)
+  ]) {
+    assert.equal(isSupervisorRelaunchCommand(c.toLowerCase()), true, `relaunch should route: ${c}`);
+    // And it flows through the public floor predicate the router actually calls.
+    assert.equal(isDestructiveShellCommand(c), true, `floor should route relaunch: ${c}`);
+  }
+  // NOT a relaunch (no false positives): reading/inspecting the files, unrelated node launches,
+  // a child-only restart-request curl (that path already confirms in-channel).
+  for (const c of [
+    'cat tools/supervisor/restart-supervisor.ps1', // reading the script ≠ running it
+    'ls tools/supervisor', // listing the dir
+    'grep -n launcher tools/supervisor/launch-prod-orch.mjs', // grepping the launcher source
+    'node dist/index.js --panel 8790', // a non-host (no --session) dev shell launch
+    'curl -X POST http://127.0.0.1:8790/api/lifecycle/restart-request', // child restart-request (confirms in-channel already)
+    'node build.js',
+  ]) {
+    assert.equal(isSupervisorRelaunchCommand(c.toLowerCase()), false, `not a relaunch: ${c}`);
+    assert.equal(isDestructiveShellCommand(c), false, `floor must NOT route: ${c}`);
+  }
+});
+
+test('the orchestrator safety floor routes a parent-restart via routeWhen (Bash + PowerShell)', () => {
+  const p = makeOrchestratorProfile();
+  // The full path the PermissionRouter takes: routeWhen(toolName, input) on the shell input.
+  assert.equal(
+    p.policy.routeWhen!('PowerShell', {
+      command: 'powershell -NoProfile -ExecutionPolicy Bypass -File D:\\tmp\\restart-supervisor.ps1 -Launcher prod',
+    }),
+    true,
+    'firing restart-supervisor.ps1 must route to the user for confirm',
+  );
+  assert.equal(p.policy.routeWhen!('Bash', { command: 'node launch-prod-orch.mjs' }), true, 'launcher relaunch routes');
+  // A routine shell command is still allowed (no false floor).
+  assert.equal(p.policy.routeWhen!('Bash', { command: 'npm test' }), false);
 });
 
 test('isDestructiveOp routes outward third-party send MCP tools', () => {

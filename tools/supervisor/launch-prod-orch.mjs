@@ -35,6 +35,13 @@ import { readFileSync, openSync, existsSync } from 'node:fs';
 const REPO_ROOT = 'D:\\repos\\PianoidInstall';
 const SUP_DIR = 'D:\\repos\\PianoidInstall\\tools\\supervisor';
 const PROD_ENV_FILE = 'C:\\Users\\astri\\.claude\\channels\\telegram\\.env';
+// ── STARTUP CONTEXT-PICKUP: the conventional path the orchestrator STAGES a parent-restart
+//    handoff brief to (BEFORE firing restart-supervisor.ps1). If present + non-empty when the
+//    fresh supervisor launches, we point SUPERVISOR_STARTUP_HANDOFF_FILE at it so the fresh
+//    orchestrator's FIRST turn carries the brief (auto-resume) instead of booting cold. The
+//    supervisor consumes (deletes) the file after injecting it, so a later plain restart with no
+//    new brief boots normally. An explicit SUPERVISOR_STARTUP_HANDOFF_FILE env still wins.
+const STAGED_HANDOFF_FILE = 'D:\\tmp\\supervisor-startup-handoff.txt';
 // ── VOICE I/O: the STT (faster-whisper) + TTS (edge-tts) helpers live under the
 // repo tools/, and their deps live ONLY in the Pianoid venv — NOT a bare system
 // python. We PIN both so inbound voice notes transcribe (not the "(voice message)"
@@ -93,6 +100,19 @@ if (existsSync(VENV_PYTHON)) {
 // (We deliberately do NOT set ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN — the cost guard
 //  asserts the env is key-free so the hosted session stays on the subscription.)
 
+// ★ STARTUP CONTEXT-PICKUP: signal the fresh supervisor to auto-resume from a staged parent-restart
+//   brief. An explicit env wins; otherwise, if the conventional staged file is present + non-empty,
+//   point the env at it. The supervisor reads + DELETES it after injecting it into the first turn.
+if (!env.SUPERVISOR_STARTUP_HANDOFF_FILE) {
+  try {
+    if (existsSync(STAGED_HANDOFF_FILE) && readFileSync(STAGED_HANDOFF_FILE, 'utf8').trim() !== '') {
+      env.SUPERVISOR_STARTUP_HANDOFF_FILE = STAGED_HANDOFF_FILE;
+    }
+  } catch {
+    /* staged-handoff probe failed — boot without pickup (fail-soft, never block the relaunch) */
+  }
+}
+
 const errLog = openSync('D:\\tmp\\supervisor-prod.err.log', 'a');
 const outLog = openSync('D:\\tmp\\supervisor-prod.out.log', 'a');
 
@@ -108,6 +128,7 @@ process.stdout.write(
   `LAUNCHED PRODUCTION supervisor pid=${child.pid} ` +
     `(driver=cli-stream[claude -p] profile=orchestrator model=opus-4-8[1m] panel=8790; ` +
     `telegram=PROD-token-via-SUPERVISOR_TELEGRAM_TOKEN; TELEGRAM_BOT_TOKEN UNSET in child; ` +
-    `hosted cwd=${REPO_ROOT} [REAL repo, NO worktree]; cost-guard=on; seal=on)\n`,
+    `hosted cwd=${REPO_ROOT} [REAL repo, NO worktree]; cost-guard=on; seal=on; ` +
+    `startup-handoff=${env.SUPERVISOR_STARTUP_HANDOFF_FILE ? 'STAGED (auto-resume)' : 'none (cold boot)'})\n`,
 );
 process.exit(0);

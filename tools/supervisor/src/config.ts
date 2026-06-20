@@ -167,6 +167,26 @@ export interface SupervisorConfig {
    */
   roleTurnPrefix?: string;
   /**
+   * ★ STARTUP CONTEXT-PICKUP (parent-restart handoff): a one-shot context note injected
+   * into the FRESH session's first turn so a supervisor PARENT/`dist` restart (the external
+   * `restart-supervisor.ps1` relaunch — which boots a brand-new supervisor process + a COLD
+   * orchestrator) auto-resumes the prior session instead of coming up blank (today the human
+   * had to re-send "Hi" before the orchestrator engaged). Resolved by {@link resolveStartupHandoff}
+   * from `SUPERVISOR_STARTUP_HANDOFF_FILE` (a file path the parent-restart STAGES before relaunch;
+   * the launcher passes the env): if the file exists + is non-empty, its trimmed contents become
+   * this note; otherwise undefined. UNSET/empty ⇒ undefined ⇒ the first turn is the bare role
+   * prefix = byte-for-byte today. Consumed ONCE (the SessionHost appends it to the first real
+   * user turn, AFTER {@link roleTurnPrefix}, exactly like the child restart-handoff injection).
+   */
+  startupHandoff?: string;
+  /**
+   * The resolved PATH of the staged startup-handoff file (or undefined). Kept alongside
+   * {@link startupHandoff} so the entrypoint can CLEAR the one-shot file after consumption
+   * (a stale handoff must not be re-injected on the NEXT plain restart). Resolved from
+   * `SUPERVISOR_STARTUP_HANDOFF_FILE`; undefined when the env is unset.
+   */
+  startupHandoffFile?: string;
+  /**
    * ★ P6 ACTIVATION SWITCH (model-agnostic agent routing — X5/AP5). Whether the
    * model-agnostic ROLE-ROUTING layer is ACTIVE. Resolved from `SUPERVISOR_ROLE_ROUTING`
    * (the SAME env var the pure {@link isRoleRoutingEnabled} reads — single switch), ON
@@ -280,6 +300,10 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     permissionPolicy: resolvePermissionPolicy(),
     outputModeDefault: resolveOutputMode(),
     roleTurnPrefix: resolveRoleTurnPrefix(),
+    // ★ STARTUP CONTEXT-PICKUP: the one-shot parent-restart handoff note (+ its file path so the
+    // entrypoint can clear it after use). Unset env → both undefined → byte-for-byte today.
+    startupHandoff: resolveStartupHandoff(),
+    startupHandoffFile: resolveStartupHandoffFile(),
     // ★ P6: the model-agnostic role-routing activation switch (default OFF). Reads the SAME
     // env var the pure isRoleRoutingEnabled gates on, so the config flag + the resolver agree.
     roleRoutingEnabled: isRoleRoutingEnabled(process.env),
@@ -351,6 +375,45 @@ export function resolveRoleTurnPrefix(raw = process.env.SUPERVISOR_ROLE_TURN_PRE
   const v = raw.trim();
   if (v === '' || v.toLowerCase() === 'none' || v.toLowerCase() === 'off') return undefined; // explicit OFF
   return v;
+}
+
+/**
+ * ★ STARTUP CONTEXT-PICKUP — resolve the PATH of the staged parent-restart handoff file from
+ * `SUPERVISOR_STARTUP_HANDOFF_FILE`. Unset/blank → undefined (no pickup; byte-for-byte today).
+ * A set path is returned trimmed (whether or not the file exists yet — the existence/content
+ * check is {@link resolveStartupHandoff}'s job; this is the path the entrypoint clears after use).
+ * Pure (no I/O); exported for the test.
+ */
+export function resolveStartupHandoffFile(raw = process.env.SUPERVISOR_STARTUP_HANDOFF_FILE): string | undefined {
+  const v = (raw ?? '').trim();
+  return v === '' ? undefined : v;
+}
+
+/**
+ * ★ STARTUP CONTEXT-PICKUP — resolve the parent-restart HANDOFF NOTE injected into the fresh
+ * session's first turn. Reads the file named by `SUPERVISOR_STARTUP_HANDOFF_FILE`
+ * ({@link resolveStartupHandoffFile}); returns its TRIMMED contents iff the file exists and is
+ * non-empty, else undefined (the file may legitimately be absent on a normal boot → no pickup →
+ * byte-for-byte today). NEVER throws — a read error (race / permissions) degrades to undefined
+ * (the fresh session just starts cold, exactly as before this feature). The file is consumed
+ * ONCE: the entrypoint clears it after construction so the next plain restart doesn't re-inject
+ * a stale note. The file path is logged but its CONTENTS are project handoff text (not a secret).
+ * `readFileFn` is injectable for the test (default: a fail-soft fs read).
+ */
+export function resolveStartupHandoff(
+  filePath = resolveStartupHandoffFile(),
+  readFileFn: (p: string) => string | undefined = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : undefined),
+): string | undefined {
+  if (!filePath) return undefined;
+  let body: string | undefined;
+  try {
+    body = readFileFn(filePath);
+  } catch {
+    return undefined; // fail-soft: a missing/locked file (or a throwing reader) → no pickup, never a boot crash
+  }
+  if (body === undefined) return undefined;
+  const trimmed = body.trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 /**

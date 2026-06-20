@@ -28,7 +28,7 @@
  *                                      # SUPERVISOR_ECHO=1 also enables echo
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -451,6 +451,14 @@ async function main(): Promise<void> {
       // restart-handoff path re-arms + consumes the same prefix → no double-invoke.
       // Gated to the orchestrator profile (the demo persona adopts no skill role).
       roleTurnPrefix: profile.roleBootstrap === 'orchestrator-skill' ? config.roleTurnPrefix : undefined,
+      // ★ STARTUP CONTEXT-PICKUP (parent-restart handoff): when the supervisor was relaunched
+      // (restart-supervisor.ps1 → fresh process + COLD orchestrator) and the parent-restart STAGED
+      // a handoff file (config.startupHandoff resolved from SUPERVISOR_STARTUP_HANDOFF_FILE), inject
+      // it into the fresh session's FIRST real user turn so it auto-resumes instead of booting blank
+      // (today the human had to re-send "Hi"). Gated to the orchestrator profile (same as the role
+      // prefix). Unstaged/unset ⇒ undefined ⇒ byte-for-byte today. The one-shot file is cleared just
+      // below so a later PLAIN restart doesn't re-inject a stale brief.
+      startupHandoff: profile.roleBootstrap === 'orchestrator-skill' ? config.startupHandoff : undefined,
       // Per-turn de-dup applies ONLY when the in-process reply tool is wired (SDK
       // driver): auto-out the final answer UNLESS the reply tool fired this turn.
       // Under cli-stream there is NO reply tool → auto-forward assistant text (the
@@ -481,6 +489,21 @@ async function main(): Promise<void> {
       onUnresponsive: (reason) => void handleUnresponsive(reason),
     });
     supervisor.onInbound(sessionHost.handleInbound);
+    // ★ STARTUP CONTEXT-PICKUP: the handoff note is now captured in the SessionHost (it injects it
+    // into the first turn). CONSUME the one-shot staging file so a LATER plain restart (with no new
+    // brief staged) does NOT re-inject this stale handoff. Best-effort; a failure is non-fatal (the
+    // worst case is a one-time stale re-inject, not a crash). Only when a handoff was actually staged.
+    if (config.startupHandoff && config.startupHandoffFile && existsSync(config.startupHandoffFile)) {
+      try {
+        unlinkSync(config.startupHandoffFile);
+        logger.info('consumed (cleared) the one-shot startup-handoff file', { file: config.startupHandoffFile });
+      } catch (e) {
+        logger.warn('could not clear the startup-handoff file (non-fatal; may re-inject once)', {
+          file: config.startupHandoffFile,
+          err: String(e),
+        });
+      }
+    }
     // D4 tier-b handler (defined here so it closes over sessionHost + supervisor).
     handleUnresponsive = async (reason: string): Promise<void> => {
       logger.error('TIER-B: orchestrator unresponsive — restarting + notifying the user', { reason });

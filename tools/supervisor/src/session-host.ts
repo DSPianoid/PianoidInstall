@@ -76,6 +76,7 @@ import {
   CONTROL_KILL_CONFIRM_TEXT,
   CONTROL_CLEAR_CONFIRM_TEXT,
   CONTROL_RESUME_CONFIRM_TEXT,
+  CONTROL_MENU_BUTTONS_PER_ROW,
   buildControlMenu,
   buildModelSubmenu,
   buildModelSetConfirmMenu,
@@ -436,6 +437,17 @@ export interface SessionHostOptions {
    */
   roleTurnPrefix?: string;
   /**
+   * ★ STARTUP CONTEXT-PICKUP (parent-restart handoff): a one-shot context note appended to the
+   * FRESH session's FIRST real user turn (AFTER {@link roleTurnPrefix}) so a supervisor
+   * PARENT/`dist` restart auto-resumes the prior session instead of booting COLD. Set by
+   * index.ts from `config.startupHandoff` (resolved from the staged `SUPERVISOR_STARTUP_HANDOFF_FILE`).
+   * Consumed ONCE — same first-turn seam as `roleTurnPrefix` (NOT a pre-user bootstrap; the
+   * anti-pattern in the `roleTurnPrefix` doc applies equally). Undefined ⇒ the first turn is the
+   * bare role prefix = byte-for-byte today. Mirrors the child restart-handoff note shape
+   * (runRestartConfirm) but for the parent/startup path.
+   */
+  startupHandoff?: string;
+  /**
    * Per-turn de-dup: the channel reply tool name (e.g.
    * 'mcp__supervisor_channel__reply'). When set (orchestrator profile), the final
    * answer auto-outs UNLESS the reply tool fired this turn. When unset (demo),
@@ -535,6 +547,11 @@ export class SessionHost {
   private operatorId: string | null = null;
   /** True until the role-adoption prefix has been applied to the first user turn. */
   private rolePrefixPending: boolean;
+  /**
+   * ★ STARTUP CONTEXT-PICKUP — true until the one-shot parent-restart handoff note
+   * (`opts.startupHandoff`) has been appended to the first real user turn. Consumed once.
+   */
+  private startupHandoffPending: boolean;
   private started = false;
   /**
    * SEND-SIDE IDEMPOTENCY GUARD (the seq-221 self-diagnosis #1 fix). The text last
@@ -673,6 +690,7 @@ export class SessionHost {
     this.opts = opts;
     this.logger = opts.logger.child('session-host');
     this.rolePrefixPending = !!opts.roleTurnPrefix;
+    this.startupHandoffPending = !!opts.startupHandoff; // one-shot parent-restart context pickup
     this.outputMode = opts.outputMode ?? 'text';
     this.secretStore = opts.secretStore ?? null;
     this.providers = opts.providers ?? DEFAULT_PROVIDERS;
@@ -996,6 +1014,22 @@ export class SessionHost {
       this.rolePrefixPending = false;
       turnText = `${this.opts.roleTurnPrefix}\n\n${text}`;
       this.logger.info('applied role-adoption prefix to the first user turn', { prefix: this.opts.roleTurnPrefix });
+    }
+    // ★ STARTUP CONTEXT-PICKUP: on the FIRST real user turn after a PARENT/`dist` restart, splice
+    // the staged handoff note in BETWEEN the role prefix and the user's message (AFTER the role
+    // loads, BEFORE the message it must act on) so the fresh orchestrator resumes the prior session
+    // instead of starting cold. Same first-turn seam as the role prefix (operator bound; not a
+    // pre-user bootstrap). One-shot. Mirrors the child restart-handoff note shape (runRestartConfirm).
+    if (this.startupHandoffPending && this.opts.startupHandoff) {
+      this.startupHandoffPending = false;
+      const handoff =
+        `[SUPERVISOR startup handoff] The supervisor was just restarted (process/dist reload; the channel ` +
+        `is preserved, your context is fresh). Resume from this prior-session brief BEFORE handling the ` +
+        `message below:\n${this.opts.startupHandoff}`;
+      turnText = `${turnText}\n\n${handoff}`;
+      this.logger.info('injected startup handoff into the first user turn (parent-restart context pickup)', {
+        handoffChars: this.opts.startupHandoff.length,
+      });
     }
     // New user turn → reset the send-side idempotency guard so this turn's (possibly
     // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
@@ -1501,7 +1535,13 @@ export class SessionHost {
   private async sendControlMenu(text: string, buttons: InlineButton[]): Promise<void> {
     if (!this.operator) return;
     try {
-      await this.opts.send(this.operator, { text, options: { buttons } });
+      // buttonsPerRow → the adapter wraps the keyboard into a readable grid (the 14-action
+      // main menu would otherwise pack into one row with truncated labels). The permission
+      // Allow/Deny prompts go via a DIFFERENT send (no per-row hint) → still a single row.
+      await this.opts.send(this.operator, {
+        text,
+        options: { buttons, buttonsPerRow: CONTROL_MENU_BUTTONS_PER_ROW },
+      });
     } catch (err) {
       this.logger.warn('control menu send failed (non-fatal)', { err: String(err) });
     }

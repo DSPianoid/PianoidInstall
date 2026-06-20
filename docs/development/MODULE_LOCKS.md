@@ -15,6 +15,45 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-fa3d locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that loads the rebuilt dist/ also live-tests these fixes). EDITED (existing): tools/supervisor/src/{profiles,
+     config,session-host,index,control-command,contract}.ts + adapters/{grammy-transport,telegram-transport,
+     telegram}.ts + launch-prod-orch.mjs + test/{profiles,control-plane}.test.ts. NEW: test/{button-rows,
+     startup-handoff}.test.ts. (config.test.ts + session-host.test.ts were locked precautionarily but NOT edited —
+     the new resolver + first-turn tests live in the dedicated startup-handoff.test.ts → released untouched.)
+     THREE post-activation follow-on fixes the user surfaced live-testing /control:
+     (1) RESTORED the regressed PARENT-restart confirmation gate — a NEW isSupervisorRelaunchCommand branch in the
+     safety floor (profiles.ts isDestructiveShellCommand) routes the orchestrator firing restart-supervisor.ps1 /
+     launch-(prod|pty)-orch.mjs / a `node dist/index.js --session` host launch → a confirm over the channel that
+     BLOCKS (matching the in-channel ctl:restart/restart-request gate). Execution-context-aware: fires on INVOKE
+     (powershell/-File/&/. for the .ps1; node for the launcher/host) but NOT a cat/grep/ls READ. Root cause
+     (git-archaeology): the parent-restart capability (restart-supervisor.ps1, commit 1bad4d9 on the p0 branch)
+     shipped with only an ADVISORY orchestrator-skill "user-gated" instruction + NO structural floor entry (the
+     script's own taskkill /PID is inside the script, not on the orchestrator's command line) → the relaunch ran
+     un-gated. profiles.ts only (the floor predicate); the LifecycleManager child-restart confirm is UNCHANGED.
+     (2) NEW supervisor-STARTUP context-pickup: SUPERVISOR_STARTUP_HANDOFF_FILE (env → config.startupHandoffFile/
+     config.startupHandoff via the FAIL-SOFT resolveStartupHandoff) → SessionHost.startupHandoff is spliced into the
+     FRESH session's FIRST real user turn AFTER the /orchestrator role prefix (same first-turn seam as roleTurnPrefix,
+     operator bound, NOT a pre-user bootstrap), one-shot (index.ts deletes the staged file after construction).
+     launch-prod-orch.mjs auto-points the env at D:\tmp\supervisor-startup-handoff.txt when present+non-empty (explicit
+     env wins). So a parent/dist restart AUTO-RESUMES from the staged brief instead of booting cold (the human had to
+     re-send "Hi"). UNSET/absent ⇒ byte-for-byte today. (3) /control 14-button menu LAYOUT: a NEW optional buttonsPerRow
+     hint threaded OutboundOptions (contract) → RawSendOptions (telegram-transport) → telegram adapter → grammy
+     buildInlineKeyboard (chunks rows of N; default 1 = single row); SessionHost.sendControlMenu (the SINGLE point all
+     /control menus route through) passes CONTROL_MENU_BUTTONS_PER_ROW=2 → 7 readable rows of 2. The permission
+     Allow/Deny prompts send NO hint → still a single row (byte-for-byte; regression-checked: permission-buttons +
+     permission-router + control-plane 119/119). +15 tests (relaunch-floor incl. read-vs-invoke no-false-positives +
+     routeWhen end-to-end; startup-handoff resolution + first-turn splice/one-shot/byte-for-byte + fail-soft; the REAL
+     grammy keyboard row-structure). Full supervisor node --test dist/test/ 566/566 (551 baseline +15), tsc --noEmit
+     clean. ★The prod dist/ WAS rebuilt (folds into the activation build — loaded by the SAME restart-supervisor.ps1
+     -Launcher prod restart); the live supervisor was NOT restarted/killed, NO /api/lifecycle/* call, NO restart-script
+     run, NO supervisor PID touched (all behavior verified via fakes/injected deps + the loopback transport — NO real
+     Telegram/claude spawn/spend). Rollback: dev-fa3d backed up the PRE-fix control-plane dist/ to dist.bak.prectlfix/
+     (distinct from dist.bak/ = the older pre-control-plane build); restore dist.bak.prectlfix/→dist/ to revert ONLY
+     these fixes, or dist.bak/→dist/ to revert the whole control plane. README doc-deferred (dev-vio1 holds the lock;
+     dev-ctl1's deferral note extended with the fa3d line). Spec §6 + the WIP continuation block updated. SHA in the
+     session log. -->
 <!-- dev-2503 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2; the orchestrator triggers the supervisor RESTART that loads the
      rebuilt dist/, then Phase 2). EDITED (existing): tools/supervisor/src/{index.ts, session-host.ts,
