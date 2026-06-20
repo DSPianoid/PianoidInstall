@@ -15,6 +15,34 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-6ca1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 269e12f on feature/supervisor-control-plane;
+     NOT merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that rebuilds dist/ also loads these two voice-channel features). EDITED (existing): tools/supervisor/src/
+     {session-host,panel}.ts + test/{voice-modality,panel,control-plane,session-host,startup-handoff,
+     setrole-roles-host,setkey-command}.test.ts. TWO voice-channel features for the hosted orchestrator:
+     (1) MODE-AWARENESS — (a) on-change `[SUPERVISOR output-mode] ...` note injected into the orchestrator turn
+     via injectModeChangeNotice (no-op on prev===next / no running session; READER of outputMode, never a writer
+     — P1) wired into BOTH handleModeCommand (typed /mode, awaited) and controlSetMode (panel Mode submenu,
+     fire-and-forget); (b) one-shot first-turn current-mode notice via NEW modeNoticePending field (init true;
+     re-armed true at BOTH restart re-arm sites restartUnresponsive + restart-approved) spliced into the
+     handleInbound first-turn seam AFTER role-prefix + startup-handoff; (c) NEW `outputMode` field in panel.ts
+     sessionView() → GET /api/session. (2) FORCE-TEXT MARKER — NEW exported FORCE_TEXT_MARKER='[[FORCE_TEXT]]'
+     + pure applyForceText() (case-insensitive, strips EVERY occurrence, tidies whitespace); sendToOperator
+     detects it → forces modality='text' for THAT send (local override, outputMode UNCHANGED — P1) + sends the
+     STRIPPED text. v1 whole-message; text-mode=no-op(still strip); dual-mode=text-only(no voice copy). NEW pure
+     buildOutputModeNotice(mode,onChange). Adapter (telegram.ts) UNCHANGED (already honors modality:'text').
+     session-host.ts 2866→3014 LOC (pre-existing RED, +148 additive within its inbound-routing/control/modality
+     concern — dev-3e66's WIP FILE-SIZE FLAG already tracks the split). +15 tests (14 voice-modality + 1 panel),
+     7 pre-existing first-turn/mode assertions across 5 files updated to the new behavior (never weakened). Full
+     supervisor node:test 627/627 (617 baseline +10 net; env -u SUPERVISOR_STARTUP_HANDOFF_FILE for the pre-existing
+     dev-fa3d startup-handoff env-leak), tsc --noEmit clean. ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY
+     to throwaway dist-test-6ca1, deleted; prod dist/{index,session-host,panel}.js mtime 2026-06-20 17:29:29
+     UNCHANGED, verified before+after); the live supervisor [8790, PID 64920] NOT started/touched/killed, NO
+     /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher / `node dist/index.js --session`, NO supervisor
+     PID touched (all behavior via FakeSessionDriver + capturing send + loopback transport — NO real claude spawn /
+     Telegram send / spend). README + orchestrator-skill-doc token = Phase-2 deferred (dev-vio1 holds README; DOC
+     DEFERRAL block filed in WIP). Dirty/untracked OTHER-agent files (dev-0efd/c9fb/ce3c/vio1 logs, controller
+     logs, 2 proposals) NOT touched. The eventual activation rebuild includes this. SHA in the session log. -->
 <!-- dev-ae2a RESUME#2 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 3a00c34 on
      fix/dev-ae2a-workbench-empty-render, stacked on f48c0c6/fd52a41; NOT merged/pushed — held for the user's
      live test, then Phase 2). EDITED: PianoidTunner/src/PianoidTuner.js. ISSUE 2 (reversed by coordinator

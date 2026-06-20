@@ -34,6 +34,31 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
      menu is confirmed (recovery ladder + auto-snapshot pair well; statusProbeMs gives Status its live ping;
      restartDrainMs>0 enables the graceful-restart hard-kill escalation). Parent restart is wired + functional
      (supervisor-side, confirm-gated) regardless of those flags. -->
+<!-- DOC DEFERRAL (dev-6ca1, 2026-06-20): TWO voice-channel features shipped on feature/supervisor-control-plane
+     (commit in the session log) — fold into the activation/merge docs:
+     (1) ORCHESTRATOR MODE-AWARENESS: the supervisor now tells the hosted orchestrator the output mode
+         (voice/text/dual) via — (a) an out-of-band `[SUPERVISOR output-mode] ...` note injected into the
+         orchestrator's turn ON CHANGE (typed /mode OR the panel Mode submenu); (b) a one-shot current-mode
+         notice appended to the FRESH session's FIRST real user turn (re-armed on restart); (c) a NEW
+         `outputMode` field in the loopback GET /api/session.
+     (2) FORCE-TEXT MARKER: the orchestrator can force ONE reply to plain TEXT even in voice/dual mode by
+         including the token  [[FORCE_TEXT]]  anywhere in the reply — the supervisor delivers that message
+         as text (skips TTS) regardless of mode and STRIPS the token before sending. v1 = whole-message;
+         text-mode = no-op (still stripped); dual-mode = text-only (no voice copy). Solves links/paths/codes/
+         QR being voiced into uselessness.
+     ★ DOC ACTIONS at Phase 2 / merge:
+       - README operator/voice section (HELD by dev-vio1's lock — NOT editable by dev-6ca1): document the
+         `[[FORCE_TEXT]]` marker + the mode-awareness notices + the /api/session outputMode field.
+       - ★ ORCHESTRATOR SKILL DOC (.claude/commands/orchestrator.md — ORCHESTRATOR-APPLIED edit, flagged for
+         the orchestrator): instruct the orchestrator to (i) read the output mode from the on-change/first-turn
+         `[SUPERVISOR output-mode]` notices (or GET /api/session `outputMode`), and (ii) prefix/contain any
+         link, file path, command, code, or QR reference with the EXACT token  [[FORCE_TEXT]]  when the mode
+         is voice/dual. The token string MUST match FORCE_TEXT_MARKER in session-host.ts exactly.
+     Source of truth meanwhile: session-host.ts (FORCE_TEXT_MARKER + applyForceText + buildOutputModeNotice +
+     injectModeChangeNotice + the first-turn splice) + panel.ts (sessionView outputMode) + the +15 tests
+     (voice-modality.test.ts / panel.test.ts). NEW exported symbols: FORCE_TEXT_MARKER, applyForceText,
+     buildOutputModeNotice. NO new env var. Folds into the same control-plane → master merge + activation
+     rebuild (the activation restart that rebuilds dist/ loads this). -->
 <!-- LOCK NOTE (dev-3e66): config.ts was also in dev-vio1's lock row, but dev-vio1 is PAUSED on the SEPARATE
      feature/supervisor-voice-io branch (its config.ts edits committed @71074cc THERE — an env/default fix);
      my config.ts edits are ADDITIVE new default-OFF flags on THIS branch (no field overlap), matching the
@@ -50,6 +75,7 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-6ca1 | Two voice-channel features for the supervisor (`feature/supervisor-control-plane`): (1) orchestrator MODE-AWARENESS — surface current outputMode (voice/text/dual) via on-change system note + first-turn inject + /api/session loopback field; (2) FORCE-TEXT marker — orchestrator marks a reply to be delivered as TEXT (skip TTS, strip marker) even in voice/dual. Throwaway dist build only; prod dist/ NOT regenerated; supervisor/port-8790 NOT touched; NO push/merge. Phase 1 → commit, release locks, STOP. | [log](logs/dev-6ca1-2026-06-20-185321.md) | 2026-06-20 |
 | dev-85bb | Wire 3 MCP servers (deepseek-codegen, hostinger-email, whatsapp) into the supervisor-hosted `claude -p` orchestrator (`feature/supervisor-control-plane`), containment-safe — WITHOUT re-enabling the 'user' setting source or the Telegram plugin (would re-introduce the channel-hijack bug). cli-stream-driver.ts: honour `opts.mcpServers` → write a 0600 temp `--mcp-config` file (NO `--strict-mcp-config`), unlink on stop, never log. index.ts: curate the hosted MCP map excluding ONLY 'telegram' (keep whatsapp+deepseek+hostinger). WhatsApp policy: reading allowed (remove blanket `mcp__whatsapp__*` deny from profiles.ts + backend-seal UNIVERSAL_CHANNEL_DENY); SEND tools routed for user approval (not hard-denied, NOT allow-listed). Telegram stays FULLY denied; hostinger send stays gated. ⚠️ DO NOT restart/kill the supervisor; throwaway dist build only (prod dist/ NOT regenerated); NO push/merge. Phase 1 → commit, release locks, STOP. | [log](logs/dev-85bb-2026-06-20-205557.md) | 2026-06-20 |
 | dev-3e66 | Supervisor Control Panel REDESIGN (`feature/supervisor-control-plane`, per docs/proposals/control-panel-redesign-2026-06-20.md). PART 1: menu restructure — remove Ping/Reconnect/Handoff/Kill top-level; main panel = 10 buttons 2/row (Status/Approvals/Log/New session/Resume/Interrupt/Change model/Mode/Advanced/Help); NEW Mode submenu (Voice/Text/Dual, no confirm, surfaces /mode); NEW Advanced submenu (Restart/Parent restart/Flush, each confirm-gated); NEW SUPERVISOR-SIDE Parent restart (relaunch the supervisor process — control-plane handler performs it, NOT agent shell, so it bypasses dev-0efd's agent-side guard); Help explains every remaining button. PART 2: automatic behaviors — recovery ladder (reconnect→reset), auto-snapshot periodic+pre-every-restart (closes cold-watchdog gap), restart hard-kill escalation, status live-probe (latency+last-turn). Source-only; throwaway dist build; prod dist/ untouched; supervisor/port-8790 NOT touched. Phase 1 → commit, release locks, STOP. | [log](logs/dev-3e66-2026-06-20-195153.md) | 2026-06-20 |
 | dev-ae2a | Fix PianoidTunner REGRESSION — 3 workbench types spawn but render EMPTY (no ruler, no barchart). Root cause = last commit 941fedd (2-D color schema) wrapping the MosaicWindow in a `display:contents` div in renderTile → breaks react-mosaic tile geometry → chart+ruler collapse to 0 height. Frontend-only, NO CUDA. Phase 1 only. | [log](logs/dev-ae2a-2026-06-20-191230.md) | 2026-06-20 |
