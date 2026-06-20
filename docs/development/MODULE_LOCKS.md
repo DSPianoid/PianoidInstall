@@ -93,6 +93,27 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (SUPERVISOR_ROLE_ROUTING); index.ts / live path / prod dist / running supervisor UNTOUCHED; LIVE
      assertCostSafe byte-for-byte unchanged; NO real paid API call (injected fake clients). Full supervisor
      node:test 404/404 (+29), tsc clean (--noEmit + a throwaway dist dir, removed — prod dist/ NOT regenerated). -->
+<!-- dev-2870 multi-provider + /setkey locks RELEASED 2026-06-20 at Step 10a Phase 1 (provider-registry commit ce11890
+     + /setkey commit 6d1199a + proposal/bookkeeping commit on feature/model-agnostic-agents; NOT merged/pushed —
+     activation/merge is the separately-approved P6 step). Edited (existing): tools/supervisor/src/{cost-safety,
+     api-adapter-driver,session-host,supervisor,contract}.ts + test/cost-safety.test.ts. NEW:
+     {provider-registry,secret-store,setkey-command}.ts + test/{provider-registry,secret-store,setkey-command}.test.ts.
+     (backend-registry.ts was locked precautionarily but NOT edited — DEFAULT_API_ADAPTER_CONFIGS it imports is now
+     registry-derived in api-adapter-driver.ts, no registry-code change needed.)
+     PROVIDER REGISTRY: generalized the api-adapter config into a Provider table (provider-registry.ts) — any
+     OpenAI-compatible provider pluggable by ONE entry; DeepSeek/Codex (byte-identical) + NEW Groq + NEW Gemini (via
+     its OpenAI-compat endpoint → same ApiAdapterDriver, no new driver); DEFAULT_API_ADAPTER_CONFIGS + BACKEND_SECRET_ENV_VARS
+     DERIVED from it → cross-provider key scoping covers every provider/pair for free; LIVE assertCostSafe byte-for-byte
+     unchanged. /SETKEY: supervisor-intercepted `/setkey <provider> <key>` (same seam as /mode) — raw key NEVER reaches
+     the orchestrator; gitignored per-provider scoped store (secret-store.ts under .state/); key REDACTED from capture
+     (supervisor redactInbound hook, default-OFF) + logs; MASKED confirm only; deleteMessage of the user's message;
+     unknown-provider/empty-key handled; GATED on a wired secretStore → absent (current default) /setkey falls through
+     to a normal turn BYTE-FOR-BYTE unchanged. Two-tier model selection documented in the proposal (Tier-1 supervisor
+     model/restart; Tier-2 runtime role models — /setrole NEXT batch). DORMANT default-OFF (SUPERVISOR_ROLE_ROUTING);
+     index.ts / live orchestrator construction / prod dist / running supervisor UNTOUCHED; NO real paid API call (injected
+     fakes + temp store dirs + fake keys). +32 tests; full supervisor node:test 436/436 (404 baseline + 32), tsc clean
+     (--noEmit prod tsconfig + a throwaway dist dir, removed — prod dist/ NOT regenerated). Held docs (dev-vio1 log,
+     controller logs, standalone-process proposal, .process seed) NOT touched. SHAs in the session log. -->
 | <!-- (none active for dev-2870) --> | | | |
 <!-- dev-vio1 RESUME locks RELEASED 2026-06-19 at Step 10a Phase 1 (inbound-STT FIX committed on feature/supervisor-voice-io;
      NOT merged/pushed — held for the user's live-test after the orchestrator-coordinated supervisor RESTART, then Phase 2
