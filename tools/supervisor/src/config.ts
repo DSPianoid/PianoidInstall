@@ -26,6 +26,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LogLevel } from './logger.js';
 import type { PermissionPolicy } from './permission-router.js';
+import { isRoleRoutingEnabled } from './role-router.js';
 
 /**
  * The supervisor PACKAGE root (`tools/supervisor`), derived from THIS module's
@@ -164,6 +165,28 @@ export interface SupervisorConfig {
    * const doc). index.ts uses this for the orchestrator profile.
    */
   roleTurnPrefix?: string;
+  /**
+   * ★ P6 ACTIVATION SWITCH (model-agnostic agent routing — X5/AP5). Whether the
+   * model-agnostic ROLE-ROUTING layer is ACTIVE. Resolved from `SUPERVISOR_ROLE_ROUTING`
+   * (the SAME env var the pure {@link isRoleRoutingEnabled} reads — single switch), ON
+   * only for '1'/'true'/'on'. DEFAULT OFF. When false (the default), index.ts wires NONE
+   * of the routing path (no stores, no registry, no dispatch capability) → the constructed
+   * supervisor behaves BYTE-FOR-BYTE as before this feature existed. When true, index.ts
+   * wires the in-channel `/setkey`/`/setrole`/`/roles` stores + the routed-dispatch
+   * capability (still nothing runs until the orchestrator dispatches a role / the user
+   * sets a key). A change requires a supervisor RESTART (it is read at construction).
+   */
+  roleRoutingEnabled: boolean;
+  /**
+   * ★ TIER-1 — the hosted ORCHESTRATOR session's OWN model (proposal Q.3 Tier-1). The model
+   * the orchestrator itself runs on (NOT the per-role dispatch models — those are Tier-2).
+   * Resolved from `SUPERVISOR_ORCHESTRATOR_MODEL`; when unset, undefined → index.ts keeps the
+   * profile's default model (orchestrator → 'claude-opus-4-8[1m]'), UNCHANGED. Read at
+   * construction → changing it requires a supervisor RESTART (it is the session's model). This
+   * surface is ALWAYS available (not gated by the routing switch — it tunes the existing
+   * orchestrator session, independent of role-routing); the default keeps today's behavior.
+   */
+  orchestratorModel?: string;
 }
 
 export interface LoadConfigOptions {
@@ -227,7 +250,25 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     permissionPolicy: resolvePermissionPolicy(),
     outputModeDefault: resolveOutputMode(),
     roleTurnPrefix: resolveRoleTurnPrefix(),
+    // ★ P6: the model-agnostic role-routing activation switch (default OFF). Reads the SAME
+    // env var the pure isRoleRoutingEnabled gates on, so the config flag + the resolver agree.
+    roleRoutingEnabled: isRoleRoutingEnabled(process.env),
+    // ★ Tier-1: the orchestrator's own model override (undefined → keep the profile default).
+    orchestratorModel: resolveOrchestratorModel(),
   };
+}
+
+/**
+ * Resolve the Tier-1 orchestrator model override from `SUPERVISOR_ORCHESTRATOR_MODEL`
+ * (proposal Q.3 Tier-1 — the hosted orchestrator session's OWN model). An unset/blank
+ * value → undefined, so the composition root keeps the profile's default model
+ * (orchestrator → 'claude-opus-4-8[1m]') UNCHANGED. A non-blank value is used verbatim
+ * (trimmed) as the session's `--model`. Read at construction → a change needs a restart.
+ * Pure; exported for the test.
+ */
+export function resolveOrchestratorModel(raw = process.env.SUPERVISOR_ORCHESTRATOR_MODEL): string | undefined {
+  const v = (raw ?? '').trim();
+  return v.length > 0 ? v : undefined;
 }
 
 /**
