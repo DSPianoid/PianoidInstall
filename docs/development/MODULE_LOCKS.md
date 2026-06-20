@@ -15,6 +15,25 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-ctl2 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, session-host.ts,
+     test/control-plane.test.ts}. Supervisor control-plane Phase A2 (P-A2) = channel↔panel parity menu actions, each a
+     CONTROL_ACTIONS row + a `ctl:*` handler reusing the Phase-1 framework: `reconnect` (re-establish the channel transport
+     → reconnectChannel; ACK new sender/poller state) · `flush` (DESTRUCTIVE → a CONFIRM sub-menu ctl:flush→ctl:flush-confirm/
+     ctl:menu; only the confirm drops un-acked inbound via flushChannel — a bare flush does NOT) · `log` (formatControlLog over
+     the capture tail: recent inbound/outbound/delivery, compact, newest-last, capped) · `approvals` (lists pending perms with
+     per-ask ✅Allow/❌Deny buttons ctl:appr-allow:<code>/ctl:appr-deny:<code> that resolve via operatorDecide — the SAME
+     permission path the perm:* buttons + panel /api/approve use). control-command.ts = PURE (+rows + buildFlushConfirmMenu +
+     buildApprovalsSubmenu/approvalsMenuText + formatControlLog + ControlLog* types; 285→418 LOC). session-host.ts WIRES it
+     (+6 switch cases + 4 handlers + 3 ADDITIVE optional injected supervisor-side deps reconnectChannel/flushChannel/captureRecent,
+     dormant/no-op when unwired — mirrors the deleteMessage/dispatchRoleAgent P6 conditional-spread pattern; index.ts wires them
+     at ACTIVATION, NOT this agent; 1726→1820 LOC, pre-existing RED, additive within its inbound-routing/control concern).
+     `clear` DEFERRED to A3 (a fresh-context child-restart variant). Additive + gated to the new `ctl:*` actions → non-control
+     inbound BYTE-FOR-BYTE. +13 tests, full supervisor node:test 511/511 (498 baseline +13), tsc clean (built ONLY to throwaway
+     dist-test-a2[+-base], removed — prod dist/ NOT regenerated [mtime 2026-06-18 16:58:24 unchanged]; the live supervisor NOT
+     restarted). NO real Telegram, NO real reconnect/flush against the live supervisor (loopback fakes). Proposal: P-A2 marked
+     SHIPPED + `clear` moved to A3. README doc-deferred (dev-vio1 holds the lock; dev-ctl1's deferral covers A2). SHA in the
+     session log. -->
 <!-- dev-ctl1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/session-host.ts. NEW:
      tools/supervisor/src/control-command.ts + test/control-plane.test.ts. Supervisor control-plane Phase 1 (P-A1):

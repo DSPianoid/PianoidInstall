@@ -26,14 +26,19 @@ import {
   controlCallbackData,
   buildControlMenu,
   buildModelSubmenu,
+  buildFlushConfirmMenu,
+  buildApprovalsSubmenu,
+  approvalsMenuText,
   controlHelpText,
   classifyLiveness,
   formatStatus,
   formatUptime,
+  formatControlLog,
   CONTROL_ACTIONS,
   CONTROL_MODEL_CHOICES,
   CONTROL_MENU_TEXT,
   CONTROL_MODEL_MENU_TEXT,
+  CONTROL_FLUSH_CONFIRM_TEXT,
   type StatusSnapshot,
 } from '../control-command.js';
 import { ChannelPermission } from '../channel-permission.js';
@@ -146,6 +151,85 @@ test('controlHelpText lists every action + flags the scaffold ones', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 1e. control-command.ts — A2 actions: registry rows + sub-menu builders + log fmt
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('A2: the registry includes reconnect / flush / log / approvals; flush is a submenu pivot', () => {
+  const ids = CONTROL_ACTIONS.map((a) => a.id);
+  for (const id of ['reconnect', 'flush', 'log', 'approvals']) assert.ok(ids.includes(id), `${id} in registry`);
+  // flush is DESTRUCTIVE → a submenu pivot (so a tap opens the confirm, not the action).
+  assert.equal(CONTROL_ACTIONS.find((a) => a.id === 'flush')!.submenu, true);
+  // clear is DEFERRED to A3 — NOT in the registry yet.
+  assert.equal(ids.includes('clear'), false, 'clear is deferred to A3');
+  // Every registry row's callbackData round-trips (incl. the new ones, ≤64 bytes).
+  for (const a of CONTROL_ACTIONS) {
+    const data = controlCallbackData(a.id);
+    assert.ok(Buffer.byteLength(data, 'utf8') <= 64);
+    assert.deepEqual(parseControlCallback(data), { action: a.id });
+  }
+});
+
+test('A2 flush confirm sub-menu: a Confirm (ctl:flush-confirm) + a Cancel (ctl:menu)', () => {
+  const menu = buildFlushConfirmMenu();
+  assert.equal(menu.length, 2);
+  assert.deepEqual(parseControlCallback(menu[0]!.callbackData), { action: 'flush-confirm' });
+  assert.match(menu[0]!.text, /Confirm/);
+  assert.deepEqual(parseControlCallback(menu[1]!.callbackData), { action: 'menu' }); // cancel = back
+  // The confirm header warns it is destructive.
+  assert.match(CONTROL_FLUSH_CONFIRM_TEXT, /Drop pending inbound/);
+});
+
+test('A2 approvals sub-menu: Allow/Deny per pending ask (ctl:appr-allow|deny:<code>) + back; code ≤64B', () => {
+  const pending = [
+    { code: 'ab12', toolName: 'Bash' },
+    { code: 'cd34', toolName: 'Write' },
+  ];
+  const menu = buildApprovalsSubmenu(pending);
+  // 2 buttons per ask + 1 back button.
+  assert.equal(menu.length, pending.length * 2 + 1);
+  assert.deepEqual(parseControlCallback(menu[0]!.callbackData), { action: 'appr-allow', arg: 'ab12' });
+  assert.deepEqual(parseControlCallback(menu[1]!.callbackData), { action: 'appr-deny', arg: 'ab12' });
+  assert.deepEqual(parseControlCallback(menu[2]!.callbackData), { action: 'appr-allow', arg: 'cd34' });
+  assert.deepEqual(parseControlCallback(menu.at(-1)!.callbackData), { action: 'menu' });
+  for (const b of menu) assert.ok(Buffer.byteLength(b.callbackData, 'utf8') <= 64, `${b.callbackData} ≤64B`);
+  // The header lists the asks.
+  assert.match(approvalsMenuText(pending), /Bash \(ab12\)/);
+  // Empty → just a back button + a "none pending" header.
+  const empty = buildApprovalsSubmenu([]);
+  assert.equal(empty.length, 1);
+  assert.deepEqual(parseControlCallback(empty[0]!.callbackData), { action: 'menu' });
+  assert.match(approvalsMenuText([]), /none pending/);
+});
+
+test('A2 formatControlLog: compact inbound/outbound/delivery lines, newest last, capped', () => {
+  const rec = (type: string, payload: unknown, ts = '2026-06-20T11:22:33Z') => ({ event: { ts, type, payload } });
+  const records = [
+    rec('channel.inbound', { text: 'hello there' }),
+    rec('lifecycle', { event: 'start' }), // noise → dropped
+    rec('channel.outbound', { msg: { text: 'hi back' }, result: { ok: true, sentIds: ['1'] } }),
+    rec('channel.outbound', { msg: { text: 'oops' }, result: { ok: false, error: 'network down' } }),
+    rec('stream.assistant', { text: 'internal' }), // noise → dropped
+  ];
+  const out = formatControlLog(records);
+  assert.match(out, /Recent activity/);
+  assert.match(out, /11:22:33 ⬇️ hello there/);
+  assert.match(out, /11:22:33 ⬆️ hi back/);
+  assert.match(out, /11:22:33 ⚠️ send failed: network down/);
+  // Noise types are NOT rendered.
+  assert.equal(/internal/.test(out), false);
+  assert.equal(/start/.test(out), false);
+  // Empty / no-channel-events → a friendly "none" line.
+  assert.match(formatControlLog([]), /none captured/);
+  assert.match(formatControlLog([rec('lifecycle', { event: 'x' })]), /none captured/);
+  // The cap keeps only the last N.
+  const many = Array.from({ length: 30 }, (_, i) => rec('channel.inbound', { text: `m${i}` }));
+  const capped = formatControlLog(many, 5);
+  assert.match(capped, /last 5/);
+  assert.match(capped, /m29/);
+  assert.equal(/m24/.test(capped), false, 'older than the last 5 is dropped');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 1d. control-command.ts — classify active/stuck/dead + format status (faked states)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -229,8 +313,19 @@ function makeCapture() {
   return { sent, answered, edited, send, answerCallback, editMessage, lastSent };
 }
 
+/**
+ * A2 injectable supervisor-side surfaces (the loopback `reconnect`/`flush`/`log`
+ * dependencies) for the control-plane host. All optional — omitting one keeps the
+ * action UNWIRED (so the dormant-default path is testable too).
+ */
+interface A2Deps {
+  reconnectChannel?: () => Promise<{ ok: boolean; error?: string }>;
+  flushChannel?: () => { ok: boolean; dropped?: number; error?: string };
+  captureRecent?: () => readonly { event?: { ts?: string; type?: string; payload?: unknown } }[];
+}
+
 /** A host idling after system_init, awaiting the first user turn. `model` sets opts.model. */
-function makeHost(cap: ReturnType<typeof makeCapture>, model?: string) {
+function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, a2: A2Deps = {}) {
   const bus = new IoBus();
   const driver = new FakeSessionDriver([
     [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
@@ -244,6 +339,9 @@ function makeHost(cap: ReturnType<typeof makeCapture>, model?: string) {
     editMessage: cap.editMessage,
     policy: { allow: ['Read'], fallback: 'route' },
     ...(model ? { model } : {}),
+    ...(a2.reconnectChannel ? { reconnectChannel: a2.reconnectChannel } : {}),
+    ...(a2.flushChannel ? { flushChannel: a2.flushChannel } : {}),
+    ...(a2.captureRecent ? { captureRecent: a2.captureRecent } : {}),
   });
   return { bus, driver, host };
 }
@@ -392,6 +490,223 @@ test('an unknown ctl:* action is ACKed and ignored (no crash, no turn)', async (
   await host.handleInbound(callbackInbound('ctl:nonesuch', 'cb-x', 'm-x'));
   assert.equal(cap.answered.at(-1)!.callbackId, 'cb-x', 'unknown action is still ACKed');
   assert.equal(cap.edited.length, editsBefore, 'no result edited for an unknown action');
+  assert.equal(driver.sentTurns.length, 0, 'no turn injected');
+  await host.stop();
+  bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. SessionHost — A2 actions (reconnect / flush+confirm / log / approvals)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('ctl:reconnect → ACKed + edits to the reconnect result (calls the injected supervisor reconnect)', async () => {
+  const cap = makeCapture();
+  let reconnected = 0;
+  const { bus, driver, host } = makeHost(cap, undefined, {
+    reconnectChannel: async () => {
+      reconnected++;
+      return { ok: true };
+    },
+  });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:reconnect', 'cb-rc', 'm-rc'));
+  assert.equal(cap.answered.at(-1)!.callbackId, 'cb-rc', 'reconnect tap ACKed');
+  assert.equal(reconnected, 1, 'the supervisor-side reconnect was called once');
+  const ed = cap.edited.find((e) => e.messageId === 'm-rc');
+  assert.ok(ed, 'reconnect result edited in');
+  assert.match(ed!.text, /reconnected/i);
+  assert.equal(driver.sentTurns.length, 0, 'reconnect injects no turn');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:reconnect when UNWIRED → reports unavailable (dormant default, no crash)', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeHost(cap); // no reconnectChannel wired
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:reconnect', 'cb-rc0', 'm-rc0'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-rc0');
+  assert.ok(ed, 'reconnect result edited in');
+  assert.match(ed!.text, /not available/i);
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:flush → renders the CONFIRM sub-menu and does NOT drop anything (destructive-gated)', async () => {
+  const cap = makeCapture();
+  let flushed = 0;
+  const { bus, host } = makeHost(cap, undefined, {
+    flushChannel: () => {
+      flushed++;
+      return { ok: true, dropped: 3 };
+    },
+  });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  const before = cap.sent.length;
+  await host.handleInbound(callbackInbound('ctl:flush', 'cb-fl', 'm-fl'));
+  // A confirm sub-menu (a NEW message) was sent.
+  assert.ok(cap.sent.length > before, 'a confirm sub-menu was sent');
+  const confirm = cap.sent.find((s) => s.msg.text === CONTROL_FLUSH_CONFIRM_TEXT);
+  assert.ok(confirm, 'the flush-confirm sub-menu was rendered');
+  const buttons = confirm!.msg.options?.buttons;
+  assert.ok(buttons!.some((b) => b.callbackData === 'ctl:flush-confirm'), 'a Confirm button');
+  assert.ok(buttons!.some((b) => b.callbackData === 'ctl:menu'), 'a Cancel/back button');
+  // CRUCIAL: a bare flush did NOT drop anything.
+  assert.equal(flushed, 0, 'a bare flush tap does NOT call flushChannel');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:flush-confirm → actually flushes (calls the injected flush) + edits the dropped count', async () => {
+  const cap = makeCapture();
+  let flushed = 0;
+  const { bus, host } = makeHost(cap, undefined, {
+    flushChannel: () => {
+      flushed++;
+      return { ok: true, dropped: 3 };
+    },
+  });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:flush', 'cb-fl', 'm-fl')); // open confirm
+  await host.handleInbound(callbackInbound('ctl:flush-confirm', 'cb-flc', 'm-flc')); // confirm
+  assert.equal(flushed, 1, 'the confirm called flushChannel exactly once');
+  const ed = cap.edited.find((e) => e.messageId === 'm-flc');
+  assert.ok(ed, 'flush result edited in');
+  assert.match(ed!.text, /dropped 3/);
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:log → ACKed + edits to the formatted recent activity (from the injected capture tail)', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeHost(cap, undefined, {
+    captureRecent: () => [
+      { event: { ts: '2026-06-20T11:22:33Z', type: 'channel.inbound', payload: { text: 'play C4' } } },
+      { event: { ts: '2026-06-20T11:22:34Z', type: 'channel.outbound', payload: { msg: { text: 'done' }, result: { ok: true } } } },
+    ],
+  });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:log', 'cb-lg', 'm-lg'));
+  assert.equal(cap.answered.at(-1)!.callbackId, 'cb-lg', 'log tap ACKed');
+  const ed = cap.edited.find((e) => e.messageId === 'm-lg');
+  assert.ok(ed, 'log result edited in');
+  assert.match(ed!.text, /Recent activity/);
+  assert.match(ed!.text, /play C4/);
+  assert.match(ed!.text, /done/);
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:approvals with none pending → renders a sub-menu saying none pending (back only)', async () => {
+  const cap = makeCapture();
+  const { bus, host } = makeHost(cap);
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:approvals', 'cb-ap', 'm-ap'));
+  const sub = cap.sent.find((s) => /none pending/.test(s.msg.text ?? ''));
+  assert.ok(sub, 'an approvals sub-menu saying "none pending" was sent');
+  const buttons = sub!.msg.options?.buttons;
+  assert.ok(buttons!.some((b) => b.callbackData === 'ctl:menu'), 'a back button');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:approvals lists a pending ask; ctl:appr-allow:<code> resolves it via the permission path', async () => {
+  const cap = makeCapture();
+  const bus = new IoBus();
+  let decision: PermissionDecision | undefined;
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'permission', toolName: 'Bash', input: { command: 'ls' }, record: (d) => (decision = d) },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'done' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    answerCallback: cap.answerCallback,
+    editMessage: cap.editMessage,
+    policy: { allow: [], fallback: 'route' },
+    permissionTimeoutMs: 5000,
+  });
+  await host.start();
+  await host.handleInbound(inbound('run ls'));
+  await new Promise((r) => setTimeout(r, 10));
+  // A permission prompt is now pending — the approvals sub-menu lists it with the right code.
+  const prompt = cap.sent.find((s) => /Approve tool 'Bash'/.test(s.msg.text ?? ''));
+  assert.ok(prompt, 'a permission prompt was sent');
+  const code = ChannelPermission.parseCallbackData(prompt!.msg.options!.buttons![0]!.callbackData)!.code;
+  await host.handleInbound(callbackInbound('ctl:approvals', 'cb-ap2', 'm-ap2'));
+  const sub = cap.sent.find((s) => s.msg.options?.buttons?.some((b) => b.callbackData === `ctl:appr-allow:${code}`));
+  assert.ok(sub, 'the approvals sub-menu lists the pending ask with an allow button carrying its code');
+  // Tap the control-plane ALLOW → resolves the SAME ask via operatorDecide (the perm path).
+  await host.handleInbound(callbackInbound(`ctl:appr-allow:${code}`, 'cb-aa', 'm-aa'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal((decision as PermissionDecision).behavior, 'allow', 'the approval was resolved via the permission path');
+  const ed = cap.edited.find((e) => e.messageId === 'm-aa');
+  assert.ok(ed, 'the approval result was edited in');
+  assert.match(ed!.text, /Allowed/);
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:appr-deny:<code> resolves a pending ask as DENY via the permission path', async () => {
+  const cap = makeCapture();
+  const bus = new IoBus();
+  let decision: PermissionDecision | undefined;
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'permission', toolName: 'Bash', input: { command: 'rm -rf /' }, record: (d) => (decision = d) },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'done' } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    answerCallback: cap.answerCallback,
+    editMessage: cap.editMessage,
+    policy: { allow: [], fallback: 'route' },
+    permissionTimeoutMs: 5000,
+  });
+  await host.start();
+  await host.handleInbound(inbound('run rm'));
+  await new Promise((r) => setTimeout(r, 10));
+  const prompt = cap.sent.find((s) => /Approve tool 'Bash'/.test(s.msg.text ?? ''));
+  const code = ChannelPermission.parseCallbackData(prompt!.msg.options!.buttons![0]!.callbackData)!.code;
+  await host.handleInbound(callbackInbound(`ctl:appr-deny:${code}`, 'cb-ad', 'm-ad'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal((decision as PermissionDecision).behavior, 'deny', 'the approval was DENIED via the permission path');
+  const ed = cap.edited.find((e) => e.messageId === 'm-ad');
+  assert.ok(ed, 'the deny result was edited in');
+  assert.match(ed!.text, /Denied/);
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:appr-allow with a stale/unknown code → reports no match (no crash, no turn)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap);
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:appr-allow:zz99', 'cb-az', 'm-az'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-az');
+  assert.ok(ed, 'a result was edited in');
+  assert.match(ed!.text, /No pending approval matched/);
   assert.equal(driver.sentTurns.length, 0, 'no turn injected');
   await host.stop();
   bus.close();

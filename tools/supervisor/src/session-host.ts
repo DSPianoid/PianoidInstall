@@ -71,12 +71,18 @@ import {
   CONTROL_ACTIONS,
   CONTROL_MENU_TEXT,
   CONTROL_MODEL_MENU_TEXT,
+  CONTROL_FLUSH_CONFIRM_TEXT,
   buildControlMenu,
   buildModelSubmenu,
+  buildFlushConfirmMenu,
+  buildApprovalsSubmenu,
+  approvalsMenuText,
   controlHelpText,
   formatStatus,
+  formatControlLog,
   classifyLiveness,
   type ControlCallback,
+  type ControlLogRecord,
   type StatusSnapshot,
 } from './control-command.js';
 
@@ -276,6 +282,31 @@ export interface SessionHostOptions {
    * `{ok:false, enabled:false}` and NOTHING dispatches — byte-for-byte unchanged.
    */
   dispatchRoleAgent?: RoleDispatchFn;
+  /**
+   * ★ A2 CONTROL PLANE — CHANNEL RECONNECT (optional). The supervisor-side reconnect
+   * logic behind `POST /api/channel/reconnect` (bound `supervisor.reconnectChannel('telegram')`).
+   * When wired, the `/control` `reconnect` action re-establishes the channel transport
+   * out-of-band and ACKs the new sender/poller state. When ABSENT (the dormant default —
+   * index.ts wires it at activation), the `reconnect` action reports it is unavailable;
+   * no inbound behavior changes. Best-effort; returns the adapter's `{ok, error?}`.
+   */
+  reconnectChannel?: () => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * ★ A2 CONTROL PLANE — CHANNEL FLUSH (optional). The supervisor-side flush logic behind
+   * `POST /api/channel/flush` (bound `supervisor.flushChannel('telegram')`). DESTRUCTIVE —
+   * drops un-acked INBOUND — so the `/control` `flush` action gates it behind a confirm
+   * sub-menu; only the confirm calls this. When ABSENT (the dormant default), the action
+   * reports it is unavailable. Returns the adapter's `{ok, dropped?, error?}`.
+   */
+  flushChannel?: () => { ok: boolean; dropped?: number; error?: string };
+  /**
+   * ★ A2 CONTROL PLANE — CAPTURE TAIL (optional). The supervisor-side capture replay behind
+   * `GET /api/capture` (bound `() => supervisor.captureStore.replay()`). When wired, the
+   * `/control` `log` action formats the recent inbound/outbound/delivery events. When ABSENT
+   * (the dormant default), the action reports no log surface is wired. Read-only; the
+   * records are shape-compatible with {@link ControlLogRecord} (`{event}`).
+   */
+  captureRecent?: () => readonly ControlLogRecord[];
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -432,6 +463,17 @@ export class SessionHost {
    */
   private readonly dispatchRoleAgent: RoleDispatchFn | null;
   /**
+   * ★ A2 CONTROL PLANE — the INJECTED channel/capture surfaces (null when not wired —
+   * the dormant default). The SessionHost holds NO transport itself; these bound
+   * supervisor methods are how the `/control` `reconnect` / `flush` / `log` actions
+   * reach the SAME out-of-band logic the loopback panel exposes. When null, the
+   * corresponding action reports it is unavailable (no behavior change). P2: the host
+   * stays a thin wirer; the Supervisor remains the sole owner of the adapters/capture.
+   */
+  private readonly reconnectChannel: (() => Promise<{ ok: boolean; error?: string }>) | null;
+  private readonly flushChannel: (() => { ok: boolean; dropped?: number; error?: string }) | null;
+  private readonly captureRecent: (() => readonly ControlLogRecord[]) | null;
+  /**
    * CONTROL PLANE — supervisor start wall-clock (ms), set in {@link start}. SOLE
    * OWNER of this datum (P1): only `start()` writes it; the `/control` `status`
    * action reads it (now − startedAt = uptime). 0 until started.
@@ -456,6 +498,9 @@ export class SessionHost {
     this.providers = opts.providers ?? DEFAULT_PROVIDERS;
     this.roleRoutingStore = opts.roleRoutingStore ?? null;
     this.dispatchRoleAgent = opts.dispatchRoleAgent ?? null;
+    this.reconnectChannel = opts.reconnectChannel ?? null;
+    this.flushChannel = opts.flushChannel ?? null;
+    this.captureRecent = opts.captureRecent ?? null;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -834,6 +879,15 @@ export class SessionHost {
    *      - `model-set:<model>` → report the choice is recorded but the restart is
    *        wired in a later phase (NO live restart in Phase 1);
    *      - `menu` → re-render the main menu (the submenu "back").
+   *   A2 channel↔panel parity (each runs the SAME out-of-band supervisor logic the
+   *   loopback panel exposes; works when the orchestrator child is dead/stuck):
+   *      - `reconnect` → re-establish the channel transport → edit to the new state;
+   *      - `flush` → render the DESTRUCTIVE-confirm SUB-MENU (a NEW message); only
+   *        `flush-confirm` actually drops pending inbound (a bare `flush` does NOT);
+   *      - `log` → format the recent capture-buffer activity → edit it in;
+   *      - `approvals` → render the approvals SUB-MENU (a NEW message) with per-ask
+   *        Allow/Deny buttons; `appr-allow:<code>` / `appr-deny:<code>` resolve that
+   *        ask via the SAME permission path the `perm:*` buttons use (operatorDecide).
    * An unknown action is ACK'd + ignored (never crashes, never a typed turn).
    */
   private async handleControlCallback(
@@ -866,6 +920,35 @@ export class SessionHost {
             `so nothing was restarted.`,
         );
         return;
+      // ── A2 channel↔panel parity ───────────────────────────────────────────────
+      case 'reconnect':
+        await this.editControlResult(callback, await this.controlReconnect());
+        return;
+      case 'flush':
+        // DESTRUCTIVE → open a CONFIRM sub-menu (a NEW message); the bare tap does
+        // NOT drop anything. Only `flush-confirm` calls flushChannel().
+        await this.sendControlMenu(CONTROL_FLUSH_CONFIRM_TEXT, buildFlushConfirmMenu());
+        return;
+      case 'flush-confirm':
+        await this.editControlResult(callback, this.controlFlush());
+        return;
+      case 'log':
+        await this.editControlResult(callback, this.controlLog());
+        return;
+      case 'approvals':
+        // Render the approvals sub-menu (a NEW message — an edit can't carry a fresh
+        // keyboard) with per-ask Allow/Deny buttons.
+        await this.sendControlMenu(
+          approvalsMenuText(this.pendingPermissions()),
+          buildApprovalsSubmenu(this.pendingPermissions()),
+        );
+        return;
+      case 'appr-allow':
+        await this.editControlResult(callback, this.controlResolveApproval('allow', ctl.arg));
+        return;
+      case 'appr-deny':
+        await this.editControlResult(callback, this.controlResolveApproval('deny', ctl.arg));
+        return;
       case 'menu':
         await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
         return;
@@ -873,6 +956,65 @@ export class SessionHost {
         this.logger.info('unknown control action (ignored)', { action: ctl.action });
         return;
     }
+  }
+
+  /**
+   * A2 `reconnect` action: re-establish the channel transport via the injected
+   * supervisor-side reconnect (the `POST /api/channel/reconnect` logic). Reports the
+   * new sender/poller state (this supervisor's PID owns the single poller after a
+   * successful reconnect). Unwired → reports unavailable. Best-effort (the supervisor
+   * call returns `{ok, error?}`; a throw is caught and surfaced).
+   */
+  private async controlReconnect(): Promise<string> {
+    if (!this.reconnectChannel) return '🔌 Reconnect is not available (no channel transport wired).';
+    this.publishLifecycle('control_reconnect', {});
+    try {
+      const r = await this.reconnectChannel();
+      if (r.ok) return `🔌 Channel reconnected — this supervisor (pid ${process.pid}) owns the poller/sender.`;
+      return `🔌 Reconnect failed: ${r.error ?? '(unknown error)'}`;
+    } catch (err) {
+      this.logger.warn('control reconnect threw', { err: String(err) });
+      return `🔌 Reconnect failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * A2 `flush-confirm` action: actually drop un-acked INBOUND via the injected
+   * supervisor-side flush (the `POST /api/channel/flush` logic). Only reachable after
+   * the confirm sub-menu (CP7 — destructive, confirmed). Unwired → reports
+   * unavailable. Returns the count dropped.
+   */
+  private controlFlush(): string {
+    if (!this.flushChannel) return '🧹 Flush is not available (no channel transport wired).';
+    this.publishLifecycle('control_flush', {});
+    const r = this.flushChannel();
+    if (r.ok) return `🧹 Flushed — dropped ${r.dropped ?? 0} pending inbound message(s).`;
+    return `🧹 Flush failed: ${r.error ?? '(unknown error)'}`;
+  }
+
+  /**
+   * A2 `log` action: format the recent channel-activity events from the injected
+   * capture-tail surface (the `GET /api/capture` data). Read-only. Unwired → reports
+   * no log surface.
+   */
+  private controlLog(): string {
+    if (!this.captureRecent) return '📜 Log is not available (no capture surface wired).';
+    return formatControlLog(this.captureRecent());
+  }
+
+  /**
+   * A2 `appr-allow`/`appr-deny` action: resolve a pending permission ask by `code`
+   * via {@link operatorDecide} — the SAME path the `perm:*` buttons and the panel's
+   * `/api/approve` use (channelPermission.submitReply → it ALSO edits the original
+   * prompt to its outcome). Reports whether a pending ask matched (a stale/unknown
+   * code resolves nothing). A missing code is reported (the buttons always carry one).
+   */
+  private controlResolveApproval(verdict: 'allow' | 'deny', code?: string): string {
+    const icon = verdict === 'allow' ? '✅' : '❌';
+    if (!code) return `${icon} No approval code supplied.`;
+    const resolved = this.operatorDecide(verdict, code);
+    if (resolved) return `${icon} ${verdict === 'allow' ? 'Allowed' : 'Denied'} (${code}).`;
+    return `${icon} No pending approval matched ${code} (already resolved or expired).`;
   }
 
   /** A short toast for a tapped control action (the answerCallback spinner text). */

@@ -120,16 +120,30 @@ export interface ControlActionSpec {
 }
 
 /**
- * The Phase-1 control-plane action registry (the menu, in display order). v1
- * ACTIONS implemented now: `status`, `ping`, `help`. Plus the `change-model`
- * submenu pivot (a scaffold — its restart-on-model wiring is phase A3). This list
- * is the single source of truth the menu builder + the callback router both read,
- * so a later phase adds a row here + a handler branch and the button appears with
- * no other menu change.
+ * The control-plane action registry (the menu, in display order). This list is the
+ * single source of truth the menu builder + the callback router both read, so a
+ * later phase adds a row here + a handler branch and the button appears with no
+ * other menu change.
+ *
+ * Phase-1 ACTIONS (read-only core): `status`, `ping`, `help`, + the `change-model`
+ * submenu pivot (a scaffold — restart-on-model wiring is phase A3).
+ *
+ * Phase-A2 ACTIONS (channel↔panel parity — each wraps an existing supervisor-side
+ * method behind the loopback panel, so it works out-of-band when the orchestrator
+ * child is dead/stuck): `reconnect` (re-establish the channel transport), `flush`
+ * (DESTRUCTIVE → a confirm sub-menu pivot; only the confirm drops pending inbound),
+ * `log` (recent capture-buffer activity), `approvals` (list pending permission asks
+ * with per-ask Allow/Deny buttons resolving via the SAME permission path as the
+ * `perm:*` buttons). `clear` is DEFERRED to A3 (it is a child-restart/lifecycle
+ * variant, not panel parity).
  */
 export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
   { id: 'status', label: '📊 Status' },
   { id: 'ping', label: '📡 Ping' },
+  { id: 'approvals', label: '🔐 Approvals' },
+  { id: 'log', label: '📜 Log' },
+  { id: 'reconnect', label: '🔌 Reconnect' },
+  { id: 'flush', label: '🧹 Flush', submenu: true },
   { id: 'change-model', label: '🤖 Change model', submenu: true, scaffold: true },
   { id: 'help', label: '❓ Help' },
 ];
@@ -167,6 +181,49 @@ export function buildModelSubmenu(currentModel?: string): InlineButton[] {
   return buttons;
 }
 
+/**
+ * Build the `flush` CONFIRM sub-menu inline keyboard (A2). `flush` is DESTRUCTIVE —
+ * it drops un-acked INBOUND messages — so tapping it opens this confirm step
+ * instead of acting (proposal CP7: destructive actions are confirmed, mirroring the
+ * change-model sub-menu). Only `ctl:flush-confirm` actually flushes; `ctl:menu`
+ * cancels back to the main menu. Pure.
+ */
+export function buildFlushConfirmMenu(): InlineButton[] {
+  return [
+    { text: '✅ Confirm flush', callbackData: controlCallbackData('flush-confirm') },
+    { text: '⬅️ Cancel', callbackData: controlCallbackData('menu') },
+  ];
+}
+
+/**
+ * Build the `approvals` sub-menu inline keyboard (A2): two buttons (✅ Allow / ❌
+ * Deny) PER pending permission ask, each carrying the ask's `code` so the tap
+ * resolves exactly that ask via the SAME permission path the `perm:*` buttons use
+ * (`ctl:appr-allow:<code>` / `ctl:appr-deny:<code>`). The 4-hex code fits the
+ * `ctl:<action>:<arg>` scheme well under the 64-byte cap. A trailing back button
+ * returns to the main menu. With no pending asks the keyboard is just the back
+ * button (the header text says "none pending"). Pure.
+ */
+export function buildApprovalsSubmenu(pending: readonly { code: string; toolName: string }[]): InlineButton[] {
+  const buttons: InlineButton[] = [];
+  for (const p of pending) {
+    buttons.push({ text: `✅ Allow ${p.toolName} (${p.code})`, callbackData: controlCallbackData('appr-allow', p.code) });
+    buttons.push({ text: `❌ Deny ${p.toolName} (${p.code})`, callbackData: controlCallbackData('appr-deny', p.code) });
+  }
+  buttons.push({ text: '⬅️ Back', callbackData: controlCallbackData('menu') });
+  return buttons;
+}
+
+/**
+ * The header text for the `approvals` sub-menu: lists the pending asks (or says
+ * none are pending). Rendered with {@link buildApprovalsSubmenu}. Pure.
+ */
+export function approvalsMenuText(pending: readonly { code: string; toolName: string }[]): string {
+  if (pending.length === 0) return '🔐 Pending approvals — none pending.';
+  const lines = pending.map((p) => `• ${p.toolName} (${p.code})`);
+  return `🔐 Pending approvals (${pending.length}) — tap Allow/Deny:\n${lines.join('\n')}`;
+}
+
 /** The control-plane MENU header text (rendered with {@link buildControlMenu}). */
 export const CONTROL_MENU_TEXT =
   '🛠️ Supervisor control plane — choose an action:\n' +
@@ -174,6 +231,10 @@ export const CONTROL_MENU_TEXT =
 
 /** The `change-model` SUB-MENU header text (rendered with {@link buildModelSubmenu}). */
 export const CONTROL_MODEL_MENU_TEXT = '🤖 Change orchestrator model — pick one:';
+
+/** The `flush` CONFIRM sub-menu header text (rendered with {@link buildFlushConfirmMenu}). */
+export const CONTROL_FLUSH_CONFIRM_TEXT =
+  '⚠️ Drop pending inbound? This discards un-acked inbound messages from the channel queue.';
 
 /** The static `help` text — lists every control action + how the menu works. Pure. */
 export function controlHelpText(): string {
@@ -282,4 +343,76 @@ export function formatStatus(s: StatusSnapshot): string {
     lines.push('the orchestrator child is not running — use the menu to restart it (wired in a later phase).');
   }
   return lines.join('\n');
+}
+
+/**
+ * One captured bus event as the `log` action sees it — a STRUCTURAL subset of the
+ * capture store's `CaptureRecord.event` (kept local so control-command.ts stays
+ * pure + decoupled from capture-store.ts; the SessionHost passes the real records,
+ * which are shape-compatible). Only the fields the log formatter reads are named.
+ */
+export interface ControlLogEvent {
+  ts?: string;
+  type?: string;
+  source?: string;
+  direction?: string;
+  payload?: unknown;
+}
+
+/** A captured record (`{event}`) as `formatControlLog` consumes it. */
+export interface ControlLogRecord {
+  event?: ControlLogEvent;
+}
+
+/** Default number of recent activity events the `log` action renders. */
+export const CONTROL_LOG_DEFAULT_N = 12;
+
+/** Short HH:MM:SS from an ISO timestamp (or '--:--:--' if absent/unparseable). Pure. */
+function shortTime(ts?: string): string {
+  if (!ts) return '--:--:--';
+  const t = ts.length >= 19 && ts[10] === 'T' ? ts.slice(11, 19) : ts;
+  return t;
+}
+
+/** Collapse + clip a message body to a compact one-liner. Pure. */
+function clip(text: unknown, max = 60): string {
+  const s = typeof text === 'string' ? text : '';
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/**
+ * Format the `log` (alias tail) action: the last `n` SUBSTANTIVE channel-activity
+ * events from the capture buffer — inbound user messages, outbound replies, and
+ * their delivery outcome — as a compact, newest-last list. Reads the capture
+ * records the SessionHost supplies (proposal §2 `tail`/`log`: `/api/capture` data),
+ * filtering to the channel.inbound / channel.outbound events (the actionable
+ * signal; lifecycle/stream noise is dropped). Each line:
+ *   `HH:MM:SS ⬇️ <user-text>`            (channel.inbound)
+ *   `HH:MM:SS ⬆️ <reply-text>`           (channel.outbound, delivered)
+ *   `HH:MM:SS ⚠️ send failed: <error>`   (channel.outbound, result.ok=false)
+ * Pure (no I/O — the host did the replay).
+ */
+export function formatControlLog(records: readonly ControlLogRecord[], n = CONTROL_LOG_DEFAULT_N): string {
+  const lines: string[] = [];
+  for (const r of records) {
+    const e = r.event;
+    if (!e) continue;
+    const t = shortTime(e.ts);
+    if (e.type === 'channel.inbound') {
+      const p = e.payload as { text?: string } | undefined;
+      lines.push(`${t} ⬇️ ${clip(p?.text) || '(no text)'}`);
+    } else if (e.type === 'channel.outbound') {
+      const p = e.payload as { msg?: { text?: string }; result?: { ok?: boolean; error?: string } } | undefined;
+      if (p?.result && p.result.ok === false) {
+        lines.push(`${t} ⚠️ send failed: ${clip(p.result.error, 60) || '(unknown error)'}`);
+      } else {
+        lines.push(`${t} ⬆️ ${clip(p?.msg?.text) || '(no text)'}`);
+      }
+    }
+    // Other event types (lifecycle, stream.*) are noise on a phone — skipped.
+  }
+  if (lines.length === 0) return '📜 Recent activity — none captured yet.';
+  const tail = lines.slice(-n);
+  return `📜 Recent activity (last ${tail.length}):\n${tail.join('\n')}`;
 }
