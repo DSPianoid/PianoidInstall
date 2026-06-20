@@ -148,6 +148,12 @@ export interface ControlActionSpec {
  * (it only records a snapshot) → it runs directly. `change-model` is now a REAL
  * action (A3 finishes its A1 scaffold): the model sub-menu's pick (`model-set`)
  * confirms, then sets the Tier-1 model + restarts on it.
+ *
+ * Phase-A4 ACTION (the ESC): `interrupt` (alias `cancel`) — STOP the orchestrator's
+ * current turn WITHOUT killing it (`lifecycle.interruptTurn()` → `driver.interrupt()`).
+ * It is NON-destructive (only the in-flight turn is abandoned; the process + context stay
+ * alive), so — UNLIKE the restart family — it runs DIRECTLY with NO confirm sub-menu (a
+ * fast ESC). The handler routes through an injected interrupt dep (dormant when unwired).
  */
 export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
   { id: 'status', label: '📊 Status' },
@@ -161,6 +167,7 @@ export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
   { id: 'clear', label: '🧠 Clear / New', submenu: true },
   { id: 'handoff', label: '📌 Handoff (snapshot)' },
   { id: 'resume', label: '⏪ Resume (last snapshot)', submenu: true },
+  { id: 'interrupt', label: '✋ Interrupt (stop turn)' },
   { id: 'change-model', label: '🤖 Change model', submenu: true },
   { id: 'help', label: '❓ Help' },
 ];

@@ -528,6 +528,23 @@ export class LifecycleManager {
     this.runLoop = this.runWithRestarts();
   }
 
+  /**
+   * INTERRUPT THE CURRENT TURN (the supervisor's ESC) — stop the in-flight turn WITHOUT
+   * killing the process. A thin public wrapper over the driver's cooperative
+   * {@link SessionDriver.interrupt} (the SdkSessionDriver forwards it to the live
+   * `query().interrupt()`). UNLIKE {@link restartFresh}/{@link clearContext} it tears down
+   * NOTHING: no driver.stop(), no run-loop teardown, no sessionId drop, no restart counter
+   * bump — the session keeps running and simply abandons the current turn, so the operator
+   * can re-prompt immediately. ADDITIVE: this method does nothing unless CALLED, so adding it
+   * changes no behavior (the control-plane `interrupt` action is its first non-watchdog caller;
+   * the latent H2 watchdog at {@link watchdogFire} also calls driver.interrupt() directly).
+   * Best-effort: a driver-level interrupt failure is surfaced to the caller (it may reject).
+   */
+  async interruptTurn(): Promise<void> {
+    this.logger.info('interrupt requested — stopping the current turn (process stays alive)', { sessionId: this.sessionId });
+    await this.opts.driver.interrupt();
+  }
+
   /** Health snapshot (merges manager + driver state). */
   health(): { running: boolean; sessionId?: string; restarts: number; driver: ReturnType<SessionDriver['health']> } {
     return {

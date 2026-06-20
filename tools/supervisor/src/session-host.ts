@@ -263,6 +263,19 @@ export interface RestartControlResult {
  */
 export type RestartControlFn = (intent: RestartIntent) => Promise<RestartControlResult> | RestartControlResult;
 
+/**
+ * ★ A4 CONTROL PLANE — the INJECTED interrupt capability (the operator ESC). Stop the
+ * orchestrator's CURRENT turn WITHOUT killing it — the in-flight turn is abandoned but the
+ * process + context stay alive, so the operator can re-prompt immediately. index.ts wires this
+ * AT ACTIVATION to {@link LifecycleManager.interruptTurn} (→ `driver.interrupt()`); the
+ * `/control` `interrupt` action only REQUESTS through it. When ABSENT (the dormant default), the
+ * `interrupt` action reports it is unavailable and NOTHING is interrupted — so the live host is
+ * NEVER touched by a test and the switch-OFF behavior is byte-for-byte unchanged. Distinct from
+ * {@link RestartControlFn}: interrupt is NON-destructive (no restart, no context reset, no
+ * `driver.starts` change) → it needs no confirm. May reject only on a driver-level failure.
+ */
+export type InterruptTurnFn = () => Promise<void> | void;
+
 export interface SessionHostOptions {
   driver: SessionDriver;
   bus: IoBus;
@@ -373,6 +386,16 @@ export interface SessionHostOptions {
    * switch-OFF behavior is byte-for-byte unchanged. Best-effort; returns `{ok, detail?}`.
    */
   restartControl?: RestartControlFn;
+  /**
+   * ★ A4 CONTROL PLANE — ORCHESTRATOR INTERRUPT (optional). The supervisor-side ESC behind the
+   * `/control` `interrupt` action. When wired (by index.ts at ACTIVATION to
+   * {@link LifecycleManager.interruptTurn} → `driver.interrupt()`), tapping `interrupt` stops the
+   * orchestrator's current turn WITHOUT killing it (the process + context stay alive). NON-destructive
+   * → it runs DIRECTLY (no confirm sub-menu). When ABSENT (the dormant default), the `interrupt` action
+   * reports it is unavailable and NOTHING is interrupted — so the live host is NEVER touched by a test
+   * and the switch-OFF behavior is byte-for-byte unchanged. Best-effort; may reject on a driver failure.
+   */
+  interruptTurn?: InterruptTurnFn;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -549,6 +572,14 @@ export class SessionHost {
    */
   private readonly restartControl: RestartControlFn | null;
   /**
+   * ★ A4 CONTROL PLANE — the INJECTED interrupt capability (null when not wired — the dormant
+   * default). When set, the `/control` `interrupt` action stops the orchestrator's current turn
+   * through it (→ {@link LifecycleManager.interruptTurn} → `driver.interrupt()`); when null, the
+   * action reports unavailable and NOTHING is interrupted. index.ts wires this ONLY at activation.
+   * P2: the host stays a thin wirer; the LifecycleManager owns the driver (the sole interrupt path).
+   */
+  private readonly interruptTurn: InterruptTurnFn | null;
+  /**
    * ★ A3 CONTROL PLANE — the last HANDOFF SNAPSHOT the operator captured via the `handoff`
    * action (the note a future `restart`/`resume` re-injects), or null if none captured this
    * session. SOLE OWNER of this datum (P1): only `handoff` writes it; `resume` (and a
@@ -585,6 +616,7 @@ export class SessionHost {
     this.flushChannel = opts.flushChannel ?? null;
     this.captureRecent = opts.captureRecent ?? null;
     this.restartControl = opts.restartControl ?? null;
+    this.interruptTurn = opts.interruptTurn ?? null;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -983,6 +1015,11 @@ export class SessionHost {
    *        last snapshot) → request that restart via restartControl → edit the outcome;
    *      - `handoff` → capture a state snapshot NOW (non-destructive — no restart) → edit
    *        the confirmation; the note a future restart/resume re-injects.
+   *   A4 interrupt (the ESC — NON-destructive, so NO confirm; performed ONLY through the
+   *   injected interruptTurn dep — UNWIRED ⇒ reports unavailable, NOTHING is interrupted):
+   *      - `interrupt` (alias `cancel`) → stop the orchestrator's CURRENT turn WITHOUT killing
+   *        it (→ lifecycle.interruptTurn() → driver.interrupt()) → edit "interrupt sent" /
+   *        "nothing in flight". The process + context stay alive (no restart).
    * An unknown action is ACK'd + ignored (never crashes, never a typed turn).
    */
   private async handleControlCallback(
@@ -1051,6 +1088,11 @@ export class SessionHost {
       case 'handoff':
         // Non-destructive — captures a snapshot NOW (no restart). Edit the confirmation in.
         await this.editControlResult(callback, this.controlHandoff());
+        return;
+      // ── A4 interrupt (the ESC) — NON-destructive → NO confirm, runs directly ────
+      case 'interrupt':
+      case 'cancel': // alias
+        await this.editControlResult(callback, await this.controlInterrupt());
         return;
       // ── A2 channel↔panel parity ───────────────────────────────────────────────
       case 'reconnect':
@@ -1231,6 +1273,34 @@ export class SessionHost {
       '📌 Handoff snapshot captured. The next Restart or Resume will re-inject it into the ' +
       'fresh orchestrator context. (Capturing again overwrites it.)'
     );
+  }
+
+  /**
+   * A4 `interrupt` (alias `cancel`) handler — the operator ESC (NON-destructive, no confirm).
+   * STOP the orchestrator's current turn WITHOUT killing it: request the interrupt through the
+   * INJECTED {@link interruptTurn} dep (wired to {@link LifecycleManager.interruptTurn} →
+   * `driver.interrupt()` at activation). The handler never touches the driver directly, so UNWIRED
+   * ⇒ reports unavailable and NOTHING is interrupted (the dormant default — the live host is never
+   * touched). When wired, it reports "interrupt sent" if a turn was in flight, or "nothing in flight"
+   * when the orchestrator is idle (read from the lifecycle BEFORE requesting, since the interrupt is
+   * a no-op then). The process + context stay alive either way (no restart, no `driver.starts` change).
+   */
+  private async controlInterrupt(): Promise<string> {
+    if (!this.interruptTurn) {
+      return '✋ Interrupt is not available (the interrupt capability is not wired in this build).';
+    }
+    // Read in-flight state BEFORE interrupting (the request is a no-op when idle).
+    const inFlight = !this.lifecycle.isIdle();
+    this.publishLifecycle('control_interrupt_requested', { inFlight });
+    try {
+      await this.interruptTurn();
+    } catch (err) {
+      this.logger.warn('control interrupt threw', { err: String(err) });
+      return `✋ Interrupt failed: ${String(err)}`;
+    }
+    return inFlight
+      ? '✋ Interrupt sent — stopping the current turn. The orchestrator stays alive; re-prompt when ready.'
+      : '✋ Nothing in flight — the orchestrator is idle (no turn to interrupt).';
   }
 
   /**

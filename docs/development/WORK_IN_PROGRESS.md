@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-c9fb | Supervisor control-plane Phase A4 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2/dev-ce3c): the `interrupt` (alias `cancel`) menu action — STOP the orchestrator's current turn WITHOUT killing it (a fast ESC). NEW public `lifecycle.interruptTurn()` (additive; NOT auto-invoked) calling the driver's `interrupt()`; a `CONTROL_ACTIONS` row + `ctl:interrupt` handler. NO confirm sub-menu (non-destructive). Calls the live interrupt ONLY via an injected `interruptTurn()` dep (dormant when unwired → "not available"); index.ts wires it AT ACTIVATION (not this phase). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER interrupted/restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-c9fb-2026-06-20-145002.md) | 2026-06-20 |
 | dev-ce3c | Supervisor control-plane Phase A3 (`feature/supervisor-control-plane`, continues dev-ctl1/dev-ctl2): the restart/lifecycle menu actions — `restart` (GRACEFUL: drain→handoff snapshot→relaunch preserving channel, via the existing lifecycle restart path) / `kill` (HARD: no-drain) / `clear`+`new` (fresh context, no handoff) / `resume`+`handoff` (snapshot store + re-inject) + the `change-model` restart wiring (set Tier-1 model + restart on it with handoff). Each = a `CONTROL_ACTIONS` row + a `ctl:*` handler, ALL destructive → CONFIRM sub-menu (like flush). Restart performed ONLY via an injected lifecycle dep (dormant when unwired). Additive/gated to `ctl:*`; non-control inbound byte-for-byte. The LIVE host NEVER restarted (fakes only); prod dist/ NOT rebuilt; NO merge/push. | [log](logs/dev-ce3c-2026-06-20-112947.md) | 2026-06-20 |
 | dev-ctl1 | Supervisor control-plane Phase 1 (`feature/supervisor-control-plane`): single supervisor-intercepted `/control` command → Telegram inline-keyboard MENU + extensible `ctl:*` callback ROUTER (action registry) + actions status/ping/help + a change-model menu scaffold. OUT-OF-BAND (survives a dead orchestrator child); reuses the permission-button callback infra. Additive/gated to `/control`+`ctl:*` only; non-control inbound byte-for-byte. prod dist/ NOT rebuilt (throwaway build dir); supervisor NOT restarted; NO push. | [log](logs/dev-ctl1-2026-06-20-135036.md) | 2026-06-20 |
 | dev-ctl2 | Supervisor control-plane Phase A2 (`feature/supervisor-control-plane`, continues dev-ctl1): channel↔panel parity menu actions — `reconnect` / `flush` (DESTRUCTIVE → confirm sub-menu) / `log` (capture tail) / `approvals` (list pending perms with Allow/Deny buttons resolving via the SAME permission path the perm:* buttons use). Each = a `CONTROL_ACTIONS` row + a `ctl:*` handler reusing the Phase-1 framework. Additive/gated to `ctl:*`; non-control inbound byte-for-byte. `clear` deferred to A3. prod dist/ NOT rebuilt (throwaway dir); supervisor NOT restarted; NO merge/push. | [log](logs/dev-ctl2-2026-06-20-111220.md) | 2026-06-20 |
@@ -38,7 +39,14 @@
      ALL destructive → confirm sub-menus. The actual restart is performed ONLY through an injected
      `restartControl` dep (dormant when unwired → nothing restarts; index.ts wires it AT ACTIVATION to the
      existing requestRestart/clearContext machinery — the confirm/rate-limit/audit safety gate is NOT
-     bypassed). Same README deferral (dev-vio1 holds the lock). -->
+     bypassed). Same README deferral (dev-vio1 holds the lock).
+     EXTENDED (dev-c9fb, 2026-06-20): + the A4 `interrupt` (alias `cancel`) action — STOP the orchestrator's
+     current turn WITHOUT killing it (a fast ESC). NON-destructive → NO confirm sub-menu (runs directly). A
+     NEW public `lifecycle.interruptTurn()` (additive thin wrapper → `driver.interrupt()`) is its first
+     non-watchdog caller; the action reaches it ONLY through an injected `interruptTurn` dep (dormant when
+     unwired ⇒ "not available"; index.ts wires it to lifecycle.interruptTurn() AT ACTIVATION). Same README
+     deferral (dev-vio1 holds the lock). Source of truth meanwhile: control-command.ts + lifecycle.ts +
+     session-host.ts + src/test/control-plane.test.ts (A4 section). -->
 
 
 <!-- DOC DEFERRAL (dev-2870, 2026-06-19): the supervisor README.md should gain a SHORT line on the

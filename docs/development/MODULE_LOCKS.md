@@ -15,6 +15,29 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-c9fb locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, lifecycle.ts,
+     session-host.ts, test/control-plane.test.ts, test/fake-session-driver.ts}. Supervisor control-plane Phase A4 (P-A4) =
+     the `interrupt` (alias `cancel`) menu action — STOP the orchestrator's CURRENT turn WITHOUT killing it (a fast ESC).
+     NON-destructive → it runs DIRECTLY (NO confirm sub-menu, unlike the A3 restart family). NEW public
+     `lifecycle.interruptTurn()` = a thin wrapper → `driver.interrupt()` (session-driver.ts:189; tears down NOTHING — no
+     stop/restart/sessionId-drop/restart-counter bump → the process + context stay alive; additive, no behavior change
+     unless called — the latent H2 watchdog at lifecycle.ts:413 is the only other interrupt() caller). control-command.ts
+     = PURE (+`interrupt` CONTROL_ACTIONS row + A4 registry doc; 484→491 LOC, <YELLOW). session-host.ts WIRES it
+     (+`InterruptTurnFn` type + the optional injected `interruptTurn` opt + the private `interruptTurn|null` field + ctor
+     wiring + the `ctl:interrupt`/`ctl:cancel` switch cases [direct, no confirm] + the `controlInterrupt` handler [reads
+     isIdle() BEFORE → "Interrupt sent" vs "Nothing in flight"]; 2087→2157 LOC, pre-existing RED, additive within its
+     inbound-routing/control-plane concern). ★HOST-SAFETY: the live interrupt is reached ONLY through the NEW optional
+     injected `interruptTurn` dep — dormant/unavailable when unwired ⇒ reports "not available", NOTHING is interrupted;
+     index.ts wires it AT ACTIVATION (NOT this agent) to lifecycle.interruptTurn(). test/fake-session-driver.ts gained an
+     additive `interrupts` getter (counts interrupt() calls) for the propagation assertion. Additive + gated to the new
+     `ctl:*` actions → non-control inbound BYTE-FOR-BYTE. +7 tests (1 pure registry + 1 lifecycle propagation [lifecycle
+     .interruptTurn()→driver.interrupt(), driver.starts unchanged] + 5 host [in-flight/idle/alias/unwired/failure]), full
+     supervisor node:test 531/531 (524 baseline +7), tsc clean (built ONLY to throwaway dist-test-a4[+-base], removed —
+     prod dist/ NOT regenerated [dist/{index,lifecycle,session-host}.js mtime 2026-06-19 20:21:52 UNCHANGED]; the live
+     orchestrator NEVER interrupted/restarted — FAKE interruptTurn + FAKE driver only RECORD, driver.starts constant; NO
+     /api/lifecycle/* call). README doc-deferred (dev-vio1 holds the lock; dev-ctl1's deferral note extended with the A4
+     line). Proposal: P-A4 marked SHIPPED + the interrupt design documented. SHA in the session log. -->
 <!-- dev-ce3c locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
      merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, session-host.ts,
      test/control-plane.test.ts}. Supervisor control-plane Phase A3 (P-A3) = the restart/lifecycle menu actions, each a

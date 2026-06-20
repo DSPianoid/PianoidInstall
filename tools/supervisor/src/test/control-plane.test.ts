@@ -54,7 +54,8 @@ import {
 } from '../control-command.js';
 import { ChannelPermission } from '../channel-permission.js';
 import { SessionHost } from '../session-host.js';
-import type { RestartControlFn, RestartIntent } from '../session-host.js';
+import type { RestartControlFn, RestartIntent, InterruptTurnFn } from '../session-host.js';
+import { LifecycleManager } from '../lifecycle.js';
 import { IoBus } from '../io-bus.js';
 import { Logger } from '../logger.js';
 import { FakeSessionDriver } from './fake-session-driver.js';
@@ -137,6 +138,17 @@ test('buildControlMenu: one button per registry action, each carrying its ctl:<i
   // The v1 actions are present.
   const ids = CONTROL_ACTIONS.map((a) => a.id);
   for (const id of ['status', 'ping', 'help', 'change-model']) assert.ok(ids.includes(id), `${id} in menu`);
+});
+
+test('A4: the registry includes interrupt as a DIRECT action (no submenu, no scaffold) + help lists it', () => {
+  const spec = CONTROL_ACTIONS.find((a) => a.id === 'interrupt');
+  assert.ok(spec, 'interrupt is a registry action');
+  // NON-destructive → it is a fast ESC: NOT a confirm/submenu pivot, NOT a later-phase scaffold.
+  assert.notEqual(spec!.submenu, true, 'interrupt is NOT a submenu pivot (no confirm)');
+  assert.notEqual(spec!.scaffold, true, 'interrupt is NOT a scaffold');
+  // It renders one menu button carrying ctl:interrupt, and the help lists it.
+  assert.ok(buildControlMenu().some((b) => b.callbackData === controlCallbackData('interrupt')), 'menu has ctl:interrupt');
+  assert.ok(controlHelpText().includes(spec!.label), 'help lists the interrupt action');
 });
 
 test('buildModelSubmenu: one button per model choice (ctl:model-set:<m>) + a back button; marks current', () => {
@@ -392,6 +404,7 @@ interface ControlDeps {
   flushChannel?: () => { ok: boolean; dropped?: number; error?: string };
   captureRecent?: () => readonly { event?: { ts?: string; type?: string; payload?: unknown } }[];
   restartControl?: RestartControlFn;
+  interruptTurn?: InterruptTurnFn;
 }
 
 /** A host idling after system_init, awaiting the first user turn. `model` sets opts.model. */
@@ -413,6 +426,7 @@ function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, deps: Con
     ...(deps.flushChannel ? { flushChannel: deps.flushChannel } : {}),
     ...(deps.captureRecent ? { captureRecent: deps.captureRecent } : {}),
     ...(deps.restartControl ? { restartControl: deps.restartControl } : {}),
+    ...(deps.interruptTurn ? { interruptTurn: deps.interruptTurn } : {}),
   });
   return { bus, driver, host };
 }
@@ -432,6 +446,20 @@ function makeFakeRestartControl(result: { ok: boolean; detail?: string } = { ok:
   return { calls, fn };
 }
 
+/**
+ * A4 — a FAKE interruptTurn that COUNTS each call WITHOUT touching any real lifecycle/driver
+ * (the host-safety contract: the action is asserted as REQUESTED; nothing is actually interrupted
+ * or restarted — `driver.starts` stays constant). Pass `throws` to simulate a driver-level failure.
+ */
+function makeFakeInterrupt(opts: { throws?: Error } = {}) {
+  let calls = 0;
+  const fn: InterruptTurnFn = () => {
+    calls += 1;
+    if (opts.throws) throw opts.throws;
+  };
+  return { fn, get calls() { return calls; } };
+}
+
 test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrator', async () => {
   const cap = makeCapture();
   const { bus, driver, host } = makeHost(cap);
@@ -445,7 +473,7 @@ test('/control is INTERCEPTED: renders the menu, NOT forwarded to the orchestrat
   assert.ok(menu, 'the control menu was rendered');
   const buttons = menu!.msg.options?.buttons;
   assert.ok(buttons && buttons.length === CONTROL_ACTIONS.length, 'menu has one button per action');
-  for (const id of ['status', 'ping', 'help', 'change-model']) {
+  for (const id of ['status', 'ping', 'help', 'change-model', 'interrupt']) {
     assert.ok(buttons!.some((b) => b.callbackData === controlCallbackData(id)), `menu has ${id}`);
   }
   // NOT forwarded: still only the one earlier 'hi' turn.
@@ -1020,6 +1048,147 @@ test('A3 restartControl refusal (e.g. rate-limited) is surfaced cleanly; no cras
   assert.match(ed!.text, /refused/i);
   assert.match(ed!.text, /rate-limited/);
   assert.equal(driver.starts, 1, 'no relaunch on a refusal');
+  await host.stop();
+  bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2d. SessionHost / LifecycleManager — A4 interrupt (the ESC). HOST-SAFETY: the
+//     action is REQUESTED via the injected FAKE interruptTurn (no real driver/lifecycle
+//     teardown); the lifecycle.interruptTurn() → driver.interrupt() wire is proven on a
+//     fake driver where `driver.starts` stays constant (interrupt does NOT restart).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('LifecycleManager.interruptTurn() → driver.interrupt() (process stays up; NO restart)', async () => {
+  // The wire index.ts binds at activation: lifecycle.interruptTurn → driver.interrupt.
+  // The session is parked on `awaitTurn` (idle, never ending), so the cooperative
+  // interrupt() does NOT end the stream → no crash → no restart (a real ESC keeps the
+  // process alive). (interrupt() only releases a `silence` wedge; there is none here.)
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver([
+    [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+  ]);
+  const lifecycle = new LifecycleManager({
+    driver,
+    bus,
+    logger: silentLogger(),
+    onPermission: async () => ({ behavior: 'deny', message: 'x', interrupt: false } as PermissionDecision),
+  });
+  await lifecycle.start();
+  assert.equal(driver.interrupts, 0, 'no interrupt before the call');
+  await lifecycle.interruptTurn();
+  // Propagated to the driver exactly once — and it is NOT a restart.
+  assert.equal(driver.interrupts, 1, 'interruptTurn() forwarded to driver.interrupt()');
+  assert.equal(driver.starts, 1, 'interrupt does NOT restart the session (driver.starts unchanged)');
+  await lifecycle.stop();
+  bus.close();
+});
+
+/** A host whose orchestrator turn is IN FLIGHT (a `silence` step keeps the turn outstanding). */
+function makeInFlightHost(cap: ReturnType<typeof makeCapture>, deps: ControlDeps = {}) {
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver([
+    [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }, { do: 'silence' }],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    answerCallback: cap.answerCallback,
+    editMessage: cap.editMessage,
+    policy: { allow: ['Read'], fallback: 'route' },
+    ...(deps.interruptTurn ? { interruptTurn: deps.interruptTurn } : {}),
+  });
+  return { bus, driver, host };
+}
+
+test('ctl:interrupt (a turn in flight) → routes to interruptTurn, ACKs "interrupt sent"; NO confirm, NO restart', async () => {
+  const cap = makeCapture();
+  const it = makeFakeInterrupt();
+  const { bus, driver, host } = makeInFlightHost(cap, { interruptTurn: it.fn });
+  await host.start();
+  await host.handleInbound(inbound('do a long thing')); // a turn is now in flight (silence step)
+  assert.equal(driver.sentTurns.length, 1, 'the turn was injected');
+  const sentBefore = cap.sent.length;
+  await host.handleInbound(callbackInbound('ctl:interrupt', 'cb-int', 'm-int'));
+  // The tap was ACKed.
+  assert.equal(cap.answered.at(-1)!.callbackId, 'cb-int');
+  // Routed to the injected interrupt exactly once.
+  assert.equal(it.calls, 1, 'interruptTurn requested once');
+  // IMMEDIATE / no-confirm: the result is edited straight in — NO confirm sub-menu was sent.
+  assert.equal(cap.sent.length, sentBefore, 'no confirm sub-menu message — interrupt is a fast ESC');
+  const ed = cap.edited.find((e) => e.messageId === 'm-int');
+  assert.ok(ed, 'interrupt result edited in');
+  assert.match(ed!.text, /Interrupt sent/i);
+  // HOST-SAFETY: no restart, no extra turn.
+  assert.equal(driver.starts, 1, 'interrupt does NOT restart (driver.starts unchanged)');
+  assert.equal(driver.sentTurns.length, 1, 'interrupt injects no new turn');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:cancel (the alias) → also routes to interruptTurn', async () => {
+  const cap = makeCapture();
+  const it = makeFakeInterrupt();
+  const { bus, driver, host } = makeInFlightHost(cap, { interruptTurn: it.fn });
+  await host.start();
+  await host.handleInbound(inbound('do a long thing'));
+  await host.handleInbound(callbackInbound('ctl:cancel', 'cb-can', 'm-can'));
+  assert.equal(it.calls, 1, 'cancel alias requested the interrupt');
+  const ed = cap.edited.find((e) => e.messageId === 'm-can');
+  assert.ok(ed, 'cancel result edited in');
+  assert.match(ed!.text, /Interrupt sent/i);
+  assert.equal(driver.starts, 1, 'no restart');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:interrupt when IDLE → still calls interruptTurn but reports "nothing in flight"; no restart', async () => {
+  const cap = makeCapture();
+  const it = makeFakeInterrupt();
+  const { bus, driver, host } = makeHost(cap, undefined, { interruptTurn: it.fn }); // idle (no turn sent)
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:interrupt', 'cb-idle', 'm-idle'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-idle');
+  assert.ok(ed, 'interrupt result edited in');
+  assert.match(ed!.text, /Nothing in flight/i);
+  assert.equal(it.calls, 1, 'the interrupt is still requested (a no-op driver-side when idle)');
+  assert.equal(driver.starts, 1, 'no restart');
+  await host.stop();
+  bus.close();
+});
+
+test('ctl:interrupt when interruptTurn is UNWIRED → reports "not available"; NOTHING is interrupted (dormant default)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeInFlightHost(cap); // no interruptTurn wired
+  await host.start();
+  await host.handleInbound(inbound('do a long thing')); // a turn in flight
+  await host.handleInbound(callbackInbound('ctl:interrupt', 'cb-u', 'm-u'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-u');
+  assert.ok(ed, 'interrupt result edited in');
+  assert.match(ed!.text, /not available/i, 'reports unavailable when unwired');
+  // HOST-SAFETY: the live driver was NEVER interrupted (the dep was absent) and never restarted.
+  assert.equal(driver.interrupts, 0, 'the driver was NEVER interrupted (dormant default)');
+  assert.equal(driver.starts, 1, 'no restart');
+  await host.stop();
+  bus.close();
+});
+
+test('A4 interrupt failure (driver-level) is surfaced cleanly; no crash, no restart', async () => {
+  const cap = makeCapture();
+  const it = makeFakeInterrupt({ throws: new Error('driver gone') });
+  const { bus, driver, host } = makeInFlightHost(cap, { interruptTurn: it.fn });
+  await host.start();
+  await host.handleInbound(inbound('do a long thing'));
+  await host.handleInbound(callbackInbound('ctl:interrupt', 'cb-f', 'm-f'));
+  assert.equal(it.calls, 1, 'the interrupt was requested');
+  const ed = cap.edited.find((e) => e.messageId === 'm-f');
+  assert.ok(ed, 'a failure result edited in');
+  assert.match(ed!.text, /Interrupt failed/i);
+  assert.match(ed!.text, /driver gone/);
+  assert.equal(driver.starts, 1, 'no restart on a failure');
   await host.stop();
   bus.close();
 });
