@@ -61,3 +61,10 @@
 [STEP-10A-PHASE-1] 2026-06-19T14:50:00Z commit=9ac5002
 [LOCK RELEASED] PianoidTunner/src/PianoidTuner.js
 - ★MERGE BLOCKED on checkout: dev is NOT checked out anywhere — the MAIN PianoidTunner checkout is on feature/dev-pitchfix-exc-restructure with UNCOMMITTED dev-mosaicsave excitation work (Excitation*.jsx, MatrixTools.jsx dirty). Cannot `git checkout dev` there without clobbering dev-mosaicsave's active edits. Coordinating: dev-mosaicsave rebases onto my fix (team-lead's plan) OR commits/stashes so the merge can run in the main checkout. Reported to team-lead + dev-mosaicsave. Branch 9ac5002 is ready; lock released so dev-mosaicsave can proceed.
+
+### Step 10a Phase 2 — 2026-06-19T15:05:00Z (team-lead authorized merge in own worktree)
+[STEP-10A-PHASE-2] 2026-06-19T15:05:00Z
+- team-lead clarified dev is checked out NOWHERE → merged in MY worktree without touching the main checkout (dev-mosaicsave's dirty branch):
+  git checkout dev (free) → pull --no-rebase origin dev (Already up to date, off acbf9e6) → merge --no-ff feature/dev-wbspawn-orphan-fix → push origin dev → checkout back to feature branch (leaves dev free for dev-mosaicsave).
+- MERGED + PUSHED: PianoidTunner dev acbf9e6..62974f6 (origin/dev = 62974f6). Merge commit 62974f6 (9ac5002 --no-ff).
+- Pinged dev-mosaicsave to rebase its excitation restructure onto new dev + restart :3000 (CRA won't hot-reload a git merge). Orphaning task COMPLETE; HOLD + stand ready to partner on mass→workbench-link.

@@ -54,6 +54,9 @@
       "mcp__claude_ai_Gmail__get_thread",
       "Bash(git commit *)",
       "Bash(rm .git/COMMIT_MUTE.txt)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\astri\\.claude"
     ]
   }
 }
