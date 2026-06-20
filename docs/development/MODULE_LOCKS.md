@@ -15,7 +15,39 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-3e66 | `tools/supervisor/src/control-command.ts`, `tools/supervisor/src/session-host.ts`, `tools/supervisor/src/index.ts`, `tools/supervisor/src/config.ts` | 2026-06-20T16:55Z | Control Panel REDESIGN PART 1 (DONE, commit ff30dcb) + PART 2 (automatic behaviors: recovery ladder, auto-snapshot incl. watchdog path, restart hard-kill escalation, status live-probe). config.ts = ADDITIVE new default-OFF flags only (no overlap with dev-vio1's committed env-only fix @71074cc on the SEPARATE feature/supervisor-voice-io branch; dev-acb7+dev-fa3d already precedent-edited config.ts on THIS branch). lifecycle.ts NOT needed (PART 2 reuses its existing isIdle/restartFresh/ping primitives — no lifecycle.ts change). |
+<!-- dev-3e66 locks RELEASED 2026-06-20 at Step 10a Phase 1 (PART 1 commit ff30dcb + PART 2 commit 9427195 on
+     feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
+     master merge; the activation restart that rebuilds dist/ also loads this redesign). EDITED (existing):
+     tools/supervisor/src/{control-command,session-host,index,config}.ts + test/{control-plane,config}.test.ts +
+     test/{control-activation-wiring,button-rows}.test.ts. CONTROL-PANEL REDESIGN (control-panel-redesign-2026-06-20.md).
+     PART 1 = menu restructure: main menu now 10 buttons 2/row (Status/Approvals/Log/New session[was Clear]/Resume/
+     Interrupt/Change model/Mode/Advanced/Help); REMOVED Ping/Reconnect top-level (folded into PART-2 auto behaviors);
+     NEW Advanced submenu (Restart/Parent restart/Flush, each keeps its confirm); NEW Mode submenu (Voice/Text/Dual,
+     no confirm, surfaces the existing /mode outputMode — same single writer); NEW supervisor-side Parent restart
+     (a NEW injected parentRestart dep; index.ts spawns the DETACHED restart-supervisor.ps1 → performed
+     SUPERVISOR-SIDE on the operator tap, NOT an agent shell cmd → bypasses dev-0efd's cli-stream relaunch guard;
+     confirm-gated; dormant when unwired); controlHelpText rewritten to the spec's exact spoken per-button lines.
+     PART 2 = 4 automatic behaviors, ALL gated default-OFF/0 (config) → running host byte-for-byte until activation:
+     recovery ladder (SUPERVISOR_RECOVERY_LADDER — reconnect-then-reset on unresponsive; index.ts routes
+     handleUnresponsive→handleUnresponsiveRecovery when ON, OFF=existing direct restart UNCHANGED); auto-snapshot
+     (SUPERVISOR_AUTO_SNAPSHOT — periodic timer + carry into EVERY restart incl. the cold watchdog path via
+     restartUnresponsive's snapshot re-inject → closes the cold-watchdog gap); restart hard-kill escalation
+     (SUPERVISOR_RESTART_DRAIN_MS>0 — graceful restart drains up to the deadline then hard-restarts via
+     gracefulRestartWithEscalation wrapping runRestartConfirm's restartFresh); status live-probe
+     (SUPERVISOR_STATUS_PROBE_MS>0 — controlStatus fires a real ping + latency + last-turn; snapshot ALWAYS returns
+     on timeout). ★HOST-SAFETY: existing auto-restart-on-death UNCHANGED; lifecycle.ts UNTOUCHED (reused
+     isIdle/restartFresh/ping); EVERY watchdog/recovery/snapshot/escalation/probe path tested with a FAKE driver +
+     FAKE clock/delay + FAKE transport — NEVER a real wait or real restart; prod dist/ NOT regenerated (built ONLY
+     to throwaway dist-test-3e66[+-base], removed; prod dist/{control-command,session-host,index,config}.js mtime
+     2026-06-20T17:29 UNCHANGED, my redesign symbols ABSENT from prod dist/); the live supervisor [8790] + the
+     Pianoid stack NOT started/touched/killed; NO /api/lifecycle/* call, NO restart script run. config.ts ADDITIVE
+     default-OFF flags only (dev-vio1's config.ts lock is on the SEPARATE feature/supervisor-voice-io branch,
+     committed @71074cc — env fix, no field overlap; dev-acb7+dev-fa3d already precedent-edited config.ts here).
+     +27 tests (10 PART-1 + 17 PART-2), full supervisor node --test 604/604 (577 baseline +27, env -u
+     SUPERVISOR_STARTUP_HANDOFF_FILE to clear the pre-existing dev-0efd-documented startup-handoff.test env-leak),
+     tsc --noEmit clean. session-host.ts ~2866 LOC (pre-existing RED, +331 additive within concern — split flagged
+     as a follow-up audit, see WIP). README + parent-proposal fold-in + spec archival = Phase-2 deferred (WIP note).
+     SHAs in the session log. -->
 <!-- dev-ae2a locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit fd52a41 on PianoidTunner
      fix/dev-ae2a-workbench-empty-render; NOT merged/pushed — held for the user's live test, then Phase 2).
      EDITED (existing): PianoidTunner/src/PianoidTuner.js + src/index.css. NEW: src/__tests__/workbenchTileGeometry.source.test.js.
