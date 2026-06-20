@@ -46,6 +46,25 @@ import {
   type Provider,
   type ProviderId,
 } from './provider-registry.js';
+import { RoleRoutingStore } from './role-routing-store.js';
+import {
+  DEFAULT_ROLE_ROUTING_CONFIG,
+  resolveRoleBackendWithOverrides,
+  type RoleRoutingOverride,
+} from './role-router.js';
+import { ROLES, isRole, type Role } from './backend-kinds.js';
+import {
+  parseSetRoleCommand,
+  isRolesCommand,
+  setRoleUsageMessage,
+  setRoleUnknownRoleMessage,
+  setRoleUnknownProviderMessage,
+  setRoleNoKeyWarning,
+  setRoleConfirmMessage,
+  rolesListMessage,
+  type SetRoleCommand,
+  type RolesListRow,
+} from './setrole-command.js';
 
 /** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
 export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
@@ -90,6 +109,18 @@ export function parseModeCommand(text: string): ModeCommand | null {
  * absent (the current default), `/setkey` falls through to a normal turn unchanged.
  */
 export { SETKEY_CMD_RE, parseSetKeyCommand, redactSetKeyText } from './setkey-command.js';
+
+/**
+ * The reserved TIER-2 PER-ROLE MODEL-SELECTION commands — `/setrole <role> <provider> [model]` and
+ * `/roles` (the model-agnostic agent system's runtime role-router edit, PART Q.3). Like `/setkey`,
+ * both are INTERCEPTED by the supervisor (handled in {@link SessionHost.handleInbound}) and NEVER
+ * forwarded to the orchestrator. The parse + message logic lives in setrole-command.ts; these
+ * re-exports keep the commands discoverable here alongside `/mode` + `/setkey`. The interception is
+ * gated on a wired {@link SessionHostOptions.roleRoutingStore} — absent (the current default),
+ * `/setrole` + `/roles` fall through to a normal turn unchanged. NOTHING here is secret (a role /
+ * provider / model are not credentials), so — unlike `/setkey` — there is NO redaction.
+ */
+export { SETROLE_CMD_RE, ROLES_CMD_RE, parseSetRoleCommand, isRolesCommand } from './setrole-command.js';
 
 /** M3: at most one delivery-failure notice per this window (outage cooldown). */
 export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
@@ -148,9 +179,22 @@ export interface SessionHostOptions {
   /**
    * `/setkey` provider table (optional; default {@link DEFAULT_PROVIDERS}). The set of providers a
    * `/setkey <provider>` token may name; an unknown token gets a helpful error listing these. Only
-   * consulted when {@link secretStore} is wired.
+   * consulted when {@link secretStore} is wired. Shared by the `/setrole` path (same registry).
    */
   providers?: Readonly<Record<ProviderId, Provider>>;
+  /**
+   * TIER-2 ROLE-ROUTING STORE (optional). When supplied, the SessionHost INTERCEPTS `/setrole
+   * <role> <provider> [model]` + `/roles` (like `/setkey`): `/setrole` persists the role→{provider,
+   * model} override (so the NEXT dispatch of that role uses it — runtime, no restart) and replies a
+   * confirmation; `/roles` lists the effective role→provider/model map merged over the in-code
+   * default plus per-provider key-PRESENCE booleans (NEVER a key value). Neither is forwarded to the
+   * orchestrator. The supervisor is the SOLE WRITER of this store — both the typed `/setrole` AND the
+   * orchestrator-invokable {@link SessionHost.setRoleRouting} route through ONE private writer. When
+   * ABSENT (the current/dormant default — index.ts does not wire it), `/setrole` + `/roles` are NOT
+   * intercepted and fall through to a normal turn EXACTLY as today (byte-for-byte unchanged). The
+   * store's PRESENCE is the activation signal (P6). The store path is gitignored (under `.state/`).
+   */
+  roleRoutingStore?: RoleRoutingStore;
   /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
   policy: PermissionPolicy;
   /**
@@ -289,8 +333,16 @@ export class SessionHost {
    * intercepted (falls through to a normal turn, byte-for-byte unchanged). SOLE READER here.
    */
   private readonly secretStore: SecretStore | null;
-  /** The provider table the `/setkey` token resolves against (DEFAULT_PROVIDERS unless overridden). */
+  /** The provider table the `/setkey` + `/setrole` tokens resolve against (DEFAULT_PROVIDERS unless overridden). */
   private readonly providers: Readonly<Record<ProviderId, Provider>>;
+  /**
+   * TIER-2 ROLE-ROUTING STORE (null when not wired — the dormant default). When set, the host
+   * intercepts `/setrole` + `/roles` and is the SOLE WRITER of the persisted role-routing override.
+   * Both the typed `/setrole` and the orchestrator-invokable {@link setRoleRouting} funnel through
+   * the ONE private writer {@link applyRoleRouting}. When null, `/setrole` + `/roles` fall through to
+   * a normal turn, byte-for-byte unchanged.
+   */
+  private readonly roleRoutingStore: RoleRoutingStore | null;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -299,6 +351,7 @@ export class SessionHost {
     this.outputMode = opts.outputMode ?? 'text';
     this.secretStore = opts.secretStore ?? null;
     this.providers = opts.providers ?? DEFAULT_PROVIDERS;
+    this.roleRoutingStore = opts.roleRoutingStore ?? null;
 
     // The router needs a PermissionChannel; we give it one that defers to the
     // operator-bound ChannelPermission (created lazily once an operator exists).
@@ -530,6 +583,24 @@ export class SessionHost {
       }
     }
 
+    // ★ TIER-2 PER-ROLE MODEL SELECTION — reserved '/setrole <role> <provider> [model]' + '/roles'.
+    // INTERCEPTED here (same seam) and NOT forwarded to the orchestrator. `/setrole` persists the
+    // role→{provider,model} override (next dispatch uses it — runtime, no restart); `/roles` lists
+    // the effective merged map + per-provider key-PRESENCE booleans (never values). GATED on a wired
+    // roleRoutingStore — when absent (the dormant default), both fall through to a normal turn exactly
+    // as today (byte-for-byte unchanged). `/roles` is matched first (a distinct word from /setrole).
+    if (this.roleRoutingStore) {
+      if (isRolesCommand(text)) {
+        await this.handleRolesCommand();
+        return;
+      }
+      const setRoleCmd = parseSetRoleCommand(text);
+      if (setRoleCmd) {
+        await this.handleSetRoleCommand(setRoleCmd);
+        return;
+      }
+    }
+
     // Otherwise inject as a user turn into the session. On the FIRST real user
     // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
     // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
@@ -732,6 +803,193 @@ export class SessionHost {
     } catch (err) {
       this.logger.warn('/setkey: deleteMessage failed (non-fatal; key already redacted)', { err: String(err) });
     }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────────────────────
+   * TIER-2 PER-ROLE MODEL SELECTION (PART Q.3 — `/setrole` + `/roles`). Only reached when a
+   * roleRoutingStore is wired. The supervisor is the SOLE WRITER of the routing store; both the
+   * typed `/setrole` and the orchestrator-invokable {@link setRoleRouting} funnel through ONE
+   * private writer ({@link applyRoleRouting}). Nothing here is secret → no redaction, no delete.
+   * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Apply an intercepted `/setrole <role> <provider> [model]` command. Validates the role + provider
+   * against their registries (helpful errors listing the known set), records the override via the
+   * SOLE writer, then replies a confirmation (e.g. "coding → groq (llama-3.3-70b) ✓"), WARNING if the
+   * chosen provider has no key set yet (the selection is still recorded). NOT forwarded to the
+   * orchestrator. Every reply is a CONTROL message (ackToOperator → plain text).
+   */
+  private async handleSetRoleCommand(cmd: SetRoleCommand): Promise<void> {
+    const knownRoles = [...ROLES];
+    const knownProviders = [...PROVIDER_IDS];
+
+    if (cmd.kind === 'usage') {
+      this.logger.info('/setrole usage form (nothing set)', { reason: cmd.reason });
+      await this.ackToOperator(setRoleUsageMessage(knownRoles, knownProviders));
+      return;
+    }
+
+    // Validate the role (case-insensitive — normalize to lower for the known-role check).
+    const roleNorm = cmd.roleToken.trim().toLowerCase();
+    if (!isRole(roleNorm)) {
+      this.logger.info('/setrole unknown role', { token: cmd.roleToken });
+      await this.ackToOperator(setRoleUnknownRoleMessage(cmd.roleToken, knownRoles));
+      return;
+    }
+
+    // Resolve the provider token (canonical id or alias; case-insensitive).
+    const providerId = resolveProviderId(cmd.providerToken, this.providers);
+    if (!providerId) {
+      this.logger.info('/setrole unknown provider', { token: cmd.providerToken });
+      await this.ackToOperator(setRoleUnknownProviderMessage(cmd.providerToken, knownProviders));
+      return;
+    }
+
+    // Record via the SOLE writer (the typed-command path → the same writer the orchestrator uses).
+    const result = this.applyRoleRouting(roleNorm, providerId, cmd.modelToken);
+    if (!result.ok) {
+      await this.ackToOperator(`Could not set role "${roleNorm}" → ${providerId}: ${result.error}.`);
+      return;
+    }
+
+    const warning =
+      result.keyPresent === false
+        ? setRoleNoKeyWarning(providerId, getProvider(providerId, this.providers).secretEnvVar)
+        : undefined;
+    await this.ackToOperator(setRoleConfirmMessage(roleNorm, providerId, result.model, warning));
+  }
+
+  /**
+   * Apply an intercepted `/roles` command — list the EFFECTIVE role→provider/model map (the merged
+   * persisted-override-over-default config) plus, per row, whether a key is present for that
+   * provider (BOOLEAN ONLY — never a key value; claude-cli rows show key n/a). NOT forwarded.
+   */
+  private async handleRolesCommand(): Promise<void> {
+    this.logger.info('/roles listing requested');
+    await this.ackToOperator(rolesListMessage(this.effectiveRoleRows()));
+  }
+
+  /**
+   * THE SOLE WRITER of the role-routing store (P1). Validates + records `role → {provider, model?}`
+   * and returns the effective model + the provider's key-presence boolean. Called by BOTH the typed
+   * `/setrole` handler AND the public {@link setRoleRouting} (the orchestrator-on-user-request path),
+   * so every routing write goes through ONE place. Pure-local (FS only); never throws (errors are
+   * returned). When no store is wired this is a no-op error (defensive — callers gate on the store).
+   */
+  private applyRoleRouting(
+    role: Role,
+    provider: ProviderId,
+    model?: string,
+  ): { ok: true; model: string; keyPresent: boolean } | { ok: false; error: string } {
+    const store = this.roleRoutingStore;
+    if (!store) return { ok: false, error: 'role routing is not enabled' };
+    try {
+      const stored = store.setRole(role, provider, model);
+      // The effective model shown to the user: the explicit one, else the provider's default.
+      const effModel = stored.model ?? getProvider(provider, this.providers).defaultModel;
+      const secretEnvVar = getProvider(provider, this.providers).secretEnvVar;
+      const keyPresent = this.secretStore ? this.secretStore.has(secretEnvVar) : false;
+      this.logger.info('role routing override written', { role, provider, model: effModel, keyPresent });
+      this.publishLifecycle('role_routing_changed', { role, provider, model: effModel });
+      return { ok: true, model: effModel, keyPresent };
+    } catch (err) {
+      this.logger.warn('role routing write failed', { role, provider, err: String(err) });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * ORCHESTRATOR-INVOKABLE Tier-2 control: set a role's provider/model on the user's natural-language
+   * request ("use Gemini for coding"). Routes through the SAME sole writer ({@link applyRoleRouting})
+   * as the typed `/setrole`, so the supervisor stays the SOLE WRITER of the routing store. Accepts a
+   * provider token (canonical id OR alias, case-insensitive) + a role token; validates both and
+   * returns a structured result the orchestrator can relay (no throw). Returns `enabled:false` when
+   * no routing store is wired (dormant default) so the orchestrator can tell the user it's inactive.
+   */
+  setRoleRouting(
+    roleToken: string,
+    providerToken: string,
+    model?: string,
+  ):
+    | { ok: true; role: Role; provider: ProviderId; model: string; keyPresent: boolean }
+    | { ok: false; enabled: boolean; error: string } {
+    if (!this.roleRoutingStore) {
+      return { ok: false, enabled: false, error: 'role routing is not enabled (no routing store wired)' };
+    }
+    const roleNorm = (roleToken ?? '').trim().toLowerCase();
+    if (!isRole(roleNorm)) {
+      return { ok: false, enabled: true, error: `unknown role "${roleToken}" (known: ${ROLES.join(', ')})` };
+    }
+    const providerId = resolveProviderId(providerToken ?? '', this.providers);
+    if (!providerId) {
+      return {
+        ok: false,
+        enabled: true,
+        error: `unknown provider "${providerToken}" (known: ${PROVIDER_IDS.join(', ')})`,
+      };
+    }
+    const result = this.applyRoleRouting(roleNorm, providerId, model);
+    if (!result.ok) return { ok: false, enabled: true, error: result.error };
+    return { ok: true, role: roleNorm, provider: providerId, model: result.model, keyPresent: result.keyPresent };
+  }
+
+  /**
+   * Build the `/roles` rows: the EFFECTIVE role routing = the persisted overrides merged over the
+   * in-code DEFAULT_ROLE_ROUTING_CONFIG, resolved per role via the router's pure
+   * {@link resolveRoleBackendWithOverrides}. For each role: the effective provider label ('claude'
+   * for claude-cli, else the provider id), the effective model, whether it is an override vs the
+   * default, and whether a key is present for that provider (boolean; null for claude-cli). NEVER
+   * surfaces a key value — only `secretStore.has()` booleans. Also used by the panel.
+   */
+  effectiveRoleRows(): RolesListRow[] {
+    const overrides = this.roleRoutingStore ? this.roleRoutingStore.loadAll() : {};
+    const rows: RolesListRow[] = [];
+    for (const role of ROLES) {
+      const sel = resolveRoleBackendWithOverrides(role, overrides, DEFAULT_ROLE_ROUTING_CONFIG);
+      const overridden = overrides[role] !== undefined;
+      if (sel.backend === 'claude-cli') {
+        rows.push({
+          role,
+          provider: 'claude',
+          model: sel.model ?? '(default)',
+          overridden,
+          keyPresent: null, // claude-cli needs no provider key
+        });
+        continue;
+      }
+      // api-adapter backend → the chosen provider. Prefer the override's provider id (exact), else
+      // map the selection's model back to a provider via the default config's provider for the role.
+      const ov: RoleRoutingOverride | undefined = overrides[role];
+      const providerId: ProviderId | undefined = ov?.provider ?? this.defaultProviderForRole(role);
+      const provider = providerId ? getProvider(providerId, this.providers) : undefined;
+      const effModel = sel.model ?? provider?.defaultModel ?? '(default)';
+      const keyPresent =
+        provider && this.secretStore ? this.secretStore.has(provider.secretEnvVar) : false;
+      rows.push({
+        role,
+        provider: providerId ?? 'api-adapter',
+        model: effModel,
+        overridden,
+        keyPresent,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * The default provider id for a role per the in-code DEFAULT_ROLE_ROUTING_CONFIG, mapped from the
+   * default entry's model id back to the registry provider whose defaultModel matches it (coding→
+   * deepseek, reviewing→openai). Returns undefined for a role whose default is claude-cli / has no
+   * matching provider. Pure helper for {@link effectiveRoleRows}'s non-override rows.
+   */
+  private defaultProviderForRole(role: Role): ProviderId | undefined {
+    const entry = DEFAULT_ROLE_ROUTING_CONFIG.roles?.[role];
+    if (!entry || entry.backend !== 'api-adapter') return undefined;
+    const model = entry.model;
+    for (const id of PROVIDER_IDS) {
+      if (getProvider(id, this.providers).defaultModel === model) return id;
+    }
+    return undefined;
   }
 
   /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
