@@ -554,13 +554,17 @@ async function main(): Promise<void> {
       // restarted" notice.)
       // D1/D2: the loopback panel URL the orchestrator curls for /channel-check + repair.
       panelUrl: config.panelPort > 0 ? `http://127.0.0.1:${config.panelPort}` : undefined,
-      // D4: liveness ping response deadline (orchestrator profile). Default 60s — a turn
-      // result (the pong, or any turn) within this proves responsive (tier-a); else tier-b.
-      pingResponseTimeoutMs: profile.name === 'orchestrator' ? 60000 : undefined,
-      // D4: the IDLE-AWARE scheduler cadence — fire a ping every ~120s, but ONLY when the
-      // orchestrator is idle (a turn in flight = a no-op, so a long turn / sub-agent wait
-      // is NEVER pinged → never false-restarted). 120s > the 60s deadline. Orchestrator only.
-      pingIntervalMs: profile.name === 'orchestrator' ? 120000 : undefined,
+      // D4: liveness ping response deadline (orchestrator profile only; other profiles → undefined =
+      // ping disabled). A turn result (the pong, or any real turn) within this proves responsive
+      // (tier-a); else tier-b. CONFIG-DRIVEN (was a hardcoded 60s, too tight for a legitimately long
+      // Opus turn → false-positive restarts): default 180s, env SUPERVISOR_PING_RESPONSE_TIMEOUT_MS.
+      pingResponseTimeoutMs: profile.name === 'orchestrator' ? config.pingResponseTimeoutMs : undefined,
+      // D4: the IDLE-AWARE scheduler cadence — fire a ping every interval, but ONLY when the
+      // orchestrator is idle (a turn in flight = a no-op, so a long turn / sub-agent wait is NEVER
+      // pinged → never false-restarted). CONFIG-DRIVEN: default 120s, env SUPERVISOR_PING_INTERVAL_MS.
+      // Orchestrator only. (interval may be ≤ deadline: pingLiveness is idle-skipped + clearPingTimer
+      // replaces any prior armed deadline + the timeout callback re-validates, so no stale fire.)
+      pingIntervalMs: profile.name === 'orchestrator' ? config.pingIntervalMs : undefined,
       // D4 tier-b: on unresponsive, restart+resume the session AND tell the user.
       onUnresponsive: (reason) => void handleUnresponsive(reason),
     });

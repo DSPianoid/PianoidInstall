@@ -15,6 +15,39 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-0c8c locks RELEASED 2026-06-21 at Step 10a Phase 1 (commit on fix/dev-0c8c-liveness-watchdog-timeout, off
+     feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
+     master merge; the activation restart that rebuilds dist/ also loads this fix). EDITED (existing):
+     tools/supervisor/src/{config,index,session-host}.ts + test/{config,session-host}.test.ts. (lifecycle.ts was
+     LOCKED precautionarily but NOT edited — isIdle() was REUSED, not modified; git shows no M on it → released
+     untouched.) LIVENESS-WATCHDOG FALSE-POSITIVE FIX for the ALWAYS-ON D4 tier-b path (pingResponseTimeoutMs /
+     pingLiveness → onUnresponsive restart) that restarted the hosted orchestrator 4× on 2026-06-20 (a legitimately
+     long / just-started real turn misread as unresponsive). DISTINCT from + leaves UNTOUCHED dev-acb7's gated
+     turnWatchdogMs (A5, alert-not-kill, SUPERVISOR_PROACTIVE_ALERTS=OFF) + dev-3e66's gated recovery ladder.
+     (a) CONFIG-IZE the deadline + raise default: config.ts NEW DEFAULT_PING_RESPONSE_TIMEOUT_MS(180_000) +
+     DEFAULT_PING_INTERVAL_MS(120_000) + resolvers resolvePingResponseTimeoutMs / resolvePingIntervalMs (mirror
+     resolveTurnWatchdogMs) + interface fields pingResponseTimeoutMs/pingIntervalMs wired into loadConfig; index.ts
+     :559/:563 now read config.pingResponseTimeoutMs / config.pingIntervalMs (KEEPING the orchestrator-only gating —
+     non-orch profiles stay undefined). Default deadline 60s→180s (matches DEFAULT_TURN_WATCHDOG_MS); env
+     SUPERVISOR_PING_RESPONSE_TIMEOUT_MS / SUPERVISOR_PING_INTERVAL_MS. (b) CLOSE the in-flight race: session-host.ts
+     NEW lastRealTurnStartedAt field (sole owner SessionHost) + NEW private onRealTurnStarted() (records the start
+     time + clears any armed ping deadline), called at the two real-work inject seams (handleInbound user turn +
+     injectChannelCheckTurn); pingLiveness stamps pingScheduledAt at arming + the timeout callback RE-VALIDATES
+     (skip tier-b if lastRealTurnStartedAt >= pingScheduledAt). NOTE: the callback must NOT key off isIdle() — the
+     ping turn itself counts in outstandingTurns, so isIdle() is always false there; lastRealTurnStartedAt (non-internal
+     turns only) is the correct discriminator (an isIdle clause regressed the genuine-hang tier-b test, caught + dropped).
+     +6 tests (3 config-resolver + 3 session-host pingLiveness: a real turn past the deadline NOT restarted / a real
+     turn start clears the armed deadline / a real turn after the ping → no tier-b). Full supervisor node:test 633/633
+     (627 baseline +6), tsc --noEmit clean. session-host.ts 3014→3062 LOC (pre-existing RED; +48 additive within its
+     inbound-routing/liveness/control concern — split already WIP-flagged by dev-3e66/dev-6ca1). config.ts 564→622 (YELLOW).
+     ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY to throwaway dist-test-0c8c[+-base], removed; prod
+     dist/{config,index,session-host}.js mtime 2026-06-20 22:51:25 [dev-f8f2 build] UNCHANGED, verified before+after;
+     onRealTurnStarted/resolvePingResponseTimeoutMs ABSENT from prod dist/ via grep=0); the live supervisor
+     [8790, PID 64920] NOT started/touched/killed, NO /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher,
+     NO supervisor PID touched (all behavior verified via FakeSessionDriver + capturing send + loopback — NO real
+     claude spawn / Telegram send / spend). README env-var update = Phase-2 deferred (dev-vio1 holds README; NEW DOC
+     DEFERRAL block filed in WIP). Dirty/untracked OTHER-agent files (dev-0efd/c9fb/ce3c/f8f2/vio1 logs, controller
+     logs, proposals, dist.bak*) NOT touched. The eventual activation rebuild includes this. SHA in the session log. -->
 <!-- dev-6ca1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 269e12f on feature/supervisor-control-plane;
      NOT merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
      that rebuilds dist/ also loads these two voice-channel features). EDITED (existing): tools/supervisor/src/

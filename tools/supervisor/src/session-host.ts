@@ -897,6 +897,17 @@ export class SessionHost {
    * turn result), so it must still count as "the agent answered the probe".
    */
   private lastResponsiveAt = 0;
+  /**
+   * ★ D4 FALSE-POSITIVE FIX — the wall-clock time (ms) at which the last REAL (non-internal) user turn
+   * was injected (the inbound→inject seam), or 0 if none yet. SOLE OWNER (P1): set ONLY in
+   * {@link onRealTurnStarted}, which every real-turn injection routes through. Used by the liveness-ping
+   * timeout callback to detect "a real turn has started since this ping was scheduled" and SKIP tier-b —
+   * closing the race where a ping armed while idle keeps its deadline running after a real turn starts,
+   * and where a turn received-but-not-yet-counted-in-flight (before lifecycle.sendUserTurn increments
+   * outstandingTurns) lets a competing ping's deadline fire against a healthy running turn. Distinct from
+   * {@link lastTurnAt} (last-turn RESULT) — this is last-turn START.
+   */
+  private lastRealTurnStartedAt = 0;
 
   constructor(opts: SessionHostOptions) {
     this.opts = opts;
@@ -1079,8 +1090,10 @@ export class SessionHost {
       `POST ${base}/api/channel/flush, POST ${base}/api/channel/kill-stale-sender.\n` +
       `Inspect the channel state, tell the user what you find (delivery failures? a stale double-sender? a backlog?), ` +
       `take any repair action you judge appropriate, and confirm the outcome.`;
-    // A diagnostic turn is a real turn — reset the per-turn guard like any inbound.
+    // A diagnostic turn is a real turn — reset the per-turn guard like any inbound, and clear/record
+    // the liveness deadline (★ D4 false-positive fix) so a stale idle-ping can't false-restart it.
     this.lastSentText = null;
+    this.onRealTurnStarted();
     await this.lifecycle.sendUserTurn({ text: turn });
   }
 
@@ -1275,6 +1288,10 @@ export class SessionHost {
     // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
     // The guard only catches same-turn duplicates (a double-emit / the stale-resend race).
     this.lastSentText = null;
+    // ★ D4 FALSE-POSITIVE FIX: a REAL user turn is starting → clear any armed idle-ping deadline and
+    // record the start time, so a ping that was scheduled while the orchestrator was briefly idle can
+    // NEVER false-fire tier-b against this now-running turn (the inbound→inject seam).
+    this.onRealTurnStarted();
     await this.lifecycle.sendUserTurn({ text: turnText });
   };
 
@@ -2435,8 +2452,27 @@ export class SessionHost {
       return false;
     }
     this.clearPingTimer();
+    // ★ D4 FALSE-POSITIVE FIX: stamp when THIS ping was scheduled. The timeout callback re-validates
+    // against it — if a REAL turn started after this instant (lastRealTurnStartedAt >= pingScheduledAt)
+    // the orchestrator is provably working on something the user is waiting on, so a deadline armed
+    // while it was briefly idle must NOT fire tier-b. (onRealTurnStarted already clears the timer the
+    // instant a real turn starts; this callback re-check is the airtight backstop for any path that
+    // injects a real turn without routing through onRealTurnStarted, and for the in-flight case.)
+    const pingScheduledAt = Date.now();
     this.pingTimer = setTimeout(() => {
       this.pingTimer = null;
+      // RE-VALIDATE before declaring unresponsive: a REAL (non-internal) turn that STARTED after this
+      // ping was scheduled means the orchestrator IS working on something the user is waiting on → NOT
+      // a false-positive restart target. Skip tier-b (and the A5 stuck-latch) entirely; the next
+      // scheduler tick re-pings. (NOTE: we must NOT key this off lifecycle.isIdle() — the ping turn we
+      // just injected is itself an outstanding turn, so isIdle() is always false here; lastRealTurnStartedAt
+      // tracks only NON-internal turns via onRealTurnStarted, which is the correct discriminator.)
+      if (this.lastRealTurnStartedAt >= pingScheduledAt) {
+        this.logger.info('liveness ping deadline elapsed but a real turn started since the ping — NOT tier-b (false-positive averted)', {
+          msSincePing: Date.now() - pingScheduledAt,
+        });
+        return;
+      }
       this.logger.error('liveness ping TIMED OUT — orchestrator unresponsive (tier-b)', { timeoutMs: timeout });
       // ★ A5: a missed ping IS the idle-STUCK signal → latch it so `status` classifies STUCK
       // end-to-end, and PUSH a debounced proactive alert. Gated on the proactive switch (OFF ⇒
@@ -2505,6 +2541,20 @@ export class SessionHost {
       clearTimeout(this.pingTimer);
       this.pingTimer = null;
     }
+  }
+
+  /**
+   * ★ D4 FALSE-POSITIVE FIX — call the instant a REAL (non-internal) user turn is injected (the
+   * inbound→inject seam). Every real-turn `sendUserTurn` in this host routes through here. It (1)
+   * records {@link lastRealTurnStartedAt} so a liveness-ping timeout that was scheduled BEFORE this
+   * turn started can detect it and skip the tier-b restart, and (2) clears any armed ping deadline
+   * immediately — a real turn IS proof the orchestrator is working, so a deadline armed while it was
+   * briefly idle must not fire against the now-running turn. Internal turns (the ping itself, mode/
+   * handoff notices the supervisor crafts) MUST NOT call this — only genuine work the user is waiting on.
+   */
+  private onRealTurnStarted(): void {
+    this.lastRealTurnStartedAt = Date.now();
+    this.clearPingTimer();
   }
 
   // ── ★ A5 — PROACTIVE stuck/dead PUSH (debounced, one-per-event; ALERT-only) ──────────────

@@ -4,6 +4,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEFAULT_ROLE_TURN_PREFIX,
+  DEFAULT_PING_RESPONSE_TIMEOUT_MS,
+  DEFAULT_PING_INTERVAL_MS,
   loadConfig,
   resolveRoleTurnPrefix,
   resolveRecoveryLadder,
@@ -11,6 +13,8 @@ import {
   resolveAutoSnapshotIntervalMs,
   resolveRestartDrainMs,
   resolveStatusProbeMs,
+  resolvePingResponseTimeoutMs,
+  resolvePingIntervalMs,
 } from '../config.js';
 import { DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS } from '../control-command.js';
 import { tmpDir } from './helpers.js';
@@ -177,6 +181,53 @@ test('REDESIGN loadConfig: the 4 automatic behaviors default OFF/0 (byte-for-byt
     assert.equal(c.autoSnapshotIntervalMs, DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS);
     assert.equal(c.restartDrainMs, 0, 'restartDrainMs default 0 = no escalation wait');
     assert.equal(c.statusProbeMs, 0, 'statusProbeMs default 0 = no live probe');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    cleanup();
+  }
+});
+
+// ── ★ D4 — the ALWAYS-ON liveness-ping deadline + cadence (false-positive-restart fix) ──
+test('D4 resolvePingResponseTimeoutMs: default 180s; positive int verbatim; junk → default', () => {
+  assert.equal(resolvePingResponseTimeoutMs(undefined), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(DEFAULT_PING_RESPONSE_TIMEOUT_MS, 180_000, 'default raised to 180s (was a hardcoded 60s)');
+  assert.equal(resolvePingResponseTimeoutMs(''), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(resolvePingResponseTimeoutMs('0'), DEFAULT_PING_RESPONSE_TIMEOUT_MS, '0 → default (not 0)');
+  assert.equal(resolvePingResponseTimeoutMs('-5'), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(resolvePingResponseTimeoutMs('abc'), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(resolvePingResponseTimeoutMs('240000'), 240000, 'positive int used verbatim');
+  assert.equal(resolvePingResponseTimeoutMs('90000.7'), 90000, 'floored');
+});
+
+test('D4 resolvePingIntervalMs: default 120s; positive int verbatim; junk → default', () => {
+  assert.equal(resolvePingIntervalMs(undefined), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(DEFAULT_PING_INTERVAL_MS, 120_000, 'cadence default unchanged at 120s');
+  assert.equal(resolvePingIntervalMs(''), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('0'), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('-1'), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('abc'), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('60000'), 60000, 'positive int used verbatim');
+});
+
+test('D4 loadConfig: pingResponseTimeoutMs defaults 180s + pingIntervalMs 120s; env overrides', () => {
+  const { dir, cleanup } = tmpDir('cfg-ping');
+  const saved: Record<string, string | undefined> = {};
+  for (const k of ['SUPERVISOR_PING_RESPONSE_TIMEOUT_MS', 'SUPERVISOR_PING_INTERVAL_MS']) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    const dflt = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(dflt.pingResponseTimeoutMs, DEFAULT_PING_RESPONSE_TIMEOUT_MS, 'deadline default 180s');
+    assert.equal(dflt.pingIntervalMs, DEFAULT_PING_INTERVAL_MS, 'cadence default 120s');
+    process.env.SUPERVISOR_PING_RESPONSE_TIMEOUT_MS = '300000';
+    process.env.SUPERVISOR_PING_INTERVAL_MS = '90000';
+    const over = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(over.pingResponseTimeoutMs, 300000, 'env override for the deadline');
+    assert.equal(over.pingIntervalMs, 90000, 'env override for the cadence');
   } finally {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];

@@ -242,6 +242,22 @@ export interface SupervisorConfig {
    */
   proactiveWatchIntervalMs: number;
   /**
+   * ★ D4 — the ALWAYS-ON liveness-ping response deadline (ms). A turn result (the pong, or any real
+   * turn) within this window proves the orchestrator responsive (tier-a); else the always-on tier-b
+   * restart fires. Default {@link DEFAULT_PING_RESPONSE_TIMEOUT_MS} (180s), env
+   * `SUPERVISOR_PING_RESPONSE_TIMEOUT_MS`. index.ts applies it ONLY to the orchestrator profile (other
+   * profiles pass undefined → ping disabled). This is the always-on D4 ping — DISTINCT from the gated
+   * A5 in-flight watchdog ({@link turnWatchdogMs}); raising it fixes the FALSE-POSITIVE restarts a too-tight
+   * 60s deadline caused on a legitimately long Opus turn.
+   */
+  pingResponseTimeoutMs: number;
+  /**
+   * ★ D4 — the ALWAYS-ON liveness-ping scheduler cadence (ms): how often the IDLE-AWARE ping fires
+   * (a no-op while a turn is in flight). Default {@link DEFAULT_PING_INTERVAL_MS} (120s), env
+   * `SUPERVISOR_PING_INTERVAL_MS`. index.ts applies it ONLY to the orchestrator profile.
+   */
+  pingIntervalMs: number;
+  /**
    * ★ REDESIGN (control-panel-redesign-2026-06-20) — RECOVERY LADDER switch. When ON, an
    * unresponsive orchestrator is recovered in two steps — first AUTO-RECONNECT the channel, and only
    * if it is STILL unresponsive, RESET (restart) — instead of restarting directly. Resolved from
@@ -361,6 +377,11 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     proactiveAlerts: resolveProactiveAlerts(),
     turnWatchdogMs: resolveTurnWatchdogMs(),
     proactiveWatchIntervalMs: resolveProactiveWatchIntervalMs(),
+    // ★ D4: the ALWAYS-ON liveness-ping deadline + scheduler cadence (orchestrator profile; index.ts
+    // gates on the profile name). Deadline RAISED to 180s (was a hardcoded 60s → false-positive tier-b
+    // restarts on a legitimately long Opus turn); cadence unchanged at 120s. Both env-overridable.
+    pingResponseTimeoutMs: resolvePingResponseTimeoutMs(),
+    pingIntervalMs: resolvePingIntervalMs(),
     // ★ REDESIGN — the 4 control-panel automatic behaviors (ALL default-OFF / no-op → byte-for-byte
     // today): the recovery ladder, auto-snapshot (+ its cadence), the restart drain deadline (0 =
     // no escalation wait), and the status live-probe deadline (0 = no live probe).
@@ -403,6 +424,44 @@ export function resolveTurnWatchdogMs(raw = process.env.SUPERVISOR_TURN_WATCHDOG
 export function resolveProactiveWatchIntervalMs(raw = process.env.SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS): number {
   const n = Number((raw ?? '').trim());
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PROACTIVE_WATCH_INTERVAL_MS;
+}
+
+/**
+ * ★ D4 — the ALWAYS-ON liveness-ping response deadline default (ms). A turn result (the
+ * pong, or any real turn) within this window proves the orchestrator responsive (tier-a);
+ * else the always-on tier-b restart fires. RAISED to 180s (matching {@link DEFAULT_TURN_WATCHDOG_MS})
+ * from the original hardcoded 60s, which was too tight for a legitimately long (>60s) turn on
+ * the 1M-context Opus session and produced FALSE-POSITIVE restarts (4× on 2026-06-20). This is the
+ * always-on D4 ping — DISTINCT from the gated A5 in-flight watchdog ({@link DEFAULT_TURN_WATCHDOG_MS}).
+ */
+export const DEFAULT_PING_RESPONSE_TIMEOUT_MS = 180_000; // 180s — false-positive fix (was 60s)
+/**
+ * ★ D4 — the ALWAYS-ON liveness-ping scheduler cadence default (ms): the supervisor fires an
+ * IDLE-AWARE ping every interval (a no-op while a turn is in flight). Unchanged at 120s.
+ */
+export const DEFAULT_PING_INTERVAL_MS = 120_000; // 120s scheduler cadence (unchanged)
+
+/**
+ * ★ D4 — resolve the ALWAYS-ON liveness-ping response deadline (ms) from
+ * `SUPERVISOR_PING_RESPONSE_TIMEOUT_MS`. A positive integer is used verbatim; an
+ * unset/blank/non-positive/non-numeric value → {@link DEFAULT_PING_RESPONSE_TIMEOUT_MS} (180s).
+ * This deadline is applied ONLY to the orchestrator profile (index.ts gates it on the profile name);
+ * the resolver itself is profile-agnostic. Pure; exported for the test. Mirrors
+ * {@link resolveTurnWatchdogMs}.
+ */
+export function resolvePingResponseTimeoutMs(raw = process.env.SUPERVISOR_PING_RESPONSE_TIMEOUT_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PING_RESPONSE_TIMEOUT_MS;
+}
+
+/**
+ * ★ D4 — resolve the ALWAYS-ON liveness-ping scheduler cadence (ms) from `SUPERVISOR_PING_INTERVAL_MS`.
+ * A positive integer is used verbatim; an unset/blank/non-positive/non-numeric value →
+ * {@link DEFAULT_PING_INTERVAL_MS} (120s). Pure; exported for the test. Mirrors {@link resolveTurnWatchdogMs}.
+ */
+export function resolvePingIntervalMs(raw = process.env.SUPERVISOR_PING_INTERVAL_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PING_INTERVAL_MS;
 }
 
 /**

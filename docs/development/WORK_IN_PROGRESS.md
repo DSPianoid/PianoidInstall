@@ -34,6 +34,21 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
      menu is confirmed (recovery ladder + auto-snapshot pair well; statusProbeMs gives Status its live ping;
      restartDrainMs>0 enables the graceful-restart hard-kill escalation). Parent restart is wired + functional
      (supervisor-side, confirm-gated) regardless of those flags. -->
+<!-- DOC DEFERRAL (dev-0c8c, 2026-06-21): LIVENESS-WATCHDOG FALSE-POSITIVE FIX shipped on
+     fix/dev-0c8c-liveness-watchdog-timeout (off feature/supervisor-control-plane; folds into the same
+     control-plane → master merge). The ALWAYS-ON D4 liveness path (pingResponseTimeoutMs / pingLiveness →
+     tier-b restart) restarted the hosted orchestrator 4× on 2026-06-20 — a legitimately long / just-started
+     real turn was misread as "unresponsive". TWO causes fixed: (1) the deadline was a HARDCODED 60s, too tight
+     for a >60s Opus turn → now config-driven, default RAISED to 180s; (2) the in-flight ping race → closed.
+     NEW env vars (always-on, orchestrator profile only): SUPERVISOR_PING_RESPONSE_TIMEOUT_MS (default 180000)
+     + SUPERVISOR_PING_INTERVAL_MS (default 120000). These are DISTINCT from the GATED A5 watchdog
+     (SUPERVISOR_TURN_WATCHDOG_MS, alert-not-kill, SUPERVISOR_PROACTIVE_ALERTS=OFF) + the gated recovery ladder
+     (untouched). At Phase 2 / README update (held by dev-vio1's lock): add these 2 env vars to the operator/
+     env table next to the existing supervisor knobs; note the deadline is the always-on tier-b auto-restart
+     guard (raised from 60s). Source of truth meanwhile: config.ts (resolvePingResponseTimeoutMs /
+     resolvePingIntervalMs + DEFAULT_PING_RESPONSE_TIMEOUT_MS/DEFAULT_PING_INTERVAL_MS) + index.ts:559/563 +
+     session-host.ts (onRealTurnStarted + the pingLiveness callback re-validation) + the +6 tests
+     (config.test.ts / session-host.test.ts). SHA in the dev-0c8c session log. -->
 <!-- DOC DEFERRAL (dev-6ca1, 2026-06-20): TWO voice-channel features shipped on feature/supervisor-control-plane
      (commit in the session log) — fold into the activation/merge docs:
      (1) ORCHESTRATOR MODE-AWARENESS: the supervisor now tells the hosted orchestrator the output mode
@@ -75,6 +90,7 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-0c8c | Fix supervisor liveness-watchdog FALSE-POSITIVE tier-b restarts (always-on `pingResponseTimeoutMs`/`pingLiveness`; restarted the hosted orchestrator 4× on 2026-06-20). (a) config-ize the deadline + raise default to 180s (`SUPERVISOR_PING_RESPONSE_TIMEOUT_MS`, `SUPERVISOR_PING_INTERVAL_MS`); (b) close the in-flight ping race so a real in-progress turn can never trigger tier-b. Leaves dev-acb7's gated `turnWatchdogMs` (alert-not-kill) + dev-3e66's recovery ladder UNTOUCHED. Off feature/supervisor-control-plane → fix/dev-0c8c-liveness-watchdog-timeout. Phase 1 only, NO merge/push; throwaway-dist test build only (prod dist/ NOT regenerated; live supervisor PID 64920/8790 NOT touched). | [log](logs/dev-0c8c-2026-06-21-085150.md) | 2026-06-21 |
 | dev-f8f2 | AUTHORIZED Phase-1 build+verify ACTIVATION of `tools/supervisor` (`feature/supervisor-control-plane`, HEAD 33436ff): prove the control-panel redesign (dev-3e66) + 0efd/85bb/6ca1 are committed-but-NOT-live in the running dist/ (the live supervisor PID 64920/port 8790 runs dev-fa3d's old build), verify the full suite at HEAD (env-leak workaround), back up the running dist/, rebuild prod dist/ from HEAD, prove the redesign symbols are now present, document (NOT execute) the restart procedure. ⚠️ DO NOT restart/kill the supervisor, NO /api/lifecycle/*, NO merge/push, preserve dirty/untracked. dist/ is gitignored. Phase 1 → commit bookkeeping, STOP. | [log](logs/dev-f8f2-2026-06-20-224829.md) | 2026-06-20 |
 | dev-6ca1 | Two voice-channel features for the supervisor (`feature/supervisor-control-plane`): (1) orchestrator MODE-AWARENESS — surface current outputMode (voice/text/dual) via on-change system note + first-turn inject + /api/session loopback field; (2) FORCE-TEXT marker — orchestrator marks a reply to be delivered as TEXT (skip TTS, strip marker) even in voice/dual. Throwaway dist build only; prod dist/ NOT regenerated; supervisor/port-8790 NOT touched; NO push/merge. Phase 1 → commit, release locks, STOP. | [log](logs/dev-6ca1-2026-06-20-185321.md) | 2026-06-20 |
 | dev-85bb | Wire 3 MCP servers (deepseek-codegen, hostinger-email, whatsapp) into the supervisor-hosted `claude -p` orchestrator (`feature/supervisor-control-plane`), containment-safe — WITHOUT re-enabling the 'user' setting source or the Telegram plugin (would re-introduce the channel-hijack bug). cli-stream-driver.ts: honour `opts.mcpServers` → write a 0600 temp `--mcp-config` file (NO `--strict-mcp-config`), unlink on stop, never log. index.ts: curate the hosted MCP map excluding ONLY 'telegram' (keep whatsapp+deepseek+hostinger). WhatsApp policy: reading allowed (remove blanket `mcp__whatsapp__*` deny from profiles.ts + backend-seal UNIVERSAL_CHANNEL_DENY); SEND tools routed for user approval (not hard-denied, NOT allow-listed). Telegram stays FULLY denied; hostinger send stays gated. ⚠️ DO NOT restart/kill the supervisor; throwaway dist build only (prod dist/ NOT regenerated); NO push/merge. Phase 1 → commit, release locks, STOP. | [log](logs/dev-85bb-2026-06-20-205557.md) | 2026-06-20 |
