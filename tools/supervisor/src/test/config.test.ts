@@ -18,6 +18,8 @@ import {
   resolveDispatchCostCapUsd,
   resolveDispatchCostWindowUsd,
   resolveDispatchCostWindowMs,
+  resolveDispatchEstCostUsd,
+  resolveDeepseekKeyBridge,
   DEFAULT_DISPATCH_COST_WINDOW_MS,
 } from '../config.js';
 import { DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS } from '../control-command.js';
@@ -299,6 +301,51 @@ test('★ P-C1 loadConfig: both spend caps default 0 + window 5h; env overrides'
     assert.equal(over.dispatchCostCapUsd, 0.5, 'env override for the per-dispatch cap');
     assert.equal(over.dispatchCostWindowUsd, 5, 'env override for the rolling cap');
     assert.equal(over.dispatchCostWindowMs, 7200000, 'env override for the window length');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    cleanup();
+  }
+});
+
+test('★ P-C1(wiring) resolveDispatchEstCostUsd: default 0; positive FRACTIONAL verbatim; junk → 0', () => {
+  assert.equal(resolveDispatchEstCostUsd(undefined), 0, 'unset → 0 (admit-then-charge-real)');
+  assert.equal(resolveDispatchEstCostUsd(''), 0);
+  assert.equal(resolveDispatchEstCostUsd('0'), 0);
+  assert.equal(resolveDispatchEstCostUsd('-2'), 0);
+  assert.equal(resolveDispatchEstCostUsd('nope'), 0);
+  assert.equal(resolveDispatchEstCostUsd('0.25'), 0.25, 'fractional estimate verbatim');
+});
+
+test('★ DEEPSEEK BRIDGE resolveDeepseekKeyBridge: default OFF; ON only for 1/true/on', () => {
+  assert.equal(resolveDeepseekKeyBridge(undefined), false, 'unset → OFF (never reads ~/.claude.json)');
+  assert.equal(resolveDeepseekKeyBridge(''), false);
+  assert.equal(resolveDeepseekKeyBridge('0'), false);
+  assert.equal(resolveDeepseekKeyBridge('nope'), false);
+  for (const on of ['1', 'true', 'on', 'ON', ' True ']) {
+    assert.equal(resolveDeepseekKeyBridge(on), true, `"${on}" → ON`);
+  }
+});
+
+test('★ loadConfig: dispatchEstCostUsd default 0 + deepseekKeyBridge default OFF; env overrides', () => {
+  const { dir, cleanup } = tmpDir('cfg-bridge');
+  const saved: Record<string, string | undefined> = {};
+  const keys = ['SUPERVISOR_DISPATCH_EST_COST_USD', 'SUPERVISOR_DEEPSEEK_KEY_BRIDGE'];
+  for (const k of keys) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    const dflt = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(dflt.dispatchEstCostUsd, 0, 'estimate default 0');
+    assert.equal(dflt.deepseekKeyBridge, false, 'bridge default OFF (containment: no user-scope read)');
+    process.env.SUPERVISOR_DISPATCH_EST_COST_USD = '0.3';
+    process.env.SUPERVISOR_DEEPSEEK_KEY_BRIDGE = 'on';
+    const over = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(over.dispatchEstCostUsd, 0.3);
+    assert.equal(over.deepseekKeyBridge, true);
   } finally {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];

@@ -321,6 +321,25 @@ export interface SupervisorConfig {
    * when the window cap is non-zero; the caller drives the actual roll via the gate's resetWindow.
    */
   dispatchCostWindowMs: number;
+  /**
+   * ★ P-C1 (enforcement wiring) — the conservative PER-DISPATCH USD COST ESTIMATE the dispatch
+   * choke-point feeds to `gate.tryAcquire(estTokens, estCostUsd)` BEFORE a dispatch starts (the cap is
+   * a SAFETY ceiling, not a billing meter — §4: estimation imperfection is acceptable; the post-hoc
+   * `release` charges the REAL cost). Resolved from `SUPERVISOR_DISPATCH_EST_COST_USD`; DEFAULT 0 →
+   * the admission estimate is $0 (so with caps 0 it changes nothing; with a per-dispatch cap set,
+   * leave it 0 to admit-then-charge-real, or set a conservative estimate to refuse up-front). Fractional.
+   */
+  dispatchEstCostUsd: number;
+  /**
+   * ★ DEEPSEEK KEY BRIDGE (follow-up, default-OFF) — when ON, a routed DeepSeek dispatch whose key is
+   * NOT in the sealed /setkey store FALLS BACK to the key configured for the existing `deepseek-codegen`
+   * MCP server (read NARROWLY from ~/.claude.json `mcpServers.deepseek-codegen.env.DEEPSEEK_API_KEY`).
+   * Resolved from `SUPERVISOR_DEEPSEEK_KEY_BRIDGE`; DEFAULT OFF. ★CONTAINMENT: ON triggers a
+   * single-key read of the user-scope ~/.claude.json (the file the supervisor otherwise avoids for the
+   * token-hijack containment) — a NARROW read (only that one key, never enabledPlugins/other servers),
+   * but a boundary; left OFF by default so it never reads ~/.claude.json unless explicitly enabled.
+   */
+  deepseekKeyBridge: boolean;
 }
 
 export interface LoadConfigOptions {
@@ -417,6 +436,9 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     dispatchCostCapUsd: resolveDispatchCostCapUsd(),
     dispatchCostWindowUsd: resolveDispatchCostWindowUsd(),
     dispatchCostWindowMs: resolveDispatchCostWindowMs(),
+    dispatchEstCostUsd: resolveDispatchEstCostUsd(),
+    // ★ DEEPSEEK KEY BRIDGE (default OFF → never reads ~/.claude.json; byte-for-byte today).
+    deepseekKeyBridge: resolveDeepseekKeyBridge(),
   };
 }
 
@@ -524,6 +546,28 @@ export function resolveDispatchCostWindowUsd(raw = process.env.SUPERVISOR_DISPAT
 export function resolveDispatchCostWindowMs(raw = process.env.SUPERVISOR_DISPATCH_COST_WINDOW_MS): number {
   const n = Number((raw ?? '').trim());
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_DISPATCH_COST_WINDOW_MS;
+}
+
+/**
+ * ★ P-C1 (enforcement wiring) — resolve the conservative PER-DISPATCH USD cost ESTIMATE from
+ * `SUPERVISOR_DISPATCH_EST_COST_USD`. A finite positive value (FRACTIONAL) is the up-front estimate
+ * fed to the gate's admission check; an unset/blank/non-positive/non-numeric value → 0 (admit-then-
+ * charge-real; with caps 0 this changes nothing). NOT floored. Pure; exported for the test.
+ */
+export function resolveDispatchEstCostUsd(raw = process.env.SUPERVISOR_DISPATCH_EST_COST_USD): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * ★ DEEPSEEK KEY BRIDGE — resolve the bridge switch from `SUPERVISOR_DEEPSEEK_KEY_BRIDGE`. ON only for
+ * '1'/'true'/'on' (case/space-insensitive); anything else (incl. unset) → false (DEFAULT OFF → the
+ * bridge never reads ~/.claude.json; a DeepSeek dispatch with no /setkey key stays key-free as today).
+ * Pure; exported for the test.
+ */
+export function resolveDeepseekKeyBridge(raw = process.env.SUPERVISOR_DEEPSEEK_KEY_BRIDGE): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
 }
 
 /**

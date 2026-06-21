@@ -63,6 +63,8 @@ import { BackendRegistry } from './backend-registry.js';
 import { dispatchRoleAgentWithFallback } from './result-relay.js';
 import { mergeRoleRoutingOverrides, resolveRoleBackend, DEFAULT_ROLE_ROUTING_CONFIG } from './role-router.js';
 import { DEFAULT_API_ADAPTER_CONFIGS } from './api-adapter-driver.js';
+import { AgentConcurrencyGate } from './agent-concurrency.js';
+import { resolveDeepseekKeyFromMcpConfig, DEEPSEEK_SECRET_ENV_VAR } from './deepseek-key-bridge.js';
 import type { RoleDispatchFn, RoleDispatchResult, RestartIntent, RestartControlResult } from './session-host.js';
 
 interface CliArgs {
@@ -315,6 +317,16 @@ async function main(): Promise<void> {
       const registry = new BackendRegistry();
       const storeForDispatch = secretStore;
       const routingForDispatch = roleRoutingStore;
+      // ★ P-C1 ENFORCEMENT — ONE spend gate for the routed-dispatch path (the choke-point). The two USD
+      // caps + the rolling window length come from config; BOTH caps default 0 = UNLIMITED, so with no
+      // caps set the gate admits every dispatch (estCost is checked against 0 ⇒ never breaches) = byte-
+      // for-byte today. The gate is the sole owner of the rolling spend ledger (P1); the closure
+      // tryAcquire()s per dispatch and passes the lease through so result-relay charges the REAL cost.
+      const spendGate = new AgentConcurrencyGate({
+        ...(config.dispatchCostCapUsd > 0 ? { dispatchCostCapUsd: config.dispatchCostCapUsd } : {}),
+        ...(config.dispatchCostWindowUsd > 0 ? { dispatchCostWindowUsd: config.dispatchCostWindowUsd } : {}),
+      });
+      const estCostUsd = config.dispatchEstCostUsd; // conservative per-dispatch estimate (default 0)
       dispatchRoleAgent = async (role: string, task: string): Promise<RoleDispatchResult> => {
         // Project the stored provider keys into the dispatch env (scoped-key loading at spawn).
         const apiAdapterEnv: NodeJS.ProcessEnv = { ...process.env, ...storeForDispatch.loadAll() };
@@ -331,6 +343,43 @@ async function main(): Promise<void> {
           selection.backend === 'api-adapter' && selection.model
             ? DEFAULT_API_ADAPTER_CONFIGS[selection.model]?.secretEnvVar
             : undefined;
+
+        // ★ DEEPSEEK KEY BRIDGE (default-OFF) — when the resolved backend is the DeepSeek api-adapter
+        // AND the sealed /setkey store has NO DeepSeek key, FALL BACK to the deepseek-codegen MCP's key
+        // (narrow user-scope ~/.claude.json read; see deepseek-key-bridge.ts containment header). The
+        // sealed store ALWAYS wins (we only bridge when it has none). The key is injected into THIS
+        // dispatch's env ONLY when ownSecretName IS the DeepSeek key — so the seal's "only your own key"
+        // invariant holds (no foreign key reaches a non-DeepSeek agent). OFF ⇒ no read, no injection.
+        if (
+          config.deepseekKeyBridge &&
+          ownSecretName === DEEPSEEK_SECRET_ENV_VAR &&
+          !storeForDispatch.has(DEEPSEEK_SECRET_ENV_VAR)
+        ) {
+          const bridged = resolveDeepseekKeyFromMcpConfig({ onNote: (line) => logger.info(line) });
+          if (bridged) apiAdapterEnv[DEEPSEEK_SECRET_ENV_VAR] = bridged; // scoped to this DeepSeek dispatch only
+        }
+
+        // ★ P-C1 ENFORCEMENT — ADMISSION: try to acquire a spend slot with the per-dispatch estimate.
+        // On a breach (per-dispatch or rolling cap) REFUSE with a CLEAN surfaced result — never a crash/
+        // wedge (CP4/CP5). With caps 0 this always admits (byte-for-byte today).
+        const acq = spendGate.tryAcquire(0, estCostUsd);
+        if (!acq.ok) {
+          const reason =
+            acq.reason === 'dispatch-cost-cap'
+              ? `per-dispatch cost cap $${config.dispatchCostCapUsd.toFixed(2)} (est $${estCostUsd.toFixed(2)})`
+              : acq.reason === 'dispatch-cost-window'
+                ? `rolling spend cap $${config.dispatchCostWindowUsd.toFixed(2)} reached (spent $${spendGate.spentCostUsd.toFixed(4)})`
+                : `concurrency/budget (${acq.reason ?? 'unknown'})`;
+          logger.warn('routed dispatch REFUSED by spend cap', { role, reason: acq.reason });
+          return {
+            ok: false,
+            role: String(role),
+            backend: selection.backend,
+            fellBack: false,
+            text: `refused: spend cap — ${reason}. Set a higher SUPERVISOR_DISPATCH_COST_* cap or wait for the window to reset.`,
+          };
+        }
+
         const report = await dispatchRoleAgentWithFallback({
           role,
           task,
@@ -338,6 +387,9 @@ async function main(): Promise<void> {
           config: merged,
           env: apiAdapterEnv,
           ...(ownSecretName ? { ownSecretName } : {}),
+          // ★ P-C1 — pass the lease so the dispatcher RELEASES it with the REAL tokens + costUsd
+          // (result-relay.ts release(reportTokensUsed, report.costUsd)); idempotent → safe on crash.
+          lease: acq.lease!,
         });
         const result: RoleDispatchResult = {
           ok: report.ok,
@@ -352,6 +404,9 @@ async function main(): Promise<void> {
       logger.info('ROLE-ROUTING ACTIVE (SUPERVISOR_ROLE_ROUTING on) — /setkey + /setrole + /roles wired; routed dispatch enabled', {
         secretStore: secretStore.path,
         roleRoutingStore: roleRoutingStore.path,
+        spendCapPerDispatchUsd: config.dispatchCostCapUsd,
+        spendCapWindowUsd: config.dispatchCostWindowUsd,
+        deepseekKeyBridge: config.deepseekKeyBridge,
       });
     }
 

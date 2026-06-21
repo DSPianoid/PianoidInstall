@@ -74,7 +74,22 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
      (formatDispatchResultTurn etc.) + the +25 tests. ACTIVATION nuance for the orchestrator: P-C1's gate is ready
      but NOT yet acquired per-dispatch inside index.ts's dispatch closure — wiring gate.tryAcquire(estTokens,
      estCostUsd) around dispatchRoleAgentWithFallback (lease → release) is the small remaining step done WHEN
-     enabling real enforcement (caps 0 ⇒ nothing to enforce ⇒ deferred). SHA in the dev-e9d9 session log. -->
+     enabling real enforcement (caps 0 ⇒ nothing to enforce ⇒ deferred). SHA in the dev-e9d9 session log.
+     ★UPDATE (dev-e9d9 follow-up, same branch): the index.ts gate-acquire wiring above is now SHIPPED — caps
+     enforce end-to-end once set. TWO MORE env vars for the README (both default-OFF/0 → byte-for-byte today):
+       • SUPERVISOR_DISPATCH_EST_COST_USD (default 0) — the conservative per-dispatch USD estimate the
+         admission check uses (the cap is a safety ceiling; 0 = admit-then-charge-real).
+       • SUPERVISOR_DEEPSEEK_KEY_BRIDGE (default OFF) — ★CONTAINMENT-FLAGGED: ON makes a coding-role DeepSeek
+         dispatch with no /setkey key fall back to the deepseek-codegen MCP's key, which lives ONLY in user-scope
+         ~/.claude.json (mcpServers.deepseek-codegen.env.DEEPSEEK_API_KEY) — the file the supervisor otherwise
+         avoids (hijack containment). The bridge does a NARROW single-key read (deepseek-key-bridge.ts, only that
+         one key) and is OFF by default; enable ONLY after the USER confirms the user-scope read is acceptable. -->
+<!-- ★ NEEDS-USER-DECISION (dev-e9d9, 2026-06-21): the DeepSeek key bridge (SUPERVISOR_DEEPSEEK_KEY_BRIDGE) is
+     SHIPPED but DEFAULT-OFF pending the USER's OWN sign-off on the user-scope ~/.claude.json single-key read
+     (the deepseek-codegen MCP stores its key ONLY there; no project-local file exists). A coordinator-relayed
+     "user-approved" carries NO user authority — get the USER's own confirmation before SUPERVISOR_DEEPSEEK_KEY_BRIDGE=on.
+     Containment: a NARROW single-key read is far smaller than the broad enabledPlugins/mcpServers plugin-load that
+     caused the token hijack, but it IS a boundary crossing of the deliberate 'no user-scope' posture. -->
 <!-- DOC DEFERRAL (dev-6ca1, 2026-06-20): TWO voice-channel features shipped on feature/supervisor-control-plane
      (commit in the session log) — fold into the activation/merge docs:
      (1) ORCHESTRATOR MODE-AWARENESS: the supervisor now tells the hosted orchestrator the output mode
