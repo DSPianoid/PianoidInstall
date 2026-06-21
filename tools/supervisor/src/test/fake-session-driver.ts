@@ -49,6 +49,8 @@ export class FakeSessionDriver implements SessionDriver {
   private silenceWaiter: (() => void) | null = null;
   /** True once interrupt() was called (a `silence` step then ends the stream = crash). */
   private interrupted = false;
+  /** How many times interrupt() was called (A4: assert lifecycle.interruptTurn() → driver.interrupt()). */
+  private interruptCalls = 0;
   /** Records the start opts of every start() (to assert resume was passed). */
   readonly startOpts: SessionStartOptions[] = [];
   /** Records user turns injected via send(). */
@@ -149,6 +151,7 @@ export class FakeSessionDriver implements SessionDriver {
   async interrupt(): Promise<void> {
     // Release a `silence` (wedged) step and mark interrupted → the generator ends
     // with no result → crash → lifecycle restarts+resumes (the 'restart' stall path).
+    this.interruptCalls += 1; // A4: count for the interrupt-propagation assertion
     this.interrupted = true;
     if (this.silenceWaiter) {
       const w = this.silenceWaiter;
@@ -180,5 +183,10 @@ export class FakeSessionDriver implements SessionDriver {
   /** Test helper: how many times start() was called (initial + resumes). */
   get starts(): number {
     return this.startCount;
+  }
+
+  /** Test helper: how many times interrupt() was called (A4 propagation assertion). */
+  get interrupts(): number {
+    return this.interruptCalls;
   }
 }

@@ -54,13 +54,19 @@ export const CLAUDE_SEAL_SETTING_SOURCES: ('user' | 'project' | 'local')[] = ['p
  * must NEVER be reachable from a sealed agent (the supervisor owns the channel; agents
  * are channel-mute and reach the user only via the orchestrator relay). Merged into
  * whatever deny-list the caller supplies, so the channel seal can't be forgotten.
- * (Same names the orchestrator profile denies — telegram plugin + both whatsapp.)
+ *
+ * ★ TELEGRAM-ONLY (2026-06-20): only the telegram plugin is universally hard-denied — it is
+ * the channel the supervisor itself owns (the getUpdates token the prod plugin would seize;
+ * reference_hosted_claude_plugin_token_hijack). WhatsApp is NO LONGER in this universal deny:
+ * the user sanctioned WhatsApp for the hosted orchestrator ("reading allowed, sending
+ * approval-gated"), so a blanket whatsapp deny would block its READ tools. WhatsApp's
+ * read/send split is governed by the orchestrator POLICY (profiles.ts: read allow-listed,
+ * send routed via the safety floor), not by this seal. (Matches the orchestrator profile's
+ * deny-list, which also dropped whatsapp.)
  */
 export const UNIVERSAL_CHANNEL_DENY: readonly string[] = [
   'mcp__plugin_telegram_telegram__*',
   'mcp__telegram__*',
-  'mcp__whatsapp__*',
-  'mcp__whatsapp-work__*',
 ];
 
 /** Thrown when the seal is asked to handle a backend kind it does not implement (P1 = claude-cli only). */

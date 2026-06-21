@@ -73,7 +73,10 @@ test('inbound text → injected as a session user turn', async () => {
   await host.start();
   await host.handleInbound(inbound('hello session'));
   assert.equal(driver.sentTurns.length, 1);
-  assert.equal(driver.sentTurns[0]!.text, 'hello session');
+  // ★ MODE-AWARENESS (dev-6ca1): the FIRST turn carries the user message FIRST, then a
+  // one-shot current-output-mode notice appended (so a restarted orchestrator knows the mode).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('hello session'), 'the user message leads the first turn');
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: text/);
   await host.stop();
   bus.close();
 });
@@ -498,7 +501,10 @@ test('roleTurnPrefix is applied to the FIRST user turn, not a pre-user bootstrap
   await host.handleInbound(inbound('please do task X'));
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(driver.sentTurns.length, 1);
-  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X$/);
+  // role prefix THEN the user message lead the first turn (the ★ MODE-AWARENESS one-shot
+  // mode notice is appended after, dev-6ca1 — assert the lead + the notice, not a $ anchor).
+  assert.match(driver.sentTurns[0]!.text, /^\/orchestrator\n\nplease do task X/);
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: text/);
 
   // A SECOND user turn does NOT get the prefix again (one-shot).
   await host.handleInbound(inbound('and task Y'));
@@ -827,6 +833,119 @@ test('★★ FIX A: the liveness ping turn + its pong are INTERNAL — NEITHER r
   bus.close();
 });
 
+// ── ★ D4 FALSE-POSITIVE FIX: a real, in-progress turn must NEVER trigger tier-b ──
+// (regression guard for the always-on liveness path that false-restarted the hosted
+//  orchestrator 4× on 2026-06-20 — a legitimately long / just-started real turn was
+//  misread as "unresponsive". The deadline default is now 180s + the in-flight race is closed.)
+
+test('★ D4 FALSE-POSITIVE: a real turn running PAST the deadline is NOT restarted (the long-Opus-turn case)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let unresponsive = false;
+  // turn 1 completes → idle; arm a ping; then a SECOND real turn starts and STAYS in flight
+  // (a long >deadline turn). The ping deadline elapses while that real turn is running → must NOT tier-b.
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1 (binds operator)
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'ok' } }, // → idle
+      { do: 'awaitTurn' }, // the ping turn (injected by pingLiveness)
+      { do: 'awaitTurn' }, // turn 2 — a long real turn; STAYS in flight (no result here)
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    pingResponseTimeoutMs: 40, // short, for the test (stands in for 60–180s on the live host)
+    onUnresponsive: () => { unresponsive = true; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 20)); // turn 1 completes → idle
+  await host.pingLiveness(); // arms the 40ms deadline + injects the ping turn (idle)
+  // BEFORE the deadline elapses, a real long turn begins (the "just-started / legitimately long" case):
+  await host.handleInbound(inbound('do a long /dev build'));
+  await new Promise((r) => setTimeout(r, 90)); // well past the 40ms ping deadline; turn 2 still running
+  assert.equal(unresponsive, false, '★ a real in-progress turn is NEVER false-restarted by the ping deadline');
+  await host.stop();
+  bus.close();
+});
+
+test('★ D4 FALSE-POSITIVE: a real turn STARTING clears the armed ping deadline (onRealTurnStarted)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let unresponsive = false;
+  // idle → arm a ping → a real turn arrives. The armed deadline is gone (cleared at the inbound→inject
+  // seam by onRealTurnStarted), so no tier-b fires even though the ping itself is never answered.
+  // Sequence the results so the FIFO internal-turn queue stays aligned: the PING result (internal,
+  // not forwarded) is emitted first, THEN turn 2's result (real, forwarded) — proving the orchestrator
+  // kept working (was not restarted).
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'ok' } }, // → idle
+      { do: 'awaitTurn' }, // the ping turn (internal) — injected by pingLiveness
+      { do: 'awaitTurn' }, // turn 2 (the real turn that clears the deadline)
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'pong' } }, // ping pong (internal, FIFO head)
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'turn2 done' } }, // turn 2 (forwarded)
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    pingResponseTimeoutMs: 50,
+    onUnresponsive: () => { unresponsive = true; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 20)); // idle
+  await host.pingLiveness(); // arms the 50ms deadline
+  await host.handleInbound(inbound('real work')); // → onRealTurnStarted clears the armed deadline
+  await new Promise((r) => setTimeout(r, 90)); // past the 50ms deadline
+  assert.equal(unresponsive, false, 'the armed deadline was cleared when the real turn started → no false restart');
+  assert.ok(cap.sent.some((s) => s.text === 'turn2 done'), 'the real turn ran to completion (orchestrator not restarted)');
+  assert.ok(!cap.sent.some((s) => s.text === 'pong'), 'the internal ping pong was NOT forwarded');
+  await host.stop();
+  bus.close();
+});
+
+test('★ D4 FALSE-POSITIVE: a real turn arriving AFTER a ping is armed but BEFORE its deadline → no tier-b (the 4×-on-2026-06-20 race)', async () => {
+  const bus = new IoBus();
+  const cap = makeSendCapture();
+  let unresponsive = false;
+  // This is the exact shape of the production false-positive: the orchestrator was briefly idle, a ping
+  // armed its deadline, then a real (long) turn started and was still running when the deadline elapsed.
+  // The fix closes it two ways — onRealTurnStarted clears the armed deadline at the inject seam, AND the
+  // timeout callback re-validates against lastRealTurnStartedAt >= pingScheduledAt — so either way the
+  // in-progress real turn is never restarted. The ping itself is left unanswered to prove the deadline
+  // path is the one under test.
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' }, // turn 1
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: 'ok' } }, // → idle
+      { do: 'awaitTurn' }, // the ping turn (unanswered)
+      { do: 'awaitTurn' }, // turn 2 — a real turn, in flight when the deadline fires
+    ],
+  ]);
+  const host = new SessionHost({
+    driver, bus, logger: silentLogger(), send: cap.send,
+    policy: { allow: ['Read'] },
+    pingResponseTimeoutMs: 30,
+    onUnresponsive: () => { unresponsive = true; },
+  });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  await new Promise((r) => setTimeout(r, 15)); // idle
+  await host.pingLiveness(); // stamps pingScheduledAt + arms the 30ms deadline
+  await host.handleInbound(inbound('a real turn after the ping')); // starts after the ping was scheduled
+  await new Promise((r) => setTimeout(r, 80)); // past the 30ms deadline; ping never answered
+  assert.equal(unresponsive, false, '★ a real turn that started after the ping was scheduled → NEVER a tier-b restart');
+  await host.stop();
+  bus.close();
+});
+
 // ── FIX B: hosted-agent lifecycle restart control (request → user-confirm → execute) ──
 function collectEvents(bus: IoBus): BusEvent[] {
   const events: BusEvent[] = [];
@@ -1098,7 +1217,10 @@ test('FIX2: roleTurnPrefix undefined (auto-start OFF) → the first turn is the 
   });
   await host.start();
   await host.handleInbound(inbound('hello'));
-  assert.equal(driver.sentTurns[0]!.text, 'hello', 'no role prefix when auto-start is OFF');
+  // No role prefix when auto-start is OFF → the user text LEADS (the ★ MODE-AWARENESS one-shot
+  // mode notice is appended after it, dev-6ca1; assert no prefix precedes the message).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('hello'), 'no role prefix when auto-start is OFF');
+  assert.ok(!driver.sentTurns[0]!.text.startsWith('/orchestrator'), 'no role prefix prepended');
   await host.stop();
   bus.close();
 });

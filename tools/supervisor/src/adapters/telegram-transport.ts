@@ -78,10 +78,17 @@ export interface RawSendOptions {
   /** 'markdown' enables MarkdownV2 on text channels. */
   format?: 'text' | 'markdown';
   /**
-   * Inline-keyboard buttons to attach (a single row). The transport builds the
-   * channel-native keyboard (Telegram `reply_markup`). Honored by `sendText` only.
+   * Inline-keyboard buttons to attach. The transport builds the channel-native
+   * keyboard (Telegram `reply_markup`). Honored by `sendText` only. Laid out per
+   * {@link buttonsPerRow} (default: a single row).
    */
   inlineButtons?: RawInlineButton[];
+  /**
+   * Buttons per keyboard row. Omitted / ≤ 0 → all {@link inlineButtons} in ONE row
+   * (the prior behavior). N > 0 → the transport wraps the flat list into rows of at
+   * most N (the readable-grid layout for long menus like `/control`).
+   */
+  buttonsPerRow?: number;
 }
 
 /** The kind of a file send, so the transport picks photo/voice/document. */

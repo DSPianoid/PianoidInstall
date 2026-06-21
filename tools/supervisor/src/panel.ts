@@ -6,8 +6,8 @@
  *   GET  /api/health  → supervisor + adapter health JSON
  *   GET  /api/capture → the recent captured event stream (JSON)
  *   GET  /api/session → hosted-session view: pending approvals, cost, stall,
- *                       verification-evidence, session id (Phase 3a; if a session
- *                       is hosted)
+ *                       verification-evidence, session id, outputMode (Phase 3a;
+ *                       if a session is hosted)
  *   POST /api/approve → CLICK-approve/deny a pending permission (Phase 3a)
  *   POST /api/clear   → self-context-clean the hosted session (Phase 3a)
  *
@@ -95,6 +95,8 @@ export class Panel {
         this.handleApprove(req, res);
       } else if (method === 'POST' && url.startsWith('/api/clear')) {
         this.handleClear(res);
+      } else if (method === 'POST' && url.startsWith('/api/interrupt')) {
+        void this.handleInterrupt(res);
       } else if (method === 'GET' && url.startsWith('/api/channel/state')) {
         // D2: channel state for the orchestrator's self-check.
         this.json(res, this.supervisor.channelState());
@@ -152,6 +154,10 @@ export class Panel {
       totalCostUsd: Number(totalCostUsd.toFixed(6)),
       lastResult,
       lastStall,
+      // ★ MODE-AWARENESS: the current output modality (text/voice/dual) so the orchestrator
+      // (or an operator) can QUERY/recover the mode via the loopback (e.g. after a restart, or
+      // if it missed the on-change/first-turn notice). null when no session is hosted.
+      outputMode: this.sessionHost?.outputModeState() ?? null,
       // Controller (M6) signals derived from the bus (additive).
       controllerSignals: this.controllerBridge?.signals().slice(-20) ?? [],
     };
@@ -232,6 +238,29 @@ export class Panel {
     void this.sessionHost.clearContext();
     this.logger.info('operator panel: context clear requested', {});
     this.json(res, { ok: true, action: 'clear' });
+  }
+
+  /**
+   * POST /api/interrupt → stop the hosted session's CURRENT turn WITHOUT killing it (the
+   * operator ESC; the panel parallel of the `/control` `interrupt` action). Mirrors /api/clear:
+   * a child-independent operator action relayed to the session host. Non-destructive — the
+   * process + context stay alive (no restart, no sessionId drop).
+   */
+  private async handleInterrupt(res: import('node:http').ServerResponse): Promise<void> {
+    if (!this.sessionHost) {
+      res.writeHead(409, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'no hosted session' }));
+      return;
+    }
+    try {
+      await this.sessionHost.interruptCurrentTurn();
+      this.logger.info('operator panel: interrupt requested', {});
+      this.json(res, { ok: true, action: 'interrupt' });
+    } catch (err) {
+      this.logger.warn('operator panel: interrupt failed', { err: String(err) });
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, action: 'interrupt', error: String(err) }));
+    }
   }
 
   /** Read + parse a small JSON request body (bounded; loopback only). */

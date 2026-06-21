@@ -38,7 +38,9 @@
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
-import { statSync, readFileSync } from 'node:fs';
+import { statSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
   PermissionHandler,
@@ -49,6 +51,7 @@ import type {
   ToolUse,
   UserTurn,
 } from '../session-driver.js';
+import { isSupervisorRelaunchCommand } from '../profiles.js';
 
 /**
  * The minimal structural view of a spawned child we use. Matches the relevant
@@ -84,6 +87,78 @@ export interface CliStreamDriverOptions {
   command?: string;
   /** Optional sink for stderr lines (diagnostics; never carries a token). */
   onStderr?: (line: string) => void;
+  /**
+   * ★ RELAUNCH GUARD (2026-06-20) — the MODE-INDEPENDENT host-restart block.
+   *
+   * Fired the instant the driver observes (on stdout) an assistant tool_use that would
+   * EXECUTE a supervisor relaunch (restart-supervisor.ps1 / a launcher / a `--session`
+   * host launch) — from the orchestrator OR ANY sub-agent. The driver has ALREADY killed
+   * the child tree before invoking this (the relaunch is prevented, not merely reported).
+   * The supervisor uses this to surface a "blocked a host-restart attempt" note to the
+   * operator. Best-effort; the driver never awaits it on the hot path.
+   *
+   * Why this exists (the bug it closes): the safety floor (PermissionRouter.routeWhen →
+   * isSupervisorRelaunchCommand) only runs when a tool raises a `can_use_tool`
+   * control_request. A `bypassPermissions` and/or background/Task sub-agent SUPPRESSES
+   * that request entirely (measured), and an allow-listed Bash/PowerShell never raises one
+   * either — so a relaunch from such a tool would run UN-GATED and silently tear down the
+   * live host. This guard sits in the driver's stdout loop (the ONE chokepoint that sees
+   * every tool_use regardless of permission mode / allow-list / background) → it cannot be
+   * defeated by bypass.
+   */
+  onRelaunchBlocked?: (info: RelaunchBlockInfo) => void;
+}
+
+/** Detail of a blocked supervisor-relaunch attempt (passed to {@link CliStreamDriverOptions.onRelaunchBlocked}). */
+export interface RelaunchBlockInfo {
+  /** The tool that carried the relaunch (`Bash` / `PowerShell` / `Agent` / `Task`). */
+  toolName: string;
+  /** The offending command (a shell command string, or a sub-agent prompt for Agent/Task). */
+  command: string;
+  /** True when the relaunch came from a SUB-AGENT (the bypass hole), false for the orchestrator's own. */
+  fromSubAgent: boolean;
+}
+
+/**
+ * Scan ONE parsed stream-json message for an assistant tool_use that would EXECUTE a
+ * supervisor relaunch — checked MODE-INDEPENDENTLY (before any permission/allow-list/
+ * sub-agent handling). Returns the block detail on the first match, else null. Pure +
+ * exported for the test.
+ *
+ * Two carriers are inspected:
+ *  - a shell tool (`Bash`/`PowerShell`) whose `command`/`cmd` is a relaunch (the direct case,
+ *    incl. a bypass sub-agent's shell call that raises no control_request);
+ *  - an `Agent`/`Task` spawn whose `prompt` literally contains a relaunch (the orchestrator
+ *    dispatching a sub-agent whose explicit job is to run the relaunch — caught at the spawn,
+ *    a belt-and-suspenders layer on top of the sub-agent's own shell call being caught above).
+ *
+ * `fromSubAgent` is derived from the SAME markers the flood-fix uses: a non-null
+ * `parent_tool_use_id` (foreground sidechain) or a `subagent_type` (background task).
+ */
+export function detectRelaunchToolUse(raw: unknown): RelaunchBlockInfo | null {
+  const m = (raw ?? {}) as Record<string, unknown>;
+  if (m['type'] !== 'assistant') return null;
+  const fromSubAgent = m['parent_tool_use_id'] != null || m['subagent_type'] != null;
+  const msg = (m['message'] ?? {}) as Record<string, unknown>;
+  const content = Array.isArray(msg['content']) ? (msg['content'] as Record<string, unknown>[]) : [];
+  for (const block of content) {
+    if (block['type'] !== 'tool_use') continue;
+    const name = String(block['name'] ?? '');
+    const input = (block['input'] as Record<string, unknown>) ?? {};
+    if (name === 'Bash' || name === 'PowerShell') {
+      const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
+      if (cmd && isSupervisorRelaunchCommand(cmd.toLowerCase())) {
+        return { toolName: name, command: cmd, fromSubAgent };
+      }
+    } else if (name === 'Agent' || name === 'Task') {
+      // The sub-agent dispatch itself — its prompt may carry the relaunch instruction.
+      const prompt = String((input['prompt'] ?? '') as string);
+      if (prompt && isSupervisorRelaunchCommand(prompt.toLowerCase())) {
+        return { toolName: name, command: prompt, fromSubAgent };
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -393,10 +468,51 @@ export function extractSystemPromptAppend(sp: SessionStartOptions['systemPrompt'
   return sp.append ?? '';
 }
 
-export function buildCliArgs(opts: SessionStartOptions): string[] {
+/**
+ * Write the curated MCP server map to a private temp file for `--mcp-config`, and return its
+ * path (or undefined when there is nothing to write). The file is created with mode 0600
+ * (owner read/write only) under os.tmpdir() — OUTSIDE the repo working tree, so it can never be
+ * committed and is not visible to other repo users. The JSON shape is the CLI's expected
+ * `{ "mcpServers": { <name>: <config> } }` (the same shape as `~/.claude.json` / `.mcp.json`).
+ *
+ * ★ SECRET HYGIENE: the map already carries RESOLVED secrets (DEEPSEEK_API_KEY, EMAIL_PASS, …
+ * inline from ~/.claude.json) — this function writes them to the 0600 file ONLY; the CONTENTS are
+ * NEVER logged or printed (the caller logs at most the path + the server NAMES). The driver unlinks
+ * the file on stop()/teardown. Pure given its inputs (the only effect is the file write); the
+ * filename uses crypto.randomBytes so concurrent sessions don't collide. Exported for the test
+ * (which asserts the 0600 mode + the `{mcpServers}` shape without reading any secret).
+ *
+ * @returns the temp file path, or undefined if `mcpServers` is absent/empty (no flag needed).
+ */
+export function writeMcpConfigFile(
+  mcpServers: Record<string, unknown> | undefined,
+  dir: string = tmpdir(),
+): string | undefined {
+  if (!mcpServers || Object.keys(mcpServers).length === 0) return undefined;
+  const path = join(dir, `supervisor-mcp-${process.pid}-${randomBytes(6).toString('hex')}.json`);
+  // mode 0o600 at create time (owner-only). On Windows the POSIX bits are advisory, but the file
+  // still lands in the per-user temp dir (not the repo), so it is not exposed to other repo users.
+  writeFileSync(path, JSON.stringify({ mcpServers }), { encoding: 'utf8', mode: 0o600 });
+  return path;
+}
+
+export function buildCliArgs(opts: SessionStartOptions, mcpConfigPath?: string): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose'];
   // Route every gated tool over the stdio control protocol → the PermissionRouter.
   args.push('--permission-prompt-tool', 'stdio');
+  // ★ MCP CONFIG (2026-06-20) — when a curated MCP map was written to a temp file, point the
+  // child at it with `--mcp-config <file>`. WHY THIS IS NEEDED: the hosted orchestrator runs
+  // with settingSources ['project','local'] (NEVER 'user' — the token-hijack containment), and
+  // the user's `~/.claude.json` mcpServers are USER-scope config → they do NOT auto-load under
+  // project/local. So without this flag the child sees ZERO MCP servers. We pass an explicit,
+  // curated map (telegram excluded; whatsapp/email/deepseek kept; secrets resolved in-memory by
+  // mcp-config.ts) via the file. ★ DELIBERATELY NO `--strict-mcp-config`: that would make the
+  // child use ONLY these servers and DROP the claude.ai connector servers (Drive/Gmail/Calendar)
+  // the orchestrator also relies on. Omitting it ADDS our curated map alongside them (measured:
+  // `--strict-mcp-config` = "Only use MCP servers from --mcp-config, ignoring all other MCP
+  // configurations"). The file path is the ONLY thing on the command line — the resolved secrets
+  // live in the file (0600, os.tmpdir, unlinked on stop), never in argv and never logged.
+  if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath);
   if (opts.resume) args.push('--resume', opts.resume);
   if (opts.model) args.push('--model', opts.model);
   if (opts.cwd) {
@@ -432,9 +548,14 @@ export class CliStreamDriver implements SessionDriver {
   private readonly spawnFnOverride?: CliSpawnFn;
   private readonly command: string;
   private readonly onStderr?: (line: string) => void;
+  private readonly onRelaunchBlocked?: (info: RelaunchBlockInfo) => void;
   private child: CliChildProcess | null = null;
   private running = false;
   private sessionId: string | undefined;
+  /** The private 0600 temp file holding the curated --mcp-config map; unlinked on stop()/teardown. */
+  private mcpConfigFile: string | undefined;
+  /** True once we've intercepted a relaunch + killed the child (suppresses further events). */
+  private relaunchBlocked = false;
   /** The permission handler (PermissionRouter), set in start() — services can_use_tool. */
   private onPermission?: PermissionHandler;
 
@@ -442,20 +563,30 @@ export class CliStreamDriver implements SessionDriver {
     this.spawnFnOverride = opts.spawnFn;
     this.command = opts.command ?? 'claude';
     this.onStderr = opts.onStderr;
+    this.onRelaunchBlocked = opts.onRelaunchBlocked;
   }
 
   start(opts: SessionStartOptions): AsyncIterable<SessionEvent> {
     const self = this;
     this.running = true;
+    this.relaunchBlocked = false; // fresh session (a restart re-starts this driver)
     // The permission handler (the supervisor's PermissionRouter) — invoked for each
     // `can_use_tool` control_request the CLI raises over stdio (R4).
     this.onPermission = opts.onPermission;
+
+    // ★ MCP CONFIG (2026-06-20): if the supervisor passed a curated MCP map, materialize it to a
+    // private 0600 temp file (outside the repo) and point the child at it via --mcp-config. The
+    // file write happens HERE (not in the pure buildCliArgs) so buildCliArgs stays pure/unit-tested;
+    // the contents (resolved secrets) are never logged. A stale file from a prior start (e.g. a
+    // crash-restart that re-enters start()) is cleaned up first.
+    this.cleanupMcpConfigFile();
+    this.mcpConfigFile = writeMcpConfigFile(opts.mcpServers);
 
     // Spawn the child SYNCHRONOUSLY in start() (not inside the generator) so the
     // contract matches the SDK driver: send() works as soon as start() returns,
     // before the caller begins draining events. (`node:child_process` is a builtin,
     // so no async import is needed.)
-    const cliArgs = buildCliArgs(opts);
+    const cliArgs = buildCliArgs(opts, this.mcpConfigFile);
     // Env: spread the caller's env (or process.env) UNCHANGED — no api-key injected.
     const env = opts.env ? ({ ...process.env, ...opts.env } as NodeJS.ProcessEnv) : process.env;
     const child = this.spawnFnOverride
@@ -484,6 +615,21 @@ export class CliStreamDriver implements SessionDriver {
             parsed = JSON.parse(line);
           } catch {
             continue; // a non-JSON line (rare CLI chatter) → skip
+          }
+          // ★ RELAUNCH GUARD (2026-06-20) — MODE-INDEPENDENT host-restart block. Checked
+          // FIRST, before the control-protocol + the sub-agent drop in mapCliMessage, so it
+          // fires for EVERY tool_use the model emits regardless of permission mode / allow-list
+          // / background. A relaunch (restart-supervisor.ps1 / a launcher / a `--session` host
+          // launch) from a bypassPermissions or background sub-agent raises NO can_use_tool
+          // control_request (measured), so the PermissionRouter floor never sees it — but the
+          // tool_use line ALWAYS rides this stdout stream, and (measured) it is emitted BEFORE
+          // the CLI executes the tool, so killing the child tree HERE prevents the relaunch from
+          // tearing down the live host. We stop draining + end the stream after blocking.
+          const blocked = detectRelaunchToolUse(parsed);
+          if (blocked && !self.relaunchBlocked) {
+            self.relaunchBlocked = true;
+            self.blockRelaunch(blocked);
+            return; // stop yielding — the child is being torn down; the turn is void
           }
           // CONTROL PROTOCOL: a `control_request` is NOT a content message — handle it
           // out-of-band (permission round-trip) and do not yield it as a SessionEvent.
@@ -545,6 +691,54 @@ export class CliStreamDriver implements SessionDriver {
     }
   }
 
+  /**
+   * ★ Block an intercepted supervisor-relaunch: KILL the child tree (preventing the relaunch
+   * from executing — the tool_use line precedes execution, measured) and notify the supervisor.
+   * Best-effort, never throws. After this the generator returns (stream ends); the lifecycle
+   * manager observes the child exit. This is the HARD-DENY the task blesses for the bypass case;
+   * it also covers an orchestrator-OWN raw shell relaunch (the legitimate host-restart path is
+   * the lifecycle API — POST /api/lifecycle/restart-request / ctl:restart — NOT a raw shell call).
+   */
+  private blockRelaunch(info: RelaunchBlockInfo): void {
+    this.running = false;
+    const child = this.child;
+    this.child = null;
+    // The child we fed is being torn down → drop its private --mcp-config temp file too.
+    this.cleanupMcpConfigFile();
+    // Notify FIRST (so the operator-facing note is queued even if the kill races the exit).
+    try {
+      this.onRelaunchBlocked?.(info);
+    } catch {
+      /* a notify failure must not stop the kill */
+    }
+    if (child) {
+      try {
+        child.stdin.end();
+      } catch {
+        /* ignore */
+      }
+      // Fire-and-forget the tree kill (terminateChildTree awaits the exit; we don't block the
+      // generator's return on it — the child is doomed either way).
+      void terminateChildTree(child).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Unlink the private --mcp-config temp file (best-effort; idempotent). Called on stop(), on a
+   * relaunch-block teardown, and at the start of a fresh start() so the resolved-secret file never
+   * lingers on disk after the child it fed has exited.
+   */
+  private cleanupMcpConfigFile(): void {
+    const f = this.mcpConfigFile;
+    if (!f) return;
+    this.mcpConfigFile = undefined;
+    try {
+      unlinkSync(f);
+    } catch {
+      /* already gone / unreadable — best-effort */
+    }
+  }
+
   /** Write a control_response frame to the child's stdin (NDJSON). */
   private writeControlResponse(response: Record<string, unknown>): void {
     if (!this.child) return;
@@ -570,6 +764,8 @@ export class CliStreamDriver implements SessionDriver {
     this.running = false;
     const child = this.child;
     this.child = null;
+    // Remove the private --mcp-config temp file (resolved secrets) now the child is going down.
+    this.cleanupMcpConfigFile();
     if (!child) return;
     try {
       child.stdin.end();

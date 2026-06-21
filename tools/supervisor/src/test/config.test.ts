@@ -2,7 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_ROLE_TURN_PREFIX, loadConfig, resolveRoleTurnPrefix } from '../config.js';
+import {
+  DEFAULT_ROLE_TURN_PREFIX,
+  DEFAULT_PING_RESPONSE_TIMEOUT_MS,
+  DEFAULT_PING_INTERVAL_MS,
+  loadConfig,
+  resolveRoleTurnPrefix,
+  resolveRecoveryLadder,
+  resolveAutoSnapshot,
+  resolveAutoSnapshotIntervalMs,
+  resolveRestartDrainMs,
+  resolveStatusProbeMs,
+  resolvePingResponseTimeoutMs,
+  resolvePingIntervalMs,
+} from '../config.js';
+import { DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS } from '../control-command.js';
 import { tmpDir } from './helpers.js';
 
 function mkChannel(dir: string): string {
@@ -108,6 +122,117 @@ test('loadConfig.roleTurnPrefix defaults ON to /orchestrator; env disables it', 
   } finally {
     if (prev === undefined) delete process.env.SUPERVISOR_ROLE_TURN_PREFIX;
     else process.env.SUPERVISOR_ROLE_TURN_PREFIX = prev;
+    cleanup();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ REDESIGN (dev-3e66) — control-panel automatic-behavior resolvers (all default OFF/0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('REDESIGN resolveRecoveryLadder / resolveAutoSnapshot: default OFF; on for 1/true/on', () => {
+  for (const off of [undefined, '', '0', 'false', 'no', 'off']) {
+    assert.equal(resolveRecoveryLadder(off), false, `recoveryLadder OFF for ${JSON.stringify(off)}`);
+    assert.equal(resolveAutoSnapshot(off), false, `autoSnapshot OFF for ${JSON.stringify(off)}`);
+  }
+  for (const on of ['1', 'true', 'on', 'TRUE', ' On ']) {
+    assert.equal(resolveRecoveryLadder(on), true, `recoveryLadder ON for ${JSON.stringify(on)}`);
+    assert.equal(resolveAutoSnapshot(on), true, `autoSnapshot ON for ${JSON.stringify(on)}`);
+  }
+});
+
+test('REDESIGN resolveAutoSnapshotIntervalMs: default 120s; positive int verbatim; junk → default', () => {
+  assert.equal(resolveAutoSnapshotIntervalMs(undefined), DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS);
+  assert.equal(resolveAutoSnapshotIntervalMs(''), DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS);
+  assert.equal(resolveAutoSnapshotIntervalMs('0'), DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS, '0 → default (not 0)');
+  assert.equal(resolveAutoSnapshotIntervalMs('-5'), DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS);
+  assert.equal(resolveAutoSnapshotIntervalMs('abc'), DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS);
+  assert.equal(resolveAutoSnapshotIntervalMs('30000'), 30000);
+});
+
+test('REDESIGN resolveRestartDrainMs / resolveStatusProbeMs: default 0 (disabled); positive int verbatim', () => {
+  for (const fn of [resolveRestartDrainMs, resolveStatusProbeMs]) {
+    assert.equal(fn(undefined), 0, 'default 0 = disabled');
+    assert.equal(fn(''), 0);
+    assert.equal(fn('0'), 0);
+    assert.equal(fn('-1'), 0);
+    assert.equal(fn('abc'), 0);
+    assert.equal(fn('5000'), 5000, 'positive int used verbatim');
+  }
+});
+
+test('REDESIGN loadConfig: the 4 automatic behaviors default OFF/0 (byte-for-byte today)', () => {
+  const { dir, cleanup } = tmpDir('cfg-redesign');
+  const saved: Record<string, string | undefined> = {};
+  for (const k of [
+    'SUPERVISOR_RECOVERY_LADDER',
+    'SUPERVISOR_AUTO_SNAPSHOT',
+    'SUPERVISOR_AUTO_SNAPSHOT_INTERVAL_MS',
+    'SUPERVISOR_RESTART_DRAIN_MS',
+    'SUPERVISOR_STATUS_PROBE_MS',
+  ]) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    const c = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(c.recoveryLadder, false, 'recoveryLadder default OFF');
+    assert.equal(c.autoSnapshot, false, 'autoSnapshot default OFF');
+    assert.equal(c.autoSnapshotIntervalMs, DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS);
+    assert.equal(c.restartDrainMs, 0, 'restartDrainMs default 0 = no escalation wait');
+    assert.equal(c.statusProbeMs, 0, 'statusProbeMs default 0 = no live probe');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    cleanup();
+  }
+});
+
+// ── ★ D4 — the ALWAYS-ON liveness-ping deadline + cadence (false-positive-restart fix) ──
+test('D4 resolvePingResponseTimeoutMs: default 180s; positive int verbatim; junk → default', () => {
+  assert.equal(resolvePingResponseTimeoutMs(undefined), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(DEFAULT_PING_RESPONSE_TIMEOUT_MS, 180_000, 'default raised to 180s (was a hardcoded 60s)');
+  assert.equal(resolvePingResponseTimeoutMs(''), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(resolvePingResponseTimeoutMs('0'), DEFAULT_PING_RESPONSE_TIMEOUT_MS, '0 → default (not 0)');
+  assert.equal(resolvePingResponseTimeoutMs('-5'), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(resolvePingResponseTimeoutMs('abc'), DEFAULT_PING_RESPONSE_TIMEOUT_MS);
+  assert.equal(resolvePingResponseTimeoutMs('240000'), 240000, 'positive int used verbatim');
+  assert.equal(resolvePingResponseTimeoutMs('90000.7'), 90000, 'floored');
+});
+
+test('D4 resolvePingIntervalMs: default 120s; positive int verbatim; junk → default', () => {
+  assert.equal(resolvePingIntervalMs(undefined), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(DEFAULT_PING_INTERVAL_MS, 120_000, 'cadence default unchanged at 120s');
+  assert.equal(resolvePingIntervalMs(''), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('0'), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('-1'), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('abc'), DEFAULT_PING_INTERVAL_MS);
+  assert.equal(resolvePingIntervalMs('60000'), 60000, 'positive int used verbatim');
+});
+
+test('D4 loadConfig: pingResponseTimeoutMs defaults 180s + pingIntervalMs 120s; env overrides', () => {
+  const { dir, cleanup } = tmpDir('cfg-ping');
+  const saved: Record<string, string | undefined> = {};
+  for (const k of ['SUPERVISOR_PING_RESPONSE_TIMEOUT_MS', 'SUPERVISOR_PING_INTERVAL_MS']) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    const dflt = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(dflt.pingResponseTimeoutMs, DEFAULT_PING_RESPONSE_TIMEOUT_MS, 'deadline default 180s');
+    assert.equal(dflt.pingIntervalMs, DEFAULT_PING_INTERVAL_MS, 'cadence default 120s');
+    process.env.SUPERVISOR_PING_RESPONSE_TIMEOUT_MS = '300000';
+    process.env.SUPERVISOR_PING_INTERVAL_MS = '90000';
+    const over = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(over.pingResponseTimeoutMs, 300000, 'env override for the deadline');
+    assert.equal(over.pingIntervalMs, 90000, 'env override for the cadence');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     cleanup();
   }
 });

@@ -23,10 +23,14 @@ import {
   iterateNdjsonLines,
   resolveCommandPath,
   terminateChildTree,
+  writeMcpConfigFile,
   type CliChildProcess,
   type CliSpawnFn,
 } from '../adapters/cli-stream-driver.js';
 import type { PermissionDecision, SessionEvent, SessionStartOptions } from '../session-driver.js';
+import { existsSync, readFileSync, statSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const noPerm = async (): Promise<PermissionDecision> => ({ behavior: 'allow' });
 const baseOpts = (over: Partial<SessionStartOptions> = {}): SessionStartOptions => ({
@@ -115,6 +119,87 @@ test('buildCliArgs uses stream-json in+out and NEVER --api-key (cost safety)', (
   // ★ THE COST-SAFETY INVARIANT: no api-key flag, ever
   assert.ok(!args.includes('--api-key'), 'must never pass --api-key');
   assert.ok(!args.some((a) => /api[-_]?key/i.test(a)), 'no api-key flag in any form');
+});
+
+// ── MCP CONFIG (2026-06-20): --mcp-config wiring + the private 0600 temp file ──
+test('★ (criterion a) buildCliArgs emits --mcp-config <path> when a path is given, and NEVER --strict-mcp-config', () => {
+  const args = buildCliArgs(baseOpts(), '/tmp/supervisor-mcp-1.json');
+  const i = args.indexOf('--mcp-config');
+  assert.ok(i >= 0, '--mcp-config flag present');
+  assert.equal(args[i + 1], '/tmp/supervisor-mcp-1.json', 'the temp file path is passed');
+  // ★ the connector-preservation invariant: --strict-mcp-config would DROP the claude.ai
+  // Drive/Gmail/Calendar connector servers → must NEVER be emitted.
+  assert.ok(!args.includes('--strict-mcp-config'), 'must NOT pass --strict-mcp-config (keeps the connector servers)');
+});
+
+test('★ buildCliArgs emits NO --mcp-config when no path is given (stays pure / no empty flag)', () => {
+  const args = buildCliArgs(baseOpts());
+  assert.ok(!args.includes('--mcp-config'), 'no --mcp-config without a config file');
+  assert.ok(!args.includes('--strict-mcp-config'), 'never --strict-mcp-config');
+});
+
+test('★ (criterion f) writeMcpConfigFile writes {mcpServers} as a 0600 file under the temp dir; undefined for empty', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcpcfg-test-'));
+  try {
+    // empty / absent → no file, undefined
+    assert.equal(writeMcpConfigFile(undefined, dir), undefined, 'undefined map → no file');
+    assert.equal(writeMcpConfigFile({}, dir), undefined, 'empty map → no file');
+
+    const map = { 'deepseek-codegen': { command: 'd', env: { DEEPSEEK_API_KEY: 'sk-SECRET' } }, whatsapp: { command: 'w' } };
+    const path = writeMcpConfigFile(map, dir);
+    assert.ok(path && existsSync(path), 'a config file was written');
+    // shape = { "mcpServers": {...} } (the CLI's expected format)
+    const parsed = JSON.parse(readFileSync(path!, 'utf8')) as { mcpServers: Record<string, unknown> };
+    assert.deepEqual(Object.keys(parsed.mcpServers).sort(), ['deepseek-codegen', 'whatsapp']);
+    // 0600 perms (owner-only) on POSIX; on Windows the mode bits are advisory so we only assert there.
+    if (process.platform !== 'win32') {
+      const mode = statSync(path!).mode & 0o777;
+      assert.equal(mode, 0o600, `file mode is 0600 (got ${mode.toString(8)})`);
+    }
+    // the file lives UNDER the temp dir, never the repo
+    assert.ok(path!.startsWith(dir), 'temp file under os.tmpdir, not the repo');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('★ (criteria a+f) start() writes the 0600 --mcp-config file + passes it; stop() UNLINKS it; secrets never logged', async () => {
+  const frames = [JSON.stringify({ type: 'result', subtype: 'success', session_id: 'S1' }) + '\n'];
+  const child = new FakeCliChild(frames);
+  const { spawnFn, lastArgs } = collectSpawn(child);
+  // Capture EVERY stderr line the driver emits (the only logging sink it has) to prove no secret leaks.
+  const stderrLines: string[] = [];
+  const driver = new CliStreamDriver({ spawnFn, onStderr: (l) => stderrLines.push(l) });
+
+  const mcpServers = { 'deepseek-codegen': { command: 'd', env: { DEEPSEEK_API_KEY: 'sk-TOPSECRET-12345' } } };
+  const it = driver.start(baseOpts({ mcpServers }));
+  // The flag + path are on the spawned argv
+  const args = lastArgs();
+  const i = args.indexOf('--mcp-config');
+  assert.ok(i >= 0, '--mcp-config on the child argv');
+  const cfgPath = args[i + 1]!;
+  assert.ok(existsSync(cfgPath), 'the config file exists while the session runs');
+  assert.ok(!args.includes('--strict-mcp-config'), 'no --strict-mcp-config');
+  // the SECRET is in the FILE but NOT on the command line (argv) — argv is process-table-visible
+  assert.ok(!args.some((a) => a.includes('sk-TOPSECRET')), 'secret never appears in argv');
+  assert.ok(readFileSync(cfgPath, 'utf8').includes('sk-TOPSECRET-12345'), 'the resolved secret is in the 0600 file');
+
+  await drain(it);
+  await driver.stop();
+  // ★ unlinked on stop
+  assert.ok(!existsSync(cfgPath), 'the --mcp-config temp file is unlinked on stop()');
+  // ★ no secret ever logged (the driver's stderr sink — the only place it could leak)
+  assert.ok(!stderrLines.some((l) => l.includes('sk-TOPSECRET') || l.includes('DEEPSEEK_API_KEY')), 'no secret/key in any log line');
+});
+
+test('★ no mcpServers → start() passes NO --mcp-config and writes no temp file', async () => {
+  const frames = [JSON.stringify({ type: 'result', subtype: 'success', session_id: 'S1' }) + '\n'];
+  const child = new FakeCliChild(frames);
+  const { spawnFn, lastArgs } = collectSpawn(child);
+  const driver = new CliStreamDriver({ spawnFn });
+  await drain(driver.start(baseOpts())); // no mcpServers
+  assert.ok(!lastArgs().includes('--mcp-config'), 'no --mcp-config when the map is absent');
+  await driver.stop();
 });
 
 // ── H1: --append-system-prompt (the system prompt must reach the model on cli-stream) ──

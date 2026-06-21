@@ -34,6 +34,19 @@ export const DEFAULT_EXCLUDE_SUBSTRINGS = ['telegram'];
  * are useful) — its send tools are denied via --disallowed-tools instead.
  */
 export const OUTWARD_SEND_EXCLUDE_SUBSTRINGS = ['telegram', 'whatsapp'];
+/**
+ * HOSTED-ORCHESTRATOR exclusion (2026-06-20) — excludes ONLY telegram. The user chose
+ * to give the LIVE hosted orchestrator WhatsApp ("reading allowed, sending approval-
+ * gated"), Email, and DeepSeek-codegen. So the curated map for the hosted session keeps
+ * BOTH whatsapp servers + hostinger-email + deepseek-codegen (+ context7/chrome-devtools/
+ * google-workspace); the per-tool policy then ALLOWS whatsapp READ tools and ROUTES
+ * whatsapp/email SEND tools for user approval (profiles.ts). Telegram alone stays
+ * excluded at the source — it is the channel-hijack vector (the prod plugin would seize
+ * the getUpdates token; reference_hosted_claude_plugin_token_hijack). Distinct from
+ * OUTWARD_SEND_EXCLUDE_SUBSTRINGS (which also dropped whatsapp at the server level — too
+ * strict now that whatsapp is a sanctioned, send-gated capability for the live host).
+ */
+export const HOSTED_MCP_EXCLUDE_SUBSTRINGS = ['telegram'];
 
 /** Is this server name excluded by the given substring list (case-insensitive)? */
 export function isExcludedServer(name: string, excludeSubstrings: string[] = DEFAULT_EXCLUDE_SUBSTRINGS): boolean {

@@ -117,8 +117,73 @@ export function isDestructiveShellCommand(cmd: string): boolean {
     /\b(taskkill)\b[^|]*\/pid\b/.test(c) || // taskkill /PID <n> (system PID)
     /\bstop-process\b[^|]*-id\b/.test(c) || // Stop-Process -Id <n>
     /\b(mkfs|format|diskpart|fdisk)\b/.test(c) || // disk format
-    /\b(shutdown|reboot)\b/.test(c)
+    /\b(shutdown|reboot)\b/.test(c) ||
+    isSupervisorRelaunchCommand(c) // PARENT/dist supervisor restart — tears down the live host (this session)
   );
+}
+
+/**
+ * True if a (lower-cased) shell command is a SUPERVISOR PARENT-RESTART / relaunch — the
+ * orchestrator cycling its OWN host process. This is the most destructive op a hosted
+ * orchestrator can run: it TEARS DOWN the live supervisor that hosts this very session
+ * (and a fresh one boots), so it MUST be confirmation-gated just like the in-channel
+ * `ctl:restart` / `POST /api/lifecycle/restart-request` paths (which DO confirm).
+ *
+ * REGRESSION FIX (2026-06-20): the parent-restart capability (`restart-supervisor.ps1`,
+ * commit 1bad4d9) was added with an ADVISORY orchestrator-skill instruction ("user-gated,
+ * say go") but NO structural floor entry — so the orchestrator firing
+ * `powershell -File restart-supervisor.ps1 -Launcher prod` ran UN-gated (the existing
+ * floor patterns don't match it: the script's own `taskkill /PID` is INSIDE the script,
+ * not on the orchestrator's command line) and silently severed the live channel. Routing
+ * it restores the confirm round-trip the user expects.
+ *
+ * Matches the EXECUTION of: the canonical relaunch script (`restart-supervisor.ps1`),
+ * either supervisor launcher (`launch-prod-orch.mjs` / `launch-pty-orch.mjs`), or a direct
+ * host launch (`node … dist/index.js … --session` — booting a second hosted supervisor).
+ *
+ * It distinguishes INVOKING from merely READING/inspecting: a relaunch script runs via
+ * `powershell … -File …restart-supervisor.ps1` (or a `&`/`.` call), and a launcher/host runs
+ * via `node …` — so the predicate requires an EXECUTION marker near the token and explicitly
+ * does NOT fire for a read verb (`cat`/`type`/`more`/`less`/`head`/`tail`/`grep`/`rg`/`ls`/`dir`/
+ * `Get-Content`/`gc`). False-positives here are only mildly annoying (an extra confirm) while a
+ * false-negative would silently sever the live host — but we still avoid flagging an obvious read.
+ */
+export function isSupervisorRelaunchCommand(c: string): boolean {
+  // A leading read/inspect verb ⇒ NOT a relaunch (reading the script/launcher source, listing dirs).
+  if (/^\s*(cat|type|more|less|head|tail|grep|rg|findstr|ls|dir|get-content|gc)\b/.test(c)) return false;
+  // ★ HARDENING (2026-06-20): test BOTH the raw command AND a SEPARATOR-STRIPPED copy. A shell
+  // can mangle path separators before we ever see the string — most notably Git-Bash strips
+  // backslashes, so `node dist\index.js --session` arrives as `node distindex.js --session` and
+  // `powershell -File D:\tmp\restart-supervisor.ps1` as `…d:tmprestart-supervisor.ps1`. A pattern
+  // anchored on `dist[\\/]index.js` or a `\b` before `launch-…` would then MISS. Stripping ALL
+  // path separators (\ and /) collapses every separator variant (`dist\`, `dist/`, `dist`) to one
+  // canonical form we can match filename-anchored. We OR the two tests so a normal `dist/index.js`
+  // still matches via the raw pass, and the mangled `distindex.js` matches via the stripped pass.
+  const stripped = c.replace(/[\\/]+/g, '');
+  return matchesRelaunch(c) || matchesRelaunch(stripped);
+}
+
+/**
+ * Core relaunch matcher, run against BOTH the raw and the separator-stripped command (see
+ * {@link isSupervisorRelaunchCommand}). Filename tokens are matched WITHOUT requiring a path
+ * separator (or word boundary) immediately before them, so a separator-stripped run like
+ * `toolssupervisorlaunch-prod-orch.mjs` (no boundary before `launch-`) still matches.
+ */
+function matchesRelaunch(c: string): boolean {
+  // PowerShell relaunch script: the script name in an EXECUTION context (-file / a powershell|pwsh
+  // invocation / a `&`|`.` call operator) — NOT a bare mention. The filename is matched without a
+  // leading boundary (a preceding path run may have been collapsed onto it).
+  const relaunchScript =
+    /restart-supervisor\.ps1\b/.test(c) &&
+    (/(^|\s)(powershell|pwsh)(\.exe)?\b/.test(c) || /-file\b/.test(c) || /(^|\s)[&.]\s/.test(c));
+  // Either supervisor launcher, run via node (the relaunch entrypoint the script itself calls).
+  // No `\b` before `launch-` — a stripped path (`…supervisorlaunch-prod-orch.mjs`) has none.
+  const launcher = /\bnode\b[^|]*launch-(prod|pty)-orch\.mjs\b/.test(c);
+  // A direct host launch: node … dist[/ or \]index.js … --session (booting another hosted supervisor).
+  // The separator between `dist` and `index.js` is OPTIONAL so the backslash-stripped
+  // `distindex.js` still matches (`dist[\\/]?index\.js`).
+  const directHost = /\bnode\b[^|]*\bdist[\\/]?index\.js\b[^|]*--session\b/.test(c);
+  return relaunchScript || launcher || directHost;
 }
 
 /** The DEMO profile (Phase-2 behavior): narrow allow-list, route-most, auto-out. */
@@ -216,26 +281,58 @@ export function makeOrchestratorPolicy(
       // MCP servers — per-server prefixes. The `claude -p` CLI REJECTS a bare `mcp__*`
       // in an ALLOW rule ("must name the scope it widens"; globs allowed only AFTER a
       // literal mcp__<server>__ prefix) — so we enumerate the wired read/compute servers.
-      // The SEND tools inside them are still DENIED below (deny wins); telegram + whatsapp
-      // are excluded at the MCP-config source AND denied. (The SDK driver tolerated
-      // `mcp__*`; the CLI needs these explicit forms.)
-      'mcp__hostinger-email__*',
+      // The SEND tools inside them are still DENIED below (deny wins); telegram is excluded
+      // at the MCP-config source AND denied. (The SDK driver tolerated `mcp__*`; the CLI
+      // needs these explicit forms.)
+      'mcp__hostinger-email__*', // email READ allowed (send tools denied below); whole-server glob
       'mcp__context7__*',
       'mcp__chrome-devtools__*',
       'mcp__google-workspace__*',
       'mcp__deepseek-codegen__*',
       'mcp__supervisor_channel__*', // the in-process reply tool (SDK-driver path)
+      // ★ WHATSAPP READ-ALLOWED / SEND-GATED (2026-06-20, user-chosen). WhatsApp is no longer
+      // excluded at the server level (it's a sanctioned capability for the live host) — so we
+      // ALLOW its READ tools by NAME here (auto-allow, no prompt). The SEND tools
+      // (send_message/send_file/send_audio_message) are DELIBERATELY NOT listed — an unlisted
+      // tool falls through to fallback:'route' AND the safety floor (routeWhen=isDestructiveOp
+      // catches `mcp__whatsapp*…send…`), so sending ROUTES to the user for approval. We do NOT
+      // use a whole-server `mcp__whatsapp__*` glob (it would auto-allow sends too — and the CLI
+      // rejects a too-broad allow anyway). download_media is a READ (fetch to a local path, not a
+      // third-party send) → allowed. Both the personal + work accounts get the same read tools.
+      'mcp__whatsapp__search_contacts',
+      'mcp__whatsapp__list_messages',
+      'mcp__whatsapp__list_chats',
+      'mcp__whatsapp__get_chat',
+      'mcp__whatsapp__get_direct_chat_by_contact',
+      'mcp__whatsapp__get_contact_chats',
+      'mcp__whatsapp__get_last_interaction',
+      'mcp__whatsapp__get_message_context',
+      'mcp__whatsapp__download_media',
+      'mcp__whatsapp-work__search_contacts',
+      'mcp__whatsapp-work__list_messages',
+      'mcp__whatsapp-work__list_chats',
+      'mcp__whatsapp-work__get_chat',
+      'mcp__whatsapp-work__get_direct_chat_by_contact',
+      'mcp__whatsapp-work__get_contact_chats',
+      'mcp__whatsapp-work__get_last_interaction',
+      'mcp__whatsapp-work__get_message_context',
+      'mcp__whatsapp-work__download_media',
     ],
-    // OUTWARD-TO-THIRD-PARTY channels can never reach the session (containment): the
-    // telegram plugin + whatsapp servers are excluded at the MCP-config source AND
-    // denied here; the email SEND tools are denied (email read stays available).
-    // deny-rules win over everything in the SDK permission order; in PTY mode these
-    // names also feed the spawn's --disallowed-tools seal.
+    // OUTWARD-TO-THIRD-PARTY hard denies (containment): TELEGRAM can NEVER reach the
+    // session — it is excluded at the MCP-config source AND hard-denied here (it is the
+    // channel-hijack vector; the prod plugin would seize the getUpdates token). The email
+    // + gmail SEND tools are hard-denied (their READ stays available). deny-rules win over
+    // everything in the permission order; in PTY mode these names also feed the spawn's
+    // --disallowed-tools seal.
+    // ★ WHATSAPP IS NOT HARD-DENIED HERE (2026-06-20): the user chose "reading allowed,
+    // sending approval-gated". A blanket `mcp__whatsapp__*` deny would block the READ tools
+    // too. Instead, whatsapp READ tools are allow-listed above, and whatsapp SEND tools are
+    // left UN-listed so the safety floor (routeWhen=isDestructiveOp) ROUTES them to the user
+    // for an allow/deny — NOT a silent hard-deny and NOT an auto-allow. (Hard-denying send
+    // would make sending impossible; allow-listing send would skip the approval prompt.)
     deny: [
       'mcp__plugin_telegram_telegram__*',
       'mcp__telegram__*',
-      'mcp__whatsapp__*',
-      'mcp__whatsapp-work__*',
       'mcp__hostinger-email__send_email',
       'mcp__hostinger-email__reply_to_email',
       'mcp__google-workspace__send_gmail_message',

@@ -12,7 +12,13 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SessionHost, parseModeCommand } from '../session-host.js';
+import {
+  SessionHost,
+  parseModeCommand,
+  applyForceText,
+  buildOutputModeNotice,
+  FORCE_TEXT_MARKER,
+} from '../session-host.js';
 import { IoBus } from '../io-bus.js';
 import { Logger } from '../logger.js';
 import { FakeSessionDriver } from './fake-session-driver.js';
@@ -30,6 +36,17 @@ const inbound = (text: string, who?: { userId?: string; to?: string }): InboundM
   userId: who?.userId ?? 'u-tester',
   ts: '2026-06-19T00:00:00Z',
   replyHandle: { to: who?.to ?? '555' },
+  channel: 'telegram',
+});
+
+/** A Mode-submenu button tap (ctl:mode-set:<value>) as a callback inbound (no text). */
+const modeSetTap = (value: string, id = 'cb-mode'): InboundMessage => ({
+  attachments: [],
+  callback: { id, data: `ctl:mode-set:${value}`, messageId: `m-${value}` },
+  user: 'tester',
+  userId: 'u-tester',
+  ts: '2026-06-19T00:00:00Z',
+  replyHandle: { to: '555' },
   channel: 'telegram',
 });
 
@@ -114,11 +131,11 @@ test('configured output mode is honored as the startup default', async () => {
   bus.close();
 });
 
-test('/mode voice → INTERCEPTED: state switches, ACK sent, NOT forwarded to the session', async () => {
+test('/mode voice → INTERCEPTED: state switches, ACK sent, raw command NOT forwarded (only a mode notice)', async () => {
   const cap = makeSendCapture();
   const { bus, driver, host } = makeHost(cap.send);
   await host.start();
-  // First inbound binds the operator; a /mode is intercepted (no turn injected).
+  // First inbound binds the operator; the /mode COMMAND TEXT is intercepted (never forwarded).
   await host.handleInbound(inbound('/mode voice'));
   // State flipped.
   assert.equal(host.outputModeState(), 'voice');
@@ -126,8 +143,14 @@ test('/mode voice → INTERCEPTED: state switches, ACK sent, NOT forwarded to th
   const ack = cap.sent.find((s) => /Output mode → voice/.test(s.text));
   assert.ok(ack, 'an ACK was sent back to the user');
   assert.equal(ack!.modality, undefined, 'ACK is a control message — sent without modality');
-  // NOT forwarded to the orchestrator session.
-  assert.equal(driver.sentTurns.length, 0, 'no user turn injected for a /mode command');
+  // The raw `/mode voice` command text is NEVER forwarded to the orchestrator.
+  assert.ok(!driver.sentTurns.some((t) => t.text.includes('/mode')), 'the raw /mode command is not forwarded');
+  // ★ MODE-AWARENESS: a running session DOES get an out-of-band change notice (so the
+  // orchestrator can adapt). It names the new mode + the force-text escape hatch.
+  const notice = driver.sentTurns.find((t) => /\[SUPERVISOR output-mode\]/.test(t.text));
+  assert.ok(notice, 'a mode-change notice was injected into the orchestrator turn');
+  assert.match(notice!.text, /is now: voice/);
+  assert.ok(notice!.text.includes(FORCE_TEXT_MARKER), 'the voice notice mentions the force-text marker');
   await host.stop();
   bus.close();
 });
@@ -176,7 +199,10 @@ test('a non-/mode message is a normal turn (forwarded), mode unchanged', async (
   await host.start();
   await host.handleInbound(inbound('hello orchestrator'));
   assert.equal(driver.sentTurns.length, 1, 'a normal message is injected as a turn');
-  assert.equal(driver.sentTurns[0]!.text, 'hello orchestrator');
+  // ★ MODE-AWARENESS: the FIRST real user turn carries the user's message FIRST, then the
+  // one-shot current-mode notice appended after it (so a restarted orchestrator knows the mode).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('hello orchestrator'), 'the user message leads the turn');
+  assert.match(driver.sentTurns[0]!.text, /\[SUPERVISOR output-mode\] The current output mode is: dual/);
   assert.equal(host.outputModeState(), 'dual', 'mode is unchanged by a normal message');
   await host.stop();
   bus.close();
@@ -210,6 +236,158 @@ test('substantive reply carries the current modality (text/voice/dual) onto opts
   const answer = cap.sent.find((s) => s.text === 'the answer');
   assert.ok(answer, 'the orchestrator answer was sent to the operator');
   assert.equal(answer!.modality, 'voice', 'the reply carries the current output modality');
+  await host.stop();
+  bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE 2 — force-text marker (deliver a reply as TEXT even in voice/dual)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Drive one user turn whose orchestrator reply is `reply`, under output mode `mode`. */
+async function replyUnderMode(
+  reply: string,
+  mode: 'text' | 'voice' | 'dual',
+): Promise<{ sent: ReturnType<typeof makeSendCapture>['sent'] }> {
+  const cap = makeSendCapture();
+  const bus = new IoBus();
+  const driver = new FakeSessionDriver([
+    [
+      { do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } },
+      { do: 'awaitTurn' },
+      { do: 'emit', event: { kind: 'result', sessionId: 's1', subtype: 'success', result: reply } },
+      { do: 'endClean' },
+    ],
+  ]);
+  const host = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: cap.send,
+    policy: { allow: ['Read'] },
+    outputMode: mode,
+  });
+  await host.start();
+  await host.handleInbound(inbound('do the thing'));
+  await new Promise((r) => setTimeout(r, 20));
+  await host.stop();
+  bus.close();
+  return { sent: cap.sent };
+}
+
+test('applyForceText (pure): detects + strips the marker (start/mid/end/repeat/only/absent)', async () => {
+  assert.deepEqual(applyForceText('hello world'), { forced: false, text: 'hello world' });
+  // Leading marker.
+  assert.deepEqual(applyForceText(`${FORCE_TEXT_MARKER} https://x.io/qr`), {
+    forced: true,
+    text: 'https://x.io/qr',
+  });
+  // Trailing + mid.
+  assert.deepEqual(applyForceText(`scan ${FORCE_TEXT_MARKER} this code`), { forced: true, text: 'scan this code' });
+  assert.deepEqual(applyForceText(`path: C:\\a\\b ${FORCE_TEXT_MARKER}`), { forced: true, text: 'path: C:\\a\\b' });
+  // Repeated occurrences all removed.
+  assert.deepEqual(applyForceText(`${FORCE_TEXT_MARKER}a${FORCE_TEXT_MARKER}b`), { forced: true, text: 'a b' });
+  // Only the marker → empty.
+  assert.deepEqual(applyForceText(FORCE_TEXT_MARKER), { forced: true, text: '' });
+  // Case-insensitive.
+  assert.equal(applyForceText('[[force_text]] x').forced, true);
+});
+
+test('force-text in VOICE mode → delivered as TEXT (no TTS) with the marker stripped', async () => {
+  const { sent } = await replyUnderMode(`${FORCE_TEXT_MARKER} https://example.com/qr.png`, 'voice');
+  const out = sent.find((s) => /example\.com/.test(s.text));
+  assert.ok(out, 'the reply was sent');
+  assert.equal(out!.modality, 'text', 'voice mode is overridden to text for a force-text reply');
+  assert.equal(out!.text, 'https://example.com/qr.png', 'the marker is stripped before sending');
+  assert.ok(!out!.text.includes(FORCE_TEXT_MARKER), 'no marker leaks to the user');
+});
+
+test('force-text in TEXT mode → no-op on modality, marker still stripped', async () => {
+  const { sent } = await replyUnderMode(`${FORCE_TEXT_MARKER} see /tmp/log.txt`, 'text');
+  const out = sent.find((s) => /log\.txt/.test(s.text));
+  assert.ok(out, 'the reply was sent');
+  assert.equal(out!.modality, 'text', 'text mode stays text');
+  assert.equal(out!.text, 'see /tmp/log.txt', 'the marker is stripped even in text mode');
+});
+
+test('force-text in DUAL mode → TEXT-only (no voice copy) for that message, marker stripped', async () => {
+  const { sent } = await replyUnderMode(`${FORCE_TEXT_MARKER} run: npm test`, 'dual');
+  const out = sent.find((s) => /npm test/.test(s.text));
+  assert.ok(out, 'the reply was sent');
+  assert.equal(out!.modality, 'text', 'dual is overridden to text-only for a force-text reply (no voice copy)');
+  assert.equal(out!.text, 'run: npm test');
+});
+
+test('NO marker in voice mode → still voiced (force-text does not change unmarked replies)', async () => {
+  const { sent } = await replyUnderMode('just a normal spoken answer', 'voice');
+  const out = sent.find((s) => /normal spoken/.test(s.text));
+  assert.ok(out, 'the reply was sent');
+  assert.equal(out!.modality, 'voice', 'an unmarked reply keeps the current voice modality');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE 1 — mode-awareness (notice on change + on first turn) + the pure builder
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('buildOutputModeNotice (pure): names the mode + (voice/dual) the force-text marker', async () => {
+  const v = buildOutputModeNotice('voice', true);
+  assert.match(v, /\[SUPERVISOR output-mode\]/);
+  assert.match(v, /is now: voice/);
+  assert.ok(v.includes(FORCE_TEXT_MARKER));
+  const d = buildOutputModeNotice('dual', false);
+  assert.match(d, /current output mode is: dual/);
+  assert.ok(d.includes(FORCE_TEXT_MARKER));
+  const t = buildOutputModeNotice('text', true);
+  assert.match(t, /is now: text/);
+  // text mentions the marker only as a no-op note (no harm), but never voices content.
+  assert.match(t, /plain text/);
+});
+
+test('mode-change notice reaches the orchestrator (panel/menu path: ctl:mode-set)', async () => {
+  const cap = makeSendCapture();
+  const { bus, driver, host } = makeHost(cap.send, 'text');
+  await host.start();
+  // Bind the operator, then tap the Mode submenu: /control → ctl:mode-set:voice (public path).
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(modeSetTap('voice'));
+  // controlSetMode injects best-effort (fire-and-forget) → allow the microtask to run.
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(host.outputModeState(), 'voice', 'the panel submenu switched the mode');
+  const notice = driver.sentTurns.find((t) => /\[SUPERVISOR output-mode\].*is now: voice/.test(t.text));
+  assert.ok(notice, 'the menu-driven mode change also notifies the orchestrator');
+  await host.stop();
+  bus.close();
+});
+
+test('NO mode-change notice when the mode does not actually change', async () => {
+  const cap = makeSendCapture();
+  const { bus, driver, host } = makeHost(cap.send, 'text');
+  await host.start();
+  await host.handleInbound(inbound('/mode text')); // already text → no real change
+  assert.equal(host.outputModeState(), 'text');
+  assert.ok(
+    !driver.sentTurns.some((t) => /\[SUPERVISOR output-mode\]/.test(t.text)),
+    'no notice injected when prev === next',
+  );
+  await host.stop();
+  bus.close();
+});
+
+test('current mode is delivered on the FIRST turn (voice) — restarted orchestrator learns it', async () => {
+  const cap = makeSendCapture();
+  const { bus, driver, host } = makeHost(cap.send, 'voice');
+  await host.start();
+  await host.handleInbound(inbound('first message'));
+  const first = driver.sentTurns[0];
+  assert.ok(first, 'the first turn was injected');
+  assert.ok(first!.text.startsWith('first message'), 'the user message leads');
+  assert.match(first!.text, /\[SUPERVISOR output-mode\] The current output mode is: voice/);
+  assert.ok(first!.text.includes(FORCE_TEXT_MARKER), 'the first-turn voice notice mentions the marker');
+  // One-shot: a SECOND turn does NOT repeat the first-turn notice.
+  await host.handleInbound(inbound('second message'));
+  const second = driver.sentTurns[1];
+  assert.ok(second, 'the second turn was injected');
+  assert.ok(!/The current output mode is/.test(second!.text), 'the first-turn notice is one-shot');
   await host.stop();
   bus.close();
 });

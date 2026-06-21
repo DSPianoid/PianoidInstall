@@ -239,7 +239,9 @@ test('★ with NO secretStore wired (dormant default), /setkey is NOT intercepte
   await host.handleInbound(inbound('/setkey deepseek some_key', 'mid-x'));
   // It WAS forwarded as a normal user turn (the dormant default — no interception).
   assert.equal(driver.sentTurns.length, 1);
-  assert.equal(driver.sentTurns[0]!.text, '/setkey deepseek some_key');
+  // ★ MODE-AWARENESS (dev-6ca1): the FIRST turn leads with the forwarded user text + a one-shot
+  // mode notice appended. The key point: /setkey was NOT intercepted (it reached the turn).
+  assert.ok(driver.sentTurns[0]!.text.startsWith('/setkey deepseek some_key'), '/setkey forwarded (not intercepted)');
   await host.stop();
   bus.close();
 });

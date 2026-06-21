@@ -15,6 +15,386 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-0c8c locks RELEASED 2026-06-21 at Step 10a Phase 1 (commit on fix/dev-0c8c-liveness-watchdog-timeout, off
+     feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
+     master merge; the activation restart that rebuilds dist/ also loads this fix). EDITED (existing):
+     tools/supervisor/src/{config,index,session-host}.ts + test/{config,session-host}.test.ts. (lifecycle.ts was
+     LOCKED precautionarily but NOT edited — isIdle() was REUSED, not modified; git shows no M on it → released
+     untouched.) LIVENESS-WATCHDOG FALSE-POSITIVE FIX for the ALWAYS-ON D4 tier-b path (pingResponseTimeoutMs /
+     pingLiveness → onUnresponsive restart) that restarted the hosted orchestrator 4× on 2026-06-20 (a legitimately
+     long / just-started real turn misread as unresponsive). DISTINCT from + leaves UNTOUCHED dev-acb7's gated
+     turnWatchdogMs (A5, alert-not-kill, SUPERVISOR_PROACTIVE_ALERTS=OFF) + dev-3e66's gated recovery ladder.
+     (a) CONFIG-IZE the deadline + raise default: config.ts NEW DEFAULT_PING_RESPONSE_TIMEOUT_MS(180_000) +
+     DEFAULT_PING_INTERVAL_MS(120_000) + resolvers resolvePingResponseTimeoutMs / resolvePingIntervalMs (mirror
+     resolveTurnWatchdogMs) + interface fields pingResponseTimeoutMs/pingIntervalMs wired into loadConfig; index.ts
+     :559/:563 now read config.pingResponseTimeoutMs / config.pingIntervalMs (KEEPING the orchestrator-only gating —
+     non-orch profiles stay undefined). Default deadline 60s→180s (matches DEFAULT_TURN_WATCHDOG_MS); env
+     SUPERVISOR_PING_RESPONSE_TIMEOUT_MS / SUPERVISOR_PING_INTERVAL_MS. (b) CLOSE the in-flight race: session-host.ts
+     NEW lastRealTurnStartedAt field (sole owner SessionHost) + NEW private onRealTurnStarted() (records the start
+     time + clears any armed ping deadline), called at the two real-work inject seams (handleInbound user turn +
+     injectChannelCheckTurn); pingLiveness stamps pingScheduledAt at arming + the timeout callback RE-VALIDATES
+     (skip tier-b if lastRealTurnStartedAt >= pingScheduledAt). NOTE: the callback must NOT key off isIdle() — the
+     ping turn itself counts in outstandingTurns, so isIdle() is always false there; lastRealTurnStartedAt (non-internal
+     turns only) is the correct discriminator (an isIdle clause regressed the genuine-hang tier-b test, caught + dropped).
+     +6 tests (3 config-resolver + 3 session-host pingLiveness: a real turn past the deadline NOT restarted / a real
+     turn start clears the armed deadline / a real turn after the ping → no tier-b). Full supervisor node:test 633/633
+     (627 baseline +6), tsc --noEmit clean. session-host.ts 3014→3062 LOC (pre-existing RED; +48 additive within its
+     inbound-routing/liveness/control concern — split already WIP-flagged by dev-3e66/dev-6ca1). config.ts 564→622 (YELLOW).
+     ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY to throwaway dist-test-0c8c[+-base], removed; prod
+     dist/{config,index,session-host}.js mtime 2026-06-20 22:51:25 [dev-f8f2 build] UNCHANGED, verified before+after;
+     onRealTurnStarted/resolvePingResponseTimeoutMs ABSENT from prod dist/ via grep=0); the live supervisor
+     [8790, PID 64920] NOT started/touched/killed, NO /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher,
+     NO supervisor PID touched (all behavior verified via FakeSessionDriver + capturing send + loopback — NO real
+     claude spawn / Telegram send / spend). README env-var update = Phase-2 deferred (dev-vio1 holds README; NEW DOC
+     DEFERRAL block filed in WIP). Dirty/untracked OTHER-agent files (dev-0efd/c9fb/ce3c/f8f2/vio1 logs, controller
+     logs, proposals, dist.bak*) NOT touched. The eventual activation rebuild includes this. SHA in the session log. -->
+<!-- dev-6ca1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 269e12f on feature/supervisor-control-plane;
+     NOT merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that rebuilds dist/ also loads these two voice-channel features). EDITED (existing): tools/supervisor/src/
+     {session-host,panel}.ts + test/{voice-modality,panel,control-plane,session-host,startup-handoff,
+     setrole-roles-host,setkey-command}.test.ts. TWO voice-channel features for the hosted orchestrator:
+     (1) MODE-AWARENESS — (a) on-change `[SUPERVISOR output-mode] ...` note injected into the orchestrator turn
+     via injectModeChangeNotice (no-op on prev===next / no running session; READER of outputMode, never a writer
+     — P1) wired into BOTH handleModeCommand (typed /mode, awaited) and controlSetMode (panel Mode submenu,
+     fire-and-forget); (b) one-shot first-turn current-mode notice via NEW modeNoticePending field (init true;
+     re-armed true at BOTH restart re-arm sites restartUnresponsive + restart-approved) spliced into the
+     handleInbound first-turn seam AFTER role-prefix + startup-handoff; (c) NEW `outputMode` field in panel.ts
+     sessionView() → GET /api/session. (2) FORCE-TEXT MARKER — NEW exported FORCE_TEXT_MARKER='[[FORCE_TEXT]]'
+     + pure applyForceText() (case-insensitive, strips EVERY occurrence, tidies whitespace); sendToOperator
+     detects it → forces modality='text' for THAT send (local override, outputMode UNCHANGED — P1) + sends the
+     STRIPPED text. v1 whole-message; text-mode=no-op(still strip); dual-mode=text-only(no voice copy). NEW pure
+     buildOutputModeNotice(mode,onChange). Adapter (telegram.ts) UNCHANGED (already honors modality:'text').
+     session-host.ts 2866→3014 LOC (pre-existing RED, +148 additive within its inbound-routing/control/modality
+     concern — dev-3e66's WIP FILE-SIZE FLAG already tracks the split). +15 tests (14 voice-modality + 1 panel),
+     7 pre-existing first-turn/mode assertions across 5 files updated to the new behavior (never weakened). Full
+     supervisor node:test 627/627 (617 baseline +10 net; env -u SUPERVISOR_STARTUP_HANDOFF_FILE for the pre-existing
+     dev-fa3d startup-handoff env-leak), tsc --noEmit clean. ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY
+     to throwaway dist-test-6ca1, deleted; prod dist/{index,session-host,panel}.js mtime 2026-06-20 17:29:29
+     UNCHANGED, verified before+after); the live supervisor [8790, PID 64920] NOT started/touched/killed, NO
+     /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher / `node dist/index.js --session`, NO supervisor
+     PID touched (all behavior via FakeSessionDriver + capturing send + loopback transport — NO real claude spawn /
+     Telegram send / spend). README + orchestrator-skill-doc token = Phase-2 deferred (dev-vio1 holds README; DOC
+     DEFERRAL block filed in WIP). Dirty/untracked OTHER-agent files (dev-0efd/c9fb/ce3c/vio1 logs, controller
+     logs, 2 proposals) NOT touched. The eventual activation rebuild includes this. SHA in the session log. -->
+<!-- dev-ae2a RESUME#2 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 3a00c34 on
+     fix/dev-ae2a-workbench-empty-render, stacked on f48c0c6/fd52a41; NOT merged/pushed — held for the user's
+     live test, then Phase 2). EDITED: PianoidTunner/src/PianoidTuner.js. ISSUE 2 (reversed by coordinator
+     clarification — user wants the icons IDENTICAL): panel-following open-workbench toolbar button icon
+     TimelineIcon → BarChartIcon (matches the fixed-workbench per-row BarChartIcon exactly, all panels);
+     import TimelineIcon→BarChartIcon; comment updated. Verified live (CDP): every panel toolbar workbench
+     button = BarChartIcon, Timeline gone. Full Jest 1316/1316, eslint 0 err. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-ae2a) --> | | | |
+<!-- dev-ae2a FOLLOW-UP locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit f48c0c6 on
+     fix/dev-ae2a-workbench-empty-render, stacked on render fix fd52a41; NOT merged/pushed — held for the
+     user's live test, then Phase 2). EDITED: PianoidTunner/src/PianoidTuner.js + src/index.css +
+     src/__tests__/workbenchTileGeometry.source.test.js. ISSUE 1 DONE: moved the 2-D workbench accent
+     color (workbenchColor: hue[param groupe]×brightness[type]) from the pane TITLE to the BAR CHART bars
+     via chartProps.seriesColor (seriesColor wins over isDynamic in DrawableChart); titles now plain+uniform;
+     removed the .wb-accent-host wrapper + the --wb-accent var + the title CSS rules → renderTile returns
+     MosaicWindow directly (also the cleanest empty-workbench geometry fix). Verified live (CDP pixel sample):
+     Strings·damper_string bar = rgb(90,137,174)=#5a89ae, title bar white/no accent. ISSUE 2 = ★FLAGGED, NOT
+     CHANGED: code+live show fixed=BarChartIcon vs panel-following=TimelineIcon are ALREADY DISTINCT (coordinator's
+     "currently same" premise is wrong); per the coordinator's own flag-if-distinct instruction, left as-is pending
+     the user's direct confirmation. Full Jest 1316/1316, eslint 0 err, CRA build OK. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-ae2a) --> | | | |
+<!-- dev-85bb locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit 9898793 on feature/supervisor-control-plane;
+     NOT merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that rebuilds dist/ also loads this MCP wiring). EDITED (existing): tools/supervisor/src/{mcp-config,index,
+     profiles,backend-seal}.ts + adapters/cli-stream-driver.ts + test/{mcp-config,cli-stream-driver,profiles,
+     backend-seal}.test.ts. Wired deepseek-codegen + hostinger-email + whatsapp(+whatsapp-work) MCP into the
+     hosted `claude -p` orchestrator, containment-safe. ROOT: the hosted child got ZERO MCP servers — it runs
+     settingSources ['project','local'] (NOT 'user', the token-hijack containment) so the user-scope ~/.claude.json
+     mcpServers don't auto-load, AND the cli-stream driver ignored opts.mcpServers. FIX: (1) cli-stream-driver
+     honours opts.mcpServers — NEW pure writeMcpConfigFile() writes the curated map to a private 0600 temp file in
+     os.tmpdir() (unlinked on stop()/blockRelaunch/re-start; contents NEVER logged), buildCliArgs (KEPT PURE; new
+     optional path param) passes `--mcp-config <file>`; ★NO --strict-mcp-config (keeps the claude.ai Drive/Gmail/
+     Calendar connector servers). (2) mcp-config NEW HOSTED_MCP_EXCLUDE_SUBSTRINGS=['telegram'] (hosted map excludes
+     ONLY telegram); index.ts uses it (was OUTWARD_SEND_EXCLUDE which also dropped whatsapp). (3) profiles WhatsApp
+     read-allowed/send-gated: allow-list the 9 READ tools per account (search_contacts/list_messages/list_chats/
+     get_chat/get_direct_chat_by_contact/get_contact_chats/get_last_interaction/get_message_context/download_media);
+     REMOVE the blanket mcp__whatsapp__*/-work deny so SEND tools (send_message/send_file/send_audio_message) route
+     via the EXISTING safety floor (routeWhen=isDestructiveOp, unchanged) for user allow/deny — NOT auto-allowed,
+     NOT hard-denied. (4) backend-seal UNIVERSAL_CHANNEL_DENY now TELEGRAM-ONLY (whatsapp removed). Telegram (both
+     name forms) + email/gmail SEND stay HARD-DENIED everywhere; whatsapp/email READ reachable. DeepSeek+Hostinger
+     secrets inline in ~/.claude.json → flow through loadMcpServers, no host env change. +13 tests covering all 6
+     criteria (a --mcp-config + never --strict / b hosted-map telegram-only / c whatsapp READ allowed / d whatsapp
+     SEND routed [via the REAL PermissionRouter: not allow-listed, not hard-denied] / e telegram fully blocked / f
+     temp file 0600 + unlinked on stop + secrets never logged). Full supervisor node:test 617/617 (604 baseline +13,
+     env -u SUPERVISOR_STARTUP_HANDOFF_FILE for the pre-existing dev-0efd-documented startup-handoff env-leak), tsc
+     --noEmit clean. cli-stream-driver.ts 733→805 LOC (was already YELLOW; +72 additive within concern). ★HOST-SAFETY:
+     prod dist/ NOT regenerated (built ONLY to throwaway dist-test-85bb[+-base/-cnt], all removed; prod
+     dist/{index,profiles,mcp-config,backend-seal}.js + dist/adapters/cli-stream-driver.js mtime 2026-06-20T17:29
+     [dev-3e66 build] UNCHANGED, verified before+after); the live supervisor [8790] NOT started/touched/killed, NO
+     /api/lifecycle/* call, NO restart-script run, NO supervisor PID touched (all behavior verified via fakes +
+     FakeCliChild + the REAL PermissionRouter with a fake channel — NO real claude spawn / Telegram / WhatsApp send /
+     spend). README doc-deferred (dev-vio1 holds the README lock; NEW DOC DEFERRAL block filed in WIP). NOTED
+     pre-existing out-of-scope: the dev-fa3d startup-handoff.test env-leak (run with SUPERVISOR_STARTUP_HANDOFF_FILE
+     cleared). The eventual activation rebuild includes this. SHA in the session log. -->
+<!-- dev-3e66 locks RELEASED 2026-06-20 at Step 10a Phase 1 (PART 1 commit ff30dcb + PART 2 commit 9427195 on
+<!-- dev-3e66 locks RELEASED 2026-06-20 at Step 10a Phase 1 (PART 1 commit ff30dcb + PART 2 commit 9427195 on
+     feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
+     master merge; the activation restart that rebuilds dist/ also loads this redesign). EDITED (existing):
+     tools/supervisor/src/{control-command,session-host,index,config}.ts + test/{control-plane,config}.test.ts +
+     test/{control-activation-wiring,button-rows}.test.ts. CONTROL-PANEL REDESIGN (control-panel-redesign-2026-06-20.md).
+     PART 1 = menu restructure: main menu now 10 buttons 2/row (Status/Approvals/Log/New session[was Clear]/Resume/
+     Interrupt/Change model/Mode/Advanced/Help); REMOVED Ping/Reconnect top-level (folded into PART-2 auto behaviors);
+     NEW Advanced submenu (Restart/Parent restart/Flush, each keeps its confirm); NEW Mode submenu (Voice/Text/Dual,
+     no confirm, surfaces the existing /mode outputMode — same single writer); NEW supervisor-side Parent restart
+     (a NEW injected parentRestart dep; index.ts spawns the DETACHED restart-supervisor.ps1 → performed
+     SUPERVISOR-SIDE on the operator tap, NOT an agent shell cmd → bypasses dev-0efd's cli-stream relaunch guard;
+     confirm-gated; dormant when unwired); controlHelpText rewritten to the spec's exact spoken per-button lines.
+     PART 2 = 4 automatic behaviors, ALL gated default-OFF/0 (config) → running host byte-for-byte until activation:
+     recovery ladder (SUPERVISOR_RECOVERY_LADDER — reconnect-then-reset on unresponsive; index.ts routes
+     handleUnresponsive→handleUnresponsiveRecovery when ON, OFF=existing direct restart UNCHANGED); auto-snapshot
+     (SUPERVISOR_AUTO_SNAPSHOT — periodic timer + carry into EVERY restart incl. the cold watchdog path via
+     restartUnresponsive's snapshot re-inject → closes the cold-watchdog gap); restart hard-kill escalation
+     (SUPERVISOR_RESTART_DRAIN_MS>0 — graceful restart drains up to the deadline then hard-restarts via
+     gracefulRestartWithEscalation wrapping runRestartConfirm's restartFresh); status live-probe
+     (SUPERVISOR_STATUS_PROBE_MS>0 — controlStatus fires a real ping + latency + last-turn; snapshot ALWAYS returns
+     on timeout). ★HOST-SAFETY: existing auto-restart-on-death UNCHANGED; lifecycle.ts UNTOUCHED (reused
+     isIdle/restartFresh/ping); EVERY watchdog/recovery/snapshot/escalation/probe path tested with a FAKE driver +
+     FAKE clock/delay + FAKE transport — NEVER a real wait or real restart; prod dist/ NOT regenerated (built ONLY
+     to throwaway dist-test-3e66[+-base], removed; prod dist/{control-command,session-host,index,config}.js mtime
+     2026-06-20T17:29 UNCHANGED, my redesign symbols ABSENT from prod dist/); the live supervisor [8790] + the
+     Pianoid stack NOT started/touched/killed; NO /api/lifecycle/* call, NO restart script run. config.ts ADDITIVE
+     default-OFF flags only (dev-vio1's config.ts lock is on the SEPARATE feature/supervisor-voice-io branch,
+     committed @71074cc — env fix, no field overlap; dev-acb7+dev-fa3d already precedent-edited config.ts here).
+     +27 tests (10 PART-1 + 17 PART-2), full supervisor node --test 604/604 (577 baseline +27, env -u
+     SUPERVISOR_STARTUP_HANDOFF_FILE to clear the pre-existing dev-0efd-documented startup-handoff.test env-leak),
+     tsc --noEmit clean. session-host.ts ~2866 LOC (pre-existing RED, +331 additive within concern — split flagged
+     as a follow-up audit, see WIP). README + parent-proposal fold-in + spec archival = Phase-2 deferred (WIP note).
+     SHAs in the session log. -->
+<!-- dev-ae2a locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit fd52a41 on PianoidTunner
+     fix/dev-ae2a-workbench-empty-render; NOT merged/pushed — held for the user's live test, then Phase 2).
+     EDITED (existing): PianoidTunner/src/PianoidTuner.js + src/index.css. NEW: src/__tests__/workbenchTileGeometry.source.test.js.
+     FIX: the renderTile `.wb-accent-host` wrapper (commit 941fedd, 2-D workbench color schema) used `display:contents`
+     → generates no box → react-mosaic's `.mosaic-tile > * {height:100%;width:100%}` no-op'd → the grandchild
+     `.mosaic-window` got no height, collapsed to its 30px toolbar, workbench BODY = 0px → all 3 workbench TYPES
+     (global-dynamic/panel-following/fixed) spawned EMPTY (no ruler/barchart). Wrapper now FILLS the tile
+     (100%×100%, not display:contents) + `.wb-accent-host > .mosaic-window {height/width:100%}` CSS so the window
+     fills the wrapper; --wb-accent delivery kept (accent feature intact). Measured live (CDP): Workbench body 0→115px.
+     Full Jest 1315/1315, eslint 0 err, CRA build OK. Frontend-only, NO CUDA. -->
+<!-- dev-0efd locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that rebuilds dist/ also loads this fix). EDITED (existing): tools/supervisor/src/{profiles,index}.ts +
+     adapters/cli-stream-driver.ts + test/profiles.test.ts. NEW: test/cli-stream-relaunch-guard.test.ts.
+     CLOSED the PARENT-RESTART gate HOLE: dev-fa3d's isSupervisorRelaunchCommand floor branch only ran on a
+     can_use_tool permission request, and MEASURED against live `claude -p` (a) an allow-listed Bash/PowerShell
+     raises NO such request + (b) a bypassPermissions/background/Task sub-agent suppresses it entirely → a
+     relaunch from a bypass sub-agent ran UN-GATED (defeatable by bypass). FIX = a MODE-INDEPENDENT relaunch
+     guard in the cli-stream driver: NEW pure detectRelaunchToolUse(raw) scans every assistant tool_use on
+     stdout (the one chokepoint independent of permission mode, BEFORE the control-protocol + sub-agent drop)
+     for a relaunch carrier (Bash/PowerShell command OR Agent/Task prompt matching isSupervisorRelaunchCommand;
+     fromSubAgent from parent_tool_use_id/subagent_type) → HARD-KILLS the child tree (the tool_use line precedes
+     execution, measured) before the relaunch tears the host down, then fires onRelaunchBlocked (index.ts → an
+     operator "blocked a host-restart" note; the kill is UNCONDITIONAL, works without the callback). + hardened
+     isSupervisorRelaunchCommand to also test a separator-stripped copy (extracted matchesRelaunch) so backslash-
+     mangled forms match (distindex.js --session / …supervisorlaunch-prod-orch.mjs / …tmprestart-supervisor.ps1),
+     no false positives on reads. +11 tests (6 pure detect + 4 driver e2e + 1 mangled-forms in profiles.test),
+     full supervisor node --test 577/577 (566 baseline +11), tsc --noEmit clean. ★Verification UNIT-TEST ONLY
+     (cannot restart the live host). Prod dist/ NOT regenerated (built only to throwaway dist-test-0efd, removed;
+     prod dist/ byte-for-byte dev-fa3d's build — grep confirms prod dist/ lacks the fix); live supervisor NOT
+     restarted/killed, NO /api/lifecycle/* call, NO restart script. The eventual activation rebuild includes it.
+     README doc-deferred (dev-vio1 holds it). Proposal §6 follow-on block + WIP note added. NOTED out-of-scope:
+     dev-fa3d startup-handoff.test.js env-leak (reads process.env directly → 1/566 fails inside a launched
+     supervisor env; run with SUPERVISOR_STARTUP_HANDOFF_FILE cleared). SHA in the session log. -->
+<!-- dev-fa3d locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2; folds into the control-plane → master merge; the activation restart
+     that loads the rebuilt dist/ also live-tests these fixes). EDITED (existing): tools/supervisor/src/{profiles,
+     config,session-host,index,control-command,contract}.ts + adapters/{grammy-transport,telegram-transport,
+     telegram}.ts + launch-prod-orch.mjs + test/{profiles,control-plane}.test.ts. NEW: test/{button-rows,
+     startup-handoff}.test.ts. (config.test.ts + session-host.test.ts were locked precautionarily but NOT edited —
+     the new resolver + first-turn tests live in the dedicated startup-handoff.test.ts → released untouched.)
+     THREE post-activation follow-on fixes the user surfaced live-testing /control:
+     (1) RESTORED the regressed PARENT-restart confirmation gate — a NEW isSupervisorRelaunchCommand branch in the
+     safety floor (profiles.ts isDestructiveShellCommand) routes the orchestrator firing restart-supervisor.ps1 /
+     launch-(prod|pty)-orch.mjs / a `node dist/index.js --session` host launch → a confirm over the channel that
+     BLOCKS (matching the in-channel ctl:restart/restart-request gate). Execution-context-aware: fires on INVOKE
+     (powershell/-File/&/. for the .ps1; node for the launcher/host) but NOT a cat/grep/ls READ. Root cause
+     (git-archaeology): the parent-restart capability (restart-supervisor.ps1, commit 1bad4d9 on the p0 branch)
+     shipped with only an ADVISORY orchestrator-skill "user-gated" instruction + NO structural floor entry (the
+     script's own taskkill /PID is inside the script, not on the orchestrator's command line) → the relaunch ran
+     un-gated. profiles.ts only (the floor predicate); the LifecycleManager child-restart confirm is UNCHANGED.
+     (2) NEW supervisor-STARTUP context-pickup: SUPERVISOR_STARTUP_HANDOFF_FILE (env → config.startupHandoffFile/
+     config.startupHandoff via the FAIL-SOFT resolveStartupHandoff) → SessionHost.startupHandoff is spliced into the
+     FRESH session's FIRST real user turn AFTER the /orchestrator role prefix (same first-turn seam as roleTurnPrefix,
+     operator bound, NOT a pre-user bootstrap), one-shot (index.ts deletes the staged file after construction).
+     launch-prod-orch.mjs auto-points the env at D:\tmp\supervisor-startup-handoff.txt when present+non-empty (explicit
+     env wins). So a parent/dist restart AUTO-RESUMES from the staged brief instead of booting cold (the human had to
+     re-send "Hi"). UNSET/absent ⇒ byte-for-byte today. (3) /control 14-button menu LAYOUT: a NEW optional buttonsPerRow
+     hint threaded OutboundOptions (contract) → RawSendOptions (telegram-transport) → telegram adapter → grammy
+     buildInlineKeyboard (chunks rows of N; default 1 = single row); SessionHost.sendControlMenu (the SINGLE point all
+     /control menus route through) passes CONTROL_MENU_BUTTONS_PER_ROW=2 → 7 readable rows of 2. The permission
+     Allow/Deny prompts send NO hint → still a single row (byte-for-byte; regression-checked: permission-buttons +
+     permission-router + control-plane 119/119). +15 tests (relaunch-floor incl. read-vs-invoke no-false-positives +
+     routeWhen end-to-end; startup-handoff resolution + first-turn splice/one-shot/byte-for-byte + fail-soft; the REAL
+     grammy keyboard row-structure). Full supervisor node --test dist/test/ 566/566 (551 baseline +15), tsc --noEmit
+     clean. ★The prod dist/ WAS rebuilt (folds into the activation build — loaded by the SAME restart-supervisor.ps1
+     -Launcher prod restart); the live supervisor was NOT restarted/killed, NO /api/lifecycle/* call, NO restart-script
+     run, NO supervisor PID touched (all behavior verified via fakes/injected deps + the loopback transport — NO real
+     Telegram/claude spawn/spend). Rollback: dev-fa3d backed up the PRE-fix control-plane dist/ to dist.bak.prectlfix/
+     (distinct from dist.bak/ = the older pre-control-plane build); restore dist.bak.prectlfix/→dist/ to revert ONLY
+     these fixes, or dist.bak/→dist/ to revert the whole control plane. README doc-deferred (dev-vio1 holds the lock;
+     dev-ctl1's deferral note extended with the fa3d line). Spec §6 + the WIP continuation block updated. SHA in the
+     session log. -->
+<!-- dev-2503 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2; the orchestrator triggers the supervisor RESTART that loads the
+     rebuilt dist/, then Phase 2). EDITED (existing): tools/supervisor/src/{index.ts, session-host.ts,
+     lifecycle.ts, panel.ts}. NEW: tools/supervisor/src/test/control-activation-wiring.test.ts. Supervisor
+     control-plane ACTIVATION WIRING (the index.ts composition-root cut-over that makes the A1–A5 `/control`
+     menu FUNCTIONAL): wired the FIVE dormant injected control-plane deps into the hosted SessionHost ctor —
+     reconnectChannel→supervisor.reconnectChannel('telegram'), flushChannel→supervisor.flushChannel('telegram'),
+     captureRecent→supervisor.captureStore.replay(), restartControl→a closure composing the EXISTING audited
+     SessionHost.requestRestart (restart/kill/resume/change-model) + clearContext (clear) [the menu confirm +
+     the lifecycle user-confirm both STAND — NOT bypassed; change-model also sets the next-launch model first],
+     interruptTurn→SessionHost.interruptCurrentTurn()→lifecycle.interruptTurn()→driver.interrupt(). UNLIKE P6
+     these wire UNCONDITIONALLY for the hosted session (general supervisor control, not SUPERVISOR_ROLE_ROUTING-
+     gated) + COEXIST with the UNTOUCHED P6 conditional-spread block. +3 ADDITIVE dormant-safe passthroughs so
+     the closures reach their targets via SessionHost's existing delegate pattern: LifecycleManager.setModel
+     (mutates this.opts.model, the next-launch model consumeOnce reads), SessionHost.interruptCurrentTurn
+     (→lifecycle.interruptTurn; named NOT `interruptTurn` to avoid the private-field clash), SessionHost.
+     setOrchestratorModel (sets BOTH lifecycle.setModel AND a NEW SessionHost-held `currentModel` the status/
+     change-model-submenu display → closes a latent stale-model-display gap so change-model is fully coherent).
+     +trivial panel POST /api/interrupt→sessionHost.interruptCurrentTurn() (mirrors /api/clear; the only missing
+     panel route — closes A4's deferred panel-interrupt). SUPERVISOR_PROACTIVE_ALERTS left OFF (A5 auto-push =
+     a separate later follow-up; the on-demand /control menu doesn't need it). index.ts +68, session-host.ts +42,
+     lifecycle.ts +15, panel.ts +25 (all additive, within concern; session-host.ts pre-existing RED). ★ACTIVATION:
+     the prod dist/ WAS rebuilt this round (the intentional activation step — npm run build; dist/control-command.js
+     now PRESENT [was absent in the stale 2026-06-19 build]; sits on disk READY) — but the live supervisor was NOT
+     restarted (the orchestrator triggers it). NO /api/lifecycle/* call, NO restart-supervisor.ps1 run, NO supervisor
+     PID touched; dist.bak/ = the byte-copy rollback net. +11 tests (control-activation-wiring.test.ts, mirrors
+     p6-activation-wiring.test.ts: the wired SessionHost exposes /control end-to-end — all 14 actions reach their
+     REAL targets; UNWIRED host → every action "not available"). Full supervisor node:test 551/551 (540 A5 baseline
+     +11) on the REAL dist/, tsc --noEmit clean. NO real Telegram/claude spawn/spend (loopback + fakes). Dirty/
+     untracked files (dev-c9fb/ce3c/vio1 logs, controller logs, 2 proposals) NOT touched; dist/ gitignored. Restart
+     procedure (to reload the supervisor dist/) documented in the session log: D:\tmp\restart-supervisor.ps1 -Launcher
+     prod (DETACHED by design). SHA in the session log. -->
+<!-- dev-acb7 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, config.ts,
+     session-host.ts, test/control-plane.test.ts}. tools/supervisor/src/lifecycle.ts was LOCKED precautionarily but
+     NOT edited (A5 only USES the existing latent in-flight watchdog → ZERO structural change to lifecycle.ts; git
+     shows no M on it) → released untouched. Supervisor control-plane Phase A5 (P-A5) = the PROACTIVE stuck/dead PUSH
+     + the in-flight turn-watchdog ENABLEMENT (ALERT-not-kill). When the orchestrator goes STUCK (idle + a missed
+     liveness ping OR a surfaced in-flight-watchdog stall) or DEAD (child not running), the supervisor PUSHES exactly
+     ONE DEBOUNCED alert to the channel (one per stuck/dead EVENT; re-armed only after recovery — the user is
+     flood-sensitive). Three detection signals, all REUSING existing machinery: (1) the latent in-flight watchdog is
+     now CONFIG-ENABLED in `surface` mode at turnWatchdogMs (default 180s) — a turn outstanding past the deadline →
+     an ALERT, NEVER a kill; its onStall latches lastStall + alerts; (2) the missed-ping pingLiveness timeout latches
+     lastStall + alerts BEFORE the EXISTING onUnresponsive (the existing auto-restart-on-unresponsive is UNCHANGED —
+     A5 adds NO new kill path); (3) a periodic proactive-watch re-checks liveness to catch a DEAD child (which emits
+     no events). classifyLiveness widened to STUCK on `running && lastStall != null` (the in-flight-wedged case is
+     genuinely STUCK, §5) — SAFE because A5 CLEARS lastStall on any recovery (a result/pong/mid-turn activity →
+     onProactiveRecovery), so a present lastStall always denotes a CURRENT stall, never a stale one; this CLOSES the
+     A1 "stuck needs the watchdog" gap so `status` resolves STUCK end-to-end. control-command.ts = PURE (+formatProactiveAlert
+     + DEFAULT_TURN_WATCHDOG_MS(180000)/DEFAULT_PROACTIVE_WATCH_INTERVAL_MS(20000) + the classifyLiveness widen;
+     491→533 LOC, crossed 500→YELLOW, a single cohesive control-plane-pure concern). config.ts = +proactiveAlerts
+     (SUPERVISOR_PROACTIVE_ALERTS, default OFF) + turnWatchdogMs (SUPERVISOR_TURN_WATCHDOG_MS) + proactiveWatchIntervalMs
+     (SUPERVISOR_PROACTIVE_WATCH_INTERVAL_MS) fields + 3 pure resolvers; 324→392 LOC. session-host.ts WIRES it
+     (+4 opts incl. an INJECTABLE proactiveWatchTimers + private proactive{enabled,turnWatchdogMs,watchIntervalMs} +
+     alertedState debounce latch + proactiveWatchTimer; ctor conditional-spread of turnTimeoutMs+onStallAction:'surface'
+     into the LifecycleManager ONLY when enabled; onStall + the ping-timeout both call maybeProactiveAlert; +maybeProactiveAlert/
+     startProactiveWatch/stopProactiveWatch/onProactiveRecovery; onResult/onInternalResult/onMidTurnProgress call
+     onProactiveRecovery [gated]; 2157→2339 LOC, pre-existing RED, additive within its inbound-routing/control concern).
+     ★HOST-SAFETY: the WHOLE A5 behavior is gated behind the NEW SUPERVISOR_PROACTIVE_ALERTS flag DEFAULT-OFF — OFF ⇒
+     the watchdog is NOT wired (its timers do not arm), the proactive-watch never starts, maybeProactiveAlert
+     early-returns, onProactiveRecovery leaves lastStall untouched → BYTE-FOR-BYTE today (SACRED INVARIANT). The
+     watchdog is ALERT-ONLY (onStallAction fixed to 'surface') — A5 introduces NO auto-kill/restart (it composes with
+     the existing auto-restart-on-unresponsive). The watchdog/proactive-watch timers are clock-INJECTABLE + .unref()'d
+     → the fake clock fires ticks synchronously (NO real 180s wait, the test process never hangs); the push goes to a
+     FAKE transport. Additive + gated → non-control inbound BYTE-FOR-BYTE. +9 tests (1 pure + 5 host ON [in-flight
+     watchdog alert-not-kill, watchdog debounce, missed-ping STUCK end-to-end, DEAD fake-clock, re-arm] + 3 host OFF
+     [watchdog never arms, watch+ping never arm, normal turn forwarded]), full supervisor node:test 540/540 (531
+     baseline +9), tsc clean (built ONLY to throwaway dist-test-a5[+-base], removed — prod dist/ NOT regenerated
+     [dist/{index,lifecycle,session-host,config,control-command}.js mtime 2026-06-19 20:21:52 UNCHANGED]; the live
+     supervisor [8790] + the Pianoid stack [3000/3001/5000] were ALREADY RUNNING [user/production-owned] — NOT started,
+     NOT touched, NOT killed by this agent; NO /api/lifecycle/* call, NO restart). README doc-deferred (dev-vio1 holds
+     the lock; dev-ctl1's deferral note extended with the A5 line). Proposal: P-A5 marked SHIPPED + the proactive-push/
+     watchdog/alert-not-kill/debounce design documented (§2 row, §5 note, §6 P-A5 row, A4+A5 summary blocks). SHA in the
+     session log. -->
+<!-- dev-c9fb locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, lifecycle.ts,
+     session-host.ts, test/control-plane.test.ts, test/fake-session-driver.ts}. Supervisor control-plane Phase A4 (P-A4) =
+     the `interrupt` (alias `cancel`) menu action — STOP the orchestrator's CURRENT turn WITHOUT killing it (a fast ESC).
+     NON-destructive → it runs DIRECTLY (NO confirm sub-menu, unlike the A3 restart family). NEW public
+     `lifecycle.interruptTurn()` = a thin wrapper → `driver.interrupt()` (session-driver.ts:189; tears down NOTHING — no
+     stop/restart/sessionId-drop/restart-counter bump → the process + context stay alive; additive, no behavior change
+     unless called — the latent H2 watchdog at lifecycle.ts:413 is the only other interrupt() caller). control-command.ts
+     = PURE (+`interrupt` CONTROL_ACTIONS row + A4 registry doc; 484→491 LOC, <YELLOW). session-host.ts WIRES it
+     (+`InterruptTurnFn` type + the optional injected `interruptTurn` opt + the private `interruptTurn|null` field + ctor
+     wiring + the `ctl:interrupt`/`ctl:cancel` switch cases [direct, no confirm] + the `controlInterrupt` handler [reads
+     isIdle() BEFORE → "Interrupt sent" vs "Nothing in flight"]; 2087→2157 LOC, pre-existing RED, additive within its
+     inbound-routing/control-plane concern). ★HOST-SAFETY: the live interrupt is reached ONLY through the NEW optional
+     injected `interruptTurn` dep — dormant/unavailable when unwired ⇒ reports "not available", NOTHING is interrupted;
+     index.ts wires it AT ACTIVATION (NOT this agent) to lifecycle.interruptTurn(). test/fake-session-driver.ts gained an
+     additive `interrupts` getter (counts interrupt() calls) for the propagation assertion. Additive + gated to the new
+     `ctl:*` actions → non-control inbound BYTE-FOR-BYTE. +7 tests (1 pure registry + 1 lifecycle propagation [lifecycle
+     .interruptTurn()→driver.interrupt(), driver.starts unchanged] + 5 host [in-flight/idle/alias/unwired/failure]), full
+     supervisor node:test 531/531 (524 baseline +7), tsc clean (built ONLY to throwaway dist-test-a4[+-base], removed —
+     prod dist/ NOT regenerated [dist/{index,lifecycle,session-host}.js mtime 2026-06-19 20:21:52 UNCHANGED]; the live
+     orchestrator NEVER interrupted/restarted — FAKE interruptTurn + FAKE driver only RECORD, driver.starts constant; NO
+     /api/lifecycle/* call). README doc-deferred (dev-vio1 holds the lock; dev-ctl1's deferral note extended with the A4
+     line). Proposal: P-A4 marked SHIPPED + the interrupt design documented. SHA in the session log. -->
+<!-- dev-ce3c locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, session-host.ts,
+     test/control-plane.test.ts}. Supervisor control-plane Phase A3 (P-A3) = the restart/lifecycle menu actions, each a
+     CONTROL_ACTIONS row + a `ctl:*` handler, ALL destructive → a CONFIRM sub-menu (the flush pattern): `restart` (GRACEFUL —
+     drain + handoff snapshot + relaunch preserving the channel; intent {kind:restart,drain:true,handoff?}) · `kill` (HARD —
+     no drain, for a wedged child; {kind:kill,drain:false}) · `clear`/`new` (fresh orchestrator context, NO handoff = a clean
+     slate; {kind:clear,drain:false}) · `handoff` (NON-destructive — capture a state SNAPSHOT now into the supervisor-owned
+     in-memory store, the note a future restart/resume re-injects) · `resume` (re-inject the last snapshot; {kind:resume,handoff})
+     + the `change-model` restart wiring (a model pick → CONFIRM ctl:model-set-confirm:<model> → set the next-launch Tier-1 model
+     + restart on it with drain+handoff so context carries across the switch; {kind:change-model,model,drain:true,handoff}).
+     ★HOST-SAFETY: the actual restart/relaunch is performed ONLY through a NEW optional injected dep `restartControl(intent)`
+     (RestartIntent {kind,drain,handoff?,model?} → RestartControlResult {ok,detail?}) — dormant/unavailable when unwired ⇒
+     NOTHING restarts; index.ts wires it AT ACTIVATION (NOT this agent) to a closure composing the EXISTING requestRestart
+     (confirm/rate-limit/audit graceful path) + clearContext — the safety gate is NOT bypassed; the LifecycleManager stays the
+     sole restart EXECUTOR. control-command.ts = PURE (+rows restart/kill/clear/handoff/resume + buildConfirmMenu +
+     buildModelSetConfirmMenu + the confirm-text consts; 418→484 LOC, still <YELLOW). session-host.ts WIRES it (+RestartIntent/
+     RestartControlFn/RestartControlResult types + the optional restartControl opt + the handoffSnapshot store [SOLE WRITER =
+     the host] + the switch cases + handlers controlRestart/controlChangeModel/controlHandoff/buildRestartIntent/
+     composeHandoffNote/restartOkMessage; 1820→2009 LOC, pre-existing RED, additive within its inbound-routing/control concern).
+     `clear` landed HERE (moved from A2). Additive + gated to the new `ctl:*` actions → non-control inbound BYTE-FOR-BYTE.
+     +13 tests (3 pure builder + 10 SessionHost), full supervisor node:test 524/524 (511 baseline +13), tsc clean (built ONLY
+     to throwaway dist-test-a3[+-base], removed — prod dist/ NOT regenerated [session-host.js/index.js mtime 2026-06-19 20:21:52
+     unchanged]; the live supervisor NEVER restarted/killed/relaunched — FAKE restartControl only RECORDS the intent, driver.starts
+     stays constant; NO /api/lifecycle/* call, NO restart script). README doc-deferred (dev-vio1 holds the lock; dev-ctl1's
+     deferral note extended with the A2+A3 lines). Proposal: P-A3 marked SHIPPED + the restart/handoff/change-model design
+     documented. SHA in the session log. -->
+<!-- dev-ctl2 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/{control-command.ts, session-host.ts,
+     test/control-plane.test.ts}. Supervisor control-plane Phase A2 (P-A2) = channel↔panel parity menu actions, each a
+     CONTROL_ACTIONS row + a `ctl:*` handler reusing the Phase-1 framework: `reconnect` (re-establish the channel transport
+     → reconnectChannel; ACK new sender/poller state) · `flush` (DESTRUCTIVE → a CONFIRM sub-menu ctl:flush→ctl:flush-confirm/
+     ctl:menu; only the confirm drops un-acked inbound via flushChannel — a bare flush does NOT) · `log` (formatControlLog over
+     the capture tail: recent inbound/outbound/delivery, compact, newest-last, capped) · `approvals` (lists pending perms with
+     per-ask ✅Allow/❌Deny buttons ctl:appr-allow:<code>/ctl:appr-deny:<code> that resolve via operatorDecide — the SAME
+     permission path the perm:* buttons + panel /api/approve use). control-command.ts = PURE (+rows + buildFlushConfirmMenu +
+     buildApprovalsSubmenu/approvalsMenuText + formatControlLog + ControlLog* types; 285→418 LOC). session-host.ts WIRES it
+     (+6 switch cases + 4 handlers + 3 ADDITIVE optional injected supervisor-side deps reconnectChannel/flushChannel/captureRecent,
+     dormant/no-op when unwired — mirrors the deleteMessage/dispatchRoleAgent P6 conditional-spread pattern; index.ts wires them
+     at ACTIVATION, NOT this agent; 1726→1820 LOC, pre-existing RED, additive within its inbound-routing/control concern).
+     `clear` DEFERRED to A3 (a fresh-context child-restart variant). Additive + gated to the new `ctl:*` actions → non-control
+     inbound BYTE-FOR-BYTE. +13 tests, full supervisor node:test 511/511 (498 baseline +13), tsc clean (built ONLY to throwaway
+     dist-test-a2[+-base], removed — prod dist/ NOT regenerated [mtime 2026-06-18 16:58:24 unchanged]; the live supervisor NOT
+     restarted). NO real Telegram, NO real reconnect/flush against the live supervisor (loopback fakes). Proposal: P-A2 marked
+     SHIPPED + `clear` moved to A3. README doc-deferred (dev-vio1 holds the lock; dev-ctl1's deferral covers A2). SHA in the
+     session log. -->
+<!-- dev-ctl1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (commit on feature/supervisor-control-plane; NOT
+     merged/pushed — STOP before Phase 2). EDITED (existing): tools/supervisor/src/session-host.ts. NEW:
+     tools/supervisor/src/control-command.ts + test/control-plane.test.ts. Supervisor control-plane Phase 1 (P-A1):
+     a single supervisor-intercepted `/control` command renders a native inline-keyboard MENU; an extensible
+     `ctl:*` callback ROUTER (the CONTROL_ACTIONS registry) routes taps OUT-OF-BAND (works when the orchestrator
+     child is dead/stuck). v1 ACTIONS: status (active/stuck/dead + model + uptime + context%[n/a] + pending
+     approvals + restarts), ping (liveness round-trip), help (lists actions) + a change-model menu entry & model
+     sub-menu SCAFFOLD (restart-on-model wiring → A3). control-command.ts = pure (matcher/`ctl:*` parse/registry/
+     menu builders/classifyLiveness+formatStatus); session-host.ts WIRES it (intercept after /mode before
+     sendUserTurn; `ctl:*` routed first in the callback block, perm:* falls through; startedAt for uptime;
+     lastStall latched via the lifecycle onStall — dormant watchdog → byte-for-byte today). Additive + gated to
+     `/control`+`ctl:*` → non-control inbound BYTE-FOR-BYTE. +20 tests, full supervisor node:test 498/498 (478
+     baseline +20), tsc clean (built ONLY to throwaway dist-test-ctrl, removed — prod dist/ NOT regenerated; the
+     live supervisor NOT restarted). NO real Telegram, NO model restart (loopback fakes). Proposal revised to the
+     `/control`-menu interface (§2.5) + the change-model action. README doc-deferred (dev-vio1 holds the lock).
+     SHA in the session log. -->
 <!-- dev-2870 P6 locks RELEASED 2026-06-20 at Step 10a Phase 1 (config commit 62cb2ff + session-host commit
      b375fb1 + index.ts+tests commit 007d3a8 + proposal commit 96d9f71, on feature/model-agnostic-agents;
      NOT merged/pushed — activation/merge is the separately-approved P6 step the USER triggers). EDITED

@@ -8,6 +8,10 @@ import { TelegramAdapter } from '../adapters/telegram.js';
 import { AccessGate } from '../adapters/access-gate.js';
 import { LoopbackTelegramTransport } from '../adapters/loopback-transport.js';
 import { tmpDir } from './helpers.js';
+import { SessionHost } from '../session-host.js';
+import { IoBus } from '../io-bus.js';
+import { FakeSessionDriver } from './fake-session-driver.js';
+import type { OutboundResult } from '../contract.js';
 
 function silentLogger(): Logger {
   return new Logger({ level: 'error', stderr: false });
@@ -94,10 +98,17 @@ test('panel /api/session reports hosted:false when no session is hosted', async 
     await withPanel(dir, async (base) => {
       const res = await fetch(`${base}/api/session`);
       assert.equal(res.status, 200);
-      const body = (await res.json()) as { hosted: boolean; pendingApprovals: unknown[]; totalCostUsd: number };
+      const body = (await res.json()) as {
+        hosted: boolean;
+        pendingApprovals: unknown[];
+        totalCostUsd: number;
+        outputMode: string | null;
+      };
       assert.equal(body.hosted, false);
       assert.deepEqual(body.pendingApprovals, []);
       assert.equal(typeof body.totalCostUsd, 'number');
+      // ★ MODE-AWARENESS (dev-6ca1): outputMode is present in the loopback; null with no session.
+      assert.equal(body.outputMode, null, 'outputMode is null when no session is hosted');
     });
   } finally {
     cleanup();
@@ -190,6 +201,45 @@ test('★ D2: POST /api/channel/kill-stale-sender reports the current sender pid
       assert.equal(body.currentSenderPid, process.pid);
     });
   } finally {
+    cleanup();
+  }
+});
+
+// ── ★ MODE-AWARENESS (dev-6ca1): /api/session exposes the hosted session's outputMode ──
+test('★ MODE-AWARENESS: GET /api/session reports the hosted session outputMode (loopback query/recovery)', async () => {
+  const { dir, cleanup } = tmpDir();
+  const bus = new IoBus();
+  const supervisor = new Supervisor({
+    captureFile: join(dir, 'capture.ndjson'),
+    logger: silentLogger(),
+    unbufferedCapture: true,
+  });
+  // A hosted session parked at idle (system_init then awaitTurn), started in VOICE mode.
+  const driver = new FakeSessionDriver([
+    [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+  ]);
+  const sessionHost = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: async () => ({ ok: true, sentIds: ['1'] }) as OutboundResult,
+    policy: { allow: ['Read'] },
+    outputMode: 'voice',
+  });
+  await supervisor.start();
+  const panel = new Panel({ port: 0, supervisor, logger: silentLogger(), sessionHost });
+  await panel.start();
+  const base = `http://127.0.0.1:${panel.boundPort}`;
+  try {
+    const res = await fetch(`${base}/api/session`);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { hosted: boolean; outputMode: string | null };
+    assert.equal(body.hosted, true, 'a session is hosted');
+    assert.equal(body.outputMode, 'voice', 'the loopback exposes the current output mode');
+  } finally {
+    await panel.stop();
+    await supervisor.stop();
+    bus.close();
     cleanup();
   }
 });

@@ -528,6 +528,38 @@ export class LifecycleManager {
     this.runLoop = this.runWithRestarts();
   }
 
+  /**
+   * INTERRUPT THE CURRENT TURN (the supervisor's ESC) — stop the in-flight turn WITHOUT
+   * killing the process. A thin public wrapper over the driver's cooperative
+   * {@link SessionDriver.interrupt} (the SdkSessionDriver forwards it to the live
+   * `query().interrupt()`). UNLIKE {@link restartFresh}/{@link clearContext} it tears down
+   * NOTHING: no driver.stop(), no run-loop teardown, no sessionId drop, no restart counter
+   * bump — the session keeps running and simply abandons the current turn, so the operator
+   * can re-prompt immediately. ADDITIVE: this method does nothing unless CALLED, so adding it
+   * changes no behavior (the control-plane `interrupt` action is its first non-watchdog caller;
+   * the latent H2 watchdog at {@link watchdogFire} also calls driver.interrupt() directly).
+   * Best-effort: a driver-level interrupt failure is surfaced to the caller (it may reject).
+   */
+  async interruptTurn(): Promise<void> {
+    this.logger.info('interrupt requested — stopping the current turn (process stays alive)', { sessionId: this.sessionId });
+    await this.opts.driver.interrupt();
+  }
+
+  /**
+   * SET THE NEXT-LAUNCH MODEL (the control-plane `change-model` action). Mutates the
+   * start-options model the lifecycle OWNS (P1: the LifecycleManager is the sole owner of its
+   * driver-start options) — `consumeOnce()` reads `this.opts.model` on EVERY (re)start, so the
+   * NEXT fresh session (a `restartFresh()` from the change-model restart) launches on it; an
+   * in-flight session is unaffected until it restarts. ADDITIVE: this method changes NOTHING
+   * unless CALLED (the change-model control closure is its only caller, AT ACTIVATION). It does
+   * NOT itself restart — the caller pairs it with `requestRestart` so context carries across the
+   * switch (drain + handoff).
+   */
+  setModel(model: string): void {
+    this.opts.model = model;
+    this.logger.info('next-launch model set (takes effect on the next fresh start)', { model });
+  }
+
   /** Health snapshot (merges manager + driver state). */
   health(): { running: boolean; sessionId?: string; restarts: number; driver: ReturnType<SessionDriver['health']> } {
     return {

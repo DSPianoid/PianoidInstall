@@ -28,7 +28,7 @@
  *                                      # SUPERVISOR_ECHO=1 also enables echo
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,7 +50,7 @@ import { resolveDriverSelection, type DriverName } from './driver-policy.js';
 import type { SessionDriver } from './session-driver.js';
 import { resolveProfile } from './profiles.js';
 import { assertCostSafe } from './cost-safety.js';
-import { loadMcpServers, OUTWARD_SEND_EXCLUDE_SUBSTRINGS } from './mcp-config.js';
+import { loadMcpServers, HOSTED_MCP_EXCLUDE_SUBSTRINGS } from './mcp-config.js';
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
 import { ControllerBridge } from './controller-bridge.js';
 import type { TelegramTransport } from './adapters/telegram-transport.js';
@@ -63,7 +63,7 @@ import { BackendRegistry } from './backend-registry.js';
 import { dispatchRoleAgentWithFallback } from './result-relay.js';
 import { mergeRoleRoutingOverrides, resolveRoleBackend, DEFAULT_ROLE_ROUTING_CONFIG } from './role-router.js';
 import { DEFAULT_API_ADAPTER_CONFIGS } from './api-adapter-driver.js';
-import type { RoleDispatchFn, RoleDispatchResult } from './session-host.js';
+import type { RoleDispatchFn, RoleDispatchResult, RestartIntent, RestartControlResult } from './session-host.js';
 
 interface CliArgs {
   live: boolean;
@@ -166,6 +166,11 @@ async function main(): Promise<void> {
   let sessionHost: SessionHost | undefined;
   // D4 tier-b handler — assigned in the session branch (closes over sessionHost+supervisor).
   let handleUnresponsive: (reason: string) => Promise<void> = async () => undefined;
+  // ★ RELAUNCH-GUARD notify — assigned in the session branch (closes over sessionHost+supervisor).
+  // The cli-stream driver has ALREADY killed the child to block the relaunch; this only surfaces
+  // an operator-facing note. No-op default (e.g. the SDK driver / pre-binding).
+  let handleRelaunchBlocked: (info: { toolName: string; command: string; fromSubAgent: boolean }) => void =
+    () => undefined;
   if (args.session) {
     const profile = resolveProfile(args.profile);
     // DRIVER SELECTION (the single construction site). Precedence: explicit
@@ -197,7 +202,21 @@ async function main(): Promise<void> {
 
     const sessionDriver: SessionDriver =
       driver === 'cli-stream'
-        ? new CliStreamDriver({ onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`) })
+        ? new CliStreamDriver({
+            onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`),
+            // ★ RELAUNCH GUARD: the driver intercepts a supervisor-relaunch tool_use (from the
+            // orchestrator OR any sub-agent — incl. a bypassPermissions/background one that raises
+            // NO permission request) and HARD-KILLS the child to prevent the host teardown, then
+            // fires this. We log it + surface a note to the operator. The kill is unconditional
+            // (works without this callback); this only informs the user.
+            onRelaunchBlocked: (info) => {
+              logger.error('RELAUNCH GUARD: blocked a supervisor-relaunch tool call (child killed to protect the live host)', {
+                tool: info.toolName,
+                fromSubAgent: info.fromSubAgent,
+              });
+              handleRelaunchBlocked(info);
+            },
+          })
         : new SdkSessionDriver();
 
     // The in-process channel reply tool (createSdkMcpServer) can ONLY be wired into the
@@ -207,17 +226,22 @@ async function main(): Promise<void> {
     const useInProcessReplyTool = profile.wireProjectMcp && driver === 'sdk';
 
     // Build the MCP server map for the orchestrator profile: the project's servers
-    // (from ~/.claude.json) MINUS the outward-to-third-party channels (telegram +
-    // BOTH whatsapp servers — a test orch sending real WhatsApp is a worse breach than
-    // telegram). Email is kept for READ; its send tools are denied via the policy
-    // deny-list (disallowedTools — deny wins). The in-process reply tool is added ONLY
-    // for the SDK driver. NOTE: with cli-stream the child loads the project's MCP from
-    // settingSources (its own ~/.claude.json) — the SEAL there is the disallowedTools
-    // deny-list (telegram/whatsapp/send_*) carried by the policy; the orchestrator
-    // ALSO runs worktree-isolated. (mcpServers here is consumed by the SDK driver.)
+    // (from ~/.claude.json) MINUS only telegram (the channel-hijack vector — the prod
+    // plugin would seize the getUpdates token). The user chose to give the LIVE hosted
+    // orchestrator WhatsApp ("reading allowed, sending approval-gated"), Email, and
+    // DeepSeek-codegen, so BOTH whatsapp servers + hostinger-email + deepseek-codegen are
+    // KEPT in the map; the per-tool POLICY (profiles.ts) then ALLOWS whatsapp READ tools
+    // and ROUTES whatsapp/email SEND tools to the user for approval (deny-list still hard-
+    // blocks telegram). The in-process reply tool is added ONLY for the SDK driver.
+    // ★ This map is now consumed by BOTH drivers: the SDK driver reads it as
+    // options.mcpServers; the cli-stream (`claude -p`) driver writes it to a private 0600
+    // --mcp-config temp file (cli-stream-driver.writeMcpConfigFile) — necessary because the
+    // hosted child runs settingSources ['project','local'] (NOT 'user'), so the user-scope
+    // ~/.claude.json mcpServers do NOT auto-load (the child would otherwise see ZERO servers).
+    // (The earlier assumption that cli-stream loads MCP from settingSources was wrong.)
     let mcpServers: Record<string, unknown> | undefined;
     if (profile.wireProjectMcp) {
-      mcpServers = { ...loadMcpServers({ excludeSubstrings: OUTWARD_SEND_EXCLUDE_SUBSTRINGS }) };
+      mcpServers = { ...loadMcpServers({ excludeSubstrings: HOSTED_MCP_EXCLUDE_SUBSTRINGS }) };
       if (useInProcessReplyTool) {
         const channelServer = await buildSupervisorChannelServer(async (text) => {
           const operator = sessionHost?.currentOperator();
@@ -331,6 +355,102 @@ async function main(): Promise<void> {
       });
     }
 
+    // ★ OPERATOR CONTROL PLANE ACTIVATION (Parts A1–A5) — the `/control` menu's injected
+    // capabilities. UNLIKE P6 these are NOT gated on SUPERVISOR_ROLE_ROUTING: the control plane is
+    // GENERAL supervisor control (proposal §6 "Activation": "Part A's control plane is live as soon
+    // as the matcher ships"), so the deps wire UNCONDITIONALLY for the hosted session here. They
+    // COEXIST with the P6 block above (no overlap — different opts). Each is an ADDITIVE optional
+    // ctor opt (the proven P6 conditional-spread); unwired ⇒ the action reports "not available".
+    // HOST-SAFETY: wiring them does NOT itself touch the live host — they fire only when the operator
+    // taps an action AFTER the user-triggered restart loads this build.
+    //   • reconnect / flush / log → the SAME supervisor methods the loopback panel exposes
+    //     (panel.ts /api/channel/{reconnect,flush} + /api/capture) — supervisor-owned, child-independent.
+    //   • restart (restart/kill/clear/resume/change-model) → a closure over the EXISTING audited
+    //     restart machinery (SessionHost.requestRestart's confirm/rate-limit/audit graceful path, or
+    //     clearContext for a clean slate) — it does NOT bypass the safety gate; the LifecycleManager
+    //     stays the sole restart EXECUTOR. change-model additionally sets the next-launch Tier-1 model
+    //     (setOrchestratorModel) before the restart so context carries across the switch (drain+handoff).
+    //   • interrupt → SessionHost.interruptCurrentTurn() (→ lifecycle.interruptTurn → driver.interrupt):
+    //     stop the in-flight turn WITHOUT killing the process.
+    // restartControl + interruptTurn close over `sessionHost` (assigned just below) — read lazily at
+    // tap-time, exactly like the handleUnresponsive closure further down (never called during construction).
+    const reconnectChannelControl = (): Promise<{ ok: boolean; error?: string }> =>
+      supervisor.reconnectChannel('telegram');
+    const flushChannelControl = (): { ok: boolean; dropped?: number; error?: string } =>
+      supervisor.flushChannel('telegram');
+    const captureRecentControl = () => supervisor.captureStore.replay();
+    const restartControl = async (intent: RestartIntent): Promise<RestartControlResult> => {
+      const host = sessionHost;
+      if (!host) return { ok: false, detail: 'session not ready' };
+      // `clear` = a clean slate (no confirm, no handoff) — the panel /api/clear path.
+      if (intent.kind === 'clear') {
+        await host.clearContext();
+        return { ok: true, detail: 'context cleared (fresh slate)' };
+      }
+      // change-model: set the next-launch Tier-1 model BEFORE the restart (drain + handoff so the
+      // conversation carries across the switch).
+      if (intent.kind === 'change-model' && intent.model) {
+        host.setOrchestratorModel(intent.model);
+      }
+      // restart / kill / resume / change-model → the EXISTING audited graceful restart (user-confirm
+      // + rate-limit + handoff re-inject). The menu already confirmed; this is the lifecycle's own
+      // safety gate (CP7) — intentionally NOT bypassed.
+      const reason =
+        intent.kind === 'change-model'
+          ? `operator change-model${intent.model ? ` → ${intent.model}` : ''}`
+          : `operator ${intent.kind}`;
+      const outcome = host.requestRestart(reason, intent.handoff);
+      if (outcome.status === 'queued') return { ok: true, detail: 'restart queued (awaiting your confirm)' };
+      if (outcome.status === 'rate_limited') {
+        return { ok: false, detail: `rate-limited — retry in ~${Math.round(outcome.retryAfterMs / 1000)}s` };
+      }
+      return { ok: false, detail: 'a restart confirm is already in flight' };
+    };
+    const interruptTurnControl = (): Promise<void> => {
+      const host = sessionHost;
+      if (!host) return Promise.resolve();
+      return host.interruptCurrentTurn();
+    };
+    // ★ REDESIGN — PARENT (supervisor-process) restart: dispatch the canonical DETACHED,
+    // out-of-process-tree relaunch (restart-supervisor.ps1) so the SUPERVISOR ITSELF reloads its
+    // build. Performed SUPERVISOR-SIDE on the operator's confirmed `/control` → Advanced → Parent
+    // restart tap — NOT by the agent issuing a shell command (the cli-stream relaunch guard hard-
+    // blocks agent-issued relaunches, dev-0efd; this closure runs in the SUPERVISOR process, which
+    // the guard does not touch). The script self-detaches via WMI (its child is parented to
+    // WmiPrvSE, NOT to this supervisor), then kills this supervisor + re-runs the launcher — so we
+    // launch it once, detached, and return immediately (the supervisor dies asynchronously). Only
+    // the supervisor-side path triggers it (the agent-side guard stays a pure hard block). Env
+    // overrides: SUPERVISOR_PARENT_RESTART_SCRIPT (path; default D:\tmp\restart-supervisor.ps1) +
+    // SUPERVISOR_PARENT_RESTART_LAUNCHER (prod|test; default prod — the live host runs the prod
+    // launcher). The hosted orchestrator (per dev-fa3d) auto-resumes from the staged handoff file.
+    const parentRestartControl = async (): Promise<RestartControlResult> => {
+      const script = process.env.SUPERVISOR_PARENT_RESTART_SCRIPT || 'D:\\tmp\\restart-supervisor.ps1';
+      const launcher = process.env.SUPERVISOR_PARENT_RESTART_LAUNCHER === 'test' ? 'test' : 'prod';
+      if (!existsSync(script)) {
+        logger.error('parent-restart: relaunch script not found', { script });
+        return { ok: false, detail: `relaunch script not found: ${script}` };
+      }
+      try {
+        const { spawn } = await import('node:child_process');
+        // Detached + ignored stdio + unref → the child outlives this process (which the script then
+        // kills). The script's own WMI self-detach re-parents it outside our tree before the kill.
+        const child = spawn(
+          'powershell.exe',
+          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Launcher', launcher],
+          { detached: true, stdio: 'ignore', windowsHide: true },
+        );
+        child.unref();
+        logger.warn('parent-restart: dispatched detached supervisor relaunch (the supervisor will be cycled shortly)', {
+          script,
+          launcher,
+        });
+        return { ok: true, detail: `relaunching via ${launcher} launcher` };
+      } catch (err) {
+        logger.error('parent-restart: failed to dispatch the relaunch', { err: String(err) });
+        return { ok: false, detail: `dispatch failed: ${String(err)}` };
+      }
+    };
+
     sessionHost = new SessionHost({
       driver: sessionDriver,
       bus: supervisor.bus,
@@ -348,6 +468,28 @@ async function main(): Promise<void> {
       ...(roleRoutingStore ? { roleRoutingStore } : {}),
       ...(deleteMessage ? { deleteMessage } : {}),
       ...(dispatchRoleAgent ? { dispatchRoleAgent } : {}),
+      // ★ CONTROL-PLANE deps (Parts A1–A5) — wired UNCONDITIONALLY for the hosted session (general
+      // supervisor control, not switch-gated). Built just above; restart/interrupt close over
+      // sessionHost lazily. These make the `/control` menu's reconnect/flush/log + restart/kill/
+      // clear/resume/handoff/change-model + interrupt actions functional after the activation restart.
+      reconnectChannel: reconnectChannelControl,
+      flushChannel: flushChannelControl,
+      captureRecent: captureRecentControl,
+      restartControl,
+      interruptTurn: interruptTurnControl,
+      // ★ REDESIGN — supervisor-side PARENT restart (the detached restart-supervisor.ps1 relaunch).
+      parentRestart: parentRestartControl,
+      // ★ REDESIGN — the 4 control-panel automatic behaviors, from config (ALL default-OFF / no-op →
+      // the running host is byte-for-byte until the operator-triggered activation restart loads them):
+      //   • recoveryLadder → reconnect-then-reset on unresponsive (handleUnresponsive routes here below);
+      //   • autoSnapshot (+ cadence) → periodic snapshot + carry into EVERY restart incl. the cold one;
+      //   • restartDrainMs>0 → graceful restart escalates to a hard kill if the drain stalls;
+      //   • statusProbeMs>0 → the status action fires a live responsiveness probe (latency + last-turn).
+      recoveryLadder: config.recoveryLadder,
+      autoSnapshot: config.autoSnapshot,
+      autoSnapshotIntervalMs: config.autoSnapshotIntervalMs,
+      restartDrainMs: config.restartDrainMs,
+      statusProbeMs: config.statusProbeMs,
       // OUTPUT MODALITY startup default (text|voice|dual). The user chose 'text';
       // SUPERVISOR_OUTPUT_MODE overrides (config.outputModeDefault). The hosted session
       // flips it at runtime via the intercepted `/mode` command.
@@ -385,6 +527,14 @@ async function main(): Promise<void> {
       // restart-handoff path re-arms + consumes the same prefix → no double-invoke.
       // Gated to the orchestrator profile (the demo persona adopts no skill role).
       roleTurnPrefix: profile.roleBootstrap === 'orchestrator-skill' ? config.roleTurnPrefix : undefined,
+      // ★ STARTUP CONTEXT-PICKUP (parent-restart handoff): when the supervisor was relaunched
+      // (restart-supervisor.ps1 → fresh process + COLD orchestrator) and the parent-restart STAGED
+      // a handoff file (config.startupHandoff resolved from SUPERVISOR_STARTUP_HANDOFF_FILE), inject
+      // it into the fresh session's FIRST real user turn so it auto-resumes instead of booting blank
+      // (today the human had to re-send "Hi"). Gated to the orchestrator profile (same as the role
+      // prefix). Unstaged/unset ⇒ undefined ⇒ byte-for-byte today. The one-shot file is cleared just
+      // below so a later PLAIN restart doesn't re-inject a stale brief.
+      startupHandoff: profile.roleBootstrap === 'orchestrator-skill' ? config.startupHandoff : undefined,
       // Per-turn de-dup applies ONLY when the in-process reply tool is wired (SDK
       // driver): auto-out the final answer UNLESS the reply tool fired this turn.
       // Under cli-stream there is NO reply tool → auto-forward assistant text (the
@@ -404,20 +554,46 @@ async function main(): Promise<void> {
       // restarted" notice.)
       // D1/D2: the loopback panel URL the orchestrator curls for /channel-check + repair.
       panelUrl: config.panelPort > 0 ? `http://127.0.0.1:${config.panelPort}` : undefined,
-      // D4: liveness ping response deadline (orchestrator profile). Default 60s — a turn
-      // result (the pong, or any turn) within this proves responsive (tier-a); else tier-b.
-      pingResponseTimeoutMs: profile.name === 'orchestrator' ? 60000 : undefined,
-      // D4: the IDLE-AWARE scheduler cadence — fire a ping every ~120s, but ONLY when the
-      // orchestrator is idle (a turn in flight = a no-op, so a long turn / sub-agent wait
-      // is NEVER pinged → never false-restarted). 120s > the 60s deadline. Orchestrator only.
-      pingIntervalMs: profile.name === 'orchestrator' ? 120000 : undefined,
+      // D4: liveness ping response deadline (orchestrator profile only; other profiles → undefined =
+      // ping disabled). A turn result (the pong, or any real turn) within this proves responsive
+      // (tier-a); else tier-b. CONFIG-DRIVEN (was a hardcoded 60s, too tight for a legitimately long
+      // Opus turn → false-positive restarts): default 180s, env SUPERVISOR_PING_RESPONSE_TIMEOUT_MS.
+      pingResponseTimeoutMs: profile.name === 'orchestrator' ? config.pingResponseTimeoutMs : undefined,
+      // D4: the IDLE-AWARE scheduler cadence — fire a ping every interval, but ONLY when the
+      // orchestrator is idle (a turn in flight = a no-op, so a long turn / sub-agent wait is NEVER
+      // pinged → never false-restarted). CONFIG-DRIVEN: default 120s, env SUPERVISOR_PING_INTERVAL_MS.
+      // Orchestrator only. (interval may be ≤ deadline: pingLiveness is idle-skipped + clearPingTimer
+      // replaces any prior armed deadline + the timeout callback re-validates, so no stale fire.)
+      pingIntervalMs: profile.name === 'orchestrator' ? config.pingIntervalMs : undefined,
       // D4 tier-b: on unresponsive, restart+resume the session AND tell the user.
       onUnresponsive: (reason) => void handleUnresponsive(reason),
     });
     supervisor.onInbound(sessionHost.handleInbound);
+    // ★ STARTUP CONTEXT-PICKUP: the handoff note is now captured in the SessionHost (it injects it
+    // into the first turn). CONSUME the one-shot staging file so a LATER plain restart (with no new
+    // brief staged) does NOT re-inject this stale handoff. Best-effort; a failure is non-fatal (the
+    // worst case is a one-time stale re-inject, not a crash). Only when a handoff was actually staged.
+    if (config.startupHandoff && config.startupHandoffFile && existsSync(config.startupHandoffFile)) {
+      try {
+        unlinkSync(config.startupHandoffFile);
+        logger.info('consumed (cleared) the one-shot startup-handoff file', { file: config.startupHandoffFile });
+      } catch (e) {
+        logger.warn('could not clear the startup-handoff file (non-fatal; may re-inject once)', {
+          file: config.startupHandoffFile,
+          err: String(e),
+        });
+      }
+    }
     // D4 tier-b handler (defined here so it closes over sessionHost + supervisor).
     handleUnresponsive = async (reason: string): Promise<void> => {
-      logger.error('TIER-B: orchestrator unresponsive — restarting + notifying the user', { reason });
+      logger.error('TIER-B: orchestrator unresponsive', { reason, recoveryLadder: config.recoveryLadder });
+      // ★ REDESIGN — RECOVERY LADDER (reconnect → reset): when enabled, try a channel reconnect FIRST
+      // and only reset if still unresponsive (the SessionHost owns the ladder + its own user notices).
+      // When disabled (the default), the existing direct tier-b restart runs UNCHANGED (byte-for-byte).
+      if (config.recoveryLadder && sessionHost) {
+        await sessionHost.handleUnresponsiveRecovery(reason).catch((e) => logger.error('recovery ladder failed', { err: String(e) }));
+        return;
+      }
       const op = sessionHost?.currentOperator();
       if (op) {
         await supervisor
@@ -431,6 +607,23 @@ async function main(): Promise<void> {
       // restartUnresponsive() (not clearContext) so the involuntary restart INCREMENTS the
       // `restarts` counter and is visible in /api/session.
       await sessionHost?.restartUnresponsive().catch((e) => logger.error('tier-b restart failed', { err: String(e) }));
+    };
+    // ★ RELAUNCH-GUARD notify (defined here so it closes over sessionHost + supervisor). The
+    // driver already KILLED the child to block the relaunch (the host is protected); tell the
+    // operator a host-restart attempt was blocked. The lifecycle's existing death-detection then
+    // brings the orchestrator back (so the session recovers, minus the dangerous relaunch).
+    handleRelaunchBlocked = (info): void => {
+      const op = sessionHost?.currentOperator();
+      if (!op) return;
+      const who = info.fromSubAgent ? 'a sub-agent' : 'the orchestrator';
+      void supervisor
+        .sendOutbound('telegram', op, {
+          text:
+            `⛔ Blocked a supervisor host-restart that ${who} tried to run directly (\`${info.toolName}\`). ` +
+            `Restarting the host this way would silently sever this channel, so it was prevented and the ` +
+            `session was reset instead. To restart the host deliberately, use the control panel / \`/control\` → restart (it confirms first).`,
+        })
+        .catch(() => undefined);
     };
   } else if (args.echo) {
     logger.warn('ECHO MODE (dev/test) — host hook echoes inbound back; NOT the real session');

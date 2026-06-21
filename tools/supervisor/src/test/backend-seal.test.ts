@@ -24,6 +24,29 @@ const baseOpts = (over: Partial<SessionStartOptions> = {}): SessionStartOptions 
 
 const KEY_FREE_ENV = { PATH: '/usr/bin', HOME: '/home/u' } as NodeJS.ProcessEnv;
 
+test('★ (criterion e) UNIVERSAL_CHANNEL_DENY is TELEGRAM-ONLY now — whatsapp is NOT universally denied', () => {
+  // Telegram (both name forms) stays in the universal deny — the channel the supervisor owns.
+  assert.ok(UNIVERSAL_CHANNEL_DENY.includes('mcp__plugin_telegram_telegram__*'), 'telegram plugin universally denied');
+  assert.ok(UNIVERSAL_CHANNEL_DENY.includes('mcp__telegram__*'), 'telegram universally denied');
+  // WhatsApp is NO LONGER universally denied (it's read-allowed/send-gated by the orchestrator policy).
+  assert.ok(!UNIVERSAL_CHANNEL_DENY.some((n) => n.includes('whatsapp')), 'whatsapp NOT in the universal channel-deny');
+  // Exactly the two telegram names, nothing else.
+  assert.deepEqual([...UNIVERSAL_CHANNEL_DENY], ['mcp__plugin_telegram_telegram__*', 'mcp__telegram__*']);
+});
+
+test('★ sealed options carry the telegram deny but NOT a whatsapp deny (the seal no longer mutes whatsapp)', () => {
+  const sealed = sealBackendOptions({ backend: 'claude-cli', base: baseOpts(), env: KEY_FREE_ENV });
+  assert.ok(sealed.disallowedTools!.includes('mcp__telegram__*'), 'telegram denied by the seal');
+  assert.ok(sealed.disallowedTools!.includes('mcp__plugin_telegram_telegram__*'), 'telegram plugin denied by the seal');
+  assert.ok(!sealed.disallowedTools!.some((n) => n.includes('whatsapp')), 'seal does NOT add a whatsapp deny');
+});
+
+test('★ inspectClaudeSeal no longer requires a whatsapp deny — telegram-only deny is sealed', () => {
+  // A claude options object with project+local + ONLY the telegram denies is fully sealed now.
+  const o = baseOpts({ settingSources: ['project', 'local'], disallowedTools: ['mcp__plugin_telegram_telegram__*', 'mcp__telegram__*'] });
+  assert.deepEqual(inspectClaudeSeal(o), { sealed: true, reasons: [] }, 'telegram-only deny is sealed (no whatsapp required)');
+});
+
 test('★ claude-cli seal asserts a KEY-FREE env (subscription billing) → passes', () => {
   assert.doesNotThrow(() =>
     sealBackendOptions({ backend: 'claude-cli', base: baseOpts(), env: KEY_FREE_ENV }),
