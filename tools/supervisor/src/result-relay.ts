@@ -247,8 +247,10 @@ export async function dispatchRoleAgent(opts: DispatchRoleAgentOptions): Promise
     // so a failed agent never leaks a worktree.
     worktree?.teardown();
     // M-1: release the X2 budget lease (if any) with the REAL token count from the report (0 on a crash,
-    // where no usage was reported). Idempotent release → safe in the finally on every path.
-    if (opts.lease) opts.lease.release(report ? reportTokensUsed(report) : 0);
+    // where no usage was reported). ★ P-C1: ALSO charge the REAL USD cost into the gate's rolling spend
+    // ledger (report.costUsd, 0 when none reported) — so the next admission's spend-cap check sees the
+    // truthful window total. Idempotent release → safe in the finally on every path.
+    if (opts.lease) opts.lease.release(report ? reportTokensUsed(report) : 0, report?.costUsd ?? 0);
   }
 
   if (!report) throw new AgentDispatchError(selection, 'agent stream ended with no result event (crash)');

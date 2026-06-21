@@ -300,6 +300,27 @@ export interface SupervisorConfig {
    * construction.
    */
   statusProbeMs: number;
+  /**
+   * ★ P-C1 — the PER-DISPATCH USD spend cap: a single routed-agent dispatch whose ESTIMATE exceeds
+   * this is REFUSED before it starts (fail-closed). Resolved from `SUPERVISOR_DISPATCH_COST_CAP_USD`;
+   * DEFAULT 0 = UNLIMITED = meter-only = today (byte-for-byte). Suggested first real value $0.50
+   * (proposal §4 + §D(d)). Read at construction; a change needs a supervisor restart.
+   */
+  dispatchCostCapUsd: number;
+  /**
+   * ★ P-C1 — the ROLLING CUMULATIVE USD spend cap over {@link dispatchCostWindowMs}: an admission is
+   * refused once the window's spend + the dispatch estimate would exceed this. Resolved from
+   * `SUPERVISOR_DISPATCH_COST_WINDOW_USD`; DEFAULT 0 = UNLIMITED = today. Suggested first real value
+   * $5 / 5h (proposal §4 + §D(d)). The window rolls on the caller's clock (gate.resetWindow).
+   */
+  dispatchCostWindowUsd: number;
+  /**
+   * ★ P-C1 — the rolling cost-window length (ms): the period over which {@link dispatchCostWindowUsd}
+   * is enforced before the spend ledger rolls. Resolved from `SUPERVISOR_DISPATCH_COST_WINDOW_MS`;
+   * DEFAULT {@link DEFAULT_DISPATCH_COST_WINDOW_MS} (5h — the Claude budget boundary). Only meaningful
+   * when the window cap is non-zero; the caller drives the actual roll via the gate's resetWindow.
+   */
+  dispatchCostWindowMs: number;
 }
 
 export interface LoadConfigOptions {
@@ -390,6 +411,12 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     autoSnapshotIntervalMs: resolveAutoSnapshotIntervalMs(),
     restartDrainMs: resolveRestartDrainMs(),
     statusProbeMs: resolveStatusProbeMs(),
+    // ★ P-C1 — the enforced spend caps over the routed-dispatch path. BOTH USD caps default 0 =
+    // UNLIMITED = meter-only = today (byte-for-byte). The window length defaults to the 5-hour
+    // Claude budget boundary. Enforced fail-closed (refuse the dispatch) only when non-zero.
+    dispatchCostCapUsd: resolveDispatchCostCapUsd(),
+    dispatchCostWindowUsd: resolveDispatchCostWindowUsd(),
+    dispatchCostWindowMs: resolveDispatchCostWindowMs(),
   };
 }
 
@@ -462,6 +489,41 @@ export function resolvePingResponseTimeoutMs(raw = process.env.SUPERVISOR_PING_R
 export function resolvePingIntervalMs(raw = process.env.SUPERVISOR_PING_INTERVAL_MS): number {
   const n = Number((raw ?? '').trim());
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PING_INTERVAL_MS;
+}
+
+/** ★ P-C1 — the DEFAULT rolling cost-window length (ms): 5 hours = the Claude budget boundary. */
+export const DEFAULT_DISPATCH_COST_WINDOW_MS = 5 * 60 * 60 * 1000; // 18_000_000
+
+/**
+ * ★ P-C1 — resolve the PER-DISPATCH USD spend cap from `SUPERVISOR_DISPATCH_COST_CAP_USD`. A finite
+ * positive value (FRACTIONAL allowed, e.g. 0.50) is the per-dispatch ceiling; an unset/blank/
+ * non-positive/non-numeric value → 0 (= UNLIMITED = meter-only = today). NOT floored (USD is
+ * fractional). Pure; exported for the test.
+ */
+export function resolveDispatchCostCapUsd(raw = process.env.SUPERVISOR_DISPATCH_COST_CAP_USD): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * ★ P-C1 — resolve the ROLLING CUMULATIVE USD spend cap from `SUPERVISOR_DISPATCH_COST_WINDOW_USD`.
+ * A finite positive value (FRACTIONAL allowed, e.g. 5.00) is the window ceiling; an unset/blank/
+ * non-positive/non-numeric value → 0 (= UNLIMITED = today). NOT floored (USD is fractional). Pure;
+ * exported for the test.
+ */
+export function resolveDispatchCostWindowUsd(raw = process.env.SUPERVISOR_DISPATCH_COST_WINDOW_USD): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * ★ P-C1 — resolve the rolling cost-window length (ms) from `SUPERVISOR_DISPATCH_COST_WINDOW_MS`.
+ * A positive integer is used verbatim; an unset/blank/non-positive/non-numeric value →
+ * {@link DEFAULT_DISPATCH_COST_WINDOW_MS} (5h). Pure; exported for the test. Mirrors {@link resolvePingIntervalMs}.
+ */
+export function resolveDispatchCostWindowMs(raw = process.env.SUPERVISOR_DISPATCH_COST_WINDOW_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_DISPATCH_COST_WINDOW_MS;
 }
 
 /**

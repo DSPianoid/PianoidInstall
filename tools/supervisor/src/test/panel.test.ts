@@ -243,3 +243,128 @@ test('★ MODE-AWARENESS: GET /api/session reports the hosted session outputMode
     cleanup();
   }
 });
+
+// ── ★ P-B1: POST /api/dispatch → run a routed dispatch and return the RoleDispatchResult JSON ──
+
+/** Build a panel backed by a hosted SessionHost (optionally with a wired dispatch closure). */
+async function withDispatchPanel(
+  dir: string,
+  dispatchRoleAgent: ((role: string, task: string) => Promise<{ ok: boolean; role: string; backend?: string; text?: string; costUsd?: number; fellBack?: boolean }>) | undefined,
+  fn: (base: string) => Promise<void>,
+): Promise<void> {
+  const bus = new IoBus();
+  const supervisor = new Supervisor({
+    captureFile: join(dir, 'capture.ndjson'),
+    logger: silentLogger(),
+    unbufferedCapture: true,
+  });
+  const driver = new FakeSessionDriver([
+    [{ do: 'emit', event: { kind: 'system_init', sessionId: 's1', model: 'm' } }, { do: 'awaitTurn' }],
+  ]);
+  const sessionHost = new SessionHost({
+    driver,
+    bus,
+    logger: silentLogger(),
+    send: async () => ({ ok: true, sentIds: ['1'] }) as OutboundResult,
+    policy: { allow: ['Read'] },
+    ...(dispatchRoleAgent ? { dispatchRoleAgent } : {}),
+  });
+  await supervisor.start();
+  const panel = new Panel({ port: 0, supervisor, logger: silentLogger(), sessionHost });
+  await panel.start();
+  const base = `http://127.0.0.1:${panel.boundPort}`;
+  try {
+    await fn(base);
+  } finally {
+    await panel.stop();
+    await supervisor.stop();
+    bus.close();
+  }
+}
+
+test('★ P-B1 POST /api/dispatch (wired) → returns the structured RoleDispatchResult JSON', async () => {
+  const { dir, cleanup } = tmpDir();
+  const calls: { role: string; task: string }[] = [];
+  const fakeDispatch = async (role: string, task: string) => {
+    calls.push({ role, task });
+    return { ok: true, role, backend: 'api-adapter', text: 'agent report: ok', costUsd: 0.0042 };
+  };
+  try {
+    await withDispatchPanel(dir, fakeDispatch, async (base) => {
+      const res = await fetch(`${base}/api/dispatch`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'coding', task: 'implement f' }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean; enabled: boolean; role: string; backend: string; text: string; costUsd: number };
+      assert.equal(body.ok, true);
+      assert.equal(body.enabled, true, 'dispatch ran (routing wired)');
+      assert.equal(body.role, 'coding');
+      assert.equal(body.backend, 'api-adapter');
+      assert.equal(body.costUsd, 0.0042);
+      assert.equal(body.text, 'agent report: ok');
+      assert.deepEqual(calls, [{ role: 'coding', task: 'implement f' }], 'the closure got the role+task');
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('★ P-B1 POST /api/dispatch DORMANT (routing OFF) → {ok:false, enabled:false}, nothing dispatched', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withDispatchPanel(dir, undefined, async (base) => {
+      const res = await fetch(`${base}/api/dispatch`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'coding', task: 'x' }),
+      });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { ok: boolean; enabled: boolean };
+      assert.equal(body.ok, false);
+      assert.equal(body.enabled, false, 'dormant: dispatch not enabled (byte-for-byte today)');
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('★ P-B1 POST /api/dispatch missing role/task → 400', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await withDispatchPanel(dir, async (role: string) => ({ ok: true, role, backend: 'x' }), async (base) => {
+      const res = await fetch(`${base}/api/dispatch`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'coding' }), // no task
+      });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as { ok: boolean; error: string };
+      assert.equal(body.ok, false);
+      assert.match(body.error, /role.*task.*required/);
+    });
+  } finally {
+    cleanup();
+  }
+});
+
+test('★ P-B1 POST /api/dispatch without a hosted session → 409', async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    // A panel with NO sessionHost (withPanel does not pass one).
+    await withPanel(dir, async (base) => {
+      const res = await fetch(`${base}/api/dispatch`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'coding', task: 'x' }),
+      });
+      assert.equal(res.status, 409);
+      const body = (await res.json()) as { ok: boolean; error: string };
+      assert.equal(body.ok, false);
+      assert.match(body.error, /no hosted session/);
+    });
+  } finally {
+    cleanup();
+  }
+});

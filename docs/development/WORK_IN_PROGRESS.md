@@ -1,5 +1,13 @@
 # Work in Progress
 
+## Active Dev Sessions
+
+| Agent | Task | Log | Started |
+|-------|------|-----|---------|
+| dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
+
+---
+
 ## ★ POST-RESTART CONTINUATION — 2026-06-20 (CONTROL-PLANE activation: READ FIRST; delete after live-test + B1/C1 are sorted)
 
 The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator control plane** (`/control`). You are the fresh orchestrator hosted by the supervisor; the Telegram chat is preserved; output default = text. You run INSIDE the supervisor's own dev repo (see your system hosting context — the `tools/supervisor` self-modification cautions apply; don't disturb other agents' sessions).
@@ -49,6 +57,24 @@ The supervisor was just restarted (user-sanctioned) to ACTIVATE the **operator c
      resolvePingIntervalMs + DEFAULT_PING_RESPONSE_TIMEOUT_MS/DEFAULT_PING_INTERVAL_MS) + index.ts:559/563 +
      session-host.ts (onRealTurnStarted + the pingLiveness callback re-validation) + the +6 tests
      (config.test.ts / session-host.test.ts). SHA in the dev-0c8c session log. -->
+<!-- DOC DEFERRAL (dev-e9d9, 2026-06-21): P-B1 (dispatch surface) + P-C1 (enforced spend cap) shipped on
+     feature/supervisor-dispatch-activation (off master 066b6f5; the LAST 2 phases of the supervisor control-plane
+     proposal — supervisor-control-plane-and-activation-2026-06-20.md §6 P-B1 + P-C1, now marked ✅ SHIPPED + given
+     SHIPPED annotation blocks). README (held by dev-vio1's lock) → at Phase 2 / README update, add the NEW env vars
+     to the operator/env table (ALL default-OFF/0 → byte-for-byte today):
+       • SUPERVISOR_ROLE_ROUTING=on — already the P6 dispatch gate; ALSO now offers the /control Dispatch button +
+         enables POST /api/dispatch (P-B1). (Existing var — just note the added effect.)
+       • SUPERVISOR_DISPATCH_COST_CAP_USD (default 0=unlimited) — per-dispatch USD ceiling, fail-closed (P-C1).
+       • SUPERVISOR_DISPATCH_COST_WINDOW_USD (default 0=unlimited) — rolling cumulative USD ceiling (P-C1).
+       • SUPERVISOR_DISPATCH_COST_WINDOW_MS (default 18000000=5h) — the rolling window length (P-C1).
+     Also note the NEW panel route POST /api/dispatch {role, task} → RoleDispatchResult JSON (mirrors /api/clear,
+     /api/interrupt). Source of truth meanwhile: config.ts (resolveDispatchCostCapUsd / resolveDispatchCostWindowUsd
+     / resolveDispatchCostWindowMs + DEFAULT_DISPATCH_COST_WINDOW_MS), agent-concurrency.ts (the spend ledger +
+     caps), session-host.ts (controlDispatch / dispatchRoleAndRelayTurn), panel.ts (handleDispatch), control-command.ts
+     (formatDispatchResultTurn etc.) + the +25 tests. ACTIVATION nuance for the orchestrator: P-C1's gate is ready
+     but NOT yet acquired per-dispatch inside index.ts's dispatch closure — wiring gate.tryAcquire(estTokens,
+     estCostUsd) around dispatchRoleAgentWithFallback (lease → release) is the small remaining step done WHEN
+     enabling real enforcement (caps 0 ⇒ nothing to enforce ⇒ deferred). SHA in the dev-e9d9 session log. -->
 <!-- DOC DEFERRAL (dev-6ca1, 2026-06-20): TWO voice-channel features shipped on feature/supervisor-control-plane
      (commit in the session log) — fold into the activation/merge docs:
      (1) ORCHESTRATOR MODE-AWARENESS: the supervisor now tells the hosted orchestrator the output mode

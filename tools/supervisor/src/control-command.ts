@@ -180,6 +180,16 @@ export const CONTROL_ACTIONS: readonly ControlActionSpec[] = [
 ];
 
 /**
+ * ★ P-B1 — the `dispatch` MAIN-MENU action (the model-agnostic routed-dispatch surface). NOT in
+ * {@link CONTROL_ACTIONS} because it is CONDITIONAL — only OFFERED when the routed-dispatch
+ * capability is wired (= `SUPERVISOR_ROLE_ROUTING` ON). {@link buildControlMenu} appends it when
+ * told the capability is wired; with routing OFF (the default) the button is not shown at all and
+ * the menu is byte-for-byte today (proposal §3 dormant contract). Routed through the SAME
+ * `ctl:*` scheme + the SAME router switch as every other action — just a conditionally-rendered button.
+ */
+export const CONTROL_DISPATCH_ACTION: ControlActionSpec = { id: 'dispatch', label: '🛰️ Dispatch' };
+
+/**
  * ★ REDESIGN — the **Advanced** SUBMENU actions (the heavier, rarer lifecycle controls grouped
  * off the main menu): `restart` (graceful, auto-escalates to a hard kill if the drain stalls —
  * absorbs the old Kill), the NEW `parent-restart` (restart the SUPERVISOR PROCESS itself to load
@@ -233,9 +243,20 @@ export const CONTROL_MODEL_CHOICES: readonly string[] = [
  */
 export const CONTROL_MENU_BUTTONS_PER_ROW = 2;
 
-/** Build the MAIN control menu inline keyboard from the action registry. Pure. */
-export function buildControlMenu(): InlineButton[] {
-  return CONTROL_ACTIONS.map((a) => ({ text: a.label, callbackData: controlCallbackData(a.id) }));
+/**
+ * Build the MAIN control menu inline keyboard from the action registry. Pure.
+ *
+ * ★ P-B1 — when `opts.includeDispatch` is true (the supervisor passes this only when the routed-
+ * dispatch capability is wired = `SUPERVISOR_ROLE_ROUTING` ON), the conditional
+ * {@link CONTROL_DISPATCH_ACTION} button is appended. Omitting it (the default) keeps the menu
+ * byte-for-byte today (the dispatch surface is dormant when routing is OFF, proposal §3).
+ */
+export function buildControlMenu(opts: { includeDispatch?: boolean } = {}): InlineButton[] {
+  const buttons = CONTROL_ACTIONS.map((a) => ({ text: a.label, callbackData: controlCallbackData(a.id) }));
+  if (opts.includeDispatch) {
+    buttons.push({ text: CONTROL_DISPATCH_ACTION.label, callbackData: controlCallbackData(CONTROL_DISPATCH_ACTION.id) });
+  }
+  return buttons;
 }
 
 /**
@@ -442,6 +463,60 @@ export function controlHelpText(): string {
       'agent on every restart.',
   ].join('\n');
 }
+
+/**
+ * ★ P-B1 — the structured fields of one routed-dispatch result, as the SessionHost reads them off a
+ * {@link RoleDispatchResult} to format the relay turn. A subset (no methods) so this formatter stays
+ * pure + testable with hand-built results.
+ */
+export interface DispatchResultFields {
+  ok: boolean;
+  role?: string;
+  backend?: string;
+  text?: string;
+  costUsd?: number;
+  fellBack?: boolean;
+}
+
+/**
+ * ★ P-B1 — format the routed-dispatch result as the ORCHESTRATOR TURN the supervisor injects back via
+ * `lifecycle.sendUserTurn` (proposal §3 / CF6 — the routed agent is channel-mute; only this report
+ * returns, into the ORCHESTRATOR's context so it can act on the code/review). The shape mirrors the
+ * `[SUPERVISOR …]` out-of-band turns (`runRestartConfirm` et al.): a header line with
+ * role/backend/ok/cost (+ a fell-back note when a fallback ran) followed by the agent's report text.
+ * Pure.
+ */
+export function formatDispatchResultTurn(r: DispatchResultFields): string {
+  const cost = typeof r.costUsd === 'number' ? `$${r.costUsd.toFixed(4)}` : 'n/a';
+  const header =
+    `[SUPERVISOR dispatch-result] role=${r.role ?? '(unknown)'} backend=${r.backend ?? '(unknown)'} ` +
+    `ok=${r.ok} cost=${cost}${r.fellBack ? ' fell-back=true' : ''}`;
+  const body = (r.text ?? '').trim();
+  return body ? `${header}\n${body}` : header;
+}
+
+/**
+ * ★ P-B1 — the operator-facing CONFIRMATION shown (edited into the tapped menu message) after a
+ * `dispatch` action relays its result to the orchestrator. A short status — the FULL agent report
+ * goes to the orchestrator turn (the decision-maker), not the channel. Pure.
+ */
+export function formatDispatchAck(r: DispatchResultFields): string {
+  const cost = typeof r.costUsd === 'number' ? ` ($${r.costUsd.toFixed(4)})` : '';
+  const verb = r.ok ? 'completed' : 'failed';
+  return (
+    `🛰️ Dispatch ${verb} — role=${r.role ?? '(unknown)'} backend=${r.backend ?? '(unknown)'}${cost}` +
+    `${r.fellBack ? ' (fell back)' : ''}. The agent's full report was relayed to the orchestrator.`
+  );
+}
+
+/** ★ P-B1 — the message shown when the `dispatch` action is tapped but routed dispatch is NOT wired. */
+export const CONTROL_DISPATCH_UNAVAILABLE_TEXT =
+  '🛰️ Dispatch is not available — model-agnostic role routing is OFF (set SUPERVISOR_ROLE_ROUTING to enable it).';
+
+/** ★ P-B1 — the message shown for a bare `ctl:dispatch` tap (role+task are supplied via the panel route). */
+export const CONTROL_DISPATCH_INFO_TEXT =
+  '🛰️ Dispatch is ACTIVE — routed-agent dispatch is enabled. Supply a role + task via the loopback ' +
+  'panel (POST /api/dispatch {role, task}); the agent runs sealed and its report is relayed to the orchestrator.';
 
 /**
  * The live-telemetry SNAPSHOT the SessionHost gathers (from its lifecycle +

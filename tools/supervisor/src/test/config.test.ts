@@ -15,6 +15,10 @@ import {
   resolveStatusProbeMs,
   resolvePingResponseTimeoutMs,
   resolvePingIntervalMs,
+  resolveDispatchCostCapUsd,
+  resolveDispatchCostWindowUsd,
+  resolveDispatchCostWindowMs,
+  DEFAULT_DISPATCH_COST_WINDOW_MS,
 } from '../config.js';
 import { DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS } from '../control-command.js';
 import { tmpDir } from './helpers.js';
@@ -228,6 +232,73 @@ test('D4 loadConfig: pingResponseTimeoutMs defaults 180s + pingIntervalMs 120s; 
     const over = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
     assert.equal(over.pingResponseTimeoutMs, 300000, 'env override for the deadline');
     assert.equal(over.pingIntervalMs, 90000, 'env override for the cadence');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    cleanup();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ P-C1 — the enforced spend-cap config resolvers (both USD caps default 0 = today)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('★ P-C1 resolveDispatchCostCapUsd: default 0 (unlimited); positive FRACTIONAL verbatim; junk → 0', () => {
+  assert.equal(resolveDispatchCostCapUsd(undefined), 0, 'unset → 0 = unlimited = today');
+  assert.equal(resolveDispatchCostCapUsd(''), 0);
+  assert.equal(resolveDispatchCostCapUsd('0'), 0);
+  assert.equal(resolveDispatchCostCapUsd('-1'), 0);
+  assert.equal(resolveDispatchCostCapUsd('abc'), 0);
+  assert.equal(resolveDispatchCostCapUsd('0.5'), 0.5, 'fractional USD used verbatim (NOT floored)');
+  assert.equal(resolveDispatchCostCapUsd('2'), 2);
+});
+
+test('★ P-C1 resolveDispatchCostWindowUsd: default 0 (unlimited); positive FRACTIONAL verbatim; junk → 0', () => {
+  assert.equal(resolveDispatchCostWindowUsd(undefined), 0, 'unset → 0 = unlimited = today');
+  assert.equal(resolveDispatchCostWindowUsd(''), 0);
+  assert.equal(resolveDispatchCostWindowUsd('0'), 0);
+  assert.equal(resolveDispatchCostWindowUsd('-3'), 0);
+  assert.equal(resolveDispatchCostWindowUsd('xyz'), 0);
+  assert.equal(resolveDispatchCostWindowUsd('5.00'), 5, 'fractional USD used verbatim');
+});
+
+test('★ P-C1 resolveDispatchCostWindowMs: default 5h; positive int verbatim; junk → default', () => {
+  assert.equal(resolveDispatchCostWindowMs(undefined), DEFAULT_DISPATCH_COST_WINDOW_MS);
+  assert.equal(DEFAULT_DISPATCH_COST_WINDOW_MS, 5 * 60 * 60 * 1000, 'default = 5-hour budget boundary');
+  assert.equal(resolveDispatchCostWindowMs(''), DEFAULT_DISPATCH_COST_WINDOW_MS);
+  assert.equal(resolveDispatchCostWindowMs('0'), DEFAULT_DISPATCH_COST_WINDOW_MS);
+  assert.equal(resolveDispatchCostWindowMs('-1'), DEFAULT_DISPATCH_COST_WINDOW_MS);
+  assert.equal(resolveDispatchCostWindowMs('abc'), DEFAULT_DISPATCH_COST_WINDOW_MS);
+  assert.equal(resolveDispatchCostWindowMs('600000'), 600000, 'positive int used verbatim');
+  assert.equal(resolveDispatchCostWindowMs('3600000.9'), 3600000, 'floored');
+});
+
+test('★ P-C1 loadConfig: both spend caps default 0 + window 5h; env overrides', () => {
+  const { dir, cleanup } = tmpDir('cfg-spend');
+  const saved: Record<string, string | undefined> = {};
+  const keys = [
+    'SUPERVISOR_DISPATCH_COST_CAP_USD',
+    'SUPERVISOR_DISPATCH_COST_WINDOW_USD',
+    'SUPERVISOR_DISPATCH_COST_WINDOW_MS',
+  ];
+  for (const k of keys) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    const dflt = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(dflt.dispatchCostCapUsd, 0, 'per-dispatch cap default 0 = unlimited = today');
+    assert.equal(dflt.dispatchCostWindowUsd, 0, 'rolling cap default 0 = unlimited = today');
+    assert.equal(dflt.dispatchCostWindowMs, DEFAULT_DISPATCH_COST_WINDOW_MS, 'window default 5h');
+    process.env.SUPERVISOR_DISPATCH_COST_CAP_USD = '0.5';
+    process.env.SUPERVISOR_DISPATCH_COST_WINDOW_USD = '5';
+    process.env.SUPERVISOR_DISPATCH_COST_WINDOW_MS = '7200000';
+    const over = loadConfig({ stateDir: dir, channelDir: join(dir, 'no-channel') });
+    assert.equal(over.dispatchCostCapUsd, 0.5, 'env override for the per-dispatch cap');
+    assert.equal(over.dispatchCostWindowUsd, 5, 'env override for the rolling cap');
+    assert.equal(over.dispatchCostWindowMs, 7200000, 'env override for the window length');
   } finally {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];

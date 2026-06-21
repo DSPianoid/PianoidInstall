@@ -15,6 +15,32 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-e9d9 locks RELEASED 2026-06-21 at Step 10a Phase 1 (commit on feature/supervisor-dispatch-activation,
+     off master 066b6f5; NOT merged/pushed — STOP before Phase 2; this is the LAST 2 phases of the supervisor
+     control-plane proposal, folds into the control-plane → master activation; the activation restart that rebuilds
+     dist/ also loads this). EDITED (existing): tools/supervisor/src/{agent-concurrency,result-relay,config,
+     control-command,session-host,panel}.ts + test/{agent-concurrency,config,result-relay,control-plane,panel}.test.ts.
+     P-B1 DISPATCH SURFACE: ctl:dispatch menu action (conditionally offered when SUPERVISOR_ROLE_ROUTING ON via
+     buildControlMenu({includeDispatch})) → controlDispatch → dispatchRoleAndRelayTurn (dispatchRole + relay the
+     [SUPERVISOR dispatch-result]… turn via lifecycle.sendUserTurn + a channel ack) + POST /api/dispatch {role,task}
+     → sessionHost.dispatchRole → RoleDispatchResult JSON; dormant when unwired (button not shown, {ok:false,
+     enabled:false}, no turn). P-C1 ENFORCED SPEND CAP: AgentConcurrencyGate +spentUsd ledger + dispatchCostCapUsd
+     (per-dispatch) + dispatchCostWindowUsd (rolling) checked in tryAcquire/acquire (fail-closed reasons
+     dispatch-cost-cap/dispatch-cost-window), release(tokens, costUsd) charges actual cost, pump re-checks, resetWindow
+     rolls both; result-relay.ts:251 passes report.costUsd; config.ts +3 resolvers (USD fractional) + 3 fields + 3
+     loadConfig lines + DEFAULT_DISPATCH_COST_WINDOW_MS(5h). BOTH USD caps default 0 = unlimited = byte-for-byte today;
+     SUPERVISOR_ROLE_ROUTING OFF ⇒ dispatch dormant. +25 tests (P-B1: 7 control-plane + 4 panel; P-C1: 8 gate + 4 config
+     + 2 relay). Full supervisor node:test 658/658 (633 baseline +25; env -u SUPERVISOR_STARTUP_HANDOFF_FILE for the
+     pre-existing dev-fa3d startup-handoff env-leak), tsc --noEmit clean. LOC: agent-concurrency 230→363, result-relay
+     398→400, config 622→684(YELLOW), control-command 659→734(YELLOW), session-host 3064→3129(pre-existing RED, additive
+     within control-plane concern), panel 354→399. ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY to throwaway
+     dist-test-e9d9, removed; prod dist/{agent-concurrency,result-relay,config,control-command,session-host,panel,index}.js
+     mtime 2026-06-21 09:15:06 UNCHANGED, verified before+after; new symbols dispatchCostCapUsd/formatDispatchResultTurn/
+     spendCapBreach ABSENT from prod dist/ via grep=0); the live supervisor [8790] NOT started/touched/killed, NO
+     /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher, NO supervisor PID touched (all behavior via
+     FakeSessionDriver + fake dispatch closure + capturing send + loopback transport — NO real claude spawn / Telegram
+     send / API spend). README env-var update = Phase-2 deferred (dev-vio1 holds README; DOC DEFERRAL block filed in WIP).
+     Dirty/untracked OTHER-agent files (controller logs, 3 proposals, dist.bak*) NOT touched. SHA in the session log. -->
 <!-- dev-0c8c locks RELEASED 2026-06-21 at Step 10a Phase 1 (commit on fix/dev-0c8c-liveness-watchdog-timeout, off
      feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
      master merge; the activation restart that rebuilds dist/ also loads this fix). EDITED (existing):

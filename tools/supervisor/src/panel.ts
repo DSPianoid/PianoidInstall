@@ -97,6 +97,11 @@ export class Panel {
         this.handleClear(res);
       } else if (method === 'POST' && url.startsWith('/api/interrupt')) {
         void this.handleInterrupt(res);
+      } else if (method === 'POST' && url.startsWith('/api/dispatch')) {
+        // ★ P-B1 — the routed-dispatch surface (model-agnostic). Child-independent: runs a role's
+        // sealed backend agent + returns its structured RoleDispatchResult JSON. Dormant when role
+        // routing is OFF (dispatchRole returns {ok:false,enabled:false}).
+        this.handleDispatch(req, res);
       } else if (method === 'GET' && url.startsWith('/api/channel/state')) {
         // D2: channel state for the orchestrator's self-check.
         this.json(res, this.supervisor.channelState());
@@ -261,6 +266,46 @@ export class Panel {
       res.writeHead(500, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: false, action: 'interrupt', error: String(err) }));
     }
+  }
+
+  /**
+   * ★ P-B1 — POST /api/dispatch { role, task } → run a routed-agent dispatch and return its
+   * structured {@link RoleDispatchResult} JSON. The child-independent programmatic dispatch surface
+   * (proposal §3 / AP4): the cli-stream orchestrator can `curl` this from a turn to delegate a role's
+   * work to a sealed backend agent and read the report directly from the HTTP response. DORMANT when
+   * role routing is OFF — `dispatchRole` returns `{ok:false, enabled:false}` and nothing is dispatched
+   * (the OFF path is byte-for-byte today). A missing role/task is reported as a 400 (the dispatch
+   * itself also validates, returning `{ok:false}`; the 400 is the cheap up-front guard). Never throws
+   * to the socket — `dispatchRole` never throws for an agent-level failure (it returns `ok:false`).
+   */
+  private handleDispatch(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+    if (!this.sessionHost) {
+      res.writeHead(409, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'no hosted session' }));
+      return;
+    }
+    this.readBody(req, (body) => {
+      const role = typeof body.role === 'string' ? body.role.trim() : '';
+      const task = typeof body.task === 'string' ? body.task : '';
+      if (!role || !task.trim()) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: "both 'role' and 'task' are required" }));
+        return;
+      }
+      // dispatchRole is async + never throws for an agent failure (returns ok:false); surface its
+      // result JSON when it settles. A programmer/infra throw is caught → a clean 500.
+      this.sessionHost!
+        .dispatchRole(role, task)
+        .then((result) => {
+          this.logger.info('operator panel: dispatch', { role, enabled: result.enabled, ok: result.ok });
+          this.json(res, result);
+        })
+        .catch((err) => {
+          this.logger.warn('operator panel: dispatch threw', { role, err: String(err) });
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, role, error: String(err) }));
+        });
+    });
   }
 
   /** Read + parse a small JSON request body (bounded; loopback only). */

@@ -92,6 +92,10 @@ import {
   buildApprovalsSubmenu,
   approvalsMenuText,
   controlHelpText,
+  formatDispatchResultTurn,
+  formatDispatchAck,
+  CONTROL_DISPATCH_UNAVAILABLE_TEXT,
+  CONTROL_DISPATCH_INFO_TEXT,
   formatStatus,
   formatUptime,
   formatControlLog,
@@ -1362,7 +1366,9 @@ export class SessionHost {
   private async handleControlCommand(): Promise<void> {
     this.logger.info('control menu opened via /control');
     this.publishLifecycle('control_menu_opened', {});
-    await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
+    // ★ P-B1 — offer the Dispatch button ONLY when routed dispatch is wired (= SUPERVISOR_ROLE_ROUTING
+    // ON); with routing OFF (the default) the menu is byte-for-byte today.
+    await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu({ includeDispatch: !!this.dispatchRoleAgent }));
   }
 
   /**
@@ -1529,8 +1535,13 @@ export class SessionHost {
       case 'appr-deny':
         await this.editControlResult(callback, this.controlResolveApproval('deny', ctl.arg));
         return;
+      // ── P-B1 dispatch surface (the model-agnostic routed-dispatch action) ───────
+      case 'dispatch':
+        await this.editControlResult(callback, await this.controlDispatch(ctl.arg));
+        return;
       case 'menu':
-        await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
+        // ★ P-B1 — keep the Dispatch button on the "back" re-render iff routing is wired.
+        await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu({ includeDispatch: !!this.dispatchRoleAgent }));
         return;
       default:
         this.logger.info('unknown control action (ignored)', { action: ctl.action });
@@ -1707,6 +1718,60 @@ export class SessionHost {
     return inFlight
       ? '✋ Interrupt sent — stopping the current turn. The orchestrator stays alive; re-prompt when ready.'
       : '✋ Nothing in flight — the orchestrator is idle (no turn to interrupt).';
+  }
+
+  /**
+   * ★ P-B1 `dispatch` action handler (the model-agnostic routed-dispatch surface). GATED on the
+   * routed-dispatch capability being wired (= SUPERVISOR_ROLE_ROUTING ON): UNWIRED ⇒ reports
+   * unavailable (the dormant-default — `dispatchRole` returns {ok:false,enabled:false}), so with
+   * routing OFF this falls through byte-for-byte (the button isn't even offered, proposal §3).
+   *
+   * A bare `ctl:dispatch` tap (no `<role>:<task>` — the menu can't collect free-text; the precise
+   * collection UX is a later-phase detail per §3) reports the surface is ACTIVE and points to the
+   * panel route. When a role IS supplied as the callback arg (`ctl:dispatch:<role>`), this DISPATCHES
+   * that role with a default operator task and relays the result to the orchestrator (the test path).
+   * The full agent report is relayed as an ORCHESTRATOR TURN (the decision-maker's context); the
+   * channel only gets a short ack.
+   */
+  private async controlDispatch(role?: string): Promise<string> {
+    if (!this.dispatchRoleAgent) return CONTROL_DISPATCH_UNAVAILABLE_TEXT;
+    // Bare tap → the surface is active; role+task come from the panel route (collection UX deferred).
+    if (!role) return CONTROL_DISPATCH_INFO_TEXT;
+    // A role supplied via the callback arg → dispatch it (operator-initiated) + relay to the orchestrator.
+    const task = `Operator-dispatched ${role} task via /control. Proceed with the current objective.`;
+    const result = await this.dispatchRoleAndRelayTurn(role, task);
+    if (!result.enabled) return CONTROL_DISPATCH_UNAVAILABLE_TEXT;
+    return formatDispatchAck(result);
+  }
+
+  /**
+   * ★ P-B1 — run a routed dispatch AND relay its structured report back to the orchestrator as an
+   * out-of-band TURN (proposal §3 / CF6 — the routed agent is channel-mute; only this report returns,
+   * into the ORCHESTRATOR's context so it can act on the code/review). The turn shape mirrors the
+   * other `[SUPERVISOR …]` injected turns (`runRestartConfirm`): `formatDispatchResultTurn`. The relay
+   * is best-effort + guarded (it no-ops if the session isn't running — sendUserTurn throws otherwise),
+   * so a dispatch report never wedges the host. Returns the SAME {@link RoleDispatchResult} the panel
+   * route returns (so a caller can also read it directly). The CHANNEL surface uses this (it must land
+   * in the agent's context); the PANEL route uses bare {@link dispatchRole} (the HTTP caller already
+   * gets the JSON).
+   */
+  async dispatchRoleAndRelayTurn(
+    role: string,
+    task: string,
+  ): Promise<RoleDispatchResult & { enabled: boolean }> {
+    const result = await this.dispatchRole(role, task);
+    // Only relay a turn when dispatch actually ran (enabled). A dormant {enabled:false} relays nothing.
+    if (result.enabled) {
+      const turn = formatDispatchResultTurn(result);
+      try {
+        await this.lifecycle.sendUserTurn({ text: turn });
+      } catch (err) {
+        // The session may not be running (a dead child) — the report still returns to the caller; the
+        // turn-relay is best-effort (M2 — sendUserTurn throws when not running). Never wedge the host.
+        this.logger.warn('dispatch-result turn relay skipped (session not running?)', { err: String(err) });
+      }
+    }
+    return result;
   }
 
   /**
