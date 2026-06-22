@@ -33,6 +33,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-hxfix | `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/components/HammerStringChart.jsx`, `PianoidTunner/src/components/__tests__/reloadKeepsBackend.source.test.js` (NEW) | 2026-06-22T15:05:00Z | Hammer/excitation live-test fixes: BLOCKER FE-kills-backend-on-reload (PianoidTuner.js beforeunload) + #3 control-row overflow (HammerStringChart.jsx) |
+<!-- dev-applyc-arraysize locks RELEASED 2026-06-22 (code COMMITTED acb103d on
+     feature/dev-applyc-arraysize, HOLD for user combined test). array_size in-place
+     re-init silent-render. ROOT CAUSE = Python, NOT C++/CUDA: _rebuild_stringmap_for_array_size
+     rebuilt StringMap but a fresh StringMap defaults soundChannelModes.string_coefficients to
+     ZEROS (not carried by pack_for_preset_file) → sound-string feedin row = 0 → deck collapses
+     → with listen_to_modes the mode-channel audio tap reads 0 → SILENT. FIX (pianoid.py only):
+     capture+restore the per-pitch sound-channel coupling coeffs across the rebuild. UN-GATED
+     array_size to the in-place path (preset_reinit.py INPLACE_STRUCTURAL_FIELDS + pianoid.py
+     REINIT_INPLACE_STRUCTURAL + classifier test). All .cu instrumentation REVERTED to HEAD
+     before commit (the .cu files were NOT changed). Clean release .pyd rebuilt (no instrumentation).
+     Classifier 28/28 green; minrepro bit-identical sound; round-trip C==A. Root PianoidInstall
+     docs/logs/diagnostics LEFT UNCOMMITTED for the merge-sweep. -->
+| <!-- (none active for dev-applyc-arraysize — committed, HOLD) --> | | | |
 <!-- dev-applyc locks RELEASED 2026-06-22T09:45:00Z at Step 10a Phase 1 (code COMMITTED, user chose
      option A — ship in-place re-init now). In-place CUDA re-init (Apply HOT/STRUCTURAL lifecycle).
      COMMITTED on feature/dev-applyc: PianoidCore 008ec9e (backendServer.py + pianoid.py +

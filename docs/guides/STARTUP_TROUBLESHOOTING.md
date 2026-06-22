@@ -27,6 +27,30 @@ The live stack uses **three cooperating processes**. Starting or killing the wro
 
 **Rule**: for UI testing, always start the full `npm run dev` (launcher + frontend together) and let the launcher own the backend. Do not start the backend directly via `python backendserver.py` unless you are also willing to bypass the UI (curl-only interaction).
 
+### Reloading the browser tab is safe (dev-hxfix, 2026-06-22)
+
+A plain browser **reload no longer kills the backend.** Earlier builds had a
+`beforeunload` handler in `PianoidTuner.js` that POSTed `/api/stop-backend` on
+every page unload "to avoid stale processes" — but `beforeunload` fires on a
+RELOAD too (the event is identical for tab-close and reload, with no way to
+distinguish them at unload time), so a refresh killed the launcher-owned
+backend. The freshly-mounted page then bootstrapped against a dead :5000 and
+the editor got stuck (Pitch unselectable, every editor pane showing
+"Read-only original — spawn a working copy to edit").
+
+The handler was removed (dev-hxfix). Stale-process cleanup is still covered:
+the launcher kills any orphan on :5000 before each `/api/start-backend`, and
+`ensureBackendAndLoadPreset` has explicit stale-process detection on the next
+APPLY. A **bare-backend auto-recovery effect** additionally re-syncs the editor
+if a reload ever lands on a reachable backend that lost its loaded preset
+(health reports reachable-but-`pianoid_loaded=false` → re-issue the bootstrap
+once). Guarded against regression by
+`src/components/__tests__/reloadKeepsBackend.source.test.js`.
+
+> (This re-authorizes the dev-pitchfix Fix B/Fix A pair, which was once merged
+> then reverted as an unrelated-symptom mismatch; the kill-on-reload was later
+> reconfirmed as a real blocking bug and re-fixed here, with a regression guard.)
+
 ---
 
 ## Port Conflicts

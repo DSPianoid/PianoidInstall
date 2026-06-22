@@ -28,6 +28,7 @@
 | dev-37f6 | Excitation/Hammer panel Cluster A+B (width erratic/energy-norm/position-latency + workbenches + anchored-linear) | [log](logs/dev-37f6-2026-06-21-203040.md) | 2026-06-21 | In Progress |
 | dev-applyc | Cluster C — Apply HOT-vs-STRUCTURAL lifecycle (diff-and-route in load_preset; HOT-only → soft re-init, suppress FE presetVersion bump; STRUCTURAL/name → full reload) | [log](logs/dev-applyc-2026-06-22-054100.md) | 2026-06-22 | In Progress |
 | dev-soundd | Sound Test full-cycle/sync/checkpoint profiling (D1, locate non-kernel delay) + D2 (save result, spectrum chart, align-then-zoom-sync) | [log](logs/dev-soundd-2026-06-22-054200.md) | 2026-06-22 | In Progress |
+| dev-hxfix | Hammer/excitation live-test fixes: BLOCKER FE-kills-backend-on-reload + #3 control-row overflow + #2 loudness(measure/propose/HOLD) + #1 workbench-tracking re-verify | [log](logs/dev-hxfix-2026-06-22-145220.md) | 2026-06-22 | In Progress |
 <!-- dev-wbspawn workbench work all MERGED to PianoidTunner dev (placement+orphan-fix earlier; 3rd type
      panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20; PER-TYPE placement refinement
      31941cc on 2026-06-20 — placement.{fixed,panelFollowing,globalDynamic}, 3 global-⚙ controls,
