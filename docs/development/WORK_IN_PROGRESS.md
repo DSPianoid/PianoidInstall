@@ -8,6 +8,51 @@
 | dev-5b2f | model-agnostic-ORCHESTRATOR T1: MultiTurnAdapterDriver (multi-turn + OpenAI tool_calls loop) — NEW module, additive/dormant, wired into nothing; throwaway-dist verify only, no live touch | [log](logs/dev-5b2f-2026-06-22-200229.md) | 2026-06-22 |
 | dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |
 | dev-8513 | model-agnostic-ORCHESTRATOR T3: runTool permission/seal CHOKE-POINT (NEW orchestrator-tool-runner.ts) routing coordinate tools → permission router + sealed AsyncDispatchRegistry; index.ts GATED composition (construct registry from the sealed dispatchRoleAgent + inject into Panel, conditional-spread, byte-for-byte OFF). Driver-selection NOT switched (T4). ADDITIVE/DORMANT; throwaway-build verify only, no live touch | [log](logs/dev-8513-2026-06-22-205048.md) | 2026-06-22 |
+| dev-896b | model-agnostic-ORCHESTRATOR T4 (CONNECTS T1–T3): resolveOrchestratorDriver(model) (driver-policy.ts) + gated MultiTurnAdapterDriver construction in index.ts (non-Claude model → the multi-turn adapter with ORCHESTRATOR_COORDINATE_TOOLS + the late-bound sealed runTool; Claude → the original cli-stream/sdk ternary, byte-for-byte) + non-Claude ids (deepseek/codex/gemini) in CONTROL_MODEL_CHOICES + ORCHESTRATOR_TOOL_NAMES in the orchestrator allow-list. ADDITIVE/DORMANT (default model = Claude → byte-for-byte). Throwaway-build verify only, no live touch | [log](logs/dev-896b-2026-06-22-181230.md) | 2026-06-22 |
+
+<!-- DOC DEFERRAL + T5 ACTIVATION RECIPE (dev-896b, 2026-06-22): the model-agnostic-ORCHESTRATOR T4 wiring
+     (the CONNECTING phase) on feature/model-agnostic-orchestrator-tier1, stacked on T3 9edfb74 — is
+     ADDITIVE + DORMANT + byte-for-byte when the orchestrator model is Claude. EDITS: (1) driver-policy.ts
+     NEW resolveOrchestratorDriver(model, isNonClaudeModel?) -> 'cli-stream'|'multi-turn-adapter' (FAIL-SAFE:
+     Claude id OR unknown/empty → cli-stream; ONLY a registry-KNOWN non-Claude provider model id →
+     multi-turn-adapter) + isClaudeModel + OrchestratorDriverKind. (2) index.ts: a THIRD sessionDriver branch
+     gated on resolveOrchestratorDriver(config.orchestratorModel ?? profile.model) AND profile.name==='orchestrator'
+     — when 'multi-turn-adapter' build MultiTurnAdapterDriver({config: the provider's apiAdapterConfig from
+     buildDefaultApiAdapterConfigs()[model], tools: ORCHESTRATOR_COORDINATE_TOOLS, runTool: a LATE-BOUND closure
+     that builds createOrchestratorToolRunner({registry: the outer-scope asyncDispatchRegistry, permissionHandler:
+     sessionHost.permissionRouter.decide}) at call time}); ELSE the ORIGINAL cli-stream/sdk ternary (byte-for-byte).
+     (3) control-command.ts CONTROL_MODEL_CHOICES += deepseek-v4-flash / gpt-5-codex / gemini-2.5-flash (the
+     change-model→restart→handoff flow already model-agnostic). (4) profiles.ts makeOrchestratorPolicy().allow +=
+     spawn_agent/agent_status/await_agent/cancel_agent (auto-allow the coordinate tools — else fallback:'route'
+     asks every spawn; they're NOT destructive so the floor won't re-route; INERT for cli-stream/Claude). Also
+     reconciled 2 T3 tests in index-async-dispatch-wiring.test.ts (they asserted the coordinate tool ROUTES under
+     the DEFAULT policy; T4 now auto-allows it → updated to force-route via a policy override, preserving the
+     deny/timeout fail-safe intent; +1 new test for the T4 auto-allow). Tests: 774 total / 766 pass / 4 fail
+     (the SAME pre-existing path/env artifacts) / 4 skip; +20 net; tsc exit 0; live dist/ + supervisor PID 42816
+     UNTOUCHED. LOC: driver-policy 49→110 (GREEN); index 797→863 (+66 additive, composition concern; supervisor-
+     subproject convention, NOT the Pianoid God-Objects list; YELLOW pre-existing); control-command +9; profiles +14.
+
+     ★ T4 COMPLETES THE BUILD (T1–T4). The non-Claude orchestrator is now REACHABLE but still DORMANT (default
+     model = Claude → cli-stream → byte-for-byte today). README driver/endpoint tables STILL omit the T1–T4
+     surfaces — the campaign's standing "README update DEFERRED to activation" discipline (folds into the campaign
+     → master merge at T5 activation, alongside the T1/T2/T3 driver+route rows). Source of truth meanwhile: the
+     committed proposal docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.3 (piece #3) + §4 T4 +
+     §5 D-H + the module headers + the tests (orchestrator-driver-selection.test.ts + orchestrator-model-menu-
+     policy.test.ts + the reconciled index-async-dispatch-wiring.test.ts).
+
+     ★ T5 ACTIVATION RECIPE (must be driven from a LOCAL session — a HOSTED session cannot restart its own host):
+       (a) Set the orchestrator model to a non-Claude id — EITHER export SUPERVISOR_ORCHESTRATOR_MODEL=deepseek-v4-flash
+           (in the launcher, e.g. launch-prod-orch.mjs) OR pick it live in `/control → Change model → deepseek-v4-flash`
+           (which sets config.orchestratorModel on the change-model restart).
+       (b) Supply that provider's key via `/setkey deepseek <key>` (the key is read from DEEPSEEK_API_KEY at call
+           time; the deepseek-key-bridge already projects it). This REQUIRES SUPERVISOR_ROLE_ROUTING=ON so the
+           secret store + the asyncDispatchRegistry are wired (else the coordinate tools report "not available yet").
+       (c) REBUILD the live dist/ (this T4 code is committed but NOT in dist/ — the running supervisor PID 42816 still
+           runs the 09:35:32 build) AND RESTART the supervisor. resolveOrchestratorDriver then builds the
+           MultiTurnAdapterDriver for the non-Claude model at construction.
+       (d) ROLLBACK = unset SUPERVISOR_ORCHESTRATOR_MODEL (→ Claude default) + restart → the cli-stream host returns.
+       (e) Per the proposal, run the §6.1 de-risking PROBE (T0) FIRST on a TEST bot before committing production to a
+           non-Claude orchestrator (it is unproven a non-Claude model can hold the role reliably). -->
 
 <!-- DOC DEFERRAL (dev-5b2f, 2026-06-22): the model-agnostic-ORCHESTRATOR T1 driver
      (tools/supervisor/src/multi-turn-adapter-driver.ts, NEW, on feature/model-agnostic-orchestrator-tier1)

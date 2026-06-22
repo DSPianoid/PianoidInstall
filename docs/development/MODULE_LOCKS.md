@@ -16,6 +16,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 | dev-e9d9 | `tools/supervisor/launch-prod-orch.mjs` | 2026-06-21T09:00:00Z | GO-LIVE STAGING: set the dispatch-activation env (SUPERVISOR_ROLE_ROUTING + the 2 spend caps + est-cost) in the prod launcher; back up + rebuild prod dist. DeepSeek bridge env left OFF pending USER (not coordinator) sign-off. No live-process touch; no merge/push. |
+<!-- dev-896b locks RELEASED 2026-06-22 at Step 10a Phase 1 (code commit c67cab5 on
+     feature/model-agnostic-orchestrator-tier1, stacked on T3 9edfb74; NOT merged/pushed — awaiting user).
+     T4 (model-agnostic-ORCHESTRATOR, the CONNECTING phase): driver-policy.ts NEW resolveOrchestratorDriver
+     (Claude/unknown → cli-stream, registry-known non-Claude → multi-turn-adapter) + index.ts THIRD sessionDriver
+     branch (non-Claude → MultiTurnAdapterDriver{coordinate tools + late-bound sealed runTool}; Claude → original
+     ternary byte-for-byte) + CONTROL_MODEL_CHOICES += deepseek/codex/gemini + makeOrchestratorPolicy().allow +=
+     the 4 coordinate tools. Reconciled 2 T3 tests in index-async-dispatch-wiring.test.ts (auto-allow now). ADDITIVE
+     + DORMANT (default Claude → byte-for-byte). 774/766 pass/4 fail-preexisting/4 skip; tsc 0; live dist/ + PID 42816
+     UNTOUCHED. -->
 <!-- dev-25a7 locks RELEASED 2026-06-22 at Step 10a Phase 1 (code commit b3807cd on
      feature/model-agnostic-orchestrator-tier1, stacked on T1 84e2dd2; NOT merged/pushed — STOP before
      Phase 2; this is T2 of the model-agnostic-ORCHESTRATOR campaign, the teams-replacement, additive/dormant).
