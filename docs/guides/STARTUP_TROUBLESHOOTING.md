@@ -47,6 +47,23 @@ if a reload ever lands on a reachable backend that lost its loaded preset
 once). Guarded against regression by
 `src/components/__tests__/reloadKeepsBackend.source.test.js`.
 
+**Companion fix — HOT bootstrap must still hydrate the editor (dev-hxfix).**
+Keeping the backend alive across a reload exposed a second failure: when the
+bootstrap `/load_preset` lands on an *already-loaded* backend, the Cluster-C
+(dev-applyc) lifecycle classifies it as `reinit:'hot'` (runtime params only) and
+**suppresses the editor re-fetch + `presetVersion` bump** to preserve a user's
+in-progress edits across an Apply. On a fresh page mount there are no edits to
+preserve, so that skip left every editor pane empty ("Select a pitch", Pitch
+unselectable) even though the backend was healthy — this is the "nothing
+changed / editor stuck" symptom seen even after the backend stays alive.
+`usePreset.loadPreset` now gates the keep-state behaviour on an
+`editorHydratedRef`: the **first** load of a page session always force-fetches
+the editor data (notes + per-pitch params) regardless of reinit kind; only a
+**subsequent** in-place Apply preserves edits. So a reload always lands on a
+fully-populated editor. Pinned by
+`src/hooks/__tests__/usePreset.hotReinit.test.jsx` (first-load-hydrates vs
+subsequent-hot-preserves).
+
 > (This re-authorizes the dev-pitchfix Fix B/Fix A pair, which was once merged
 > then reverted as an unrelated-symptom mismatch; the kill-on-reload was later
 > reconfirmed as a real blocking bug and re-fixed here, with a regression guard.)

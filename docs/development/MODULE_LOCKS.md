@@ -33,13 +33,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-<!-- dev-hxfix locks RELEASED 2026-06-22T15:34:00Z at Step 10a Phase 1 (committed, HOLD for user test + merge approval).
-     BLOCKER (reload-kills-backend) + #3 (control-row overflow) COMMITTED a729cbd on feature/dev-hxfix-reload-layout
-     (off dev 579b525): PianoidTuner.js (remove beforeunload stop-backend + add bare-recovery effect),
-     HammerStringChart.jsx (control row flexWrap + 62/70/62 widths), NEW reloadKeepsBackend.source.test.js (2 tests).
-     Root docs committed 0ce64bc (STARTUP_TROUBLESHOOTING note + log + 3 screenshots + WIP/locks). NOT merged to dev.
+<!-- dev-hxfix locks RELEASED 2026-06-22T16:21:00Z (committed, HOLD for user test + merge approval).
+     BLOCKER has TWO halves, both COMMITTED on feature/dev-hxfix-reload-layout (off dev 579b525):
+       (1) reload-kills-backend a729cbd: PianoidTuner.js remove beforeunload stop-backend + bare-recovery effect;
+           HammerStringChart.jsx control-row flexWrap + 62/70/62 widths (#3 overflow); NEW reloadKeepsBackend.source.test.js.
+       (2) HOT-bootstrap-empty-editor d77cdf0: usePreset.js editorHydratedRef — first (un-hydrated) load force-fetches
+           editor data even on reinit:'hot' (the dev-applyc HOT skip left the editor empty on reload); usePreset.hotReinit
+           test split first-load-hydrates vs subsequent-hot-preserves; guard test extended. ★This was the actual "nothing
+           changed / editor stuck (Select a pitch)" the user hit AFTER the served bundle already had fix (1).
+     Root docs committed 0ce64bc + (pending) STARTUP_TROUBLESHOOTING note + logs/screenshots. NOT merged to dev.
      #2 loudness = measure/propose/HOLD (no code; full measurement+approach in the session log). #1 workbench tracking
-     re-verified GOOD live (no fix needed). Jest 129/1325==baseline + 2 new; eslint 0 errors. dev-hxfix STAYS ALIVE. -->
+     re-verified GOOD live (no fix needed). Jest 130/1328 green; eslint 0 errors. dev-hxfix STAYS ALIVE. -->
 <!-- dev-applyc-arraysize locks RELEASED 2026-06-22 (code COMMITTED acb103d on
      feature/dev-applyc-arraysize, HOLD for user combined test). array_size in-place
      re-init silent-render. ROOT CAUSE = Python, NOT C++/CUDA: _rebuild_stringmap_for_array_size
