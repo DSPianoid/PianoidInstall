@@ -230,6 +230,15 @@ export const CONTROL_MODEL_CHOICES: readonly string[] = [
   'claude-opus-4-8[1m]',
   'claude-sonnet-4-6',
   'claude-haiku-4-5',
+  // ★ T4 (model-agnostic-orchestrator Tier-1, piece #3): NON-Claude orchestrator model ids from the
+  // provider registry's defaults (deepseek / openai-codex / gemini). Picking one here → the change-model
+  // restart relaunches with config.orchestratorModel = this id → resolveOrchestratorDriver builds the
+  // MultiTurnAdapterDriver (the non-Claude orchestrator). DORMANT: the menu merely OFFERS them; nothing
+  // activates until the operator picks one AND a restart happens (+ the model's key must be set via
+  // /setkey, and the live dist/ rebuilt). The Claude default (first entry) is unchanged.
+  'deepseek-v4-flash',
+  'gpt-5-codex',
+  'gemini-2.5-flash',
 ];
 
 /**

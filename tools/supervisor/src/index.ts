@@ -46,9 +46,13 @@ import { makeEchoHook } from './echo.js';
 import { SessionHost } from './session-host.js';
 import { SdkSessionDriver } from './adapters/sdk-session-driver.js';
 import { CliStreamDriver } from './adapters/cli-stream-driver.js';
-import { resolveDriverSelection, type DriverName } from './driver-policy.js';
-import type { SessionDriver } from './session-driver.js';
+import { resolveDriverSelection, resolveOrchestratorDriver, type DriverName } from './driver-policy.js';
+import type { SessionDriver, PermissionDecision } from './session-driver.js';
 import { resolveProfile } from './profiles.js';
+import { MultiTurnAdapterDriver } from './multi-turn-adapter-driver.js';
+import { createOrchestratorToolRunner } from './orchestrator-tool-runner.js';
+import { ORCHESTRATOR_COORDINATE_TOOLS } from './orchestrator-tools.js';
+import { buildDefaultApiAdapterConfigs } from './provider-registry.js';
 import { assertCostSafe } from './cost-safety.js';
 import { loadMcpServers, HOSTED_MCP_EXCLUDE_SUBSTRINGS } from './mcp-config.js';
 import { buildSupervisorChannelServer, SUPERVISOR_CHANNEL_SERVER_NAME, SUPERVISOR_CHANNEL_REPLY_TOOL } from './channel-tool.js';
@@ -209,12 +213,72 @@ async function main(): Promise<void> {
     assertCostSafe(process.env);
     logger.info('cost-safety: env is key-free → hosted session bills the Claude subscription (no ANTHROPIC_API_KEY)');
 
-    const sessionDriver: SessionDriver =
-      driver === 'cli-stream'
-        ? new CliStreamDriver({
-            onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`),
-          })
-        : new SdkSessionDriver();
+    // ★ T4 — DRIVER SELECTION BY MODEL (model-agnostic-orchestrator Tier-1, piece #3).
+    // The orchestrator's OWN model (config.orchestratorModel ?? profile.model — the SAME value
+    // threaded to the SessionHost at :570) decides whether it runs on Claude-via-CLI (today's
+    // default) or on the NON-Claude multi-turn adapter. resolveOrchestratorDriver is FAIL-SAFE:
+    // a Claude id (the default `claude-opus-4-8[1m]`) OR any unrecognized id → 'cli-stream'
+    // (byte-for-byte today); ONLY a model the provider registry KNOWS (a wired non-Claude
+    // provider model id, e.g. `deepseek-v4-flash`) → 'multi-turn-adapter'. The non-Claude path is
+    // gated to the ORCHESTRATOR profile (the demo persona never runs a non-Claude orchestrator).
+    // DORMANT by construction: with the default model (Claude), this resolves to 'cli-stream' and
+    // the original two-branch ternary below runs UNCHANGED.
+    const orchestratorModel = config.orchestratorModel ?? profile.model;
+    const apiAdapterConfigByModel = buildDefaultApiAdapterConfigs();
+    const orchestratorDriverKind =
+      profile.name === 'orchestrator'
+        ? resolveOrchestratorDriver(orchestratorModel, (m) => Object.prototype.hasOwnProperty.call(apiAdapterConfigByModel, m))
+        : 'cli-stream'; // non-orchestrator profiles never take the non-Claude path
+    let sessionDriver: SessionDriver;
+    if (orchestratorDriverKind === 'multi-turn-adapter' && orchestratorModel) {
+      // NON-CLAUDE ORCHESTRATOR (proposal §3.1+§3.4): the multi-turn adapter driver with the
+      // coordinate tools (teams-replacement) + the SEALED runTool choke-point. The provider config
+      // (baseUrl/model/secretEnvVar/rate) comes from the registry (the model id is a known provider
+      // model — guaranteed by the resolver's isNonClaudeModel check above). The driver reads its
+      // provider key from env at call time (the seal/cost-guard at activation scopes ONLY that key).
+      const adapterConfig = apiAdapterConfigByModel[orchestratorModel]!;
+      // The runTool + permissionHandler LATE-BIND `sessionHost` + `asyncDispatchRegistry` (both in
+      // this outer scope, assigned below — sessionHost at construction, the registry inside the
+      // role-routing gate). The driver only INVOKES runTool DURING a turn (long after construction),
+      // so resolving them at call time is safe; this mirrors how onUnresponsive/restartControl close
+      // over `sessionHost` lazily. If the registry is absent (role-routing OFF) OR the host isn't up
+      // yet, runTool returns a clean tool-error string (never throws — CP5).
+      const lateRunTool = async (call: import('./multi-turn-adapter-driver.js').ParsedToolCall): Promise<string> => {
+        if (!asyncDispatchRegistry || !sessionHost) {
+          return JSON.stringify({
+            ok: false,
+            error:
+              'coordinate tools are not available yet (the dispatch surface requires SUPERVISOR_ROLE_ROUTING ' +
+              'and a running host). The action was NOT performed.',
+          });
+        }
+        const runner = createOrchestratorToolRunner({
+          registry: asyncDispatchRegistry,
+          permissionHandler: (req): Promise<PermissionDecision> => sessionHost!.permissionRouter.decide(req),
+          onNote: (line, fields) => logger.info(line, fields),
+        });
+        return runner(call);
+      };
+      logger.warn(
+        `SESSION MODE — hosting a NON-CLAUDE orchestrator on the multi-turn adapter (model: ${orchestratorModel}, ` +
+          `key env: ${adapterConfig.secretEnvVar}). The Claude default is OFF for this session.`,
+        { model: orchestratorModel, baseUrl: adapterConfig.baseUrl, secretEnvVar: adapterConfig.secretEnvVar },
+      );
+      sessionDriver = new MultiTurnAdapterDriver({
+        config: adapterConfig,
+        tools: ORCHESTRATOR_COORDINATE_TOOLS,
+        runTool: lateRunTool,
+        onStderr: (line) => logger.warn(`multi-turn-adapter stderr: ${line}`),
+      });
+    } else {
+      // CLAUDE ORCHESTRATOR (the default) — the original two-branch ternary, byte-for-byte.
+      sessionDriver =
+        driver === 'cli-stream'
+          ? new CliStreamDriver({
+              onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`),
+            })
+          : new SdkSessionDriver();
+    }
 
     // The in-process channel reply tool (createSdkMcpServer) can ONLY be wired into the
     // SDK driver (it runs in THIS process). A `claude -p` CHILD process can't receive

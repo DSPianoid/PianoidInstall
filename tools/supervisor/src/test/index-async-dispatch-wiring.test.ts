@@ -152,15 +152,19 @@ test('★★ ON end-to-end: runTool over the REAL router (coordinate tool ALLOW-
   assert.deepEqual(seenTools, []);
 });
 
-test('★★ ON safety floor: a coordinate tool NOT allow-listed ROUTES to the user; a deny is NOT executed', async () => {
+test('★★ ON safety floor: a coordinate call that ROUTES + a deny is NOT executed', async () => {
   const calls: { role: string; task: string }[] = [];
   const dispatchRoleAgent: RoleDispatchFn = fakeDispatchRoleAgent(calls);
   const registry = new AsyncDispatchRegistry({ executor: dispatchRoleAgent as AsyncDispatchExecutor, idFn: () => 'agt-1' });
 
-  // Default orchestrator policy (coordinate tools NOT allow-listed) + the user DENIES → fallback:'route'
-  // asks, the user denies → the runner returns a clean tool-error and the closure never runs.
+  // ★ T4 NOTE: the production orchestrator policy now AUTO-ALLOWS the four coordinate tools (so a
+  // non-Claude orchestrator's spawn/poll/await/cancel don't ask the user every time). To exercise the
+  // runner's PERMISSION-FLOOR fail-safe here, override the policy so the coordinate tool is NOT
+  // allow-listed → it hits fallback:'route' → the user is asked → the user DENIES → the runner returns
+  // a clean tool-error and the sealed closure never runs. (The auto-allow path is asserted by the
+  // ALLOW test above + orchestrator-model-menu-policy.test.ts.)
   const seenTools: string[] = [];
-  const router = realRouterWith('deny', seenTools);
+  const router = realRouterWith('deny', seenTools, { allow: ['Read'] }); // coordinate tools NOT allow-listed → routes
   const runTool = createOrchestratorToolRunner({ registry, permissionHandler: router.decide });
 
   const out = JSON.parse(await runTool(call(ORCHESTRATOR_TOOL_NAMES.spawn, { role: 'coding', task: 't' })));
@@ -176,13 +180,36 @@ test('★★ ON safety floor: a no-reply (timeout) DENIES fail-safe; the sealed 
   const dispatchRoleAgent: RoleDispatchFn = fakeDispatchRoleAgent(calls);
   const registry = new AsyncDispatchRegistry({ executor: dispatchRoleAgent as AsyncDispatchExecutor });
 
-  const router = realRouterWith('timeout', []); // no user reply → router maps to deny (fail-safe)
+  // As above, force the coordinate tool to ROUTE (not the T4 auto-allow) so the timeout fail-safe is
+  // exercised: no user reply → the router maps to deny (fail-safe) → the closure never runs.
+  const router = realRouterWith('timeout', [], { allow: ['Read'] }); // routes; no reply → deny
   const runTool = createOrchestratorToolRunner({ registry, permissionHandler: router.decide });
 
   const out = JSON.parse(await runTool(call(ORCHESTRATOR_TOOL_NAMES.spawn, { role: 'coding', task: 't' })));
   assert.equal(out.ok, false);
   assert.match(String(out.error), /permission denied/i);
   assert.equal(calls.length, 0);
+});
+
+test('★★ T4: under the PRODUCTION orchestrator policy the coordinate tools AUTO-ALLOW (no user prompt)', async () => {
+  // The T4 policy change: spawn/status/await/cancel are allow-listed, so the runner dispatches WITHOUT
+  // routing to the user. This is the behavior the prior "NOT allow-listed → routes" test asserted before
+  // T4; now the DEFAULT (un-overridden) policy auto-allows. (The deny/timeout fail-safe above still holds
+  // when a tool is NOT allow-listed — defense for any future un-listed coordinate tool.)
+  const calls: { role: string; task: string }[] = [];
+  const dispatchRoleAgent: RoleDispatchFn = fakeDispatchRoleAgent(calls);
+  const registry = new AsyncDispatchRegistry({ executor: dispatchRoleAgent as AsyncDispatchExecutor, idFn: () => 'agt-1' });
+
+  const seenTools: string[] = [];
+  const router = realRouterWith('deny', seenTools); // even with the user set to DENY, an allow-listed tool never asks
+  const runTool = createOrchestratorToolRunner({ registry, permissionHandler: router.decide });
+
+  const out = JSON.parse(await runTool(call(ORCHESTRATOR_TOOL_NAMES.spawn, { role: 'coding', task: 'build X' })));
+  assert.equal(out.ok, true, 'auto-allowed → the spawn ran');
+  assert.equal(out.agentId, 'agt-1');
+  await registry.awaitAgent('agt-1', 1000);
+  assert.deepEqual(calls, [{ role: 'coding', task: 'build X' }]);
+  assert.deepEqual(seenTools, [], 'the allow-listed coordinate tool did NOT route to the user');
 });
 
 test('★ the same router instance gates an UNKNOWN tool via the runner allow-check FIRST (never reaches the router)', async () => {

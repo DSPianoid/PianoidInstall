@@ -24,6 +24,7 @@
  */
 
 import type { PermissionPolicy } from './permission-router.js';
+import { ORCHESTRATOR_TOOL_NAMES } from './orchestrator-tools.js';
 
 export type ProfileName = 'demo' | 'orchestrator';
 
@@ -278,6 +279,19 @@ export function makeOrchestratorPolicy(
       'NotebookEdit',
       'WebFetch',
       'WebSearch',
+      // ★ T4 (model-agnostic-orchestrator Tier-1, piece #2/#4): the NON-Claude orchestrator's
+      // COORDINATE tools (the teams-replacement — spawn_agent / agent_status / await_agent /
+      // cancel_agent). Auto-allowed so a non-Claude orchestrator's spawn/poll/await/cancel calls
+      // run freely instead of hitting fallback:'route' and asking the operator on EVERY spawn.
+      // These are NOT destructive (routeWhen=isDestructiveOp does not match them), so the safety
+      // floor will not re-route them; the SEALED dispatch path they reach (the AgentConcurrencyGate
+      // spend/cost cap + the backend seal + channel-mute sub-agents) is the actual containment.
+      // INERT for the Claude orchestrator: cli-stream has no such tools, so listing them is a no-op
+      // there — they matter only when the multi-turn adapter driver exposes the coordinate manifest.
+      ORCHESTRATOR_TOOL_NAMES.spawn,
+      ORCHESTRATOR_TOOL_NAMES.status,
+      ORCHESTRATOR_TOOL_NAMES.await,
+      ORCHESTRATOR_TOOL_NAMES.cancel,
       // MCP servers — per-server prefixes. The `claude -p` CLI REJECTS a bare `mcp__*`
       // in an ALLOW rule ("must name the scope it widens"; globs allowed only AFTER a
       // literal mcp__<server>__ prefix) — so we enumerate the wired read/compute servers.
