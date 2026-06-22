@@ -16,6 +16,45 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 | dev-e9d9 | `tools/supervisor/launch-prod-orch.mjs` | 2026-06-21T09:00:00Z | GO-LIVE STAGING: set the dispatch-activation env (SUPERVISOR_ROLE_ROUTING + the 2 spend caps + est-cost) in the prod launcher; back up + rebuild prod dist. DeepSeek bridge env left OFF pending USER (not coordinator) sign-off. No live-process touch; no merge/push. |
+<!-- dev-5b2f locks RELEASED 2026-06-22 at Step 10a Phase 1 (proposal commit b46f224 + code commit 7b29f2d on
+     feature/model-agnostic-orchestrator-tier1, off master 806f47d; NOT merged/pushed — STOP before Phase 2;
+     this is T1 of the model-agnostic-ORCHESTRATOR campaign, additive/dormant). NEW (no existing file edited):
+     tools/supervisor/src/multi-turn-adapter-driver.ts + test/multi-turn-adapter-driver.test.ts.
+     MultiTurnAdapterDriver = the orchestrator-grade SessionDriver sibling of the one-shot ApiAdapterDriver:
+     persistent messages[] (sole writer P1), REAL send()+runTurn(), OpenAI-native tool_calls loop (request
+     carries tools/tool_choice; assistant tool_calls → injected runTool callback → {role:'tool'} feedback →
+     next completion → until a final no-tool_calls answer OR DEFAULT_MAX_TOOL_ITERATIONS=40 cap). REUSES the
+     one-shot adapter's pure helpers (parseStreamPayload non-streamed read, resolveRate/computeCostUsd M-1
+     metering, injectable ApiAdapterHttpClient + ApiAdapterHttpError discipline). Every failure path (missing
+     key / HTTP non-2xx / network / bad body / denied-or-throwing tool / loop cap / interrupt) → CLEAN surfaced
+     terminal result with an error subtype, never a thrown crash, never a leaked key (CP5). Design decisions
+     beyond spec: D1 NON-streamed completions for the tool path (tool_calls fragment across SSE deltas; a
+     non-streamed turn is atomic); D2 runTool injected, defaults to a clean "not wired" stub (the REAL
+     router/seal choke-point is piece #4 at activation; the unsealed/unrouted path is unrepresentable in the
+     class — no child_process, no fetch but the model endpoint); D3 the tool manifest is injected (empty ⇒
+     plain chat). Caps: supportsTools=true + supportsPermissionRouting=true (distinct from bare api-adapter's
+     all-false), supportsTeams=false, supportsResume=false. WIRED INTO NOTHING (no driver-selection, no
+     orchestrator-profile, no live-path edit) — additive/dormant; live Claude orchestrator byte-for-byte.
+     +33 tests (plain multi-turn / single tool_call round-trip / multi-tool-call turn / multi-round agentic /
+     missing-key / HTTP-429 / network / bad-body / denied-tool / throwing-tool / unwired-tool / loop-cap /
+     empty-response / empty-task / interrupt / caps / secret-hygiene / chunked-body / lifecycle guards), all
+     green vs a FAKE non-streamed OpenAI endpoint + scripted runTool (NO network, NO key, NO spend). Verified
+     via THROWAWAY tsc (-p tsconfig.json --outDir D:/tmp/dist-test-5b2f, exit 0) + node --test on the temp
+     build (env -u SUPERVISOR_STARTUP_HANDOFF_FILE / SUPERVISOR_DISPATCH_* / SUPERVISOR_ROLE_ROUTING /
+     SUPERVISOR_DEEPSEEK_KEY_BRIDGE): 694 tests 687 pass 3 fail 4 skip — the 3 fails byte-identical to baseline
+     (button-rows grammy-resolution in the node_modules-less throwaway dir + 2 STT/TTS config env path
+     assertions), 0 NEW failures; temp dirs removed. NEW module LOC 650 (doc-heavy header + per-symbol JSDoc;
+     sibling api-adapter-driver.ts=660 is the accepted precedent — not a split trigger). test LOC 582.
+     ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY to throwaway, removed; prod dist/index.js mtime
+     2026-06-22 09:35:32.080782200 + dist/api-adapter-driver.js mtime 2026-06-22 09:35:31.825743300 UNCHANGED
+     before+after; dist/multi-turn-adapter-driver.js ABSENT from prod dist; grep -c MultiTurnAdapterDriver
+     dist/index.js dist/api-adapter-driver.js = 0); the live supervisor [8790, PID 42816] NOT started/touched/
+     killed, NO /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher, NO supervisor PID touched (all
+     behavior via FAKE HTTP client + scripted runTool + injected env — NO real claude spawn / Telegram / API
+     spend; the REAL ~/.claude.json never read). README driver-table update = activation-deferred (DOC DEFERRAL
+     block filed in WIP). Dirty/untracked OTHER-agent files NOT touched (clean branch off master; none present).
+     SHAs in the session log. -->
+| <!-- (none active for dev-5b2f) --> | | | |
 <!-- dev-e9d9 FOLLOW-UP locks RELEASED 2026-06-21 at Step 10a Phase 1 (2nd commit on feature/supervisor-dispatch-activation;
      NOT merged/pushed — STOP before Phase 2). EDITED: tools/supervisor/src/{config,index}.ts + NEW deepseek-key-bridge.ts
      + test/{config,dispatch-spend-wiring[NEW]}.test.ts. (result-relay.ts was LOCKED precautionarily but NOT edited this

@@ -5,6 +5,17 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
+| dev-5b2f | model-agnostic-ORCHESTRATOR T1: MultiTurnAdapterDriver (multi-turn + OpenAI tool_calls loop) — NEW module, additive/dormant, wired into nothing; throwaway-dist verify only, no live touch | [log](logs/dev-5b2f-2026-06-22-200229.md) | 2026-06-22 |
+
+<!-- DOC DEFERRAL (dev-5b2f, 2026-06-22): the model-agnostic-ORCHESTRATOR T1 driver
+     (tools/supervisor/src/multi-turn-adapter-driver.ts, NEW, on feature/model-agnostic-orchestrator-tier1)
+     is ADDITIVE + DORMANT (wired into nothing). README.md's component table (≈L51-53) omits it — AND omits
+     its already-shipped ApiAdapterDriver sibling — consistent with the campaign's standing "README driver-table
+     update DEFERRED to activation" discipline. At piece-#3 activation (when a resolveOrchestratorDriver wires
+     this driver into the live orchestrator construction path), add BOTH ApiAdapterDriver + MultiTurnAdapterDriver
+     rows to the README driver table, folded into the campaign → master merge. Source of truth meanwhile: the
+     committed proposal docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.1 + §4 T1 + the module
+     header + the 33 tests (multi-turn-adapter-driver.test.ts). -->
 
 ---
 
