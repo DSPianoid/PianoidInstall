@@ -15,6 +15,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-e9d9 | `tools/supervisor/launch-prod-orch.mjs` | 2026-06-21T09:00:00Z | GO-LIVE STAGING: set the dispatch-activation env (SUPERVISOR_ROLE_ROUTING + the 2 spend caps + est-cost) in the prod launcher; back up + rebuild prod dist. DeepSeek bridge env left OFF pending USER (not coordinator) sign-off. No live-process touch; no merge/push. |
 <!-- dev-e9d9 FOLLOW-UP locks RELEASED 2026-06-21 at Step 10a Phase 1 (2nd commit on feature/supervisor-dispatch-activation;
      NOT merged/pushed — STOP before Phase 2). EDITED: tools/supervisor/src/{config,index}.ts + NEW deepseek-key-bridge.ts
      + test/{config,dispatch-spend-wiring[NEW]}.test.ts. (result-relay.ts was LOCKED precautionarily but NOT edited this
