@@ -28,6 +28,7 @@ import type { Logger } from './logger.js';
 import type { SessionHost } from './session-host.js';
 import type { BusEvent } from './io-bus.js';
 import type { ControllerBridge } from './controller-bridge.js';
+import type { AsyncDispatchRegistry } from './async-dispatch-registry.js';
 
 export interface PanelOptions {
   port: number;
@@ -39,6 +40,14 @@ export interface PanelOptions {
   controllerBridge?: ControllerBridge;
   /** Max capture records returned by /api/capture. Default 200. */
   captureLimit?: number;
+  /**
+   * ★ model-agnostic-orchestrator T2 (piece #2 — the teams-replacement). The ASYNC dispatch registry,
+   * injected by index.ts ONLY when role-routing is activated (the SAME gate as the sync dispatch
+   * capability). When present, the async coordinate routes (`/api/dispatch/async` · `/status` ·
+   * `/await` · `/cancel`) are LIVE; when absent (the dormant default), those routes report
+   * `{ok:false, enabled:false}` and the live path is byte-for-byte today. Optional.
+   */
+  asyncDispatchRegistry?: AsyncDispatchRegistry;
 }
 
 export class Panel {
@@ -49,6 +58,8 @@ export class Panel {
   private readonly sessionHost?: SessionHost;
   private readonly controllerBridge?: ControllerBridge;
   private readonly captureLimit: number;
+  /** ★ T2 — the async dispatch registry (teams-replacement); present only when role-routing is wired. */
+  private readonly asyncDispatchRegistry?: AsyncDispatchRegistry;
 
   constructor(opts: PanelOptions) {
     this.port = opts.port;
@@ -57,6 +68,7 @@ export class Panel {
     this.sessionHost = opts.sessionHost;
     this.controllerBridge = opts.controllerBridge;
     this.captureLimit = opts.captureLimit ?? 200;
+    if (opts.asyncDispatchRegistry) this.asyncDispatchRegistry = opts.asyncDispatchRegistry;
   }
 
   async start(): Promise<void> {
@@ -97,6 +109,19 @@ export class Panel {
         this.handleClear(res);
       } else if (method === 'POST' && url.startsWith('/api/interrupt')) {
         void this.handleInterrupt(res);
+      } else if (method === 'POST' && url.startsWith('/api/dispatch/async')) {
+        // ★ T2 (teams-replacement) — spawn a sealed sub-agent ASYNC, return a handle immediately.
+        // MUST precede the bare /api/dispatch branch (which startsWith-matches this path too).
+        this.handleDispatchAsync(req, res);
+      } else if (method === 'GET' && url.startsWith('/api/dispatch/status')) {
+        // ★ T2 — poll one async agent's state + report (the Monitor replacement).
+        this.handleDispatchStatus(req, res, url);
+      } else if (method === 'POST' && url.startsWith('/api/dispatch/await')) {
+        // ★ T2 — block up to a timeout for an async agent to finish (the blocking Monitor replacement).
+        this.handleDispatchAwait(req, res);
+      } else if (method === 'POST' && url.startsWith('/api/dispatch/cancel')) {
+        // ★ T2 — request a running async agent be stopped (the TaskStop replacement).
+        this.handleDispatchCancel(req, res);
       } else if (method === 'POST' && url.startsWith('/api/dispatch')) {
         // ★ P-B1 — the routed-dispatch surface (model-agnostic). Child-independent: runs a role's
         // sealed backend agent + returns its structured RoleDispatchResult JSON. Dormant when role
@@ -306,6 +331,146 @@ export class Panel {
           res.end(JSON.stringify({ ok: false, role, error: String(err) }));
         });
     });
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────
+   * ★ model-agnostic-orchestrator T2 — the ASYNC dispatch (teams-replacement) routes.
+   * ADDITIVE alongside the synchronous /api/dispatch (UNCHANGED above). All four are
+   * gated on the injected async registry: ABSENT (the dormant default — index.ts wires
+   * it only under SUPERVISOR_ROLE_ROUTING) ⇒ each returns {ok:false, enabled:false} and
+   * NOTHING runs (byte-for-byte today). They NEVER throw to the socket: the registry's
+   * methods never throw for an agent-level failure, and a programmer/infra throw is
+   * caught → a clean 500. Loopback-only, like every /api/* route.
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  /** True iff the async coordinate surface is wired (role-routing active). Mirrors dispatchRole's dormant gate. */
+  private asyncDispatchEnabled(): boolean {
+    return !!this.asyncDispatchRegistry;
+  }
+
+  /** Emit the uniform "async dispatch not enabled" dormant response (200, like dispatchRole's {enabled:false}). */
+  private asyncDispatchDisabled(res: import('node:http').ServerResponse): void {
+    this.json(res, { ok: false, enabled: false, error: 'role routing is not enabled (no async dispatch registry wired)' });
+  }
+
+  /**
+   * POST /api/dispatch/async { role, task } → spawn a sealed sub-agent ASYNCHRONOUSLY and return its
+   * handle immediately (`{ ok, enabled:true, agentId }`). Non-blocking — the agent runs in the
+   * background under the SAME role-router + seal + spend/cost gate as the sync dispatch. A bad
+   * role/task → 400 (the registry also validates, returning ok:false; the 400 is the cheap guard).
+   */
+  private handleDispatchAsync(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+    if (!this.asyncDispatchEnabled()) return this.asyncDispatchDisabled(res);
+    this.readBody(req, (body) => {
+      const role = typeof body.role === 'string' ? body.role.trim() : '';
+      const task = typeof body.task === 'string' ? body.task : '';
+      if (!role || !task.trim()) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, enabled: true, error: "both 'role' and 'task' are required" }));
+        return;
+      }
+      try {
+        const r = this.asyncDispatchRegistry!.spawn(role, task);
+        this.logger.info('operator panel: dispatch/async spawn', { role, ok: r.ok, agentId: r.agentId });
+        this.json(res, { ...r, enabled: true });
+      } catch (err) {
+        this.logger.warn('operator panel: dispatch/async threw', { role, err: String(err) });
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, enabled: true, error: String(err) }));
+      }
+    });
+  }
+
+  /**
+   * GET /api/dispatch/status?agentId=… → one async agent's status snapshot (or `{ok:false}` for an
+   * unknown id), OR the FULL list when no agentId is given. Non-blocking (the Monitor replacement).
+   */
+  private handleDispatchStatus(
+    req: import('node:http').IncomingMessage,
+    res: import('node:http').ServerResponse,
+    url: string,
+  ): void {
+    if (!this.asyncDispatchEnabled()) return this.asyncDispatchDisabled(res);
+    try {
+      const agentId = this.queryParam(url, 'agentId');
+      if (!agentId) {
+        // No id → return the full roster (an operator/coordinator "list my agents" view).
+        this.json(res, { ok: true, enabled: true, agents: this.asyncDispatchRegistry!.list() });
+        return;
+      }
+      const status = this.asyncDispatchRegistry!.status(agentId);
+      if (!status) {
+        this.json(res, { ok: false, enabled: true, error: 'unknown agentId' });
+        return;
+      }
+      this.json(res, { ok: true, enabled: true, status });
+    } catch (err) {
+      this.logger.warn('operator panel: dispatch/status threw', { err: String(err) });
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, enabled: true, error: String(err) }));
+    }
+  }
+
+  /**
+   * POST /api/dispatch/await { agentId, timeoutMs? } → block up to timeoutMs for the agent to finish,
+   * then return its terminal state + status (or `{state:'timeout'}` if the deadline elapsed first, or
+   * `{state:'unknown'}` for an unknown id). The blocking Monitor / "wait for the team" replacement.
+   */
+  private handleDispatchAwait(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+    if (!this.asyncDispatchEnabled()) return this.asyncDispatchDisabled(res);
+    this.readBody(req, (body) => {
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+      if (!agentId) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, enabled: true, error: "'agentId' is required" }));
+        return;
+      }
+      const timeoutMs = typeof body.timeoutMs === 'number' && body.timeoutMs > 0 ? body.timeoutMs : undefined;
+      this.asyncDispatchRegistry!
+        .awaitAgent(agentId, timeoutMs)
+        .then((r) => {
+          this.json(res, { ok: r.state !== 'unknown', enabled: true, ...r });
+        })
+        .catch((err) => {
+          this.logger.warn('operator panel: dispatch/await threw', { agentId, err: String(err) });
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, enabled: true, error: String(err) }));
+        });
+    });
+  }
+
+  /**
+   * POST /api/dispatch/cancel { agentId } → request a running async agent be stopped (the TaskStop
+   * replacement). Cooperative in T2 (marks the agent cancelled + detaches its result). A no-op for an
+   * unknown or already-terminal agent (reported as ok:false, not an error to the socket).
+   */
+  private handleDispatchCancel(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void {
+    if (!this.asyncDispatchEnabled()) return this.asyncDispatchDisabled(res);
+    this.readBody(req, (body) => {
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+      if (!agentId) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, enabled: true, error: "'agentId' is required" }));
+        return;
+      }
+      try {
+        const r = this.asyncDispatchRegistry!.cancel(agentId);
+        this.logger.info('operator panel: dispatch/cancel', { agentId, ok: r.ok, state: r.state });
+        this.json(res, { ...r, enabled: true });
+      } catch (err) {
+        this.logger.warn('operator panel: dispatch/cancel threw', { agentId, err: String(err) });
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, enabled: true, error: String(err) }));
+      }
+    });
+  }
+
+  /** Extract a single query-param value from a request URL (loopback; no external lib). Returns '' if absent. */
+  private queryParam(url: string, name: string): string {
+    const q = url.indexOf('?');
+    if (q < 0) return '';
+    const params = new URLSearchParams(url.slice(q + 1));
+    return (params.get(name) ?? '').trim();
   }
 
   /** Read + parse a small JSON request body (bounded; loopback only). */
