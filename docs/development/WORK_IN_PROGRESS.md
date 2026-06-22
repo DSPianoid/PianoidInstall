@@ -383,6 +383,137 @@ The supervisor was just restarted (user-sanctioned, by the prior orchestrator) t
      against a dedicated test bot (echo text round-trip captured seq0-2; user confirmed). Committed feature/m12-supervisor-phase1
      7db3dec, MERGED to master 93ffa66 (--no-ff). NOT pushed (origin push = separate user call). Review doc:
      docs/development/reviews/m12-supervisor-phase1-review-2026-06-15.md. Log archived. NEXT: M12 Phase 2 (subprocess ownership). -->
+| dev-msave | Mosaic "save current config under current name" (update active in place) | [log](logs/dev-msave-2026-06-17-124652.md) | 2026-06-17 | In Progress |
+| dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
+| dev-wbspawn | Workbench spawn placement — fix relocate bug + new bottom-of-panel mode + global setting | [log](logs/dev-wbspawn-2026-06-17-114341.md) | 2026-06-17 | In Progress |
+| dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
+| dev-wbspawn | Fix fixed-workbench orphaned-after-layout-switch (gate prune effect + auto-snapshot on spawn) | [log](logs/dev-wbspawn-orphan-2026-06-19-141000.md) | 2026-06-19 | In Progress |
+<!-- dev-gausscp COMPLETED 2026-06-20 (Step 10a Phase 2, team-lead pre-authorized merge-after-verify). Reversed the
+     gauss copy/paste selection flow: clicking COPY now ARMS a selection mode (dashed cue + banner + pressed button);
+     the next single click on a cell / chart-column / param-row / NEW top-left whole-table "ALL" corner captures that
+     selection to the clipboard AND auto-exits (one click, no second COPY press). Copy always enabled (starts the flow).
+     Removed the old select-then-COPY + COPY-with-nothing=whole-grid interaction. Paste/All/renormalize/immediate-write/
+     Level-context UNCHANGED; data layer (useGaussClipboard/gaussClipboard) UNCHANGED. Files: ExcitationProperties.jsx
+     (copyMode state + captureGaussSelection/handleGaussSelect/handleStartCopy), GaussEditor.jsx (copyMode cue + corner
+     whole-table selector + armed-aware header/row handlers), GaussCopyPasteButtons.jsx (Copy always-on + aria-pressed).
+     NEW GaussEditor.copySelMode.test.jsx; updated GaussCopyPasteButtons.test.jsx. MERGED feature/dev-gausscp-copy-selmode
+     → PianoidTunner dev 23ef3df (--no-ff, off fe93b5d) + PUSHED (fe93b5d..23ef3df). FE Jest 121/1267 green, eslint 0,
+     prod build clean. Frontend-only, NO CUDA. Docs (pianoid-tunner OVERVIEW) + log archived on PianoidInstall master.
+     :3000 restarted for the user's live test. -->
+<!-- dev-profchart COMPLETED 2026-06-19 (Step 10a Phase 1; team-lead-authorized merge-after-verify). Profiling MVP:
+     kernel cycle-timing + over-budget/underrun markers added to the Sound Test chart set (sound_test_function
+     online branch) via the existing render_hints contract — NEW include_profiling toggle, online-only.
+     - "Kernel cycle time (us)" line series (getTimeRecord full-cycle math) + budget markLine
+       (samples_per_cycle*1e6/sample_rate = 1333us@64@48k) + per-cycle over-budget point_styles (red diamond) +
+       point_meta tooltip; underrun/callback-jitter summary (getCallbackStats) in text_fields. Timing chart gets
+       NO audio player; graceful-degrade if engine telemetry absent; offline emits a note only.
+     - Capture window wraps the online playback sleep: resetCallbackStats+initTimeRecord BEFORE,
+       stopTimeRecord+getTimeRecord+getCallbackStats AFTER (cycle_profile.py order). 5 telemetry primitives added
+       to _SOUND_TEST_ALLOWED_PIANOID_CALLS. include_profiling param in chart_config.json.
+     Backend Python ONLY, NO CUDA rebuild. Committed PianoidCore feature/dev-profchart-sound-test-profiling 0adb956,
+     MERGED to dev 89b1e9f (--no-ff, off 818bd9b) + PUSHED origin/dev (818bd9b..89b1e9f). Tests: 13 new
+     (tests/unit/test_sound_test_profiling.py) + 52 existing (test_sound_test_chart.py) green; L1 import OK on merged dev.
+     LIVE audio_on population check PASSED (single in-process Pianoid, ASIO callback active): 430 cycles, real
+     911-3573us, budget markLine 1333us, 136/430 (31.6%) over-budget, 2/424 (0.47%) underruns, avg cb 1337us.
+     Docs (CHART_SYSTEM.md Sound Test profiling subsection) + log + diagnostic on PianoidInstall master.
+     ★"for starters" — more profiling series likely after the user sees these (buffer-fill needs a C++/pybind +
+     heavy build; per-cycle underrun timeline likewise out of MVP scope). dev-profchart STAYS ALIVE for follow-ups. -->
+<!-- dev-excenergy COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "merge and push energy model").
+     Physics-based excitation energy (B2, proposal docs/proposals/excitation-physical-energy-2026-06-16.md)
+     + reset fix + soft-limiter removal, MERGED + PUSHED across all 3 repos:
+       - PianoidBasic feature/dev-excenergy-physical-energy → dev 445e87a (--no-ff, off d86b477) PUSHED
+         (d86b477..445e87a): per-pitch hammer_mass + per-level speeds + per-(pitch,level) coefficient
+         (c*m*v*temporalImpulse*hammerSpatial, incremental) + GPU-formula temporal point-sum + StringMap pack.
+       - PianoidCore feature/dev-excenergy-physical-energy → dev 9aaaa2d (--no-ff, off 974a19f) PUSHED
+         (974a19f..9aaaa2d): kernel dedicated real per-note coeff buffer + setter + note-on write + multiply;
+         middleware coeff table build/upload + REST GET/POST /excitation_energy; f70af25 host-memset revert
+         (044f375); W5-A soft-limiter removal (e3e31df); W5-B reset PRIMARY accumulator full-clear (bf5f720);
+         init under-zero memset fix (d1d3c2f).
+       - PianoidTunner feature/dev-excenergy-physical-energy → dev 7f03e90 (--no-ff, off 2f320f1) PUSHED
+         (2df8658..7f03e90): excitationImpulse.js + useExcitationEnergy + ExcitationEnergyEditor + dual-
+         integration hooks. PianoidTuner.js auto-merged CLEAN with the mosaic fix (disjoint hunks);
+         verified post-merge: 58/58 Jest (energy+mosaic), prod build compiles.
+     REBUILD VERDICT: W5 HEAVY --both build STANDS (merged dev pianoid_cuda/+pianoid_middleware/ byte-
+     identical to built bf5f720; Pianoid/ byte-identical to built d23a7c6). Post-merge L2 /load_preset → 200,
+     energy endpoint live. MEASURED: reset CONFIRMED FIXED (post-reset RMS→0, endpoints zero); energy linear
+     (mass×2→RMS×2.000). AUDIBLE effects USER-GATED on the 56-SM box.
+     ★NOT included: the aftersounds/DECAY fix (pending user decision — separate later merge; dev-excenergy
+     stays alive for the dev-reset Phase-11 decay spec). Log archived: logs/archive/.
+     ★UPDATE 2026-06-16 (Option A, user-approved "make dev energy-only"): the reset fix + soft-limiter removal
+     were REVERTED on PianoidCore dev (they merge SEPARATELY later). PianoidCore dev is now ENERGY-ONLY:
+       - revert commits PUSHED: 4c935b9 (reverts bf5f720 reset PRIMARY) + 81f0417 (reverts e3e31df soft-limiter
+         removal); PianoidCore dev 9aaaa2d..81f0417 → origin/dev.
+       - ★PRESERVED ORIGINALS for the separate re-merges later: e3e31df = W5-A soft-limiter removal,
+         bf5f720 = W5-B reset PRIMARY accumulator-clear (re-apply via cherry-pick / revert-the-revert).
+       - VERIFIED: the reverts touched ONLY MainKernel.cu → now byte-identical to pre-W5 044f375 (limiter back,
+         no reset clear). ALL energy files (kernel coeff buffer + middleware) + the 654 init fix UNCHANGED.
+         ENERGY-ONLY HEAVY --both rebuilt + L1 + L2 (/load_preset 200); energy still linear (mass×2→RMS×2.002).
+         Reset is back to the original (broken) behaviour — EXPECTED for energy-only. PianoidBasic dev 445e87a +
+         PianoidTunner dev 7f03e90 UNCHANGED (energy untouched there). dev-excenergy still alive for decay +
+         the separate reset/soft-limiter re-merges. -->
+<!-- dev-mosaicref COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved merge). TWO mosaic-config fixes
+     MERGED to PianoidTunner origin/dev (merge 2df8658, --no-ff of c3f777f + 7b1c520):
+     (1) c3f777f — saved configs are FROZEN SNAPSHOTS: removed the live auto-mirror + deep-copy (cloneLayout)
+         on save/select (fixes "saving a new config updates the current one" / "both names show the last config");
+     (2) 7b1c520 — a workbench's binding to its FIXED target param SURVIVES a config switch: persists each
+         config's workbench bindings in a companion map (localStorage.mosaicConfigWorkbenches) + re-wires on apply
+         (fixes "workbenches lose target params after a config switch").
+     Frontend-only (PianoidTunner), NO CUDA. Jest mosaicConfigStore 32/32; full suite green except 1 pre-existing
+     unrelated HammerStringChart/ECharts jsdom failure; eslint 0 errors. Docs: pianoid-tunner/OVERVIEW.md
+     "Savable mosaic layouts". Log archived: logs/archive/dev-mosaicref-2026-06-16-171122.md. -->
+
+<!-- dev-gausscp COMPLETED 2026-06-16 (Step 10a Phase 2, user-approved "Merge"). Interactive hammer chart unit
+     (3 commits): (1) HammerStringChart replaces the position/width/sharpness SLIDERS with a draggable ECharts
+     hammer-on-string (drag center=position / right-edge=width / peak=sharpness; real engine units — pos ratio
+     0–0.5, width m, sharp 0–1) + folded-in width/sharpness units audit; (2) style match to GaussChart + discrete
+     zoom + mouse-wheel-on-selected (emit-on-settle); (3) EXACT discrete zoom — fetches the NEW read-only backend
+     route GET /get_hammer_shape/<pitch> (PianoidCore) returning the engine's resident hammer_shape array (exact
+     per-node value) + geometry, rendering the true engine value at each string node with graceful analytic fallback.
+     MERGED PianoidTunner feature/dev-gausscp-hammer-chart → dev 2f320f1 (--no-ff, off 99b6f25) + PUSHED
+     (99b6f25..2f320f1). MERGED PianoidCore feature/dev-gausscp-hammer-shape-route → dev 974a19f (--no-ff, off
+     73ba54d) + PUSHED (73ba54d..974a19f). REBUILD: NONE (read-only Python middleware; no compiled file). FE Jest
+     115/1193 green, eslint 0; PianoidCore route integration test 7/7. Live-verified exact zoom end-to-end
+     (chrome-devtools + stub, sparse 3-node spike). ★dev-excenergy reuses GET /get_hammer_shape as its spatial
+     integrand + the width/sharpness emit path (HammerStringChart.onParamChange → handleHammerParamChange → usePreset)
+     + mapExactNodesToDisplay — see archived log handoff note. Docs (REST_API + pianoid-tunner OVERVIEW) + screenshots
+     + log archived on PianoidInstall master. -->
+<!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "push it to dev"). Excitation Position
+     (hammer_position) units fix: % display (ratio×100) / ratio send (÷100) via handlePositionChange; slider range
+     0–50% (ratio 0–0.5, string symmetric); 1/11,1/9,1/7 chips write ratios (1/N) not (1/N)*100. Single file
+     ExcitationProperties.jsx + NEW positionUnits.test.jsx (5). MERGED to PianoidTunner dev 99b6f25 (--no-ff, off
+     8049673) + PUSHED origin/dev (8049673..99b6f25). Feature commit 966f3d1. Jest 115/1183 green (+1/+5), eslint 0,
+     live-verified (slider max=50, 0.15→"15", 1/9 chip→ratio 0.1111). Frontend-only, NO CUDA. Docs (OVERVIEW
+     Position-units paragraph) + screenshot (dev-gausscp-position-units.png) + log archived on PianoidInstall master.
+     ★Follow-up (NEXT, same agent): interactive hammer chart replacing the sliders — includes the deferred
+     width/sharpness units audit. -->
+<!-- dev-gausscp COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "Ok merge and push"). Excitation gauss-curve
+     COPY/PASTE feature: 3 buttons (COPY/PASTE/ALL) left of the 5x4 gauss grid; selection = cell / chart-header(column) /
+     param-row label(row) / none=whole; COPY → in-app clipboard (useGaussClipboard, {cells:{[chart]:{[name]:value}}});
+     PASTE → current pitch+level via existing batch path; ALL → every pitch at level via NEW
+     usePreset.pasteExcitationToAllPitches (one bulk-range "from<lo>to<hi>" emit, reuses dev-excwb shape; backend
+     update_parameter('excitation') loops pitches via parse_range). Pure selection/payload math in utils/gaussClipboard.js.
+     DELETED dead/unwired GaussianParameterGrid.jsx + .css + CopyPastMenu.jsx (only on /gauss-demo) that this replaced.
+     MERGED to PianoidTunner dev 8049673 (--no-ff, off b913ee4) + PUSHED origin/dev (b913ee4..8049673). Feature commit
+     3a99265. Jest 114 suites/1178 tests green (+3/+19), eslint 0, prod build clean, live bundle mounts error-free.
+     ★UNVERIFIED-AUDIBLE/ENGINE: the live button click-through + bulk-range engine emit need the user's box — this 56-SM
+     dev box destabilizes the backend under audio_on/ASIO (same constraint as dev-uiqueue). Frontend-only, NO CUDA.
+     Docs (pianoid-tunner OVERVIEW) + 2 UI screenshots (docs/development/screenshots/dev-gausscp-*.png) + log archived
+     on PianoidInstall master. -->
+<!-- dev-uiqueue COMPLETED 2026-06-15 (Step 10a Phase 2, user-approved "commit merge and push on dev"). Two queued
+     PianoidTunner UI features + 2 Reset restyles, all on feature/dev-uiqueue-mosaic-bottombar, MERGED to PianoidTunner
+     dev b913ee4 (--no-ff, off 0f3cfe0) + PUSHED origin/dev. (T1) SAVE MOSAIC CONFIG: toolbar Widgets → selector of
+     named savable layouts + Manage popup (saved-list rename/delete + save-current-as + the existing pane selector
+     AS-IS); NEW hooks/mosaicConfigStore.js (mirrors presetConfigStore) + components/MosaicConfigManager.jsx; 2
+     localStorage keys (mosaicConfigs/activeMosaicConfig); commit e78bc3e. (T2) BOTTOM BAR: NEW components/BottomBar.jsx
+     below the mosaic hosts Volume+Feedback+Reset LARGE with always-visible inline Sensitivity; RESTORED
+     volume-sensitivity (regression = dev-09cf overflowY:hidden clipped the toolbar popover, measured ~2.2px/129px
+     visible — fixed structurally by relocation) + NEW feedback-sensitivity (curve base in usePreset); removed those
+     controls from ToolBar; commit c301966. (followups) Reset → large (37ed715) → wide RED "RESET" button (67cd5fe,
+     theme error palette). Full Jest 111/1159 green, eslint 0, build compiles, all live-verified (chrome-devtools).
+     Frontend-only, NO CUDA. ★UNVERIFIED-AUDIBLE: the synthesis effect of volume/feedback sensitivity needs the user's
+     box — this 56-SM dev box crashes on audio_on (GPU illegal-memory-access); UI→handler→WS wiring verified here.
+     User testing on another system. Docs on PianoidInstall master (836bf3a/1935b9a/0bb8a30/a2de2ff + Phase-2). Log
+     archived. -->
 <!-- dev-tbmirror COMPLETED 2026-06-14 (Step 10a Phase 2, user-approved msg 3506 "toolbar is ok"). Toolbar BATCH on
      PianoidTunner: (1) remove redundant mirroring selected-parameter NumInput (blur-contamination fix, 25ce0de);
      (2) MIDI icon → button+3-state-indicator next to Fix-MIDI opening a popup Dialog + remove MIDI from the mosaic

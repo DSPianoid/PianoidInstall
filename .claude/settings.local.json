@@ -51,7 +51,12 @@
       "PowerShell(Start-Process -WindowStyle Hidden -FilePath \"cmd.exe\" -ArgumentList '/c','set \"VIRTUAL_ENV=\" && cd /d D:\\\\repos\\\\PianoidInstall\\\\PianoidCore && D:\\\\repos\\\\PianoidInstall\\\\PianoidCore\\\\build_pianoid_cuda.bat --heavy --release > D:\\\\tmp\\\\cfl-build3.log 2>&1'; \"launched\")",
       "PowerShell(Remove-Item *)",
       "mcp__claude_ai_Gmail__search_threads",
-      "mcp__claude_ai_Gmail__get_thread"
+      "mcp__claude_ai_Gmail__get_thread",
+      "Bash(git commit *)",
+      "Bash(rm .git/COMMIT_MUTE.txt)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\astri\\.claude"
     ]
   }
 }

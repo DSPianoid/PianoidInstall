@@ -615,6 +615,248 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 <!-- dev-m12p1 locks RELEASED 2026-06-15 at Step 10a Phase 2 (user-approved, merged). Held: tools/supervisor/** (entire NEW
      TS/Node subtree, greenfield — no conflict possible). M12 Phase 1 committed feature/m12-supervisor-phase1 7db3dec, MERGED
      to master 93ffa66 (--no-ff). NOT pushed. -->
+<!-- dev-gausscp locks RELEASED 2026-06-20 at Step 10a Phase 2 (team-lead pre-authorized merge-after-verify).
+     Held: ExcitationProperties.jsx, GaussEditor.jsx, GaussCell.jsx (locked, not edited), GaussCopyPasteButtons.jsx.
+     Reverse gauss-copy flow → Copy-first selection mode + one-click capture + top-left whole-table selector.
+     MERGED feature/dev-gausscp-copy-selmode → PianoidTunner dev 23ef3df (--no-ff, off fe93b5d) + PUSHED
+     origin/dev (fe93b5d..23ef3df). FE Jest 121/1267 green, eslint 0, prod build clean. Frontend-only, NO CUDA. -->
+<!-- dev-reset lock RELEASED 2026-06-19 at wrap (user "commit and push all to dev"). Held:
+     PianoidCore/pianoid_cuda/MainKernel.cu. RE-APPLIED the parked W5-B reset PRIMARY accumulator
+     full-clear (orig dev-excenergy bf5f720, reverted as collateral in Option-A revert 4c935b9,
+     never re-merged; dev-reset Phase-12 parked it pending user confirm — the user's runaway-reset
+     re-report was the confirmation). On *status==500, before the main loop, full-clear
+     feedback_cycle_matrix + feedin_cycle_matrix (byte-identical to bf5f720, comment updated).
+     Branch feature/dev-reset-runaway-accumulator-clear (off PianoidCore dev 89b1e9f, rebased onto
+     9c2dd51 = 1f839ac), MERGED --no-ff -> PianoidCore dev df0fa58, PUSHED origin/dev
+     (9c2dd51..df0fa58). HEAVY --both built off 89b1e9f+fix; installed .pyd 02F9E03C is
+     binary-equivalent to a build off df0fa58 (only other compiled delta = comment-only
+     Pianoid_synthesis.cu) -> NO rebuild needed; installed .pyd MATCHES dev. Verified offline
+     (audio_off): normal note ring rms=171.5 -> post-reset string=0/mode=0/RMS=0 for 6 cyc
+     (RESET_CONFIRMED_FIXED), no regression. ★OPEN: the user's AUDIBLE realtime runaway could not be
+     reproduced in the offline harness (drives kernel synchronously, not the live audio-tap loop) —
+     the fix is correct for the accumulator-residual mechanism + regression-free, but its efficacy
+     vs the user's specific runaway needs a live-device confirm or the user's exact trigger. Worktree
+     D:/repos/wt-reset removed; feature branch deleted (merged); dev checked out nowhere. -->
+| <!-- (none active for dev-reset) --> | | | |
+<!-- dev-underrun2 locks RELEASED 2026-06-19 after team-lead-approved merge. Held: Pianoid_synthesis.cu (COMMENT-ONLY — e5
+     placement already correct; the brief's "move e5 after sync" zeroes add_ms via cudaErrorNotReady, reverted to byte-identical
+     code + doc comment) + chartFunctions.py (sound_test profiling chart switched from full-cycle host span to getGpuProfilingData
+     add_ms = pure addKernel device time; every-3rd over-budget proven to live in the host audio-clock sync wait, 0% on add_ms).
+     Tests 16+52 green. feature/dev-underrun2-kernel-profiling 80782a5 MERGED --no-ff → PianoidCore dev 9c2dd51 (off 89b1e9f, in
+     throwaway worktree wt-underrun2-dev now removed), PUSHED origin/dev (89b1e9f..9c2dd51); dev left checked out NOWHERE (dev-reset's
+     wt-reset + :5000 untouched). Rate-sweep verdict: underruns = SYSTEM HICCUPS not GPU slowdown (add_ms FLAT ~537us idle->40/s).
+     Temp /diag_rate_sweep endpoint reverted out of backendServer.py. -->
+| <!-- (none active for dev-underrun2 — released after merge) --> | | | |
+<!-- dev-pitchfix lock RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTuner.js. ITEM 2 ALIGNMENT FIX (dev-workbench review of
+     merged 5ab2d40): Mass workbench read (computeWorkbenchValues "Mass") + write (handleVectorChange "Mass") switched from
+     excitationHistory.values key order → availableNotes (the RowEditor x-axis) — fixes a real defect where sparse/pitchID-keyed
+     hammerMass could misalign bars + edit the WRONG pitch; + diff-guard (only changed pitches POST). dev-workbench OK'd all 4 checks;
+     team-lead Q1/Q2/Q3 answered (in-scope correctness, user re-tests Mass WB). Committed feature/dev-pitchfix-mass-axis-fix 7cba39b
+     (off 5ab2d40), MERGED --no-ff dev fe93b5d, PUSHED 5ab2d40..fe93b5d. origin/dev = fe93b5d. Jest green, eslint clean, build OK.
+     :3000 restarted (serving fe93b5d). EXCITATION RESTRUCTURE fully COMPLETE + corrected. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
+<!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTuner.js, Excitation.jsx, ExcitationProperties.jsx,
+     ExcitationEnergyEditor.jsx (+ ExcitationEnergyEditor.massControl.test.jsx). EXCITATION RESTRUCTURE item 2 (mass→workbench-link,
+     LEAD; partnered dev-workbench): "Mass" workbench groupe — computeWorkbenchValues case "Mass" reads excitationEnergy.hammerMass
+     over excitationHistory.values pitch order (grams); handleVectorChange "Mass" branch writes setMassForPitch per pitch (g→kg, same
+     order); onOpenMassWorkbench glue PianoidTuner→Excitation→ExcitationProperties→HammerMassControl → {groupe:"Mass",name:"hammer_mass"}.
+     No groupe allow-list needed (isWorkbench/openWorkbench/restore groupe-generic); rides dev-wbspawn's fixed binding. Committed
+     feature/dev-pitchfix-mass-workbench 5fe7525 (off 9472b47), MERGED → dev 5ab2d40 (--no-ff, dev free of worktrees), PUSHED
+     9472b47..5ab2d40. origin/dev = 5ab2d40. Jest 120/1261 green, eslint clean, CRA build OK. :3000 restarted (serving 5ab2d40).
+     EXCITATION RESTRUCTURE COMPLETE (items 1/2/3/4). Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
+<!-- dev-wbspawn lock RELEASED 2026-06-19T14:50:00Z at Step 10a Phase 1 (frontend commit 9ac5002 on
+     feature/dev-wbspawn-orphan-fix off PianoidTunner dev acbf9e6, worktree D:/repos/wt-wbspawn). Held:
+     PianoidTunner/src/PianoidTuner.js (+ test src/hooks/__tests__/mosaicConfigStore.test.jsx, this agent's).
+     FIX fixed-workbench orphaned-after-layout-switch: (a) DELETED the layout-watching prune useEffect that
+     deleted workbench bindings whenever the pane was absent from the LIVE layout (orphaned other configs'
+     WBs on every switch + mis-fired on maximize); binding-GC now EXPLICIT at the close action (pane Close X
+     button — maximized closeMaximized + non-max mosaicActions.remove — and removeWindowFromLayout each call
+     closeWorkbench for a dynamic Workbench:* pane). (c) handleOpenWorkbench AUTO-SNAPSHOTS the active
+     config's WB bindings (incl. the just-spawned one) into mosaicConfigWorkbenches on spawn (frozen-config
+     gap). Removed now-unused addPanelBottomToLayout wrapper. Jest 119/1254 green (+4 orphan-fix tests),
+     closeMaximized regression-guarded, CRA build clean. Frontend-only, NO CUDA. NOT merged — dev is not
+     checked out anywhere (main checkout busy with dev-mosaicsave's uncommitted excitation work); merge
+     sequenced with dev-mosaicsave (it rebases onto 9ac5002). Lock released so dev-mosaicsave can proceed.
+     Docs (OVERVIEW) + log on PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-wbspawn) --> | | | |
+| dev-excenergy | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/excitation_coefficients.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/tests/unit/test_excitation_coeff_incremental.py` | 2026-06-18T15:18:00Z | CONSOLIDATED coeff-update refactor: single factor-cache recompose path (mass/speed/calibration/curve all incremental <50ms, byte-identical to full rebuild). StringMap split pack_excitation_coefficients → pack_excitation_factors + compose_from_factors; excitation_coefficients CoefficientCache+recompose; parameter_manager branches → one recompose call. Middleware Python + PianoidBasic wheel, NO CUDA rebuild. Branch off PianoidCore dev + PianoidBasic dev. |
+<!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: ExcitationProperties.jsx, ExcitationEnergyEditor.jsx,
+     Excitation.jsx, MatrixTools.jsx (+ NEW ExcitationEnergyEditor.massControl.test.jsx; rewrote ExcitationProperties.energyPopup.test.jsx).
+     EXCITATION-PANEL RESTRUCTURE items 1/3/4 (user-confirmed): (1) MASS extracted to standalone HammerMassControl rendered inline where
+     the Energy button was; (3) energy popup = speeds+calibration only, Energy button moved to pane toolbar next to the horizontal/width
+     pair (energyOpen lifted to Excitation.jsx, popup prop-driven); (4) REMOVED the vertical height/volume gauss-scale pair + its
+     handlers/props/wheel refs (horizontal kept). Item 2 (mass→workbench) NOT done — deferred, partners with dev-wbspawn (its orphan
+     fix is now on origin/dev, so the rebase target is available). Committed feature/dev-pitchfix-exc-restructure ebe92a9 (off acbf9e6);
+     REBASED onto origin/dev 62974f6 (dev-wbspawn orphan fix merged meanwhile; CLEAN, disjoint files) → 9472b47; PUSHED HEAD:dev FF
+     (62974f6..9472b47). origin/dev = 9472b47. Jest 120/1256 green, eslint clean, CRA build OK. Frontend-only, NO PianoidTuner.js, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
+<!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidTunner/src/components/HammerStringChart.jsx,
+     src/PianoidTuner.js, src/components/__tests__/HammerStringChart.test.jsx. HAMMER-CHART 3 FIXES (team-lead greenlit):
+     (1) tooltip-null crash — hideTipSafely(dispatchAction hideTip, isDisposed-guarded) before the debounced exactShape
+     rebuild + in placeHandles setOption + tooltip confine/enterable belt (PRE-EXISTING e744160, width clamp exonerated);
+     (2a) DEBOUNCE the zoomed exactShape /get_hammer_shape refetch EXACT_REFETCH_DEBOUNCE_MS=150 (position kept in deps —
+     engine shape shifts with position, Hammer.py:154); (3) EMIT GUARANTEE — excitation diff-sync now diffs flat hammer_*
+     params unconditionally (was skipped when a gauss cell selected → hammer edit never emitted). Committed
+     feature/dev-pitchfix-hammer-fixes 4410f46 (off dev 2aab192), MERGED → dev acbf9e6 (--no-ff), PUSHED 2aab192..acbf9e6.
+     origin/dev = acbf9e6. Jest 119/1250 green (+2), eslint clean, CRA build OK. Frontend-only, NO CUDA. -->
+| <!-- (none active for dev-pitchfix) --> | | | |
+<!-- dev-profchart locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: PianoidCore/pianoid_middleware/chartFunctions.py + tests/unit/test_sound_test_profiling.py (also chart_config.json). Profiling MVP (kernel cycle-timing + over-budget/underrun markers in sound_test via render_hints, online-only, include_profiling toggle). MERGED to PianoidCore dev 89b1e9f (--no-ff, off 818bd9b) + PUSHED origin/dev (818bd9b..89b1e9f). Backend Python only, NO CUDA rebuild. Tests 13 new + 52 existing green; live audio_on population check PASSED (430 cycles, 31.6% over-budget, 2/424 underruns). Worktree wt-profchart removed. -->
+| <!-- (none active for dev-profchart) --> | | | |
+<!-- dev-pitchfix lock RELEASED 2026-06-18 at Step 10a Phase 1. PianoidTunner/src/PianoidTuner.js.
+     Pitch-selection fix: (A) bare-backend safety-net effect re-issues loadPreset when health shows
+     reachable && pianoid_loaded=false; (B) removed beforeunload→POST /api/stop-backend (killed backend on
+     reload). Committed feature/dev-pitchfix-reload-bootstrap ccfbf06 (off dev ee0df28), MERGED to PianoidTunner
+     dev bfd1d88 (--no-ff). Full Jest 119/1245 green, live-verified audio_off (reload keeps backend up 12/12;
+     forced-bare auto-recovers ~1s; pitch selectable post-reload). Pre-existing bug (02caf5f), not the batch merges.
+     ★REVERTED 2026-06-18 per team-lead/user: the diagnosis was a SYMPTOM-MATCH (a reload-triggered backend-kill
+     that yields the same "no notes / can't select pitch") but NOT the user's confirmed bug — the user never
+     reloaded, and their failure is on a different (broken-wheel) system (G1 look-alike). git revert -m 1 bfd1d88
+     → revert commit eb36729, PUSHED origin/dev (bfd1d88..eb36729); PianoidTuner.js now byte-identical to ee0df28.
+     STARTUP_TROUBLESHOOTING "reload is safe" note also reverted. feature/dev-pitchfix-reload-bootstrap (ccfbf06)
+     kept for reference but OFF dev. Awaiting the user's ACTUAL error before re-approaching. -->
+| <!-- (none active for dev-pitchfix — released + reverted) --> | | | |
+<!-- dev-excpopup locks RELEASED 2026-06-17 at Step 10a Phase 1 — FINAL: 2 commits on
+     feature/dev-excpopup-energy-popup off dev 7f03e90, worktree D:/repos/wt-excpopup. Held + released:
+     ExcitationProperties.jsx, Excitation.jsx, ExcitationProperties.energyPopup.test.jsx (HammerStringChart.jsx
+     lock RELEASED — wheel commit DROPPED, file byte-identical to dev).
+     Commits: 4dfeb86 (energy tunables → MUI popup + hammer-mass accessible), 12f1d28 (gauss params table
+     no longer overlaps chart — container 140→210px + stretch + overflow hidden). Jest green, CRA build clean.
+     Popup + overlap LIVE-verified (isolated :5050 Belarus, audio_off; before/after/popup screenshots in logs).
+     ★WHEEL ITEM DROPPED 2026-06-17 per team-lead: the hammer latency is in the SOUND not the visual — an
+     instant chart redraw would MISMATCH (chart shows new shape, sound still old). Commit fa4d4cf reverted
+     (git reset --hard HEAD~1); HammerStringChart.jsx untouched vs dev. Sound-latency investigation → dev-excenergy5.
+     NOT merged — HOLD for user test. Throwaway :5050 backend + frontend-URL redirect fully reverted. -->
+<!-- dev-wbspawn locks RELEASED 2026-06-17T12:45:00Z at Step 10a Phase 1 (frontend commit 73f32f0 on
+     feature/dev-wbspawn-placement off PianoidTunner dev 7f03e90, worktree D:/repos/wt-wbspawn). Held:
+     PianoidTunner/src/PianoidTuner.js, src/hooks/useSettings.js, src/components/ObjectInspector.jsx
+     (+ NEW src/utils/workbenchPlacement.js + src/utils/__tests__/workbenchPlacement.test.js). Workbench
+     spawn placement: (1) BUG FIX — spawn no longer gathers+rebuilds ALL bottom-pinned panes (relocate
+     gone); appendToScreenBottom grows the bottom stack in place, existing panes stay put. (2) NEW MODE —
+     dockUnderPanel docks the new WB under its source param's pane. (3) GLOBAL SETTING —
+     workbenchSettings.placementMode (screen-bottom default / panel-bottom), Select in Workbench Settings
+     gear (auto-rendered via ObjectInspector PARAMETER_CONFIG). Pure transforms extracted to
+     workbenchPlacement.js; PianoidTuner net -43 LOC (deleted dead buildStack/collectBottomPinned/
+     stripBottomPinned). Jest 118/1241 green (+11, 0 regressions), CRA build clean (eslint), setting
+     live-verified (chrome-devtools, port 3011 vs shared :5000, both options render); no-relocate +
+     panel-bottom UNIT-proven against exact user scenarios (live click-through needs a loaded preset =
+     /load_preset, forbidden — dev-excenergy5 owns shared :5000). Frontend-only, NO CUDA. NOT merged —
+     HOLD for user/team-lead. Docs (OVERVIEW Workbench-spawn-placement) + log + screenshot on
+     PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-wbspawn) --> | | | |
+<!-- dev-excenergy's constants.py calibration lock RELEASED 2026-06-17 by dev-energycal-20260617-124636 at Step 10a Phase 1.
+     COLLISION-GUARD RESOLUTION: dev-excenergy had ALREADY committed the exact calibration on
+     feature/dev-excenergy-energy-calibration (PianoidBasic commit 44218c5: EXCITATION_IMPULSE_CALIBRATION 1.0 -> 2.2e-05)
+     + installed it into the wheel, but went idle without reporting/merging. dev-energycal INDEPENDENTLY re-measured offline
+     (audio_off): reference Belarus_196modesC p60 v127 init-vol100 slider64 peaked 6.93e13 = 32251x the INT32 rail (+90 dBFS)
+     at c=1.0; AFTER c=2.2e-05 -> 1.53e9 (-2.94 dBFS, within range, no clip). CONFIRMS 44218c5 exactly. No duplicate branch
+     made (redundant feature/dev-energycal-loudness deleted). 44218c5 is the deliverable; HOLD for team-lead merge approval.
+     ★dev-excenergy RESUMED 2026-06-17 (team-lead confirmed it owns the calibration; dev-energycal stood down): restored the
+     working tree to feature/dev-excenergy-energy-calibration @ 44218c5, rebuilt the wheel from it, verified the INSTALLED
+     default = 2.2e-05 + built-wheel render in-range (-2.94 dBFS). Calibration harness committed on master
+     (docs/development/diagnostics/dev-excenergy-energy-calibration.py). Still HELD for team-lead merge. -->
+| <!-- (none active for energy calibration — dev-excenergy 44218c5 verified by dev-energycal, held for merge) --> | | | |
+<!-- dev-msave locks RELEASED 2026-06-17T10:10:00Z at Step 10a Phase 1 (commit 73a9438 on
+     feature/dev-mosaicref-save-current off dev 7f03e90, in worktree D:/repos/wt-mosaicref2). Held:
+     PianoidTunner/src/PianoidTuner.js, src/components/MosaicConfigManager.jsx, src/components/ToolBar.jsx,
+     src/hooks/__tests__/mosaicConfigStore.test.jsx. Mosaic "save current config under current name" (update
+     active in place via reused saveConfigAs overwrite path; ToolBar Save button + Manage-popup "Save to
+     <name>" button). Jest 33/33, CRA build clean, live-verified (chrome-devtools, port 3010). NOT merged —
+     HOLD for user/team-lead approval. -->
+
+<!-- dev-excenergy MainKernel.cu lock RELEASED 2026-06-16 (Option A energy-only revert DONE + pushed). Reverted
+     the two W5 commits on PianoidCore dev: 4c935b9 (reverts bf5f720 reset PRIMARY) + 81f0417 (reverts e3e31df
+     soft-limiter removal); dev 9aaaa2d..81f0417 → origin/dev. MainKernel.cu now byte-identical to pre-W5 044f375;
+     energy files + 654 init fix untouched. ENERGY-ONLY HEAVY --both rebuilt + L1 + L2 200 + energy linear
+     (mass×2→RMS×2.002). PRESERVED ORIGINALS for the separate re-merges: e3e31df (soft-limiter removal),
+     bf5f720 (reset PRIMARY). dev-excenergy STAYS ALIVE (decay + reset/soft-limiter re-merges ahead) — will
+     re-acquire MainKernel.cu then. -->
+| <!-- (no active locks) --> | | | |
+<!-- dev-mosaicref locks RELEASED 2026-06-16 at Step 10a Phase 1 (frontend commit c3f777f on
+     feature/dev-mosaicref-snapshot-fix off dev 2f320f1). Held: PianoidTunner/src/hooks/mosaicConfigStore.js,
+     src/PianoidTuner.js, src/hooks/__tests__/mosaicConfigStore.test.jsx. FIX the merged save-mosaic-config bug
+     (saved layouts all show the last one): cloneLayout deep-copy snapshots on save-as/seed/select/delete +
+     REMOVED the live→active auto-mirror (named configs are frozen, change only on explicit save/rename/delete).
+     Full Jest 115/1197 green, eslint 0, live-verified (save A w/Modes → remove Modes → save B ⇒ A frozen,
+     A!=B). Frontend-only, NO CUDA. NOT merged — HOLD for user test. ★Behaviour note: this removes the T1
+     auto-persist-into-active-config mirror (flagged to team-lead). -->
+<!-- dev-excenergy locks RELEASED 2026-06-16 at Step 10a Phase 2 (user-approved "merge and push energy model").
+     Physics-based excitation energy (B2) + reset fix + soft-limiter removal MERGED + PUSHED across all 3 repos:
+     PianoidBasic dev 445e87a (d86b477..445e87a), PianoidCore dev 9aaaa2d (974a19f..9aaaa2d), PianoidTunner dev
+     7f03e90 (2df8658..7f03e90). All 5 lock-sets released:
+       - PianoidBasic model: PhysicalParameters.py, ModelParams.py, StringExcitation.py, constants.py, StringMap.py, Pitch.py.
+       - PianoidCore kernel: gaussTest.cu/.cuh, Pianoid_excitation.cu, Pianoid.cuh, Pianoid.cu, Pianoid_parameters.cu,
+         AddArraysWithCUDA.cpp, Pianoid_synthesis.cu, MainKernel.cu (W5-A soft-limiter removal e3e31df + W5-B reset
+         PRIMARY accumulator-clear bf5f720).
+       - PianoidCore middleware: pianoid.py, parameter_manager.py, backendServer.py, excitation_coefficients.py (NEW).
+       - PianoidTunner FE: excitationImpulse.js (NEW), useExcitationEnergy.js (NEW), ExcitationEnergyEditor.jsx (NEW),
+         PianoidTuner.js, Excitation.jsx, ExcitationProperties.jsx.
+     REBUILD: W5 HEAVY --both build STANDS (merged dev byte-identical to built tips); post-merge L2 200. Reset
+     CONFIRMED FIXED + energy linear (mass×2→RMS×2) by offline measurement. AUDIBLE USER-GATED on the 56-SM box.
+     ★dev-excenergy STAYS ALIVE for the aftersounds/DECAY follow-up (dev-reset Phase-11 spec, pending user decision)
+     — it will re-acquire MainKernel.cu (+ feedback files) for that separate later kernel change + HEAVY build + merge. -->
+| <!-- (no active locks) --> | | | |
+<!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit a78d0c4 on
+     feature/dev-gausscp-hammer-chart). Held: HammerStringChart.jsx (ExcitationProperties.jsx re-locked precautionarily,
+     NOT edited this round). 3 hammer-chart enhancements: (1) style matched to Gauss/excitation chart (CHART_COLORS,
+     circle symbols, fill); (2) zoom toggle → discrete string-node view (scatter+stems+value labels; sampled from the
+     analytic curve — exact engine per-node needs backend hammer_shape exposure, flagged); (3) mouse-wheel on the
+     selected handle, emit-on-settle. Jest 115/1189 green (+5), eslint 0, live-verified (2 screenshots). NOT
+     merged/pushed — HOLD for user live test. Docs (OVERVIEW) + screenshots + log on PianoidInstall master. STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
+<!-- dev-gausscp locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit e66435d on
+     feature/dev-gausscp-hammer-chart off dev 99b6f25). Held: PianoidTunner/src/components/ExcitationProperties.jsx
+     + NEW HammerStringChart.jsx (also edited Excitation.jsx + PianoidTuner.js + 2 tests, all this agent's). Interactive
+     ECharts hammer-on-string chart replacing position/width/sharpness sliders; 3 draggable handles (center=position
+     ratio 0–0.5, right-edge=width meters, peak=sharpness 0–1) + NumInputs; folded in width/sharpness units audit
+     (old Width-mm 0.1–13 over meters + Sharpness-% 1–100 over [0,1] both fixed). Jest 115/1184 green, eslint 0,
+     live-verified (screenshot). NOT merged/pushed — HOLD for user live test. Docs (OVERVIEW) + screenshot + log on
+     PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
+<!-- dev-gausscp lock RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit 966f3d1 on
+     feature/dev-gausscp-position-units off dev 8049673). Held: PianoidTunner/src/components/ExcitationProperties.jsx
+     (+ NEW __tests__/ExcitationProperties.positionUnits.test.jsx). Position (hammer_position) units fix: % display
+     (ratio×100) / ratio send (÷100) via handlePositionChange; slider range 0–50% (ratio 0–0.5, string symmetric);
+     1/11,1/9,1/7 chips write ratios (1/N) not (1/N)*100. Jest 115/1183 green (+1/+5), eslint 0, live-verified
+     (slider max=50, field 0.15→"15", 1/9 chip sends ratio 0.1111). NOT merged/pushed — HOLD for user live test.
+     Docs (OVERVIEW Position-units paragraph) + screenshot + log on PianoidInstall master. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
+<!-- dev-gausscp locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit 3a99265 on
+     feature/dev-gausscp-gauss-copy-paste off PianoidTunner dev b913ee4). Held: PianoidTunner/src/{PianoidTuner.js,
+     components/GaussEditor.jsx, components/ExcitationProperties.jsx, components/Excitation.jsx, hooks/usePreset.js}
+     + NEW {components/GaussCopyPasteButtons.jsx, hooks/useGaussClipboard.js, utils/gaussClipboard.js} + 3 NEW tests;
+     DELETED dead components/{GaussianParameterGrid.jsx,GaussianParameterGrid.css,CopyPastMenu.jsx}. Excitation gauss
+     copy/paste (COPY/PASTE/ALL buttons left of the 5x4 grid; cell/row/col/whole selection; paste current pitch via
+     existing batch path; paste ALL pitches via new usePreset.pasteExcitationToAllPitches bulk-range emit). Jest
+     114/1178 green (+3/+19), eslint 0, prod build clean, live bundle mounts error-free. NOT merged/pushed — HOLD for
+     user live test (★live click-through + bulk-range engine emit UNVERIFIED here: this 56-SM box destabilizes the
+     backend under audio_on/ASIO, same box constraint as dev-uiqueue). Docs (OVERVIEW) + log on PianoidInstall master
+     d738324. Agent STAYS ALIVE. -->
+| <!-- (none active for dev-gausscp — released at Phase 1) --> | | | |
+<!-- dev-uiqueue T2 FOLLOW-UP 2 lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
+     Held: PianoidTunner/src/components/BottomBar.jsx. Reset → wide RED contained Button labelled "RESET"
+     (theme error palette, 200x56) per user feedback. eslint 0, BottomBar Jest 6/6, live-verified
+     (text=RESET, 200x56, error.main red). NOT merged — held with the dev-uiqueue batch. -->
+<!-- dev-uiqueue T2 FOLLOW-UP lock RELEASED 2026-06-15 (frontend commit on feature/dev-uiqueue-mosaic-bottombar).
+     Held: PianoidTunner/src/components/BottomBar.jsx. Made the Reset button LARGE (64x64 square, 40px icon,
+     rounded border) to match the big Volume/Feedback sliders per user feedback. eslint 0, BottomBar Jest 6/6,
+     live-verified (screenshot). NOT merged — held with the rest of the dev-uiqueue batch for user test. -->
+<!-- dev-uiqueue T1 locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit e78bc3e on
+     feature/dev-uiqueue-mosaic-bottombar off dev 0f3cfe0). Held: PianoidTunner/src/PianoidTuner.js,
+     src/components/ToolBar.jsx, + NEW src/hooks/mosaicConfigStore.js, src/components/MosaicConfigManager.jsx,
+     + 2 NEW test files. Savable mosaic layouts (selector + Manage popup). Full Jest 110/1153 green, eslint 0,
+     build compiles, live-verified. NOT merged — HOLD for user live test. T2 (bottom bar) NOT yet started —
+     awaits team-lead go-ahead; will re-acquire PianoidTuner.js + ToolBar.jsx then. Agent STAYS ALIVE. -->
+<!-- dev-uiqueue T2 locks RELEASED 2026-06-15 at Step 10a Phase 1 (frontend commit c301966 on
+     feature/dev-uiqueue-mosaic-bottombar). Held: PianoidTunner/src/PianoidTuner.js, src/components/ToolBar.jsx,
+     src/hooks/usePreset.js, + NEW src/components/BottomBar.jsx, src/components/__tests__/BottomBar.test.jsx.
+     Bottom bar (relocated Volume/Feedback/Reset large + always-visible inline Sensitivity); RESTORED
+     volume-sensitivity (regression = dev-09cf overflowY:hidden clipped the popover, measured ~2.2px/129px
+     visible) by relocation; NEW feedback-sensitivity (curve base). Full Jest 111/1159 green, eslint 0, build
+     compiles, live-verified (both Sensitivity fields commit; audible curve effect needs user's box — 56-SM GPU
+     audio_on crash here). NOT merged — HOLD for user live test. dev-uiqueue session COMPLETE (T1+T2 both on
+     this one branch, both unmerged). Agent stays alive for feedback. -->
+| <!-- (none active for dev-uiqueue — T1+T2 released, held for user test) --> | | | |
 <!-- dev-dynwb refinement locks RELEASED 2026-06-14 at Step 10a Phase 1 (refinement commit). Held:
      PianoidTunner/src/components/DrawableChart/DrawableChart.jsx, BarChart.jsx, PianoidTuner.js (+
      NEW DrawableChart/__tests__/DrawableChart.dynamicColor.test.jsx). RowEditor.js + SoundChannelsAggregateChart.jsx

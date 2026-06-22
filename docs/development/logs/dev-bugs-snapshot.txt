@@ -1,0 +1,298 @@
+uid=42_0 RootWebArea "Pianoid_UI" url="http://localhost:3000/"
+  uid=42_1 banner
+    uid=42_2 image "Logo" url="http://localhost:3000/pianoid_white.png"
+    uid=42_3 button "Load Preset ..."
+    uid=42_4 button "Save Preset as ..."
+    uid=42_5 combobox expandable haspopup="listbox" value="Belarus_8band_196modes (working 1)"
+    uid=42_6 button "Add preset to library"
+    uid=42_7 button "Unload preset"
+    uid=42_8 StaticText "Pitch:"
+    uid=42_9 spinbutton "Pitch:" value="60" valuemax="0" valuemin="0" valuetext="60"
+    uid=42_10 StaticText "Mode:"
+    uid=42_11 spinbutton "Mode:" valuemax="0" valuemin="0" valuetext=""
+    uid=42_12 StaticText "Level:"
+    uid=42_13 combobox "ff · 127" expandable haspopup="listbox" value="ff · 127"
+    uid=42_14 checkbox "When checked, MIDI input (hardware + frontend WebMIDI + backend listen_to_midi=1) is clamped to the toolbar level instead of the actual played velocity. Non-MIDI sources (virtual piano, space-bar, Excitation editor) are unaffected."
+    uid=42_15 StaticText "Fix MIDI"
+    uid=42_16 button "Open MIDI panel — MIDI not listening (device available)"
+    uid=42_17 button "Capture current state"
+    uid=42_18 button "Stop backend server"
+    uid=42_19 button "Synth on (gpu_initialized=true, main_loop=true) (click to pause)"
+    uid=42_20 StaticText "Audio"
+    uid=42_21 button
+    uid=42_22 combobox expandable haspopup="listbox" value="Default"
+    uid=42_23 button "save layout to current config"
+    uid=42_24 button "manage layouts"
+    uid=42_25 button "Settings"
+  uid=42_26 StaticText "Strings"
+  uid=42_27 button "Refresh"
+  uid=42_28 button "Maximize"
+  uid=42_29 button "Close"
+  uid=42_30 button "Strings settings"
+  uid=42_31 button "Undo" disableable disabled
+  uid=42_32 button "Redo" disableable disabled
+  uid=42_33 StaticText "damper_string"
+  uid=42_34 button "Open workbench"
+  uid=42_35 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_36 button "e" description="Right-click to use fixed step"
+  uid=42_37 button "." description="Right-click to use fixed step"
+  uid=42_38 textbox "Value mode with cursor-based step" value="0.0000"
+  uid=42_39 button
+  uid=42_40 button
+  uid=42_41 StaticText "damper_tail"
+  uid=42_42 button "Open workbench"
+  uid=42_43 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_44 button "e" description="Right-click to use fixed step"
+  uid=42_45 button "." description="Right-click to use fixed step"
+  uid=42_46 textbox "Value mode with cursor-based step" value="0.0000"
+  uid=42_47 button
+  uid=42_48 button
+  uid=42_49 StaticText "detuning"
+  uid=42_50 button "Open workbench"
+  uid=42_51 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_52 button "e" description="Right-click to use fixed step"
+  uid=42_53 button "." description="Right-click to use fixed step"
+  uid=42_54 textbox "Value mode with cursor-based step" value="0.0010"
+  uid=42_55 button
+  uid=42_56 button
+  uid=42_57 StaticText "dispersion_damping"
+  uid=42_58 button "Open workbench"
+  uid=42_59 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_60 button "e" description="Right-click to use fixed step"
+  uid=42_61 button "." description="Right-click to use fixed step"
+  uid=42_62 textbox "Value mode with cursor-based step" value="3.1963e-14"
+  uid=42_63 button
+  uid=42_64 button
+  uid=42_65 StaticText "gamma"
+  uid=42_66 button "Open workbench"
+  uid=42_67 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_68 button "e" description="Right-click to use fixed step"
+  uid=42_69 button "." description="Right-click to use fixed step"
+  uid=42_70 textbox "Value mode with cursor-based step" value="0.4878"
+  uid=42_71 button
+  uid=42_72 button
+  uid=42_73 StaticText "jung"
+  uid=42_74 button "Open workbench"
+  uid=42_75 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_76 button "e" description="Right-click to use fixed step"
+  uid=42_77 button "." description="Right-click to use fixed step"
+  uid=42_78 textbox "Value mode with cursor-based step" value="-2.0000e+11"
+  uid=42_79 button
+  uid=42_80 button
+  uid=42_81 StaticText "length"
+  uid=42_82 button "Open workbench"
+  uid=42_83 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_84 button "e" description="Right-click to use fixed step"
+  uid=42_85 button "." description="Right-click to use fixed step"
+  uid=42_86 textbox "Value mode with cursor-based step" value="0.6060"
+  uid=42_87 button
+  uid=42_88 button
+  uid=42_89 StaticText "r"
+  uid=42_90 button "Open workbench"
+  uid=42_91 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_92 button "e" description="Right-click to use fixed step"
+  uid=42_93 button "." description="Right-click to use fixed step"
+  uid=42_94 textbox "Value mode with cursor-based step" value="0.0004"
+  uid=42_95 button
+  uid=42_96 button
+  uid=42_97 StaticText "rho"
+  uid=42_98 button "Open workbench"
+  uid=42_99 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_100 button "e" description="Right-click to use fixed step"
+  uid=42_101 button "." description="Right-click to use fixed step"
+  uid=42_102 textbox "Value mode with cursor-based step" value="0.0069"
+  uid=42_103 button
+  uid=42_104 button
+  uid=42_105 StaticText "tail"
+  uid=42_106 button "Open workbench"
+  uid=42_107 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_108 button "e" description="Right-click to use fixed step"
+  uid=42_109 button "." description="Right-click to use fixed step"
+  uid=42_110 textbox "Value mode with cursor-based step" value="0.0606"
+  uid=42_111 button
+  uid=42_112 button
+  uid=42_113 StaticText "tension"
+  uid=42_114 button "Open workbench"
+  uid=42_115 separator orientation="horizontal" value="50" valuemax="100" valuemin="0" valuetext=""
+  uid=42_116 button "e" description="Right-click to use fixed step"
+  uid=42_117 button "." description="Right-click to use fixed step"
+  uid=42_118 textbox "Value mode with cursor-based step" value="650.4881"
+  uid=42_119 button
+  uid=42_120 button
+  uid=42_121 StaticText "Strings"
+  uid=42_122 heading "Strings" level="4"
+  uid=42_123 StaticText "Excitation"
+  uid=42_124 button "Refresh"
+  uid=42_125 button "Maximize"
+  uid=42_126 button "Close"
+  uid=42_127 button "Excitation settings"
+  uid=42_128 button "Undo" disableable disabled
+  uid=42_129 button "Redo" disableable disabled
+  uid=42_130 button "Show all levels" pressed
+  uid=42_131 button "Shrink horizontally at current level (mu and sigma ÷ stretchStep) — wheel up=stretch, down=shrink"
+  uid=42_132 button "Stretch horizontally at current level (mu and sigma × stretchStep) — wheel up=stretch, down=shrink"
+  uid=42_133 button "Shrink vertically at current level (volume ÷ stretchStep) — wheel up=stretch, down=shrink"
+  uid=42_134 button "Stretch vertically at current level (volume × stretchStep) — wheel up=stretch, down=shrink"
+  uid=42_135 button "Measure RMS" description="Play note and measure RMS via microphone"
+  uid=42_136 button "Save as Reference" description="Measure this note and save both synthesis + mic RMS as calibration reference"
+  uid=42_137 button "F(t)" description="Hammer Temporal Force (all velocities)"
+  uid=42_138 StaticText "Hammer on string"
+  uid=42_139 StaticText " (zoomed — exact string nodes)"
+  uid=42_140 button "Zoom to hammer zone (discrete string view)" pressed
+  uid=42_141 StaticText "Pos %"
+  uid=42_142 button "✕"
+  uid=42_143 button "✓"
+  uid=42_144 textbox "Value mode with cursor-based step" value="11"
+  uid=42_145 button
+  uid=42_146 button
+  uid=42_147 StaticText "Width mm"
+  uid=42_148 button "e" description="Right-click to use fixed step"
+  uid=42_149 button "." description="Right-click to use fixed step"
+  uid=42_150 textbox "Value mode with cursor-based step" value="5.11"
+  uid=42_151 button
+  uid=42_152 button
+  uid=42_153 StaticText "Sharp"
+  uid=42_154 button "e" description="Right-click to use fixed step"
+  uid=42_155 button "." description="Right-click to use fixed step"
+  uid=42_156 textbox "Value mode with cursor-based step" value="0.500"
+  uid=42_157 button
+  uid=42_158 button
+  uid=42_159 button "ENERGY"
+  uid=42_160 button "Copy gauss selection" disableable disabled
+  uid=42_161 button "Paste gauss to current pitch" disableable disabled
+  uid=42_162 button "Paste gauss to all pitches" disableable disabled
+  uid=42_163 StaticText "Chart "
+  uid=42_164 StaticText "1"
+  uid=42_165 StaticText "Chart "
+  uid=42_166 StaticText "2"
+  uid=42_167 StaticText "Chart "
+  uid=42_168 StaticText "3"
+  uid=42_169 StaticText "Chart "
+  uid=42_170 StaticText "4"
+  uid=42_171 StaticText "Chart "
+  uid=42_172 StaticText "5"
+  uid=42_173 StaticText "mu"
+  uid=42_174 button "Open workbench for mu"
+  uid=42_175 button "e" description="Right-click to use fixed step"
+  uid=42_176 button "." description="Right-click to use fixed step"
+  uid=42_177 textbox "Value mode with cursor-based step" value="6.1400"
+  uid=42_178 button
+  uid=42_179 button
+  uid=42_180 button "e" description="Right-click to use fixed step"
+  uid=42_181 button "." description="Right-click to use fixed step"
+  uid=42_182 textbox "Value mode with cursor-based step" value="1.1493"
+  uid=42_183 button
+  uid=42_184 button
+  uid=42_185 button "e" description="Right-click to use fixed step"
+  uid=42_186 button "." description="Right-click to use fixed step"
+  uid=42_187 textbox "Value mode with cursor-based step" value="0.5050"
+  uid=42_188 button
+  uid=42_189 button
+  uid=42_190 button "e" description="Right-click to use fixed step"
+  uid=42_191 button "." description="Right-click to use fixed step"
+  uid=42_192 textbox "Value mode with cursor-based step" value="2.3390"
+  uid=42_193 button
+  uid=42_194 button
+  uid=42_195 button "e" description="Right-click to use fixed step"
+  uid=42_196 button "." description="Right-click to use fixed step"
+  uid=42_197 textbox "Value mode with cursor-based step" value="1.1493"
+  uid=42_198 button
+  uid=42_199 button
+  uid=42_200 StaticText "sigma"
+  uid=42_201 button "Open workbench for sigma"
+  uid=42_202 button "e" description="Right-click to use fixed step"
+  uid=42_203 button "." description="Right-click to use fixed step"
+  uid=42_204 textbox "Value mode with cursor-based step" value="0.16794"
+  uid=42_205 button
+  uid=42_206 button
+  uid=42_207 button "e" description="Right-click to use fixed step"
+  uid=42_208 button "." description="Right-click to use fixed step"
+  uid=42_209 textbox "Value mode with cursor-based step" value="0.05388"
+  uid=42_210 button
+  uid=42_211 button
+  uid=42_212 button "e" description="Right-click to use fixed step"
+  uid=42_213 button "." description="Right-click to use fixed step"
+  uid=42_214 textbox "Value mode with cursor-based step" value="0.07100"
+  uid=42_215 button
+  uid=42_216 button
+  uid=42_217 button "e" description="Right-click to use fixed step"
+  uid=42_218 button "." description="Right-click to use fixed step"
+  uid=42_219 textbox "Value mode with cursor-based step" value="0.96900"
+  uid=42_220 button
+  uid=42_221 button
+  uid=42_222 button "e" description="Right-click to use fixed step"
+  uid=42_223 button "." description="Right-click to use fixed step"
+  uid=42_224 textbox "Value mode with cursor-based step" value="0.05388"
+  uid=42_225 button
+  uid=42_226 button
+  uid=42_227 StaticText "shift"
+  uid=42_228 button "Open workbench for shift"
+  uid=42_229 button "e" description="Right-click to use fixed step"
+  uid=42_230 button "." description="Right-click to use fixed step"
+  uid=42_231 textbox "Value mode with cursor-based step" value="0.000000"
+  uid=42_232 button
+  uid=42_233 button
+  uid=42_234 button "e" description="Right-click to use fixed step"
+  uid=42_235 button "." description="Right-click to use fixed step"
+  uid=42_236 textbox "Value mode with cursor-based step" value="0.000000"
+  uid=42_237 button
+  uid=42_238 button
+  uid=42_239 button "e" description="Right-click to use fixed step"
+  uid=42_240 button "." description="Right-click to use fixed step"
+  uid=42_241 textbox "Value mode with cursor-based step" value="0.000000"
+  uid=42_242 button
+  uid=42_243 button
+  uid=42_244 button "e" description="Right-click to use fixed step"
+  uid=42_245 button "." description="Right-click to use fixed step"
+  uid=42_246 textbox "Value mode with cursor-based step" value="0.000000"
+  uid=42_247 button
+  uid=42_248 button
+  uid=42_249 button "e" description="Right-click to use fixed step"
+  uid=42_250 button "." description="Right-click to use fixed step"
+  uid=42_251 textbox "Value mode with cursor-based step" value="0.000000"
+  uid=42_252 button
+  uid=42_253 button
+  uid=42_254 StaticText "volume"
+  uid=42_255 button "Open workbench for volume"
+  uid=42_256 button "e" description="Right-click to use fixed step"
+  uid=42_257 button "." description="Right-click to use fixed step"
+  uid=42_258 textbox "Value mode with cursor-based step" value="1.030e+8"
+  uid=42_259 button
+  uid=42_260 button
+  uid=42_261 button "e" description="Right-click to use fixed step"
+  uid=42_262 button "." description="Right-click to use fixed step"
+  uid=42_263 textbox "Value mode with cursor-based step" value="0.000"
+  uid=42_264 button
+  uid=42_265 button
+  uid=42_266 button "e" description="Right-click to use fixed step"
+  uid=42_267 button "." description="Right-click to use fixed step"
+  uid=42_268 textbox "Value mode with cursor-based step" value="2.080e+8"
+  uid=42_269 button
+  uid=42_270 button
+  uid=42_271 button "e" description="Right-click to use fixed step"
+  uid=42_272 button "." description="Right-click to use fixed step"
+  uid=42_273 textbox "Value mode with cursor-based step" value="1.141e+9"
+  uid=42_274 button
+  uid=42_275 button
+  uid=42_276 button "e" description="Right-click to use fixed step"
+  uid=42_277 button "." description="Right-click to use fixed step"
+  uid=42_278 textbox "Value mode with cursor-based step" value="0.000"
+  uid=42_279 button
+  uid=42_280 button
+  uid=42_281 StaticText "Excitation"
+  uid=42_282 heading "Excitation" level="4"
+  uid=42_283 contentinfo
+    uid=42_284 StaticText "Volume"
+    uid=42_285 slider "Volume" orientation="horizontal" value="64" valuemax="127" valuemin="0" valuetext=""
+    uid=42_286 StaticText "Sensitivity"
+    uid=42_287 textbox "Value mode with cursor-based step" value="10.0"
+    uid=42_288 button
+    uid=42_289 button
+    uid=42_290 StaticText "Feedback"
+    uid=42_291 slider "Feedback coefficient (environment multiplier; 64 = neutral)" orientation="horizontal" value="64" valuemax="127" valuemin="0" valuetext=""
+    uid=42_292 button "Set: fold feedback multiplier into the preset baseline" disableable disabled
+    uid=42_293 StaticText "Sensitivity"
+    uid=42_294 textbox "Value mode with cursor-based step" value="8.0"
+    uid=42_295 button
+    uid=42_296 button
+    uid=42_297 button "Reset"

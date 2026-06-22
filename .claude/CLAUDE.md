@@ -73,3 +73,8 @@ React 18 + MUI v6 + ECharts + react-mosaic, dark theme, NumInput, context7-befor
 ### Key paths · team · channel
 [`PROJECT_CONFIG.md#key-paths`](../docs/PROJECT_CONFIG.md#key-paths) ·
 [`#team`](../docs/PROJECT_CONFIG.md#team) · [`#channel`](../docs/PROJECT_CONFIG.md#channel).
+
+### User interaction rules
+Behavioral rules for how an agent interacts with the user (G1 no-guess-diagnosis, G2 clean-stack-at-handoff,
++ Pianoid-specific): [`docs/development/USER_INTERACTION_RULES.md`](../docs/development/USER_INTERACTION_RULES.md).
+The generic (G*) rules there should be lifted to the machine-global generic core (`~/.claude/CLAUDE.md`) via `/self-update`.
