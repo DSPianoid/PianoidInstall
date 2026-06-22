@@ -97,6 +97,28 @@ if (existsSync(VENV_PYTHON)) {
     `launch-prod: WARN — venv python not found at ${VENV_PYTHON}; voice STT/TTS may degrade to text (config falls back to system python)\n`,
   );
 }
+// ── ★ DISPATCH ACTIVATION (B1 + C1) — staged 2026-06-21 (dev-e9d9). Takes effect on the NEXT
+//    supervisor start (the running supervisor keeps its in-memory dist+env until the user restarts).
+//    Turns ON model-agnostic role routing (so the dormant dispatch surface + the /control Dispatch
+//    button + POST /api/dispatch become live) AND the ENFORCED spend caps (per-dispatch + rolling).
+//    These are reversible: revert this block + restore dist.bak.pre-dispatch-activation/ → dist/.
+env.SUPERVISOR_ROLE_ROUTING = 'on';            // P-B1: enable routed dispatch (dispatchRole wired)
+env.SUPERVISOR_DISPATCH_COST_CAP_USD = '0.50'; // P-C1: per-dispatch USD ceiling (fail-closed)
+env.SUPERVISOR_DISPATCH_COST_WINDOW_USD = '5';  // P-C1: rolling cumulative USD ceiling over the window
+env.SUPERVISOR_DISPATCH_EST_COST_USD = '0.05';  // P-C1: conservative per-dispatch admission estimate
+//   (0.05 is a deliberate small non-zero estimate so BOTH caps engage at admission: a single dispatch
+//    estimated at $0.05 is well under the $0.50 per-dispatch cap [admit], while the rolling $5 window
+//    starts refusing once ~100 dispatches' worth of estimate accumulates — the real cost is charged on
+//    release so the ledger stays truthful. Tune up if dispatches are routinely larger.)
+//
+// ── ★ DEEPSEEK KEY BRIDGE — INTENTIONALLY LEFT OFF (dev-e9d9, 2026-06-21). The bridge would let a
+//    routed DeepSeek (coding) dispatch with no /setkey key fall back to the deepseek-codegen MCP's key,
+//    which lives ONLY in user-scope ~/.claude.json — the file the supervisor deliberately avoids
+//    loading (token-hijack containment). Enabling it crosses that boundary. The coordinator relayed a
+//    "user approved" but a RELAYED approval is NOT the user's own authority, so this flag is NOT set
+//    here. To enable AFTER the USER's own confirmation, uncomment the next line + rebuild + restart:
+// env.SUPERVISOR_DEEPSEEK_KEY_BRIDGE = 'on';   // ← gated on the USER's direct sign-off (see WIP NEEDS-USER-DECISION)
+
 // (We deliberately do NOT set ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN — the cost guard
 //  asserts the env is key-free so the hosted session stays on the subscription.)
 
@@ -129,6 +151,9 @@ process.stdout.write(
     `(driver=cli-stream[claude -p] profile=orchestrator model=opus-4-8[1m] panel=8790; ` +
     `telegram=PROD-token-via-SUPERVISOR_TELEGRAM_TOKEN; TELEGRAM_BOT_TOKEN UNSET in child; ` +
     `hosted cwd=${REPO_ROOT} [REAL repo, NO worktree]; cost-guard=on; seal=on; ` +
+    `role-routing=${env.SUPERVISOR_ROLE_ROUTING ?? 'off'}; ` +
+    `spend-caps=$${env.SUPERVISOR_DISPATCH_COST_CAP_USD ?? '0'}/dispatch+$${env.SUPERVISOR_DISPATCH_COST_WINDOW_USD ?? '0'}/window; ` +
+    `deepseek-bridge=${env.SUPERVISOR_DEEPSEEK_KEY_BRIDGE ?? 'off'}; ` +
     `startup-handoff=${env.SUPERVISOR_STARTUP_HANDOFF_FILE ? 'STAGED (auto-resume)' : 'none (cold boot)'})\n`,
 );
 process.exit(0);
