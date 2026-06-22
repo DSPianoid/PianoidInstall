@@ -144,7 +144,7 @@ The file contains 27 entries: 16 chart types, 9 action types, and 2 dynamic_char
 | `online_midi_chart` | `online_midi_playback_chart_function` | `midi_file` (choice), `start_delay_ms`, `capture_length`, `channel` |
 | `tuning_report` | `tuning_report_function` | `type` (choice: frequency/volume/both, default both) |
 | `cfl_ratio` | `cfl_ratio_function` | `key_range` (choice: all/from21to108/output, default "all") |
-| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_profiling` (pure add-kernel device time + underrun markers, online-only), `include_full_result` |
+| `sound_test` | `sound_test_function` | `mode` (choice offline/online), `play_kind` (note/chord/sequence), `pitches`/`velocities`/`note_durations_ms` (CSV), `tail_ms`, `display_length_ms`, `channels`, `include_kernel`/`include_fir`/`include_sint`/`include_mic` (source toggles), `include_profiling` (add-kernel device time + full-cycle/sync-wait checkpoint decomposition + underrun markers, online-only), `include_spectrum` (FFT magnitude per source), `include_time_axis` (real ms axis + mic align + zoom-sync), `include_full_result` |
 
 ### Action Types
 
@@ -321,6 +321,81 @@ Covered by `tests/unit/test_sound_test_profiling.py` (16 tests: pure-helper math
 for both full-cycle span and `add_ms` extraction, chart/threshold/marker structure,
 online population + telemetry call-order, profiling-off no-op, graceful-degrade,
 offline note-only).
+
+### Full-cycle + in-cycle checkpoint decomposition (dev-soundd, 2026-06-22)
+
+dev-profchart/dev-underrun2 established that the per-cycle over-budget time is
+**NOT** the GPU kernel (`add_ms` is flat ~537us) but the **host audio-clock sync
+wait**. dev-soundd **instruments that wait directly** so where the non-kernel
+delay lives is *visible*, not inferred. New C++ checkpoints in the cycle
+(`Pianoid_synthesis.cu` `runCycle`/`pushCycleAudioToDriver`, exposed via the
+existing `getTimeRecord()`):
+
+| Checkpoint | Where | Span it bounds |
+|---|---|---|
+| cp0 | cycle start | — |
+| cp1 | post synthesis kernel | **kernel** cp0→cp1 |
+| cp2 | audio output prepared (FIR + channel expansion done) | **audio-prep / FIR secondary kernels** cp1→cp2 |
+| cp3 | post `pushSamples()` (the blocking driver push returned) | **SYNC WAIT** cp2→cp3 — the host audio-clock back-pressure (`CircularBuffer::produce` `canProduce.wait`), THE non-kernel delay |
+| cp4 | audio-stage end (host record/append tail) | **host-tail** cp3→cp4 |
+| cp5 (LAST) | cycle end | **full cycle** cp0→cp5 (incl. the sync wait) |
+
+When `include_profiling=True` **and** `mode="online"`, the builder
+(`_sound_test_build_profiling_charts`) now also adds:
+
+| Output | Source | Shape |
+|--------|--------|-------|
+| **"Full cycle incl. sync (us)"** chart | `getTimeRecord()` cp0→cp5 per cycle | line + budget markLine + per-cycle over-budget markers (red diamond) |
+| **"Driver-push sync wait (us)"** chart | `getTimeRecord()` cp2→cp3 per cycle | line (the isolated blocking wait, on its own axis) |
+| **"Cycle checkpoint breakdown (us, median)"** | per-span medians | `text_fields` — kernel / audio-prep / SYNC-WAIT / host-tail / FULL |
+| **"Non-kernel delay attribution"** | `sync / full` share | `text_fields` — one-line verdict naming the sync wait + its % of the full cycle |
+
+The decomposition helper `_sound_test_checkpoint_spans_us` reads spans by
+position from the 7-entry online row (`[offset, cp0..cp5]`); shorter rows
+(offline / pre-soundd builds) yield only the depth-robust kernel + full spans
+(cp2/cp3 are never guessed from an ambiguous position — profiling is online-only
+in practice). The legacy `_sound_test_full_cycle_times_us` now reads the LAST
+checkpoint minus cp0 (depth-robust across instrumentation depths). Covered by
+`tests/unit/test_sound_test_d2.py` (`TestCheckpointSpans`).
+
+### Spectrum chart + align-then-zoom-sync (dev-soundd D2, 2026-06-22)
+
+Two opt-in toggles, both **default off → byte-identical** response when absent:
+
+- **`include_spectrum`** — appends one single-sided FFT-magnitude chart
+  (Hann-windowed, `_sound_test_spectrum`) per captured time-domain source.
+  x-axis = frequency (Hz), `sync_group:"freq"` (excluded from the time zoom-sync,
+  no AudioPlayer).
+- **`include_time_axis`** (align-then-zoom-sync, design
+  `d2c-align-zoom-design.md`) — emits a **real ms x-axis** (`x_axis_values` via
+  `_sound_test_time_axis_ms`) for the time-domain charts and tags them
+  `sync_group:"time"`. Engine taps are hard-timed at offset 0; the **mic** is
+  aligned to the engine reference tap (`kernel ch0 → fir ch0 → sint ch0`) by
+  **envelope cross-correlation** (`_sound_test_estimate_mic_delay`) — integer-
+  sample delay, honest negative-ms pre-roll, degrades to unshifted + a warning
+  below a 0.30 confidence floor. The frontend (`chartOption.js` /
+  `newWindowChart.jsx`) switches **only** `sync_group:"time"` charts to a VALUE
+  x-axis (plot `[t_ms, y]`) and `echarts.connect("time")`s them so a zoom on one
+  mirrors to the others; spectrum (freq) and profiling (cycle) are excluded.
+  Covered by `tests/unit/test_sound_test_d2.py` (delay-estimation on synthetic
+  signals with a KNOWN injected delay, spectrum, time-axis) +
+  `src/utils/__tests__/chartOption.test.js` (the gated value-axis + byte-identical
+  guards). **Live mic-loopback alignment is folded into the user's combined
+  audio_on test** (the dev box crashes the FE audio_on path).
+
+> **D2c open-question defaults adopted** (design §Open questions; flagged for
+> user confirmation): Q1 honest negative-ms pre-roll (mic shown at its true
+> −delay, not trimmed); Q2 sub-sample fractional alignment OUT of scope
+> (integer-sample at 48k); Q3 reference tap = kernel→fir→sint ch0; Q4 confidence
+> floor = 0.30 (a placeholder — needs a measured floor from a real loopback).
+
+### Saving the displayed result (dev-soundd D2 (a), 2026-06-22)
+
+`newWindowChart.jsx` renders **Save JSON** / **Save CSV** buttons above any
+chart whose response carries numeric `data`. Both are built client-side from the
+already-fetched response (no extra backend call): JSON = full fidelity
+(text_fields + render_hints, minus the bulky base64 audio); CSV = the 1-D numeric
+chart columns (one column per entry) for an external spreadsheet/plot.
 
 ---
 

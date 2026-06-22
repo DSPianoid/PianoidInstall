@@ -4,6 +4,24 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-soundd locks RELEASED 2026-06-22 at Step 10a Phase 1 (user-approved ship; coordinator-relayed).
+     D1 Sound Test in-cycle checkpoint profiling + D2 (save result, spectrum, align-then-zoom-sync).
+     Held + released: PianoidCore (wt-soundd-core) pianoid_cuda/Pianoid_synthesis.cu (cp2/cp3 around the
+     blocking pushSamples + cp4/cp5 in runCycle), pianoid_middleware/chartFunctions.py (_sound_test_checkpoint_spans_us
+     + Full-cycle/Sync-wait charts + breakdown/attribution + spectrum + mic-delay + ms-axis helpers),
+     chart_config.json (include_spectrum + include_time_axis), tests/unit/test_sound_test_profiling.py (depth-robust
+     full-cycle tests) + NEW tests/unit/test_sound_test_d2.py (18). CircularBuffer.cu/.cuh, Pianoid.cuh,
+     AddArraysWithCUDA.cpp, constants.h, test_sound_test_chart.py were locked precautionarily but NOT edited.
+     PianoidTunner (wt-soundd-tunner): src/utils/chartOption.js (gated category->value axis for sync_group=time),
+     src/components/newWindowChart.jsx (echarts.connect time-group + Save JSON/CSV), src/utils/__tests__/chartOption.test.js.
+     COMMITTED on feature/dev-soundd: Core ff469b6, Tunner 513cc5b. NOT merged — merge-sweep rebuilds --heavy --both on
+     merged dev (the .cu kernel change) + smoke-tests, then commits ALL root docs/logs in one master commit (CHART_SYSTEM
+     update + log dev-soundd-2026-06-22-054200.md + diagnostic dev-soundd-online-population-check.py left UNCOMMITTED in
+     the root tree to avoid a concurrent-commit race with dev-applyc). HEAVY --both already built BUILD_EXIT=0 (release+debug
+     .pyd into shared venv); 87 backend + 24 FE tests green; in-process audio_on verified the new checkpoints populate.
+     dev-soundd STAYS ALIVE. -->
+| <!-- (none active for dev-soundd — released at Phase 1) --> | | | |
+
 <!-- dev-modal-mass-p2 locks RELEASED 2026-05-24 at Step 10a Phase 1.
      Phase 2 of Modal Mass + Q-factor improvement plan committed on
      feature/dev-modal-mass-p2 (PianoidCore + PianoidTunner) + docs
@@ -15,6 +33,43 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-applyc locks RELEASED 2026-06-22T09:45:00Z at Step 10a Phase 1 (code COMMITTED, user chose
+     option A — ship in-place re-init now). In-place CUDA re-init (Apply HOT/STRUCTURAL lifecycle).
+     COMMITTED on feature/dev-applyc: PianoidCore 008ec9e (backendServer.py + pianoid.py +
+     preset_reinit.py NEW + tests/unit/test_preset_reinit_classify.py NEW) + PianoidTunner e532434
+     (usePreset.js + __tests__/usePreset.hotReinit.test.jsx NEW). Pure Python middleware + FE, NO CUDA.
+     3-way classifier: hot (volume/feedback runtime set) / structural-inplace (sample_rate/
+     string_iterations/cycle_iterations/audio_driver_type/audio_buffer_size/audio_on → rebuild GPU
+     engine only, keep edited model + FE state) / full (preset-name OR array_size/debug_mode/
+     listen_to_modes/sound_derivative_order). reinitialize_cuda_engine: stop+join → deterministic GPU
+     free → re-pack edited model → reconstruct → devMemoryInit → re-push library + switchPreset →
+     excitation → initParameters → re-apply runtime → push edits; restart thread only if was playing;
+     ReinitFailed 500 + FE recoverWithFullReload on failure. array_size → full reload (in-place
+     geometry rebuild preserves edits but renders SILENT — tracked C++-level follow-up). Classifier
+     28/28, FE Jest 12/12 green. NOT merged (HOLD for user combined live-test). Root PianoidInstall
+     docs/logs (REST_API/SYSTEM_OVERVIEW, session log, proposal, diagnostics) LEFT UNCOMMITTED for the
+     merge-sweep master commit (avoids the concurrent-commit race with dev-soundd). dev-applyc STAYS
+     ALIVE for combined-test feedback + the array_size silent-render follow-up. -->
+| <!-- (none active for dev-applyc — code committed, locks released) --> | | | |
+<!-- dev-37f6 locks RELEASED 2026-06-22T05:35:00Z at Step 10a Phase 1 (MERGED + PUSHED, user approved
+     delivery option B). Excitation/Hammer Cluster A+B (A1 erratic width, A2 width→loudness norm, A3
+     position-latency, B1 workbenches, B2 anchored-LINEAR). Held: PianoidBasic Hammer.py + constants.py;
+     PianoidTunner PianoidTuner.js + HammerStringChart.jsx + Excitation.jsx + ExcitationProperties.jsx +
+     __tests__/HammerStringChart.test.jsx (StringMap.py was locked earlier but NOT edited — released, EOL
+     artifact). A2: unit-sum hammer spatial energy-norm (width-independent loudness, measured ×1895→×1.6) +
+     EXCITATION_IMPULSE_CALIBRATION 2.16e-06→1.131e-06 (Belarus p60v127 -3.30 dBFS in-range). A1: width
+     floor 3·dx→1.05·dx (HAMMER_WIDTH_FLOOR_DX_MULT, measured-stable margin) + stored==effective + FE
+     WIDTH_FLOOR_DX_MULT mirror + deleted renormalizeGaussForSpatialEdit workaround. A3: backend ~13ms;
+     HammerStringChart optimistic analytic chart during drag (exactShape {data,atParams} freshness gate).
+     B1: restored position/width/sharpness Workbench affordances (read/write already supported; added the
+     open button + onOpenHammerWorkbench thread). B2: WorkbenchFunctionTools clampMax 1e6→Infinity (the 1e6
+     ceiling pinned non-anchor pitches while the anchor bypassed the clamp → standout; measured residual 0
+     after). MERGED --no-ff: PianoidBasic dev 22af002 (5d28b67..22af002, off 40b5b3b) + PianoidTunner dev
+     bf0633c (895e063..bf0633c, off ef0836e), PUSHED origin/dev both. Post-merge sanity: PianoidTunner Jest
+     171/171 + CRA build clean; PianoidBasic wheel rebuilt clean from dev + L1 import OK (markers verified).
+     PianoidBasic = WHEEL (no CUDA). dev-37f6 STAYS ALIVE for user live-test follow-ups (Phase 2 close-out
+     held). KNOWN edge (flagged to user): single-node hammer struck at the bridge (pos<~0.06) → RMS=0
+     (boundary physics, not a defect). ASIO-crash-on-FE-load flagged as separate instability. -->
 <!-- dev-wbspawn (2-D COLOR schema) locks RELEASED 2026-06-20T13:40:00Z — MERGED + PUSHED. Replaced the
      flat wb-kind-* 3-color scheme with a 2-D schema: HUE=param groupe × BRIGHTNESS-tier=workbench type;
      colour=hue(current param's groupe)×tier(type); global-dynamic hue follows the active param. Defaults
@@ -131,7 +186,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      sequenced with dev-mosaicsave (it rebases onto 9ac5002). Lock released so dev-mosaicsave can proceed.
      Docs (OVERVIEW) + log on PianoidInstall master. Agent STAYS ALIVE. -->
 | <!-- (none active for dev-wbspawn) --> | | | |
-| dev-excenergy | `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/excitation_coefficients.py`, `PianoidBasic/Pianoid/StringMap.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_middleware/pianoid.py`, `PianoidCore/tests/unit/test_excitation_coeff_incremental.py` | 2026-06-18T15:18:00Z | CONSOLIDATED coeff-update refactor: single factor-cache recompose path (mass/speed/calibration/curve all incremental <50ms, byte-identical to full rebuild). StringMap split pack_excitation_coefficients → pack_excitation_factors + compose_from_factors; excitation_coefficients CoefficientCache+recompose; parameter_manager branches → one recompose call. Middleware Python + PianoidBasic wheel, NO CUDA rebuild. Branch off PianoidCore dev + PianoidBasic dev. |
+<!-- dev-excenergy lock RELEASED 2026-06-21 by orchestrator (STALE — agent died in a prior session; working
+     tree was CLEAN on all locked files = no orphaned uncommitted work). The CONSOLIDATED coeff-update refactor
+     (single factor-cache recompose path: mass/speed/calibration/curve incremental <50ms; StringMap split
+     pack_excitation_coefficients → pack_excitation_factors + compose_from_factors; excitation_coefficients
+     CoefficientCache+recompose; parameter_manager → one recompose call) is PRESERVED, committed + unmerged on
+     feature/dev-excenergy-coeff-consolidation (PianoidCore + PianoidBasic). Lock cleared so the new
+     excitation/hammer-panel /dev session (Cluster A+B) can acquire these files; that agent will EVALUATE the
+     coeff-consolidation branch as prior art for the A3 position-shift latency. -->
+| <!-- (none active for dev-excenergy — stale lock cleared) --> | | | |
 <!-- dev-pitchfix locks RELEASED 2026-06-19 at Step 10a Phase 1. Held: ExcitationProperties.jsx, ExcitationEnergyEditor.jsx,
      Excitation.jsx, MatrixTools.jsx (+ NEW ExcitationEnergyEditor.massControl.test.jsx; rewrote ExcitationProperties.energyPopup.test.jsx).
      EXCITATION-PANEL RESTRUCTURE items 1/3/4 (user-confirmed): (1) MASS extracted to standalone HammerMassControl rendered inline where

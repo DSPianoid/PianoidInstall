@@ -315,7 +315,14 @@ Response `200`:
 
 ### `POST /load_preset`
 
-Destroys any existing pianoid instance, initializes a new one from a preset file, and optionally starts playback immediately.
+Initializes the engine from a preset file (Apply). Optionally starts playback immediately.
+
+**HOT vs STRUCTURAL re-init (Cluster C, dev-applyc).** When a live engine is already loaded, the route DIFFS the request against the signature of what's currently running and routes by what changed:
+
+- **STRUCTURAL change** (preset name/path, `array_size`, `string_iterations`, `cycle_iterations`, `sample_rate`, `debug_mode`, `listen_to_modes`, `sound_derivative_order`, `audio_driver_type`, `audio_buffer_size`, `audio_on`) — or no live engine — → **full reload**: destroy the instance + re-initialize (re-allocates GPU buffers, re-opens the audio driver). Response `reinit: "full"`. These params are baked into the C++ constructor / `InitializationParameters` at init and have no runtime setter (`audio_driver_type`/`audio_buffer_size` open the driver in the constructor; there is **no driver-only reopen path**, so a driver/buffer change requires a full reload).
+- **HOT-only change** (`volume` / `max_volume` / `feedback` / `feedback_coeff` — the runtime parameters) → **soft re-init**: apply the runtime params in place via the `/set_runtime_parameters` path, **keeping the engine, the audio driver, and all loaded state** (no `devMemoryInit`, no `StringMap` rebuild). Response `reinit: "hot"`. The frontend (`usePreset.loadPreset`) mirrors this by **suppressing its `presetVersion` bump + editor re-fetch** on `reinit: "hot"`, so the user's edited (unsaved) values are preserved across Apply.
+
+The classification logic is the pure, CUDA-free `pianoid_middleware/preset_reinit.py` (`classify_reinit`); the route diffs against a signature stashed on the pianoid object at each full load (`backendServer.py:load_preset_route`). Pre-Cluster-C behaviour (always full) is preserved for any caller whose response omits `reinit`.
 
 Default preset: `presets/BaselinePreset1.json`
 
@@ -365,10 +372,17 @@ Parameter details:
     **Runtime control:** after the engine is up, callers can hot-toggle without re-issuing `/load_preset` via `POST /midi/start` and `POST /midi/stop` (W3 Phase 2). Both are idempotent.
 - `midi_port` (optional, default `0`): rtmidi input-port index used when `listen_to_midi=1`. Use `GET /midi/ports` to enumerate available ports before posting. Use `POST /midi/select_port` to change ports in place without restarting the backend.
 
-Response `200`:
+Response `200` (full reload — structural change or no live engine):
 ```json
-{"message": "Preset loaded successfully"}
+{"message": "Preset loaded successfully", "reinit": "full"}
 ```
+
+Response `200` (hot re-init — only runtime params changed; engine + UI state kept):
+```json
+{"message": "Preset hot-reloaded (runtime params only)", "reinit": "hot", "applied": {"volume": 64}}
+```
+
+Response `400` (hot apply with an invalid runtime value): `{"error": "HotApplyFailed", "message": "..."}`.
 
 Response `400` (when `use_simulation=1`):
 ```json

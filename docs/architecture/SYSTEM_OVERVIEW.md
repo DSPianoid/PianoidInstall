@@ -114,6 +114,14 @@ keep the React-side state coherent with the engine's truth:
    pushes) must trigger frontend re-init. The mechanism is a `presetVersion`
    counter in `usePreset`; editor hooks subscribe via `useEffect(deps:
    [presetVersion])` and discard their local history on every bump.
+   **Exception — HOT Apply (Cluster C, dev-applyc):** when `/load_preset`
+   returns `reinit: "hot"` (only runtime params — volume/feedback — changed, so
+   the backend kept the engine + all loaded state), `loadPreset` does NOT bump
+   `presetVersion` and does NOT re-fetch editor data. This is precisely what
+   preserves the user's edited (unsaved) values across Apply: a hot apply is
+   *not* a backend-state-replacing event, so re-init would wrongly wipe local
+   history. The bump still fires on `reinit: "full"` (or a pre-Cluster-C backend
+   that omits the field). See [REST_API.md → POST /load_preset](../modules/pianoid-middleware/REST_API.md).
 2. **Granular writes preferred over bulk.** A user editing one row sends ONE
    per-pitch POST; "Whole Matrix" sends N per-pitch POSTs, never one bulk
    `/feedback/output` call. Per-cell endpoints are added as needed; today the
