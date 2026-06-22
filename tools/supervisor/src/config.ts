@@ -191,6 +191,22 @@ export interface SupervisorConfig {
    */
   startupHandoffFile?: string;
   /**
+   * ★ STARTUP GREETING — when true (DEFAULT), a FRESH (re)started orchestrator with a persisted
+   * operator (see {@link operatorStateFile}) proactively sends a brief, non-nudgy "I'm back online"
+   * greeting on boot instead of waiting for the user to message it first (closing the "had to
+   * re-send Hi" gap). Resolved from `SUPERVISOR_STARTUP_GREETING` ({@link resolveStartupGreeting});
+   * '0'/'false'/'off' disables it → the prior deferred-first-turn behavior. index.ts gates it to the
+   * orchestrator profile.
+   */
+  startupGreeting: boolean;
+  /**
+   * Path to the small JSON file the SessionHost writes when it binds an operator (the user's channel
+   * address) and reads on boot to restore them for the startup greeting. Defaults to
+   * `<stateDir>/operator.json`; survives a supervisor restart (the channel is preserved) so the fresh
+   * session knows WHO to greet.
+   */
+  operatorStateFile: string;
+  /**
    * ★ P6 ACTIVATION SWITCH (model-agnostic agent routing — X5/AP5). Whether the
    * model-agnostic ROLE-ROUTING layer is ACTIVE. Resolved from `SUPERVISOR_ROLE_ROUTING`
    * (the SAME env var the pure {@link isRoleRoutingEnabled} reads — single switch), ON
@@ -407,6 +423,10 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     // entrypoint can clear it after use). Unset env → both undefined → byte-for-byte today.
     startupHandoff: resolveStartupHandoff(),
     startupHandoffFile: resolveStartupHandoffFile(),
+    // ★ STARTUP GREETING — proactively greet the user on a fresh (re)started session (default ON;
+    // SUPERVISOR_STARTUP_GREETING=off disables). Needs the persisted operator (operatorStateFile).
+    startupGreeting: resolveStartupGreeting(),
+    operatorStateFile: join(stateDir, 'operator.json'),
     // ★ P6: the model-agnostic role-routing activation switch (default OFF). Reads the SAME
     // env var the pure isRoleRoutingEnabled gates on, so the config flag + the resolver agree.
     roleRoutingEnabled: isRoleRoutingEnabled(process.env),
@@ -568,6 +588,20 @@ export function resolveDispatchEstCostUsd(raw = process.env.SUPERVISOR_DISPATCH_
 export function resolveDeepseekKeyBridge(raw = process.env.SUPERVISOR_DEEPSEEK_KEY_BRIDGE): boolean {
   const v = (raw ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'on';
+}
+
+/**
+ * ★ STARTUP GREETING — resolve the proactive-greet switch from `SUPERVISOR_STARTUP_GREETING`.
+ * DEFAULT ON (unset ⇒ on): a FRESH (re)started orchestrator that has a persisted operator from a
+ * prior session proactively sends a brief "I'm back" greeting instead of sitting mute until the
+ * user messages it (the prior pain: "the human had to re-send Hi before the orchestrator engaged").
+ * Explicit '0'/'false'/'off'/'none' (case-insensitive) disables it → the deferred first-turn
+ * behavior, byte-for-byte today. Pure; exported for the test.
+ */
+export function resolveStartupGreeting(raw = process.env.SUPERVISOR_STARTUP_GREETING): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off' || v === 'none') return false;
+  return true; // unset / anything else → ON (default)
 }
 
 /**
