@@ -7,6 +7,7 @@
 | dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
 | dev-5b2f | model-agnostic-ORCHESTRATOR T1: MultiTurnAdapterDriver (multi-turn + OpenAI tool_calls loop) — NEW module, additive/dormant, wired into nothing; throwaway-dist verify only, no live touch | [log](logs/dev-5b2f-2026-06-22-200229.md) | 2026-06-22 |
 | dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |
+| dev-8513 | model-agnostic-ORCHESTRATOR T3: runTool permission/seal CHOKE-POINT (NEW orchestrator-tool-runner.ts) routing coordinate tools → permission router + sealed AsyncDispatchRegistry; index.ts GATED composition (construct registry from the sealed dispatchRoleAgent + inject into Panel, conditional-spread, byte-for-byte OFF). Driver-selection NOT switched (T4). ADDITIVE/DORMANT; throwaway-build verify only, no live touch | [log](logs/dev-8513-2026-06-22-205048.md) | 2026-06-22 |
 
 <!-- DOC DEFERRAL (dev-5b2f, 2026-06-22): the model-agnostic-ORCHESTRATOR T1 driver
      (tools/supervisor/src/multi-turn-adapter-driver.ts, NEW, on feature/model-agnostic-orchestrator-tier1)
@@ -34,6 +35,32 @@
      (async-dispatch-registry.test.ts 20 / orchestrator-tools.test.ts 7 / panel-async-dispatch.test.ts 10).
      LOC FLAG: panel.ts crossed 500→YELLOW (399→564, additive within its loopback /api/* concern); tracked here
      per the supervisor-subproject convention (NOT the Pianoid CODE_QUALITY God-Objects list). -->
+
+<!-- DOC DEFERRAL (dev-8513, 2026-06-22): the model-agnostic-ORCHESTRATOR T3 WIRING (the sealed runTool
+     choke-point + the index.ts gated composition) on feature/model-agnostic-orchestrator-tier1, stacked on T2
+     8bbce18 — is ADDITIVE + DORMANT + gated OFF. NEW tools/supervisor/src/orchestrator-tool-runner.ts
+     (createOrchestratorToolRunner: the ToolRunner a non-Claude orchestrator driver gets at T4 — per call it
+     (1) allow-checks via isOrchestratorToolName [unknown tool → tool-result error, NEVER executed], (2) submits
+     every coordinate call to the INJECTED PermissionHandler [in prod sessionHost.permissionRouter.decide = the
+     SAME router + orchestrator policy + isDestructiveOp safety floor that gates Claude → a deny is fed back, not
+     executed], (3) routes the approved call → the matching AsyncDispatchRegistry method; everything is a
+     tool-result STRING, never a throw — CP5). index.ts EDIT: under the EXISTING `if(config.roleRoutingEnabled)`
+     gate, construct `new AsyncDispatchRegistry({executor: dispatchRoleAgent})` (the EXACT sealed closure) + inject
+     it into the Panel via the proven conditional-spread `...(asyncDispatchRegistry ? {asyncDispatchRegistry} : {})`
+     → SUPERVISOR_ROLE_ROUTING OFF ⇒ key OMITTED ⇒ the Panel ctor-args are BYTE-FOR-BYTE today (asserted by
+     index-async-dispatch-wiring.test.ts). The driver is NOT constructed/switched here (driver-selection-by-model =
+     T4); the live orchestrator still runs cli-stream/Claude. README driver/endpoint tables still omit the T1/T2/T3
+     surfaces — the campaign's standing "README update DEFERRED to activation" discipline (folds into the campaign →
+     master merge at T5 activation). Source of truth meanwhile: the committed proposal
+     docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.1 (runTool seam) + §3.2 (coordinate routing) +
+     §3.4 (piece #4 containment) + §6.2/§6.3 (allow-check / unrepresentable unsealed path) + the module header + the
+     23 tests (orchestrator-tool-runner.test.ts 15 / index-async-dispatch-wiring.test.ts 8). LOC: orchestrator-tool-
+     runner.ts NEW 201 (GREEN); index.ts 787→797 (+37/-1, additive within composition concern; supervisor-subproject
+     convention, NOT the Pianoid God-Objects list). Readiness for T4: resolveOrchestratorDriver(model) + wire the
+     MultiTurnAdapterDriver with {tools: ORCHESTRATOR_COORDINATE_TOOLS, runTool: createOrchestratorToolRunner({
+     registry: asyncDispatchRegistry, permissionHandler: sessionHost.permissionRouter.decide })} when the model is
+     non-Claude + add non-Claude ids to CONTROL_MODEL_CHOICES; ALSO allow-list ORCHESTRATOR_TOOL_NAMES in the
+     orchestrator policy so the coordinate tools don't spuriously route every call (else fallback:'route' asks). -->
 
 ---
 
