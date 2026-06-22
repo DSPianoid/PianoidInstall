@@ -191,6 +191,22 @@ export interface SupervisorConfig {
    */
   startupHandoffFile?: string;
   /**
+   * ★ STARTUP GREETING — when true (DEFAULT), a FRESH (re)started orchestrator with a persisted
+   * operator (see {@link operatorStateFile}) proactively sends a brief, non-nudgy "I'm back online"
+   * greeting on boot instead of waiting for the user to message it first (closing the "had to
+   * re-send Hi" gap). Resolved from `SUPERVISOR_STARTUP_GREETING` ({@link resolveStartupGreeting});
+   * '0'/'false'/'off' disables it → the prior deferred-first-turn behavior. index.ts gates it to the
+   * orchestrator profile.
+   */
+  startupGreeting: boolean;
+  /**
+   * Path to the small JSON file the SessionHost writes when it binds an operator (the user's channel
+   * address) and reads on boot to restore them for the startup greeting. Defaults to
+   * `<stateDir>/operator.json`; survives a supervisor restart (the channel is preserved) so the fresh
+   * session knows WHO to greet.
+   */
+  operatorStateFile: string;
+  /**
    * ★ P6 ACTIVATION SWITCH (model-agnostic agent routing — X5/AP5). Whether the
    * model-agnostic ROLE-ROUTING layer is ACTIVE. Resolved from `SUPERVISOR_ROLE_ROUTING`
    * (the SAME env var the pure {@link isRoleRoutingEnabled} reads — single switch), ON
@@ -300,6 +316,46 @@ export interface SupervisorConfig {
    * construction.
    */
   statusProbeMs: number;
+  /**
+   * ★ P-C1 — the PER-DISPATCH USD spend cap: a single routed-agent dispatch whose ESTIMATE exceeds
+   * this is REFUSED before it starts (fail-closed). Resolved from `SUPERVISOR_DISPATCH_COST_CAP_USD`;
+   * DEFAULT 0 = UNLIMITED = meter-only = today (byte-for-byte). Suggested first real value $0.50
+   * (proposal §4 + §D(d)). Read at construction; a change needs a supervisor restart.
+   */
+  dispatchCostCapUsd: number;
+  /**
+   * ★ P-C1 — the ROLLING CUMULATIVE USD spend cap over {@link dispatchCostWindowMs}: an admission is
+   * refused once the window's spend + the dispatch estimate would exceed this. Resolved from
+   * `SUPERVISOR_DISPATCH_COST_WINDOW_USD`; DEFAULT 0 = UNLIMITED = today. Suggested first real value
+   * $5 / 5h (proposal §4 + §D(d)). The window rolls on the caller's clock (gate.resetWindow).
+   */
+  dispatchCostWindowUsd: number;
+  /**
+   * ★ P-C1 — the rolling cost-window length (ms): the period over which {@link dispatchCostWindowUsd}
+   * is enforced before the spend ledger rolls. Resolved from `SUPERVISOR_DISPATCH_COST_WINDOW_MS`;
+   * DEFAULT {@link DEFAULT_DISPATCH_COST_WINDOW_MS} (5h — the Claude budget boundary). Only meaningful
+   * when the window cap is non-zero; the caller drives the actual roll via the gate's resetWindow.
+   */
+  dispatchCostWindowMs: number;
+  /**
+   * ★ P-C1 (enforcement wiring) — the conservative PER-DISPATCH USD COST ESTIMATE the dispatch
+   * choke-point feeds to `gate.tryAcquire(estTokens, estCostUsd)` BEFORE a dispatch starts (the cap is
+   * a SAFETY ceiling, not a billing meter — §4: estimation imperfection is acceptable; the post-hoc
+   * `release` charges the REAL cost). Resolved from `SUPERVISOR_DISPATCH_EST_COST_USD`; DEFAULT 0 →
+   * the admission estimate is $0 (so with caps 0 it changes nothing; with a per-dispatch cap set,
+   * leave it 0 to admit-then-charge-real, or set a conservative estimate to refuse up-front). Fractional.
+   */
+  dispatchEstCostUsd: number;
+  /**
+   * ★ DEEPSEEK KEY BRIDGE (follow-up, default-OFF) — when ON, a routed DeepSeek dispatch whose key is
+   * NOT in the sealed /setkey store FALLS BACK to the key configured for the existing `deepseek-codegen`
+   * MCP server (read NARROWLY from ~/.claude.json `mcpServers.deepseek-codegen.env.DEEPSEEK_API_KEY`).
+   * Resolved from `SUPERVISOR_DEEPSEEK_KEY_BRIDGE`; DEFAULT OFF. ★CONTAINMENT: ON triggers a
+   * single-key read of the user-scope ~/.claude.json (the file the supervisor otherwise avoids for the
+   * token-hijack containment) — a NARROW read (only that one key, never enabledPlugins/other servers),
+   * but a boundary; left OFF by default so it never reads ~/.claude.json unless explicitly enabled.
+   */
+  deepseekKeyBridge: boolean;
 }
 
 export interface LoadConfigOptions {
@@ -367,6 +423,10 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     // entrypoint can clear it after use). Unset env → both undefined → byte-for-byte today.
     startupHandoff: resolveStartupHandoff(),
     startupHandoffFile: resolveStartupHandoffFile(),
+    // ★ STARTUP GREETING — proactively greet the user on a fresh (re)started session (default ON;
+    // SUPERVISOR_STARTUP_GREETING=off disables). Needs the persisted operator (operatorStateFile).
+    startupGreeting: resolveStartupGreeting(),
+    operatorStateFile: join(stateDir, 'operator.json'),
     // ★ P6: the model-agnostic role-routing activation switch (default OFF). Reads the SAME
     // env var the pure isRoleRoutingEnabled gates on, so the config flag + the resolver agree.
     roleRoutingEnabled: isRoleRoutingEnabled(process.env),
@@ -390,6 +450,15 @@ export function loadConfig(opts: LoadConfigOptions = {}): SupervisorConfig {
     autoSnapshotIntervalMs: resolveAutoSnapshotIntervalMs(),
     restartDrainMs: resolveRestartDrainMs(),
     statusProbeMs: resolveStatusProbeMs(),
+    // ★ P-C1 — the enforced spend caps over the routed-dispatch path. BOTH USD caps default 0 =
+    // UNLIMITED = meter-only = today (byte-for-byte). The window length defaults to the 5-hour
+    // Claude budget boundary. Enforced fail-closed (refuse the dispatch) only when non-zero.
+    dispatchCostCapUsd: resolveDispatchCostCapUsd(),
+    dispatchCostWindowUsd: resolveDispatchCostWindowUsd(),
+    dispatchCostWindowMs: resolveDispatchCostWindowMs(),
+    dispatchEstCostUsd: resolveDispatchEstCostUsd(),
+    // ★ DEEPSEEK KEY BRIDGE (default OFF → never reads ~/.claude.json; byte-for-byte today).
+    deepseekKeyBridge: resolveDeepseekKeyBridge(),
   };
 }
 
@@ -462,6 +531,77 @@ export function resolvePingResponseTimeoutMs(raw = process.env.SUPERVISOR_PING_R
 export function resolvePingIntervalMs(raw = process.env.SUPERVISOR_PING_INTERVAL_MS): number {
   const n = Number((raw ?? '').trim());
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PING_INTERVAL_MS;
+}
+
+/** ★ P-C1 — the DEFAULT rolling cost-window length (ms): 5 hours = the Claude budget boundary. */
+export const DEFAULT_DISPATCH_COST_WINDOW_MS = 5 * 60 * 60 * 1000; // 18_000_000
+
+/**
+ * ★ P-C1 — resolve the PER-DISPATCH USD spend cap from `SUPERVISOR_DISPATCH_COST_CAP_USD`. A finite
+ * positive value (FRACTIONAL allowed, e.g. 0.50) is the per-dispatch ceiling; an unset/blank/
+ * non-positive/non-numeric value → 0 (= UNLIMITED = meter-only = today). NOT floored (USD is
+ * fractional). Pure; exported for the test.
+ */
+export function resolveDispatchCostCapUsd(raw = process.env.SUPERVISOR_DISPATCH_COST_CAP_USD): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * ★ P-C1 — resolve the ROLLING CUMULATIVE USD spend cap from `SUPERVISOR_DISPATCH_COST_WINDOW_USD`.
+ * A finite positive value (FRACTIONAL allowed, e.g. 5.00) is the window ceiling; an unset/blank/
+ * non-positive/non-numeric value → 0 (= UNLIMITED = today). NOT floored (USD is fractional). Pure;
+ * exported for the test.
+ */
+export function resolveDispatchCostWindowUsd(raw = process.env.SUPERVISOR_DISPATCH_COST_WINDOW_USD): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * ★ P-C1 — resolve the rolling cost-window length (ms) from `SUPERVISOR_DISPATCH_COST_WINDOW_MS`.
+ * A positive integer is used verbatim; an unset/blank/non-positive/non-numeric value →
+ * {@link DEFAULT_DISPATCH_COST_WINDOW_MS} (5h). Pure; exported for the test. Mirrors {@link resolvePingIntervalMs}.
+ */
+export function resolveDispatchCostWindowMs(raw = process.env.SUPERVISOR_DISPATCH_COST_WINDOW_MS): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_DISPATCH_COST_WINDOW_MS;
+}
+
+/**
+ * ★ P-C1 (enforcement wiring) — resolve the conservative PER-DISPATCH USD cost ESTIMATE from
+ * `SUPERVISOR_DISPATCH_EST_COST_USD`. A finite positive value (FRACTIONAL) is the up-front estimate
+ * fed to the gate's admission check; an unset/blank/non-positive/non-numeric value → 0 (admit-then-
+ * charge-real; with caps 0 this changes nothing). NOT floored. Pure; exported for the test.
+ */
+export function resolveDispatchEstCostUsd(raw = process.env.SUPERVISOR_DISPATCH_EST_COST_USD): number {
+  const n = Number((raw ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * ★ DEEPSEEK KEY BRIDGE — resolve the bridge switch from `SUPERVISOR_DEEPSEEK_KEY_BRIDGE`. ON only for
+ * '1'/'true'/'on' (case/space-insensitive); anything else (incl. unset) → false (DEFAULT OFF → the
+ * bridge never reads ~/.claude.json; a DeepSeek dispatch with no /setkey key stays key-free as today).
+ * Pure; exported for the test.
+ */
+export function resolveDeepseekKeyBridge(raw = process.env.SUPERVISOR_DEEPSEEK_KEY_BRIDGE): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
+/**
+ * ★ STARTUP GREETING — resolve the proactive-greet switch from `SUPERVISOR_STARTUP_GREETING`.
+ * DEFAULT ON (unset ⇒ on): a FRESH (re)started orchestrator that has a persisted operator from a
+ * prior session proactively sends a brief "I'm back" greeting instead of sitting mute until the
+ * user messages it (the prior pain: "the human had to re-send Hi before the orchestrator engaged").
+ * Explicit '0'/'false'/'off'/'none' (case-insensitive) disables it → the deferred first-turn
+ * behavior, byte-for-byte today. Pure; exported for the test.
+ */
+export function resolveStartupGreeting(raw = process.env.SUPERVISOR_STARTUP_GREETING): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off' || v === 'none') return false;
+  return true; // unset / anything else → ON (default)
 }
 
 /**

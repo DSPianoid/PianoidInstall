@@ -63,6 +63,8 @@ import { BackendRegistry } from './backend-registry.js';
 import { dispatchRoleAgentWithFallback } from './result-relay.js';
 import { mergeRoleRoutingOverrides, resolveRoleBackend, DEFAULT_ROLE_ROUTING_CONFIG } from './role-router.js';
 import { DEFAULT_API_ADAPTER_CONFIGS } from './api-adapter-driver.js';
+import { AgentConcurrencyGate } from './agent-concurrency.js';
+import { resolveDeepseekKeyFromMcpConfig, DEEPSEEK_SECRET_ENV_VAR } from './deepseek-key-bridge.js';
 import type { RoleDispatchFn, RoleDispatchResult, RestartIntent, RestartControlResult } from './session-host.js';
 
 interface CliArgs {
@@ -166,11 +168,6 @@ async function main(): Promise<void> {
   let sessionHost: SessionHost | undefined;
   // D4 tier-b handler — assigned in the session branch (closes over sessionHost+supervisor).
   let handleUnresponsive: (reason: string) => Promise<void> = async () => undefined;
-  // ★ RELAUNCH-GUARD notify — assigned in the session branch (closes over sessionHost+supervisor).
-  // The cli-stream driver has ALREADY killed the child to block the relaunch; this only surfaces
-  // an operator-facing note. No-op default (e.g. the SDK driver / pre-binding).
-  let handleRelaunchBlocked: (info: { toolName: string; command: string; fromSubAgent: boolean }) => void =
-    () => undefined;
   if (args.session) {
     const profile = resolveProfile(args.profile);
     // DRIVER SELECTION (the single construction site). Precedence: explicit
@@ -204,18 +201,6 @@ async function main(): Promise<void> {
       driver === 'cli-stream'
         ? new CliStreamDriver({
             onStderr: (line) => logger.warn(`cli-stream stderr: ${line}`),
-            // ★ RELAUNCH GUARD: the driver intercepts a supervisor-relaunch tool_use (from the
-            // orchestrator OR any sub-agent — incl. a bypassPermissions/background one that raises
-            // NO permission request) and HARD-KILLS the child to prevent the host teardown, then
-            // fires this. We log it + surface a note to the operator. The kill is unconditional
-            // (works without this callback); this only informs the user.
-            onRelaunchBlocked: (info) => {
-              logger.error('RELAUNCH GUARD: blocked a supervisor-relaunch tool call (child killed to protect the live host)', {
-                tool: info.toolName,
-                fromSubAgent: info.fromSubAgent,
-              });
-              handleRelaunchBlocked(info);
-            },
           })
         : new SdkSessionDriver();
 
@@ -315,6 +300,16 @@ async function main(): Promise<void> {
       const registry = new BackendRegistry();
       const storeForDispatch = secretStore;
       const routingForDispatch = roleRoutingStore;
+      // ★ P-C1 ENFORCEMENT — ONE spend gate for the routed-dispatch path (the choke-point). The two USD
+      // caps + the rolling window length come from config; BOTH caps default 0 = UNLIMITED, so with no
+      // caps set the gate admits every dispatch (estCost is checked against 0 ⇒ never breaches) = byte-
+      // for-byte today. The gate is the sole owner of the rolling spend ledger (P1); the closure
+      // tryAcquire()s per dispatch and passes the lease through so result-relay charges the REAL cost.
+      const spendGate = new AgentConcurrencyGate({
+        ...(config.dispatchCostCapUsd > 0 ? { dispatchCostCapUsd: config.dispatchCostCapUsd } : {}),
+        ...(config.dispatchCostWindowUsd > 0 ? { dispatchCostWindowUsd: config.dispatchCostWindowUsd } : {}),
+      });
+      const estCostUsd = config.dispatchEstCostUsd; // conservative per-dispatch estimate (default 0)
       dispatchRoleAgent = async (role: string, task: string): Promise<RoleDispatchResult> => {
         // Project the stored provider keys into the dispatch env (scoped-key loading at spawn).
         const apiAdapterEnv: NodeJS.ProcessEnv = { ...process.env, ...storeForDispatch.loadAll() };
@@ -331,6 +326,43 @@ async function main(): Promise<void> {
           selection.backend === 'api-adapter' && selection.model
             ? DEFAULT_API_ADAPTER_CONFIGS[selection.model]?.secretEnvVar
             : undefined;
+
+        // ★ DEEPSEEK KEY BRIDGE (default-OFF) — when the resolved backend is the DeepSeek api-adapter
+        // AND the sealed /setkey store has NO DeepSeek key, FALL BACK to the deepseek-codegen MCP's key
+        // (narrow user-scope ~/.claude.json read; see deepseek-key-bridge.ts containment header). The
+        // sealed store ALWAYS wins (we only bridge when it has none). The key is injected into THIS
+        // dispatch's env ONLY when ownSecretName IS the DeepSeek key — so the seal's "only your own key"
+        // invariant holds (no foreign key reaches a non-DeepSeek agent). OFF ⇒ no read, no injection.
+        if (
+          config.deepseekKeyBridge &&
+          ownSecretName === DEEPSEEK_SECRET_ENV_VAR &&
+          !storeForDispatch.has(DEEPSEEK_SECRET_ENV_VAR)
+        ) {
+          const bridged = resolveDeepseekKeyFromMcpConfig({ onNote: (line) => logger.info(line) });
+          if (bridged) apiAdapterEnv[DEEPSEEK_SECRET_ENV_VAR] = bridged; // scoped to this DeepSeek dispatch only
+        }
+
+        // ★ P-C1 ENFORCEMENT — ADMISSION: try to acquire a spend slot with the per-dispatch estimate.
+        // On a breach (per-dispatch or rolling cap) REFUSE with a CLEAN surfaced result — never a crash/
+        // wedge (CP4/CP5). With caps 0 this always admits (byte-for-byte today).
+        const acq = spendGate.tryAcquire(0, estCostUsd);
+        if (!acq.ok) {
+          const reason =
+            acq.reason === 'dispatch-cost-cap'
+              ? `per-dispatch cost cap $${config.dispatchCostCapUsd.toFixed(2)} (est $${estCostUsd.toFixed(2)})`
+              : acq.reason === 'dispatch-cost-window'
+                ? `rolling spend cap $${config.dispatchCostWindowUsd.toFixed(2)} reached (spent $${spendGate.spentCostUsd.toFixed(4)})`
+                : `concurrency/budget (${acq.reason ?? 'unknown'})`;
+          logger.warn('routed dispatch REFUSED by spend cap', { role, reason: acq.reason });
+          return {
+            ok: false,
+            role: String(role),
+            backend: selection.backend,
+            fellBack: false,
+            text: `refused: spend cap — ${reason}. Set a higher SUPERVISOR_DISPATCH_COST_* cap or wait for the window to reset.`,
+          };
+        }
+
         const report = await dispatchRoleAgentWithFallback({
           role,
           task,
@@ -338,6 +370,9 @@ async function main(): Promise<void> {
           config: merged,
           env: apiAdapterEnv,
           ...(ownSecretName ? { ownSecretName } : {}),
+          // ★ P-C1 — pass the lease so the dispatcher RELEASES it with the REAL tokens + costUsd
+          // (result-relay.ts release(reportTokensUsed, report.costUsd)); idempotent → safe on crash.
+          lease: acq.lease!,
         });
         const result: RoleDispatchResult = {
           ok: report.ok,
@@ -352,6 +387,9 @@ async function main(): Promise<void> {
       logger.info('ROLE-ROUTING ACTIVE (SUPERVISOR_ROLE_ROUTING on) — /setkey + /setrole + /roles wired; routed dispatch enabled', {
         secretStore: secretStore.path,
         roleRoutingStore: roleRoutingStore.path,
+        spendCapPerDispatchUsd: config.dispatchCostCapUsd,
+        spendCapWindowUsd: config.dispatchCostWindowUsd,
+        deepseekKeyBridge: config.deepseekKeyBridge,
       });
     }
 
@@ -535,6 +573,11 @@ async function main(): Promise<void> {
       // prefix). Unstaged/unset ⇒ undefined ⇒ byte-for-byte today. The one-shot file is cleared just
       // below so a later PLAIN restart doesn't re-inject a stale brief.
       startupHandoff: profile.roleBootstrap === 'orchestrator-skill' ? config.startupHandoff : undefined,
+      // ★ STARTUP GREETING — proactively greet the user on a fresh (re)started session instead of
+      // waiting for them to nudge the cold orchestrator (the "had to re-send Hi" gap). Gated to the
+      // orchestrator profile (the demo persona doesn't greet); needs the persisted operator file.
+      startupGreeting: profile.roleBootstrap === 'orchestrator-skill' ? config.startupGreeting : false,
+      operatorStateFile: config.operatorStateFile,
       // Per-turn de-dup applies ONLY when the in-process reply tool is wired (SDK
       // driver): auto-out the final answer UNLESS the reply tool fired this turn.
       // Under cli-stream there is NO reply tool → auto-forward assistant text (the
@@ -607,23 +650,6 @@ async function main(): Promise<void> {
       // restartUnresponsive() (not clearContext) so the involuntary restart INCREMENTS the
       // `restarts` counter and is visible in /api/session.
       await sessionHost?.restartUnresponsive().catch((e) => logger.error('tier-b restart failed', { err: String(e) }));
-    };
-    // ★ RELAUNCH-GUARD notify (defined here so it closes over sessionHost + supervisor). The
-    // driver already KILLED the child to block the relaunch (the host is protected); tell the
-    // operator a host-restart attempt was blocked. The lifecycle's existing death-detection then
-    // brings the orchestrator back (so the session recovers, minus the dangerous relaunch).
-    handleRelaunchBlocked = (info): void => {
-      const op = sessionHost?.currentOperator();
-      if (!op) return;
-      const who = info.fromSubAgent ? 'a sub-agent' : 'the orchestrator';
-      void supervisor
-        .sendOutbound('telegram', op, {
-          text:
-            `⛔ Blocked a supervisor host-restart that ${who} tried to run directly (\`${info.toolName}\`). ` +
-            `Restarting the host this way would silently sever this channel, so it was prevented and the ` +
-            `session was reset instead. To restart the host deliberately, use the control panel / \`/control\` → restart (it confirms first).`,
-        })
-        .catch(() => undefined);
     };
   } else if (args.echo) {
     logger.warn('ECHO MODE (dev/test) — host hook echoes inbound back; NOT the real session');

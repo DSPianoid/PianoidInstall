@@ -51,7 +51,6 @@ import type {
   ToolUse,
   UserTurn,
 } from '../session-driver.js';
-import { isSupervisorRelaunchCommand } from '../profiles.js';
 
 /**
  * The minimal structural view of a spawned child we use. Matches the relevant
@@ -87,78 +86,6 @@ export interface CliStreamDriverOptions {
   command?: string;
   /** Optional sink for stderr lines (diagnostics; never carries a token). */
   onStderr?: (line: string) => void;
-  /**
-   * ★ RELAUNCH GUARD (2026-06-20) — the MODE-INDEPENDENT host-restart block.
-   *
-   * Fired the instant the driver observes (on stdout) an assistant tool_use that would
-   * EXECUTE a supervisor relaunch (restart-supervisor.ps1 / a launcher / a `--session`
-   * host launch) — from the orchestrator OR ANY sub-agent. The driver has ALREADY killed
-   * the child tree before invoking this (the relaunch is prevented, not merely reported).
-   * The supervisor uses this to surface a "blocked a host-restart attempt" note to the
-   * operator. Best-effort; the driver never awaits it on the hot path.
-   *
-   * Why this exists (the bug it closes): the safety floor (PermissionRouter.routeWhen →
-   * isSupervisorRelaunchCommand) only runs when a tool raises a `can_use_tool`
-   * control_request. A `bypassPermissions` and/or background/Task sub-agent SUPPRESSES
-   * that request entirely (measured), and an allow-listed Bash/PowerShell never raises one
-   * either — so a relaunch from such a tool would run UN-GATED and silently tear down the
-   * live host. This guard sits in the driver's stdout loop (the ONE chokepoint that sees
-   * every tool_use regardless of permission mode / allow-list / background) → it cannot be
-   * defeated by bypass.
-   */
-  onRelaunchBlocked?: (info: RelaunchBlockInfo) => void;
-}
-
-/** Detail of a blocked supervisor-relaunch attempt (passed to {@link CliStreamDriverOptions.onRelaunchBlocked}). */
-export interface RelaunchBlockInfo {
-  /** The tool that carried the relaunch (`Bash` / `PowerShell` / `Agent` / `Task`). */
-  toolName: string;
-  /** The offending command (a shell command string, or a sub-agent prompt for Agent/Task). */
-  command: string;
-  /** True when the relaunch came from a SUB-AGENT (the bypass hole), false for the orchestrator's own. */
-  fromSubAgent: boolean;
-}
-
-/**
- * Scan ONE parsed stream-json message for an assistant tool_use that would EXECUTE a
- * supervisor relaunch — checked MODE-INDEPENDENTLY (before any permission/allow-list/
- * sub-agent handling). Returns the block detail on the first match, else null. Pure +
- * exported for the test.
- *
- * Two carriers are inspected:
- *  - a shell tool (`Bash`/`PowerShell`) whose `command`/`cmd` is a relaunch (the direct case,
- *    incl. a bypass sub-agent's shell call that raises no control_request);
- *  - an `Agent`/`Task` spawn whose `prompt` literally contains a relaunch (the orchestrator
- *    dispatching a sub-agent whose explicit job is to run the relaunch — caught at the spawn,
- *    a belt-and-suspenders layer on top of the sub-agent's own shell call being caught above).
- *
- * `fromSubAgent` is derived from the SAME markers the flood-fix uses: a non-null
- * `parent_tool_use_id` (foreground sidechain) or a `subagent_type` (background task).
- */
-export function detectRelaunchToolUse(raw: unknown): RelaunchBlockInfo | null {
-  const m = (raw ?? {}) as Record<string, unknown>;
-  if (m['type'] !== 'assistant') return null;
-  const fromSubAgent = m['parent_tool_use_id'] != null || m['subagent_type'] != null;
-  const msg = (m['message'] ?? {}) as Record<string, unknown>;
-  const content = Array.isArray(msg['content']) ? (msg['content'] as Record<string, unknown>[]) : [];
-  for (const block of content) {
-    if (block['type'] !== 'tool_use') continue;
-    const name = String(block['name'] ?? '');
-    const input = (block['input'] as Record<string, unknown>) ?? {};
-    if (name === 'Bash' || name === 'PowerShell') {
-      const cmd = String((input['command'] ?? input['cmd'] ?? '') as string);
-      if (cmd && isSupervisorRelaunchCommand(cmd.toLowerCase())) {
-        return { toolName: name, command: cmd, fromSubAgent };
-      }
-    } else if (name === 'Agent' || name === 'Task') {
-      // The sub-agent dispatch itself — its prompt may carry the relaunch instruction.
-      const prompt = String((input['prompt'] ?? '') as string);
-      if (prompt && isSupervisorRelaunchCommand(prompt.toLowerCase())) {
-        return { toolName: name, command: prompt, fromSubAgent };
-      }
-    }
-  }
-  return null;
 }
 
 /**
@@ -548,14 +475,11 @@ export class CliStreamDriver implements SessionDriver {
   private readonly spawnFnOverride?: CliSpawnFn;
   private readonly command: string;
   private readonly onStderr?: (line: string) => void;
-  private readonly onRelaunchBlocked?: (info: RelaunchBlockInfo) => void;
   private child: CliChildProcess | null = null;
   private running = false;
   private sessionId: string | undefined;
   /** The private 0600 temp file holding the curated --mcp-config map; unlinked on stop()/teardown. */
   private mcpConfigFile: string | undefined;
-  /** True once we've intercepted a relaunch + killed the child (suppresses further events). */
-  private relaunchBlocked = false;
   /** The permission handler (PermissionRouter), set in start() — services can_use_tool. */
   private onPermission?: PermissionHandler;
 
@@ -563,13 +487,11 @@ export class CliStreamDriver implements SessionDriver {
     this.spawnFnOverride = opts.spawnFn;
     this.command = opts.command ?? 'claude';
     this.onStderr = opts.onStderr;
-    this.onRelaunchBlocked = opts.onRelaunchBlocked;
   }
 
   start(opts: SessionStartOptions): AsyncIterable<SessionEvent> {
     const self = this;
     this.running = true;
-    this.relaunchBlocked = false; // fresh session (a restart re-starts this driver)
     // The permission handler (the supervisor's PermissionRouter) — invoked for each
     // `can_use_tool` control_request the CLI raises over stdio (R4).
     this.onPermission = opts.onPermission;
@@ -615,21 +537,6 @@ export class CliStreamDriver implements SessionDriver {
             parsed = JSON.parse(line);
           } catch {
             continue; // a non-JSON line (rare CLI chatter) → skip
-          }
-          // ★ RELAUNCH GUARD (2026-06-20) — MODE-INDEPENDENT host-restart block. Checked
-          // FIRST, before the control-protocol + the sub-agent drop in mapCliMessage, so it
-          // fires for EVERY tool_use the model emits regardless of permission mode / allow-list
-          // / background. A relaunch (restart-supervisor.ps1 / a launcher / a `--session` host
-          // launch) from a bypassPermissions or background sub-agent raises NO can_use_tool
-          // control_request (measured), so the PermissionRouter floor never sees it — but the
-          // tool_use line ALWAYS rides this stdout stream, and (measured) it is emitted BEFORE
-          // the CLI executes the tool, so killing the child tree HERE prevents the relaunch from
-          // tearing down the live host. We stop draining + end the stream after blocking.
-          const blocked = detectRelaunchToolUse(parsed);
-          if (blocked && !self.relaunchBlocked) {
-            self.relaunchBlocked = true;
-            self.blockRelaunch(blocked);
-            return; // stop yielding — the child is being torn down; the turn is void
           }
           // CONTROL PROTOCOL: a `control_request` is NOT a content message — handle it
           // out-of-band (permission round-trip) and do not yield it as a SessionEvent.
@@ -688,38 +595,6 @@ export class CliStreamDriver implements SessionDriver {
         request_id: requestId,
         error: err instanceof Error ? err.message : String(err),
       });
-    }
-  }
-
-  /**
-   * ★ Block an intercepted supervisor-relaunch: KILL the child tree (preventing the relaunch
-   * from executing — the tool_use line precedes execution, measured) and notify the supervisor.
-   * Best-effort, never throws. After this the generator returns (stream ends); the lifecycle
-   * manager observes the child exit. This is the HARD-DENY the task blesses for the bypass case;
-   * it also covers an orchestrator-OWN raw shell relaunch (the legitimate host-restart path is
-   * the lifecycle API — POST /api/lifecycle/restart-request / ctl:restart — NOT a raw shell call).
-   */
-  private blockRelaunch(info: RelaunchBlockInfo): void {
-    this.running = false;
-    const child = this.child;
-    this.child = null;
-    // The child we fed is being torn down → drop its private --mcp-config temp file too.
-    this.cleanupMcpConfigFile();
-    // Notify FIRST (so the operator-facing note is queued even if the kill races the exit).
-    try {
-      this.onRelaunchBlocked?.(info);
-    } catch {
-      /* a notify failure must not stop the kill */
-    }
-    if (child) {
-      try {
-        child.stdin.end();
-      } catch {
-        /* ignore */
-      }
-      // Fire-and-forget the tree kill (terminateChildTree awaits the exit; we don't block the
-      // generator's return on it — the child is doomed either way).
-      void terminateChildTree(child).catch(() => undefined);
     }
   }
 

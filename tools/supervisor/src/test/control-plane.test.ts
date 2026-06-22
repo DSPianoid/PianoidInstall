@@ -37,6 +37,11 @@ import {
   buildApprovalsSubmenu,
   approvalsMenuText,
   controlHelpText,
+  formatDispatchResultTurn,
+  formatDispatchAck,
+  CONTROL_DISPATCH_ACTION,
+  CONTROL_DISPATCH_INFO_TEXT,
+  CONTROL_DISPATCH_UNAVAILABLE_TEXT,
   classifyLiveness,
   formatStatus,
   formatUptime,
@@ -65,7 +70,15 @@ import {
 } from '../control-command.js';
 import { ChannelPermission } from '../channel-permission.js';
 import { SessionHost } from '../session-host.js';
-import type { RestartControlFn, RestartIntent, InterruptTurnFn, ParentRestartFn, RestartControlResult } from '../session-host.js';
+import type {
+  RestartControlFn,
+  RestartIntent,
+  InterruptTurnFn,
+  ParentRestartFn,
+  RestartControlResult,
+  RoleDispatchFn,
+  RoleDispatchResult,
+} from '../session-host.js';
 import { LifecycleManager } from '../lifecycle.js';
 import { IoBus } from '../io-bus.js';
 import { Logger } from '../logger.js';
@@ -471,6 +484,8 @@ interface ControlDeps {
   restartControl?: RestartControlFn;
   interruptTurn?: InterruptTurnFn;
   parentRestart?: ParentRestartFn;
+  /** ★ P-B1 — the routed-dispatch closure (wired = SUPERVISOR_ROLE_ROUTING ON). Omit → dispatch dormant. */
+  dispatchRoleAgent?: RoleDispatchFn;
 }
 
 /** A host idling after system_init, awaiting the first user turn. `model` sets opts.model. */
@@ -494,8 +509,31 @@ function makeHost(cap: ReturnType<typeof makeCapture>, model?: string, deps: Con
     ...(deps.restartControl ? { restartControl: deps.restartControl } : {}),
     ...(deps.interruptTurn ? { interruptTurn: deps.interruptTurn } : {}),
     ...(deps.parentRestart ? { parentRestart: deps.parentRestart } : {}),
+    ...(deps.dispatchRoleAgent ? { dispatchRoleAgent: deps.dispatchRoleAgent } : {}),
   });
   return { bus, driver, host };
+}
+
+/**
+ * ★ P-B1 — a FAKE dispatch closure that RECORDS each (role, task) and returns a canned
+ * {@link RoleDispatchResult} WITHOUT spawning any real backend agent (the host-safety contract:
+ * NO real claude spawn / API spend; the dispatch is asserted as REQUESTED + its result relayed).
+ * Returns ok:true with a backend/text/cost by default; override `result` to simulate a failure.
+ */
+function makeFakeDispatch(result?: Partial<RoleDispatchResult>) {
+  const calls: { role: string; task: string }[] = [];
+  const fn: RoleDispatchFn = async (role: string, task: string): Promise<RoleDispatchResult> => {
+    calls.push({ role, task });
+    return {
+      ok: result?.ok ?? true,
+      role,
+      backend: result?.backend ?? 'api-adapter',
+      ...(result?.text !== undefined ? { text: result.text } : { text: 'agent report: done' }),
+      ...(result?.costUsd !== undefined ? { costUsd: result.costUsd } : { costUsd: 0.0042 }),
+      ...(result?.fellBack !== undefined ? { fellBack: result.fellBack } : {}),
+    };
+  };
+  return { calls, fn };
 }
 
 /**
@@ -2196,6 +2234,149 @@ test('REDESIGN status live-probe OFF (probeMs=0): status is the cheap snapshot o
   assert.ok(ed, 'status edited');
   assert.match(ed!.text, /🟢 ACTIVE/);
   assert.equal(/probe:/.test(ed!.text), false, 'no live-probe line when probeMs=0');
+  await host.stop();
+  bus.close();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ P-B1 — the DISPATCH SURFACE (the model-agnostic routed-dispatch action + relay)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('★ P-B1 formatDispatchResultTurn: the [SUPERVISOR dispatch-result] orchestrator-turn shape', () => {
+  const turn = formatDispatchResultTurn({ ok: true, role: 'coding', backend: 'api-adapter', text: 'def f(): pass', costUsd: 0.0123 });
+  assert.match(turn, /^\[SUPERVISOR dispatch-result\] role=coding backend=api-adapter ok=true cost=\$0\.0123/);
+  assert.match(turn, /\ndef f\(\): pass$/, 'the agent report text follows the header');
+  // a fell-back dispatch is flagged
+  const fb = formatDispatchResultTurn({ ok: true, role: 'coding', backend: 'claude-cli', text: 'x', fellBack: true });
+  assert.match(fb, /fell-back=true/);
+  // no text → header only (no trailing newline)
+  const bare = formatDispatchResultTurn({ ok: false, role: 'reviewing', backend: 'openai' });
+  assert.equal(bare, '[SUPERVISOR dispatch-result] role=reviewing backend=openai ok=false cost=n/a');
+  // formatDispatchAck is a short channel confirmation (the FULL report goes to the orchestrator turn)
+  assert.match(formatDispatchAck({ ok: true, role: 'coding', backend: 'api-adapter', costUsd: 0.5 }), /Dispatch completed.*relayed to the orchestrator/);
+});
+
+test('★ P-B1 the Dispatch button is OFFERED only when routing is wired (dormant → not shown, byte-for-byte)', async () => {
+  // UNWIRED (default makeHost — no dispatchRoleAgent): the menu is the 10 redesigned actions, NO dispatch.
+  const capOff = makeCapture();
+  const off = makeHost(capOff);
+  await off.host.start();
+  await off.host.handleInbound(inbound('/control'));
+  const menuOff = capOff.sent.find((s) => s.msg.text === CONTROL_MENU_TEXT)!;
+  assert.equal(menuOff.msg.options?.buttons!.length, 10, 'unwired menu stays 10 buttons (byte-for-byte)');
+  assert.equal(menuOff.msg.options!.buttons!.some((b) => b.callbackData === controlCallbackData('dispatch')), false, 'no Dispatch button when routing is OFF');
+  await off.host.stop();
+  off.bus.close();
+
+  // WIRED (a fake dispatch closure): the Dispatch button is appended.
+  const capOn = makeCapture();
+  const fake = makeFakeDispatch();
+  const on = makeHost(capOn, undefined, { dispatchRoleAgent: fake.fn });
+  await on.host.start();
+  await on.host.handleInbound(inbound('/control'));
+  const menuOn = capOn.sent.find((s) => s.msg.text === CONTROL_MENU_TEXT)!;
+  assert.equal(menuOn.msg.options?.buttons!.length, 11, 'wired menu adds the Dispatch button (11)');
+  const disp = menuOn.msg.options!.buttons!.find((b) => b.callbackData === controlCallbackData('dispatch'));
+  assert.ok(disp, 'the Dispatch button is present when routing is wired');
+  assert.equal(disp!.text, CONTROL_DISPATCH_ACTION.label);
+  await on.host.stop();
+  on.bus.close();
+});
+
+test('★ P-B1 ctl:dispatch:<role> (wired) -> calls dispatchRole, RELAYS the result as an orchestrator turn + ACKs', async () => {
+  const cap = makeCapture();
+  const fake = makeFakeDispatch({ ok: true, backend: 'api-adapter', text: 'agent report: refactored', costUsd: 0.0042 });
+  const { bus, driver, host } = makeHost(cap, undefined, { dispatchRoleAgent: fake.fn });
+  await host.start();
+  await host.handleInbound(inbound('hi')); // bind operator + 1 normal turn
+  assert.equal(driver.sentTurns.length, 1);
+  const startsBefore = driver.starts;
+
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:dispatch:coding', 'cb-dsp', 'm-dsp'));
+
+  // the dispatch closure was called with the role
+  assert.equal(fake.calls.length, 1, 'dispatchRole was invoked once');
+  assert.equal(fake.calls[0]!.role, 'coding');
+  // the result was RELAYED as an orchestrator turn (the [SUPERVISOR dispatch-result] shape)
+  assert.equal(driver.sentTurns.length, 2, 'a dispatch-result turn was injected');
+  const relayed = driver.sentTurns.at(-1)!.text;
+  assert.match(relayed, /^\[SUPERVISOR dispatch-result\] role=coding backend=api-adapter ok=true cost=\$0\.0042/);
+  assert.match(relayed, /agent report: refactored/);
+  // the tap was ACKed + the menu message edited to a short channel ack
+  assert.equal(cap.answered.at(-1)!.callbackId, 'cb-dsp');
+  const ed = cap.edited.find((e) => e.messageId === 'm-dsp');
+  assert.ok(ed, 'the menu message was edited to a dispatch ack');
+  assert.match(ed!.text, /Dispatch completed/);
+  // HOST-SAFETY: nothing was restarted/killed (driver.starts constant; the agent ran via the fake closure)
+  assert.equal(driver.starts, startsBefore, 'no restart — the dispatch is not a lifecycle action');
+  await host.stop();
+  bus.close();
+});
+
+test('★ P-B1 ctl:dispatch DORMANT (routing OFF) -> reports unavailable, RELAYS no turn (byte-for-byte)', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap); // no dispatchRoleAgent
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  assert.equal(driver.sentTurns.length, 1);
+
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:dispatch:coding', 'cb-dsp0', 'm-dsp0'));
+  // unavailable result edited in; NO turn relayed (still just the 'hi' turn)
+  const ed = cap.edited.find((e) => e.messageId === 'm-dsp0');
+  assert.ok(ed, 'edited to an unavailable message');
+  assert.equal(ed!.text, CONTROL_DISPATCH_UNAVAILABLE_TEXT);
+  assert.equal(driver.sentTurns.length, 1, 'dormant dispatch injects NO turn');
+  await host.stop();
+  bus.close();
+});
+
+test('★ P-B1 a BARE ctl:dispatch tap (wired, no role) -> info text pointing at the panel; no dispatch, no turn', async () => {
+  const cap = makeCapture();
+  const fake = makeFakeDispatch();
+  const { bus, driver, host } = makeHost(cap, undefined, { dispatchRoleAgent: fake.fn });
+  await host.start();
+  await host.handleInbound(inbound('/control'));
+  await host.handleInbound(callbackInbound('ctl:dispatch', 'cb-bare', 'm-bare'));
+  const ed = cap.edited.find((e) => e.messageId === 'm-bare');
+  assert.ok(ed, 'edited to the info text');
+  assert.equal(ed!.text, CONTROL_DISPATCH_INFO_TEXT);
+  assert.equal(fake.calls.length, 0, 'a bare tap does NOT dispatch (role+task come from the panel)');
+  assert.equal(driver.sentTurns.length, 0, 'no turn relayed for a bare tap');
+  await host.stop();
+  bus.close();
+});
+
+test('★ P-B1 dispatchRoleAndRelayTurn returns the RoleDispatchResult AND relays it (the channel path helper)', async () => {
+  const cap = makeCapture();
+  const fake = makeFakeDispatch({ ok: false, backend: 'openai', text: 'api error: rate limited' });
+  const { bus, driver, host } = makeHost(cap, undefined, { dispatchRoleAgent: fake.fn });
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  const before = driver.sentTurns.length;
+  const result = await host.dispatchRoleAndRelayTurn('reviewing', 'review the diff');
+  // the structured result is returned to the caller
+  assert.equal(result.enabled, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.backend, 'openai');
+  // AND it was relayed as a turn
+  assert.equal(driver.sentTurns.length, before + 1);
+  assert.match(driver.sentTurns.at(-1)!.text, /\[SUPERVISOR dispatch-result\] role=reviewing backend=openai ok=false/);
+  await host.stop();
+  bus.close();
+});
+
+test('★ P-B1 dispatchRoleAndRelayTurn dormant (unwired) -> {enabled:false}, relays NOTHING', async () => {
+  const cap = makeCapture();
+  const { bus, driver, host } = makeHost(cap); // unwired
+  await host.start();
+  await host.handleInbound(inbound('hi'));
+  const before = driver.sentTurns.length;
+  const result = await host.dispatchRoleAndRelayTurn('coding', 't');
+  assert.equal(result.enabled, false, 'dormant contract: enabled:false');
+  assert.equal(result.ok, false);
+  assert.equal(driver.sentTurns.length, before, 'dormant relays no turn (byte-for-byte)');
   await host.stop();
   bus.close();
 });

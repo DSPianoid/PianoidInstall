@@ -524,6 +524,51 @@ test('★★ M-1 the X2 budget gate RECEIVES the real token count via the dispat
   assert.equal(acq.lease!.released, true);
 });
 
+test('★★ P-C1 the dispatcher charges the REAL costUsd into the gate spend ledger via release(tokens, costUsd)', async () => {
+  const gate = new AgentConcurrencyGate({ maxConcurrent: 4, dispatchCostWindowUsd: 5 });
+  const registry = new BackendRegistry({
+    apiAdapterHttpClient: { async stream() { return sseWithUsage('ok', { prompt_tokens: 40, completion_tokens: 60, total_tokens: 100 }, 0.0123); } },
+    apiAdapterEnv: { DEEPSEEK_API_KEY: 'ds' } as NodeJS.ProcessEnv,
+  });
+  const acq = gate.tryAcquire(0, 0); // admitted (well under the $5 window)
+  assert.equal(acq.ok, true);
+
+  await dispatchRoleAgent({
+    role: 'coding',
+    task: 't',
+    registry,
+    config: DEFAULT_ROLE_ROUTING_CONFIG,
+    env: { DEEPSEEK_API_KEY: 'ds' } as NodeJS.ProcessEnv,
+    ownSecretName: 'DEEPSEEK_API_KEY',
+    lease: acq.lease, // P-C1: the dispatcher releases it with the REAL token count AND the REAL cost
+  });
+
+  assert.equal(gate.activeCount, 0, 'the lease was released (slot returned)');
+  assert.equal(gate.spentTokens, 100, 'tokens charged (M-1 path unchanged)');
+  assert.equal(gate.spentCostUsd, 0.0123, 'the REAL backend-reported costUsd was charged into the ledger');
+});
+
+test('★ P-C1 a crashed dispatch charges 0 cost (no usage/cost reported) — the ledger stays truthful', async () => {
+  const gate = new AgentConcurrencyGate({ maxConcurrent: 2, dispatchCostWindowUsd: 5 });
+  const crashing = new FakeSessionDriver([[{ do: 'crash' }]]);
+  const registry = new BackendRegistry({ factories: { 'claude-cli': () => crashing } });
+  const acq = gate.tryAcquire(0, 0);
+  await assert.rejects(
+    () =>
+      dispatchRoleAgent({
+        role: 'planning',
+        task: 't',
+        registry,
+        config: PLANNING_CONFIG,
+        env: KEY_FREE_ENV,
+        lease: acq.lease,
+      }),
+    AgentDispatchError,
+  );
+  assert.equal(gate.activeCount, 0, 'lease released on the crash path (no leaked slot)');
+  assert.equal(gate.spentCostUsd, 0, 'a crash with no cost reported charges $0');
+});
+
 test('★ M-1 the dispatch lease is released (charging 0) even when the agent CRASHES — no slot leak', async () => {
   const gate = new AgentConcurrencyGate({ maxConcurrent: 2, tokenBudget: 500 });
   const crashing = new FakeSessionDriver([[{ do: 'crash' }]]);

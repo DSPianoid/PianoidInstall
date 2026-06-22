@@ -15,6 +15,54 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-e9d9 | `tools/supervisor/launch-prod-orch.mjs` | 2026-06-21T09:00:00Z | GO-LIVE STAGING: set the dispatch-activation env (SUPERVISOR_ROLE_ROUTING + the 2 spend caps + est-cost) in the prod launcher; back up + rebuild prod dist. DeepSeek bridge env left OFF pending USER (not coordinator) sign-off. No live-process touch; no merge/push. |
+<!-- dev-e9d9 FOLLOW-UP locks RELEASED 2026-06-21 at Step 10a Phase 1 (2nd commit on feature/supervisor-dispatch-activation;
+     NOT merged/pushed — STOP before Phase 2). EDITED: tools/supervisor/src/{config,index}.ts + NEW deepseek-key-bridge.ts
+     + test/{config,dispatch-spend-wiring[NEW]}.test.ts. (result-relay.ts was LOCKED precautionarily but NOT edited this
+     round — its release(tokens,costUsd) from the prior commit already carries the cost; git shows no new M → released
+     untouched.) (1) C1 ENFORCEMENT WIRING: index.ts dispatch closure now builds ONE AgentConcurrencyGate from the config
+     caps + per dispatch tryAcquire(0, estCostUsd) → refuse-on-breach CLEAN {ok:false,text:'refused: spend cap …'} (never
+     crash) + passes the lease into dispatchRoleAgentWithFallback (result-relay release(tokens,costUsd) charges real cost);
+     estCostUsd = NEW config.dispatchEstCostUsd (SUPERVISOR_DISPATCH_EST_COST_USD, default 0). Caps 0 ⇒ admit-all = byte-for-
+     byte. (2) DEEPSEEK KEY BRIDGE (default-OFF SUPERVISOR_DEEPSEEK_KEY_BRIDGE): NEW pure deepseek-key-bridge.ts reads ONLY
+     mcpServers["deepseek-codegen"].env.DEEPSEEK_API_KEY from ~/.claude.json (narrow single-key, fail-soft, value never
+     logged); index.ts injects it into the dispatch env ONLY when ownSecretName===DEEPSEEK_API_KEY AND !secretStore.has(...)
+     (sealed /setkey WINS; seal preserved — non-DeepSeek backends never see it). ★CONTAINMENT: the only key source is the
+     user-scope ~/.claude.json (the file the supervisor avoids for hijack containment) → bridge GATED default-OFF + FLAGGED
+     for USER sign-off (coordinator-relayed approval is NOT user authority; see WIP NEEDS-USER-DECISION). config.ts +2
+     fields/resolvers/loadConfig lines (dispatchEstCostUsd + deepseekKeyBridge). +12 tests (3 config + 9 wiring). Full
+     supervisor node:test 670/670 (658 baseline +12; env -u SUPERVISOR_STARTUP_HANDOFF_FILE), tsc --noEmit clean. LOC:
+     index.ts 752→792, config.ts 684→728(YELLOW), deepseek-key-bridge.ts NEW 123(GREEN). ★HOST-SAFETY: prod dist/ NOT
+     regenerated (throwaway dist-test-e9d9 only, removed; prod dist/ mtimes 2026-06-21 09:15:06 UNCHANGED; new module
+     deepseek-key-bridge.js ABSENT from prod dist/; new symbols absent from prod dist/index.js via grep=0); live supervisor
+     [8790, PID 68908] NOT touched (zero lifecycle/kill/restart); the REAL ~/.claude.json NEVER read by any test (temp files
+     only); NO real claude spawn / Telegram / API spend. Dirty/untracked OTHER-agent files NOT touched. SHA in session log. -->
+<!-- dev-e9d9 locks RELEASED 2026-06-21 at Step 10a Phase 1 (commit on feature/supervisor-dispatch-activation,
+     off master 066b6f5; NOT merged/pushed — STOP before Phase 2; this is the LAST 2 phases of the supervisor
+     control-plane proposal, folds into the control-plane → master activation; the activation restart that rebuilds
+     dist/ also loads this). EDITED (existing): tools/supervisor/src/{agent-concurrency,result-relay,config,
+     control-command,session-host,panel}.ts + test/{agent-concurrency,config,result-relay,control-plane,panel}.test.ts.
+     P-B1 DISPATCH SURFACE: ctl:dispatch menu action (conditionally offered when SUPERVISOR_ROLE_ROUTING ON via
+     buildControlMenu({includeDispatch})) → controlDispatch → dispatchRoleAndRelayTurn (dispatchRole + relay the
+     [SUPERVISOR dispatch-result]… turn via lifecycle.sendUserTurn + a channel ack) + POST /api/dispatch {role,task}
+     → sessionHost.dispatchRole → RoleDispatchResult JSON; dormant when unwired (button not shown, {ok:false,
+     enabled:false}, no turn). P-C1 ENFORCED SPEND CAP: AgentConcurrencyGate +spentUsd ledger + dispatchCostCapUsd
+     (per-dispatch) + dispatchCostWindowUsd (rolling) checked in tryAcquire/acquire (fail-closed reasons
+     dispatch-cost-cap/dispatch-cost-window), release(tokens, costUsd) charges actual cost, pump re-checks, resetWindow
+     rolls both; result-relay.ts:251 passes report.costUsd; config.ts +3 resolvers (USD fractional) + 3 fields + 3
+     loadConfig lines + DEFAULT_DISPATCH_COST_WINDOW_MS(5h). BOTH USD caps default 0 = unlimited = byte-for-byte today;
+     SUPERVISOR_ROLE_ROUTING OFF ⇒ dispatch dormant. +25 tests (P-B1: 7 control-plane + 4 panel; P-C1: 8 gate + 4 config
+     + 2 relay). Full supervisor node:test 658/658 (633 baseline +25; env -u SUPERVISOR_STARTUP_HANDOFF_FILE for the
+     pre-existing dev-fa3d startup-handoff env-leak), tsc --noEmit clean. LOC: agent-concurrency 230→363, result-relay
+     398→400, config 622→684(YELLOW), control-command 659→734(YELLOW), session-host 3064→3129(pre-existing RED, additive
+     within control-plane concern), panel 354→399. ★HOST-SAFETY: prod dist/ NOT regenerated (built ONLY to throwaway
+     dist-test-e9d9, removed; prod dist/{agent-concurrency,result-relay,config,control-command,session-host,panel,index}.js
+     mtime 2026-06-21 09:15:06 UNCHANGED, verified before+after; new symbols dispatchCostCapUsd/formatDispatchResultTurn/
+     spendCapBreach ABSENT from prod dist/ via grep=0); the live supervisor [8790] NOT started/touched/killed, NO
+     /api/lifecycle/* call, NO restart-supervisor.ps1 / launcher, NO supervisor PID touched (all behavior via
+     FakeSessionDriver + fake dispatch closure + capturing send + loopback transport — NO real claude spawn / Telegram
+     send / API spend). README env-var update = Phase-2 deferred (dev-vio1 holds README; DOC DEFERRAL block filed in WIP).
+     Dirty/untracked OTHER-agent files (controller logs, 3 proposals, dist.bak*) NOT touched. SHA in the session log. -->
 <!-- dev-0c8c locks RELEASED 2026-06-21 at Step 10a Phase 1 (commit on fix/dev-0c8c-liveness-watchdog-timeout, off
      feature/supervisor-control-plane; NOT merged/pushed — STOP before Phase 2; folds into the control-plane →
      master merge; the activation restart that rebuilds dist/ also loads this fix). EDITED (existing):

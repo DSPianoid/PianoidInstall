@@ -32,6 +32,7 @@ import type { Logger } from './logger.js';
 import type { IoBus } from './io-bus.js';
 import type { SessionDriver } from './session-driver.js';
 import type { SecretStore } from './secret-store.js';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import {
   parseSetKeyCommand,
   setKeyUsageMessage,
@@ -92,6 +93,10 @@ import {
   buildApprovalsSubmenu,
   approvalsMenuText,
   controlHelpText,
+  formatDispatchResultTurn,
+  formatDispatchAck,
+  CONTROL_DISPATCH_UNAVAILABLE_TEXT,
+  CONTROL_DISPATCH_INFO_TEXT,
   formatStatus,
   formatUptime,
   formatControlLog,
@@ -566,6 +571,18 @@ export interface SessionHostOptions {
    * (runRestartConfirm) but for the parent/startup path.
    */
   startupHandoff?: string;
+  /**
+   * ★ STARTUP GREETING — when true, {@link SessionHost.start} proactively greets the user on a fresh
+   * session (using an operator restored from {@link operatorStateFile}) instead of waiting for them
+   * to message first. Undefined/false ⇒ the prior deferred behavior (no proactive greet). index.ts
+   * gates it to the orchestrator profile.
+   */
+  startupGreeting?: boolean;
+  /**
+   * Path where the bound operator's channel address is persisted (and restored on boot for the
+   * startup greeting). Undefined ⇒ no persistence + no proactive greeting (e.g. the demo profile).
+   */
+  operatorStateFile?: string;
   /**
    * Per-turn de-dup: the channel reply tool name (e.g.
    * 'mcp__supervisor_channel__reply'). When set (orchestrator profile), the final
@@ -1112,6 +1129,116 @@ export class SessionHost {
     // ★ REDESIGN: arm the periodic auto-snapshot timer (no-op unless autoSnapshot is on).
     this.startAutoSnapshot();
     this.logger.info('session host started', this.lifecycle.health());
+    // ★ STARTUP GREETING — proactively greet a restored operator on a fresh (re)started session
+    // (no-op when disabled / no persisted operator / already bound). Best-effort: a greeting failure
+    // must never wedge startup.
+    await this.maybeStartupGreet().catch((err) =>
+      this.logger.warn('startup greeting failed (non-fatal)', { err: String(err) }),
+    );
+  }
+
+  /**
+   * Bind the operator (the user's channel address) + construct the permission channel. Called on the
+   * FIRST inbound message AND when {@link maybeStartupGreet} restores a persisted operator on boot.
+   * Idempotent: a no-op once an operator is bound (so a late first inbound can't rebind).
+   */
+  private bindOperator(replyHandle: ReplyHandle, operatorId: string | null): void {
+    if (this.operator) return;
+    this.operator = replyHandle;
+    this.operatorId = operatorId;
+    this.channelPermission = new ChannelPermission({
+      // Send the prompt (optionally WITH inline buttons) and surface the sent
+      // message id back so a tapped-decision can edit the prompt to its outcome.
+      send: (async (handle, text, buttons) => {
+        const r = await this.opts.send(handle, { text, ...(buttons ? { options: { buttons } } : {}) });
+        return { ...(r.sentIds[0] ? { messageId: r.sentIds[0] } : {}) };
+      }) as SendPrompt,
+      operator: this.operator,
+      timeoutMs: this.opts.permissionTimeoutMs,
+      onAsk: (note, fields) => this.logger.info(note, fields),
+    });
+    this.logger.info('operator bound', { operatorId: this.operatorId });
+  }
+
+  /**
+   * Persist the bound operator's channel address to {@link SessionHostOptions.operatorStateFile} so a
+   * fresh (restarted) supervisor can restore + greet them on boot. Best-effort; a write failure is
+   * logged and ignored (the worst case is the next boot has no one to greet = today's behavior).
+   */
+  private persistOperator(): void {
+    const file = this.opts.operatorStateFile;
+    if (!file || !this.operator) return;
+    try {
+      writeFileSync(file, JSON.stringify({ operatorId: this.operatorId, to: this.operator.to }), 'utf8');
+    } catch (err) {
+      this.logger.warn('could not persist operator state (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Read the operator address a prior session persisted ({@link persistOperator}), or null when the
+   * file is absent/empty/unreadable (e.g. the first-ever cold boot). NEVER throws.
+   */
+  private restoreOperatorFromDisk(): { operatorId: string | null; to: string } | null {
+    const file = this.opts.operatorStateFile;
+    if (!file || !existsSync(file)) return null;
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as { operatorId?: string | null; to?: string };
+      if (!raw || typeof raw.to !== 'string' || raw.to.length === 0) return null;
+      return { operatorId: raw.operatorId ?? null, to: raw.to };
+    } catch (err) {
+      this.logger.warn('could not read persisted operator state (ignoring)', { err: String(err) });
+      return null;
+    }
+  }
+
+  /**
+   * ★ STARTUP GREETING — on a FRESH (re)started session, proactively greet the user instead of
+   * sitting mute until they send a message to "nudge" the cold orchestrator awake (the prior pain:
+   * the human had to re-send "Hi" before it engaged). Requires a KNOWN operator — restored from the
+   * address a prior session persisted — so the very first cold boot (no prior operator) stays silent
+   * (no one to greet). The synthetic first turn loads the role + (any) startup-handoff brief and asks
+   * for a BRIEF, NON-NUDGY "I'm back" — no pending-work prompts, no status dump. Gated by
+   * {@link SessionHostOptions.startupGreeting}; consumes the same one-shot first-turn flags so the
+   * user's next real message isn't double-prefixed.
+   */
+  private async maybeStartupGreet(): Promise<void> {
+    if (!this.opts.startupGreeting) return; // disabled → the deferred first-turn behavior (today)
+    if (this.operator) return; // a real inbound already bound us → no proactive greet needed
+    const saved = this.restoreOperatorFromDisk();
+    if (!saved) {
+      this.logger.info('startup greeting skipped — no persisted operator to greet (cold first boot)');
+      return;
+    }
+    this.bindOperator({ to: saved.to }, saved.operatorId);
+    const parts: string[] = [];
+    if (this.rolePrefixPending && this.opts.roleTurnPrefix) {
+      this.rolePrefixPending = false; // consumed by this synthetic first turn (not the user's next msg)
+      parts.push(this.opts.roleTurnPrefix);
+    }
+    parts.push(
+      `[SUPERVISOR startup greeting] You (the orchestrator) just (re)started — the supervisor process ` +
+        `reloaded and your context is fresh, but the Telegram channel and the user are the SAME as ` +
+        `before. Open with a BRIEF, friendly greeting (one or two sentences) so the user knows you're ` +
+        `back online and ready to continue. Do NOT nudge: no pending-work prompts, no status dump, no ` +
+        `checklist or list of suggestions, no questions beyond an open "what would you like to do?" — ` +
+        `just confirm you're back, then wait for their direction.`,
+    );
+    if (this.startupHandoffPending && this.opts.startupHandoff) {
+      this.startupHandoffPending = false; // one-shot; consumed here
+      parts.push(
+        `For YOUR context only (a brief from the prior session) — acknowledge in ONE line that you've ` +
+          `picked up where things left off, but do NOT act on it unsolicited:\n${this.opts.startupHandoff}`,
+      );
+    }
+    if (this.modeNoticePending) {
+      this.modeNoticePending = false;
+      parts.push(buildOutputModeNotice(this.outputMode, false));
+    }
+    this.lastSentText = null;
+    this.onRealTurnStarted();
+    this.logger.info('firing proactive startup greeting to the restored operator', { operatorId: this.operatorId });
+    await this.lifecycle.sendUserTurn({ text: parts.join('\n\n') });
   }
 
   /**
@@ -1127,20 +1254,10 @@ export class SessionHost {
     // different user answer a prompt that wasn't theirs). Once bound, reject
     // inbound from a DIFFERENT user (single-operator model, matching the plugin).
     if (!this.operator) {
-      this.operator = msg.replyHandle;
-      this.operatorId = incomingId;
-      this.channelPermission = new ChannelPermission({
-        // Send the prompt (optionally WITH inline buttons) and surface the sent
-        // message id back so a tapped-decision can edit the prompt to its outcome.
-        send: (async (handle, text, buttons) => {
-          const r = await this.opts.send(handle, { text, ...(buttons ? { options: { buttons } } : {}) });
-          return { ...(r.sentIds[0] ? { messageId: r.sentIds[0] } : {}) };
-        }) as SendPrompt,
-        operator: this.operator,
-        timeoutMs: this.opts.permissionTimeoutMs,
-        onAsk: (note, fields) => this.logger.info(note, fields),
-      });
-      this.logger.info('operator bound', { operatorId: this.operatorId });
+      this.bindOperator(msg.replyHandle, incomingId);
+      // Persist the operator's address so a fresh (restarted) supervisor can GREET them on boot
+      // without waiting for a nudge (the startup-greeting feature). Best-effort.
+      this.persistOperator();
     } else if (incomingId !== this.operatorId) {
       // A different user — ignore (do not let them drive the session or answer
       // a permission prompt routed to the bound operator).
@@ -1362,7 +1479,9 @@ export class SessionHost {
   private async handleControlCommand(): Promise<void> {
     this.logger.info('control menu opened via /control');
     this.publishLifecycle('control_menu_opened', {});
-    await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
+    // ★ P-B1 — offer the Dispatch button ONLY when routed dispatch is wired (= SUPERVISOR_ROLE_ROUTING
+    // ON); with routing OFF (the default) the menu is byte-for-byte today.
+    await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu({ includeDispatch: !!this.dispatchRoleAgent }));
   }
 
   /**
@@ -1529,8 +1648,13 @@ export class SessionHost {
       case 'appr-deny':
         await this.editControlResult(callback, this.controlResolveApproval('deny', ctl.arg));
         return;
+      // ── P-B1 dispatch surface (the model-agnostic routed-dispatch action) ───────
+      case 'dispatch':
+        await this.editControlResult(callback, await this.controlDispatch(ctl.arg));
+        return;
       case 'menu':
-        await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu());
+        // ★ P-B1 — keep the Dispatch button on the "back" re-render iff routing is wired.
+        await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu({ includeDispatch: !!this.dispatchRoleAgent }));
         return;
       default:
         this.logger.info('unknown control action (ignored)', { action: ctl.action });
@@ -1707,6 +1831,60 @@ export class SessionHost {
     return inFlight
       ? '✋ Interrupt sent — stopping the current turn. The orchestrator stays alive; re-prompt when ready.'
       : '✋ Nothing in flight — the orchestrator is idle (no turn to interrupt).';
+  }
+
+  /**
+   * ★ P-B1 `dispatch` action handler (the model-agnostic routed-dispatch surface). GATED on the
+   * routed-dispatch capability being wired (= SUPERVISOR_ROLE_ROUTING ON): UNWIRED ⇒ reports
+   * unavailable (the dormant-default — `dispatchRole` returns {ok:false,enabled:false}), so with
+   * routing OFF this falls through byte-for-byte (the button isn't even offered, proposal §3).
+   *
+   * A bare `ctl:dispatch` tap (no `<role>:<task>` — the menu can't collect free-text; the precise
+   * collection UX is a later-phase detail per §3) reports the surface is ACTIVE and points to the
+   * panel route. When a role IS supplied as the callback arg (`ctl:dispatch:<role>`), this DISPATCHES
+   * that role with a default operator task and relays the result to the orchestrator (the test path).
+   * The full agent report is relayed as an ORCHESTRATOR TURN (the decision-maker's context); the
+   * channel only gets a short ack.
+   */
+  private async controlDispatch(role?: string): Promise<string> {
+    if (!this.dispatchRoleAgent) return CONTROL_DISPATCH_UNAVAILABLE_TEXT;
+    // Bare tap → the surface is active; role+task come from the panel route (collection UX deferred).
+    if (!role) return CONTROL_DISPATCH_INFO_TEXT;
+    // A role supplied via the callback arg → dispatch it (operator-initiated) + relay to the orchestrator.
+    const task = `Operator-dispatched ${role} task via /control. Proceed with the current objective.`;
+    const result = await this.dispatchRoleAndRelayTurn(role, task);
+    if (!result.enabled) return CONTROL_DISPATCH_UNAVAILABLE_TEXT;
+    return formatDispatchAck(result);
+  }
+
+  /**
+   * ★ P-B1 — run a routed dispatch AND relay its structured report back to the orchestrator as an
+   * out-of-band TURN (proposal §3 / CF6 — the routed agent is channel-mute; only this report returns,
+   * into the ORCHESTRATOR's context so it can act on the code/review). The turn shape mirrors the
+   * other `[SUPERVISOR …]` injected turns (`runRestartConfirm`): `formatDispatchResultTurn`. The relay
+   * is best-effort + guarded (it no-ops if the session isn't running — sendUserTurn throws otherwise),
+   * so a dispatch report never wedges the host. Returns the SAME {@link RoleDispatchResult} the panel
+   * route returns (so a caller can also read it directly). The CHANNEL surface uses this (it must land
+   * in the agent's context); the PANEL route uses bare {@link dispatchRole} (the HTTP caller already
+   * gets the JSON).
+   */
+  async dispatchRoleAndRelayTurn(
+    role: string,
+    task: string,
+  ): Promise<RoleDispatchResult & { enabled: boolean }> {
+    const result = await this.dispatchRole(role, task);
+    // Only relay a turn when dispatch actually ran (enabled). A dormant {enabled:false} relays nothing.
+    if (result.enabled) {
+      const turn = formatDispatchResultTurn(result);
+      try {
+        await this.lifecycle.sendUserTurn({ text: turn });
+      } catch (err) {
+        // The session may not be running (a dead child) — the report still returns to the caller; the
+        // turn-relay is best-effort (M2 — sendUserTurn throws when not running). Never wedge the host.
+        this.logger.warn('dispatch-result turn relay skipped (session not running?)', { err: String(err) });
+      }
+    }
+    return result;
   }
 
   /**
