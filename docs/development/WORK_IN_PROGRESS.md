@@ -6,6 +6,7 @@
 |-------|------|-----|---------|
 | dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
 | dev-5b2f | model-agnostic-ORCHESTRATOR T1: MultiTurnAdapterDriver (multi-turn + OpenAI tool_calls loop) — NEW module, additive/dormant, wired into nothing; throwaway-dist verify only, no live touch | [log](logs/dev-5b2f-2026-06-22-200229.md) | 2026-06-22 |
+| dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |
 
 <!-- DOC DEFERRAL (dev-5b2f, 2026-06-22): the model-agnostic-ORCHESTRATOR T1 driver
      (tools/supervisor/src/multi-turn-adapter-driver.ts, NEW, on feature/model-agnostic-orchestrator-tier1)
@@ -16,6 +17,23 @@
      rows to the README driver table, folded into the campaign → master merge. Source of truth meanwhile: the
      committed proposal docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.1 + §4 T1 + the module
      header + the 33 tests (multi-turn-adapter-driver.test.ts). -->
+
+<!-- DOC DEFERRAL (dev-25a7, 2026-06-22): the model-agnostic-ORCHESTRATOR T2 surface (the teams-replacement) —
+     NEW tools/supervisor/src/async-dispatch-registry.ts (AsyncDispatchRegistry: spawn/status/await/cancel over
+     the injected RoleDispatchFn executor) + NEW tools/supervisor/src/orchestrator-tools.ts (the OpenAI tool
+     manifest spawn_agent/agent_status/await_agent/cancel_agent the non-Claude orchestrator is given) + 4 ADDITIVE
+     panel routes (POST /api/dispatch/async, GET /api/dispatch/status, POST /api/dispatch/await, POST
+     /api/dispatch/cancel) on feature/model-agnostic-orchestrator-tier1 — is ADDITIVE + DORMANT + gated OFF
+     (index.ts injects the registry into the Panel ONLY under SUPERVISOR_ROLE_ROUTING, the SAME gate as the sync
+     dispatch capability; ABSENT ⇒ each async route returns {ok:false,enabled:false} and the live path is byte-for-
+     byte today). Wired into NOTHING live this round (the registry's executor + the manifest→driver wiring + the
+     real runTool choke-point are T3). README endpoint/driver tables omit the async routes + the tool manifest,
+     consistent with the campaign's standing "README update DEFERRED to activation" discipline (folds into the
+     campaign → master merge at activation, alongside the T1 driver rows above). Source of truth meanwhile: the
+     committed proposal §3.2 (piece #2) + §4 T3 + D-D/D-E + the module headers + the 37 tests
+     (async-dispatch-registry.test.ts 20 / orchestrator-tools.test.ts 7 / panel-async-dispatch.test.ts 10).
+     LOC FLAG: panel.ts crossed 500→YELLOW (399→564, additive within its loopback /api/* concern); tracked here
+     per the supervisor-subproject convention (NOT the Pianoid CODE_QUALITY God-Objects list). -->
 
 ---
 
