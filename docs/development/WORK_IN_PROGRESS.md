@@ -5,6 +5,107 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
+| dev-5b2f | model-agnostic-ORCHESTRATOR T1: MultiTurnAdapterDriver (multi-turn + OpenAI tool_calls loop) — NEW module, additive/dormant, wired into nothing; throwaway-dist verify only, no live touch | [log](logs/dev-5b2f-2026-06-22-200229.md) | 2026-06-22 |
+| dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |
+| dev-8513 | model-agnostic-ORCHESTRATOR T3: runTool permission/seal CHOKE-POINT (NEW orchestrator-tool-runner.ts) routing coordinate tools → permission router + sealed AsyncDispatchRegistry; index.ts GATED composition (construct registry from the sealed dispatchRoleAgent + inject into Panel, conditional-spread, byte-for-byte OFF). Driver-selection NOT switched (T4). ADDITIVE/DORMANT; throwaway-build verify only, no live touch | [log](logs/dev-8513-2026-06-22-205048.md) | 2026-06-22 |
+| dev-896b | model-agnostic-ORCHESTRATOR T4 (CONNECTS T1–T3): resolveOrchestratorDriver(model) (driver-policy.ts) + gated MultiTurnAdapterDriver construction in index.ts (non-Claude model → the multi-turn adapter with ORCHESTRATOR_COORDINATE_TOOLS + the late-bound sealed runTool; Claude → the original cli-stream/sdk ternary, byte-for-byte) + non-Claude ids (deepseek/codex/gemini) in CONTROL_MODEL_CHOICES + ORCHESTRATOR_TOOL_NAMES in the orchestrator allow-list. ADDITIVE/DORMANT (default model = Claude → byte-for-byte). Throwaway-build verify only, no live touch | [log](logs/dev-896b-2026-06-22-181230.md) | 2026-06-22 |
+
+<!-- DOC DEFERRAL + T5 ACTIVATION RECIPE (dev-896b, 2026-06-22): the model-agnostic-ORCHESTRATOR T4 wiring
+     (the CONNECTING phase) on feature/model-agnostic-orchestrator-tier1, stacked on T3 9edfb74 — is
+     ADDITIVE + DORMANT + byte-for-byte when the orchestrator model is Claude. EDITS: (1) driver-policy.ts
+     NEW resolveOrchestratorDriver(model, isNonClaudeModel?) -> 'cli-stream'|'multi-turn-adapter' (FAIL-SAFE:
+     Claude id OR unknown/empty → cli-stream; ONLY a registry-KNOWN non-Claude provider model id →
+     multi-turn-adapter) + isClaudeModel + OrchestratorDriverKind. (2) index.ts: a THIRD sessionDriver branch
+     gated on resolveOrchestratorDriver(config.orchestratorModel ?? profile.model) AND profile.name==='orchestrator'
+     — when 'multi-turn-adapter' build MultiTurnAdapterDriver({config: the provider's apiAdapterConfig from
+     buildDefaultApiAdapterConfigs()[model], tools: ORCHESTRATOR_COORDINATE_TOOLS, runTool: a LATE-BOUND closure
+     that builds createOrchestratorToolRunner({registry: the outer-scope asyncDispatchRegistry, permissionHandler:
+     sessionHost.permissionRouter.decide}) at call time}); ELSE the ORIGINAL cli-stream/sdk ternary (byte-for-byte).
+     (3) control-command.ts CONTROL_MODEL_CHOICES += deepseek-v4-flash / gpt-5-codex / gemini-2.5-flash (the
+     change-model→restart→handoff flow already model-agnostic). (4) profiles.ts makeOrchestratorPolicy().allow +=
+     spawn_agent/agent_status/await_agent/cancel_agent (auto-allow the coordinate tools — else fallback:'route'
+     asks every spawn; they're NOT destructive so the floor won't re-route; INERT for cli-stream/Claude). Also
+     reconciled 2 T3 tests in index-async-dispatch-wiring.test.ts (they asserted the coordinate tool ROUTES under
+     the DEFAULT policy; T4 now auto-allows it → updated to force-route via a policy override, preserving the
+     deny/timeout fail-safe intent; +1 new test for the T4 auto-allow). Tests: 774 total / 766 pass / 4 fail
+     (the SAME pre-existing path/env artifacts) / 4 skip; +20 net; tsc exit 0; live dist/ + supervisor PID 42816
+     UNTOUCHED. LOC: driver-policy 49→110 (GREEN); index 797→863 (+66 additive, composition concern; supervisor-
+     subproject convention, NOT the Pianoid God-Objects list; YELLOW pre-existing); control-command +9; profiles +14.
+
+     ★ T4 COMPLETES THE BUILD (T1–T4). The non-Claude orchestrator is now REACHABLE but still DORMANT (default
+     model = Claude → cli-stream → byte-for-byte today). README driver/endpoint tables STILL omit the T1–T4
+     surfaces — the campaign's standing "README update DEFERRED to activation" discipline (folds into the campaign
+     → master merge at T5 activation, alongside the T1/T2/T3 driver+route rows). Source of truth meanwhile: the
+     committed proposal docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.3 (piece #3) + §4 T4 +
+     §5 D-H + the module headers + the tests (orchestrator-driver-selection.test.ts + orchestrator-model-menu-
+     policy.test.ts + the reconciled index-async-dispatch-wiring.test.ts).
+
+     ★ T5 ACTIVATION RECIPE (must be driven from a LOCAL session — a HOSTED session cannot restart its own host):
+       (a) Set the orchestrator model to a non-Claude id — EITHER export SUPERVISOR_ORCHESTRATOR_MODEL=deepseek-v4-flash
+           (in the launcher, e.g. launch-prod-orch.mjs) OR pick it live in `/control → Change model → deepseek-v4-flash`
+           (which sets config.orchestratorModel on the change-model restart).
+       (b) Supply that provider's key via `/setkey deepseek <key>` (the key is read from DEEPSEEK_API_KEY at call
+           time; the deepseek-key-bridge already projects it). This REQUIRES SUPERVISOR_ROLE_ROUTING=ON so the
+           secret store + the asyncDispatchRegistry are wired (else the coordinate tools report "not available yet").
+       (c) REBUILD the live dist/ (this T4 code is committed but NOT in dist/ — the running supervisor PID 42816 still
+           runs the 09:35:32 build) AND RESTART the supervisor. resolveOrchestratorDriver then builds the
+           MultiTurnAdapterDriver for the non-Claude model at construction.
+       (d) ROLLBACK = unset SUPERVISOR_ORCHESTRATOR_MODEL (→ Claude default) + restart → the cli-stream host returns.
+       (e) Per the proposal, run the §6.1 de-risking PROBE (T0) FIRST on a TEST bot before committing production to a
+           non-Claude orchestrator (it is unproven a non-Claude model can hold the role reliably). -->
+
+<!-- DOC DEFERRAL (dev-5b2f, 2026-06-22): the model-agnostic-ORCHESTRATOR T1 driver
+     (tools/supervisor/src/multi-turn-adapter-driver.ts, NEW, on feature/model-agnostic-orchestrator-tier1)
+     is ADDITIVE + DORMANT (wired into nothing). README.md's component table (≈L51-53) omits it — AND omits
+     its already-shipped ApiAdapterDriver sibling — consistent with the campaign's standing "README driver-table
+     update DEFERRED to activation" discipline. At piece-#3 activation (when a resolveOrchestratorDriver wires
+     this driver into the live orchestrator construction path), add BOTH ApiAdapterDriver + MultiTurnAdapterDriver
+     rows to the README driver table, folded into the campaign → master merge. Source of truth meanwhile: the
+     committed proposal docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.1 + §4 T1 + the module
+     header + the 33 tests (multi-turn-adapter-driver.test.ts). -->
+
+<!-- DOC DEFERRAL (dev-25a7, 2026-06-22): the model-agnostic-ORCHESTRATOR T2 surface (the teams-replacement) —
+     NEW tools/supervisor/src/async-dispatch-registry.ts (AsyncDispatchRegistry: spawn/status/await/cancel over
+     the injected RoleDispatchFn executor) + NEW tools/supervisor/src/orchestrator-tools.ts (the OpenAI tool
+     manifest spawn_agent/agent_status/await_agent/cancel_agent the non-Claude orchestrator is given) + 4 ADDITIVE
+     panel routes (POST /api/dispatch/async, GET /api/dispatch/status, POST /api/dispatch/await, POST
+     /api/dispatch/cancel) on feature/model-agnostic-orchestrator-tier1 — is ADDITIVE + DORMANT + gated OFF
+     (index.ts injects the registry into the Panel ONLY under SUPERVISOR_ROLE_ROUTING, the SAME gate as the sync
+     dispatch capability; ABSENT ⇒ each async route returns {ok:false,enabled:false} and the live path is byte-for-
+     byte today). Wired into NOTHING live this round (the registry's executor + the manifest→driver wiring + the
+     real runTool choke-point are T3). README endpoint/driver tables omit the async routes + the tool manifest,
+     consistent with the campaign's standing "README update DEFERRED to activation" discipline (folds into the
+     campaign → master merge at activation, alongside the T1 driver rows above). Source of truth meanwhile: the
+     committed proposal §3.2 (piece #2) + §4 T3 + D-D/D-E + the module headers + the 37 tests
+     (async-dispatch-registry.test.ts 20 / orchestrator-tools.test.ts 7 / panel-async-dispatch.test.ts 10).
+     LOC FLAG: panel.ts crossed 500→YELLOW (399→564, additive within its loopback /api/* concern); tracked here
+     per the supervisor-subproject convention (NOT the Pianoid CODE_QUALITY God-Objects list). -->
+
+<!-- DOC DEFERRAL (dev-8513, 2026-06-22): the model-agnostic-ORCHESTRATOR T3 WIRING (the sealed runTool
+     choke-point + the index.ts gated composition) on feature/model-agnostic-orchestrator-tier1, stacked on T2
+     8bbce18 — is ADDITIVE + DORMANT + gated OFF. NEW tools/supervisor/src/orchestrator-tool-runner.ts
+     (createOrchestratorToolRunner: the ToolRunner a non-Claude orchestrator driver gets at T4 — per call it
+     (1) allow-checks via isOrchestratorToolName [unknown tool → tool-result error, NEVER executed], (2) submits
+     every coordinate call to the INJECTED PermissionHandler [in prod sessionHost.permissionRouter.decide = the
+     SAME router + orchestrator policy + isDestructiveOp safety floor that gates Claude → a deny is fed back, not
+     executed], (3) routes the approved call → the matching AsyncDispatchRegistry method; everything is a
+     tool-result STRING, never a throw — CP5). index.ts EDIT: under the EXISTING `if(config.roleRoutingEnabled)`
+     gate, construct `new AsyncDispatchRegistry({executor: dispatchRoleAgent})` (the EXACT sealed closure) + inject
+     it into the Panel via the proven conditional-spread `...(asyncDispatchRegistry ? {asyncDispatchRegistry} : {})`
+     → SUPERVISOR_ROLE_ROUTING OFF ⇒ key OMITTED ⇒ the Panel ctor-args are BYTE-FOR-BYTE today (asserted by
+     index-async-dispatch-wiring.test.ts). The driver is NOT constructed/switched here (driver-selection-by-model =
+     T4); the live orchestrator still runs cli-stream/Claude. README driver/endpoint tables still omit the T1/T2/T3
+     surfaces — the campaign's standing "README update DEFERRED to activation" discipline (folds into the campaign →
+     master merge at T5 activation). Source of truth meanwhile: the committed proposal
+     docs/proposals/model-agnostic-orchestrator-tier1-2026-06-22.md §3.1 (runTool seam) + §3.2 (coordinate routing) +
+     §3.4 (piece #4 containment) + §6.2/§6.3 (allow-check / unrepresentable unsealed path) + the module header + the
+     23 tests (orchestrator-tool-runner.test.ts 15 / index-async-dispatch-wiring.test.ts 8). LOC: orchestrator-tool-
+     runner.ts NEW 201 (GREEN); index.ts 787→797 (+37/-1, additive within composition concern; supervisor-subproject
+     convention, NOT the Pianoid God-Objects list). Readiness for T4: resolveOrchestratorDriver(model) + wire the
+     MultiTurnAdapterDriver with {tools: ORCHESTRATOR_COORDINATE_TOOLS, runTool: createOrchestratorToolRunner({
+     registry: asyncDispatchRegistry, permissionHandler: sessionHost.permissionRouter.decide })} when the model is
+     non-Claude + add non-Claude ids to CONTROL_MODEL_CHOICES; ALSO allow-list ORCHESTRATOR_TOOL_NAMES in the
+     orchestrator policy so the coordinate tools don't spuriously route every call (else fallback:'route' asks). -->
 
 ---
 
