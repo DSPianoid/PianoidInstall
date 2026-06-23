@@ -4,6 +4,19 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-sfix locks RELEASED 2026-06-23 at Step 10a Phase 2 (committed + MERGED + PUSHED; coordinator-relayed
+     user request). Sound Test round 2 — #3a per-chart profiling checkboxes (include_profiling master + 6
+     prof_* per-series toggles) + #3b include_all_channels checkbox (channels default ch0; checkbox -> all).
+     Held + released: PianoidCore (wt-sfix-core) pianoid_middleware/chartFunctions.py (series_toggles gate +
+     include_all_channels override), chart_config.json (6 prof_* params + include_all_channels +
+     channels default "all"->"0"), tests/unit/test_sound_test_profiling.py (+6 gating tests),
+     tests/unit/test_sound_test_chart.py (+4 channel tests). Backend-only; FE checkboxes config-driven
+     (NO FE edit — Tunner worktree untouched, zero risk to dev-wbfix). Committed feature/dev-sfix 3625eb4,
+     MERGED --no-ff -> PianoidCore dev 022d974, PUSHED origin/dev (3fc76f9..022d974). 102 backend tests green
+     on merged dev. NO rebuild (cp0-cp5 checkpoints already in the installed .pyd). Stack NOT restarted (a
+     separate clean restart-and-verify step handles it). dev-sfix STAYS ALIVE. -->
+| <!-- (none active for dev-sfix — released after merge) --> | | | |
+
 <!-- dev-soundd locks RELEASED 2026-06-22 at Step 10a Phase 1 (user-approved ship; coordinator-relayed).
      D1 Sound Test in-cycle checkpoint profiling + D2 (save result, spectrum, align-then-zoom-sync).
      Held + released: PianoidCore (wt-soundd-core) pianoid_cuda/Pianoid_synthesis.cu (cp2/cp3 around the
@@ -33,6 +46,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      ModalAdapter.jsx edit + Jest test NEW). -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-wbfix | `PianoidTunner/src/hooks/useCurrentValues.js`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/components/HammerStringChart.jsx`, `PianoidTunner/src/components/ExcitationEnergyEditor.jsx`, `PianoidTunner/src/components/ExcitationProperties.jsx`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/components/Mode.jsx`, `PianoidTunner/src/components/Strings.jsx`, `PianoidTunner/src/components/GaussEditor.jsx`, `PianoidTunner/src/utils/workbenchIcon.js` (NEW) | 2026-06-23T13:05:00Z | Workbench/hammer FE: #1 dynamic-WB mass/hammer tracking, #2 SSOT workbench icon, #4 hammer wheel drops ticks (worktree wt-wbfix-tunner) |
 <!-- dev-hxfix locks RELEASED 2026-06-22T16:21:00Z (committed, HOLD for user test + merge approval).
      BLOCKER has TWO halves, both COMMITTED on feature/dev-hxfix-reload-layout (off dev 579b525):
        (1) reload-kills-backend a729cbd: PianoidTuner.js remove beforeunload stop-backend + bare-recovery effect;

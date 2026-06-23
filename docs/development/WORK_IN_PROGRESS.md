@@ -29,6 +29,8 @@
 | dev-applyc | Cluster C — Apply HOT-vs-STRUCTURAL lifecycle (diff-and-route in load_preset; HOT-only → soft re-init, suppress FE presetVersion bump; STRUCTURAL/name → full reload) | [log](logs/dev-applyc-2026-06-22-054100.md) | 2026-06-22 | In Progress |
 | dev-soundd | Sound Test full-cycle/sync/checkpoint profiling (D1, locate non-kernel delay) + D2 (save result, spectrum chart, align-then-zoom-sync) | [log](logs/dev-soundd-2026-06-22-054200.md) | 2026-06-22 | In Progress |
 | dev-hxfix | Hammer/excitation live-test fixes: BLOCKER FE-kills-backend-on-reload + #3 control-row overflow + #2 loudness(measure/propose/HOLD) + #1 workbench-tracking re-verify | [log](logs/dev-hxfix-2026-06-22-145220.md) | 2026-06-22 | In Progress |
+| dev-wbfix | Workbench/hammer FE: #1 dynamic-workbench mass/hammer tracking, #2 SSOT workbench icon (architectural), #4 hammer-position wheel drops ticks (worktree wt-wbfix-tunner) | [log](logs/dev-wbfix-2026-06-23-124143.md) | 2026-06-23 | In Progress |
+| dev-sfix | Sound Test round 2 — #3a per-chart profiling checkboxes + #3b include-channels-beyond-ch0 (backend chart_config + chartFunctions; config-driven FE checkboxes) | [log](logs/dev-sfix-2026-06-23-124327.md) | 2026-06-23 | MERGED (PianoidCore dev 022d974, pushed; 102 tests green; stack restart = separate step) |
 <!-- dev-wbspawn workbench work all MERGED to PianoidTunner dev (placement+orphan-fix earlier; 3rd type
      panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20; PER-TYPE placement refinement
      31941cc on 2026-06-20 — placement.{fixed,panelFollowing,globalDynamic}, 3 global-⚙ controls,
