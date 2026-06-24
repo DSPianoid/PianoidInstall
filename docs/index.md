@@ -132,3 +132,9 @@ interactive latency.
   first-run checklist
 - [guides/UI_TESTING.md](guides/UI_TESTING.md) — Canonical live UI test procedure: start
   sequence, interaction patterns, deterministic sound measurement, shutdown
+
+### Proposals
+
+- [proposals/index.md](proposals/index.md) — Design proposals, investigations, and implementation
+  plans (active, parked, and archived) — problem analysis and proposed/implemented solutions for
+  each feature, refactor, and system change

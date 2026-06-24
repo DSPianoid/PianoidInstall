@@ -52,6 +52,7 @@ nav:
     - Testing: development/TESTING.md
     - Controller Agent: development/CONTROLLER.md
     - Work in Progress: development/WORK_IN_PROGRESS.md
+  - Proposals: proposals/index.md
   - Guides:
     - Quick Start: guides/QUICK_START.md
     - Startup Troubleshooting: guides/STARTUP_TROUBLESHOOTING.md
