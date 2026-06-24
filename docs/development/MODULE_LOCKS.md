@@ -56,9 +56,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      edits), modal_mass/ kernels (3 NEW), 4 test files (NEW), 4
      PianoidTunner files (ModalMassPanel + useModalMass NEW +
      ModalAdapter.jsx edit + Jest test NEW). -->
+<!-- dev-wbfix locks RELEASED 2026-06-24 (Phase 2 close-out, USER-APPROVED round-2 workbench SSOT — MERGED to
+     PianoidTunner dev, ancestor of dev tip fee2f32). Held + released: useCurrentValues.js, PianoidTuner.js,
+     HammerStringChart.jsx, ExcitationEnergyEditor.jsx, ExcitationProperties.jsx, Excitation.jsx, Mode.jsx, Strings.jsx,
+     GaussEditor.jsx, utils/workbenchIcon.js (NEW). Workbench/hammer FE: #1 dynamic-WB mass/hammer tracking, #2 SSOT
+     workbench icon, #4 hammer wheel drops ticks. Worktree wt-wbfix-tunner removed + branch feature/dev-wbfix deleted
+     (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
-| dev-wbfix | `PianoidTunner/src/hooks/useCurrentValues.js`, `PianoidTunner/src/PianoidTuner.js`, `PianoidTunner/src/components/HammerStringChart.jsx`, `PianoidTunner/src/components/ExcitationEnergyEditor.jsx`, `PianoidTunner/src/components/ExcitationProperties.jsx`, `PianoidTunner/src/components/Excitation.jsx`, `PianoidTunner/src/components/Mode.jsx`, `PianoidTunner/src/components/Strings.jsx`, `PianoidTunner/src/components/GaussEditor.jsx`, `PianoidTunner/src/utils/workbenchIcon.js` (NEW) | 2026-06-23T13:05:00Z | Workbench/hammer FE: #1 dynamic-WB mass/hammer tracking, #2 SSOT workbench icon, #4 hammer wheel drops ticks (worktree wt-wbfix-tunner) |
+| <!-- (none active for dev-wbfix — released at Phase 2 close-out) --> | | | |
 <!-- dev-hxfix locks RELEASED 2026-06-22T16:21:00Z (committed, HOLD for user test + merge approval).
      BLOCKER has TWO halves, both COMMITTED on feature/dev-hxfix-reload-layout (off dev 579b525):
        (1) reload-kills-backend a729cbd: PianoidTuner.js remove beforeunload stop-backend + bare-recovery effect;

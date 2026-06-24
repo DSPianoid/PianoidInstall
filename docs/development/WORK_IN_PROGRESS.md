@@ -22,16 +22,35 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
-| dev-volcal | 3-layer volume calibration (A re-anchor + C [0:1] norm + B per-preset output scale, marker-authoritative + invalidate-on-param-change + 19 presets migrated, unity at init-vol 100). MERGED+PUSHED origin/dev all 3 repos (Basic 72f3d1e, Core a5c4503, Tunner 95f9935); Jest 1343 + build + backend 28/101 green. Clean restart-verify next | [log](logs/dev-volcal-2026-06-23-130000.md) | 2026-06-23 | Merged dev (restart-verify pending) |
+<!-- dev-volcal WRAPPED (Phase 2 close-out 2026-06-24, USER-APPROVED). 3-layer volume calibration (A re-anchor +
+     C [0:1] norm + B per-preset output scale, marker-authoritative + invalidate-on-param-change + 19 presets migrated,
+     unity at init-vol 100). MERGED+PUSHED origin/dev all 3 repos (Basic 72f3d1e, Core a5c4503, Tunner 95f9935);
+     Jest 1343 + build + backend 28/101 green. Worktrees wt-vol-basic/wt-vol-core/wt-vol-tunner removed + branches
+     feature/dev-volcal deleted (all 3 repos, merged-only). Log archived logs/archive/dev-volcal-2026-06-23-130000.md. -->
 | dev-msave | Mosaic "save current config under current name" (update active in place) | [log](logs/dev-msave-2026-06-17-124652.md) | 2026-06-17 | In Progress |
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |
 | dev-37f6 | Excitation/Hammer panel Cluster A+B (width erratic/energy-norm/position-latency + workbenches + anchored-linear) | [log](logs/dev-37f6-2026-06-21-203040.md) | 2026-06-21 | In Progress |
 | dev-applyc | Cluster C — Apply HOT-vs-STRUCTURAL lifecycle (diff-and-route in load_preset; HOT-only → soft re-init, suppress FE presetVersion bump; STRUCTURAL/name → full reload) | [log](logs/dev-applyc-2026-06-22-054100.md) | 2026-06-22 | In Progress |
-| dev-soundd | Sound Test full-cycle/sync/checkpoint profiling (D1, locate non-kernel delay) + D2 (save result, spectrum chart, align-then-zoom-sync) | [log](logs/dev-soundd-2026-06-22-054200.md) | 2026-06-22 | In Progress |
+<!-- dev-soundd WRAPPED (Phase 2 close-out 2026-06-24). Sound Test full-cycle/sync/checkpoint profiling (D1) + D2
+     (save result, spectrum chart, align-then-zoom-sync) + multipoint. feature/dev-soundd MERGED to PianoidCore dev
+     (ancestor of dev tip; .cu kernel checkpoints + chartFunctions + chart_config). Log archived
+     logs/archive/dev-soundd-2026-06-22-054200.md. No dedicated worktree to remove. -->
+
 | dev-hxfix | Hammer/excitation live-test fixes: BLOCKER FE-kills-backend-on-reload + #3 control-row overflow + #2 loudness(measure/propose/HOLD) + #1 workbench-tracking re-verify | [log](logs/dev-hxfix-2026-06-22-145220.md) | 2026-06-22 | In Progress |
-| dev-wbfix | Workbench/hammer FE: #1 dynamic-workbench mass/hammer tracking, #2 SSOT workbench icon (architectural), #4 hammer-position wheel drops ticks (worktree wt-wbfix-tunner) | [log](logs/dev-wbfix-2026-06-23-124143.md) | 2026-06-23 | In Progress |
-| dev-sfix | Sound Test round 2 — #3a per-chart profiling checkboxes + #3b include-channels-beyond-ch0 (backend chart_config + chartFunctions; config-driven FE checkboxes) | [log](logs/dev-sfix-2026-06-23-124327.md) | 2026-06-23 | MERGED (PianoidCore dev 022d974, pushed; 102 tests green; stack restart = separate step) |
+<!-- dev-wbfix WRAPPED (Phase 2 close-out 2026-06-24, USER-APPROVED — round-2 workbench SSOT). Workbench/hammer FE:
+     #1 dynamic-workbench mass/hammer tracking, #2 SSOT workbench icon (architectural), #4 hammer-position wheel drops
+     ticks. feature/dev-wbfix MERGED to PianoidTunner dev (ancestor of dev tip fee2f32). Worktree wt-wbfix-tunner
+     removed + branch feature/dev-wbfix deleted (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
+
+<!-- dev-sfix WRAPPED (Phase 2 close-out 2026-06-24). Sound Test round 2 — #3a per-chart profiling checkboxes +
+     #3b include-channels-beyond-ch0 (backend chart_config + chartFunctions; config-driven FE checkboxes).
+     feature/dev-sfix MERGED to PianoidCore dev 022d974, pushed; 102 tests green. Worktrees wt-sfix-core + wt-sfix-tunner
+     removed + branch feature/dev-sfix deleted (both repos, merged-only). Log archived
+     logs/archive/dev-sfix-2026-06-23-124327.md.
+     dev-blankfix (blank-page hotfix) also WRAPPED 2026-06-24: feature/dev-blankfix MERGED to PianoidTunner dev (no
+     dedicated session log or worktree). -->
+
 <!-- dev-wbspawn workbench work all MERGED to PianoidTunner dev (placement+orphan-fix earlier; 3rd type
      panel-specific-dynamic + placement-to-global dc3a732 on 2026-06-20; PER-TYPE placement refinement
      31941cc on 2026-06-20 — placement.{fixed,panelFollowing,globalDynamic}, 3 global-⚙ controls,
