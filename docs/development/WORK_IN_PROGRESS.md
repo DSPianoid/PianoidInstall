@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-volcal | 3-layer volume calibration (A re-anchor + C [0:1] norm + B per-preset output scale, marker-authoritative + invalidate-on-param-change + 19 presets migrated, unity at init-vol 100). MERGED+PUSHED origin/dev all 3 repos (Basic 72f3d1e, Core a5c4503, Tunner 95f9935); Jest 1343 + build + backend 28/101 green. Clean restart-verify next | [log](logs/dev-volcal-2026-06-23-130000.md) | 2026-06-23 | Merged dev (restart-verify pending) |
 | dev-msave | Mosaic "save current config under current name" (update active in place) | [log](logs/dev-msave-2026-06-17-124652.md) | 2026-06-17 | In Progress |
 | dev-excpopup | Excitation Energy panel overlap → button-triggered MUI popup (frontend) | [log](logs/dev-excpopup-2026-06-17-144140.md) | 2026-06-17 | In Progress |
 | dev-pitchfix | Pitch-selection fix — re-load preset on bare backend (A) + stop beforeunload kill on reload (B) | [log](logs/dev-pitchfix-2026-06-18-081842.md) | 2026-06-18 | In Progress |

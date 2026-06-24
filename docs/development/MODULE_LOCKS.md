@@ -4,6 +4,18 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-volcal locks RELEASED 2026-06-24 (committed + MERGED --no-ff -> dev + PUSHED in all 3 repos;
+     coordinator-relayed user GO). 3-layer volume calibration: A re-anchor EXCITATION_IMPULSE_CALIBRATION
+     (1.131e-06->2.334e8, post-C soundFloat ~O(1)); C per-curve [0:1] volume normalization (marker-authoritative
+     output_scale_calibrated: true=use-as-is/skip, false/absent=auto self-migrate); B per-preset output_scale at
+     load -> -2 dBFS @ init-vol100/slider64, cached (skip-at-startup) + invalidate-on-loudness-param-change;
+     volume-formula re-tune center=exp((vol-100)/8) unity at init-vol 100, synced engine+FE; BATCH-MIGRATED all
+     19 presets ([0:1]+baked output_scale+calibrated). NO CUDA. PUSHED origin/dev: PianoidBasic 22af002..72f3d1e,
+     PianoidCore 022d974..a5c4503, PianoidTunner c0a7ed0..95f9935. Tests on merged dev: Tunner Jest 131 suites/1343
+     PASS + CRA build OK; PianoidCore volcal 28 + preset subset 101 PASS. Worktrees KEPT (Phase 2 close-out after
+     user's final approval); clean restart-verify (wheel rebuild + load verify) is the next step. -->
+| <!-- (none active for dev-volcal — released after merge+push) --> | | | |
+
 <!-- dev-sfix locks RELEASED 2026-06-23 at Step 10a Phase 2 (committed + MERGED + PUSHED; coordinator-relayed
      user request). Sound Test round 2 — #3a per-chart profiling checkboxes (include_profiling master + 6
      prof_* per-series toggles) + #3b include_all_channels checkbox (channels default ch0; checkbox -> all).
