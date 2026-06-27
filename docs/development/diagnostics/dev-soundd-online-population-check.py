@@ -81,10 +81,15 @@ def main():
             n = len(datas[i]) if datas[i] is not None else 0
             print(f"  [{i}] {h}  (points={n}, audio_player={audios[i] is not None})")
 
-        want = ["Full cycle incl. sync (us)", "Driver-push sync wait (us)",
+        # dev-soundd-multipoint: confirm EVERY per-segment series renders.
+        want = ["Segment: kernel cp0→cp1 (us)",
+                "Segment: FIR/audio-prep cp1→cp2 (us)",
+                "Segment: sync wait cp2→cp3 (us)",
+                "Segment: host tail cp3→cp4 (us)",
+                "Full cycle incl. sync (us)",
                 "Add-kernel device time (us)"]
         idx = {h: i for i, h in enumerate(headers)}
-        print("\n=== D1 NEW SERIES ===")
+        print("\n=== D1 MULTI-POINT SERIES ===")
         for w in want:
             if w in idx:
                 d = datas[idx[w]]

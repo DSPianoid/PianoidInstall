@@ -23,7 +23,7 @@
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
 | dev-copyfix | Fix gauss-excitation copy CELL-selection visual indication + full copy/paste UI test | [log](logs/dev-copyfix-2026-06-24-100942.md) | 2026-06-24 | In Progress |
-| dev-mmcss | MMCSS "Pro Audio" thread priority for synthesis + ASIO callback threads (distortion-fix #3, CPU-preemption margin) | [log](logs/dev-mmcss-2026-06-24-145447.md) | 2026-06-24 | In Progress |
+| dev-mmcss | MMCSS "Pro Audio" thread priority for synthesis + ASIO callback threads (distortion-fix #3, CPU-preemption margin) | [log](logs/dev-mmcss-2026-06-24-145447.md) | 2026-06-24 | **HELD — superseded/in-flight by dev-overrun (lever A is their uncommitted WIP); no edits made; awaiting orchestrator routing** |
 | dev-fethrottle | Throttle FE live-chart update/render rate to cut GPU contention (distortion-fix #4) | [log](logs/dev-fethrottle-2026-06-24-145555.md) | 2026-06-24 | In Progress |
 <!-- dev-volcal WRAPPED (Phase 2 close-out 2026-06-24, USER-APPROVED). 3-layer volume calibration (A re-anchor +
      C [0:1] norm + B per-preset output scale, marker-authoritative + invalidate-on-param-change + 19 presets migrated,
