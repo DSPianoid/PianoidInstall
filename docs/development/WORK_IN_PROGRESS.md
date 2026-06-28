@@ -22,6 +22,7 @@
 
 | Agent | Task | Log | Started | Status |
 |-------|------|-----|---------|--------|
+| dev-feedinperf | Fix feed-in averaged-draw performance (minutes-long delay; batch the 1→N fan-out / debounce / memoize) | [log](logs/dev-feedinperf-2026-06-28-104644.md) | 2026-06-28 | In Progress |
 | dev-barchart-f55f | Unify AVERAGED feed-in + sound-channel bar charts to the workbench editing path (single source of truth — make averaged bars drawable) | [log](logs/dev-barchart-f55f-2026-06-27-170230.md) | 2026-06-27 | In Progress |
 | dev-copyfix | Fix gauss-excitation copy CELL-selection visual indication + full copy/paste UI test | [log](logs/dev-copyfix-2026-06-24-100942.md) | 2026-06-24 | In Progress |
 | dev-mmcss | MMCSS "Pro Audio" thread priority for synthesis + ASIO callback threads (distortion-fix #3, CPU-preemption margin) | [log](logs/dev-mmcss-2026-06-24-145447.md) | 2026-06-24 | **HELD — superseded/in-flight by dev-overrun (lever A is their uncommitted WIP); no edits made; awaiting orchestrator routing** |
