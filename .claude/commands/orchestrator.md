@@ -110,18 +110,42 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 ---
 
+## Agent Coordination Modes (Dispatch-default; Teams / Independent as backup)
+
+The orchestrator coordinates sub-agents in one of **three modes**. **Default to Mode D — the supervisor dispatch surface (isolated, model-agnostic process spawning).** In-process Agent Teams (Mode A) and in-process independent agents (Mode B) are **backups**, used when dispatch can't serve the task. Pick per task; you may mix within a session.
+
+> **Dispatch-default (2026-06-21, user-directed).** The supervisor runs each dispatched sub-agent as an **isolated, sealed process** routed by *role* to a model-agnostic backend (model-agnostic campaign + Part B dispatch surface). This is the DEFAULT coordination mechanism — isolated spawning instead of shared-process Claude teammates — with Teams kept as a backup. Active when `SUPERVISOR_ROLE_ROUTING` is on.
+
+**Mode D — Supervisor dispatch surface (DEFAULT — isolated, model-agnostic).**
+- **Orchestrator (programmatic) path:** `POST http://127.0.0.1:8790/api/dispatch` with `{ "role": "<role>", "task": "<task>" }` (curl from a turn). Returns `RoleDispatchResult` JSON `{ ok, role, backend, text?, costUsd?, fellBack?, enabled }`. The backend is chosen by **role** (e.g. coding → DeepSeek, reviewing → Codex), with a **fail-safe fallback to an isolated Claude process** when no model-specific backend/key is set. Spend is bounded by the enforced per-dispatch + rolling caps (fail-closed — a breach returns a clean refusal, never a crash).
+- **Operator path:** the `/control` menu Dispatch action (shown only when routing is on) runs the same `dispatchRole` and relays the result back as a turn.
+- **Dormant signal:** with routing OFF, `/api/dispatch` returns `{ ok:false, enabled:false }` — fall back to Mode A/B.
+- **Capability envelope (honest).** Non-Claude backends are currently text-in/text-out (no tool loop), so Mode D best fits **role-scoped work**: code generation, review, analysis, bounded transforms. **Rich multi-tool agentic /dev** (file edits + builds + UI across rounds) routes to an isolated Claude backend or — until the non-Claude tool harness lands (a follow-on phase) — to Mode A/B.
+
+**Mode A — In-process Agent Teams (BACKUP; Claude-only).** Sub-agents are in-process agent-team members (`team_name` + `name`), kept alive across rounds via `SendMessage`, with a permanent `controller` teammate and `Monitor` watching. Use for rich multi-round /dev iteration with the *same* Claude agent when Mode D's backend envelope doesn't fit. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (Step 0). Claude-CLI-specific (not model-agnostic). Caveat: the team-lead inbox has a known silent-delivery failure mode (Spawning rule 3 warning).
+
+**Mode B — Independent in-process agents (BACKUP).** `Agent(prompt=..., run_in_background: true)` with NO `team_name`. Each agent owns its complete task loop and returns its full report reliably as a tool result (no inbox race). For multi-round work, re-dispatch a fresh independent agent with the prior agent's session log as context. Use when Mode D is unavailable/unfit and you don't need live same-agent continuation, for one-shot in-process work, or as the fallback when teams are unavailable. (The earlier "B2 — supervisor-owned standalone processes" is now REALIZED as **Mode D** above — the dispatch surface IS supervisor-owned, sealed, isolated spawning; design refs in [`docs/proposals/standalone-process-agents-2026-06-19.md`](../../docs/proposals/standalone-process-agents-2026-06-19.md).)
+
+**Choosing.** **Mode D (dispatch) by default** for role-scoped sub-agent work (codegen, review, analysis, bounded transforms). **Mode A (teams)** for rich multi-round Claude /dev that needs live continuation + tools Mode D can't yet provide. **Mode B1** for one-shot in-process work, or when D/A are unavailable.
+
+**Mode-conditional machinery.** The team-specific steps below apply **only in Mode A**: the Step-0 `SendMessage` requirement, the permanent `controller` agent, the `SendMessage`-based per-dispatch + approval-relay notifications, and `SendMessage`-based conflict-resolution / queue-review continuation. In **Mode D / Mode B**: `SendMessage` is not required; there is no persistent controller (its role is covered by the orchestrator's own Step-1.5 + Periodic Health Check sweeps — run them attentively — and each agent's own /dev discipline); follow-ups + conflict handling use a **fresh dispatch** (Mode D) or **re-dispatch with the prior session log** (Mode B), not messaging a live agent.
+
+**Hosting / flood safety.** When hosted by the supervisor, background sub-agent narration reaches the user's channel unless the forwarding filter drops BOTH `parent_tool_use_id` (foreground sidechain) AND `subagent_type` (background task) messages. If that fix is not loaded, prefer **foreground** agents (they don't leak) until it is.
+
+---
+
 ## Step 0: Verify Agent Infrastructure
 
-### SendMessage tool (required)
+### SendMessage tool (required for Mode A; optional for Mode B)
 
-The orchestrator depends on `SendMessage` to keep sub-agents alive across feedback rounds. This tool requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`.
+Mode A (Agent Teams) depends on `SendMessage` to keep sub-agents alive across feedback rounds; it requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`. Mode B (independent agents) does NOT need it.
 
 1. Check if `SendMessage` is available by running `ToolSearch(query: "select:SendMessage")`
 2. If **not found**:
    - Read `~/.claude/settings.json` and check for `"env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }`
-   - If missing, add it and instruct the user to reload Claude Code
-   - **Do NOT proceed without SendMessage** — the orchestrator cannot function correctly without agent continuation
-3. If **found**: proceed to Step 1
+   - If missing and you intend to use Mode A, add it and instruct the user to reload Claude Code
+   - **If teams cannot be enabled (or the user prefers not to), do NOT block** — fall back to **Mode B (independent agents)**, which needs no team infrastructure. The orchestrator stays fully functional in Mode B; only live same-agent continuation is replaced by re-dispatch-with-session-log.
+3. If **found**: Mode A is available (you may still choose Mode B per task). Proceed to Step 1.
 
 ---
 
@@ -223,6 +247,8 @@ After the health check completes and before exiting Step 1.5, **spawn the contro
 ## Controller Agent
 
 The orchestrator runs alongside a permanent **controller agent** for the full session. The controller is a read-only compliance monitor: it watches `MODULE_LOCKS.md`, `WORK_IN_PROGRESS.md`, dev-agent session logs, and `git status` and reports graduated alerts (warn → escalate → halt) to the orchestrator. It never edits source, never spawns or kills agents, never messages the user.
+
+> **Mode A (Agent Teams) only.** The controller is itself a team agent, so it applies when running in Mode A. In **Mode B (independent agents)** there is no persistent controller — its compliance role is covered by the orchestrator's own Step-1.5 health check + the Periodic Health Check sweep (run them more attentively in Mode B) and by each independent agent's own /dev discipline. See "Fallback when no controller exists" below.
 
 See [`docs/development/CONTROLLER.md`](../../docs/development/CONTROLLER.md) for the complete invariant catalogue, marker conventions, and tier rules.
 
@@ -529,6 +555,17 @@ The orchestrator can reply in spoken audio, not just text. Use this when the use
 
 **Patch durability (check on a fresh session / after any plugin update).** The voice patch must live on the Telegram plugin's **marketplace** copy — the volatile cache copy is rebuilt from it on every reload, so patching only the cache silently reverts. It is applied + re-applied via the project's voice-patch helper ([`#channel`](../../docs/PROJECT_CONFIG.md#channel) — idempotent, marker-guarded, with a `--check` state flag). If voice notes stop rendering as bubbles: run the helper's `--check`; if not applied, run it without `--check` and reload. Full STT+TTS setup + the re-apply procedure: the project's Telegram-channel setup guide (see [`#channel`](../../docs/PROJECT_CONFIG.md#channel)). Concrete commands: see the [companion](../skill-examples/orchestrator.md).
 
+### Voice-Mode Output Discipline (FORCE_TEXT + brevity)
+
+The supervisor exposes the current **output mode** (voice / text / dual) via an on-change `[SUPERVISOR output-mode]` note injected into the turn, a one-shot notice on the first turn after a restart, and the loopback `GET /api/session` `outputMode` field. Honor it.
+
+In **voice/dual** mode, replies are read aloud by TTS, so any link, file path, command, code, SHA, env-var name, or QR reference becomes useless noise when spoken. For such content, include the exact marker `[[FORCE_TEXT]]` anywhere in that reply — the supervisor delivers THAT message as plain text (stripping the marker) regardless of mode. (`[[FORCE_TEXT]]` is a no-op in text mode; in dual mode it forces text-only, no voice copy.)
+
+**Brevity rule (user standing directive, 2026-06-21).** In voice mode keep forced-text to the BARE MINIMUM:
+- Default to speaking; lead with a spoken summary.
+- Avoid sending unnecessary paths, symbols, SHAs, env-var lists, or full formatted blocks.
+- When a text drop is genuinely unavoidable (a path/command/code the user must read or copy), make that message as SHORT as possible — just the essential token(s), not a multi-section report. Summarize aloud and offer the detail on request, or defer it to a text-mode moment.
+
 ### Text Message Classification
 
 Classify and dispatch:
@@ -564,7 +601,7 @@ Classify and dispatch:
 
 2. **Never edit code or read source files in the orchestrator.** The orchestrator is a dispatcher. The moment you start reading source code or editing files, you are doing it wrong. Spawn a sub-agent instead.
 
-3. **Use Agent Teams when SendMessage continuation across rounds is genuinely needed; use non-team `Agent(prompt=...)` for one-shot research and bounded tasks.** Non-team agents return their result reliably as a tool result — the orchestrator sees their full report. Team agents stay alive for follow-ups but their messages flow through the team-lead inbox, which has known silent-delivery failure modes (see warning below).
+3. **Pick a coordination mode per task (see "Agent Coordination Modes" above): Mode A Agent Teams when `SendMessage` continuation across rounds is genuinely needed; Mode B1 independent `Agent(prompt=...)` (no `team_name`) for one-shot research, bounded tasks, or whenever teams are unavailable/undesired.** Non-team (independent) agents return their result reliably as a tool result — the orchestrator sees their full report. Team agents stay alive for follow-ups but their messages flow through the team-lead inbox, which has known silent-delivery failure modes (see warning below). In Mode B, follow-ups are handled by **re-dispatching a fresh independent agent with the prior agent's session log as context**, not by `SendMessage`.
 
    **Decision rule:**
    - One-shot research, doc lookup, single explore — `Agent(prompt=..., run_in_background: true)` (no team)
@@ -588,9 +625,9 @@ Classify and dispatch:
 
 4. **Scope agents broadly, not narrowly.** An agent for "fix bug X in module Y" should be scoped as "fix and debug module Y until user approves." The agent will handle the initial bug, follow-up bugs, UI testing, and iterations — all in one session with full context. Never spawn a new agent for a follow-up bug in the same module.
 
-5. **Controller agent.** The team includes a permanent controller agent spawned at orchestrator startup (Step 1.5) and alive for the full session. See the "Controller Agent" section above for the spawn template, lifecycle, and tier rules.
+5. **Controller agent (Mode A only).** In Mode A, the team includes a permanent controller agent spawned at orchestrator startup (Step 1.5) and alive for the full session. See the "Controller Agent" section above for the spawn template, lifecycle, and tier rules. In Mode B there is no controller — its role is covered by the orchestrator's own Step-1.5 + Periodic Health Check sweeps.
 
-6. **Per-dispatch controller notification.** Every Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, /test-ui, the UI-interaction skill, /analyse, /diagnose, /sync) MUST be preceded by a `SendMessage` to the controller. Send BEFORE spawning the agent so the controller is armed for the Step-0 SLA timer:
+6. **Per-dispatch controller notification (Mode A only — in Mode B there is no controller, so skip this).** Every Agent dispatch (regardless of skill: /dev, /multitask, /update-docs, /review, /test-ui, the UI-interaction skill, /analyse, /diagnose, /sync) MUST be preceded by a `SendMessage` to the controller. Send BEFORE spawning the agent so the controller is armed for the Step-0 SLA timer:
 
    ```
    SendMessage({

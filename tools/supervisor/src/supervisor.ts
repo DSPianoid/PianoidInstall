@@ -1,0 +1,344 @@
+/**
+ * The SUPERVISOR — the process scaffold + captured I/O-bus structure.
+ *
+ * Phase-1 scope (the additive, zero-disruption shell): it owns the I/O bus, the
+ * channel-adapter registry, and the capture store, and wires them together —
+ * inbound from any adapter is published to the bus (and thereby captured), and
+ * the supervisor can route an outbound back through the originating adapter.
+ *
+ * It does NOT yet own the Claude Code subprocess — that is Phase 2 (the
+ * lifecycle manager spawns the headless child via the Agent SDK and routes
+ * `canUseTool` over the channel). This class is the shell those later phases
+ * plug into: the bus, capture, and adapter registry are exactly the seams
+ * Phase 2/3 attach the SESSION SUPERVISOR + permission router to.
+ *
+ * Concern (P2): lifecycle/orchestration of bus + adapters + capture. No
+ * transport logic (adapters), no interpretation (M1, hosted in the child later).
+ * Authority (P1): the supervisor is the sole owner of the adapter registry map.
+ *
+ * Traces: proposal PART B.1 (the SUPERVISOR box), PART B.2 (component borders),
+ * PART E Phase 1 deliverable 1 ("Supervisor skeleton … the I/O bus abstraction,
+ * graceful start/stop") + the note that it does NOT own the subprocess yet.
+ */
+
+import type {
+  AdapterHealth,
+  ChannelAdapter,
+  InboundMessage,
+  OutboundMessage,
+  OutboundResult,
+  ReplyHandle,
+} from './contract.js';
+import { CaptureStore } from './capture-store.js';
+import { IoBus, type BusEvent } from './io-bus.js';
+import { Logger } from './logger.js';
+
+/** A hook the host (Phase 2: the session) registers to react to inbound. */
+export type SupervisorInboundHook = (msg: InboundMessage) => void | Promise<void>;
+
+/** Health snapshot across the supervisor and its adapters. */
+export interface SupervisorHealth {
+  /** True once start() has run and not yet stop()'d. */
+  started: boolean;
+  /** Count of events the capture store has persisted this session. */
+  capturedEvents: number;
+  /** Per-adapter health. */
+  adapters: AdapterHealth[];
+}
+
+export interface SupervisorOptions {
+  /** Capture-store NDJSON path. */
+  captureFile: string;
+  /** Logger (a child is taken per subsystem). */
+  logger: Logger;
+  /**
+   * Retained for API compatibility. The capture store now ALWAYS writes
+   * synchronously (so `replay()` is live — review H1), so this flag no longer
+   * changes behavior; it is threaded through for callers that still set it.
+   */
+  unbufferedCapture?: boolean;
+  /**
+   * INBOUND REDACTION (additive; OFF by default → byte-for-byte unchanged when absent). When
+   * supplied, the supervisor passes EVERY inbound through this redactor and publishes the
+   * REDACTED copy to the bus (and thereby the capture store / panel), while still forwarding the
+   * ORIGINAL inbound to the host hook. This is how an in-channel SECRET (`/setkey <provider> <key>`)
+   * is kept OUT of the durable capture log: the launcher wires a redactor that masks the key in a
+   * `/setkey` message's text (and leaves every other message untouched). A non-`/setkey` inbound is
+   * returned unchanged by the redactor, so capture is identical for all normal traffic. Pure +
+   * total: it must never throw and must never need network. DORMANT until the launcher wires it (P6).
+   */
+  redactInbound?: (msg: InboundMessage) => InboundMessage;
+}
+
+export class Supervisor {
+  readonly bus = new IoBus();
+  private readonly capture: CaptureStore;
+  private readonly logger: Logger;
+  private readonly adapters = new Map<string, ChannelAdapter>();
+  private inboundHook: SupervisorInboundHook | null = null;
+  private started = false;
+  /** Optional inbound redactor (additive; null = capture the inbound verbatim, as before). */
+  private readonly redactInbound: ((msg: InboundMessage) => InboundMessage) | null;
+
+  constructor(opts: SupervisorOptions) {
+    this.logger = opts.logger.child('supervisor');
+    this.redactInbound = opts.redactInbound ?? null;
+    this.capture = new CaptureStore({
+      filePath: opts.captureFile,
+      buffered: !opts.unbufferedCapture,
+    });
+    // Surface faulty bus subscribers in the log rather than silently swallowing.
+    this.bus.onSubscriberError((err, event) =>
+      this.logger.warn('bus subscriber error', { err: String(err), seq: event.seq }),
+    );
+  }
+
+  /**
+   * Register an adapter under its channel name. The supervisor owns the registry
+   * (P1) — adapters never self-register elsewhere. Throws on a duplicate channel.
+   */
+  register(adapter: ChannelAdapter): this {
+    if (this.adapters.has(adapter.channel)) {
+      throw new Error(`adapter already registered for channel '${adapter.channel}'`);
+    }
+    this.adapters.set(adapter.channel, adapter);
+    this.logger.info('adapter registered', { channel: adapter.channel });
+    return this;
+  }
+
+  /** Register the host inbound hook (Phase 2: the session consumes this). */
+  onInbound(hook: SupervisorInboundHook): this {
+    this.inboundHook = hook;
+    return this;
+  }
+
+  /**
+   * Start: attach capture to the bus, then start every adapter wired so its
+   * inbound is published to the bus (captured) AND forwarded to the host hook.
+   */
+  async start(): Promise<void> {
+    if (this.started) return;
+    this.capture.attach(this.bus);
+    this.bus.publish({
+      direction: 'internal',
+      type: 'lifecycle',
+      source: 'supervisor',
+      payload: { event: 'start', adapters: [...this.adapters.keys()] },
+    });
+
+    for (const adapter of this.adapters.values()) {
+      await adapter.start((msg) => this.handleInbound(adapter.channel, msg));
+      this.logger.info('adapter started', { ...adapter.health() });
+    }
+    this.started = true;
+  }
+
+  /** Publish an inbound to the bus (captured) and forward to the host hook. */
+  private async handleInbound(channel: string, msg: InboundMessage): Promise<void> {
+    const enriched: InboundMessage = { ...msg, channel: msg.channel ?? channel };
+    // REDACTION (additive): publish the REDACTED copy to the bus/capture so an in-channel secret
+    // (`/setkey <provider> <key>`) never lands in the durable capture log; forward the ORIGINAL to
+    // the host hook (which needs the raw key to store it + then deletes the message). When no
+    // redactor is wired (default), `forCapture === enriched` → capture is byte-for-byte unchanged.
+    let forCapture = enriched;
+    if (this.redactInbound) {
+      try {
+        forCapture = this.redactInbound(enriched);
+      } catch (err) {
+        // A redactor must be total; if it ever throws, FAIL SAFE — do NOT publish the raw inbound
+        // (it might carry a secret). Drop the original text to a placeholder for capture only.
+        this.logger.warn('inbound redactor threw — capturing a placeholder (fail-safe)', { err: String(err) });
+        forCapture = { ...enriched, text: enriched.text !== undefined ? '[redaction-error]' : enriched.text };
+      }
+    }
+    this.bus.publish({
+      direction: 'inbound',
+      type: 'channel.inbound',
+      source: channel,
+      payload: forCapture,
+    });
+    if (this.inboundHook) {
+      // Let the hook throw to signal "not handled" — the adapter's queue will
+      // then leave the item un-acked for replay (the durable-delivery contract).
+      await this.inboundHook(enriched);
+    }
+  }
+
+  /**
+   * Send an outbound through the adapter for `channel`, publishing the send to
+   * the bus (captured) for observability.
+   */
+  async sendOutbound(
+    channel: string,
+    handle: ReplyHandle,
+    msg: OutboundMessage,
+  ): Promise<OutboundResult> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) {
+      return { ok: false, sentIds: [], error: `no adapter for channel '${channel}'` };
+    }
+    const result = await adapter.outbound(handle, msg);
+    this.bus.publish({
+      direction: 'outbound',
+      type: 'channel.outbound',
+      source: channel,
+      payload: { handle, msg, result },
+    });
+    return result;
+  }
+
+  /**
+   * INLINE-BUTTON ACK — acknowledge a button tap on `channel` (dismiss the client
+   * spinner; optional toast). Best-effort + silent if the adapter can't (no inline
+   * keyboards). Used by the SessionHost when a permission decision arrives by tap.
+   */
+  async answerCallback(channel: string, callbackId: string, text?: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.answerCallback) return;
+    try {
+      await adapter.answerCallback(callbackId, text);
+    } catch (err) {
+      this.logger.warn('answerCallback failed (non-fatal)', { channel, err: String(err) });
+    }
+  }
+
+  /**
+   * INLINE-BUTTON FOLLOW-UP — replace a message's text + drop its keyboard on
+   * `channel` (so a decided prompt shows its outcome). Best-effort + silent if the
+   * adapter can't edit.
+   */
+  async editMessage(channel: string, handle: ReplyHandle, messageId: string, text: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.editMessage) return;
+    try {
+      await adapter.editMessage(handle, messageId, text);
+    } catch (err) {
+      this.logger.warn('editMessage failed (non-fatal)', { channel, err: String(err) });
+    }
+  }
+
+  /**
+   * MESSAGE DELETE — remove a message from the chat on `channel` (Telegram deleteMessage).
+   * Best-effort + silent if the adapter can't delete. Used by the SessionHost `/setkey` path to
+   * remove the user's plaintext-key message from the chat history after the key is stored.
+   * ADDITIVE: nothing calls this until the `/setkey` path is wired (P6).
+   */
+  async deleteMessage(channel: string, handle: ReplyHandle, messageId: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.deleteMessage) return;
+    try {
+      await adapter.deleteMessage(handle, messageId);
+    } catch (err) {
+      this.logger.warn('deleteMessage failed (non-fatal)', { channel, err: String(err) });
+    }
+  }
+
+  /** Health snapshot across all adapters. */
+  health(): SupervisorHealth {
+    return {
+      started: this.started,
+      capturedEvents: this.capture.writtenCount,
+      adapters: [...this.adapters.values()].map((a) => a.health()),
+    };
+  }
+
+  /** Access the capture store (for the panel / replay). */
+  get captureStore(): CaptureStore {
+    return this.capture;
+  }
+
+  /** Registered adapters (read-only view). */
+  get registeredChannels(): string[] {
+    return [...this.adapters.keys()];
+  }
+
+  /**
+   * CHANNEL STATE (D2) — a focused snapshot for the orchestrator's self-check:
+   * per-adapter health + the recent outbound delivery results from the capture stream
+   * + the supervisor PID. Read-only; the orchestrator curls this via the panel.
+   */
+  channelState(recentN = 20): {
+    pid: number;
+    adapters: AdapterHealth[];
+    recentDeliveries: { ts?: string; channel: string; ok: boolean; sentIds?: string[]; error?: string }[];
+  } {
+    const recentDeliveries: { ts?: string; channel: string; ok: boolean; sentIds?: string[]; error?: string }[] = [];
+    for (const r of this.capture.replay()) {
+      const e = ((r as { event?: BusEvent }).event ?? r) as BusEvent;
+      if (e && e.type === 'channel.outbound') {
+        const p = e.payload as { result?: OutboundResult };
+        if (p.result) {
+          recentDeliveries.push({
+            ts: e.ts,
+            channel: e.source,
+            ok: p.result.ok,
+            sentIds: p.result.sentIds,
+            error: p.result.error,
+          });
+        }
+      }
+    }
+    return {
+      pid: process.pid,
+      adapters: [...this.adapters.values()].map((a) => a.health()),
+      recentDeliveries: recentDeliveries.slice(-recentN),
+    };
+  }
+
+  /**
+   * CHANNEL REPAIR (D2) — reconnect an adapter's transport (re-acquire the poller).
+   * Re-supplies the SAME inbound publish+hook path. Returns ok/error.
+   */
+  async reconnectChannel(channel: string): Promise<{ ok: boolean; error?: string }> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) return { ok: false, error: `no adapter for channel '${channel}'` };
+    if (!adapter.reconnect) return { ok: false, error: `adapter '${channel}' does not support reconnect` };
+    try {
+      await adapter.reconnect((msg) => this.handleInbound(adapter.channel, msg));
+      this.logger.info('channel reconnected', { ...adapter.health() });
+      return { ok: true };
+    } catch (err) {
+      this.logger.error('channel reconnect failed', { channel, err: String(err) });
+      return { ok: false, error: String(err) };
+    }
+  }
+
+  /**
+   * CHANNEL REPAIR (D2) — drop an adapter's un-acked INBOUND inbox-queue items (NOT an
+   * outbound backlog — outbound sends directly). ⚠️ Discards pending inbound user
+   * messages; use to clear a wedged inbound replay.
+   */
+  flushChannel(channel: string): { ok: boolean; dropped?: number; error?: string } {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) return { ok: false, error: `no adapter for channel '${channel}'` };
+    if (!adapter.flush) return { ok: false, error: `adapter '${channel}' does not support flush` };
+    const dropped = adapter.flush();
+    this.logger.info('channel flushed', { channel, dropped });
+    return { ok: true, dropped };
+  }
+
+  /** Graceful stop: stop adapters, detach + flush capture, close the bus. */
+  async stop(): Promise<void> {
+    if (!this.started) {
+      await this.capture.close();
+      return;
+    }
+    this.bus.publish({
+      direction: 'internal',
+      type: 'lifecycle',
+      source: 'supervisor',
+      payload: { event: 'stop' },
+    });
+    for (const adapter of this.adapters.values()) {
+      try {
+        await adapter.stop();
+      } catch (err) {
+        this.logger.warn('adapter stop error', { channel: adapter.channel, err: String(err) });
+      }
+    }
+    await this.capture.close();
+    this.bus.close();
+    this.started = false;
+    this.logger.info('supervisor stopped');
+  }
+}

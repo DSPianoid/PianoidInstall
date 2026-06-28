@@ -1,0 +1,3242 @@
+/**
+ * The SESSION HOST — composes the Phase-2 pieces into the supervisor's host
+ * inbound hook, REPLACING the Phase-1 log/echo hook with the real hosted session.
+ *
+ * Wires together:
+ *   - LifecycleManager (owns the SessionDriver subprocess; publishes stream-json
+ *     events to the bus; restarts+resumes on crash),
+ *   - PermissionRouter (allow-list + route-over-channel + block-on-reply),
+ *   - ChannelPermission (sends the permission prompt out + awaits the reply),
+ *   - inbound routing: a recognized permission reply (`allow <code>`) is consumed
+ *     by ChannelPermission; everything else is injected into the session as a
+ *     user turn. Session assistant/result text is sent back over the channel.
+ *
+ * The "operator" reply handle (where permission prompts go, and where session
+ * replies go) is the handle of the user currently driving the session — captured
+ * from the latest inbound. This keeps Phase 2 single-operator (matches the
+ * plugin's single-user model); multi-operator is a later concern.
+ *
+ * Concern (P2): compose lifecycle + router + channel into the host hook +
+ * inbound/outbound routing. It owns no transport and no policy itself.
+ *
+ * Traces: proposal PART E Phase 2 deliverable 6 (replace the host hook with the
+ * real session) + 2 (route permissions) + 3 (stream-json on the bus).
+ */
+
+import type { InboundMessage, InlineButton, OutboundMessage, OutboundResult, ReplyHandle } from './contract.js';
+import type { OutputMode } from './config.js';
+import { ChannelPermission, type SendPrompt } from './channel-permission.js';
+import { LifecycleManager } from './lifecycle.js';
+import { PermissionRouter, type PermissionPolicy } from './permission-router.js';
+import type { Logger } from './logger.js';
+import type { IoBus } from './io-bus.js';
+import type { SessionDriver } from './session-driver.js';
+import type { SecretStore } from './secret-store.js';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  parseSetKeyCommand,
+  setKeyUsageMessage,
+  setKeyUnknownProviderMessage,
+  type SetKeyCommand,
+} from './setkey-command.js';
+import {
+  DEFAULT_PROVIDERS,
+  resolveProviderId,
+  getProvider,
+  PROVIDER_IDS,
+  type Provider,
+  type ProviderId,
+} from './provider-registry.js';
+import { RoleRoutingStore } from './role-routing-store.js';
+import {
+  DEFAULT_ROLE_ROUTING_CONFIG,
+  resolveRoleBackendWithOverrides,
+  type RoleRoutingOverride,
+} from './role-router.js';
+import { ROLES, isRole, type Role } from './backend-kinds.js';
+import {
+  parseSetRoleCommand,
+  isRolesCommand,
+  setRoleUsageMessage,
+  setRoleUnknownRoleMessage,
+  setRoleUnknownProviderMessage,
+  setRoleNoKeyWarning,
+  setRoleConfirmMessage,
+  rolesListMessage,
+  type SetRoleCommand,
+  type RolesListRow,
+} from './setrole-command.js';
+import {
+  isControlCommand,
+  parseControlCallback,
+  CONTROL_ACTIONS,
+  CONTROL_MENU_TEXT,
+  CONTROL_MODEL_MENU_TEXT,
+  CONTROL_FLUSH_CONFIRM_TEXT,
+  CONTROL_RESTART_CONFIRM_TEXT,
+  CONTROL_KILL_CONFIRM_TEXT,
+  CONTROL_CLEAR_CONFIRM_TEXT,
+  CONTROL_RESUME_CONFIRM_TEXT,
+  CONTROL_PARENT_RESTART_CONFIRM_TEXT,
+  CONTROL_ADVANCED_MENU_TEXT,
+  CONTROL_MODE_MENU_TEXT,
+  CONTROL_MENU_BUTTONS_PER_ROW,
+  CONTROL_ADVANCED_ACTIONS,
+  CONTROL_MODE_OPTIONS,
+  buildControlMenu,
+  buildAdvancedSubmenu,
+  buildModeSubmenu,
+  buildModelSubmenu,
+  buildModelSetConfirmMenu,
+  buildFlushConfirmMenu,
+  buildConfirmMenu,
+  buildApprovalsSubmenu,
+  approvalsMenuText,
+  controlHelpText,
+  formatDispatchResultTurn,
+  formatDispatchAck,
+  CONTROL_DISPATCH_UNAVAILABLE_TEXT,
+  CONTROL_DISPATCH_INFO_TEXT,
+  formatStatus,
+  formatUptime,
+  formatControlLog,
+  classifyLiveness,
+  formatProactiveAlert,
+  DEFAULT_TURN_WATCHDOG_MS,
+  DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
+  DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS,
+  type ControlCallback,
+  type ControlLogRecord,
+  type Liveness,
+  type StatusSnapshot,
+} from './control-command.js';
+
+/** D1: the reserved channel-diagnostic command (handled, not typed to the AI). */
+export const CHANNEL_CHECK_RE = /^\/channel-check\b/i;
+
+/**
+ * ★ REDESIGN — the poll step (ms) for the bounded drain-escalation + status-live-probe loops. The
+ * loops are ITERATION-bounded (≈deadline/step iterations), NOT wall-clock-bounded, so an injected
+ * immediate `delay` (tests) makes them deterministic + fast (no real wait) while the real
+ * `.unref()`'d setTimeout paces them in production. Kept small so live pacing is responsive.
+ */
+const POLL_STEP_MS = 50;
+
+/**
+ * The reserved OUTPUT-MODALITY switch command (the user's "switchable output
+ * channel"). `/mode text|voice|dual` (case/space-insensitive) is INTERCEPTED by
+ * the supervisor — applied to the in-memory modality state, ACK'd to the user,
+ * and NOT forwarded to the orchestrator. `/mode` with no/invalid arg → the
+ * current mode + the valid options. See {@link parseModeCommand}.
+ */
+export const MODE_CMD_RE = /^\/mode\b/i;
+
+/** The parsed result of a `/mode …` channel command (see {@link parseModeCommand}). */
+export type ModeCommand =
+  | { kind: 'set'; mode: OutputMode } // a valid `/mode text|voice|dual`
+  | { kind: 'query' }; // `/mode` with no arg, or an invalid/unknown arg
+
+/**
+ * Parse a `/mode …` channel command. Returns `null` when the text is NOT a
+ * `/mode` command at all (so the caller falls through to a normal turn). A
+ * recognized command yields `{kind:'set', mode}` for a valid text|voice|dual
+ * argument, else `{kind:'query'}` (bare `/mode` or an unknown arg → report the
+ * current mode + options). Tolerates surrounding/extra whitespace and case.
+ */
+export function parseModeCommand(text: string): ModeCommand | null {
+  const trimmed = text.trim();
+  if (!MODE_CMD_RE.test(trimmed)) return null;
+  // Everything after the '/mode' token, lower-cased, first whitespace-token only.
+  const arg = trimmed.replace(MODE_CMD_RE, '').trim().toLowerCase().split(/\s+/)[0] ?? '';
+  if (arg === 'text' || arg === 'voice' || arg === 'dual') return { kind: 'set', mode: arg };
+  return { kind: 'query' };
+}
+
+/**
+ * The FORCE-TEXT MARKER — an orchestrator→supervisor delivery directive that forces a
+ * SINGLE reply to be delivered as plain TEXT even when the output mode is voice/dual
+ * (so a link / file path / code / QR reference is never rendered uselessly into a voice
+ * note). The orchestrator includes this token anywhere in a reply; the supervisor (in
+ * {@link SessionHost.sendToOperator}) detects it, delivers that ONE message as text-only,
+ * and STRIPS the token before sending — it never reaches the user.
+ *
+ * The token is double-bracketed ALL-CAPS with an underscore (`[[FORCE_TEXT]]`) — chosen to
+ * be unambiguous and exceedingly unlikely to occur in natural prose or inside a URL/path/
+ * code/QR payload (the very content this protects). It is NOT a persistent mode change:
+ * {@link SessionHost.outputMode} (the single-writer state) is untouched; only THIS send is
+ * forced to text. v1 = whole-message (the entire reply goes text-only). In text mode it is a
+ * no-op beyond stripping; in dual mode the voice copy is suppressed for that message.
+ *
+ * The orchestrator skill doc must reference THIS exact token.
+ */
+export const FORCE_TEXT_MARKER = '[[FORCE_TEXT]]';
+
+/**
+ * Detect + strip the {@link FORCE_TEXT_MARKER} from a reply. Pure (no I/O, no state) so it
+ * is directly unit-testable. Returns whether the marker was present (→ force the send to
+ * text-only) and the text with EVERY occurrence removed and surrounding whitespace tidied.
+ *
+ * Robustness: the token is matched case-INSENSITIVELY and is removed wherever it appears
+ * (start, middle, end, or repeated). After removal, runs of blank space left by a stripped
+ * marker are collapsed to a single space and the result is trimmed, so a reply that was
+ * ONLY the marker becomes '' and a marker embedded mid-sentence leaves clean prose.
+ */
+export function applyForceText(text: string): { forced: boolean; text: string } {
+  // Escape the literal token for a case-insensitive global regex.
+  const escaped = FORCE_TEXT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(escaped, 'gi');
+  if (!re.test(text)) return { forced: false, text };
+  const stripped = text
+    .replace(re, ' ') // remove every occurrence, leaving a space so adjacent words don't fuse
+    .replace(/[ \t]{2,}/g, ' ') // collapse runs of spaces/tabs the removal introduced
+    .replace(/ *\n */g, '\n') // tidy spaces around newlines
+    .trim();
+  return { forced: true, text: stripped };
+}
+
+/**
+ * Compose the out-of-band note that tells the hosted orchestrator the current OUTPUT MODE
+ * (voice/text/dual) so it can adapt its replies. Pure (no I/O) → unit-testable. Used both
+ * for the ON-CHANGE notice (the `/mode` command or the panel Mode submenu) and the
+ * FIRST-TURN notice (a freshly-(re)started orchestrator learns the mode immediately).
+ *
+ * For voice/dual it spells out the force-text escape hatch ({@link FORCE_TEXT_MARKER}) so
+ * the orchestrator knows to tag links / paths / codes / QR references for text delivery
+ * instead of having them voiced into uselessness — the concrete reason mode-awareness exists.
+ *
+ * @param onChange true for the on-change form ("is now"); false for the first-turn form ("is").
+ */
+export function buildOutputModeNotice(mode: OutputMode, onChange: boolean): string {
+  const head = onChange
+    ? `[SUPERVISOR output-mode] The output mode is now: ${mode}.`
+    : `[SUPERVISOR output-mode] The current output mode is: ${mode}.`;
+  const meaning =
+    mode === 'voice'
+      ? ` Your replies are read aloud as voice notes (text-to-speech).`
+      : mode === 'dual'
+        ? ` Your replies are delivered as BOTH text and a voice note.`
+        : ` Your replies are delivered as plain text.`;
+  // The actionable guidance only matters when speech is involved.
+  const guidance =
+    mode === 'voice' || mode === 'dual'
+      ? ` Speak naturally and keep replies concise for listening. For any content that does ` +
+        `not survive being spoken (links, file paths, commands, codes, QR references), put ` +
+        `the token ${FORCE_TEXT_MARKER} anywhere in that reply — the supervisor will deliver ` +
+        `THAT message as plain text (the token is stripped before sending) regardless of mode.`
+      : ` (No need to use ${FORCE_TEXT_MARKER} in text mode — it is a no-op here.)`;
+  return head + meaning + guidance;
+}
+
+/**
+ * The reserved IN-CHANNEL PROVIDER-KEY intake command — `/setkey <provider> <key>` (the
+ * model-agnostic agent system's secret-intake). Like `/mode`, it is INTERCEPTED by the supervisor
+ * (handled in {@link SessionHost.handleInbound}) and NEVER forwarded to the orchestrator, so the raw
+ * key never enters the orchestrator's context/stream. The parse + redaction live in setkey-command.ts
+ * ({@link parseSetKeyCommand} / redactSetKeyText); this re-export keeps the command discoverable here
+ * alongside `/mode`. The interception is gated on a wired {@link SessionHostOptions.secretStore} —
+ * absent (the current default), `/setkey` falls through to a normal turn unchanged.
+ */
+export { SETKEY_CMD_RE, parseSetKeyCommand, redactSetKeyText } from './setkey-command.js';
+
+/**
+ * The reserved TIER-2 PER-ROLE MODEL-SELECTION commands — `/setrole <role> <provider> [model]` and
+ * `/roles` (the model-agnostic agent system's runtime role-router edit, PART Q.3). Like `/setkey`,
+ * both are INTERCEPTED by the supervisor (handled in {@link SessionHost.handleInbound}) and NEVER
+ * forwarded to the orchestrator. The parse + message logic lives in setrole-command.ts; these
+ * re-exports keep the commands discoverable here alongside `/mode` + `/setkey`. The interception is
+ * gated on a wired {@link SessionHostOptions.roleRoutingStore} — absent (the current default),
+ * `/setrole` + `/roles` fall through to a normal turn unchanged. NOTHING here is secret (a role /
+ * provider / model are not credentials), so — unlike `/setkey` — there is NO redaction.
+ */
+export { SETROLE_CMD_RE, ROLES_CMD_RE, parseSetRoleCommand, isRolesCommand } from './setrole-command.js';
+
+/**
+ * The reserved OUT-OF-BAND OPERATOR CONTROL command — `/control` (the supervisor
+ * control plane). Like `/mode`, it is INTERCEPTED by the supervisor (handled in
+ * {@link SessionHost.handleInbound}) and NEVER forwarded to the orchestrator: it
+ * renders a native inline-keyboard MENU whose buttons carry `ctl:<action>`
+ * `callback_data`, and the taps are routed supervisor-side (so the whole plane
+ * works when the orchestrator child is dead/stuck). The parse + menu + action
+ * registry + formatters live in control-command.ts ({@link isControlCommand} /
+ * {@link parseControlCallback} / {@link CONTROL_ACTIONS}); these re-exports keep the
+ * command discoverable here alongside `/mode` + `/setrole`. UNLIKE the routing
+ * commands it is NOT gated on a wired store — supervisor control is always
+ * available (the matcher only fires on the reserved `/control` prefix + `ctl:*`
+ * callbacks, so non-control inbound is byte-for-byte unchanged).
+ */
+export {
+  CONTROL_CMD_RE,
+  CTL_CALLBACK_PREFIX,
+  isControlCommand,
+  parseControlCallback,
+} from './control-command.js';
+
+/** M3: at most one delivery-failure notice per this window (outage cooldown). */
+export const DELIVERY_FAILURE_COOLDOWN_MS = 60_000;
+
+/** Lifecycle-restart guardrail: max agent-initiated restart REQUESTS per window (kills loops). */
+export const RESTART_RATE_LIMIT = 3;
+export const RESTART_RATE_WINDOW_MS = 30 * 60_000; // 30 minutes
+
+/** The outcome of an agent restart request (returned by requestRestart). */
+export type RestartRequestOutcome =
+  | { status: 'queued' } // accepted; confirm + teardown happen out-of-band
+  | { status: 'rate_limited'; retryAfterMs: number }
+  | { status: 'busy' }; // a restart confirm is already in flight
+
+/**
+ * ★ P6 — the structured result of ONE routed-agent dispatch ({@link SessionHost.dispatchRole}). This
+ * is the SHAPE the injected {@link RoleDispatchFn} returns and that the orchestrator relays to the
+ * user (AP6 — the agent itself is channel-mute; only this report comes back). A thin projection of
+ * result-relay's `AgentReport` (kept local so SessionHost imports no result-relay concretes). On a
+ * dormant/unwired host, {@link dispatchRole} synthesizes `{ok:false, enabled:false}` WITHOUT calling
+ * the function.
+ */
+export interface RoleDispatchResult {
+  /** True when the dispatched agent finished successfully (subtype 'success'). */
+  ok: boolean;
+  /** The role that was dispatched. */
+  role: string;
+  /** The backend kind that ran it ('claude-cli' | 'api-adapter' | …). */
+  backend?: string;
+  /** The agent's final report text (relayed to the user by the orchestrator). */
+  text?: string;
+  /** Total cost in USD, if the backend reported/computed it. */
+  costUsd?: number;
+  /** True iff a configured fallback backend actually ran (FD6). */
+  fellBack?: boolean;
+}
+
+/**
+ * ★ P6 — the INJECTED routed-dispatch capability (FD1). Given a role + a task, run the role's routed
+ * backend agent to completion and return its {@link RoleDispatchResult}. index.ts builds this closure
+ * ONLY when role-routing is activated (so it stays dormant by default); it closes over the backend
+ * registry, the persisted-override loader, and the scoped-key env, and calls result-relay's
+ * dispatchRoleAgentWithFallback. NEVER throws for an agent-level failure (it returns `ok:false`);
+ * may reject only on a programmer error.
+ */
+export type RoleDispatchFn = (role: string, task: string) => Promise<RoleDispatchResult>;
+
+/**
+ * ★ A3 CONTROL PLANE — a structured orchestrator-child RESTART intent the `/control`
+ * restart-family actions (`restart`/`kill`/`clear`/`resume`/`change-model`) hand to the
+ * INJECTED {@link RestartControlFn}. It says WHAT restart to perform; the injected
+ * function (wired by index.ts at activation) DECIDES HOW — composing the EXISTING
+ * supervisor restart machinery (the user-confirm + rate-limit + audit
+ * {@link SessionHost.requestRestart} graceful path, or {@link SessionHost.clearContext}
+ * for a clean slate). The handlers never touch the lifecycle directly, so with the
+ * function UNWIRED (the dormant default + the menu-routing tests) NOTHING restarts.
+ */
+export interface RestartIntent {
+  /**
+   * The restart flavour:
+   *  - `restart` — GRACEFUL: drain the in-flight turn, capture a handoff snapshot, relaunch (channel preserved).
+   *  - `kill`    — HARD: no drain (a wedged child); relaunch immediately (channel preserved).
+   *  - `clear`   — fresh orchestrator context with NO handoff note (a clean slate).
+   *  - `resume`  — relaunch and re-inject the supplied handoff snapshot.
+   *  - `change-model` — set the next-launch Tier-1 model, then relaunch (drain + handoff so context carries across the switch).
+   */
+  kind: 'restart' | 'kill' | 'clear' | 'resume' | 'change-model';
+  /** Drain the in-flight turn before relaunching? true for graceful restart/change-model; false for kill. */
+  drain: boolean;
+  /** The handoff note to re-inject on the fresh session's first turn (omitted for a clean `clear`). */
+  handoff?: string;
+  /** The Tier-1 orchestrator model to set for the next launch (change-model only). */
+  model?: string;
+}
+
+/** The outcome an injected {@link RestartControlFn} reports back to the control handler. */
+export interface RestartControlResult {
+  /** True iff the restart was accepted/queued (false ⇒ refused, with a reason). */
+  ok: boolean;
+  /** A short human-readable status (e.g. "queued", "rate-limited", or an error). */
+  detail?: string;
+}
+
+/**
+ * ★ A3 — the INJECTED restart capability. Given a {@link RestartIntent}, perform (or arm)
+ * the orchestrator-child restart through the supervisor's existing lifecycle machinery and
+ * report the outcome. index.ts wires this AT ACTIVATION to a closure composing
+ * {@link SessionHost.requestRestart} (the confirm/rate-limit/audit graceful path) +
+ * {@link SessionHost.clearContext}; the control handlers only REQUEST through it. When ABSENT
+ * (the dormant default), the restart actions report unavailable and NOTHING restarts —
+ * byte-for-byte unchanged, and the live host is never torn down by a test. NEVER throws for
+ * an operational refusal (it returns `ok:false`).
+ */
+export type RestartControlFn = (intent: RestartIntent) => Promise<RestartControlResult> | RestartControlResult;
+
+/**
+ * ★ A4 CONTROL PLANE — the INJECTED interrupt capability (the operator ESC). Stop the
+ * orchestrator's CURRENT turn WITHOUT killing it — the in-flight turn is abandoned but the
+ * process + context stay alive, so the operator can re-prompt immediately. index.ts wires this
+ * AT ACTIVATION to {@link LifecycleManager.interruptTurn} (→ `driver.interrupt()`); the
+ * `/control` `interrupt` action only REQUESTS through it. When ABSENT (the dormant default), the
+ * `interrupt` action reports it is unavailable and NOTHING is interrupted — so the live host is
+ * NEVER touched by a test and the switch-OFF behavior is byte-for-byte unchanged. Distinct from
+ * {@link RestartControlFn}: interrupt is NON-destructive (no restart, no context reset, no
+ * `driver.starts` change) → it needs no confirm. May reject only on a driver-level failure.
+ */
+export type InterruptTurnFn = () => Promise<void> | void;
+
+/**
+ * ★ REDESIGN (control-panel-redesign-2026-06-20) — the INJECTED **parent-restart** capability:
+ * restart the SUPERVISOR PROCESS ITSELF to load a new build (distinct from {@link RestartControlFn},
+ * which only cycles the orchestrator CHILD). The `/control` → Advanced → Parent restart action
+ * (confirm-gated) REQUESTS through this; index.ts wires it AT ACTIVATION to a closure that spawns
+ * the canonical DETACHED, out-of-process-tree relaunch (the `restart-supervisor.ps1` path) — so the
+ * relaunch is performed SUPERVISOR-SIDE on an operator tap, NOT by the agent issuing a shell command
+ * (which the cli-stream driver's relaunch guard hard-blocks, dev-0efd). When ABSENT (the dormant
+ * default + the tests), the action reports it is unavailable and NOTHING is relaunched — so the live
+ * host is NEVER torn down by a test and the switch-OFF behavior is byte-for-byte unchanged. Returns
+ * the dispatch outcome; NEVER throws for an operational refusal (it returns `ok:false`). The CALLER
+ * does NOT await the actual process death — the closure dispatches the detached relaunch and returns
+ * (the supervisor is killed asynchronously by the out-of-tree child).
+ */
+export type ParentRestartFn = () => Promise<RestartControlResult> | RestartControlResult;
+
+export interface SessionHostOptions {
+  driver: SessionDriver;
+  bus: IoBus;
+  logger: Logger;
+  /**
+   * Send an outbound over a channel (bound supervisor.sendOutbound for a channel).
+   * `msg.options` carries the modality (text/voice/dual) — the supervisor sets it
+   * on the orchestrator's substantive replies from the current output mode; the
+   * adapter renders TTS / sends the bubble accordingly. Control messages
+   * (permission prompts, ACKs, system notices) omit it and go as plain text.
+   */
+  send: (handle: ReplyHandle, msg: OutboundMessage) => Promise<OutboundResult>;
+  /**
+   * INLINE-BUTTON ACK (optional) — acknowledge a button tap (dismiss the client
+   * spinner; optional toast). Bound to supervisor.answerCallback for a channel.
+   * When absent, button-tap decisions still resolve (the ACK is best-effort UX).
+   */
+  answerCallback?: (callbackId: string, text?: string) => Promise<void>;
+  /**
+   * INLINE-BUTTON FOLLOW-UP (optional) — replace a prompt message's text + drop its
+   * keyboard (so a decided prompt shows its outcome). Bound to supervisor.editMessage
+   * for a channel. Best-effort.
+   */
+  editMessage?: (handle: ReplyHandle, messageId: string, text: string) => Promise<void>;
+  /**
+   * MESSAGE DELETE (optional) — remove a message from the chat (Telegram deleteMessage). Bound to
+   * supervisor.deleteMessage for a channel. Used by the `/setkey` path to delete the user's
+   * plaintext-key message after the key is stored, so it does not linger in chat history.
+   * Best-effort; absent → the key is still redacted from capture + never echoed.
+   */
+  deleteMessage?: (handle: ReplyHandle, messageId: string) => Promise<void>;
+  /**
+   * `/setkey` IN-CHANNEL SECRET STORE (optional). When supplied, the SessionHost INTERCEPTS
+   * `/setkey <provider> <key>` (like `/mode`): it stores the key SCOPED to that provider, replies a
+   * MASKED confirmation, deletes the user's message (via {@link deleteMessage}), and does NOT forward
+   * the command to the orchestrator (the raw key never enters the orchestrator's context). When ABSENT
+   * (the current/dormant default — index.ts does not wire it), `/setkey` is NOT intercepted and falls
+   * through to a normal turn EXACTLY as today (byte-for-byte unchanged). The store's PRESENCE is the
+   * activation signal (P6). The store path is gitignored (secret-store.ts under `.state/`).
+   */
+  secretStore?: SecretStore;
+  /**
+   * `/setkey` provider table (optional; default {@link DEFAULT_PROVIDERS}). The set of providers a
+   * `/setkey <provider>` token may name; an unknown token gets a helpful error listing these. Only
+   * consulted when {@link secretStore} is wired. Shared by the `/setrole` path (same registry).
+   */
+  providers?: Readonly<Record<ProviderId, Provider>>;
+  /**
+   * TIER-2 ROLE-ROUTING STORE (optional). When supplied, the SessionHost INTERCEPTS `/setrole
+   * <role> <provider> [model]` + `/roles` (like `/setkey`): `/setrole` persists the role→{provider,
+   * model} override (so the NEXT dispatch of that role uses it — runtime, no restart) and replies a
+   * confirmation; `/roles` lists the effective role→provider/model map merged over the in-code
+   * default plus per-provider key-PRESENCE booleans (NEVER a key value). Neither is forwarded to the
+   * orchestrator. The supervisor is the SOLE WRITER of this store — both the typed `/setrole` AND the
+   * orchestrator-invokable {@link SessionHost.setRoleRouting} route through ONE private writer. When
+   * ABSENT (the current/dormant default — index.ts does not wire it), `/setrole` + `/roles` are NOT
+   * intercepted and fall through to a normal turn EXACTLY as today (byte-for-byte unchanged). The
+   * store's PRESENCE is the activation signal (P6). The store path is gitignored (under `.state/`).
+   */
+  roleRoutingStore?: RoleRoutingStore;
+  /**
+   * ★ P6 — ROUTED-AGENT DISPATCH CAPABILITY (FD1). When supplied, {@link SessionHost.dispatchRole}
+   * is ACTIVE: the orchestrator can ask the supervisor to run a ROLE + task on its routed backend
+   * (role-router → provider-registry → backend-seal → driver → result), and the structured result is
+   * relayed back to the orchestrator (AP6 — never the channel). The function is the INJECTED
+   * choke-point: index.ts builds it (gated on the activation switch) to close over the backend
+   * registry + the persisted-override loader + the scoped-key env, and it ultimately calls
+   * result-relay's dispatchRoleAgentWithFallback. SessionHost stays decoupled from result-relay's
+   * concretes (and trivially fake-able in tests). When ABSENT (the dormant default — index.ts does
+   * NOT wire it unless SUPERVISOR_ROLE_ROUTING is ON), {@link dispatchRole} returns
+   * `{ok:false, enabled:false}` and NOTHING dispatches — byte-for-byte unchanged.
+   */
+  dispatchRoleAgent?: RoleDispatchFn;
+  /**
+   * ★ A2 CONTROL PLANE — CHANNEL RECONNECT (optional). The supervisor-side reconnect
+   * logic behind `POST /api/channel/reconnect` (bound `supervisor.reconnectChannel('telegram')`).
+   * When wired, the `/control` `reconnect` action re-establishes the channel transport
+   * out-of-band and ACKs the new sender/poller state. When ABSENT (the dormant default —
+   * index.ts wires it at activation), the `reconnect` action reports it is unavailable;
+   * no inbound behavior changes. Best-effort; returns the adapter's `{ok, error?}`.
+   */
+  reconnectChannel?: () => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * ★ A2 CONTROL PLANE — CHANNEL FLUSH (optional). The supervisor-side flush logic behind
+   * `POST /api/channel/flush` (bound `supervisor.flushChannel('telegram')`). DESTRUCTIVE —
+   * drops un-acked INBOUND — so the `/control` `flush` action gates it behind a confirm
+   * sub-menu; only the confirm calls this. When ABSENT (the dormant default), the action
+   * reports it is unavailable. Returns the adapter's `{ok, dropped?, error?}`.
+   */
+  flushChannel?: () => { ok: boolean; dropped?: number; error?: string };
+  /**
+   * ★ A2 CONTROL PLANE — CAPTURE TAIL (optional). The supervisor-side capture replay behind
+   * `GET /api/capture` (bound `() => supervisor.captureStore.replay()`). When wired, the
+   * `/control` `log` action formats the recent inbound/outbound/delivery events. When ABSENT
+   * (the dormant default), the action reports no log surface is wired. Read-only; the
+   * records are shape-compatible with {@link ControlLogRecord} (`{event}`).
+   */
+  captureRecent?: () => readonly ControlLogRecord[];
+  /**
+   * ★ A3 CONTROL PLANE — ORCHESTRATOR RESTART (optional). The supervisor-side restart
+   * capability behind the `/control` restart-family actions (`restart`/`kill`/`clear`/
+   * `resume`/`change-model`). When wired (by index.ts at ACTIVATION), tapping a confirmed
+   * restart action hands a {@link RestartIntent} here; the closure composes the EXISTING
+   * restart machinery (the confirm/rate-limit/audit {@link SessionHost.requestRestart}
+   * graceful path, or {@link SessionHost.clearContext} for a clean slate) and never bypasses
+   * the safety gate. When ABSENT (the dormant default), the restart actions report they are
+   * unavailable and NOTHING restarts — so the live host is NEVER torn down by a test and the
+   * switch-OFF behavior is byte-for-byte unchanged. Best-effort; returns `{ok, detail?}`.
+   */
+  restartControl?: RestartControlFn;
+  /**
+   * ★ A4 CONTROL PLANE — ORCHESTRATOR INTERRUPT (optional). The supervisor-side ESC behind the
+   * `/control` `interrupt` action. When wired (by index.ts at ACTIVATION to
+   * {@link LifecycleManager.interruptTurn} → `driver.interrupt()`), tapping `interrupt` stops the
+   * orchestrator's current turn WITHOUT killing it (the process + context stay alive). NON-destructive
+   * → it runs DIRECTLY (no confirm sub-menu). When ABSENT (the dormant default), the `interrupt` action
+   * reports it is unavailable and NOTHING is interrupted — so the live host is NEVER touched by a test
+   * and the switch-OFF behavior is byte-for-byte unchanged. Best-effort; may reject on a driver failure.
+   */
+  interruptTurn?: InterruptTurnFn;
+  /**
+   * ★ REDESIGN CONTROL PLANE — SUPERVISOR (PARENT) RESTART (optional). The supervisor-side
+   * relaunch behind the `/control` → Advanced → `parent-restart` action (confirm-gated). When wired
+   * (by index.ts at ACTIVATION to the detached `restart-supervisor.ps1` relaunch), tapping the
+   * confirmed action restarts the SUPERVISOR PROCESS ITSELF to load a new build — performed
+   * supervisor-side on the operator tap, NOT by the agent firing a shell command (which the driver's
+   * relaunch guard hard-blocks). When ABSENT (the dormant default + the tests), the action reports it
+   * is unavailable and NOTHING is relaunched — so the live host is NEVER torn down by a test and the
+   * switch-OFF behavior is byte-for-byte unchanged. Best-effort; returns `{ok, detail?}`.
+   */
+  parentRestart?: ParentRestartFn;
+  /** Permission policy (allow-list / deny-list / fallback / safety-floor predicate). */
+  policy: PermissionPolicy;
+  /**
+   * The STARTUP output modality for the orchestrator's substantive replies
+   * (text/voice/dual). The SessionHost holds this as switchable in-memory state
+   * and flips it via the intercepted `/mode` command; this is just the boot value
+   * (resets here on a restart). From config ({@link OutputMode}). Default 'text'.
+   */
+  outputMode?: OutputMode;
+  /** The system prompt — plain string (demo persona) or preset+append (orchestrator). */
+  systemPrompt?: string | { preset: 'claude_code'; append?: string };
+  cwd?: string;
+  model?: string;
+  /** Tools to pass to the SDK allow-list (router still gates the rest). */
+  allowedTools?: string[];
+  /** Tools always denied at the SDK level (e.g. the telegram plugin). */
+  disallowedTools?: string[];
+  /** Settings sources to load (project skills + CLAUDE.md + settings). */
+  settingSources?: ('user' | 'project' | 'local')[];
+  /** MCP servers (Record<name, config>) wired into the session (telegram excluded). */
+  mcpServers?: Record<string, unknown>;
+  /** Env for the spawned subprocess (e.g. CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1). */
+  env?: Record<string, string | undefined>;
+  /** SDK permission mode (default 'default'). */
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  /**
+   * Role-adoption prefix (e.g. '/orchestrator'). Prepended to the FIRST real user
+   * turn — NOT fired as a standalone bootstrap turn at launch. Rationale (live-
+   * surfaced): a standalone bootstrap turn self-executes the whole orchestrator
+   * startup BEFORE any user is bound — so the channel reply tool fails
+   * (currentOperator() is null) and tokens burn pre-user. Prefixing the first user
+   * turn loads the role exactly when the user engages: operator bound, reply works,
+   * no pre-user execution.
+   */
+  roleTurnPrefix?: string;
+  /**
+   * ★ STARTUP CONTEXT-PICKUP (parent-restart handoff): a one-shot context note appended to the
+   * FRESH session's FIRST real user turn (AFTER {@link roleTurnPrefix}) so a supervisor
+   * PARENT/`dist` restart auto-resumes the prior session instead of booting COLD. Set by
+   * index.ts from `config.startupHandoff` (resolved from the staged `SUPERVISOR_STARTUP_HANDOFF_FILE`).
+   * Consumed ONCE — same first-turn seam as `roleTurnPrefix` (NOT a pre-user bootstrap; the
+   * anti-pattern in the `roleTurnPrefix` doc applies equally). Undefined ⇒ the first turn is the
+   * bare role prefix = byte-for-byte today. Mirrors the child restart-handoff note shape
+   * (runRestartConfirm) but for the parent/startup path.
+   */
+  startupHandoff?: string;
+  /**
+   * ★ STARTUP GREETING — when true, {@link SessionHost.start} proactively greets the user on a fresh
+   * session (using an operator restored from {@link operatorStateFile}) instead of waiting for them
+   * to message first. Undefined/false ⇒ the prior deferred behavior (no proactive greet). index.ts
+   * gates it to the orchestrator profile.
+   */
+  startupGreeting?: boolean;
+  /**
+   * Path where the bound operator's channel address is persisted (and restored on boot for the
+   * startup greeting). Undefined ⇒ no persistence + no proactive greeting (e.g. the demo profile).
+   */
+  operatorStateFile?: string;
+  /**
+   * Per-turn de-dup: the channel reply tool name (e.g.
+   * 'mcp__supervisor_channel__reply'). When set (orchestrator profile), the final
+   * answer auto-outs UNLESS the reply tool fired this turn. When unset (demo),
+   * assistant text auto-outs each turn. (Live fix: a blanket suppress silenced
+   * plain-text answers the orchestrator gives for direct questions.)
+   */
+  replyToolName?: string;
+  /** Permission reply window, ms. */
+  permissionTimeoutMs?: number;
+  /**
+   * FORWARD ALL OUTPUT (the user's core objective). When true (orchestrator profile),
+   * the supervisor mirrors the session's TOOL ACTIVITY to the channel — not just the
+   * final assistant text: tool calls (incl. Agent/Task/SendMessage = sub-agent spawns
+   * + teammate messages) and tool RESULTS, with errors always surfaced. So the remote
+   * user SEES the orchestrator coordinating its sub-agents and any error it hits, which
+   * is the whole point of the supervisor. Off (demo) = only assistant text is sent.
+   */
+  forwardToolActivity?: boolean;
+  /**
+   * When forwarding tool activity, also forward NON-error tool RESULTS (verbose). Most
+   * tool results are noise on a phone; default false = forward tool CALLS + tool ERRORS
+   * only (the actionable signal). Errors are always forwarded regardless.
+   */
+  forwardToolResultsVerbose?: boolean;
+  /**
+   * D1/D2: the loopback Panel base URL (e.g. 'http://127.0.0.1:8790'). When set, the
+   * '/channel-check' diagnostic turn (and the orchestrator preamble) reference it so
+   * the orchestrator can curl the read + repair endpoints. Undefined → /channel-check
+   * still injects a diagnostic turn but without a concrete URL.
+   */
+  panelUrl?: string;
+  /**
+   * D4: supervisor→orchestrator liveness. When set (> 0), after a ping is injected the
+   * orchestrator must produce a turn result within this many ms or it is treated as
+   * HUNG → tier-b (restart+resume + notify the user). 0/omit = liveness ping disabled.
+   */
+  pingResponseTimeoutMs?: number;
+  /**
+   * D4: how often the periodic scheduler fires an IDLE-AWARE liveness ping (ms). The
+   * ping is a no-op while a turn is in flight (a busy orchestrator is never restarted),
+   * so this is the cadence at which a genuinely-IDLE-but-unresponsive orchestrator is
+   * detected. Should be comfortably larger than pingResponseTimeoutMs. 0/omit = no
+   * scheduler (the ping can still be triggered manually). Default off.
+   */
+  pingIntervalMs?: number;
+  /**
+   * D4 tier-b: called when the orchestrator fails to answer a liveness ping in time —
+   * the supervisor restarts it (LifecycleManager restart+resume) and notifies the user.
+   * Injected by index.ts (it owns the relaunch decision). Receives a reason string.
+   */
+  onUnresponsive?: (reason: string) => void | Promise<void>;
+  /**
+   * ★ A5 ACTIVATION SWITCH — proactive stuck/dead PUSH + in-flight turn-watchdog (ALERT-only).
+   * When true, the SessionHost (a) ENABLES the latent in-flight turn-watchdog in `surface` mode
+   * (a turn outstanding longer than {@link turnWatchdogMs} → an ALERT is pushed; it NEVER kills/
+   * restarts), (b) arms a periodic proactive-watch that catches a DEAD child (which emits no
+   * events), and (c) on a transition INTO stuck/dead PUSHES exactly ONE debounced alert to the
+   * channel (re-arming only after liveness returns to active). When false (the DEFAULT — index.ts
+   * does not set it), NONE of this arms: the watchdog timers do not start, the proactive-watch does
+   * not start, and no alert is ever pushed → the running supervisor is BYTE-FOR-BYTE as today. The
+   * watchdog is ALERT-ONLY: A5 adds NO auto-kill/restart (it composes with the EXISTING
+   * auto-restart-on-unresponsive `onUnresponsive` path, which is unchanged).
+   */
+  proactiveAlerts?: boolean;
+  /**
+   * ★ A5 — the in-flight turn-watchdog deadline (ms): a turn outstanding longer than this is
+   * flagged STUCK → an ALERT (the action is fixed to 'surface' — NEVER kill, so a legitimately
+   * long /dev build is not murdered). Only consulted when {@link proactiveAlerts} is true.
+   * Default {@link DEFAULT_TURN_WATCHDOG_MS} (180s, decision (c)).
+   */
+  turnWatchdogMs?: number;
+  /**
+   * ★ A5 — the proactive-watch re-check cadence (ms) for catching a DEAD child. Only armed when
+   * {@link proactiveAlerts} is true. Default {@link DEFAULT_PROACTIVE_WATCH_INTERVAL_MS} (20s).
+   */
+  proactiveWatchIntervalMs?: number;
+  /**
+   * ★ A5 — INJECTABLE timer factory for the proactive-watch scheduler (so a test drives ticks via a
+   * fake clock — NO real wait, the test process never hangs). Defaults to the Node globals. The
+   * returned handle is `.unref()`'d when possible so the real timer never keeps the process alive.
+   */
+  proactiveWatchTimers?: {
+    setInterval: (cb: () => void, ms: number) => unknown;
+    clearInterval: (handle: unknown) => void;
+  };
+  /**
+   * ★ REDESIGN — RECOVERY LADDER (optional, default off). When true, {@link handleUnresponsiveRecovery}
+   * recovers an unresponsive orchestrator in two steps — AUTO-RECONNECT the channel first (via the
+   * injected {@link reconnectChannel}), re-probe, and only if STILL unresponsive RESET (restart via
+   * {@link restartUnresponsive}). When false (the default), index.ts uses the existing direct tier-b
+   * restart (byte-for-byte today). The ladder needs {@link reconnectChannel} wired to actually
+   * reconnect (else it falls straight through to the reset). Replaces the manual Reconnect button.
+   */
+  recoveryLadder?: boolean;
+  /**
+   * ★ REDESIGN — AUTO-SNAPSHOT (optional, default off). When true, the SessionHost (a) arms a periodic
+   * timer that captures a context snapshot every {@link autoSnapshotIntervalMs}, and (b) carries the
+   * latest snapshot into EVERY restart — including the involuntary watchdog/unresponsive restart
+   * ({@link restartUnresponsive}), closing the cold-watchdog-restart gap. When false (the default), no
+   * snapshot timer arms and the involuntary restart path is byte-for-byte today. Replaces the manual
+   * Handoff button.
+   */
+  autoSnapshot?: boolean;
+  /** ★ REDESIGN — the auto-snapshot cadence (ms). Only armed when {@link autoSnapshot} is true. Default {@link DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS} (120s). */
+  autoSnapshotIntervalMs?: number;
+  /**
+   * ★ REDESIGN — INJECTABLE timer factory for the auto-snapshot scheduler (so a test drives snapshots
+   * via a fake clock — NO real wait). Defaults to the Node globals; the handle is `.unref()`'d when
+   * possible so the real timer never keeps the process alive.
+   */
+  autoSnapshotTimers?: {
+    setInterval: (cb: () => void, ms: number) => unknown;
+    clearInterval: (handle: unknown) => void;
+  };
+  /**
+   * ★ REDESIGN — RESTART DRAIN deadline (ms) for the hard-kill ESCALATION (optional, default 0). When
+   * > 0, a graceful restart ({@link gracefulRestartWithEscalation}) waits up to this long for the
+   * in-flight turn to drain (the agent goes idle), then escalates to a hard restart regardless. 0 (the
+   * default) = no drain wait = the existing immediate restart (byte-for-byte today). Absorbs Kill.
+   */
+  restartDrainMs?: number;
+  /**
+   * ★ REDESIGN — STATUS LIVE-PROBE deadline (ms) for the `status` action (optional, default 0). When
+   * > 0, `status` fires a live responsiveness ping and waits up to this long for a reply, reporting
+   * latency + last-turn time; the snapshot ALWAYS returns even if the probe times out. 0 (the default)
+   * = no live probe = `status` reports the cheap snapshot only (byte-for-byte today). Absorbs Ping.
+   */
+  statusProbeMs?: number;
+  /**
+   * ★ REDESIGN — INJECTABLE bounded-delay helper used by the drain-escalation poll + the status
+   * live-probe timeout (so tests advance time deterministically — NO real wait). `delay(ms)` resolves
+   * after ms; tests stub it to resolve immediately / on command. Defaults to a `.unref()`'d setTimeout.
+   */
+  delay?: (ms: number) => Promise<void>;
+}
+
+export class SessionHost {
+  private readonly opts: SessionHostOptions;
+  private readonly logger: Logger;
+  private readonly lifecycle: LifecycleManager;
+  private readonly router: PermissionRouter;
+  /** Set once we have an operator (the latest inbound user). */
+  private channelPermission: ChannelPermission | null = null;
+  private operator: ReplyHandle | null = null;
+  /** Stable id of the bound operator (H1: reject replies/turns from a DIFFERENT user). */
+  private operatorId: string | null = null;
+  /** True until the role-adoption prefix has been applied to the first user turn. */
+  private rolePrefixPending: boolean;
+  /**
+   * ★ STARTUP CONTEXT-PICKUP — true until the one-shot parent-restart handoff note
+   * (`opts.startupHandoff`) has been appended to the first real user turn. Consumed once.
+   */
+  private startupHandoffPending: boolean;
+  /**
+   * ★ MODE-AWARENESS (first turn) — true until the current {@link outputMode} has been
+   * announced to the orchestrator on its first real user turn (so a restarted orchestrator
+   * knows the mode immediately, not only after the next /mode change). Consumed once; re-armed
+   * on a self-context-clean/restart (same seam as {@link rolePrefixPending}).
+   */
+  private modeNoticePending: boolean;
+  private started = false;
+  /**
+   * SEND-SIDE IDEMPOTENCY GUARD (the seq-221 self-diagnosis #1 fix). The text last
+   * delivered to the operator for the CURRENT turn. A second outbound byte-identical
+   * to it — without an intervening user turn — is a DUPLICATE (a duplicate `result`
+   * event, the PTY render race that re-grabs the prior turn's stale answer, or any
+   * double-emit) and is SUPPRESSED. Reset to null on each new user turn, so two
+   * legitimately-identical answers to two DIFFERENT user messages both go through;
+   * only a same-turn duplicate is dropped. Independent of the render-side guard —
+   * belt-and-suspenders against doubling AND byte-identical stale resends.
+   */
+  private lastSentText: string | null = null;
+  /** F1: re-entrancy guard so a delivery-failure note's OWN failed send doesn't loop. */
+  private feedingDeliveryFailure = false;
+  /** M3: wall-clock (ms) of the last delivery-failure notice — outage-cooldown anchor. */
+  private lastDeliveryFailureNotifiedAt = 0;
+  /** D4: pending liveness-ping deadline timer (cleared when the orchestrator answers). */
+  private pingTimer: ReturnType<typeof setTimeout> | null = null;
+  /** D4: the periodic liveness scheduler (fires an idle-aware ping every pingIntervalMs). */
+  private pingScheduler: ReturnType<typeof setInterval> | null = null;
+  /** Lifecycle-restart: wall-clock (ms) timestamps of recent agent restart REQUESTS (rate-limit). */
+  private restartRequestTimes: number[] = [];
+  /** Lifecycle-restart: a restart confirm is already in flight (don't open a second dialog). */
+  private restartConfirmInFlight = false;
+  /**
+   * OUTPUT MODALITY (the user's switchable "output channel"). SOLE OWNER of this
+   * state (P1): the `/mode` command (intercepted in handleInbound) is the only
+   * writer; `sendToOperator` reads it to set the outbound modality. In-memory
+   * (resets to the configured default on restart, per v1 scope).
+   */
+  private outputMode: OutputMode;
+  /**
+   * `/setkey` IN-CHANNEL SECRET STORE (null when not wired — the dormant default). When set, the
+   * host intercepts `/setkey` and stores keys here scoped per provider; when null, `/setkey` is NOT
+   * intercepted (falls through to a normal turn, byte-for-byte unchanged). SOLE READER here.
+   */
+  private readonly secretStore: SecretStore | null;
+  /** The provider table the `/setkey` + `/setrole` tokens resolve against (DEFAULT_PROVIDERS unless overridden). */
+  private readonly providers: Readonly<Record<ProviderId, Provider>>;
+  /**
+   * TIER-2 ROLE-ROUTING STORE (null when not wired — the dormant default). When set, the host
+   * intercepts `/setrole` + `/roles` and is the SOLE WRITER of the persisted role-routing override.
+   * Both the typed `/setrole` and the orchestrator-invokable {@link setRoleRouting} funnel through
+   * the ONE private writer {@link applyRoleRouting}. When null, `/setrole` + `/roles` fall through to
+   * a normal turn, byte-for-byte unchanged.
+   */
+  private readonly roleRoutingStore: RoleRoutingStore | null;
+  /**
+   * ★ P6 — the INJECTED routed-dispatch capability (null when not wired — the dormant default). When
+   * set, {@link dispatchRole} runs a role's routed agent through it and relays the result; when null,
+   * {@link dispatchRole} returns `{ok:false, enabled:false}` and dispatches nothing. index.ts wires
+   * this ONLY when SUPERVISOR_ROLE_ROUTING is ON.
+   */
+  private readonly dispatchRoleAgent: RoleDispatchFn | null;
+  /**
+   * ★ A2 CONTROL PLANE — the INJECTED channel/capture surfaces (null when not wired —
+   * the dormant default). The SessionHost holds NO transport itself; these bound
+   * supervisor methods are how the `/control` `reconnect` / `flush` / `log` actions
+   * reach the SAME out-of-band logic the loopback panel exposes. When null, the
+   * corresponding action reports it is unavailable (no behavior change). P2: the host
+   * stays a thin wirer; the Supervisor remains the sole owner of the adapters/capture.
+   */
+  private readonly reconnectChannel: (() => Promise<{ ok: boolean; error?: string }>) | null;
+  private readonly flushChannel: (() => { ok: boolean; dropped?: number; error?: string }) | null;
+  private readonly captureRecent: (() => readonly ControlLogRecord[]) | null;
+  /**
+   * ★ A3 CONTROL PLANE — the INJECTED restart capability (null when not wired — the
+   * dormant default). When set, the confirmed `/control` restart-family actions hand a
+   * {@link RestartIntent} here; when null, those actions report unavailable and NOTHING
+   * restarts. index.ts wires this ONLY at activation. P2: the host stays a thin wirer; the
+   * LifecycleManager remains the sole restart EXECUTOR (the closure routes back through the
+   * host's own {@link requestRestart}/{@link clearContext}).
+   */
+  private readonly restartControl: RestartControlFn | null;
+  /**
+   * ★ A4 CONTROL PLANE — the INJECTED interrupt capability (null when not wired — the dormant
+   * default). When set, the `/control` `interrupt` action stops the orchestrator's current turn
+   * through it (→ {@link LifecycleManager.interruptTurn} → `driver.interrupt()`); when null, the
+   * action reports unavailable and NOTHING is interrupted. index.ts wires this ONLY at activation.
+   * P2: the host stays a thin wirer; the LifecycleManager owns the driver (the sole interrupt path).
+   */
+  private readonly interruptTurn: InterruptTurnFn | null;
+  /**
+   * ★ REDESIGN CONTROL PLANE — the INJECTED parent (supervisor-process) restart capability (null
+   * when not wired — the dormant default). When set, the `/control` → Advanced → `parent-restart`
+   * action relaunches the SUPERVISOR ITSELF through it (the detached out-of-tree relaunch); when
+   * null, the action reports unavailable and NOTHING is relaunched. index.ts wires this ONLY at
+   * activation. P2: the host stays a thin wirer — the actual process spawn lives in the index.ts
+   * composition root, never in the SessionHost.
+   */
+  private readonly parentRestart: ParentRestartFn | null;
+  /**
+   * ★ A3 CONTROL PLANE — the last HANDOFF SNAPSHOT the operator captured via the `handoff`
+   * action (the note a future `restart`/`resume` re-injects), or null if none captured this
+   * session. SOLE OWNER of this datum (P1): only `handoff` writes it; `resume` (and a
+   * graceful `restart`) read it. In-memory (resets on a process restart) — the supervisor
+   * owns the store, reusing the existing handoffNote/SESSION_HANDOFF re-injection mechanism.
+   */
+  private handoffSnapshot: { note: string; capturedAt: number } | null = null;
+  /**
+   * CONTROL PLANE — supervisor start wall-clock (ms), set in {@link start}. SOLE
+   * OWNER of this datum (P1): only `start()` writes it; the `/control` `status`
+   * action reads it (now − startedAt = uptime). 0 until started.
+   */
+  private startedAt = 0;
+  /**
+   * CONTROL PLANE — the last stall signal the lifecycle watchdog surfaced (via the
+   * `onStall` hook), or null if none seen this session. Read by the `/control`
+   * `status` action to classify STUCK (proposal §5). The lifecycle is the SOLE
+   * DETECTOR of stalls (P1); this only records the last-seen snapshot. The watchdog
+   * is dormant by default (turnTimeoutMs=0), so this stays null until a later phase
+   * enables it — byte-for-byte today.
+   */
+  private lastStall: { silentMs: number; action: 'surface' | 'restart' } | null = null;
+  /**
+   * ★ CONTROL PLANE — the orchestrator's CURRENT/next-launch Tier-1 model, shown by the
+   * `/control` `status` action + marked in the `change-model` sub-menu. Initialized from
+   * `opts.model` (the construction-time model). The `change-model` action mutates it (via
+   * {@link setOrchestratorModel}, ALONGSIDE {@link LifecycleManager.setModel}) so the operator
+   * immediately sees the pending model — without this the status would read the never-mutated
+   * `opts.model` and show a stale model even after a model-change restart. SOLE OWNER (P1):
+   * only {@link setOrchestratorModel} writes it post-construction.
+   */
+  private currentModel: string | undefined;
+  /**
+   * ★ A5 — proactive stuck/dead alert configuration, resolved ONCE in the ctor. When
+   * `enabled` is false (the DEFAULT — index.ts does not pass `proactiveAlerts`), NOTHING
+   * arms (the watchdog stays off, the proactive-watch never starts, no alert ever pushes)
+   * → byte-for-byte today. The watchdog is ALERT-ONLY (`surface`) — A5 introduces no kill path.
+   */
+  private readonly proactive: { enabled: boolean; turnWatchdogMs: number; watchIntervalMs: number };
+  /**
+   * ★ A5 — the DEBOUNCE latch for the proactive alert: the liveness state we have ALREADY
+   * pushed an alert for, or null if none outstanding. SOLE OWNER (P1): only
+   * {@link maybeProactiveAlert} writes it. We push AT MOST ONE alert per stuck/dead EVENT
+   * (a repeated tick in the same state does NOT re-push — the user is flood-sensitive) and
+   * RE-ARM (clear it) only when liveness returns to 'active'. A stuck→dead transition is a
+   * distinct event (pushes once for dead). 'active' is never alerted.
+   */
+  private alertedState: Exclude<Liveness, 'active'> | null = null;
+  /** ★ A5 — the periodic proactive-watch timer handle (catches a DEAD child; null = not armed). */
+  private proactiveWatchTimer: unknown = null;
+  /**
+   * ★ REDESIGN — the control-panel automatic-behavior config, resolved ONCE in the ctor. Every field
+   * defaults to the OFF/no-op value (index.ts passes nothing today) → byte-for-byte today. `drain`>0
+   * enables the restart hard-kill escalation; `probe`>0 enables the status live-probe; `recoveryLadder`
+   * / `autoSnapshot` gate the reconnect-then-reset ladder + the periodic-snapshot / pre-restart-carry.
+   */
+  private readonly autoBehavior: {
+    recoveryLadder: boolean;
+    autoSnapshot: boolean;
+    autoSnapshotIntervalMs: number;
+    drainMs: number;
+    probeMs: number;
+  };
+  /** ★ REDESIGN — the periodic auto-snapshot timer handle (null = not armed). */
+  private autoSnapshotTimer: unknown = null;
+  /**
+   * ★ REDESIGN — the wall-clock time (ms) of the last real turn RESULT, or 0 if none yet. SOLE OWNER
+   * (P1): set in the lifecycle onResult hook. Surfaced by the status live-probe as "last turn N ago".
+   */
+  private lastTurnAt = 0;
+  /**
+   * ★ REDESIGN — the wall-clock time (ms) of the last PROOF-OF-LIFE from the agent (a real result, an
+   * internal pong, OR mid-turn progress), or 0 if none yet. SOLE OWNER (P1): set in the onResult /
+   * onInternalResult / onProgress hooks. The live-probe ({@link probeResponsive}) polls THIS (not
+   * {@link lastTurnAt}) because a liveness ping's reply is INTERNAL (it does not produce a user-facing
+   * turn result), so it must still count as "the agent answered the probe".
+   */
+  private lastResponsiveAt = 0;
+  /**
+   * ★ D4 FALSE-POSITIVE FIX — the wall-clock time (ms) at which the last REAL (non-internal) user turn
+   * was injected (the inbound→inject seam), or 0 if none yet. SOLE OWNER (P1): set ONLY in
+   * {@link onRealTurnStarted}, which every real-turn injection routes through. Used by the liveness-ping
+   * timeout callback to detect "a real turn has started since this ping was scheduled" and SKIP tier-b —
+   * closing the race where a ping armed while idle keeps its deadline running after a real turn starts,
+   * and where a turn received-but-not-yet-counted-in-flight (before lifecycle.sendUserTurn increments
+   * outstandingTurns) lets a competing ping's deadline fire against a healthy running turn. Distinct from
+   * {@link lastTurnAt} (last-turn RESULT) — this is last-turn START.
+   */
+  private lastRealTurnStartedAt = 0;
+
+  constructor(opts: SessionHostOptions) {
+    this.opts = opts;
+    this.logger = opts.logger.child('session-host');
+    this.rolePrefixPending = !!opts.roleTurnPrefix;
+    this.startupHandoffPending = !!opts.startupHandoff; // one-shot parent-restart context pickup
+    this.outputMode = opts.outputMode ?? 'text';
+    // ★ MODE-AWARENESS: announce the (initial) output mode on the first real user turn so a
+    // freshly-(re)started orchestrator knows the mode immediately. One-shot; re-armed on a
+    // self-context-clean restart alongside rolePrefixPending (consumeOnce path).
+    this.modeNoticePending = true;
+    this.secretStore = opts.secretStore ?? null;
+    this.providers = opts.providers ?? DEFAULT_PROVIDERS;
+    this.roleRoutingStore = opts.roleRoutingStore ?? null;
+    this.dispatchRoleAgent = opts.dispatchRoleAgent ?? null;
+    this.reconnectChannel = opts.reconnectChannel ?? null;
+    this.flushChannel = opts.flushChannel ?? null;
+    this.captureRecent = opts.captureRecent ?? null;
+    this.restartControl = opts.restartControl ?? null;
+    this.interruptTurn = opts.interruptTurn ?? null;
+    this.parentRestart = opts.parentRestart ?? null;
+    this.currentModel = opts.model; // CONTROL PLANE: the live model shown in status; change-model mutates it.
+    // ★ A5: resolve the proactive-alert config ONCE. enabled=false (the default) ⇒ the watchdog is
+    // NOT enabled below, the proactive-watch never starts, and maybeProactiveAlert() early-returns
+    // → byte-for-byte today. The thresholds are only consulted when enabled.
+    this.proactive = {
+      enabled: opts.proactiveAlerts === true,
+      turnWatchdogMs: opts.turnWatchdogMs ?? DEFAULT_TURN_WATCHDOG_MS,
+      watchIntervalMs: opts.proactiveWatchIntervalMs ?? DEFAULT_PROACTIVE_WATCH_INTERVAL_MS,
+    };
+    // ★ REDESIGN: resolve the 4 control-panel automatic behaviors ONCE. All default to OFF/0 (index.ts
+    // passes nothing) → byte-for-byte today. drainMs/probeMs>0 enable the escalation/live-probe.
+    this.autoBehavior = {
+      recoveryLadder: opts.recoveryLadder === true,
+      autoSnapshot: opts.autoSnapshot === true,
+      autoSnapshotIntervalMs: opts.autoSnapshotIntervalMs ?? DEFAULT_AUTO_SNAPSHOT_INTERVAL_MS,
+      drainMs: opts.restartDrainMs && opts.restartDrainMs > 0 ? Math.floor(opts.restartDrainMs) : 0,
+      probeMs: opts.statusProbeMs && opts.statusProbeMs > 0 ? Math.floor(opts.statusProbeMs) : 0,
+    };
+
+    // The router needs a PermissionChannel; we give it one that defers to the
+    // operator-bound ChannelPermission (created lazily once an operator exists).
+    this.router = new PermissionRouter({
+      policy: opts.policy,
+      channel: {
+        askUser: async (req) => {
+          if (!this.channelPermission) {
+            // No operator yet → can't ask → fail-safe deny (return timeout).
+            this.logger.warn('permission asked with no operator — denying', { tool: req.toolName });
+            return 'timeout';
+          }
+          return this.channelPermission.askUser(req);
+        },
+      },
+      onDecision: (note, fields) => this.logger.info(note, fields),
+    });
+
+    this.lifecycle = new LifecycleManager({
+      driver: opts.driver,
+      bus: opts.bus,
+      logger: opts.logger,
+      systemPrompt: opts.systemPrompt,
+      onPermission: this.router.decide,
+      cwd: opts.cwd,
+      model: opts.model,
+      allowedTools: opts.allowedTools,
+      disallowedTools: opts.disallowedTools,
+      settingSources: opts.settingSources,
+      mcpServers: opts.mcpServers,
+      env: opts.env,
+      permissionMode: opts.permissionMode,
+      // NOTE: no lifecycle bootstrapTurns — the role-adoption prefix is applied to
+      // the FIRST real user turn in handleInbound (so it runs WITH a bound operator,
+      // not pre-user). See SessionHostOptions.roleTurnPrefix.
+      //
+      // PER-TURN DE-DUP (orchestrator profile): pass the reply-tool name so the
+      // lifecycle auto-outs the final answer text UNLESS the reply tool fired this
+      // turn (then the reply-tool output is the channel-out). The DEMO profile (no
+      // replyToolName) keeps the assistant-text auto-out. Both onAssistant/onResult
+      // are wired UNCONDITIONALLY; the lifecycle decides per-turn whether to call
+      // them. (Live fix: a blanket suppress silenced the orchestrator's plain-text
+      // answers — turns where it answered directly instead of via the reply tool.)
+      replyToolName: opts.replyToolName,
+      onAssistant: (text) => this.sendToOperator(text),
+      onResult: (text) => {
+        // D4: ANY real turn result proves the orchestrator is responsive → clear the
+        // liveness-ping deadline (it answered, whether the ping or another turn).
+        this.clearPingTimer();
+        this.onProactiveRecovery(); // ★ A5: a result = proof of life → clear a stale stall + re-arm
+        this.lastTurnAt = Date.now(); // ★ REDESIGN: record last-turn time for the status display
+        this.lastResponsiveAt = Date.now(); // ★ REDESIGN: a real result = proof of life (probe signal)
+        return text ? this.sendToOperator(text) : Promise.resolve();
+      },
+      // D4: an INTERNAL turn (the liveness ping) → confirm responsiveness WITHOUT
+      // forwarding the pong to the user. Just clears the deadline (= alive, tier-a).
+      onInternalResult: () => {
+        this.clearPingTimer();
+        this.onProactiveRecovery(); // ★ A5: a pong = proof of life → clear a stale stall + re-arm
+        this.lastResponsiveAt = Date.now(); // ★ REDESIGN: an internal pong = proof of life (probe signal)
+        this.logger.info('liveness pong received (internal) — orchestrator responsive');
+      },
+      // D4 BELT: mid-turn activity is the INTERNAL liveness signal (clears the ping
+      // deadline — proves the orchestrator is alive). No user-facing message (the
+      // "still working…" heartbeat was removed).
+      onProgress: () => this.onMidTurnProgress(),
+      // FORWARD ALL OUTPUT (orchestrator profile): mirror tool activity to the channel.
+      onToolActivity: opts.forwardToolActivity ? (info) => this.forwardToolActivity(info) : undefined,
+      // ★ A5 — ENABLE the latent in-flight turn-watchdog in ALERT-ONLY mode, but ONLY when the
+      // proactive switch is on (else these keys are omitted ⇒ turnTimeoutMs stays 0 ⇒ the watchdog
+      // timers do NOT arm ⇒ byte-for-byte today). The action is FIXED to 'surface' — NEVER 'restart'
+      // — so a turn outstanding past the deadline produces an ALERT, never a kill (decision (c): a
+      // legitimately long /dev build must not be murdered). The conditional-spread mirrors the P6
+      // dormant-default pattern.
+      ...(this.proactive.enabled
+        ? { turnTimeoutMs: this.proactive.turnWatchdogMs, onStallAction: 'surface' as const }
+        : {}),
+      // CONTROL PLANE — record the last stall the lifecycle watchdog surfaces, so the
+      // `/control` `status` action can classify STUCK (proposal §5). The lifecycle owns
+      // stall DETECTION (P1); this just latches the last-seen snapshot. The watchdog is
+      // dormant by default (turnTimeoutMs=0), so onStall never fires today → byte-for-byte.
+      // ★ A5: when the proactive switch is on, the latched stall ALSO drives a debounced
+      // proactive PUSH (the in-flight-watchdog STUCK case) — alert-only, never a kill.
+      onStall: (info) => {
+        this.lastStall = { silentMs: info.silentMs, action: info.action };
+        if (this.proactive.enabled) void this.maybeProactiveAlert();
+      },
+    });
+  }
+
+  /**
+   * FORWARD ALL OUTPUT (the user's core objective): mirror the session's tool activity
+   * to the channel — sub-agent spawns / teammate messages (Agent/Task/SendMessage) and
+   * tool errors are the signal the remote user must see (the supervisor exists to make
+   * the orchestrator's coordination + failures visible). Goes via opts.send DIRECTLY
+   * (like the heartbeat) so it's never deduped by the final-answer guard and never
+   * pollutes the lastSentText turn-baseline. Best-effort: a forward failure never breaks
+   * the turn. Non-error tool RESULTS are forwarded only when forwardToolResultsVerbose
+   * (default off — most are phone-noise); tool CALLS and ERRORS always go.
+   */
+  private async forwardToolActivity(
+    info:
+      | { kind: 'tool_use'; tools: { name: string; hint?: string }[] }
+      | { kind: 'tool_result'; isError?: boolean; content?: string },
+  ): Promise<void> {
+    if (!this.operator) return; // no user bound yet → nothing to forward to
+    let text: string | undefined;
+    if (info.kind === 'tool_use') {
+      const lines = info.tools.map((t) => `⚙️ ${t.name}${t.hint ? `(${t.hint})` : ''}`);
+      text = lines.join('\n');
+    } else if (info.isError) {
+      const body = (info.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      text = `❌ tool error${body ? `: ${body}` : ''}`;
+    } else if (this.opts.forwardToolResultsVerbose) {
+      const body = (info.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (body) text = `✓ ${body}`;
+    }
+    if (!text) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('tool-activity forward failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * D1 — inject the '/channel-check' DIAGNOSTIC turn. The supervisor grants the
+   * orchestrator the self-check/repair surface (the loopback panel) and asks it to
+   * inspect the channel, report to the user, and repair at its own discretion. This is
+   * a SUPERVISOR-CRAFTED turn (not the user's literal text) so the orchestrator gets a
+   * precise instruction + the endpoint list, every time.
+   */
+  private async injectChannelCheckTurn(): Promise<void> {
+    const base = this.opts.panelUrl ?? 'http://127.0.0.1:<panel-port>';
+    const turn =
+      `[SUPERVISOR /channel-check] The user asked you to check the messaging channel. ` +
+      `You have FULL channel-control access via the supervisor's loopback panel (use Bash/PowerShell + curl):\n` +
+      `READ: GET ${base}/api/channel/state (adapters, recent delivery results, pending sends, sender PIDs), ` +
+      `GET ${base}/api/capture (raw inbound+outbound+delivery events), GET ${base}/api/health, GET ${base}/api/session.\n` +
+      `REPAIR (use at your discretion, coordinate with the user): POST ${base}/api/channel/reconnect, ` +
+      `POST ${base}/api/channel/flush, POST ${base}/api/channel/kill-stale-sender.\n` +
+      `Inspect the channel state, tell the user what you find (delivery failures? a stale double-sender? a backlog?), ` +
+      `take any repair action you judge appropriate, and confirm the outcome.`;
+    // A diagnostic turn is a real turn — reset the per-turn guard like any inbound, and clear/record
+    // the liveness deadline (★ D4 false-positive fix) so a stale idle-ping can't false-restart it.
+    this.lastSentText = null;
+    this.onRealTurnStarted();
+    await this.lifecycle.sendUserTurn({ text: turn });
+  }
+
+  /** Start the hosted session (spawns/owns the subprocess via the lifecycle). */
+  async start(): Promise<void> {
+    if (this.started) return;
+    await this.lifecycle.start();
+    this.started = true;
+    // CONTROL PLANE — anchor the uptime clock for the `/control` status action.
+    this.startedAt = Date.now();
+    // D4: arm the periodic idle-aware liveness scheduler (no-op if disabled).
+    this.startLivenessScheduler();
+    // ★ A5: arm the periodic proactive-watch (no-op unless proactiveAlerts is on) — catches a DEAD
+    // child (which emits no events). The in-flight watchdog + the missed-ping path arm themselves.
+    this.startProactiveWatch();
+    // ★ REDESIGN: arm the periodic auto-snapshot timer (no-op unless autoSnapshot is on).
+    this.startAutoSnapshot();
+    this.logger.info('session host started', this.lifecycle.health());
+    // ★ STARTUP GREETING — proactively greet a restored operator on a fresh (re)started session
+    // (no-op when disabled / no persisted operator / already bound). Best-effort: a greeting failure
+    // must never wedge startup.
+    await this.maybeStartupGreet().catch((err) =>
+      this.logger.warn('startup greeting failed (non-fatal)', { err: String(err) }),
+    );
+  }
+
+  /**
+   * Bind the operator (the user's channel address) + construct the permission channel. Called on the
+   * FIRST inbound message AND when {@link maybeStartupGreet} restores a persisted operator on boot.
+   * Idempotent: a no-op once an operator is bound (so a late first inbound can't rebind).
+   */
+  private bindOperator(replyHandle: ReplyHandle, operatorId: string | null): void {
+    if (this.operator) return;
+    this.operator = replyHandle;
+    this.operatorId = operatorId;
+    this.channelPermission = new ChannelPermission({
+      // Send the prompt (optionally WITH inline buttons) and surface the sent
+      // message id back so a tapped-decision can edit the prompt to its outcome.
+      send: (async (handle, text, buttons) => {
+        const r = await this.opts.send(handle, { text, ...(buttons ? { options: { buttons } } : {}) });
+        return { ...(r.sentIds[0] ? { messageId: r.sentIds[0] } : {}) };
+      }) as SendPrompt,
+      operator: this.operator,
+      timeoutMs: this.opts.permissionTimeoutMs,
+      onAsk: (note, fields) => this.logger.info(note, fields),
+    });
+    this.logger.info('operator bound', { operatorId: this.operatorId });
+  }
+
+  /**
+   * Persist the bound operator's channel address to {@link SessionHostOptions.operatorStateFile} so a
+   * fresh (restarted) supervisor can restore + greet them on boot. Best-effort; a write failure is
+   * logged and ignored (the worst case is the next boot has no one to greet = today's behavior).
+   */
+  private persistOperator(): void {
+    const file = this.opts.operatorStateFile;
+    if (!file || !this.operator) return;
+    try {
+      writeFileSync(file, JSON.stringify({ operatorId: this.operatorId, to: this.operator.to }), 'utf8');
+    } catch (err) {
+      this.logger.warn('could not persist operator state (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Read the operator address a prior session persisted ({@link persistOperator}), or null when the
+   * file is absent/empty/unreadable (e.g. the first-ever cold boot). NEVER throws.
+   */
+  private restoreOperatorFromDisk(): { operatorId: string | null; to: string } | null {
+    const file = this.opts.operatorStateFile;
+    if (!file || !existsSync(file)) return null;
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as { operatorId?: string | null; to?: string };
+      if (!raw || typeof raw.to !== 'string' || raw.to.length === 0) return null;
+      return { operatorId: raw.operatorId ?? null, to: raw.to };
+    } catch (err) {
+      this.logger.warn('could not read persisted operator state (ignoring)', { err: String(err) });
+      return null;
+    }
+  }
+
+  /**
+   * ★ STARTUP GREETING — on a FRESH (re)started session, proactively greet the user instead of
+   * sitting mute until they send a message to "nudge" the cold orchestrator awake (the prior pain:
+   * the human had to re-send "Hi" before it engaged). Requires a KNOWN operator — restored from the
+   * address a prior session persisted — so the very first cold boot (no prior operator) stays silent
+   * (no one to greet). The synthetic first turn loads the role + (any) startup-handoff brief and asks
+   * for a BRIEF, NON-NUDGY "I'm back" — no pending-work prompts, no status dump. Gated by
+   * {@link SessionHostOptions.startupGreeting}; consumes the same one-shot first-turn flags so the
+   * user's next real message isn't double-prefixed.
+   */
+  private async maybeStartupGreet(): Promise<void> {
+    if (!this.opts.startupGreeting) return; // disabled → the deferred first-turn behavior (today)
+    if (this.operator) return; // a real inbound already bound us → no proactive greet needed
+    const saved = this.restoreOperatorFromDisk();
+    if (!saved) {
+      this.logger.info('startup greeting skipped — no persisted operator to greet (cold first boot)');
+      return;
+    }
+    this.bindOperator({ to: saved.to }, saved.operatorId);
+    const parts: string[] = [];
+    if (this.rolePrefixPending && this.opts.roleTurnPrefix) {
+      this.rolePrefixPending = false; // consumed by this synthetic first turn (not the user's next msg)
+      parts.push(this.opts.roleTurnPrefix);
+    }
+    parts.push(
+      `[SUPERVISOR startup greeting] You (the orchestrator) just (re)started — the supervisor process ` +
+        `reloaded and your context is fresh, but the Telegram channel and the user are the SAME as ` +
+        `before. Open with a BRIEF, friendly greeting (one or two sentences) so the user knows you're ` +
+        `back online and ready to continue. Do NOT nudge: no pending-work prompts, no status dump, no ` +
+        `checklist or list of suggestions, no questions beyond an open "what would you like to do?" — ` +
+        `just confirm you're back, then wait for their direction.`,
+    );
+    if (this.startupHandoffPending && this.opts.startupHandoff) {
+      this.startupHandoffPending = false; // one-shot; consumed here
+      parts.push(
+        `For YOUR context only (a brief from the prior session) — acknowledge in ONE line that you've ` +
+          `picked up where things left off, but do NOT act on it unsolicited:\n${this.opts.startupHandoff}`,
+      );
+    }
+    if (this.modeNoticePending) {
+      this.modeNoticePending = false;
+      parts.push(buildOutputModeNotice(this.outputMode, false));
+    }
+    this.lastSentText = null;
+    this.onRealTurnStarted();
+    this.logger.info('firing proactive startup greeting to the restored operator', { operatorId: this.operatorId });
+    await this.lifecycle.sendUserTurn({ text: parts.join('\n\n') });
+  }
+
+  /**
+   * The supervisor's inbound hook. Bind this via `supervisor.onInbound(host.handleInbound)`.
+   * Captures the operator, intercepts permission replies, else injects a user turn.
+   */
+  handleInbound = async (msg: InboundMessage): Promise<void> => {
+    const incomingId = msg.userId ?? msg.user;
+
+    // H1 — operator binding. BIND the operator on the FIRST inbound and KEEP it;
+    // do NOT overwrite it on every message (the prior behavior let any later
+    // sender hijack where permission prompts + session replies go, and let a
+    // different user answer a prompt that wasn't theirs). Once bound, reject
+    // inbound from a DIFFERENT user (single-operator model, matching the plugin).
+    if (!this.operator) {
+      this.bindOperator(msg.replyHandle, incomingId);
+      // Persist the operator's address so a fresh (restarted) supervisor can GREET them on boot
+      // without waiting for a nudge (the startup-greeting feature). Best-effort.
+      this.persistOperator();
+    } else if (incomingId !== this.operatorId) {
+      // A different user — ignore (do not let them drive the session or answer
+      // a permission prompt routed to the bound operator).
+      this.logger.warn('ignoring inbound from non-operator', { incomingId, operatorId: this.operatorId });
+      return;
+    }
+
+    const cp = this.channelPermission!;
+    const text = msg.text ?? '';
+
+    // ★ BUTTON TAP (callback_query) — the PRIMARY permission UX. If the inbound is a
+    // tap on a `perm:allow:<code>` / `perm:deny:<code>` button, resolve the matching
+    // pending ask, ACK the tap (dismiss the spinner), and edit the prompt to show the
+    // outcome (buttons disappear). A non-permission callback, or a stale/unknown code,
+    // is ACK'd quietly and dropped (never typed to the AI).
+    if (msg.callback) {
+      // ★ CONTROL PLANE — a `ctl:*` tap (the supervisor control menu) is routed
+      // supervisor-side FIRST (it answers from supervisor-owned state, so it works
+      // even when the orchestrator child is dead/stuck). A non-`ctl:` callback
+      // (e.g. a `perm:*` permission decision) falls through to the permission path.
+      const ctl = parseControlCallback(msg.callback.data);
+      if (ctl) {
+        await this.handleControlCallback(ctl, msg.callback);
+        return;
+      }
+      await this.handlePermissionCallback(msg.callback);
+      return;
+    }
+
+    // Intercept a CODED permission reply (allow/deny <code>) first.
+    const coded = ChannelPermission.parseReply(text);
+    if (coded && cp.submitReply(coded.code, coded.verdict)) {
+      this.logger.info('inbound consumed as permission reply', { verdict: coded.verdict, coded: true });
+      return;
+    }
+
+    // Then a BARE verdict (allow/deny/y/n) — bound to the SINGLE pending prompt.
+    // This is the UX gap the live demo hit (user replied "Deny" with no code).
+    // Only consumes when exactly one ask is pending; otherwise falls through to a
+    // normal turn (so a literal "deny"/"yes" chat message isn't eaten when there
+    // is nothing — or more than one thing — to answer).
+    const bare = ChannelPermission.parseBareReply(text);
+    if (bare && cp.submitBareReply(bare.verdict)) {
+      this.logger.info('inbound consumed as bare permission reply', { verdict: bare.verdict, coded: false });
+      return;
+    }
+
+    // ★ D1 — reserved '/channel-check' command. HANDLED here (NOT typed verbatim to
+    // the AI): the supervisor crafts a DIAGNOSTIC turn that grants the orchestrator the
+    // self-check/repair surface (the loopback panel) + asks it to inspect + report +
+    // repair at its discretion. Same seam as the permission-reply interception above.
+    if (CHANNEL_CHECK_RE.test(text.trim())) {
+      this.logger.info('inbound consumed as /channel-check (diagnostic turn injected)');
+      await this.injectChannelCheckTurn();
+      return;
+    }
+
+    // ★ OUTPUT-MODALITY SWITCH — reserved '/mode text|voice|dual'. INTERCEPTED here
+    // (same seam): applied to the in-memory modality state + ACK'd to the user, and
+    // NOT forwarded to the orchestrator. Bare/invalid `/mode` → report current + options.
+    const modeCmd = parseModeCommand(text);
+    if (modeCmd) {
+      await this.handleModeCommand(modeCmd);
+      return;
+    }
+
+    // ★ OPERATOR CONTROL PLANE — reserved '/control'. INTERCEPTED here (same seam) and
+    // NOT forwarded to the orchestrator: render a native inline-keyboard MENU whose
+    // buttons carry `ctl:<action>` callback_data; the taps are routed supervisor-side
+    // (handleControlCallback). Handled from supervisor-owned state, so the whole plane
+    // works when the orchestrator child is dead/stuck (proposal CP1). NOT gated on any
+    // store — supervisor control is always available; the matcher only fires on the
+    // reserved '/control' prefix, so non-control inbound is byte-for-byte unchanged.
+    if (isControlCommand(text)) {
+      await this.handleControlCommand();
+      return;
+    }
+
+    // ★ IN-CHANNEL PROVIDER-KEY INTAKE — reserved '/setkey <provider> <key>'. INTERCEPTED here
+    // (same seam) so the RAW KEY NEVER reaches the orchestrator: store it scoped per provider,
+    // reply a MASKED confirmation, delete the user's message, and return WITHOUT forwarding.
+    // GATED on a wired secretStore — when absent (the dormant default), `/setkey` is NOT
+    // intercepted and falls through to a normal turn exactly as today (byte-for-byte unchanged).
+    if (this.secretStore) {
+      const setKeyCmd = parseSetKeyCommand(text);
+      if (setKeyCmd) {
+        await this.handleSetKeyCommand(setKeyCmd, msg);
+        return;
+      }
+    }
+
+    // ★ TIER-2 PER-ROLE MODEL SELECTION — reserved '/setrole <role> <provider> [model]' + '/roles'.
+    // INTERCEPTED here (same seam) and NOT forwarded to the orchestrator. `/setrole` persists the
+    // role→{provider,model} override (next dispatch uses it — runtime, no restart); `/roles` lists
+    // the effective merged map + per-provider key-PRESENCE booleans (never values). GATED on a wired
+    // roleRoutingStore — when absent (the dormant default), both fall through to a normal turn exactly
+    // as today (byte-for-byte unchanged). `/roles` is matched first (a distinct word from /setrole).
+    if (this.roleRoutingStore) {
+      if (isRolesCommand(text)) {
+        await this.handleRolesCommand();
+        return;
+      }
+      const setRoleCmd = parseSetRoleCommand(text);
+      if (setRoleCmd) {
+        await this.handleSetRoleCommand(setRoleCmd);
+        return;
+      }
+    }
+
+    // Otherwise inject as a user turn into the session. On the FIRST real user
+    // turn, prepend the role-adoption prefix (e.g. '/orchestrator') so the role
+    // loads WITH a bound operator — not as a pre-user bootstrap turn (live fix).
+    let turnText = text;
+    if (this.rolePrefixPending && this.opts.roleTurnPrefix) {
+      this.rolePrefixPending = false;
+      turnText = `${this.opts.roleTurnPrefix}\n\n${text}`;
+      this.logger.info('applied role-adoption prefix to the first user turn', { prefix: this.opts.roleTurnPrefix });
+    }
+    // ★ STARTUP CONTEXT-PICKUP: on the FIRST real user turn after a PARENT/`dist` restart, splice
+    // the staged handoff note in BETWEEN the role prefix and the user's message (AFTER the role
+    // loads, BEFORE the message it must act on) so the fresh orchestrator resumes the prior session
+    // instead of starting cold. Same first-turn seam as the role prefix (operator bound; not a
+    // pre-user bootstrap). One-shot. Mirrors the child restart-handoff note shape (runRestartConfirm).
+    if (this.startupHandoffPending && this.opts.startupHandoff) {
+      this.startupHandoffPending = false;
+      const handoff =
+        `[SUPERVISOR startup handoff] The supervisor was just restarted (process/dist reload; the channel ` +
+        `is preserved, your context is fresh). Resume from this prior-session brief BEFORE handling the ` +
+        `message below:\n${this.opts.startupHandoff}`;
+      turnText = `${turnText}\n\n${handoff}`;
+      this.logger.info('injected startup handoff into the first user turn (parent-restart context pickup)', {
+        handoffChars: this.opts.startupHandoff.length,
+      });
+    }
+    // ★ MODE-AWARENESS (first turn): announce the current output mode ONCE on the first real
+    // user turn, AFTER the role prefix + startup handoff (so the role loads + the prior brief
+    // is read first), so a restarted orchestrator knows the mode immediately. Same one-shot
+    // first-turn seam; a later /mode change is announced separately by injectModeChangeNotice.
+    if (this.modeNoticePending) {
+      this.modeNoticePending = false;
+      turnText = `${turnText}\n\n${buildOutputModeNotice(this.outputMode, false)}`;
+      this.logger.info('injected current output-mode notice into the first user turn', { mode: this.outputMode });
+    }
+    // New user turn → reset the send-side idempotency guard so this turn's (possibly
+    // legitimately-identical) answer is NOT suppressed as a duplicate of the prior turn's.
+    // The guard only catches same-turn duplicates (a double-emit / the stale-resend race).
+    this.lastSentText = null;
+    // ★ D4 FALSE-POSITIVE FIX: a REAL user turn is starting → clear any armed idle-ping deadline and
+    // record the start time, so a ping that was scheduled while the orchestrator was briefly idle can
+    // NEVER false-fire tier-b against this now-running turn (the inbound→inject seam).
+    this.onRealTurnStarted();
+    await this.lifecycle.sendUserTurn({ text: turnText });
+  };
+
+  /**
+   * Handle an inbound BUTTON TAP (callback_query). Parses the `perm:<verdict>:<code>`
+   * scheme, resolves the matching pending permission ask, ACKs the tap (dismiss the
+   * spinner with a brief toast), and edits the prompt message to show the outcome
+   * (so the buttons disappear and a record remains). Covers BOTH the permission-gate
+   * prompts AND the lifecycle restart-confirmation (both route through ChannelPermission).
+   * A non-permission or stale/unknown callback is ACK'd quietly (no error to the user).
+   */
+  private async handlePermissionCallback(cb: { id: string; data: string; messageId?: string }): Promise<void> {
+    const parsed = ChannelPermission.parseCallbackData(cb.data);
+    if (!parsed) {
+      // Not our scheme (or malformed) — ACK so the client spinner clears, then ignore.
+      await this.answerCallbackSafe(cb.id);
+      this.logger.info('ignoring non-permission callback', { data: cb.data.slice(0, 32) });
+      return;
+    }
+    const cp = this.channelPermission!;
+    const res = cp.submitReplyDetailed(parsed.code, parsed.verdict);
+    if (!res.resolved) {
+      // A stale/expired/already-answered code — ACK with a toast so the user sees why.
+      await this.answerCallbackSafe(cb.id, 'This request is no longer pending.');
+      this.logger.info('button tap for a non-pending permission code (ignored)', { verdict: parsed.verdict });
+      return;
+    }
+    this.logger.info('inbound consumed as permission button tap', { verdict: parsed.verdict });
+    const allowed = parsed.verdict === 'allow';
+    // 1) ACK the tap (dismiss the spinner) with a short toast.
+    await this.answerCallbackSafe(cb.id, allowed ? 'Allowed ✅' : 'Denied ❌');
+    // 2) Edit the prompt message so the buttons disappear + the outcome is on record.
+    const messageId = res.messageId ?? cb.messageId;
+    if (messageId && this.opts.editMessage && this.operator) {
+      const tool = res.toolName ? ` '${res.toolName}'` : '';
+      const outcome = allowed ? `✅ Allowed${tool}` : `❌ Denied${tool}`;
+      try {
+        await this.opts.editMessage(this.operator, messageId, outcome);
+      } catch (err) {
+        this.logger.warn('permission prompt edit failed (non-fatal)', { err: String(err) });
+      }
+    }
+  }
+
+  /** Best-effort callback ACK (never throws — the decision already resolved). */
+  private async answerCallbackSafe(callbackId: string, text?: string): Promise<void> {
+    if (!this.opts.answerCallback) return;
+    try {
+      await this.opts.answerCallback(callbackId, text);
+    } catch (err) {
+      this.logger.warn('answerCallback failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // OPERATOR CONTROL PLANE (`/control`) — OUT-OF-BAND, supervisor-side. The menu
+  // render + the `ctl:*` callback ROUTER (an extensible action registry). All
+  // handled from supervisor-owned state, so the plane works when the orchestrator
+  // child is dead/stuck (proposal PART A / CP1).
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Handle the intercepted `/control` command: render the main control MENU as a
+   * native inline-keyboard (one button per {@link CONTROL_ACTIONS} entry). The
+   * buttons carry `ctl:<action>` callback_data; taps land in
+   * {@link handleControlCallback}. A CONTROL message — plain text, no modality.
+   */
+  private async handleControlCommand(): Promise<void> {
+    this.logger.info('control menu opened via /control');
+    this.publishLifecycle('control_menu_opened', {});
+    // ★ P-B1 — offer the Dispatch button ONLY when routed dispatch is wired (= SUPERVISOR_ROLE_ROUTING
+    // ON); with routing OFF (the default) the menu is byte-for-byte today.
+    await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu({ includeDispatch: !!this.dispatchRoleAgent }));
+  }
+
+  /**
+   * Route a control-plane button tap (`ctl:<action>` / `ctl:<action>:<arg>`):
+   *   1. ACK the tap (dismiss the client spinner) — best-effort.
+   *   2. Dispatch on the action id via the registry-backed switch:
+   *      - `status` → edit the tapped message to the active/stuck/dead status report;
+   *      - `ping`   → liveness round-trip → edit to alive/idle/in-flight + ms;
+   *      - `help`   → edit to the help text (the action list);
+   *      - `change-model` → render the model SUB-MENU (a NEW message — an edit can't
+   *        carry a fresh keyboard);
+   *      - `model-set:<model>` → render the model-set CONFIRM sub-menu (applying a
+   *        model RESTARTS the orchestrator → confirmed first, CP7);
+   *      - `model-set-confirm:<model>` → set the Tier-1 model + restart on it (drain +
+   *        handoff so context carries across the switch) via the injected restartControl;
+   *      - `menu` → re-render the main menu (the submenu "back").
+   *   A2 channel↔panel parity (each runs the SAME out-of-band supervisor logic the
+   *   loopback panel exposes; works when the orchestrator child is dead/stuck):
+   *      - `reconnect` → re-establish the channel transport → edit to the new state;
+   *      - `flush` → render the DESTRUCTIVE-confirm SUB-MENU (a NEW message); only
+   *        `flush-confirm` actually drops pending inbound (a bare `flush` does NOT);
+   *      - `log` → format the recent capture-buffer activity → edit it in;
+   *      - `approvals` → render the approvals SUB-MENU (a NEW message) with per-ask
+   *        Allow/Deny buttons; `appr-allow:<code>` / `appr-deny:<code>` resolve that
+   *        ask via the SAME permission path the `perm:*` buttons use (operatorDecide).
+   *   A3 restart/lifecycle family (each performed ONLY through the injected
+   *   restartControl — UNWIRED ⇒ reports unavailable, NOTHING restarts; ALL destructive
+   *   ones gated behind a CONFIRM sub-menu, CP7):
+   *      - `restart` / `kill` / `clear` / `resume` → render the DESTRUCTIVE-confirm
+   *        SUB-MENU (a NEW message); a bare tap does NOT restart;
+   *      - `restart-confirm` (graceful: drain+handoff) / `kill-confirm` (hard: no drain)
+   *        / `clear-confirm` (fresh context, no handoff) / `resume-confirm` (re-inject the
+   *        last snapshot) → request that restart via restartControl → edit the outcome;
+   *      - `handoff` → capture a state snapshot NOW (non-destructive — no restart) → edit
+   *        the confirmation; the note a future restart/resume re-injects.
+   *   A4 interrupt (the ESC — NON-destructive, so NO confirm; performed ONLY through the
+   *   injected interruptTurn dep — UNWIRED ⇒ reports unavailable, NOTHING is interrupted):
+   *      - `interrupt` (alias `cancel`) → stop the orchestrator's CURRENT turn WITHOUT killing
+   *        it (→ lifecycle.interruptTurn() → driver.interrupt()) → edit "interrupt sent" /
+   *        "nothing in flight". The process + context stay alive (no restart).
+   * An unknown action is ACK'd + ignored (never crashes, never a typed turn).
+   */
+  private async handleControlCallback(
+    ctl: ControlCallback,
+    callback: { id: string; data: string; messageId?: string },
+  ): Promise<void> {
+    this.logger.info('control callback', { action: ctl.action, ...(ctl.arg ? { arg: ctl.arg } : {}) });
+    // 1) ACK the tap so the client spinner clears (a brief toast names the action).
+    await this.answerCallbackSafe(callback.id, this.controlToast(ctl.action));
+    // 2) Dispatch.
+    switch (ctl.action) {
+      case 'status':
+        await this.editControlResult(callback, await this.controlStatus());
+        return;
+      case 'ping':
+        await this.editControlResult(callback, await this.controlPing());
+        return;
+      case 'help':
+        await this.editControlResult(callback, controlHelpText());
+        return;
+      case 'change-model':
+        // An edit drops the keyboard → send the sub-menu as a NEW message.
+        await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.currentModel));
+        return;
+      // ── REDESIGN: Mode submenu (output modality — surfaces the existing /mode switch) ──────
+      case 'mode':
+        // NON-destructive submenu (a NEW message — an edit can't carry a fresh keyboard).
+        await this.sendControlMenu(CONTROL_MODE_MENU_TEXT, buildModeSubmenu(this.outputMode));
+        return;
+      case 'mode-set':
+        // A pick sets the modality IMMEDIATELY (no confirm — non-destructive, same as typing
+        // `/mode <value>`). Edit the tapped message to the outcome.
+        await this.editControlResult(callback, this.controlSetMode(ctl.arg));
+        return;
+      // ── REDESIGN: Advanced submenu (heavier/rarer lifecycle actions) ───────────────────────
+      case 'advanced':
+        await this.sendControlMenu(CONTROL_ADVANCED_MENU_TEXT, buildAdvancedSubmenu());
+        return;
+      // ── REDESIGN: Parent restart (restart the SUPERVISOR PROCESS itself — supervisor-side) ──
+      case 'parent-restart':
+        // DESTRUCTIVE (relaunches the whole supervisor) → open a CONFIRM sub-menu (a NEW message);
+        // a bare tap does NOT relaunch. Only `parent-restart-confirm` calls the parentRestart dep.
+        await this.sendControlMenu(CONTROL_PARENT_RESTART_CONFIRM_TEXT, buildConfirmMenu('parent-restart'));
+        return;
+      case 'parent-restart-confirm':
+        await this.editControlResult(callback, await this.controlParentRestart());
+        return;
+      case 'model-set':
+        // A pick RESTARTS the orchestrator → open the confirm step (a NEW message). The
+        // bare pick does NOT restart. A missing model arg falls back to the model sub-menu.
+        if (!ctl.arg) {
+          await this.sendControlMenu(CONTROL_MODEL_MENU_TEXT, buildModelSubmenu(this.currentModel));
+          return;
+        }
+        await this.sendControlMenu(
+          `🤖 Switch the orchestrator to "${ctl.arg}"? This sets the Tier-1 model for the next ` +
+            `launch and RESTARTS (drain + handoff so context carries across the switch).`,
+          buildModelSetConfirmMenu(ctl.arg),
+        );
+        return;
+      case 'model-set-confirm':
+        await this.editControlResult(callback, await this.controlChangeModel(ctl.arg));
+        return;
+      // ── A3 restart / lifecycle family (all destructive → confirm sub-menus) ────
+      case 'restart':
+        await this.sendControlMenu(CONTROL_RESTART_CONFIRM_TEXT, buildConfirmMenu('restart'));
+        return;
+      case 'restart-confirm':
+        await this.editControlResult(callback, await this.controlRestart('restart'));
+        return;
+      case 'kill':
+        await this.sendControlMenu(CONTROL_KILL_CONFIRM_TEXT, buildConfirmMenu('kill'));
+        return;
+      case 'kill-confirm':
+        await this.editControlResult(callback, await this.controlRestart('kill'));
+        return;
+      case 'clear':
+        await this.sendControlMenu(CONTROL_CLEAR_CONFIRM_TEXT, buildConfirmMenu('clear'));
+        return;
+      case 'clear-confirm':
+        await this.editControlResult(callback, await this.controlRestart('clear'));
+        return;
+      case 'resume':
+        await this.sendControlMenu(CONTROL_RESUME_CONFIRM_TEXT, buildConfirmMenu('resume'));
+        return;
+      case 'resume-confirm':
+        await this.editControlResult(callback, await this.controlRestart('resume'));
+        return;
+      case 'handoff':
+        // Non-destructive — captures a snapshot NOW (no restart). Edit the confirmation in.
+        await this.editControlResult(callback, this.controlHandoff());
+        return;
+      // ── A4 interrupt (the ESC) — NON-destructive → NO confirm, runs directly ────
+      case 'interrupt':
+      case 'cancel': // alias
+        await this.editControlResult(callback, await this.controlInterrupt());
+        return;
+      // ── A2 channel↔panel parity ───────────────────────────────────────────────
+      case 'reconnect':
+        await this.editControlResult(callback, await this.controlReconnect());
+        return;
+      case 'flush':
+        // DESTRUCTIVE → open a CONFIRM sub-menu (a NEW message); the bare tap does
+        // NOT drop anything. Only `flush-confirm` calls flushChannel().
+        await this.sendControlMenu(CONTROL_FLUSH_CONFIRM_TEXT, buildFlushConfirmMenu());
+        return;
+      case 'flush-confirm':
+        await this.editControlResult(callback, this.controlFlush());
+        return;
+      case 'log':
+        await this.editControlResult(callback, this.controlLog());
+        return;
+      case 'approvals':
+        // Render the approvals sub-menu (a NEW message — an edit can't carry a fresh
+        // keyboard) with per-ask Allow/Deny buttons.
+        await this.sendControlMenu(
+          approvalsMenuText(this.pendingPermissions()),
+          buildApprovalsSubmenu(this.pendingPermissions()),
+        );
+        return;
+      case 'appr-allow':
+        await this.editControlResult(callback, this.controlResolveApproval('allow', ctl.arg));
+        return;
+      case 'appr-deny':
+        await this.editControlResult(callback, this.controlResolveApproval('deny', ctl.arg));
+        return;
+      // ── P-B1 dispatch surface (the model-agnostic routed-dispatch action) ───────
+      case 'dispatch':
+        await this.editControlResult(callback, await this.controlDispatch(ctl.arg));
+        return;
+      case 'menu':
+        // ★ P-B1 — keep the Dispatch button on the "back" re-render iff routing is wired.
+        await this.sendControlMenu(CONTROL_MENU_TEXT, buildControlMenu({ includeDispatch: !!this.dispatchRoleAgent }));
+        return;
+      default:
+        this.logger.info('unknown control action (ignored)', { action: ctl.action });
+        return;
+    }
+  }
+
+  /**
+   * A2 `reconnect` action: re-establish the channel transport via the injected
+   * supervisor-side reconnect (the `POST /api/channel/reconnect` logic). Reports the
+   * new sender/poller state (this supervisor's PID owns the single poller after a
+   * successful reconnect). Unwired → reports unavailable. Best-effort (the supervisor
+   * call returns `{ok, error?}`; a throw is caught and surfaced).
+   */
+  private async controlReconnect(): Promise<string> {
+    if (!this.reconnectChannel) return '🔌 Reconnect is not available (no channel transport wired).';
+    this.publishLifecycle('control_reconnect', {});
+    try {
+      const r = await this.reconnectChannel();
+      if (r.ok) return `🔌 Channel reconnected — this supervisor (pid ${process.pid}) owns the poller/sender.`;
+      return `🔌 Reconnect failed: ${r.error ?? '(unknown error)'}`;
+    } catch (err) {
+      this.logger.warn('control reconnect threw', { err: String(err) });
+      return `🔌 Reconnect failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * A2 `flush-confirm` action: actually drop un-acked INBOUND via the injected
+   * supervisor-side flush (the `POST /api/channel/flush` logic). Only reachable after
+   * the confirm sub-menu (CP7 — destructive, confirmed). Unwired → reports
+   * unavailable. Returns the count dropped.
+   */
+  private controlFlush(): string {
+    if (!this.flushChannel) return '🧹 Flush is not available (no channel transport wired).';
+    this.publishLifecycle('control_flush', {});
+    const r = this.flushChannel();
+    if (r.ok) return `🧹 Flushed — dropped ${r.dropped ?? 0} pending inbound message(s).`;
+    return `🧹 Flush failed: ${r.error ?? '(unknown error)'}`;
+  }
+
+  /**
+   * A2 `log` action: format the recent channel-activity events from the injected
+   * capture-tail surface (the `GET /api/capture` data). Read-only. Unwired → reports
+   * no log surface.
+   */
+  private controlLog(): string {
+    if (!this.captureRecent) return '📜 Log is not available (no capture surface wired).';
+    return formatControlLog(this.captureRecent());
+  }
+
+  /**
+   * A2 `appr-allow`/`appr-deny` action: resolve a pending permission ask by `code`
+   * via {@link operatorDecide} — the SAME path the `perm:*` buttons and the panel's
+   * `/api/approve` use (channelPermission.submitReply → it ALSO edits the original
+   * prompt to its outcome). Reports whether a pending ask matched (a stale/unknown
+   * code resolves nothing). A missing code is reported (the buttons always carry one).
+   */
+  private controlResolveApproval(verdict: 'allow' | 'deny', code?: string): string {
+    const icon = verdict === 'allow' ? '✅' : '❌';
+    if (!code) return `${icon} No approval code supplied.`;
+    const resolved = this.operatorDecide(verdict, code);
+    if (resolved) return `${icon} ${verdict === 'allow' ? 'Allowed' : 'Denied'} (${code}).`;
+    return `${icon} No pending approval matched ${code} (already resolved or expired).`;
+  }
+
+  /**
+   * A3 `restart`/`kill`/`clear`/`resume` CONFIRM handler: build the {@link RestartIntent}
+   * for the (already-confirmed) action and hand it to the INJECTED restartControl. The
+   * supervisor performs the restart ONLY through that dep, which composes the EXISTING
+   * lifecycle restart machinery (the confirm/rate-limit/audit graceful path / clearContext)
+   * — the handler never touches the lifecycle directly, so UNWIRED ⇒ nothing restarts. Maps:
+   *   - `restart` → GRACEFUL: drain=true + the last handoff snapshot (if any);
+   *   - `kill`    → HARD: drain=false (a wedged child) + the snapshot (best-effort);
+   *   - `clear`   → fresh context: drain=false + NO handoff (a clean slate);
+   *   - `resume`  → re-inject the last snapshot (requires one to have been captured).
+   * Returns the surfaced outcome (queued / unavailable / refused / no-snapshot).
+   */
+  private async controlRestart(kind: 'restart' | 'kill' | 'clear' | 'resume'): Promise<string> {
+    if (!this.restartControl) {
+      return '⚠️ Restart is not available (the restart capability is not wired in this build).';
+    }
+    // `resume` requires a previously-captured snapshot to re-inject.
+    if (kind === 'resume' && !this.handoffSnapshot) {
+      return '⏪ No handoff snapshot to resume from — capture one first with the Handoff action.';
+    }
+    const intent = this.buildRestartIntent(kind);
+    this.publishLifecycle('control_restart_requested', {
+      kind,
+      drain: intent.drain,
+      hasHandoff: !!intent.handoff,
+      ...(intent.model ? { model: intent.model } : {}),
+    });
+    try {
+      const r = await this.restartControl(intent);
+      if (r.ok) return this.restartOkMessage(kind, r.detail);
+      return `⚠️ Restart refused: ${r.detail ?? '(unknown reason)'}`;
+    } catch (err) {
+      this.logger.warn('control restart threw', { kind, err: String(err) });
+      return `⚠️ Restart failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * A3 `model-set-confirm:<model>` handler: set the Tier-1 orchestrator model for the next
+   * launch AND restart on it (drain + handoff so context carries across the model switch),
+   * through the injected restartControl (which owns the config mutation + the restart). The
+   * handler only passes the chosen model through the intent. UNWIRED ⇒ unavailable; an
+   * unknown/empty model is rejected.
+   */
+  private async controlChangeModel(model?: string): Promise<string> {
+    if (!model) return '🤖 No model supplied — pick one from the change-model menu.';
+    if (!this.restartControl) {
+      return '🤖 Change-model is not available (the restart capability is not wired in this build).';
+    }
+    const handoff = this.composeHandoffNote();
+    const intent: RestartIntent = {
+      kind: 'change-model',
+      drain: true,
+      model,
+      ...(handoff ? { handoff } : {}),
+    };
+    this.publishLifecycle('control_change_model_requested', { model, drain: true, hasHandoff: !!intent.handoff });
+    try {
+      const r = await this.restartControl(intent);
+      if (r.ok) return `🤖 Switching to "${model}" and restarting${r.detail ? ` (${r.detail})` : ''}. The conversation continues.`;
+      return `🤖 Change-model refused: ${r.detail ?? '(unknown reason)'}`;
+    } catch (err) {
+      this.logger.warn('control change-model threw', { model, err: String(err) });
+      return `🤖 Change-model failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * A3 `handoff` handler (non-destructive): capture a state SNAPSHOT now — the note a future
+   * `restart`/`resume` re-injects. The supervisor owns the in-memory store (SOLE WRITER, P1);
+   * it reuses the existing handoffNote/SESSION_HANDOFF re-injection mechanism (the same note
+   * shape requestRestart/runRestartConfirm inject on the fresh first turn). Does NOT restart.
+   */
+  private controlHandoff(): string {
+    const note = this.composeHandoffNote();
+    this.handoffSnapshot = { note, capturedAt: Date.now() };
+    this.publishLifecycle('control_handoff_captured', { length: note.length });
+    this.logger.info('control handoff snapshot captured', { length: note.length });
+    return (
+      '📌 Handoff snapshot captured. The next Restart or Resume will re-inject it into the ' +
+      'fresh orchestrator context. (Capturing again overwrites it.)'
+    );
+  }
+
+  /**
+   * A4 `interrupt` (alias `cancel`) handler — the operator ESC (NON-destructive, no confirm).
+   * STOP the orchestrator's current turn WITHOUT killing it: request the interrupt through the
+   * INJECTED {@link interruptTurn} dep (wired to {@link LifecycleManager.interruptTurn} →
+   * `driver.interrupt()` at activation). The handler never touches the driver directly, so UNWIRED
+   * ⇒ reports unavailable and NOTHING is interrupted (the dormant default — the live host is never
+   * touched). When wired, it reports "interrupt sent" if a turn was in flight, or "nothing in flight"
+   * when the orchestrator is idle (read from the lifecycle BEFORE requesting, since the interrupt is
+   * a no-op then). The process + context stay alive either way (no restart, no `driver.starts` change).
+   */
+  private async controlInterrupt(): Promise<string> {
+    if (!this.interruptTurn) {
+      return '✋ Interrupt is not available (the interrupt capability is not wired in this build).';
+    }
+    // Read in-flight state BEFORE interrupting (the request is a no-op when idle).
+    const inFlight = !this.lifecycle.isIdle();
+    this.publishLifecycle('control_interrupt_requested', { inFlight });
+    try {
+      await this.interruptTurn();
+    } catch (err) {
+      this.logger.warn('control interrupt threw', { err: String(err) });
+      return `✋ Interrupt failed: ${String(err)}`;
+    }
+    return inFlight
+      ? '✋ Interrupt sent — stopping the current turn. The orchestrator stays alive; re-prompt when ready.'
+      : '✋ Nothing in flight — the orchestrator is idle (no turn to interrupt).';
+  }
+
+  /**
+   * ★ P-B1 `dispatch` action handler (the model-agnostic routed-dispatch surface). GATED on the
+   * routed-dispatch capability being wired (= SUPERVISOR_ROLE_ROUTING ON): UNWIRED ⇒ reports
+   * unavailable (the dormant-default — `dispatchRole` returns {ok:false,enabled:false}), so with
+   * routing OFF this falls through byte-for-byte (the button isn't even offered, proposal §3).
+   *
+   * A bare `ctl:dispatch` tap (no `<role>:<task>` — the menu can't collect free-text; the precise
+   * collection UX is a later-phase detail per §3) reports the surface is ACTIVE and points to the
+   * panel route. When a role IS supplied as the callback arg (`ctl:dispatch:<role>`), this DISPATCHES
+   * that role with a default operator task and relays the result to the orchestrator (the test path).
+   * The full agent report is relayed as an ORCHESTRATOR TURN (the decision-maker's context); the
+   * channel only gets a short ack.
+   */
+  private async controlDispatch(role?: string): Promise<string> {
+    if (!this.dispatchRoleAgent) return CONTROL_DISPATCH_UNAVAILABLE_TEXT;
+    // Bare tap → the surface is active; role+task come from the panel route (collection UX deferred).
+    if (!role) return CONTROL_DISPATCH_INFO_TEXT;
+    // A role supplied via the callback arg → dispatch it (operator-initiated) + relay to the orchestrator.
+    const task = `Operator-dispatched ${role} task via /control. Proceed with the current objective.`;
+    const result = await this.dispatchRoleAndRelayTurn(role, task);
+    if (!result.enabled) return CONTROL_DISPATCH_UNAVAILABLE_TEXT;
+    return formatDispatchAck(result);
+  }
+
+  /**
+   * ★ P-B1 — run a routed dispatch AND relay its structured report back to the orchestrator as an
+   * out-of-band TURN (proposal §3 / CF6 — the routed agent is channel-mute; only this report returns,
+   * into the ORCHESTRATOR's context so it can act on the code/review). The turn shape mirrors the
+   * other `[SUPERVISOR …]` injected turns (`runRestartConfirm`): `formatDispatchResultTurn`. The relay
+   * is best-effort + guarded (it no-ops if the session isn't running — sendUserTurn throws otherwise),
+   * so a dispatch report never wedges the host. Returns the SAME {@link RoleDispatchResult} the panel
+   * route returns (so a caller can also read it directly). The CHANNEL surface uses this (it must land
+   * in the agent's context); the PANEL route uses bare {@link dispatchRole} (the HTTP caller already
+   * gets the JSON).
+   */
+  async dispatchRoleAndRelayTurn(
+    role: string,
+    task: string,
+  ): Promise<RoleDispatchResult & { enabled: boolean }> {
+    const result = await this.dispatchRole(role, task);
+    // Only relay a turn when dispatch actually ran (enabled). A dormant {enabled:false} relays nothing.
+    if (result.enabled) {
+      const turn = formatDispatchResultTurn(result);
+      try {
+        await this.lifecycle.sendUserTurn({ text: turn });
+      } catch (err) {
+        // The session may not be running (a dead child) — the report still returns to the caller; the
+        // turn-relay is best-effort (M2 — sendUserTurn throws when not running). Never wedge the host.
+        this.logger.warn('dispatch-result turn relay skipped (session not running?)', { err: String(err) });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * ★ REDESIGN `mode-set:<value>` handler — set the OUTPUT MODALITY (voice/text/dual) from the
+   * Mode submenu. NON-destructive (no confirm): a pick applies immediately, exactly like the typed
+   * `/mode <value>` command — it reuses the SAME modality state ({@link outputMode}) the typed
+   * command sets (so the two surfaces never diverge; P1 — `outputMode` keeps its single writer-set).
+   * An unknown/missing value is rejected (the menu only offers valid options, so this is defensive).
+   */
+  private controlSetMode(value?: string): string {
+    if (value !== 'text' && value !== 'voice' && value !== 'dual') {
+      return `🔊 Unknown mode "${value ?? ''}" — pick Voice, Text, or Dual.`;
+    }
+    const prev = this.outputMode;
+    this.outputMode = value;
+    this.logger.info('output modality switched via /control Mode submenu', { from: prev, to: value });
+    this.publishLifecycle('output_mode_changed', { from: prev, to: value, via: 'control-menu' });
+    // ★ MODE-AWARENESS: tell the orchestrator the mode changed (same as the typed `/mode`).
+    // Fire-and-forget — this control handler returns its menu text synchronously; the notice
+    // is a best-effort side-effect (injectModeChangeNotice no-ops on prev===next / no session).
+    void this.injectModeChangeNotice(prev, value);
+    return `🔊 Output mode → ${value}. (Replies arrive as ${value === 'dual' ? 'voice + text' : value}.)`;
+  }
+
+  /**
+   * ★ REDESIGN `parent-restart-confirm` handler — restart the SUPERVISOR PROCESS ITSELF to load a
+   * new build, through the INJECTED {@link parentRestart} dep (wired by index.ts at activation to
+   * the detached out-of-tree relaunch). Performed SUPERVISOR-SIDE on the operator tap — NOT by the
+   * agent firing a shell command (which the cli-stream relaunch guard hard-blocks, dev-0efd). The
+   * handler never spawns a process itself (P2 — that concern lives in the index.ts composition root),
+   * so UNWIRED ⇒ reports unavailable and NOTHING is relaunched (the dormant default — the live host
+   * is never torn down by a test). The dep dispatches the DETACHED relaunch and returns immediately;
+   * the supervisor is killed asynchronously by the out-of-tree child shortly after this reply is sent.
+   */
+  private async controlParentRestart(): Promise<string> {
+    if (!this.parentRestart) {
+      return '♻️ Parent restart is not available (the supervisor-relaunch capability is not wired in this build).';
+    }
+    this.publishLifecycle('control_parent_restart_requested', {});
+    try {
+      const r = await this.parentRestart();
+      if (r.ok) {
+        return (
+          `♻️ Parent restart dispatched${r.detail ? ` (${r.detail})` : ''}. The supervisor is reloading its ` +
+          `build now — give it a moment, then send a message; the fresh agent resumes from the last snapshot.`
+        );
+      }
+      return `♻️ Parent restart refused: ${r.detail ?? '(unknown reason)'}`;
+    } catch (err) {
+      this.logger.warn('control parent-restart threw', { err: String(err) });
+      return `♻️ Parent restart failed: ${String(err)}`;
+    }
+  }
+
+  /**
+   * Build the {@link RestartIntent} for a confirmed restart-family action. The handoff note
+   * for `restart`/`kill`/`resume` is the captured snapshot (if any); `clear` deliberately
+   * carries NO handoff (a clean slate). Kept separate so the mapping is unit-testable.
+   */
+  private buildRestartIntent(kind: 'restart' | 'kill' | 'clear' | 'resume'): RestartIntent {
+    const note = this.handoffSnapshot?.note;
+    switch (kind) {
+      case 'restart':
+        return { kind: 'restart', drain: true, ...(note ? { handoff: note } : {}) };
+      case 'kill':
+        return { kind: 'kill', drain: false, ...(note ? { handoff: note } : {}) };
+      case 'clear':
+        return { kind: 'clear', drain: false }; // a clean slate — no handoff
+      case 'resume':
+        // `resume` is only reached with a snapshot present (guarded in controlRestart).
+        return { kind: 'resume', drain: false, ...(note ? { handoff: note } : {}) };
+    }
+  }
+
+  /**
+   * Compose the handoff note the snapshot stores / a graceful restart re-injects: the
+   * operator-captured snapshot is just the current control-plane status (the supervisor has no
+   * privileged window into the orchestrator's in-context state — it relays what it can observe).
+   * This is the SAME status the `status` action shows, framed as a handoff. Pure-ish (reads
+   * supervisor telemetry only; no child interaction → works when the child is dead).
+   */
+  private composeHandoffNote(): string {
+    const snap = this.controlStatusSnapshot();
+    return (
+      `Operator-captured handoff (control plane). Prior orchestrator state: ` +
+      `model=${snap.model ?? '(default)'}, restarts=${snap.restarts}, ` +
+      `pending-approvals=${snap.pendingApprovals}. Resume the prior task from the conversation above.`
+    );
+  }
+
+  /** The success message for a confirmed restart action (per kind). */
+  private restartOkMessage(kind: 'restart' | 'kill' | 'clear' | 'resume', detail?: string): string {
+    const tail = detail ? ` (${detail})` : '';
+    switch (kind) {
+      case 'restart':
+        return `🔄 Graceful restart requested${tail}. Draining, then relaunching with the handoff — the conversation continues.`;
+      case 'kill':
+        return `💥 Hard restart requested${tail}. Relaunching now (no drain) — the conversation continues.`;
+      case 'clear':
+        return `🧠 Fresh context requested${tail}. Relaunching with a clean slate — the conversation continues.`;
+      case 'resume':
+        return `⏪ Resume requested${tail}. Relaunching and re-injecting the last snapshot — the conversation continues.`;
+    }
+  }
+
+  /**
+   * A short toast for a tapped control action (the answerCallback spinner text). Searches the
+   * main registry AND the Advanced submenu (REDESIGN) so a tap on an Advanced action still names
+   * itself; unknown/derived actions (confirm steps, `mode-set`, `model-set`) fall back to 'OK'.
+   */
+  private controlToast(action: string): string {
+    const spec =
+      CONTROL_ACTIONS.find((a) => a.id === action) ?? CONTROL_ADVANCED_ACTIONS.find((a) => a.id === action);
+    return spec ? spec.label.replace(/^[^\sA-Za-z]+\s*/, '') : 'OK';
+  }
+
+  /**
+   * ★ REDESIGN — the `status` action result: the out-of-band snapshot ALWAYS returns (it is gathered
+   * from supervisor-owned telemetry, so it works even if the agent is hung), and — when a live-probe
+   * deadline is configured ({@link autoBehavior}.probeMs > 0) — it ALSO fires a live responsiveness
+   * ping and appends latency + last-turn time (absorbing the old Ping button). The probe is bounded by
+   * the deadline and CANNOT block the snapshot: if it times out, status still reports (with "probe:
+   * timed out"). With probeMs = 0 (the default), status is the cheap snapshot only (byte-for-byte).
+   */
+  private async controlStatus(): Promise<string> {
+    const base = formatStatus(this.controlStatusSnapshot());
+    if (this.autoBehavior.probeMs <= 0) return base; // no live probe configured
+    const lastTurnLine = this.lastTurnAt > 0 ? `last turn: ${formatUptime(Date.now() - this.lastTurnAt)} ago` : 'last turn: none yet';
+    // The snapshot is already in hand — the probe only ADDS a line; a timeout never loses the snapshot.
+    const t0 = Date.now();
+    let probeLine: string;
+    try {
+      const answered = await this.probeResponsive(this.autoBehavior.probeMs);
+      const rttMs = Date.now() - t0;
+      probeLine = answered ? `probe: answered in ${rttMs}ms` : `probe: timed out (>${this.autoBehavior.probeMs}ms — not responding)`;
+    } catch (err) {
+      this.logger.warn('status live-probe threw (snapshot still returned)', { err: String(err) });
+      probeLine = 'probe: error (see logs)';
+    }
+    return `${base}\n${lastTurnLine}\n${probeLine}`;
+  }
+
+  /**
+   * Gather the live status SNAPSHOT for the `status` action from supervisor-owned
+   * telemetry: lifecycle health (running/sessionId/restarts) + idle + the resolved
+   * orchestrator model (opts.model) + uptime (now − startedAt) + pending approvals
+   * + the last stall. Context-window % is not exposed by the driver today →
+   * undefined (reported as n/a). Pure read — no child interaction (works when dead).
+   */
+  private controlStatusSnapshot(): StatusSnapshot {
+    const h = this.lifecycle.health();
+    return {
+      running: h.running,
+      idle: this.lifecycle.isIdle(),
+      ...(h.sessionId ? { sessionId: h.sessionId } : {}),
+      restarts: h.restarts,
+      ...(this.currentModel ? { model: this.currentModel } : {}),
+      uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
+      pendingApprovals: this.pendingPermissions().length,
+      lastStall: this.lastStall,
+    };
+  }
+
+  /**
+   * The `ping` action: report supervisor↔orchestrator liveness with a round-trip.
+   * The supervisor itself is alive (it is answering), so this reports the CHILD's
+   * reachability cheaply WITHOUT injecting a turn: running + idle/in-flight, from
+   * lifecycle state (a full ping-turn round-trip is the D4 machinery a later phase
+   * surfaces). The classify gives active/stuck/dead. Round-trip ms is the handler
+   * latency (sub-ms — it confirms the control plane itself is responsive).
+   */
+  private async controlPing(): Promise<string> {
+    const t0 = Date.now();
+    const snap = this.controlStatusSnapshot();
+    const live = classifyLiveness(snap);
+    const rttMs = Date.now() - t0;
+    if (live === 'dead') return `📡 pong — supervisor alive; orchestrator child is DOWN (round-trip ${rttMs}ms)`;
+    const state = snap.idle ? 'idle (between turns)' : 'busy (a turn is in flight)';
+    const tag = live === 'stuck' ? 'STUCK' : 'OK';
+    return `📡 pong — ${tag}: orchestrator running, ${state} (round-trip ${rttMs}ms)`;
+  }
+
+  /**
+   * Send a control MENU/SUB-MENU message (plain text + an inline keyboard). A
+   * CONTROL message — no modality (never voiced) and it does NOT touch the
+   * lastSentText turn-baseline (like the permission prompts + acks). Best-effort:
+   * a send failure is logged, not thrown.
+   */
+  private async sendControlMenu(text: string, buttons: InlineButton[]): Promise<void> {
+    if (!this.operator) return;
+    try {
+      // buttonsPerRow → the adapter wraps the keyboard into a readable grid (the 14-action
+      // main menu would otherwise pack into one row with truncated labels). The permission
+      // Allow/Deny prompts go via a DIFFERENT send (no per-row hint) → still a single row.
+      await this.opts.send(this.operator, {
+        text,
+        options: { buttons, buttonsPerRow: CONTROL_MENU_BUTTONS_PER_ROW },
+      });
+    } catch (err) {
+      this.logger.warn('control menu send failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Edit the TAPPED menu message to show an action RESULT (dropping its keyboard,
+   * like the resolved-permission-prompt edit) so the result replaces the menu and a
+   * record remains. Falls back to a fresh send when editMessage is unavailable or
+   * the message id is unknown. Best-effort.
+   */
+  private async editControlResult(
+    callback: { messageId?: string },
+    text: string,
+  ): Promise<void> {
+    if (this.opts.editMessage && this.operator && callback.messageId) {
+      try {
+        await this.opts.editMessage(this.operator, callback.messageId, text);
+        return;
+      } catch (err) {
+        this.logger.warn('control result edit failed — falling back to a send', { err: String(err) });
+      }
+    }
+    // No edit surface / no message id → send the result as a plain control message.
+    if (!this.operator) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('control result send failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /** The currently-bound operator reply handle (null until the first inbound). */
+  currentOperator(): ReplyHandle | null {
+    return this.operator;
+  }
+
+  /** The current output modality (text/voice/dual) — for the panel / tests. */
+  outputModeState(): OutputMode {
+    return this.outputMode;
+  }
+
+  /**
+   * Apply an intercepted `/mode` command: `set` flips the modality state + ACKs
+   * the new mode; `query` (bare/invalid `/mode`) replies with the current mode +
+   * the valid options. The ACK is a CONTROL message — plain text (no modality), so
+   * a "/mode voice" ACK is not itself voiced. NOT forwarded to the orchestrator.
+   */
+  private async handleModeCommand(cmd: ModeCommand): Promise<void> {
+    if (cmd.kind === 'set') {
+      const prev = this.outputMode;
+      this.outputMode = cmd.mode;
+      this.logger.info('output modality switched via /mode', { from: prev, to: cmd.mode });
+      this.publishLifecycle('output_mode_changed', { from: prev, to: cmd.mode });
+      await this.ackToOperator(`Output mode → ${cmd.mode}`);
+      // ★ MODE-AWARENESS: tell the orchestrator the mode changed so it can adapt (e.g. use
+      // the force-text marker for links/paths once replies are voiced). Best-effort.
+      await this.injectModeChangeNotice(prev, cmd.mode);
+    } else {
+      this.logger.info('output modality queried via /mode', { current: this.outputMode });
+      await this.ackToOperator(
+        `Output mode is "${this.outputMode}". Set it with: /mode text | /mode voice | /mode dual.`,
+      );
+    }
+  }
+
+  /**
+   * Send a CONTROL/ACK line to the operator as PLAIN TEXT (bypasses the modality —
+   * a `/mode` ack / system notice is never voiced — and the lastSentText dedup
+   * baseline, like the other direct control sends). Best-effort: a failure is logged,
+   * not thrown (a `/mode` switch still took effect even if its ack didn't deliver).
+   */
+  private async ackToOperator(text: string): Promise<void> {
+    if (!this.operator) return;
+    try {
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('mode-ack send failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * Apply an intercepted `/setkey <provider> <key>` command (only reached when a secretStore is
+   * wired). The RAW KEY IS NEVER FORWARDED to the orchestrator (we return without injecting a turn)
+   * and is NEVER echoed/logged in full. Steps:
+   *   1. validate the shape (usage form → reply usage, no key stored);
+   *   2. resolve the provider token against the registry (unknown → helpful error listing providers;
+   *      a provider with no secretEnvVar → warn — should not happen for the wired set);
+   *   3. store the key SCOPED under the provider's secretEnvVar (the store returns a MASKED form);
+   *   4. reply a MASKED confirmation only (e.g. "GROQ_API_KEY set: gsk…1234 ✓") — plain text, never voiced;
+   *   5. DELETE the user's original message (best-effort) so the plaintext key does not linger in chat.
+   * Every reply is a CONTROL message (ackToOperator → plain text, bypasses modality + dedup).
+   */
+  private async handleSetKeyCommand(cmd: SetKeyCommand, msg: InboundMessage): Promise<void> {
+    const store = this.secretStore;
+    if (!store) return; // defensive — only called when wired
+    const knownProviders = [...PROVIDER_IDS];
+
+    if (cmd.kind === 'usage') {
+      this.logger.info('/setkey usage form (no key stored)', { reason: cmd.reason });
+      await this.ackToOperator(setKeyUsageMessage(knownProviders));
+      // Still delete the message if it somehow carried a stray token (defensive; usually nothing secret).
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    // Resolve the provider token (canonical id or alias; case-insensitive).
+    const providerId = resolveProviderId(cmd.providerToken, this.providers);
+    if (!providerId) {
+      this.logger.info('/setkey unknown provider', { token: cmd.providerToken });
+      await this.ackToOperator(setKeyUnknownProviderMessage(cmd.providerToken, knownProviders));
+      // The message DID carry a key value (unknown provider, but a key was typed) → delete it.
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    const provider = getProvider(providerId, this.providers);
+    const secretEnvVar = provider.secretEnvVar;
+    if (!secretEnvVar) {
+      // A registered provider with no secret env var (shouldn't happen for the wired set) → warn,
+      // do NOT store, still delete the message (it carried a key).
+      this.logger.warn('/setkey provider has no secretEnvVar — not storing', { providerId });
+      await this.ackToOperator(`Provider "${providerId}" has no configured secret variable — key NOT stored.`);
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    // Store the key SCOPED under the provider's secret env var. NEVER log the value; the store
+    // returns the masked form for the confirmation.
+    let masked: string;
+    try {
+      const r = store.setKey(secretEnvVar, cmd.key);
+      masked = r.masked;
+    } catch (err) {
+      // e.g. empty key rejected by the store. Reply a generic failure (NO key value), delete the msg.
+      this.logger.warn('/setkey store rejected the key', { providerId, err: String(err) });
+      await this.ackToOperator(`Could not store the ${secretEnvVar} key (rejected as invalid/empty).`);
+      await this.deleteOperatorMessage(msg);
+      return;
+    }
+
+    this.logger.info('/setkey stored a provider key (masked)', { providerId, secretEnvVar, masked });
+    // MASKED confirmation only — never the full value. Plain text (ackToOperator → not voiced).
+    await this.ackToOperator(`${secretEnvVar} set: ${masked} ✓`);
+    // DELETE the user's plaintext-key message so it does not linger in chat history (best-effort).
+    await this.deleteOperatorMessage(msg);
+  }
+
+  /**
+   * Best-effort delete of an inbound message from the chat (used by `/setkey` to remove the
+   * plaintext-key message). Resolves the message id from the inbound (the adapter's replyHandle
+   * carries the originating message id) and calls the wired {@link SessionHostOptions.deleteMessage}.
+   * Never throws (a failed delete is logged; the key is already redacted from capture + never echoed).
+   */
+  private async deleteOperatorMessage(msg: InboundMessage): Promise<void> {
+    if (!this.opts.deleteMessage || !this.operator) return;
+    // The originating message id: Telegram's replyHandle carries replyToMessageId (the inbound msg id);
+    // some adapters also surface a top-level messageId. Try both; if neither, skip (nothing to delete).
+    const handleAny = msg.replyHandle as { replyToMessageId?: string | number; messageId?: string | number };
+    const rawId = handleAny.replyToMessageId ?? handleAny.messageId;
+    if (rawId === undefined || rawId === null || `${rawId}`.length === 0) {
+      this.logger.info('/setkey: no message id on the inbound — cannot delete (key still redacted)');
+      return;
+    }
+    try {
+      await this.opts.deleteMessage(this.operator, `${rawId}`);
+      this.logger.info('/setkey: deleted the user plaintext-key message from chat');
+    } catch (err) {
+      this.logger.warn('/setkey: deleteMessage failed (non-fatal; key already redacted)', { err: String(err) });
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────────────────────────────
+   * TIER-2 PER-ROLE MODEL SELECTION (PART Q.3 — `/setrole` + `/roles`). Only reached when a
+   * roleRoutingStore is wired. The supervisor is the SOLE WRITER of the routing store; both the
+   * typed `/setrole` and the orchestrator-invokable {@link setRoleRouting} funnel through ONE
+   * private writer ({@link applyRoleRouting}). Nothing here is secret → no redaction, no delete.
+   * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Apply an intercepted `/setrole <role> <provider> [model]` command. Validates the role + provider
+   * against their registries (helpful errors listing the known set), records the override via the
+   * SOLE writer, then replies a confirmation (e.g. "coding → groq (llama-3.3-70b) ✓"), WARNING if the
+   * chosen provider has no key set yet (the selection is still recorded). NOT forwarded to the
+   * orchestrator. Every reply is a CONTROL message (ackToOperator → plain text).
+   */
+  private async handleSetRoleCommand(cmd: SetRoleCommand): Promise<void> {
+    const knownRoles = [...ROLES];
+    const knownProviders = [...PROVIDER_IDS];
+
+    if (cmd.kind === 'usage') {
+      this.logger.info('/setrole usage form (nothing set)', { reason: cmd.reason });
+      await this.ackToOperator(setRoleUsageMessage(knownRoles, knownProviders));
+      return;
+    }
+
+    // Validate the role (case-insensitive — normalize to lower for the known-role check).
+    const roleNorm = cmd.roleToken.trim().toLowerCase();
+    if (!isRole(roleNorm)) {
+      this.logger.info('/setrole unknown role', { token: cmd.roleToken });
+      await this.ackToOperator(setRoleUnknownRoleMessage(cmd.roleToken, knownRoles));
+      return;
+    }
+
+    // Resolve the provider token (canonical id or alias; case-insensitive).
+    const providerId = resolveProviderId(cmd.providerToken, this.providers);
+    if (!providerId) {
+      this.logger.info('/setrole unknown provider', { token: cmd.providerToken });
+      await this.ackToOperator(setRoleUnknownProviderMessage(cmd.providerToken, knownProviders));
+      return;
+    }
+
+    // Record via the SOLE writer (the typed-command path → the same writer the orchestrator uses).
+    const result = this.applyRoleRouting(roleNorm, providerId, cmd.modelToken);
+    if (!result.ok) {
+      await this.ackToOperator(`Could not set role "${roleNorm}" → ${providerId}: ${result.error}.`);
+      return;
+    }
+
+    const warning =
+      result.keyPresent === false
+        ? setRoleNoKeyWarning(providerId, getProvider(providerId, this.providers).secretEnvVar)
+        : undefined;
+    await this.ackToOperator(setRoleConfirmMessage(roleNorm, providerId, result.model, warning));
+  }
+
+  /**
+   * Apply an intercepted `/roles` command — list the EFFECTIVE role→provider/model map (the merged
+   * persisted-override-over-default config) plus, per row, whether a key is present for that
+   * provider (BOOLEAN ONLY — never a key value; claude-cli rows show key n/a). NOT forwarded.
+   */
+  private async handleRolesCommand(): Promise<void> {
+    this.logger.info('/roles listing requested');
+    await this.ackToOperator(rolesListMessage(this.effectiveRoleRows()));
+  }
+
+  /**
+   * THE SOLE WRITER of the role-routing store (P1). Validates + records `role → {provider, model?}`
+   * and returns the effective model + the provider's key-presence boolean. Called by BOTH the typed
+   * `/setrole` handler AND the public {@link setRoleRouting} (the orchestrator-on-user-request path),
+   * so every routing write goes through ONE place. Pure-local (FS only); never throws (errors are
+   * returned). When no store is wired this is a no-op error (defensive — callers gate on the store).
+   */
+  private applyRoleRouting(
+    role: Role,
+    provider: ProviderId,
+    model?: string,
+  ): { ok: true; model: string; keyPresent: boolean } | { ok: false; error: string } {
+    const store = this.roleRoutingStore;
+    if (!store) return { ok: false, error: 'role routing is not enabled' };
+    try {
+      const stored = store.setRole(role, provider, model);
+      // The effective model shown to the user: the explicit one, else the provider's default.
+      const effModel = stored.model ?? getProvider(provider, this.providers).defaultModel;
+      const secretEnvVar = getProvider(provider, this.providers).secretEnvVar;
+      const keyPresent = this.secretStore ? this.secretStore.has(secretEnvVar) : false;
+      this.logger.info('role routing override written', { role, provider, model: effModel, keyPresent });
+      this.publishLifecycle('role_routing_changed', { role, provider, model: effModel });
+      return { ok: true, model: effModel, keyPresent };
+    } catch (err) {
+      this.logger.warn('role routing write failed', { role, provider, err: String(err) });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * ORCHESTRATOR-INVOKABLE Tier-2 control: set a role's provider/model on the user's natural-language
+   * request ("use Gemini for coding"). Routes through the SAME sole writer ({@link applyRoleRouting})
+   * as the typed `/setrole`, so the supervisor stays the SOLE WRITER of the routing store. Accepts a
+   * provider token (canonical id OR alias, case-insensitive) + a role token; validates both and
+   * returns a structured result the orchestrator can relay (no throw). Returns `enabled:false` when
+   * no routing store is wired (dormant default) so the orchestrator can tell the user it's inactive.
+   */
+  setRoleRouting(
+    roleToken: string,
+    providerToken: string,
+    model?: string,
+  ):
+    | { ok: true; role: Role; provider: ProviderId; model: string; keyPresent: boolean }
+    | { ok: false; enabled: boolean; error: string } {
+    if (!this.roleRoutingStore) {
+      return { ok: false, enabled: false, error: 'role routing is not enabled (no routing store wired)' };
+    }
+    const roleNorm = (roleToken ?? '').trim().toLowerCase();
+    if (!isRole(roleNorm)) {
+      return { ok: false, enabled: true, error: `unknown role "${roleToken}" (known: ${ROLES.join(', ')})` };
+    }
+    const providerId = resolveProviderId(providerToken ?? '', this.providers);
+    if (!providerId) {
+      return {
+        ok: false,
+        enabled: true,
+        error: `unknown provider "${providerToken}" (known: ${PROVIDER_IDS.join(', ')})`,
+      };
+    }
+    const result = this.applyRoleRouting(roleNorm, providerId, model);
+    if (!result.ok) return { ok: false, enabled: true, error: result.error };
+    return { ok: true, role: roleNorm, provider: providerId, model: result.model, keyPresent: result.keyPresent };
+  }
+
+  /**
+   * ★ P6 — ORCHESTRATOR-INVOKABLE ROUTED DISPATCH (FD1). Run a ROLE + task on its routed backend
+   * (role-router → provider-registry → backend-seal → driver → result) and return the structured
+   * {@link RoleDispatchResult} for the orchestrator to relay (AP6 — the agent is channel-mute; only
+   * this report comes back here). Routed THROUGH the injected {@link dispatchRoleAgent} capability so
+   * SessionHost stays decoupled from result-relay's concretes.
+   *
+   * DORMANT-BY-DEFAULT: when no dispatch capability is wired (the default — index.ts does NOT wire it
+   * unless SUPERVISOR_ROLE_ROUTING is ON), this returns `{ok:false, enabled:false}` and dispatches
+   * NOTHING (the orchestrator can tell the user routing is inactive). Never throws for an agent-level
+   * failure — a crash/error surfaces as `ok:false` with the failure text. The `enabled` flag mirrors
+   * the {@link setRoleRouting} dormant contract.
+   */
+  async dispatchRole(
+    role: string,
+    task: string,
+  ): Promise<RoleDispatchResult & { enabled: boolean }> {
+    if (!this.dispatchRoleAgent) {
+      return { ok: false, enabled: false, role, text: 'role routing is not enabled (no dispatch capability wired)' };
+    }
+    const roleNorm = (role ?? '').trim();
+    if (roleNorm.length === 0) {
+      return { ok: false, enabled: true, role: roleNorm, text: 'a role is required' };
+    }
+    if ((task ?? '').trim().length === 0) {
+      return { ok: false, enabled: true, role: roleNorm, text: 'a task is required' };
+    }
+    this.logger.info('dispatching routed agent', { role: roleNorm, taskChars: task.length });
+    this.publishLifecycle('role_dispatch', { role: roleNorm });
+    try {
+      const result = await this.dispatchRoleAgent(roleNorm, task);
+      this.logger.info('routed agent reported', {
+        role: roleNorm,
+        backend: result.backend,
+        ok: result.ok,
+        fellBack: result.fellBack ?? false,
+      });
+      return { ...result, enabled: true };
+    } catch (err) {
+      // A dispatch-capability throw is a programmer/infra error (not an agent failure, which the
+      // capability returns as ok:false). Surface it as a failed result — never wedge the orchestrator.
+      this.logger.error('routed dispatch threw', { role: roleNorm, err: String(err) });
+      return { ok: false, enabled: true, role: roleNorm, text: `dispatch failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  /**
+   * Build the `/roles` rows: the EFFECTIVE role routing = the persisted overrides merged over the
+   * in-code DEFAULT_ROLE_ROUTING_CONFIG, resolved per role via the router's pure
+   * {@link resolveRoleBackendWithOverrides}. For each role: the effective provider label ('claude'
+   * for claude-cli, else the provider id), the effective model, whether it is an override vs the
+   * default, and whether a key is present for that provider (boolean; null for claude-cli). NEVER
+   * surfaces a key value — only `secretStore.has()` booleans. Also used by the panel.
+   */
+  effectiveRoleRows(): RolesListRow[] {
+    const overrides = this.roleRoutingStore ? this.roleRoutingStore.loadAll() : {};
+    const rows: RolesListRow[] = [];
+    for (const role of ROLES) {
+      const sel = resolveRoleBackendWithOverrides(role, overrides, DEFAULT_ROLE_ROUTING_CONFIG);
+      const overridden = overrides[role] !== undefined;
+      if (sel.backend === 'claude-cli') {
+        rows.push({
+          role,
+          provider: 'claude',
+          model: sel.model ?? '(default)',
+          overridden,
+          keyPresent: null, // claude-cli needs no provider key
+        });
+        continue;
+      }
+      // api-adapter backend → the chosen provider. Prefer the override's provider id (exact), else
+      // map the selection's model back to a provider via the default config's provider for the role.
+      const ov: RoleRoutingOverride | undefined = overrides[role];
+      const providerId: ProviderId | undefined = ov?.provider ?? this.defaultProviderForRole(role);
+      const provider = providerId ? getProvider(providerId, this.providers) : undefined;
+      const effModel = sel.model ?? provider?.defaultModel ?? '(default)';
+      const keyPresent =
+        provider && this.secretStore ? this.secretStore.has(provider.secretEnvVar) : false;
+      rows.push({
+        role,
+        provider: providerId ?? 'api-adapter',
+        model: effModel,
+        overridden,
+        keyPresent,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * The default provider id for a role per the in-code DEFAULT_ROLE_ROUTING_CONFIG, mapped from the
+   * default entry's model id back to the registry provider whose defaultModel matches it (coding→
+   * deepseek, reviewing→openai). Returns undefined for a role whose default is claude-cli / has no
+   * matching provider. Pure helper for {@link effectiveRoleRows}'s non-override rows.
+   */
+  private defaultProviderForRole(role: Role): ProviderId | undefined {
+    const entry = DEFAULT_ROLE_ROUTING_CONFIG.roles?.[role];
+    if (!entry || entry.backend !== 'api-adapter') return undefined;
+    const model = entry.model;
+    for (const id of PROVIDER_IDS) {
+      if (getProvider(id, this.providers).defaultModel === model) return id;
+    }
+    return undefined;
+  }
+
+  /** Self-context-clean: end the hosted session + start a fresh one (the `/clear` equivalent). */
+  async clearContext(): Promise<void> {
+    await this.lifecycle.clearContext();
+  }
+
+  /**
+   * ★ ACTIVATION PASSTHROUGH — interrupt the orchestrator's CURRENT turn WITHOUT killing it
+   * (the operator ESC). A thin delegate to {@link LifecycleManager.interruptTurn} (→
+   * `driver.interrupt()`); the LifecycleManager stays the sole driver EXECUTOR. index.ts wires the
+   * injected {@link interruptTurn} control dep to THIS method at activation (the dep field — the
+   * `controlInterrupt` handler's seam — cannot share this method's name, so the passthrough is
+   * `interruptCurrentTurn`). Tears down NOTHING (no restart/sessionId-drop/counter bump). ADDITIVE:
+   * no behavior change unless called.
+   */
+  async interruptCurrentTurn(): Promise<void> {
+    await this.lifecycle.interruptTurn();
+  }
+
+  /**
+   * ★ ACTIVATION PASSTHROUGH — set the NEXT-LAUNCH Tier-1 orchestrator model (the control-plane
+   * `change-model` action). Delegates to {@link LifecycleManager.setModel} (the lifecycle OWNS its
+   * start options — P1). Does NOT restart; the change-model control closure (wired by index.ts at
+   * activation) calls this THEN `requestRestart` (drain + handoff) so the fresh session launches on
+   * the new model with context carried across. ADDITIVE: no behavior change unless called.
+   */
+  setOrchestratorModel(model: string): void {
+    this.lifecycle.setModel(model); // next-launch model (the fresh session launches on it)
+    this.currentModel = model; // so `status` + the change-model sub-menu immediately reflect the pending model
+  }
+
+  /**
+   * ★M-2 — INVOLUNTARY restart (D4 tier-b: the orchestrator went unresponsive). Same
+   * end→fresh-start as clearContext BUT routes through restartFresh() so the `restarts`
+   * counter INCREMENTS — an involuntary restart must be visible in /api/session, exactly
+   * like an agent-requested one (clearContext zeroes the counter, hiding it). The fresh
+   * session re-bootstraps the role via the lifecycle's bootstrapTurns (non-resume start);
+   * we also re-arm the role prefix for the first inbound for parity with the other paths.
+   *
+   * ★ REDESIGN — AUTO-SNAPSHOT re-inject (closes the cold-watchdog-restart gap): when
+   * {@link autoBehavior}.autoSnapshot is ON, capture a fresh snapshot, then inject it (after the role
+   * prefix) into the fresh session's FIRST turn — so even this INVOLUNTARY/cold restart comes up WITH
+   * context, instead of blank (the pre-redesign behavior). When auto-snapshot is OFF, this is
+   * byte-for-byte today (no capture, no injected first turn — the fresh session boots blank as before).
+   */
+  async restartUnresponsive(): Promise<void> {
+    this.rolePrefixPending = !!this.opts.roleTurnPrefix;
+    this.modeNoticePending = true; // ★ fresh session → re-announce the output mode on its first turn
+    this.clearPingTimer(); // drop any armed liveness deadline; the fresh session re-arms via the scheduler
+    // ★ REDESIGN: snapshot BEFORE the restart so the fresh session can re-inject context (cold-gap fix).
+    this.captureAutoSnapshot('pre-unresponsive-restart');
+    const note = this.autoBehavior.autoSnapshot ? this.handoffSnapshot?.note : undefined;
+    await this.lifecycle.restartFresh();
+    this.publishLifecycle('lifecycle_restart_unresponsive', { restarts: this.lifecycle.health().restarts, reinjected: !!note });
+    // ★ REDESIGN: inject the snapshot into the fresh first turn (mirrors runRestartConfirm's handoff
+    // inject). Only when auto-snapshot produced a note → otherwise the fresh session boots blank (today).
+    if (note) {
+      const prefix = this.rolePrefixPending && this.opts.roleTurnPrefix ? `${this.opts.roleTurnPrefix}\n\n` : '';
+      this.rolePrefixPending = false; // consumed by this synthetic first turn
+      const handoff =
+        `[SUPERVISOR auto-recovery] The orchestrator was restarted after going unresponsive (context reset; ` +
+        `the channel is preserved). Resume from this auto-captured snapshot:\n${note}`;
+      this.lastSentText = null;
+      await this.lifecycle.sendUserTurn({ text: prefix + handoff }).catch((err) => {
+        this.logger.warn('unresponsive-restart: snapshot re-inject failed (non-fatal)', { err: String(err) });
+      });
+    }
+  }
+
+  /** Pending permission asks awaiting a decision (for the operator panel). */
+  pendingPermissions(): { code: string; toolName: string }[] {
+    return this.channelPermission?.pendingAsks() ?? [];
+  }
+
+  /**
+   * OPERATOR-GRADE PANEL: approve/deny a pending permission by CLICK (in addition
+   * to the Telegram reply). Returns true if it resolved a pending ask. With no
+   * `code` and exactly one pending, the single one is resolved (bare).
+   */
+  operatorDecide(verdict: 'allow' | 'deny', code?: string): boolean {
+    if (!this.channelPermission) return false;
+    if (code) return this.channelPermission.submitReply(code, verdict);
+    return this.channelPermission.submitBareReply(verdict);
+  }
+
+  /**
+   * D4 LIVENESS BELT. Called on each mid-turn activity (via the lifecycle's onProgress).
+   * Its ONLY job now is to clear any pending liveness-ping deadline — mid-turn activity
+   * proves the orchestrator is alive (covers the race where a ping armed an instant before
+   * a real turn began producing output). The user-facing "still working…" heartbeat that
+   * used to live here was REMOVED (2026-06-18 — it flooded the channel + fired while idle).
+   */
+  private async onMidTurnProgress(): Promise<void> {
+    // ★ The user-facing "⏳ still working…" heartbeat was REMOVED (2026-06-18): it flooded
+    // the channel + fired even while idle (misleading). This handler is now PURELY the D4
+    // liveness BELT: mid-turn activity PROVES the orchestrator is alive → clear any pending
+    // liveness-ping deadline (covers the race where a ping armed an instant before a real
+    // turn began producing output). No message is sent to the user.
+    this.clearPingTimer();
+    this.onProactiveRecovery(); // ★ A5: live activity = proof of life → clear a stale stall + re-arm
+    this.lastResponsiveAt = Date.now(); // ★ REDESIGN: mid-turn activity = proof of life (probe signal)
+  }
+
+  /**
+   * ★ A5 — RECOVERY: the orchestrator produced output (a result, a pong, or mid-turn activity),
+   * so it is demonstrably alive again. Clear any sticky `lastStall` (so `status` no longer shows
+   * STUCK and {@link classifyLiveness} sees ACTIVE), then re-evaluate — which RE-ARMS the
+   * proactive-alert debounce (a future stuck/dead event will alert again). No-op unless the
+   * proactive switch is on (the dormant default never touches `lastStall` → byte-for-byte; the
+   * `status` STUCK signal stays exactly as the A1/A4 phases shipped it). This is what makes
+   * "push at most one alert per EVENT, re-arm only after the condition clears" hold end-to-end.
+   */
+  private onProactiveRecovery(): void {
+    if (!this.proactive.enabled) return; // dormant default — leave lastStall untouched
+    if (this.lastStall !== null) {
+      this.lastStall = null; // recovered → no longer stuck
+    }
+    void this.maybeProactiveAlert(); // now classifies ACTIVE → re-arms the debounce latch
+  }
+
+  /**
+   * D4 — LIVENESS PING (IDLE-AWARE). Inject a reserved supervisor→orchestrator ping turn
+   * and ARM a response deadline — but ONLY when the orchestrator is IDLE (no turn in
+   * flight). A busy/long turn or a turn blocked on a sub-agent has a turn in flight →
+   * we SKIP the ping (it's demonstrably working), so a progressing orchestrator is NEVER
+   * false-restarted. When idle: the ping queues, the orchestrator answers, and ANY turn
+   * result clears the deadline (onResult) → alive (tier-a). Mid-turn PROGRESS also clears
+   * it (maybeProgressPing) as a belt. If the deadline fires first → HUNG → tier-b
+   * (onUnresponsive). The "wedged mid-turn" case (a turn that never completes) is covered
+   * by the passive turn-timeout watchdog, NOT by this ping. Returns true if a ping was
+   * armed; false if disabled / no operator / a turn is in flight (skipped).
+   */
+  async pingLiveness(): Promise<boolean> {
+    const timeout = this.opts.pingResponseTimeoutMs ?? 0;
+    if (timeout <= 0) return false; // disabled
+    if (!this.operator) return false; // no one to be responsive to yet
+    if (!this.lifecycle.isIdle()) {
+      // A turn is in flight → the orchestrator is provably working. Do NOT ping (and
+      // do NOT arm a deadline) — that is exactly the false-restart we must avoid.
+      this.logger.info('liveness ping SKIPPED — a turn is in flight (orchestrator is working)');
+      return false;
+    }
+    this.clearPingTimer();
+    // ★ D4 FALSE-POSITIVE FIX: stamp when THIS ping was scheduled. The timeout callback re-validates
+    // against it — if a REAL turn started after this instant (lastRealTurnStartedAt >= pingScheduledAt)
+    // the orchestrator is provably working on something the user is waiting on, so a deadline armed
+    // while it was briefly idle must NOT fire tier-b. (onRealTurnStarted already clears the timer the
+    // instant a real turn starts; this callback re-check is the airtight backstop for any path that
+    // injects a real turn without routing through onRealTurnStarted, and for the in-flight case.)
+    const pingScheduledAt = Date.now();
+    this.pingTimer = setTimeout(() => {
+      this.pingTimer = null;
+      // RE-VALIDATE before declaring unresponsive: a REAL (non-internal) turn that STARTED after this
+      // ping was scheduled means the orchestrator IS working on something the user is waiting on → NOT
+      // a false-positive restart target. Skip tier-b (and the A5 stuck-latch) entirely; the next
+      // scheduler tick re-pings. (NOTE: we must NOT key this off lifecycle.isIdle() — the ping turn we
+      // just injected is itself an outstanding turn, so isIdle() is always false here; lastRealTurnStartedAt
+      // tracks only NON-internal turns via onRealTurnStarted, which is the correct discriminator.)
+      if (this.lastRealTurnStartedAt >= pingScheduledAt) {
+        this.logger.info('liveness ping deadline elapsed but a real turn started since the ping — NOT tier-b (false-positive averted)', {
+          msSincePing: Date.now() - pingScheduledAt,
+        });
+        return;
+      }
+      this.logger.error('liveness ping TIMED OUT — orchestrator unresponsive (tier-b)', { timeoutMs: timeout });
+      // ★ A5: a missed ping IS the idle-STUCK signal → latch it so `status` classifies STUCK
+      // end-to-end, and PUSH a debounced proactive alert. Gated on the proactive switch (OFF ⇒
+      // no latch, no push → byte-for-byte). This runs BEFORE onUnresponsive so the alert precedes
+      // the existing auto-restart; A5 adds NO kill path — onUnresponsive (index.ts) is unchanged.
+      if (this.proactive.enabled) {
+        this.lastStall = { silentMs: timeout, action: 'surface' };
+        void this.maybeProactiveAlert();
+      }
+      void this.opts.onUnresponsive?.(`no turn result within ${timeout}ms of the liveness ping (orchestrator idle but unresponsive)`);
+    }, timeout);
+    if (typeof this.pingTimer === 'object' && 'unref' in this.pingTimer) {
+      (this.pingTimer as { unref: () => void }).unref();
+    }
+    // The ping turn is HANDLED (not user text) + INTERNAL — the ping AND the orchestrator's
+    // pong are NOT forwarded to the user (no liveness chatter on the channel); the
+    // supervisor only reads the pong (onInternalResult → clearPingTimer) for hung-detection.
+    this.logger.info('liveness ping injected (internal)', { timeoutMs: timeout });
+    try {
+      await this.lifecycle.sendUserTurn(
+        {
+          text: '[SUPERVISOR ping] Internal liveness check — reply with a single short line (e.g. "alive"). This exchange is NOT shown to the user; just confirm you are responsive.',
+        },
+        { internal: true },
+      );
+    } catch (err) {
+      // ★ M2 — sendUserTurn THROWS if the session isn't running (e.g. the transient
+      // clearContext/restart window). The ping never reached the orchestrator, so the
+      // armed deadline would FALSE-fire tier-b. Clear it and bail — the next scheduler
+      // tick re-pings once the session is back. (Not a hang; a normal restart race.)
+      this.clearPingTimer();
+      this.logger.warn('liveness ping send failed (session restarting?) — deadline cleared, will retry', { err: String(err) });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * D4 — start the periodic liveness scheduler. Every `pingIntervalMs`, fire an
+   * idle-aware `pingLiveness()` (a no-op while a turn is in flight). Off if the interval
+   * or the response-timeout is unset. Idempotent. Started by `start()`.
+   */
+  startLivenessScheduler(): void {
+    const interval = this.opts.pingIntervalMs ?? 0;
+    if (interval <= 0 || (this.opts.pingResponseTimeoutMs ?? 0) <= 0) return; // disabled
+    if (this.pingScheduler) return; // already running
+    this.pingScheduler = setInterval(() => void this.pingLiveness().catch(() => undefined), interval);
+    if (typeof this.pingScheduler === 'object' && 'unref' in this.pingScheduler) {
+      (this.pingScheduler as { unref: () => void }).unref();
+    }
+    this.logger.info('liveness scheduler started', { intervalMs: interval, responseTimeoutMs: this.opts.pingResponseTimeoutMs });
+  }
+
+  /** D4 — stop the periodic liveness scheduler + any pending ping deadline. */
+  private stopLivenessScheduler(): void {
+    if (this.pingScheduler) {
+      clearInterval(this.pingScheduler);
+      this.pingScheduler = null;
+    }
+    this.clearPingTimer();
+  }
+
+  /** D4: clear the pending liveness-ping deadline (the orchestrator answered / teardown). */
+  private clearPingTimer(): void {
+    if (this.pingTimer) {
+      clearTimeout(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  /**
+   * ★ D4 FALSE-POSITIVE FIX — call the instant a REAL (non-internal) user turn is injected (the
+   * inbound→inject seam). Every real-turn `sendUserTurn` in this host routes through here. It (1)
+   * records {@link lastRealTurnStartedAt} so a liveness-ping timeout that was scheduled BEFORE this
+   * turn started can detect it and skip the tier-b restart, and (2) clears any armed ping deadline
+   * immediately — a real turn IS proof the orchestrator is working, so a deadline armed while it was
+   * briefly idle must not fire against the now-running turn. Internal turns (the ping itself, mode/
+   * handoff notices the supervisor crafts) MUST NOT call this — only genuine work the user is waiting on.
+   */
+  private onRealTurnStarted(): void {
+    this.lastRealTurnStartedAt = Date.now();
+    this.clearPingTimer();
+  }
+
+  // ── ★ A5 — PROACTIVE stuck/dead PUSH (debounced, one-per-event; ALERT-only) ──────────────
+  /**
+   * A5 — evaluate the orchestrator's liveness and, on a TRANSITION INTO stuck/dead, PUSH exactly
+   * ONE debounced alert to the channel. Called from the three detection signals — the in-flight
+   * watchdog (`onStall`), the missed liveness ping (`pingLiveness` timeout), and the periodic
+   * proactive-watch (catches a DEAD child, which emits no events). Debounce (flood-safe): the last
+   * alerted state is latched; a repeated tick in the SAME state does NOT re-push; liveness returning
+   * to 'active' RE-ARMS (clears the latch) so the next stuck/dead event alerts again. ALERT-ONLY —
+   * this method NEVER kills/restarts (recovery is the operator's `/control` action or the existing
+   * auto-restart). No-op unless {@link proactive}.enabled (the dormant default → byte-for-byte). The
+   * push is best-effort (a send failure is logged, not thrown) and goes to the bound operator only.
+   */
+  private async maybeProactiveAlert(): Promise<void> {
+    if (!this.proactive.enabled) return; // dormant default — never pushes
+    const snap = this.controlStatusSnapshot();
+    const live = classifyLiveness(snap);
+    if (live === 'active') {
+      // Healthy again → RE-ARM (so the next stuck/dead transition pushes a fresh alert).
+      if (this.alertedState !== null) {
+        this.logger.info('proactive watch: orchestrator recovered to active — alert re-armed', { prior: this.alertedState });
+        this.alertedState = null;
+      }
+      return;
+    }
+    // STUCK or DEAD. Debounce: only push when this is a NEW event (state changed since last alert).
+    if (this.alertedState === live) return; // already alerted for this event — stay silent (flood-safe)
+    this.alertedState = live;
+    const text = formatProactiveAlert(live, { ...(snap.lastStall?.silentMs != null ? { silentMs: snap.lastStall.silentMs } : {}) });
+    if (!text) return; // (active returns null — already handled above)
+    this.publishLifecycle('proactive_alert', { state: live, silentMs: snap.lastStall?.silentMs });
+    this.logger.warn('proactive alert PUSHED to channel', { state: live });
+    if (!this.operator) return; // no one bound yet → nothing to push to (still latched, so we don't spam later)
+    try {
+      // A CONTROL message: plain text, no modality (never voiced), does NOT touch the per-turn
+      // lastSentText baseline — exactly like forwardToolActivity / the control acks.
+      await this.opts.send(this.operator, { text });
+    } catch (err) {
+      this.logger.warn('proactive alert push failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /**
+   * A5 — start the periodic PROACTIVE-WATCH (only when {@link proactive}.enabled). A dead child
+   * emits no events, so a timer re-checks liveness every {@link proactive}.watchIntervalMs and lets
+   * {@link maybeProactiveAlert} push a DEAD alert (and pick up a persistent STUCK). Idempotent. The
+   * timer factory is INJECTABLE (so tests fire ticks via a fake clock — no real wait); the real
+   * handle is `.unref()`'d so it never keeps the process alive. NO-OP when disabled → no timer arms
+   * (byte-for-byte today). Started by {@link start}.
+   */
+  private startProactiveWatch(): void {
+    if (!this.proactive.enabled) return; // dormant default — no timer
+    if (this.proactiveWatchTimer) return; // already running
+    const timers = this.opts.proactiveWatchTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    this.proactiveWatchTimer = timers.setInterval(() => void this.maybeProactiveAlert().catch(() => undefined), this.proactive.watchIntervalMs);
+    if (typeof this.proactiveWatchTimer === 'object' && this.proactiveWatchTimer !== null && 'unref' in this.proactiveWatchTimer) {
+      (this.proactiveWatchTimer as { unref: () => void }).unref();
+    }
+    this.logger.info('proactive watch started', { intervalMs: this.proactive.watchIntervalMs, turnWatchdogMs: this.proactive.turnWatchdogMs });
+  }
+
+  /** A5 — stop the periodic proactive-watch timer (teardown). Safe when not armed. */
+  private stopProactiveWatch(): void {
+    if (!this.proactiveWatchTimer) return;
+    const timers = this.opts.proactiveWatchTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    timers.clearInterval(this.proactiveWatchTimer);
+    this.proactiveWatchTimer = null;
+  }
+
+  // ── ★ REDESIGN — control-panel AUTOMATIC behaviors (all default-OFF; the running host is
+  //    byte-for-byte until activation) ────────────────────────────────────────────────────────
+
+  /**
+   * ★ REDESIGN — AUTO-SNAPSHOT: capture a context snapshot into the supervisor-owned
+   * {@link handoffSnapshot} store (the SAME store the manual handoff used + the SAME note shape a
+   * restart re-injects). Used by the periodic timer AND just before an involuntary restart, so EVERY
+   * restart — including the cold watchdog restart — can re-inject recent context. SOLE WRITER of the
+   * snapshot store (P1). No-op unless {@link autoBehavior}.autoSnapshot. Pure read of supervisor
+   * telemetry (no child interaction → works when the child is dead).
+   */
+  private captureAutoSnapshot(reason: string): void {
+    if (!this.autoBehavior.autoSnapshot) return;
+    const note = this.composeHandoffNote();
+    this.handoffSnapshot = { note, capturedAt: Date.now() };
+    this.logger.info('auto-snapshot captured', { reason, length: note.length });
+  }
+
+  /**
+   * ★ REDESIGN — arm the periodic AUTO-SNAPSHOT timer (only when {@link autoBehavior}.autoSnapshot).
+   * Every {@link autoBehavior}.autoSnapshotIntervalMs it captures a fresh snapshot, so an unexpected
+   * restart always has a recent one to re-inject. The timer factory is INJECTABLE (fake clock in
+   * tests — no real wait) + the real handle is `.unref()`'d. NO-OP when off → no timer arms
+   * (byte-for-byte today). Idempotent. Started by {@link start}.
+   */
+  private startAutoSnapshot(): void {
+    if (!this.autoBehavior.autoSnapshot) return; // default — no timer
+    if (this.autoSnapshotTimer) return; // already running
+    const timers = this.opts.autoSnapshotTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    this.autoSnapshotTimer = timers.setInterval(() => this.captureAutoSnapshot('periodic'), this.autoBehavior.autoSnapshotIntervalMs);
+    if (typeof this.autoSnapshotTimer === 'object' && this.autoSnapshotTimer !== null && 'unref' in this.autoSnapshotTimer) {
+      (this.autoSnapshotTimer as { unref: () => void }).unref();
+    }
+    this.logger.info('auto-snapshot timer started', { intervalMs: this.autoBehavior.autoSnapshotIntervalMs });
+  }
+
+  /** ★ REDESIGN — stop the periodic auto-snapshot timer (teardown). Safe when not armed. */
+  private stopAutoSnapshot(): void {
+    if (!this.autoSnapshotTimer) return;
+    const timers = this.opts.autoSnapshotTimers ?? {
+      setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+      clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
+    };
+    timers.clearInterval(this.autoSnapshotTimer);
+    this.autoSnapshotTimer = null;
+  }
+
+  /** ★ REDESIGN — the injectable bounded delay (fake clock in tests; real = a `.unref()`'d setTimeout). */
+  private delayMs(ms: number): Promise<void> {
+    if (this.opts.delay) return Promise.resolve(this.opts.delay(ms));
+    return new Promise<void>((res) => {
+      const t = setTimeout(res, ms);
+      if (typeof t === 'object' && 'unref' in t) (t as { unref: () => void }).unref();
+    });
+  }
+
+  /**
+   * ★ REDESIGN — RECOVERY LADDER (reconnect → reset). The supervisor's response to an unresponsive
+   * orchestrator when {@link autoBehavior}.recoveryLadder is ON: (1) AUTO-RECONNECT the channel first
+   * (a dropped channel is the cheaper, non-destructive failure) and re-probe; (2) only if the agent is
+   * STILL unresponsive, RESET (restart) via {@link restartUnresponsive} — which (with auto-snapshot on)
+   * carries the latest snapshot into the fresh session. The existing direct restart-on-unresponsive
+   * (index.ts `handleUnresponsive`) is the DEFAULT (ladder off) and is unchanged. index.ts routes
+   * `handleUnresponsive` here only when the ladder is on. Best-effort: a reconnect/probe error falls
+   * through to the reset (never leaves the agent wedged). Returns the action taken (for tests/logs).
+   */
+  async handleUnresponsiveRecovery(reason: string): Promise<'reconnected' | 'reset'> {
+    this.logger.warn('recovery ladder: orchestrator unresponsive — reconnect-then-reset', { reason });
+    this.publishLifecycle('recovery_ladder_started', { reason });
+    // Step 1: try a channel reconnect first (cheaper, non-destructive) — IF a reconnect dep is wired.
+    if (this.reconnectChannel) {
+      try {
+        const r = await this.reconnectChannel();
+        this.logger.info('recovery ladder: channel reconnect attempted', { ok: r.ok, error: r.error });
+        if (r.ok && (await this.probeResponsive())) {
+          // The channel was the problem; the agent answers now → recovered WITHOUT a reset.
+          this.publishLifecycle('recovery_ladder_reconnected', { reason });
+          if (this.operator) {
+            await this.opts
+              .send(this.operator, { text: '🔌 Channel reconnected — the orchestrator is responding again (no restart needed).' })
+              .catch(() => undefined);
+          }
+          return 'reconnected';
+        }
+      } catch (err) {
+        this.logger.warn('recovery ladder: reconnect threw — falling through to reset', { err: String(err) });
+      }
+    }
+    // Step 2: still unresponsive → RESET (restart). Snapshot first so the fresh session has context.
+    this.captureAutoSnapshot('pre-recovery-reset');
+    if (this.operator) {
+      await this.opts
+        .send(this.operator, { text: '⚠️ The orchestrator is still unresponsive after a reconnect — restarting it now (context is restored from the last snapshot).' })
+        .catch(() => undefined);
+    }
+    this.publishLifecycle('recovery_ladder_reset', { reason });
+    await this.restartUnresponsive();
+    return 'reset';
+  }
+
+  /**
+   * ★ REDESIGN — a bounded liveness PROBE: inject a real liveness ping and wait up to `timeoutMs`
+   * (default the status-probe deadline) for the agent to answer. Returns true iff it answered in time.
+   * Used by the recovery ladder (did the reconnect bring it back?) and the status live-probe. Resolves
+   * a no-op `false` when the child is not running or no operator is bound. The wait uses the injectable
+   * {@link delayMs} so tests are deterministic (no real wait). Never throws.
+   */
+  private async probeResponsive(timeoutMs?: number): Promise<boolean> {
+    const t = timeoutMs ?? this.autoBehavior.probeMs;
+    if (t <= 0) return false; // no probe deadline configured
+    if (!this.lifecycle.health().running) return false; // dead child can't answer
+    if (!this.operator) return false; // no one to be responsive to
+    // PROOF-OF-LIFE within the window = responsive: a real result, an INTERNAL pong (the ping's reply —
+    // which is why we poll {@link lastResponsiveAt}, NOT lastTurnAt, since the ping produces no
+    // user-facing turn result), OR mid-turn progress. We fire an idle-aware ping (it queues only when
+    // idle; a busy turn is left alone — its OWN progress/result is the proof we poll for), then poll
+    // lastResponsiveAt for fresh activity. The poll is ITERATION-bounded (not wall-clock) so an injected
+    // delay that yields a macrotask makes it deterministic + fast (each step lets the driver's pending
+    // pong land) instead of busy-looping for `t` real ms. A wedged turn never advances lastResponsiveAt
+    // → returns false (correctly: a silent in-flight turn IS the unresponsive condition we are probing).
+    const before = this.lastResponsiveAt;
+    const stepMs = Math.min(POLL_STEP_MS, t);
+    const maxIters = Math.max(1, Math.ceil(t / stepMs));
+    try {
+      await this.pingLiveness(); // idle-aware: a no-op while a turn is in flight (we still poll below)
+      for (let i = 0; i < maxIters; i++) {
+        if (this.lastResponsiveAt > before) return true; // answered (result / internal pong / progress)
+        await this.delayMs(stepMs);
+      }
+    } catch {
+      // probe errors are non-fatal — treat as "no answer"
+    } finally {
+      // ★ don't leave the ping's response deadline armed past the probe (it would later false-fire the
+      // tier-b auto-restart). The probe is its OWN bounded check; clear any deadline it armed.
+      this.clearPingTimer();
+    }
+    return this.lastResponsiveAt > before;
+  }
+
+  /**
+   * ★ REDESIGN — GRACEFUL RESTART with HARD-KILL ESCALATION. When a drain deadline is configured
+   * ({@link autoBehavior}.drainMs > 0), wait up to that long for the in-flight turn to drain (the agent
+   * goes idle), then perform the restart REGARDLESS — so a STALLED drain escalates to the hard kill and
+   * can never wedge the restart. With drainMs = 0 (the default), there is no wait — it restarts
+   * immediately, exactly as today. The actual relaunch is the caller-supplied `doRestart` (the existing
+   * `restartFresh`/`requestRestart` path — this method only adds the bounded drain in front of it). The
+   * drain poll uses the injectable {@link delayMs} (deterministic in tests). Returns whether it drained
+   * cleanly or escalated (for tests/logs).
+   */
+  async gracefulRestartWithEscalation(doRestart: () => Promise<void>): Promise<'drained' | 'escalated' | 'immediate'> {
+    const drainMs = this.autoBehavior.drainMs;
+    if (drainMs <= 0) {
+      await doRestart();
+      return 'immediate';
+    }
+    // ITERATION-bounded poll (not wall-clock) so an injected immediate {@link delayMs} is deterministic
+    // + fast in tests (no real `drainMs` wait), while the real `.unref()`'d setTimeout paces it live.
+    const stepMs = Math.min(POLL_STEP_MS, drainMs);
+    const maxIters = Math.max(1, Math.ceil(drainMs / stepMs));
+    let drained = this.lifecycle.isIdle();
+    for (let i = 0; i < maxIters && !drained; i++) {
+      await this.delayMs(stepMs);
+      drained = this.lifecycle.isIdle();
+    }
+    if (drained) {
+      this.logger.info('graceful restart: drained cleanly before the deadline', { drainMs });
+    } else {
+      this.logger.warn('graceful restart: drain STALLED past the deadline — escalating to a hard restart', { drainMs });
+      this.publishLifecycle('restart_drain_escalated', { drainMs });
+    }
+    await doRestart();
+    return drained ? 'drained' : 'escalated';
+  }
+
+  /**
+   * LIFECYCLE-RESTART CONTROL (the hosted agent requests its OWN full restart; the
+   * supervisor confirms with the user + executes — authority split). Returns IMMEDIATELY
+   * with the queued/refused outcome; the confirm + teardown happen OUT-OF-BAND (the agent
+   * may be mid-turn and must NOT assume a synchronous restart). On the user's approval the
+   * agent context is fully reset (new sessionId, no resume, restarts++), the CHANNEL is
+   * preserved (the conversation survives), and an optional handoff note is injected into the
+   * fresh session's first turn. Guardrails: rate-limit (loop killer) + user-confirm ALWAYS.
+   */
+  requestRestart(reason: string, handoffNote?: string): RestartRequestOutcome {
+    const now = Date.now();
+    // Rate-limit: drop expired timestamps, then enforce the window cap.
+    this.restartRequestTimes = this.restartRequestTimes.filter((t) => now - t < RESTART_RATE_WINDOW_MS);
+    if (this.restartRequestTimes.length >= RESTART_RATE_LIMIT) {
+      const oldest = this.restartRequestTimes[0]!;
+      const retryAfterMs = RESTART_RATE_WINDOW_MS - (now - oldest);
+      this.logger.warn('lifecycle restart REFUSED — rate limit', { reason, count: this.restartRequestTimes.length, retryAfterMs });
+      this.publishLifecycle('lifecycle_restart_denied', { reason, cause: 'rate_limited', retryAfterMs });
+      // Surface the loop to the user (the agent is misbehaving).
+      if (this.operator) {
+        void this.opts
+          .send(this.operator, {
+            text: `⚠️ The hosted agent is requesting restarts too frequently (≥${RESTART_RATE_LIMIT} in ${Math.round(RESTART_RATE_WINDOW_MS / 60000)} min) — refusing (possible loop). Reason given: "${reason}".`,
+          })
+          .catch(() => undefined);
+      }
+      return { status: 'rate_limited', retryAfterMs };
+    }
+    if (this.restartConfirmInFlight) {
+      this.logger.info('lifecycle restart request ignored — a confirm is already in flight');
+      return { status: 'busy' };
+    }
+    this.restartRequestTimes.push(now);
+    this.publishLifecycle('lifecycle_restart_requested', { reason, hasHandoff: !!handoffNote });
+    this.logger.info('lifecycle restart REQUESTED by the agent', { reason, hasHandoff: !!handoffNote });
+    // Run the confirm + teardown OUT-OF-BAND (don't block the caller / the agent's turn).
+    void this.runRestartConfirm(reason, handoffNote);
+    return { status: 'queued' };
+  }
+
+  /** Out-of-band: confirm the restart with the user, then execute (or notify the agent of denial). */
+  private async runRestartConfirm(reason: string, handoffNote?: string): Promise<void> {
+    this.restartConfirmInFlight = true;
+    try {
+      if (!this.channelPermission || !this.operator) {
+        this.logger.warn('lifecycle restart: no operator to confirm with — denying (safe)');
+        this.publishLifecycle('lifecycle_restart_denied', { reason, cause: 'no_operator' });
+        return;
+      }
+      // Context line so the user understands the prompt that follows (the approve/deny prompt
+      // reuses the familiar destructive-op routing — action 'lifecycle.restart').
+      await this.opts
+        .send(this.operator, {
+          text: `🔄 The hosted agent requests a FULL RESTART (this RESETS its context — conversation continues, but it forgets the current session). Reason: "${reason}".`,
+        })
+        .catch(() => undefined);
+      const verdict = await this.channelPermission.askUser({ toolName: 'lifecycle.restart', input: { reason } });
+      if (verdict !== 'allow') {
+        this.logger.info('lifecycle restart DENIED', { reason, verdict });
+        this.publishLifecycle('lifecycle_restart_denied', { reason, cause: verdict });
+        // Notify the AGENT it was denied (a follow-up turn — it continues unchanged).
+        await this.lifecycle
+          .sendUserTurn({
+            text: `[SUPERVISOR lifecycle] Your restart request was ${verdict === 'timeout' ? 'NOT approved in time (default deny)' : 'DENIED by the user'}. Continue as normal.`,
+          })
+          .catch(() => undefined);
+        return;
+      }
+      // APPROVED → execute the restart.
+      this.publishLifecycle('lifecycle_restart_approved', { reason });
+      this.logger.info('lifecycle restart APPROVED — executing', { reason });
+      this.clearPingTimer(); // teardown any pending liveness deadline
+      // Re-arm the role bootstrap so the fresh session re-loads /orchestrator on its first turn.
+      this.rolePrefixPending = !!this.opts.roleTurnPrefix;
+      this.modeNoticePending = true; // ★ fresh session → re-announce the output mode on its first turn
+      // ★ REDESIGN — HARD-KILL ESCALATION: when a drain deadline is configured, wait up to it for the
+      // in-flight turn to drain, then restart REGARDLESS (a stalled drain escalates to the hard kill).
+      // With drainMs = 0 (the default) this is the immediate restartFresh() — byte-for-byte today.
+      await this.gracefulRestartWithEscalation(() => this.lifecycle.restartFresh());
+      // Handoff: inject the fresh session's FIRST turn (role prefix + the restart context + note).
+      // (Done here, not waiting for a user message, so the agent re-establishes itself immediately.)
+      const prefix = this.rolePrefixPending && this.opts.roleTurnPrefix ? `${this.opts.roleTurnPrefix}\n\n` : '';
+      this.rolePrefixPending = false; // consumed by this synthetic first turn
+      const handoff =
+        `[SUPERVISOR lifecycle] You restarted at your own request (context reset; the channel is preserved). Reason: "${reason}".` +
+        (handoffNote ? `\nPrior context / handoff note:\n${handoffNote}` : '\nNo handoff note was provided — start clean.');
+      this.lastSentText = null;
+      await this.lifecycle.sendUserTurn({ text: prefix + handoff }).catch((err) => {
+        this.logger.warn('lifecycle restart: handoff-turn injection failed (non-fatal)', { err: String(err) });
+      });
+      this.publishLifecycle('lifecycle_restart_completed', { reason, sessionId: this.lifecycle.health().sessionId, restarts: this.lifecycle.health().restarts });
+      this.logger.info('lifecycle restart COMPLETED', { restarts: this.lifecycle.health().restarts });
+      // Tell the user the restart happened (a meaningful, non-routine notice).
+      if (this.operator) {
+        await this.opts.send(this.operator, { text: '✅ The hosted agent has been restarted (context reset). The conversation continues.' }).catch(() => undefined);
+      }
+    } finally {
+      this.restartConfirmInFlight = false;
+    }
+  }
+
+  /** Publish a lifecycle-restart audit signal onto the bus (captured + controller-bridged). */
+  private publishLifecycle(event: string, fields: Record<string, unknown>): void {
+    this.opts.bus.publish({ direction: 'internal', type: 'lifecycle', source: 'supervisor', payload: { event, ...fields } });
+  }
+
+  /** Send text back to the current operator over the channel. */
+  private async sendToOperator(rawText: string): Promise<void> {
+    if (!this.operator) {
+      this.logger.warn('session produced output but no operator to send to', {});
+      return;
+    }
+    // ★ FORCE-TEXT MARKER: if the orchestrator tagged this reply with FORCE_TEXT_MARKER,
+    // deliver it as plain TEXT (skip TTS) regardless of the current output mode, and strip
+    // the marker so the user never sees it. The persistent outputMode is NOT changed (P1 —
+    // only THIS send is forced; the single-writer state is untouched). In text mode this is
+    // just a strip (no-op on modality); in voice/dual it suppresses the voice copy for this
+    // one message (the reported QR/link-in-voice failure). A reply that was ONLY the marker
+    // strips to '' → onResult already skips empty text, but guard below handles it anyway.
+    const { forced, text } = applyForceText(rawText);
+    const modality = forced ? 'text' : this.outputMode;
+    if (forced) {
+      this.logger.info('force-text marker honored — delivering this reply as text-only', {
+        outputMode: this.outputMode,
+        chars: text.length,
+      });
+    }
+    // SEND-SIDE IDEMPOTENCY GUARD (seq-221 #1): suppress a same-turn duplicate — text
+    // byte-identical to what we last delivered for THIS turn (reset on each new user
+    // turn). Catches a duplicate result event, the PTY render race re-grabbing the prior
+    // turn's stale answer, and any other double-emit — independent of the render-side
+    // fix. A legitimately-identical answer to a DIFFERENT user turn still goes through
+    // (the guard was reset by handleInbound). Empty text is a no-op anyway (onResult
+    // already skips it), so don't treat "" as a meaningful last-sent.
+    if (text && text === this.lastSentText) {
+      this.logger.warn('suppressed duplicate outbound (same-turn, byte-identical)', { chars: text.length });
+      return;
+    }
+    // Log the outbound RESULT (ok + sentIds) so a forward to the channel is observable —
+    // delivery confirmation, not just an attempt. (Without this, a successful send was
+    // silent in the log, so we couldn't tell "delivered to the bot" from "never sent".)
+    // ★ OUTPUT MODALITY: the orchestrator's substantive reply carries the current mode
+    // (text/voice/dual) — the adapter renders TTS / sends the voice bubble accordingly —
+    // UNLESS the force-text marker forced it to 'text' for this one message (above).
+    // (Control sends — prompts, acks, system notices — go via opts.send WITHOUT options,
+    // so they stay text.) Empty text would be a no-op; the guard above already returned.
+    const r = await this.opts.send(this.operator, { text, options: { modality } });
+    if (r.ok) {
+      // Record as last-sent ONLY on success — a failed send must not poison the guard
+      // (a legitimate retry of the same text would otherwise be suppressed).
+      if (text) this.lastSentText = text;
+      this.logger.info('outbound delivered to operator', { sentIds: r.sentIds, chars: text.length });
+    } else {
+      this.logger.error('outbound send FAILED', { error: r.error, chars: text.length });
+      // ★ F1 — feed the DELIVERY FAILURE back into the session so the orchestrator KNOWS
+      // its own message did not reach the user (it is otherwise blind to its outbound).
+      // Inject as a follow-up turn (the driver queues it after the current turn). Success
+      // is implicit (no note); only failures are surfaced, to avoid chatter.
+      await this.feedDeliveryFailureToSession(r, text);
+    }
+  }
+
+  /**
+   * F1 — inject an out-of-band note telling the orchestrator its last reply did NOT
+   * reach the user (with the error + a hint to /channel-check). Best-effort, guarded
+   * two ways: (1) re-entrancy (the note's OWN send failure doesn't re-trigger), and
+   * (2) ★M3 — an OUTAGE COOLDOWN: at most one notice per DELIVERY_FAILURE_COOLDOWN_MS,
+   * so a sustained outage (note → orchestrator answers → answer-send fails → new note → …)
+   * yields ONE notice, not one per turn. After the cooldown a fresh failure re-notifies.
+   */
+  private async feedDeliveryFailureToSession(result: OutboundResult, failedText: string): Promise<void> {
+    if (this.feedingDeliveryFailure) return; // guard 1: don't loop on the note's own send
+    const now = Date.now();
+    if (now - this.lastDeliveryFailureNotifiedAt < DELIVERY_FAILURE_COOLDOWN_MS) {
+      // guard 2 (M3): still inside the outage cooldown — log but do NOT inject another
+      // note (avoids the per-turn cascade during a sustained channel outage).
+      this.logger.warn('delivery failure within outage cooldown — note suppressed', { error: result.error });
+      return;
+    }
+    this.lastDeliveryFailureNotifiedAt = now;
+    this.feedingDeliveryFailure = true;
+    try {
+      const preview = failedText.replace(/\s+/g, ' ').trim().slice(0, 80);
+      const note =
+        `[SUPERVISOR delivery-status] Your last reply did NOT reach the user ` +
+        `(error: ${result.error ?? 'unknown'}). Preview: "${preview}". ` +
+        `The user did NOT see it. Run /channel-check semantics — inspect the panel ` +
+        `(GET ${this.opts.panelUrl ?? 'the loopback panel'}/api/channel/state) and repair, ` +
+        `then resend if appropriate.`;
+      await this.lifecycle.sendUserTurn({ text: note });
+    } catch (err) {
+      this.logger.warn('delivery-failure feedback injection failed (non-fatal)', { err: String(err) });
+    } finally {
+      this.feedingDeliveryFailure = false;
+    }
+  }
+
+  /**
+   * ★ MODE-AWARENESS (on-change): inject an out-of-band note telling the orchestrator the
+   * output mode CHANGED (via the `/mode` command OR the panel Mode submenu), so it can adapt
+   * its replies (e.g. start using {@link FORCE_TEXT_MARKER} for links/paths once voiced).
+   * Best-effort and lightweight — only on a REAL change (`prev !== next`) and only when a
+   * session is running (sendUserTurn throws otherwise; we swallow it). NOT an `internal` turn:
+   * the orchestrator should carry the knowledge into its next user-visible reply. This is a
+   * READER of {@link outputMode} — it never writes it (P1: the caller already set the state).
+   */
+  private async injectModeChangeNotice(prev: OutputMode, next: OutputMode): Promise<void> {
+    if (prev === next) return; // no real change → nothing to tell the orchestrator
+    if (!this.lifecycle.health().running) {
+      // No running session to inject into yet — the FIRST-turn notice (handleInbound) will
+      // carry the current mode when the session next takes a turn. Avoid the throw + noise.
+      this.logger.info('output-mode change not injected (no running session); first-turn notice will carry it', {
+        from: prev,
+        to: next,
+      });
+      return;
+    }
+    try {
+      await this.lifecycle.sendUserTurn({ text: buildOutputModeNotice(next, true) });
+      this.logger.info('injected output-mode change notice into the orchestrator turn', { from: prev, to: next });
+    } catch (err) {
+      this.logger.warn('output-mode change notice injection failed (non-fatal)', { err: String(err) });
+    }
+  }
+
+  /** Health across lifecycle + router + pending permission asks. */
+  health(): {
+    started: boolean;
+    lifecycle: ReturnType<LifecycleManager['health']>;
+    permissions: ReturnType<PermissionRouter['getStats']>;
+    pendingPermissionAsks: number;
+  } {
+    return {
+      started: this.started,
+      lifecycle: this.lifecycle.health(),
+      permissions: this.router.getStats(),
+      pendingPermissionAsks: this.channelPermission?.pendingCount ?? 0,
+    };
+  }
+
+  /** Stop the hosted session. */
+  async stop(): Promise<void> {
+    this.stopLivenessScheduler();
+    this.stopProactiveWatch(); // ★ A5: tear down the proactive-watch timer (safe when not armed)
+    this.stopAutoSnapshot(); // ★ REDESIGN: tear down the auto-snapshot timer (safe when not armed)
+    await this.lifecycle.stop();
+    this.started = false;
+  }
+
+  /** Expose the router (for tests / status). */
+  get permissionRouter(): PermissionRouter {
+    return this.router;
+  }
+}

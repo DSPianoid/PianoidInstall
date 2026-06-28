@@ -1,0 +1,18 @@
+# Build output
+dist/
+
+# Build-backup rollback nets (created by the launcher before a prod-dist rebuild) — never commit
+dist.bak/
+dist.bak.*/
+
+# Dependencies
+node_modules/
+
+# Runtime state (supervisor's own state dir, if pointed here for local dev)
+.state/
+*.log
+
+# Secrets — never commit a token or .env
+.env
+.env.*
+!.env.example
