@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-wbscale | Fix intermittent workbench scaled-render bug (piano-axis titles double-windowed vs full values → empty/single-value bars on zoom). FE-only; committed feature/dev-wbscale cc1963b, HOLD for user test | [log](logs/dev-wbscale-2026-06-28-113524.md) | 2026-06-28 |
+| dev-excitlayout | Excitation lower-part 3-subsection uniform-height layout (Hammer-on-structure \| Mass \| Gauss+Copy/Paste) + read-only Hammer speed + Total calculated impulse in Mass subsection. FE-only, branch feature/dev-excitlayout off dev | [log](logs/dev-excitlayout-2026-06-28-000000.md) | 2026-06-28 |
 | dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
 | dev-5b2f | model-agnostic-ORCHESTRATOR T1: MultiTurnAdapterDriver (multi-turn + OpenAI tool_calls loop) — NEW module, additive/dormant, wired into nothing; throwaway-dist verify only, no live touch | [log](logs/dev-5b2f-2026-06-22-200229.md) | 2026-06-22 |
 | dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |

@@ -67,6 +67,14 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | dev-copyfix | `wt-copyfix-tunner/src/components/GaussEditor.jsx`, `wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx` | 2026-06-24T10:11:30Z | Gauss copy CELL-selection visual indication fix |
 | dev-hwheel3 | `wt-hwheel3-tunner/src/components/HammerStringChart.jsx`, `wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx` | 2026-06-24T13:45:00Z | Hammer #A chart-wheel drops ticks + #B width inconsistency (isolated worktree wt-hwheel3, branch feature/dev-hwheel3 off dev 8d78bf1) |
 | dev-fethrottle | `wt-fethrottle-tunner/src/components/newWindowChart.jsx`, `wt-fethrottle-tunner/src/utils/chartThrottle.js`, `wt-fethrottle-tunner/src/utils/__tests__/chartThrottle.test.js`, `wt-fethrottle-tunner/src/components/__tests__/newWindowChart.throttle.test.jsx` | 2026-06-24T12:05:00Z | Throttle FE live-chart (DynamicChart) update/render rate to cut GPU contention (distortion-fix #4; isolated worktree wt-fethrottle-tunner, branch feature/dev-fethrottle off dev 8d78bf1) |
+<!-- dev-excitlayout locks RELEASED 2026-06-28 at Step 10a Phase 1 (committed feature/dev-excitlayout, HOLD for user
+     live test; NOT pushed). Excitation lower-part 3-subsection uniform-height layout (Hammer-on-string | Mass &
+     momentum | Gauss+Copy/Paste; gauss = height reference) + read-only Hammer speed + Total calculated impulse
+     (totalImpulse = curveImpulseFromCharts × hammerSpatialImpulse; spatial via NEW useHammerSpatialImpulse →
+     GET /get_hammer_shape). Excitation.jsx container #ddd→theme bgcolor. package.json jest.moduleNameMapper
+     axios→cjs (new hook's axios import). Held+released: ExcitationProperties.jsx, Excitation.jsx,
+     excitationImpulse.js (+test), useHammerSpatialImpulse.js (NEW), ExcitationProperties.layout.test.jsx (NEW),
+     package.json. FE-only, NO CUDA. Jest 136/1424 PASS, ESLint 0 err. dev-excitlayout STAYS ALIVE. -->
 | <!-- (none active for dev-wbfix — released at Phase 2 close-out) --> | | | |
 <!-- dev-hxfix locks RELEASED 2026-06-22T16:21:00Z (committed, HOLD for user test + merge approval).
      BLOCKER has TWO halves, both COMMITTED on feature/dev-hxfix-reload-layout (off dev 579b525):
