@@ -67,6 +67,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | dev-copyfix | `wt-copyfix-tunner/src/components/GaussEditor.jsx`, `wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx` | 2026-06-24T10:11:30Z | Gauss copy CELL-selection visual indication fix |
 | dev-hwheel3 | `wt-hwheel3-tunner/src/components/HammerStringChart.jsx`, `wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx` | 2026-06-24T13:45:00Z | Hammer #A chart-wheel drops ticks + #B width inconsistency (isolated worktree wt-hwheel3, branch feature/dev-hwheel3 off dev 8d78bf1) |
 | dev-fethrottle | `wt-fethrottle-tunner/src/components/newWindowChart.jsx`, `wt-fethrottle-tunner/src/utils/chartThrottle.js`, `wt-fethrottle-tunner/src/utils/__tests__/chartThrottle.test.js`, `wt-fethrottle-tunner/src/components/__tests__/newWindowChart.throttle.test.jsx` | 2026-06-24T12:05:00Z | Throttle FE live-chart (DynamicChart) update/render rate to cut GPU contention (distortion-fix #4; isolated worktree wt-fethrottle-tunner, branch feature/dev-fethrottle off dev 8d78bf1) |
+<!-- dev-normfix locks RELEASED 2026-06-30 at Step 10a Phase 1 (committed feature/dev-normfix, HOLD for user
+     review; NOT pushed, live backend untouched). Corrected excitation normalization. Held+released:
+     PianoidBasic StringExcitation.py + StringMap.py (B: coefficient = c·m·v/(temporal×spatial), divide both
+     integrals; built+reinstalled wheel, L1-verified), PianoidCore excitation_coefficients.py (docstring) +
+     16 preset JSONs (A: output_scale recalibrated → p60 ff @ vol100/slider64 = −2.00 dBFS; new = old×ti²),
+     PianoidTunner excitationImpulse.js (+test) + ExcitationProperties.jsx (readout = delivered/calibrated
+     integral). SHAs: PianoidBasic d81afb2, PianoidCore 36b04b5, PianoidTunner 09ad11c. Tests: Core
+     excitation/preset/coeff 264 + incremental 7 pass; FE excitationImpulse+ExcitationProperties 53 pass.
+     C (loudness shape-independence) = MEASURED + REPORTED design decision (NOT implemented) — see log + WIP. -->
 <!-- dev-excitlayout locks RELEASED 2026-06-28 at Step 10a Phase 1 (committed feature/dev-excitlayout, HOLD for user
      live test; NOT pushed). Excitation lower-part 3-subsection uniform-height layout (Hammer-on-string | Mass &
      momentum | Gauss+Copy/Paste; gauss = height reference) + read-only Hammer speed + Total calculated impulse

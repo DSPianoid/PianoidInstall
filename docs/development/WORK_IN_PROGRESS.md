@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-normfix | Corrected excitation normalization: B coefficient=c·m·v/(temporal×spatial), C loudness shape-independence study, A per-preset output_scale recal, readout=calibrated integral. Branches feature/dev-normfix (Basic/Core/Tunner), HOLD for user test | [log](logs/dev-normfix-2026-06-30-112707.md) | 2026-06-30 |
 | dev-wbscale | Fix intermittent workbench scaled-render bug (piano-axis titles double-windowed vs full values → empty/single-value bars on zoom). FE-only; committed feature/dev-wbscale cc1963b, HOLD for user test | [log](logs/dev-wbscale-2026-06-28-113524.md) | 2026-06-28 |
 | dev-excitlayout | Excitation lower-part 3-subsection uniform-height layout (Hammer-on-structure \| Mass \| Gauss+Copy/Paste) + read-only Hammer speed + Total calculated impulse in Mass subsection. FE-only, branch feature/dev-excitlayout off dev | [log](logs/dev-excitlayout-2026-06-28-000000.md) | 2026-06-28 |
 | dev-e9d9 | Supervisor P-B1 (dispatch surface) + P-C1 (enforced spend cap) — additive/dormant/gated, caps default 0; throwaway-dist build only, no live touch | [log](logs/dev-e9d9-2026-06-21-103931.md) | 2026-06-21 |
@@ -11,6 +12,21 @@
 | dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |
 | dev-8513 | model-agnostic-ORCHESTRATOR T3: runTool permission/seal CHOKE-POINT (NEW orchestrator-tool-runner.ts) routing coordinate tools → permission router + sealed AsyncDispatchRegistry; index.ts GATED composition (construct registry from the sealed dispatchRoleAgent + inject into Panel, conditional-spread, byte-for-byte OFF). Driver-selection NOT switched (T4). ADDITIVE/DORMANT; throwaway-build verify only, no live touch | [log](logs/dev-8513-2026-06-22-205048.md) | 2026-06-22 |
 | dev-896b | model-agnostic-ORCHESTRATOR T4 (CONNECTS T1–T3): resolveOrchestratorDriver(model) (driver-policy.ts) + gated MultiTurnAdapterDriver construction in index.ts (non-Claude model → the multi-turn adapter with ORCHESTRATOR_COORDINATE_TOOLS + the late-bound sealed runTool; Claude → the original cli-stream/sdk ternary, byte-for-byte) + non-Claude ids (deepseek/codex/gemini) in CONTROL_MODEL_CHOICES + ORCHESTRATOR_TOOL_NAMES in the orchestrator allow-list. ADDITIVE/DORMANT (default model = Claude → byte-for-byte). Throwaway-build verify only, no live touch | [log](logs/dev-896b-2026-06-22-181230.md) | 2026-06-22 |
+
+<!-- DOC-GAP + DESIGN-DECISION DEFERRAL (dev-normfix, 2026-06-30, HOLD for user review):
+     (1) DOC GAP — the excitation-coefficient model is now coefficient = c·m·v / (∫temporal × ∫spatial)
+         (divide BOTH integrals; delivered impulse = c·m·v, shape-independent; spatial measured =1.0 exactly).
+         Updated in CODE docstrings (StringExcitation.compose_excitation_coefficient, StringMap pack/compose,
+         excitation_coefficients.py). STILL STALE (state multiply/conserve product): docs/proposals/
+         excitation-physical-energy-2026-06-16.md §3.2 + docs/development/excitation-coefficient-consolidation-2026-06-18.md.
+         Update those to the divide-both model when the C decision (below) lands. Owner: next excitation /dev. ETA: with C decision.
+     (2) C DESIGN DECISION NEEDED — measured (audio_off, Fanera6exc): B (impulse conservation) does NOT make
+         rendered loudness shape-independent. ~31 dB rendered spread vs 8.6 dB impulse; ~9 dB loudness variation
+         at MATCHED impulse driven by temporal curve shape (p47 ti=10.9 −42.5dB vs p56 ti=4.5 −33.5dB). The kernel
+         must stay untouched (user model), so flattening loudness=impulse is a DESIGN DECISION, not a clean fix.
+         Options surfaced to user (see dev-normfix log + report): (A) per-pitch excitation-curve leveling
+         (levels_matrix[:,2,:], the memory project_perpitch_volume_ripple fix; no timbre cost, separate from B);
+         (B) redefine loudness metric (sustained-RMS vs attack-peak); (C) accept as timbre. NOT implemented — held. -->
 
 <!-- DOC DEFERRAL + T5 ACTIVATION RECIPE (dev-896b, 2026-06-22): the model-agnostic-ORCHESTRATOR T4 wiring
      (the CONNECTING phase) on feature/model-agnostic-orchestrator-tier1, stacked on T3 9edfb74 — is
