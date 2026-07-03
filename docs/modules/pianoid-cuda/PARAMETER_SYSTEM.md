@@ -150,6 +150,26 @@ does this: on a `length` edit it injects `params['dx'] = pitch.geometry.dx()` so
 upload loop sends `updateMultiStringParameter_NEW("dx", ...)`. See
 `docs/architecture/DATA_FLOWS.md` §2.1.
 
+### Excitation-coefficient recompose is HAMMER-ONLY on the granular physical path
+
+The per-(string, level) excitation coefficient is `c · mass · speed / (temporal · spatial)`
+(see `excitation_coefficients.py`). Its factors are the global calibration `c`, the hammer
+`mass` (`hammer_mass`), the per-velocity `speed`, the excitation-curve `temporal`
+(`level_impulse`, a point-sum over `excitation_length`/`excitation_factor` — **model** params),
+and the hammer `spatial` (`hammer_spatial_impulse`). **No string-physics parameter**
+(`tension`, `stiffness`, `damping`, `density`, `radius`, `length`, `dx`, …) feeds any of
+these factors — a pure string-physics edit leaves the coefficient table byte-identical
+(measured: `coeff_cells_changed == 0` for every strings-panel param).
+
+Therefore `update_pitch_physical_params_GRANULAR` recomposes the coefficient **only when the
+edit actually touched hammer geometry** (`hammer_params` non-empty). It previously called the
+full `CoefficientCache.seed()` rebuild (~200 ms) **unconditionally, once per pitch** — a
+no-op on string-physics edits that froze a multi-pitch/range strings edit for seconds
+(2.5 s for a 12-pitch octave). Fixed 2026-07-03 (dev-strregr); guard:
+`tests/system/test_strings_panel_edit_latency.py`. The string tension → fundamental path
+itself is unaffected (raw `tension` slot → in-kernel `coeff_tension` → `shift_1`; see
+[SYNTHESIS_ENGINE.md](SYNTHESIS_ENGINE.md)).
+
 ---
 
 ## Bulk API (Preset-Based)

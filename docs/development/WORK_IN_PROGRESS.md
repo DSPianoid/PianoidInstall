@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-strregr | Strings-panel edit regression: granular physical path fired ~206ms no-op excitation-coeff rebuild PER PITCH → multi-pitch/range strings edit froze seconds ("no effect at first, then delayed jump"). FIXED (gate rebuild on hammer_params); committed feature/dev-strregr 4ba9913, HOLD for user test. Separate finding flagged: offline output pitch doesn't track tension (mode-dominated, pre-existing) | [log](logs/dev-strregr-2026-07-03-050545.md) | 2026-07-03 |
 | dev-normfix | Corrected excitation normalization: B coefficient=c·m·v/(temporal×spatial), C loudness shape-independence study, A per-preset output_scale recal, readout=calibrated integral. Branches feature/dev-normfix (Basic/Core/Tunner), HOLD for user test | [log](logs/dev-normfix-2026-06-30-112707.md) | 2026-06-30 |
 | dev-wbscale | Fix intermittent workbench scaled-render bug (piano-axis titles double-windowed vs full values → empty/single-value bars on zoom). FE-only; committed feature/dev-wbscale cc1963b, HOLD for user test | [log](logs/dev-wbscale-2026-06-28-113524.md) | 2026-06-28 |
 | dev-excitlayout | Excitation lower-part 3-subsection uniform-height layout (Hammer-on-structure \| Mass \| Gauss+Copy/Paste) + read-only Hammer speed + Total calculated impulse in Mass subsection. FE-only, branch feature/dev-excitlayout off dev | [log](logs/dev-excitlayout-2026-06-28-000000.md) | 2026-06-28 |
