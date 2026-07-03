@@ -170,6 +170,35 @@ no-op on string-physics edits that froze a multi-pitch/range strings edit for se
 itself is unaffected (raw `tension` slot → in-kernel `coeff_tension` → `shift_1`; see
 [SYNTHESIS_ENGINE.md](SYNTHESIS_ENGINE.md)).
 
+### Range / multi-pitch edits are BATCHED into one swap per param (DROP_IF_BUSY)
+
+The double-buffer upload policy defaults to `DROP_IF_BUSY`: a `updateMultiStringParameter_NEW`
+issued while a prior swap is still in-flight (`update_state_ != IDLE`) returns `false` and is
+**silently dropped** (`updates_dropped_++`, `UnifiedGpuMemoryManager.cu`). It also read-modify-writes
+`dev_preset_working_`, which only reflects a prior update **after** that update's swap completes.
+
+A Strings-panel **range / multi-select** edit reaches `ParameterManager.update_parameter('string', …)`.
+It previously looped the pitches, calling `update_pitch_physical_params_GRANULAR` **per pitch**, each
+issuing its own upload with **no `waitForParameterUpdate()` first** → one swap per pitch, back-to-back.
+Under `DROP_IF_BUSY` most were dropped: **measured 11 of 12 pitches lost** (only 1 reached the engine),
+24/24 for a 24-pitch range, 198/200 rapid single edits. The UI showed every pitch changed (Python model
+updated) but the engine got ~1 → the user's "no effect / not as expected".
+
+Fixed 2026-07-03 (dev-strbatch). `update_parameter('string'/'physics')` now calls
+`update_pitches_physical_params_GRANULAR(pitches, values)`, which:
+1. applies each pitch's edit to the model + CFL-gates it (unstable pitches' writes skipped, worst
+   offender sets the `cfl_redline` flag);
+2. **aggregates every stable pitch's `(string_index, value)` writes per param** and issues **one**
+   `updateMultiStringParameter_NEW` per distinct param via `_gpu_upload` (which calls
+   `waitForParameterUpdate()` first). One double-buffer swap for the whole range, regardless of size;
+3. recomposes the excitation coefficient **once** for the batch (only if a pitch touched hammer geometry).
+
+The single-pitch path (`update_pitch_physical_params_GRANULAR`, still used by `auto_tuner` + REST single
+edits) now also routes through `_gpu_upload` — so rapid single edits wait for the prior swap instead of
+being dropped. Result: **0 drops**, one swap per param (a one-param range edit = one swap; multi-param is
+rare and costs one swap per distinct param — Python-only, no new C++ primitive). The `(index,value)` math
+is byte-identical to the pre-batch inline path. Guard: `tests/system/test_strings_panel_batch_upload.py`.
+
 ---
 
 ## Bulk API (Preset-Based)
@@ -211,11 +240,15 @@ corresponding named sub-buffer.
 
 Before a **granular** string edit reaches the kernel, the middleware runs a host-side Courant/CFL
 stability check so a destabilising edit cannot diverge the FDTD solver. The guard
-`ParameterManager._skip_unstable_physical_upload(pitches)` is called inside
-`update_pitch_physical_params_GRANULAR` (the `updateMultiStringParameter_NEW` per-string path — the
-Strings-panel edit path), immediately before the GPU upload, after the Python model already holds the
-edit. It computes the FDTD amplification `max|g|` (closed form, `cfl_stability.py`, per-string
-`tension_offset` honored) over the affected pitch's *current* model physics:
+`ParameterManager._skip_unstable_physical_upload(pitches)` is called inside the **single-pitch**
+`update_pitch_physical_params_GRANULAR` (the `updateMultiStringParameter_NEW` per-string path),
+immediately before the GPU upload, after the Python model already holds the edit. The **batch**
+range path (`update_pitches_physical_params_GRANULAR`, dev-strbatch 2026-07-03) applies the **same
+per-pitch check** (`_pitch_upload_amp` + `is_stable_with_margin`): an unstable pitch's writes are
+skipped, and the **worst offender across the whole range** sets the `cfl_redline` flag (via
+`_set_cfl_redline`), else the flag is cleared. Both compute the FDTD amplification `max|g|` (closed
+form, `cfl_stability.py`, per-string `tension_offset` honored) over the affected pitch's *current*
+model physics:
 
 - **reject** — when the edit breaches the CFL **safety** bound: either the worst-string **Courant number**
   `(coeff_tension − 8·coeff_bending) ≥ CFL_MARGIN` (the upper-edge headroom, currently `0.8`) **or**

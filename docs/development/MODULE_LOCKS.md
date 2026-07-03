@@ -64,6 +64,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-strbatch locks RELEASED 2026-07-03 at Step 10a Phase 1 (committed feature/dev-strregr, HOLD for
+     user test; NOT pushed). Batch-upload fix for strings-panel parameter drops: update_parameter('string')
+     per-pitch loop issued one updateMultiStringParameter_NEW swap per pitch with NO wait → DROP_IF_BUSY
+     silently dropped 11/12 of a range edit (198/200 rapid). FIX (parameter_manager.py, Python-only, NO CUDA):
+     new update_pitches_physical_params_GRANULAR batches all pitches' (string,value) per param into ONE
+     _gpu_upload (wait-first) = one swap for the whole range; single path also routed through _gpu_upload.
+     Held+released: PianoidCore pianoid_middleware/parameter_manager.py + tests/system/test_strings_panel_batch_upload.py (NEW).
+     AFTER: 0 drops, all 36/36 strings reach GPU, range12 1.2ms / range24 62ms (ONE swap). Live backend confirmed
+     (200, no freeze). 5 pre-existing CFL raise-tests + 3 preset_switching tests fail IDENTICALLY at baseline
+     (not this change). Doc: docs/modules/pianoid-cuda/PARAMETER_SYSTEM.md. -->
 | dev-copyfix | `wt-copyfix-tunner/src/components/GaussEditor.jsx`, `wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx` | 2026-06-24T10:11:30Z | Gauss copy CELL-selection visual indication fix |
 | dev-hwheel3 | `wt-hwheel3-tunner/src/components/HammerStringChart.jsx`, `wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx` | 2026-06-24T13:45:00Z | Hammer #A chart-wheel drops ticks + #B width inconsistency (isolated worktree wt-hwheel3, branch feature/dev-hwheel3 off dev 8d78bf1) |
 | dev-fethrottle | `wt-fethrottle-tunner/src/components/newWindowChart.jsx`, `wt-fethrottle-tunner/src/utils/chartThrottle.js`, `wt-fethrottle-tunner/src/utils/__tests__/chartThrottle.test.js`, `wt-fethrottle-tunner/src/components/__tests__/newWindowChart.throttle.test.jsx` | 2026-06-24T12:05:00Z | Throttle FE live-chart (DynamicChart) update/render rate to cut GPU contention (distortion-fix #4; isolated worktree wt-fethrottle-tunner, branch feature/dev-fethrottle off dev 8d78bf1) |
