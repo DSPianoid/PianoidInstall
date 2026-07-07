@@ -4,6 +4,13 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-derivedwb locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed PianoidTunner a551b88 on test/excitation-panel,
+     HOLD for user live test; NOT pushed). Derived-parameter workbench-tagging (view-only): new utils/derivedWorkbench.js +
+     hooks/useCflStability.js; also touched workbenchColor.js/useCurrentValues.js/PianoidTuner.js/Excitation.jsx/
+     ExcitationProperties.jsx/Mode.jsx/workbenchRegistry.js/workbenchTitle.js + 4 tests. FE-only, no CUDA. Jest 1475 green,
+     ESLint 0 err, CRA build OK, live-verified all 3 derived types on :3000. -->
+| <!-- (none active for dev-derivedwb — committed a551b88, HOLD) --> | | | |
+
 <!-- dev-crashfix lock RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 37768c2, HOLD for
      user live test; NOT pushed). P0: clicking a gauss chart component crashed "Cannot read properties of undefined
      (reading '<gaussIndex>')" in the PianoidTuner selectedParameter-sync useEffect (unguarded triple map over
@@ -74,6 +81,36 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-sumstrip locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel a4499a2, HOLD for
+     user live test; NOT pushed). Gauss summation UI: separate MUI "Summation" Switch → "Sum" LEGEND STRIP. FIX
+     (GaussChart.jsx + gaussSeries.js, FE-only NO CUDA): SUMMATION_NAME "Summation"→"Sum"; the black summation series
+     is now a normal legend strip added to legend.data=[...components,"Sum"] (same size, black marker); Switch +
+     FormControlLabel/Divider removed. Persistence (bug #2): showSummation React-owned, re-applied every rebuild via
+     legend.selected={"Sum":showSummation} (authoritative) + onEvents.legendselectchanged mirrors a "Sum" click back
+     into showSummation; belt-and-suspenders showSummation also empties the summation series data when off. Ghosts
+     ALWAYS named by caption (dropped single-mode "Sum" name → no legend-name collision); dead single-mode "Sum" click
+     branch removed; summation-line-click still ignored. Held+released: GaussChart.jsx (309→296 LOC), gaussSeries.js
+     (158→162), __tests__/GaussChart.summationToggle.test.jsx (rewritten to legend-strip form), __tests__/gaussSeries.test.js.
+     17 gauss/excitation suites / 129 tests PASS (+1), ESLint 0. LIVE-verified on :3000 fresh page (user tabs untouched,
+     Belarus preset, pitch 60): "Sum" strip sits with components 1-5 (same size, BLACK); toggle OFF → black line
+     gone/greyed AND STAYS off across level-change (forte) + gauss-param-edit (mu 6.11→6.50, restored) → legend.selected
+     {"Sum":false}+dataLen 0; toggle ON → returns (dataLen 801); 0 console errors. Screenshots dev-sumstrip-sum-on.png /
+     dev-sumstrip-sum-off.png. Root PianoidInstall docs (OVERVIEW GaussChart row + WIP row + this log + 2 screenshots)
+     left uncommitted for the merge-sweep. -->
+| <!-- (none active for dev-sumstrip — committed a4499a2, HOLD) --> | | | |
+<!-- dev-legend locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 75d53fe, HOLD for
+     user live test; NOT pushed). Gauss chart top-legend redesign: (1) selected level MARKED via custom MUI Chip
+     row (filled primary + 2px frame + shadow, follows selectedLevel); (2) level-toggle legend strips REMOVED —
+     ECharts legend.data restricted to component names 1..N, levels are a chip selector (onLevelSelect); (3)
+     grouping/spacing [Level chips] | [components 1-5] | [Summation switch], header pr reserves room for the
+     parent's absolute F(t) button that was occluding the label; (4) summation is switch-ONLY driven by the
+     summation series DATA (showSummation → empty when off), legend.selected + legendselectchanged REMOVED, so
+     fortissimo & Summation are no longer adjacent identical strips. FE-only NO CUDA. Held+released: GaussChart.jsx,
+     gaussSeries.js, __tests__/GaussChart.summationToggle.test.jsx, __tests__/gaussSeries.test.js. 17 gauss/excitation
+     suites / 128 tests PASS, ESLint 0. LIVE-verified on :3000 fresh page (user tabs untouched): selected-level marker
+     moves on level click, level strips gone, three groups separated, summation toggle off→black line gone/on→restored,
+     0 console errors. Root PianoidInstall docs (OVERVIEW GaussChart row + WIP row + this log + screenshots) left
+     uncommitted for the merge-sweep. -->
 | dev-cflgate | `wt-cflgate-tunner/src/hooks/useCflStability.js`, `wt-cflgate-tunner/src/hooks/__tests__/useCflStability.test.js` | 2026-07-07T10:35:00Z | LIVE-VERIFY fix: chart name stability_ratio→cfl_ratio + key_range→all + select-pitch-from-point_meta (arbitrary fromNtoM rejected by chart param choices) |
 <!-- dev-gausstoggle locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 50b1815,
      HOLD for user live test; NOT pushed). Bug #2: Gauss black-summation legend toggle didn't stick
