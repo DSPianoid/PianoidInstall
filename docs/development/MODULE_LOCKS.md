@@ -4,9 +4,6 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
-| Agent | Files | Locked At | Task |
-|-------|-------|-----------|------|
-| dev-hammertweak | `PianoidTunner/src/components/HammerStringChart.jsx` | 2026-07-07T14:38:00Z | Widen hammer chart canvas to full column width (keep height) + enlarge/distinguish zoom button (main checkout, branch test/excitation-panel) |
 <!-- dev-crashfix lock RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 37768c2, HOLD for
      user live test; NOT pushed). P0: clicking a gauss chart component crashed "Cannot read properties of undefined
      (reading '<gaussIndex>')" in the PianoidTuner selectedParameter-sync useEffect (unguarded triple map over
