@@ -4,6 +4,19 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+| Agent | Files | Locked At | Task |
+|-------|-------|-----------|------|
+| dev-hammertweak | `PianoidTunner/src/components/HammerStringChart.jsx` | 2026-07-07T14:38:00Z | Widen hammer chart canvas to full column width (keep height) + enlarge/distinguish zoom button (main checkout, branch test/excitation-panel) |
+<!-- dev-crashfix lock RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 37768c2, HOLD for
+     user live test; NOT pushed). P0: clicking a gauss chart component crashed "Cannot read properties of undefined
+     (reading '<gaussIndex>')" in the PianoidTuner selectedParameter-sync useEffect (unguarded triple map over
+     excitationHistory.values). FIX (PianoidTuner.js only, FE NO CUDA): collapsed to one optional-chained map
+     (item?.[levelValue]?.[gaussIndex]?.[name]) + Object.values(...||{}), matching the reviewed computeWorkbenchValues
+     sibling. NOT a 50b1815 regression (that touched only GaussChart/gaussSeries). Jest 101/101 (excitation/gauss/
+     rowEditor) + ESLint 0; live-verified no-crash on component 5/4/1 clicks + summation toggle intact. Held+released:
+     PianoidTunner/src/PianoidTuner.js. -->
+| <!-- (none active for dev-crashfix — committed 37768c2, HOLD) --> | | | |
+
 <!-- dev-volcal locks RELEASED 2026-06-24 (committed + MERGED --no-ff -> dev + PUSHED in all 3 repos;
      coordinator-relayed user GO). 3-layer volume calibration: A re-anchor EXCITATION_IMPULSE_CALIBRATION
      (1.131e-06->2.334e8, post-C soundFloat ~O(1)); C per-curve [0:1] volume normalization (marker-authoritative
@@ -64,6 +77,78 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+| dev-cflgate | `wt-cflgate-tunner/src/hooks/useCflStability.js`, `wt-cflgate-tunner/src/hooks/__tests__/useCflStability.test.js` | 2026-07-07T10:35:00Z | LIVE-VERIFY fix: chart name stability_ratio→cfl_ratio + key_range→all + select-pitch-from-point_meta (arbitrary fromNtoM rejected by chart param choices) |
+<!-- dev-gausstoggle locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 50b1815,
+     HOLD for user live test; NOT pushed). Bug #2: Gauss black-summation legend toggle didn't stick
+     (disappeared then reappeared) + was mixed among the level entries. FIX (GaussChart.jsx + gaussSeries.js,
+     FE-only NO CUDA): dedicated `summation` series (name "Summation", bold black) distinct from the now-uniform
+     ghost `sum-<level>` level lines; `showSummation` React state re-applied every rebuild via
+     legend.selected["Summation"] (authoritative persistence) + dedicated MUI Switch, synced with the legend
+     strip via legendselectchanged; summation-line click ignored. Held+released: GaussChart.jsx, gaussSeries.js,
+     __tests__/gaussSeries.test.js, __tests__/GaussChart.summationToggle.test.jsx (NEW). 16 targeted + 125
+     Gauss/Excitation suite tests PASS, ESLint 0. Verified deterministically on the observing surface (the
+     ECharts option.legend.selected across level-change/param-edit/legend-toggle); live visual DEFERRED to user
+     HMR (a pitch-populated chart needs a preset load = backend reinit, declined to not disrupt the active
+     session). PianoidInstall root docs (OVERVIEW GaussChart row + WIP row + this log) left uncommitted for the
+     merge-sweep. -->
+<!-- dev-fdd3 locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 984dfd9,
+     HOLD for user live test; NOT pushed). Height-match Excitation "Hammer on string" subsection to the
+     "Gauss parameters" table: Excitation.jsx matrix-tools-container height 220px→174px (hug gauss). The
+     old 220px left ~46px empty below the compact gauss grid while the hammer chart (flex:1 1 140px)
+     expanded to fill → hammer towered. height:auto rejected (hammer col's 140px chart flex-basis = ~217px
+     intrinsic drives the stretched row, not gauss). 174px = live-measured gauss natural content 152px +
+     container padding/border 21px +1px slack. Live before/after (maximized, pitch 60): hammer col 199→153
+     = gauss col 199→153 (matched); gauss content 152→151 no clip; hammer canvas 122→76 (usable, >60);
+     Pos/Width/Sharp not clipped. Jest 107/107 (Excitation+HammerStringChart), ESLint 0 err. FE-only, NO CUDA.
+     Held+released: PianoidTunner/src/components/Excitation.jsx (edited). Session log + before/after PNGs left
+     uncommitted in PianoidInstall root for the merge-sweep. dev-fdd3 STAYS ALIVE for user live-test feedback. -->
+<!-- dev-exp2 locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-excitimpl-p2 fa15549
+     off p1 1b831ac; NOT pushed; PAUSED before Phase 3 — :5000 left UP on Belarus for user panel test).
+     Universal-excitation Phase 2: bow/WRAP (continuous re-emission gated on dec_open==DUMP_OPEN held;
+     note-off -> CLAMP tail-out via damper) + per-pitch hammer/bow TYPE (host excitation_mode_ ->
+     facade string_excitation_params[+1] -> gaussKernel descriptor; setPitchExcitationMode pybind +
+     POST /set_excitation_mode). Held+released (all committed): constants.h, MainKernel.cu, gaussTest.cu,
+     Pianoid_excitation.cu, Pianoid.cu, Pianoid.cuh, Pianoid_parameters.cu, AddArraysWithCUDA.cpp,
+     pianoid_middleware/pianoid.py, backendServer.py. Built --heavy --both (marker verified). Verified:
+     bow-sustains(1.34)/hammer-decays(0.19)/clean-tail-out, both finite; default hammer byte-identical
+     (force bit-exact + within-noise 5.84e-5<=8.19e-5 vs Phase-1 baseline); 7 pre-existing test fails/17
+     pass, no new. Un-normalized bow louder = Phase 4. PianoidInstall docs (log, sustain diagnostic,
+     SYNTHESIS_ENGINE.md Phase-2 note, WIP row) left uncommitted in root tree for merge-sweep. -->
+| <!-- (none active for dev-exp2 — committed fa15549, HOLD + PAUSED) --> | | | |
+<!-- dev-cflgate locks RELEASED 2026-07-07 at Step 10a Phase 1 (FE committed feature/dev-cflgate 109eed0 in
+     isolated worktree wt-cflgate-tunner, HOLD for user/team-lead live test; NOT pushed). Read-only CFL/Courant
+     stability FILL indicator. Held+released: NEW FillGauge.jsx (shared proportional fill: ok/warn/over theme
+     zones, warn+redline markers, numeric readout, data-zone/data-fillpct hooks) + NEW useCflStability.js
+     (debounced read of existing host-side stability_ratio chart, parseCflResponse) + NEW CflIndicator.jsx
+     (hook+gauge, CFL semantics) + Strings.jsx (consume passed pitch prop, mount indicator) + Excitation.jsx
+     (mount same indicator, read-only pitch-keyed context). ExcitationProperties.jsx locked precautionarily but
+     NOT edited. FE-only, NO CUDA. NEW tests FillGauge.test.jsx + useCflStability.test.js (11). Full Jest
+     139/1443 PASS, ESLint 0 err. LIVE-VERIFY DEFERRED (backend :5000 down mid dev-excitp1 rebuild; data path
+     validated by code-read of cfl_ratio_function + unit tests vs its exact payload shape). ★BACKEND HALF (actually
+     un-blocking the gate) FLAGGED+PAUSED — see WORK_IN_PROGRESS.md BACKEND DEFERRAL block. Root docs/WIP/log left
+     uncommitted for the merge-sweep. dev-cflgate STAYS ALIVE for live-verify + backend sequencing. -->
+| <!-- (none active for dev-cflgate — committed FE, HOLD) --> | | | |
+<!-- dev-exp1 locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-excitimpl-p1 1b831ac,
+     HOLD for user/team-lead review; NOT pushed). Universal-excitation Phase 1: per-string traversal
+     descriptor (dev_exct_descriptor, AoS 3 ints/string [loop_start,loop_end,loop_mode]) + parameterized
+     excitation boundary policy (CLAMP only) rewriting MainKernel (B) read-guard + (C) advance; note-on
+     init in gaussKernel + STATIC_INPUT registration default. Held+released (all committed): constants.h,
+     Pianoid.cu, Pianoid.cuh, MainKernel.cu, MainKernel.cuh, gaussTest.cu, gaussTest.cuh, Pianoid_synthesis.cu.
+     BYTE-IDENTICAL verified: force_function bit-exact across renders + finite; 18-note audio after-vs-baseline
+     max 6.42e-5 <= engine's own run-to-run noise floor 8.19e-5 (float atomicAdd non-determinism — strict
+     bit-exact audio impossible by construction, measured); excitation-coeff+interpolation+CFL suites 7
+     pre-existing fails / 17 pass, NO NEW fails. Built --heavy --both (release+debug .pyd @ 12:46, marker
+     verified). Engine LEFT RUNNING healthy on :5000 (88 notes) per brief. PianoidInstall docs (log, 2
+     diagnostics, SYNTHESIS_ENGINE.md Phase-1 note, WIP row) left uncommitted in root tree for the merge-sweep.
+     EXCT_MODE_WRAP = Phase 2 hook (present, unimplemented). -->
+| <!-- (none active for dev-exp1 — committed 1b831ac, HOLD for review) --> | | | |
+<!-- dev-excitdoc locks RELEASED 2026-07-07 at Step 10a Phase 1 (CUDA committed feature/dev-excitdoc 3f11e1e in
+     PianoidCore, BUILD DEFERRED — live backend :5000 pid 12644 holds the .pyd; fix is behaviorally inert since
+     the MM registration memset already owns the silent-tail invariant, so the running engine is correct either
+     way; rebuild lands on the next natural restart/merge). Held+released: PianoidCore/pianoid_cuda/Pianoid.cu
+     (removed redundant mis-strided initializeKernel force_function zeroing + invariant comment). Docs (SYNTHESIS_ENGINE.md
+     Temporal Segmentation & Grid Reconciliation + silent-tail invariant; pianoid-tunner OVERVIEW engine-grid flag
+     RESOLVED) left uncommitted in the PianoidInstall root tree for the merge-sweep. NOT pushed. -->
 <!-- dev-hammerlayout locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-hammerlayout
      ff99740, HOLD for user live test; NOT pushed). Hammer "Hammer on string" subsection overflow: LEFT column
      content 217px > 199px stretched (alignItems:stretch) → Pos/Width/Sharp control row clipped by the fixed-220px
@@ -86,6 +171,21 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | dev-copyfix | `wt-copyfix-tunner/src/components/GaussEditor.jsx`, `wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx` | 2026-06-24T10:11:30Z | Gauss copy CELL-selection visual indication fix |
 | dev-hwheel3 | `wt-hwheel3-tunner/src/components/HammerStringChart.jsx`, `wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx` | 2026-06-24T13:45:00Z | Hammer #A chart-wheel drops ticks + #B width inconsistency (isolated worktree wt-hwheel3, branch feature/dev-hwheel3 off dev 8d78bf1) |
 | dev-fethrottle | `wt-fethrottle-tunner/src/components/newWindowChart.jsx`, `wt-fethrottle-tunner/src/utils/chartThrottle.js`, `wt-fethrottle-tunner/src/utils/__tests__/chartThrottle.test.js`, `wt-fethrottle-tunner/src/components/__tests__/newWindowChart.throttle.test.jsx` | 2026-06-24T12:05:00Z | Throttle FE live-chart (DynamicChart) update/render rate to cut GPU contention (distortion-fix #4; isolated worktree wt-fethrottle-tunner, branch feature/dev-fethrottle off dev 8d78bf1) |
+<!-- dev-gaussfix locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-gaussfix 37553f6 in
+     worktree wt-gaussfix, HOLD for user/team-lead live test; NOT pushed). Gauss-viz P2-P4: (P2) single-source
+     engine-correct evaluator excitationImpulse.js componentForce = max(exp(-0.5z^2)-shift,0)*vol used by BOTH
+     curveImpulse (readout) + new sampleForceCurves (chart) => DRAWN==INTEGRATED==SYNTHESIZED; domain 0..10->0..8
+     (endpoint silent). (★summation-stable-on-click) NEW pure utils/gaussSeries.js buildGaussSeries = CONSTANT
+     stable-id series set (sum-<level> x5 + comp-<i> x5, ids independent of selection) + GaussChart memoizes
+     per-level curves on DATA => selection click never re-refs sum data => ECharts merge never reshuffles/ghosts
+     the black sum. (P3) y-axis 'Force', 0-8ms x, scroll legend. (P4) deleted unreferenced CompositeGaussianChart.jsx;
+     removed dead matrix/handleInputChange/rowRefs + console.logs (GaussChart 388->215 LOC); TestChart.jsx KEPT
+     (wired to /chart-compare + /gauss-demo routes). Held+released (worktree paths): GaussChart.jsx, excitationImpulse.js,
+     gaussSeries.js (NEW), __tests__/excitationImpulse.test.js, __tests__/gaussSeries.test.js, CompositeGaussianChart.jsx (deleted).
+     FE-only, NO CUDA. Tests: 46 targeted + full Jest 138 suites/1449 pass, ESLint 0. LIVE verified on :3002 (fixed bundle,
+     safe same-preset load): mu=6.14 lobe peaks 6.12ms (was ~5), summation stable on level change, 0 console errors.
+     Root docs (OVERVIEW.md GaussChart row + engine-grid k*7-vs-k*8 flag + WIP row) left uncommitted for the merge-sweep.
+     ENGINE FLAG for user: kernel gaussTest.cu:62-65 x-grid = k*(EF-1)/L (0-7) vs impulse/readout k*EF/L (0-8) — backend item. -->
 <!-- dev-normfix locks RELEASED 2026-06-30 at Step 10a Phase 1 (committed feature/dev-normfix, HOLD for user
      review; NOT pushed, live backend untouched). Corrected excitation normalization. Held+released:
      PianoidBasic StringExcitation.py + StringMap.py (B: coefficient = c·m·v/(temporal×spatial), divide both

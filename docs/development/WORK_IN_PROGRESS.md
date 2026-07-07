@@ -4,6 +4,21 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-gausstoggle | GaussChart black-summation legend toggle doesn't stick (disappears then reappears) + is confusingly mixed among the level entries. Persist summation visibility in React state + give it its own distinct control. FE-only, branch test/excitation-panel | [log](logs/dev-gausstoggle-2026-07-07-141231.md) | 2026-07-07 |
+| dev-hammertweak | Widen HammerStringChart canvas to full column width (keep height-match) + enlarge/distinguish the zoom button. FE-only, branch test/excitation-panel | [log](logs/dev-hammertweak-2026-07-07-143742.md) | 2026-07-07 |
+| dev-crashfix | P0: clicking a gauss chart component crashes ("Cannot read properties of undefined (reading '4')") in a PianoidTuner useEffect. Guard the unguarded gauss triple-map. FE-only, branch test/excitation-panel | [log](logs/dev-crashfix-2026-07-07-144118.md) | 2026-07-07 |
+| dev-fdd3 | Height-match Excitation "Hammer on string" subsection to the Gauss parameters table (Excitation.jsx matrix-tools-container hard-coded 220px). FE-only, branch test/excitation-panel | [log](logs/dev-fdd3-2026-07-07-164043.md) | 2026-07-07 |
+| dev-cflgate | Refactor Courant/CFL stability GATE → visual FILL indicator (shows current Courant, red near 1); remove blocking behavior; unify structure/excitation panel fill indicators. FE-first, branch feature/dev-cflgate off dev | [log](logs/dev-cflgate-2026-07-07-121630.md) | 2026-07-07 |
+| dev-exp1 | Universal-excitation Phase 1: per-string traversal descriptor (`dev_exct_descriptor` AoS [loop_start,loop_end,loop_mode]) + parameterized excitation boundary policy (CLAMP only) rewriting MainKernel (B)/(C). BYTE-IDENTICAL refactor — verified force_function bit-exact + audio within run-to-run noise floor + no new test fails. CUDA on feature/dev-excitimpl-p1, committed, HOLD for user/team-lead review (NOT pushed). Phase 2 = WRAP/bow | [log](logs/dev-exp1-2026-07-07-091055.md) | 2026-07-07 |
+| dev-exp2 | Universal-excitation Phase 2: bow/WRAP mode (continuous re-emission, gated on dec_open=held) + per-pitch hammer/bow config (host `excitation_mode_` → facade `string_excitation_params[+1]` → gaussKernel descriptor; setter via pybind `setPitchExcitationMode` + `POST /set_excitation_mode`). Verified bow-sustains(1.34)/hammer-decays(0.19)/clean-tail-out; default hammer byte-identical (force bit-exact + within-noise); no new test fails. Un-normalized bow louder (Phase 4). CUDA on feature/dev-excitimpl-p2 (off p1), committed, HOLD (:5000 up on Belarus for user panel test — PAUSED before Phase 3) | [log](logs/dev-exp2-2026-07-07-103200.md) | 2026-07-07 |
+<!-- DEFERRED (universal-excitation, team-lead 2026-07-07) — "Phase 2b: user-settable + persistent bow assignment":
+     (1) preset-JSON per-pitch excitation-mode FIELD (persistence: load/save the hammer/bow assignment in the preset),
+     (2) FE excitation-type TOGGLE. Both HELD until AFTER Phase-4 power/steady-state normalization — the bow isn't
+     user-usable until then (currently loud/growing, as designed). Phase-2 provides the runtime hook only
+     (setPitchExcitationMode / POST /set_excitation_mode). Owner: excitation-impl track (dev-exp2 context held alive). -->
+
+| dev-excitdoc | Document excitation temporal SEGMENTATION + 0–7-vs-0–8 grid reconciliation in SYNTHESIS_ENGINE.md (closes the dev-gaussfix engine-grid flag); cleanup initializeKernel force_function mis-stride (remove redundant call, MM memset holds silent-tail invariant). Docs on master; CUDA on feature/dev-excitdoc, build DEFERRED (live backend holds .pyd). | [log](logs/dev-excitdoc-2026-07-07-102314.md) | 2026-07-07 |
+| dev-gaussfix | Gauss-viz P2-P4: shared engine-correct excitation evaluator (DOMAIN=8, per-component ReLU) + summation-stable-on-click (stable-id series) + axis/legend clarity + dead-code cleanup. FE-only, isolated worktree wt-gaussfix, branch feature/dev-gaussfix off dev | [log](logs/dev-gaussfix-2026-07-07-053723.md) | 2026-07-07 |
 | dev-hammerlayout | Fix hammer "Hammer on string" subsection height overflow — taller than Gauss subsection, pushes section out of panel bounds (dev-excitlayout height-match not holding). FE-only, branch feature/dev-hammerlayout off dev | [log](logs/dev-hammerlayout-2026-07-07-050815.md) | 2026-07-07 |
 | dev-strbatch | Batch-upload fix for strings-panel parameter drops: `update_parameter('string')` per-pitch loop issued one `updateMultiStringParameter_NEW` swap per pitch with NO wait → DROP_IF_BUSY silently dropped most of a range edit (11/12 dropped). Batch all pitches' (string,value) per param into ONE upload/swap; route single path through `_gpu_upload` (wait). Python-only, on feature/dev-strregr | [log](logs/dev-strbatch-2026-07-03-062900.md) | 2026-07-03 |
 | dev-strregr | Strings-panel edit regression: granular physical path fired ~206ms no-op excitation-coeff rebuild PER PITCH → multi-pitch/range strings edit froze seconds ("no effect at first, then delayed jump"). FIXED (gate rebuild on hammer_params); committed feature/dev-strregr 4ba9913, HOLD for user test. Separate finding flagged: offline output pitch doesn't track tension (mode-dominated, pre-existing) | [log](logs/dev-strregr-2026-07-03-050545.md) | 2026-07-03 |
@@ -15,6 +30,32 @@
 | dev-25a7 | model-agnostic-ORCHESTRATOR T2: teams-replacement — async agent registry + async panel routes (dispatch/async, status, await, cancel) + orchestrator tool manifest; ADDITIVE/DORMANT/gated-OFF, wired into nothing live; throwaway-build verify only, no live touch | [log](logs/dev-25a7-2026-06-22-172030.md) | 2026-06-22 |
 | dev-8513 | model-agnostic-ORCHESTRATOR T3: runTool permission/seal CHOKE-POINT (NEW orchestrator-tool-runner.ts) routing coordinate tools → permission router + sealed AsyncDispatchRegistry; index.ts GATED composition (construct registry from the sealed dispatchRoleAgent + inject into Panel, conditional-spread, byte-for-byte OFF). Driver-selection NOT switched (T4). ADDITIVE/DORMANT; throwaway-build verify only, no live touch | [log](logs/dev-8513-2026-06-22-205048.md) | 2026-06-22 |
 | dev-896b | model-agnostic-ORCHESTRATOR T4 (CONNECTS T1–T3): resolveOrchestratorDriver(model) (driver-policy.ts) + gated MultiTurnAdapterDriver construction in index.ts (non-Claude model → the multi-turn adapter with ORCHESTRATOR_COORDINATE_TOOLS + the late-bound sealed runTool; Claude → the original cli-stream/sdk ternary, byte-for-byte) + non-Claude ids (deepseek/codex/gemini) in CONTROL_MODEL_CHOICES + ORCHESTRATOR_TOOL_NAMES in the orchestrator allow-list. ADDITIVE/DORMANT (default model = Claude → byte-for-byte). Throwaway-build verify only, no live touch | [log](logs/dev-896b-2026-06-22-181230.md) | 2026-06-22 |
+
+<!-- BACKEND DEFERRAL (dev-cflgate, 2026-07-07) — the "REMOVE the CFL blocking" half of the task:
+     The FE read-only Courant FILL indicator (CflIndicator/FillGauge, Structure+Excitation panels) is DONE +
+     committed on PianoidTunner feature/dev-cflgate (isolated worktree wt-cflgate-tunner). The remaining half —
+     actually un-blocking the gate so high-Courant edits APPLY (warn-don't-skip) — is a BACKEND change in
+     PianoidCore pianoid_middleware/parameter_manager.py (is_stable_with_margin reject → apply) + backendServer
+     CflRejected/cfl_redline handling, needs a backend restart, and was PAUSED because it collides with
+     dev-excitp1's concurrent CUDA rebuild + its checkout of PianoidCore (feature/dev-excitimpl-p1).
+     ★USER DECISION (2026-07-07, relayed via team-lead) = OPTION B: KEEP the hard NaN guard, DROP the soft margin.
+     EXACT SPEC for the backend follow-up: in cfl_stability.is_stable_with_margin (and/or its call site in
+     parameter_manager.py) REJECT/skip-upload ONLY when max|g| > 1 + eps (genuine divergence / NaN-crash safety) —
+     REMOVE the `courant >= CFL_MARGIN` soft-reject clause. A high-Courant-but-non-divergent edit then UPLOADS +
+     applies (no silent skip); the new red FILL indicator communicates the risk. Keep CFL_MARGIN only as the
+     indicator's amber reference line (still surfaced by the cfl_ratio chart), NOT as a gate. Engine stays
+     protected against Inf/NaN configs only.
+     ★MEASURED CAVEAT (dev-cflgate live-verify 2026-07-07): raising ONE pitch's tension to courant~1.0 via
+     /set_parameter while the synth was PLAYING CRASHED the backend — i.e. the current per-STRING CFL gate is
+     necessary but NOT a sufficient full-ENGINE divergence guarantee (feedback/coupling can diverge the running
+     engine even when the per-string closed-form is under the margin). So when un-gating: keep the hard max|g|>1
+     per-string guard (option B) AND treat the red indicator as a genuine "you may crash the engine" warning; do
+     NOT assume dropping the soft margin is risk-free for the LIVE engine. (No persistent damage from the incident —
+     set_parameter is in-memory; disk preset reloads clean.) Reconcile the doc drift too: SYNTHESIS_ENGINE.md "Where the guard lives"
+     prose says CFL_MARGIN=0.8 but the CANONICAL PianoidCore/pianoid_middleware/cfl_stability.py:42 = 0.99 (the 0.8
+     was a stale non-canonical copy) — fix the prose when editing the gate.
+     A STALE prior feature/dev-cflgate branch in PianoidCore predates dev-strbatch's merge and is NOT a usable base —
+     redo the backend part FRESH off current dev when sequenced. Owner: next backend /dev, AFTER dev-excitp1 Phase 1. -->
 
 <!-- DOC-GAP + DESIGN-DECISION DEFERRAL (dev-normfix, 2026-06-30, HOLD for user review):
      (1) DOC GAP — the excitation-coefficient model is now coefficient = c·m·v / (∫temporal × ∫spatial)
