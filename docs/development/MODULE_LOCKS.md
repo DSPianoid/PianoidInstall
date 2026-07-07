@@ -64,6 +64,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-hammerlayout locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-hammerlayout
+     ff99740, HOLD for user live test; NOT pushed). Hammer "Hammer on string" subsection overflow: LEFT column
+     content 217px > 199px stretched (alignItems:stretch) → Pos/Width/Sharp control row clipped by the fixed-220px
+     overflow:hidden container. FIX (HammerStringChart.jsx ONLY): root → flex column filling the definite-height
+     LEFT column; header+controls fixed (flexShrink:0); ReactECharts wrapped in flex:1 1 <height>px minHeight:0 with
+     style height:100% → chart flexes to the stretched height (GaussChart fill idiom). Held+released:
+     HammerStringChart.jsx (edited), ExcitationProperties.jsx + Excitation.jsx (locked precautionarily, NOT edited).
+     Live-measured hammer col 199/199 (was 217, +18 overflow), chart canvas 122px healthy, 2 viewport sizes. Jest 36
+     (HammerStringChart+layout) PASS, ESLint 0. FE-only, NO CUDA. -->
 <!-- dev-strbatch locks RELEASED 2026-07-03 at Step 10a Phase 1 (committed feature/dev-strregr, HOLD for
      user test; NOT pushed). Batch-upload fix for strings-panel parameter drops: update_parameter('string')
      per-pitch loop issued one updateMultiStringParameter_NEW swap per pitch with NO wait → DROP_IF_BUSY
