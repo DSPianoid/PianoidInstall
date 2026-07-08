@@ -586,9 +586,16 @@ called "deck" in casual conversation. They are **not** interchangeable:
   each audio channel. Used in strings-listen mode (`listen_to_modes=0`).
   **Only the output-pitch rows `128..127+num_output_channels` are
   kernel-effective** — see `docs/modules/pianoid-basic/OVERVIEW.md`
-  "Stored vs effective entries". Edited via
+  "Stored vs effective entries". Writable via the backend kind
   `/set_parameter/string_sound_channel/<pitch>` (where `<pitch>` is a
   backend pitch index, i.e. `128 + channel_index`).
+  **⚠ This kind is DORMANT — there are NO current frontend writers.** It is a
+  reserved backend layer kept for a future FE-exposure stage (do not remove it).
+  Today the UI drives the strings-axis via `feedback` / `feedback_mask` on
+  output pitches (`GET`/`POST /set_parameter/feedback/output`), not via
+  `string_sound_channel` — see `PianoidTunner/src/hooks/useSoundChannels.js`
+  ("Strings-axis matrix (from /get_parameter/feedback/output)") and
+  `usePreset.js` ("SC strings-axis mask = feedback_mask on OUTPUT pitches").
 
 Mixing these up was the root of the dev-833f Phase A wrong diagnosis: the
 agent edited `string_coefficients[60]` expecting pitch 60 to change, but
@@ -609,7 +616,8 @@ flowchart LR
     end
     subgraph "REST (per-pitch POST)"
       EP1[/set_parameter/sound_channel/&lt;pitch&gt;/]
-      EP2[/set_parameter/string_sound_channel/&lt;pitch&gt;/]
+      EP2[/set_parameter/string_sound_channel/&lt;pitch&gt;/<br/>DORMANT — no current FE writer]
+      EP3[/set_parameter/feedback/output<br/>feedback_mask/output]
     end
     subgraph "Python model (StringMap)"
       M1[soundChannelModes.coefficients]
@@ -620,7 +628,8 @@ flowchart LR
       K[CUDA kernel reads packed matrix]
     end
     SC -->|modes axis| EP1 --> M1
-    SC -->|strings axis| EP2 --> M2
+    SC -->|strings axis: current FE path| EP3 --> DP
+    EP2 -. reserved / future FE exposure .-> M2
     M1 --> K
     M2 --> K
     DP --> K
@@ -634,14 +643,22 @@ React: SoundChannelsPane (backed by useSoundChannels) — user edits coefficient
          ▼
 usePreset: changeSoundChannelValues(pitch=60, values, type)
   ─► 300 ms debounce
-  ─► axios.post('/set_parameter/sound_channel/60', { values })
-     or  axios.post('/set_parameter/string_sound_channel/60', { values })
+  ─► axios.post('/set_parameter/sound_channel/60', { values })   // MODES axis only
          │
          ▼
-pianoid.update_parameter(param='sound_channel' | 'string_sound_channel')
-  1. sm.soundChannelModes.coefficients[pitchID] = values   (or string_coefficients)
+pianoid.update_parameter(param='sound_channel')
+  1. sm.soundChannelModes.coefficients[pitchID] = values
   2. send_deck_params_to_CUDA()                            // same deck packing path as feedin/feedback
 ```
+
+**Strings-axis (current FE path):** the frontend does NOT post
+`string_sound_channel`. It edits the strings-axis via `feedback` /
+`feedback_mask` on OUTPUT pitches (`/set_parameter/feedback/output`,
+`/set_parameter/feedback_mask/output`), which land on the deck feedback rows.
+The `string_sound_channel` backend kind (writing `string_coefficients`, M2) is
+valid and preset-persisted but **DORMANT — reserved for a future FE-exposure
+stage; it has zero current frontend writers** (grep `string_sound_channel` in
+`PianoidTunner/src` returns nothing). Do not remove the backend kind.
 
 Preset save/load includes both sections:
 - `mode_sound_channels`: `{pitchID: [ch0, ch1, ...]}` — always saved
