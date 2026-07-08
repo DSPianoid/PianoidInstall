@@ -79,8 +79,57 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      GaussEditor.jsx, utils/workbenchIcon.js (NEW). Workbench/hammer FE: #1 dynamic-WB mass/hammer tracking, #2 SSOT
      workbench icon, #4 hammer wheel drops ticks. Worktree wt-wbfix-tunner removed + branch feature/dev-wbfix deleted
      (merged-only). Log archived logs/archive/dev-wbfix-2026-06-23-124143.md. -->
-| Agent | Files | Locked At | Task |
-|-------|-------|-----------|------|
+<!-- dev-c5ce locks RELEASED 2026-07-08 (Phase 1) then MERGED to dev (Phase 2, user-approved; NOT pushed —
+     user tests first). Merges: PianoidBasic 112c02a, PianoidCore ebde9d3, PianoidTunner 9533f80 (also ships the
+     paramrefactor rider). F6 persistent independent mute mask — raw stored unchanged + mask stored
+     separately (both in the preset), mask applied host-side at pack time (NO kernel/CUDA change). Design:
+     docs/proposals/persistent-mute-mask-design-2026-07-08.md.
+     PHASE 1 (PianoidBasic MAIN, feature/dev-mutemask f19c6ce): Pitch.py (deck_mask store + update_deck_mask +
+       serialize/migrate), StringMap.py (effective_deck single-multiply in pack_pitch_feedin + pack_deck feedback +
+       update_deck_mask), SoundChannels.py (ModeSoundChannels mute_mask). 7/7 unit tests; byte-identity-at-mask=1
+       PROVEN (pack_deck delivered-double bit-identical). Wheel rebuilt+installed, L1-verified.
+     PHASE 2 (PianoidCore worktree wt-mutemask-core, feature/dev-mutemask bbf39f2): parameter_manager.py (KINDS
+       feedin_mask/feedback_mask/sound_channel_mask + apply branches), pianoid.py (GET pack + save/load blocks +
+       absent⇒unmuted migration), backendServer.py (parse_range mask kinds). 14/14 REST checks; backward-compat
+       (OLD preset ⇒ all-1) PROVEN. Live backend :5000 pid 129144 IS this build.
+     PHASE 3 (PianoidTunner worktree wt-mutemask-tunner, feature/dev-mutemask ac41436, off feature/dev-paramrefactor
+       e37ce79): matrixEmit.js (isMuteChange), useMatrixHistory.js (init seeds muteMap from backend mask),
+       usePreset.js (mask state + 4 mask emitters + seed-fetch on load), PianoidTuner.js (emit RAW on value / MASK
+       on mute + undo/redo emit both + wiring), useFeedinAggregate.js + useSoundChannels.js (raw-vs-mask emit split
+       + seed from mask) + NEW useSoundChannels.maskEmit.test.jsx. Full Jest 143 suites/1457 PASS, ESLint 0 err.
+       ★ LIVE 12/12 against the running :5000 backend via the real emitWithAck('set_parameter')→backend-GET contract:
+       mute toggle lands the mask + leaves raw unchanged (feedin/feedback/sound_channel); a value edit lands RAW
+       (not the muted product) + leaves the mask independent; GET feedin_mask/all reflects the mute (page-load seed).
+     3 PianoidBasic EOL-noise files (Hammer.py/ModelParams.py/StringExcitation.py, CRLF↔LF only) restored → clean.
+     Session log archived logs/archive/dev-c5ce-2026-07-08-090154.md. -->
+| <!-- (none active for dev-c5ce — merged to dev 112c02a/ebde9d3/9533f80, HOLD for user test) --> | | | |
+<!-- dev-paramrefactor2 locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-paramrefactor
+     in worktree wt-paramrefactor-tunner, HOLD for user live test + browser click-smoke; NOT pushed).
+     Param-system refactor STEP 2 — F2 imperative-emit migration of Strings/Modes/Excitation (deleted the 3
+     effect-diff sync useEffects + 3 dead selectedParameter.value re-sync effects + skipStrings/Modes/Excitation
+     SyncRef); F2b (excitation undo/redo emit from the change descriptor with NO selectedParameter.gaussIndex
+     gate — gauss undo/redo lands regardless of selected param); F3 (parametersOfStrings/Excitation/Modes all
+     demoted to pure fetch snapshots via a new skipLocalState option; MODES stiffness/damping moved to
+     derive-at-display in Mode.jsx via deriveModeParam — live on triple edit, no stored mirror); F5 (Feedin +
+     Feedback refresh re-init from fetched matrix, was row*object NaN). Held+released: PianoidTuner.js,
+     hooks/usePreset.js, hooks/useValuesHistory.js (exposed calcChange + added computeValuesAtStep),
+     components/Mode.jsx + 4 NEW tests (useValuesHistory.imperativeEmit, usePreset.skipLocalState,
+     useMatrixHistory.refreshInit, Mode.deriveDisplay). FE-only, NO CUDA. Commits 50d7903 / 200d353 / e37ce79.
+     Full Jest 142 suites/1454 PASS, ESLint 0. Node backend-GET 4/4 (incl F2b gauss redo→undo, all restored);
+     param→sound regression net 20/20. Browser click-smoke PENDING (chrome-devtools MCP down). Root PianoidInstall
+     docs (this log, WIP row, diagnostic dev-paramrefactor2-emit-landing-verify.js, paramsound.log) left
+     uncommitted for the merge-sweep. -->
+| <!-- (none active for dev-paramrefactor2 — committed, HOLD) --> | | | |
+<!-- dev-paramrefactor locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-paramrefactor
+     adf4fc4 in worktree wt-paramrefactor-tunner off dev 715b2c7; HOLD for user/team-lead live test; NOT
+     pushed). Param-system refactor STEP 1 — F1 transport ack+REST fallback + F4 per-key debounce maps.
+     Held+released: useSocketIO.js (emitWithAck), usePreset.js (socketEmitAckRef + 18 ack-emit sites +
+     per-key maps for strings/excitation/modes/feedin/feedback + cancelPendingParamWrites), PianoidTuner.js
+     (socketEmitAck prop) + tests (bulkEmit updated, usePreset.paramTransport NEW). FE-only, NO CUDA. Full
+     Jest 1437 pass, ESLint 0 err, CRA build OK. F1 verified live against real backend (healthy ack lands;
+     1ms-timeout→false→REST lands; restored); F4 verified via real-hook Jest; browser smoke on :3013 (WS
+     connected, no errors). Root PianoidInstall docs (OVERVIEW F1/F4, WIP row, this log) left uncommitted
+     for the merge-sweep. -->
 <!-- dev-sumstrip locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel a4499a2, HOLD for
      user live test; NOT pushed). Gauss summation UI: separate MUI "Summation" Switch → "Sum" LEGEND STRIP. FIX
      (GaussChart.jsx + gaussSeries.js, FE-only NO CUDA): SUMMATION_NAME "Summation"→"Sum"; the black summation series
