@@ -4,6 +4,15 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-cpkg locks RELEASED 2026-07-08 at Step 10a Phase 1 (committed on dev, HOLD for user test; NOT pushed).
+     Coordinated CUDA package on dev: merge Bow backend (5705536) + ★4 managed-mem page-fault + ★2 mailbox
+     (ba7c38b) + L3 setRuntimeParameters async (bb5ce2f) + F7 per-row deck/excitation upload (597cd27).
+     ★1 (9a91393) REVERTED (88cd259) — it zeroed synthesis output (silent); needs corrected design.
+     Verified: audio within-noise of baseline, #6 bow works, no page-fault across preset switches, F7 per-row
+     (count=224 one row). Held+released: Pianoid.cu/.cuh/Pianoid_synthesis.cu/Pianoid_parameters.cu/
+     UnifiedGpuMemoryManager.cu/.h/AddArraysWithCUDA.cpp/parameter_manager.py. -->
+| <!-- (none active for dev-cpkg — released after commit, HOLD) --> | | | |
+
 <!-- dev-derivedwb locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed PianoidTunner a551b88 on test/excitation-panel,
      HOLD for user live test; NOT pushed). Derived-parameter workbench-tagging (view-only): new utils/derivedWorkbench.js +
      hooks/useCflStability.js; also touched workbenchColor.js/useCurrentValues.js/PianoidTuner.js/Excitation.jsx/
@@ -160,6 +169,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      moves on level click, level strips gone, three groups separated, summation toggle off→black line gone/on→restored,
      0 console errors. Root PianoidInstall docs (OVERVIEW GaussChart row + WIP row + this log + screenshots) left
      uncommitted for the merge-sweep. -->
+<!-- dev-5639 locks RELEASED 2026-07-08T11:42Z at Step 10a Phase 1 (all work committed on PianoidTunner dev main tree: merge A f382249, merge B f599bca, fix C f49491b, fix D d467812). Held: GaussChart.jsx (bug#1 component-strip legend persistence), PianoidTuner.js + mosaicConfigStore.js (bug#4 fixed-workbench toggle). Full Jest 1529 green, ESLint 0 on changed files, all 4 items live-verified on :3000. Stack LEFT UP for user re-test; STOPPED before Phase 2 (not pushed). -->
 | dev-cflgate | `wt-cflgate-tunner/src/hooks/useCflStability.js`, `wt-cflgate-tunner/src/hooks/__tests__/useCflStability.test.js` | 2026-07-07T10:35:00Z | LIVE-VERIFY fix: chart name stability_ratio→cfl_ratio + key_range→all + select-pitch-from-point_meta (arbitrary fromNtoM rejected by chart param choices) |
 <!-- dev-gausstoggle locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 50b1815,
      HOLD for user live test; NOT pushed). Bug #2: Gauss black-summation legend toggle didn't stick

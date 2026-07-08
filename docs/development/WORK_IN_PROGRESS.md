@@ -4,6 +4,8 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-cpkg | Coordinated CUDA package on dev: merge Bow backend (dev-excitimpl-p2) + kernel fixes ★4/★1/mailbox/L3 + F7 per-row upload + ONE heavy build + verify | [log](logs/dev-cpkg-2026-07-08-110246.md) | 2026-07-08 |
+| dev-5639 | FE batch on PianoidTunner dev: (A) merge feature/dev-dblclick, (B) merge feature/dev-cflgate, (C) fix Gauss legend line reappears after toggle-off, (D) fixed workbench one-per-parameter toggle | [log](logs/dev-5639-2026-07-08-103622.md) | 2026-07-08 |
 <!-- dev-c5ce COMPLETE + MERGED 2026-07-08 (Phase 2 wrap). F6 persistent independent mute mask — raw stored
      unchanged + mask stored separately (both in the preset), applied host-side at pack time (NO kernel change).
      All 3 phases MERGED --no-ff to dev (NOT pushed — user tests first): PianoidBasic f19c6ce → merge 112c02a;
