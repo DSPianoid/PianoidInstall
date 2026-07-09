@@ -4,6 +4,64 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+<!-- dev-5150 lock RELEASED 2026-07-09 at Step 10a Phase 1 (committed PianoidTunner dev fadde30, HOLD for user
+     test; NOT pushed). B4a/B4b root fix: removed the HammerStringChart default-width nudge (auto-fired
+     onParamChange("hammer_width",floor) on pitch selection → mutated stored width [B4b, measured 0.00497→0.01060]
+     + re-pinned the global Workbench to hammer_width [B4a]). B1 needed NO code change — MEASURED the WS-delivery
+     fix (cb48b02/411e2b9) already lands the first single-cell + workbench-vector emit on the backend (no revert).
+     Held+released: PianoidTunner/src/components/HammerStringChart.jsx. FE-only, NO CUDA. Jest 30/30, ESLint 0. -->
+| <!-- (none active for dev-5150 — committed fadde30, HOLD) --> | | | |
+
+<!-- dev-4ce2 locks RELEASED 2026-07-09 at Step 10a Phase 1 (committed on dev MAIN trees, HOLD for user test; NOT pushed).
+     Removed vestigial Modes-panel outer_sound (derived mirror of deck['feedback'], superseded by Sound Channels).
+     pianoid.py mode-pack (:3742/:3749) + combined string-pack (:3840/:3848 + dead sound_pitch) outer_sound EXPOSURE removed
+     — deck['feedback'] arrays untouched; Mode.jsx HIDDEN_MODE_PARAMS += "outer_sound" (belt-and-suspenders).
+     PianoidCore dev 010101b, PianoidTunner dev 91c7099. LIVE string-physics outer_sound (ParameterInfo.h slot 11 /
+     Kernels.cu / Pitch.py / StringMap.py) NOT touched (git diff --stat = only pianoid.py + Mode.jsx). NO CUDA rebuild.
+     Verified: GET mode/all + string/all have 0 outer_sound (backend + live :3000 tab fetch); mode-param test 10/10;
+     ASIO test collects; backend healthy w/ ASIO+4ch+88 notes. Stack LEFT UP per brief. Held+released:
+     PianoidCore/pianoid_middleware/pianoid.py, PianoidTunner/src/components/Mode.jsx. -->
+| dev-t3cu | `PianoidCore/pianoid_cuda/MainKernel.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.h` | 2026-07-08T17:30:00Z | CUDA Tier 3 batch: F7-hammer, L1, L2, F9a, ★1 |
+<!-- dev-59ed locks RELEASED 2026-07-09 at Step 10a Phase 1 (all work committed on PianoidTunner dev MAIN tree,
+     HOLD for user test; NOT pushed). FE gauss UI batch, NO CUDA. A+B 0ba36c1, C f9c2bf4 + realDomCopy test 5419f01.
+     A (T3): GaussChart per-level ghost lines get a header "Level lines" toggle (default OFF, React-owned,
+     re-applied via buildGaussSeries) + recoloured gray→graded ORANGE ramp (gaussSeries.levelGhostColor).
+     B (T4): CHART_COLORS[1] red #EA4335 → CYAN #00BCD4 (gaussSeries.js + GaussEditor default chartColors) —
+     red/orange reserved for the level lines.
+     C (T5): toggle-armed Gauss copy flow — grid not selectable until Copy; Copy = arm/cancel toggle; selection
+     snapshots source→clipboard; paste to a different level/node; 2nd Copy clears+exits. clearClipboard passthrough
+     PianoidTuner→Excitation→ExcitationProperties. Held+released: GaussChart.jsx, utils/gaussSeries.js, GaussEditor.jsx,
+     GaussCopyPasteButtons.jsx, ExcitationProperties.jsx, Excitation.jsx, PianoidTuner.js (+ 5 test files updated).
+     Jest 55 targeted green (gaussSeries/GaussChart 30, copySelMode/copyPasteButtons/3×ExcitationProperties 25),
+     ESLint 0 errors on changed files; all 3 items live-verified on :3000 (pitch A3). Stack LEFT UP per brief. -->
+<!-- dev-59ed lock table row removed; entry above is the release record. -->
+
+<!-- dev-vpht lock RELEASED 2026-07-09 at Step 10a Phase 1 (committed PianoidTunner dev c6de2d3, HOLD for user
+     live test; NOT pushed). Virtual-piano pane height was pinned at react-mosaic's default 20%
+     minimumPaneSizePercentage floor (~172px) — added resize={{minimumPaneSizePercentage:5}} to <Mosaic>
+     (PianoidTuner.js) so the bottom-docked piano (and any pane) can shrink to a thin strip. LIVE-verified on
+     :3000 (VP 172px→39px floor, resizes freely, keys usable full-width, 0 console errors); ESLint 0 err;
+     Jest 4 suites/31 tests (workbenchPlacement + tile-geometry + toolbar-overflow + MeasuredMatrix.layout) PASS.
+     Held+released: PianoidTunner/src/PianoidTuner.js. Stack LEFT UP per brief. -->
+| <!-- (none active for dev-vpht — committed c6de2d3, HOLD) --> | | | |
+
+<!-- dev-cflf11 locks RELEASED 2026-07-08T20:00:00Z at Step 10a Phase 1 (committed on dev MAIN trees, HOLD for
+     user test; NOT pushed). (A) CFL gate REMOVED → indication-only: parameter_manager.py granular paths always
+     upload; _skip_unstable_physical_upload→_flag_cfl_indication (flag only). PianoidCore dev 0847fd2. Backend
+     restarted (pure .py, NO CUDA) + live-verified: unstable edit now APPLIES (log 'Buffers swapped', was
+     'SKIPPED'), indicator still reads. (B) F11 per-param DEFAULT transport map in usePreset.js (WS: string/
+     excitation/hammer/mode/runtime; REST: feedin/feedback/sound_channel/*_mask). PianoidTunner dev 518923e.
+     Jest 29/29 usePreset + ESLint 0; live string edit GET-confirmed on :3000. Root docs SYNTHESIS_ENGINE.md +
+     pianoid-tunner OVERVIEW.md updated, left uncommitted for merge-sweep. Stack LEFT UP. -->
+| <!-- (none active for dev-cflf11 — committed, HOLD) --> | | | |
+
+<!-- dev-f8batch locks RELEASED 2026-07-08 at Step 10a Phase 1 (committed on dev in MAIN trees, HOLD for user test; NOT pushed).
+     F8c del dead 'output' parameter kind (PianoidCore 657e0fb) + F8b DATA_FLOWS string_sound_channel dormant doc (PianoidInstall 43dcb93)
+     + F10 publish vol/feedback modulation constants via /health + FE reads them (PianoidCore aa0ff07 backend, PianoidTunner c6cd0d7 FE).
+     NO CUDA rebuild (Python + docs + small FE). Held+released: PianoidCore/pianoid_middleware/backendServer.py,
+     PianoidTunner/src/{components/BottomBar.jsx,hooks/useBackendHealth.js,PianoidTuner.js}. Stack LEFT UP (backend pid 118680). -->
+| <!-- (none active for dev-f8batch — committed, HOLD) --> | | | |
+
 <!-- dev-cpkg locks RELEASED 2026-07-08 at Step 10a Phase 1 (committed on dev, HOLD for user test; NOT pushed).
      Coordinated CUDA package on dev: merge Bow backend (5705536) + ★4 managed-mem page-fault + ★2 mailbox
      (ba7c38b) + L3 setRuntimeParameters async (bb5ce2f) + F7 per-row deck/excitation upload (597cd27).
