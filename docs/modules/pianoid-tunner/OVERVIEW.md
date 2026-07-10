@@ -101,6 +101,7 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `CurveEditor` | `CurveEditor.jsx` | Per-level calibration coefficient curve editor for the Curves tab. Renders `{positions, coefficients}` from `GET /calibration_curve?level=<lk>` as an ECharts line chart (88-pitch x-axis). Supports drag-to-paint via low-level ZRender handlers (`mousedown`/`mousemove`/`mouseup`/`globalout`) attached in `onChartReady` — pixel x snaps to nearest pitch via `convertToPixel('grid', [i,0])`, pixel y converts to coefficient via `convertFromPixel('grid', [0,y])` and clamps to `[0.01, 20.0]`. Painted updates accumulate in a `paintedRef` accumulator (pitch_id → value) and commit via 300ms-debounced `POST /calibration_curve` (`mouseup`/`globalout` flush immediately), then re-fetch authoritative state. Toolbar buttons (Flat / Follow / Apply / Revert / Save / Load) use the `/calibration_curve/{flat,follow,apply,revert,save,load}` endpoints. RCM toggle drives reference-point capture mode. Ctrl+click on a reference point removes it via `/calibration_curve/rcm/remove` |
 | `TimingBandEditor` | `TimingBandEditor.jsx` | Editable frequency-dependent timing bands (settle, skip, window) for calibration |
 | `ModalAdapter` | `modules/ModalAdapter.jsx` | Modal extraction panel with compact toolbar UI. **Toolbar** (left to right): server status chip (On/Off, clickable to start), pipeline section ButtonGroup (Collect / Setup / Tracking / Apply with status indicators — checkmark for done, spinner for running; Collect is the B-3 measurement-collection tab and has no toolbar status indicator since the panel owns its own status chip), and right-aligned play buttons (play current step, skip-to-end, both show stop icon when running; play buttons + settings gear are hidden on Collect — the panel owns its own Start/Cancel and config UI, separate from the ESPRIT pipeline state machine). Setup button shows current project name when a project is open. **Settings gear/lock icon lives in the native MosaicWindow title bar** (not inline in the pane body) — rendered via `ReactDOM.createPortal` into the `.mosaic-window-controls` container from a `useLayoutEffect` hook. The same hook hides the generic `button[title="Settings"]` injected by `PianoidTuner.renderToolbarControls` so exactly one settings gear appears on the title bar. Clicking it toggles the collapsible Collapse/Paper settings panel mounted below the toolbar (only mounted on Setup/Tracking/Apply via the internal `PIPELINE_RUN_SECTIONS` list). **Settings panel** content changes per active section: Setup shows channel roles (MappingEditor) + ESPRIT config (EspritConfig), Tracking shows freq tolerance and max gap, Apply shows merge mode and sound output mapping. **All settings freeze** (disabled + lock icon) once ESPRIT processing starts (running or done). Connects to modal adapter server on port 5001. See [MODAL_ADAPTER_GUIDE](../../guides/MODAL_ADAPTER_GUIDE.md) |
+| `AmplitudeIndicators` | `AmplitudeIndicators.jsx` | Two toolbar amplitude-gate (crash-guard) status lights (dev-b705, 2026-07-10). Purely presentational + **self-hiding** (renders `null` when both idle, so no reserved toolbar width): **amber** `WarningAmber` = crash-guard FIRED (a runaway note was caught & truncated), auto-lit on a gate trip and auto-cleared after ~2.5s; **red** `GraphicEq` = output CLIPPING (`peak_level ≥ 1`), clicking clears the backend clip latch (`onClearClipping` → POST `/clear_limiting`). Each carries icon shape + tooltip + `aria-label`/`data-testid` (color-is-never-the-only-signal). Fed by `useAmplitudeMonitor` (below), wired into `ToolBar` before the Settings gear. Pinned by `__tests__/AmplitudeIndicators.test.jsx` |
 | `CollectionSubpanel` | `modules/panels/CollectionSubpanel.jsx` | **v2 Measurement-collection UI** (replaced the retired v1 `CollectPanel.jsx` + `useMeasurementCollection` at Phase 2b). Scoped to a selected Measurement: top-row `MeasurementSelector` + Unlock-with-warning button (when locked), a pre-flight `SetupTestBanner`, the 5 setup sections in the gear-toggled `CollectionSettingsPanel` (General / AudioDevices / Impulse / Series / CalibrationCriteria — under `modules/panels/collection/`), and a streaming `CollectionLog` below the Start/Cancel control. Phase chip pairs colour with a text label (accessibility). State is split across the v2 hooks (`useMeasurementCatalog` / `useMeasurementSetup` / `useSetupTest` / `useCollectionStatus`); the panel owns only the selected-Measurement id + dialog open-state. Measurement dialogs: `MeasurementsManagementDialog`, `UnlockMeasurementDialog`, `ImportScenariosDialog`, `CreateProjectFromMeasurementDialog`. See the **Measurement collection** hooks section below and [MODAL_COLLECTION.md](../pianoid-middleware/MODAL_COLLECTION.md) for the backend contract |
 | `MappingEditor` | `MappingEditor.jsx` | Channel role assignment (force/response/reference/skip) with bridge boundary and pitch offset. Shown in Setup settings panel (gear icon), locked (disabled) when ESPRIT has started. Sound channel mapping is separate — in Apply settings panel |
 | `EspritConfig` | `EspritConfig.jsx` | Band preset selector + GPU checkbox + disabled prop for freeze. Advanced toggle reveals per-band table (name, f_min, f_max, order, decimation, exp_factor, model_order, window_length) |
@@ -267,6 +268,29 @@ Exposes: `scModesHistory`, `scStringsHistory`, `scModesAggMatrix`, `scStringsAgg
 Polls `GET /health` every 30 seconds (2-second timeout). Initial state is `disconnected` (not `checking`). Timeout/connection-refused both map to `disconnected`; only HTTP error responses map to `crashed`. Tracks `healthStatus` with fields: `status` (healthy/not_started/crashed/disconnected/checking), `pianoidLoaded`, `running`, `cppModuleResponsive`, `exception`, `listenMode`, `availableNotesCount`, `consecutiveFailures`.
 
 Exposes: `manualHealthCheck()`, `attemptReconnection()`, `toggleLivePlayback()`.
+
+### `useAmplitudeMonitor`
+
+**Amplitude-gate observability poll (dev-b705, 2026-07-10).** A dedicated **fast** (`~1s`) poll of `GET /health`
+reading ONLY the amplitude-gate crash-guard telemetry — kept separate from `useBackendHealth` (whose 30s/120s
+lifecycle cadence is far too slow for a 2-3s auto-clearing transient; P2 concern split). Reads the flat fields
+`gate_trip_count` (int, cumulative, 0 at boot), `last_gate_trip` (cycle | -1), `clipping` (bool, LATCHED until
+`POST /clear_limiting` or preset load), `clipping_now` (bool, instantaneous), `peak_level` (float, ≥1 ⇔ clip),
+with a `health.limiter` mirror fallback. Derives **`gateFired`** (edge-detects a `gate_trip_count` INCREASE →
+lights, then auto-clears after `GATE_AUTO_CLEAR_MS`=2500; set to 0 for latch-until-dismiss) and **`clippingActive`**
+(`clipping || clipping_now`); exposes `clearClipping()` (POST `/clear_limiting`, optimistic latch drop) and
+`clearGateFired()`. Pure `deriveClipping` reducer exported + unit-tested. `PianoidTuner` mounts it and threads
+the flags to `ToolBar` → `AmplitudeIndicators`. Pinned by `hooks/__tests__/useAmplitudeMonitor.test.js`.
+
+**Amplitude-gate control (dev-b705).** The crash-guard threshold + enable toggle are GLOBAL runtime params owned by
+`usePreset` (joining volume/feedback as the runtime-param SSOT): `amplitudeLimit` (default 10000) +
+`amplitudeGateEnabled` (default true), written via `changeAmplitudeLimit`/`changeAmplitudeGateEnabled` through the
+same `writeParam({kind:'runtime', wsEvent:'set_runtime_parameters', …})` path (fields `amplitude_limit` /
+`amplitude_gate_enabled`; non-finite is dropped before emit). `refreshRuntimeGate()` initializes both from
+`GET /get_runtime_parameters` on mount and whenever the backend transitions to loaded. The editing surface is the
+top-bar ⚙ **`GlobalSettingsDialog`** "Amplitude gate (crash guard)" section — a `Switch` (Amplitude gate) + a
+`NumInput` "Crash-guard ceiling" (range 1..1e7, `decPlaces=0`) with helper text. Pinned by
+`GlobalSettingsDialog.ampGate.test.jsx`.
 
 Preset loading uses `ensureBackendAndLoadPreset()` in `PianoidTuner.js`. On every call it performs a **fresh HTTP probe** to `:5000/health` (never trusts stale React state). Decision matrix:
 
@@ -466,6 +490,14 @@ low feedback (headroom), NOT instability, so NO stability guard is added. The "S
 (`foldFeedbackIntoPreset`) moved to the bottom bar with the slider. Pinned by
 `components/__tests__/BottomBar.test.jsx` (renders all three; Reset fires; Set fold disabled@neutral;
 volume + feedback Sensitivity fields commit through to their handlers).
+
+**Feedback slider leftmost value-label = 0 (dev-b705, 2026-07-10).** The Feedback slider's `valueLabelFormat`
+now reads **"0"** at the leftmost position (`pos ≤ 0`) instead of the asymptotic env-multiplier (`~×0.12`).
+Grounded in behaviour: `usePreset.changeFeedback` sends effective `feedback_coeff = 0` (TRUE MUTE) at
+`clamped === 0` — the label used to misrepresent that mute as `×0.12`; the Volume slider's leftmost mute
+already reads `0`. Every other position keeps the `×multiplier` readout. The format is the pure exported
+`feedbackValueLabel(pos, base, mc)` (`BottomBar.jsx`), unit-tested in `BottomBar.test.jsx` (0→"0", 64→"×1.00",
+127→"×8.00", 1→a `×…`). Slider behaviour is unchanged — only the displayed label.
 
 ### `useLayout`
 
