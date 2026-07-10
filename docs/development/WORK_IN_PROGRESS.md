@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-538e | Amp-guard gate observability & control (extends feature/dev-538e-amp-guard, after self-heal c899cd1): runtime-settable amplitude_limit + amplitude_gate_enabled (RuntimeParameters+device upload), gate_trip_count via /health, output clipping detection via /health. Heavy CUDA --both. Commit on feature branch, HOLD (no merge/push). | [log](logs/dev-538e-2026-07-10-174542.md) | 2026-07-10 |
 | dev-6ef1 | Build FE diagnostic bug-report tool (PianoidTunner branch feature/dev-6ef1-bugreport off dev): action-history ring buffer + config snapshot + report download/copy. FE-only, no CUDA. Commit on feature branch, HOLD (no merge/push). | [log](../../PianoidTunner/docs/development/logs/dev-6ef1-2026-07-10-111310.md) | 2026-07-10 |
 | dev-2a3c | Investigate "workbench follow-selection regressed by fadde30" — LIVE-REPRO on HEAD shows follow-selection FULLY WORKS (Strings/hammer/cross-panel/global+panel-dynamic, survives play, no B4a snap). NOT REPRODUCIBLE; no code change. Likely stale pre-fadde30 bundle at user's test. Recommend clean-restart re-test. | [log](../../PianoidTunner/docs/development/logs/dev-2a3c-2026-07-10-102004.md) | 2026-07-10 |
 | dev-5150 | FE-only bug cluster: B1 workbench chart-draw first-update reverts, B4a global-dynamic workbench resets to hammer widths, B4b hammer widths change on play. PianoidTunner dev, no rebuild. Commit each on dev, HOLD (no push). | [log](logs/dev-5150-2026-07-09-164335.md) | 2026-07-09 |

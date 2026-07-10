@@ -4,6 +4,54 @@ Active file locks held by dev agents. A locked file must not be edited by anothe
 
 Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pause). Never edit another agent's lock entries.
 
+| Agent | Files | Locked At | Task |
+|-------|-------|-----------|------|
+<!-- dev-sc7a locks RELEASED 2026-07-10 at Step 10a Phase 2 (committed + MERGED --no-ff -> dev in both repos,
+     local only, HOLD for user test; NOT pushed). Ring-1 sound-channel calibration MVP (operator-authorized ASIO
+     compiled path). Phase 1 commits: PianoidCore feature/dev-sc7a-soundcal a9cabbc, PianoidTunner
+     feature/dev-sc7a-soundcal-fe 8efe499. Merges: PianoidCore dev e9b7d11 (via temp worktree wt-sc7a-devbuild-core
+     — main core checkout on dev-538e HOLD left untouched; merge diff = 11 files, NO MainKernel.cu / no .cu),
+     PianoidTunner dev a556410 (main Tunner checkout). M2 = Route B binding of Pianoid::playRecordedAudio in
+     AddArraysWithCUDA.cpp; M1 sound_channel_calibrator.py, M3 measurement/narrowband_detector.py, M4
+     matched_filter_solver.py, M6 calibration_routes.py, M2-drive measurement/asio_drive.py; FE M7
+     ModalAdapter.jsx + panels/CalibrationSubpanel.jsx(+test), matrixAggregate.js sign-preserving(+test).
+     Built --heavy DEBUG-first (~6m55s) / RELEASE-last (~5m57s) into shared venv (debug-first avoids the --both
+     stale-release-pyd clobber). RELEASE .pyd verified: hasattr(Pianoid,'playRecordedAudio')=True + marker present
+     (mtime 20:48:41, unclobbered); L1 import OK; L2 /load_preset 200 (BaselinePreset1 audio_off). Held+released:
+     PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp + the 5 new modal_adapter modules + tests;
+     PianoidTunner/src/utils/matrixAggregate.js, src/modules/ModalAdapter.jsx, src/modules/panels/CalibrationSubpanel.jsx.
+     Session log archived logs/archive/dev-sc7a-2026-07-10-140647.md. -->
+| <!-- (none active for dev-sc7a — merged to dev e9b7d11 / a556410, HOLD for user test) --> | | | |
+<!-- dev-538e lock RELEASED 2026-07-10 at Step 10a Phase 1 (committed on PianoidCore branch
+     feature/dev-538e-amp-guard 7541d77 off c899cd1, HOLD — NOT merged/pushed). Amp-guard gate
+     observability & control: (1) RuntimeParameters.amplitude_limit runtime ceiling (default 1e4,
+     range 1..1e7, replaces constexpr AMPLITUDE_LIMIT) + (2) amplitude_gate_enabled flag (default 1;
+     isnan stays unconditional) — both plumbed like volume/feedback (device buffers dev_amplitude_limit/
+     dev_amplitude_gate_enabled, set/get via set_runtime_parameters + get_runtime_parameters);
+     (3) gate_trip_count/last_gate_trip via dev_gate_trip int[2] + getGateTripStats -> /health;
+     (4) output clipping via revived dev_limiter_peak (atomicMaxPeakReal) -> /health clipping/clipping_now/
+     peak_level. Heavy build EXIT=0 (concurrent EXTERNAL --both build repeatedly clobbered shared-venv
+     binaries mid-verify -> caught via atomic build+verify; installed release .pyd is currently THIS build
+     but orchestrator should serialize builds + final --both before user handoff). In-process audio_off
+     verify 11/11 PASS (tests/system/dev538e_release_verify.py). Held+released:
+     PianoidCore/pianoid_cuda/{MainKernel.cu,MainKernel.cuh,Pianoid.cu,Pianoid.cuh,Pianoid_parameters.cu,
+     AddArraysWithCUDA.cpp}, PianoidCore/pianoid_middleware/backendServer.py (constants.h locked
+     precautionarily but NOT edited). Root PianoidInstall docs (REST_API.md, SYNTHESIS_ENGINE.md, this
+     log, WIP row) left uncommitted for the merge-sweep. NOTE: stale dev-t3cu row below lists same .cu
+     files but t3cu is committed+clean (log missing) per prior dev-538e note — flag for cleanup. -->
+| <!-- (none active for dev-538e — committed 7541d77, HOLD) --> | | | |
+
+<!-- dev-538e (recovery) lock RELEASED 2026-07-10 at Step 10a Phase 1 (committed on PianoidCore branch
+     feature/dev-538e-amp-guard c899cd1, HOLD for user live test; NOT merged/pushed). Amp-guard NON-RECOVERY
+     (latch) fix: MainKernel.cu end-of-kernel self-heal on a trip (*status<0) — zero dev_string_state (both
+     levels) + dev_mode_running + feedback/feedin accumulators + sound_prev_diff (reuse status==500 reset
+     clears) then report 200 so the online synthesis thread SURVIVES (was killed at OnlinePlaybackEngine:185)
+     and the next cycle resumes clean. Auto-recovers on safe params / note-off, no Reset or restart needed.
+     Heavy --both rebuilt+installed (release 1.33MB + debug @16:58). Measured recovery True->True->True (was
+     True->False->False); fortissimo vel-127 no false-abort; runaway stays finite + no crash. Held+released:
+     PianoidCore/pianoid_cuda/MainKernel.cu. -->
+| <!-- (none active for dev-538e recovery — committed c899cd1, HOLD) --> | | | |
+
 <!-- dev-5150 lock RELEASED 2026-07-09 at Step 10a Phase 1 (committed PianoidTunner dev fadde30, HOLD for user
      test; NOT pushed). B4a/B4b root fix: removed the HammerStringChart default-width nudge (auto-fired
      onParamChange("hammer_width",floor) on pitch selection → mutated stored width [B4b, measured 0.00497→0.01060]
@@ -27,6 +75,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      config snapshot + BugReportDialog download/copy. Held+released: usePreset.js, PianoidTuner.js,
      BottomBar.jsx (+ NEW utils/actionRecorder.js, utils/bugReport.js, components/BugReportDialog.jsx,
      2 test files). Jest 158/1589, ESLint 0 err; live-verified on :3000. -->
+<!-- dev-538e lock RELEASED 2026-07-10 at Step 10a Phase 1 (committed on PianoidCore branch
+     feature/dev-538e-amp-guard off dev, HOLD — NOT merged/pushed). Amplitude early-stop crash-guard:
+     constants.h AMPLITUDE_LIMIT=1.0e4f + MainKernel.cu:599 string guard extended to
+     isnan(target)||fabs(target)>AMPLITUDE_LIMIT (string displacement ONLY, modes untouched). Heavy --both
+     rebuilt+installed (guarded release+debug @15:20). Commit 5b5dbfa. Held+released:
+     PianoidCore/pianoid_cuda/MainKernel.cu, PianoidCore/pianoid_cuda/constants.h. NOTE: dev-t3cu row below
+     still lists MainKernel.cu but is STALE (t3cu committed+clean on dev, log file missing, HOLD) — flag for cleanup. -->
 | dev-t3cu | `PianoidCore/pianoid_cuda/MainKernel.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.h` | 2026-07-08T17:30:00Z | CUDA Tier 3 batch: F7-hammer, L1, L2, F9a, ★1 |
 <!-- dev-59ed locks RELEASED 2026-07-09 at Step 10a Phase 1 (all work committed on PianoidTunner dev MAIN tree,
      HOLD for user test; NOT pushed). FE gauss UI batch, NO CUDA. A+B 0ba36c1, C f9c2bf4 + realDomCopy test 5419f01.
