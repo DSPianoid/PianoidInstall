@@ -21,6 +21,12 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Verified: GET mode/all + string/all have 0 outer_sound (backend + live :3000 tab fetch); mode-param test 10/10;
      ASIO test collects; backend healthy w/ ASIO+4ch+88 notes. Stack LEFT UP per brief. Held+released:
      PianoidCore/pianoid_middleware/pianoid.py, PianoidTunner/src/components/Mode.jsx. -->
+<!-- dev-6ef1 locks RELEASED 2026-07-10 at Step 10a Phase 1 (committed on PianoidTunner branch
+     feature/dev-6ef1-bugreport off dev, HOLD — NOT merged/pushed). FE diagnostic bug-report tool:
+     action-recorder ring buffer (writeParam/loadPreset/switchPreset + 3 PianoidTuner effects) +
+     config snapshot + BugReportDialog download/copy. Held+released: usePreset.js, PianoidTuner.js,
+     BottomBar.jsx (+ NEW utils/actionRecorder.js, utils/bugReport.js, components/BugReportDialog.jsx,
+     2 test files). Jest 158/1589, ESLint 0 err; live-verified on :3000. -->
 | dev-t3cu | `PianoidCore/pianoid_cuda/MainKernel.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.h` | 2026-07-08T17:30:00Z | CUDA Tier 3 batch: F7-hammer, L1, L2, F9a, ★1 |
 <!-- dev-59ed locks RELEASED 2026-07-09 at Step 10a Phase 1 (all work committed on PianoidTunner dev MAIN tree,
      HOLD for user test; NOT pushed). FE gauss UI batch, NO CUDA. A+B 0ba36c1, C f9c2bf4 + realDomCopy test 5419f01.

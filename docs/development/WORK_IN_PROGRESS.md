@@ -4,6 +4,8 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-6ef1 | Build FE diagnostic bug-report tool (PianoidTunner branch feature/dev-6ef1-bugreport off dev): action-history ring buffer + config snapshot + report download/copy. FE-only, no CUDA. Commit on feature branch, HOLD (no merge/push). | [log](../../PianoidTunner/docs/development/logs/dev-6ef1-2026-07-10-111310.md) | 2026-07-10 |
+| dev-2a3c | Investigate "workbench follow-selection regressed by fadde30" — LIVE-REPRO on HEAD shows follow-selection FULLY WORKS (Strings/hammer/cross-panel/global+panel-dynamic, survives play, no B4a snap). NOT REPRODUCIBLE; no code change. Likely stale pre-fadde30 bundle at user's test. Recommend clean-restart re-test. | [log](../../PianoidTunner/docs/development/logs/dev-2a3c-2026-07-10-102004.md) | 2026-07-10 |
 | dev-5150 | FE-only bug cluster: B1 workbench chart-draw first-update reverts, B4a global-dynamic workbench resets to hammer widths, B4b hammer widths change on play. PianoidTunner dev, no rebuild. Commit each on dev, HOLD (no push). | [log](logs/dev-5150-2026-07-09-164335.md) | 2026-07-09 |
 | dev-59ed | FE gauss UI batch (PianoidTunner dev): A per-level lines toggle + gray→orange, B drop red from component colors, C Gauss copy-paste flow redesign. FE-only no rebuild. Commit each on dev, HOLD (no push). | [log](logs/dev-59ed-2026-07-09-134901.md) | 2026-07-09 |
 | dev-vpht | Make virtual-piano pane height reducible: `<Mosaic>` had no `resize` prop so react-mosaic's default `minimumPaneSizePercentage:20` pinned the bottom-docked Virtual Piano at ~20% min height. Add a lower floor. FE-only, PianoidTunner dev, no CUDA. Commit on dev, HOLD (no push). | [log](logs/dev-vpht-2026-07-09-130258.md) | 2026-07-09 |

@@ -498,6 +498,43 @@ low feedback (headroom), NOT instability, so NO stability guard is added. The "S
 `components/__tests__/BottomBar.test.jsx` (renders all three; Reset fires; Set fold disabled@neutral;
 volume + feedback Sensitivity fields commit through to their handlers).
 
+### Diagnostic bug-report tool (dev-6ef1, 2026-07-10)
+
+An in-app "Report a problem" tool that captures the EXACT current config + the user's recent action
+history into one self-contained JSON report, so an agent can replay precisely what the user did and
+reproduce a bug (built after a recurring volume bug wasted blind-re-diagnosis cycles). FE-only; reads
+existing state + one read-only backend GET. Three parts:
+
+- **Action recorder** (`utils/actionRecorder.js`) — an always-on, module-level SINGLETON ring buffer
+  (`ACTION_HISTORY_CAPACITY` = last 200 actions; NOT React state, so recording never re-renders — the
+  recorder is the sole owner, P1). Each entry `{ t, type, ...detail }`; `t` = `performance.now()` ms
+  since app load (session-relative — ordering never depends on the wall clock). `recordAction` never
+  throws; `summarizeValue` truncates large arrays/strings/deep objects to keep entries cheap +
+  human-readable. Unit-tested in `utils/__tests__/actionRecorder.test.js`.
+- **Capture points** — most actions are recorded at ONE chokepoint: `usePreset.writeParam` (the SSOT
+  emit) → `param_write` {kind,key,wsEvent,debounceKey,values}, which covers ALL param edits
+  (string/excitation/hammer/mode/feedin/feedback/sound_channel + `*_mask`), volume + feedback
+  (kind=`runtime`), and note plays (kind=`play`). Plus `usePreset.loadPreset` → `preset_load`,
+  `switchPreset` → `preset_switch`, and three re-render-free `PianoidTuner` effects → `selection`
+  (pitch/mode), `settings_change` (uiPreferences), `layout_change` (mosaic). The new value is recorded
+  at the chokepoint; the OLD value is derivable from the previous same-key entry (successive
+  `runtime::volume` writes show the progression) — the chokepoint has no access to prior state.
+- **Report packaging** (`utils/bugReport.js` + `components/BugReportDialog.jsx`) — a small
+  `BugReportOutlined` IconButton in the **BottomBar** (`onReportProblem`) opens a dialog; the user types
+  a short description → the dialog gathers the sync config snapshot (`PianoidTuner.buildBugSnapshot`),
+  adds the LIVE runtime params via read-only `GET /get_runtime_parameters` (returns `{error}` on
+  failure so the report still assembles), packages a self-contained JSON report, and DOWNLOADS it
+  (copy-to-clipboard fallback). Unit-tested in `utils/__tests__/bugReport.test.js`.
+
+**Report JSON schema (schemaVersion 1)** — enough for an agent to (a) restore config = load
+`configSnapshot.preset.activePreset` + apply the fe/params deltas vs its defaults, and (b) replay
+`actionHistory` in `t` order:
+`{ schemaVersion, createdAt, appLoadedAt, sessionMs, description, env{userAgent,url,language,viewport,
+buildInfo}, configSnapshot{ preset, runtimeParams(live GET), fe(volume/feedback/selection),
+params(strings/modes/excitation/feedin/feedback/soundChannel+masks), settings(uiPreferences+pane
+settings), layout(activeMosaicConfig/visibleWindows), connection(ws), health }, actionHistory[{t,type,…}] }`.
+The report is DATA — a human/agent replays it (no replay automation is built).
+
 ### `useLayout`
 
 Manages the `react-mosaic-component` tile layout tree. The initial layout places the following named panes:
