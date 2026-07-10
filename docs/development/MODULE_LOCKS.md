@@ -77,7 +77,16 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | dev-copyfix | `wt-copyfix-tunner/src/components/GaussEditor.jsx`, `wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx` | 2026-06-24T10:11:30Z | Gauss copy CELL-selection visual indication fix |
 | dev-hwheel3 | `wt-hwheel3-tunner/src/components/HammerStringChart.jsx`, `wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx` | 2026-06-24T13:45:00Z | Hammer #A chart-wheel drops ticks + #B width inconsistency (isolated worktree wt-hwheel3, branch feature/dev-hwheel3 off dev 8d78bf1) |
 | dev-fethrottle | `wt-fethrottle-tunner/src/components/newWindowChart.jsx`, `wt-fethrottle-tunner/src/utils/chartThrottle.js`, `wt-fethrottle-tunner/src/utils/__tests__/chartThrottle.test.js`, `wt-fethrottle-tunner/src/components/__tests__/newWindowChart.throttle.test.jsx` | 2026-06-24T12:05:00Z | Throttle FE live-chart (DynamicChart) update/render rate to cut GPU contention (distortion-fix #4; isolated worktree wt-fethrottle-tunner, branch feature/dev-fethrottle off dev 8d78bf1) |
-| dev-b705 | `wt-ampgate-tunner/src/hooks/usePreset.js`, `wt-ampgate-tunner/src/hooks/useBackendHealth.js`, `wt-ampgate-tunner/src/hooks/useAmplitudeMonitor.js`, `wt-ampgate-tunner/src/components/AmplitudeIndicators.jsx`, `wt-ampgate-tunner/src/components/ToolBar.jsx`, `wt-ampgate-tunner/src/components/GlobalSettingsDialog.jsx`, `wt-ampgate-tunner/src/components/BottomBar.jsx`, `wt-ampgate-tunner/src/PianoidTuner.js`, `wt-ampgate-tunner/src/hooks/__tests__/useAmplitudeMonitor.test.js`, `wt-ampgate-tunner/src/components/__tests__/AmplitudeIndicators.test.jsx`, `wt-ampgate-tunner/src/components/__tests__/GlobalSettingsDialog.ampGate.test.jsx` | 2026-07-10T16:07:00Z | FE amplitude-gate observability & control (Settings threshold+toggle, toolbar gate-fired + clipping indicators) + Feedback slider leftmost label=0 fix (isolated worktree wt-ampgate-tunner, branch feature/dev-ampgate off dev 3913485) |
+<!-- dev-b705 locks RELEASED 2026-07-10 at Step 10a Phase 1 (committed feature/dev-ampgate ee7776e, HOLD for
+     user test; NOT merged/pushed). FE amplitude-gate observability & control + feedback slider leftmost
+     label=0. Held+released (wt-ampgate-tunner): usePreset.js (amplitude gate runtime state + writers +
+     refreshRuntimeGate), useAmplitudeMonitor.js (NEW fast /health poll), AmplitudeIndicators.jsx (NEW toolbar
+     lights), ToolBar.jsx, GlobalSettingsDialog.jsx (crash-guard ceiling + gate toggle), BottomBar.jsx
+     (feedbackValueLabel leftmost=0), PianoidTuner.js + 3 NEW test files + BottomBar.test.jsx. useBackendHealth.js
+     was locked precautionarily but NOT edited (kept lifecycle concern) — released untouched. Jest 165 suites /
+     1626 tests green (+18), CRA build OK, ESLint 0 new. Gate contract verified live on isolated release backend
+     :5055 (GET/SET fields, gate_trip_count increment on forced runaway, clipping/peak_level). Docs (OVERVIEW) +
+     log committed PianoidInstall worktree 57dee95. -->
 <!-- dev-normfix locks RELEASED 2026-06-30 at Step 10a Phase 1 (committed feature/dev-normfix, HOLD for user
      review; NOT pushed, live backend untouched). Corrected excitation normalization. Held+released:
      PianoidBasic StringExcitation.py + StringMap.py (B: coefficient = c·m·v/(temporal×spatial), divide both
