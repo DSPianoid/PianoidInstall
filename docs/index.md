@@ -110,6 +110,10 @@ interactive latency.
   tree, parameter binding, visualization panels, MIDI input, the PresetPanel mosaic pane,
   the per-pane `<PaneWithSettings>` HOC + `usePaneSettingsDialog` hook, and the
   `mapDeprecatedPaneIds` layout-migration walker
+- [modules/pianoid-tunner/BUG_REPORT_TOOL.md](modules/pianoid-tunner/BUG_REPORT_TOOL.md) — The
+  in-app diagnostic bug-report tool: the action-history ring buffer, the `writeParam` SSOT
+  capture hook, the report JSON schema (v1), the 🐞 user flow, and the reproduce-from-report
+  consumption workflow
 
 ### Development
 
@@ -121,6 +125,10 @@ interactive latency.
   controller: role, invariant catalogue, marker conventions, periodic scans, tier rules
 - [development/WORK_IN_PROGRESS.md](development/WORK_IN_PROGRESS.md) — Active investigations
   and planned work
+- [development/standards/DIAGNOSTIC_BUG_REPORT_TOOL.md](development/standards/DIAGNOSTIC_BUG_REPORT_TOOL.md) —
+  Project-agnostic, liftable standard for an in-app diagnostic bug-report tool (ring buffer at the
+  write SSOT → config+runtime snapshot → reproducible JSON → agent-replay); candidate for
+  `~/claude-config`
 
 ### Guides
 
