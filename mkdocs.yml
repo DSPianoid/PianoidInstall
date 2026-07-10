@@ -47,11 +47,15 @@ nav:
     - Chart System: modules/pianoid-middleware/CHART_SYSTEM.md
     - Modal Collection: modules/pianoid-middleware/MODAL_COLLECTION.md
   - PianoidBasic: modules/pianoid-basic/OVERVIEW.md
-  - Frontend: modules/pianoid-tunner/OVERVIEW.md
+  - Frontend:
+    - Overview: modules/pianoid-tunner/OVERVIEW.md
+    - Bug-Report Tool: modules/pianoid-tunner/BUG_REPORT_TOOL.md
   - Development:
     - Testing: development/TESTING.md
     - Controller Agent: development/CONTROLLER.md
     - Work in Progress: development/WORK_IN_PROGRESS.md
+    - Standards:
+      - Diagnostic Bug-Report Tool: development/standards/DIAGNOSTIC_BUG_REPORT_TOOL.md
   - Proposals: proposals/index.md
   - Guides:
     - Quick Start: guides/QUICK_START.md
