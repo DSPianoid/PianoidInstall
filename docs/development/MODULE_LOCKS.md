@@ -6,6 +6,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-scr1 locks RELEASED 2026-07-11 at Phase 2 wrap (committed + MERGED --no-ff -> dev in PianoidCore,
+     local only, HOLD for operator test; NOT pushed). ASIO callback-mode per-channel sound-channel calibration
+     (engine-ASIO emit+capture, SDL3 recorder dropped). Feature branch feature/dev-scr1-soundcal-asio @bf97881
+     (already rebased onto dev 16f7eb4). Merge: PianoidCore dev 94a43b0. Merged tree byte-identical to bf97881,
+     so the installed release pianoidCuda .pyd (playRecordedAudio binding + PLAYBACK markers) matches merged dev;
+     no rebuild. Files: backendServer.py, modal_adapter/routes/_helpers.py, sound_channel_calibrator.py,
+     calibration_routes.py, pianoid_cuda/ASIOAudioDriver.cpp/.h. No kernel change (MainKernel.cu/Pianoid_synthesis.cu
+     untouched — dev-538e owns those). Session log archived logs/archive/dev-scr1-2026-07-10-000000.md.
+     NOTE (unchanged): the pre-existing Pianoid_synthesis.cu:408 grid==0 cooperative-launch startup race remains
+     UNFIXED on dev HEAD (dev-538e/kernel-owner item); does not fire on the operator's normal stack. -->
+| <!-- (none active for dev-scr1 — merged to dev 94a43b0, HOLD for operator test) --> | | | |
 <!-- dev-sc7a locks RELEASED 2026-07-10 at Step 10a Phase 2 (committed + MERGED --no-ff -> dev in both repos,
      local only, HOLD for user test; NOT pushed). Ring-1 sound-channel calibration MVP (operator-authorized ASIO
      compiled path). Phase 1 commits: PianoidCore feature/dev-sc7a-soundcal a9cabbc, PianoidTunner
