@@ -34,7 +34,20 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      VALIDATED. No source files changed this round (calibration_routes.py reverted). Evidence:
      diagnostics/dev-scr1-optimum-validation.py + session log. Retarget to feedback/output (channels
      x modes, mode-indexed) stays OPEN + PARKED pending operator go-ahead. -->
-| <!-- (none active for dev-scr1 — validation done, retarget parked, HOLD) --> | | | |
+<!-- dev-scr1 (retarget) locks RELEASED 2026-07-11 at Step 10a Phase 1 (committed on dev, HOLD for
+     operator test; NOT pushed/merged). APPROVED retarget of the calibration write to the strings-mode
+     channels×modes matrix feedback/output, mode-indexed (pitch removed), preserving the per-mode
+     average (new_col = x**(A/mean(x*)), flip x* if mean<0, degenerate only if |mean(x*)|~0 or A<=0)
+     + empirical noise floor (magnitude pass repeated N=4, per-channel SNR from repeats, near_node +
+     mode noise_level from measured variation). Python+FE only, NO CUDA. Commits: PianoidCore dev
+     adc410a (calibrator+solver+routes+tests), PianoidTunner dev 5bdb038 (panel+test). Live-verified
+     listen_to_modes=0 mode 2: readback==written, A preserved exactly (288.006), balance==x*, others
+     untouched, mode_snr 26.1, ch1 SNR 1.6 zeroed. UI verified (Mode# only, SNR chip, write reaches
+     feedback/output). Tone/variance fixes (a5cbbba) intact. Held+released: sound_channel_calibrator.py,
+     calibration_routes.py, matched_filter_solver.py, CalibrationSubpanel.jsx (+ 2 tests). Left written
+     in-memory: feedback/output mode 0 + mode 2 columns (operator-approved calibration; working copy,
+     NOT saved to preset). -->
+| <!-- (none active for dev-scr1 — retarget committed, HOLD for operator test) --> | | | |
 <!-- dev-scr1 locks RELEASED 2026-07-11 at Phase 2 wrap (committed + MERGED --no-ff -> dev in PianoidCore,
      local only, HOLD for operator test; NOT pushed). ASIO callback-mode per-channel sound-channel calibration
      (engine-ASIO emit+capture, SDL3 recorder dropped). Feature branch feature/dev-scr1-soundcal-asio @bf97881
