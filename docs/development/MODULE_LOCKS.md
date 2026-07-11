@@ -6,6 +6,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-scr1 locks RELEASED 2026-07-11 at Step 10a Phase 1 (committed on dev in BOTH source trees,
+     HOLD for operator test; NOT pushed/merged). Sound-channel calibration 3-defect fix (tone purity,
+     run-to-run variance, Mode#-vs-Pitch labels). Python + FE only, NO CUDA rebuild. Commits:
+     PianoidCore dev a5cbbba (asio_drive.py fade + sound_channel_calibrator.py settle_margin 4 /
+     min_integration_cycles 24 / settle-skip + test), PianoidTunner dev 72bcc0e (CalibrationSubpanel.jsx
+     labels + test). Root docs (proposal Implementation-Status, session log, WIP, this lock, diagnostics,
+     screenshots) committed on master. Measured: dominant CV 4.5%, row max-dev 0.028, confirmation CV 0.013,
+     no sign flips; live UI Run->Review->Confirm verified (persisted mode_sound_channels[60]). grid==0 guard
+     NOT touched (launcher .pyd never hit the race). Held+released: the 2 Core source files + Core test +
+     2 Tunner files. calibration_routes.py + narrowband_detector.py locked precautionarily, NOT edited. -->
+| <!-- (none active for dev-scr1 — committed, HOLD for operator test) --> | | | |
 <!-- dev-scr1 locks RELEASED 2026-07-11 at Phase 2 wrap (committed + MERGED --no-ff -> dev in PianoidCore,
      local only, HOLD for operator test; NOT pushed). ASIO callback-mode per-channel sound-channel calibration
      (engine-ASIO emit+capture, SDL3 recorder dropped). Feature branch feature/dev-scr1-soundcal-asio @bf97881

@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-scr1 | Fix 3 Modal Adapter sound-channel calibration defects (tone not pure sine; high run-to-run variance; redundant pitch input). PianoidCore dev + PianoidTunner dev. Live-test until stable. Commit on dev, HOLD (no push). | [log](logs/dev-scr1-2026-07-11-101600.md) | 2026-07-11 |
 | dev-bugauto | Auto-fire diagnostic bug-report on internal system faults (backend crash/exception, unresponsive endpoints, prohibited/clamped values, WS degraded, uncaught FE errors) + backend POST /bug_report collector + localStorage fallback/flush. Isolated worktrees off dev (FE+Core). Commit on feature branches, HOLD. | [log](logs/dev-bugauto-2026-07-11-100711.md) | 2026-07-11 |
 | dev-538e | Amp-guard gate observability & control (extends feature/dev-538e-amp-guard, after self-heal c899cd1): runtime-settable amplitude_limit + amplitude_gate_enabled (RuntimeParameters+device upload), gate_trip_count via /health, output clipping detection via /health. Heavy CUDA --both. Commit on feature branch, HOLD (no merge/push). | [log](logs/dev-538e-2026-07-10-174542.md) | 2026-07-10 |
 | dev-6ef1 | Build FE diagnostic bug-report tool (PianoidTunner branch feature/dev-6ef1-bugreport off dev): action-history ring buffer + config snapshot + report download/copy. FE-only, no CUDA. Commit on feature branch, HOLD (no merge/push). | [log](../../PianoidTunner/docs/development/logs/dev-6ef1-2026-07-10-111310.md) | 2026-07-10 |
