@@ -69,18 +69,34 @@ The full live ASIO drive+capture loop (M1/M2/M6/M8) was completed on the operato
   flips**; superposition residual 0.37 at mode 0 (55 Hz, physical low-freq non-ideality) and
   **0.048** at mode 40 (< the 0.1 threshold). Cost: per-tone hold 154 ms→~665 ms at mode 0 (the
   `est_mode_cost_s` shown in the UI now reflects the true settle+integration hold).
-- **"Why is pitch needed at all?"** DETERMINATION (data model, DATA_FLOWS.md §2.4 + source):
-  `mode_no` and `pitch` are **orthogonal keyspaces** — `mode_no` (0…num_modes−1 = 0…195) selects
-  which soundboard-resonance FREQUENCY is driven/measured (a mode is a global board resonance and
-  carries no pitch); `pitch` (0…127) selects which `mode_sound_channels` ROW the solved
-  coefficients are written to. There are more modes than keys and no mode→pitch mapping exists on
-  the engine, so **pitch is NOT redundant and cannot be derived from mode_no**. RESOLUTION: keep
-  both; the FE (`CalibrationSubpanel.jsx`) now labels them "Mode # (drive freq)" / "Pitch (write
-  row)" with tooltips explaining the distinction (no API change).
+- **"Why is pitch needed at all?"** — OPEN, escalated to the operator for adjudication (a first
+  source-only answer was WRONG and was retracted). The operator (engine owner) states: *"sound
+  channels matrix is channels by modes, not by pitches."* MEASUREMENT of the LIVE engine
+  currently shows **pitch-indexing**, which contradicts that:
+    - `GET /get_parameter/sound_channel/all` → `{pitch(23..106): [4 channels]}`, 84 pitch keys,
+      `_meta.num_channels=4`, `mode_channel_index=196`.
+    - Perturbation: `POST /set_parameter/sound_channel/60 {"60":[…]}` lands at key 60 and leaves
+      key 61 unchanged; `POST …/150 {"150":[…]}` (a valid MODE index, but not a pitch) is
+      **rejected** — *"Wrong range for pitches, available 23 to 106 requested 150"*. The
+      addressable index space is PITCHES, not modes.
+    - Engine read path (`PianoidBasic/Pianoid/StringMap.py:466-469`):
+      `feedin[sc_idx] = soundChannelModes.get_coeff(pitchID) * mute if listen_to_modes else 0.0`,
+      `sc_idx = [196,197,198,199]` — the 4 channel coeffs are packed into **each pitch's** feedin
+      tail. There is a `StringSoundChannels` class shaped `num_channels × num_modes` (the
+      operator's description) but it is **dead/unwired** (`np.zeros(num_channels, num_modes)` is
+      even invalid numpy) and nothing in the kernel path reads it.
+    - **Also measured (arguably more important for the operator):** in `listen_to_modes=0` (the
+      operator's live config) the sound_channel coeffs are packed as **0.0 → the calibration write
+      is entirely INERT** in that regime.
+  RESOLUTION (pending adjudication): the FE labels were **reverted to neutral** (`Mode #` /
+  `Pitch (0–127)`), pitch was **NOT removed** (writing a mode index the engine rejects would break
+  the flow), and the question is returned to the operator with the evidence above. If the intended
+  target is a channels×modes (mode-indexed) matrix, that structure is not wired into the live
+  kernel today and reviving it is engine work beyond this Python+FE pass.
 
-Live-verified on the UI Calibrate tab: two consecutive runs gave [+0.126,+0.065,+1.000,+0.375]
-and [+0.123,+0.077,+1.000,+0.373] (ref consistently ch2), Confirm persisted to
-`mode_sound_channels[60]`. Evidence: session log `logs/dev-scr1-2026-07-11-101600.md`, probes
+Live-verified on the UI Calibrate tab (before the label revert): two consecutive runs gave
+[+0.126,+0.065,+1.000,+0.375] and [+0.123,+0.077,+1.000,+0.373] (ref consistently ch2). Evidence:
+session log `logs/dev-scr1-2026-07-11-101600.md`, probes
 `development/diagnostics/dev-scr1-variance-probe.py` + `dev-scr1-buffer-analysis.py`.
 
 ### Operator resolution (2026-07-10 — both breaks resolved)

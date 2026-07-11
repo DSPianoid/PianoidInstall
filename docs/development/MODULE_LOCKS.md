@@ -16,7 +16,15 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      no sign flips; live UI Run->Review->Confirm verified (persisted mode_sound_channels[60]). grid==0 guard
      NOT touched (launcher .pyd never hit the race). Held+released: the 2 Core source files + Core test +
      2 Tunner files. calibration_routes.py + narrowband_detector.py locked precautionarily, NOT edited. -->
-| <!-- (none active for dev-scr1 — committed, HOLD for operator test) --> | | | |
+<!-- dev-scr1 (re-open) locks RELEASED 2026-07-11 at Step 10a Phase 1. Operator correction on bug 3:
+     MEASURED live engine (GET/perturb/read-path) — sound_channel is PITCH-indexed (write to pitch key
+     lands, mode-index 150 rejected 'available 23 to 106', StringMap.py:466-469 feedin[196:199]=
+     coeff[pitchID]); channels×modes StringSoundChannels is dead/unwired; write is INERT in
+     listen_to_modes=0. Measurement contradicts "channels×modes" -> escalated to operator for
+     adjudication, pitch NOT removed. FE labels REVERTED to neutral (PianoidTunner dev 37e6702 reverts
+     72bcc0e). Backend tone/variance fixes (PianoidCore dev a5cbbba) unchanged. Held+released:
+     CalibrationSubpanel.jsx + its test. -->
+| <!-- (none active for dev-scr1 — committed, HOLD; bug3 open for operator) --> | | | |
 <!-- dev-scr1 locks RELEASED 2026-07-11 at Phase 2 wrap (committed + MERGED --no-ff -> dev in PianoidCore,
      local only, HOLD for operator test; NOT pushed). ASIO callback-mode per-channel sound-channel calibration
      (engine-ASIO emit+capture, SDL3 recorder dropped). Feature branch feature/dev-scr1-soundcal-asio @bf97881
