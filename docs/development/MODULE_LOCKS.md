@@ -24,7 +24,17 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      adjudication, pitch NOT removed. FE labels REVERTED to neutral (PianoidTunner dev 37e6702 reverts
      72bcc0e). Backend tone/variance fixes (PianoidCore dev a5cbbba) unchanged. Held+released:
      CalibrationSubpanel.jsx + its test. -->
-| <!-- (none active for dev-scr1 — committed, HOLD; bug3 open for operator) --> | | | |
+<!-- dev-scr1 (validation) locks RELEASED 2026-07-11 at Step 10a Phase 1. Operator directive:
+     HALT retargeting (PARKED), run a measurement-only optimum-validation experiment. NO writes /
+     NO persistence / NO kernel change. Added a TEMP /modal/measure_drive_vectors route (drives
+     arbitrary vectors at ONE fixed volume_coeff => equal-L2-norm = equal total drive RMS), ran the
+     experiment (mode 2, best-conditioned in 0-9), REVERTED the temp route (calibration_routes.py
+     back to committed), clean-restarted. RESULT: x* is the loudest drive at fixed total RMS
+     (+17.5%/+16.7% over runner-up, stable across 2 repeats) => matched-filter optimum + sign solve
+     VALIDATED. No source files changed this round (calibration_routes.py reverted). Evidence:
+     diagnostics/dev-scr1-optimum-validation.py + session log. Retarget to feedback/output (channels
+     x modes, mode-indexed) stays OPEN + PARKED pending operator go-ahead. -->
+| <!-- (none active for dev-scr1 — validation done, retarget parked, HOLD) --> | | | |
 <!-- dev-scr1 locks RELEASED 2026-07-11 at Phase 2 wrap (committed + MERGED --no-ff -> dev in PianoidCore,
      local only, HOLD for operator test; NOT pushed). ASIO callback-mode per-channel sound-channel calibration
      (engine-ASIO emit+capture, SDL3 recorder dropped). Feature branch feature/dev-scr1-soundcal-asio @bf97881
