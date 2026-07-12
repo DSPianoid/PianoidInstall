@@ -87,7 +87,7 @@ Key methods called by the REST layer:
 - `get_chart_for_frontend(chartType, **kwargs)` — delegates to `ChartGenerator`
 - `perform_frontend_command(action_type, **kwargs)` — delegates to `ActionPerformer`
 - `save_preset(path, sm=None, modes=None, mp=None)` / `reset()` / `destroyPianoid()` — `save_preset` defaults to the live model; promote passes a working copy's model. Atomic temp-file write.
-- `load_preset_to_library(path, preset_name)` — loads a preset JSON into the GPU library as a read-only `original` entry
+- `load_preset_to_library(path, preset_name)` — loads a preset JSON into the GPU library as a read-only `original` entry. Restores `string_sound_channels` (strings-mode per-channel output gain) into the freshly built model, in parity with the main load path (dev-f10d, 2026-07-12) — `add_pitch` defaults `string_coefficients` to ZEROS for output pitches, so omitting this restore left `sc_gain=0` (`StringMap.pack_pitch_feedin`) → total silence after a library preset switch
 - `switch_preset(preset_name, async_switch)` — switches the active preset via double-buffer swap; saves live edits back only when leaving a `working` copy
 - `spawn_working_copy(source_name, activate=True)` — deep-copies a source entry's current state into a new auto-labelled `working` copy
 - `promote_working_copy(working_name)` — overwrites a working copy's source original's on-disk JSON, refreshes the in-memory original

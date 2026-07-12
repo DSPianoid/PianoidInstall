@@ -165,15 +165,119 @@ cause a re-render:
 | `selection` | `PianoidTuner` effect | `pitch`, `pitches`, `mode`, `modes` |
 | `settings_change` | `PianoidTuner` effect | `uiPreferences` |
 | `layout_change` | `PianoidTuner` effect | `activeMosaicConfig` |
+| `system_signal` | `systemSignals.recordSystemSignal` (via the axios interceptor, /health watch, `useSocketIO`, `window.onerror`/`unhandledrejection`) | `kind`, `detail` |
 
 Every entry additionally carries `t` (ms since app load) and `type`.
 
 ---
 
-## Report JSON Schema (schemaVersion 1)
+## Auto-Fire on Internal System Faults
+
+The tool no longer waits for a user click. It also **reacts to internal system
+signals** — server crashes, unresponsive endpoints, prohibited/clamped values —
+and **assembles + delivers a full report automatically, with no user
+interference** (dev-bugauto, 2026-07-11). The manual 🐞 flow is 100% unchanged.
+
+Three parts, each a single-concern module (mirrors the manual tool's shape):
+
+| Part | File | Concern |
+|---|---|---|
+| Signal capture | `src/utils/systemSignals.js` | Record internal faults into the SAME ring buffer (`type:"system_signal"`) + classify significance + notify subscribers. Module singleton, re-render-free, never-throws. |
+| Auto-report controller | `src/utils/autoReporter.js` | Dedup/rate-limit/debounce → assemble (reuse `buildReport`) → deliver (collector POST, localStorage fallback, flush-on-reconnect). |
+| Wiring | `src/hooks/useAutoReport.js` | Install the fault sources (axios interceptor, `/health` watch, `window.onerror`/`unhandledrejection`), gate on the setting, feed the controller. Mounted once in `PianoidTuner`. |
+| Collector | `PianoidCore/pianoid_middleware/backendServer.py` → `POST /bug_report` | Save the posted report JSON to `PianoidCore/logs/reports/`. |
+
+### The fault set (what fires, what is context-only)
+
+| Signal kind | Source | Significant? (auto-fires) |
+|---|---|---|
+| `backend_exception` | `/health` `exception:true` (engine/MIDI fault latched) | **yes** |
+| `backend_crashed` | `/health` `status:'crashed'` OR `backend_thread_running:false` while loaded | **yes** |
+| `endpoint_unresponsive` | axios interceptor: network error / timeout / **5xx** | **yes** — EXCEPT the optional modal-adapter `:5001/health` poll (excluded; see below) |
+| `js_error` | `window.onerror` | **yes** |
+| `unhandled_rejection` | `window.onunhandledrejection` | **yes** |
+| `param_rejected` | axios interceptor: **HTTP 4xx** (a prohibited/clamped value) | only in **burst** (≥5 in 5 s ⇒ `reject_burst`) |
+| `ws_disconnect` | `useSocketIO` `disconnect` | no — recorded for context (a restart is normal) |
+| `ws_degraded` | `useSocketIO` half-open/degraded cooldown | no — recorded for context (falls back to REST) |
+
+**The REST layer is captured at ONE chokepoint — a global axios response
+interceptor** — exactly as the manual tool captures writes at the `writeParam`
+SSOT: every failed REST call (any call site, present or future) is classified
+without per-call instrumentation. A `{ok:false}` WS ack falls back to REST in
+`writeParam`, so a genuine rejection surfaces as the REST 4xx the interceptor
+sees. The interceptor **ignores its own** `/bug_report` and
+`/get_runtime_parameters` calls (no feedback loop). Backend crash/exception is
+read from the **existing** `useBackendHealth` poll — **no second poll is added**.
+
+**Optional-service health polls are excluded (dev-f10d, 2026-07-12).** The
+modal-adapter server (`:5001`) is an OPTIONAL, on-demand backend started by the
+Modal Adapter panel; while it is stopped, `useServerLifecycle` polls
+`http://127.0.0.1:5001/health` **every 2 s** and each poll fails. Those failures
+are *expected*, not a bug, so `classifyAxiosError` **drops any `:5001/health`
+failure** (`isOptionalHealthUrl`) before it reaches the reporter — a stopped
+optional server never produces a report. (Genuine `:5001` *operations* — e.g.
+`/modal/gpu_status`, tracking, esprit — are still classified; they are bounded by
+per-host episode dedup below, so a down `:5001` yields at most ONE report, not a
+flood.) This closed a runaway where a stopped `:5001` produced 300+ identical
+`endpoint_unresponsive` reports in minutes.
+
+### Trigger policy — one report per fault EPISODE
+
+A crash must not spawn 50 reports. The controller (`createAutoReporter`):
+
+- **Debounce** `DEBOUNCE_MS = 1500` — a fault's flurry of signals collapses into ONE report.
+- **Episode dedup** — all backend faults share the episode key `backend_fault`; while an episode is *active* (fired, not yet cleared) further signals are suppressed. The episode is **re-armed** only when the fault CLEARS (`/health` recovers, WS reconnects), so a later recurrence can fire again.
+- **`endpoint_unresponsive` is keyed PER HOST (dev-f10d, 2026-07-12)** — `episodeKeyFor` appends the request's `host:port` (e.g. `endpoint_unresponsive:127.0.0.1:5001`), and the axios **success** interceptor clears **only the succeeding URL's** episode. This is load-bearing: a global key let a healthy `:5000` success re-arm the still-down `:5001` episode every cooldown, turning dedup into a 300+-report flood. Per-host keys isolate each endpoint's up/down state, so a continuously-down endpoint fires exactly ONCE and stays latched until *that* endpoint itself recovers. (Relative / same-origin URLs collapse to the base key `endpoint_unresponsive`.)
+- **Global cooldown** `MIN_INTERVAL_MS = 10000` between auto-reports; **session cap** `MAX_PER_SESSION = 20`.
+- **Reject burst** — a single 4xx is minor; `REJECT_BURST_THRESHOLD = 5` within `REJECT_BURST_WINDOW_MS = 5000` becomes a significant `reject_burst`.
+
+The auto-report is the SAME assembly as the manual path (config snapshot + live
+runtime params + action history) with an auto-filled `description`
+(`"AUTO: backend exception latched — engine/MIDI fault"`, …) and a
+`trigger:{auto:true, kind, count?, detail?}` marker.
+
+### Auto-deliver — collector, with a backend-down lifeboat
+
+**PRIMARY — backend collector.** The FE POSTs the auto-report to
+`POST /bug_report`; the backend saves it to
+`PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|manual>-<hex6>.json`
+(dir auto-created; oldest pruned beyond `_REPORTS_KEEP = 500`). No download, no
+click — it lands in a folder the dev/orchestrator watches.
+
+**FALLBACK — the fault IS the backend being down**, so the collector POST fails.
+The report must still survive: it is persisted to `localStorage`
+(`pianoid_pending_bug_reports`, bounded to `MAX_PENDING = 5`, oldest dropped).
+The persisted copy is **compacted** — the heavy `configSnapshot.params` arrays
+are dropped (`{__omitted:…}`) so the ~2 MB report fits localStorage's ~5 MB cap;
+the diagnostic core (fault/trigger, `actionHistory`, `fe`, `health`,
+`runtimeParams`) is kept. localStorage **survives the user's full-reload restart
+routine**, so the backend-crash report — the most important one — is not lost.
+
+**FLUSH-ON-RECONNECT.** When the backend returns (a `/health` recovery edge, a WS
+reconnect, or app mount after a reload), every persisted report is POSTed to the
+collector and cleared from localStorage. Reports that still fail stay queued.
+
+### Settings toggle
+
+Auto-reporting is **ON by default**. A user can disable it via the
+`uiPreferences.autoReportEnabled` flag (`=== false` disables the whole
+controller — no interceptor, no watchers, no auto-fire). It is a `useSettings`
+preference (persisted); a dedicated UI control is a small follow-up. The **manual
+🐞 path is never gated by this flag.**
+
+> **Open decision flagged to the user:** auto-reports land as files in
+> `logs/reports/` and (when the backend is down) in `localStorage`. A backend-down
+> report is NOT auto-downloaded by default (to avoid surprise browser downloads) —
+> it relies on localStorage + flush. If you'd prefer backend-down reports to ALSO
+> auto-download as a belt-and-suspenders, that is a one-line change
+> (`autoReporter.deliverReport`).
+
+## Report JSON Schema (schemaVersion 2)
 
 The report is a single JSON object. Field names and shape below are verified against the code and
-against a real generated sample. `BUG_REPORT_SCHEMA_VERSION = 1`.
+against a real generated sample. `BUG_REPORT_SCHEMA_VERSION = 2` (v2 added the
+`trigger` field + the `system_signal` action type — both additive; see
+[Auto-Fire on Internal System Faults](#auto-fire-on-internal-system-faults)).
 
 ```jsonc
 {

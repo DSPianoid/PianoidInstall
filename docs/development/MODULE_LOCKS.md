@@ -6,6 +6,19 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-f10d locks RELEASED 2026-07-12 at Step 10a Phase 1 (all committed on dev, HOLD — NOT
+     pushed/merged). (1) Flood fix: PianoidTunner dev 74860ae (autoReporter.js + useAutoReport.js
+     + 2 tests). (2) #1 library-switch silence: PianoidCore dev 997ece8 (pianoid.py
+     load_preset_to_library now restores string_sound_channels, parity with main load path;
+     add_pitch zero default -> sc_gain=0 -> silence otherwise). Verified headless (no GPU/ASIO):
+     string_coefficients[128] 0000 -> 40/40/40/40==preset, pack_pitch_feedin silent->non-zero.
+     (3) #2/#3 whole-mode-axis matrix mute: PianoidTunner dev a14302a (MeasuredMatrix.jsx Mute drops
+     mode-column bound; pitch/row scope kept; scoped band-mute stays behind the aggregate tri-state
+     control) + 3 regression tests. Jest 34 (flood+scopedBounds) + 79 (mute/matrix regression) PASS.
+     #4 engine hard-clip/limiter (MainKernel.cu, dev-538e) NOT touched — HELD per directive.
+     Full end-to-end live library-switch verification DEFERRED: :5000 was an ACTIVE ASIO session
+     (do-not-tear-down) so no backend restart / preset switch was run on it. -->
+| <!-- (none active for dev-f10d — committed 74860ae/997ece8/a14302a, HOLD) --> | | | |
 <!-- dev-scr1 locks RELEASED 2026-07-11 at Step 10a Phase 1 (committed on dev in BOTH source trees,
      HOLD for operator test; NOT pushed/merged). Sound-channel calibration 3-defect fix (tone purity,
      run-to-run variance, Mode#-vs-Pitch labels). Python + FE only, NO CUDA rebuild. Commits:
