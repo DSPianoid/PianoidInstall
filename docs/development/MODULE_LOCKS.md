@@ -47,7 +47,18 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      calibration_routes.py, matched_filter_solver.py, CalibrationSubpanel.jsx (+ 2 tests). Left written
      in-memory: feedback/output mode 0 + mode 2 columns (operator-approved calibration; working copy,
      NOT saved to preset). -->
-| <!-- (none active for dev-scr1 — retarget committed, HOLD for operator test) --> | | | |
+<!-- dev-scr1 (batch) locks RELEASED 2026-07-12 at Step 10a Phase 1 (committed on dev, HOLD for operator
+     test; NOT pushed/merged). BATCH calibration over a mode range (Ring-2): calibrate_and_write_range
+     TWO-PHASE (measure all modes in ONE calibration window then write — repeated per-mode enter/exit
+     corrupts the engine state machine) + POST/GET /batch[/status] bg-thread job w/ progress + per-mode
+     results + bounds + est wall-clock; FE From/To inputs + Run batch + progress + results table. Python
+     +FE only, NO CUDA. Commits: PianoidCore dev a4e6626, PianoidTunner dev e602292. Live-verified:
+     structure/progress/skip-reporting/two-phase-state OK; write path proven (batch mode 4 avg preserved
+     + readback==written). RIG went noise-level (mic signal ~200,000x down vs prior day; calibrate_mode
+     unchanged) so all modes correctly SKIPPED — fresh full write demo blocked by rig, not code. UI
+     verified (screenshots dev-scr1-batch-ui-*). Held+released: sound_channel_calibrator.py,
+     calibration_routes.py, CalibrationSubpanel.jsx (+test). -->
+| <!-- (none active for dev-scr1 — batch committed, HOLD for operator test) --> | | | |
 <!-- dev-scr1 locks RELEASED 2026-07-11 at Phase 2 wrap (committed + MERGED --no-ff -> dev in PianoidCore,
      local only, HOLD for operator test; NOT pushed). ASIO callback-mode per-channel sound-channel calibration
      (engine-ASIO emit+capture, SDL3 recorder dropped). Feature branch feature/dev-scr1-soundcal-asio @bf97881
