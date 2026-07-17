@@ -231,6 +231,73 @@ before launch, letting you proceed (the UI loads) or cancel — instead of launc
 straight into the backend crash. See
 [`QUICK_START.md` § Pre-launch safety checks](QUICK_START.md#no-prompt-launch-desktop-shortcut--update-check).
 
+### Symptom: audio dropouts / latency return after every Windows reboot — GPU clocks not locked {#gpu-clock-lock}
+
+**Diagnosis.** Check the GPU's clock against its ceiling **while the engine is running**:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\gpu_rt_config.ps1 -Status
+```
+
+If the SM clock is far below the max (e.g. `1110 MHz of 3120 MHz`) while utilization is high
+(70-85%), the GPU is being held in a low P-state and **this is the latency problem**.
+
+**Root cause.** Pianoid's synthesis kernel is a short, periodic, latency-sensitive workload driven
+at the audio-callback cadence. The NVIDIA driver's dynamic-boost heuristics do not treat that
+pattern as load worth boosting for: the GPU sits at ~38% of its clock ceiling on ~16% of its power
+budget *even at 80% utilization* (measured, RTX 4090 / driver 565.90, 2026-07-12). Each synthesis
+cycle then takes ~2.6x longer than the hardware allows, pushing cycles past their deadline.
+
+**A GPU clock lock is driver state and does NOT survive a reboot** — which is why the symptom
+returns after every restart. `nvidia-smi -pm 1` (persistence mode) does **not** help: it is a
+Tesla/TCC feature and reports `[N/A]` on GeForce/WDDM.
+
+**Fix — it is handled at launch, automatically. You should not need to do anything.**
+
+`start-pianoid.bat` runs `check-gpu-clock.ps1` as a pre-launch check (alongside `check-cuda.ps1`),
+so the lock is verified on **every** launch:
+
+| At launch | What happens |
+|-----------|--------------|
+| Clocks already locked | Silent no-op. No prompt, no delay. (The common case.) |
+| Clocks not locked | The console explains why, then **one UAC prompt** — click **Yes**, the clocks lock, Pianoid launches. |
+| You decline the UAC | Warns that dropouts are likely and **launches anyway** — degraded, never blocked. |
+| No NVIDIA GPU / no `nvidia-smi` / script missing | Silent fall-through; Pianoid launches. |
+
+Checking at launch (rather than via a boot-time task) is deliberate:
+
+- It **scopes the lock to when Pianoid is actually running**, instead of pinning the GPU to max clock
+  24/7 on a machine that is mostly idle — which would waste power and spin fans for nothing.
+- It is **self-healing**: the check runs every launch, so if anything ever resets the clocks, the very
+  next launch catches it.
+- It has **no invisible failure mode**: you see the UAC prompt. A background boot task that silently
+  no-ops (e.g. because it fired before the NVIDIA driver had finished loading) is not observable.
+
+Administrator is required to change clocks (unelevated, `nvidia-smi -lgc` exits 4 — *"the current user
+does not have permission to change clocks"*), which is why there is a UAC prompt at all. It appears
+**only** when the clocks actually need locking.
+
+**Don't want to be asked?** Set `PIANOID_SKIP_GPU_CLOCK_CHECK=1` to disable the check entirely.
+
+**Manual control** — `tools\gpu_rt_config.ps1` is the single owner of GPU clock state:
+
+| Need | Command | Admin? |
+|------|---------|--------|
+| Check state (clocks vs ceiling, boot task armed?) | `-Status` | no |
+| Lock clocks now | `-Apply` | yes |
+| Restore normal dynamic boost | `-Reset` | yes |
+| *Optional:* also re-apply at every boot, headlessly | `-Install` | yes |
+| Remove that boot task | `-Uninstall` | yes |
+
+`-Install` registers a Scheduled Task (at startup, as SYSTEM; it waits up to 120 s for the driver to come
+up, because an at-startup task can otherwise fire before NVML is ready). It is **optional and not the
+default** — the launcher check above covers the normal case without the 24/7 idle-power cost. Use it only
+if you want the clocks locked even when Pianoid is not running. Its runs are logged to
+`%ProgramData%\Pianoid\gpu_rt_config.log`.
+
+`tools\lock_gpu_clock.bat` / `unlock_gpu_clock.bat` are the older manual-only equivalents (added for
+benchmark determinism, dev-1564); `gpu_rt_config.ps1` supersedes them and adds the boot persistence.
+
 ### Symptom: `nvcc` not found during build
 
 **Check:**

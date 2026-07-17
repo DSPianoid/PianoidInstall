@@ -198,6 +198,34 @@ if "%CUDA_RC%"=="30" (
 :after_cuda_check
 
 rem =========================================================================
+rem GPU clock-lock check (best-effort, before launch)
+rem
+rem check-gpu-clock.ps1 verifies the GPU's clocks are locked at max. Pianoid's
+rem synthesis kernel is a short, periodic, audio-cadence workload that the
+rem driver's boost heuristics do not treat as real load: the GPU idles down to
+rem ~38%% of its clock ceiling even at 80%% utilisation, the synthesis cycle runs
+rem several times slower than the hardware allows, and you hear dropouts.
+rem A clock lock is DRIVER state and Windows clears it on every restart -- hence
+rem checking it at every launch, which also scopes the lock to when Pianoid is
+rem actually in use (no pinning the GPU to max clock 24/7).
+rem   locked already -> silent no-op (the common case; no prompt, no delay).
+rem   not locked     -> explains why, then ONE UAC prompt; on YES it locks.
+rem   UAC declined   -> warns, and LAUNCHES ANYWAY (degraded, not blocked).
+rem Never aborts the launch (no exit-30 path). Best-effort: a missing script /
+rem PowerShell / nvidia-smi falls through to launch.
+rem Opt out entirely with PIANOID_SKIP_GPU_CLOCK_CHECK=1.
+rem =========================================================================
+if "%PIANOID_SKIP_GPU_CLOCK_CHECK%"=="1" goto :after_gpu_clock_check
+if not exist "%ROOT_DIR%check-gpu-clock.ps1" goto :after_gpu_clock_check
+where powershell >nul 2>&1
+if errorlevel 1 goto :after_gpu_clock_check
+
+set "GPUCLK_AUTO="
+if "%NOPROMPT%"=="1" set "GPUCLK_AUTO=-Auto"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-gpu-clock.ps1" %GPUCLK_AUTO%
+:after_gpu_clock_check
+
+rem =========================================================================
 rem Start application
 rem =========================================================================
 rem The launcher (server/launcher.js) manages the backend lifecycle:
