@@ -4,7 +4,12 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-5965 | Investigate failing system/integration/unit tests (chord loudness, channel leak, pitch detection, stale tests) — regression vs stale by measurement | [log](logs/dev-5965-2026-09-22-135848.md) | 2026-09-22 |
 | sc-panel-e2e | Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch feature/sc-panel-e2e-harness). NEXT: Playwright coordinate-precise runner. | [flow](reviews/sound-channels-panel-flow-and-test-strategy-2026-07-16.md) / [plan](reviews/sound-channels-panel-e2e-test-plan-2026-07-17.md) | 2026-07-17 |
+| dev-sce2e | SC panel E2E — measurement foundation (fixture+harness+gates+first tests) | [log](logs/dev-sce2e-2026-07-17-105943.md) | 2026-07-17 |
+| dev-chord | OPERATOR bug "offline can't render a true simultaneous chord": DIAGNOSIS MEASURABLY WRONG — offline coincident chords ALREADY work. Engine honors cycle_index (PlaybackCycleExecutor/getEventsAtCycle cursor); w2_chord_render.py 12-note coincident chord → all 12 fundamentals present (Missing []); shipped `sound_test` play_kind=chord mode=offline puts all NOTE_ONs at cycle 0 (chartFunctions.py:3043) and is REST-reachable (/get_chart_test 200). Staggering is /play_keyboard-offline BY DESIGN (sweep); single-note paths by purpose. NO source change (report-only; adding an endpoint would duplicate sound_test). Env restored, PianoidCore dev clean. Diagnostics under docs/development/diagnostics/dev-chord-*. STOPPED before commit. | [log](logs/dev-chord-2026-07-17-100000.md) | 2026-07-17 |
+| dev-gpucfg | OPERATOR: "After the system restart, the latency issue reappeared, the GPU config has to be updated. 1) give me exact command 2) make it persist across restarts." Root cause CONFIRMED by measurement: NVIDIA clock lock is driver state, wiped by every reboot — GPU held at 1110/3120 MHz (36% of ceiling) at 74-84% util under live engine load → ~2.6x slow synthesis cycle → overruns. `nvidia-smi -pm 1` is a red herring (Tesla/TCC-only, N/A on GeForce). NEW `tools/gpu_rt_config.ps1` (apply + AtStartup/SYSTEM Scheduled Task + status/reset/uninstall, driver-readiness retry). Needs ONE elevated run by the operator (`-lgc` is privileged; agent shell is unelevated). Doc gap closed in STARTUP_TROUBLESHOOTING.md#gpu-clock-lock. Uncommitted, STOPPED before Step 10. | [log](logs/dev-gpucfg-2026-07-12-154954.md) | 2026-07-12 |
+| dev-mute2 | OPERATOR: "Mute does not work at all — muted all sound, didn't even change." Reproduce LIVE, diagnose by measurement along the whole chain, fix root cause, verify live before/after. Root cause = `backendServer.py::parse_range` rejects `feedback_mask/128..131` with HTTP 416 (output-pitch key space hardcoded to the literal `'feedback'`) → strings-axis mute NEVER lands. dev-f10d's FE RCA refuted. PianoidCore dev. Commit on dev, HOLD (no push/merge). | [log](logs/dev-mute2-2026-07-12-130000.md) | 2026-07-12 |
 | dev-f10d | Flood fix (auto-report dedup per-URL + optional-health-poll exclusion) COMMITTED `74860ae`; + 2 CLEAN sound-channel mute RCA fixes: #1 library-switch string_coefficients restore `pianoid.py` (PianoidCore dev `997ece8`), #2/#3 whole-mode-axis matrix mute `MeasuredMatrix.jsx` (PianoidTunner dev `a14302a`). #4 clipping/limiter HELD (operator to choose approach; MainKernel.cu NOT touched). All local commits on dev, HOLD (no push/merge). | [log](logs/dev-f10d-2026-07-12-104300.md) | 2026-07-12 |
 | dev-scr1 | Fix 3 Modal Adapter sound-channel calibration defects (tone not pure sine; high run-to-run variance; redundant pitch input). PianoidCore dev + PianoidTunner dev. Live-test until stable. Commit on dev, HOLD (no push). | [log](logs/dev-scr1-2026-07-11-101600.md) | 2026-07-11 |
 | dev-bugauto | Auto-fire diagnostic bug-report on internal system faults (backend crash/exception, unresponsive endpoints, prohibited/clamped values, WS degraded, uncaught FE errors) + backend POST /bug_report collector + localStorage fallback/flush. Isolated worktrees off dev (FE+Core). Commit on feature branches, HOLD. | [log](logs/dev-bugauto-2026-07-11-100711.md) | 2026-07-11 |
@@ -200,6 +205,13 @@
      non-Claude + add non-Claude ids to CONTROL_MODEL_CHOICES; ALSO allow-list ORCHESTRATOR_TOOL_NAMES in the
      orchestrator policy so the coordinate tools don't spuriously route every call (else fallback:'route' asks). -->
 
+<!-- dev-5965 OPEN (2026-09-22) — test-failure triage, PianoidCore feature/dev-5965-test-triage (HOLD, not merged/pushed).
+     Needs USER DECISION: (a) Preset_test5 (the system/integration fixture preset) renders ~93% energy above 5 kHz
+     (8.28 kHz mode) and is strongly non-linear (12-key chord onset 59% off the sum of notes vs 0.03% on
+     BaselinePreset1) — keep it, re-migrate it, or move sound tests to BaselinePreset1? (b) the machine-local
+     tests/fixtures/reference_c4_preset_test5.npy (Apr 4, mono) now correlates 0.937 (< 0.95) with today's ch0
+     render — regenerate (accept current sound) or investigate the drift? (c) the "column multiplier has no effect"
+     Sound Channels report (12 Jul) was NOT reproduced here (UI-only; possibly the 416 feedback_mask bug fixed in 620a426). -->
 ---
 
 ## ★ POST-RESTART CONTINUATION — 2026-06-20 (CONTROL-PLANE activation: READ FIRST; delete after live-test + B1/C1 are sorted)

@@ -53,7 +53,15 @@
       "mcp__claude_ai_Gmail__search_threads",
       "mcp__claude_ai_Gmail__get_thread",
       "Bash(git commit *)",
-      "Bash(rm .git/COMMIT_MUTE.txt)"
+      "Bash(rm .git/COMMIT_MUTE.txt)",
+      "Bash(mkdir -p .claude/scratch_cpseg2)",
+      "Bash(curl -s -m 60 -X POST http://localhost:5000/get_chart_test -H \"Content-Type: application/json\" -d '{\"chartType\":\"sound_test\",\"mode\":\"online\",\"include_kernel\":\"true\",\"play_kind\":\"sequence\",\"pitches\":\"48,52,55,60\",\"velocities\":\"100\",\"durations_ms\":\"400\",\"tail_ms\":\"200\",\"include_profiling\":\"true\"}' -o .claude/scratch_cpseg2/probe.json)",
+      "Bash(python -c ' *)",
+      "Bash(mkdir -p .claude/scratch_mmcss)",
+      "Bash(tasklist //M pianoidCuda_debug.cp312-win_amd64.pyd)",
+      "Bash(powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique\")",
+      "Bash(mkdir -p .claude/backups)",
+      "Bash(cp .claude/settings.local.json .claude/backups/settings.local.json.preReconcile)"
     ],
     "additionalDirectories": [
       "C:\\Users\\astri\\.claude"

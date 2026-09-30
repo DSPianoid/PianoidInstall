@@ -269,19 +269,87 @@ test.
 > `T = 0.85, B = 0.10`: `T + 4B = 1.25` > 1 but `|g| = 1.0`, stable). The correct ratio is
 > `(coeff_tension − 8·coeff_bending) / CFL_LIMIT` with `CFL_LIMIT = 1`.
 
-### Where the guard lives (v2 — host-side, skip-the-upload + flag; GRANULAR path)
+### Where the CFL reading lives (v3 — host-side, INDICATION ONLY; gate removed)
 
-The stability guard is enforced **on the host, in `parameter_manager.py`, BEFORE the GPU upload**
+> **v3 (user-directed 2026-07-08) — the gate is REMOVED. CFL/Courant is now purely an INDICATOR.**
+> ANY parameter edit is APPLIED (uploaded to the engine); nothing is ever skipped or rejected on CFL
+> grounds. The only safety net anywhere is the **in-kernel per-point string-displacement guard**
+> (`MainKernel.cu`, ~:599): `if (isnan(target) || fabs(target) > AMPLITUDE_LIMIT)` votes the barrier-safe
+> `pointStatus = -1` abort. The amplitude ceiling is now a **runtime device parameter** (`amplitude_limit`,
+> dev-538e gate observability & control — see the paragraph after self-heal), defaulting to `1.0e4` (the
+> former `constants.h` `AMPLITUDE_LIMIT` constexpr, kept only as the RuntimeParameters default seed). The amplitude ceiling was
+> added because an `isnan`-only check is insufficient: `isnan` misses `inf`, and a geometric FDTD runaway
+> (a "parameters off"/past-the-edge config, now that CFL is indication-only) blows the displacement to
+> astronomically-huge/`inf` values **before** any NaN appears, and the isnan-only guard only breaks at the
+> end of a full cycle — so a whole cycle of garbage reaches the ASIO driver → hard backend crash
+> (0xC0000006-class). `1e4` is ~500× above the loudest HEALTHY internal displacement (O(1)–~20 at
+> fortissimo/at-edge, coeff=0; output is ~1e-3) yet 30+ orders below overflow, so a runaway trips it within
+> a sample or two while a loud note never false-aborts. **String displacement ONLY — modes are not guarded**
+> (user-directed). The abort reuses the existing barrier-safe path (per-thread `pointStatus` → guarded
+> `atomicAdd(status, pointStatus)` → uniform `if (*status < 0) break;` after the block barriers), so no new
+> abort mechanism is introduced. The prose below describes how the Courant reading is still COMPUTED +
+> surfaced for the read-only indicators.
+>
+> **Recovery / self-heal (dev-538e, 2026-07-10) — the trip aborts only the CURRENT cycle, never all future
+> ones.** The original guard (commit `5b5dbfa`) *latched*: after a trip, `*status` stayed negative
+> (`MainKernel.cu` end-of-kernel reset to `200` was gated on `*status >= 0`), so every subsequent cycle
+> immediately hit `if (*status < 0) break;` → permanent silence, AND — the decisive latch —
+> `runCycle` returned the non-`200` status, so `OnlinePlaybackEngine::run` (`OnlinePlaybackEngine.cu:185`,
+> `if (status != 200) break;`) **exited the synthesis thread**. Because the online **Reset** path only
+> raises `resetFlag` (drained into `status = 500` *inside* a running `runSynthesisKernel` cycle — see the
+> reset clears at `MainKernel.cu` ~`:324/:345/:482`), a dead thread could never process it: the engine was
+> bricked until a full backend restart (measured: `/health backend_thread_running` `true → false → false`
+> across trip → safe-params → Reset). The fix makes the kernel **self-heal on a trip**: at end-of-kernel,
+> when `*status < 0`, it zeroes the blown persistent state — `dev_string_state` (both time levels),
+> `dev_mode_running` (`q`,`q_prev`), the `feedback`/`feedin` cycle accumulators, and `sound_prev_diff` —
+> reusing the exact `status == 500` reset expressions, then reports `200`. The synthesis thread therefore
+> survives; the offending cycle is dropped (no inf/NaN reaches the driver) and the **next** cycle resumes
+> from a clean, silent state, so returning params to the safe zone (or a note-off) **auto-recovers with no
+> user action and no restart** — Reset is not required. A *genuinely* unrecoverable failure (a cooperative
+> **launch** error) is still caught on the host (`Pianoid_synthesis.cu:409` → returns `500`) and correctly
+> stops the thread; only the recoverable in-kernel amplitude/NaN trip self-heals. (The pre-existing
+> `isnan`-only path shared the same latch structure; it is fixed by the same self-heal.)
+>
+> **Gate observability & control (dev-538e, 2026-07-10).** Three additions make the guard tunable +
+> observable from the UI, all plumbed exactly like the existing `volume`/`feedback` runtime params
+> (host `RuntimeParameters` field → stream-ordered `cudaMemcpyAsync` to a single-value device buffer →
+> kernel reads `*ptr` at the guard site):
+> 1. **Runtime ceiling** — `RuntimeParameters.amplitude_limit` (`real`, default `1.0e4`, device buffer
+>    `dev_amplitude_limit`). The guard reads `amp_limit = *amplitude_limit` once per cycle. Settable/gettable
+>    via `POST/WS set_runtime_parameters` + `GET /get_runtime_parameters` (accepted `1.0 .. 1e7`, clamped;
+>    the `1.0` floor lets the user drive it BELOW the healthy displacement to force/observe the gate).
+> 2. **Gate enable** — `RuntimeParameters.amplitude_gate_enabled` (`int` 0/1, default `1`, device buffer
+>    `dev_amplitude_gate_enabled`). The guard is `isnan(target) || (amp_gate_on && fabs(target) > amp_limit)`
+>    — the `isnan` term is **UNCONDITIONAL** (disabling the amplitude branch never re-exposes the NaN→ASIO
+>    crash; the NaN self-heal still fires). With the amplitude branch OFF, `inf` (which `isnan` misses) can
+>    again escape a cycle — the exact tradeoff the amplitude ceiling exists to close when ON. *(Measured: same
+>    x1000-tension runaway — gate ON → output finite + `gate_trip` increments; gate OFF → output non-finite
+>    (inf escapes) but `gate_trip` still increments via `isnan`.)*
+> 3. **Gate-trip counter** — a 2-int WORKING device buffer `dev_gate_trip` `[cumulative_count, last_cycle]`,
+>    incremented once per tripped cycle by the single thread `(blockNo==0 && stMdIndex==0)` at the self-heal
+>    site (no atomic). Read to host via `getGateTripStats()` and surfaced on `GET /health` as
+>    `gate_trip_count` / `last_gate_trip` for the toolbar "gate fired" indicator.
+>
+> **Output-clipping telemetry (dev-538e).** The offline/online output write sites (`MainKernel.cu` stem
+> `:576` + mode-channel `:723`) now peak-hold the post-volume magnitude `|output · main_volume_coefficient|`
+> per output channel into `dev_limiter_peak` via `atomicMaxPeakReal` (a non-negative-float atomic-max). This
+> **revives** the previously-inert limiter telemetry (`getLimiterPeaks` / `get_limiter_status` / `/health`):
+> a channel peak reaching/exceeding INT32 full-scale (`2147483647`, the `Sint32` cast/driver rail) is
+> **clipping**, surfaced on `/health` as `clipping` (latched) / `clipping_now` / `peak_level`.
+
+The CFL/Courant reading is computed **on the host, in `parameter_manager.py`**
 (`cfl_stability.py` computes the closed-form `max_θ|g(θ)|` and the Courant number). It runs inside the
-**granular** upload path `update_pitch_physical_params_GRANULAR` — *after* the edit lands in the Python
-model, immediately before the `updateMultiStringParameter_NEW` upload. The guard **rejects** (raises
-`cfl_redline` + skips the GPU write — the edit stays in the model; the engine keeps its last-stable
-coefficients, no crash, no partial write) when the worst-string **Courant number**
-(`coeff_tension − 8·coeff_bending`) ≥ **`CFL_MARGIN`** **or** `max|g| > 1`. A subsequent stable edit clears
-the flag. This is **skip-the-upload, not reject-the-edit** (user-directed 2026-05-30 — replaces the earlier
-`CflRejected` → HTTP 400 reject; the flag is surfaced via `/health` + the `param_ack`/REST-200 edit
-response, e.g. the `BackendStatusIndicator` "CFL" chip). The deprecated `_raise_if_cfl_unstable` (the old
-throw-based gate) is retained only until its reject-path tests migrate to the flag model.
+**granular** upload path `update_pitch_physical_params_GRANULAR` /
+`update_pitches_physical_params_GRANULAR` — *after* the edit lands in the Python model, immediately before
+the `updateMultiStringParameter_NEW` upload — via `_flag_cfl_indication` (formerly
+`_skip_unstable_physical_upload`), which now **only set/clears the `cfl_redline` INDICATOR flag** and
+**never skips the write**: the edit is uploaded regardless. The flag is raised when the worst-string
+**Courant number** (`coeff_tension − 8·coeff_bending`) ≥ **`CFL_MARGIN`** **or** `max|g| > 1`, and a
+subsequent in-margin edit clears it. It is surfaced via `/health` + the `param_ack`/REST-200 edit response
+(e.g. the `BackendStatusIndicator` "CFL" chip) and the read-only `cfl_ratio` chart / `stability_ratio`
+endpoint — all indication only, none blocking. (v1/v2 history: v2 was skip-the-upload + flag,
+user-directed 2026-05-30, replacing the v1 `CflRejected` → HTTP 400 reject; v3 removes even the skip.)
+The deprecated `_raise_if_cfl_unstable` throw-based gate is dead code retained only until its tests migrate.
 
 **`CFL_MARGIN` — a tunable safety margin on the Courant number (currently `0.8`).** The *exact* upper-edge
 boundary is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The live UPLOAD gate rejects
@@ -305,6 +373,16 @@ per-string ratio is exposed read-only via `GET /get_parameter/stability_ratio/<k
 kernel-side guard, no per-point shadow buffer, and no per-string flag** — the v1 implementation used
 those + a host flag-poll that raced the audio thread and silently halted synthesis on any edit; the v2
 host-side, pre-upload design removes that machinery by construction.
+
+> **FE "fill" indicator (dev-cflgate, 2026-07-07).** The per-pitch Courant number is surfaced live in the
+> UI as a **read-only fill indicator** (`CflIndicator` → the shared `FillGauge`), mounted in the Structure
+> (Strings) and Excitation panels: it fills with the selected pitch's Courant, turns amber at `CFL_MARGIN`
+> and RED at the limit (Courant = 1). It consumes the existing host-side `stability_ratio` chart
+> (`chartFunctions.cfl_ratio_function`, per-pitch `point_meta`; no GPU/engine run) and reads `CFL_LIMIT` /
+> `CFL_MARGIN` live from that payload. The indicator is **display-only — it does not gate**. A user-directed
+> follow-up to convert the *blocking* upload gate itself into indication-only (apply high-Courant edits,
+> warn-don't-skip; keeping only a hard `max|g| > 1` NaN-safety) is a **BACKEND** change (`parameter_manager.py`
+> reject → apply) that was flagged + deferred (see `WORK_IN_PROGRESS.md`), not yet implemented.
 
 > **Scope: GRANULAR only.** The guard covers only the per-string granular path (Strings panel).
 > The **bulk** repack-all path (`update_pitch_physical_params` → `setNewPhysicalParameters`, reached by
@@ -893,6 +971,73 @@ result *= volume_coefficient
 from the Python `ExcitationParameters.calculate()` method which clips the total sum after
 all 5 Gaussians are added. The GPU formula is the one used in actual synthesis.
 
+### Temporal Segmentation & Grid Reconciliation
+
+The excitation temporal function is divided into `EXCITATION_FACTOR = 8` **segments** of ~1 ms each
+(`constants.h:39`). One segment = `initTotalSteps = init_mode_iteration × sound_step` samples, so the
+per-string `force_function` region is `8 × initTotalSteps = totalExcitationLength` reals.
+
+**gaussKernel writes only 7 of the 8 segments.** The live launch (`Pianoid_synthesis.cu:264-268,334`):
+
+```
+numCycles = EXCITATION_FACTOR (= 8)
+numSeg    = init_mode_iteration × sound_step × (EXCITATION_FACTOR − 1) / gaussBlockSize   // gaussBlockSize = 128
+gridDim.y = numSeg,  blockDim.x = 128
+```
+
+covers `numSeg × 128 = 7 × initTotalSteps` samples = **segments 0–6**. Segment 7
+(`[7·initTotalSteps, 8·initTotalSteps)`) is **never written by gaussKernel** — silent by construction.
+Per note-on `exct_cycle_index` resets to 0 (`gaussTest.cu:100`); the main kernel sweeps the sample
+offset forward once and past the window the read **clamps to `0.0`** (`MainKernel.cu:421-423`) → silence
+(the hammer has left the string). The legacy loop-first / `nextIndexKernel` clamp-to-`EXCITATION_FACTOR−1`
+scheme (`gaussTest.cu:105-109`) is **vestigial**; the live clamp-to-zero achieves the same result.
+
+**Parameterized boundary policy (universal-excitation Phase 1, dev-exp1 2026-07-07).** The clamp-to-zero
+above is now expressed as a per-string **traversal descriptor** — a sibling SoA buffer `dev_exct_descriptor`
+(AoS, `EXCT_DESC_FIELDS = 3` ints/string: `[loop_start, loop_end, loop_mode]`, `constants.h`). `MainKernel.cu`
+(B) read-guard and (C) advance both consult the descriptor: Phase 1 writes only `loop_mode = EXCT_MODE_CLAMP`,
+`loop_start = 0`, `loop_end = excitationLength`, which reduces the CLAMP branch **EXACTLY** to the prior
+`(sample < excitationLength) ? force : 0` / advance-clamp arithmetic (verified byte-identical: force_function
+bit-exact + audio within the engine's float-`atomicAdd` run-to-run noise floor). The descriptor is initialized
+at note-on in `gaussKernel` (mirrors the `exct_cycle_index` reset) and defaulted at STATIC_INPUT registration
+(`Pianoid.cu` devMemoryInit) for pre-first-note validity. See the design proposal
+`docs/proposals/universal-excitation-looping-design-2026-07-07.md` §2.
+
+**Bow/WRAP + per-pitch mode (Phase 2, dev-exp2 2026-07-07).** `EXCT_MODE_WRAP` is now implemented:
+`MainKernel.cu` (B)/(C) re-emit continuously by wrapping the counter into `[loop_start, loop_end)`.
+The per-pitch excitation TYPE (`EXCT_TYPE_IMPULSE`=hammer / `EXCT_TYPE_SUSTAINED`=bow) is host config
+(`Pianoid::excitation_mode_`, set via `setPitchExcitationMode` → pybind → `pianoid.set_pitch_excitation_mode`
+→ REST `POST /set_excitation_mode`); the facade `_append_string_gp` stages it per note-event into the unused
+legacy slot `string_excitation_params[i*3+1]`, and `gaussKernel` maps it at note-on to the descriptor
+(SUSTAINED → `WRAP`, `[5·initTotalSteps, 6·initTotalSteps)` = park-and-loop segment 5; IMPULSE → `CLAMP`
+full window). **WRAP is gated in the kernel on the note being HELD** (`decay_dump_coefficients==DUMP_OPEN`):
+note-off (the facade sets `dec_open=DUMP_CLOSED`) reverts to `CLAMP`, so the offset leaves the loop window,
+the drive stops, and the string tails out via the existing damper — no separate note-off write. Hammer
+(IMPULSE/CLAMP) stays byte-identical (verified: force_function bit-exact + within-noise vs Phase 1).
+Normalization is unchanged in Phase 2 — an un-normalized bow re-delivers impulse each loop and is louder /
+may grow; power/RMS calibration is Phase 4.
+
+**0–7 vs 0–8 grid reconciliation (why they agree, NOT an off-by-one).** Two independent x-coordinate maps
+exist:
+
+| Consumer | Formula | Domain |
+|----------|---------|--------|
+| Kernel (`gaussTest.cu:59,63-65`) | `x = k · (EXCITATION_FACTOR − 1) / excitation_length`, where `excitation_length = gridDim.y·blockDim.x = 7·initTotalSteps` | 0–7 over the 7 written segments |
+| Impulse readout (`StringExcitation.py:52`) + FE (`utils/excitationImpulse.js`) | `x = k · EXCITATION_FACTOR / length`, where `length = 8·initTotalSteps` | 0–8 over all 8 segments |
+
+Both reduce to the **same per-sample map** `x = k / initTotalSteps` (exactly one x-unit per segment). The
+kernel covers the 7 written segments; the readout integrates all 8, the 8th (silent) segment contributing
+≈ 0. They are therefore **CONSISTENT**. The FE `DOMAIN = 8` convention (dev-gaussfix, 2026-07-07) and the
+kernel agree — DRAWN == INTEGRATED == SYNTHESIZED.
+
+**★ LOAD-BEARING INVARIANT (not asserted anywhere in code).** This consistency holds *only* while the
+gauss launch preserves **segment length = `initTotalSteps`**, i.e.
+`numSeg = init_mode_iteration × sound_step × (EXCITATION_FACTOR − 1) / gaussBlockSize` so that
+`numSeg × gaussBlockSize = 7 × initTotalSteps`. If the gauss grid launch (`Pianoid_synthesis.cu:264-268`)
+is edited without preserving this, the kernel x-map (`÷ excitation_length`) and the readout x-map
+(`÷ length`) **silently diverge** — the drawn/integrated curve stops matching what the engine synthesizes.
+Preserve this relationship when touching the gauss launch.
+
 ### Excitation Cycle Index
 
 Each string has an `exct_cycle_index` counter in `dev_exct_cycle_index` (256 ints). When
@@ -900,6 +1045,8 @@ Each string has an `exct_cycle_index` counter in `dev_exct_cycle_index` (256 int
 (`addKernel`) advances this counter each synthesis cycle and reads `force_function` at the
 corresponding offset. When the counter exceeds `excitation_factor × num_iterations()`
 (default: 8 × 576 = 4,608 sub-steps), the force drops to zero — the hammer has left the string.
+See [Temporal Segmentation & Grid Reconciliation](#temporal-segmentation--grid-reconciliation) for the
+per-segment structure of that window and the clamp-to-zero (`MainKernel.cu:421-423`).
 
 ### Force Function Buffer
 
@@ -917,6 +1064,19 @@ Layout (row-major):
 The buffer is overwritten each time `gaussKernel` runs. Only strings in the current batch
 are updated; previously-excited strings retain their force function until the next note event
 targeting them.
+
+**Silent-tail invariant (segment 7).** `gaussKernel` writes only segments 0–6 (see
+[Temporal Segmentation & Grid Reconciliation](#temporal-segmentation--grid-reconciliation)); it never
+writes segment 7, yet `MainKernel.cu:421-423` reads across the full `excitationLength` (all 8 segments)
+during the sweep. Segment 7 must therefore stay **zero**. This is guaranteed once, for the whole buffer,
+by the full-allocation `cudaMemset(dev_ptr, 0, alloc_bytes)` in
+`UnifiedGpuMemoryManager::registerBuffer` (`UnifiedGpuMemoryManager.cu:239-241`) — `dev_force_function`
+is registered with `host_data = nullptr` (`Pianoid.cu:362-366`), so it takes the zero-init branch. Any
+future refactor that drops that memset would inject stale force in the final ~1 ms. (The old
+per-string `initializeKernel` zeroing in `devMemoryInit` was redundant with this memset **and**
+mis-strided — it used `blockDim.x = array_size` as the per-string stride instead of
+`initTotalSteps × EXCITATION_FACTOR` — so it was removed; the memset is the single owner of the
+zero-init invariant.)
 
 ### Excitation Parameter Storage (Preset Region)
 
@@ -943,8 +1103,9 @@ Per velocity level (20 reals):
 
 Both accept 6 base velocity levels per string (30,720 reals) and call the private
 `interpolateBaseLevels()` helper to reconstruct the full 128-level buffer. The
-interpolation uses the same segment boundaries [0, 5, 31, 63, 95, 128] and linear formula
-as Python's `extrapolate()`. The reconstructed buffer is uploaded via
+interpolation is linear between the same anchors [0, 5, 31, 63, 95, 127] as Python's
+`extrapolate()` (last segment span 32; it was 33 until dev-5965 2026-09-22 — see
+DATA_FLOWS.md §2.2). The reconstructed buffer is uploaded via
 `updateTunableParameter()` on the double-buffer system (see
 [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
 
@@ -977,7 +1138,7 @@ This is used for testing individual resonator modes without triggering string ex
 | `GAUSS_PARAMETERS_NUMBER` | 4 | Parameters per Gaussian (mu, sigma, vol, shift) |
 | `LEN_LEVEL_GP` | 20 | Total params per velocity level (5 × 4) |
 | `NO_EXCITATION_LEVELS` | 128 | MIDI velocity levels |
-| `EXCITATION_FACTOR` | 8 | Excitation duration in milliseconds |
+| `EXCITATION_FACTOR` | 8 | Excitation window = 8 temporal segments of ~1 ms (`initTotalSteps` samples each). gaussKernel writes segments 0–6; segment 7 is silent by construction (see [Temporal Segmentation](#temporal-segmentation--grid-reconciliation)) |
 | `MAX_STRINGS_PER_EVENT` | 64 | Max strings per batch |
 
 ---

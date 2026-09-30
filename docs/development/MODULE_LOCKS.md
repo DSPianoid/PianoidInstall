@@ -6,6 +6,26 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-gpucfg locks RELEASED 2026-07-17 by orchestrator at Step 10a Phase 1 (on the agent's behalf —
+     agent idle/unresponsive, operator-approved commit). Deliverable committed root master 82d4f87
+     [dev-gpucfg] (gpu_rt_config.ps1, check-gpu-clock.ps1, start-pianoid.bat, overrun_ab_leverA.ps1,
+     STARTUP_TROUBLESHOOTING.md, QUICK_START.md). HOLD — not pushed/merged. Phase-2 (archive log + remove
+     WIP row) still pending (do at next Step 1.5). Open follow-ups: fix believed-not-proven (no overrun
+     A/B captured), clocks STILL unlocked on the machine as of release, operator decision pending on
+     deleting the redundant lock_gpu_clock.bat/unlock_gpu_clock.bat. -->
+| <!-- (dev-gpucfg locks released — see comment above) --> | | | |
+<!-- dev-mute2 locks RELEASED 2026-07-12T16:40:00Z at Step 10a Phase 1. Committed on PianoidCore dev
+     620a426 (backendServer.py parse_range output-pitch key space + tests/unit/test_parse_range_output_pitches.py,
+     20 tests). HOLD — NOT pushed / NOT merged; the operator tests on the branch first.
+     ROOT CAUSE (measured): parse_range granted the output-pitch (128-131) key space ONLY to the literal
+     'feedback', so the strings-axis mute kind feedback_mask/128..131 was rejected HTTP 416 and never landed
+     — unmute too. Fix keys the hatch off a declared set with the _mask kinds DERIVED.
+     VERIFIED LIVE on ASIO (listen_to_modes=0): mute POSTs 416x4 -> 200x4; stored mask 0 zeros -> 196 zeros x4;
+     per-channel pre_limit_peak mute-ON [399952608, 249306656, 464920832, 180120208] (= unmuted, zero
+     attenuation) -> [0,0,0,0]; unmute restores [399863616, 249253248, 464934176, 180081264]. Suite 322 passed
+     (302 baseline + 20 new). dev-f10d's FE RCA for this symptom REFUTED by measurement (FE emitted a correct
+     full 196-zero mask; PianoidTunner a14302a is inert here — its PianoidCore 997ece8 for symptom #1 stands). -->
+
 <!-- dev-f10d locks RELEASED 2026-07-12 at Step 10a Phase 1 (all committed on dev, HOLD — NOT
      pushed/merged). (1) Flood fix: PianoidTunner dev 74860ae (autoReporter.js + useAutoReport.js
      + 2 tests). (2) #1 library-switch silence: PianoidCore dev 997ece8 (pianoid.py
@@ -159,7 +179,13 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      rebuilt+installed (guarded release+debug @15:20). Commit 5b5dbfa. Held+released:
      PianoidCore/pianoid_cuda/MainKernel.cu, PianoidCore/pianoid_cuda/constants.h. NOTE: dev-t3cu row below
      still lists MainKernel.cu but is STALE (t3cu committed+clean on dev, log file missing, HOLD) — flag for cleanup. -->
-| dev-t3cu | `PianoidCore/pianoid_cuda/MainKernel.cu`, `PianoidCore/pianoid_cuda/Pianoid_parameters.cu`, `PianoidCore/pianoid_cuda/Pianoid.cuh`, `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp`, `PianoidCore/pianoid_middleware/parameter_manager.py`, `PianoidCore/pianoid_middleware/backendServer.py`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.cu`, `PianoidCore/pianoid_cuda/UnifiedGpuMemoryManager.h` | 2026-07-08T17:30:00Z | CUDA Tier 3 batch: F7-hammer, L1, L2, F9a, ★1 |
+<!-- dev-t3cu GHOST LOCK RELEASED 2026-07-17 by orchestrator. Agent long dead; PianoidCore dev tree
+     is CLEAN (no dirty files among the 8 it held — MainKernel.cu, Pianoid_parameters.cu, Pianoid.cuh,
+     AddArraysWithCUDA.cpp, UnifiedGpuMemoryManager.cu/.h, parameter_manager.py, backendServer.py), so
+     the lock guarded committed/abandoned work and nothing uncommitted. Released because it was actively
+     mis-steering LIVE agents' design choices (dev-chord flagged a fix option as blocked by this ghost
+     lock on backendServer.py). Controller flagged it 3x. No source change; ledger-only release. -->
+| <!-- (dev-t3cu ghost lock released — see comment above) --> | | | |
 <!-- dev-59ed locks RELEASED 2026-07-09 at Step 10a Phase 1 (all work committed on PianoidTunner dev MAIN tree,
      HOLD for user test; NOT pushed). FE gauss UI batch, NO CUDA. A+B 0ba36c1, C f9c2bf4 + realDomCopy test 5419f01.
      A (T3): GaussChart per-level ghost lines get a header "Level lines" toggle (default OFF, React-owned,

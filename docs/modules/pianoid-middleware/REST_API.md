@@ -290,6 +290,18 @@ on the WebSocket `lifecycle` event (`audio_driver_fallback` key) so the UI react
 without polling. Engine-side mechanics: see
 [AUDIO_DRIVERS.md — ASIO → SDL3 Runtime Fallback](../pianoid-cuda/AUDIO_DRIVERS.md#asio--sdl3-runtime-fallback).
 
+**Amplitude crash-guard telemetry (dev-538e).** When a preset is loaded, `/health` also surfaces:
+
+- `gate_trip_count` (int): cumulative number of synthesis cycles in which the amplitude/NaN crash-guard tripped (its self-heal path fired) since backend start / last `resetGateTripStats`. `0` at boot. Drives the toolbar "gate fired" indicator. Read from a device counter (`getGateTripStats`) with one cheap 2-int D2H copy per poll. Counts BOTH the amplitude-branch trip (`|displacement| > amplitude_limit`) and the unconditional `isnan` trip (in practice a geometric runaway is dominated by the amplitude branch).
+- `last_gate_trip` (int): the synthesis-cycle index of the most recent trip, or `-1` if `gate_trip_count == 0`.
+- `clipping` (bool): **latched** — `true` if any output channel's post-volume peak reached/exceeded INT32 full-scale (`2147483647`, the driver's hard-clip rail) since the last `/clear_limiting` or preset load. Survives the slow poll (clip-hold). Drives the toolbar clipping indicator.
+- `clipping_now` (bool): instantaneous — a channel peak `>=` full-scale on the most recent buffer.
+- `peak_level` (float): the latched peak output magnitude as a fraction of full-scale (`>= 1.0` ⇔ clipping). Also surfaced (with per-channel detail) inside the existing `limiter` sub-object (`limiter.clipping` / `limiter.clipping_now` / `limiter.peak_level`), which revives the previously-inert limiter telemetry now that the kernel writes the per-channel peak again.
+
+`GET /get_runtime_parameters` mirrors the runtime state and, on a dev-538e binary, adds
+`amplitude_limit` (float) and `amplitude_gate_enabled` (bool) alongside `volume_level` / `volume_center` /
+`volume_range` / `deck_feedback_coefficient` (guarded getattr — older binaries omit them).
+
 Response `500` if health check itself throws.
 
 ---
@@ -491,16 +503,35 @@ Reads simulation parameters serialized for the frontend.
 | `excitation` | Combined gauss + hammer |
 | `feedin` | Deck feed-in coupling matrix |
 | `feedback` | Deck feedback coupling matrix |
+| `feedin_mask` / `feedback_mask` | **Persistent independent mute MASK** (F6) for the corresponding deck row — a `0/1` row of `num_modes` applied as a pure multiply at pack time (`Pitch.effective_deck` → `deck[m] × deck_mask[m]`); the raw values are left untouched, so unmute restores them bit-exactly. **Same pitch key space as the raw row it masks — including the output pitches** (see the key-space note below). This is how the Sound Channels panel mutes on the **strings** axis (`listen_to_modes=0`): `POST /set_parameter/feedback_mask/<128+ch>` |
 | `output` | External sound output parameters (alias for feedback on output pitches) |
 | `sound_channel` | Mode-coupling coefficients per pitch (modes-listen mode `listen_to_modes=1`). Effective rows: piano pitches `0..127` |
+| `sound_channel_mask` | Persistent mute MASK for `sound_channel` — the **modes**-axis mute (`listen_to_modes=1`), keyed by **piano pitch** (not an output pitch) |
 | `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. To set the gain for audio output channel `ch`, POST to `<key_no> = 128 + ch`. See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
 | `stability_ratio` | **Read-only.** Per-pitch FDTD CFL/Courant stability ratio = `max_θ|g(θ)|` (`CFL_LIMIT = 1`); `ratio ≤ 1` is stable (a lossless string sits at exactly `1.0`). Per pitch: `{ratio, stable, strings:[{string_index, ratio, stable}]}`, plus a top-level `_meta {cfl_limit, criterion, formula}`. **Computed HOST-side** (v2) from the current `StringMap` physics via the closed-form `cfl_stability.max_amplification` (no GPU round-trip, no debug build), honouring the per-string `tension_offset`; output/"sound" strings (pitch ≥ 128) report the sentinel `1.0`/stable. Analyst-plottable vs pitch (`key_no = "all"`, `"output"`, or `"from21to108"`). Derivation: `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound"; design `docs/proposals/cfl-stability-guard-v2.md`. `POST` to this parameter is not supported |
+
+**Pitch key space — which parameters may address the OUTPUT pitches** (`parse_range`, dev-mute2 2026-07-12).
+Most parameters accept **piano pitches only** (the preset's key range, e.g. `23..106`). The **output**
+(sound-channel) pitches `128..127+num_output_channels` are a *disjoint* key space, and only the parameters
+declared in `backendServer.OUTPUT_PITCH_RAW_PARAMS` — currently `feedback` — plus their **derived
+`_mask` kinds** (`feedback_mask`) may be keyed by one. Anything else POSTed to `128` is rejected
+**`416`** (`"Wrong range for pitches…"`).
+
+> The `_mask` kinds are *derived*, never hand-listed: **a `<param>_mask` addresses exactly the same pitch
+> key space as the raw `<param>` it masks** — a mask that cannot address the row it masks is unwritable.
+> Enforcing that structurally is deliberate. When the F6 mask kinds were first added, the hatch was a
+> hardcoded `parameter == 'feedback'` test, so `feedback/128` returned `200` while `feedback_mask/128`
+> returned `416` — **every strings-axis mute (and unmute) was silently rejected and the operator's "mute
+> everything" did nothing at all.** Regression: `PianoidCore/tests/unit/test_parse_range_output_pitches.py`;
+> RCA: `docs/development/reviews/sound-channel-mute-logic-rca-2026-07-12.md`.
 
 `key_no` formats:
 - Integer string: `"57"` — single pitch or mode number
 - `"all"` — all pitches or all modes (depending on parameter type)
-- `"output"` — output pitches only (for `output` parameter)
-- `"from<N>to<M>"` — inclusive range, e.g. `"from21to88"`
+- `"output"` — output pitches only (accepted for any parameter; returns the output rows — note this GET
+  branch bypasses the per-parameter key-space check, which is why the mask could always be *read back*
+  from `128..131` even while every *write* to it was rejected `416`)
+- `"from<N>to<M>"` — inclusive range, e.g. `"from21to88"` (or `"from128to131"` for the output rows)
 
 For `mode`, `feedin`, `feedback`, `output`: `key_no` is treated as a mode number range.
 For all other parameters: `key_no` is treated as a pitch number range.
@@ -859,17 +890,28 @@ global; volume + volume-sensitivity remain global).
 
 `volume_center` (optional, float): coefficient at level 64. `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
 
-`volume_range` (optional, float): "sensitivity" multiplier. At level 127 the coefficient is `center*range`; at level 0 it is `center/range`. **Default = 10**, matching the C++ `RuntimeParameters` engine default in `Pianoid.cuh`. **Per-session only** — never persisted in preset JSONs, never carried across preset switches.
+`volume_range` (optional, float): "sensitivity" multiplier. At level 127 the coefficient is `center*range`; at level 0 it is `center/range`. **Default = 10**, matching the C++ `RuntimeParameters` engine default in `Pianoid.cuh`. **Per-session only** — never persisted in preset JSONs. **Global across library preset switches** (plan §5.9, dev-bfe2 2026-05-18): `switch_preset` snapshots and restores `volume_range` unchanged (the pre-§5.9 "reset to 10 on switch" behaviour is gone).
 
-**Init-time seeding (P1 single-owner contract):** the engine boots in NEW-formula mode. `pianoid.init_pianoid` and `pianoid.switch_preset` both seed `volume_center = max_volume**(64/127)` (positive — engages the new formula) with `volume_range = 10`. This is required because the UI ToolBar `VolumeSlider` always sends a positive center once touched; without seeding, startup state is `center=0` (legacy) and the user perceives "much higher sensitivity" until they round-trip the slider. The seed value is anchored at level=64 so coefficient at level=64 is unchanged from the legacy formula — only the slope across other levels changes (legacy: `max_volume^(63/127)` ratio between levels 64 and 127; seeded: `range = 10`). The frontend mirrors this in `usePreset.loadPreset` (defense in depth — explicit `set_runtime_parameters` POST after preset load). Regression test: `tests/integration/test_volume_sensitivity_reset.py::test_initial_runtime_params_seeded_for_new_formula`. The legacy frontend `localStorage` key `volumeRange` is no longer read.
+`amplitude_limit` (optional, float, dev-538e): the **runtime amplitude crash-guard ceiling** — the in-kernel string-displacement guard trips (self-heals) when a string point's `|displacement| > amplitude_limit`. Replaces the former compile-time `constexpr AMPLITUDE_LIMIT`. **Default `1.0e4`** (behaviour unchanged from the constexpr unless edited). **Accepted range `1.0 .. 1e7`, CLAMPED** into range (the floor is `1.0`, not the default, so the value can be driven BELOW the loudest healthy internal displacement to deliberately force/observe the gate — an observability & control lever; `1.0` still rejects the catastrophic `0`/negative/NaN). A `RuntimeParameters` field (`getRuntimeParameters`/`setRuntimeParameters`), uploaded to the device via the same stream-ordered path as `volume`/`feedback`. **Per-session** (not preset-persisted). Non-finite → `400`.
+
+`amplitude_gate_enabled` (optional, bool/0-1, dev-538e): toggles ONLY the `|displacement| > amplitude_limit` branch of the crash-guard. **Default `true`** (ON). When `false`, the amplitude branch is bypassed — but the **`isnan` safety check remains active unconditionally** (disabling the amplitude gate does NOT re-expose the NaN→ASIO crash; the kernel still self-heals on NaN). Note the tradeoff: with the amplitude gate OFF a geometric FDTD runaway can blow displacement to `inf` (which `isnan` does not catch) and a cycle of `inf` reaches the output before a NaN eventually forms — this is exactly the escape the amplitude gate prevents when ON. Accepts a JSON boolean or `0`/`1`. A `RuntimeParameters` field (`amplitude_gate_enabled`, int 0/1). Per-session.
+
+**Init-time seeding (P1 single-owner contract):** the engine boots in NEW-formula mode. `pianoid.init_pianoid` seeds `volume_center = max_volume**(64/127) × output_scale` (positive — engages the new formula; `output_scale` = the active preset's per-preset Layer-B scale, dev-volcal) with `volume_range = 10`; `pianoid.switch_preset` re-derives the same bare seed × the TARGET preset's `output_scale` and keeps the current `volume_range` (global). This is required because the UI ToolBar `VolumeSlider` always sends a positive center once touched; without seeding, startup state is `center=0` (legacy) and the user perceives "much higher sensitivity" until they round-trip the slider. The seed value is anchored at level=64 so coefficient at level=64 is unchanged from the legacy formula — only the slope across other levels changes (legacy: `max_volume^(63/127)` ratio between levels 64 and 127; seeded: `range = 10`). The frontend mirrors this in `usePreset.loadPreset` (defense in depth — explicit `set_runtime_parameters` POST after preset load). Regression test: `tests/integration/test_volume_sensitivity_reset.py::test_initial_runtime_params_seeded_for_new_formula`. The legacy frontend `localStorage` key `volumeRange` is no longer read.
 
 Response `200`:
 ```json
 {"message": "OK", "updated": {"volume": 80, "feedback": 64}}
 ```
 
+When amplitude-gate fields are sent, the `updated` dict echoes the applied (clamped) values, e.g.
+`{"updated": {"amplitude_limit": 5000.0, "amplitude_gate_enabled": 0}}`.
+
 Response `400`: missing parameters, invalid range, or pianoid not initialized.
 Response `500`: internal set failure.
+
+**Symmetric WS event:** the `set_runtime_parameters` WebSocket event carries the same payload
+(including `amplitude_limit` / `amplitude_gate_enabled`) through the shared `_apply_runtime_parameters`
+handler and returns the same `{ok, updated}` ack shape.
 
 ---
 
@@ -1403,6 +1445,29 @@ Response `200`:
 ```json
 {"Message": "OK"}
 ```
+
+---
+### `POST /bug_report`
+
+Diagnostic bug-report **collector** (dev-bugauto, 2026-07-11). The frontend
+AUTO-fires a bug report on an internal system fault (backend crash/exception,
+unresponsive endpoint, prohibited/clamped values, uncaught FE error) and POSTs
+the report JSON here so it lands on disk in a folder the dev/orchestrator watches
+— no user download, no click. The **manual** 🐞 flow does NOT hit this endpoint
+(it downloads client-side). See
+[BUG_REPORT_TOOL.md → Auto-Fire](../pianoid-tunner/BUG_REPORT_TOOL.md#auto-fire-on-internal-system-faults).
+
+Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}`).
+Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|manual>-<hex6>.json`
+(dir auto-created; oldest pruned beyond 500 files). The collector is wrapped so
+it can never take the backend down.
+
+Response `200`:
+```json
+{"ok": true, "saved": "bugreport-...-auto-backend_exception-a1b2c3.json",
+ "path": "<abs>", "auto": true, "kind": "backend_exception"}
+```
+`400` if the body is not a JSON object; `500` (with `{ok:false,error}`) on a write failure.
 
 ---
 

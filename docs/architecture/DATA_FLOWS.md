@@ -476,8 +476,11 @@ parameter_manager.update_parameter(param='gauss')
 ```
 
 **C++ interpolation** (`Pianoid::interpolateBaseLevels`): Private helper used by both
-`loadPresetToLibrary()` and `setNewExcitationBaseLevels()`. Uses the same segment
-boundaries [0, 5, 31, 63, 95, 128] and linear interpolation as Python's `extrapolate()`.
+`loadPresetToLibrary()` and `setNewExcitationBaseLevels()`. Interpolates linearly between
+the same anchors [0, 5, 31, 63, 95, 127] as Python's `extrapolate()` (segment spans 5, 26,
+32, 32, 32 — the last segment ends AT 127; before dev-5965 2026-09-22 it used span 33, so
+levels 96–126 lagged Python by ≤1/33 of the segment). Pinned by the engine-measured
+`test_excitation_interpolation.py::TestEngineInterpolationMatchesPython`.
 The GPU buffer layout and `gaussKernel` are unchanged.
 
 **Single path for all excitation uploads:** Both init (`loadPresetToLibrary`) and

@@ -125,6 +125,10 @@ Default for every test, fixture, and skill is `audio_off`. A test promotes to `a
 
 A test selects its mode by requesting the matching fixture. Re-using the wrong fixture is the canonical contract bug — `audio_off` tests must NEVER request `pianoid_audio_on`.
 
+**Preset_test5 caveat (dev-5965, measured 2026-09-22).** The fixture preset's output is ~93% energy above 5 kHz (a strong 8.28 kHz mode; the April reference was already 69%) and is markedly non-linear (12-key same-cycle chord onset deviates 59% from the sum of single notes vs 0.03% on `BaselinePreset1`). Sound assertions on it must use channel 0, harmonic-series pitch checks (not autocorrelation / global peak) and waveform-superposition criteria (not energy additivity — different notes drive the shared mode in anti-phase, so a correct chord can have LESS energy than its loudest note).
+
+**GPU timing in a full run (dev-5965, measured).** `TestGpuCycleTiming` passes in isolation (mean 0.49 ms, 0 % over) but can fail in a full `tests/system` run: every earlier module that builds and shuts down its own Pianoid makes the session engine a *second* in-process instance, and on this machine (GPU clocks unlocked) the SM clock then sits at ~1.2–1.3 GHz instead of ~2.5 GHz → addKernel ~0.9 ms, 6–9 % of cycles over budget. Lock the GPU clocks (`gpu_rt_config.ps1`, STARTUP_TROUBLESHOOTING.md) or run the perf file alone before reading a timing failure as a regression.
+
 ### `assert_synth_reaches_mic` — canonical audio_on promotion pattern
 
 `tests/conftest.py::assert_synth_reaches_mic(pianoid, pitch, velocity, ...)` is the goldilocks helper for audio_on tests. It:
@@ -226,14 +230,17 @@ Verifies that excitation base-level interpolation is consistent between C++ and 
 
 | Test | What it validates |
 |------|-------------------|
-| `TestInterpolationAlgorithm::test_boundary_values_match` | Boundary velocities (0, 31, 63, 95, 127) map directly to base levels without interpolation |
-| `TestInterpolationAlgorithm::test_cpp_reference_matches_python_extrapolate` | Python reference implementation of `interpolateBaseLevels()` matches `StringExcitation.extrapolate()` |
+| `TestInterpolationAlgorithm::test_boundary_values_match` | Anchor velocities (0, 5, 31, 63, 95, 127) map directly to base levels without interpolation |
+| `TestInterpolationAlgorithm::test_cpp_reference_matches_python_extrapolate` | Python mirror of `interpolateBaseLevels()` matches `StringExcitation.extrapolate()` |
+| `TestEngineInterpolationMatchesPython::test_high_velocity_segment_weights` | ENGINE-measured (hammer force via `fetchExcitation`) interpolation weight at v=103/111/119 equals Python's `(v-95)/32` (dev-5965: C++ used span 33 before) |
 | `TestInterpolationAlgorithm::test_monotonic_interpolation` | Interpolated matrix is monotonically non-decreasing per velocity index |
 | `TestInterpolationAlgorithm::test_multiple_random_strings` | Interpolation consistency holds across randomly generated base-level sets |
 | `TestExcitationUpdate::test_excitation_update_changes_output` | Calling `setNewExcitationBaseLevels()` with different base levels produces different audio output |
 | `TestExcitationUpdate::test_velocity_sensitivity` | Higher-velocity base levels produce louder output than lower-velocity base levels |
 
-Key constants used: `NUM_BASE_LEVELS=6`, `LEN_LEVEL_GP=20`, `BOUNDARIES=[0, 5, 31, 63, 95, 128]`.
+Key constants used: `NUM_BASE_LEVELS=6`, `LEN_LEVEL_GP=20`, `ANCHORS=[0, 5, 31, 63, 95, 127]`.
+
+**Shared-engine isolation (`engine_state_guard`, dev-5965).** `pianoid_no_audio` is ONE session-scoped engine for all integration tests. A module that uploads a hand-built deck (e.g. all-zero) or a fresh `RuntimeParameters()` must declare `pytestmark = pytest.mark.usefixtures("engine_state_guard")` (tests/integration/conftest.py): on module teardown it re-uploads the preset deck from the Python model, restores the runtime-parameter snapshot and clears string state. Without it `test_sound_test_offline`'s chord test rendered silence only in the full run (leak from `test_feedback_coupling` / `test_feedin_zero_leakage`).
 
 ### test_feedback_coupling.py
 
@@ -285,6 +292,22 @@ audible change). Verification surface: deterministic offline render.
 | `TestLengthDxPropagation::test_length_change_is_reversible` | Restoring `length` restores the sound to within a few multiples of the noise floor — `dx` tracks `length` in both directions, no hysteresis |
 
 Note: the offline engine is not bit-exact across consecutive renders (`resetStringsState()` does not zero all carried state — mode `q/q_prev`, excitation cycle index, `sound_prev_diff` persist), giving a ~2.3% render-to-render RMS noise floor. Thresholds are set relative to that measured floor.
+
+### Parameter → sound suite (`param_sound_harness.py` + `test_param_sound_*.py`)
+
+Regression net for the parameter-editing-system refactor (strategy: `reviews/parameter-sound-test-strategy-2026-07-07.md`; review: `reviews/parameter-editing-system-review-2026-07-07.md`). Each editable parameter is probed at its **physical stage** via the always-active GPU extraction APIs — NOT the mode/soundboard-dominated full-mix. `audio_off`, release build, throwaway process. `ParamSoundHarness` = load fixture → set param (granular API) → warm-up render + discard → probe → metric → DIFF vs the ~2.3% noise floor → reversibility; level/RMS claims run N≥3; string edits gate on `stability_ratio ≤ 1`.
+
+| File | P0 coverage | Observable |
+|------|-------------|------------|
+| `test_param_sound_modes.py` | mass_inv→\|q\| response; decrement→kernel damping slot; frequency→omega² slot | `getModeDisplacements` (mode STATE — single-mode OUTPUT-spectrum isolation is not achievable on the multi-mode preset) |
+| `test_param_sound_excitation.py` | mu→peak-later; sigma→wider; shift→narrower; **volume→normalized-out (finding pin)** | `fetchExcitation` force buffer (per-cycle impulse envelope) |
+| `test_param_sound_volume.py` | pre-volume render invariance; volume-coefficient monotonicity | `getRecordedAudio` (pre-vol) + `get_current_volume_coefficient` |
+| `test_param_sound_feedin.py` | feedin=0→silent; feedin magnitude→mode-response scaling | `getModeDisplacements` (single-entry deck isolation) |
+| `test_param_sound_length.py` | CFL-gated waveform change; length↑→fundamental↓ (3031→2226 Hz) | offline render + FFT, gated on `stability_ratio` |
+| `test_param_sound_regression_pins.py` | `volume_coefficient` idx8 inert; active `sound_channel` edit changes sound; `string_sound_channel` piano-row (0-127) = no-op | offline render rel_diff |
+| `test_param_sound_belarus.py` | integration on Belarus_196modes (finite non-silent output + excitation mu probe) | own session instance (`@slow`) |
+
+**Findings (measured on the current engine, pinned not forced):** (1) excitation curve `volume` is normalized OUT of delivered force (conserve mode / dev-normfix) — the strategy's "volume↑→∫force↑" is false; loudness lever is velocity/hammer_mass (P3). (2) No offline post-volume sound surface (`get_sint_audio` is online-only) — audio_off volume verification is limited to pre-vol invariance + coefficient monotonicity. (3) Single-mode output-spectrum isolation fails on the multi-mode preset (a lone mode doesn't reach the output channels) — mode tests observe mode state. **Next step:** the P1 string-physics tier (tension/density/radius/stiffness inharmonicity, γ decay) needs the DEBUG build's `getSoundRecords` bridge-force TS + a single-string/single-mode preset — not built here.
 
 ### test_modal_pipeline_payload.py
 
@@ -358,7 +381,7 @@ TOTAL_BUDGET_MS = GPU_BUDGET_MS * 1.5  # 2.0 ms
 
 | Python API | Data | Source |
 |-----------|------|--------|
-| `p.getRecordedAudio()` | Audio from last completed playback session | `last_recorded_audio_` (host) |
+| `p.getRecordedAudio()` | Audio from last completed playback session — **multi-channel, per-cycle blocks** `[ch0 × spc, ch1 × spc, …]` (dev-stest-4a7c 2026-05-31). Never treat it as mono: de-interleave with `PianoidResult(p, mp).load_offline_sound_from_pianoid()` → `result.sound[ch]` (channel 0 = output pitch 128). Flattened, it scrambles the time axis (false pitch/peak shifts) and mixes channels (false cross-channel "leaks"). | `last_recorded_audio_` (host) |
 | `p.getRawSoundRecord()` | Per-cycle accumulated audio (if recording enabled) | `rawSound` (host vector) |
 | `p.enableRawSoundRecording(bool)` | Enable/disable per-cycle D2H audio copy | `rawSoundRecordingEnabled` flag |
 | `p.getCurrentCycleAudio()` | Audio from current synthesis cycle (float or int32→float) | `dev_soundFloat` / `dev_soundInt` (GPU) |

@@ -123,6 +123,8 @@ python tools/dev-pipeline/env_sweep.py --no-kill  # inspect only
 
 `env_sweep.py` can ONLY kill PIDs discovered as listeners on those four ports (the safety invariant is encoded in code — there is no path to kill by name). Use it instead of hand-pasting a `for port in … taskkill` loop. (Cross-platform: Windows `Get-NetTCPConnection`→`Stop-Process`; Linux `lsof`/`ss`→`kill`.)
 
+> **User restart routine (2026-07-10, user-directed).** The user's standard restart is via the **icon launcher**, which auto-checks ports **3000/3001/5000/5001** and **kills both the backend and the npm/CRA dev server** before starting fresh; the user also does a **full browser reload** and restarts the npm server. Consequence for debugging: the server side and the served JS bundle are freshly rebuilt on every restart — so do NOT reach for a **"stale server"** or **"stale dev-server HMR"** hypothesis, and don't default to **"just hard-refresh / stale JS"** when a fix "doesn't work" for the user. The remaining vectors are **persisted browser localStorage / a saved setting** (survives a reload) or a **real bug** — isolate with a clean isolated browser context + localStorage enumeration.
+
 ## Docs-first for build + run (MANDATORY) {#docs-first-build--run}
 
 **The single canonical copy of the docs-first build/run discipline.** Every rebuild, install, or server restart starts by reading the canonical docs — NOT by typing `pip install`. Skipping this burned ~3h on 2026-04-23 when a stale `.pyd` masqueraded as a working rebuild. The 5 load-bearing facts:

@@ -12,6 +12,7 @@ self-contained document capturing a problem, its analysis, and a proposed (or im
 ## Active
 
 - [In-Place CUDA Re-Initialize](cuda-reinit-in-place-2026-06-22.md) — apply STRUCTURAL params without stopping the backend or reloading the preset
+- [Excitation Loudness / Impulse Normalization — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md) — corrects the PART-1 frontend renorm (inert + wrong-assumption); recommends removing it + merging the engine conserve fix
 - [Physics-Based Excitation Energy + Curve-Energy Normalization](excitation-physical-energy-2026-06-16.md)
 - [Generic Agentic-Development Skillset — Core Principles](generic-dev-skillset-principles-2026-06-24.md)
 - [Generic Agentic-Development Skillset — Open-Source Design](generic-dev-skillset-opensource-2026-06-11.md)
