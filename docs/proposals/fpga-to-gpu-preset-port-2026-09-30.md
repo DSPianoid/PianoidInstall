@@ -670,3 +670,33 @@ With `batch3`, `√(Tn/2²⁴)/(2f(N−shteg))` implies dt ≈ 0.5–1.2 µs (me
 - The number of clocks per string / exciter / mode update.
 - How sub-address 201 (Q) and `CMD_recieve_ttn` are processed by the firmware.
 - The production output-signal selection.
+
+---
+
+## 12. Production converter (dev-a480, 2026-09-30) — Phase 1, branch `feature/dev-a480-fpga-converter`
+
+The draft (§5, rev 4) is superseded by `PianoidBasic/Pianoid/fpga_tables.py` + `fpga_preset_converter.py`
+(CLI `python -m Pianoid.fpga_preset_converter`), now the only FPGA import path; `Pianoid.load_excitation_from_fpga_preset`
+delegates to it and the swapped legacy readers were removed. Module reference:
+[PianoidBasic OVERVIEW — FPGA preset converter](../modules/pianoid-basic/OVERVIEW.md#fpga-preset-converter).
+
+**Findings while productionising (measured, offline render in a separate process):**
+
+| # | Finding | Effect on the §11 mapping |
+|---|---|---|
+| 1 | Draft wrote `hammer_position` in **metres**; the preset/`Hammer.pack` convention is a **ratio of `l_main`** | Fixed (ratio); `hammer_radius` recomputed |
+| 2 | Mode `mass_inv` from `Mass/f²` scaled to the template **median** `mass_inv` gives `k = mass_inv·(2πf)²` median 0.8 / max 4.8 vs the template's constant 0.1 → **runaway** (+150 dB, no pitch). Scaling to the median `k` is still unstable (+300 dB/s) | Default `--mode-mass host_max`: exact relative host masses, strongest mode `k` = template `k` → stable (renders below) |
+| 3 | `initialize()` no longer overrides `tension_offset` / hammer / γ (read-back equal) | The "engine gap" in §11.5 is gone; DATA_FLOWS §2.7 corrected |
+| 4 | `shteg` is negative (−3.49 → −3) for keys 52–87; host arithmetic keeps `N − shteg > N` | Kept, flagged in metadata |
+| 5 | Host `(int)` casts matter: `decr_op` 7.39 → 7 (γ −5 %) | Applied everywhere the host casts |
+| 6 | F_15 output columns come in identical pairs | Distinct columns 0, 2, 4, 5 → GPU output pitches 128–131 |
+
+**F_15 renders** (template Belarus_8band_196modes, `listen_to_modes=0`, order 1): no NaN/Inf, all notes decay;
+pitch vs `Notes_freqs` A1 ≈ 0 c, C4 −19 c, C7 ≈ −24 c (low detector confidence at C7, as for the template) —
+tuning is inherited from the template tension; both Pitch.txt candidates render identically except for the
+hammer geometry; level 14–34 dB below the template (weaker modal loop under `host_max`). Evidence:
+`docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Still open:** the §11.10 items (F_15 Pitch.txt, clocks per step, Q transform, output signal) — all CLI
+parameters flagged `UNCONFIRMED` in `preset["fpga_conversion"]`; the absolute FPGA→GPU loop/output scale
+(level vs template); retuning tension to `Notes_freqs` (the FPGA `ttn` grid check is −365 c median with batch2).

@@ -36,6 +36,8 @@ PianoidBasic/
         PianoidSimulation.py # PianoidSimulation
         HarmonicSimulator.py # HarmonicSimulation
         SoundChannels.py     # StringSoundChannels, ModeSoundChannels
+        fpga_tables.py       # FPGA preset tables + host send-all formulas (FPGA-side semantics)
+        fpga_preset_converter.py # FPGA folder + Pitch.txt -> GPU preset JSON (the FPGA import path + CLI)
         bytestream_encoding.py
         chart_animation.py
         utilities.py
@@ -222,8 +224,8 @@ Computes the spatial envelope of a hammer strike on the string grid.
 | Attribute | Meaning |
 |---|---|
 | `shape` | Profile function: `'circular'` (default) or `'parabolic'` |
-| `position` | Strike position along main string (metres) |
-| `width` | Contact width (metres) |
+| `position` | Strike position along main string (metres, in memory). **Preset JSON / `pack()` store `hammer_position` as a RATIO of `l_main`** (`unpack` multiplies by `l_main`) |
+| `width` | Contact width (metres, also in the preset JSON) |
 | `sharpness` | Curvature parameter in [0, 1] |
 | `hammer_shape` | Numpy array of length `p_full()` — computed spatial envelope |
 
@@ -511,6 +513,32 @@ The coupling loop per cycle:
 File: `HarmonicSimulator.py`
 
 A separate additive synthesis engine for testing. Generates sound as a sum of `Harmonic` objects, each defined by `frequency`, `amplitude`, `phase`, `decay`, and `delay`. Does not use the wave-equation model. Used via `PianoidSimulation.load_params_harmonics()` and `PianoidSimulation.generate_with_harmonics()`.
+
+---
+
+### FPGA preset converter
+
+Files: `fpga_tables.py`, `fpga_preset_converter.py` (dev-a480, 2026-09-30). The **single FPGA import
+path** (the middleware's `load_excitation_from_fpga_preset` delegates here; the legacy readers
+`read_excitations_from_txt`, `Mode.load_modes_from_txt` and `Pianoid.load_deck_from_txt` were removed).
+Spec: [FPGA → GPU port proposal §11](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md).
+
+| Module | Concern |
+|---|---|
+| `fpga_tables` | Read the FPGA `.txt` tables; the host program's send-all formulas (codes → values the FPGA runs with), each a pure function citing its `Pianoid_QM.c` line |
+| `fpga_preset_converter` | Map those values onto a template GPU preset (grid, blocks, strings, tension come from the template); `fpga_conversion` metadata + conversion report; CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
+
+Mapping (current engine only): modes `frequency` ← `omega_coef` (Hz); `mass_inv` ← host law `Mass/f²`,
+relative exact, absolute scale anchored so the strongest mode's `k = mass_inv·(2πf)²` equals the
+template's (`--mode-mass host_max`; scaling to the template *median* was measured **unstable** on
+F_15); decrement = template median unless `--mode-q host_q`. Deck: `Ci_coef_cos` per-mode normalised,
+signed, feedback = feedin (FPGA loop gain `FB·Ci_str·Ci_cos` > 0 checked). Output pitches: FPGA outputs
+`decka × out_vol × Ci_str_1_out` (distinct columns). Excitation: `mu ← d`, `sigma ← e`, time base
+`exc_clocks / clock`, only Gaussians 0–3, FPGA velocity layers evaluated at the 6 engine anchors
+(stored == effective); loudness `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
+Strings: `gamma = (int)decr_op/2²⁴/dt_string`, `tension_offset = dt/ttn`, hammer cap from `width`/`del`
+(position ratio, width metres). UNCONFIRMED inputs (Pitch.txt, clocks per step, mode Q, output signal)
+are CLI parameters flagged in `preset["fpga_conversion"]["unknowns"]`.
 
 ---
 
