@@ -1,0 +1,31 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: D:\repos\wt-paramtests-core\tests
+configfile: pytest.ini
+plugins: anyio-4.10.0, timeout-2.4.0
+timeout: 120.0s
+timeout method: thread
+timeout func_only: False
+collected 662 items / 642 deselected / 20 selected
+
+tests\integration\test_param_sound_belarus.py ..                         [ 10%]
+tests\integration\test_param_sound_excitation.py ....                    [ 30%]
+tests\integration\test_param_sound_feedin.py ..                          [ 40%]
+tests\integration\test_param_sound_length.py ..                          [ 50%]
+tests\integration\test_param_sound_modes.py ....                         [ 70%]
+tests\integration\test_param_sound_regression_pins.py ....               [ 90%]
+tests\integration\test_param_sound_volume.py ..                          [100%]
+
+============================== warnings summary ===============================
+..\PianoidInstall\PianoidCore\.venv\Lib\site-packages\pytz\tzinfo.py:27
+  D:\repos\PianoidInstall\PianoidCore\.venv\Lib\site-packages\pytz\tzinfo.py:27: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    _epoch = datetime.utcfromtimestamp(0)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=============== 20 passed, 642 deselected, 1 warning in 43.05s ================
+rs published (engine refreshes at cycle boundary)
+Update finalized - all copies synchronized
+Update poll thread stopped
+UnifiedGpuMemoryManager shutdown complete
+Update poll thread stopped
+UnifiedGpuMemoryManager shutdown complete

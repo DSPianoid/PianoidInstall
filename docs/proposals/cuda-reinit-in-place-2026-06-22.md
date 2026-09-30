@@ -343,6 +343,6 @@ sole path to a CUDA build; it is gated behind a measurement, not assumed.
 ### Investigation history
 - Cluster C classification + routing (shipped, `feature/dev-applyc`): `preset_reinit.py`,
   `backendServer.py:load_preset_route`, `usePreset.loadPreset`; session log
-  `docs/development/logs/dev-applyc-2026-06-22-054100.md` (Data Model Card + classification-validation).
+  `docs/development/logs/archive/dev-applyc-2026-06-22-054100.md` (Data Model Card + classification-validation).
 - Feasibility traces (read-only): destroyPianoid/domain-model separation, edit-write path, upload paths,
   realtime-thread lifecycle, C++/pybind feasibility, failure modes (af5aa9ff / a4058a8 / a58fb2f).

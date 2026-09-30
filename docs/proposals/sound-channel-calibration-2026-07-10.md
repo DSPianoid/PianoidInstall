@@ -96,7 +96,7 @@ The full live ASIO drive+capture loop (M1/M2/M6/M8) was completed on the operato
 
 Live-verified on the UI Calibrate tab (before the label revert): two consecutive runs gave
 [+0.126,+0.065,+1.000,+0.375] and [+0.123,+0.077,+1.000,+0.373] (ref consistently ch2). Evidence:
-session log `logs/dev-scr1-2026-07-11-101600.md`, probes
+session log `logs/archive/dev-scr1-2026-07-11-101600.md`, probes
 `development/diagnostics/dev-scr1-variance-probe.py` + `dev-scr1-buffer-analysis.py`.
 
 ### Operator resolution (2026-07-10 — both breaks resolved)

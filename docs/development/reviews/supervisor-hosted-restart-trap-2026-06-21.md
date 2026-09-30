@@ -283,4 +283,4 @@ today. Both must be driven from a **local** session — a hosted session cannot 
 - Live guard source: `tools/supervisor/src/adapters/cli-stream-driver.ts` (`detectRelaunchToolUse`,
   ~L138 + the kill at ~L628) and `tools/supervisor/src/profiles.ts` (`isSupervisorRelaunchCommand` /
   `matchesRelaunch`, ~L151–187)
-- Half-done go-live staging log: `docs/development/logs/dev-e9d9-2026-06-21-103931.md`
+- Half-done go-live staging log: `docs/development/logs/archive/dev-e9d9-2026-06-21-103931.md`

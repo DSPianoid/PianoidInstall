@@ -392,7 +392,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      0 console errors. Root PianoidInstall docs (OVERVIEW GaussChart row + WIP row + this log + screenshots) left
      uncommitted for the merge-sweep. -->
 <!-- dev-5639 locks RELEASED 2026-07-08T11:42Z at Step 10a Phase 1 (all work committed on PianoidTunner dev main tree: merge A f382249, merge B f599bca, fix C f49491b, fix D d467812). Held: GaussChart.jsx (bug#1 component-strip legend persistence), PianoidTuner.js + mosaicConfigStore.js (bug#4 fixed-workbench toggle). Full Jest 1529 green, ESLint 0 on changed files, all 4 items live-verified on :3000. Stack LEFT UP for user re-test; STOPPED before Phase 2 (not pushed). -->
-| dev-cflgate | `wt-cflgate-tunner/src/hooks/useCflStability.js`, `wt-cflgate-tunner/src/hooks/__tests__/useCflStability.test.js` | 2026-07-07T10:35:00Z | LIVE-VERIFY fix: chart name stability_ratio→cfl_ratio + key_range→all + select-pitch-from-point_meta (arbitrary fromNtoM rejected by chart param choices) |
+<!-- dev-cflgate GHOST LOCK RELEASED 2026-09-30 by orchestrator (Phase-2 sweep; agent long dead, ledger-only). Held since 2026-07-07T10:35:00Z: wt-cflgate-tunner/src/hooks/useCflStability.js, wt-cflgate-tunner/src/hooks/__tests__/useCflStability.test.js -->
 <!-- dev-gausstoggle locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed test/excitation-panel 50b1815,
      HOLD for user live test; NOT pushed). Bug #2: Gauss black-summation legend toggle didn't stick
      (disappeared then reappeared) + was mixed among the level entries. FIX (GaussChart.jsx + gaussSeries.js,
@@ -483,9 +483,9 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      AFTER: 0 drops, all 36/36 strings reach GPU, range12 1.2ms / range24 62ms (ONE swap). Live backend confirmed
      (200, no freeze). 5 pre-existing CFL raise-tests + 3 preset_switching tests fail IDENTICALLY at baseline
      (not this change). Doc: docs/modules/pianoid-cuda/PARAMETER_SYSTEM.md. -->
-| dev-copyfix | `wt-copyfix-tunner/src/components/GaussEditor.jsx`, `wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx` | 2026-06-24T10:11:30Z | Gauss copy CELL-selection visual indication fix |
-| dev-hwheel3 | `wt-hwheel3-tunner/src/components/HammerStringChart.jsx`, `wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx` | 2026-06-24T13:45:00Z | Hammer #A chart-wheel drops ticks + #B width inconsistency (isolated worktree wt-hwheel3, branch feature/dev-hwheel3 off dev 8d78bf1) |
-| dev-fethrottle | `wt-fethrottle-tunner/src/components/newWindowChart.jsx`, `wt-fethrottle-tunner/src/utils/chartThrottle.js`, `wt-fethrottle-tunner/src/utils/__tests__/chartThrottle.test.js`, `wt-fethrottle-tunner/src/components/__tests__/newWindowChart.throttle.test.jsx` | 2026-06-24T12:05:00Z | Throttle FE live-chart (DynamicChart) update/render rate to cut GPU contention (distortion-fix #4; isolated worktree wt-fethrottle-tunner, branch feature/dev-fethrottle off dev 8d78bf1) |
+<!-- dev-copyfix GHOST LOCK RELEASED 2026-09-30 by orchestrator (Phase-2 sweep; agent long dead, ledger-only). Held since 2026-06-24T10:11:30Z: wt-copyfix-tunner/src/components/GaussEditor.jsx, wt-copyfix-tunner/src/components/__tests__/GaussEditor.copySelMode.test.jsx -->
+<!-- dev-hwheel3 GHOST LOCK RELEASED 2026-09-30 by orchestrator (Phase-2 sweep; agent long dead, ledger-only). Held since 2026-06-24T13:45:00Z: wt-hwheel3-tunner/src/components/HammerStringChart.jsx, wt-hwheel3-tunner/src/components/__tests__/HammerStringChart.test.jsx -->
+<!-- dev-fethrottle GHOST LOCK RELEASED 2026-09-30 by orchestrator (Phase-2 sweep; agent long dead, ledger-only). Held since 2026-06-24T12:05:00Z: wt-fethrottle-tunner/src/components/newWindowChart.jsx, wt-fethrottle-tunner/src/utils/chartThrottle.js, wt-fethrottle-tunner/src/utils/__te... -->
 <!-- dev-gaussfix locks RELEASED 2026-07-07 at Step 10a Phase 1 (committed feature/dev-gaussfix 37553f6 in
      worktree wt-gaussfix, HOLD for user/team-lead live test; NOT pushed). Gauss-viz P2-P4: (P2) single-source
      engine-correct evaluator excitationImpulse.js componentForce = max(exp(-0.5z^2)-shift,0)*vol used by BOTH
@@ -631,7 +631,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      Jest 126/1289 green (+9), CRA build clean. Frontend-only, NO CUDA. User live-tests. Docs (OVERVIEW
      Workbench-types) + log on PianoidInstall master. -->
 | <!-- (none active for dev-wbspawn) --> | | | |
-| dev-e9d9 | `tools/supervisor/launch-prod-orch.mjs` | 2026-06-21T09:00:00Z | GO-LIVE STAGING: set the dispatch-activation env (SUPERVISOR_ROLE_ROUTING + the 2 spend caps + est-cost) in the prod launcher; back up + rebuild prod dist. DeepSeek bridge env left OFF pending USER (not coordinator) sign-off. No live-process touch; no merge/push. |
+<!-- dev-e9d9 GHOST LOCK RELEASED 2026-09-30 by orchestrator (Phase-2 sweep; agent long dead, ledger-only). Held since 2026-06-21T09:00:00Z: tools/supervisor/launch-prod-orch.mjs -->
 <!-- dev-896b locks RELEASED 2026-06-22 at Step 10a Phase 1 (code commit c67cab5 on
      feature/model-agnostic-orchestrator-tier1, stacked on T3 9edfb74; NOT merged/pushed — awaiting user).
      T4 (model-agnostic-ORCHESTRATOR, the CONNECTING phase): driver-policy.ts NEW resolveOrchestratorDriver
@@ -1245,7 +1245,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      full node:test 255/255, tsc clean. dist/ gitignored → rebuilt in the working tree (verify-landed done);
      needs the orchestrator-owned restart to load. NO restart performed. README.md doc update DEFERRED
      (dev-vio1 holds it) — WIP doc-deferral note filed. SHA in the session log. -->
-| dev-vio1 | tools/supervisor/src/test/voice-tts-isolation.test.ts (NEW), tools/supervisor/README.md | 2026-06-19T14:33Z | RESUME (2nd restart): OUTBOUND-voice fix. Root cause MEASURED — edge-tts not installed in PianoidCore/.venv → tts_voice.py fails at `import edge_tts` → VoiceCodec.synthesize() throws → telegram.ts outbound catch falls back to text (adapter+config logic CORRECT). Fix = install edge-tts into that venv (env, no src-logic change) + ADD a real-TTS isolation test + an adapter-modality unit test (in the existing telegram-adapter.test.ts, already locked-clear: covered by this lock). dist/ rebuild. NO restart of the live supervisor. |
+<!-- dev-vio1 GHOST LOCK RELEASED 2026-09-30 by orchestrator (Phase-2 sweep; agent long dead, ledger-only). Held since 2026-06-19T14:33Z: tools/supervisor/src/test/voice-tts-isolation.test.ts (NEW), tools/supervisor/README.md -->
 <!-- dev-2870 H-1+M-1 locks RELEASED 2026-06-20 at Step 10a Phase 1 (M-1 commit a3ddc2c + H-1 commit 1763430 +
      review-doc commit 8e18633 on feature/model-agnostic-agents; NOT merged/pushed — activation/merge is the
      separately-approved P6 step). Edited (existing): tools/supervisor/src/{agent-worktree,result-relay,
