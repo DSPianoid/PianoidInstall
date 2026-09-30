@@ -685,10 +685,10 @@ delegates to it and the swapped legacy readers were removed. Module reference:
 | # | Finding | Effect on the §11 mapping |
 |---|---|---|
 | 1 | Draft wrote `hammer_position` in **metres**; the preset/`Hammer.pack` convention is a **ratio of `l_main`** | Fixed (ratio); `hammer_radius` recomputed |
-| 2 | Mode `mass_inv` from `Mass/f²` scaled to the template **median** `mass_inv` gives `k = mass_inv·(2πf)²` median 0.8 / max 4.8 vs the template's constant 0.1 → **runaway** (+150 dB, no pitch). Scaling to the median `k` is still unstable (+300 dB/s) | Default `--mode-mass host_max`: exact relative host masses, strongest mode `k` = template `k` → stable (renders below) |
+| 2 | Mode `mass_inv` from `Mass/f²` scaled to the template **median** `mass_inv` gives `k = mass_inv·(2πf)²` median 0.8 / max 4.8 vs the template's constant 0.1 → **runaway** (+150 dB, no pitch). Scaling to the median `k` is still unstable (+300 dB/s) | Default `--mode-mass host_max`: exact relative host masses, strongest mode `k` = template `k` → stable by attenuation (every mode ≤ template, weakest ~3400× lower). The absolute scale is UNCONFIRMED (in `fpga_conversion.unknowns`) and explains the 14–34 dB level deficit |
 | 3 | `initialize()` no longer overrides `tension_offset` / hammer / γ (read-back equal) | The "engine gap" in §11.5 is gone; DATA_FLOWS §2.7 corrected |
 | 4 | `shteg` is negative (−3.49 → −3) for keys 52–87; host arithmetic keeps `N − shteg > N` | Kept, flagged in metadata |
-| 5 | Host `(int)` casts matter: `decr_op` 7.39 → 7 (γ −5 %) | Applied everywhere the host casts |
+| 5 | Host `(int)` casts matter: `decr_op` 7.39 → 7 (γ −5 %); `send_nl` also casts `ttn` and `dt` (`dt` 1.17 → 1: unison detune up to 36 % lower than the float ratio) | Applied everywhere the host casts, incl. `tension_offset = (int)dt/(int)ttn` (review M1) |
 | 6 | F_15 output columns come in identical pairs | Distinct columns 0, 2, 4, 5 → GPU output pitches 128–131 |
 
 **F_15 renders** (template Belarus_8band_196modes, `listen_to_modes=0`, order 1): no NaN/Inf, all notes decay;

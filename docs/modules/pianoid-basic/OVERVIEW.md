@@ -38,6 +38,7 @@ PianoidBasic/
         SoundChannels.py     # StringSoundChannels, ModeSoundChannels
         fpga_tables.py       # FPGA preset tables + host send-all formulas (FPGA-side semantics)
         fpga_preset_converter.py # FPGA folder + Pitch.txt -> GPU preset JSON (the FPGA import path + CLI)
+        fpga_conversion_metadata.py # conversion metadata (UNCONFIRMED inputs, dropped fields) + report
         bytestream_encoding.py
         chart_animation.py
         utilities.py
@@ -518,7 +519,7 @@ A separate additive synthesis engine for testing. Generates sound as a sum of `H
 
 ### FPGA preset converter
 
-Files: `fpga_tables.py`, `fpga_preset_converter.py` (dev-a480, 2026-09-30). The **single FPGA import
+Files: `fpga_tables.py`, `fpga_preset_converter.py`, `fpga_conversion_metadata.py` (dev-a480, 2026-09-30). The **single FPGA import
 path** (the middleware's `load_excitation_from_fpga_preset` delegates here; the legacy readers
 `read_excitations_from_txt`, `Mode.load_modes_from_txt` and `Pianoid.load_deck_from_txt` were removed).
 Spec: [FPGA → GPU port proposal §11](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md).
@@ -526,19 +527,24 @@ Spec: [FPGA → GPU port proposal §11](../../proposals/fpga-to-gpu-preset-port-
 | Module | Concern |
 |---|---|
 | `fpga_tables` | Read the FPGA `.txt` tables; the host program's send-all formulas (codes → values the FPGA runs with), each a pure function citing its `Pianoid_QM.c` line |
-| `fpga_preset_converter` | Map those values onto a template GPU preset (grid, blocks, strings, tension come from the template); `fpga_conversion` metadata + conversion report; CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
+| `fpga_preset_converter` | Map those values onto a template GPU preset (grid, blocks, strings, tension come from the template); CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
+| `fpga_conversion_metadata` | Describe a conversion: `preset["fpga_conversion"]` (UNCONFIRMED inputs, load params, template fallbacks used, dropped fields) and the `<out>.conversion_report.md` |
 
 Mapping (current engine only): modes `frequency` ← `omega_coef` (Hz); `mass_inv` ← host law `Mass/f²`,
 relative exact, absolute scale anchored so the strongest mode's `k = mass_inv·(2πf)²` equals the
-template's (`--mode-mass host_max`; scaling to the template *median* was measured **unstable** on
-F_15); decrement = template median unless `--mode-q host_q`. Deck: `Ci_coef_cos` per-mode normalised,
+template's (`--mode-mass host_max`, itself UNCONFIRMED: every FPGA mode ends at or below the template
+coupling, so it is stable by attenuation and renders 14–34 dB below the template; scaling to the
+template *median* was measured **unstable** on F_15); decrement = template median unless `--mode-q host_q`. Deck: `Ci_coef_cos` per-mode normalised,
 signed, feedback = feedin (FPGA loop gain `FB·Ci_str·Ci_cos` > 0 checked). Output pitches: FPGA outputs
 `decka × out_vol × Ci_str_1_out` (distinct columns). Excitation: `mu ← d`, `sigma ← e`, time base
 `exc_clocks / clock`, only Gaussians 0–3, FPGA velocity layers evaluated at the 6 engine anchors
 (stored == effective); loudness `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
-Strings: `gamma = (int)decr_op/2²⁴/dt_string`, `tension_offset = dt/ttn`, hammer cap from `width`/`del`
-(position ratio, width metres). UNCONFIRMED inputs (Pitch.txt, clocks per step, mode Q, output signal)
-are CLI parameters flagged in `preset["fpga_conversion"]["unknowns"]`.
+Strings: `gamma = (int)decr_op/2²⁴/dt_string`, `tension_offset = (int)dt/(int)ttn` (send_nl casts), hammer cap from `width`/`del`
+(position ratio, width metres). UNCONFIRMED inputs (Pitch.txt, clocks per step, mode Q, mode-mass scale, output signal)
+are CLI parameters flagged in `preset["fpga_conversion"]["unknowns"]`; `--output-signal q` is rejected
+(the GPU has no displacement output). Velocity anchors come from `constants.LEVEL_INDICES`; template
+fallbacks (`DEFAULT_HAMMER_MASS`, `DEFAULT_HAMMER_SPEEDS`, sharpness 0.5) are recorded in
+`fpga_conversion.fallbacks_used` when used.
 
 ---
 

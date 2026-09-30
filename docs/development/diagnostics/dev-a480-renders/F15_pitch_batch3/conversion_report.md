@@ -9,11 +9,20 @@
 - **mode_clocks** = `256` (UNCONFIRMED)
 - **exc_clocks** = `512` (UNCONFIRMED) - sets every gauss centre/width in ms
 - **mode_q** = `template` (UNCONFIRMED) - host Q code gives non-physical damping (Q<1); template median used unless host_q
+- **mode_mass** = `host_max` (UNCONFIRMED) - absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the reason the converted preset renders 14-34 dB below the template
 - **output_signal** = `dq` (UNCONFIRMED) - load-time param
+
+## Level
+
+Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the reason the converted preset renders 14-34 dB below the template.
 
 ## Load with
 
 `{"listen_to_modes": 0, "sound_derivative_order": 1}`
+
+## Template fallbacks used
+
+- none
 
 ## Dropped / approximated
 
@@ -21,7 +30,7 @@
 - ttn_tails (tail tension): no GPU equivalent (engine gap)
 - damping (tail decrement), decr_cl (damper law), decr_disp, disp: template damper_*/disp_decay/jung/r kept
 - Shape_512 tabulated hammer shape: replaced by the circular cap fit (width/del) on the template sharpness
-- tension_offset: FPGA unison is symmetric (ttn, ttn+dt, ttn-dt); GPU is one-sided (T, T(1+o), T(1+2o)), o = dt/ttn
+- tension_offset: FPGA unison is symmetric ((int)ttn, +(int)dt, -(int)dt); GPU is one-sided (T, T(1+o), T(1+2o)), o = (int)dt/(int)ttn
 - gauss slot 4: not sent by the host (vol 0); ind_tail_* (host preview shift) dropped
 - per-(pitch, level) loudness: rank-1 hammer_mass x hammer_speeds fit (conserve mode); residual in excitation.*
 - excitation beyond the GPU 7 ms window is truncated (excitation.beyond_window_*)
@@ -30,7 +39,7 @@
 - global FB magnitude (-Gain_FB[1]): template deck_feedback_coefficient kept (force/displacement scale unknown)
 - 16 FPGA outputs -> the template's output pitches (engine gap); columns in output.fpga_columns
 - modes above the template num_modes dropped (modes.dropped_*); mode Q per unknowns.mode_q
-- mode mass_inv: exact relative host law Mass/f^2, absolute scale anchored to the template stiffness (options.mode_mass; host_median measured UNSTABLE on F_15)
+- mode mass_inv: exact relative host law Mass/f^2, absolute scale per unknowns.mode_mass
 - ttn_micro, FB.txt, NL, NL_disp, Ci_str_out, Ci_str_curve, impulse_resp_*, others[3..14]: not mapped
 
 ## modes
@@ -53,7 +62,7 @@
   "max": -37.767787815301546
  },
  "dropped_modes": 60,
- "dropped_above_hz": 8913.043478
+ "first_dropped_mode_hz": 8913.043478
 }
 ```
 
@@ -165,6 +174,7 @@
   86,
   87
  ],
+ "full_allocation_hammer_keys": [],
  "inharmonicity_B_range": [
   8.351281722400349e-06,
   0.001150725199461019
