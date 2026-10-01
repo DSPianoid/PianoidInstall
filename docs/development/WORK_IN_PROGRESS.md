@@ -206,6 +206,7 @@
      orchestrator policy so the coordinate tools don't spuriously route every call (else fallback:'route' asks). -->
 
 <!-- dev-5965 (2026-09-22, resumed 2026-10-01) — test-failure triage, PianoidCore feature/dev-5965-test-triage (HOLD, not merged/pushed).
+<!-- dev-1e95 COMPLETED 2026-10-01 — string_iteration instability = ENGINE float32 precision regression (real=float since PianoidCore 6a652df/36f05fe 2025-09-13); fix = summed-form FDTD inner loop, PianoidCore 41ab36d merged into dev as 682a535 (--no-ff), shared venv rebuilt --both, /load_preset 200, template p24 +2.1/+2.7 c at N=4/16 (was +1.4/+90.1); F_15 stable at N=16. NOT pushed. Log: logs/archive/dev-1e95-2026-10-01-151238.md -->
      USER DECISIONS 2026-10-01 (Telegram 11:55Z "A) delete it B) defer C) close"):
      (a) Preset_test5 DELETED (93% energy >5 kHz, strongly non-linear); all tests/fixtures migrated to BaselinePreset1
          (PROJECT_CONFIG#defaults) via tests/conftest.py TEST_PRESET.
@@ -215,6 +216,13 @@
      (c) CLOSED: "column multiplier has no effect" Sound Channels report (12 Jul) — not reproduced; attributed to the
          416 feedback_mask bug fixed in 620a426. -->
 ---
+
+## Follow-ups from dev-1e95 — string_iteration precision regression (2026-10-01)
+
+Root cause of "higher `string_iteration` blows up / bass pitch drifts with N": the engine's `real` has been **float32** since PianoidCore `6a652df`/`36f05fe` (2025-09-13); the three-level FDTD update rounds the per-sub-step acceleration away for bass strings at high N. Fix = summed-form integrator on `feature/dev-1e95-string-iteration-precision` (PianoidCore; worktree `D:/repos/wt-1e95-core`, isolated venv). Docs: SYNTHESIS_ENGINE.md "Numerical precision". Pending after merge (HEAVY `--both` rebuild required):
+- **dev-a480 converter branch:** `fpga_string_layout.py` docstring + `gpu_string_iteration` default 8 + the "stem refreshed once per audio sample" explanation (proposal §11, renders summary) are superseded — the sample-and-hold bridge is NOT the cause (exact replica: identical spectral radius for S/H vs per-sub-step coupling). Re-sweep with the fixed engine; the default can be 16 (= exact FPGA step, measured stable, 1.0–1.24 ms/cycle).
+- `coeff_frequency_decay` iter-invariance (pre-existing open issue) is unchanged by this fix.
+- Known-good presets at N ≥ 12 were silently out of tune in the bass (template p24 +90 c at N=16); any tuning/calibration done at N ≥ 8 on the float engine may need re-checking.
 
 ## ★ POST-RESTART CONTINUATION — 2026-06-20 (CONTROL-PLANE activation: READ FIRST; delete after live-test + B1/C1 are sorted)
 
