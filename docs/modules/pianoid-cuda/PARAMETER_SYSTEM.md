@@ -155,7 +155,9 @@ upload loop sends `updateMultiStringParameter_NEW("dx", ...)`. See
 The per-(string, level) excitation coefficient is `c · mass · speed / (temporal · spatial)`
 (see `excitation_coefficients.py`). Its factors are the global calibration `c`, the hammer
 `mass` (`hammer_mass`), the per-velocity `speed`, the excitation-curve `temporal`
-(`level_impulse`, a point-sum over `excitation_length`/`excitation_factor` — **model** params),
+(`level_impulse` = point-sum over `excitation_length`/`excitation_factor` × `dt / EXCITATION_REFERENCE_DT`
+— **model** params; the `dt` weight keeps the delivered impulse independent of `string_iteration` /
+`sample_rate`, see SYNTHESIS_ENGINE.md §Numerical scheme invariants),
 and the hammer `spatial` (`hammer_spatial_impulse`). **No string-physics parameter**
 (`tension`, `stiffness`, `damping`, `density`, `radius`, `length`, `dx`, …) feeds any of
 these factors — a pure string-physics edit leaves the coefficient table byte-identical

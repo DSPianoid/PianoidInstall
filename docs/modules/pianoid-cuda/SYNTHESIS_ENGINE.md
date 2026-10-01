@@ -149,9 +149,23 @@ folded into the coefficient by `parameterKernel` at kernel entry).
   `soundFloat` / `soundInt` emission. Runs `samplesInCycle` times per kernel launch.
 - **Iter-invariant by design:** audio peak, spectral content. Post-fix validation: peak
   ratio iter=12/iter=4 = 1.011× (target ≤ 1.02×).
+- **Excitation impulse must carry `dt` (dev-f2b8, 2026-10-01).** The kernel delivers a strike impulse of
+  `coefficient · Σ_k f_k · dt` (gaussKernel writes `coefficient · shape` per sub-step; `coeff_force ∝ dt²`).
+  The B2 excitation coefficient (`c·m·v / (temporal·spatial)`, 2026-06) divided by a *bare* point-sum
+  `temporal = Σ_k f_k` over `8·mode_iteration·N` sub-steps, i.e. `∝ N` — so the coefficient, the delivered
+  impulse and the output level were `∝ 1/N` (−6 dB per doubling of `string_iteration`; measured k = −1.0…−1.3
+  on every output path incl. `listen_to_modes`, e.g. Belarus A1 −63.0 → −78.3 dB at N 4 → 16). Fix
+  (PianoidBasic `ExcitationParameters.level_impulse`): `temporal = Σ_k f_k · dt / EXCITATION_REFERENCE_DT`,
+  reference grid 48 kHz × 4 (every calibrated preset's stored grid → byte-identical there). After: peak
+  N-flat (C4/C7 within ≤1.1 dB over N = 2–16); the remaining RMS drift (−2…−3.5 dB, 4 → 16) is the
+  decay-rate N-dependence below, not a level-scaling error. Evidence:
+  `docs/development/diagnostics/dev-f2b8-renders/summary.md`.
 - **Known iter-scaled residual (open issue):** HF content (~25 dB swing iter=4→12),
   spectral centroid (~2× swing), initial decay rate (±3 dB/s). Traced to
-  `coeff_frequency_decay` missing dt-scaling. See
+  `coeff_frequency_decay` missing dt-scaling. Re-measured dev-f2b8 (Belarus template, v110): C7 decay
+  −33 → −68 dB/s and C4 −23 → −28 dB/s at N 4 → 16; with `disp_decay = 0` C7 decay is −5.3/−4.7/−4.0
+  (N 4/8/16) and the C4/C7 RMS level is N-flat within ≤1.2 dB — i.e. the per-sub-step HF term should
+  scale `∝ dt` (anchored at the reference grid). See
   [WORK_IN_PROGRESS.md](../../development/WORK_IN_PROGRESS.md#known-follow-ups).
 
 ### Numerical precision: float32 and `string_iteration` (dev-1e95, 2026-10-01)
