@@ -144,12 +144,21 @@ conversion.
 `mu` ← centre `d`, `sigma` ← width `e`. The previous loader put the width into `mu` and the centre
 into `sigma` (SWAPPED) — fixed by construction in the converter.
 
-**Existing FPGA-derived presets (NOT modified on disk).**
+**FPGA-derived presets regenerated (dev-a480, 2026-10-01, user decision).** Both presets built with the
+old swapped loader had only their per-pitch `excitation` rebuilt with the corrected decode from the same
+source dump (every other field byte-identical); originals kept as `<name>.pre-a480-swapped.json`; each
+preset carries an `excitation_provenance` block. Tool: `docs/development/diagnostics/dev-a480-regenerate-fpgaexc.py`.
 
-| Preset | Status (measured 2026-09-30) |
-|---|---|
-| `Belarus_8band_196modes_FPGAexc.json` | Excitation = exactly the old **swapped** decode of `PresetsFromFpga/Bl_Apr_19` (all anchors match). Centres/widths transposed. Regenerate with the overlay on `Belarus_8band_196modes.json` if wanted |
-| `Belarus_196modesC_Fanera6exc.json` | Gauss 0, 1, 3, 4 = the swapped `Bl_Apr_19` decode; Gauss 2 hand-edited afterwards (mu 0.62 vs 0.98 ms). Transposed too; a regeneration would lose the hand edit |
+| Preset | Source dump | Notes |
+|---|---|---|
+| `Belarus_8band_196modes_FPGAexc.json` | `PresetsFromFpga/Bl_Apr_19` | Old file = exactly the swapped decode of Bl_Apr_19 (84 pitches × 5 Gaussians) |
+| `Belarus_196modesC_Fanera6exc.json` | `Fanera_6.rar` (user Downloads; tables copied to `PresetsFromFpga/Fanera_6`) | Old file = exactly the swapped decode of Fanera_6 — no hand edit (an earlier note compared it against Bl_Apr_19 by mistake) |
+
+Effect (offline, A1/C4 × v64/v110): pulse centres 0.17–6.4 → 0.28–5.8/6.0 ms, widths 0.035–0.72 →
+0.024–0.89 ms; Gaussian 2 keeps its FPGA (negative) sign; level −7…−13 dB (from the corrected timing —
+an `abs`-sign variant measures the same); C4 pitch unchanged; strings/decks unchanged (A1's comb-detector
+reading moves −0.2 → −18.3 c, the value the Belarus template itself measures, i.e. an excitation-spectrum
+effect on the detector, not a string change); no NaN, all decay.
 
 ### `ParameterManager` (parameter_manager.py)
 

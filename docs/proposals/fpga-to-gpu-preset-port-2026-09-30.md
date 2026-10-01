@@ -739,3 +739,8 @@ physics rate-scaled for each value (MIDI 21–33, 60, 96 × v64/v110): 4, 6, 8 s
 **8** (highest stable). At 8 the full A/C sweep is stable; vs `Notes_freqs` median −1.5 c, IQR −7.0…+6.3 c;
 vs the FPGA scheme median 0.0 c, max 26 c (A0) — 4 sub-steps tracks the bass more closely (max 11 c). Level
 at 8: 18–47 dB below the template. Table: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Update: old swapped-decode presets regenerated (2026-10-01, user decision "Regenerate and replace").**
+`Belarus_8band_196modes_FPGAexc` (source Bl_Apr_19) and `Belarus_196modesC_Fanera6exc` (source Fanera_6 —
+exact swapped decode, no hand edit) had only their excitation rebuilt with the corrected decode; originals
+backed up as `*.pre-a480-swapped.json`. Details: [middleware OVERVIEW](../modules/pianoid-middleware/OVERVIEW.md#loading-fpga-presets).
