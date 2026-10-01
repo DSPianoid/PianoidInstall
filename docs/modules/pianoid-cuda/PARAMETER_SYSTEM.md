@@ -157,7 +157,8 @@ The per-(string, level) excitation coefficient is `c · mass · speed / (tempora
 `mass` (`hammer_mass`), the per-velocity `speed`, the excitation-curve `temporal`
 (`level_impulse` = point-sum over `excitation_length`/`excitation_factor` × `dt / EXCITATION_REFERENCE_DT`
 — **model** params; the `dt` weight keeps the delivered impulse independent of `string_iteration` /
-`sample_rate`, see SYNTHESIS_ENGINE.md §Numerical scheme invariants),
+`sample_rate`, see SYNTHESIS_ENGINE.md §Numerical scheme invariants; the per-sub-step HF damping and damper term are
+likewise `× dt/dt_ref` in `parameterKernel`),
 and the hammer `spatial` (`hammer_spatial_impulse`). **No string-physics parameter**
 (`tension`, `stiffness`, `damping`, `density`, `radius`, `length`, `dx`, …) feeds any of
 these factors — a pure string-physics edit leaves the coefficient table byte-identical

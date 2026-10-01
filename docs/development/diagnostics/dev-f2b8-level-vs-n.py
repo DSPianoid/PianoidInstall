@@ -70,6 +70,7 @@ def main():
     ap.add_argument("--ltm", type=int, default=0)
     ap.add_argument("--exc-mult", type=float, default=None)
     ap.add_argument("--notes", default=None)
+    ap.add_argument("--save-raw", action="store_true", help="save full multi-channel soundFloat per note (.npy)")
     a = ap.parse_args()
     notes = tuple(int(x) for x in a.notes.split(",")) if a.notes else NOTES
     a.out_dir, a.preset = os.path.abspath(a.out_dir), os.path.abspath(a.preset)
@@ -118,6 +119,9 @@ def main():
              "ch_rms_db": [db(float(v)) for v in ch_rms],
              "decay_db_per_s": decay_db_per_s(x), "cents": float(mm.cents_error), "conf": float(mm.confidence)}
         res["notes"].append(r)
+        if a.save_raw:
+            os.makedirs(os.path.join(a.out_dir, a.label), exist_ok=True)
+            np.save(os.path.join(a.out_dir, a.label, f"p{pitch}_raw.npy"), snd.astype(np.float32))
         print(json.dumps(r))
     od = os.path.join(a.out_dir, a.label)
     os.makedirs(od, exist_ok=True)

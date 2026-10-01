@@ -120,15 +120,22 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 |---|---|---|---|---|
 | `coeff_tension` | `(T/ρ) · dt² / dx²` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:133` | `Pitch.py:307` |
 | `coeff_bending` | `(π·E·r⁴ / 4ρ) · dt² / dx⁴` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:135` | `Pitch.py:310` |
-| `coeff_frequency_decay` | HF damping: `γ_HF · 1e12 / (2·dx²)` | **iter-invariant** (disputed — see open issues) | `Kernels.cu:139` | `Pitch.py:321` (`c2dec ∝ 1/(dt·dx²)`) |
-| `dec_curr` | `γ_string · dt + damper` (velocity damping) | `∝ dt` (∝ 1/iter) | `Kernels.cu:141` | `Pitch.py:311` |
+| `coeff_frequency_decay` | HF damping: `γ_HF · 1e12 / (2·dx²) · dt/dt_ref` | `∝ dt` (∝ 1/iter; = legacy value at the reference grid, dev-f2b8) | `Kernels.cu:144` | `Pitch.py:321` (`c2dec ∝ 1/(dt·dx²)` — differs; Python is not the reference for this term) |
+| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
 | `coeff_force` | `dt² · dec_inv · hammer[p]` (per-point force coefficient) | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:155–158` | `Pitch.py:319` (`cf = dt² · dec_inv`) |
 | `shift_0` | `(2 + 12·coeff_bending − 2·coeff_tension) · dec_inv` | derived | `Kernels.cu:144` | `Pitch.py:314` |
 | `shift_b` | `(dec_curr − 1) · dec_inv` | derived | `Kernels.cu:148` | `Pitch.py:318` |
 | `shift_1` | `(coeff_tension − 8·coeff_bending) · dec_inv` | derived | `Kernels.cu:145` | `Pitch.py:315` |
 | `shift_2` | `2 · coeff_bending · dec_inv` | derived | `Kernels.cu:146` | `Pitch.py:316` |
 
-`dec_inv = 1 / (1 + dec_curr)`.
+`dec_inv = 1 / (1 + dec_curr)`. `dt/dt_ref = REFERENCE_SUBSTEP_RATE / (sample_rate · string_iteration)`,
+`REFERENCE_SUBSTEP_RATE = 48000·4` (`constants.h`) — exactly `1.0` on the reference grid, so presets tuned at
+48 kHz × 4 are unchanged there.
+
+**Damper int-truncation (pre-existing, NOT changed by dev-f2b8).** `dump_coeff` is an `int`. On the main
+string it is `int(pow((127 − sustain) · dumper_position, 0.6))` = 18 (damper closed) / 0 (open, key held). On the
+TAIL it is `int(physical_parameters[14])` = `int(damper_tail)`, and preset `damper_tail` values are ~1e-5…1e-4 →
+**0: the tail damper is inert**. Fixing it would change the sound at every N; left as a decision.
 
 `coeff_force` was corrected in commit `6e58413`: previously `∝ dt¹` (in ms units), causing
 the per-sample force integral to scale as `iter` and an audio peak that scaled linearly
@@ -160,9 +167,15 @@ folded into the coefficient by `parameterKernel` at kernel entry).
   N-flat (C4/C7 within ≤1.1 dB over N = 2–16); the remaining RMS drift (−2…−3.5 dB, 4 → 16) is the
   decay-rate N-dependence below, not a level-scaling error. Evidence:
   `docs/development/diagnostics/dev-f2b8-renders/summary.md`.
-- **Known iter-scaled residual (open issue):** HF content (~25 dB swing iter=4→12),
-  spectral centroid (~2× swing), initial decay rate (±3 dB/s). Traced to
-  `coeff_frequency_decay` missing dt-scaling. Re-measured dev-f2b8 (Belarus template, v110): C7 decay
+- **Decay is iter-invariant (dev-f2b8, 2026-10-01; was the open "iter-scaled residual").** In the summed
+  form the sub-step increment is `Δv = u_tt·dt²`, so a damping term `γ_HF·∂t(u_xx)` contributes
+  `γ_HF·dt·(d3 − d3_1)/dx²` and a velocity damping contributes `∝ dt`. `coeff_frequency_decay` and the damper
+  term were constant per sub-step (effective damping `∝ string_iteration`); both are now × `dt/dt_ref`. The
+  dampers that mattered while a key is HELD are those of the NON-played strings (closed), which drain the
+  shared modes. Measured (template + BaselinePreset1, N = 2/4/8/16, velocity/acceleration/listen_to_modes):
+  decay spread across N 6–123 % → ≤ 2.4 %; peak and RMS within 0.3 dB (C7 peak 1.3 dB); N = 4 render equal
+  to dev within the run-to-run atomicAdd noise. Evidence `docs/development/diagnostics/dev-f2b8-renders/summary.md`
+  Part 2. History — before the fix, re-measured dev-f2b8 (Belarus template, v110): C7 decay
   −33 → −68 dB/s and C4 −23 → −28 dB/s at N 4 → 16; with `disp_decay = 0` C7 decay is −5.3/−4.7/−4.0
   (N 4/8/16) and the C4/C7 RMS level is N-flat within ≤1.2 dB — i.e. the per-sub-step HF term should
   scale `∝ dt` (anchored at the reference grid). See

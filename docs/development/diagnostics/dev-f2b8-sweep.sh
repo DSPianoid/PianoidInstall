@@ -13,7 +13,7 @@ for pre in Belarus_8band_196modes BaselinePreset1; do
    set -- $cfg
    lab=${pre}_N${N}_d$1_ltm$2
    [ -f $OUT/$lab/results.json ] && continue
-   $PY $H $P/$pre.json $lab $OUT --n $N --deriv $1 --ltm $2 --core $CORE > $OUT/$lab.log 2>&1
+   $PY $H $P/$pre.json $lab $OUT --n $N --deriv $1 --ltm $2 --core $CORE $EXTRA > $OUT/$lab.log 2>&1
    echo "$lab rc=$?"
   done
  done
