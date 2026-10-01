@@ -11,12 +11,12 @@
 - **mode_clocks** = `256` (DERIVED) - /oscill_dbl2 256-deep state RAMs, 1 mode per clock
 - **exc_clocks** = `96` (DERIVED) - /Mid_Graph2/Counter3 (SID 1634313) 0..95, per-note time RAM depth 96 (SID 1634315); sets every gauss centre/width in ms
 - **mode_q** = `host_q` (DERIVED) - q[n+1] = (2q[n] - q[n-1] + D q[n-1] - W q[n] + M F)(1 - D) per 256-clock step (/oscill_dbl2, proposal 11.11.2), D = (int)(Q_coeff*q_ratio)/2^31 forwarded verbatim to CMD_decr_0 by the stm32 (pianoid.c S:2248-2253; 11.12.2). tau 0.28-0.56 ms IS the real F_15 behaviour: a deliberately damped broadband soundboard (q_ratio knob); sustain comes from the strings. host_q reproduces the decay rate exactly at the audio rate; 'template' (template median) is an override
-- **mode_mass** = `host_max` (UNCONFIRMED) - the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings, F_15 renders 12-41 dB below the template at the same sub-step count (A1 ~35-41, C4 ~31-35, C7 ~12-15 dB): the heavy real mode damping plus this capped mass scale. (The engine's output level itself falls ~15 dB from 4 to 16 sub-steps for every preset, the template included -- an engine property, measured by dev-a480)
+- **mode_mass** = `host_max` (UNCONFIRMED) - the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings, F_15 renders 14-39 dB below the Belarus template (A1 ~39, C4 ~34, C7 ~14 dB), the same at every sub-step count since the dev-f2b8 impulse fix (PianoidCore cc4b540 / PianoidBasic 91086d7): the heavy real mode damping plus this capped mass scale
 - **output_signal** = `dq` (DERIVED) - send_all sets RING_15 = 2 (Gain_FB[0] = 2); /Mux1 (SID 1898483) input 2 = dq (modal velocity); stm32 boot sets CMD_init_sw = 2 (pianoid.c S:4449), runtime S:1652-1656; load-time param
 
 ## Level
 
-Output level vs the template is set by the mode-mass scale: the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings, F_15 renders 12-41 dB below the template at the same sub-step count (A1 ~35-41, C4 ~31-35, C7 ~12-15 dB): the heavy real mode damping plus this capped mass scale. (The engine's output level itself falls ~15 dB from 4 to 16 sub-steps for every preset, the template included -- an engine property, measured by dev-a480).
+Output level vs the template is set by the mode-mass scale: the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings, F_15 renders 14-39 dB below the Belarus template (A1 ~39, C4 ~34, C7 ~14 dB), the same at every sub-step count since the dev-f2b8 impulse fix (PianoidCore cc4b540 / PianoidBasic 91086d7): the heavy real mode damping plus this capped mass scale.
 
 ## Load with
 
@@ -958,6 +958,10 @@ Output level vs the template is set by the mode-mass scale: the stm32 forwards M
   142,
   1000000
  ],
+ "tail_damper_int_truncation": {
+  "affected": false,
+  "note": "the engine reads the tail damper as an INTEGER dump_coeff; the converter writes an integer multiplier (>= 1) with damper_string carrying the scale, so nothing is truncated"
+ },
  "keys_without_damper": {
   "midi": [
    91,

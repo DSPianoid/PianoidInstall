@@ -744,3 +744,10 @@ default is **16 = the FPGA string step** (rate scale exactly 1): full A/C sweep 
 `Belarus_8band_196modes_FPGAexc` (source Bl_Apr_19) and `Belarus_196modesC_Fanera6exc` (source Fanera_6 —
 exact swapped decode, no hand edit) had only their excitation rebuilt with the corrected decode; originals
 backed up as `*.pre-a480-swapped.json`. Details: [middleware OVERVIEW](../modules/pianoid-middleware/OVERVIEW.md#loading-fpga-presets).
+
+**Update: engine dev-f2b8 (2026-10-01, PianoidCore cc4b540 / PianoidBasic 91086d7).** The kernel now applies
+`dt/dt_ref` to the HF-damping and damper terms and the excitation impulse is dt-weighted. The converter writes
+`disp_decay` and `damper_string` at the reference grid (`k_ref = dt_ref/dt_fpga`, N-independent; kernel
+equivalence re-tested) and sets `output_scale_calibrated = false`. F_15 at N = 4/8/16: pitch, decay and level
+are now N-independent (A1/C4/C7 −101.5/−115.7/−132.2 dB; at N = 16 that is +12 dB vs before); 14–39 dB below
+the Belarus template; no NaN. The regenerated `*_FPGAexc` presets (4 sub-steps) are unaffected.

@@ -543,7 +543,12 @@ adds `+2·cb·fd`, the FPGA `−Disp·fd`), `gamma`, `disp_decay`, `damper_strin
 are solved from the `Kernels.cu parameterKernel` formulas so that `coeff_tension = Tn`,
 `coeff_bending = −Disp/2`, `coeff_frequency_decay = Disp_decr`, `dec = Do` (main), `Damper` (tail) and `Dc`
 (released, `int(127^0.6) = 18` damper steps), each rate-scaled from the 512-clock FPGA step to the GPU
-sub-step and grid-rescaled by `(main − 1)/N_eff`. Unison: base `ttn − dt` with `tension_offset = dt/base`
+sub-step and grid-rescaled by `(main − 1)/N_eff`. Since dev-f2b8 (PianoidCore cc4b540) the kernel itself
+multiplies the HF-damping and damper terms by `dt/dt_ref` (`dt_ref = 1/(48000·4)`), so `disp_decay` and
+`damper_string` are written at that reference grid (factor `k_ref = dt_ref/dt_fpga = 4`, independent of the
+sub-step count); `damper_tail` stays an integer multiplier (≥ 1, so the engine's integer `dump_coeff` does
+not truncate it). Converted presets are written with `output_scale_calibrated = false` so the engine
+re-derives `output_scale` on load. Unison: base `ttn − dt` with `tension_offset = dt/base`
 gives exactly the FPGA set {ttn−dt, ttn, ttn+dt}. String length / rho / r stay template choices (only the
 kernel products matter). 16 sub-steps needs the summed-form float32 FDTD loop (PianoidCore 682a535,
 dev-1e95; see SYNTHESIS_ENGINE "Numerical precision: float32 and string_iteration"): on the fixed engine
@@ -559,9 +564,8 @@ Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out`. Excitation: `mu
 
 **Verified (offline, `array_size=512`, 16 sub-steps, engine 682a535):** 16 keys (all A, all C) vs
 `Notes_freqs` median −1.1 c, IQR −7.0…+3.3 c; vs the FPGA scheme's own prediction median −1.0 c, max 7.8 c
-(A1, comb detector). Level ~31–41 dB (A1/C4) below the Belarus template at the same sub-step count (heavy
-real mode damping + capped mass scale); the engine's own output level falls ~15 dB from 4 to 16 sub-steps
-for every preset.
+(A1, comb detector). Level 14–39 dB below the Belarus template (A1 ~39, C4 ~34, C7 ~14 dB; heavy real mode
+damping + capped mass scale), identical at 4/8/16 sub-steps since the dev-f2b8 impulse fix.
 Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
 ---
