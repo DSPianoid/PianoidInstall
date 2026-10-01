@@ -205,13 +205,15 @@
      non-Claude + add non-Claude ids to CONTROL_MODEL_CHOICES; ALSO allow-list ORCHESTRATOR_TOOL_NAMES in the
      orchestrator policy so the coordinate tools don't spuriously route every call (else fallback:'route' asks). -->
 
-<!-- dev-5965 OPEN (2026-09-22) — test-failure triage, PianoidCore feature/dev-5965-test-triage (HOLD, not merged/pushed).
-     Needs USER DECISION: (a) Preset_test5 (the system/integration fixture preset) renders ~93% energy above 5 kHz
-     (8.28 kHz mode) and is strongly non-linear (12-key chord onset 59% off the sum of notes vs 0.03% on
-     BaselinePreset1) — keep it, re-migrate it, or move sound tests to BaselinePreset1? (b) the machine-local
-     tests/fixtures/reference_c4_preset_test5.npy (Apr 4, mono) now correlates 0.937 (< 0.95) with today's ch0
-     render — regenerate (accept current sound) or investigate the drift? (c) the "column multiplier has no effect"
-     Sound Channels report (12 Jul) was NOT reproduced here (UI-only; possibly the 416 feedback_mask bug fixed in 620a426). -->
+<!-- dev-5965 (2026-09-22, resumed 2026-10-01) — test-failure triage, PianoidCore feature/dev-5965-test-triage (HOLD, not merged/pushed).
+     USER DECISIONS 2026-10-01 (Telegram 11:55Z "A) delete it B) defer C) close"):
+     (a) Preset_test5 DELETED (93% energy >5 kHz, strongly non-linear); all tests/fixtures migrated to BaselinePreset1
+         (PROJECT_CONFIG#defaults) via tests/conftest.py TEST_PRESET.
+     (b) DEFERRED: tests/fixtures/reference_c4_preset_test5.npy (machine-local, untracked; corr 0.937 < 0.95) NOT regenerated
+         and NOT deleted; TestSoundRegression is skipped ("deferred by user 2026-10-01: reference recording to be regenerated
+         for the replacement preset"). Open follow-up: regenerate a BaselinePreset1 reference, then un-skip.
+     (c) CLOSED: "column multiplier has no effect" Sound Channels report (12 Jul) — not reproduced; attributed to the
+         416 feedback_mask bug fixed in 620a426. -->
 ---
 
 ## ★ POST-RESTART CONTINUATION — 2026-06-20 (CONTROL-PLANE activation: READ FIRST; delete after live-test + B1/C1 are sorted)

@@ -8,9 +8,9 @@ For **live UI verification** (browser-driven tests, audio measurement via `/test
 
 ```
 PianoidCore/tests/
-├── conftest.py          # Root: markers, skip logic, shared constants
+├── conftest.py          # Root: markers, skip logic, shared constants; `TEST_PRESET` = the ONE engine-fixture preset (`BaselinePreset1.json`)
 ├── pytest.ini           # Configuration
-├── fixtures/            # Reference data (e.g. reference_c4_preset_test5.npy)
+├── fixtures/            # Machine-local reference data (untracked; e.g. reference_c4_preset_test5.npy — legacy, see Test preset below)
 ├── system/              # Full stack — GPU + audio hardware
 │   ├── conftest.py      # Session Pianoid fixtures: pianoid_audio_off / pianoid_audio_on; module-scoped pianoid_midi_engine (dedicated running-engine instance)
 │   ├── test_asio_multichannel.py
@@ -19,7 +19,7 @@ PianoidCore/tests/
 │   ├── test_kernel_midi_batch.py      # MIDI W1/P1 — per-cycle kernel batch envelope: same-cycle chords, NOTE_ON+NOTE_OFF, TEST_* interleave, MAX_EVENTS_PER_CYCLE cap (audio_off)
 │   ├── midi_latency.py                # MIDI W5/P4 — schedule_event dispatch-latency measurement (standalone script + one pytest test asserting the Gate-3 budget)
 │   ├── test_performance.py
-│   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off)
+│   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off; regression SKIPPED — deferred, see Test preset below)
 │   ├── test_performance_audio_on.py   # Perf — callback / buffer-phase distribution (audio_on, real driver)
 │   ├── test_cfl_stability_guard.py    # CFL/Courant FDTD stability guard v2 (HOST-side gate) — baseline-stable-via-ratio, unstable tension/jung/r REJECTED (CflRejected→400) BEFORE upload + engine-finite + model-NOT-mutated, stable/length not falsely rejected, host-backed stability_ratio extraction, per-string tension_offset (audio_off)
 │   ├── test_asio_fallback.py          # ASIO→SDL3 auto-fallback (dev-asioload): adt=4 with no ASIO driver → engine falls back to SDL3 (audio_driver_active=True) + flags didAudioDriverFallback + records requested/active/reason; SDL3-direct does NOT flag fallback. Fallback-occurred asserts skip if a working ASIO driver is installed. (audio_on)
@@ -125,7 +125,7 @@ Default for every test, fixture, and skill is `audio_off`. A test promotes to `a
 
 A test selects its mode by requesting the matching fixture. Re-using the wrong fixture is the canonical contract bug — `audio_off` tests must NEVER request `pianoid_audio_on`.
 
-**Preset_test5 caveat (dev-5965, measured 2026-09-22).** The fixture preset's output is ~93% energy above 5 kHz (a strong 8.28 kHz mode; the April reference was already 69%) and is markedly non-linear (12-key same-cycle chord onset deviates 59% from the sum of single notes vs 0.03% on `BaselinePreset1`). Sound assertions on it must use channel 0, harmonic-series pitch checks (not autocorrelation / global peak) and waveform-superposition criteria (not energy additivity — different notes drive the shared mode in anti-phase, so a correct chord can have LESS energy than its loudest note).
+**Test preset (dev-5965, 2026-10-01).** Every engine fixture (`pianoid_no_audio`, `pianoid_audio_off`, `pianoid_audio_on`, `pianoid_midi_engine`) and per-test `initialize()` loads `tests/conftest.py::TEST_PRESET` = `BaselinePreset1.json` (the project default, PROJECT_CONFIG `#defaults`) via `get_preset_path()` — never a literal preset name. The former fixture preset `Preset_test5` was **deleted** (user decision 2026-10-01): its output was ~93% energy above 5 kHz (8.28 kHz mode) and markedly non-linear (12-key same-cycle chord onset 59% off the sum of single notes vs 0.03% on `BaselinePreset1`). Sound assertions still use channel 0, harmonic-series pitch checks and waveform-superposition (not energy-additivity) criteria; the chord gate is `ONSET_SUM_TOL` = 1% (measured 3.0e-4; one dropped note of the 12-key chord = 0.11–0.33). **Deferred:** `TestSoundRegression` is skipped — its machine-local reference `fixtures/reference_c4_preset_test5.npy` was recorded on the deleted preset (corr 0.937 vs today's ch0); it is kept, not regenerated, until a `BaselinePreset1` reference is recorded (WORK_IN_PROGRESS dev-5965 note). Note: in a fresh worktree (no `fixtures/`) the un-skipped test would silently create a reference and xfail.
 
 **GPU timing in a full run (dev-5965, measured).** `TestGpuCycleTiming` passes in isolation (mean 0.49 ms, 0 % over) but can fail in a full `tests/system` run: every earlier module that builds and shuts down its own Pianoid makes the session engine a *second* in-process instance, and on this machine (GPU clocks unlocked) the SM clock then sits at ~1.2–1.3 GHz instead of ~2.5 GHz → addKernel ~0.9 ms, 6–9 % of cycles over budget. Lock the GPU clocks (`gpu_rt_config.ps1`, STARTUP_TROUBLESHOOTING.md) or run the perf file alone before reading a timing failure as a regression.
 
