@@ -12,6 +12,7 @@ coefficient, and a read-back of the preset fields the converter writes (gamma, t
 hammer position/width) after initialize().
 """
 import argparse
+import time
 import json
 import os
 import sys
@@ -47,12 +48,15 @@ def render(p, pitch, vel):
         cpp.resetStringsState()
         cpp.runSynthesisKernel()
         cpp.clearRecords()
+        t0 = time.perf_counter()
         stats = cpp.runOfflinePlayback(eq, cfg)
+        elapsed = time.perf_counter() - t0
         if not stats.completed_successfully:
             raise RuntimeError(stats.error_message)
         res = PianoidResult(cpp, p.mp)
         res.load_offline_sound_from_pianoid()
-    return np.asarray(res.sound, dtype=np.float64)          # (channels, samples)
+    cycles = RENDER_MS / 1000 * SR / SPC
+    return np.asarray(res.sound, dtype=np.float64), elapsed * 1000 / cycles   # (channels, samples), ms/cycle
 
 
 def decay_db_per_s(x):
@@ -128,7 +132,7 @@ def main():
                "readback": readback(p, preset, notes), "notes": []}
     for pitch in notes:
         for vel in vels:
-            snd = render(p, pitch, vel)
+            snd, cycle_ms = render(p, pitch, vel)
             x = snd[0]
             fin = np.isfinite(snd)
             xf = np.where(np.isfinite(x), x, 0.0)
@@ -141,7 +145,7 @@ def main():
                  "nonfinite": int((~fin).sum()), "peak": peak, "rms_0_500ms": float(np.sqrt(np.mean(head ** 2))),
                  "rms_db": float(20 * np.log10(np.sqrt(np.mean(head ** 2)) + 1e-300)),
                  "int32_headroom_db": float(20 * np.log10(2 ** 31 / (peak * mvc))) if peak > 0 else None,
-                 "f_expected": notes_freq(pitch), "f_measured": float(mp_.hz), "cents": float(mp_.cents_error),
+                 "cycle_ms": cycle_ms, "f_expected": notes_freq(pitch), "f_measured": float(mp_.hz), "cents": float(mp_.cents_error),
                  "pitch_confidence": float(mp_.confidence), "f_pred_fpga": f_pred,
                  "cents_vs_pred": float(1200 * np.log2(mp_.hz / f_pred)) if f_pred and mp_.hz > 0 else None, "decay_db_per_s": decay_db_per_s(xf),
                  "channel_rms": [float(np.sqrt(np.mean(np.where(np.isfinite(c), c, 0)[: int(0.5 * SR)] ** 2)))

@@ -6,21 +6,21 @@
 
 - **pitch_file** = `D:\repos\PianoidInstall\PresetsFromFpga\elyashev-2026-09-30\batch4\Pitch.txt` (DERIVED) - F_15's own layout (confirmed by Dima 2026-10-01: batch4 Pitch.txt == batch3 content); sets speaking lengths -> hammer geometry, B, grid tuning check
 - **speaking_offset** = `21.1` (DERIVED) - DERIVED FROM DATA (fit, not read from the RTL): N_eff = N - (int)shteg - 21.1 makes the exact FPGA scheme (clamped ends) play F_15 at median -0.2 c, IQR -6.4..+6.4 c vs Notes_freqs (the continuous-formula fit of proposal 11.12.3 gave 21.3); mechanism inferred (point-counter/termination alignment in STRINGS0)
-- **gpu_string_iteration** = `8` (DERIVED) - GPU string sub-steps per audio sample (physics rate-scaled). Measured on F_15 (MIDI 21-33, 60, 96 x v64/v110, dev-a480): 4, 6, 8 stable; 10 marginal (A1 v64 +2 dB/s); 12 and 16 grow (+420..490 dB/s) on the stiff bass strings (MIDI 21-32, Disp/Tn > 2; the bridge/stem is refreshed once per audio sample). 16 = the exact FPGA step. Default = highest stable = 8; 4 gives the tightest bass pitch (max 11 c vs the FPGA scheme, 8: 26 c)
+- **gpu_string_iteration** = `16` (DERIVED) - GPU string sub-steps per audio sample; 16 at 48 kHz = 768 kHz = the FPGA string step exactly (rate scale 1). Requires the summed-form float32 FDTD loop (PianoidCore 682a535, dev-1e95): before it, float32 rounded the per-sub-step bass update away at high string_iteration (pitch drift, and runaway of F_15's stiff bass strings at >= 12). Measured on the fixed engine (F_15 MIDI 21-33, 60, 96 x v64/v110, dev-a480): N = 4/8/12/16 all stable, pitch vs the FPGA scheme median +2.2 c at 16, ~1.0 ms/cycle offline (budget 1.333)
 - **string_clocks** = `512` (DERIVED) - /mashinka_0/Force_str0/Counter1 (SID 1830601): 512 points, 1 per clock
 - **mode_clocks** = `256` (DERIVED) - /oscill_dbl2 256-deep state RAMs, 1 mode per clock
 - **exc_clocks** = `96` (DERIVED) - /Mid_Graph2/Counter3 (SID 1634313) 0..95, per-note time RAM depth 96 (SID 1634315); sets every gauss centre/width in ms
 - **mode_q** = `host_q` (DERIVED) - q[n+1] = (2q[n] - q[n-1] + D q[n-1] - W q[n] + M F)(1 - D) per 256-clock step (/oscill_dbl2, proposal 11.11.2), D = (int)(Q_coeff*q_ratio)/2^31 forwarded verbatim to CMD_decr_0 by the stm32 (pianoid.c S:2248-2253; 11.12.2). tau 0.28-0.56 ms IS the real F_15 behaviour: a deliberately damped broadband soundboard (q_ratio knob); sustain comes from the strings. host_q reproduces the decay rate exactly at the audio rate; 'template' (template median) is an override
-- **mode_mass** = `host_max` (UNCONFIRMED) - the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings at 8 sub-steps, F_15 renders 18-47 dB below the template (A1 44-47, C4 40-41, C7 18-21 dB; 12-41 dB at 4 sub-steps): the heavy real mode damping plus this capped mass scale
+- **mode_mass** = `host_max` (UNCONFIRMED) - the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings, F_15 renders 12-41 dB below the template at the same sub-step count (A1 ~35-41, C4 ~31-35, C7 ~12-15 dB): the heavy real mode damping plus this capped mass scale. (The engine's output level itself falls ~15 dB from 4 to 16 sub-steps for every preset, the template included -- an engine property, measured by dev-a480)
 - **output_signal** = `dq` (DERIVED) - send_all sets RING_15 = 2 (Gain_FB[0] = 2); /Mux1 (SID 1898483) input 2 = dq (modal velocity); stm32 boot sets CMD_init_sw = 2 (pianoid.c S:4449), runtime S:1652-1656; load-time param
 
 ## Level
 
-Output level vs the template is set by the mode-mass scale: the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings at 8 sub-steps, F_15 renders 18-47 dB below the template (A1 44-47, C4 40-41, C7 18-21 dB; 12-41 dB at 4 sub-steps): the heavy real mode damping plus this capped mass scale.
+Output level vs the template is set by the mode-mass scale: the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q and F_15's own strings, F_15 renders 12-41 dB below the template at the same sub-step count (A1 ~35-41, C4 ~31-35, C7 ~12-15 dB): the heavy real mode damping plus this capped mass scale. (The engine's output level itself falls ~15 dB from 4 to 16 sub-steps for every preset, the template included -- an engine property, measured by dev-a480).
 
 ## Load with
 
-`{"listen_to_modes": 0, "sound_derivative_order": 1, "array_size": 512, "string_iteration": 8, "sample_rate": 48000}`
+`{"listen_to_modes": 0, "sound_derivative_order": 1, "array_size": 512, "string_iteration": 16, "sample_rate": 48000}`
 
 ## Template fallbacks used
 
@@ -32,7 +32,7 @@ Output level vs the template is set by the mode-mass scale: the stm32 forwards M
 - ttn_tails (tail tension): the GPU tail uses the main tension; identical in F_15 (ttn_tails == ttn)
 - GPU tail >= 1 point: keys with (int)shteg <= 0 get a 1-point tail (StringGeometry: tail 0 marks a dummy string)
 - release damping on keys without dampers (decr_cl == decr_op): +18e-6 of the tail damping excess
-- GPU runs 4 string sub-steps per sample with rate-scaled physics: 16 (the exact FPGA step) grows on the engine for F_15's stiff bass strings (stem refreshed once per audio sample)
+- GPU string sub-steps: 16 per sample = the FPGA string step, so the rate scale is exactly 1 (needs the summed-form float32 engine, PianoidCore 682a535 / dev-1e95; older engines lose bass accuracy above 4-8)
 - Shape_512 tabulated hammer shape: replaced by the circular cap fit (width/del) on the template sharpness
 - unison: GPU strings T_base(1 + k o) reproduce the FPGA set {ttn-dt, ttn, ttn+dt} exactly (string order permuted)
 - gauss slot 4: not sent by the host (vol 0); ind_tail_* (host preview shift) dropped
@@ -946,10 +946,10 @@ Output level vs the template is set by the mode-mass scale: the stm32 forwards M
   1.0071942446043167
  ],
  "coeff_tension_range": [
-  0.002573950532774069,
-  0.11037058735972005
+  0.0006434876331935172,
+  0.027592646839930013
  ],
- "cfl_margin_min": 0.8768768438088724,
+ "cfl_margin_min": 0.9692192109522181,
  "gamma_range": [
   0.3204345703125,
   4.2572021484375

@@ -726,19 +726,19 @@ coefficients equal the FPGA update term by term (bending sign: GPU `+2cb·fd` vs
 bugs found by measurement and fixed: (1) `tail = 0` makes `StringGeometry.dx()` return its dummy-string
 sentinel → GPU tail ≥ 1; (2) the engine vibrates `main − 1` points (pure-string sweep: treble 0.96–0.98
 point) → `main = N_eff + 1`; (3) the speaking offset refit with the **exact clamped FPGA scheme** is 21.1
-(median −0.2 c, IQR ±6.4 c vs the continuous formula's 21.3, IQR −6…+13). At 16 sub-steps (= the FPGA step)
-the engine grows +170…275 dB/s, triggered by the stiff bass strings (MIDI 21–32, Disp/Tn > 2; bending off
-there → stable); at 4 sub-steps it is stable. **Result (16 keys, v64/v110):** every key within ±2.5 c of the
+(median −0.2 c, IQR ±6.4 c vs the continuous formula's 21.3, IQR −6…+13). At 16 sub-steps (= the FPGA step) the then-current
+engine grew +170…275 dB/s on the stiff bass strings — root cause found later by dev-1e95: float32 rounding
+of the per-sub-step update at high string_iteration (fixed in PianoidCore 682a535, see the last update). **Result (16 keys, v64/v110):** every key within ±2.5 c of the
 FPGA scheme's own prediction (C2 −11 c); vs `Notes_freqs` median −1.5 c, IQR −5.2…+3.5 c; A0 −36 / C8 +35 c
 are F_15's own tuning. No NaN; all decay (A1 −4…−10, C4 −11…−13, C7 −55 dB/s); level 12–41 dB below the
 template. Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
-**Update: sub-steps per sample (2026-10-01, user "should be stable at 8 or 10").** Measured with the
-physics rate-scaled for each value (MIDI 21–33, 60, 96 × v64/v110): 4, 6, 8 stable; 10 marginal (A1 v64
-+2 dB/s, bass pitch +15…+37 c); 12 and 16 run away (MIDI 22/24, +420…490 dB/s). Converter default is now
-**8** (highest stable). At 8 the full A/C sweep is stable; vs `Notes_freqs` median −1.5 c, IQR −7.0…+6.3 c;
-vs the FPGA scheme median 0.0 c, max 26 c (A0) — 4 sub-steps tracks the bass more closely (max 11 c). Level
-at 8: 18–47 dB below the template. Table: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+**Update: sub-steps per sample (2026-10-01).** On the pre-fix engine 12 and 16 ran away on F_15's stiff bass
+strings (float32 rounding of the per-sub-step update, dev-1e95). On the fixed engine (PianoidCore 682a535,
+summed-form float32 FDTD loop) N = 4/8/12/16 are all stable (MIDI 21–33, 60, 96 × v64/v110), so the converter
+default is **16 = the FPGA string step** (rate scale exactly 1): full A/C sweep vs `Notes_freqs` median
+−1.1 c, IQR −7.0…+3.3 c; vs the FPGA scheme median −1.0 c, max 7.8 c; ~1.0 ms per 64-sample cycle offline
+(budget 1.333). Table: `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
 **Update: old swapped-decode presets regenerated (2026-10-01, user decision "Regenerate and replace").**
 `Belarus_8band_196modes_FPGAexc` (source Bl_Apr_19) and `Belarus_196modesC_Fanera6exc` (source Fanera_6 —

@@ -1,58 +1,58 @@
 # dev-a480 F_15 offline renders: F_15's own strings at ArraySize 512
 
-Converter: F_15 Pitch.txt (batch4) point counts, blocks = the 57 FPGA 512-point arrays (+1 output block, 232 strings), tension/stiffness/damping/unison from ttn, dt, disp, decr_*, damping (kernel coefficients = FPGA words, rate-scaled to the GPU sub-step), N_eff = N - (int)shteg - 21.1, GPU main = N_eff + 1, mode damping host_q, mode mass host_max (UNCONFIRMED scale), output dq. Offline (`runOfflinePlayback`), separate process, 48 kHz, key held 1.4 s, `array_size=512`.
+Converter: F_15 Pitch.txt (batch4) point counts, blocks = the 57 FPGA 512-point arrays (+1 output block, 232 strings), tension/stiffness/damping/unison from ttn, dt, disp, decr_*, damping (kernel coefficients = FPGA words), N_eff = N - (int)shteg - 21.1, GPU main = N_eff + 1, mode damping host_q, mode mass host_max (UNCONFIRMED scale), output dq. Engine: PianoidCore dev 682a535 (dev-1e95 summed-form float32 FDTD loop), shared venv build of 16:55. Offline (`runOfflinePlayback`), separate process, 48 kHz, key held 1.4 s, `array_size=512`; cycle_ms = offline wall time per 64-sample cycle (real-time budget 1.333 ms).
 
-## GPU string sub-steps per sample (converter rescales the physics for each)
+## GPU string sub-steps per sample (fixed engine; physics rate-scaled per value)
 
-Keys MIDI 21-33 (stiffest bass), 60, 96 x v64/v110 (iter 4: the A/C sweep in `F15_own_a512_iter4/`).
+Keys MIDI 21-33 (stiffest bass), 60, 96 x v64/v110.
 
-| sub-steps | growing notes (max dB/s) | NaN | |cents vs FPGA| v110 median / max | A0 vs FPGA | A1 vs FPGA | C4 vs FPGA | C7 vs FPGA | verdict |
+| N | growing | NaN | cents vs FPGA, v110 median / max | A0 | A1 | C4 | C7 | cycle_ms median / max |
 |---|---|---|---|---|---|---|---|---|
-| 4 | 0/32 | 0 | 1.3 / 10.9 | -1.0 | +1.5 | -0.3 | -0.6 | stable |
-| 6 | 0/30 | 0 | 2.1 / 16.6 | -16.6 | +0.0 | -0.0 | +0.9 | stable |
-| 8 | 0/30 | 0 | 3.4 / 26.1 | +26.1 | +3.4 | -1.1 | +0.7 | stable (**default**) |
-| 10 | 1/30 (+2) | 0 | 22.6 / 46.9 | +31.1 | +37.2 | -1.2 | +0.9 | marginal (A1 v64 grows) |
-| 12 | 1/30 (+493), 28 saturated | 0 | 192.0 / 307.2 | -165.0 | -193.9 | -194.7 | -192.0 | unstable |
-| 16 | 2/30 (+421), 30 saturated | 0 | 193.5 / 307.2 | -165.0 | -193.9 | -194.7 | -210.9 | unstable (= exact FPGA step) |
+| 4 | 0/30 | 0 | +2.8 / 16.0 | +2.2 | -16.0 | -1.0 | +1.0 | 0.56 / 0.58 |
+| 8 | 0/30 | 0 | +2.5 / 13.7 | +2.5 | +8.2 | -1.1 | +0.8 | 0.69 / 0.71 |
+| 12 | 0/30 | 0 | +3.9 / 10.1 | +3.4 | +3.2 | -1.1 | +0.7 | 0.85 / 0.89 |
+| 16 (**default**) | 0/30 | 0 | +2.2 / 13.7 | +3.1 | -7.8 | -0.9 | +0.7 | 1.02 / 1.05 |
 
-12 and 16: one stiff bass string runs away (MIDI 22 / 24 at +420..490 dB/s) and every later render in that process is saturated (RMS ~ -2 dB), so their pitch columns are meaningless. Default = the highest stable value, 8. 4 tracks the FPGA scheme most closely in the bass (max 11 c vs 26 c at 8).
+All N stable. The larger single-key deviations (MIDI 32/33, |8-16| c, at every N) are comb-detector readings on a weak fundamental: a partial-based estimate on the same renders is within +-5 c (MIDI 31-33 at N=4 and 16). Default = 16 = the FPGA string step (rate scale exactly 1). Before the dev-1e95 fix, float32 rounding swallowed the per-sub-step bass update at high N (runaway at N >= 12); that pre-fix sweep is kept in `substep_sweep_prefix_engine/`.
 
-## Default (8 sub-steps): all A and all C keys
+Engine level: output RMS falls ~15 dB from N=4 to N=16 for every preset (Belarus template A1 -63.0 -> -78.3, C4 -81.8 -> -97.0 dB), an engine property; F_15's deficit vs the template at the same N is ~31-41 dB at A1/C4.
 
-- Pitch vs Notes_freqs (v110): median -1.5 c, IQR -7.0..+6.3 c, range -24.3..+34.1 c (A0/C1 flat and A7/C8 sharp are F_15's own tuning).
-- Pitch vs the FPGA scheme's own prediction: median -0.0 c, max |26.0| c. No NaN, every note decays.
+## Default (16 sub-steps): all A and all C keys
 
-| MIDI | vel | cents vs Notes_freqs | cents vs FPGA prediction | conf | decay dB/s | RMS dB (0-0.5 s) | dRMS vs template | NaN/Inf |
+- Pitch vs Notes_freqs (v110): median -1.1 c, IQR -7.0..+3.3 c, range -31.9..+33.8 c (A0/C1 flat and A7/C8 sharp are F_15's own tuning).
+- Pitch vs the FPGA scheme's own prediction: median -1.0 c, max |7.8| c (A1, comb detector). No NaN, every note decays. cycle_ms 1.02 (max 1.06).
+
+| MIDI | vel | cents vs Notes_freqs | cents vs FPGA prediction | conf | decay dB/s | RMS dB (0-0.5 s) | cycle_ms | NaN/Inf |
 |---|---|---|---|---|---|---|---|---|
-| 21 | 64 | -6.6 | +28.4 | 0.85 | -3.0 | -100.8 | - | 0 |
-| 21 | 110 | -9.0 | +26.0 | 0.95 | -3.5 | -89.6 | - | 0 |
-| 24 | 64 | -25.1 | +1.1 | 1.00 | -3.4 | -102.2 | - | 0 |
-| 24 | 110 | -24.3 | +1.8 | 1.00 | -3.9 | -92.5 | - | 0 |
-| 33 | 64 | -2.7 | +3.3 | 1.00 | -4.9 | -116.9 | -47.2 | 0 |
-| 33 | 110 | -2.7 | +3.4 | 1.00 | -5.3 | -107.2 | -44.3 | 0 |
-| 36 | 64 | +10.4 | +19.1 | 1.00 | -6.7 | -113.8 | - | 0 |
-| 36 | 110 | +10.4 | +19.1 | 1.00 | -7.5 | -105.5 | - | 0 |
-| 45 | 64 | -10.9 | -14.7 | 1.00 | -5.1 | -147.0 | - | 0 |
-| 45 | 110 | -10.9 | -14.7 | 1.00 | -6.6 | -139.3 | - | 0 |
-| 48 | 64 | -14.2 | -16.1 | 1.00 | -7.7 | -133.0 | - | 0 |
-| 48 | 110 | -14.2 | -16.1 | 1.00 | -8.3 | -125.7 | - | 0 |
-| 57 | 64 | -0.3 | +1.0 | 1.00 | -8.4 | -134.1 | - | 0 |
-| 57 | 110 | -0.3 | +1.0 | 1.00 | -10.6 | -125.3 | - | 0 |
-| 60 | 64 | -6.3 | -1.0 | 1.00 | -5.9 | -130.6 | -41.3 | 0 |
-| 60 | 110 | -6.3 | -1.0 | 1.00 | -8.6 | -121.6 | -39.8 | 0 |
-| 69 | 64 | -0.2 | -1.3 | 1.00 | -12.6 | -114.6 | - | 0 |
-| 69 | 110 | -0.2 | -1.3 | 1.00 | -12.9 | -109.1 | - | 0 |
-| 72 | 64 | -5.9 | -2.1 | 1.00 | -20.1 | -114.7 | - | 0 |
-| 72 | 110 | -5.9 | -2.1 | 1.00 | -20.2 | -109.5 | - | 0 |
-| 81 | 64 | +0.5 | +1.8 | 1.00 | -32.5 | -117.5 | - | 0 |
-| 81 | 110 | +0.5 | +1.8 | 1.00 | -33.1 | -114.7 | - | 0 |
-| 84 | 64 | -3.2 | -1.8 | 1.00 | -17.6 | -131.0 | - | 0 |
-| 84 | 110 | -3.2 | -1.8 | 1.00 | -17.6 | -130.6 | - | 0 |
-| 93 | 64 | +5.0 | -1.1 | 1.00 | -55.0 | -146.7 | - | 0 |
-| 93 | 110 | +5.0 | -1.1 | 1.00 | -54.9 | -138.8 | - | 0 |
-| 96 | 64 | +10.1 | -0.8 | 1.00 | -50.5 | -140.9 | -18.2 | 0 |
-| 96 | 110 | +10.1 | -0.8 | 1.00 | -51.7 | -138.8 | -20.8 | 0 |
-| 105 | 64 | +29.6 | +1.7 | 1.00 | -64.4 | -142.7 | - | 0 |
-| 105 | 110 | +29.6 | +1.7 | 1.00 | -73.1 | -131.5 | - | 0 |
-| 108 | 64 | +34.1 | +0.8 | 1.00 | -71.0 | -142.5 | - | 0 |
-| 108 | 110 | +34.1 | +0.8 | 1.00 | -81.7 | -135.5 | - | 0 |
+| 21 | 64 | -32.2 | +2.9 | 1.00 | -3.7 | -106.7 | 1.03 | 0 |
+| 21 | 110 | -31.9 | +3.1 | 1.00 | -4.9 | -96.0 | 1.01 | 0 |
+| 24 | 64 | -25.1 | +1.0 | 1.00 | -3.7 | -108.3 | 1.05 | 0 |
+| 24 | 110 | -24.4 | +1.8 | 1.00 | -4.9 | -98.9 | 1.02 | 0 |
+| 33 | 64 | -13.9 | -7.8 | 1.00 | -4.1 | -122.9 | 1.04 | 0 |
+| 33 | 110 | -13.9 | -7.8 | 1.00 | -5.9 | -113.5 | 1.04 | 0 |
+| 36 | 64 | -9.2 | -0.5 | 1.00 | -5.4 | -119.8 | 1.01 | 0 |
+| 36 | 110 | -9.2 | -0.5 | 1.00 | -7.0 | -111.7 | 1.04 | 0 |
+| 45 | 64 | +2.7 | -1.1 | 1.00 | -5.1 | -153.3 | 1.04 | 0 |
+| 45 | 110 | +2.7 | -1.1 | 1.00 | -6.9 | -146.0 | 1.02 | 0 |
+| 48 | 64 | +0.4 | -1.5 | 1.00 | -6.9 | -139.1 | 1.03 | 0 |
+| 48 | 110 | +0.4 | -1.5 | 1.00 | -8.3 | -132.0 | 1.02 | 0 |
+| 57 | 64 | -2.0 | -0.7 | 1.00 | -8.1 | -140.5 | 1.03 | 0 |
+| 57 | 110 | -2.0 | -0.7 | 1.00 | -11.0 | -131.6 | 1.03 | 0 |
+| 60 | 64 | -6.3 | -1.0 | 1.00 | -11.1 | -136.5 | 1.02 | 0 |
+| 60 | 110 | -6.3 | -1.0 | 1.00 | -13.8 | -127.6 | 1.01 | 0 |
+| 69 | 64 | -0.3 | -1.4 | 1.00 | -20.2 | -120.5 | 0.99 | 0 |
+| 69 | 110 | -0.3 | -1.4 | 1.00 | -20.3 | -114.9 | 1.02 | 0 |
+| 72 | 64 | -5.3 | -1.4 | 1.00 | -23.8 | -120.9 | 1.01 | 0 |
+| 72 | 110 | -5.3 | -1.4 | 1.00 | -23.8 | -115.6 | 1.02 | 0 |
+| 81 | 64 | +0.7 | +2.0 | 1.00 | -30.3 | -123.6 | 1.03 | 0 |
+| 81 | 110 | +0.7 | +2.0 | 1.00 | -30.4 | -120.7 | 1.05 | 0 |
+| 84 | 64 | -3.1 | -1.7 | 1.00 | -28.3 | -136.9 | 1.06 | 0 |
+| 84 | 110 | -3.1 | -1.7 | 1.00 | -28.2 | -136.5 | 1.06 | 0 |
+| 93 | 64 | +5.0 | -1.1 | 1.00 | -56.9 | -152.7 | 1.03 | 0 |
+| 93 | 110 | +5.0 | -1.1 | 1.00 | -56.8 | -144.9 | 1.04 | 0 |
+| 96 | 64 | +10.0 | -0.9 | 1.00 | -54.2 | -147.0 | 1.02 | 0 |
+| 96 | 110 | +10.0 | -0.9 | 1.00 | -55.3 | -144.8 | 0.98 | 0 |
+| 105 | 64 | +29.4 | +1.5 | 1.00 | -69.4 | -148.7 | 0.99 | 0 |
+| 105 | 110 | +29.4 | +1.5 | 1.00 | -78.1 | -137.6 | 1.00 | 0 |
+| 108 | 64 | +33.8 | +0.5 | 1.00 | -76.0 | -148.5 | 1.00 | 0 |
+| 108 | 110 | +33.8 | +0.5 | 1.00 | -86.7 | -141.5 | 1.02 | 0 |
