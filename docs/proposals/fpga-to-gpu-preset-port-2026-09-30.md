@@ -685,7 +685,7 @@ delegates to it and the swapped legacy readers were removed. Module reference:
 | # | Finding | Effect on the §11 mapping |
 |---|---|---|
 | 1 | Draft wrote `hammer_position` in **metres**; the preset/`Hammer.pack` convention is a **ratio of `l_main`** | Fixed (ratio); `hammer_radius` recomputed |
-| 2 | Mode `mass_inv` from `Mass/f²` scaled to the template **median** `mass_inv` gives `k = mass_inv·(2πf)²` median 0.8 / max 4.8 vs the template's constant 0.1 → **runaway** (+150 dB, no pitch). Scaling to the median `k` is still unstable (+300 dB/s) | Default `--mode-mass host_max`: exact relative host masses, strongest mode `k` = template `k` → stable by attenuation (every mode ≤ template, weakest ~3400× lower). The absolute scale is UNCONFIRMED (in `fpga_conversion.unknowns`) and explains the 14–34 dB level deficit |
+| 2 | Mode `mass_inv` from `Mass/f²` scaled to the template **median** `mass_inv` gives `k = mass_inv·(2πf)²` median 0.8 / max 4.8 vs the template's constant 0.1 → **runaway** (+150 dB, no pitch). Scaling to the median `k` is still unstable (+300 dB/s) | Default `--mode-mass host_max`: exact relative host masses, strongest mode `k` = template `k` → stable by attenuation (every mode ≤ template, weakest ~3400× lower). The absolute scale is UNCONFIRMED (in `fpga_conversion.unknowns`) and is the main cause of the level deficit (9–16 dB with the §11.11 exciter step) |
 | 3 | `initialize()` no longer overrides `tension_offset` / hammer / γ (read-back equal) | The "engine gap" in §11.5 is gone; DATA_FLOWS §2.7 corrected |
 | 4 | `shteg` is negative (−3.49 → −3) for keys 52–87; host arithmetic keeps `N − shteg > N` | Kept, flagged in metadata |
 | 5 | Host `(int)` casts matter: `decr_op` 7.39 → 7 (γ −5 %); `send_nl` also casts `ttn` and `dt` (`dt` 1.17 → 1: unison detune up to 36 % lower than the float ratio) | Applied everywhere the host casts, incl. `tension_offset = (int)dt/(int)ttn` (review M1) |
@@ -694,9 +694,16 @@ delegates to it and the swapped legacy readers were removed. Module reference:
 **F_15 renders** (template Belarus_8band_196modes, `listen_to_modes=0`, order 1): no NaN/Inf, all notes decay;
 pitch vs `Notes_freqs` A1 ≈ 0 c, C4 −19 c, C7 ≈ −24 c (low detector confidence at C7, as for the template) —
 tuning is inherited from the template tension; both Pitch.txt candidates render identically except for the
-hammer geometry; level 14–34 dB below the template (weaker modal loop under `host_max`). Evidence:
+hammer geometry; level 14–34 dB below the template at the then-assumed 512-clock exciter step, 9–16 dB with the derived 96 clocks (see the update below). Evidence:
 `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
 **Still open:** the §11.10 items (F_15 Pitch.txt, clocks per step, Q transform, output signal) — all CLI
 parameters flagged `UNCONFIRMED` in `preset["fpga_conversion"]`; the absolute FPGA→GPU loop/output scale
 (level vs template); retuning tension to `Notes_freqs` (the FPGA `ttn` grid check is −365 c median with batch2).
+
+**Update after §11.11 (2026-10-01).** The converter defaults now follow §11.11: exciter step **96 clocks**
+(was 512), strings 512, modes 256, output Δq — all recorded as `DERIVED` in `fpga_conversion.unknowns`
+(`OVERRIDDEN` if changed); Q stays `UNCONFIRMED` with the derived oscillator equation in its note. F_15
+re-render (A1/C4/C7, both Pitch.txt): gauss centres 0.24–6.1 ms, force beyond the 7 ms window 0.02 % max
+(was 79 %); level vs the previous set A1 +4…6 dB, C4 +16…20 dB, C7 +5 dB, so the deficit vs the template is
+now **9–16 dB** (mainly the `host_max` mode-mass scale); A1/C4 pitch unchanged within 1 c; no NaN/Inf.

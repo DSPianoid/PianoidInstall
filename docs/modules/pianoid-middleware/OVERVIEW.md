@@ -127,8 +127,9 @@ python -m Pianoid.fpga_preset_converter <FPGA_DIR> <Pitch.txt> --template preset
 
 Load the result with `listen_to_modes=0` and the `sound_derivative_order` recorded in the preset's
 `fpga_conversion.load_params` (the FPGA output weights map onto the output-pitch feedback rows, which
-only the strings-mode path reads). The preset's `fpga_conversion` block lists every UNCONFIRMED input
-(Pitch.txt, clocks per string/mode/exciter step, mode Q transform, mode-mass scale, output signal) and every dropped or
+only the strings-mode path reads). The preset's `fpga_conversion` block records every input not read from the tables: DERIVED from the
+FPGA code (clocks per string/mode/exciter step 512/256/96, output signal Δq) or UNCONFIRMED (Pitch.txt,
+mode Q transform, mode-mass scale) and every dropped or
 approximated field; a `<out>.conversion_report.md` is written next to it.
 
 `Pianoid.load_excitation_from_fpga_preset(preset_path, volume_sign_handling, **converter_options)` is a

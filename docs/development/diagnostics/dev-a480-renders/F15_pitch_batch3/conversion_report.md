@@ -2,19 +2,19 @@
 
 - FPGA folder: `D:\repos\PianoidInstall\PresetsFromFpga\elyashev-2026-09-30\unpacked\F_15\F_15`
 
-## Unconfirmed inputs
+## Inputs (DERIVED from code / UNCONFIRMED / OVERRIDDEN)
 
 - **pitch_file** = `D:\repos\PianoidInstall\PresetsFromFpga\elyashev-2026-09-30\batch3\Pitch.txt` (UNCONFIRMED) - F_15's own Pitch.txt is not in F_15.rar; sets speaking lengths -> hammer geometry, B, grid tuning check
-- **string_clocks** = `512` (UNCONFIRMED)
-- **mode_clocks** = `256` (UNCONFIRMED)
-- **exc_clocks** = `512` (UNCONFIRMED) - sets every gauss centre/width in ms
-- **mode_q** = `template` (UNCONFIRMED) - host Q code gives non-physical damping (Q<1); template median used unless host_q
-- **mode_mass** = `host_max` (UNCONFIRMED) - absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the reason the converted preset renders 14-34 dB below the template
-- **output_signal** = `dq` (UNCONFIRMED) - load-time param
+- **string_clocks** = `512` (DERIVED) - /mashinka_0/Force_str0/Counter1 (SID 1830601): 512 points, 1 per clock
+- **mode_clocks** = `256` (DERIVED) - /oscill_dbl2 256-deep state RAMs, 1 mode per clock
+- **exc_clocks** = `96` (DERIVED) - /Mid_Graph2/Counter3 (SID 1634313) 0..95, per-note time RAM depth 96 (SID 1634315); sets every gauss centre/width in ms
+- **mode_q** = `template` (UNCONFIRMED) - derived equation (/oscill_dbl2, proposal 11.11.2): q[n+1] = (2q[n] - q[n-1] + D q[n-1] - W q[n] + M F)(1 - D), D = (int)(Q_coeff*q_ratio)/2^31 (s32.31, no hidden shift), one step per 256 clocks; verbatim D gives tau 0.28-0.56 ms (non-physical) -> the physical Q is UNCONFIRMED (bridge firmware not delivered); template median used unless host_q
+- **mode_mass** = `host_max` (UNCONFIRMED) - absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the main reason the converted preset renders 9-16 dB below the template (F_15, A1/C4/C7)
+- **output_signal** = `dq` (DERIVED) - send_all sets RING_15 = 2 (Gain_FB[0] = 2); /Mux1 (SID 1898483) input 2 = dq (modal velocity); load-time param
 
 ## Level
 
-Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the reason the converted preset renders 14-34 dB below the template.
+Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the main reason the converted preset renders 9-16 dB below the template (F_15, A1/C4/C7).
 
 ## Load with
 
@@ -33,7 +33,7 @@ Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU m
 - tension_offset: FPGA unison is symmetric ((int)ttn, +(int)dt, -(int)dt); GPU is one-sided (T, T(1+o), T(1+2o)), o = (int)dt/(int)ttn
 - gauss slot 4: not sent by the host (vol 0); ind_tail_* (host preview shift) dropped
 - per-(pitch, level) loudness: rank-1 hammer_mass x hammer_speeds fit (conserve mode); residual in excitation.*
-- excitation beyond the GPU 7 ms window is truncated (excitation.beyond_window_*)
+- excitation beyond the GPU 7 ms window would be truncated (excitation.beyond_window_*; ~0 on F_15 with the derived 96-clock exciter step: centres 0.24-6.1 ms)
 - velocity: engine interpolates linearly between the 6 anchors; FPGA layer interpolation is evaluated only at the anchors
 - Ci_coef_str separate feedback matrix: GPU single matrix feedback = feedin (loop sign checked in deck.*)
 - global FB magnitude (-Gain_FB[1]): template deck_feedback_coefficient kept (force/displacement scale unknown)
@@ -102,23 +102,23 @@ Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU m
 ```
 {
  "window_ms": 7.0,
- "beyond_window_max": 0.793989587930399,
- "beyond_window_median": 0.13970593621053856,
+ "beyond_window_max": 0.00024506843503551887,
+ "beyond_window_median": 6.2655718289460615e-102,
  "centre_ms_range": [
-  1.2933461971651181,
-  32.764308953959976
+  0.24250241196845967,
+  6.143307928867496
  ],
- "velocity_interp_max_dev_ms": 2.4705003439594506,
+ "velocity_interp_max_dev_ms": 0.463218814492397,
  "loudness_rank1_residual_db": {
   "max": 6.110012224848747,
-  "rms": 1.2693694531015909
+  "rms": 1.2693694531015896
  },
  "hammer_speeds": [
   0.0,
-  0.019870938362353586,
+  0.019870938362353593,
   0.516774181193921,
-  2.362928522331376,
-  4.117386306342112,
+  2.362928522331377,
+  4.117386306342114,
   5.5
  ]
 }
