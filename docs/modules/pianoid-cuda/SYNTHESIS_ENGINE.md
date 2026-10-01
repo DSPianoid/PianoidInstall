@@ -175,7 +175,12 @@ folded into the coefficient by `parameterKernel` at kernel entry).
   shared modes. Measured (template + BaselinePreset1, N = 2/4/8/16, velocity/acceleration/listen_to_modes):
   decay spread across N 6–123 % → ≤ 2.4 %; peak and RMS within 0.3 dB (C7 peak 1.3 dB); N = 4 render equal
   to dev within the run-to-run atomicAdd noise. Evidence `docs/development/diagnostics/dev-f2b8-renders/summary.md`
-  Part 2. History — before the fix, re-measured dev-f2b8 (Belarus template, v110): C7 decay
+  Part 2. **Changed coefficient semantics (for preset generators, e.g. the FPGA converter):** `disp_decay` and
+  `damper_string` now mean their per-sub-step effect AT THE REFERENCE GRID (48 kHz × 4); the engine applies
+  `× dt/dt_ref` itself. A generator that folded the GPU/FPGA step ratio `k = dt_g/dt_src` into them must use
+  `k_ref = dt_ref/dt_src` instead (N-independent); `damper_tail` (an integer ratio) is unchanged; `gamma` was
+  already dt-scaled; the excitation coefficient now delivers the N = 4 impulse at every N.
+  History — before the fix, re-measured dev-f2b8 (Belarus template, v110): C7 decay
   −33 → −68 dB/s and C4 −23 → −28 dB/s at N 4 → 16; with `disp_decay = 0` C7 decay is −5.3/−4.7/−4.0
   (N 4/8/16) and the C4/C7 RMS level is N-flat within ≤1.2 dB — i.e. the per-sub-step HF term should
   scale `∝ dt` (anchored at the reference grid). See

@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-f2b8 locks RELEASED 2026-10-01 at Step 10a Phase 2 (merged, not pushed): PianoidBasic StringExcitation.py + constants.py (dev 91086d7); PianoidCore pianoid_cuda/Kernels.cu + constants.h + tests/unit/test_excitation_impulse_grid_invariance.py (dev cc4b540). -->
 <!-- dev-gpucfg locks RELEASED 2026-07-17 by orchestrator at Step 10a Phase 1 (on the agent's behalf —
      agent idle/unresponsive, operator-approved commit). Deliverable committed root master 82d4f87
      [dev-gpucfg] (gpu_rt_config.ps1, check-gpu-clock.ps1, start-pianoid.bat, overrun_ab_leverA.ps1,

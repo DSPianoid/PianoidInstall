@@ -215,6 +215,8 @@
          for the replacement preset"). Open follow-up: regenerate a BaselinePreset1 reference, then un-skip.
      (c) CLOSED: "column multiplier has no effect" Sound Channels report (12 Jul) — not reproduced; attributed to the
          416 feedback_mask bug fixed in 620a426. -->
+
+<!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 ---
 
 ## Follow-ups from dev-1e95 — string_iteration precision regression (2026-10-01)
@@ -3255,7 +3257,9 @@ Consolidates prior ad-hoc probes formerly kept under `/tmp/test_cycle_*`.
 
 - **`play_note_offline_chart_function` — missing `get_string_indices`.** The chart function calls `pianoid.get_string_indices(pitch)` (chartFunctions.py ~line 1529), which does not exist on `Pianoid`. The surrounding try/except swallows the `AttributeError` and leaves `string_oscillation_data = (0, 0)`. Effect: String Osc Max/RMS always display 0 in the note_playback chart. Found during dev-63c2 fix; left out of scope by orchestrator. Likely replacement: `pianoid.sm.get_string_indices(pitch)` or a similar StringMap API — needs a brief code audit before fix.
 
-- **Secondary iter-dependence in spectrum/HF/decay** (2026-04-23, post-volume-iter fix). Peak magnitude is iter-invariant after `dev-volume-iter-fix` (coeff_force dt² fix + preset rescale). However HF content increases ~25dB from iter=4 to iter=12, spectral centroid doubles (1340 → 2687 Hz), init/sust decay rates vary. Likely root cause: `coeff_frequency_decay` (Kernels.cu:139) needs iter compensation. Out of scope for the volume-bug fix. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Secondary issue".
+<!-- RESOLVED 2026-10-01 dev-f2b8: secondary iter-dependence (HF/decay) fixed — coeff_frequency_decay + damper term × dt/dt_ref in parameterKernel (PianoidCore 8113480); decay spread across N ≤2.4 %. See SYNTHESIS_ENGINE.md §Numerical scheme invariants. -->
+
+- **Tail damper inert (int truncation)** (dev-f2b8, 2026-10-01). `Kernels.cu` `dump_coeff` is `int`; on the tail it is `int(damper_tail)` and preset values are ~1e-5…1e-4 → 0, so tail damping never applies. Fix changes the sound of every preset → needs a user decision + recalibration plan.
 
 - **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
 
