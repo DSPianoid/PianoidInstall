@@ -691,7 +691,7 @@ delegates to it and the swapped legacy readers were removed. Module reference:
 | 5 | Host `(int)` casts matter: `decr_op` 7.39 → 7 (γ −5 %); `send_nl` also casts `ttn` and `dt` (`dt` 1.17 → 1: unison detune up to 36 % lower than the float ratio) | Applied everywhere the host casts, incl. `tension_offset = (int)dt/(int)ttn` (review M1) |
 | 6 | F_15 output columns come in identical pairs | Distinct columns 0, 2, 4, 5 → GPU output pitches 128–131 |
 
-**F_15 renders** (template Belarus_8band_196modes, `listen_to_modes=0`, order 1): no NaN/Inf, all notes decay;
+**F_15 renders** (first set; superseded by the updates below) (template Belarus_8band_196modes, `listen_to_modes=0`, order 1): no NaN/Inf, all notes decay;
 pitch vs `Notes_freqs` A1 ≈ 0 c, C4 −19 c, C7 ≈ −24 c (low detector confidence at C7, as for the template) —
 tuning is inherited from the template tension; both Pitch.txt candidates render identically except for the
 hammer geometry; level 14–34 dB below the template at the then-assumed 512-clock exciter step, 9–16 dB with the derived 96 clocks (see the update below). Evidence:
@@ -707,3 +707,13 @@ parameters flagged `UNCONFIRMED` in `preset["fpga_conversion"]`; the absolute FP
 re-render (A1/C4/C7, both Pitch.txt): gauss centres 0.24–6.1 ms, force beyond the 7 ms window 0.02 % max
 (was 79 %); level vs the previous set A1 +4…6 dB, C4 +16…20 dB, C7 +5 dB, so the deficit vs the template is
 now **9–16 dB** (mainly the `host_max` mode-mass scale); A1/C4 pitch unchanged within 1 c; no NaN/Inf.
+
+**Update after §11.12 (batch 4, 2026-10-01).** Applied §11.12.6: F_15 Pitch.txt (batch4, recognised by a
+whitespace-independent content hash) and `speaking_offset = 21.3` are `DERIVED`; `mode_q = host_q` is the
+`DERIVED` default with the exact decay-rate match (`γ = −ln(1−D)/dt_mode`, `decrement = (1−e^(−γ/sr))·sr/f`;
+F_15 0.39–39.7); stm32 verbatim evidence in every note; negative-shteg coupling recorded as approximated.
+FPGA-grid tuning check: **median +0.7 c, IQR −6.3…+13.3 c**. F_15 renders (A1/C4/C7 × v64/v110): stable, no
+NaN/Inf; level **26–30 dB below the template at A1/C4, 8–10 dB at C7** (the real heavy mode damping costs
+12–18 dB at A1/C4 vs `--mode-q template`); C4 decays faster (−12…−16 dB/s vs −7…−8); rendered pitch is the
+template tension's (A1 ≈ −1 c, C4 −20 c). `host_median` still runs away with host_q, so `host_max` stays.
+Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.

@@ -4,17 +4,18 @@
 
 ## Inputs (DERIVED from code / UNCONFIRMED / OVERRIDDEN)
 
-- **pitch_file** = `D:\repos\PianoidInstall\PresetsFromFpga\elyashev-2026-09-30\batch2\Pitch.txt` (UNCONFIRMED) - F_15's own Pitch.txt is not in F_15.rar; sets speaking lengths -> hammer geometry, B, grid tuning check
+- **pitch_file** = `D:\repos\PianoidInstall\PresetsFromFpga\elyashev-2026-09-30\batch4\Pitch.txt` (DERIVED) - F_15's own layout (confirmed by Dima 2026-10-01: batch4 Pitch.txt == batch3 content); sets speaking lengths -> hammer geometry, B, grid tuning check
+- **speaking_offset** = `21.3` (DERIVED) - DERIVED FROM DATA (fit, not read from the RTL): N_eff = N - (int)shteg - 21.3 gives the F_15 grid tuning median 0 c vs Notes_freqs; mechanism inferred (point-counter/termination alignment in STRINGS0), proposal 11.12.3
 - **string_clocks** = `512` (DERIVED) - /mashinka_0/Force_str0/Counter1 (SID 1830601): 512 points, 1 per clock
 - **mode_clocks** = `256` (DERIVED) - /oscill_dbl2 256-deep state RAMs, 1 mode per clock
 - **exc_clocks** = `96` (DERIVED) - /Mid_Graph2/Counter3 (SID 1634313) 0..95, per-note time RAM depth 96 (SID 1634315); sets every gauss centre/width in ms
-- **mode_q** = `template` (UNCONFIRMED) - derived equation (/oscill_dbl2, proposal 11.11.2): q[n+1] = (2q[n] - q[n-1] + D q[n-1] - W q[n] + M F)(1 - D), D = (int)(Q_coeff*q_ratio)/2^31 (s32.31, no hidden shift), one step per 256 clocks; verbatim D gives tau 0.28-0.56 ms (non-physical) -> the physical Q is UNCONFIRMED (bridge firmware not delivered); template median used unless host_q
-- **mode_mass** = `host_max` (UNCONFIRMED) - absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the main reason the converted preset renders 9-16 dB below the template (F_15, A1/C4/C7)
-- **output_signal** = `dq` (DERIVED) - send_all sets RING_15 = 2 (Gain_FB[0] = 2); /Mux1 (SID 1898483) input 2 = dq (modal velocity); load-time param
+- **mode_q** = `template` (OVERRIDDEN) - q[n+1] = (2q[n] - q[n-1] + D q[n-1] - W q[n] + M F)(1 - D) per 256-clock step (/oscill_dbl2, proposal 11.11.2), D = (int)(Q_coeff*q_ratio)/2^31 forwarded verbatim to CMD_decr_0 by the stm32 (pianoid.c S:2248-2253; 11.12.2). tau 0.28-0.56 ms IS the real F_15 behaviour: a deliberately damped broadband soundboard (q_ratio knob); sustain comes from the strings. host_q reproduces the decay rate exactly at the audio rate; 'template' (template median) is an override
+- **mode_mass** = `host_max` (UNCONFIRMED) - the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q, F_15 renders 8-30 dB below the template (A1/C4 26-30 dB, C7 8-10 dB): the heavy real mode damping plus this capped mass scale
+- **output_signal** = `dq` (DERIVED) - send_all sets RING_15 = 2 (Gain_FB[0] = 2); /Mux1 (SID 1898483) input 2 = dq (modal velocity); stm32 boot sets CMD_init_sw = 2 (pianoid.c S:4449), runtime S:1652-1656; load-time param
 
 ## Level
 
-Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU mass/force scale unknown; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable by attenuation, and the main reason the converted preset renders 9-16 dB below the template (F_15, A1/C4/C7).
+Output level vs the template is set by the mode-mass scale: the stm32 forwards M = Mass/f^2 verbatim (pianoid.c S:2279), so only the absolute FPGA->GPU mass/force unit scale is open; host_max puts every mode's k = mass_inv(2 pi f)^2 at or BELOW the template k (strongest = template, weakest ~3400x lower on F_15): stable (host_median runs away even with the derived host_q damping). With host_q, F_15 renders 8-30 dB below the template (A1/C4 26-30 dB, C7 8-10 dB): the heavy real mode damping plus this capped mass scale.
 
 ## Load with
 
@@ -40,6 +41,7 @@ Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU m
 - 16 FPGA outputs -> the template's output pitches (engine gap); columns in output.fpga_columns
 - modes above the template num_modes dropped (modes.dropped_*); mode Q per unknowns.mode_q
 - mode mass_inv: exact relative host law Mass/f^2, absolute scale per unknowns.mode_mass
+- negative shteg (strings.negative_shteg_keys_unclamped): on the FPGA string 3 of those notes has Sdvig >= 512 (u9 wrap) and is NOT coupled to the modes, strings 1-2 terminate in the next packed string's start; the GPU's per-pitch deck couples all unison strings (proposal 11.12.3)
 - ttn_micro, FB.txt, NL, NL_disp, Ci_str_out, Ci_str_curve, impulse_resp_*, others[3..14]: not mapped
 
 ## modes
@@ -47,8 +49,8 @@ Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU m
 ```
 {
  "host_q_decrement_range": [
-  0.40209815445192754,
-  40.46086291450308
+  0.38788958095115056,
+  39.71732647755741
  ],
  "template_decrement_median": 0.08516383254345274,
  "template_stiffness_k_median": 0.1,
@@ -58,11 +60,14 @@ Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU m
  ],
  "fpga_run_frequency_cents": {
   "median": -37.76864684602154,
+  "q25": -37.781564197039046,
+  "q75": -37.76801988539992,
   "min": -42.63316334375188,
   "max": -37.767787815301546
  },
  "dropped_modes": 60,
- "first_dropped_mode_hz": 8913.043478
+ "first_dropped_mode_hz": 8913.043478,
+ "sample_rate_for_decrement": 48000.0
 }
 ```
 
@@ -133,56 +138,61 @@ Output level vs the template is set by the mode-mass scale: absolute FPGA->GPU m
   4.2572021484375
  ],
  "speaking_points_range": [
-  14.0,
-  454.0
+  13.7,
+  369.7
  ],
- "negative_shteg_keys_unclamped": [
-  52,
-  53,
-  54,
-  55,
-  56,
-  57,
-  58,
-  59,
-  60,
-  61,
-  62,
-  63,
-  64,
-  65,
-  66,
-  67,
-  68,
-  69,
-  70,
-  71,
-  72,
-  73,
-  74,
-  75,
-  76,
-  77,
-  78,
-  79,
-  80,
-  81,
-  82,
-  83,
-  84,
-  85,
-  86,
-  87
- ],
+ "negative_shteg_keys_unclamped": {
+  "keys": [
+   52,
+   53,
+   54,
+   55,
+   56,
+   57,
+   58,
+   59,
+   60,
+   61,
+   62,
+   63,
+   64,
+   65,
+   66,
+   67,
+   68,
+   69,
+   70,
+   71,
+   72,
+   73,
+   74,
+   75,
+   76,
+   77,
+   78,
+   79,
+   80,
+   81,
+   82,
+   83,
+   84,
+   85,
+   86,
+   87
+  ],
+  "note": "host tail arithmetic kept (N_eff > N - offset); on the FPGA string 3 of these notes has Sdvig >= 512 (u9 wrap) -> uncoupled from the modes, strings 1-2 terminate in the next packed string's start; the GPU couples all unison strings (approximated)"
+ },
  "full_allocation_hammer_keys": [],
  "inharmonicity_B_range": [
-  8.351281722400349e-06,
-  0.0022456678521390796
+  9.868439182849004e-06,
+  0.007510460702966318
  ],
  "fpga_grid_tuning_cents_vs_Notes_freqs": {
-  "median": -364.5095671197689,
-  "min": -1548.359356167055,
-  "max": 53.6459820168511
+  "median": 0.6538276124606355,
+  "q25": -6.283196531070445,
+  "q75": 13.259828598162276,
+  "min": -49.10250727351954,
+  "max": 90.11191197614878
  },
  "strings_per_note_fpga_vs_template": {
   "mismatched_pitches": [],

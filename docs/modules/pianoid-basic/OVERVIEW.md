@@ -533,17 +533,17 @@ Spec: [FPGA → GPU port proposal §11](../../proposals/fpga-to-gpu-preset-port-
 Mapping (current engine only): modes `frequency` ← `omega_coef` (Hz); `mass_inv` ← host law `Mass/f²`,
 relative exact, absolute scale anchored so the strongest mode's `k = mass_inv·(2πf)²` equals the
 template's (`--mode-mass host_max`, itself UNCONFIRMED: every FPGA mode ends at or below the template
-coupling, so it is stable by attenuation and is the main reason F_15 renders 9–16 dB below the template; scaling to the
-template *median* was measured **unstable** on F_15); decrement = template median unless `--mode-q host_q`. Deck: `Ci_coef_cos` per-mode normalised,
+coupling, so it stays stable (the median-anchored variant runs away even with the real mode damping); scaling to the
+template *median* was measured **unstable** on F_15); decrement `--mode-q host_q` (DERIVED default: the stm32 forwards the Q word verbatim, so the exact FPGA decay rate `γ = −ln(1−D)/dt_mode` is reproduced at the audio rate, `decrement = (1−e^(−γ/sr))·sr/f`; F_15 τ 0.28–0.56 ms, a deliberately damped soundboard), `template` median as override. Deck: `Ci_coef_cos` per-mode normalised,
 signed, feedback = feedin (FPGA loop gain `FB·Ci_str·Ci_cos` > 0 checked). Output pitches: FPGA outputs
 `decka × out_vol × Ci_str_1_out` (distinct columns). Excitation: `mu ← d`, `sigma ← e`, time base
 `exc_clocks / clock` (DERIVED 96 clocks = 0.244 µs, proposal §11.11: F_15 centres 0.24–6.1 ms, no 7 ms truncation), only Gaussians 0–3, FPGA velocity layers evaluated at the 6 engine anchors
 (stored == effective); loudness `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
-Strings: `gamma = (int)decr_op/2²⁴/dt_string`, `tension_offset = (int)dt/(int)ttn` (send_nl casts), hammer cap from `width`/`del`
+Strings: speaking length `N − (int)shteg − speaking_offset` (21.3, DERIVED from a data fit: F_15 grid tuning median +0.7 c), `gamma = (int)decr_op/2²⁴/dt_string`, `tension_offset = (int)dt/(int)ttn` (send_nl casts), hammer cap from `width`/`del`
 (position ratio, width metres). Inputs not read from the tables are CLI parameters recorded in `preset["fpga_conversion"]["unknowns"]`
-as DERIVED (clocks per string/mode/exciter step 512/256/96, output signal Δq — settled from the FPGA code,
-§11.11; OVERRIDDEN if changed on the command line) or UNCONFIRMED (Pitch.txt, mode Q transform — derived
-equation recorded, physical Q unknown — and the mode-mass scale); `--output-signal q` is rejected
+as DERIVED (F_15 Pitch.txt by content hash, speaking offset, mode Q, clocks 512/256/96, output Δq — settled
+from the FPGA code and the stm32 firmware, §11.11–§11.12; OVERRIDDEN if changed on the command line) or
+UNCONFIRMED (a non-F_15 Pitch.txt layout, and the mode-mass absolute scale); `--output-signal q` is rejected
 (the GPU has no displacement output). Velocity anchors come from `constants.LEVEL_INDICES`; template
 fallbacks (`DEFAULT_HAMMER_MASS`, `DEFAULT_HAMMER_SPEEDS`, sharpness 0.5) are recorded in
 `fpga_conversion.fallbacks_used` when used.
