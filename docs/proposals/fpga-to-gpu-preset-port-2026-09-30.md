@@ -732,3 +732,10 @@ there → stable); at 4 sub-steps it is stable. **Result (16 keys, v64/v110):** 
 FPGA scheme's own prediction (C2 −11 c); vs `Notes_freqs` median −1.5 c, IQR −5.2…+3.5 c; A0 −36 / C8 +35 c
 are F_15's own tuning. No NaN; all decay (A1 −4…−10, C4 −11…−13, C7 −55 dB/s); level 12–41 dB below the
 template. Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Update: sub-steps per sample (2026-10-01, user "should be stable at 8 or 10").** Measured with the
+physics rate-scaled for each value (MIDI 21–33, 60, 96 × v64/v110): 4, 6, 8 stable; 10 marginal (A1 v64
++2 dB/s, bass pitch +15…+37 c); 12 and 16 run away (MIDI 22/24, +420…490 dB/s). Converter default is now
+**8** (highest stable). At 8 the full A/C sweep is stable; vs `Notes_freqs` median −1.5 c, IQR −7.0…+6.3 c;
+vs the FPGA scheme median 0.0 c, max 26 c (A0) — 4 sub-steps tracks the bass more closely (max 11 c). Level
+at 8: 18–47 dB below the template. Table: `docs/development/diagnostics/dev-a480-renders/summary.md`.

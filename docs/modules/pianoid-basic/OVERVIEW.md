@@ -534,7 +534,7 @@ delegates here; the legacy readers `read_excitations_from_txt`, `Mode.load_modes
 
 **Strings (F_15's own).** Each GPU block is one FPGA 512-point array (57 arrays × 4 strings + 1 output
 block = 232 strings), so the preset is loaded with **`array_size=512`** (a runtime `/load_preset` parameter,
-384–512; `MAX_ARRAY_SIZE = 512` is compile-time, no rebuild) and **`string_iteration=4`**. Per key:
+384–512; `MAX_ARRAY_SIZE = 512` is compile-time, no rebuild) and **`string_iteration=8`**. Per key:
 `N_eff = N − (int)shteg − 21.1` (speaking offset fitted to F_15 with the exact clamped FPGA scheme), GPU
 `main = round(N_eff + 1)` (the engine vibrates `main − 1` points — measured), `tail = max((int)shteg, 1)`
 (`StringGeometry.dx()` treats `tail == 0` as a dummy string). Tension, Young's modulus (negative: the kernel
@@ -544,8 +544,9 @@ are solved from the `Kernels.cu parameterKernel` formulas so that `coeff_tension
 (released, `int(127^0.6) = 18` damper steps), each rate-scaled from the 512-clock FPGA step to the GPU
 sub-step and grid-rescaled by `(main − 1)/N_eff`. Unison: base `ttn − dt` with `tension_offset = dt/base`
 gives exactly the FPGA set {ttn−dt, ttn, ttn+dt}. String length / rho / r stay template choices (only the
-kernel products matter). 16 sub-steps (= the FPGA step exactly) grows on the engine for F_15's stiff bass
-strings (bridge refreshed once per audio sample) — measured; 4 is stable.
+kernel products matter). Sub-steps per sample, measured on F_15 (stiffest bass keys + A1/C4/C7): 4, 6, 8
+stable; 10 marginal; 12 and 16 (= the FPGA step exactly) grow on the stiff bass strings (bridge refreshed
+once per audio sample) → default 8 (4 tracks the FPGA scheme most closely in the bass).
 
 **Other mapping.** Modes `frequency` ← `omega_coef`; `mass_inv` ← `Mass/f²` (stm32 verbatim) with the
 absolute scale UNCONFIRMED (`--mode-mass host_max`: strongest mode = template coupling, stable);
@@ -555,9 +556,9 @@ Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out`. Excitation: `mu
 96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); loudness
 `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
 
-**Verified (offline, `array_size=512`):** 16 keys (all A, all C) play within ±2.5 c of the FPGA scheme's
-own prediction (one key 11 c); vs `Notes_freqs` median −1.5 c, IQR −5.2…+3.5 c (A0 −36 / C8 +35 c are
-F_15's own tuning). Level 12–41 dB below the Belarus template (heavy real mode damping + capped mass scale).
+**Verified (offline, `array_size=512`, 8 sub-steps):** 16 keys (all A, all C) vs `Notes_freqs` median
+−1.5 c, IQR −7.0…+6.3 c; vs the FPGA scheme's own prediction median 0.0 c, max 26 c (A0; at 4 sub-steps max
+11 c). Level 18–47 dB below the Belarus template (heavy real mode damping + capped mass scale).
 Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
 ---

@@ -126,7 +126,7 @@ python -m Pianoid.fpga_preset_converter <FPGA_DIR> <Pitch.txt> --template preset
 ```
 
 Load the result with the parameters recorded in `fpga_conversion.load_params` — `array_size=512` (the
-converted strings are F_15's own, one GPU block per FPGA 512-point array), `string_iteration=4`,
+converted strings are F_15's own, one GPU block per FPGA 512-point array), `string_iteration=8`,
 `listen_to_modes=0`, `sound_derivative_order=1` (the FPGA output weights map onto the output-pitch feedback rows, which
 only the strings-mode path reads). The preset's `fpga_conversion` block records every input not read from the tables: DERIVED from the
 FPGA code and stm32 firmware (F_15 Pitch.txt, speaking offset, mode Q, clocks 512/256/96, output Δq) or
