@@ -12,3 +12,6 @@ __pycache__/
 /PianoidCore/
 /PianoidTunner/
 /PianoidBasic/
+
+# Local clone of the user-level config repo (DSPianoid/claude-config); not part of this repo
+claude-config/
