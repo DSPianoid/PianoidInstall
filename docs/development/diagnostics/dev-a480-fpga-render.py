@@ -19,7 +19,7 @@ import wave
 
 import numpy as np
 
-NOTES = (33, 60, 96)                 # A1 / C4 / C7 (template covers MIDI 23..106)
+NOTES = (33, 60, 96)                 # A1 / C4 / C7 (default; --notes for a sweep)
 VELOCITIES = (64, 110)
 HOLD_MS, RENDER_MS = 1400, 1600
 SR, SPC = 48000, 64
@@ -75,9 +75,9 @@ def write_wav(path, x):
         w.writeframes(pcm.tobytes())
 
 
-def readback(p, preset):
+def readback(p, preset, notes):
     out = {}
-    for pid in (str(n) for n in NOTES):
+    for pid in (str(n) for n in notes):
         pv, pm = preset["pitches"][pid], p.sm.pitches[int(pid)]
         h = pm.physics.hammer
         out[pid] = {"gamma": [pv["physics"]["gamma"], pm.physics.gamma],
@@ -93,7 +93,13 @@ def main():
     ap.add_argument("label")
     ap.add_argument("out_dir")
     ap.add_argument("--core", default=os.path.join(os.path.dirname(__file__), "..", "..", "..", "PianoidCore"))
+    ap.add_argument("--notes", default=None, help="comma list of MIDI notes (default 33,60,96)")
+    ap.add_argument("--velocities", default=None, help="comma list (default 64,110)")
+    ap.add_argument("--string-iteration", type=int, default=None, help="override the preset load param")
+    ap.add_argument("--array-size", type=int, default=None, help="override the preset load param")
     a = ap.parse_args()
+    notes = tuple(int(x) for x in a.notes.split(",")) if a.notes else NOTES
+    vels = tuple(int(x) for x in a.velocities.split(",")) if a.velocities else VELOCITIES
     a.out_dir, a.preset = os.path.abspath(a.out_dir), os.path.abspath(a.preset)   # before chdir
     mw = os.path.abspath(os.path.join(a.core, "pianoid_middleware"))
     sys.path.insert(0, mw)
@@ -102,30 +108,42 @@ def main():
     from auto_tuner import MeasurementEngine
     with open(a.preset) as f:
         preset = json.load(f)
-    p = initialize(os.path.abspath(a.preset), filterlen=48 * 128 * 3, string_iteration=4, array_size=384,
-                   sample_rate=SR, samples_in_cycle=SPC, buffer_size=4, audio_on=False, audio_driver_type=0,
-                   listen_to_modes=False, sound_derivative_order=1)
+    # load parameters the converter records (array_size 512 / string_iteration 16 for F_15 own physics);
+    # presets without them (the Belarus template) use the template's grid: array 384, 4 sub-steps
+    lp = dict(preset.get("fpga_conversion", {}).get("load_params", {}))
+    if a.string_iteration:
+        lp["string_iteration"] = a.string_iteration
+    if a.array_size:
+        lp["array_size"] = a.array_size
+    p = initialize(os.path.abspath(a.preset), filterlen=48 * 128 * 3, string_iteration=lp.get("string_iteration", 4),
+                   array_size=lp.get("array_size", 384), sample_rate=SR, samples_in_cycle=SPC, buffer_size=4,
+                   audio_on=False, audio_driver_type=0, listen_to_modes=False,
+                   sound_derivative_order=lp.get("sound_derivative_order", 1))
     out_dir = os.path.join(a.out_dir, a.label)
     os.makedirs(out_dir, exist_ok=True)
     mvc = float(p.get_current_volume_coefficient())
     me = MeasurementEngine()
     results = {"preset": os.path.abspath(a.preset), "main_volume_coefficient": mvc,
-               "readback": readback(p, preset), "notes": []}
-    for pitch in NOTES:
-        for vel in VELOCITIES:
+               "load_params": {"string_iteration": p.mp.string_iteration, "array_size": p.mp.array_size},
+               "readback": readback(p, preset, notes), "notes": []}
+    for pitch in notes:
+        for vel in vels:
             snd = render(p, pitch, vel)
             x = snd[0]
             fin = np.isfinite(snd)
             xf = np.where(np.isfinite(x), x, 0.0)
             peak = float(np.max(np.abs(snd[fin]))) if fin.any() else float("nan")
-            mp_ = me.measure_frequency(xf[: int(1.0 * SR)], SR, notes_freq(pitch))
+            mp_ = me.measure_frequency(xf[: int(1.0 * SR)], SR, notes_freq(pitch), search_semitones=2.0)
+            fpred = preset.get("fpga_conversion", {}).get("strings", {}).get("predicted_f_hz")
+            f_pred = fpred[pitch - 21] if fpred and 21 <= pitch <= 108 else None
             head = xf[: int(0.5 * SR)]
             r = {"pitch": pitch, "velocity": vel, "samples": int(x.size), "channels": int(snd.shape[0]),
                  "nonfinite": int((~fin).sum()), "peak": peak, "rms_0_500ms": float(np.sqrt(np.mean(head ** 2))),
                  "rms_db": float(20 * np.log10(np.sqrt(np.mean(head ** 2)) + 1e-300)),
                  "int32_headroom_db": float(20 * np.log10(2 ** 31 / (peak * mvc))) if peak > 0 else None,
                  "f_expected": notes_freq(pitch), "f_measured": float(mp_.hz), "cents": float(mp_.cents_error),
-                 "pitch_confidence": float(mp_.confidence), "decay_db_per_s": decay_db_per_s(xf),
+                 "pitch_confidence": float(mp_.confidence), "f_pred_fpga": f_pred,
+                 "cents_vs_pred": float(1200 * np.log2(mp_.hz / f_pred)) if f_pred and mp_.hz > 0 else None, "decay_db_per_s": decay_db_per_s(xf),
                  "channel_rms": [float(np.sqrt(np.mean(np.where(np.isfinite(c), c, 0)[: int(0.5 * SR)] ** 2)))
                                  for c in snd]}
             results["notes"].append(r)

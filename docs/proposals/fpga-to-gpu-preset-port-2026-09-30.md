@@ -717,3 +717,18 @@ NaN/Inf; level **26–30 dB below the template at A1/C4, 8–10 dB at C7** (the 
 12–18 dB at A1/C4 vs `--mode-q template`); C4 decays faster (−12…−16 dB/s vs −7…−8); rendered pitch is the
 template tension's (A1 ≈ −1 c, C4 −20 c). `host_median` still runs away with host_q, so `host_max` stays.
 Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Update: F_15's own string physics at ArraySize 512 (2026-10-01, user directive "tuned by itself").** The
+template-tension approach is gone. `fpga_string_layout` builds the strings from F_15: blocks = the 57 FPGA
+512-point arrays (+1 output block, 232 strings, `array_size=512` — a runtime load parameter, no rebuild),
+point counts from Pitch.txt, and tension/stiffness/damping/unison solved so the `parameterKernel`
+coefficients equal the FPGA update term by term (bending sign: GPU `+2cb·fd` vs FPGA `−Disp·fd`). Mapping
+bugs found by measurement and fixed: (1) `tail = 0` makes `StringGeometry.dx()` return its dummy-string
+sentinel → GPU tail ≥ 1; (2) the engine vibrates `main − 1` points (pure-string sweep: treble 0.96–0.98
+point) → `main = N_eff + 1`; (3) the speaking offset refit with the **exact clamped FPGA scheme** is 21.1
+(median −0.2 c, IQR ±6.4 c vs the continuous formula's 21.3, IQR −6…+13). At 16 sub-steps (= the FPGA step)
+the engine grows +170…275 dB/s, triggered by the stiff bass strings (MIDI 21–32, Disp/Tn > 2; bending off
+there → stable); at 4 sub-steps it is stable. **Result (16 keys, v64/v110):** every key within ±2.5 c of the
+FPGA scheme's own prediction (C2 −11 c); vs `Notes_freqs` median −1.5 c, IQR −5.2…+3.5 c; A0 −36 / C8 +35 c
+are F_15's own tuning. No NaN; all decay (A1 −4…−10, C4 −11…−13, C7 −55 dB/s); level 12–41 dB below the
+template. Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.

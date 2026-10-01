@@ -37,6 +37,7 @@ PianoidBasic/
         HarmonicSimulator.py # HarmonicSimulation
         SoundChannels.py     # StringSoundChannels, ModeSoundChannels
         fpga_tables.py       # FPGA preset tables + host send-all formulas (FPGA-side semantics)
+        fpga_string_layout.py # FPGA string layout + string physics on the GPU grid
         fpga_preset_converter.py # FPGA folder + Pitch.txt -> GPU preset JSON (the FPGA import path + CLI)
         fpga_conversion_metadata.py # conversion metadata (UNCONFIRMED inputs, dropped fields) + report
         bytestream_encoding.py
@@ -133,7 +134,7 @@ Describes the spatial discretisation of one piano string. A string has three sec
 
 Key methods:
 
-- `dx()` — spatial step: `length / main`
+- `dx()` — spatial step: `length / main`; returns the sentinel `0.001` when `tail == 0` (the dummy output strings), so a real string needs `tail ≥ 1`. Measured (dev-a480): a string vibrates over `main − 1` points
 - `p_full()` — total points: `main + tail + STEM_LENGTH`
 - `l_main()`, `l_tail()`, `l_full()` — physical lengths of each section
 - `bridge(i)` — index of bridge point `i` (0 or 1)
@@ -519,34 +520,45 @@ A separate additive synthesis engine for testing. Generates sound as a sum of `H
 
 ### FPGA preset converter
 
-Files: `fpga_tables.py`, `fpga_preset_converter.py`, `fpga_conversion_metadata.py` (dev-a480, 2026-09-30). The **single FPGA import
-path** (the middleware's `load_excitation_from_fpga_preset` delegates here; the legacy readers
-`read_excitations_from_txt`, `Mode.load_modes_from_txt` and `Pianoid.load_deck_from_txt` were removed).
-Spec: [FPGA → GPU port proposal §11](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md).
+Files: `fpga_tables.py`, `fpga_string_layout.py`, `fpga_preset_converter.py`, `fpga_conversion_metadata.py`
+(dev-a480, 2026-10-01). The **single FPGA import path** (the middleware's `load_excitation_from_fpga_preset`
+delegates here; the legacy readers `read_excitations_from_txt`, `Mode.load_modes_from_txt` and
+`Pianoid.load_deck_from_txt` were removed). Spec: [FPGA → GPU port proposal §11–§12](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md).
 
 | Module | Concern |
 |---|---|
-| `fpga_tables` | Read the FPGA `.txt` tables; the host program's send-all formulas (codes → values the FPGA runs with), each a pure function citing its `Pianoid_QM.c` line |
-| `fpga_preset_converter` | Map those values onto a template GPU preset (grid, blocks, strings, tension come from the template); CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
-| `fpga_conversion_metadata` | Describe a conversion: `preset["fpga_conversion"]` (UNCONFIRMED inputs, load params, template fallbacks used, dropped fields) and the `<out>.conversion_report.md` |
+| `fpga_tables` | Read the FPGA `.txt` tables; the host program's send-all formulas (forwarded verbatim by the stm32), each a pure function citing its `Pianoid_QM.c` / `pianoid.c` line |
+| `fpga_string_layout` | F_15's strings on the GPU grid: points per string, blocks = the FPGA arrays, and physics whose kernel coefficients equal the FPGA string update term by term |
+| `fpga_preset_converter` | Excitation, modes, deck/output mapping and the CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
+| `fpga_conversion_metadata` | Describe a conversion: `preset["fpga_conversion"]` (DERIVED / UNCONFIRMED / OVERRIDDEN inputs, load params, template fallbacks used, dropped fields) and the `<out>.conversion_report.md` |
 
-Mapping (current engine only): modes `frequency` ← `omega_coef` (Hz); `mass_inv` ← host law `Mass/f²`,
-relative exact, absolute scale anchored so the strongest mode's `k = mass_inv·(2πf)²` equals the
-template's (`--mode-mass host_max`, itself UNCONFIRMED: every FPGA mode ends at or below the template
-coupling, so it stays stable (the median-anchored variant runs away even with the real mode damping); scaling to the
-template *median* was measured **unstable** on F_15); decrement `--mode-q host_q` (DERIVED default: the stm32 forwards the Q word verbatim, so the exact FPGA decay rate `γ = −ln(1−D)/dt_mode` is reproduced at the audio rate, `decrement = (1−e^(−γ/sr))·sr/f`; F_15 τ 0.28–0.56 ms, a deliberately damped soundboard), `template` median as override. Deck: `Ci_coef_cos` per-mode normalised,
-signed, feedback = feedin (FPGA loop gain `FB·Ci_str·Ci_cos` > 0 checked). Output pitches: FPGA outputs
-`decka × out_vol × Ci_str_1_out` (distinct columns). Excitation: `mu ← d`, `sigma ← e`, time base
-`exc_clocks / clock` (DERIVED 96 clocks = 0.244 µs, proposal §11.11: F_15 centres 0.24–6.1 ms, no 7 ms truncation), only Gaussians 0–3, FPGA velocity layers evaluated at the 6 engine anchors
-(stored == effective); loudness `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
-Strings: speaking length `N − (int)shteg − speaking_offset` (21.3, DERIVED from a data fit: F_15 grid tuning median +0.7 c), `gamma = (int)decr_op/2²⁴/dt_string`, `tension_offset = (int)dt/(int)ttn` (send_nl casts), hammer cap from `width`/`del`
-(position ratio, width metres). Inputs not read from the tables are CLI parameters recorded in `preset["fpga_conversion"]["unknowns"]`
-as DERIVED (F_15 Pitch.txt by content hash, speaking offset, mode Q, clocks 512/256/96, output Δq — settled
-from the FPGA code and the stm32 firmware, §11.11–§11.12; OVERRIDDEN if changed on the command line) or
-UNCONFIRMED (a non-F_15 Pitch.txt layout, and the mode-mass absolute scale); `--output-signal q` is rejected
-(the GPU has no displacement output). Velocity anchors come from `constants.LEVEL_INDICES`; template
-fallbacks (`DEFAULT_HAMMER_MASS`, `DEFAULT_HAMMER_SPEEDS`, sharpness 0.5) are recorded in
-`fpga_conversion.fallbacks_used` when used.
+**Strings (F_15's own).** Each GPU block is one FPGA 512-point array (57 arrays × 4 strings + 1 output
+block = 232 strings), so the preset is loaded with **`array_size=512`** (a runtime `/load_preset` parameter,
+384–512; `MAX_ARRAY_SIZE = 512` is compile-time, no rebuild) and **`string_iteration=4`**. Per key:
+`N_eff = N − (int)shteg − 21.1` (speaking offset fitted to F_15 with the exact clamped FPGA scheme), GPU
+`main = round(N_eff + 1)` (the engine vibrates `main − 1` points — measured), `tail = max((int)shteg, 1)`
+(`StringGeometry.dx()` treats `tail == 0` as a dummy string). Tension, Young's modulus (negative: the kernel
+adds `+2·cb·fd`, the FPGA `−Disp·fd`), `gamma`, `disp_decay`, `damper_string` and the integer `damper_tail`
+are solved from the `Kernels.cu parameterKernel` formulas so that `coeff_tension = Tn`,
+`coeff_bending = −Disp/2`, `coeff_frequency_decay = Disp_decr`, `dec = Do` (main), `Damper` (tail) and `Dc`
+(released, `int(127^0.6) = 18` damper steps), each rate-scaled from the 512-clock FPGA step to the GPU
+sub-step and grid-rescaled by `(main − 1)/N_eff`. Unison: base `ttn − dt` with `tension_offset = dt/base`
+gives exactly the FPGA set {ttn−dt, ttn, ttn+dt}. String length / rho / r stay template choices (only the
+kernel products matter). 16 sub-steps (= the FPGA step exactly) grows on the engine for F_15's stiff bass
+strings (bridge refreshed once per audio sample) — measured; 4 is stable.
+
+**Other mapping.** Modes `frequency` ← `omega_coef`; `mass_inv` ← `Mass/f²` (stm32 verbatim) with the
+absolute scale UNCONFIRMED (`--mode-mass host_max`: strongest mode = template coupling, stable);
+decrement `--mode-q host_q` (DERIVED: exact FPGA decay rate `γ = −ln(1−D)/dt_mode`,
+`decrement = (1−e^(−γ/sr))·sr/f`). Deck: `Ci_coef_cos` per-mode normalised, signed, feedback = feedin.
+Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out`. Excitation: `mu ← d`, `sigma ← e`,
+96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); loudness
+`ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
+
+**Verified (offline, `array_size=512`):** 16 keys (all A, all C) play within ±2.5 c of the FPGA scheme's
+own prediction (one key 11 c); vs `Notes_freqs` median −1.5 c, IQR −5.2…+3.5 c (A0 −36 / C8 +35 c are
+F_15's own tuning). Level 12–41 dB below the Belarus template (heavy real mode damping + capped mass scale).
+Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
 ---
 

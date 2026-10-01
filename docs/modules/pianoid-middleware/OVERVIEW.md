@@ -125,8 +125,9 @@ JSON, using the host program's **send-all** formulas
 python -m Pianoid.fpga_preset_converter <FPGA_DIR> <Pitch.txt> --template presets/Belarus_8band_196modes.json --out presets/<name>.json
 ```
 
-Load the result with `listen_to_modes=0` and the `sound_derivative_order` recorded in the preset's
-`fpga_conversion.load_params` (the FPGA output weights map onto the output-pitch feedback rows, which
+Load the result with the parameters recorded in `fpga_conversion.load_params` — `array_size=512` (the
+converted strings are F_15's own, one GPU block per FPGA 512-point array), `string_iteration=4`,
+`listen_to_modes=0`, `sound_derivative_order=1` (the FPGA output weights map onto the output-pitch feedback rows, which
 only the strings-mode path reads). The preset's `fpga_conversion` block records every input not read from the tables: DERIVED from the
 FPGA code and stm32 firmware (F_15 Pitch.txt, speaking offset, mode Q, clocks 512/256/96, output Δq) or
 UNCONFIRMED (mode-mass absolute scale; any non-F_15 Pitch.txt) and every dropped or
