@@ -154,6 +154,45 @@ folded into the coefficient by `parameterKernel` at kernel entry).
   `coeff_frequency_decay` missing dt-scaling. See
   [WORK_IN_PROGRESS.md](../../development/WORK_IN_PROGRESS.md#known-follow-ups).
 
+### Numerical precision: float32 and `string_iteration` (dev-1e95, 2026-10-01)
+
+`real` is **float32** (`pianoid_types.h`, `PIANOID_USE_FLOAT`; the kernel was `double` until
+PianoidCore `6a652df`/`36f05fe`, 2025-09-13 "real type"). In exact arithmetic the scheme above is
+**independent of `string_iteration`** (a double-precision replica of the full per-sample map — N
+sub-steps, stem held at the per-sample feedback, modes — has the same spectral radius and the same
+fundamental at N = 4/8/16, measured ρ = 0.9999928 for F_15 MIDI 22; the sample-and-hold bridge
+gives *exactly* the same ρ as an every-sub-step coupling). The float32 engine is **not**: the per-sub-step
+restoring increment of a bass string is `ω²·dt²·u ≈ 5e-8·u` at 48 kHz × 16 sub-steps (A0),
+*below* the ~1e-7·|u| rounding of the three-level update `2u − u_prev + (…)`, so the acceleration is
+rounded away and the bass dynamics become rounding-dominated. Measured on the unmodified float engine
+(Belarus template, array 384, v110, cents vs 12-TET): pitch 24 = +1.4 / −5.6 / +15.5 / **+90.1** at
+N = 4/8/12/16; pitch 29 +4.3 → +42.5; pitch 45 −0.6 → −23.1; F_15 MIDI 22 +18 → +111 c; and with the
+12 stiff F_15 bass strings coupled through the modes the rounding drift is amplified into a DC-dominated
+runaway (+400…+500 dB/s at N ≥ 12). A double build removes all of it (pitch 24: +2.1/+2.3/+2.5/+2.7)
+but costs 1.5–3.5× cycle time (2.0–2.3 ms at N = 16 against the 1.33 ms budget) and fails the
+cooperative launch at array 512 (register pressure).
+
+**Fix (float-preserving; PianoidCore `feature/dev-1e95-string-iteration-precision`, pending merge): the
+inner loop integrates in summed (position/increment) form.** With
+`v = u − u_prev` kept in a register (`s_v`, re-derived from the two stored time levels once per kernel
+launch), the identical algebra is
+
+```
+dv = c_u·u + shift_1·(u[p−1]+u[p+1]) + shift_2·(u[p−2]+u[p+2]) − dec2·v
+     + coeff_frequency_decay·(d3 − d3_1) + s_force_function[n]·coeff_force
+v  += dv
+u_new = u + v
+c_u  = (12·coeff_bending − 2·coeff_tension)·dec_inv   (= shift_0 − 1 + shift_b;  parameters slot 4)
+dec2 = 2·dec_curr·dec_inv                           (= 1 + shift_b;            parameters slot 8)
+```
+
+The small acceleration is accumulated into the small increment instead of being rounded against
+`2u − u_prev`; `c_u`/`dec2` are produced by `parameterKernel` from the small terms directly (slots 4 and 8
+were previously an unused `1` and the unread `coeff_E`). The state buffers (`dev_string_state`: current +
+previous level), the output derivative (`feedback − s_b`), reset and the amplitude self-heal are unchanged.
+Verification surface: offline render sweep over `string_iteration` — pitch must be N-independent and the
+F_15 bass must stay stable at N = 16 (the exact FPGA step). Session log: `docs/development/logs/dev-1e95-*.md`.
+
 ---
 
 ## FDTD Stability (CFL / Courant) Bound

@@ -689,7 +689,22 @@ in the `.cu` / `.cpp` sources.
 | `debug` | `pianoidCuda_debug` | `-O2` (nvcc), `/Od` (MSVC) | ON | ~170 MB + ~113 MB debug |
 
 Both variants can be installed simultaneously — they are separate pip packages with
-different module names. The middleware selects which to import at runtime.
+different module names. The middleware selects which to import at runtime. (They cannot both be
+imported into ONE Python process — pybind refuses the second with `generic_type: type "UpdatePolicy"
+is already registered` — so the L1 debug check must import each variant in its own interpreter.)
+
+### Numeric type (`real`) — float32 by default
+
+`pianoid_cuda/pianoid_types.h` hard-codes `#define PIANOID_USE_FLOAT` (`real = float`); the kernels were
+`double` until PianoidCore `6a652df`/`36f05fe` (2025-09-13). Switching the define to `PIANOID_USE_DOUBLE`
+builds a double-precision engine (every `real`-typed path, incl. `atomicMaxPeakReal`, has a double branch).
+Measured 2026-10-01 (dev-1e95): double removes the `string_iteration`-dependent bass-pitch drift / runaway of
+the float engine (see SYNTHESIS_ENGINE.md "Numerical precision") but costs 1.5–3.5× cycle time (template:
+1.0–1.34 ms at 4 sub-steps, 2.0–2.3 ms at 16, against the 1.333 ms real-time budget) and the cooperative
+launch fails at `array_size` 512 (cycle status 500 on the first cycle; register pressure). It is a
+diagnostic / emergency option, not the production fix — the production fix is the float summed-form
+integrator in `MainKernel.cu`. The define is compile-time only: a type change is a HEAVY `--both` rebuild
+and must be built into an isolated venv when the shared engine must keep running.
 
 ### Building variants
 

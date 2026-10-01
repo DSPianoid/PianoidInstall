@@ -1,0 +1,276 @@
+{
+ "preset": "D:\\repos\\PianoidInstall\\PianoidCore\\pianoid_middleware\\presets\\Belarus_8band_196modes.json",
+ "main_volume_coefficient": 0.011108996539098746,
+ "load_params": {
+  "string_iteration": 12,
+  "array_size": 512
+ },
+ "readback": {
+  "24": {
+   "gamma": [
+    0.6139344577541573,
+    0.6139344577541573
+   ],
+   "tension_offset": [
+    0.001,
+    0.001
+   ],
+   "hammer_position_ratio": [
+    0.15,
+    0.15
+   ],
+   "hammer_width_m": [
+    0.01027961628,
+    0.01027961628
+   ]
+  },
+  "33": {
+   "gamma": [
+    0.6201505319981481,
+    0.6201505319981481
+   ],
+   "tension_offset": [
+    0.001,
+    0.001
+   ],
+   "hammer_position_ratio": [
+    0.15,
+    0.15
+   ],
+   "hammer_width_m": [
+    0.008341279931,
+    0.008341279931
+   ]
+  },
+  "60": {
+   "gamma": [
+    0.4877880603736479,
+    0.4877880603736479
+   ],
+   "tension_offset": [
+    0.001,
+    0.001
+   ],
+   "hammer_position_ratio": [
+    0.15,
+    0.15
+   ],
+   "hammer_width_m": [
+    0.005109870962,
+    0.005109870962
+   ]
+  },
+  "96": {
+   "gamma": [
+    0.381154865741032,
+    0.381154865741032
+   ],
+   "tension_offset": [
+    0.001,
+    0.001
+   ],
+   "hammer_position_ratio": [
+    0.15,
+    0.15
+   ],
+   "hammer_width_m": [
+    0.007223019266,
+    0.007223019266
+   ]
+  }
+ },
+ "notes": [
+  {
+   "pitch": 24,
+   "velocity": 64,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.00035924173425883055,
+   "rms_0_500ms": 4.727168161904583e-05,
+   "rms_db": -86.50797896097276,
+   "int32_headroom_db": 294.6173649962469,
+   "f_expected": 32.70319566257483,
+   "f_measured": 32.62303002655581,
+   "cents": -4.248999443753043,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -11.109188669931978,
+   "channel_rms": [
+    4.727168161904583e-05,
+    2.131411911490559e-05,
+    9.381049479442528e-05,
+    4.509189868446494e-05
+   ]
+  },
+  {
+   "pitch": 24,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.000788577483035624,
+   "rms_0_500ms": 0.00010422605958013174,
+   "rms_db": -79.64047362132948,
+   "int32_headroom_db": 287.78821324005025,
+   "f_expected": 32.70319566257483,
+   "f_measured": 32.62169405833128,
+   "cents": -4.319897856200692,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -11.337415669957716,
+   "channel_rms": [
+    0.00010422605958013174,
+    4.8018440377500626e-05,
+    0.0002120583803983562,
+    0.0001011566865913606
+   ]
+  },
+  {
+   "pitch": 33,
+   "velocity": 64,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.0002902350388467312,
+   "rms_0_500ms": 5.9373823126855164e-05,
+   "rms_db": -84.52809971225207,
+   "int32_headroom_db": 296.47010384629436,
+   "f_expected": 55.0,
+   "f_measured": 54.26068814626285,
+   "cents": -23.42912918183064,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -18.485089808518673,
+   "channel_rms": [
+    5.9373823126855164e-05,
+    2.567655986048022e-05,
+    7.517485232621913e-05,
+    2.329549230371769e-05
+   ]
+  },
+  {
+   "pitch": 33,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.000653454102575779,
+   "rms_0_500ms": 0.00013138094429630034,
+   "rms_db": -77.62935241958918,
+   "int32_headroom_db": 289.42079890358013,
+   "f_expected": 55.0,
+   "f_measured": 54.24432223083291,
+   "cents": -23.9513765905513,
+   "pitch_confidence": 0.9988838626971693,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -19.411974191951455,
+   "channel_rms": [
+    0.00013138094429630034,
+    5.817156009867138e-05,
+    0.00017046583496354957,
+    5.197457328896024e-05
+   ]
+  },
+  {
+   "pitch": 60,
+   "velocity": 64,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 3.2746851502452046e-05,
+   "rms_0_500ms": 7.132789415521197e-06,
+   "rms_db": -102.93481195314065,
+   "int32_headroom_db": 315.421709674113,
+   "f_expected": 261.6255653005986,
+   "f_measured": 258.16260629973465,
+   "cents": -23.068171084992485,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -21.475515933334837,
+   "channel_rms": [
+    7.132789415521197e-06,
+    5.836423705643694e-06,
+    6.299666817440822e-06,
+    2.4561591779687667e-06
+   ]
+  },
+  {
+   "pitch": 60,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 7.900292985141277e-05,
+   "rms_0_500ms": 1.7819217141923755e-05,
+   "rms_db": -94.9822275979144,
+   "int32_headroom_db": 307.77223673124024,
+   "f_expected": 261.6255653005986,
+   "f_measured": 258.16303036212935,
+   "cents": -23.065327332118247,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -21.874627011650823,
+   "channel_rms": [
+    1.7819217141923755e-05,
+    1.3302665648205544e-05,
+    1.6725778809042898e-05,
+    6.8154818588346e-06
+   ]
+  },
+  {
+   "pitch": 96,
+   "velocity": 64,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 1.069216068572132e-06,
+   "rms_0_500ms": 1.6913414877295088e-07,
+   "rms_db": -135.43537395965035,
+   "int32_headroom_db": 345.14379114487804,
+   "f_expected": 2093.004522404789,
+   "f_measured": 2175.544990815558,
+   "cents": 66.96170834319706,
+   "pitch_confidence": 2.3251503620522375e-05,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -66.87138021859766,
+   "channel_rms": [
+    1.6913414877295088e-07,
+    1.0439924603473773e-07,
+    1.9337829422040423e-07,
+    7.705241155605536e-08
+   ]
+  },
+  {
+   "pitch": 96,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 2.0103507267776877e-06,
+   "rms_0_500ms": 2.7994615981621864e-07,
+   "rms_db": -131.0585097119468,
+   "int32_headroom_db": 339.6596640570991,
+   "f_expected": 2093.004522404789,
+   "f_measured": 2175.5447392442957,
+   "cents": 66.96150815025125,
+   "pitch_confidence": 6.502043498594059e-05,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -68.4770794389398,
+   "channel_rms": [
+    2.7994615981621864e-07,
+    1.73951179712567e-07,
+    3.211276525350144e-07,
+    1.2796964386684942e-07
+   ]
+  }
+ ]
+}

@@ -1,0 +1,57 @@
+{
+ "preset": "D:\\repos\\PianoidInstall\\PianoidCore\\pianoid_middleware\\presets\\Belarus_8band_196modes.json",
+ "main_volume_coefficient": 0.011108996539098746,
+ "load_params": {
+  "string_iteration": 4,
+  "array_size": 384
+ },
+ "readback": {
+  "33": {
+   "gamma": [
+    0.6201505319981481,
+    0.6201505319981481
+   ],
+   "tension_offset": [
+    0.001,
+    0.001
+   ],
+   "hammer_position_ratio": [
+    0.15,
+    0.15
+   ],
+   "hammer_width_m": [
+    0.008341279931,
+    0.008341279931
+   ]
+  }
+ },
+ "notes": [
+  {
+   "pitch": 33,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.003660358488559723,
+   "rms_0_500ms": 0.0007138305799869901,
+   "rms_db": -62.92809702239186,
+   "int32_headroom_db": 274.45462825320595,
+   "f_expected": 55.0,
+   "f_measured": 54.42164654027991,
+   "cents": -18.301214755984414,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": null,
+   "cents_vs_pred": null,
+   "decay_db_per_s": -15.955691119269394,
+   "cycle_ms": 0.7216666666666667,
+   "total_ms": 866.0,
+   "cycles": 1200,
+   "channel_rms": [
+    0.0007138305799869901,
+    0.0003083781425280295,
+    0.0009366604130685625,
+    0.0002814534811212022
+   ]
+  }
+ ]
+}

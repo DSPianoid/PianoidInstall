@@ -1,0 +1,54 @@
+{
+ "preset": "C:\\Users\\astri\\AppData\\Local\\Temp\\claude\\D--repos-PianoidInstall\\7a4a00c1-b83c-48a0-8239-310113277df6\\scratchpad\\v_only22_nobend_N16.json",
+ "main_volume_coefficient": 0.011108996539098746,
+ "load_params": {
+  "string_iteration": 16,
+  "array_size": 512
+ },
+ "readback": {
+  "22": {
+   "gamma": [
+    0.3204345703125,
+    0.3204345703125
+   ],
+   "tension_offset": [
+    7.78089013383131e-05,
+    7.78089013383131e-05
+   ],
+   "hammer_position_ratio": [
+    0.12710870101397642,
+    0.12710870101397642
+   ],
+   "hammer_width_m": [
+    0.059866672828933876,
+    0.059866672828933876
+   ]
+  }
+ },
+ "notes": [
+  {
+   "pitch": 22,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.0015353448688983917,
+   "rms_0_500ms": 1.911533538573242e-05,
+   "rms_db": -94.37236155436901,
+   "int32_headroom_db": 282.0009818438499,
+   "f_expected": 29.13523509488062,
+   "f_measured": 29.75980320887162,
+   "cents": 36.72004136538851,
+   "pitch_confidence": 0.7190745682163855,
+   "f_pred_fpga": 29.319,
+   "cents_vs_pred": 25.83490675278072,
+   "decay_db_per_s": -8.797947731490337,
+   "channel_rms": [
+    1.911533538573242e-05,
+    5.753806550307941e-05,
+    7.054790776869832e-05,
+    0.0002375096529344595
+   ]
+  }
+ ]
+}

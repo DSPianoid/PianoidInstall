@@ -1,0 +1,57 @@
+{
+ "preset": "C:\\Users\\astri\\AppData\\Local\\Temp\\claude\\D--repos-PianoidInstall\\7a4a00c1-b83c-48a0-8239-310113277df6\\scratchpad\\v_full_N4.json",
+ "main_volume_coefficient": 0.011108996539098746,
+ "load_params": {
+  "string_iteration": 4,
+  "array_size": 512
+ },
+ "readback": {
+  "33": {
+   "gamma": [
+    0.3204345703125,
+    0.3204345703125
+   ],
+   "tension_offset": [
+    0.001059001512859304,
+    0.001059001512859304
+   ],
+   "hammer_position_ratio": [
+    0.12506787780481213,
+    0.12506787780481213
+   ],
+   "hammer_width_m": [
+    0.048330646080044115,
+    0.048330646080044115
+   ]
+  }
+ },
+ "notes": [
+  {
+   "pitch": 33,
+   "velocity": 110,
+   "samples": 76800,
+   "channels": 4,
+   "nonfinite": 0,
+   "peak": 0.0001201460836455226,
+   "rms_0_500ms": 8.51785635099975e-06,
+   "rms_db": -101.3933937668002,
+   "int32_headroom_db": 304.1309083053955,
+   "f_expected": 55.0,
+   "f_measured": 54.85388367969295,
+   "cents": -4.605421120184653,
+   "pitch_confidence": 1.0,
+   "f_pred_fpga": 54.807,
+   "cents_vs_pred": 1.4803205090411231,
+   "decay_db_per_s": -10.025241089686702,
+   "cycle_ms": 0.5775,
+   "total_ms": 693.0,
+   "cycles": 1200,
+   "channel_rms": [
+    8.51785635099975e-06,
+    1.4953146539655905e-05,
+    1.8990965457282753e-05,
+    2.175951409372726e-05
+   ]
+  }
+ ]
+}

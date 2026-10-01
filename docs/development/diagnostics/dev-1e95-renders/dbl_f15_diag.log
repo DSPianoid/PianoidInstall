@@ -1,0 +1,258 @@
+UnifiedGpuMemoryManager initialized:
+  TUNABLE: 2x GPU buffers (5.79 MB each)
+  SINGLE-BUFFERED: 0 buffers
+=== GPU Memory Report ===
+TUNABLE:       11.57 MB (2x 5.79 MB buffers)
+STATIC_INPUT:  0.00 MB
+WORKING:       0.00 MB
+OUTPUT:        0.00 MB
+DEBUG_OUTPUT:  0.00 MB
+FILTER_SYSTEM: 0.00 MB
+-------------------------
+TOTAL:         11.57 MB
+=========================
+Update poll thread started
+Update poll thread stopped
+UnifiedGpuMemoryManager shutdown complete
+UnifiedGpuMemoryManager initialized:
+  TUNABLE: 2x GPU buffers (5.79 MB each)
+  SINGLE-BUFFERED: 0 buffers
+=== GPU Memory Report ===
+TUNABLE:       11.57 MB (2x 5.79 MB buffers)
+STATIC_INPUT:  0.00 MB
+WORKING:       0.00 MB
+OUTPUT:        0.00 MB
+DEBUG_OUTPUT:  0.00 MB
+FILTER_SYSTEM: 0.00 MB
+-------------------------
+TOTAL:         11.57 MB
+=========================
+Registered TUNABLE buffer 'dev_physical_parameters' (offset=0, size=32768 bytes)
+Registered TUNABLE buffer 'dev_hammer' (offset=32768, size=262144 bytes)
+Registered TUNABLE buffer 'dev_gauss_params_full' (offset=294912, size=5242880 bytes)
+Registered TUNABLE buffer 'dev_mode_state' (offset=5537792, size=6144 bytes)
+Registered TUNABLE buffer 'dev_deck_parameters' (offset=5543936, size=524288 bytes)
+Registered STATIC_INPUT buffer 'dev_stem' (elements=232, alloc=232, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_exct_cycle_index' (elements=232, alloc=232, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_exct_descriptor' (elements=696, alloc=696, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_dec_open' (elements=232, alloc=232, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_feedback_output_mask' (elements=232, alloc=232, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_string_map' (elements=464, alloc=464, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_main_volume_coeff' (elements=1, alloc=1, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_deck_feedback_coeff' (elements=1, alloc=1, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_amplitude_limit' (elements=1, alloc=1, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_amplitude_gate_enabled' (elements=1, alloc=1, size=0.00 MB)
+Registered WORKING buffer 'dev_gate_trip' (elements=2, alloc=2, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_sustain_value' (elements=1, alloc=1, size=0.00 MB)
+Registered WORKING buffer 'dev_sound_prev_diff' (elements=4, alloc=4, size=0.00 MB)
+Registered WORKING buffer 'dev_limiter_peak' (elements=4, alloc=4, size=0.00 MB)
+Registered WORKING buffer 'dev_mode_running' (elements=512, alloc=512, size=0.00 MB)
+Registered STATIC_INPUT buffer 'dev_cycle_params' (elements=16, alloc=16, size=0.00 MB)
+Registered WORKING buffer 'dev_force_function' (elements=1900544, alloc=1900544, size=14.50 MB)
+Registered WORKING buffer 'dev_string_excitations' (elements=1900544, alloc=1900544, size=14.50 MB)
+Registered WORKING buffer 'dev_parameters' (elements=3801088, alloc=3801088, size=29.00 MB)
+Registered WORKING buffer 'mode_position' (elements=14848, alloc=14848, size=0.11 MB)
+Registered WORKING buffer 'mode_new_position' (elements=14848, alloc=14848, size=0.11 MB)
+Registered WORKING buffer 'dev_gauss_param_indices' (elements=64, alloc=64, size=0.00 MB)
+Registered WORKING buffer 'dev_filter_cycle_params' (elements=8, alloc=8, size=0.00 MB)
+Registered WORKING buffer 'dev_string_excitation_params' (elements=320, alloc=320, size=0.00 MB)
+Registered WORKING buffer 'dev_string_excitation_coeff' (elements=64, alloc=64, size=0.00 MB)
+Registered OUTPUT buffer 'dev_string_state' (elements=59392, alloc=59392, size=0.45 MB)
+Registered OUTPUT buffer 'dev_soundInt' (elements=256, alloc=256, size=0.00 MB)
+Registered OUTPUT buffer 'dev_soundFloat' (elements=256, alloc=256, size=0.00 MB)
+Registered OUTPUT buffer 'dev_soundDouble' (elements=512, alloc=512, size=0.00 MB)
+Registered OUTPUT buffer 'dev_filteredSound' (elements=128, alloc=128, size=0.00 MB)
+Registered OUTPUT buffer 'dev_filteredSoundFloat' (elements=128, alloc=128, size=0.00 MB)
+Registered FILTER_SYSTEM buffer 'dev_bufferForFilter' (elements=55296, alloc=55296, size=0.21 MB)
+Registered FILTER_SYSTEM buffer 'dev_tmpOutputForFilter' (elements=64, alloc=64, size=0.00 MB)
+Registered FILTER_SYSTEM buffer 'dev_fir_filters' (elements=442368, alloc=442368, size=1.69 MB)
+Registered FILTER_SYSTEM buffer 'dev_filter_input_buffers' (elements=147968, alloc=147968, size=0.56 MB)
+Registered FILTER_SYSTEM buffer 'dev_filter_input_samples' (elements=256, alloc=256, size=0.00 MB)
+Registered FILTER_SYSTEM buffer 'dev_filter_output' (elements=512, alloc=512, size=0.00 MB)
+Registered FILTER_SYSTEM buffer 'dev_filter_partials' (elements=6144, alloc=6144, size=0.02 MB)
+Registered FILTER_SYSTEM buffer 'dev_filter_sums' (elements=512, alloc=512, size=0.00 MB)
+Loaded preset 'v_full_N16' to library (758528 reals, 5.79 MB, GPU-resident)
+Update poll thread started
+Loaded preset 'v_full_N16 (working 1)' to library (758528 reals, 5.79 MB, GPU-resident)
+Switching to preset 'v_full_N16 (working 1)' (sync, D2D)
+Buffers swapped - new parameters published (engine refreshes at cycle boundary)
+Update finalized - all copies synchronized
+Updating dev_physical_parameters (offset=0, count=3712, async)
+Buffers swapped - new parameters published (engine refreshes at cycle boundary)
+Update finalized - all copies synchronized
+OfflinePlaybackEngine: Starting offline render (total_cycles: 1200)
+OfflinePlaybackEngine: GPU already initialized
+OfflinePlaybackEngine: Running without audio driver (offline mode)
+OfflinePlaybackEngine: Cycle execution failed with status 500
+Pianoid v3.0: Unified EventQueue playback (cycle-accurate +/-5 cycles)
+Initializing pianoid with parameters 
+ {'string_iteration': 16, 'array_size': 512, 'sample_rate': 48000, 'samples_in_cycle': 64, 'buffer_size': 4, 'audio_on': False, 'audio_driver_type': 0, 'listen_to_modes': False, 'sound_derivative_order': 1}
+pianoidCuda: using RELEASE variant
+Preset updated, dict True
+Loading strings from blocks
+Pitch 128, strings [228], total 1
+Pitch 23, strings [8], total 2
+Pitch 24, strings [12], total 3
+Pitch 25, strings [16], total 4
+Pitch 26, strings [20], total 5
+Pitch 27, strings [24], total 6
+Pitch 28, strings [28], total 7
+Pitch 29, strings [32], total 8
+Pitch 30, strings [36], total 9
+Pitch 31, strings [40], total 10
+Pitch 32, strings [44], total 11
+Pitch 33, strings [48, 52], total 13
+Pitch 34, strings [56, 60], total 15
+Pitch 35, strings [64, 68], total 17
+Pitch 36, strings [72, 76], total 19
+Pitch 37, strings [80, 84], total 21
+Pitch 38, strings [88, 92], total 23
+Pitch 39, strings [96, 100], total 25
+Pitch 40, strings [104, 108], total 27
+Pitch 41, strings [112, 116], total 29
+Pitch 42, strings [120, 124], total 31
+Pitch 43, strings [128, 132], total 33
+Pitch 44, strings [136, 140], total 35
+Pitch 45, strings [144, 148, 152], total 38
+Pitch 46, strings [156, 160, 164], total 41
+Pitch 47, strings [168, 172, 176], total 44
+Pitch 48, strings [180, 184, 188], total 47
+Pitch 49, strings [192, 196, 200], total 50
+Pitch 50, strings [204, 208, 212], total 53
+Pitch 51, strings [216, 220, 224], total 56
+Pitch 52, strings [225, 226, 227], total 59
+Pitch 53, strings [221, 222, 223], total 62
+Pitch 54, strings [217, 218, 219], total 65
+Pitch 55, strings [213, 214, 215], total 68
+Pitch 56, strings [209, 210, 211], total 71
+Pitch 57, strings [205, 206, 207], total 74
+Pitch 58, strings [201, 202, 203], total 77
+Pitch 59, strings [197, 198, 199], total 80
+Pitch 60, strings [193, 194, 195], total 83
+Pitch 61, strings [189, 190, 191], total 86
+Pitch 62, strings [185, 186, 187], total 89
+Pitch 63, strings [181, 182, 183], total 92
+Pitch 64, strings [177, 178, 179], total 95
+Pitch 65, strings [173, 174, 175], total 98
+Pitch 66, strings [169, 170, 171], total 101
+Pitch 67, strings [165, 166, 167], total 104
+Pitch 68, strings [161, 162, 163], total 107
+Pitch 69, strings [157, 158, 159], total 110
+Pitch 70, strings [153, 154, 155], total 113
+Pitch 71, strings [149, 150, 151], total 116
+Pitch 72, strings [145, 146, 147], total 119
+Pitch 73, strings [141, 142, 143], total 122
+Pitch 74, strings [137, 138, 139], total 125
+Pitch 75, strings [133, 134, 135], total 128
+Pitch 76, strings [129, 130, 131], total 131
+Pitch 77, strings [125, 126, 127], total 134
+Pitch 78, strings [121, 122, 123], total 137
+Pitch 79, strings [117, 118, 119], total 140
+Pitch 80, strings [113, 114, 115], total 143
+Pitch 81, strings [109, 110, 111], total 146
+Pitch 82, strings [105, 106, 107], total 149
+Pitch 83, strings [101, 102, 103], total 152
+Pitch 84, strings [97, 98, 99], total 155
+Pitch 85, strings [93, 94, 95], total 158
+Pitch 86, strings [89, 90, 91], total 161
+Pitch 87, strings [85, 86, 87], total 164
+Pitch 88, strings [81, 82, 83], total 167
+Pitch 89, strings [77, 78, 79], total 170
+Pitch 90, strings [73, 74, 75], total 173
+Pitch 91, strings [69, 70, 71], total 176
+Pitch 92, strings [65, 66, 67], total 179
+Pitch 93, strings [61, 62, 63], total 182
+Pitch 94, strings [57, 58, 59], total 185
+Pitch 95, strings [53, 54, 55], total 188
+Pitch 96, strings [49, 50, 51], total 191
+Pitch 97, strings [45, 46, 47], total 194
+Pitch 98, strings [41, 42, 43], total 197
+Pitch 99, strings [37, 38, 39], total 200
+Pitch 100, strings [33, 34, 35], total 203
+Pitch 101, strings [29, 30, 31], total 206
+Pitch 102, strings [25, 26, 27], total 209
+Pitch 103, strings [21, 22, 23], total 212
+Pitch 104, strings [17, 18, 19], total 215
+Pitch 105, strings [13, 14, 15], total 218
+Pitch 106, strings [9, 10, 11], total 221
+Pitch 129, strings [229], total 222
+Pitch 130, strings [230], total 223
+Pitch 131, strings [231], total 224
+Pitch 21, strings [0], total 225
+Pitch 22, strings [4], total 226
+Pitch 107, strings [5, 6, 7], total 229
+Pitch 108, strings [1, 2, 3], total 232
+4
+mode_iteration : 64
+string_iteration : 16
+sr : 48000
+array_size : 512
+num_strings_in_array : 4
+excitation_factor : 8
+level_indices : [0, 5, 31, 63, 95, 127]
+num_modes : 196
+num_strings : 232
+num_channels : 4
+ms_timestep : 1
+dx : 0.005
+listen_to_modes : False
+mode_channel_index : 196
+buffer_size : 4
+deck_feedback_coefficient : 1.0
+hammer_speeds : [0.0, 0.019870938362353593, 0.516774181193921, 2.362928522331377, 4.117386306342114, 5.5]
+excitation_impulse_calibration : 233400000.0
+output_scale : 455541651974.1707
+output_scale_calibrated : True
+Audio on is set to False
+Preset loaded, model parameters:
+mode_iteration : 64
+string_iteration : 16
+sr : 48000
+array_size : 512
+num_strings_in_array : 4
+excitation_factor : 8
+level_indices : [0, 5, 31, 63, 95, 127]
+num_modes : 196
+num_strings : 232
+num_channels : 4
+ms_timestep : 1
+dx : 0.005
+listen_to_modes : False
+mode_channel_index : 196
+buffer_size : 4
+deck_feedback_coefficient : 1.0
+hammer_speeds : [0.0, 0.019870938362353593, 0.516774181193921, 2.362928522331377, 4.117386306342114, 5.5]
+excitation_impulse_calibration : 233400000.0
+output_scale : 455541651974.1707
+output_scale_calibrated : True
+Starting initialization
+Initializing with legacy volume API: main_volume=64
+  Calculated max_volume for new API: 1.323994e-04
+
++++++++++++ CHOOSE AUDIO DRIVER ++++++++++
+Playing with default driver (mapped to SDL3), audio_driver_type 0
+Creating Pianoid: 420 strings, init_params ready
+Pianoid constructor completed
+Pianoid object created
+Iterations per cuda cycle  64
+Memory allocated successfully
+Loading initial preset as read-only original 'v_full_N16'...
+Initial preset loaded; editing on working copy 'v_full_N16 (working 1)'
+  Current volume coefficient: 0.01
+  [volcal B] effective volume_center @ slider64 = 5.06061e+09 (output_scale=4.55542e+11)
+OfflinePlaybackEngine: Rendering completed
+  Cycles: 1
+  Audio duration: 1.33 ms
+  Render time: 2.00 ms
+  Speed: 0.67x real-time
+Traceback (most recent call last):
+  File "C:\Users\astri\AppData\Local\Temp\claude\D--repos-PianoidInstall\7a4a00c1-b83c-48a0-8239-310113277df6\scratchpad\render.py", line 163, in <module>
+    main()
+  File "C:\Users\astri\AppData\Local\Temp\claude\D--repos-PianoidInstall\7a4a00c1-b83c-48a0-8239-310113277df6\scratchpad\render.py", line 134, in main
+    snd = render(p, pitch, vel)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\astri\AppData\Local\Temp\claude\D--repos-PianoidInstall\7a4a00c1-b83c-48a0-8239-310113277df6\scratchpad\render.py", line 52, in render
+    raise RuntimeError(stats.error_message)
+RuntimeError: Rendering was stopped by user
+Update poll thread stopped
+UnifiedGpuMemoryManager shutdown complete
