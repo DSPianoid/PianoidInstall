@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-5965 | Investigate failing system/integration/unit tests (chord loudness, channel leak, pitch detection, stale tests) — regression vs stale by measurement | [log](logs/dev-5965-2026-09-22-135848.md) | 2026-09-22 |
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): sc-panel-e2e — Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch | repos: - | branches: feature/sc-panel-e2e-harness | SHAs: - | status: unknown | started 2026-07-17 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-sce2e — SC panel E2E — measurement foundation (fixture+harness+gates+first tests) | repos: - | branches: - | SHAs: - | status: unknown | started 2026-07-17 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-chord — OPERATOR bug "offline can't render a true simultaneous chord": DIAGNOSIS MEASURABLY WRONG — offline coincident | repos: PianoidCore | branches: - | SHAs: - | status: unknown | started 2026-07-17 -->
@@ -205,16 +204,16 @@
      non-Claude + add non-Claude ids to CONTROL_MODEL_CHOICES; ALSO allow-list ORCHESTRATOR_TOOL_NAMES in the
      orchestrator policy so the coordinate tools don't spuriously route every call (else fallback:'route' asks). -->
 
-<!-- dev-5965 (2026-09-22, resumed 2026-10-01) — test-failure triage, PianoidCore feature/dev-5965-test-triage (HOLD, not merged/pushed).
 <!-- dev-1e95 COMPLETED 2026-10-01 — string_iteration instability = ENGINE float32 precision regression (real=float since PianoidCore 6a652df/36f05fe 2025-09-13); fix = summed-form FDTD inner loop, PianoidCore 41ab36d merged into dev as 682a535 (--no-ff), shared venv rebuilt --both, /load_preset 200, template p24 +2.1/+2.7 c at N=4/16 (was +1.4/+90.1); F_15 stable at N=16. NOT pushed. Log: logs/archive/dev-1e95-2026-10-01-151238.md -->
-     USER DECISIONS 2026-10-01 (Telegram 11:55Z "A) delete it B) defer C) close"):
-     (a) Preset_test5 DELETED (93% energy >5 kHz, strongly non-linear); all tests/fixtures migrated to BaselinePreset1
-         (PROJECT_CONFIG#defaults) via tests/conftest.py TEST_PRESET.
-     (b) DEFERRED: tests/fixtures/reference_c4_preset_test5.npy (machine-local, untracked; corr 0.937 < 0.95) NOT regenerated
-         and NOT deleted; TestSoundRegression is skipped ("deferred by user 2026-10-01: reference recording to be regenerated
-         for the replacement preset"). Open follow-up: regenerate a BaselinePreset1 reference, then un-skip.
-     (c) CLOSED: "column multiplier has no effect" Sound Channels report (12 Jul) — not reproduced; attributed to the
-         416 feedback_mask bug fixed in 620a426. -->
+<!-- dev-5965 COMPLETED 2026-10-02 — test-failure triage + Preset_test5 deletion. PianoidCore feature/dev-5965-test-triage
+     (c7c264e interpolateBaseLevels span fix, bcb6622 stale-test updates + engine_state_guard, c25659b Preset_test5 deleted ->
+     tests/conftest.py TEST_PRESET=BaselinePreset1) MERGED into dev as 097efb8 (--no-ff, NOT pushed); root docs 1a8a6fa.
+     Merged dev + rebuilt pyd: unit 1761 pass / integration 615 pass, 0 fail. User decisions 2026-10-01: (a) Preset_test5 deleted;
+     (c) "column multiplier has no effect" CLOSED (not reproduced; 416 feedback_mask bug fixed in 620a426).
+     OPEN FOLLOW-UPS: (b) DEFERRED — regenerate a BaselinePreset1 reference for tests/system/test_performance_audio_off.py
+     TestSoundRegression (skipped; machine-local fixtures/reference_c4_preset_test5.npy kept, not regenerated);
+     test_synth_validate::test_band_mismatch_surfaces_low_recall is a flaky CPU-bound timeout (100-145 s vs 120 s
+     pytest-timeout, pre-existing) — raise its timeout or shrink the dataset. -->
 
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
