@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-f27f | Fix tail-damper (dump_coeff int truncation of damper_tail in parameterKernel) — measure, float fix, both conventions, verify renders | [log](logs/dev-f27f-2026-10-02-125750.md) | 2026-10-02 |
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): sc-panel-e2e — Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch | repos: - | branches: feature/sc-panel-e2e-harness | SHAs: - | status: unknown | started 2026-07-17 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-sce2e — SC panel E2E — measurement foundation (fixture+harness+gates+first tests) | repos: - | branches: - | SHAs: - | status: unknown | started 2026-07-17 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-chord — OPERATOR bug "offline can't render a true simultaneous chord": DIAGNOSIS MEASURABLY WRONG — offline coincident | repos: PianoidCore | branches: - | SHAs: - | status: unknown | started 2026-07-17 -->
@@ -3259,7 +3260,7 @@ Consolidates prior ad-hoc probes formerly kept under `/tmp/test_cycle_*`.
 
 <!-- RESOLVED 2026-10-01 dev-f2b8: secondary iter-dependence (HF/decay) fixed — coeff_frequency_decay + damper term × dt/dt_ref in parameterKernel (PianoidCore 8113480); decay spread across N ≤2.4 %. See SYNTHESIS_ENGINE.md §Numerical scheme invariants. -->
 
-- **Tail damper inert (int truncation)** (dev-f2b8, 2026-10-01). `Kernels.cu` `dump_coeff` is `int`; on the tail it is `int(damper_tail)` and preset values are ~1e-5…1e-4 → 0, so tail damping never applies. Fix changes the sound of every preset → needs a user decision + recalibration plan.
+- **Tail damper inert (int truncation)** (dev-f2b8, 2026-10-01) — FIXED on PianoidCore `feature/dev-f27f-tail-damper` (dev-f27f, 2026-10-02, HOLD: not merged). `dump_coeff` is now `real`; `damper_tail` = real multiplier on `damper_string` (documented + history + measured). F15 coefficients bit-identical; stock presets inaudibly changed. **Open decision:** stock presets store `damper_tail == damper_string` (~1e-5), i.e. effectively NO tail damping under the multiplier semantics; giving them an audible tail damper means setting `damper_tail` to a multiplier (e.g. 127) — a sound change needing the user's call. Optional follow-up: the FPGA converter may drop its `np.rint` on `damper_tail` (exact FPGA tail decrement; changes F15 regeneration slightly).
 
 - **pip install returns stale pianoidCuda.pyd** (2026-04-23 discovery). `pip install --force-reinstall --no-cache-dir pianoid_cuda/` silently produces cached pyd despite fresh .obj compilation. Workaround: always use `./build_pianoid_cuda.bat --heavy --release` (does full clean + pip cache purge). Structural fix would identify the caching layer in setup.py / pip build isolation. See [archive/VOLUME_ITER_BUG_INVESTIGATION.md](archive/VOLUME_ITER_BUG_INVESTIGATION.md) §"Build pipeline discovery".
 

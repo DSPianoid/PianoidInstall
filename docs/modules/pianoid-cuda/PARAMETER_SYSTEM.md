@@ -57,7 +57,7 @@ Index  Name                      Description
  11    outer_sound               Outer sound channel coefficient
  12    frequency_damping         Frequency-dependent damping
  13    damper_string             Damper string coefficient
- 14    dump_coeff_tail           Tail damping coefficient
+ 14    dump_coeff_tail           Tail damper multiplier (damper_tail; × damper_string on tail points)
  15    reserved                  Reserved
 ```
 

@@ -121,7 +121,7 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 | `coeff_tension` | `(T/ρ) · dt² / dx²` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:133` | `Pitch.py:307` |
 | `coeff_bending` | `(π·E·r⁴ / 4ρ) · dt² / dx⁴` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:135` | `Pitch.py:310` |
 | `coeff_frequency_decay` | HF damping: `γ_HF · 1e12 / (2·dx²) · dt/dt_ref` | `∝ dt` (∝ 1/iter; = legacy value at the reference grid, dev-f2b8) | `Kernels.cu:144` | `Pitch.py:321` (`c2dec ∝ 1/(dt·dx²)` — differs; Python is not the reference for this term) |
-| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
+| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping; `dump_coeff` = damper step count on the main string, `damper_tail` on the tail — see below) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
 | `coeff_force` | `dt² · dec_inv · hammer[p]` (per-point force coefficient) | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:155–158` | `Pitch.py:319` (`cf = dt² · dec_inv`) |
 | `shift_0` | `(2 + 12·coeff_bending − 2·coeff_tension) · dec_inv` | derived | `Kernels.cu:144` | `Pitch.py:314` |
 | `shift_b` | `(dec_curr − 1) · dec_inv` | derived | `Kernels.cu:148` | `Pitch.py:318` |
@@ -132,10 +132,23 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 `REFERENCE_SUBSTEP_RATE = 48000·4` (`constants.h`) — exactly `1.0` on the reference grid, so presets tuned at
 48 kHz × 4 are unchanged there.
 
-**Damper int-truncation (pre-existing, NOT changed by dev-f2b8).** `dump_coeff` is an `int`. On the main
-string it is `int(pow((127 − sustain) · dumper_position, 0.6))` = 18 (damper closed) / 0 (open, key held). On the
-TAIL it is `int(physical_parameters[14])` = `int(damper_tail)`, and preset `damper_tail` values are ~1e-5…1e-4 →
-**0: the tail damper is inert**. Fixing it would change the sound at every N; left as a decision.
+**Damper multiplier `dump_coeff` (dev-f27f, 2026-10-02).** `dump_coeff` multiplies `damper_string`:
+
+| Points | `dump_coeff` | Values |
+|---|---|---|
+| main string | `int(pow((127 − sustain) · dumper_position, 0.6))` — integer damper step count | 18 damper closed, 0 open (key held); intermediate with the sustain pedal |
+| tail | `damper_tail` (`physical_parameters[14]`) — a **real, dimensionless multiplier** | e.g. 127 (`PhysicalParameters` default, the former constant `DUMP_ON_TAIL`), FPGA converter 1…1e6 |
+
+So the tail decrement is `damper_string · damper_tail · dt/dt_ref`: only the product matters, `damper_tail` is
+NOT an absolute damping value (history: PianoidCore 3ad994e `DUMP_ON_TAIL = 127` → 6e0182b slot 14 + PianoidBasic
+b7e93d4 default 127). Until dev-f27f `dump_coeff` was an `int`, so `damper_tail` was truncated and every value
+< 1 was inert — all stock presets (Belarus family, `BaselinePreset1`, test presets) store `damper_tail ==
+damper_string` (3e-6…1.1e-4), measured identical renders for stored / ×1000 / 0. Now it is a `real`: integer
+multipliers give bit-identical coefficients (F15_Elyashev_array512: 0 of 950 272 kernel coefficients changed);
+stock presets get the tiny tail decrement `damper_string²` ≈ 1e-11…1e-8 (C7 release-part waveform change ≤ 2.6e-3,
+level/decay/pitch unchanged — inaudible). A stock preset that wants an audible tail damper sets `damper_tail` to a
+multiplier (e.g. 127). Pinned by `tests/integration/test_tail_damper.py`. Evidence
+`docs/development/diagnostics/dev-f27f-renders/summary.md`.
 
 `coeff_force` was corrected in commit `6e58413`: previously `∝ dt¹` (in ms units), causing
 the per-sample force integral to scale as `iter` and an audio peak that scaled linearly
@@ -178,7 +191,7 @@ folded into the coefficient by `parameterKernel` at kernel entry).
   Part 2. **Changed coefficient semantics (for preset generators, e.g. the FPGA converter):** `disp_decay` and
   `damper_string` now mean their per-sub-step effect AT THE REFERENCE GRID (48 kHz × 4); the engine applies
   `× dt/dt_ref` itself. A generator that folded the GPU/FPGA step ratio `k = dt_g/dt_src` into them must use
-  `k_ref = dt_ref/dt_src` instead (N-independent); `damper_tail` (an integer ratio) is unchanged; `gamma` was
+  `k_ref = dt_ref/dt_src` instead (N-independent); `damper_tail` (a multiplier on `damper_string`) is unchanged; `gamma` was
   already dt-scaled; the excitation coefficient now delivers the N = 4 impulse at every N.
   History — before the fix, re-measured dev-f2b8 (Belarus template, v110): C7 decay
   −33 → −68 dB/s and C4 −23 → −28 dB/s at N 4 → 16; with `disp_decay = 0` C7 decay is −5.3/−4.7/−4.0

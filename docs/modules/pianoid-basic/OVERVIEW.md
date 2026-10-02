@@ -207,7 +207,7 @@ Holds the physical material constants for a pitch and manages the associated `Pi
 | `disp_decay` | 0 | Dispersive-decay amplitude |
 | `volume_coefficient` | *(removed)* | Removed from `set_params()`. Volume characteristics are embedded in excitation curves via `volume_coefficients` |
 | `damper_string` | 0.5 | Damper stiffness on string |
-| `damper_tail` | 127 | MIDI velocity below which damper is active |
+| `damper_tail` | 127 | Tail damper: real multiplier on `damper_string` on the string tail (tail decrement = `damper_string · damper_tail`); see SYNTHESIS_ENGINE "Damper multiplier" |
 
 Key methods:
 
@@ -539,15 +539,15 @@ string step exactly). Per key:
 `N_eff = N − (int)shteg − 21.1` (speaking offset fitted to F_15 with the exact clamped FPGA scheme), GPU
 `main = round(N_eff + 1)` (the engine vibrates `main − 1` points — measured), `tail = max((int)shteg, 1)`
 (`StringGeometry.dx()` treats `tail == 0` as a dummy string). Tension, Young's modulus (negative: the kernel
-adds `+2·cb·fd`, the FPGA `−Disp·fd`), `gamma`, `disp_decay`, `damper_string` and the integer `damper_tail`
+adds `+2·cb·fd`, the FPGA `−Disp·fd`), `gamma`, `disp_decay`, `damper_string` and the `damper_tail` multiplier
 are solved from the `Kernels.cu parameterKernel` formulas so that `coeff_tension = Tn`,
 `coeff_bending = −Disp/2`, `coeff_frequency_decay = Disp_decr`, `dec = Do` (main), `Damper` (tail) and `Dc`
 (released, `int(127^0.6) = 18` damper steps), each rate-scaled from the 512-clock FPGA step to the GPU
 sub-step and grid-rescaled by `(main − 1)/N_eff`. Since dev-f2b8 (PianoidCore cc4b540) the kernel itself
 multiplies the HF-damping and damper terms by `dt/dt_ref` (`dt_ref = 1/(48000·4)`), so `disp_decay` and
 `damper_string` are written at that reference grid (factor `k_ref = dt_ref/dt_fpga = 4`, independent of the
-sub-step count); `damper_tail` stays an integer multiplier (≥ 1, so the engine's integer `dump_coeff` does
-not truncate it). Converted presets are written with `output_scale_calibrated = false` so the engine
+sub-step count); `damper_tail` is the tail multiplier (rounded to an integer ≥ 1 so F15_Elyashev_array512 regenerates
+identically; since dev-f27f the engine reads it as a real, so rounding is no longer required). Converted presets are written with `output_scale_calibrated = false` so the engine
 re-derives `output_scale` on load. Unison: base `ttn − dt` with `tension_offset = dt/base`
 gives exactly the FPGA set {ttn−dt, ttn, ttn+dt}. String length / rho / r stay template choices (only the
 kernel products matter). 16 sub-steps needs the summed-form float32 FDTD loop (PianoidCore 682a535,

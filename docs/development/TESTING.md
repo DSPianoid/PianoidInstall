@@ -294,6 +294,18 @@ audible change). Verification surface: deterministic offline render.
 
 Note: the offline engine is not bit-exact across consecutive renders (`resetStringsState()` does not zero all carried state — mode `q/q_prev`, excitation cycle index, `sound_prev_diff` persist), giving a ~2.3% render-to-render RMS noise floor. Thresholds are set relative to that measured floor.
 
+### test_tail_damper.py
+
+Regression test (dev-f27f): `damper_tail` is a REAL multiplier on `damper_string` on the string tail
+(SYNTHESIS_ENGINE "Damper multiplier"); it used to be truncated to `int` (every value < 1 inert). Pitch 33
+(BaselinePreset1 tail = 31 points), key held so `damper_string` reaches only the tail; thresholds relative to the
+render-to-render noise measured in the test (~4e-3 here). Both tests FAIL on the pre-fix engine.
+
+| Test | What it validates |
+|------|-------------------|
+| `TestTailDamperMultiplier::test_fractional_tail_multiplier_acts` | `damper_tail` 0.5 vs 0 (D = 2e-3) changes the sound > 5x noise (fixed 14x; pre-fix 1x) and does not add energy |
+| `TestTailDamperMultiplier::test_only_the_product_matters` | (2D, 0.5) sounds like (D, 1.0) within 3x noise (fixed 1.0x; pre-fix 16x) |
+
 ### Parameter → sound suite (`param_sound_harness.py` + `test_param_sound_*.py`)
 
 Regression net for the parameter-editing-system refactor (strategy: `reviews/parameter-sound-test-strategy-2026-07-07.md`; review: `reviews/parameter-editing-system-review-2026-07-07.md`). Each editable parameter is probed at its **physical stage** via the always-active GPU extraction APIs — NOT the mode/soundboard-dominated full-mix. `audio_off`, release build, throwaway process. `ParamSoundHarness` = load fixture → set param (granular API) → warm-up render + discard → probe → metric → DIFF vs the ~2.3% noise floor → reversibility; level/RMS claims run N≥3; string edits gate on `stability_ratio ≤ 1`.

@@ -1,0 +1,96 @@
+{
+ "preset": "D:\\repos\\wt-f27f-core\\pianoid_middleware\\presets\\Belarus_8band_196modes.json",
+ "tail_mode": "set=127",
+ "pyd": "D:\\repos\\wt-f27f-core\\.venv\\Lib\\site-packages\\pianoidCuda.cp312-win_amd64.pyd",
+ "damper_tail_played": {
+  "33": 127.0,
+  "60": 127.0,
+  "96": 127.0
+ },
+ "load_params": {
+  "string_iteration": 4,
+  "array_size": 384
+ },
+ "hold_ms": 1000,
+ "render_ms": 2600,
+ "notes": [
+  {
+   "pitch": 33,
+   "velocity": 64,
+   "nonfinite": 0,
+   "peak_db": -59.62926408006417,
+   "rms_db": -70.20919026506837,
+   "decay_hold": -17.23640001280081,
+   "decay_rel_05": null,
+   "decay_rel_12": null,
+   "level_db_rel_05": -273.834409355266,
+   "cents": -5.808825809798689,
+   "conf": 1.0
+  },
+  {
+   "pitch": 33,
+   "velocity": 110,
+   "nonfinite": 0,
+   "peak_db": -52.90357743891236,
+   "rms_db": -63.34288914050476,
+   "decay_hold": -17.188768433036483,
+   "decay_rel_05": null,
+   "decay_rel_12": null,
+   "level_db_rel_05": -266.86747112178455,
+   "cents": -5.809136542469174,
+   "conf": 1.0
+  },
+  {
+   "pitch": 60,
+   "velocity": 64,
+   "nonfinite": 0,
+   "peak_db": -76.82667705090147,
+   "rms_db": -90.3945890073448,
+   "decay_hold": -28.916661674316266,
+   "decay_rel_05": null,
+   "decay_rel_12": null,
+   "level_db_rel_05": -282.5525917325523,
+   "cents": -20.081703005503876,
+   "conf": 1.0
+  },
+  {
+   "pitch": 60,
+   "velocity": 110,
+   "nonfinite": 0,
+   "peak_db": -69.8359670869311,
+   "rms_db": -82.89753616256078,
+   "decay_hold": -28.658810432565875,
+   "decay_rel_05": null,
+   "decay_rel_12": null,
+   "level_db_rel_05": -273.4838868559009,
+   "cents": -20.081909178423377,
+   "conf": 1.0
+  },
+  {
+   "pitch": 96,
+   "velocity": 64,
+   "nonfinite": 0,
+   "peak_db": -107.46554311538273,
+   "rms_db": -123.75137433119754,
+   "decay_hold": -37.77835485916225,
+   "decay_rel_05": null,
+   "decay_rel_12": null,
+   "level_db_rel_05": -403.29937116428704,
+   "cents": -39.746314932212826,
+   "conf": 1.1185229323575102e-05
+  },
+  {
+   "pitch": 96,
+   "velocity": 110,
+   "nonfinite": 0,
+   "peak_db": -101.76181325134081,
+   "rms_db": -118.95470912627083,
+   "decay_hold": -37.81351758735125,
+   "decay_rel_05": null,
+   "decay_rel_12": null,
+   "level_db_rel_05": -392.5167172420057,
+   "cents": -39.74622865773998,
+   "conf": 2.4532881017251718e-05
+  }
+ ]
+}

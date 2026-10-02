@@ -1,0 +1,96 @@
+{
+ "preset": "D:\\repos\\wt-f27f-core\\pianoid_middleware\\presets\\F15_Elyashev_array512.json",
+ "tail_mode": "stored",
+ "pyd": "D:\\repos\\wt-f27f-core\\.venv\\Lib\\site-packages\\pianoidCuda.cp312-win_amd64.pyd",
+ "damper_tail_played": {
+  "33": 181,
+  "60": 161,
+  "96": 1000000
+ },
+ "load_params": {
+  "string_iteration": 16,
+  "array_size": 512
+ },
+ "hold_ms": 1000,
+ "render_ms": 2600,
+ "notes": [
+  {
+   "pitch": 33,
+   "velocity": 64,
+   "nonfinite": 0,
+   "peak_db": -101.99893722263256,
+   "rms_db": -110.81676005752774,
+   "decay_hold": -3.8674131046487368,
+   "decay_rel_05": -84.81910953833172,
+   "decay_rel_12": -84.93118213806022,
+   "level_db_rel_05": -155.4388794124797,
+   "cents": -13.9301615940111,
+   "conf": 1.0
+  },
+  {
+   "pitch": 33,
+   "velocity": 110,
+   "nonfinite": 0,
+   "peak_db": -88.78712683117853,
+   "rms_db": -101.42123398841707,
+   "decay_hold": -5.900799652545231,
+   "decay_rel_05": -86.50734233042355,
+   "decay_rel_12": -86.34621703108691,
+   "level_db_rel_05": -148.37538813037585,
+   "cents": -13.931596137486798,
+   "conf": 1.0
+  },
+  {
+   "pitch": 60,
+   "velocity": 64,
+   "nonfinite": 0,
+   "peak_db": -115.3120989680153,
+   "rms_db": -124.79215866128132,
+   "decay_hold": -10.424036911154763,
+   "decay_rel_05": -127.10206459487843,
+   "decay_rel_12": -127.05295408891732,
+   "level_db_rel_05": -194.9639760255772,
+   "cents": -6.2965882894323375,
+   "conf": 1.0
+  },
+  {
+   "pitch": 60,
+   "velocity": 110,
+   "nonfinite": 0,
+   "peak_db": -102.60022624144813,
+   "rms_db": -116.0196745610206,
+   "decay_hold": -13.679116622665116,
+   "decay_rel_05": -127.89967662571522,
+   "decay_rel_12": -127.90534071392828,
+   "level_db_rel_05": -189.8187974287853,
+   "cents": -6.296579852756942,
+   "conf": 1.0
+  },
+  {
+   "pitch": 96,
+   "velocity": 64,
+   "nonfinite": 0,
+   "peak_db": -112.24550864067724,
+   "rms_db": -134.38177979426325,
+   "decay_hold": -50.020401324299755,
+   "decay_rel_05": -68.66207462715555,
+   "decay_rel_12": -68.66207462715555,
+   "level_db_rel_05": -245.8375509145382,
+   "cents": 11.838027364585875,
+   "conf": 0.9986637296509439
+  },
+  {
+   "pitch": 96,
+   "velocity": 110,
+   "nonfinite": 0,
+   "peak_db": -107.01153505095795,
+   "rms_db": -132.414634079577,
+   "decay_hold": -50.32052214039297,
+   "decay_rel_05": -68.64520650064846,
+   "decay_rel_12": -68.64520650064846,
+   "level_db_rel_05": -241.16845075570166,
+   "cents": 11.836761190293753,
+   "conf": 0.9990191035201575
+  }
+ ]
+}
