@@ -24,8 +24,12 @@ What the host program settles (QM line numbers):
 Dima's answers (2026-09-30 16:03Z): the "send all parameters" path (send_all QM:12670) is authoritative
 (the flash writer had a bug); F_15's own Pitch.txt is NOT in F_15.rar; FPGA clock = 393.219 MHz
 (read as 393.216 MHz = 8192 x 48 kHz). Step times are now CLOCK COUNTS (flags): strings 512 clk
-(one 512-point array per sweep) = 1.3021 us; modes 256 clk = 0.6510 us; exciter = string step (shared
-'start', INFERRED). Default Pitch.txt = batch2 (better frequency consistency, unconfirmed).
+(one 512-point array per sweep) = 1.3021 us; modes 256 clk = 0.6510 us; exciter 96 clk = 0.2441 us
+(derived from the model counters, proposal 11.11).
+Batch 4 (stm32 firmware pianoid.c, proposal 11.12): every table is forwarded VERBATIM to the FPGA
+(Q -> CMD_decr_0 pianoid.c:2248-2253, omega -> CMD_omega_0 :2263-2267, Mass -> CMD_str_svertk_1 :2279-2284,
+output select CMD_init_sw = 2 :4449). F_15 Pitch.txt = batch4/Pitch.txt (content identical to batch3).
+Tuning fit: effective speaking length = N - shteg - 21.3 points (512-clk step) -> median 0 cents.
 Mode damping (Q) is still OPEN.
 """
 import argparse
@@ -174,15 +178,20 @@ def main():
     ap.add_argument("--fpga-dir", required=True)
     ap.add_argument("--template", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--pitch-file", default=None, help="Pitch.txt (default batch2/Pitch.txt; F_15's own is missing)")
+    ap.add_argument("--pitch-file", default=None, help="Pitch.txt (default batch4/Pitch.txt = F_15's own, per Dima)")
+    ap.add_argument("--length-offset", type=float, default=21.3,
+                    help="points subtracted from N-shteg to get the effective speaking length (fit to F_15 tuning, 11.12)")
     ap.add_argument("--clock", type=float, default=393.216e6, help="FPGA clock [Hz] (Dima: 393.219 MHz)")
     ap.add_argument("--string-clocks", type=int, default=512, help="clocks per string step (512-point sweep)")
     ap.add_argument("--mode-clocks", type=int, default=256, help="clocks per mode step (256-mode sweep)")
-    ap.add_argument("--exc-clocks", type=int, default=None, help="clocks per exciter step (default = string step)")
+    ap.add_argument("--exc-clocks", type=int, default=96,
+                    help="clocks per exciter step: 96 = Mid_Graph2/Counter3 (SID 1634313) sweeps 96 note slots, "
+                         "one per clock, per-note time RAM depth 96 (SID 1634315)")
     ap.add_argument("--exc-decode", choices=["rtl", "legacy_ms", "H0"], default="rtl")
     ap.add_argument("--volume-sign", choices=["raw", "abs", "clip"], default="raw")
     ap.add_argument("--deck-sign", choices=["keep", "abs"], default="keep")
-    ap.add_argument("--mode-decrement", choices=["template", "host_q"], default="template")
+    ap.add_argument("--mode-decrement", choices=["template", "host_q"], default="host_q",
+                    help="host_q = FPGA D=Q_coeff*q_ratio/2^31 per 256-clk step, forwarded verbatim by the stm32 (11.12)")
     ap.add_argument("--mode-mass", choices=["host", "template_law"], default="host")
     ap.add_argument("--no-gamma", action="store_true")
     ap.add_argument("--no-unison", action="store_true", help="skip tension_offset from dt.txt")
@@ -192,17 +201,17 @@ def main():
 
     fd = a.fpga_dir
     here = os.path.dirname(os.path.abspath(__file__))
-    pitch_file = a.pitch_file or os.path.join(here, "batch2", "Pitch.txt")
+    pitch_file = a.pitch_file or os.path.join(here, "batch4", "Pitch.txt")
     others = load_col(fd, "others.txt")
     q_ratio, omega_ratio = others[0], others[1]
     dt_fpga = a.string_clocks / a.clock
     dt_mode = a.mode_clocks / a.clock
-    dt_exc = (a.exc_clocks or a.string_clocks) / a.clock
+    dt_exc = a.exc_clocks / a.clock
     f_scale = math.sqrt(4 * omega_ratio / 2 ** 31) / (2 * math.pi * dt_mode)
     print(f"steps: string {dt_fpga*1e6:.4f} us, mode {dt_mode*1e6:.4f} us, exciter {dt_exc*1e6:.4f} us; "
           f"send-all omega code reproduces f x {f_scale:.4f} ({1200*math.log2(f_scale):+.0f} cents) at the mode step")
-    warn("step clock counts (string 512 / mode 256 / exciter = string) are inferred from the RTL sweep sizes; "
-         "only the 393.216 MHz clock is confirmed by Dima")
+    warn("step clock counts (string 512 / mode 256 / exciter 96) derived from model counters/RAM depths (11.11); "
+         "num_point_256 itself is not defined in the delivered files (taken as 256)")
 
     tmpl = json.load(open(a.template))
     out = copy.deepcopy(tmpl)
@@ -226,7 +235,10 @@ def main():
     host_mi = mass[:K] / freqs[:K] ** 2                       # send_mass QM:338 (relative law)
     host_mi *= np.median(t_mi) / np.median(host_mi)
     D = q[:K] * q_ratio / 2 ** 31                               # Send_Q_coef QM:9660 -> RTL s.31
-    host_dec = D / (dt_mode * freqs[:K])                       # GPU dec = dt*decrement*f
+    gamma_m = -np.log(1 - D) / dt_mode                          # decay rate [1/s] of the FPGA mode
+    dt_gpu_mode = 1.0 / float(mp.get("sr", 48000))               # GPU mode update = 1 audio sample (SYNTHESIS_ENGINE)
+    dec_gpu = 1 - np.exp(-gamma_m * dt_gpu_mode)                # same decay per second on the GPU grid
+    host_dec = dec_gpu / (dt_gpu_mode * freqs[:K])               # GPU dec = dt*decrement*f (Mode.fit_params)
     modes = []
     for i in range(K):
         f = float(freqs[i])
@@ -234,12 +246,13 @@ def main():
         mi = float(host_mi[i]) if a.mode_mass == "host" else 0.1 / (2 * np.pi * f) ** 2
         modes.append({"ID": i, "frequency": f, "decrement": d, "mass": mi})
     out["modes"] = modes
-    print(f"host Q decode would give decrement {host_dec.min():.3g}..{host_dec.max():.3g} "
-          f"(template median {np.median(t_dec):.3g}) -> implausible, Q semantics still OPEN")
+    tau = 1 / gamma_m
+    print(f"FPGA mode damping (verbatim D): tau {tau.min()*1e3:.3f}..{tau.max()*1e3:.3f} ms, "
+          f"GPU decrement {host_dec.min():.3g}..{host_dec.max():.3g} (template median {np.median(t_dec):.3g})")
     if a.mode_decrement == "template":
-        warn("mode decrement = template median for all modes (Q code semantics OPEN)")
+        warn("mode decrement = template median (NOT F_15-faithful; F_15 modes are heavily damped)")
     else:
-        warn("mode decrement from host Q code: implausibly heavy damping, for comparison only")
+        warn("mode decrement = F_15-faithful heavy damping (tau ~0.3-0.6 ms); untested on engine")
     if a.mode_mass == "host":
         warn("mode mass_inv = Mass/f^2 (host law, exact RELATIVE) scaled to the template median (absolute scale approximate)")
 
@@ -291,13 +304,18 @@ def main():
     # ---------------- strings ----------------
     rows = [list(map(int, l.split())) for l in open(pitch_file) if l.strip()]
     n_alloc = np.array([r[0] for r in rows], dtype=float)
-    shteg = load_col(fd, "shteg.txt")
-    n_speak = n_alloc - shteg                                # QM:675 / QM:14310
+    shteg = np.trunc(load_col(fd, "shteg.txt"))                 # FPGA gets (int)shteg (QM:8608, S:923)
+    n_speak = n_alloc - shteg - a.length_offset              # QM:675 / QM:14310 + 21.3-pt fit (11.12)
     ttn, disp_ = load_col(fd, "ttn.txt"), load_col(fd, "disp.txt")
     B = math.pi ** 2 * (disp_ / ttn) / n_speak ** 2
     print(f"strings: Pitch file {os.path.relpath(pitch_file, here)}; speaking points {n_speak.min():.0f}..{n_speak.max():.0f}; "
           f"inharmonicity B (pi^2 Disp/Tn/N^2) {B.min():.2e}..{B.max():.2e} (report only)")
-    warn("F_15's own Pitch.txt is missing from F_15.rar; using a candidate (batch2 fits the ttn/frequency data better)")
+    f_note = load_col(fd, "Notes_freqs.txt")[:N_KEYS]
+    _ct = load_col(fd, "ttn.txt") / Q24
+    _fp = np.sqrt(_ct) * np.sqrt(1 + B) / (2 * n_speak * dt_fpga)
+    _c = 1200 * np.log2(_fp / f_note)
+    print(f"tuning check (ttn, Pitch, offset {a.length_offset}): median {np.median(_c):.0f} cents, "
+          f"IQR {np.percentile(_c,25):.0f}..{np.percentile(_c,75):.0f}, max |{np.abs(_c).max():.0f}|")
     g = load_col(fd, "decr_op.txt") / Q24 / dt_fpga
     dtt, width, dl = load_col(fd, "dt.txt"), load_col(fd, "width.txt"), load_col(fd, "del.txt")
     for pk, pv in out["pitches"].items():

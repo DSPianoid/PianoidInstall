@@ -1,7 +1,7 @@
 # FPGA → GPU Preset Port: Algorithm Comparison and Mapping (Elyashev F_15)
 
 **Date:** 2026-09-30
-**Status:** ANALYSIS + DRAFT CONVERTER, revised with batch 2 (§10), batch 3 / host program (§11), and Dima's answers (§11.8). Nothing has been loaded into the engine. No engine, source or preset edits were made.
+**Status:** ANALYSIS + DRAFT CONVERTER, revised with batch 2 (§10), batch 3 / host program (§11), Dima's answers (§11.8), code derivation (§11.11) and the stm32 firmware (§11.12). Nothing has been loaded into the engine. No engine, source or preset edits were made.
 **Author:** `/analyse` sub-agent
 **Predecessor:** [FPGA Preset Excitation Loader (archived 2026-06-05)](archive/fpga-preset-excitation-loader-2026-05-17.md). It covered the excitation files only. This document covers the whole preset and **challenges one of its conclusions** (§4.3).
 
@@ -16,7 +16,7 @@
 
 **Batch 2 (received 14:10 UTC, after our questions went out).** Three more files are saved under `PresetsFromFpga/elyashev-2026-09-30/batch2/`: `Coeff_converter.m`, `mapp_4_fir_4_str.slx` and `Pitch.txt`. The mail body was empty. The findings are in **[§10 Batch 2 findings](#10-batch-2-findings-2026-09-30-1410-utc)**. **§10 supersedes §1.4, §6 and §7 where they conflict.**
 
-**Batch 3 (14:35 UTC): the host program.** See **[§11](#11-batch-3-the-host-program-2026-09-30-1435-utc)**. It **settles the exp_all order**: `[e, d, a]`, so the production FPGA loader has **μ and σ swapped**. It also corrects the §1–§10 reading of `others.txt[5]`, which is the output volume, not the step rate. **§11 supersedes all earlier sections where they conflict.** **Dima's answers (16:03Z) are in [§11.8](#118-dimas-answers-2026-09-30-1603z-relayed-via-telegram-and-what-they-change)**: the send-all path is authoritative, the clock is 393.216 MHz, and F_15's Pitch.txt is missing from the archive. **§11.8–§11.10 supersede the step-time, rate and feasibility statements in §11.2–§11.7.**
+**Batch 3 (14:35 UTC): the host program.** See **[§11](#11-batch-3-the-host-program-2026-09-30-1435-utc)**. It **settles the exp_all order**: `[e, d, a]`, so the production FPGA loader has **μ and σ swapped**. It also corrects the §1–§10 reading of `others.txt[5]`, which is the output volume, not the step rate. **§11 supersedes all earlier sections where they conflict.** **Dima's answers (16:03Z) are in [§11.8](#118-dimas-answers-2026-09-30-1603z-relayed-via-telegram-and-what-they-change)**: the send-all path is authoritative, the clock is 393.216 MHz, and F_15's Pitch.txt is missing from the archive. **§11.8–§11.10 supersede the step-time, rate and feasibility statements in §11.2–§11.7.** **[§11.11 Derived from code](#1111-derived-from-code-2026-10-01)** (2026-10-01) supersedes §11.8–§11.10 on clocks (exciter = 96 clocks), the output signal (Δq), Q (traced; still non-physical, sent to Dima) and the classification of every open item. **[§11.12 Batch 4 — stm32 firmware](#1112-batch-4-stm32-firmware-2026-10-01)** (2026-10-01) supersedes §11.11 on Q (DERIVED: forwarded verbatim; F_15 modes are deliberately damped, τ 0.28–0.56 ms), Pitch.txt (F_15 = batch3 content) and the pitch offset (resolved: median 0 cents with a 21.3-point effective-length offset).
 
 Both `.slx` files were read by unzipping them and parsing `simulink/systems/*.xml`. The netlists were collapsed to dataflow, with Delay and Register blocks folded into `z^-n`.
 
@@ -670,3 +670,228 @@ With `batch3`, `√(Tn/2²⁴)/(2f(N−shteg))` implies dt ≈ 0.5–1.2 µs (me
 - The number of clocks per string / exciter / mode update.
 - How sub-address 201 (Q) and `CMD_recieve_ttn` are processed by the firmware.
 - The production output-signal selection.
+
+### 11.11 Derived from code (2026-10-01)
+
+Derived from the code we hold: host `batch3/Pianoid_QM.c` (QM:line), production-scale model `batch2/mapp_4_fir_4_str.slx` (`/path` + SID), `test_mashinka_mapp_4.slx`, F_15 data, and both Pitch.txt files. Dima is asked only about what this cannot settle.
+
+#### 11.11.1 Timing structure
+
+**Global enable.** Root `Register43` (SID 688215) latches `Constant1 = 1` on the first `start` pulse. Every counter below has `en = start`, so after start-up **each counter advances one step per clock**. Clock = 393.216 MHz.
+
+| Stage | Derivation | Clocks / step | dt |
+|---|---|---|---|
+| Strings | `/mashinka_0/Force_str0/Counter1` (SID 1830601) counts to `num_str0·num_point_256 − 1`, one point per clock. `num_str0 = 2` (`config_str.h`). `num_point_256` is not defined in any delivered file; it is 256 by the 512-deep `Force_shape` RAM (SID 1830702, `256*2`) and by Pitch.txt offsets that end at exactly 512 | **512** | **1.3021 µs** |
+| Modes | `/oscill_dbl2` state RAMs `Plector_stiffness1/2` (SID 1898385…) are 256 deep and addressed by an 8-bit slice of `Count1/Counter2` (SID 1898308; `cnt_to = 63` in this reduced build, 256 modes in production per `harm_num = 256`, `main.h:169`). One mode per clock. The read→write latency of 78 clocks is < 256 | **256** | **0.6510 µs** |
+| Exciter | `/Mid_Graph2/Counter3` (SID 1634313) runs `cnt_to = 95`; the per-note time counter lives in `Dual Port RAM2` (SID 1634315, depth 96). Each note slot advances once per 96 clocks | **96** | **0.2441 µs** |
+| Output mixer | `/Svertka_ou3`: 8-bit mode index (RSlice6) + 3-bit bank (RSlice5); `Accum_fl` dumps every 256 clocks, so each channel is refreshed every 2048 clocks (192 kHz). `Count/Counter3` (SID 1898914) wraps at `4352*2`. The DAC rate is set by `init_DAC` in a codec outside the model; not needed for the port | — | — |
+
+**Exciter time base (closes the exp_all units).**
+- Centre: `t₀ = 2147000000·d / (65000·im) × 96 clk`.
+- Width: `σ = (2²⁹ / (65000·im)) / √(2·16777215·e / 2¹⁸) × 96 clk`.
+- Maximum pulse duration (time counter reaching 1e9, `/Mid_Graph2/Constant5`): `1e9/(65000·im) × 0.2441 µs = 3.76 ms / im`.
+- For F_15: centres **0.24–6.1 ms**. Every pulse fits the GPU 7 ms window, with **no truncation** (the draft's warning disappears). This is a physically plausible hammer contact time, which supports the 96-clock step.
+
+#### 11.11.2 Mode damping (Q): traced block by block
+
+| Step | Block (path, SID) | Type | Operation |
+|---|---|---|---|
+| Host | `Send_Q_coef` QM:9660 | int32 | `code = (int)(Q_coeff·q_ratio)`, `q_ratio = others[0] = 0.00015`; UDP `cmd0_Ci_out` sub 201 |
+| Bridge | UDP → serial (`Reciever50`, root `Register61` SID 668857; data = bits 8..39 `RSlice12` SID 668722; address = bits 40..49 `RSlice13`; command = low byte) | 32-bit word | **Not in the delivered code** (UDP endpoint / master logic) |
+| RAM | `/oscill_dbl2/omega_decr/Single Port RAM2` (SID 1898466, depth 256, `initVector Q_calc`, written on `CMD_decr_0`) | stores the 32-bit word | — |
+| Decode | `/oscill_dbl2/omega_decr/Reinterpret1` (SID 1898464) | Signed, **bin_pt 31** (forced) | `D = code / 2³¹`. **No 2³⁴ anywhere**; the 2³⁴ seen earlier was only a property of the data (`Q_coeff ≈ 2³⁴·[1, 1.944]`) |
+| To float | `/oscill_dbl2/Convert` (SID 1898262) | **Double**, latency 12 | exact |
+| Use | `Mult` (SID 1898379) `= q[n−1]·D`; `AddSub1` (SID 1898252) `= decr4(1.0) − D`; `Mult2` (SID 1898381) `= (…)·(1−D)` | Double, full precision | — |
+
+**Per-step equation (double precision, per mode, every 256 clocks):**
+
+`q[n+1] = ( 2q[n] − q[n−1] + D·q[n−1] − W·q[n] + M·F[n] )·(1 − D)`
+
+- `W = 4f²·omega_ratio / 2³¹` (omega RAM, u·2⁻³¹, SID 1898455).
+- `M = Mass·2³¹/f² / 2³¹ = Mass/f²` (Mass RAM, SID 1898377).
+- Pole radius `|λ| = 1 − D` per step.
+- There is **no hidden shift**. `decr3 = 0.01` (SID 1898400) is unconnected.
+
+**F_15 result with verbatim forwarding** (dt_mode = 0.651 µs):
+
+| Mode | f (Hz) | D | τ | Q-factor | Log decrement (GPU template 0.085) |
+|---|---|---|---|---|---|
+| 0 | 45.5 | 1.20e-3 | 0.54 ms | 0.078 | 40.5 |
+| 10 | 157.6 | 1.57e-3 | 0.41 ms | 0.20 | 15.3 |
+| 50 | 949.8 | 1.40e-3 | 0.46 ms | 1.39 | 2.3 |
+| 100 | 3515 | 2.33e-3 | 0.28 ms | 3.08 | 1.0 |
+| 255 | 9826 | 2.33e-3 | 0.28 ms | 8.60 | 0.4 |
+
+**Still non-physical** (τ 0.28–0.56 ms; the low modes are overdamped). D is nearly constant across modes, so it encodes a near-constant decay *rate*, not a constant Q.
+
+**Where the inconsistency is.** The omega payload (sub 200) goes through the same bridge, and verbatim it reproduces f within 2.2 % at 256 clocks. So the bridge forwards sub 200 unchanged. For Q to be physical, sub 201 would need a further factor of 1/4 … 1/475, depending on the mode. That cannot be a single shift.
+
+**Inconsistency between:** the host's sub-201 payload, and `CMD_decr_0` → `omega_decr` RAM. Whatever happens between them is in the bridge/master firmware that was **not delivered**, or the 2026-03 `mapp_4` oscillator differs from the bitstream the current host targets.
+
+**Version skew between the two (evidence):** the host writes unison tensions into PARAMETERS slots 1 and 5 (`send_ttn` QM:1503, `mode_addr_shift` 1/5), but in `mapp_4` slot 5 (`FB`) is unconnected and slot 1 (`Fo`) feeds only `Reinterpret3`. So model and host are not the same revision. **→ NOT DERIVABLE; asked.**
+
+#### 11.11.3 Output signal
+
+- **Host side.** `send_all` (QM:12670) does `SetCtrlVal(PANEL_RING_15, 2)` then `force_string_osc` (QM:30856), which sends value **2** (`cmd0_notes_off` sub 1) and stores it in `Gain_FB[0]`. **F_15 `Gain_FB.txt[0] = 2.0`**, which confirms it.
+- **Model side.** Root `/Mux1` (SID 1898483) has its select from `Register64` (SID 1556817, 2 LSBs `RSlice2` SID 1556815, enabled on `CMD_init_sw`). The inputs are: 0 = feed-in force, 1 = q, **2 = Δq** (`dif1f_out`, the `diff` subsystem: q[n] − q[n−1]), 3 = Δ²q.
+- **Production output = Δq**, the modal *velocity*. This is the same as the GPU default (`soundDerivativeOrder = 1`).
+- **DERIVED** (the UDP sub-1 → `CMD_init_sw` routing is by function name and value range, high confidence).
+
+#### 11.11.4 Pitch.txt and ttn rescaling
+
+- **Pitch.txt is not part of a preset.** It is read from a fixed path, `FileToArray("D:/CVI_PIANOID_FANERA/Pitch.txt")` (`Construct_Pitch` QM:30336), on every `Load_params` (QM:8209). It is not read from the preset folder. So the F_15 tuning pairs with whatever Pitch.txt was installed at the time. **Not derivable** from the archive.
+- **No send-path rescale of ttn.**
+  - The direct per-string path writes the raw 24-bit `(int)ttn` into PARAMETERS slot 0 (`Send_param_i` QM:3647-3690, `Send_param_pack4` QM:940).
+  - The block path does the same (`send_nl` QM:17741).
+  - The only rescales are user actions: `ttn·((N−shteg)/(N−shteg_old))²` on a shteg edit (QM:14310), and the `ttn_micro` table swap (QM:31255).
+- The −4 semitone residual is therefore **not a host scaling**. With dt = 512 clocks, the F_15 ttn values imply **~414 clocks** with batch2 (IQR 349–461, too wide for a clock error). The per-note scatter shows that the speaking lengths of the true F_15 Pitch.txt differ from both candidates. **Not derivable; asked.**
+
+#### 11.11.5 Classification of every outstanding item
+
+| Item | Class | Answer / reason |
+|---|---|---|
+| Clocks per string / mode / exciter step | **DERIVED** | 512 / 256 / 96 clocks = 1.302 / 0.651 / 0.244 µs (§11.11.1) |
+| exp_all time base | **DERIVED** | 96-clock exciter step, so centres 0.24–6.1 ms and widths per the §11.11.1 formula |
+| Output signal | **DERIVED** | Δq (velocity), §11.11.3 |
+| Mode count | **DERIVED** | 256 (`harm_num`; RAM depths); the model's 64 is a reduced build |
+| Q per-step equation and fixed-point format | **DERIVED** | §11.11.2 |
+| Q physical decay | **NOT DERIVABLE** | Bridge/firmware between UDP sub 201 and `CMD_decr_0` is not delivered; verbatim gives τ ≈ 0.3–0.5 ms |
+| F_15 Pitch.txt | **NOT DERIVABLE** | Fixed install path, not in the preset archive (QM:30336) |
+| −4 semitone ttn offset | **NOT DERIVABLE** without F_15 Pitch.txt | No host rescale (§11.11.4); depends on the true lengths |
+| Negative shteg (keys 49–87) | **DERIVED** (semantics) | `Sdvig = start + N − shteg` (QM:675), so the termination sits \|shteg\| points past the allocation (speaking length N+\|shteg\|). With a packed layout it can fall inside the next string's region, or past 511 (never reached). Whether F_15's layout does this needs the F_15 Pitch.txt (covered by the Pitch question) |
+| Modes-1–2 exceptions in `Ci_coef_str` | **DERIVED** | 49 cells (48 keys, modes 1–2) where `Ci_str/Ci_cos = −1.41…−1.49` instead of −1. Absent in Bl_Apr_19, so these are manual per-element edits made with the host's Ci editors (`draw_Q` QM:10311 per-key `Ci_str_curve`, `constr_ci_str` QM:18059). Tuning data, not a protocol fact. The GPU single matrix cannot hold it (§10.4) |
+| Mode-mass absolute scale | **NEEDS MEASUREMENT** (ours) | Relative law exact (Mass/f²). Absolute needs FPGA→GPU force/displacement unit matching via an offline GPU render against a bit-true model of the FPGA loop; no Dima question |
+| Absolute FPGA→GPU level | **NEEDS MEASUREMENT** (hardware) | Depends on DAC/codec gain (`init_DAC`, `out_vol` 196 078, out gain 12, compressor); needs a hardware recording |
+| Audio/DAC sample rate | **NOT NEEDED** for the port | The mixer runs at 192 kHz per channel (derived); the DAC rate is outside the model. Physical units (Hz, s) make the port rate-independent |
+| Per-note FB, Gain_FB, ttn_micro, velocity, Strength_graph, shteg, dt, del, width, slot 11 | **DERIVED** | §11.2 |
+
+**Email draft** with only the NOT DERIVABLE questions (F_15 Pitch.txt; Q bridge transform): `PresetsFromFpga/elyashev-2026-09-30/email_to_dima_final_questions_ru.txt` (**not sent**).
+
+**Draft converter** (revision 5): exciter step default 96 clocks (`--exc-clocks 96`). Dry-run: centres 0.24–6.14 ms, no truncation warning, all arrays finite. **UNTESTED ON ENGINE.**
+
+### 11.12 Batch 4 — stm32 firmware (2026-10-01)
+
+**Source.** Dima's reply, 2026-10-01 09:18 UTC: *"Посылки из компьютера по UDP идут на процессор stm32, который управляет FPGA. Pitch.txt — то, что использует F15. Pitch.m — файл для загрузки в матлабе для прошивки fpga. Остальные файлы относятся к stm32."* ("The PC's UDP packets go to an stm32 processor, which drives the FPGA. Pitch.txt is the one F_15 uses. Pitch.m is the MATLAB file loaded when building the FPGA image. The rest belongs to the stm32.")
+
+Files are in `PresetsFromFpga/elyashev-2026-09-30/batch4/`: `pianoid.c` (stm32 H7 firmware, 4 467 lines), `pianoid_commands.h`, `pianoid.h`, `main.h`, `Pitch.txt`, `Pitch.m`, plus `*.utf8.txt` copies. **Citations `S:<line>` refer to `pianoid.c.utf8.txt`.**
+
+#### 11.12.1 The stm32 forwards every table verbatim
+
+- **Transport.** UDP (`PackedReceived`) → `PianoidTask` switch → `SPI_Write(cmd, int32 data, 10-bit addr)` (S:3077). The SPI frame is `[0, addr_hi, addr_lo, d3, d2, d1, d0, cmd]`. This is exactly the model's serial word: cmd = low byte, data = bits 8..39 (`RSlice12`), address = bits 40..49 (`RSlice13`).
+- **What happens to each command:**
+
+| UDP (host) | stm32 action | FPGA cmd (`pianoid_commands.h`) | Transform |
+|---|---|---|---|
+| `cmd0_Ci_out` sub **201** (Q) | `SPI_Write(CMD_decr_0, temp_array[i], i)` ×256 (S:2248-2253); flash boot path S:4343 | `CMD_decr_0 = 161` | **none** |
+| sub **200** (omega) | `CMD_omega_0` (S:2263-2267; boot S:4336) | 159 | **none** (the ×4 is the host's, QM:8909) |
+| sub **202** (Mass) | `CMD_str_svertk_1` (S:2279-2284; boot S:4379) | 227 (the model's Mass RAM, block "CMD_str_svertk1") | **none** |
+| sub 0..87 / 88..175 (Ci) | `i_2_ci_cos` / `i_2_ci_str` routing (S:2207-2240) | `CMD_ci_Re_*` / `CMD_ci_str_*` | none (float words) |
+| `CMD_recieve_ttn` 0..4 | Stores the Pitch table (1056 ints) → `Pitch[88][3][4]` (S:801-830) | — | — |
+| `CMD_recieve_ttn` 5/6 | `ttn`, `dt` → `send_ttn_pack4(i, ttn, ttn+dt, ttn−dt)` (S:850-875) | per-string PARAMETERS slot 0 | Unison ±dt computed here; values verbatim. Slot-0 address uses `num_str − 1` (wrap 3), an address-alignment fix ("Kostyl") |
+| `CMD_recieve_ttn` 10/11/12/14/15/16/17/19 | `decr_op`, `decr_cl`, **shteg → Sdvig = start + N − shteg** (in `send_ttn_pack4` when `mode_addr_shift == 4`), `disp`, `decr_disp`, `damping`, `point_noise`, `Quan_NL` | slots 2, 3, 4, 6, 7, 8, 9, 11 | Verbatim except the Sdvig arithmetic (same as host QM:675) |
+| `cmd0_FRQ` (`ind_mult`), `CMD_total_vol` (`ind_vol`), `cmd0_force_graph` (e/d/a) | Re-addressed per level/gauss (S:1806-2090) | — | none |
+| `cmd0_FB_test` sub 0 | `CMD_fb` (S:1634-1640) | 218 | none (float `−FB`) |
+| `cmd0_notes_off` sub 1 | **`CMD_init_sw`** = byte 0 (S:1652-1656); boot sets **`CMD_init_sw = 2`** (S:4449) | 167 | none |
+| `cmd0_fir_gain` | `CMD_out_vol` / `CMD_Firprg_1` (S:1612-1630) | 220 / 253 | none |
+| `cmd0_pedal` sub 2 (only when `controller == 1`) | Runtime pitch bend `k = ttn + 0.1·pedal·ttn/Pedal_params[0]` (S:381-430) | slot 0 | **Runtime only**; not part of the preset |
+
+- **No other transform exists.** There is no Q/omega/ttn/hammer/output rescaling. The stm32 has no velocity table: the MIDI velocity curve is applied only on the PC side (QM:4396).
+- **Corrections to earlier sections:**
+  - The "bridge firmware unknown" caveats of §11.11 are void.
+  - The output select = 2 (Δq) is **confirmed** by the firmware itself (S:4449).
+
+#### 11.12.2 Mode damping: settled
+
+- **D is what the hardware runs.** The stm32 forwards the Q word unchanged, so D = `(int)(Q_coeff·q_ratio)/2³¹` per 256-clock mode step. The equation is in §11.11.2.
+- **F_15 values** (dt_mode = 0.651 µs):
+
+| Mode | f | D | τ = −dt/ln(1−D) | Q = πfτ | Log decrement | GPU `decrement` (48 kHz, exact rate match) |
+|---|---|---|---|---|---|---|
+| 0 | 45.5 Hz | 1.20e-3 | 0.542 ms | 0.078 | 40.5 | 39.7 |
+| 10 | 157.6 Hz | 1.57e-3 | 0.414 ms | 0.205 | 15.3 | — |
+| 50 | 949.8 Hz | 1.40e-3 | 0.464 ms | 1.39 | 2.3 | — |
+| 100 | 3515 Hz | 2.33e-3 | 0.279 ms | 3.08 | 1.02 | — |
+| 195 | 8913 Hz | 2.33e-3 | 0.279 ms | 7.8 | 0.40 | 0.388 |
+| 255 | 9826 Hz | 2.33e-3 | 0.279 ms | 8.6 | 0.37 | — |
+
+- **Verdict: DERIVED.**
+  - The F_15 "soundboard" modes are **deliberately heavily damped**. Decay time is nearly constant at about 0.3–0.6 ms, set by the user knob `q_ratio = 0.00015` (others[0]).
+  - They act as a broadband resonant filter, not long-ringing modes. Sustain comes from the strings.
+  - This is not a physical soundboard Q, but it **is** F_15's behaviour. The template's 0.085 log decrement is ~100–500× lighter.
+- **GPU equivalent.**
+  - GPU modes update once per audio sample, with `dec = dt·decrement·f` and a per-step factor (1 − dec) (Mode.fit_params, SYNTHESIS_ENGINE).
+  - Exact decay-rate match: `dec_gpu = 1 − (1 − D)^(dt_gpu/dt_mode)`, `decrement = dec_gpu/(dt_gpu·f)`, `dt_gpu = 1/sr`.
+  - At 48 kHz this gives decrement 0.39 … 39.7 (dec_gpu 0.038–0.072). The earlier first-order formula `D/(dt_mode·f)` gives 40.5 (+2 %).
+
+#### 11.12.3 F_15 Pitch.txt and the pitch offset: settled
+
+- **Pitch.txt.**
+  - `batch4/Pitch.txt` (sha256 prefix `89555739684a8531`) has **the same content as `batch3/Pitch.txt`**; the byte size differs only by whitespace.
+  - Layout: 12 × 1 + 12 × 2 + 64 × 3 = 228 strings in 57 arrays of 512 points. Lengths run from 413 (A0–F#2) to 33 (C#6–C8), with offsets 413/446/479 for packed treble strings.
+- **`Pitch.m`** is only `load 'D:/MATLAB_18_prj/Pitch.txt'` plus a plot of row 1. It does not change the layout or the clocks.
+- **Tuning check.** Predicted `√(ttn/2²⁴)·√(1+B)/(2·N_eff·dt)` against `Notes_freqs`:
+  - With N_eff = N − shteg and dt = 512 clocks, the error has a register-dependent pattern (−110 cents bass, −1600 cents treble).
+  - Fitting a constant **effective-length offset** gives N_eff = N − (int)shteg − **21.3 ± 3.1 points**. Then **median 0 cents, IQR −18…+12, max |94|** over all 88 keys.
+  - The offset is register-independent **only for 512 clocks**: the offset spread is std 3.1 at 512 clocks, against 9.6 at 480 and 10.2 at 544. This independently confirms the 512-clock string step.
+- **Verdict: the −4 semitone offset is gone.** It came from using the wrong (batch2) layout and from ignoring a fixed ~21-point pipeline/boundary offset in the speaking length. The offset is likely the alignment between the point counter and the termination/insertion logic in `STRINGS0` (zero-boundary points at each string start; `Relational5`/`Subsystem2` delays). It is **inferred**. Its value is **fitted** from the data, not read from the RTL.
+- **Negative shteg (keys 49–87; (int)shteg ∈ {0, −2, −3}).**
+  - Sdvig = start + N − (int)shteg.
+  - **Strings 1–2** of these notes terminate at or after the **next packed string's start** (e.g. 413 + 33 + 3 = 449 > 446). That point sits inside the next string's zeroed start boundary. The exact behaviour is timing-critical and needs a cycle-accurate simulation to settle.
+  - **String 3** (offset 464/471/479): **Sdvig ≥ 512 wraps in the u9 `Convert` to 0…2**. It is compared only while that string's parameters are active (points ≥ 464), so it **never matches**. That string has no tail switch, no `LASTX` insertion and no bridge-force latch: **it is not coupled to the modes**.
+  - This is derived from the `mapp_4` RTL (2026-03 revision, see the version-skew note in §11.11.2) and is unverified on hardware. On the GPU, coupling is per pitch, so this cannot be reproduced. It is recorded as approximated.
+
+#### 11.12.4 Absolute mode-mass scale and absolute level
+
+- **Not settled by the stm32**, which is verbatim. The FPGA-side quantities are now exact:
+  - mode forcing `Δ²q += (Mass/f²)·Σ Ci_cos·F_bridge` per 256-clock step;
+  - output `Σ decka·Ci_str_1_out·Δq` × `out_vol` (CMD_out_vol) × gain.
+- **Mode mass.** The absolute value is a GPU-side derivation: match F_bridge units (`ff = Tn·sd` per 512-clock step) to the GPU `force_on_bridge_summed/soundStep` definition, and scale the step time `mass_inv_gpu = M·(dt_gpu/dt_mode)²·(unit ratio)`. Alternatively, measure with an offline render. **Ours, not Dima's.**
+- **Absolute level** still needs a hardware recording (DAC/codec).
+
+#### 11.12.5 Question table (final)
+
+| Item | Status | Evidence |
+|---|---|---|
+| exp_all order, codes, time base | DERIVED | §11.1, §11.2, §11.11.1 |
+| Clocks per step 512 / 256 / 96 | DERIVED (+ tuning confirms 512) | §11.11.1, §11.12.3 |
+| Mode Q (damping) | **DERIVED** (was NOT DERIVABLE) | stm32 verbatim S:2248-2253, S:4343. τ 0.28–0.56 ms is the real F_15 |
+| Omega | DERIVED | Verbatim S:2263; −38 cents trim |
+| Mass relative law | DERIVED | Verbatim S:2279 |
+| Mass absolute / level | NEEDS MEASUREMENT (ours / hardware) | §11.12.4 |
+| Output signal Δq | DERIVED + confirmed in firmware | S:1652-1656, S:4449 |
+| F_15 Pitch.txt | **DERIVED / CONFIRMED** (Dima) | batch4 = batch3 content |
+| −4 semitone offset | **RESOLVED** | F_15 Pitch + 21.3-point effective-length offset → median 0 cents |
+| Negative shteg | DERIVED | String 3 of keys 49–87 uncoupled; strings 1–2 timing-critical |
+| ttn rescaling | DERIVED: none in the preset path | Only the runtime pedal bend (S:381-430) |
+| Version skew between model and host | NOTED | Unison slots 1/5 vs `mapp_4`. The full project (Dima's offer) would settle the latest RTL |
+
+**Faithful F_15 port: now fully specified** for every table, except the two absolute scales (mode mass, output level). Those need a GPU-side derivation or measurement. Remaining risks:
+- the fitted 21-point length offset (its mechanism is inferred);
+- the 2026-03 RTL revision against the current bitstream (the uncoupled 3rd treble string);
+- GPU structural gaps (per-(pitch, level) loudness, tail tension, separate feedback matrix, 16 outputs, `initialize()` overrides).
+
+**Draft converter** (revision 6): Pitch defaults to `batch4`, `--length-offset 21.5`, `--mode-decrement host_q` by default with the exact rate match. Dry-run: tuning check median 1 cent (IQR −15…13), all arrays finite, **UNTESTED ON ENGINE**.
+
+#### 11.12.6 Changes the production converter (`feature/dev-a480-fpga-converter`) needs
+
+Files: `PianoidBasic/Pianoid/fpga_preset_converter.py`, `fpga_tables.py`, `fpga_conversion_metadata.py`, and `PianoidCore/tests/unit/test_fpga_preset_converter.py`.
+
+1. **`pitch_file` status UNCONFIRMED → DERIVED (confirmed by Dima).** Expected input is F_15 `Pitch.txt` = batch4 (sha256-16 `89555739684a8531`, content = batch3). Update the note in `metadata_skeleton`. Tests: use batch4 as the F_15 fixture.
+2. **New option `speaking_offset = 21.3` (status: DERIVED-FROM-DATA fit) in `string_fields`.**
+   - Change `n_speak = n_alloc − tail − speaking_offset`.
+   - This changes `hammer_position` (× n_alloc/n_speak), `hammer_width_frac`, `B` and `f_grid`.
+   - Add a test: F_15 `f_grid`/`Notes_freqs` median within ±5 cents and IQR within ±25 cents.
+3. **`mode_q`: status UNCONFIRMED → DERIVED; default `"template"` → `"host_q"`.**
+   - Fix the formula in `build_modes`: replace `q_word(...)/(dt_mode·f)` with the exact rate match.
+     - `gamma = −ln(1−D)/dt_mode`
+     - `dec_gpu = 1 − exp(−gamma/sr)`
+     - `decrement = dec_gpu·sr/f`
+     - Here `sr = template model_parameters.sr`.
+   - Update the `q_word` docstring ("Physical meaning OPEN" → "verbatim to CMD_decr_0 via stm32, pianoid.c:2248").
+   - Rewrite `MODE_Q_NOTE`: "real F_15 behaviour, τ 0.28–0.56 ms, deliberately damped".
+   - Keep `"template"` as an override, with status OVERRIDDEN.
+4. **`mode_mass`: stays UNCONFIRMED** (absolute scale). Note in `MODE_MASS_NOTE` that the stm32 forwards `M = Mass/f²` verbatim (S:2279), so only the FPGA→GPU unit scale is open.
+5. **`output_signal` (DERIVED) — evidence only:** add stm32 S:4449 (`CMD_init_sw = 2` at boot) and S:1652-1656.
+6. **omega / ttn / dt / shteg / decr_* / ind_* / exp codes:** add an "stm32 verbatim" note to the `fpga_tables` docstrings. Formulas unchanged. Unison `ttn ± dt` per string is confirmed (S:850-875).
+7. **`negative_shteg_keys_unclamped`:** extend the metadata note. String 3 of keys 49–87 has Sdvig ≥ 512 (u9 wrap) and is uncoupled on the FPGA. Strings 1–2 terminate at the next string's start. The GPU's per-pitch deck cannot reproduce it; add this to `DROPPED_FIELDS`.
+8. **Docs.** Update the spec reference: §11.12 supersedes §11.11 on Q, Pitch.txt and the pitch offset.
