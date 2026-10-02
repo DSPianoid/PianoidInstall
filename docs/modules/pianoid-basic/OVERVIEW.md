@@ -36,6 +36,10 @@ PianoidBasic/
         PianoidSimulation.py # PianoidSimulation
         HarmonicSimulator.py # HarmonicSimulation
         SoundChannels.py     # StringSoundChannels, ModeSoundChannels
+        fpga_tables.py       # FPGA preset tables + host send-all formulas (FPGA-side semantics)
+        fpga_string_layout.py # FPGA string layout + string physics on the GPU grid
+        fpga_preset_converter.py # FPGA folder + Pitch.txt -> GPU preset JSON (the FPGA import path + CLI)
+        fpga_conversion_metadata.py # conversion metadata (UNCONFIRMED inputs, dropped fields) + report
         bytestream_encoding.py
         chart_animation.py
         utilities.py
@@ -130,7 +134,7 @@ Describes the spatial discretisation of one piano string. A string has three sec
 
 Key methods:
 
-- `dx()` — spatial step: `length / main`
+- `dx()` — spatial step: `length / main`; returns the sentinel `0.001` when `tail == 0` (the dummy output strings), so a real string needs `tail ≥ 1`. Measured (dev-a480): a string vibrates over `main − 1` points
 - `p_full()` — total points: `main + tail + STEM_LENGTH`
 - `l_main()`, `l_tail()`, `l_full()` — physical lengths of each section
 - `bridge(i)` — index of bridge point `i` (0 or 1)
@@ -222,8 +226,8 @@ Computes the spatial envelope of a hammer strike on the string grid.
 | Attribute | Meaning |
 |---|---|
 | `shape` | Profile function: `'circular'` (default) or `'parabolic'` |
-| `position` | Strike position along main string (metres) |
-| `width` | Contact width (metres) |
+| `position` | Strike position along main string (metres, in memory). **Preset JSON / `pack()` store `hammer_position` as a RATIO of `l_main`** (`unpack` multiplies by `l_main`) |
+| `width` | Contact width (metres, also in the preset JSON) |
 | `sharpness` | Curvature parameter in [0, 1] |
 | `hammer_shape` | Numpy array of length `p_full()` — computed spatial envelope |
 
@@ -511,6 +515,58 @@ The coupling loop per cycle:
 File: `HarmonicSimulator.py`
 
 A separate additive synthesis engine for testing. Generates sound as a sum of `Harmonic` objects, each defined by `frequency`, `amplitude`, `phase`, `decay`, and `delay`. Does not use the wave-equation model. Used via `PianoidSimulation.load_params_harmonics()` and `PianoidSimulation.generate_with_harmonics()`.
+
+---
+
+### FPGA preset converter
+
+Files: `fpga_tables.py`, `fpga_string_layout.py`, `fpga_preset_converter.py`, `fpga_conversion_metadata.py`
+(dev-a480, 2026-10-01). The **single FPGA import path** (the middleware's `load_excitation_from_fpga_preset`
+delegates here; the legacy readers `read_excitations_from_txt`, `Mode.load_modes_from_txt` and
+`Pianoid.load_deck_from_txt` were removed). Spec: [FPGA → GPU port proposal §11–§12](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md).
+
+| Module | Concern |
+|---|---|
+| `fpga_tables` | Read the FPGA `.txt` tables; the host program's send-all formulas (forwarded verbatim by the stm32), each a pure function citing its `Pianoid_QM.c` / `pianoid.c` line |
+| `fpga_string_layout` | F_15's strings on the GPU grid: points per string, blocks = the FPGA arrays, and physics whose kernel coefficients equal the FPGA string update term by term |
+| `fpga_preset_converter` | Excitation, modes, deck/output mapping and the CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
+| `fpga_conversion_metadata` | Describe a conversion: `preset["fpga_conversion"]` (DERIVED / UNCONFIRMED / OVERRIDDEN inputs, load params, template fallbacks used, dropped fields) and the `<out>.conversion_report.md` |
+
+**Strings (F_15's own).** Each GPU block is one FPGA 512-point array (57 arrays × 4 strings + 1 output
+block = 232 strings), so the preset is loaded with **`array_size=512`** (a runtime `/load_preset` parameter,
+384–512; `MAX_ARRAY_SIZE = 512` is compile-time, no rebuild) and **`string_iteration=16`** (48 kHz × 16 = the FPGA
+string step exactly). Per key:
+`N_eff = N − (int)shteg − 21.1` (speaking offset fitted to F_15 with the exact clamped FPGA scheme), GPU
+`main = round(N_eff + 1)` (the engine vibrates `main − 1` points — measured), `tail = max((int)shteg, 1)`
+(`StringGeometry.dx()` treats `tail == 0` as a dummy string). Tension, Young's modulus (negative: the kernel
+adds `+2·cb·fd`, the FPGA `−Disp·fd`), `gamma`, `disp_decay`, `damper_string` and the integer `damper_tail`
+are solved from the `Kernels.cu parameterKernel` formulas so that `coeff_tension = Tn`,
+`coeff_bending = −Disp/2`, `coeff_frequency_decay = Disp_decr`, `dec = Do` (main), `Damper` (tail) and `Dc`
+(released, `int(127^0.6) = 18` damper steps), each rate-scaled from the 512-clock FPGA step to the GPU
+sub-step and grid-rescaled by `(main − 1)/N_eff`. Since dev-f2b8 (PianoidCore cc4b540) the kernel itself
+multiplies the HF-damping and damper terms by `dt/dt_ref` (`dt_ref = 1/(48000·4)`), so `disp_decay` and
+`damper_string` are written at that reference grid (factor `k_ref = dt_ref/dt_fpga = 4`, independent of the
+sub-step count); `damper_tail` stays an integer multiplier (≥ 1, so the engine's integer `dump_coeff` does
+not truncate it). Converted presets are written with `output_scale_calibrated = false` so the engine
+re-derives `output_scale` on load. Unison: base `ttn − dt` with `tension_offset = dt/base`
+gives exactly the FPGA set {ttn−dt, ttn, ttn+dt}. String length / rho / r stay template choices (only the
+kernel products matter). 16 sub-steps needs the summed-form float32 FDTD loop (PianoidCore 682a535,
+dev-1e95; see SYNTHESIS_ENGINE "Numerical precision: float32 and string_iteration"): on the fixed engine
+N = 4/8/12/16 are all stable on F_15 and 16 costs ~1.0 ms per 64-sample cycle offline (budget 1.333).
+
+**Other mapping.** Modes `frequency` ← `omega_coef`; `mass_inv` ← `Mass/f²` (stm32 verbatim) with the
+absolute scale UNCONFIRMED (`--mode-mass host_max`: strongest mode = template coupling, stable);
+decrement `--mode-q host_q` (DERIVED: exact FPGA decay rate `γ = −ln(1−D)/dt_mode`,
+`decrement = (1−e^(−γ/sr))·sr/f`). Deck: `Ci_coef_cos` per-mode normalised, signed, feedback = feedin.
+Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out`. Excitation: `mu ← d`, `sigma ← e`,
+96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); loudness
+`ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
+
+**Verified (offline, `array_size=512`, 16 sub-steps, engine 682a535):** 16 keys (all A, all C) vs
+`Notes_freqs` median −1.1 c, IQR −7.0…+3.3 c; vs the FPGA scheme's own prediction median −1.0 c, max 7.8 c
+(A1, comb detector). Level 14–39 dB below the Belarus template (A1 ~39, C4 ~34, C7 ~14 dB; heavy real mode
+damping + capped mass scale), identical at 4/8/16 sub-steps since the dev-f2b8 impulse fix.
+Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
 
 ---
 

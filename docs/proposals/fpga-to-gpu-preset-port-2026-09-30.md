@@ -1,7 +1,7 @@
 # FPGA → GPU Preset Port: Algorithm Comparison and Mapping (Elyashev F_15)
 
 **Date:** 2026-09-30
-**Status:** ANALYSIS + DRAFT CONVERTER, revised with batch 2 (§10), batch 3 / host program (§11), Dima's answers (§11.8), code derivation (§11.11) and the stm32 firmware (§11.12). Nothing has been loaded into the engine. No engine, source or preset edits were made.
+**Status:** PARTIALLY IMPLEMENTED (2026-10-02). The converter is implemented and merged (dev-a480: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe; §12): every table maps via the host/stm32 send-all formulas, F_15 plays on the GPU with its own strings at array 512 / 16 sub-steps, and the old swapped-decode presets were regenerated. Still open, hence not archived: the absolute FPGA→GPU mode-mass / output-level scale (§11.12.4, needs measurement or a hardware recording) and the GPU structural gaps of §8/§11.6 (tail tension, separate feedback matrix, per-(pitch, level) loudness, 16 outputs). Sections §1–§11.12 are the analysis history (§11.12 supersedes earlier statements); §12 is the implementation.
 **Author:** `/analyse` sub-agent
 **Predecessor:** [FPGA Preset Excitation Loader (archived 2026-06-05)](archive/fpga-preset-excitation-loader-2026-05-17.md). It covered the excitation files only. This document covers the whole preset and **challenges one of its conclusions** (§4.3).
 
@@ -895,3 +895,84 @@ Files: `PianoidBasic/Pianoid/fpga_preset_converter.py`, `fpga_tables.py`, `fpga_
 6. **omega / ttn / dt / shteg / decr_* / ind_* / exp codes:** add an "stm32 verbatim" note to the `fpga_tables` docstrings. Formulas unchanged. Unison `ttn ± dt` per string is confirmed (S:850-875).
 7. **`negative_shteg_keys_unclamped`:** extend the metadata note. String 3 of keys 49–87 has Sdvig ≥ 512 (u9 wrap) and is uncoupled on the FPGA. Strings 1–2 terminate at the next string's start. The GPU's per-pitch deck cannot reproduce it; add this to `DROPPED_FIELDS`.
 8. **Docs.** Update the spec reference: §11.12 supersedes §11.11 on Q, Pitch.txt and the pitch offset.
+
+---
+
+## 12. Production converter (dev-a480, 2026-09-30 … 10-02) — merged (PianoidBasic 529cb5f, PianoidCore 5ef4afe)
+
+The draft (§5, rev 4) is superseded by `PianoidBasic/Pianoid/fpga_tables.py` + `fpga_preset_converter.py`
+(CLI `python -m Pianoid.fpga_preset_converter`), now the only FPGA import path; `Pianoid.load_excitation_from_fpga_preset`
+delegates to it and the swapped legacy readers were removed. Module reference:
+[PianoidBasic OVERVIEW — FPGA preset converter](../modules/pianoid-basic/OVERVIEW.md#fpga-preset-converter).
+
+**Findings while productionising (measured, offline render in a separate process):**
+
+| # | Finding | Effect on the §11 mapping |
+|---|---|---|
+| 1 | Draft wrote `hammer_position` in **metres**; the preset/`Hammer.pack` convention is a **ratio of `l_main`** | Fixed (ratio); `hammer_radius` recomputed |
+| 2 | Mode `mass_inv` from `Mass/f²` scaled to the template **median** `mass_inv` gives `k = mass_inv·(2πf)²` median 0.8 / max 4.8 vs the template's constant 0.1 → **runaway** (+150 dB, no pitch). Scaling to the median `k` is still unstable (+300 dB/s) | Default `--mode-mass host_max`: exact relative host masses, strongest mode `k` = template `k` → stable by attenuation (every mode ≤ template, weakest ~3400× lower). The absolute scale is UNCONFIRMED (in `fpga_conversion.unknowns`) and is the main cause of the level deficit (9–16 dB with the §11.11 exciter step) |
+| 3 | `initialize()` no longer overrides `tension_offset` / hammer / γ (read-back equal) | The "engine gap" in §11.5 is gone; DATA_FLOWS §2.7 corrected |
+| 4 | `shteg` is negative (−3.49 → −3) for keys 52–87; host arithmetic keeps `N − shteg > N` | Kept, flagged in metadata |
+| 5 | Host `(int)` casts matter: `decr_op` 7.39 → 7 (γ −5 %); `send_nl` also casts `ttn` and `dt` (`dt` 1.17 → 1: unison detune up to 36 % lower than the float ratio) | Applied everywhere the host casts, incl. `tension_offset = (int)dt/(int)ttn` (review M1) |
+| 6 | F_15 output columns come in identical pairs | Distinct columns 0, 2, 4, 5 → GPU output pitches 128–131 |
+
+**F_15 renders** (first set; superseded by the updates below) (template Belarus_8band_196modes, `listen_to_modes=0`, order 1): no NaN/Inf, all notes decay;
+pitch vs `Notes_freqs` A1 ≈ 0 c, C4 −19 c, C7 ≈ −24 c (low detector confidence at C7, as for the template) —
+tuning is inherited from the template tension; both Pitch.txt candidates render identically except for the
+hammer geometry; level 14–34 dB below the template at the then-assumed 512-clock exciter step, 9–16 dB with the derived 96 clocks (see the update below). Evidence:
+`docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Still open:** the §11.10 items (F_15 Pitch.txt, clocks per step, Q transform, output signal) — all CLI
+parameters flagged `UNCONFIRMED` in `preset["fpga_conversion"]`; the absolute FPGA→GPU loop/output scale
+(level vs template); retuning tension to `Notes_freqs` (the FPGA `ttn` grid check is −365 c median with batch2).
+
+**Update after §11.11 (2026-10-01).** The converter defaults now follow §11.11: exciter step **96 clocks**
+(was 512), strings 512, modes 256, output Δq — all recorded as `DERIVED` in `fpga_conversion.unknowns`
+(`OVERRIDDEN` if changed); Q stays `UNCONFIRMED` with the derived oscillator equation in its note. F_15
+re-render (A1/C4/C7, both Pitch.txt): gauss centres 0.24–6.1 ms, force beyond the 7 ms window 0.02 % max
+(was 79 %); level vs the previous set A1 +4…6 dB, C4 +16…20 dB, C7 +5 dB, so the deficit vs the template is
+now **9–16 dB** (mainly the `host_max` mode-mass scale); A1/C4 pitch unchanged within 1 c; no NaN/Inf.
+
+**Update after §11.12 (batch 4, 2026-10-01).** Applied §11.12.6: F_15 Pitch.txt (batch4, recognised by a
+whitespace-independent content hash) and `speaking_offset = 21.3` are `DERIVED`; `mode_q = host_q` is the
+`DERIVED` default with the exact decay-rate match (`γ = −ln(1−D)/dt_mode`, `decrement = (1−e^(−γ/sr))·sr/f`;
+F_15 0.39–39.7); stm32 verbatim evidence in every note; negative-shteg coupling recorded as approximated.
+FPGA-grid tuning check: **median +0.7 c, IQR −6.3…+13.3 c**. F_15 renders (A1/C4/C7 × v64/v110): stable, no
+NaN/Inf; level **26–30 dB below the template at A1/C4, 8–10 dB at C7** (the real heavy mode damping costs
+12–18 dB at A1/C4 vs `--mode-q template`); C4 decays faster (−12…−16 dB/s vs −7…−8); rendered pitch is the
+template tension's (A1 ≈ −1 c, C4 −20 c). `host_median` still runs away with host_q, so `host_max` stays.
+Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Update: F_15's own string physics at ArraySize 512 (2026-10-01, user directive "tuned by itself").** The
+template-tension approach is gone. `fpga_string_layout` builds the strings from F_15: blocks = the 57 FPGA
+512-point arrays (+1 output block, 232 strings, `array_size=512` — a runtime load parameter, no rebuild),
+point counts from Pitch.txt, and tension/stiffness/damping/unison solved so the `parameterKernel`
+coefficients equal the FPGA update term by term (bending sign: GPU `+2cb·fd` vs FPGA `−Disp·fd`). Mapping
+bugs found by measurement and fixed: (1) `tail = 0` makes `StringGeometry.dx()` return its dummy-string
+sentinel → GPU tail ≥ 1; (2) the engine vibrates `main − 1` points (pure-string sweep: treble 0.96–0.98
+point) → `main = N_eff + 1`; (3) the speaking offset refit with the **exact clamped FPGA scheme** is 21.1
+(median −0.2 c, IQR ±6.4 c vs the continuous formula's 21.3, IQR −6…+13). At 16 sub-steps (= the FPGA step) the then-current
+engine grew +170…275 dB/s on the stiff bass strings — root cause found later by dev-1e95: float32 rounding
+of the per-sub-step update at high string_iteration (fixed in PianoidCore 682a535, see the last update). **Result (16 keys, v64/v110):** every key within ±2.5 c of the
+FPGA scheme's own prediction (C2 −11 c); vs `Notes_freqs` median −1.5 c, IQR −5.2…+3.5 c; A0 −36 / C8 +35 c
+are F_15's own tuning. No NaN; all decay (A1 −4…−10, C4 −11…−13, C7 −55 dB/s); level 12–41 dB below the
+template. Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Update: sub-steps per sample (2026-10-01).** On the pre-fix engine 12 and 16 ran away on F_15's stiff bass
+strings (float32 rounding of the per-sub-step update, dev-1e95). On the fixed engine (PianoidCore 682a535,
+summed-form float32 FDTD loop) N = 4/8/12/16 are all stable (MIDI 21–33, 60, 96 × v64/v110), so the converter
+default is **16 = the FPGA string step** (rate scale exactly 1): full A/C sweep vs `Notes_freqs` median
+−1.1 c, IQR −7.0…+3.3 c; vs the FPGA scheme median −1.0 c, max 7.8 c; ~1.0 ms per 64-sample cycle offline
+(budget 1.333). Table: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+
+**Update: old swapped-decode presets regenerated (2026-10-01, user decision "Regenerate and replace").**
+`Belarus_8band_196modes_FPGAexc` (source Bl_Apr_19) and `Belarus_196modesC_Fanera6exc` (source Fanera_6 —
+exact swapped decode, no hand edit) had only their excitation rebuilt with the corrected decode; originals
+backed up as `*.pre-a480-swapped.json`. Details: [middleware OVERVIEW](../modules/pianoid-middleware/OVERVIEW.md#loading-fpga-presets).
+
+**Update: engine dev-f2b8 (2026-10-01, PianoidCore cc4b540 / PianoidBasic 91086d7).** The kernel now applies
+`dt/dt_ref` to the HF-damping and damper terms and the excitation impulse is dt-weighted. The converter writes
+`disp_decay` and `damper_string` at the reference grid (`k_ref = dt_ref/dt_fpga`, N-independent; kernel
+equivalence re-tested) and sets `output_scale_calibrated = false`. F_15 at N = 4/8/16: pitch, decay and level
+are now N-independent (A1/C4/C7 −101.5/−115.7/−132.2 dB; at N = 16 that is +12 dB vs before); 14–39 dB below
+the Belarus template; no NaN. The regenerated `*_FPGAexc` presets (4 sub-steps) are unaffected.

@@ -837,13 +837,8 @@ backendserver.py: load_preset_route()               (line 132)
      │   └── ExcitationParameters: decode_from_json() → levels_matrix (128×4×5)
      ├── ModeMap(preset['modes']) → Piano_mode objects
      └── mode_sound_channels (if present)
-  4. Hardcoded parameter overrides:                 // lines 2089–2116
-     ├── Damper parameters overwritten for all pitches
-     ├── jung/r overwritten for ranges 21–98, 50–89
-     ├── tension_offset set to 0.001 for all pitches
-     ├── hammer position set to 0.15 for all pitches
-     └── volume_coefficient set to 1 for all pitches
-     WARNING: these overrides discard preset values on every load
+  4. (no preset-value overrides: the former hardcoded jung/r/damper/tension_offset/
+     hammer-position/volume_coefficient overrides are gone — see Known Issues)
   5. init_pianoid(...)
      ├── sm.pack_parameters() → flat arrays
      ├── pianoidCuda.Pianoid(strings, init_params)
@@ -860,7 +855,7 @@ backendserver.py: load_preset_route()               (line 132)
 
 #### Known Issues
 
-- **Hardcoded overrides in `initialize()`** (lines 2089–2116): After loading preset data, physics parameters (jung, r, damper), hammer position, tension_offset, and volume_coefficient are overwritten with hardcoded values. Saved presets lose their tuned values on reload.
+- ~~Hardcoded overrides in `initialize()`~~ — **resolved** (no override code in `initialize()` on PianoidCore dev 620a426). Measured by dev-a480 (2026-09-30): after `initialize()` the model values of `gamma`, `tension_offset`, `hammer_position` (ratio) and `hammer_width` equal the preset JSON for pitches 33/60/96 (`docs/development/diagnostics/dev-a480-renders/summary.md`).
 
 ### 2.8 Preset Library — Hot-Switch Path
 
