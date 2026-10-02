@@ -217,12 +217,13 @@
          416 feedback_mask bug fixed in 620a426. -->
 
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
+<!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
 
 ## Follow-ups from dev-1e95 — string_iteration precision regression (2026-10-01)
 
 Root cause of "higher `string_iteration` blows up / bass pitch drifts with N": the engine's `real` has been **float32** since PianoidCore `6a652df`/`36f05fe` (2025-09-13); the three-level FDTD update rounds the per-sub-step acceleration away for bass strings at high N. Fix = summed-form integrator on `feature/dev-1e95-string-iteration-precision` (PianoidCore; worktree `D:/repos/wt-1e95-core`, isolated venv). Docs: SYNTHESIS_ENGINE.md "Numerical precision". Pending after merge (HEAVY `--both` rebuild required):
-- **dev-a480 converter branch:** `fpga_string_layout.py` docstring + `gpu_string_iteration` default 8 + the "stem refreshed once per audio sample" explanation (proposal §11, renders summary) are superseded — the sample-and-hold bridge is NOT the cause (exact replica: identical spectral radius for S/H vs per-sub-step coupling). Re-sweep with the fixed engine; the default can be 16 (= exact FPGA step, measured stable, 1.0–1.24 ms/cycle).
+- ~~**dev-a480 converter branch:** superseded "stem refreshed" explanation / default 8~~ — RESOLVED by dev-a480 (2026-10-01): re-swept on the fixed engine, default 16, explanation replaced by the float32 root cause; dt-referenced damping adopted (dev-f2b8).
 - `coeff_frequency_decay` iter-invariance (pre-existing open issue) is unchanged by this fix.
 - Known-good presets at N ≥ 12 were silently out of tune in the bass (template p24 +90 c at N=16); any tuning/calibration done at N ≥ 8 on the float engine may need re-checking.
 
