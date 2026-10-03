@@ -80,3 +80,38 @@ C7 held −22.7 → −23.3 (pre-fix: identical). Demo WAVs `DEMO_fixed_Belarus_
 (= baseline), integration 617 passed, `test_fpga_preset_converter.py` 38 passed with the real F_15 inputs.
 
 Raw per-note channel-0 renders (.npy), coefficient dumps and process logs are NOT committed (107 MB); they were kept in the session scratchpad (`tail_damper/raw_renders/`).
+
+## 7. Converter exactness (user 2026-10-03: "use all parameters exactly as in FPGA preset")
+
+PianoidBasic `fpga_*` on `feature/dev-f27f-tail-damper`; F15_Elyashev_array512 regenerated (same template / inputs /
+defaults, `output_scale_calibrated = false`).
+
+| # | Where | Old | New (exact) | F_15 effect |
+|---|---|---|---|---|
+| 1 | `fpga_string_layout.string_physics` | `damper_tail = rint(ratio)` (int) | real ratio `(Damper − Do)·k_ref/damper_string` | tail decrement error 3.2e-3 → 2.2e-16; damper_tail 142 → 142.34 … |
+| 2 | `fpga_tables.omega_to_frequency` | `sqrt(W)/(2π dt)` (small-angle) | `acos(1 − W/2)/(2π dt)` (exact phase of the oscillator recurrence) | FPGA run frequency ≤ 0.1 c different |
+| 3 | `build_modes` frequency | `omega_coef` Hz | GPU field of the FPGA RUN frequency (`omega_ratio` trim −38 c) via `gpu_mode_frequency` = (sr/π)·sin(π f/sr) | GPU modes were +42 … +151 c sharp of the FPGA; now exact (field −0 … −95 c vs run) |
+| 4 | `build_modes` decrement | `dec·sr/omega_coef` | `dec·sr/field` (same per-sample decay) | decay rate unchanged (exact) |
+| 5 | `build_modes` mass_inv | `Mass/f²` | `Mass/f² × n_m²` (deck per-mode norm folded back) | relative loop gains exact; k span 35 → 60 dB |
+| 6 | `build_output_rows` | `w` | `w / n_m` | output mode weights exact relative |
+
+Kept (forced by engine limits): 16 → 4 outputs, single deck matrix (exact here: Ci_str = −Ci_cos), rank-1 loudness,
+6 velocity anchors, 7 ms excitation window (beyond ≤ 2.5e-4), mode-mass cap (host_max absolute anchor), modes 196 of 256
+(num_modes + channels ≤ num_strings; middleware mode_channel_index = 196), GPU tail ≥ 1 point, tail tension = main
+(ttn_tails == ttn), keys without dampers (one damper_string for release + tail: +18e-6 of the tail excess on release),
+negative-shteg u9 wrap, hammer shape family (cap fit; clamps inactive on F_15), speaking offset 21.1 (data fit).
+
+F_15 before / after exactness (fixed engine, offline, 512 / 16; bare soundFloat, pre-output_scale):
+
+| note | v | RMS dB | held decay dB/s | release decay dB/s | pitch c vs FPGA prediction | NaN |
+|---|---|---|---|---|---|---|
+| A1 | 64 | -110.8 / -155.1 | -3.87 / -3.94 | -84.82 / -84.90 | -7.8 / -7.9 | 0/0 |
+| A1 | 110 | -101.4 / -145.6 | -5.90 / -6.04 | -86.51 / -86.66 | -7.8 / -7.9 | 0/0 |
+| C4 | 64 | -124.8 / -172.2 | -10.42 / -13.16 | -127.10 / -128.53 | -1.0 / -1.0 | 0/0 |
+| C4 | 110 | -116.0 / -162.0 | -13.68 / -16.72 | -127.90 / -129.83 | -1.0 / -1.0 | 0/0 |
+| C7 | 64 | -134.4 / -182.4 | -50.02 / -47.59 | -68.67 / -68.99 | +0.9 / -0.8 | 0/0 |
+| C7 | 110 | -132.4 / -180.0 | -50.32 / -48.64 | -68.65 / (floor) | +0.9 / -0.8 | 0/0 |
+
+Repeat render of the exact preset: identical within 1e-4 dB / 0.003 dB/s. Bare level −44…−48 dB: the strongest
+mode stays at the template coupling (cap) while the exact n_m² spread puts most modes far below it; output_scale
+re-derived on load compensates the playback level. Converter tests 46 + tail-damper tests 2 pass.

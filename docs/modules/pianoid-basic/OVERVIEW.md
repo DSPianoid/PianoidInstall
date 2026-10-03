@@ -363,6 +363,12 @@ Discrete-time state variables:
 | `dec` | Damping coefficient: `dt * decrement * frequency` |
 | `omega` | Restoring force coefficient: `dt^2 * frequency^2 * 4*pi^2` |
 
+**`frequency` is a small-angle parameter, not exactly the played Hz.** The recurrence below rotates by
+`acos(1 − omega/2)` per sample (the roots are `(1 − dec)·e^(±iθ)`, `cos θ = 1 − omega/2`; `dec` does not shift θ),
+so a mode plays `acos(1 − omega/2)·sr/(2π)` Hz — equal to `frequency` at low f, sharp by ≈ `(π f/sr)²/6`
+(+1 c at 1 kHz, +100 c at 8.9 kHz, 48 kHz). To make a mode play `f_run` exactly, store
+`frequency = (sr/π)·sin(π f_run/sr)` (`fpga_preset_converter.gpu_mode_frequency`, dev-f27f).
+
 The `iteration(force)` recurrence:
 
 ```
@@ -554,19 +560,29 @@ kernel products matter). 16 sub-steps needs the summed-form float32 FDTD loop (P
 dev-1e95; see SYNTHESIS_ENGINE "Numerical precision: float32 and string_iteration"): on the fixed engine
 N = 4/8/12/16 are all stable on F_15 and 16 costs ~1.0 ms per 64-sample cycle offline (budget 1.333).
 
-**Other mapping.** Modes `frequency` ← `omega_coef`; `mass_inv` ← `Mass/f²` (stm32 verbatim) with the
-absolute scale UNCONFIRMED (`--mode-mass host_max`: strongest mode = template coupling, stable);
-decrement `--mode-q host_q` (DERIVED: exact FPGA decay rate `γ = −ln(1−D)/dt_mode`,
-`decrement = (1−e^(−γ/sr))·sr/f`). Deck: `Ci_coef_cos` per-mode normalised, signed, feedback = feedin.
-Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out`. Excitation: `mu ← d`, `sigma ← e`,
+**Other mapping (exact since dev-f27f, "use all parameters exactly as in the FPGA preset").** Modes
+`frequency` = the GPU field (`gpu_mode_frequency`, see Piano_mode above) of the frequency the FPGA oscillator
+RUNS at, `acos(1 − W/2)/(2π·dt_mode)` with `W = int(4f²·omega_ratio)/2³¹` (`omega_coef` × the `omega_ratio` trim:
+F_15 −38 c); before dev-f27f the converter stored `omega_coef` Hz, so the GPU played F_15's modes +42…+151 c
+sharp of the FPGA. `mass_inv` ← `Mass/f²` (stm32 verbatim) × `n_m²`, `n_m = max_k |Ci_coef_cos[k, m]|` — the deck
+rows are per-mode normalised, and with the GPU mode state `q_g = |FB|·n_m·q_fpga` the FPGA loop
+`FB·Ci_str·Ci_cos·M` (F_15: `Ci_str = −Ci_cos` exactly) is reproduced iff `mass_inv ∝ n_m²·M` and the output rows
+`∝ w/n_m` (F_15 `n_m²` spans 54 dB; before dev-f27f it was dropped). Absolute mass scale UNCONFIRMED
+(`--mode-mass host_max`: strongest mode = template coupling, stable). Decrement `--mode-q host_q` (DERIVED:
+exact FPGA decay rate `γ = −ln(1−D)/dt_mode`, `decrement = (1−e^(−γ/sr))·sr/frequency`). Deck: `Ci_coef_cos`
+per-mode normalised, signed, feedback = feedin. Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out / n_m`.
+Tail damper: `damper_tail` = the real ratio `(Damper − Do)·k_ref/damper_string` (no rounding; tail decrement
+exact to 2e-16). Excitation: `mu ← d`, `sigma ← e`,
 96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); loudness
 `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
 
 **Verified (offline, `array_size=512`, 16 sub-steps, engine 682a535):** 16 keys (all A, all C) vs
 `Notes_freqs` median −1.1 c, IQR −7.0…+3.3 c; vs the FPGA scheme's own prediction median −1.0 c, max 7.8 c
-(A1, comb detector). Level 14–39 dB below the Belarus template (A1 ~39, C4 ~34, C7 ~14 dB; heavy real mode
-damping + capped mass scale), identical at 4/8/16 sub-steps since the dev-f2b8 impulse fix.
-Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`.
+(A1, comb detector). Re-verified after the dev-f27f exactness changes (regenerated F15_Elyashev_array512):
+pitch vs the FPGA prediction A1 −7.9 / C4 −1.0 / C7 −0.8 c (unchanged), 0 non-finite; bare synthesis level
+62–83 dB below the Belarus template (was 14–39 dB; the exact relative loop gains leave most modes far below the
+capped strongest one) — the per-preset `output_scale`, re-derived on load, restores the playback level.
+Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`, `dev-f27f-renders/summary.md` §7.
 
 ---
 
