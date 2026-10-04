@@ -4,8 +4,8 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-168c | Keyboard scale calibration retargeted to per-pitch hammer_mass (equalize/curves keep semantics; conserve invariant) | [log](logs/dev-168c-2026-10-04-144434.md) | 2026-10-04 |
 <!-- dev-029c COMPLETED 2026-10-04 — physical string gain R1+R2 (string_gain_model physical default | legacy, unison_split_exponent, frozen p60 reference; F15 declares physical k=0): merged --no-ff NOT pushed: PianoidBasic dev 0832a3d (206befc), PianoidCore dev 318f4b8 (f8de06f), root master d862028 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks it up on next restart). Follow-ups in "Follow-ups from dev-029c". -->
+<!-- dev-168c COMPLETED 2026-10-04 — keyboard equalizer on per-pitch hammer_mass (curve-volume writes retired, level_multipliers 400, RCM on mass edits, de-interleaved multichannel synthesis metric) + physical-range common-factor mass rescale with analytic output_scale compensation (POST /rescale_hammer_mass): PianoidCore feature/dev-168c-mass-eq 48630fd + c20afd9 merged --no-ff to dev 1f60d8d (after dev-029c 318f4b8); PianoidInstall docs 35bfa2f/c98fc93 + wrap; NOT pushed. Open items: see "Follow-ups from dev-168c". -->
 <!-- dev-17fd COMPLETED 2026-10-04 — 2026-10-04 bug reports: merged --no-ff PianoidTunner dev 3ec5c13 (health false-crash, SC paint row growth, range select, autoload bypass, add-to-library error UI, load-param warning), PianoidCore dev 8004886 (/preset/load 409 layout guard, /load_preset load_param_warnings); follow-ups in "Follow-ups from dev-17fd" -->
 <!-- dev-f27f COMPLETED 2026-10-03 — tail damper real multiplier (Kernels.cu) + exact FPGA converter (real tail ratio, FPGA run mode frequency via GPU field, n_m^2 mass fold, output/n_m) + regenerated F15_Elyashev_array512; merged --no-ff NOT pushed: PianoidCore dev a61c47d (dd342f0, b8d799e), PianoidBasic dev d638198 (68e1dce, bbf7be3), root master; shared venv deployed (--heavy --both + Basic) + L2 smoke 200 x3. Open decision: stock presets' damper_tail. Evidence docs/development/diagnostics/dev-f27f-renders/summary.md. -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): sc-panel-e2e — Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch | repos: - | branches: feature/sc-panel-e2e-harness | SHAs: - | status: unknown | started 2026-07-17 -->
@@ -236,11 +236,16 @@
   transfer; R5 bridge readout `/dx` (RMS-vs-peak residual of the ρ/dx controls = coupling/decay, measured here);
   R-note hammer-shape aliasing; FE has no control for `string_gain_model` (preset JSON / load param only).
 
-## Follow-ups from dev-168c — keyboard equalizer on hammer_mass (2026-10-04, branch feature/dev-168c-mass-eq, NOT merged)
+## Follow-ups from dev-168c — keyboard equalizer on hammer_mass (2026-10-04, merged PianoidCore dev, not pushed)
 
 - **Mass range — DECIDED (user, 2026-10-04):** one common factor into 2–20 g, ratios kept, level compensated via
-  output_scale; implemented (rescale_to_physical_range). Open: when the spread exceeds 20 dB the light end stays
-  below 2 g (reported, not clamped).
+  output_scale; implemented (rescale_to_physical_range), merged.
+- **OPEN (user decision pending): which bound to violate when the mass spread exceeds the 20 dB range.** Current
+  behaviour: the heaviest mass is pinned to 20 g and the light end is reported below 2 g (`violation_db`,
+  `n_outside`). Alternatives: split the violation symmetrically, or pin the p95 mass. Owner: user.
+- **Equalize invalidates output_scale:** each equalize pass clears `output_scale_calibrated`, so the next live
+  `switch_preset` renders inside the live backend (review I-7, page-fault family). Option: compensate the pass
+  analytically like the rescale and drop the invalidation. Owner: user decision.
 - **Shape residual:** a curve SHAPE edit keeps each note's delivered impulse (measured 0.000 dB) and its
   mass, but its rendered level moves by the peak/integral term (sigma ×1.3: −0.9…−1.0 dB BaselinePreset1,
   −1.5…−9.1 dB F15). Decide whether an equalize pass should be re-run (or auto-run) after shape edits.
