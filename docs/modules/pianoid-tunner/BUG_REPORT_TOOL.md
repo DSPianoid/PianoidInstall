@@ -200,6 +200,12 @@ Three parts, each a single-concern module (mirrors the manual tool's shape):
 | `ws_disconnect` | `useSocketIO` `disconnect` | no — recorded for context (a restart is normal) |
 | `ws_degraded` | `useSocketIO` half-open/degraded cooldown | no — recorded for context (falls back to REST) |
 
+> **`healthStatus.running` mirrors `/health backend_thread_running`** (useBackendHealth). Until
+> dev-17fd (2026-10-04) it read a non-existent top-level `running` key, so `running` was always
+> false once a preset was loaded and **every preset load filed a false `backend_crashed`** ~2–6 s
+> later (the realtime loop was healthy). Reports from before that fix with
+> `trigger.detail = {status:'healthy', running:false}` are false positives.
+
 **The REST layer is captured at ONE chokepoint — a global axios response
 interceptor** — exactly as the manual tool captures writes at the `writeParam`
 SSOT: every failed REST call (any call site, present or future) is classified

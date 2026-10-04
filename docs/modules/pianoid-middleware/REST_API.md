@@ -1519,7 +1519,12 @@ Request body:
 Response `200`: `{ "message": "...", "presets": [<records>] }`
 
 Response `400` if `path` or `name` missing.
-Response `500` if preset already exists in library or file not found.
+Response `409` (`PresetLibraryError`) if the name is already in the library, or if the preset's
+string layout differs from the running engine (`num_strings` after the array-size geometry
+scaling — e.g. `F15_Elyashev_array512` has 232 strings, a Belarus engine 224). A library slot is
+D2D-swapped into the running engine, so it must share its layout; load such a preset with
+`POST /load_preset` (APPLY) instead. (dev-17fd; was a `ModeMap` ValueError → 500.)
+Response `500` if the file is not found or another unexpected error occurs.
 
 ---
 

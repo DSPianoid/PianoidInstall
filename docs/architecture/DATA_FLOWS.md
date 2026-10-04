@@ -876,6 +876,7 @@ backendserver.py: preset_load_to_library_route()       (line 319)
      ├── ModelParameters from preset, overridden with running instance's
      │   array_size, sr, mode_iteration, string_iteration
      ├── Scale geometry if array_size differs
+     ├── Guard: num_strings must equal the running engine's (else PresetLibraryError → 409)
      ├── Load sound channel coefficients
      └── Pad deck arrays to num_working_modes
   3. Pack flat arrays (same layout as init_pianoid):

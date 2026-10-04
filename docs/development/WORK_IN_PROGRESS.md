@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-17fd | Diagnose 7 auto bug reports 2026-10-04 (F15_Elyashev_array512 / Belarus load crashes, debug_mode 1 ASIO) | [log](logs/dev-17fd-2026-10-04-100753.md) | 2026-10-04 | In Progress |
 <!-- dev-f27f COMPLETED 2026-10-03 — tail damper real multiplier (Kernels.cu) + exact FPGA converter (real tail ratio, FPGA run mode frequency via GPU field, n_m^2 mass fold, output/n_m) + regenerated F15_Elyashev_array512; merged --no-ff NOT pushed: PianoidCore dev a61c47d (dd342f0, b8d799e), PianoidBasic dev d638198 (68e1dce, bbf7be3), root master; shared venv deployed (--heavy --both + Basic) + L2 smoke 200 x3. Open decision: stock presets' damper_tail. Evidence docs/development/diagnostics/dev-f27f-renders/summary.md. -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): sc-panel-e2e — Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch | repos: - | branches: feature/sc-panel-e2e-harness | SHAs: - | status: unknown | started 2026-07-17 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-sce2e — SC panel E2E — measurement foundation (fixture+harness+gates+first tests) | repos: - | branches: - | SHAs: - | status: unknown | started 2026-07-17 -->
@@ -219,6 +220,15 @@
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
+
+## Follow-ups from dev-17fd — 2026-10-04 bug reports (F15 session)
+
+Fixed on branches (HOLD, Phase 1): Tunner `feature/dev-17fd-report-fixes` (health false-crash, SC paint row growth 202-vs-196, range-select, autoload toggle bypass, add-to-library error UI); Core `feature/dev-17fd-library-layout` (/preset/load 409 on string-layout mismatch). Open:
+- **Clicks (user: quiet single clicks at low volume)** — NOT reproduced: 13 min live debug + 4 min release capture, 0 underruns, 0 Sint discontinuities (detector catches a 0.001 step / repeated 64-sample block). Debug variant: add-kernel up to 2.7 ms ~3x/min (absorbed at buffer 4; release max 1.09 ms). Next: capture during the user's own session (their MIDI + FE edits) or a mic/loopback capture; try release (debug_mode 0). Owner: orchestrator to schedule.
+- **SC chart scale for low values (item 4)** — aggregate chart floors y at 0 (`yMin: 0`, `DRAG_CLAMP_MIN = 0`) so NEGATIVE signed SC averages (F15 rows are signed) are hidden and painting cannot go below 0; the user's SC autoScale was OFF (frozen max). Needs a design decision (signed y-axis + per-selection y-zoom), not a blind change.
+- **ModesRule drag from mode 0 ignored** — `if (!mouseDownMode)` treats mode 0 as "no mousedown" (falsy-zero). One-line fix (`== null`) + test.
+- **F15 output-channel balance / calibration headroom** — kernel ch3 ~14x ch0; volcal B targets single p60v127 at -2 dBFS → chords clip ch1/ch3 by 12-35 dB (limiter). Consider calibrating on a chord / per-channel, or balance F15 output columns.
+- **F15 at array 384** — backend scales geometry 0.75 and it plays (pitch -3..+45 c vs -5..+10 c at 512/16); FE does not apply `fpga_conversion.load_params` (512/16/deriv 1). Decide: FE auto-apply/warn vs backend reject.
 
 ## Follow-ups from dev-1e95 — string_iteration precision regression (2026-10-01)
 
