@@ -11,6 +11,8 @@ self-contained document capturing a problem, its analysis, and a proposed (or im
 
 ## Active
 
+- [Automatic Volume Equalization — System Review](volume-equalization-review-2026-10-04.md) — every level mechanism end to end; single-note calibration vs chords/keyboard, no limiter, inert mic equalizer, cache not keyed by load params
+
 - [FPGA → GPU Preset Port — Algorithm Comparison & Mapping (Elyashev F_15)](fpga-to-gpu-preset-port-2026-09-30.md) — FPGA RTL/C reverse-engineering, per-stage comparison, porting table, draft converter, open questions for Dima
 - [In-Place CUDA Re-Initialize](cuda-reinit-in-place-2026-06-22.md) — apply STRUCTURAL params without stopping the backend or reloading the preset
 - [Excitation Loudness / Impulse Normalization — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md) — corrects the PART-1 frontend renorm (inert + wrong-assumption); recommends removing it + merging the engine conserve fix
