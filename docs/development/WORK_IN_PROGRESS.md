@@ -4,8 +4,8 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-029c | R1+R2 loudness physics: string gain rho*dx^2 normalization (ref p60) + unison 1/n^k split, preset-level string_gain_model physical\|legacy | [log](logs/dev-029c-2026-10-04-181934.md) | 2026-10-04 |
 | dev-168c | Keyboard scale calibration retargeted to per-pitch hammer_mass (equalize/curves keep semantics; conserve invariant) | [log](logs/dev-168c-2026-10-04-144434.md) | 2026-10-04 |
+<!-- dev-029c COMPLETED 2026-10-04 — physical string gain R1+R2 (string_gain_model physical default | legacy, unison_split_exponent, frozen p60 reference; F15 declares physical k=0): merged --no-ff NOT pushed: PianoidBasic dev 0832a3d (206befc), PianoidCore dev 318f4b8 (f8de06f), root master d862028 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks it up on next restart). Follow-ups in "Follow-ups from dev-029c". -->
 <!-- dev-17fd COMPLETED 2026-10-04 — 2026-10-04 bug reports: merged --no-ff PianoidTunner dev 3ec5c13 (health false-crash, SC paint row growth, range select, autoload bypass, add-to-library error UI, load-param warning), PianoidCore dev 8004886 (/preset/load 409 layout guard, /load_preset load_param_warnings); follow-ups in "Follow-ups from dev-17fd" -->
 <!-- dev-f27f COMPLETED 2026-10-03 — tail damper real multiplier (Kernels.cu) + exact FPGA converter (real tail ratio, FPGA run mode frequency via GPU field, n_m^2 mass fold, output/n_m) + regenerated F15_Elyashev_array512; merged --no-ff NOT pushed: PianoidCore dev a61c47d (dd342f0, b8d799e), PianoidBasic dev d638198 (68e1dce, bbf7be3), root master; shared venv deployed (--heavy --both + Basic) + L2 smoke 200 x3. Open decision: stock presets' damper_tail. Evidence docs/development/diagnostics/dev-f27f-renders/summary.md. -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): sc-panel-e2e — Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch | repos: - | branches: feature/sc-panel-e2e-harness | SHAs: - | status: unknown | started 2026-07-17 -->
@@ -223,7 +223,7 @@
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
 
-## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, branches feature/dev-029c-string-gain, NOT merged)
+## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, merged Basic dev 0832a3d / Core dev 318f4b8, NOT pushed)
 
 - **Merge order:** PianoidBasic dev-029c first (new mp fields + `string_gain.py`; wheel rebuild), then PianoidCore
   dev-029c, then dev-168c (no file overlap; scratch merge conflict-free, both test sets green). dev-168c re-measured on
