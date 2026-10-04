@@ -7,6 +7,9 @@
 - **Evidence surface:** OFFLINE renders (audio off) in separate processes, release pyd, never the live
   backend. Probe: [`analyse-voleq-probe.py`](../development/diagnostics/analyse-voleq-probe.py). Every
   number below is a measured render unless marked *(source)* or *(inference)*.
+- **Status (2026-10-04, dev-168c, feature/dev-168c-mass-eq, not merged):** I-3 fixed and R3 implemented in its
+  user-chosen form — the equalizer's only lever is the per-pitch `hammer_mass` (no new trim factor; per-level
+  loudness stays `hammer_speeds`); `level_multipliers` retired. R1, R2, R4–R11 open.
 - **Related (not superseded):** [Excitation Loudness — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md)
   (excitation-coefficient subtopic), [Output Sound-Channel Calibration](sound-channel-calibration-2026-07-10.md)
   (per-mode inter-channel balance subtopic). No earlier doc covers the whole level chain, so nothing was

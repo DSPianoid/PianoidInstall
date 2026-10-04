@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-168c | Keyboard scale calibration retargeted to per-pitch hammer_mass (equalize/curves keep semantics; conserve invariant) | [log](logs/dev-168c-2026-10-04-144434.md) | 2026-10-04 |
 <!-- dev-17fd COMPLETED 2026-10-04 — 2026-10-04 bug reports: merged --no-ff PianoidTunner dev 3ec5c13 (health false-crash, SC paint row growth, range select, autoload bypass, add-to-library error UI, load-param warning), PianoidCore dev 8004886 (/preset/load 409 layout guard, /load_preset load_param_warnings); follow-ups in "Follow-ups from dev-17fd" -->
 <!-- dev-f27f COMPLETED 2026-10-03 — tail damper real multiplier (Kernels.cu) + exact FPGA converter (real tail ratio, FPGA run mode frequency via GPU field, n_m^2 mass fold, output/n_m) + regenerated F15_Elyashev_array512; merged --no-ff NOT pushed: PianoidCore dev a61c47d (dd342f0, b8d799e), PianoidBasic dev d638198 (68e1dce, bbf7be3), root master; shared venv deployed (--heavy --both + Basic) + L2 smoke 200 x3. Open decision: stock presets' damper_tail. Evidence docs/development/diagnostics/dev-f27f-renders/summary.md. -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): sc-panel-e2e — Sound Channels panel: user-flow doc + 45-test browser-driven E2E plan + validated measurement harness (branch | repos: - | branches: feature/sc-panel-e2e-harness | SHAs: - | status: unknown | started 2026-07-17 -->
@@ -220,6 +221,21 @@
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
+
+## Follow-ups from dev-168c — keyboard equalizer on hammer_mass (2026-10-04, branch feature/dev-168c-mass-eq, NOT merged)
+
+- **Mass range:** equalizing to a flat target drives treble masses far past the physical 2–20 g range
+  (BaselinePreset1 up to 241 g, F15 up to 582 g; p99/105/106 of BaselinePreset1 still capped by the ×50
+  per-pass correction clamp). Decide: clamp to a physical range (then the residual stays) or accept "mass" as
+  a pure loudness trim. Owner: user decision.
+- **Shape residual:** a curve SHAPE edit keeps each note's delivered impulse (measured 0.000 dB) and its
+  mass, but its rendered level moves by the peak/integral term (sigma ×1.3: −0.9…−1.0 dB BaselinePreset1,
+  −1.5…−9.1 dB F15). Decide whether an equalize pass should be re-run (or auto-run) after shape edits.
+- **Offline post-load warm-up:** the first offline renders after `initialize()` measure up to ~1 dB away from
+  the steady state (reloaded preset p105 −88.74 vs −89.486 dB after one sweep); stable after a sweep. Cause not
+  established (probe: `docs/development/diagnostics/dev-168c-history-probe.py`).
+- **FE:** after a calibration run the Excitation mass editor (`useExcitationEnergy`) is not refetched; RCM
+  capture now follows hammer_mass edits (not gauss edits) — UI wording in CurveEditor still says "volume".
 
 ## Follow-ups from dev-17fd — 2026-10-04 bug reports (F15 session)
 

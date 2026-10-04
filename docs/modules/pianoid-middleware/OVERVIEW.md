@@ -301,10 +301,28 @@ Microphone-based volume equalization using semi-offline calibration mode. The en
 |-------|-------------|
 | 1. Persistence | Load/save calibration data (perception curves, timing bands, level multipliers) to/from preset JSON |
 | 2. Multi-velocity | Calibrate across 6 velocity levels (`[0, 5, 31, 63, 95, 127]`) per pitch |
-| 3. Level multipliers | Per-velocity-level global scaling factors (e.g., boost pp, attenuate ff) |
-| 4. ISO 226 curves | Frequency-dependent perception compensation (low-freq boost, high-freq cut) applied as per-pitch correction weights |
+| 3. Level multipliers | **Retired** (dev-168c) — per-level loudness is `hammer_speeds` |
+| 4. ISO 226 curves | Frequency-dependent perception compensation (low-freq boost, high-freq cut) applied as per-pitch correction weights (target dB offsets for `tune_single`, mass weights for `apply_perception_correction`) |
 
-**Volume correction algorithm:** Direct linear correction exploiting the linear RMS-to-excitation relationship (`RMS = K(pitch) * excitation_scale`, R^2 > 0.998). A single measurement determines the correction factor (`target_rms / measured_rms`), reducing per-note calibration from 20-30 measurements (bisection) to 1-2 measurements. Bisection is retained as a fallback for clipping, near-zero signal, or unexpected nonlinearity.
+**Loudness lever — per-pitch `hammer_mass` (dev-168c, 2026-10-04).** Every correction (synthesis, acoustic,
+`tune_single`, perception weights, clipping normalization, calibration-curve apply/revert, RCM) goes through
+`HammerMassGain` (`hammer_mass_gain.py`): it scales/sets `pitch.physics.hammer_mass` (model owner) and asks the
+CoefficientCache owner to recompose that pitch (`ParameterManager._recompose_excitation_coefficients({'kind':'mass'})`),
+then clears `output_scale_calibrated`. The curve volumes (`levels_matrix[:,2,:]`) are never written — they divide
+out of the conserve-mode coefficient, which made the pre-dev-168c equalizer a no-op after any reload
+([review I-3](http://localhost:8001/proposals/volume-equalization-review-2026-10-04/)). The tuners' "coefficient" is
+the pitch's gain = mass ÷ mass at controller creation. Mass is per-pitch, so a correction at one velocity level
+moves all levels of that pitch; velocity shaping is `hammer_speeds`. `level_multipliers` are retired (raise →
+REST `400`), the stored list is kept as a legacy preset field. Results persist in the preset's per-pitch `physics`
+block (save → reload verified).
+
+**Synthesis metric (`SynthesisTuner._synthesis_only_measure`, fixed dev-168c).** Offline render (note-on, note-off at
+300 ms, 700 ms), de-interleaved with `PianoidResult.load_offline_sound_from_pianoid` (the offline buffer is per-cycle
+interleaved across all output channels), RMS over **all output channels** in 30–300 ms; peak = max |x| over all
+channels. Before dev-168c it sliced the interleaved buffer as if it were mono, i.e. measured ~7.5–75 ms of mixed
+channels on a 4-channel preset.
+
+**Volume correction algorithm:** Direct linear correction exploiting the linear RMS-to-mass relationship (`RMS = K(pitch) * hammer_mass`; measured exact to ±0.002 dB for ×0.25…×4 on BaselinePreset1 and F15_Elyashev_array512). A single measurement determines the correction factor (`target_rms / measured_rms`), reducing per-note calibration from 20-30 measurements (bisection) to 1-2 measurements. Bisection is retained as a fallback for clipping, near-zero signal, or unexpected nonlinearity.
 
 Key methods:
 
@@ -315,7 +333,7 @@ Key methods:
 | `equalize_keyboard(reference_pitch, velocity)` | Equalize all pitches to a reference (direct correction) |
 | `tune_single(pitch, velocity, target_db)` | Direct correction to match target dB (bisection fallback) |
 | `get_perception_curves()` / `set_perception_curves()` | Read/write per-pitch correction weights |
-| `apply_level_multipliers(multipliers)` | Apply 6-element velocity-level scaling |
+| `apply_level_multipliers(multipliers)` | Retired — raises `ValueError` (use `hammer_speeds`) |
 | `save_perception_curves_to_preset()` | Persist calibration to preset JSON |
 
 Timing is frequency-adaptive via timing bands (configurable from UI):

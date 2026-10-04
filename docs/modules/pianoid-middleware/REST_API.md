@@ -1665,7 +1665,22 @@ Response `200`: block map array.
 
 ## Calibration Endpoints
 
-These endpoints use the **semi-offline calibration mode**: the engine loop is stopped but the audio driver stays alive, allowing deterministic cycle-by-cycle synthesis and microphone capture. See [MIC_VOLUME_EQUALIZATION_PLAN.md](http://localhost:8001/development/MIC_VOLUME_EQUALIZATION_PLAN/) for architecture details.
+These endpoints use the **semi-offline calibration mode**: the engine loop is stopped but the audio driver stays alive, allowing deterministic cycle-by-cycle synthesis and microphone capture. See [MIC_VOLUME_EQUALIZATION_PLAN.md](http://localhost:8001/development/archive/MIC_VOLUME_EQUALIZATION_PLAN/) (archived) for the original architecture.
+
+**Loudness lever = per-pitch `hammer_mass` (dev-168c, 2026-10-04).** Every equalizer write changes only
+`pitch.physics.hammer_mass` and recomposes that pitch's excitation coefficient
+(`c·m·v / (temporal·spatial)`, conserve mode) — the same path as `POST /excitation_energy`. The excitation
+curve volumes are never touched: they divide back out of the coefficient, so the old curve-volume writes were
+no-ops after any reload. Loudness is linear in mass (measured: mass ×0.25/×0.5/×2/×4 → −12.04/−6.02/+6.02/+12.04 dB
+±0.002 dB). Consequences:
+
+| Writer | Effect |
+|---|---|
+| `/calibrate_synthesis`, `/calibrate_acoustic`, `/tune_note`, `/apply_perception`, `/normalize_volume`, `/calibration_curve/apply` · `/revert` · `/rcm/remove` | scale / set / restore `hammer_mass` of the affected pitches; the reported `coefficient` is the pitch's gain = mass ÷ mass when the calibration controller was created (1.0 = unchanged) |
+| velocity level of a correction | mass is **per-pitch**: a correction measured at one velocity moves every level of that pitch. Per-level loudness is `hammer_speeds` (`/excitation_energy`), untouched by the equalizer |
+| `level_multipliers` (`/calibration_params`) | **retired** — `400`; the stored list is kept read-only (legacy preset field) |
+| RCM auto-capture | triggered by `POST /excitation_energy` `hammer_mass` edits (coefficient = mass ÷ mass at RCM start), no longer by gauss edits |
+| persistence | `hammer_mass` is saved per pitch in the preset `physics` block → survives save → reload; each write also clears `output_scale_calibrated` (Layer B re-derives the absolute level on the next load; the per-pitch ratios are kept) |
 
 ### `POST /measure_rms`
 
@@ -1703,6 +1718,8 @@ Response `500` on measurement error.
 
 ### `POST /equalize_keyboard`
 
+**Deprecated — returns `410`** (superseded by `/save_reference` → `/calibrate_synthesis` → `/calibrate_acoustic`). Historical contract below.
+
 Starts full keyboard equalization in a background thread. Measures every available pitch and adjusts excitation volume coefficients to match a reference pitch's RMS.
 
 Two-phase process per pitch: noise floor lift (boost until signal above noise), then direct linear correction (1-2 measurements using RMS = K * excitation linearity, with bisection fallback). Poll progress via `GET /calibration_status`.
@@ -1736,7 +1753,7 @@ Response `500` on error.
 
 ### `POST /tune_note`
 
-Adjusts the excitation volume coefficient for a single pitch to match the target dB using direct linear correction (1-2 measurements). Falls back to bisection search if direct correction overshoots. Blocking -- returns when tuning completes.
+Adjusts the pitch's `hammer_mass` (loudness gain; `coefficient` = mass ÷ reference mass) to match the target dB using direct linear correction (1-2 measurements). Falls back to bisection search if direct correction overshoots. Blocking -- returns when tuning completes.
 
 Request body:
 ```json
@@ -1873,6 +1890,8 @@ Response `400` if pianoid not initialized.
 
 ### `POST /calibrate_volume`
 
+**Deprecated — returns `410`** (use `/calibrate_synthesis`). Historical contract below.
+
 Starts multi-velocity calibration in a background thread. Measures and corrects volume across selected velocity levels and pitches.
 
 Request body:
@@ -1933,7 +1952,7 @@ Request body (all fields optional):
 
 - `generate_defaults`: if `true`, returns ISO 226-based default perception curves without applying
 - `save_to_preset`: if `true`, persists calibration data to the preset JSON file
-- `level_multipliers`: 6-element array of per-velocity-level global scaling factors
+- `level_multipliers`: **retired (dev-168c)** — posting it returns `400` ("set the per-level hammer_speeds via POST /excitation_energy"). It scaled the curve volumes, which the conserve-mode coefficient divides out. `GET` still returns the stored list (legacy preset field, not applied)
 
 Response `200`:
 ```json

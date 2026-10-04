@@ -41,6 +41,7 @@ PianoidCore/tests/
     ├── test_cfl_amp.py              # CFL guard v2 closed-form (cfl_stability.py) — PINNED K=24 grid vs dense max|g| (0 false-accept/reject), empirical crash borders incl. LOWER-edge, per-string tension_offset worst-string, collapse-not-flagged, isfinite (no GPU)
     ├── test_channel_assignment.py   # MappingConfig persistence round-trip, _load_mapping_results file priority, ESPRIT response channel filtering
     ├── test_direct_correction.py    # CalibrationController: direct linear correction algorithm, fallback to bisection, edge cases (11 tests)
+    ├── test_hammer_mass_gain.py     # dev-168c: equalizer loudness lever = per-pitch hammer_mass — HammerMassGain (gain/clamp/commit only dirty pitches + output_scale invalidation/snapshot), controller/curve/RCM/auto_tuner write mass never curve volumes, level_multipliers retired; conserve invariants on the real formulas: (a) shape edit keeps delivered impulse, volume edit keeps impulse + force, (b) mass x r = 20log10(r) dB (18 tests)
     ├── test_event_buffer_backpressure.py # RealTimeEventBuffer back-pressure: setSizeLimit/getSizeLimit, drop-oldest-NOTE_OFF-first policy, fallback to oldest, stats.dropped_event_count (Tranche A / M12, 7 tests)
     ├── test_fpga_preset_converter.py # FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_preset_converter): hand-computed golden values for each host send-all formula (exp_all [e,d,a] order, RTL level interp, gauss centre/sigma steps, ind_vol*v_L code, (int)decr_op gamma, (int)dt/(int)ttn unison, output-row scaling, zero-anchor loudness fit, hammer cap ww>=0, q-signal rejection, recorded fallbacks, omega 4f^2, Q/Mass words, decka*out_vol*Ci_str_1_out, Ci layout, -Gain_FB, shteg/dt/width/del), mass anchoring, rank-1 loudness; F_15 round trip (both Pitch.txt) + middleware overlay delegation (skips without PresetsFromFpga; replaces test_fpga_excitation_loader.py, which pinned the swapped decode) (dev-a480, 38 tests incl. kernel-coefficient equivalence of F_15's own strings, blocks = FPGA arrays, exact clamped-scheme fundamental golden, host_q exact-rate golden, DERIVED/UNCONFIRMED/OVERRIDDEN statuses, F_15 grid tuning median within 5 c with the batch4 Pitch.txt + 21.3-point offset; F_15 inputs via PIANOID_FPGA_ROOT fixture, skip if absent)
     ├── test_esprit_gpu_fallback.py  # ESPRIT GPU->CPU fallback is LOUD not silent: _to_gpu_or_cpu + _free_gpu_memory log WARNING when use_gpu=True but CuPy missing, and the return flag degrades to False (dev-5dd4 regression guard, 4 tests)
@@ -305,6 +306,18 @@ render-to-render noise measured in the test (~4e-3 here). Both tests FAIL on the
 |------|-------------------|
 | `TestTailDamperMultiplier::test_fractional_tail_multiplier_acts` | `damper_tail` 0.5 vs 0 (D = 2e-3) changes the sound > 5x noise (fixed 14x; pre-fix 1x) and does not add energy |
 | `TestTailDamperMultiplier::test_only_the_product_matters` | (2D, 0.5) sounds like (D, 1.0) within 3x noise (fixed 1.0x; pre-fix 16x) |
+
+### test_mass_equalizer_offline.py
+
+dev-168c: the keyboard equalizer's lever is the per-pitch `hammer_mass`; measured on the offline render
+(`SynthesisTuner._synthesis_only_measure`, pitch 60 v95, session `pianoid_no_audio`). Each test restores what it touched.
+
+| Test | What it validates |
+|------|-------------------|
+| `test_mass_ratio_scales_loudness[0.5/2.0]` | mass x r → loudness + 20·log10(r) dB (±0.05) |
+| `test_equalizer_correction_survives_coefficient_rebuild` | an equalizer x2 correction is +6.02 dB in session AND after the full coefficient rebuild every load / save→reload performs (the pre-fix curve-volume write measured 0.00 dB after it) |
+| `test_volume_edit_keeps_impulse_mass_and_loudness` | curve volumes x2 → delivered impulse, mass and loudness unchanged (conserve) |
+| `test_shape_edit_keeps_impulse_and_mass` | sigma x1.3 → delivered impulse (live coefficient × temporal × spatial) and mass unchanged; the peak/integral loudness change is the documented shape residual, not asserted |
 
 ### Parameter → sound suite (`param_sound_harness.py` + `test_param_sound_*.py`)
 
