@@ -30,6 +30,7 @@ PianoidBasic/
         Hammer.py            # PianoHammer
         Pitch.py             # Pitch
         StringExcitation.py  # GaussCurve, ExcitationCurve, ExcitationParameters
+        excitation_retime.py # R3: re-time a preset's excitation curves per pitch (contact / period law)
         Mode.py              # Piano_mode, ModeMap
         StringMap.py         # StringMap
         PianoMeasure.py      # PianoMeasure
@@ -101,7 +102,7 @@ Global simulation configuration. Holds the parameters that determine how the CUD
 | `sr` | 48000 | Audio sample rate (Hz) |
 | `array_size` | 384 | Max number of spatial points per string block |
 | `num_strings_in_array` | 2 | Strings packed side-by-side in one block |
-| `excitation_factor` | 8 | Duration of a hammer excitation in milliseconds |
+| `excitation_factor` | 8 | Excitation window in segments of one cycle (`mode_iteration/sr`: 1.333 ms at 64/48 kHz, so 10.7 ms; the GPU writes the first 7) — not milliseconds |
 | `level_indices` | [0,5,31,63,95,127] | MIDI velocity breakpoints for Gauss interpolation (6 levels) |
 | `num_modes` | 0 | Actual resonator modes in preset |
 | `num_modes_for_model` | 0 | Modes padded to a multiple of `num_blocks()` |
@@ -332,8 +333,8 @@ Model the velocity-dependent hammer force waveform as a sum of Gaussian pulses.
 
 | Parameter | Meaning |
 |---|---|
-| `mu` | Peak time in milliseconds (within the excitation window) |
-| `sigma` | Width (spread) of the Gaussian |
+| `mu` | Peak time in x-units = segments of `mode_iteration/sr` (1.333 ms at 64 samples/cycle, 48 kHz; measured dev-da62) |
+| `sigma` | Width (spread) of the Gaussian, same x-units as `mu` |
 | `volume` | Peak amplitude |
 | `shift` | Vertical offset as a fraction of volume (shifts baseline) |
 
@@ -462,6 +463,42 @@ persisted, so a later ρ/length edit — even of pitch 60 — moves only the edi
 recomposes that pitch's `string_gain`, PARAMETER_SYSTEM.md). The factor is a pitch constant, independent of curve
 and hammer shape, so the impulse-conservation invariant holds: delivered impulse per string = `c·m·v·G`.
 Reference pitch: 60, or the key pitch nearest to it in partial presets.
+
+---
+
+### excitation_retime (per-pitch pulse duration, R3)
+
+File: `excitation_retime.py` (dev-da62, 2026-10-04; [loudness-physics analysis](../../proposals/loudness-physics-deviation-analysis-2026-10-04.md) D3 / R3).
+The engine conserves the strike's impulse, but loudness at constant impulse follows the pulse duration τ relative to
+the string period (`E ≈ J²/(2Z·τ)`, much less once reflections return during the contact), so τ(p) is per-pitch
+**loudness data**. `retime_excitation(preset, law, k, tau_min_ms, tau_max_ms, pitches, reference_level, force)` is an
+explicit, reproducible **preset-data operation** (src JSON → new JSON; never in place; no engine change):
+
+```
+s(p) = τ_target(p) / τ_now(p)        mu, sigma × s ;  volume × 1/s ;  shift unchanged   (all 128 levels)
+```
+
+| Item | Definition |
+|---|---|
+| τ | equivalent width (area / peak) of the GPU curve (`StringExcitation.gpu_force_curve`, written segments 0–6) at level 95, in ms; 1 x-unit = `mode_iteration/sr` (1.333 ms at 64/48 kHz) |
+| `"contact"` (default) | grand-piano hammer–string contact duration, log-linear 4 ms (A0) → 0.7 ms (C8) (Askenfelt & Jansson, JASA 88(1) 1990 / 90(5) 1991; Fletcher & Rossing ch. 12), as a half-sine: `τ = (2/π)·τ_contact` |
+| `"period"` | `clip(k·T0(p), tau_min_ms, tau_max_ms)`, T0 = 12-TET period (default k 0.4, 0.4–4 ms) |
+| invariants | shape kept (time axis only); each curve's integral kept (`volume × 1/s`), so the delivered impulse `c·m·v·G` is unchanged (verified bit-level through the coefficient build); pitch and per-partial decay unchanged |
+| guards | FPGA presets refused unless `force` (`preset["fpga_conversion"]`, or `excitation_provenance.converter` = the FPGA converter — the user requires exact FPGA parameters); scale-up capped so ≥ 1 − 10⁻³ of the curve stays in the 7-segment window; scale-down floored at 2 sub-steps per weighted Gaussian σ |
+| output | `preset["excitation_retime"]` (law, parameters, per-pitch scale / limit, source), `output_scale_calibrated = false` (the level changed). Bake `output_scale` OFFLINE before a live load (`docs/development/diagnostics/dev-da62-bake-output-scale.py`) — never let the live backend render |
+
+CLI: `python -m Pianoid.excitation_retime SRC.json DST.json [--law contact|period] [--k 0.4] [--pitches 21-108] [--force]`.
+Demo: `PianoidCore/pianoid_middleware/presets/BaselinePreset1_retimed.json` (contact law, `output_scale` baked).
+
+**Measured on BaselinePreset1** (equal 10 g masses, physical string gain, 384/si 4, v95, level rel. p60; evidence
+`docs/development/diagnostics/dev-da62-renders/`): before, every curve is 3.28 ms wide → spread 31.9 dB (p95–p5 21.4), top
+octave median −18.2 dB. `contact`: 26.3 dB (p95–p5 22.1), top octave −6.6 dB, bass (≤ p35) −18.3 dB; the merged dev-168c
+equalizer + rescale then gives 0.97 / 2.36 / 20 g (min/median/max), **bass-heavy** (bass median 11.5 g vs treble 2.7 g;
+before R3: 0.51 / 1.02 / 20 g, bass 1.5 g vs treble 2.5 g). `period` tilts the keyboard by ~+6…+8 dB/octave (at a
+fixed τ/T0 the uptake still grows as 1/T0): k = 0.3/0.4/0.5 → 41.1/39.4/37.0 dB, so it is not the default. The
+remaining spread is the bass (p21–35, already in the impulsive regime: τ ×0.73 → only +3.6 dB), i.e. not D3.
+Timbre: shorter pulses brighten the attack (0–30 ms centroid +0.3…+0.6 oct) and the top octave (+0.25…+0.9 oct), but
+DARKEN the mid sustain (−0.6…−1.3 oct, p48–84): the old 3.28 ms pulse (≈ T0 at middle C) suppressed the fundamental.
 
 ---
 

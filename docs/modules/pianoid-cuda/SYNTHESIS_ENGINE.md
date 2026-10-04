@@ -1057,7 +1057,7 @@ all 5 Gaussians are added. The GPU formula is the one used in actual synthesis.
 
 ### Temporal Segmentation & Grid Reconciliation
 
-The excitation temporal function is divided into `EXCITATION_FACTOR = 8` **segments** of ~1 ms each
+The excitation temporal function is divided into `EXCITATION_FACTOR = 8` **segments** of one audio cycle each (`mode_iteration / sr`: **1.333 ms** at 64 samples per cycle and 48 kHz — measured, dev-da62 2026-10-04, `fetchExcitation` readback; "1 ms" holds only for a 48-sample cycle)
 (`constants.h:39`). One segment = `initTotalSteps = init_mode_iteration × sound_step` samples, so the
 per-string `force_function` region is `8 × initTotalSteps = totalExcitationLength` reals.
 
@@ -1156,7 +1156,7 @@ during the sweep. Segment 7 must therefore stay **zero**. This is guaranteed onc
 by the full-allocation `cudaMemset(dev_ptr, 0, alloc_bytes)` in
 `UnifiedGpuMemoryManager::registerBuffer` (`UnifiedGpuMemoryManager.cu:239-241`) — `dev_force_function`
 is registered with `host_data = nullptr` (`Pianoid.cu:362-366`), so it takes the zero-init branch. Any
-future refactor that drops that memset would inject stale force in the final ~1 ms. (The old
+future refactor that drops that memset would inject stale force in the final segment. (The old
 per-string `initializeKernel` zeroing in `devMemoryInit` was redundant with this memset **and**
 mis-strided — it used `blockDim.x = array_size` as the per-string stride instead of
 `initTotalSteps × EXCITATION_FACTOR` — so it was removed; the memset is the single owner of the
@@ -1172,7 +1172,7 @@ Size: 256 strings × 128 velocity levels × 20 params = 655,360 reals (2.5 MB fl
 Indexing: param_offset = (stringNo * 128 + velocity) * 20
 
 Per velocity level (20 reals):
-  [0..4]    mu[5]       — Gaussian peak times (ms within excitation window)
+  [0..4]    mu[5]       — Gaussian peak times in x-units = segments (× `mode_iteration/sr` = 1.333 ms at 64/48 kHz)
   [5..9]    sigma[5]    — Gaussian widths
   [10..14]  g_vol[5]    — Gaussian amplitudes
   [15..19]  g_shift[5]  — ReLU threshold offsets
@@ -1222,7 +1222,7 @@ This is used for testing individual resonator modes without triggering string ex
 | `GAUSS_PARAMETERS_NUMBER` | 4 | Parameters per Gaussian (mu, sigma, vol, shift) |
 | `LEN_LEVEL_GP` | 20 | Total params per velocity level (5 × 4) |
 | `NO_EXCITATION_LEVELS` | 128 | MIDI velocity levels |
-| `EXCITATION_FACTOR` | 8 | Excitation window = 8 temporal segments of ~1 ms (`initTotalSteps` samples each). gaussKernel writes segments 0–6; segment 7 is silent by construction (see [Temporal Segmentation](#temporal-segmentation--grid-reconciliation)) |
+| `EXCITATION_FACTOR` | 8 | Excitation window = 8 temporal segments of one cycle each (`initTotalSteps` sub-steps = `mode_iteration/sr`, 1.333 ms at 64/48 kHz; the written 7-segment window is 9.33 ms). gaussKernel writes segments 0–6; segment 7 is silent by construction (see [Temporal Segmentation](#temporal-segmentation--grid-reconciliation)) |
 | `MAX_STRINGS_PER_EVENT` | 64 | Max strings per batch |
 
 ---

@@ -4,7 +4,13 @@
   `legacy`), `unison_split_exponent`, frozen reference `string_gain_reference`; PianoidBasic
   `feature/dev-029c-string-gain`, PianoidCore `feature/dev-029c-string-gain` (HELD, not merged). Design + measured
   before/after: [pianoid-basic OVERVIEW → string_gain](../modules/pianoid-basic/OVERVIEW.md#string_gain-physical-string-gain),
-  evidence `docs/development/diagnostics/dev-029c-renders/` (summary.txt, eq_summary.txt). R3–R7 + the R-note remain open.
+  evidence `docs/development/diagnostics/dev-029c-renders/` (summary.txt, eq_summary.txt); merged (PianoidBasic dev 0832a3d,
+  PianoidCore dev 318f4b8). **R3 implemented by dev-da62 (HELD, not merged)** — `Pianoid/excitation_retime.py`
+  (preset-data op, contact-time law default), PianoidBasic/PianoidCore `feature/dev-da62-retime`, demo
+  `BaselinePreset1_retimed.json`: [pianoid-basic OVERVIEW → excitation_retime](../modules/pianoid-basic/OVERVIEW.md#excitation_retime-per-pitch-pulse-duration-r3),
+  evidence `docs/development/diagnostics/dev-da62-renders/`. R4–R7 + the R-note remain open.
+- **Unit note (dev-da62, measured):** the "ms" of curve durations in §3.3/§4/R3 are x-units = segments of
+  `mode_iteration/sr` = **1.333 ms** at 64 samples/cycle (BP1 "2.46 ms" = 3.28 ms; "7 ms window" = 9.33 ms).
 - **Date:** 2026-10-04
 - **Kind:** Analysis (`/analyse`). No code changed. Measurements are OFFLINE renders in separate processes
   (release pyd, audio off, one `Pianoid` per process); the live stack on :3000/:3001/:5000 was never touched.
