@@ -12,8 +12,9 @@
   loudness stays `hammer_speeds`); `level_multipliers` retired. R1, R2, R4–R11 open.
 - **Related (not superseded):** [Excitation Loudness — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md)
   (excitation-coefficient subtopic), [Output Sound-Channel Calibration](sound-channel-calibration-2026-07-10.md)
-  (per-mode inter-channel balance subtopic). No earlier doc covers the whole level chain, so nothing was
-  archived.
+  (per-mode inter-channel balance subtopic), [Loudness Chain — Physics Deviation Analysis](loudness-physics-deviation-analysis-2026-10-04.md)
+  (2026-10-04: WHY the per-pitch level is uneven — the string gain ∝ ρ·dx² and ×n-unison code deviations behind
+  I-4 and the dev-168c mass ranges). No earlier doc covers the whole level chain, so nothing was archived.
 
 ---
 

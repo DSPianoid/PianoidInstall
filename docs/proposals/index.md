@@ -11,6 +11,7 @@ self-contained document capturing a problem, its analysis, and a proposed (or im
 
 ## Active
 
+- [Loudness Chain — Where the Engine Deviates from the Physical Model](loudness-physics-deviation-analysis-2026-10-04.md) — measured attribution of the 45–50 dB equal-mass keyboard spread: string gain ∝ ρ·dx² (code), unison ×n (code), curve duration vs period and mode-mass law (data); fix order + expected mass ranges
 - [Automatic Volume Equalization — System Review](volume-equalization-review-2026-10-04.md) — every level mechanism end to end; single-note calibration vs chords/keyboard, no limiter, inert mic equalizer, cache not keyed by load params
 
 - [FPGA → GPU Preset Port — Algorithm Comparison & Mapping (Elyashev F_15)](fpga-to-gpu-preset-port-2026-09-30.md) — FPGA RTL/C reverse-engineering, per-stage comparison, porting table, draft converter, open questions for Dima
