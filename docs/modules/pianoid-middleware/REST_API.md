@@ -1681,6 +1681,7 @@ no-ops after any reload. Loudness is linear in mass (measured: mass ×0.25/×0.5
 | `level_multipliers` (`/calibration_params`) | **retired** — `400`; the stored list is kept read-only (legacy preset field) |
 | RCM auto-capture | triggered by `POST /excitation_energy` `hammer_mass` edits (coefficient = mass ÷ mass at RCM start), no longer by gauss edits |
 | persistence | `hammer_mass` is saved per pitch in the preset `physics` block → survives save → reload; each write also clears `output_scale_calibrated` (Layer B re-derives the absolute level on the next load; the per-pitch ratios are kept) |
+| physical range | at the end of every measurement pass (`/calibrate_synthesis`, `/calibrate_acoustic`, `/tune_note`, `/normalize_volume`, auto-tune) and via `POST /rescale_hammer_mass`, ALL key pitches' masses are multiplied by ONE common factor `k` into `HAMMER_MASS_MIN…MAX` = 2–20 g (ratios kept → evenness kept); `output_scale` and the live `volume_center` are multiplied by `1/k` (analytic, no render) so the absolute level is unchanged. If the mass spread exceeds the 20 dB range, the heaviest mass is pinned to 20 g and the light end is reported below 2 g (`violation_db`, `n_outside`). The returned/embedded `mass_rescale` report carries `k`, spread/range dB and min/median/max grams before/after |
 
 ### `POST /measure_rms`
 
@@ -1796,6 +1797,12 @@ Response `200` (did not converge):
 
 Response `400` if `pitch` or `target_db` missing, or pianoid not initialized.
 Response `500` on error.
+
+---
+
+### `POST /rescale_hammer_mass`
+
+Moves every key pitch's `hammer_mass` into the physical range (2–20 g) with one common factor and compensates the level through `output_scale` (dev-168c). No body. Response `200`: `{"status":"ok","k":…,"k_db":…,"spread_db":…,"range_db":20.0,"fits":bool,"violated_bound":null|"lower","violation_db":…,"n_outside":…,"grams_before":{min,median,max},"grams_after":{…},"range_grams":[2.0,20.0]}`. `400` no preset · `409` calibration running · `500` error.
 
 ---
 

@@ -314,7 +314,10 @@ out of the conserve-mode coefficient, which made the pre-dev-168c equalizer a no
 the pitch's gain = mass ÷ mass at controller creation. Mass is per-pitch, so a correction at one velocity level
 moves all levels of that pitch; velocity shaping is `hammer_speeds`. `level_multipliers` are retired (raise →
 REST `400`), the stored list is kept as a legacy preset field. Results persist in the preset's per-pitch `physics`
-block (save → reload verified).
+block (save → reload verified). **Physical range (user decision 2026-10-04):** every measurement pass ends with
+`rescale_masses_to_physical_range()` — one common factor into 2–20 g (`HAMMER_MASS_MIN/MAX`), ratios kept, the
+level compensated exactly by `Pianoid.compensate_output_scale(1/k)` (output_scale × live volume_center; no render).
+Spread wider than 20 dB → heaviest pinned to 20 g, lower-bound violation reported.
 
 **Synthesis metric (`SynthesisTuner._synthesis_only_measure`, fixed dev-168c).** Offline render (note-on, note-off at
 300 ms, 700 ms), de-interleaved with `PianoidResult.load_offline_sound_from_pianoid` (the offline buffer is per-cycle

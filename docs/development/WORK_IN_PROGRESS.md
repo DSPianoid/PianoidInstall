@@ -224,10 +224,9 @@
 
 ## Follow-ups from dev-168c — keyboard equalizer on hammer_mass (2026-10-04, branch feature/dev-168c-mass-eq, NOT merged)
 
-- **Mass range:** equalizing to a flat target drives treble masses far past the physical 2–20 g range
-  (BaselinePreset1 up to 241 g, F15 up to 582 g; p99/105/106 of BaselinePreset1 still capped by the ×50
-  per-pass correction clamp). Decide: clamp to a physical range (then the residual stays) or accept "mass" as
-  a pure loudness trim. Owner: user decision.
+- **Mass range — DECIDED (user, 2026-10-04):** one common factor into 2–20 g, ratios kept, level compensated via
+  output_scale; implemented (rescale_to_physical_range). Open: when the spread exceeds 20 dB the light end stays
+  below 2 g (reported, not clamped).
 - **Shape residual:** a curve SHAPE edit keeps each note's delivered impulse (measured 0.000 dB) and its
   mass, but its rendered level moves by the peak/integral term (sigma ×1.3: −0.9…−1.0 dB BaselinePreset1,
   −1.5…−9.1 dB F15). Decide whether an equalize pass should be re-run (or auto-run) after shape edits.

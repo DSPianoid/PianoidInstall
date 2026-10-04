@@ -12,6 +12,8 @@ MODE
   equalize   sweep (before) -> CalibrationController.calibrate_synthesis (the production
              /calibrate_synthesis code path, now writing hammer_mass) -> sweep (after)
              -> save the preset to EXTRA (a scratch path)
+  rescale    load PRESET (an equalized one), sweep, CalibrationController.rescale_masses_to_physical_range
+             (common mass factor + output_scale compensation), sweep, save to EXTRA
   reload     load EXTRA (the saved preset) fresh -> sweep; then a SHAPE edit (sigma x1.3 on every
              Gaussian of the base levels, through ParameterManager.update_parameter('gauss'))
              and a pure VOLUME edit (all curve volumes x2) on a few pitches -> masses, delivered
@@ -71,8 +73,11 @@ def measure(p, cc, pitch):
       m_ch   hottest single channel RMS, same window"""
     snd = render_channels(p, pitch, VEL, hold_ms=300, total_ms=700)
     seg = np.where(np.isfinite(snd), snd, 0.0)[:, int(0.030 * SR):int(0.300 * SR)]
-    return {"m_all": db(float(np.sqrt(np.mean(seg ** 2)))),
-            "m_ch": db(float(np.sqrt(np.mean(seg ** 2, axis=1)).max()))}
+    m_all = db(float(np.sqrt(np.mean(seg ** 2))))
+    return {"m_all": m_all,
+            "m_ch": db(float(np.sqrt(np.mean(seg ** 2, axis=1)).max())),
+            # post-volume level at init-volume 100 / slider 64 (volume_center = output_scale)
+            "m_out": None if m_all is None else round(m_all + 20 * math.log10(float(p.mp.output_scale)), 3)}
 
 
 def sweep(p, cc, pitches):
@@ -131,16 +136,43 @@ def mode_equalize(p, cc, out, save_path):
         "before": before, "after": after,
         "spread_before": {k: spread(before, k) for k in ("m_all", "m_ch")},
         "spread_after": {k: spread(after, k) for k in ("m_all", "m_ch")},
-        "masses_before": masses_before,
+        "masses_before": masses_before, "mass_rescale": res.get("mass_rescale"),
+        "output_scale_end": float(p.mp.output_scale),
         "masses_after": {str(k): float(p.sm.pitches[k].physics.hammer_mass) for k in keys},
         "saved_preset": save_path})
+
+
+def masses_g(p):
+    keys = sorted(p.sm.keyPitches)
+    v = np.array([p.sm.pitches[k].physics.hammer_mass for k in keys]) * 1e3
+    return {"min": round(float(v.min()), 3), "median": round(float(np.median(v)), 3), "max": round(float(v.max()), 3)}
+
+
+def mode_rescale(p, cc, out, save_path):
+    keys = sorted(p.sm.keyPitches)
+    out["output_scale_before"] = float(p.mp.output_scale)
+    out["masses_g_before"] = masses_g(p)
+    out["before"] = sweep(p, cc, keys)
+    out["report"] = cc.rescale_masses_to_physical_range()
+    out["output_scale_after"] = float(p.mp.output_scale)
+    out["masses_g_after"] = masses_g(p)
+    out["after"] = sweep(p, cc, keys)
+    for tag in ("before", "after"):
+        out["spread_" + tag] = {k: spread(out[tag], k) for k in ("m_all", "m_out")}
+    out["p60_out_db"] = {t: out[t].get("60", {}).get("m_out") for t in ("before", "after")}
+    out["output_scale_calibrated"] = bool(p.mp.output_scale_calibrated)
+    p.save_preset(save_path)
+    out["saved_preset"] = save_path
 
 
 def mode_reload(p, cc, out):
     keys = sorted(p.sm.keyPitches)
     out["masses_loaded"] = {str(k): float(p.sm.pitches[k].physics.hammer_mass) for k in keys}
+    out["masses_g_loaded"] = masses_g(p)
+    out["output_scale_loaded"] = float(p.mp.output_scale)
     out["after_reload"] = sweep(p, cc, keys)
-    out["spread_after_reload"] = {k: spread(out["after_reload"], k) for k in ("m_all", "m_ch")}
+    out["spread_after_reload"] = {k: spread(out["after_reload"], k) for k in ("m_all", "m_ch", "m_out")}
+    out["p60_out_db_reload"] = out["after_reload"].get("60", {}).get("m_out")
     edit = [keys[len(keys) // 4], keys[len(keys) // 2], keys[3 * len(keys) // 4]]
     base_levels = [5, 31, 63, 95, 127]
     pm = p.param_manager
@@ -189,7 +221,8 @@ def main():
            "middleware": os.path.abspath(mw)}
     {"linearity": lambda: mode_linearity(p, cc, out),
      "equalize": lambda: mode_equalize(p, cc, out, os.path.abspath(extra)),
-     "reload": lambda: mode_reload(p, cc, out)}[mode]()
+     "reload": lambda: mode_reload(p, cc, out),
+     "rescale": lambda: mode_rescale(p, cc, out, os.path.abspath(extra))}[mode]()
     with open(out_path, "w") as f:
         json.dump(out, f, indent=1)
     print("RESULT written", out_path)
