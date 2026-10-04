@@ -389,6 +389,14 @@ Response `200` (full reload — structural change or no live engine):
 {"message": "Preset loaded successfully", "reinit": "full"}
 ```
 
+**Load-param warnings (dev-17fd).** Every success response (full / hot / structural-inplace)
+also carries `load_param_warnings`: `[{param, required, requested}]` for each load parameter the
+preset DECLARES (`fpga_conversion.load_params`, or a top-level `required_load_params`) that the
+request contradicts (`array_size`, `string_iterations`, `listen_to_modes`, `sound_derivative_order`;
+an omitted request key is not a mismatch). Non-blocking: the load proceeds (geometry is rescaled),
+the backend logs a `WARNING: preset load params differ …` line and the FE shows a persistent
+warning snackbar naming the required values (e.g. F15_Elyashev_array512: 512 / 16 / 0 / 1).
+
 Response `200` (hot re-init — only runtime params changed; engine + UI state kept):
 ```json
 {"message": "Preset hot-reloaded (runtime params only)", "reinit": "hot", "applied": {"volume": 64}}
