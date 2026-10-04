@@ -150,22 +150,28 @@ does this: on a `length` edit it injects `params['dx'] = pitch.geometry.dx()` so
 upload loop sends `updateMultiStringParameter_NEW("dx", ...)`. See
 `docs/architecture/DATA_FLOWS.md` §2.1.
 
-### Excitation-coefficient recompose is HAMMER-ONLY on the granular physical path
+### Excitation-coefficient recompose on the granular physical path (hammer = full, ρ/length = string gain)
 
-The per-(string, level) excitation coefficient is `c · mass · speed / (temporal · spatial)`
-(see `excitation_coefficients.py`). Its factors are the global calibration `c`, the hammer
+The per-(string, level) excitation coefficient is `c · mass · speed · G / (temporal · spatial)` — `G` is the
+physical string gain of `PianoidBasic/Pianoid/string_gain.py` (dev-029c: `R/(ρ·dx²)·(n_ref/n)^k`, 1.0 in the
+`"legacy"` model; see pianoid-basic OVERVIEW "string_gain"). **Since dev-029c `density` (`rho`) and `length` (→ `dx`)
+DO feed the coefficient** (in physical mode): `update_pitch(es)_physical_params_GRANULAR` recomposes the edited
+pitches' `string_gain` through `CoefficientCache.recompose({'kind': 'string_gain', ...})` (incremental, sub-ms,
+byte-identical to a full rebuild — `tests/unit/test_string_gain.py`); a hammer-geometry edit still triggers the one
+full rebuild per batch. The other factors (see `excitation_coefficients.py`) are the global calibration `c`, the hammer
 `mass` (`hammer_mass`), the per-velocity `speed`, the excitation-curve `temporal`
 (`level_impulse` = point-sum over `excitation_length`/`excitation_factor` × `dt / EXCITATION_REFERENCE_DT`
 — **model** params; the `dt` weight keeps the delivered impulse independent of `string_iteration` /
 `sample_rate`, see SYNTHESIS_ENGINE.md §Numerical scheme invariants; the per-sub-step HF damping and damper term are
 likewise `× dt/dt_ref` in `parameterKernel`),
-and the hammer `spatial` (`hammer_spatial_impulse`). **No string-physics parameter**
-(`tension`, `stiffness`, `damping`, `density`, `radius`, `length`, `dx`, …) feeds any of
-these factors — a pure string-physics edit leaves the coefficient table byte-identical
-(measured: `coeff_cells_changed == 0` for every strings-panel param).
+and the hammer `spatial` (`hammer_spatial_impulse`). **No other string-physics parameter**
+(`tension`, `stiffness`, `damping`, `radius`, …) feeds any of these factors — such an edit leaves the
+coefficient table byte-identical (measured before dev-029c: `coeff_cells_changed == 0` for every strings-panel
+param; in the `"legacy"` string-gain model this still holds for `density`/`length` too).
 
-Therefore `update_pitch_physical_params_GRANULAR` recomposes the coefficient **only when the
-edit actually touched hammer geometry** (`hammer_params` non-empty). It previously called the
+Therefore `update_pitch_physical_params_GRANULAR` fully rebuilds the coefficient **only when the
+edit actually touched hammer geometry** (`hammer_params` non-empty); a density/length edit recomposes only the
+edited pitches' `string_gain` (above). It previously called the
 full `CoefficientCache.seed()` rebuild (~200 ms) **unconditionally, once per pitch** — a
 no-op on string-physics edits that froze a multi-pitch/range strings edit for seconds
 (2.5 s for a 12-pitch octave). Fixed 2026-07-03 (dev-strregr); guard:

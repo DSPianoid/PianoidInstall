@@ -107,6 +107,9 @@ Global simulation configuration. Holds the parameters that determine how the CUD
 | `num_modes_for_model` | 0 | Modes padded to a multiple of `num_blocks()` |
 | `buffer_size` | 2 | Audio output circular buffer depth |
 | `listen_to_modes` | False | Whether sound channels receive mode output |
+| `string_gain_model` | `"physical"` | Excitation-coefficient string gain (see [string_gain](#string_gain-physical-string-gain)): `"physical"` (also for presets without the field) or `"legacy"` (the pre-2026-10 coefficients, bit-identical). Persisted |
+| `unison_split_exponent` | 1.0 | `k` of the unison split `(n_ref/n)^k` in physical mode: 1 = physics (momentum shared), 0.5 = FPGA legacy `shape_256` ÷√n, 0 = no split. Range [0, 1], fail-fast. Persisted |
+| `string_gain_reference` | `None` | `R` = ρ·dx² [kg·m] of pitch 60, frozen at the first physical-mode build and persisted; `None` = derive on build |
 
 Key methods:
 
@@ -433,6 +436,32 @@ Key responsibilities:
 - `pack_deck()` — assembles `feedin` and `feedback` matrices (shape: `num_strings × num_modes`) for CUDA
 - `pack_excitations()` — flattens all 128-level Gauss parameter matrices in string-index order
 - `update_hammer_shapes()` — recomputes all hammer spatial profiles after a geometry change
+- `pack_excitation_factors()` / `compose_from_factors()` — the per-pitch excitation-coefficient factors
+  `c · m · v · G / (temporal · spatial)`; `G = string_gain(pitch)` is the 6th (multiplying) factor
+- `string_gain(pitchID)` — `G(p)` of a key pitch (1.0 in legacy mode); `ensure_string_gain_reference()` — called at the
+  end of the constructor, freezes `mp.string_gain_reference` from pitch 60 in physical mode (no-op if the preset carries it)
+
+---
+
+### string_gain (physical string gain)
+
+File: `string_gain.py` (dev-029c, 2026-10-04; [loudness-physics analysis](../../proposals/loudness-physics-deviation-analysis-2026-10-04.md) R1 + R2).
+The engine integrates the string as `Δy = f·h·dt²` (no `1/(ρ·dx)`) and reads the bridge force as `T·Δy` (no `/dx`),
+so its bridge force per unit hammer impulse carries a spurious per-pitch `ρ·dx²` (D1: 29–32 dB bass-over-treble), and
+every unison string gets the full `c·m·v` with the bridge forces summed (D2: +9.5 dB for 3 strings). In
+`"physical"` mode the host cancels both exactly (no kernel change, string dynamics untouched):
+
+```
+G(p) = R / (ρ(p)·dx(p)²) · (n_ref / n(p))^k        R = ρ·dx² of pitch 60 (frozen), n = len(pitch.stringIDs)
+```
+
+`ρ` is the pitch's `physics.rho`, `dx = geometry.dx()` (the GPU `dx` at the runtime grid, after the load-time
+`array_size` rescale), `n` the struck strings. Pitch 60 is bit-identical to legacy at load, so `c` and the
+p60-calibrated `output_scale` keep their meaning (the analytic output_scale re-derivation factor is exactly 1). `R` is
+persisted, so a later ρ/length edit — even of pitch 60 — moves only the edited pitch (the granular physics path
+recomposes that pitch's `string_gain`, PARAMETER_SYSTEM.md). The factor is a pitch constant, independent of curve
+and hammer shape, so the impulse-conservation invariant holds: delivered impulse per string = `c·m·v·G`.
+Reference pitch: 60, or the key pitch nearest to it in partial presets.
 
 ---
 
@@ -556,7 +585,12 @@ sub-step count); `damper_tail` is the tail multiplier (rounded to an integer ≥
 identically; since dev-f27f the engine reads it as a real, so rounding is no longer required). Converted presets are written with `output_scale_calibrated = false` so the engine
 re-derives `output_scale` on load. Unison: base `ttn − dt` with `tension_offset = dt/base`
 gives exactly the FPGA set {ttn−dt, ttn, ttn+dt}. String length / rho / r stay template choices (only the
-kernel products matter). 16 sub-steps needs the summed-form float32 FDTD loop (PianoidCore 682a535,
+kernel products matter; for the LEVEL too only with the physical string gain). **String gain (dev-029c):** the converter
+declares `string_gain_model = "physical"` (DERIVED: the FPGA reads the bridge force in its own words, `ff = Tn·sd`,
+`Tn = T·dt²/(ρ·dx²)`, and injects the hammer force in displacement units — the physically scaled chain; the GPU's
+`T·Δy` is `ρ·dx²/dt²` × that) and `unison_split_exponent = 0` (DERIVED: `send_all`'s `construct_molot` gives every
+unison string the same peak-normalised cap shape, no division; the ÷√n exists only on the legacy `shape_256` path,
+QM:15627–15637), and resets `string_gain_reference` to `None` (re-derived from the converted p60 on load). 16 sub-steps needs the summed-form float32 FDTD loop (PianoidCore 682a535,
 dev-1e95; see SYNTHESIS_ENGINE "Numerical precision: float32 and string_iteration"): on the fixed engine
 N = 4/8/12/16 are all stable on F_15 and 16 costs ~1.0 ms per 64-sample cycle offline (budget 1.333).
 

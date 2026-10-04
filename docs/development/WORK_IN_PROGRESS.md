@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-029c | R1+R2 loudness physics: string gain rho*dx^2 normalization (ref p60) + unison 1/n^k split, preset-level string_gain_model physical\|legacy | [log](logs/dev-029c-2026-10-04-181934.md) | 2026-10-04 |
 | dev-168c | Keyboard scale calibration retargeted to per-pitch hammer_mass (equalize/curves keep semantics; conserve invariant) | [log](logs/dev-168c-2026-10-04-144434.md) | 2026-10-04 |
 <!-- dev-17fd COMPLETED 2026-10-04 — 2026-10-04 bug reports: merged --no-ff PianoidTunner dev 3ec5c13 (health false-crash, SC paint row growth, range select, autoload bypass, add-to-library error UI, load-param warning), PianoidCore dev 8004886 (/preset/load 409 layout guard, /load_preset load_param_warnings); follow-ups in "Follow-ups from dev-17fd" -->
 <!-- dev-f27f COMPLETED 2026-10-03 — tail damper real multiplier (Kernels.cu) + exact FPGA converter (real tail ratio, FPGA run mode frequency via GPU field, n_m^2 mass fold, output/n_m) + regenerated F15_Elyashev_array512; merged --no-ff NOT pushed: PianoidCore dev a61c47d (dd342f0, b8d799e), PianoidBasic dev d638198 (68e1dce, bbf7be3), root master; shared venv deployed (--heavy --both + Basic) + L2 smoke 200 x3. Open decision: stock presets' damper_tail. Evidence docs/development/diagnostics/dev-f27f-renders/summary.md. -->
@@ -221,6 +222,19 @@
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
+
+## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, branches feature/dev-029c-string-gain, NOT merged)
+
+- **Merge order:** PianoidBasic dev-029c first (new mp fields + `string_gain.py`; wheel rebuild), then PianoidCore
+  dev-029c, then dev-168c (no file overlap; scratch merge conflict-free, both test sets green). dev-168c re-measured on
+  top: mass range BP1 37.3 → 31.9 dB (f0<2 kHz 22.8 → 14.0), F15 49.6 → 30.4 dB and now bass-heavy.
+- **Default changed:** presets without `string_gain_model` play `physical` (bass −6…−14 dB, treble +7…+17 dB re p60;
+  p60 and output_scale unchanged). User decision pending only if any preset should be pinned to `legacy`.
+- **F15 unison exponent:** declared 0 from the host source (send_all, no ÷√n) — confirm with Dima whether the RTL
+  sums the 3 strings' bridge forces; 0.5 / 1 measured as alternatives.
+- **Open (analysis R3–R7):** R3 curve re-timing (top octave −13…−28 dB, the remaining equalizer range); R4 board
+  transfer; R5 bridge readout `/dx` (RMS-vs-peak residual of the ρ/dx controls = coupling/decay, measured here);
+  R-note hammer-shape aliasing; FE has no control for `string_gain_model` (preset JSON / load param only).
 
 ## Follow-ups from dev-168c — keyboard equalizer on hammer_mass (2026-10-04, branch feature/dev-168c-mass-eq, NOT merged)
 

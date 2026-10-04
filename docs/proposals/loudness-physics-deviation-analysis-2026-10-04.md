@@ -1,5 +1,10 @@
 # Loudness Chain — Where the Engine Deviates from the Physical Model
 
+- **Status (2026-10-04):** **R1 + R2 implemented by dev-029c** — preset-level `string_gain_model` (`physical` default |
+  `legacy`), `unison_split_exponent`, frozen reference `string_gain_reference`; PianoidBasic
+  `feature/dev-029c-string-gain`, PianoidCore `feature/dev-029c-string-gain` (HELD, not merged). Design + measured
+  before/after: [pianoid-basic OVERVIEW → string_gain](../modules/pianoid-basic/OVERVIEW.md#string_gain-physical-string-gain),
+  evidence `docs/development/diagnostics/dev-029c-renders/` (summary.txt, eq_summary.txt). R3–R7 + the R-note remain open.
 - **Date:** 2026-10-04
 - **Kind:** Analysis (`/analyse`). No code changed. Measurements are OFFLINE renders in separate processes
   (release pyd, audio off, one `Pianoid` per process); the live stack on :3000/:3001/:5000 was never touched.

@@ -1,0 +1,20 @@
+bp1_legacy_eq.json conv 83 / 84 spread m_all before {'max_minus_min_db': 51.49, 'p95_minus_p5_db': 38.13, 'std_db': 12.23, 'median_db': -94.05, 'n': 83, 'silent_pitches': ['23']} after {'max_minus_min_db': 8.64, 'p95_minus_p5_db': 0.0, 'std_db': 1.3, 'median_db': -115.68, 'n': 83, 'silent_pitches': ['23']}
+   masses g min/med/max 0.27/0.80/20.00  range 37.3 dB  bass(<=p40) med 0.71  treble(>=p84) med 3.78  bass-heavy=False
+   rescale {'k': 0.08285714285714285, 'k_db': -21.633, 'n': 84, 'spread_db': 37.3, 'range_db': 20.0, 'fits': False}
+   f0<2kHz (73): min/med/max 0.27/0.72/3.78 g range 22.8 dB
+bp1_phys_eq.json conv 83 / 84 spread m_all before {'max_minus_min_db': 37.13, 'p95_minus_p5_db': 25.4, 'std_db': 8.45, 'median_db': -93.49, 'n': 83, 'silent_pitches': ['23']} after {'max_minus_min_db': 0.0, 'p95_minus_p5_db': 0.0, 'std_db': 0.0, 'median_db': -112.32, 'n': 83, 'silent_pitches': ['23']}
+   masses g min/med/max 0.51/1.02/20.00  range 31.9 dB  bass(<=p40) med 1.40  treble(>=p84) med 2.46  bass-heavy=False
+   rescale {'k': 0.11437020020658221, 'k_db': -18.834, 'n': 84, 'spread_db': 31.85, 'range_db': 20.0, 'fits': False}
+   f0<2kHz (73): min/med/max 0.51/0.95/2.57 g range 14.0 dB
+f15_decl_eq.json conv 88 / 88 spread m_all before {'max_minus_min_db': 27.92, 'p95_minus_p5_db': 16.61, 'std_db': 5.0, 'median_db': -147.45, 'n': 88, 'silent_pitches': []} after {'max_minus_min_db': 0.0, 'p95_minus_p5_db': 0.0, 'std_db': 0.0, 'median_db': -162.77, 'n': 88, 'silent_pitches': []}
+   masses g min/med/max 0.61/1.58/20.00  range 30.4 dB  bass(<=p40) med 11.44  treble(>=p84) med 2.48  bass-heavy=True
+   rescale {'k': 0.17130530980896308, 'k_db': -15.325, 'n': 88, 'spread_db': 30.35, 'range_db': 20.0, 'fits': False}
+   f0<2kHz (76): min/med/max 0.61/1.34/14.72 g range 27.7 dB
+f15_k1_eq.json conv 88 / 88 spread m_all before {'max_minus_min_db': 34.81, 'p95_minus_p5_db': 21.4, 'std_db': 6.26, 'median_db': -146.7, 'n': 88, 'silent_pitches': []} after {'max_minus_min_db': 0.0, 'p95_minus_p5_db': 0.0, 'std_db': 0.0, 'median_db': -162.77, 'n': 88, 'silent_pitches': []}
+   masses g min/med/max 0.61/1.48/20.00  range 30.4 dB  bass(<=p40) med 3.96  treble(>=p84) med 2.48  bass-heavy=True
+   rescale {'k': 0.1572428426117476, 'k_db': -16.069, 'n': 88, 'spread_db': 30.35, 'range_db': 20.0, 'fits': False}
+   f0<2kHz (76): min/med/max 0.61/1.32/8.01 g range 22.4 dB
+f15_legacy_eq.json conv 88 / 88 spread m_all before {'max_minus_min_db': 50.77, 'p95_minus_p5_db': 33.93, 'std_db': 11.53, 'median_db': -146.47, 'n': 88, 'silent_pitches': []} after {'max_minus_min_db': 0.0, 'p95_minus_p5_db': 0.0, 'std_db': 0.0, 'median_db': -175.75, 'n': 88, 'silent_pitches': []}
+   masses g min/med/max 0.07/0.47/20.00  range 49.6 dB  bass(<=p40) med 0.60  treble(>=p84) med 2.15  bass-heavy=False
+   rescale {'k': 0.034362464123157486, 'k_db': -29.278, 'n': 88, 'spread_db': 49.61, 'range_db': 20.0, 'fits': False}
+   f0<2kHz (76): min/med/max 0.07/0.42/5.85 g range 38.9 dB

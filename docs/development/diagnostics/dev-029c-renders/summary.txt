@@ -1,0 +1,47 @@
+
+=== bp1: equal-mass keyboard sweep (10 g, v95) ===
+config                       |   n | all: max-min / p95-p5 / std | f0<2kHz: max-min / p95-p5 / std | implied mass f0<2k (min/med/max) | step 1->2 | step 2->3 | p60 abs dB
+legacy (before)              |  83 |  44.7 /  32.6 / 10.1        |  22.8 /  19.8 /  5.6            |  3.82 / 10.00 /   52.9 g         | p32->33  +6.8 | p44->45  -6.8 | -90.100
+physical k=0 (R1)            |  83 |  31.9 /  22.0 /  7.7        |  23.6 /  18.5 /  5.8            |  5.21 / 10.00 /   78.7 g         | p32->33  +5.7 | p44->45  +3.3 | -90.100
+physical k=1 (R1+R2)         |  83 |  31.9 /  21.4 /  6.8        |  14.0 /  10.2 /  3.3            |  5.50 / 10.00 /   27.7 g         | p32->33  -0.3 | p44->45  -0.2 | -90.100
+
+--- waveform identity bp1_eq_legacy vs bp1_eq_r1r2 (pitch/decay unchanged => corr = 1, level ratio = 20 log G) ---
+  p24: corr 0.999994244  level  -6.367 dB  predicted  -6.368 dB
+  p36: corr 0.999992501  level  -3.481 dB  predicted  -3.481 dB
+  p60: corr 0.999999958  level  -0.000 dB  predicted  +0.000 dB
+  p84: corr 0.999999999  level  +6.648 dB  predicted  +6.648 dB
+  p96: corr 1.000000000  level  +9.275 dB  predicted  +9.275 dB
+
+=== bp1: SHIPPED masses (impact on the preset as it is) ===
+  legacy                      : all  51.5 /  38.1 / 12.2 | f0<2k  27.4 /  23.6 /  7.0 | p60 abs -91.601 | p24 +0.7 p36 +2.3 p84 -12.7 p96 -26.4 p105 -44.8 (dB re p60)
+  physical k=1 (default)      : all  37.1 /  25.4 /  8.4 | f0<2k  16.2 /  11.3 /  3.5 | p60 abs -91.601 | p24 -5.7 p36 -1.2 p84 -6.0 p96 -17.1 p105 -34.1 (dB re p60)
+
+=== bp1: single-pitch controls, variant - base (m_all; peak) ===
+  legacy   rho,T,jung x4     : p36  +9.4 (+11.1)  p60  +6.3 (+11.0)  p84  +4.7 (+10.9)
+  legacy   main x0.5 = dx x2 : p36 +11.0 ( +9.6)  p60 +11.1 (+11.8)  p84  +3.3 ( +5.6)
+  physical rho,T,jung x4     : p36  -2.6 ( -1.0)  p60  -5.7 ( -1.0)  p84  -7.4 ( -1.1)
+  physical main x0.5 = dx x2 : p36  -1.1 ( -2.4)  p60  -0.9 ( -0.3)  p84  -9.6 ( -7.3)
+
+=== f15: equal-mass keyboard sweep (10 g, v95) ===
+config                       |   n | all: max-min / p95-p5 / std | f0<2kHz: max-min / p95-p5 / std | implied mass f0<2k (min/med/max) | step 1->2 | step 2->3 | p60 abs dB
+legacy (before)              |  88 |  49.6 /  36.6 / 11.4        |  38.9 /  26.8 /  8.6            |  1.59 / 10.00 /  140.5 g         | p32->33  +6.4 | p44->45  -5.4 | -141.785
+physical k=0 (R1)            |  88 |  30.4 /  25.6 /  8.9        |  27.7 /  25.5 /  8.8            |  4.54 / 10.00 /  110.1 g         | p32->33  +6.3 | p44->45  +4.2 | -141.785
+physical k=0.5 (R1+R2 sqrt)  |  88 |  30.4 /  21.3 /  7.7        |  22.9 /  21.1 /  7.3            |  4.54 / 10.00 /   63.6 g         | p32->33  +3.2 | p44->45  +2.5 | -141.785
+physical k=1 (R1+R2)         |  88 |  30.4 /  19.4 /  6.8        |  22.4 /  16.5 /  5.9            |  4.61 / 10.00 /   60.8 g         | p32->33  +0.2 | p44->45  +0.7 | -141.785
+
+--- waveform identity f15_eq_legacy vs f15_eq_r1 (pitch/decay unchanged => corr = 1, level ratio = 20 log G) ---
+  p24: corr 0.999999804  level -14.246 dB  predicted -14.246 dB
+  p36: corr 0.999999967  level  -3.493 dB  predicted  -3.493 dB
+  p60: corr 0.999999999  level  -0.000 dB  predicted  +0.000 dB
+  p84: corr 1.000000000  level  -1.114 dB  predicted  -1.114 dB
+  p96: corr 1.000000000  level +12.355 dB  predicted +12.355 dB
+
+=== f15: SHIPPED masses (impact on the preset as it is) ===
+  legacy                      : all  50.8 /  33.9 / 11.5 | f0<2k  41.4 /  31.5 /  9.9 | p60 abs -146.565 | p24 +15.6 p36 +2.1 p84 -4.0 p96 -16.3 p105 -17.0 (dB re p60)
+  physical k=0 (F15 declared) : all  27.9 /  16.6 /  5.0 | f0<2k  18.8 /  16.1 /  4.5 | p60 abs -146.565 | p24 +1.3 p36 -1.4 p84 -5.1 p96 -3.9 p105 -0.1 (dB re p60)
+
+=== f15: single-pitch controls, variant - base (m_all; peak) ===
+  legacy   rho,T,jung x4     : p36  +9.7 (+11.8)  p60  +8.8 (+11.5)  p94  -3.3 (+11.5)
+  legacy   main x0.5 = dx x2 : p36 +13.5 (+14.8)  p60  +9.9 (+12.3)  p94  +4.1 ( +9.7)
+  physical rho,T,jung x4     : p36  -2.3 ( -0.2)  p60  -3.2 ( -0.5)  p94 -15.3 ( -0.5)
+  physical main x0.5 = dx x2 : p36  +1.4 ( +2.7)  p60  -1.9 ( +0.6)  p94  -8.0 ( -2.4)
