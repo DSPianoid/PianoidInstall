@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-da62 | R3 re-time excitation curves per pitch (tau ∝ period, D3 loudness physics) as reproducible retime_excitation op; demo copy BaselinePreset1_retimed | [log](logs/dev-da62-2026-10-04-200417.md) | 2026-10-04 |
+<!-- dev-da62 COMPLETED 2026-10-05 — R3 excitation re-time (Pianoid/excitation_retime.py, contact-time law default, period law option, impulse+shape preserving, FPGA refusal; demo BaselinePreset1_retimed) + FPGA converter curve time axis fix (mu/sigma in x-units = ms/(1000*mode_iteration/sr); regenerated F15_Elyashev_array512 + 2 *_FPGAexc presets): merged --no-ff NOT pushed: PianoidBasic dev 8313ac0 (2f657ba, 3bc5480), PianoidCore dev 8b3d995 (9b8006c, a893756), root master 455d0ac/1c84165 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks up on next restart). Follow-ups in "Follow-ups from dev-da62". -->
 <!-- dev-029c COMPLETED 2026-10-04 — physical string gain R1+R2 (string_gain_model physical default | legacy, unison_split_exponent, frozen p60 reference; F15 declares physical k=0): merged --no-ff NOT pushed: PianoidBasic dev 0832a3d (206befc), PianoidCore dev 318f4b8 (f8de06f), root master d862028 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks it up on next restart). Follow-ups in "Follow-ups from dev-029c". -->
 <!-- dev-168c COMPLETED 2026-10-04 — keyboard equalizer on per-pitch hammer_mass (curve-volume writes retired, level_multipliers 400, RCM on mass edits, de-interleaved multichannel synthesis metric) + physical-range common-factor mass rescale with analytic output_scale compensation (POST /rescale_hammer_mass): PianoidCore feature/dev-168c-mass-eq 48630fd + c20afd9 merged --no-ff to dev 1f60d8d (after dev-029c 318f4b8); PianoidInstall docs 35bfa2f/c98fc93 + wrap; NOT pushed. Open items: see "Follow-ups from dev-168c". -->
 <!-- dev-17fd COMPLETED 2026-10-04 — 2026-10-04 bug reports: merged --no-ff PianoidTunner dev 3ec5c13 (health false-crash, SC paint row growth, range select, autoload bypass, add-to-library error UI, load-param warning), PianoidCore dev 8004886 (/preset/load 409 layout guard, /load_preset load_param_warnings); follow-ups in "Follow-ups from dev-17fd" -->
@@ -224,13 +224,13 @@
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
 
-## Follow-ups from dev-da62 — R3 excitation re-time (2026-10-04, HELD on feature/dev-da62-retime, not merged)
+## Follow-ups from dev-da62 — R3 excitation re-time + FPGA x-unit fix (2026-10-05, merged Basic dev 8313ac0 / Core dev 8b3d995, NOT pushed)
 
 - ~~FPGA converter time base~~ **DONE (dev-da62, 2026-10-05, user decision 10:07Z):** converter + middleware overlay write mu/sigma in curve x-units (ms / x_unit_ms); F15_Elyashev_array512 (+report) and the two *_FPGAexc presets regenerated (only mu/sigma divided by 1.333; FPGAexc output_scale re-baked offline; F15 keeps output_scale_calibrated=false as converted). GPU readback now plays the FPGA ms.
 - **BP1 bass residual (not D3):** after R3 (contact) the equal-mass bass p21–35 sits −13…−22 dB below p60 and is pulse-insensitive (τ ×0.73 → +3.6 dB); it drives the 26 dB mass range (target 20 dB). Candidate: R4 / bass-string physics measurement.
 - **R3 on other template presets** (Belarus family, BaselineBelorus1): run `python -m Pianoid.excitation_retime` per preset after merge + bake output_scale offline (`dev-da62-bake-output-scale.py`). *_FPGAexc presets are refused by design.
 - **Optional REST endpoint** for R3 (only the CLI/tool exists): would need a granular "curve" recompose + output_scale invalidation without a live render.
-- After merge: PianoidBasic wheel rebuild (`build_pianoid_basic.bat`) so `-m Pianoid.excitation_retime` exists in the venv.
+- ~~After merge: PianoidBasic wheel rebuild~~ done 2026-10-05 (shared venv; L1/L2 verified).
 
 ## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, merged Basic dev 0832a3d / Core dev 318f4b8, NOT pushed)
 

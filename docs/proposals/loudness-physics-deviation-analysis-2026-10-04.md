@@ -5,8 +5,8 @@
   `feature/dev-029c-string-gain`, PianoidCore `feature/dev-029c-string-gain` (HELD, not merged). Design + measured
   before/after: [pianoid-basic OVERVIEW → string_gain](../modules/pianoid-basic/OVERVIEW.md#string_gain-physical-string-gain),
   evidence `docs/development/diagnostics/dev-029c-renders/` (summary.txt, eq_summary.txt); merged (PianoidBasic dev 0832a3d,
-  PianoidCore dev 318f4b8). **R3 implemented by dev-da62 (HELD, not merged)** — `Pianoid/excitation_retime.py`
-  (preset-data op, contact-time law default), PianoidBasic/PianoidCore `feature/dev-da62-retime`, demo
+  PianoidCore dev 318f4b8). **R3 implemented by dev-da62 (merged PianoidBasic dev 8313ac0 / PianoidCore dev 8b3d995, not pushed)** — `Pianoid/excitation_retime.py`
+  (preset-data op, contact-time law default), demo
   `BaselinePreset1_retimed.json`: [pianoid-basic OVERVIEW → excitation_retime](../modules/pianoid-basic/OVERVIEW.md#excitation_retime-per-pitch-pulse-duration-r3),
   evidence `docs/development/diagnostics/dev-da62-renders/`. R4–R7 + the R-note remain open.
 - **Unit note (dev-da62, measured):** the "ms" of curve durations in §3.3/§4/R3 are x-units = segments of
