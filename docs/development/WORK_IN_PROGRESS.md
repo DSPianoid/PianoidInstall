@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-a66b | Sound channel editing still does not work (bug report 2026-10-05T11-04) | [log](logs/dev-a66b-2026-10-05-110910.md) | 2026-10-05 | In Progress |
+<!-- dev-a66b COMPLETED 2026-10-05 — SC edit "still does not work" RCA (edits reach kernel; inaudible = ModesRule mode-0 drop + F15 coefficient != audible weight): ModesRule mode-0 fix merged --no-ff NOT pushed: PianoidTunner dev 535619b (2bc752d); root master docs e3d6cd1 + wrap. Open items in "Follow-ups from dev-a66b". -->
 <!-- dev-da62 COMPLETED 2026-10-05 — R3 excitation re-time (Pianoid/excitation_retime.py, contact-time law default, period law option, impulse+shape preserving, FPGA refusal; demo BaselinePreset1_retimed) + FPGA converter curve time axis fix (mu/sigma in x-units = ms/(1000*mode_iteration/sr); regenerated F15_Elyashev_array512 + 2 *_FPGAexc presets): merged --no-ff NOT pushed: PianoidBasic dev 8313ac0 (2f657ba, 3bc5480), PianoidCore dev 8b3d995 (9b8006c, a893756), root master 455d0ac/1c84165 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks up on next restart). Follow-ups in "Follow-ups from dev-da62". -->
 <!-- dev-029c COMPLETED 2026-10-04 — physical string gain R1+R2 (string_gain_model physical default | legacy, unison_split_exponent, frozen p60 reference; F15 declares physical k=0): merged --no-ff NOT pushed: PianoidBasic dev 0832a3d (206befc), PianoidCore dev 318f4b8 (f8de06f), root master d862028 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks it up on next restart). Follow-ups in "Follow-ups from dev-029c". -->
 <!-- dev-168c COMPLETED 2026-10-04 — keyboard equalizer on per-pitch hammer_mass (curve-volume writes retired, level_multipliers 400, RCM on mass edits, de-interleaved multichannel synthesis metric) + physical-range common-factor mass rescale with analytic output_scale compensation (POST /rescale_hammer_mass): PianoidCore feature/dev-168c-mass-eq 48630fd + c20afd9 merged --no-ff to dev 1f60d8d (after dev-029c 318f4b8); PianoidInstall docs 35bfa2f/c98fc93 + wrap; NOT pushed. Open items: see "Follow-ups from dev-168c". -->
@@ -269,7 +269,7 @@
 
 Measured live (user backend, `sound_test` online kernel tap, p60 v127): SC edits DO reach the model + kernel
 (16 `feedback/128` POSTs 200; mask 0 -> ch0 exactly 0). They were inaudible because (a) the user's ruler selection
-could not include mode 0 (ModesRule falsy-zero, fixed on `feature/dev-a66b-sc-mode0`) and (b) F15's output rides
+could not include mode 0 (ModesRule falsy-zero, FIXED + merged Tunner dev 535619b) and (b) F15's output rides
 modes 0..~7 only. Open:
 - **SC chart audibility (needs a design decision).** F15 `mass_inv` (FPGA-exact `Mass/f^2 * n_m^2`) spans 1.3e-6..2e-16, so a
   unit SC coefficient at mode 0/1/2 gives ch0 RMS ~1e-7 while mode 20 gives 4e-14 and mode 67 4e-16 (60-90 dB less).
@@ -287,7 +287,7 @@ modes 0..~7 only. Open:
 MERGED 2026-10-04: Tunner dev 3ec5c13, Core dev 8004886. Open:
 - **Clicks (user: quiet single clicks at low volume)** — NOT reproduced: 13 min live debug + 4 min release capture, 0 underruns, 0 Sint discontinuities (detector catches a 0.001 step / repeated 64-sample block). Debug variant: add-kernel up to 2.7 ms ~3x/min (absorbed at buffer 4; release max 1.09 ms). Next: capture during the user's own session (their MIDI + FE edits) or a mic/loopback capture; try release (debug_mode 0). Owner: orchestrator to schedule.
 - **SC chart scale for low values (item 4)** — aggregate chart floors y at 0 (`yMin: 0`, `DRAG_CLAMP_MIN = 0`) so NEGATIVE signed SC averages (F15 rows are signed) are hidden and painting cannot go below 0; the user's SC autoScale was OFF (frozen max). Needs a design decision (signed y-axis + per-selection y-zoom), not a blind change.
-- ~~**ModesRule drag from mode 0 ignored**~~ — FIXED by dev-a66b on Tunner `feature/dev-a66b-sc-mode0` (pending user test + merge).
+- ~~**ModesRule drag from mode 0 ignored**~~ — FIXED by dev-a66b, merged Tunner dev 535619b (2bc752d).
 - **F15 output-channel balance / calibration headroom** — kernel ch3 ~14x ch0; volcal B targets single p60v127 at -2 dBFS → chords clip ch1/ch3 by 12-35 dB (limiter). Consider calibrating on a chord / per-channel, or balance F15 output columns.
 - **F15 at array 384** — user chose WARN (implemented: /load_preset `load_param_warnings` + FE snackbar). Live check pending the next backend restart (running backend predates the merge).
 
