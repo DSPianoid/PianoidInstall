@@ -605,6 +605,12 @@ agent edited `string_coefficients[60]` expecting pitch 60 to change, but
 piano pitches have no `outerSound` channel set in strings mode, so the edit
 was kernel-inert. The correct row for "channel 0" is backend pitch 128.
 
+**Coefficient != audible weight (measured, dev-a66b 2026-10-05).** An output-row coefficient's audible effect
+is `coef x` that mode's response, and the response follows the mode's `mass_inv` (`Mode.mass_inv`, preset key `mass`).
+In FPGA-converted presets (`mass_inv = Mass/f^2 * n_m^2`, see `modules/pianoid-basic/OVERVIEW.md` FPGA converter) it
+spans ~10 orders: F15 ch0, unit coefficient, p60 -> RMS mode0 1.0e-7, mode2 6.8e-8, mode20 4.1e-14, mode67 4.0e-16.
+So editing most of the row is inaudible; only the lowest modes (0..~7 in F15) shape the channel.
+
 **Kernel-effective entries** — quick reference:
 
 | Listen mode | Store consulted | Effective rows | Effective columns |

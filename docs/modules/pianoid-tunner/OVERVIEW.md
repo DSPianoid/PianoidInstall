@@ -128,7 +128,7 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
 | `TestChart` | `TestChart.jsx` | Test/debug chart component |
 | `ModeWaveChart` | `ModeWaveChart.js` | Waveform chart for a single mode |
-| `ModesRule` | `ModesRule.js` | Modes ruler/axis component |
+| `ModesRule` | `ModesRule.js` | Modes ruler/axis component. **Mode 0 is a real mode (dev-a66b, 2026-10-05):** "no mouse-down" is `mouseDownMode == null`, never a falsy test — the old `if (!mouseDownMode)` dropped every drag that STARTED on mode 0 (the selection could only begin at mode 1, e.g. `[1,126]`) and the release of a right-click play on mode 0. Pinned by `ModesRule.modeZero.test.jsx` |
 | `MatrixTable` | `MatrixTable.js` | Raw HTML table for matrix data |
 | `ContinuousPressButton` | `ContinuousPressButton.js` | Button that fires repeatedly while held |
 | `PresetPanel` | `PresetPanel/PresetPanel.jsx` | Mosaic pane for preset loading + library management. Sections: a named-startup-config switcher (`PresetConfigBar`), Current Preset, Library, footer Apply (see "Preset Panel" below). The previous monolithic Settings pane was extracted into this dedicated pane (dev-a328, 2026-05-01). Working-copy model (dev-bfe2, 2026-05-18): the Library list renders entry records — a lock icon for read-only `original` entries, an "editable" chip + `source` caption for `working` copies; per-entry Spawn working copy / Promote (working copies only, behind a confirm dialog) / Unload actions |

@@ -2602,3 +2602,5 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
      CollectionSubpanel.jsx, useProjectCRUD.js,
      CreateProjectFromMeasurementDialog.jsx (PianoidTunner). -->
 
+
+<!-- dev-a66b lock RELEASED 2026-10-05 (ModesRule.js, Tunner feature/dev-a66b-sc-mode0 2bc752d) -->
