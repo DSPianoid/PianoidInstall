@@ -611,6 +611,23 @@ In FPGA-converted presets (`mass_inv = Mass/f^2 * n_m^2`, see `modules/pianoid-b
 spans ~10 orders: F15 ch0, unit coefficient, p60 -> RMS mode0 1.0e-7, mode2 6.8e-8, mode20 4.1e-14, mode67 4.0e-16.
 So editing most of the row is inaudible; only the lowest modes (0..~7 in F15) shape the channel.
 
+**Analytic audible weight (dev-4505, the Sound Channels "Audibility" view).** The frontend computes the per-mode
+response without any render (`PianoidTunner/src/utils/audibility.js`): RMS of the order-`k` sample difference
+(`k` = `sound_derivative_order`) of the kernel mode recurrence's unit-force impulse response, closed form
+(`d = decrement·f/sr`, `w = (2πf/sr)²`, `G = (1−d)·mass_inv`, `Q = (2−d)² − (1−d)·w`):
+
+| k | energy E (amplitude = √E) |
+|---|---|
+| 1 (velocity) | `2G² / (d(2−d)·Q)` |
+| 2 (acceleration) | `2G²·(d(4−d) + (1−d)·w) / (d(2−d)·Q)` |
+
+Audible weight = `|coef·mask| × √E_m` (× `|feedin[pitch][m]·mask|` with "for note"), in dB re the loudest
+entry. Exact vs a brute-force run of the recurrence (Jest, 1e-6). **Validated** against the dev-a66b live
+measurement (F15, p60, × |feedin p60|): modes 1/2/20/67 relative to mode 0 predicted −2.7/−2.2/−126.8/−171.0 dB
+(k=1), −2.7/−2.3/−125.6/−169.7 dB (k=2) vs measured −2.0/−3.5/−127.9/−168.1 dB — within 4 dB over 170 dB. **Limit:**
+the force spectrum is assumed flat, so modes far above the note's spectral content are over-predicted (F15
+mode 127 at 5.7 kHz: +22 dB k=1, +29 dB k=2) — the view errs toward "audible", never hides an audible mode.
+
 **Kernel-effective entries** — quick reference:
 
 | Listen mode | Store consulted | Effective rows | Effective columns |

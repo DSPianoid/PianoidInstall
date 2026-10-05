@@ -138,6 +138,25 @@ Decode and measure RMS/peak in Python — see [Testing](../development/TESTING.m
 
 ---
 
+### Branch FE from a worktree against the user's live backend (agents)
+
+To verify a frontend branch while the user's stack (`:3000` main checkout, `:3001`, `:5000`) keeps running, run a
+**second CRA from the worktree on a spare port** (e.g. `PORT=3013 BROWSER=none npx react-scripts start`, detached via
+`Start-Process -WindowStyle Hidden`). Two traps (dev-4505, 2026-10-05):
+
+- **Never junction the whole `node_modules` to main.** CRA 5's persistent webpack cache dir is hard-wired to
+  `<app>/node_modules/.cache` and **ignores `CACHE_DIR`** (that only moves `babel-loader`), so through a single
+  junction the worktree CRA overwrites main's `.cache/default-development` → main's next clean start serves a blank
+  page (`reading 'call'`). Instead make the worktree `node_modules` a **real directory of per-entry junctions** to
+  main's entries (copy top-level files) **plus a local `.cache` dir**. If main's cache was already written, delete
+  `PianoidTunner/node_modules/.cache/default-development` (the next main start rebuilds it).
+- **Keep the agent tab read-only towards the live backend.** A fresh origin has empty localStorage; an Apply/autoload
+  would `POST /load_preset` with whatever settings it holds (a STRUCTURAL diff = full reload of the user's engine).
+  Open the tab in an isolated Chrome context with a `navigate_page` `initScript` that answers every non-GET
+  XHR/fetch to `:5000/:5001/:3001` locally (`load_preset` → `{"reinit":"full"}` so the FE hydrates via GETs) and
+  blocks WebSockets to them; edits then change only the tab's local history. Verify afterwards by a backend GET.
+- Removing the worktree: `cmd /c rmdir` every junction (or the whole junction dir) BEFORE `git worktree remove`.
+
 ## Shutdown
 
 **Reverse dependency order**: frontend → launcher → modal → backend.

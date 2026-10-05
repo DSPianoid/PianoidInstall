@@ -277,6 +277,9 @@ modes 0..~7 only. Open:
   unit SC coefficient at mode 0/1/2 gives ch0 RMS ~1e-7 while mode 20 gives 4e-14 and mode 67 4e-16 (60-90 dB less).
   Painting modes >= 8 is inaudible by model, yet the chart shows them as the big bars (mode 67 = 239 vs mode 0 = -0.02).
   Options: show/scale the SC editor by effective weight (coef x per-mode response), or warn. Owner: orchestrator/user.
+  **-> IMPLEMENTED (dev-4505, branch PianoidTunner feature/dev-4505-audibility, HOLD — not merged):** separate read-only
+  "Audibility" view (SC toolbar Hearing toggle), analytic `|coef| x mode response` dB grid + per-channel bars, floor, d1/d2,
+  "for note"; formula + validation in DATA_FLOWS.md "Analytic audible weight".
 - **`/set_runtime_parameters volume_center` SET != GET scale.** The POSTed value is multiplied by ~8.05e15 (bare seed x
   output_scale) while `GET /get_runtime_parameters` returns the scaled value — restoring a GET value via SET is wrong by
   that factor (observed: 2.8e16 -> 2.26e32). Document or make symmetric.
