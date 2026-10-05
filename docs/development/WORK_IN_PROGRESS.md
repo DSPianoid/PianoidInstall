@@ -226,7 +226,7 @@
 
 ## Follow-ups from dev-da62 — R3 excitation re-time (2026-10-04, HELD on feature/dev-da62-retime, not merged)
 
-- **FPGA converter time base (DECISION, user):** `fpga_preset_converter.decode_curve` writes mu/sigma in ms 1:1 into curve x-units, but one x-unit = `mode_iteration/sr` = 1.333 ms on F15 (mode_iteration 64) — measured dev-da62 (`fetchExcitation` readback). The FPGA pulses therefore play ×1.333 LONGER than on the FPGA (F15 0.26–1.6 ms → 0.35–2.2 ms). Fix = divide by `x_unit_ms` in the converter + regenerate F15 / *_FPGAexc presets (an exactness fix, not a re-time). Owner: next converter session.
+- ~~FPGA converter time base~~ **DONE (dev-da62, 2026-10-05, user decision 10:07Z):** converter + middleware overlay write mu/sigma in curve x-units (ms / x_unit_ms); F15_Elyashev_array512 (+report) and the two *_FPGAexc presets regenerated (only mu/sigma divided by 1.333; FPGAexc output_scale re-baked offline; F15 keeps output_scale_calibrated=false as converted). GPU readback now plays the FPGA ms.
 - **BP1 bass residual (not D3):** after R3 (contact) the equal-mass bass p21–35 sits −13…−22 dB below p60 and is pulse-insensitive (τ ×0.73 → +3.6 dB); it drives the 26 dB mass range (target 20 dB). Candidate: R4 / bass-string physics measurement.
 - **R3 on other template presets** (Belarus family, BaselineBelorus1): run `python -m Pianoid.excitation_retime` per preset after merge + bake output_scale offline (`dev-da62-bake-output-scale.py`). *_FPGAexc presets are refused by design.
 - **Optional REST endpoint** for R3 (only the CLI/tool exists): would need a granular "curve" recompose + output_scale invalidation without a live render.

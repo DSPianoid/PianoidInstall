@@ -644,7 +644,11 @@ exact FPGA decay rate `γ = −ln(1−D)/dt_mode`, `decrement = (1−e^(−γ/sr
 per-mode normalised, signed, feedback = feedin. Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out / n_m`.
 Tail damper: `damper_tail` = the real ratio `(Damper − Do)·k_ref/damper_string` (no rounding; tail decrement
 exact to 2e-16). Excitation: `mu ← d`, `sigma ← e`,
-96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); loudness
+96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); the FPGA timing is decoded
+in ms and stored in curve x-units `ms / x_unit_ms` (`x_unit_ms = 1000·mode_iteration/sr` of the template, 1.333 ms at
+64/48 kHz; `StringExcitation.curve_x_unit_ms`; `fpga_conversion.excitation.x_unit_ms`, `load_params.samples_in_cycle`)
+— before dev-da62 (2026-10-05) the ms were stored 1:1 and every FPGA pulse played ×1.333 long (GPU readback, F15 p21:
+centres 8.12/2.17/0.84/4.79 ms → now the FPGA 6.09/1.63/0.63/3.59 ms; window 7 segments = 9.33 ms, truncation 9e-11); loudness
 `ind_vol × Strength_graph × ∫force` → rank-1 `hammer_mass × hammer_speeds`.
 
 **Verified (offline, `array_size=512`, 16 sub-steps, engine 682a535):** 16 keys (all A, all C) vs
