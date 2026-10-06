@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-a64e lock RELEASED 2026-10-06: PianoidTunner useSoundChannels.js / SoundChannelsPane.jsx / SoundChannelsAudibilityView.jsx / PianoidTuner.js committed on feature/dev-a64e-sc-wb-channel e29ac74 (+ tests); NOT merged; worktree removed (951 junctions unlinked first). -->
 <!-- dev-e65a lock RELEASED 2026-10-06 (Phase 1): PianoidTunner/src/PianoidTuner.js committed on feature/dev-e65a-sc-wb-emit cf8dced (+ new test); NOT merged; worktree removed (junctions unlinked first). -->
 <!-- dev-2493 + dev-4505 locks RELEASED 2026-10-06 (Phase 2): merged PianoidTunner dev 62b9add + 8ce4f20, worktrees removed. -->
 <!-- dev-da62 locks RELEASED 2026-10-05 (Phase 2: merged --no-ff, NOT pushed — PianoidBasic dev 8313ac0 (2f657ba excitation_retime + gpu_force_curve; 3bc5480 converter x-unit + curve_x_unit_ms + metadata), PianoidCore dev 8b3d995 (9b8006c tests + BaselinePreset1_retimed; a893756 pianoid.py FPGA overlay x-unit, preset_load_params, regenerated F15 (+report) + 2 FPGAexc presets, tests)); worktrees removed. -->
