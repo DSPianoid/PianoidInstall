@@ -4,8 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-4505 | Audibility view for Sound Channels panel (read-only per channel x mode effective audible weight dB) | [log](logs/dev-4505-2026-10-05-130432.md) | 2026-10-05 | In Progress |
-| dev-2493 | SC panel: ModesRule dblclick single-mode select bug + bar chart log-scale toggle (PianoidTunner) | [log](logs/dev-2493-2026-10-05-130353.md) | 2026-10-05 | In Progress |
+<!-- dev-2493 + dev-4505 COMPLETED 2026-10-06 — tested TOGETHER (combined branch, live :3014 + Jest 1760/1760) then merged --no-ff NOT pushed: PianoidTunner dev 62b9add (dev-4505 Audibility view dce1834+6b3403c) + 8ce4f20 (dev-2493 matrix-ruler dblclick 8ff6172 + bar-chart log scale d0871f5); root docs 99452f4/042c311/d7f0e76 + wrap. Pre-existing workbench-SC no-emit bug found -> "Follow-ups from dev-a66b". -->
 <!-- dev-a66b COMPLETED 2026-10-05 — SC edit "still does not work" RCA (edits reach kernel; inaudible = ModesRule mode-0 drop + F15 coefficient != audible weight): ModesRule mode-0 fix merged --no-ff NOT pushed: PianoidTunner dev 535619b (2bc752d); root master docs e3d6cd1 + wrap. Open items in "Follow-ups from dev-a66b". -->
 <!-- dev-da62 COMPLETED 2026-10-05 — R3 excitation re-time (Pianoid/excitation_retime.py, contact-time law default, period law option, impulse+shape preserving, FPGA refusal; demo BaselinePreset1_retimed) + FPGA converter curve time axis fix (mu/sigma in x-units = ms/(1000*mode_iteration/sr); regenerated F15_Elyashev_array512 + 2 *_FPGAexc presets): merged --no-ff NOT pushed: PianoidBasic dev 8313ac0 (2f657ba, 3bc5480), PianoidCore dev 8b3d995 (9b8006c, a893756), root master 455d0ac/1c84165 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks up on next restart). Follow-ups in "Follow-ups from dev-da62". -->
 <!-- dev-029c COMPLETED 2026-10-04 — physical string gain R1+R2 (string_gain_model physical default | legacy, unison_split_exponent, frozen p60 reference; F15 declares physical k=0): merged --no-ff NOT pushed: PianoidBasic dev 0832a3d (206befc), PianoidCore dev 318f4b8 (f8de06f), root master d862028 + wrap; shared venv PianoidBasic wheel redeployed (live backend picks it up on next restart). Follow-ups in "Follow-ups from dev-029c". -->
@@ -277,9 +276,10 @@ modes 0..~7 only. Open:
   unit SC coefficient at mode 0/1/2 gives ch0 RMS ~1e-7 while mode 20 gives 4e-14 and mode 67 4e-16 (60-90 dB less).
   Painting modes >= 8 is inaudible by model, yet the chart shows them as the big bars (mode 67 = 239 vs mode 0 = -0.02).
   Options: show/scale the SC editor by effective weight (coef x per-mode response), or warn. Owner: orchestrator/user.
-  **-> IMPLEMENTED (dev-4505, branch PianoidTunner feature/dev-4505-audibility, HOLD — not merged):** separate read-only
+  **-> IMPLEMENTED (dev-4505, merged PianoidTunner dev 62b9add 2026-10-06, not pushed):** separate read-only
   "Audibility" view (SC toolbar Hearing toggle), analytic `|coef| x mode response` dB grid + per-channel bars, floor, d1/d2,
   "for note"; formula + validation in DATA_FLOWS.md "Analytic audible weight".
+- **Workbench SC draw never reaches the backend (pre-existing, found 2026-10-06 in the dev-2493+dev-4505 combined test).** In non-aggregate (matrix) mode `PianoidTuner.js` handleVectorChange "Sound Channels" branch calls `soundChannels.activeHistory.applyChange(changeInfo)` (state only) instead of the imperative-emit path (`applyImperativeChange`), so a workbench "Sound Channels · coefficient" paint changes the FE (and the Audibility view) but posts nothing (measured: 0 requests; backend feedback/128[57] unchanged). Present since d5a8afb (dev-sc-extract). Aggregate mode uses applyAggregateChange (emits) and is fine. Owner: next FE /dev.
 - **`/set_runtime_parameters volume_center` SET != GET scale.** The POSTed value is multiplied by ~8.05e15 (bare seed x
   output_scale) while `GET /get_runtime_parameters` returns the scaled value — restoring a GET value via SET is wrong by
   that factor (observed: 2.8e16 -> 2.26e32). Document or make symmetric.
