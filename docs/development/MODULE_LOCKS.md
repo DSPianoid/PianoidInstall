@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-0da4 locks RELEASED 2026-10-06 (Phase 1): PianoidCore pianoid_middleware/{pianoid.py,output_level.py (new),backendServer.py} + tests/unit/{test_output_scale_live_guard.py (new),test_volcal_output_scale.py} committed on feature/dev-0da4-outscale-live eae7ec3 (worktree D:/repos/wt-0da4-core, .venv junction already unlinked); NOT merged. -->
 <!-- dev-a64e lock RELEASED 2026-10-06: PianoidTunner useSoundChannels.js / SoundChannelsPane.jsx / SoundChannelsAudibilityView.jsx / PianoidTuner.js committed on feature/dev-a64e-sc-wb-channel e29ac74 (+ tests); NOT merged; worktree removed (951 junctions unlinked first). -->
 <!-- dev-e65a lock RELEASED 2026-10-06 (Phase 1): PianoidTunner/src/PianoidTuner.js committed on feature/dev-e65a-sc-wb-emit cf8dced (+ new test); NOT merged; worktree removed (junctions unlinked first). -->
 <!-- dev-2493 + dev-4505 locks RELEASED 2026-10-06 (Phase 2): merged PianoidTunner dev 62b9add + 8ce4f20, worktrees removed. -->

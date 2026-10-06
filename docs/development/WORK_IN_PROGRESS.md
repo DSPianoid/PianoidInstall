@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-0da4 | B1: live preset/switch calibrate_output_scale render-refused silences engine; architectural fix (no live render, failed render never overwrites, volume_center SET/GET symmetry) | [log](logs/dev-0da4-2026-10-06-155128.md) | 2026-10-06 | In Progress |
 | dev-a64e | SC workbench follows SC pane selected channel in rotated (channel-row) orientation | [log](logs/dev-a64e-2026-10-06-130519.md) | 2026-10-06 | In Progress |
 <!-- dev-e65a COMPLETED 2026-10-06 — SC workbench matrix-mode paint now emits via soundChannels.applyImperativeChange (SSOT write path): PianoidTunner feature/dev-e65a-sc-wb-emit cf8dced merged --no-ff into dev e53b94e, NOT pushed, branch deleted; Jest 1765/1765; root docs d14c71e/b3d4aae + wrap. Modes-orientation (rotated) workbench gap -> follow-up below. -->
 <!-- dev-2493 + dev-4505 COMPLETED 2026-10-06 — tested TOGETHER (combined branch, live :3014 + Jest 1760/1760) then merged --no-ff NOT pushed: PianoidTunner dev 62b9add (dev-4505 Audibility view dce1834+6b3403c) + 8ce4f20 (dev-2493 matrix-ruler dblclick 8ff6172 + bar-chart log scale d0871f5); root docs 99452f4/042c311/d7f0e76 + wrap. Pre-existing workbench-SC no-emit bug found -> "Follow-ups from dev-a66b". -->
@@ -236,6 +237,20 @@
 - **Optional REST endpoint** for R3 (only the CLI/tool exists): would need a granular "curve" recompose + output_scale invalidation without a live render.
 - ~~After merge: PianoidBasic wheel rebuild~~ done 2026-10-05 (shared venv; L1/L2 verified).
 
+## Follow-ups from dev-0da4 — B1 live switch silenced the engine (2026-10-06, PianoidCore `feature/dev-0da4-outscale-live`, NOT merged)
+
+- **FIXED on branch, awaiting user test:** a loudness edit + library `preset/switch` ran the Layer B offline render on the
+  LIVE engine; the refused render read as peak 0 -> output_scale=1.0 + calibrated=True -> engine x1/4.6e11 (measured live
+  2.72e7 -> 5.97e-5). Now: measurement refuses a live engine before touching it, failed/silent renders never commit, stored
+  value kept + `/health.output_scale` warning; volume_center REST SET/GET symmetric. Owner module `output_level.py`.
+- **OPEN (user decision): "stale-mark -> re-render on next full load" for USER edits.** `invalidate_output_calibration` on
+  every loudness-affecting edit means the next APPLY/load re-normalizes p60 v127 to -2 dBFS, silently undoing a deliberate
+  loudness edit, and because only p60 is measured, an edit that moves p60 (e.g. its hammer mass, or a mode it rides)
+  rescales EVERY pitch on reload (saved preset != what was heard). Recommendation: output_scale = a genesis calibration
+  (converter / first load) only; edits keep it (WYSIWYG save->reload); level-neutral system passes (mass rescale, optionally
+  the equalizer) compensate analytically (`compensate_output_scale`); an explicit "re-calibrate level" action for when the
+  user wants renormalization. Owner: user.
+
 ## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, merged Basic dev 0832a3d / Core dev 318f4b8, NOT pushed)
 
 - **Merge order:** PianoidBasic dev-029c first (new mp fields + `string_gain.py`; wheel rebuild), then PianoidCore
@@ -259,6 +274,9 @@
 - **Equalize invalidates output_scale:** each equalize pass clears `output_scale_calibrated`, so the next live
   `switch_preset` renders inside the live backend (review I-7, page-fault family). Option: compensate the pass
   analytically like the rescale and drop the invalidation. Owner: user decision.
+  **-> live-render half FIXED on branch (dev-0da4, NOT merged):** a live `switch_preset` no longer renders (the measurement
+  refuses a live engine; stored output_scale kept + `/health.output_scale.warning`). The invalidation itself (re-derive on the
+  next FULL load) is unchanged — see the dev-0da4 follow-up below.
 - **Shape residual:** a curve SHAPE edit keeps each note's delivered impulse (measured 0.000 dB) and its
   mass, but its rendered level moves by the peak/integral term (sigma ×1.3: −0.9…−1.0 dB BaselinePreset1,
   −1.5…−9.1 dB F15). Decide whether an equalize pass should be re-run (or auto-run) after shape edits.
@@ -288,6 +306,8 @@ modes 0..~7 only. Open:
 - **`/set_runtime_parameters volume_center` SET != GET scale.** The POSTed value is multiplied by ~8.05e15 (bare seed x
   output_scale) while `GET /get_runtime_parameters` returns the scaled value — restoring a GET value via SET is wrong by
   that factor (observed: 2.8e16 -> 2.26e32). Document or make symmetric.
+  **-> FIXED on branch (dev-0da4, PianoidCore `feature/dev-0da4-outscale-live`, NOT merged):** SET/ack/GET all speak bare
+  units (GET = engine / output_scale; new `effective_volume_center` + `output_scale` fields). Live: GET -> SET -> GET identical.
 - **Two :3000 tabs on one backend.** A tab loaded 10:59:34Z (it auto-loaded Belarus, then raised the 11:01:24
   `backend_crashed` "WS: PAUSED" auto-report during the other tab's F15 load) was still open alongside the reporting tab.
   The 10:59/11:01 auto-reports are startup / preset-switch transients, not this bug.

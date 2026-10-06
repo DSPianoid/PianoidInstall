@@ -210,6 +210,14 @@ All parameter modifications route through `ParameterManager`. The `Pianoid` clas
 
 **Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. REST `/set_runtime_parameters` and WS `set_runtime_parameters` share a separate helper `_apply_runtime_parameters` in `backendServer.py` (Tranche A / M6).
 
+**Layer B output level** (`output_level.py`, dev-0da4) owns the per-preset `output_scale`: the offline p60 v127
+measurement (refused while the engine is live — checked before any engine call), the commit rule (only a real,
+non-zero, finite peak is written; a refused/failed/silent render keeps the stored value and records a `/health`
+warning), and the bare ↔ engine `volume_center` conversion (`engine = bare × output_scale`; every SET multiplies,
+every GET/ack divides). `Pianoid` keeps thin delegates (`calibrate_output_scale`, `_measure_bare_synthesis_peak`,
+`_effective_volume_center`, `_bare_volume_center`, `output_scale_status`). Contract table:
+[REST_API → Layer B output level](http://localhost:8001/modules/pianoid-middleware/REST_API/#layer-b-output-level-output_scale).
+
 **Fix-MIDI velocity clamp** (`fix_velocity_enabled`, `fix_velocity_level`) is a runtime/session-only velocity-clamp applied to every MIDI-source NOTE_ON ingress. State lives on `Pianoid` (not preset-persisted, not reset on preset switch, reset to defaults on backend restart). One canonical helper `Pianoid.apply_fix_velocity(v)` is consulted by the unified MIDI listener (`schedule_event` for `listen_to_midi=1`), the legacy `pianoidMidiListener.note_on`, and REST `/play` + WS `play` when the caller passes `source: "midi"`. Calibration, `/play_keyboard`, and `/play_mode` paths are intentionally exempt. REST surface: `POST /set_fix_velocity` + `GET /get_fix_velocity` + WS `set_fix_velocity`. See [REST_API.md — Fix-MIDI velocity clamp](REST_API.md#fix-midi-velocity-clamp). Frontend: `useFixVelocity` hook + ToolBar checkbox + Level dropdown — replaces the legacy JS `midiPlayNote` velocity rewrite (dev-bv01, 2026-05-03).
 
 ### Flask app (backendServer.py)

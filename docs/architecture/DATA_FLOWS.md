@@ -951,9 +951,13 @@ backendserver.py: preset_switch_route()                 (line 345)
      from an edit on the previous preset must not persist (user-directed 2026-05-30).
      (The APPLY / POST /load_preset path recreates the whole Pianoid → fresh
      ParameterManager → flag already False, plus an explicit clear after initialize().)
-  6. Restore the global volume/feedback surface (volume_level,
-     deck_feedback_coefficient, volume_center, volume_range snapshotted
-     and re-applied — switching is loudness-neutral)
+  5c. Layer B: calibrate_output_scale() for the TARGET preset only if its
+     output_scale is stale AND the engine is not live; with the realtime
+     engine running it refuses the render and KEEPS the stored output_scale
+     (warning on /health.output_scale) — dev-0da4, never render live.
+  6. Restore the global volume/feedback surface: volume_level and
+     volume_range kept; volume_center = bare seed x TARGET output_scale;
+     deck_feedback_coefficient = TARGET stored baseline (per-preset)
   Playback continues uninterrupted — double-buffer swap is atomic
 ```
 

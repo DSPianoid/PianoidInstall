@@ -276,6 +276,8 @@ Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
 
 - `single_deck_matrix` (added dev-fbsl, 2026-06-05): the engine's compile-time `USE_SINGLE_DECK_MATRIX` mode. `true` (the active build) means there is ONE packed coupling matrix (feedin only) and feedback is derived as `feedin × deck_feedback_coeff` — no separate feedback half exists, so the per-pitch feedback MATRIX editor is meaningless and the frontend disables it (only the toolbar Feedback coefficient slider acts on feedback). Surfaced from the backend (not a frontend-only assumption) to avoid silent divergence. NOTE: the installed `.pyd` does not currently export the constant, so the backend falls back to `true` (the active build is single-deck per the pack/kernel path); if a future build exports `pianoidCuda.USE_SINGLE_DECK_MATRIX`, the field reflects it.
 
+- `output_scale` (added dev-0da4, 2026-10-06): the active preset's Layer B output level — `{value, calibrated, stale, warning}`. `value` = `mp.output_scale` (the per-preset linear scale layered onto `volume_center`); `stale` = `!output_scale_calibrated` (a loudness-affecting edit, or preset genesis, cleared the flag; the stored value stays in use until the next full load re-calibrates); `warning` = why the last calibration attempt on THIS preset kept the stored value (e.g. `"realtime engine is live - offline render refused …"` after a library switch). See [Layer B output level](#layer-b-output-level-output_scale).
+
 - `stored_feedback_coeff` (added dev-fbsl, 2026-06-05): the active preset's PER-PRESET feedback baseline (`pianoid.mp.deck_feedback_coefficient`; default `1.0`). The frontend reads this after a preset load/switch to seed the stored layer of the two-layer feedback slider (the slider's off-center env multiplier is applied on top). See `POST /set_runtime_parameters` (`feedback_coeff` / `store_feedback_coeff`) and DATA_FLOWS §2.6.
 
 `audio_driver_fallback` (added dev-asioload, 2026-06-02): `null` when no fallback
@@ -301,6 +303,10 @@ without polling. Engine-side mechanics: see
 `GET /get_runtime_parameters` mirrors the runtime state and, on a dev-538e binary, adds
 `amplitude_limit` (float) and `amplitude_gate_enabled` (bool) alongside `volume_level` / `volume_center` /
 `volume_range` / `deck_feedback_coefficient` (guarded getattr — older binaries omit them).
+`volume_center` is in the same **bare** units `POST /set_runtime_parameters` accepts (engine value ÷ active
+`output_scale`), so a GET value can be SET back unchanged (dev-0da4; before, GET returned the engine product and
+re-SETting it multiplied by `output_scale` again — 2.8e16 → 2.26e32). `effective_volume_center` is the raw engine
+value and `output_scale` the active preset's scale (`effective_volume_center = volume_center × output_scale`).
 
 Response `500` if health check itself throws.
 
@@ -896,7 +902,7 @@ the new PER-PRESET stored feedback baseline IN MEMORY (`pianoid.mp.deck_feedback
 baseline is per-preset: `switch_preset` applies the target preset's value (it is no longer
 global; volume + volume-sensitivity remain global).
 
-`volume_center` (optional, float): coefficient at level 64. `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
+`volume_center` (optional, float): coefficient at level 64, in **bare** units (the frontend sends `exp((presetVolume-100)/8)`, `1.0` at the default init volume). The engine stores `volume_center × output_scale` (Layer B); the ack (`updated.volume_center`) and `GET /get_runtime_parameters` report the bare value back, plus `effective_volume_center` (the engine value). `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
 
 `volume_range` (optional, float): "sensitivity" multiplier. At level 127 the coefficient is `center*range`; at level 0 it is `center/range`. **Default = 10**, matching the C++ `RuntimeParameters` engine default in `Pianoid.cuh`. **Per-session only** — never persisted in preset JSONs. **Global across library preset switches** (plan §5.9, dev-bfe2 2026-05-18): `switch_preset` snapshots and restores `volume_range` unchanged (the pre-§5.9 "reset to 10 on switch" behaviour is gone).
 
@@ -904,12 +910,26 @@ global; volume + volume-sensitivity remain global).
 
 `amplitude_gate_enabled` (optional, bool/0-1, dev-538e): toggles ONLY the `|displacement| > amplitude_limit` branch of the crash-guard. **Default `true`** (ON). When `false`, the amplitude branch is bypassed — but the **`isnan` safety check remains active unconditionally** (disabling the amplitude gate does NOT re-expose the NaN→ASIO crash; the kernel still self-heals on NaN). Note the tradeoff: with the amplitude gate OFF a geometric FDTD runaway can blow displacement to `inf` (which `isnan` does not catch) and a cycle of `inf` reaches the output before a NaN eventually forms — this is exactly the escape the amplitude gate prevents when ON. Accepts a JSON boolean or `0`/`1`. A `RuntimeParameters` field (`amplitude_gate_enabled`, int 0/1). Per-session.
 
-**Init-time seeding (P1 single-owner contract):** the engine boots in NEW-formula mode. `pianoid.init_pianoid` seeds `volume_center = max_volume**(64/127) × output_scale` (positive — engages the new formula; `output_scale` = the active preset's per-preset Layer-B scale, dev-volcal) with `volume_range = 10`; `pianoid.switch_preset` re-derives the same bare seed × the TARGET preset's `output_scale` and keeps the current `volume_range` (global). This is required because the UI ToolBar `VolumeSlider` always sends a positive center once touched; without seeding, startup state is `center=0` (legacy) and the user perceives "much higher sensitivity" until they round-trip the slider. The seed value is anchored at level=64 so coefficient at level=64 is unchanged from the legacy formula — only the slope across other levels changes (legacy: `max_volume^(63/127)` ratio between levels 64 and 127; seeded: `range = 10`). The frontend mirrors this in `usePreset.loadPreset` (defense in depth — explicit `set_runtime_parameters` POST after preset load). Regression test: `tests/integration/test_volume_sensitivity_reset.py::test_initial_runtime_params_seeded_for_new_formula`. The legacy frontend `localStorage` key `volumeRange` is no longer read.
+**Init-time seeding (P1 single-owner contract):** the engine boots in NEW-formula mode. `pianoid.init_pianoid` seeds `volume_center = max_volume**(64/127) × output_scale` (positive — engages the new formula; `output_scale` = the active preset's per-preset Layer-B scale, dev-volcal) with `volume_range = 10`; `pianoid.switch_preset` re-derives the same bare seed × the TARGET preset's `output_scale` (its stored value — a live switch never re-renders it, see [Layer B output level](#layer-b-output-level-output_scale)) and keeps the current `volume_range` (global). This is required because the UI ToolBar `VolumeSlider` always sends a positive center once touched; without seeding, startup state is `center=0` (legacy) and the user perceives "much higher sensitivity" until they round-trip the slider. The seed value is anchored at level=64 so coefficient at level=64 is unchanged from the legacy formula — only the slope across other levels changes (legacy: `max_volume^(63/127)` ratio between levels 64 and 127; seeded: `range = 10`). The frontend mirrors this in `usePreset.loadPreset` (defense in depth — explicit `set_runtime_parameters` POST after preset load). Regression test: `tests/integration/test_volume_sensitivity_reset.py::test_initial_runtime_params_seeded_for_new_formula`. The legacy frontend `localStorage` key `volumeRange` is no longer read.
 
 Response `200`:
 ```json
 {"message": "OK", "updated": {"volume": 80, "feedback": 64}}
 ```
+
+#### Layer B output level (`output_scale`)
+
+Per-preset linear scale (`model_parameters.output_scale` + `output_scale_calibrated`, persisted on save) that lands
+the preset's p60 v127 at −2 dBFS at slider 64: `engine volume_center = bare volume_center × output_scale`. Owner:
+`pianoid_middleware/output_level.py` (dev-0da4).
+
+| Rule | Behaviour |
+|---|---|
+| when it is derived | `calibrate_output_scale()` — offline p60 v127 render, ONLY when `output_scale_calibrated` is false. Runs at `init_pianoid` (engine not yet live) and is attempted at `switch_preset` |
+| never on a live engine | the measurement refuses (before touching the engine) while the C++ main loop flag `shouldContinue()` or the playback thread `online_engine.isRunning()` is set — a library switch with the engine running never renders (volume-equalization review I-7: the render page-faults / clobbers live string state) |
+| a refused / failed / silent render | carries no level information → **nothing is written**: the stored `output_scale` and the (stale) flag are kept, a `[volcal B] WARNING … NOT re-calibrated` line is logged and `/health.output_scale.warning` is set. (Before dev-0da4 a refused render read as peak 0 → `output_scale = 1.0` + calibrated → the engine went ~230 dB quiet, bug B1.) |
+| loudness-affecting edits | only clear the flag (`invalidate_output_calibration`); the stored value stays in use, the next FULL load re-derives it |
+| level-neutral rescales | `compensate_output_scale(f)` — `output_scale × f` and the engine center × f together (exact, no render; dev-168c mass rescale) |
 
 When amplitude-gate fields are sent, the `updated` dict echoes the applied (clamped) values, e.g.
 `{"updated": {"amplitude_limit": 5000.0, "amplitude_gate_enabled": 0}}`.

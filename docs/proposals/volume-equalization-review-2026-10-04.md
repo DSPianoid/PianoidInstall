@@ -10,6 +10,10 @@
 - **Status (2026-10-04, dev-168c, merged to PianoidCore dev, not pushed):** I-3 fixed and R3 implemented in its
   user-chosen form — the equalizer's only lever is the per-pitch `hammer_mass` (no new trim factor; per-level
   loudness stays `hammer_speeds`); `level_multipliers` retired. R1, R2, R4–R11 open.
+- **Status (2026-10-06, dev-0da4, PianoidCore `feature/dev-0da4-outscale-live`, NOT merged):** I-7 / R6 implemented
+  in form (a): the Layer B measurement refuses a live engine before touching it and a refused/failed/silent render
+  never writes `output_scale`/flag (stored value kept, `/health.output_scale.warning`); live bug B1 (switch silenced
+  the engine ×1/4.6e11) fixed + verified live. Owner module `pianoid_middleware/output_level.py`.
 - **Related (not superseded):** [Excitation Loudness — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md)
   (excitation-coefficient subtopic), [Output Sound-Channel Calibration](sound-channel-calibration-2026-07-10.md)
   (per-mode inter-channel balance subtopic), [Loudness Chain — Physics Deviation Analysis](loudness-physics-deviation-analysis-2026-10-04.md)
