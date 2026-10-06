@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-e65a lock RELEASED 2026-10-06 (Phase 1): PianoidTunner/src/PianoidTuner.js committed on feature/dev-e65a-sc-wb-emit cf8dced (+ new test); NOT merged; worktree removed (junctions unlinked first). -->
 <!-- dev-2493 + dev-4505 locks RELEASED 2026-10-06 (Phase 2): merged PianoidTunner dev 62b9add + 8ce4f20, worktrees removed. -->
 <!-- dev-da62 locks RELEASED 2026-10-05 (Phase 2: merged --no-ff, NOT pushed — PianoidBasic dev 8313ac0 (2f657ba excitation_retime + gpu_force_curve; 3bc5480 converter x-unit + curve_x_unit_ms + metadata), PianoidCore dev 8b3d995 (9b8006c tests + BaselinePreset1_retimed; a893756 pianoid.py FPGA overlay x-unit, preset_load_params, regenerated F15 (+report) + 2 FPGAexc presets, tests)); worktrees removed. -->
 <!-- dev-029c locks RELEASED 2026-10-04 (Phase 2: merged --no-ff, NOT pushed — PianoidBasic dev 0832a3d (206befc: string_gain.py, StringMap, StringExcitation, ModelParams, fpga_preset_converter, fpga_conversion_metadata), PianoidCore dev 318f4b8 (f8de06f: excitation_coefficients, parameter_manager, F15 preset + report, test_string_gain, test_fpga_preset_converter)); worktrees removed. -->
