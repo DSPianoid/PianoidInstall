@@ -276,7 +276,7 @@ Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
 
 - `single_deck_matrix` (added dev-fbsl, 2026-06-05): the engine's compile-time `USE_SINGLE_DECK_MATRIX` mode. `true` (the active build) means there is ONE packed coupling matrix (feedin only) and feedback is derived as `feedin × deck_feedback_coeff` — no separate feedback half exists, so the per-pitch feedback MATRIX editor is meaningless and the frontend disables it (only the toolbar Feedback coefficient slider acts on feedback). Surfaced from the backend (not a frontend-only assumption) to avoid silent divergence. NOTE: the installed `.pyd` does not currently export the constant, so the backend falls back to `true` (the active build is single-deck per the pack/kernel path); if a future build exports `pianoidCuda.USE_SINGLE_DECK_MATRIX`, the field reflects it.
 
-- `output_scale` (added dev-0da4, 2026-10-06): the active preset's Layer B output level — `{value, calibrated, stale, warning}`. `value` = `mp.output_scale` (the per-preset linear scale layered onto `volume_center`); `stale` = `!output_scale_calibrated` (a loudness-affecting edit, or preset genesis, cleared the flag; the stored value stays in use until the next full load re-calibrates); `warning` = why the last calibration attempt on THIS preset kept the stored value (e.g. `"realtime engine is live - offline render refused …"` after a library switch). See [Layer B output level](#layer-b-output-level-output_scale).
+- `output_scale` (added dev-0da4, 2026-10-06): the active preset's Layer B output level — `{value, calibrated, stale, warning}`. `value` = `mp.output_scale` (the per-preset linear scale layered onto `volume_center`); `stale` = `!output_scale_calibrated` (a shape/other edit, or preset genesis, cleared the flag; the stored value stays in use until the next full load or `POST /recalibrate_output_level`); `reference_impulse` / `impulse` / `impulse_level_db` = the calibration's p60 v127 impulse reference, the current one and `20·log10(impulse/reference)` (the deliberate mass/speed/c level change, dev-5852); `warning` = why the last calibration attempt on THIS preset kept the stored value (e.g. `"realtime engine is live - offline render refused …"` after a library switch). See [Layer B output level](#layer-b-output-level-output_scale).
 
 - `stored_feedback_coeff` (added dev-fbsl, 2026-06-05): the active preset's PER-PRESET feedback baseline (`pianoid.mp.deck_feedback_coefficient`; default `1.0`). The frontend reads this after a preset load/switch to seed the stored layer of the two-layer feedback slider (the slider's off-center env multiplier is applied on top). See `POST /set_runtime_parameters` (`feedback_coeff` / `store_feedback_coeff`) and DATA_FLOWS §2.6.
 
@@ -925,11 +925,23 @@ the preset's p60 v127 at −2 dBFS at slider 64: `engine volume_center = bare vo
 
 | Rule | Behaviour |
 |---|---|
-| when it is derived | `calibrate_output_scale()` — offline p60 v127 render, ONLY when `output_scale_calibrated` is false. Runs at `init_pianoid` (engine not yet live) and is attempted at `switch_preset` |
+| when it is derived | `calibrate_output_scale()` — offline p60 v127 render, ONLY when `output_scale_calibrated` is false. Runs at `init_pianoid` (engine not yet live) and is attempted at `switch_preset`; on demand via `POST /recalibrate_output_level` |
+| impulse reference (dev-5852) | the calibration is referenced to the p60 v127 hammer impulse `J = c·m60·speed(127)`, persisted as `model_parameters.output_scale_reference_impulse`: p60 lands at −2 dBFS × `J_now/J_ref`. A re-calibration therefore removes only the non-impulse (shape / physics) part of a level change and can never undo a mass / speed / `c` edit. Genesis (no reference) or `absolute: true` → J_ref := J_now (exactly −2 dBFS). Calibrated presets saved before dev-5852 adopt their current J on load |
 | never on a live engine | the measurement refuses (before touching the engine) while the C++ main loop flag `shouldContinue()` or the playback thread `online_engine.isRunning()` is set — a library switch with the engine running never renders (volume-equalization review I-7: the render page-faults / clobbers live string state) |
 | a refused / failed / silent render | carries no level information → **nothing is written**: the stored `output_scale` and the (stale) flag are kept, a `[volcal B] WARNING … NOT re-calibrated` line is logged and `/health.output_scale.warning` is set. (Before dev-0da4 a refused render read as peak 0 → `output_scale = 1.0` + calibrated → the engine went ~230 dB quiet, bug B1.) |
-| loudness-affecting edits | only clear the flag (`invalidate_output_calibration`); the stored value stays in use, the next FULL load re-derives it |
-| level-neutral rescales | `compensate_output_scale(f)` — `output_scale × f` and the engine center × f together (exact, no render; dev-168c mass rescale) |
+| edit policy (user decision 2026-10-06, `output_level.classify_edit`) | **shape** edits — excitation curves (`gauss`/`excitation`/`string_excitation_curves`, temporal) and hammer geometry (`hammer`, `hammer_width`/`_position`/`_sharpness`, spatial) — change the timbre and must keep the level: they clear the flag; the next legal calibration compensates them. **Level** edits — `hammer_mass`, `hammer_speeds`, `excitation_impulse_calibration` (`/excitation_energy`, the equalizer) — are by-design loudness: the flag is NOT cleared. **Other** physics (`string`/`physics` non-hammer fields, `mode`, `sound_channel`, `string_sound_channel`) still clear it (pending review). Deck routing (`feedin`/`feedback`, masks) has no level class. Clearing the flag never renders; the stored value stays in use until a calibration runs |
+| level-neutral rescales | `compensate_output_scale(f)` — `output_scale × f`, the engine center × f and the impulse reference ÷ f together (exact, no render; dev-168c mass rescale) |
+
+##### `POST /recalibrate_output_level` (dev-5852)
+
+Explicit "re-calibrate level". Body (optional): `{"absolute": false}`. The realtime engine is stopped
+around the offline p60 v127 render and restarted (the chart-render stop → render → restart pattern —
+never a render on a live engine; measured live 2.3 s, engine restarted, no fault), and the live
+`volume_center` is re-layered so the bare volume setting is kept. Default: level-preserving (impulse
+reference kept → shape/physics changes compensated, mass/speed/`c` edits kept). `absolute: true`:
+p60 v127 → exactly −2 dBFS @ slider 64 and the reference is reset. Response `200`: the `/health`
+`output_scale` block + `previous_value`, `engine_was_running`; `409` when the render was refused /
+failed / silent (nothing written, `warning` says why).
 
 When amplitude-gate fields are sent, the `updated` dict echoes the applied (clamped) values, e.g.
 `{"updated": {"amplitude_limit": 5000.0, "amplitude_gate_enabled": 0}}`.
@@ -1700,7 +1712,7 @@ no-ops after any reload. Loudness is linear in mass (measured: mass ×0.25/×0.5
 | velocity level of a correction | mass is **per-pitch**: a correction measured at one velocity moves every level of that pitch. Per-level loudness is `hammer_speeds` (`/excitation_energy`), untouched by the equalizer |
 | `level_multipliers` (`/calibration_params`) | **retired** — `400`; the stored list is kept read-only (legacy preset field) |
 | RCM auto-capture | triggered by `POST /excitation_energy` `hammer_mass` edits (coefficient = mass ÷ mass at RCM start), no longer by gauss edits |
-| persistence | `hammer_mass` is saved per pitch in the preset `physics` block → survives save → reload; each write also clears `output_scale_calibrated` (Layer B re-derives the absolute level on the next load; the per-pitch ratios are kept) |
+| persistence | `hammer_mass` is saved per pitch in the preset `physics` block → survives save → reload; mass is a by-design loudness edit — `output_scale_calibrated` is NOT cleared (dev-5852) and a later re-calibration keeps the mass-driven level (impulse reference) |
 | physical range | at the end of every measurement pass (`/calibrate_synthesis`, `/calibrate_acoustic`, `/tune_note`, `/normalize_volume`, auto-tune) and via `POST /rescale_hammer_mass`, ALL key pitches' masses are multiplied by ONE common factor `k` into `HAMMER_MASS_MIN…MAX` = 2–20 g (ratios kept → evenness kept); `output_scale` and the live `volume_center` are multiplied by `1/k` (analytic, no render) so the absolute level is unchanged. If the mass spread exceeds the 20 dB range, the heaviest mass is pinned to 20 g and the light end is reported below 2 g (`violation_db`, `n_outside`). The returned/embedded `mass_rescale` report carries `k`, spread/range dB and min/median/max grams before/after |
 
 ### `POST /measure_rms`

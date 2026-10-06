@@ -955,6 +955,9 @@ backendserver.py: preset_switch_route()                 (line 345)
      output_scale is stale AND the engine is not live; with the realtime
      engine running it refuses the render and KEEPS the stored output_scale
      (warning on /health.output_scale) — dev-0da4, never render live.
+     Stale = an excitation SHAPE edit (or other physics) since the last
+     calibration; mass/speed/c edits never stale it, and the calibration is
+     impulse-referenced (p60 at -2 dBFS x J_now/J_ref) — dev-5852.
   6. Restore the global volume/feedback surface: volume_level and
      volume_range kept; volume_center = bare seed x TARGET output_scale;
      deck_feedback_coefficient = TARGET stored baseline (per-preset)

@@ -14,6 +14,9 @@
   in form (a): the Layer B measurement refuses a live engine before touching it and a refused/failed/silent render
   never writes `output_scale`/flag (stored value kept, `/health.output_scale.warning`); live bug B1 (switch silenced
   the engine ×1/4.6e11) fixed + verified live. Owner module `pianoid_middleware/output_level.py`.
+- **Status (2026-10-06, dev-5852, Core `feature/dev-5852-outscale-policy` + Basic `feature/dev-5852-outscale-ref`, NOT
+  merged):** I-5 partially addressed — the invalidation set is now the user's edit policy (shape edits stale, mass/speed/c
+  never) with an impulse-referenced calibration and an explicit safe `POST /recalibrate_output_level`; R5 (load-param key) open.
 - **Related (not superseded):** [Excitation Loudness — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md)
   (excitation-coefficient subtopic), [Output Sound-Channel Calibration](sound-channel-calibration-2026-07-10.md)
   (per-mode inter-channel balance subtopic), [Loudness Chain — Physics Deviation Analysis](loudness-physics-deviation-analysis-2026-10-04.md)

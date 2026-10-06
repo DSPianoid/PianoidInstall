@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-5852 | output_scale recalibration policy: shape edits level-preserving, mass/speed edits never recalibrate (stacked on dev-0da4) | [log](logs/dev-5852-2026-10-06-172441.md) | 2026-10-06 | In Progress |
 | dev-0da4 | B1: live preset/switch calibrate_output_scale render-refused silences engine; architectural fix (no live render, failed render never overwrites, volume_center SET/GET symmetry) | [log](logs/dev-0da4-2026-10-06-155128.md) | 2026-10-06 | In Progress |
 | dev-6c93 | SC live-test fixes B2-B5 + m1-m5 (PianoidTunner, on top of dev-a64e) | [log](logs/dev-6c93-2026-10-06-155111.md) | 2026-10-06 | In Progress |
 | dev-a64e | SC workbench follows SC pane selected channel in rotated (channel-row) orientation | [log](logs/dev-a64e-2026-10-06-130519.md) | 2026-10-06 | In Progress |
@@ -251,6 +252,27 @@
   (converter / first load) only; edits keep it (WYSIWYG save->reload); level-neutral system passes (mass rescale, optionally
   the equalizer) compensate analytically (`compensate_output_scale`); an explicit "re-calibrate level" action for when the
   user wants renormalization. Owner: user.
+  **-> DECIDED + implemented on branch (dev-5852, see below).**
+
+## Follow-ups from dev-5852 — output_scale edit policy (2026-10-06, Core `feature/dev-5852-outscale-policy` stacked on dev-0da4 + Basic `feature/dev-5852-outscale-ref`, NOT merged)
+
+- **User decision:** shape edits (temporal curve, spatial hammer geometry) are level-preserving (stale -> next legal
+  calibration compensates); hammer mass / speeds / impulse calibration never stale. Calibration is impulse-referenced
+  (`output_scale_reference_impulse`, p60 at -2 dBFS x J_now/J_ref) so no recalibration undoes a mass/speed edit;
+  explicit `POST /recalibrate_output_level` (stop -> render -> restart; `absolute:true` renormalises).
+- **Live evidence (Belarus_8band_196modes, d2, worktree backend):** temporal x0.5 +9.46 dB uncompensated (conserve mode
+  does NOT preserve loudness), recal -> -2.0 exactly; width x4 -0.42 dB, position 0.15->0.12 ~+2.4 dB, both recal-restored;
+  mass x2 +6.02 dB, not stale, survives recal and save->reload; mass + temporal + save->reload -> init recal lands -8.02
+  (mass kept, shape removed). Log: dev-5852.
+- **Merge order:** Basic first (new mp field; wheel rebuild), then Core dev-0da4, then Core dev-5852.
+- **OPEN (user decision): "other" class** — string physics (rho/length/tension/damping), mode params, sound_channel /
+  string_sound_channel still stale the calibration (pre-dev-5852 behaviour). Proposal: string/mode = level-by-physics
+  (do NOT stale, WYSIWYG); sound_channel kinds in strings mode are inert stores (drop); SC/feedback stay excluded.
+- **OPEN:** I-5 (cached scale not keyed by load params) — the user's preset sits at -37.9 dBFS live at d2/384, so ANY
+  recalibration (incl. the first shape-edit one) jumps it ~+36 dB to the -2 dBFS target. R5 needed before relying on it.
+- **Found (not fixed):** `GET /get_parameter/hammer/<p>` returns `{p:{hammer:{...}}}` but POST expects the flat
+  `{p:{hammer_width:..}}` (FE usePreset.js) — a GET->POST round-trip is silently ignored / mis-set; and stored widths
+  below the `HAMMER_WIDTH_FLOOR_DX_MULT*dx` floor (legacy presets, e.g. p60 0.0051 < 0.0106) read back raw until edited.
 
 ## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, merged Basic dev 0832a3d / Core dev 318f4b8, NOT pushed)
 

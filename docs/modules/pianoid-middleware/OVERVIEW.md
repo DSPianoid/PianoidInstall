@@ -215,7 +215,11 @@ measurement (refused while the engine is live — checked before any engine call
 non-zero, finite peak is written; a refused/failed/silent render keeps the stored value and records a `/health`
 warning), and the bare ↔ engine `volume_center` conversion (`engine = bare × output_scale`; every SET multiplies,
 every GET/ack divides). `Pianoid` keeps thin delegates (`calibrate_output_scale`, `_measure_bare_synthesis_peak`,
-`_effective_volume_center`, `_bare_volume_center`, `output_scale_status`). Contract table:
+`_effective_volume_center`, `_bare_volume_center`, `output_scale_status`). It also owns the **edit policy**
+(dev-5852, user decision 2026-10-06: `classify_edit` / `Pianoid.note_level_edit` — excitation SHAPE edits stale the
+calibration, by-design loudness edits (mass / speeds / `c`) never do) and the **impulse reference** (calibration lands
+p60 at −2 dBFS × `J_now/J_ref`, `J = c·m60·speed(127)`, so no re-calibration undoes a mass/speed edit), plus the
+explicit `recalibrate` (stop → render → restart). Contract table:
 [REST_API → Layer B output level](http://localhost:8001/modules/pianoid-middleware/REST_API/#layer-b-output-level-output_scale).
 
 **Fix-MIDI velocity clamp** (`fix_velocity_enabled`, `fix_velocity_level`) is a runtime/session-only velocity-clamp applied to every MIDI-source NOTE_ON ingress. State lives on `Pianoid` (not preset-persisted, not reset on preset switch, reset to defaults on backend restart). One canonical helper `Pianoid.apply_fix_velocity(v)` is consulted by the unified MIDI listener (`schedule_event` for `listen_to_midi=1`), the legacy `pianoidMidiListener.note_on`, and REST `/play` + WS `play` when the caller passes `source: "midi"`. Calibration, `/play_keyboard`, and `/play_mode` paths are intentionally exempt. REST surface: `POST /set_fix_velocity` + `GET /get_fix_velocity` + WS `set_fix_velocity`. See [REST_API.md — Fix-MIDI velocity clamp](REST_API.md#fix-midi-velocity-clamp). Frontend: `useFixVelocity` hook + ToolBar checkbox + Level dropdown — replaces the legacy JS `midiPlayNote` velocity rewrite (dev-bv01, 2026-05-03).
@@ -316,7 +320,7 @@ Microphone-based volume equalization using semi-offline calibration mode. The en
 `tune_single`, perception weights, clipping normalization, calibration-curve apply/revert, RCM) goes through
 `HammerMassGain` (`hammer_mass_gain.py`): it scales/sets `pitch.physics.hammer_mass` (model owner) and asks the
 CoefficientCache owner to recompose that pitch (`ParameterManager._recompose_excitation_coefficients({'kind':'mass'})`),
-then clears `output_scale_calibrated`. The curve volumes (`levels_matrix[:,2,:]`) are never written — they divide
+then reports a `mass` edit to the Layer B policy (by-design loudness → `output_scale` stays calibrated, dev-5852). The curve volumes (`levels_matrix[:,2,:]`) are never written — they divide
 out of the conserve-mode coefficient, which made the pre-dev-168c equalizer a no-op after any reload
 ([review I-3](http://localhost:8001/proposals/volume-equalization-review-2026-10-04/)). The tuners' "coefficient" is
 the pitch's gain = mass ÷ mass at controller creation. Mass is per-pitch, so a correction at one velocity level
