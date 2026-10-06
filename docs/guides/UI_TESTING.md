@@ -155,6 +155,16 @@ To verify a frontend branch while the user's stack (`:3000` main checkout, `:300
   Open the tab in an isolated Chrome context with a `navigate_page` `initScript` that answers every non-GET
   XHR/fetch to `:5000/:5001/:3001` locally (`load_preset` → `{"reinit":"full"}` so the FE hydrates via GETs) and
   blocks WebSockets to them; edits then change only the tab's local history. Verify afterwards by a backend GET.
+- **An `initScript` guard covers ONE navigation only (dev-6c93 incident, 2026-10-06).** A `location.reload()` from
+  `evaluate_script` and a CRA live-reload after a source edit both reload the tab WITHOUT the guard — the fresh origin's
+  autoload then POSTs `/load_preset` with DEFAULT settings (listen_to_modes=1, number_of_modes=64, …) = a full engine
+  reload on the user's backend. Always (re)open the tab via `navigate_page type=url` WITH the `initScript`, and navigate
+  the tab to `about:blank` BEFORE editing worktree source. Even a guarded hydration still sends the loadPreset side
+  writes (`set_runtime_parameters` volume_center/range defaults, `feedback_coeff`) — check them against the live values.
+  If a reload slipped through: restore with the exact prior `load_preset` dict from `PianoidCore/logs/backend_stdout.log`.
+- **Real input at exact coordinates:** chrome-devtools `click`/`drag` take an a11y uid, not x/y. Inject a 2×2
+  `position:fixed; pointer-events:none` probe `<div role=button aria-label=probeX>` at the target point and click/drag
+  its uid — the CDP mouse events land at the probe centre and hit the element underneath (rulers, canvases, chart bars).
 - Removing the worktree: `cmd /c rmdir` every junction (or the whole junction dir) BEFORE `git worktree remove`.
 
 ## Shutdown
