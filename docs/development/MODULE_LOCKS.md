@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-0ccf locks RELEASED 2026-10-07 (Phase 1): Core output_level.py, output_headroom.py (new), backendServer.py, pianoid.py, tests/unit/test_output_scale_headroom.py (new), presets Belarus_8band_196modes.json + F15_Elyashev_array512.json; Basic ModelParams.py — committed on feature/dev-0ccf-chord-headroom (Core c2aa20b+1af1bf1, Basic e0b7873); NOT merged (user tests first). -->
 <!-- dev-2fbf locks RELEASED 2026-10-07 (Phase 2 by dev-0ccf): Core preset_reinit.py, backendServer.py, pianoid.py, tests/unit/test_load_level_anchor.py; Tunner usePreset.js + usePreset.volumeHydrate.test.js — merged Core dev 0864614, Tunner dev 2f0543d. -->
 <!-- dev-e772 locks RELEASED 2026-10-07 (Phase 2): Core output_level.py, pianoid.py, parameter_manager.py, hammer_payload.py (new) + 3 unit tests; Basic ModelParams.py, Hammer.py — merged Core dev 3d25e39 / Basic dev c8af4d8 (with dev-0da4 5fef5ca, dev-5852 d66b711/9c7606b); NOT pushed; worktrees wt-0da4-core + wt-5852/* removed. -->
 <!-- dev-0da4 locks RELEASED 2026-10-06 (Phase 1): PianoidCore pianoid_middleware/{pianoid.py,output_level.py (new),backendServer.py} + tests/unit/{test_output_scale_live_guard.py (new),test_volcal_output_scale.py} committed on feature/dev-0da4-outscale-live eae7ec3 (worktree D:/repos/wt-0da4-core, .venv junction already unlinked); NOT merged. -->

@@ -957,7 +957,9 @@ backendserver.py: preset_switch_route()                 (line 345)
      (warning on /health.output_scale) — dev-0da4, never render live.
      Stale = an excitation SHAPE edit (or other physics) since the last
      calibration; mass/speed/c edits never stale it, and the calibration is
-     impulse-referenced (p60 at -2 dBFS x J_now/J_ref) — dev-5852.
+     impulse-referenced (p60 at the preset's target x J_now/J_ref; target =
+     model_parameters.output_scale_target_dbfs, default -2 dBFS, chord headroom
+     dev-0ccf) — dev-5852.
   6. Restore the global volume/feedback surface: volume_level and
      volume_range kept; volume_center = bare seed x TARGET output_scale;
      deck_feedback_coefficient = TARGET stored baseline (per-preset)

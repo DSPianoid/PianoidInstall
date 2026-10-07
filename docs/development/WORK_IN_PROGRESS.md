@@ -283,6 +283,19 @@
   **-> DONE (dev-e772):** POST accepts the GET shape (live GET->POST->GET byte-identical, not stale); GET adds
   `hammer_width_effective`; sub-floor stored width kept until a real edit (dev-5150 rule).
 
+## Follow-ups from dev-0ccf (2026-10-07) — chord-headroom calibration target (branch feature/dev-0ccf-chord-headroom, NOT merged)
+
+- **Recalibrate-after-live bias ~0.25 dB (pre-existing, not fixed).** `POST /recalibrate_output_level` renders right after
+  the realtime engine ran; its p60 bare peak is ~0.25 dB lower than the same render after a fresh full load (Belarus
+  5.80e-5 vs 5.97e-5) -> the committed scale plays ~0.25 dB louder after a restart. Some engine state survives
+  `resetStringsState` (cf. memory "reset doesn't clear feedback/feedin_cycle accumulators"). Owner: next Layer B /dev.
+- **F15_Elyashev_array512 treble is +15 dB hot** (single p106/p107 +14.7 dB vs p60 at d1/512/si16; +25 dB at d2/384/si6):
+  its loudest chord is a treble cluster (+22.6 dB) -> chord-safe p60 = -28.6 dBFS (mid-range quiet at slider 64).
+  Leveling the F15 treble (per-pitch excitation) would raise its target ~10 dB. User decision.
+- Other presets keep the -2 dBFS default until `POST /recalibrate_output_level {"chord_peak_dbfs": -6}` + save is run on
+  them (candidates: Belarus_196modesC_Fanera6exc, BaselinePreset1). Whether to make a chord-safe target the GLOBAL default
+  (e.g. derive it at preset genesis) is an open user decision.
+
 ## Follow-ups from dev-e772 (2026-10-07)
 
 - **Found (pre-existing, not fixed): HOT re-load changes the volume slider.** `/load_preset` with an unchanged body is
