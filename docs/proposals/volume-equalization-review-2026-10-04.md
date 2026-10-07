@@ -16,7 +16,12 @@
   the engine ×1/4.6e11) fixed + verified live. Owner module `pianoid_middleware/output_level.py`.
 - **Status (2026-10-06, dev-5852, Core `feature/dev-5852-outscale-policy` + Basic `feature/dev-5852-outscale-ref`, NOT
   merged):** I-5 partially addressed — the invalidation set is now the user's edit policy (shape edits stale, mass/speed/c
-  never) with an impulse-referenced calibration and an explicit safe `POST /recalibrate_output_level`; R5 (load-param key) open.
+  never) with an impulse-referenced calibration and an explicit safe `POST /recalibrate_output_level`.
+- **Status (2026-10-07, dev-e772, MERGED with dev-0da4/dev-5852 — Core dev 5fef5ca/d66b711/3d25e39, Basic dev
+  9c7606b/c8af4d8, not pushed):** I-7/R6 and **R5 IMPLEMENTED** (`output_scale_load_settings`, all six load settings
+  measured to move the level, re-measure with the impulse reference kept); string/mode physics no longer stale;
+  `sound_channel` kinds dropped from the invalidation set (R7 part). Still open: R1-R4, R7 (rest), R8-R11 — so this
+  review stays in `docs/proposals/` (partially implemented).
 - **Related (not superseded):** [Excitation Loudness — Corrected Model](excitation-loudness-normalization-correction-2026-06-30.md)
   (excitation-coefficient subtopic), [Output Sound-Channel Calibration](sound-channel-calibration-2026-07-10.md)
   (per-mode inter-channel balance subtopic), [Loudness Chain — Physics Deviation Analysis](loudness-physics-deviation-analysis-2026-10-04.md)
