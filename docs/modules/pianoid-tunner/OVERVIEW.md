@@ -492,7 +492,11 @@ stays).
 
 **Volume sensitivity** = the `volumeRange` (curve "range ×"): the velocity-loudness spread around the
 midpoint. The field commits `onVolumeSensitivityChange(center, range)` where `center =
-exp((presetVolume+64)/8)`; usePreset sends `volume_center`/`volume_range` to the engine. **Feedback
+exp((presetVolume-100)/8)`; usePreset sends `volume_center`/`volume_range` to the engine. **Volume slider
+level** = engine-owned session state (no `/load_preset` kind changes it; the load body's `volume` is the
+preset level anchor, not the slider — dev-2fbf): after every load `usePreset.loadPreset` mirrors
+`GET /get_runtime_parameters` `volume_level` into the slider (a page reload starts at 64 while the backend
+kept the user's level) and keeps the leftmost mute (center epsilon) when that level is 0. **Feedback
 sensitivity** (NEW, the volume analogue) = the **base of the env-multiplier curve** —
 `envMultiplier(pos) = base^((pos-64)/63)` (was hardcoded `8`); a lower base = a gentler slider, higher
 = steeper, 64 stays ×1 at every base. It is frontend-only (reshapes the slider→effective-coeff

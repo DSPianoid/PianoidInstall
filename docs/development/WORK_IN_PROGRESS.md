@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-2fbf | Fix HOT re-load (/load_preset unchanged body) pushing load-body volume into runtime slider volume (+11.4 dB) | [log](logs/dev-2fbf-2026-10-07-144540.md) | 2026-10-07 | In Progress |
 <!-- dev-e772 COMPLETED 2026-10-07 — Layer B follow-ups (physics edits never stale, output_scale keyed by load settings R5, hammer GET/POST round-trip + effective width) + merge-all: PianoidBasic dev 9c7606b/c8af4d8 (wheel redeployed, L1 ok), PianoidCore dev 5fef5ca/d66b711/3d25e39 (LIGHT --both rebuilt, unit 1924p/4 pre-existing), PianoidTunner dev 7224f83/93fb902 (Jest 1804/1804); NOT pushed. User stack restarted on merged code: Belarus_8band_196modes d2/384 p60 v127 -2.00 dBFS (was -37.95, +35.95 dB legacy re-calibration). Follow-ups in "Follow-ups from dev-e772". -->
 <!-- dev-a64e + dev-6c93 COMPLETED 2026-10-07 (wrap by dev-e772) — SC workbench follows the SC-local channel (a64e e29ac74) + SC live-test fixes B2-B5/m1-m5 (6c93 db6b26d, 1cd8803): merged --no-ff NOT pushed: PianoidTunner dev 7224f83 + 93fb902; Jest 1804/1804; branches deleted. Open items in "Follow-ups from dev-a66b". -->
 <!-- dev-0da4 + dev-5852 COMPLETED 2026-10-07 (wrap by dev-e772) — Layer B live-render guard (0da4 eae7ec3) + edit policy / impulse reference / POST /recalibrate_output_level (5852 75b09e2, Basic d022031): merged --no-ff NOT pushed: PianoidBasic dev 9c7606b, PianoidCore dev 5fef5ca + d66b711; Basic wheel redeployed + LIGHT --both rebuild; worktrees wt-0da4-core, wt-5852/* removed. -->
@@ -287,6 +288,12 @@
   classified `reinit='hot'` and forwards the load body's `volume` (preset volume, 100) to the runtime `volume` (= slider
   `volume_level`) -> slider 100 -> p60 +11.43 dB (measured +9.43 dBFS). Same-name-different-thing in
   `backendServer.hot_runtime_subset`. Owner: next middleware /dev.
+  **-> FIXED (dev-2fbf, branches Core feature/dev-2fbf-hot-volume + Tunner feature/dev-2fbf-volume-hydrate, NOT merged):**
+  load-body `volume`/`max_volume` = level anchor, re-seeded only when changed; slider level kept by every load kind
+  (full reload carries it); FE mirrors the engine level after load; `set_max_volume` read-modify-write (it silenced
+  the engine). Open from dev-2fbf: (a) a full load IGNORES body `feedback`/`feedback_coeff` while a hot re-load applies
+  them (cold/hot differ; no FE sender today); (b) the FE re-posts the anchor center after every load, so a hot re-load
+  with a changed preset volume is written twice (same value).
 - No-op detection for hammer POSTs compares to the stored value with rel 1e-12; a range POST with mixed changed/unchanged
   pitches uploads only the changed ones.
 - Unknown hammer field -> 416 with the generic "Internal error" text (existing /set_parameter error convention).

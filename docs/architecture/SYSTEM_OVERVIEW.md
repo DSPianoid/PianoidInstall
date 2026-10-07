@@ -115,7 +115,8 @@ keep the React-side state coherent with the engine's truth:
    counter in `usePreset`; editor hooks subscribe via `useEffect(deps:
    [presetVersion])` and discard their local history on every bump.
    **Exception — HOT Apply (Cluster C, dev-applyc):** when `/load_preset`
-   returns `reinit: "hot"` (only runtime params — volume/feedback — changed, so
+   returns `reinit: "hot"` (only runtime params — the preset-volume level anchor /
+   feedback — changed, so
    the backend kept the engine + all loaded state), `loadPreset` does NOT bump
    `presetVersion` and does NOT re-fetch editor data. This is precisely what
    preserves the user's edited (unsaved) values across Apply: a hot apply is
