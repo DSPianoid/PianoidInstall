@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-e772 | output_scale follow-ups (classify_edit reclass, settings-keyed calibration R5, hammer REST round-trip) + merge all dev-a64e/6c93/0da4/5852 + rebuild + restart | [log](logs/dev-e772-2026-10-07-091547.md) | 2026-10-07 | In Progress |
 | dev-5852 | output_scale recalibration policy: shape edits level-preserving, mass/speed edits never recalibrate (stacked on dev-0da4) | [log](logs/dev-5852-2026-10-06-172441.md) | 2026-10-06 | In Progress |
 | dev-0da4 | B1: live preset/switch calibrate_output_scale render-refused silences engine; architectural fix (no live render, failed render never overwrites, volume_center SET/GET symmetry) | [log](logs/dev-0da4-2026-10-06-155128.md) | 2026-10-06 | In Progress |
 | dev-6c93 | SC live-test fixes B2-B5 + m1-m5 (PianoidTunner, on top of dev-a64e) | [log](logs/dev-6c93-2026-10-06-155111.md) | 2026-10-06 | In Progress |
@@ -268,11 +269,29 @@
 - **OPEN (user decision): "other" class** — string physics (rho/length/tension/damping), mode params, sound_channel /
   string_sound_channel still stale the calibration (pre-dev-5852 behaviour). Proposal: string/mode = level-by-physics
   (do NOT stale, WYSIWYG); sound_channel kinds in strings mode are inert stores (drop); SC/feedback stay excluded.
+  **-> DONE (dev-e772, 2026-10-07):** string/mode physics never stale; sound_channel/string_sound_channel no level class
+  (sound_channel x50 measured inert in strings mode). Shape edits are the only recalibration triggers.
 - **OPEN:** I-5 (cached scale not keyed by load params) — the user's preset sits at -37.9 dBFS live at d2/384, so ANY
   recalibration (incl. the first shape-edit one) jumps it ~+36 dB to the -2 dBFS target. R5 needed before relying on it.
+  **-> DONE (dev-e772):** `output_scale_load_settings` key (all 6 settings measured to move the level); mismatch/legacy ->
+  re-measured at the next legal calibration with the impulse reference kept. Cause of the Belarus -37.95: its stored scale
+  = the listen_to_modes=1 scale (measured 4.5585e11 vs stored 4.5554e11). It now loads at -2.00 dBFS (+35.95 dB, reported
+  on /health last_calibration) and re-measures on every load until saved.
 - **Found (not fixed):** `GET /get_parameter/hammer/<p>` returns `{p:{hammer:{...}}}` but POST expects the flat
   `{p:{hammer_width:..}}` (FE usePreset.js) — a GET->POST round-trip is silently ignored / mis-set; and stored widths
   below the `HAMMER_WIDTH_FLOOR_DX_MULT*dx` floor (legacy presets, e.g. p60 0.0051 < 0.0106) read back raw until edited.
+  **-> DONE (dev-e772):** POST accepts the GET shape (live GET->POST->GET byte-identical, not stale); GET adds
+  `hammer_width_effective`; sub-floor stored width kept until a real edit (dev-5150 rule).
+
+## Follow-ups from dev-e772 (2026-10-07)
+
+- **Found (pre-existing, not fixed): HOT re-load changes the volume slider.** `/load_preset` with an unchanged body is
+  classified `reinit='hot'` and forwards the load body's `volume` (preset volume, 100) to the runtime `volume` (= slider
+  `volume_level`) -> slider 100 -> p60 +11.43 dB (measured +9.43 dBFS). Same-name-different-thing in
+  `backendServer.hot_runtime_subset`. Owner: next middleware /dev.
+- No-op detection for hammer POSTs compares to the stored value with rel 1e-12; a range POST with mixed changed/unchanged
+  pitches uploads only the changed ones.
+- Unknown hammer field -> 416 with the generic "Internal error" text (existing /set_parameter error convention).
 
 ## Follow-ups from dev-029c — physical string gain R1+R2 (2026-10-04, merged Basic dev 0832a3d / Core dev 318f4b8, NOT pushed)
 

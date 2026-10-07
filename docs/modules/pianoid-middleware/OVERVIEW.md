@@ -217,9 +217,13 @@ warning), and the bare ↔ engine `volume_center` conversion (`engine = bare × 
 every GET/ack divides). `Pianoid` keeps thin delegates (`calibrate_output_scale`, `_measure_bare_synthesis_peak`,
 `_effective_volume_center`, `_bare_volume_center`, `output_scale_status`). It also owns the **edit policy**
 (dev-5852, user decision 2026-10-06: `classify_edit` / `Pianoid.note_level_edit` — excitation SHAPE edits stale the
-calibration, by-design loudness edits (mass / speeds / `c`) never do) and the **impulse reference** (calibration lands
-p60 at −2 dBFS × `J_now/J_ref`, `J = c·m60·speed(127)`, so no re-calibration undoes a mass/speed edit), plus the
-explicit `recalibrate` (stop → render → restart). Contract table:
+calibration, by-design loudness edits (mass / speeds / `c`) and string / mode physics (dev-e772) never do) and the
+**impulse reference** (calibration lands p60 at −2 dBFS × `J_now/J_ref`, `J = c·m60·speed(127)`, so no re-calibration
+undoes a mass/speed edit), the **load-settings key** (dev-e772, review R5: a scale measured at other array_size /
+derivative order / listen mode / sr / cycle / string iterations is re-measured at the next legal calibration, impulse
+reference kept; `ensure_calibrated` after the in-place structural re-init), plus the explicit `recalibrate`
+(stop → render → restart). The hammer REST payload shape (GET `{hammer:{…, hammer_width_effective}}` round-trips
+through POST) is owned by `hammer_payload.py` (dev-e772). Contract table:
 [REST_API → Layer B output level](http://localhost:8001/modules/pianoid-middleware/REST_API/#layer-b-output-level-output_scale).
 
 **Fix-MIDI velocity clamp** (`fix_velocity_enabled`, `fix_velocity_level`) is a runtime/session-only velocity-clamp applied to every MIDI-source NOTE_ON ingress. State lives on `Pianoid` (not preset-persisted, not reset on preset switch, reset to defaults on backend restart). One canonical helper `Pianoid.apply_fix_velocity(v)` is consulted by the unified MIDI listener (`schedule_event` for `listen_to_midi=1`), the legacy `pianoidMidiListener.note_on`, and REST `/play` + WS `play` when the caller passes `source: "midi"`. Calibration, `/play_keyboard`, and `/play_mode` paths are intentionally exempt. REST surface: `POST /set_fix_velocity` + `GET /get_fix_velocity` + WS `set_fix_velocity`. See [REST_API.md — Fix-MIDI velocity clamp](REST_API.md#fix-midi-velocity-clamp). Frontend: `useFixVelocity` hook + ToolBar checkbox + Level dropdown — replaces the legacy JS `midiPlayNote` velocity rewrite (dev-bv01, 2026-05-03).
