@@ -4,6 +4,13 @@
 **Author:** design agent (STATIC ANALYSIS ONLY — no builds, no engine runs, no measurements)
 **Status:** DESIGN PROPOSAL — not yet implemented. Every `.cu/.cpp/.cuh/.h/setup.py` change
 named here MUST go through the `/dev` workflow (CUDA build). This document does not authorise edits.
+**★ PHASE 0 MEASURED 2026-10-08 (dev-dad7)** —
+[P0 measurements](../development/mode-scaling-P0-measurements-2026-10-08.md): R0 = **119** regs release /
+99 debug, 18.5 KB smem, 0 spill; 1 block/SM, coop capacity 128 vs grid 56–58; cliff **128** regs at
+array_size 512 (only 9 regs headroom uncapped) / 168 at 384. Deck: no HF flattening; G@0.99 ≈ 0.6·n_flat
+(Belarus); a shared rank-r basis beats piecewise rank-1 groups (F15 HF exactly rank 2); feedin == feedback.
+Those numbers supersede the [EST] values in §3 and §12, and they change P1 (release register cap + pre-flight
+first) and P3 (basis instead of clusters). See that doc §4.
 **★ REVISED 2026-06-07** — §5.5.9 uncertainty #1 RESOLVED by the user: **ALL MODES ARE COUPLED TO
 ALL THE STRINGS** (the expensive branch). The flat feedin/feedback are now GLOBAL cross-block
 all-strings reductions, one pair per coupling GROUP; grouping is GLOBAL by coupling shape, decoupled
