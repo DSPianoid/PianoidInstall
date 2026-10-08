@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-c33c | Merge+push dev-12a5; fix "initial volume in Preset settings discarded" + crash-report triage | [log](logs/dev-c33c-2026-10-08-135425.md) | 2026-10-08 |
+<!-- dev-c33c COMPLETED 2026-10-08 — merge+push dev-12a5; PaneSettingsDialog dirty dismiss asks Apply/Discard/Keep editing + NumInput commits a pending edit on container focus-out (initial-volume-discarded bug) + crash auto-report triage: merged --no-ff PianoidTunner dev 2f3fab3 (042ad77); Jest 1834/1834; pushed. Open items in "Follow-ups from dev-c33c" + "Follow-ups from dev-12a5". -->
 <!-- dev-12a5 COMPLETED 2026-10-08 (wrap by dev-c33c) — preset save/load/library robustness (save keeps provenance + non-model sections, save-over refreshes originals, validate-before-destroy /load_preset 400 invalid_preset_request, Save targets the active entry file, outcome feedback, flush pending edits on save/switch): merged --no-ff PianoidCore dev 0332511 (3378fc2), PianoidTunner dev 45d661f (e5ba1f4); unit 1953p/4 pre-existing (start_right_away_binary), test_band_processing_skip.py ignored (esprit svd hang follow-up); Jest 1826/1826; pushed. Open items in "Follow-ups from dev-12a5". -->
 <!-- dev-0ccf COMPLETED 2026-10-08 — Part A: dev-2fbf merged+pushed; Part B: chord-headroom Layer B calibration target (ModelParams.output_scale_target_dbfs, POST /recalibrate_output_level chord_peak_dbfs, /health target_dbfs/target_source) + recalibrated Belarus_8band_196modes (p60 -20.06 dBFS) / F15_Elyashev_array512 (-28.59): merged --no-ff PianoidBasic dev 26230db (e0b7873), PianoidCore dev 0ff2b9c (c2aa20b, 1af1bf1); Basic wheel redeployed (L1 ok) + LIGHT --both rebuilt; unit 1949p/4 pre-existing (start_right_away_binary)/1 deselected (esprit svd hang, see follow-ups); pushed. Open items in "Follow-ups from dev-0ccf". -->
 <!-- dev-2fbf COMPLETED 2026-10-07 (wrap by dev-0ccf) — HOT re-load keeps the runtime volume (load-body volume = level anchor, set_max_volume RMW) + FE slider hydrate: merged --no-ff PianoidCore dev 0864614 (343a47b), PianoidTunner dev 2f0543d (08cc181); unit 1936p/4 pre-existing, Jest 1807/1807; pushed by dev-0ccf. -->
@@ -232,6 +232,14 @@
 
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
+---
+
+## Follow-ups from dev-c33c — settings dirty dismiss + NumInput focus-out commit (2026-10-08, merged Tunner dev 2f3fab3)
+
+- **NumInput.js is RED (1044 LOC) — P2-1 split owed** (value-edit vs in-place config-edit concerns; extract `useNumInputConfig`/`NumInputConfigEditor`). Do NOT add code before the split. See CODE_QUALITY God Objects #16.
+- **False `backend_crashed` alarms during loads/calibration** — suppress the auto-report while a full reload / `/save_reference` calibration is in flight (details under "Follow-ups from dev-12a5").
+- **Multi-client interference** (2nd tab re-applies its init volume / feedback slider on autoload) — see "Follow-ups from dev-12a5".
+
 ---
 
 ## Follow-ups from dev-12a5 — preset save / load / library robustness (2026-10-08, Core `feature/dev-12a5-preset-save-robust`, Tunner `feature/dev-12a5-preset-save-ux`; merged 2026-10-08 Core dev 0332511 / Tunner dev 45d661f)
