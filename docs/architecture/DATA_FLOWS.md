@@ -837,8 +837,18 @@ backendserver.py: save_preset_route()              (line 288)
         (NB: preset key remains "mass" for backward compatibility; the value
          is the inverse-mass coefficient — see MODE_PHYSICS.md)
   3. If listen_to_modes: add mode_sound_channels section
-  4. json.dump(preset, file)
+  4. + the ACTIVE entry's `extras` — top-level sections the domain model does not own
+     (`fpga_conversion` incl. the declared load params, `excitation_provenance`,
+     `excitation_retime`, …; `preset_library.preset_extras`), written back verbatim
+     (model-owned sections win). Before dev-12a5 every save/promote DROPPED them.
+  5. atomic json.dump (tmp file + os.replace)
   Note: reads Python model state only, NOT GPU memory
+
+  Route = pianoid.save_active_preset(path) (dev-12a5): `.json` appended when missing;
+  when `path` is a loaded ORIGINAL's file (save-over, e.g. a working copy saved onto its
+  source) that original is refreshed via the same `_refresh_original` as promote, so the
+  library never disagrees with the disk. Response: `{message, path (absolute),
+  refreshed_original, presets}`.
 ```
 
 #### Load Flow
@@ -848,6 +858,10 @@ POST /load_preset { path, sample_rate, audio_driver_type, ... }
          │
          ▼
 backendserver.py: load_preset_route()               (line 132)
+  ─► preset_load_params.load_request_error(data, full=True)   // dev-12a5 fail-fast:
+       path must be a readable preset JSON + sample_rate/string_iterations/audio_on/
+       start_right_away present, else 400 invalid_preset_request — BEFORE destroying
+       (a bad path used to destroy the engine and then 500 → "No preset loaded")
   ─► pianoid.destroyPianoid()                       // tear down previous instance
   ─► initialize(path, filterlen, **init_kwargs)     // pianoid.py:2058
          │
@@ -1001,16 +1015,29 @@ binding and delegates bookkeeping to it.
   GPU slot. `promote_working_copy(name)` atomically overwrites the source
   original's on-disk JSON with the working copy's model, then rebuilds the
   original's in-memory model + GPU slot.
+- **Provenance + source file (dev-12a5).** Every `PresetEntry` carries
+  `source_path` (an original's own `path`; a working copy inherits its source
+  original's at spawn, so Save's default target and promote survive the original
+  being unloaded) and `extras` (the file's non-model sections, inherited by working
+  copies, written by every save/promote). `/preset/list` records include
+  `source_path`; the frontend's Save default is that file's basename.
+- **One refresh path (dev-12a5).** `promote_working_copy` and a save-over both call
+  `_refresh_original(name, sm, modes, mp)`: deep-copy into the registry, rebuild the
+  GPU slot; an ACTIVE original (the C++ library cannot unload the active slot) is
+  parked on `PresetLibrary.replacement_for(name)`, rebuilt, re-activated — before
+  dev-12a5 an active original kept serving its pre-promote values.
 - **Unload.** Any entry is unloadable as long as one preset remains; the
-  active preset is switched away from first; an original left with no
-  working copies gets one auto-spawned (`PresetLibrary.remove` + `Pianoid.
-  unload_preset`).
+  active preset is switched away from first — to `PresetLibrary.replacement_for`:
+  a working copy of the same source, else any working copy, else any entry (dev-12a5;
+  it used to pick the first other name, e.g. a different preset's read-only original);
+  an original left with no working copies gets one auto-spawned
+  (`PresetLibrary.remove` + `Pianoid.unload_preset`).
 - **Global runtime state.** Volume, feedback and volume sensitivity
   (`volume_center`/`volume_range`) are one library-wide configuration —
   `switch_preset` snapshots and restores all of them, so switching is
   loudness-neutral. They are not per-preset and not stored in `PresetEntry`.
 
-REST: `GET /preset/list` returns `{name, kind, source, path}` records;
+REST: `GET /preset/list` returns `{name, kind, source, path, source_path}` records;
 `POST /preset/spawn_working_copy {source}` and `POST /preset/promote
 {name}` are the new endpoints.
 

@@ -404,6 +404,16 @@ request contradicts (`array_size`, `string_iterations`, `listen_to_modes`, `soun
 an omitted request key is not a mismatch). Non-blocking: the load proceeds (geometry is rescaled),
 the backend logs a `WARNING: preset load params differ …` line and the FE shows a persistent
 warning snackbar naming the required values (e.g. F15_Elyashev_array512: 512 / 16 / 0 / 1).
+`sample_rate` is compared in Hz (dev-12a5): the request's kHz value (`48`, scaled ×1000 by the
+route) matches a declared `48000` — before the fix every correct F15 load warned "48 vs 48000".
+The declaration survives `/save_preset` + promote (carried as entry `extras`, dev-12a5).
+
+Response `400` (full reload with an unusable request — dev-12a5 fail-fast, checked BEFORE the
+live engine is destroyed): `{"error": "InvalidPresetRequest", "code": "invalid_preset_request",
+"message": "Preset file not found: presets/X (working 1)"}` (also: not readable JSON / not a
+preset / missing `sample_rate`, `string_iterations`, `audio_on`, `start_right_away`). The running
+engine and its unsaved edits are untouched. Before dev-12a5 such a request destroyed the engine
+first and then returned 500 (FileNotFoundError / KeyError) → `No preset loaded`.
 
 Response `200` (hot re-init — only runtime params changed; engine + UI state kept):
 ```json
@@ -442,7 +452,10 @@ gate later — `docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md`.
 
 ### `POST /save_preset`
 
-Saves the current in-memory preset to a file.
+Saves the ACTIVE library entry (its Python model + its non-model `extras` such as
+`fpga_conversion` / `excitation_provenance`) to a file. `.json` is appended when missing.
+Saving onto a loaded original's file refreshes that original in memory + its GPU slot
+(same path as promote) — dev-12a5.
 
 Request body:
 ```json
@@ -451,8 +464,10 @@ Request body:
 
 Response `200`:
 ```json
-{"message": "Preset saved successfully"}
+{"message": "Preset saved successfully", "path": "D:\...\presets\MySave.json",
+ "refreshed_original": null, "presets": [{"name": "...", "kind": "...", "source": "...", "path": "...", "source_path": "..."}]}
 ```
+`refreshed_original` = the library original re-synced to the written file (or `null`).
 
 ---
 
