@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-0ccf | Part A: merge+push dev-2fbf; Part B: chord-safe headroom recalibration of working presets (output_scale target) | [log](logs/dev-0ccf-2026-10-07-185845.md) | 2026-10-07 |
+<!-- dev-0ccf COMPLETED 2026-10-08 — Part A: dev-2fbf merged+pushed; Part B: chord-headroom Layer B calibration target (ModelParams.output_scale_target_dbfs, POST /recalibrate_output_level chord_peak_dbfs, /health target_dbfs/target_source) + recalibrated Belarus_8band_196modes (p60 -20.06 dBFS) / F15_Elyashev_array512 (-28.59): merged --no-ff PianoidBasic dev 26230db (e0b7873), PianoidCore dev 0ff2b9c (c2aa20b, 1af1bf1); Basic wheel redeployed (L1 ok) + LIGHT --both rebuilt; unit 1949p/4 pre-existing (start_right_away_binary)/1 deselected (esprit svd hang, see follow-ups); pushed. Open items in "Follow-ups from dev-0ccf". -->
 <!-- dev-2fbf COMPLETED 2026-10-07 (wrap by dev-0ccf) — HOT re-load keeps the runtime volume (load-body volume = level anchor, set_max_volume RMW) + FE slider hydrate: merged --no-ff PianoidCore dev 0864614 (343a47b), PianoidTunner dev 2f0543d (08cc181); unit 1936p/4 pre-existing, Jest 1807/1807; pushed by dev-0ccf. -->
 <!-- dev-e772 COMPLETED 2026-10-07 — Layer B follow-ups (physics edits never stale, output_scale keyed by load settings R5, hammer GET/POST round-trip + effective width) + merge-all: PianoidBasic dev 9c7606b/c8af4d8 (wheel redeployed, L1 ok), PianoidCore dev 5fef5ca/d66b711/3d25e39 (LIGHT --both rebuilt, unit 1924p/4 pre-existing), PianoidTunner dev 7224f83/93fb902 (Jest 1804/1804); NOT pushed. User stack restarted on merged code: Belarus_8band_196modes d2/384 p60 v127 -2.00 dBFS (was -37.95, +35.95 dB legacy re-calibration). Follow-ups in "Follow-ups from dev-e772". -->
 <!-- dev-a64e + dev-6c93 COMPLETED 2026-10-07 (wrap by dev-e772) — SC workbench follows the SC-local channel (a64e e29ac74) + SC live-test fixes B2-B5/m1-m5 (6c93 db6b26d, 1cd8803): merged --no-ff NOT pushed: PianoidTunner dev 7224f83 + 93fb902; Jest 1804/1804; branches deleted. Open items in "Follow-ups from dev-a66b". -->
@@ -283,7 +283,7 @@
   **-> DONE (dev-e772):** POST accepts the GET shape (live GET->POST->GET byte-identical, not stale); GET adds
   `hammer_width_effective`; sub-floor stored width kept until a real edit (dev-5150 rule).
 
-## Follow-ups from dev-0ccf (2026-10-07) — chord-headroom calibration target (branch feature/dev-0ccf-chord-headroom, NOT merged)
+## Follow-ups from dev-0ccf (2026-10-07) — chord-headroom calibration target (merged Core dev 0ff2b9c, Basic dev 26230db)
 
 - **Recalibrate-after-live bias ~0.25 dB (pre-existing, not fixed).** `POST /recalibrate_output_level` renders right after
   the realtime engine ran; its p60 bare peak is ~0.25 dB lower than the same render after a fresh full load (Belarus
@@ -295,6 +295,16 @@
 - Other presets keep the -2 dBFS default until `POST /recalibrate_output_level {"chord_peak_dbfs": -6}` + save is run on
   them (candidates: Belarus_196modesC_Fanera6exc, BaselinePreset1). Whether to make a chord-safe target the GLOBAL default
   (e.g. derive it at preset genesis) is an open user decision.
+
+- **Found 2026-10-08 (not fixed): `tests/unit/test_band_processing_skip.py::test_skip_improves_low_band_recovery` hangs
+  >120 s in numpy SVD** (`esprit_core._svd_with_fallback`) while the live backend runs (reproduced 3x, also with
+  OPENBLAS_NUM_THREADS=1; a 200x200 svd is 0.03 s). Passed on 2026-10-07 in the branch run. Modal_adapter untouched by
+  dev-0ccf. Owner: next modal-adapter /dev (measure with the backend down first).
+- **Build gotcha (doc gap, 2026-10-08):** a stack restart by the user DURING a `build_pianoid_cuda.bat --both` lets the
+  launcher auto-start a backend that loads `sdl_audio_core` -> `SDL3.dll`; the pip uninstall then fails WinError 5 on
+  `SDL3.dll`, the rollback fails and the venv is left without `pianoidCuda` (both .pyd stashed in `%TEMP%\pip-uninstall-*`).
+  Recovery = stop the backend (launcher REST) + re-run the canonical build. Add to BUILD_SYSTEM.md holders (SDL3.dll is a
+  holder too: `tasklist //M SDL3.dll` misses it; enumerate `Get-Process` modules). Owner: next build/docs pass.
 
 ## Follow-ups from dev-e772 (2026-10-07)
 
