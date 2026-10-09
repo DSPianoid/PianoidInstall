@@ -75,10 +75,12 @@ audio-driver SM consumption — pushed the debug-online launch past the device
 co-residency limit, returning `cudaErrorCooperativeLaunchTooLarge` on the first
 online cycle (the realtime thread then died at 0 cycles → silent no-audio; the
 OFFLINE render, with no audio driver, fit and worked). Fix: `addKernel` carries
-a **debug-only** `__launch_bounds__(512, 1)` (macro `ADDKERNEL_LAUNCH_BOUNDS`,
-expands to nothing in release) that caps registers so ≥1 block of 512 threads
-stays resident per SM, restoring co-residency while preserving the debug writes.
-The release kernel is unchanged. `runSynthesisKernel` now also **checks the
+`__launch_bounds__(512, 1)` (macro `ADDKERNEL_LAUNCH_BOUNDS`) that caps registers
+so ≥1 block of 512 threads stays resident per SM, restoring co-residency while
+preserving the debug writes. Originally debug-only; since dev-1cda (2026-10-09)
+it applies to **both** variants (release 119 → 98 regs) together with a build-time
+register/spill budget and a runtime co-residency pre-flight — see
+[SYNTHESIS_ENGINE → Register budget](SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09). `runSynthesisKernel` now also **checks the
 `cudaLaunchCooperativeKernel` return** and fails loudly (`PLOG_ERR` + non-200)
 instead of silently leaving `*kernel_status` at its prior value.
 

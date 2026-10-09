@@ -238,6 +238,14 @@
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
 
+## Follow-ups from dev-1cda (2026-10-09) — addKernel release reg cap + co-residency pre-flight (Core `feature/dev-1cda-coop-preflight`, NOT merged)
+
+- **Merge order:** dev-19be first, then rebase dev-1cda (co-edited, disjoint hunks: `Pianoid.cu` devMemoryInit entry, `OnlinePlaybackEngine.cu` post-startApplication + completed_successfully, `AddArraysWithCUDA.cpp` module top, `backendServer.py` import + /load_preset init try + /health top-level + structural-inplace except). Post-merge: HEAVY `--both` + /load_preset 200 smoke (rebuild matrix gate).
+- **Quiet-GPU timing confirmation** of the cap still owed: the session A/B ran with the user's ASIO stack synthesizing on the same GPU (`/pause_synthesis` blocked by the permission classifier). Contended N=6: no measurable change (Belarus +0.5 %, F15 −0.5 %, inside sd). Rerun `docs/development/diagnostics/dev-1cda-coop-timing.py` (A/B via PYTHONPATH bin dirs) with the stack down.
+- `pianoid.py` init still **swallows every other `RuntimeError`** from devMemoryInit/library load (`print; return` → /load_preset 200 with a half-built engine); dev-1cda re-raises only `CoopLaunchShortageError`. Generalise (fail-fast S5) after checking callers.
+- After an online-phase failure `isApplicationRunning()` still reads True (loop exited, flag not cleared) — /health shows `exception`/`crashed` + `cooperative_launch.ok=false`, but the lifecycle flags are stale.
+- Regmem plan open items: §5 shortage decision tree / automatic levers; FIR `convolutionKernel` pre-flight; per-arch occupancy table.
+
 ## Follow-ups from dev-c33c — settings dirty dismiss + NumInput focus-out commit (2026-10-08, merged Tunner dev 2f3fab3)
 
 - **NumInput.js is RED (1044 LOC) — P2-1 split owed** (value-edit vs in-place config-edit concerns; extract `useNumInputConfig`/`NumInputConfigEditor`). Do NOT add code before the split. See CODE_QUALITY God Objects #16.

@@ -269,6 +269,24 @@ rank-1 term per group. Per-mode error = `‖c_m − approx‖/‖c_m‖`. **r** 
 with the audio driver active (in-engine pre-flight); the A/B `note_playback` render that sets the acceptable
 coupling tolerance (proposal §12.3 #2); G/r on an actual ≥1000-mode deck.
 
+## 4b. Follow-up — the release cap, measured (dev-1cda, 2026-10-09)
+
+P1 precondition (a)–(c) implemented on PianoidCore `feature/dev-1cda-coop-preflight`
+([SYNTHESIS_ENGINE → Register budget](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09)).
+
+| Quantity | Value | Tag |
+|---|---|---|
+| Release `addKernel` regs under `__launch_bounds__(512,1)` (sm_80/86/89) | **98/98/98** (was 118/119/119), 0 spill/stack | [MEAS] ptxas + cuobjdump |
+| Debug `addKernel` regs (sm_80/86/89) | 98/99/99 (unchanged) | [MEAS] |
+| Headroom to the 512-thread cliff (128) | **30 regs** release (was 9) | [DERIVED] |
+| Per-cycle `addKernel` time, base → cap, N=6 interleaved, **GPU shared with the live ASIO stack** | Belarus @384: 863 → 867 µs (sd 14–17); F15 @512 si16: 1504 → 1497 µs (sd 12–32) — **no measurable change** | [MEAS] contended |
+| Output, base vs cap (3 s chord render) | base–cap differences = base–base float floor (Belarus relRMS 1.83e-3, F15 1.02e-4; corr ≥ 0.9999983) | [MEAS] |
+
+Note: `__launch_bounds__(512,1)` gave 98 regs, not the 108 of `-maxrregcount 128` (§1.3) — the
+launch-bounds path lets ptxas optimise for 512-thread blocks. A quiet-GPU timing confirmation is still
+open (the live stack could not be paused during the session). Scripts:
+`diagnostics/dev-1cda-coop-timing.py`, `dev-1cda-audio-compare.py`.
+
 ## 5. Doc drift found (not fixed here — flagged)
 
 - `COMPREHENSIVE_TECHNICAL_DOCUMENTATION.md` / substrate §4 "~20–30 registers/thread, ~3 KB shared" →

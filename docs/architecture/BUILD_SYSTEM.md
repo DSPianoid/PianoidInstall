@@ -633,6 +633,24 @@ plus 75 (Turing) when specified in `setup-config.json`.
 Incremental builds are supported when `PIANOID_INCREMENTAL_BUILD=1`: each `.cu`
 source is skipped if the `.obj` timestamp is newer than the source file.
 
+### Register / spill budget check (`-Xptxas -v`, dev-1cda 2026-10-09)
+
+Every `.cu` is compiled with **`-Xptxas -v`** (reporting only — no codegen change); the ptxas
+resource lines (registers/thread, smem, stack, spill bytes per kernel per `sm_*`) are captured
+into the build log and checked by `pianoid_cuda/ptxas_budget.py`:
+
+| Kernel | Budget | Why |
+|---|---|---|
+| `addKernel` (cooperative) | **≤ 128 regs/thread, 0 spill bytes**, every arch | `__launch_bounds__(512, 1)` (both variants) caps it at 65536/512 = 128; above that a 512-thread block cannot launch and the cooperative grid fails ([SYNTHESIS_ENGINE → Register budget](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09)) |
+
+A violation **fails the build** (`PTXAS BUDGET EXCEEDED in MainKernel.cu …`). The build log
+carries one `SETUP: PTXAS BUDGET [MainKernel.cu] addKernel sm_89: 98 regs/thread (budget 128) …`
+line per arch. Each report is also written next to the object (`<obj>.ptxas.txt`) so an
+incremental build that skips the `.cu` re-validates the recorded numbers; if a budgeted kernel
+has no report at all the build fails and asks for a clean (`--heavy`) build.
+Measured 2026-10-09 (CUDA 12.5): `addKernel` release **98** regs (was 119 uncapped), debug
+98/99/99 (sm_80/86/89), 18,496 B smem, 0 stack, 0 spill.
+
 ### C++ / Linking (MSVC via setuptools)
 
 After CUDA compilation, the `.obj` files are passed to the standard setuptools

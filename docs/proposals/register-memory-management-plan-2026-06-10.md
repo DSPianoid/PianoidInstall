@@ -2,8 +2,15 @@
 
 **Date:** 2026-06-10
 **Author:** plan-regmem-9f2c (PLANNING/DESIGN ONLY — no source edits, no build, read-only GPU introspection)
-**Status:** DESIGN PROPOSAL — not implemented. Every `.cu/.cpp/.cuh/.h/setup.py` change named here
-MUST go through `/dev` (CUDA build). This document does not authorise edits.
+**Status:** PARTIALLY IMPLEMENTED (dev-1cda, PianoidCore `feature/dev-1cda-coop-preflight`, 2026-10-09,
+not yet merged). Done for **`addKernel`**: §3.2 `__launch_bounds__(512,1)` on release + debug (release
+119 → 98 regs, 0 spill), §3.3 `-Xptxas -v` in every build + a build-failing register/spill budget
+(`ptxas_budget.py`), §4 runtime pre-flight at init + after the audio driver starts + launch-failure
+record, surfaced via `/load_preset` 500 `coop_launch_shortage` and `/health.cooperative_launch`
+(current state: [SYNTHESIS_ENGINE → Register budget](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09)).
+**Still open:** §5 shortage decision tree / automatic levers (today the shortage message only lists
+the levers), the FIR `convolutionKernel` pre-flight (§2 secondary), per-arch occupancy table (§3.4).
+Every remaining `.cu/.cpp/.cuh/.h/setup.py` change MUST go through `/dev` (CUDA build).
 
 > **Evidence tags.** **[MEAS]** = measured this session on the live device (read-only); **[SRC]** =
 > confirmed by reading source (file:line cited); **[DOC]** = supported by project docs; **[SPEC]** =

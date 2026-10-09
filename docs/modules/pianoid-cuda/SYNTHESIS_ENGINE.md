@@ -46,6 +46,30 @@ Grid layout (cooperative, one launch per synthesis cycle)
     s_mode_applied_force[NUM_STRINGS_IN_ARRAY]
 ```
 
+### Register budget & cooperative co-residency pre-flight (dev-1cda, 2026-10-09)
+
+A cooperative launch requires **every** grid block to be resident at once. Runtime geometry:
+grid = `num_string_arrays()` (= num_strings / 4; Belarus_8band_196modes 56, F15_Elyashev_array512 58),
+block = `array_size` threads (384 or 512), no dynamic smem. On the RTX 4090 one block fits per SM,
+so capacity = 1 × 128 SMs ([P0 measurements §2](../../development/mode-scaling-P0-measurements-2026-10-08.md)).
+
+| Layer | Where | What |
+|---|---|---|
+| Compile-time cap | `MainKernel.cu` `ADDKERNEL_LAUNCH_BOUNDS` = `__launch_bounds__(512, 1)`, **release and debug** | caps registers at 65536/512 = 128/thread → growth spills instead of breaking the launch. Release went 119 → **98** regs (0 spill), debug 99 (unchanged) |
+| Build check | `setup.py` + `ptxas_budget.py` | `-Xptxas -v` on every `.cu`; `addKernel` > 128 regs or any spill **fails the build** ([BUILD_SYSTEM](../../architecture/BUILD_SYSTEM.md#register--spill-budget-check--xptxas--v-dev-1cda-2026-10-09)) |
+| Init pre-flight | `CoopPreflight.cu` `preflightAddKernel(grid, block, "init")`, first thing in `devMemoryInit` (before any allocation) | `cudaFuncGetAttributes` (loaded binary's regs/smem) + `cudaOccupancyMaxActiveBlocksPerMultiprocessor` × SMs ≥ grid; else throws `CoopLaunchShortageError` → `/load_preset` **500** `coop_launch_shortage` |
+| Online pre-flight | `OnlinePlaybackEngine::run`, after `startAudioDriver()` (phase `"online"`) | same check in the device state the launch will see; on shortage the loop does not start, `stats.error_message` carries the reason, the middleware sets `exception` (/health `crashed`, WS lifecycle `ERROR`) |
+| Launch backstop | `runSynthesisKernel` (dev-bug1rt FIX-3) | a failed `cudaLaunchCooperativeKernel` returns 500 **and** is recorded (phase `"launch"`) — the occupancy API cannot see SMs taken by other GPU contexts, so this stays the guaranteed catch |
+
+The last report (phase, grid, capacity, blocks/SM, SMs, regs, smem, message) is
+`<module>.getCoopOccupancyReport()` and `/health.cooperative_launch`. Each check logs one line,
+e.g. `[OCCUPANCY] addKernel(init): regs/thread=98 block=512 smem=18496B maxThreads/block=512 |
+SMs=128/128 blocks/SM=1 -> capacity=128 >= grid=58 OK (margin 2.21x)`.
+**Test knob:** env `PIANOID_COOP_SM_BUDGET=<n>` (0 < n < device SMs) makes the check use n SMs
+— simulates SMs consumed by other GPU work so the shortage path can be exercised on a large GPU
+(read on every pre-flight call). `run()` no longer reports `completed_successfully=true` after a
+failure (it was unconditionally overwritten before).
+
 ---
 
 ## Wave Equation: FDTD String Simulation

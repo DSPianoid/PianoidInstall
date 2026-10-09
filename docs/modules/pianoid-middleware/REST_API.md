@@ -325,6 +325,7 @@ without polling. Engine-side mechanics: see
 
 - `gate_trip_count` (int): cumulative number of synthesis cycles in which the amplitude/NaN crash-guard tripped (its self-heal path fired) since backend start / last `resetGateTripStats`. `0` at boot. Drives the toolbar "gate fired" indicator. Read from a device counter (`getGateTripStats`) with one cheap 2-int D2H copy per poll. Counts BOTH the amplitude-branch trip (`|displacement| > amplitude_limit`) and the unconditional `isnan` trip (in practice a geometric runaway is dominated by the amplitude branch).
 - `last_gate_trip` (int): the synthesis-cycle index of the most recent trip, or `-1` if `gate_trip_count == 0`.
+- `cooperative_launch` (top-level, added dev-1cda 2026-10-09; present even when no preset is loaded): the `addKernel` cooperative co-residency report — `{checked, ok, kernel, phase, grid_blocks, block_threads, num_regs, static_smem, max_threads_per_block, blocks_per_sm, device_sms, num_sms, capacity, message}` from `<module>.getCoopOccupancyReport()`. `phase` = `init` (pre-flight at `devMemoryInit`), `online` (re-check after the audio driver starts) or `launch` (the cooperative launch itself failed). `ok=false` ⇒ the grid cannot co-reside: an `init` shortage fails the load (`/load_preset` 500 `coop_launch_shortage`; with no engine left, this field keeps that failure — `{checked, ok:false, kernel, phase:"init", message}` — until the next successful load); an `online`/`launch` failure stops the realtime thread and also sets `exception` (status `crashed`). `null` = never checked (no load yet). See [SYNTHESIS_ENGINE → Register budget](../pianoid-cuda/SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09).
 - `clipping` (bool): **latched** — `true` if any output channel's post-volume peak reached/exceeded INT32 full-scale (`2147483647`, the driver's hard-clip rail) since the last `/clear_limiting` or preset load. Survives the slow poll (clip-hold). Drives the toolbar clipping indicator.
 - `clipping_now` (bool): instantaneous — a channel peak `>=` full-scale on the most recent buffer.
 - `peak_level` (float): the latched peak output magnitude as a fraction of full-scale (`>= 1.0` ⇔ clipping). Also surfaced (with per-channel detail) inside the existing `limiter` sub-object (`limiter.clipping` / `limiter.clipping_now` / `limiter.peak_level`), which revives the previously-inert limiter telemetry now that the kernel writes the per-channel peak again.
@@ -459,6 +460,16 @@ Response `400` (when `use_simulation=1`):
   "message": "use_simulation=1 is not currently supported. The placeholder module is out of sync with the live library-API and would crash the engine. Pass use_simulation=0 (the default)."
 }
 ```
+
+Response `500` (cooperative co-residency shortage, added dev-1cda 2026-10-09): the engine's init
+pre-flight found that the `addKernel` grid (`num_strings/4` blocks of `array_size` threads) cannot
+be co-resident on this GPU — `{"error": "CoopLaunchShortage", "code": "coop_launch_shortage",
+"message": "COOPERATIVE LAUNCH SHORTAGE (addKernel, phase=init): grid=58 blocks > capacity=57 (…)"}`.
+Raised before any GPU allocation; the previous engine was already destroyed (full-load path), so
+`/health` reports `pianoid_loaded:false` + `cooperative_launch.ok:false`. A follow-up load with a
+feasible configuration succeeds in the same process. (Before dev-1cda the shortage surfaced only
+as a first-cycle `cudaErrorCooperativeLaunchTooLarge`, and `pianoid.py` swallowed init
+`RuntimeError`s so the load answered 200.)
 
 Response `503` (no-CUDA limited mode, added dev-cudaguard 2026-06-10):
 ```json
