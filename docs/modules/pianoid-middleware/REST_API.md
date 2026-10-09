@@ -69,6 +69,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /playback_stats           -- EventQueue statistics
   /pause_synthesis          -- pause synthesis cycle (keeps GPU)
   /resume_synthesis         -- resume synthesis from pause
+  /audio/reopen             -- close + re-open the requested audio driver (dev-19be)
+  /debug/audio_fault        -- TEST HOOK: inject ASIO reset request / callback stall (dev-19be)
   /get_available_notes      -- list pitches in preset
   /get_string_map           -- string layout data
   /get_block_map            -- block-to-string mapping
@@ -270,7 +272,34 @@ Response `200` (healthy):
 }
 ```
 
-Status values: `not_started`, `healthy`, `idle`, `partial`, `crashed`.
+Status values: `not_started`, `healthy`, `idle`, `degraded`, `error`, `partial`, `crashed`.
+`degraded` / `error` (dev-19be) come only from the audio-driver watchdog (`audio_health`
+below); they never downgrade a worse status. The frontend treats `degraded` like `healthy`
+for engine-state purposes (synthesis still runs).
+
+- `audio_health` (added dev-19be, 2026-10-09): the engine's audio-driver watchdog snapshot
+  (`Pianoid.getAudioHealth()`, `pianoid_middleware/audio_health.py`), `null` before a preset
+  loads or on an older binary. Fields: `state` (`ok` · `stalled` / `reset_requested` /
+  `recovering` · `fallback` · `failed`), `message` (current fault), `last_fault`,
+  `last_recovery` (e.g. `"re-opened ASIO_CALLBACK"`, `"ASIO could not be re-opened (...); fell
+  back to SDL3"`), `ms_since_last_fault`, `ms_since_last_cycle` (synthesis-loop heartbeat),
+  `ms_since_last_callback` (audio-callback heartbeat), `produce_timeouts`,
+  `consecutive_produce_timeouts`, `asio_reset_requests` / `asio_resync_requests` /
+  `asio_latency_changes` / `asio_buffer_size_changes` (process-cumulative asioMessage
+  counts), `recovery_count`, `recovery_failures`, `recovery_pending`, and **`alert`**
+  (`null` or `{level, message}` — what the frontend Audio chip renders). Status mapping:
+
+  | Engine condition | `status` | `message` starts with |
+  |---|---|---|
+  | `stalled` / `reset_requested` / `recovering` | `degraded` | `Audio output interrupted - …` |
+  | `fallback` (recovered onto SDL3 after a fault) | `degraded` | `Audio not on the requested device - …` |
+  | `failed` (no driver could be opened; retried with backoff) | `error` | `Audio output failed - …` |
+  | loop should run but `ms_since_last_cycle` > 5000 | `error` | `Synthesis loop not cycling for …` (+ queued event count) |
+
+  A stall is reported after 400 ms and recovered after 1 s, so with a quick successful
+  recovery `/health` may never show `degraded` — the episode stays visible as
+  `recovery_count` / `last_fault` / `last_recovery` (Audio chip tooltip). Engine mechanics:
+  [AUDIO_DRIVERS.md — Driver Fault Watchdog](../pianoid-cuda/AUDIO_DRIVERS.md#driver-fault-watchdog--recovery-dev-19be).
 
 - `listen_mode`: the engine's runtime **listen-to-modes** flag — `true` when sound channels carry mode forces, `false` when they carry string bridge displacement. Mirrors the `listen_to_modes` value passed to the last `POST /load_preset` (its sole owner is `pianoid.mp.listen_to_modes`, set in `pianoid.py`). It is **not** the MIDI-listener state (`GET /midi/status` → `listening`); the two are independent. (Fixed in dev-lmode, 2026-06-05: this field formerly read `pianoid.listen`, the MIDI-listener loop flag, so it always reported `false` under the `listen_to_midi=0` default regardless of the modes setting.)
 
@@ -494,6 +523,25 @@ Response `200`:
 The process exits ~300 ms after responding. If cleanup raises an exception, the endpoint still proceeds with shutdown. Callers should follow up with a force-kill (`taskkill /T /F`) if the process does not exit within a few seconds.
 
 ---
+
+### `POST /audio/reopen`
+
+(dev-19be) Queue a close + re-open of the **requested** audio driver; the synthesis loop
+performs it at its next iteration (only while playback runs), falling back to SDL3 if ASIO
+cannot open. Use after reconnecting an audio interface (the engine sits in `fallback`).
+Body (optional): `{"reason": "device reconnected"}`. Response `200`:
+`{requested: true, loop_running, note, audio_health}`; `400` when no engine is loaded.
+
+### `POST /debug/audio_fault`
+
+(dev-19be, **test hook**) Simulate an audio-driver fault without unplugging hardware.
+Body: `{"kind": "reset_request" | "resync_request" | "latencies_changed" | "stall" |
+"device_loss" | "device_return", "duration_ms": 3000}`. The `*_request` kinds are delivered
+through the real ASIO `asioMessage` handler (ignored by a non-ASIO driver, still counted);
+`stall` makes the active driver's callback stop serving the ring for `duration_ms`;
+`device_loss` replays the 2026-10-08 incident (callback stall + `kAsioResetRequest` + every
+ASIO open fails until `device_return`). Response `200`
+`{injected, result, audio_health}`; `400` for an unknown kind / bad `duration_ms` / no engine.
 
 ### `POST /pause_synthesis`
 

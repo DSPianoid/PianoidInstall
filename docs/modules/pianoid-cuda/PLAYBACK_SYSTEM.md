@@ -117,8 +117,13 @@ The `run()` loop:
 5. CUDA error check: `cudaGetLastError()` after each `runCycle()`
 6. Drift calibration: every cycle for the first 10 cycles (rapid warmup),
    then every 100 cycles (periodic maintenance)
-7. Repeats until `stop()` is called or `max_duration_ms` expires
-8. On exit: stops estimator, application, and audio device
+7. Audio-driver watchdog (dev-19be): `pianoid_->auditAudioDriver()` once per iteration —
+   a driver reset request (ASIO `kAsioResetRequest`) or a stalled audio callback (≥ 1 s of
+   bounded `produce()` timeouts) closes + re-opens the driver right here, on the only thread
+   that pushes to it (ASIO → SDL3 fallback if ASIO cannot open), then re-anchors the
+   estimator. See [AUDIO_DRIVERS.md — Driver Fault Watchdog](AUDIO_DRIVERS.md#driver-fault-watchdog--recovery-dev-19be).
+8. Repeats until `stop()` is called or `max_duration_ms` expires
+9. On exit: stops estimator, application, and audio device
 
 ---
 
@@ -507,7 +512,8 @@ run():                                    run():
 
 **Key invariant:** the Offline branch of `runCycle`'s switch statement does
 nothing after synthesis. The audio back-pressure condvar
-(`LockFreeCircularBuffer::produce`'s `canProduce.wait`) is reachable only
+(`LockFreeCircularBuffer::produce`'s `canProduce.wait_for`, bounded to 200 ms since
+dev-19be so a dead audio device can no longer wedge the loop) is reachable only
 through `pushCycleAudioToDriver`, which is called only from the Online
 branch. This is enforced structurally — not by a runtime flag — so no test
 matrix of mixed modes exists.

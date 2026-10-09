@@ -257,6 +257,59 @@ rule there. When no ASIO driver is installed at all, the fix for getting native 
 environmental (install the device's ASIO driver or ASIO4ALL); see
 [STARTUP_TROUBLESHOOTING.md](../../guides/STARTUP_TROUBLESHOOTING.md#symptom-audio-driver-fails-to-initialize).
 
+The start/stop + fallback code lives in `Pianoid_audio.cu` (moved out of `Pianoid.cu` by
+dev-19be; the SDL3 fallback body is `fallBackToSdl3()`, shared with the runtime recovery
+below).
+
+---
+
+## Driver Fault Watchdog & Recovery (dev-19be)
+
+**Files:** `AudioWatchdog.h/.cpp` (decide + record), `Pianoid_audio.cu` (recover),
+`AsioAudioInterface.cpp` (ASIO messages), `CircularBuffer.cu` (bounded wait).
+
+**Incident it fixes (2026-10-08).** The UMC1820's ASIO driver sent 6× `kAsioResetRequest`
+(asioMessage selector 3) and the device vanished. The host's handler was the SDK-sample
+no-op (`asioDriverInfo.stopped;`) yet returned 1 ("accepted"); the callback stopped, the
+producer blocked forever in `produce()`'s **unbounded** back-pressure wait, the synthesis
+loop (and REST event draining) froze for ~6 h, and `/health` still said `healthy`.
+
+| Piece | Behaviour |
+|---|---|
+| `asioMessages()` | Counts `kAsioResetRequest` / `kAsioResyncRequest` / `kAsioLatenciesChanged` / `kAsioBufferSizeChange` (process-global atomics) and **latches a pending reset** — never resets inside the driver's callback (SDK rule). `kAsioBufferSizeChange` is not advertised (returns 0 → driver uses ResetRequest). Re-opening a driver clears the latch. |
+| `LockFreeCircularBuffer::produce()` | Back-pressure wait is **bounded** (`PRODUCE_WAIT_TIMEOUT_MS = 200`); on timeout the chunk is dropped, `false` returned and `produce_timeouts` / `consecutive_produce_timeouts` count it. Normal operation never waits more than ~one chunk period (measured: 0 timeouts in 3×10 s ASIO runs). |
+| `AudioDriverInterface` | Callback **heartbeat** (`armHeartbeat()` at open, `noteCallback()` per callback, `msSinceLastCallback()`), `takePendingResetRequest()`, `getMessageCounts()`, producer-timeout getters, and the `simulateStall(ms)` test hook (ASIO + SDL3 wired). |
+| `AudioWatchdog::evaluate()` | Run by `Pianoid::auditAudioDriver()` once per synthesis-loop iteration (lock-free fast path). Fault = reset request, or producer blocked ≥ `STALL_REPORT_MS` (400) with a silent callback → state `stalled`; ≥ `STALL_MS` (1000) → **recover**. Automatic recoveries back off 1 → 30 s; a manual request (`POST /audio/reopen`) bypasses the backoff. |
+| `Pianoid::recoverAudioDriver()` | On the **synthesis thread** (the only thread that pushes to the driver, so the swap never races `pushSamples`), under `audioDriverMutex_`: close the old driver on a helper thread with a 3 s bound (a hung ASIO teardown is abandoned and ASIO is not re-opened in this process), construct + open the **requested** driver; if ASIO cannot open → `fallBackToSdl3()`. The online loop re-anchors its `CycleTimeEstimator` after a recovery. |
+
+Watchdog states (`getAudioHealth().state`): `ok` · `stalled` / `reset_requested` /
+`recovering` (fault, auto-recovery under way) · `fallback` (recovered only onto SDL3 after a
+fault — audio plays, but not on the requested device; sticky until the requested driver is
+re-opened or the driver restarts) · `failed` (no driver could be opened; retried with
+backoff). The snapshot also carries the loop heartbeat (`ms_since_last_cycle`), callback
+heartbeat, producer timeouts, ASIO message counts and recovery counters; `getAudioHealth()`
+never takes `audioDriverMutex_`, so `/health` never waits on a recovery.
+
+```cpp
+bool        auditAudioDriver(bool paused);                  // synthesis thread, per iteration
+void        requestAudioDriverRecovery(const std::string&); // any thread (queued)
+AudioHealth getAudioHealth() const;                         // any thread (snapshot)
+std::string injectAudioFault(const std::string& kind, int durationMs); // TEST HOOK:
+            // stall | reset_request | resync_request | latencies_changed | device_loss | device_return
+```
+
+Measured live (ASIO_CALLBACK, UMC1820, BaselinePreset1; `docs/development/diagnostics/dev-19be-asio-*-live.py`):
+injected `kAsioResetRequest` → ASIO closed + re-opened in ~0.1 s, p60 peak unchanged
+(0.605 FS); 6 s callback stall → `/health` `degraded` 0.4 s after the stall began, ASIO
+re-opened at 1.0 s, a `/play` sent during the stall drained right after; `device_loss`
+(incident replay: stall + reset request + ASIO opens fail) → `fallback` on SDL3 after 0.6 s,
+sound + event draining continue, `device_return` + `POST /audio/reopen` → back on ASIO.
+Cycle timing unchanged (3 × 10 s, ASIO: 750 cycles/s, 0 underruns, 0 producer timeouts,
+callback 1332.8 µs avg — identical to the pre-change build). The UMC1820 ASIO driver is
+multi-client (a second process can open it), so "device busy" cannot stand in for "device
+absent" — hence the `device_loss` hook. Middleware/REST surface:
+[REST_API.md — /health `audio_health`](../pianoid-middleware/REST_API.md).
+
 ---
 
 ## LockFreeCircularBuffer
@@ -279,7 +332,7 @@ public:
     bool cudaSetup(int device_id);
     bool isCudaReady() const;
 
-    bool produce(const Sint32* gpu_data); // GPU memory → buffer; false if full
+    bool produce(const Sint32* gpu_data); // GPU memory → buffer; waits ≤ 200 ms for a slot, false on timeout (dev-19be)
     bool consume(uint32_t* (*source_of_pointers)); // buffer → caller; false if empty
 
     size_t getAvailableChunks()     const;

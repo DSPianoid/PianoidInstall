@@ -554,6 +554,16 @@ You no longer need to manually switch to SDL just to get audio — but to get *n
   engine auto-falls-back to SDL3 (above), so you still have audio; native ASIO requires the
   driver. Verify with PowerShell `Test-Path 'HKLM:\SOFTWARE\ASIO'` (`$false` = none installed).
 - ASIO device in use by another application (DAW, etc.) — close the other application
+- **Interface unplugged / powered off / driver reset while playing** (dev-19be; the
+  2026-10-08 UMC1820 incident: 6× `kAsioResetRequest`, then a silent 6 h wedge with
+  `/health` "healthy"). The engine now handles it: the reset request or the stalled callback
+  (≥ 1 s) makes the synthesis loop close + re-open ASIO; if the device is gone it falls back to
+  SDL3 and `/health` reports `status: degraded`, `audio_health.state: "fallback"` (frontend:
+  amber "Audio SDL3" / "Audio fault" chip). After reconnecting the interface run
+  `curl -X POST http://127.0.0.1:5000/audio/reopen` (or reload the preset) to get ASIO back.
+  `status: error` with "Synthesis loop not cycling" means the loop itself is stuck — restart
+  the backend. Details: [REST_API.md — /health `audio_health`](../modules/pianoid-middleware/REST_API.md),
+  [AUDIO_DRIVERS.md — Driver Fault Watchdog](../modules/pianoid-cuda/AUDIO_DRIVERS.md#driver-fault-watchdog--recovery-dev-19be).
 - ASIO sample rate mismatch with the backend — set `"sample_rate": 48` in `/load_preset`
   to match 48 kHz (the default for most interfaces)
 - **Second `/load_preset` fails with "No working ASIO driver found"** — historically the
