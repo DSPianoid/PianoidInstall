@@ -1,0 +1,189 @@
+{
+ "mode_extension": {
+  "generator": "Pianoid.synthetic_modes",
+  "version": "1.0",
+  "spec": "docs/proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r4",
+  "source": {
+   "name": "F15_Elyashev_array512.json",
+   "sha256": "f8e569e3a2dbea09b5d94c69baa111170d762fc9e032c7bfe10ab9a53066a606",
+   "num_modes": 196,
+   "mode_order": null
+  },
+  "seed": 0,
+  "sr": 48000.0,
+  "f_max_hz": 20000.0,
+  "count_jitter": 0.35,
+  "residual_clip_sigma": 3.0,
+  "num_modes": 321,
+  "n_shaped": 56,
+  "n_real": 196,
+  "n_real_flat": 140,
+  "n_synthetic": 125,
+  "index_ranges": {
+   "shaped": [
+    0,
+    56
+   ],
+   "real_flat": [
+    56,
+    196
+   ],
+   "synthetic": [
+    196,
+    321
+   ]
+  },
+  "fit": {
+   "band_modes": [
+    10,
+    196
+   ],
+   "band_hz": [
+    154.1612975639077,
+    8721.167766180557
+   ],
+   "density": {
+    "law": "N(f) = exp(intercept) * f_played^slope (mid-rank count)",
+    "intercept": -0.2700664464709272,
+    "slope": 0.6003862150820195,
+    "sigma": 0.09258320035364327,
+    "seam_offset": 0.0,
+    "anchor": {
+     "count": 195.5,
+     "f_hz": 8721.167766180557
+    }
+   },
+   "damping": {
+    "law": "ln Q = intercept + seam_offset + slope ln f_played + N(0, sigma^2)",
+    "intercept": -5.59099697237895,
+    "slope": 0.8412037156300188,
+    "sigma": 0.14295748028592872,
+    "seam_offset": -0.012734969756901027
+   },
+   "mass": {
+    "law": "ln mass_inv' = intercept + seam_offset + slope ln f_played + N(0, sigma^2)",
+    "intercept": -18.462701071065656,
+    "slope": -1.6483178918332901,
+    "sigma": 3.4057497720851093,
+    "seam_offset": -0.36294302902269493
+   },
+   "residual_correlation_q_mass": -0.35760525808989096
+  },
+  "achievable_num_modes": 321,
+  "synthetic_mass_capped": 1,
+  "mass_cap": 7.846027427123679e-12,
+  "flat": {
+   "gain": "a(m) = mean of the deck column over piano strings (LSQ uniform fit)",
+   "mass_fold": "preset mass = a(m)^2 * mass_inv (feedin = feedback = 1 on piano rows)",
+   "output_readout_weights": {
+    "128": 2.4668522413169085,
+    "129": 4.79688968009828,
+    "130": 8.266126967588225,
+    "131": 10.58133846449771
+   },
+   "output_readout": "PROVISIONAL (proposal R.2 open item): output rows carry w_c on every flat column = LSQ fit of the real flat readout; confirm before T3"
+  },
+  "current_engine": {
+   "ceiling_num_modes": 228,
+   "loadable": false,
+   "rule": "num_modes + num_channels <= num_strings (pianoid.py num_modes_for_model = num_strings; SC slots at mode index num_modes..)"
+  },
+  "output_scale": "inherited from the source, NOT re-derived (R.4.4 item 6, at T4)"
+ },
+ "thresholds": {
+  "holdout_density_rel_count_error": 0.25,
+  "holdout_median_shift_sigma": 1.0,
+  "holdout_ks_p_min": 0.01,
+  "seam_step_sigma": 1.0,
+  "roundtrip_cents": 0.1
+ },
+ "holdout": {
+  "fit_band_modes": [
+   56,
+   126
+  ],
+  "fit_band_hz": [
+   1069.1814271295857,
+   5750.085914802232
+  ],
+  "heldout_modes": [
+   126,
+   196
+  ],
+  "heldout_hz": [
+   5750.085914802232,
+   8721.167766180557
+  ],
+  "density": {
+   "alpha": 0.4829902466865966,
+   "predicted_count_at_fmax": 153.46763828984578,
+   "actual_count_at_fmax": 195.5,
+   "rel_count_error": -0.6004623101450602,
+   "max_abs_count_error": 42.03236171015422
+  },
+  "damping": {
+   "sigma_fit": 0.1166700729812581,
+   "seam_offset": 0.031568984158780955,
+   "median_shift_sigma": 1.979870198220566,
+   "ks_statistic": 0.7745594322746329,
+   "ks_p": 9.490211633970347e-45,
+   "quantile_error_sigma": {
+    "q10": 2.2291724055448148,
+    "q50": 1.979870198220566,
+    "q90": 0.9911402826409401
+   }
+  },
+  "mass": {
+   "sigma_fit": 3.8008881064658184,
+   "seam_offset": 1.0815039018268209,
+   "median_shift_sigma": -0.26197367677673333,
+   "ks_statistic": 0.18013286689280733,
+   "ks_p": 0.018512341687312528,
+   "quantile_error_sigma": {
+    "q10": 0.23350547762133766,
+    "q50": -0.26197367677673333,
+    "q90": -0.3126874110921436
+   }
+  },
+  "pass": {
+   "density": false,
+   "damping": false,
+   "mass": true
+  }
+ },
+ "seam": {
+  "window": 15,
+  "density": {
+   "detrended_before": 0.7876766987129074,
+   "detrended_after": -0.004976894921500552,
+   "sigma": 0.7165784452424628,
+   "step_sigma": 1.1061644386557066
+  },
+  "damping": {
+   "median_residual_before": 4.440892098500626e-16,
+   "median_residual_after": -0.0019892059512183202,
+   "sigma": 0.14295748028592872,
+   "step_sigma": 0.013914668524096542
+  },
+  "mass": {
+   "median_residual_before": 7.105427357601002e-15,
+   "median_residual_after": -1.105069950592167,
+   "sigma": 3.4057497720851093,
+   "step_sigma": 0.32447185628544134
+  },
+  "pass": false
+ },
+ "validity": {
+  "dec_in_0_1": true,
+  "omega_in_0_4": true,
+  "mass_positive": true,
+  "below_nyquist": true,
+  "synthetic_below_fmax": true,
+  "sorted": true,
+  "synthetic_unique_increasing": true,
+  "roundtrip_cents_max": 7.688223609155801e-13,
+  "real_dec_omega_identical": true,
+  "real_duplicate_frequencies": 54,
+  "pass": true
+ }
+}

@@ -41,6 +41,9 @@ PianoidBasic/
         fpga_string_layout.py # FPGA string layout + string physics on the GPU grid
         fpga_preset_converter.py # FPGA folder + Pitch.txt -> GPU preset JSON (the FPGA import path + CLI)
         fpga_conversion_metadata.py # conversion metadata (UNCONFIRMED inputs, dropped fields) + report
+        mode_extension.py    # synthetic N-mode extension of a preset (4000-modes T2): fit + synthesis + flat-tier embedding
+        mode_extension_report.py # its validation (hold-out, seam, validity) + sidecar report (JSON + PNG)
+        synthetic_modes.py   # CLI: python -m Pianoid.synthetic_modes --source S --n N --seed K --out O
         bytestream_encoding.py
         chart_animation.py
         utilities.py
@@ -118,7 +121,7 @@ Key methods:
 - `cycle_duration()` — duration in microseconds of one full mode+string cycle
 - `num_iterations()` — total sub-steps per cycle: `string_iteration * mode_iteration`
 - `excitation_length()` — length of the excitation array in sub-steps
-- `set_num_modes(n)` — sets `num_modes` and rounds `num_modes_for_model` up to the next multiple of `num_blocks()`
+- `set_num_modes(n, num_modes_for_model=None)` — sets `num_modes` and rounds `num_modes_for_model` up to the next multiple of `num_blocks()`; an explicit `num_modes_for_model` (the engine passes `num_strings`) smaller than `n` raises `ValueError` ("this engine cannot load it", dev-675e) instead of the former `NoneType`/`IndexError` deep in `pack_deck`
 - `pack_as_dict_for_cuda()` — serialises all parameters for the CUDA kernel call
 - `pack()` — serialises the named parameter set for JSON preset files
 
@@ -389,6 +392,7 @@ Physical parameters (`mass`, `stiffness`, `damping`) are converted to `frequency
 - `pack_modes(keep_state)` — serialises all mode states (state, state_1, dec, omega, mass) as flat lists for CUDA upload
 - `modes_to_append()` — number of dummy padding modes needed to reach `num_modes_for_model`
 - Dummy modes (ID = -1) are appended at pack time so the CUDA array is a fixed size
+- `set_sound_channels(n)` — places the `n` sound-channel slots right after the modes (`mode_channel_index = num_modes`, `SoundChannels.get_index`); raises `ValueError` if they do not fit in `num_modes_for_model` slots. **Current-engine mode ceiling: `num_modes + num_channels ≤ num_strings`** (Belarus 220, F15 228; measured, dev-675e)
 
 ---
 
@@ -658,6 +662,48 @@ pitch vs the FPGA prediction A1 −7.9 / C4 −1.0 / C7 −0.8 c (unchanged), 0 
 62–83 dB below the Belarus template (was 14–39 dB; the exact relative loop gains leave most modes far below the
 capped strongest one) — the per-preset `output_scale`, re-derived on load, restores the playback level.
 Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`, `dev-f27f-renders/summary.md` §7.
+
+
+---
+
+### Synthetic mode extension (4000-modes campaign T2)
+
+Files: `mode_extension.py` (generator), `mode_extension_report.py` (validation + report), `synthetic_modes.py` (CLI)
+— dev-675e, spec [proposal §R.4](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md).
+
+```
+python -m Pianoid.synthetic_modes --source Belarus_8band_196modes.json --n 560 --seed 0 --out OUT.json
+    [--f-max HZ] [--fit-from 10] [--keep-real K] [--report-dir DIR] [--no-report]
+```
+
+Keeps the source's real modes and extends to N (source untouched; same inputs + seed → byte-identical file):
+
+| Modes (sorted by played Hz) | Content | Deck columns |
+|---|---|---|
+| `[0, 56)` shaped (decision Q3) | source mode dicts verbatim (+ `tier`, `synthetic: false`) | verbatim |
+| `[56, n_real)` real flat | real `frequency` / `decrement`; `mass` = `a(m)² · mass_inv`, `flat_gain` = `a(m)` | piano rows 1.0 (feedin = feedback); output rows: feedin 0, feedback `w_c` |
+| `[n_real, N)` synthetic flat (`synthetic: true`) | drawn from the fitted laws | as real flat |
+
+- **Flat tier (proposal R.2):** `a(m)` = least-squares uniform fit of the column over the kernel's piano rows (one row
+  per string) = the column mean; with feedin = feedback the loop gain `a²` folds into `mass_inv`. Output readout
+  `w_c` per output pitch = LSQ fit of the real flat readout row (`Σ out·a / Σ a²`) — **provisional** (R.2 open item;
+  stored in `mode_extension.flat.output_readout_weights`). This embedding is exact for the flat model, so a preset with
+  N ≤ the current ceiling renders the 56-shaped / rest-flat instrument on today's engine (the T3 exactness test).
+- **Laws (fit band = real modes ≥ `fit_from`, played Hz):** density `N(f) ∝ f^α` (mid-rank count, anchored at the
+  last real mode); `ln Q` and `ln mass_inv'` linear in `ln f` with log-normal residuals (σ from the fit, draws clipped
+  at ±3σ), level anchored at the seam (`seam_offset` = median residual of the top 15 band modes). Synthetic
+  frequencies `N⁻¹(k + 0.5 + u)`, `|u| < 0.35` (≥ 0.3 count apart); `decrement` from Q via the converter's decay law;
+  `frequency` = `gpu_mode_frequency(f_played)`; synthetic `mass` capped at the strongest real flat mode.
+- **Infeasible N fails loudly** (`ModeExtensionError`, CLI exit 2, prints the achievable N) — spacing is never compressed.
+  **Measured 2026-10-09:** Belarus_8band_196modes reaches only **N = 560** below 20 kHz (α = 0.78), F15_Elyashev_array512
+  **N = 321** (α = 0.60) — N = 4000 is not reachable from either source under this rule.
+- `mode_extension` block in the preset: source name + sha256 (+ `mode_order` if the source was unsorted — F15 has 54
+  exact duplicate frequencies on the FPGA grid, kept), seed, f_max, index ranges, fitted laws, achievable N, flat
+  gains/readout, `current_engine.{ceiling_num_modes, loadable}`. `output_scale` is inherited, not re-derived (T4).
+- Sidecar report `<out-stem>.mode_extension_report.{json,png}`: hold-out (fit on the lower half of the real flat
+  band, predict the upper half: count error at the held-out f_max, KS / quantile errors of the Q and mass residuals),
+  seam continuity (detrended rolling-window step vs the real scatter), physical validity; thresholds recorded in the
+  report. Results (hold-out / seam numbers): [proposal §R.4.5](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r45-implementation-status-2026-10-09-dev-675e); report files + plots in `docs/development/diagnostics/dev-675e-synthetic-modes/`.
 
 ---
 

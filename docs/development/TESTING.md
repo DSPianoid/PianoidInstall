@@ -68,6 +68,14 @@ PianoidCore/tests/
     └── test_synth_parity.py         # synth parity: single_damped_oscillator_closed_form oracle + the §3.4.2 integrator-vs-closed-form cross-check (<1e-2 at the validated band; high-f corner pinned as sampling-limited). Dual-backend (dev-synth1)
 ```
 
+```
+PianoidBasic/tests/      # Pure Python on the SOURCE tree (conftest puts Pianoid/ on sys.path, so the checkout is tested, not the installed wheel); presets from PIANOID_PRESETS_DIR (default ../PianoidCore/pianoid_middleware/presets)
+├── conftest.py
+└── test_synthetic_modes.py  # dev-675e (4000-modes T2, proposal R.4.4): synthetic N-mode generator (Pianoid/mode_extension.py) on Belarus_8band_196modes + F15_Elyashev_array512 — N=4000 FAILS LOUDLY with the achievable N (density law cannot reach it below f_max); shaped modes + deck columns verbatim, flat columns 1.0 / output readout w_c, a(m)^2 folded into mass; physical validity (0<dec<1, 0<omega<4, < sr/2, sorted, gpu_mode_frequency round trip, real dec/omega bit-identical); seam continuity; hold-out numbers reported; same seed -> byte-identical; smoke preset (120 real + 76 synthetic = 196) packs through the replayed pianoid.py load path; above num_strings - num_channels the loader rejects with a clear ValueError (ModelParameters.set_num_modes / ModeMap.set_sound_channels guards); CLI exit codes + sidecar report (24 tests, ~10 s, no GPU)
+```
+
+Run: `cd PianoidBasic && ../PianoidCore/.venv/Scripts/python -m pytest tests` (Windows; `bin/python` on Linux).
+
 ## Running Tests
 
 ```bash

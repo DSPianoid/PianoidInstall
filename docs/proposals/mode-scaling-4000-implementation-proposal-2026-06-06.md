@@ -10,6 +10,8 @@ modes shaped**; mode data = **synthetic statistical extension** of the preset's 
 register cap + pre-flight = the P1 precondition (in progress, dev-1cda). Read
 [§R Revision 2026-10-09](#r-revision-2026-10-09-user-decisions) first — it carries the current phase plan
 (§R.3), the synthetic-preset generator spec (§R.4) and the ordered `/dev` task list (§R.5).
+**T2 (generator) implemented 2026-10-09 (dev-675e, unmerged) — N = 4000 is NOT reachable from Belarus (max 560) or
+F15 (max 321) under the no-compression density rule: user decision needed before P4, see [§R.4.5](#r45-implementation-status-2026-10-09-dev-675e).**
 **★ PHASE 0 MEASURED 2026-10-08 (dev-dad7)** —
 [P0 measurements](../development/mode-scaling-P0-measurements-2026-10-08.md): R0 = **119** regs release /
 99 debug, 18.5 KB smem, 0 spill; 1 block/SM, coop capacity 128 vs grid 56–58; cliff **128** regs at
@@ -167,6 +169,57 @@ modes and filling the rest statistically, so P4 can be built and listened to wit
 6. **Loudness / headroom (engine-side, at T4):** offline render of the extended preset vs the source —
    peak/RMS reported, no clipping; if the ~3 800 added modes raise the level, re-derive `output_scale`
    analytically (never with the in-backend offline calibration on a live backend).
+
+#### R.4.5 Implementation status (2026-10-09, dev-675e)
+
+**Implemented** (PianoidBasic `feature/dev-675e-synthetic-modes`, NOT merged): `Pianoid/mode_extension.py` +
+`mode_extension_report.py` + CLI `python -m Pianoid.synthetic_modes`
+([OVERVIEW → Synthetic mode extension](http://localhost:8001/modules/pianoid-basic/OVERVIEW/)); tests
+`PianoidBasic/tests/test_synthetic_modes.py` (24, ~10 s). Reports + plots:
+`docs/development/diagnostics/dev-675e-synthetic-modes/`.
+
+**★ BLOCKING FINDING for P4 — N = 4000 is not reachable under R.4.3 item 1 from either source** [MEAS]. The
+power-law density fitted on the real modes (band ≥ mode 10, played Hz, anchored at the last real mode) gives:
+
+| Source | α | achievable N below f_max = 20 kHz | N = 4000 |
+|---|---|---|---|
+| Belarus_8band_196modes | 0.78 | **560** | fails loudly (exit 2) |
+| F15_Elyashev_array512 | 0.60 | **321** | fails loudly (exit 2) |
+
+The measured count N(f) *flattens* towards HF (α < 1, falling with f — Belarus band-local α 1.13 over modes 10–119 (0.23–1.8 kHz),
+0.70 over modes 56–125 (0.66–2.1 kHz)), so no extrapolation of these 196-mode sets reaches ~4000 modes without compressing the spacing,
+which R.4.3 forbids. **Needs a user decision** before P4 targets 4000: (a) accept N_max (~560 / ~321) for P4;
+(b) a physically imposed density law (e.g. constant plate density) instead of the fitted one — ~760 for Belarus at
+its 1–5 kHz density, still far below 4000; (c) an explicit density multiplier (= compressed spacing, currently
+forbidden); (d) wait for the ESPRIT-measured extension.
+
+**Generator design choices (recorded in each preset's `mode_extension` block):** `a(m)` = LSQ uniform fit of the column
+over piano strings (= column mean); output rows of flat modes carry one readout weight `w_c` per output pitch (LSQ fit
+of the real flat readout) — the R.2 open item, provisional for T3; Q / mass laws are seam-anchored (median residual of
+the top 15 band modes); synthetic mass capped at the strongest real flat mode; `output_scale` inherited (T4 item 6).
+
+**Validation (seed 0)** — thresholds: hold-out count error ≤ 25 % of held-out modes, residual median shift ≤ 1σ and
+KS p ≥ 0.01; seam step ≤ 1σ (detrended, window 15); round trip < 0.1 c.
+
+| Run | hold-out: count err (held-out f_max) | Q: median shift / KS p | mass: median shift / KS p | seam σ: density / Q / mass | validity |
+|---|---|---|---|---|---|
+| Belarus → N = 560 | **+59 %** (237 vs 196) | +0.77σ / <1e-3 | +1.29σ / <1e-3 | 0.58 / 0.12 / 0.10 ✓ | ✓ |
+| F15 → N = 321 | **−60 %** (153 vs 196) | +1.98σ / <1e-3 | −0.26σ / 0.019 | **1.11** / 0.01 / 0.32 | ✓ (54 real duplicate f kept) |
+| Belarus 120 real → 196 (smoke) | +55 % | −0.32σ / 0.34 | −1.38σ / <1e-3 | **1.40** / 0.05 / 0.29 | ✓ |
+| F15 120 real → 196 (smoke) | +0.2 % | −16.7σ / <1e-3 (σ_fit 0.025) | −0.20σ / 0.38 | 0.81 / 0.05 / 0.29 ✓ | ✓ |
+
+Reading: the single power laws do **not** predict the upper real band (density ±60 %, Q/mass shifts up to 2σ; F15 Q
+follows the FPGA Q-word grid, σ 0.025 in 1–2.5 kHz). Physical validity holds everywhere (0 < dec < 1, 0 < ω < 4,
+< sr/2, sorted, `gpu_mode_frequency` round trip < 2e-12 c, real dec/ω bit-identical, same seed → byte-identical file).
+The density seam step is the last real window's own scatter about the global law (generator side ≈ 0).
+
+**Current-engine load path (R.4.4 item 5)** [MEAS, replay of `pianoid.py` load packing,
+`docs/development/diagnostics/dev-675e-current-loader.py`]: ceiling **N ≤ num_strings − num_channels** (Belarus 220,
+F15 228; the sound-channel slots follow the modes). Smoke presets (N = 196) and N = 220 load (deck `num_strings²`,
+flat piano columns 1.0, output columns `w_c × SC gain`). Above the ceiling the loader used to fail obscurely
+(N = 221: `IndexError` StringMap:470; N = 560/321: `'NoneType'.shape` StringMap:475); it now rejects with a clear
+`ValueError` (guards in `ModelParameters.set_num_modes`, `ModeMap.set_sound_channels`) — effective in the running
+engine after the next PianoidBasic wheel build.
 
 ### R.5 Implementation plan — next `/dev` tasks, in order
 
