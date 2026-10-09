@@ -4,6 +4,12 @@
 **Author:** design agent (STATIC ANALYSIS ONLY — no builds, no engine runs, no measurements)
 **Status:** DESIGN PROPOSAL — not yet implemented. Every `.cu/.cpp/.cuh/.h/setup.py` change
 named here MUST go through the `/dev` workflow (CUDA build). This document does not authorise edits.
+**★★ REVISION 2026-10-09 — USER DECISIONS (authoritative, supersede conflicting text below):** flat
+tier = **one uniform coupling** (no shape groups, no rank-r basis); threshold = **fixed count, lowest 56
+modes shaped**; mode data = **synthetic statistical extension** of the preset's real modes; release
+register cap + pre-flight = the P1 precondition (in progress, dev-1cda). Read
+[§R Revision 2026-10-09](#r-revision-2026-10-09-user-decisions) first — it carries the current phase plan
+(§R.3), the synthetic-preset generator spec (§R.4) and the ordered `/dev` task list (§R.5).
 **★ PHASE 0 MEASURED 2026-10-08 (dev-dad7)** —
 [P0 measurements](../development/mode-scaling-P0-measurements-2026-10-08.md): R0 = **119** regs release /
 99 debug, 18.5 KB smem, 0 spill; 1 block/SM, coop capacity 128 vs grid 56–58; cliff **128** regs at
@@ -30,6 +36,161 @@ framing is struck-through in place.
 > measured before relying on. **Per the project high-stakes-inference rule, no [EST]/[UNCERTAIN]
 > number here may drive a code edit until measured.** The measurements are forbidden in this task;
 > they are listed in §12.
+
+---
+
+## R. Revision 2026-10-09 — user decisions
+
+> **Authority.** The four decisions below are the **user's** (2026-10-09) and are not re-argued here.
+> Where they conflict with §1–§12 (written 2026-06-06/07, before the
+> [P0 measurements](http://localhost:8001/development/mode-scaling-P0-measurements-2026-10-08/)), **this
+> section wins**. The P0 evidence that bears on each decision is recorded neutrally as a known risk /
+> accepted approximation, to be judged by the acceptance test (the A/B listening render, §R.6).
+> Evidence tags as in the header; **[DECIDED]** = user decision.
+
+### R.1 The decisions
+
+| # | Decision [DECIDED] | Replaces | P0 evidence recorded (neutral) |
+|---|---|---|---|
+| **Q1** | **Release register cap** `__launch_bounds__(512,1)` on the release `addKernel` + a **ptxas budget check** at build + the **runtime occupancy pre-flight** ([regmem plan §4](http://localhost:8001/proposals/register-memory-management-plan-2026-06-10/#4-layer-b-runtime-gpu-adaptive-management-the-pre-flight-check)). **APPROVED, in progress (dev-1cda) — the P1 precondition.** | §3.4 / §7.3 "measure-then-set minBlocks" | Release R0 = 119 regs, **9 regs below the 128 cliff at array_size 512**, uncapped; the cap changes codegen (119→108 at cap 128) so it needs a timing A/B; spill-free floor 79 ([P0 §1–§2](http://localhost:8001/development/mode-scaling-P0-measurements-2026-10-08/#1-r0-register-memory-footprint-per-kernel)). |
+| **Q2** | **ALL modes above the threshold are COMPLETELY FLAT = one uniform coupling** — rank-1 uniform: `deck[s,m] = a(m)·1` for every string `s`. **No shape groups (G), no shared rank-r basis.** | §5.2–§5.5.4 piecewise rank-1 groups; §5.5.cost G-sweep; P0 §4 "prefer a rank-r basis" | P0 measured the per-mode coupling error of a single flat shape vs the stored deck: **median 27–31 % (Belarus), 48–69 % (F15, with sign inversions up to 100 %)**; coupling does **not** flatten with frequency ([P0 §3.2/§3.4](http://localhost:8001/development/mode-scaling-P0-measurements-2026-10-08/#3-deck-coupling-shape-analysis-belarus_8band_196modes-f15_elyashev_array512)). **Recorded as an ACCEPTED APPROXIMATION** — whether it is audible is decided by the A/B listening render (§R.6), not by the coupling-error metric. The rejected alternatives (piecewise groups; rank-r basis — F15 HF exactly rank 2) remain documented in P0 as the fallback if the listening test fails. |
+| **Q3** | **Threshold = FIXED COUNT: the lowest 56 modes are SHAPED** (one per block, quarter 0 — the 2026-06-06 §4b.4 decision); **every mode above is flat.** No per-preset frequency threshold, no UI slider. | §9 deck-column-variance criterion; `n_shaped` tunable; P0 §4 "per-preset split" | P0 found no frequency at which columns become uniform, so no variance-based threshold exists anyway; 56 = one shaped mode per string-block (grid 56 Belarus / 58 F15 — on a 58-block preset the 2 spare quarter-0 slots hold dummy shaped modes or the 57th/58th mode; implementation detail for T3). |
+| **Q4** | **Mode data source = SYNTHETIC EXTENSION:** keep the preset's real modes; generate the remaining modes up to N (target 4000) statistically from the trends of the measured modes (modal density vs f, damping/Q vs f, mass/amplitude vs f). Flat modes need no coupling shape. **Later, separately:** an ESPRIT-measured extension. | "needs a real 4000-mode deck" (P0 §4 P4 row, §3.4 caveat 6) | No ≥1000-mode deck exists; G/r-at-scale questions become moot under Q2 (flat modes have no shape). |
+
+### R.2 What the decisions simplify (consequences, [DERIVED] from §5.5 algebra with `w(s) ≡ 1`)
+
+- **Flat-tier coupling cost = exactly 2 cross-block reductions per sample, independent of N_flat:**
+  - feedin: `F_sum = Σ_{s} force_on_bridge(s) / soundStep` — **one** all-strings reduction
+    (§5.5.2(a) with G=1, `w=1`); each flat mode applies `a(m)·F_sum`.
+  - feedback: `Q_sum = Σ_{m∈flat} a(m)·q(m)` — **one** all-flat-modes reduction (§5.5.2(c) with G=1);
+    broadcast `feedback(s) += deck_feedback_coefficient · Q_sum` to every string.
+  - Both ride the existing `sumArray(SEGMENT)` path with a **`[1 × SEGMENT]`** accumulator (§5.5.3 with
+    G=1); SEGMENT=64 unchanged (grid 56–58). Plus the O(N_flat) register-resident advance (§5.5.2(b),
+    unchanged).
+- **feedin = feedback exactly → one coefficient set.** P0 measured stored feedin == feedback on every
+  piano pitch of both presets ([P0 §3.4 reading 4](http://localhost:8001/development/mode-scaling-P0-measurements-2026-10-08/#34-shape-groups-g-proposals-piecewise-rank-1-vs-a-shared-rank-r-basis));
+  the runtime `deck_feedback_coefficient` stays the one scalar on the feedback side.
+- **`a(m)` folds into the oscillator mass [DERIVED, exact for a linear oscillator]:** with reciprocal
+  gain `a(m)` on both sides, substituting `q' = a(m)·q` gives the same recurrence with
+  `mass_inv' = a(m)²·mass_inv`, feedin `F_sum` (no per-mode gain) and feedback `Σ q'`. So each flat mode
+  carries only **{q, q_prev, dec, omega, mass_inv'}** (~5 regs, §3.3) and **no coupling array at all**.
+  This is the same convention the FPGA converter already uses (`mass_inv ∝ n_m²`, per-mode-normalised
+  deck — [OVERVIEW → FPGA preset converter](http://localhost:8001/modules/pianoid-basic/OVERVIEW/)).
+  Debug readouts of flat `q` are then in the scaled unit `q'` (document it where they are exposed).
+- **Deleted from the design:** `MAX_FLAT_GROUPS`, baked group ids `g(m)`, `dev_flat_w[G × S]`,
+  `[G × SEGMENT]` accumulators, the per-group warp-mask optimisation (§5.5.3), §5.5.4 entirely, the G
+  cost sweep (§5.5.cost — now the G=1 row), the clustering step (§5.3), the variance-driven boundary
+  (§9), and the `n_shaped`/`n_groups` tunables (§9, §8.1). `n_shaped` survives only as a derived
+  constant (= grid blocks, capped at 56 by decision Q3), not a user parameter.
+- **Unchanged and still load-bearing:** quarter-fork scheduling (§4b — quarter 0 shaped, quarters 1–3
+  flat, warp-uniform), register-residency of flat state (§3, now guarded by Q1's cap), contiguous
+  flat-state layout (§6), fp32 accumulation risk on `Q_sum` over ~3 900 terms (§10 #5 → Kahan or
+  double for the cross-block total), co-residency (no new blocks).
+- **Capacity check [DERIVED from P0 §2]:** N=4000 → N_flat = 3 944 over 56 blocks ≈ 71 flat modes/block;
+  quarters 1–3 offer 384 threads/block at array_size 512 (288 at 384) → **≤1 flat mode/thread (M_t=1)**,
+  ~5 regs: fits under the 128 cap (release floor 79) with smem fallback (~0.6 KB/block of ~29.5 KB free).
+- **Open item (not decided, flagged for T3):** the **output-channel readout** of flat modes. Output
+  pitch rows (≥128) today carry `effective_deck('feedback') × string-SC gain` per mode. Under Q2 the
+  default is that output strings receive the same uniform `Q_sum` scaled by their per-string SC gain
+  (zero extra cost); per-mode/per-channel readout of flat modes (what the audibility heat-map edits) is
+  lost. Alternative if needed: 4 per-channel readout sums (still N-independent). Ask the user before T3
+  if the default is not acceptable.
+
+### R.3 Updated phase plan (supersedes §11 P1–P5)
+
+| Phase | Content | Gate / verification |
+|---|---|---|
+| **P1-pre** (Q1, dev-1cda, in progress) | Release `__launch_bounds__(512,1)`; ptxas budget check in the build (fail/warn if `addKernel` regs > cliff or spill > 0); runtime pre-flight `coopCapacity ≥ grid` logged after audio-driver start, launch-return check kept as backstop. | ptxas: regs ≤128, 0 spill; per-cycle timing cap vs no-cap **N≥3** at array_size 384 + 512; offline render equivalence (cap must not change audio beyond fp tolerance). |
+| **P1** quarter-fork refactor (behaviour-preserving) | Unchanged from §11 P1: quarter 0 keeps the shaped path verbatim; quarters 1–3 lose the `indexInQuarter==0` gate and own re-indexed oscillators; contiguous flat-state layout; `NUM_MODES` sizing. Flat coupling still reads each mode's own deck column. | Offline render **equivalence** vs pre-P1 baseline on Belarus + F15 (fp tolerance); ptxas + pre-flight; timing N≥3. |
+| **P2+P3 (collapsed) — flat tier = uniform coupling** | Modes [0,56) shaped (full deck, current path); modes [56,N) flat: register oscillator + the **two** reductions of §R.2, `mass_inv' = a²·mass_inv` folded at pack time; shaped deck packed at width 56. No groups, no basis. | (a) N_flat=0 → **bit-for-bit-ish equal to P1**; (b) **exactness test:** a test preset whose modes ≥56 have *exactly uniform* deck columns renders the same split vs full-deck (proves the factorisation, independent of the Q2 approximation); (c) real Belarus/F15 196 modes → 56 shaped + 140 flat vs full deck: **first listening A/B** (the Q2 approximation on real data); (d) timing N≥3. |
+| **P4 — scale to 4000** | Raise `NUM_MODES`/`MAX_NUM_MODES` to ≥4096 and the mode buffers; load a generated N=4000 preset (§R.4); Kahan/double `Q_sum`. | ptxas + pre-flight at final grid; per-cycle **timing N≥3 at N = 196 / 1000 / 2000 / 4000** (expected: flat coupling cost flat in N, only the advance grows) against the 1.333 ms/64-sample cycle budget; offline render no NaN / no clipping; **acceptance A/B listening render** (§R.6). |
+| **P5 — middleware + frontend** | §8 plumbing minus the group fields: `/health` reports `num_modes`, `n_shaped=56`, `n_flat`; packers; `usePreset.totalModes`; MeasuredMatrix / SoundChannelsPane render shaped modes individually and the flat tier as one aggregated band. | `/test-ui` load of the 4000-mode preset: UI responsive, axis correct; legacy presets unchanged. |
+| **Generator** (new work item, §R.4) | Synthetic N-mode preset generator — pure Python, no CUDA; can run in parallel with P1. Feeds P4. | Its own validation suite (§R.4.4). |
+| **Later** | ESPRIT-measured extension of the mode set (replaces / refines the synthetic tail). | Separate proposal. |
+
+### R.4 Work item — synthetic N-mode preset generator (spec)
+
+**Purpose.** Produce an N-mode preset (default N=4000) from an existing preset by keeping its real
+modes and filling the rest statistically, so P4 can be built and listened to without a measured
+4000-mode deck (decision Q4).
+
+#### R.4.1 Inputs
+
+| Input | Notes |
+|---|---|
+| Source preset JSON (e.g. Belarus_8band_196modes, F15_Elyashev_array512) | Modes read through `Piano_mode.fit_params` so legacy (`mass`/`stiffness`/`damping`, Belarus) and `frequency`/`decrement` (F15) presets give the same canonical fields ([OVERVIEW → Piano_mode](http://localhost:8001/modules/pianoid-basic/OVERVIEW/)). **Frequency = the played Hz**, converted with `gpu_mode_frequency` when written back (the small-angle convention is a high-stakes fact — use the documented converter, never re-derive). |
+| `N` (target total modes) | default 4000; must be ≤ engine `NUM_MODES` after P4. |
+| `n_shaped` | fixed 56 (decision Q3) — the lowest 56 real modes keep their deck columns. |
+| `f_max` | upper frequency bound for synthetic modes (default min(20 kHz, 0.45·sr)); stability needs played f < sr/2. |
+| `seed` | RNG seed — output must be reproducible. |
+| fit options | fit band (default: all real modes above the lowest ~10, to avoid the sparse LF region), residual model (log-normal default). |
+
+#### R.4.2 Outputs
+
+- A new preset JSON (source untouched): `num_modes = N`; modes sorted by frequency; modes [0,56) = real,
+  with their deck columns; modes [56, n_real) = the remaining **real** modes (real f / damping / mass;
+  their deck column replaced by the flat gain `a(m)` = the column's per-mode scale, folded into
+  `mass_inv'` per §R.2); modes [n_real, N) = **synthetic**, flagged `synthetic: true`. Flat modes carry
+  no deck shape.
+- A `mode_extension` metadata block in the preset: source preset name + hash, N, n_shaped, seed, fitted
+  parameters (density law, damping law, mass law, residual σ's), generator version.
+- A sidecar report (JSON + PNG plots: cumulative count N(f), Q(f), mass_inv'(f) — real vs synthetic) under
+  `docs/development/logs/` or the task's log dir.
+
+#### R.4.3 Statistics to fit (all on the real modes, log-log unless noted)
+
+1. **Modal density:** cumulative count `N(f)` of real modes; fit `N(f) = c·f^α` (α≈1 would be the
+   thin-plate constant-density expectation — **[EST], measure, do not assume**). Synthetic frequencies =
+   `N⁻¹(k + u_k)` for k = n_real … N−1 with a bounded jitter `u_k` (no coincident modes; enforce a minimum
+   spacing). If `N(f_max) < N` the generator **fails loudly** (reports the achievable N) — it never
+   silently compresses the spacing.
+2. **Damping:** `log Q(f) = a_Q + b_Q·log f + ε`, ε ~ N(0, σ_Q²) from the fit residuals (Q from
+   `decrement`, or equivalently the per-second decay rate). Draw per synthetic mode.
+3. **Mass / amplitude:** `log mass_inv'(f) = a_M + b_M·log f + ε`, ε ~ N(0, σ_M²), where
+   `mass_inv' = a(m)²·mass_inv` is the flat-tier effective mass (§R.2) computed for the real flat modes
+   from their stored column scale. Draw per synthetic mode.
+4. Optionally (report only, not used): correlation of the damping and mass residuals — if significant,
+   draw them jointly.
+
+#### R.4.4 Validation (the generator's own acceptance, before any engine use)
+
+1. **Hold-out:** fit on the lower part of the real flat band, predict the upper part; report density-count
+   error at the held-out f_max and KS / quantile errors of the Q and mass residuals (thresholds set in the
+   task, recorded in the log).
+2. **Seam continuity:** rolling-window median density, Q and mass_inv' across the real→synthetic boundary —
+   no step larger than ~1σ of the real-mode scatter.
+3. **Physical validity:** every mode `0 < dec < 1`, `0 < omega < 4`, played f < sr/2, sorted, unique;
+   `gpu_mode_frequency` round-trip within 0.1 c.
+4. **Reproducibility:** same inputs + seed → byte-identical preset.
+5. **Load path:** preset loads with the legacy loader when N ≤ today's ceiling (all-shaped fallback) and
+   through the P2+P3 `n_shaped/n_flat` packing after T3; legacy presets (no `mode_extension`) unchanged.
+6. **Loudness / headroom (engine-side, at T4):** offline render of the extended preset vs the source —
+   peak/RMS reported, no clipping; if the ~3 800 added modes raise the level, re-derive `output_scale`
+   analytically (never with the in-backend offline calibration on a live backend).
+
+### R.5 Implementation plan — next `/dev` tasks, in order
+
+| # | Task | Files likely touched | Verification surface |
+|---|---|---|---|
+| **T0** | (dev-1cda, in progress) Release `__launch_bounds__(512,1)` + ptxas budget check + runtime pre-flight | `PianoidCore/pianoid_cuda/MainKernel.cu` (`ADDKERNEL_LAUNCH_BOUNDS`), `pianoid_cuda/setup.py` / build script (`-Xptxas -v` parse + budget), `Pianoid_synthesis.cu` (`preflightCooperativeLaunch`), optional `/health` field in `backendServer.py` | ptxas regs ≤128 / 0 spill; **per-cycle timing N≥3** cap vs no-cap at array_size 384 + 512; `[OCCUPANCY]` log line; offline `note_playback` render equivalence |
+| **T1** | P1 quarter-fork refactor, behaviour-preserving | `pianoid_cuda/Kernels.cu` (placement/bake), `MainKernel.cu` (quarter fork, gate), `constants.h` (`NUM_MODES`), `Pianoid.cu` (mode buffers), `PresetParameters.h` | **Offline render equivalence** vs T0 baseline (Belarus + F15, fp tolerance); ptxas + pre-flight; timing N≥3 |
+| **T2** | Synthetic N-mode preset generator (§R.4) — Python only, parallel with T1 | new module in `PianoidBasic/Pianoid/` (next to `fpga_preset_converter.py`) + CLI; pytest under PianoidBasic tests | §R.4.4 items 1–5: hold-out fit report, seam plots, physical-validity + reproducibility pytest |
+| **T3** | P2+P3 flat tier = uniform coupling (56 shaped / rest flat, 2 reductions, `a²` fold) | `MainKernel.cu` (flat branch, `[1×SEGMENT]` accumulators, Kahan/double `Q_sum`), `constants.h`, `Pianoid.cu`; `PianoidBasic/Pianoid/StringMap.py` (`pack_deck` width 56, flat pack), `ModelParams.py`, `Mode.py` (flat padding); `pianoid_middleware/pianoid.py` (`num_modes` ≠ `num_strings`) | (a) N_flat=0 **render equivalence** vs T1; (b) uniform-column **exactness render** split vs full deck; (c) Belarus/F15 56+140 vs full deck **listening A/B**; timing N≥3 |
+| **T4** | P4 scale to 4000 with the T2 preset | `constants.h` (`NUM_MODES`≥4096), `ModelParams.py` (`MAX_NUM_MODES`), mode-buffer allocs | ptxas + pre-flight; **timing N≥3 at N=196/1000/2000/4000** vs the 1.333 ms cycle budget; offline render no NaN/clip; **acceptance listening A/B** (§R.6) |
+| **T5** | P5 middleware + frontend plumbing | `backendServer.py` (`/health`), `PianoidTunner/src/hooks/usePreset.js` (`totalModes`), `src/components/MeasuredMatrix.jsx`, `src/components/SoundChannelsPane.jsx` | `/test-ui` (audio_off) load of the 4000-mode preset — UI responsive, axis/aggregated flat band correct; legacy presets unchanged |
+| later | ESPRIT-measured extension | separate proposal | — |
+
+Every `.cu/.h/setup.py` task goes through `/dev` with the canonical `build_pianoid_cuda.bat --heavy`
+rebuild ([PROJECT_CONFIG → docs-first build & run](http://localhost:8001/PROJECT_CONFIG/#docs-first-build--run)).
+
+### R.6 Acceptance test (unchanged in kind)
+
+The **A/B `note_playback` listening render** (audio_off `/test-ui`) remains the acceptance test:
+(1) source 196-mode preset, full deck vs 56 shaped + 140 flat (isolates the Q2 approximation on real
+modes); (2) source 196-mode vs generated 4000-mode (the target instrument). The user judges the
+listening comparison; the P0 coupling-error numbers (§R.1 Q2) are context, not a pass/fail criterion.
+If (1) fails audibly, the documented fallbacks (rank-r basis, piecewise groups — P0 §3.4) are the
+re-entry point, by user decision.
 
 ---
 
@@ -1046,6 +1207,8 @@ string-rows:**
 
 ### 5.5.4 ★ MULTIPLE FLAT GROUPS (piecewise rank-1) — GLOBAL grouping by shape, NOT per-quarter
 
+> **★ SUPERSEDED 2026-10-09 by [§R](#r-revision-2026-10-09-user-decisions)** — decision Q2 — ALL flat modes share ONE uniform coupling; there are no groups. This section is retained as the rejected-alternative record.
+
 > **★ REVISED 2026-06-07.** Grouping is now **global by coupling shape** (§5.5.0 axis 2), decoupled
 > from quarter placement. The pre-revision "one group per flat quarter" mapping is **invalid** — it
 > only worked when a group's reduction was confined to one quarter (block-local), which the
@@ -1327,6 +1490,8 @@ if (ownsFlatMode) {
 
 ### 5.5.cost ★ COST AS A FUNCTION OF G (the number of distinct flat coupling shapes)
 
+> **★ SUPERSEDED 2026-10-09 by [§R](#r-revision-2026-10-09-user-decisions)** — decision Q2 fixes G = 1 with `w(s) ≡ 1`: the flat-tier coupling cost is exactly 2 cross-block reductions/sample independent of N_flat (§R.2). The G sweep below is historical.
+
 > **The all-strings resolution makes G the single performance knob for the flat tier.** This
 > sub-section states the cost parametrically, tabulates it at representative G, and gives the
 > break-even G where the flat tier stops beating a dense shaped treatment of the same modes.
@@ -1528,6 +1693,8 @@ whatever the measurement returns — but the *performance* of the design is set 
 
 ## 9. Shaped ↔ Flat Boundary
 
+> **★ SUPERSEDED 2026-10-09 by [§R](#r-revision-2026-10-09-user-decisions)** — the boundary is a FIXED COUNT: the lowest 56 modes are shaped, all others flat (decision Q3). The variance criterion and the `n_shaped`/`n_groups` tunables below are historical.
+
 - **Parameter:** `n_shaped` (count of shaped modes), with convention **modes [0, n_shaped) shaped,
   [n_shaped, num_modes) flat**; modes sorted by frequency at preset build so shaped = lowest
   frequencies (substrate §0b.5 **[SRC-grounded]**).
@@ -1578,6 +1745,8 @@ whatever the measurement returns — but the *performance* of the design is set 
 ---
 
 ## 11. Phased Implementation Plan
+
+> **★ SUPERSEDED 2026-10-09 by [§R](#r-revision-2026-10-09-user-decisions)** — the current phase plan is §R.3 (P1-pre register cap → P1 quarter-fork → collapsed P2+P3 "flat tier = uniform coupling" → P4 scale → P5 plumbing, plus the synthetic-preset generator) and the ordered `/dev` task list is §R.5. The plan below is the 2026-06-06 record.
 
 Each phase is independently buildable/testable. **Every phase that touches `.cu/.h` goes through
 `/dev`** (study → baseline test → branch → edit → CUDA build → verify → document → commit). Audio-
@@ -1654,6 +1823,8 @@ refactor).**
 - **Preset compatibility** — mitigated by the all-shaped default (§8.1).
 
 ### 12.2 Open questions
+
+> **★ SUPERSEDED 2026-10-09 by [§R](#r-revision-2026-10-09-user-decisions)** — SHAPED-COUNT (56 fixed), G/basis (none — uniform), reciprocity (feedin == feedback, P0) and R0 (119/99, P0) are resolved. The one new open item is the flat-tier output-channel readout (§R.2).
 - **★ SHAPED-COUNT (§4b.4) — the load-bearing design decision.** Does the user intend a uniform
   layout with ~1000–1350 *real* shaped modes (~25–34% of 4000, ~5–20× the convolution cost), or a
   reserved-slot layout where the shaped quarter is populated only in the first N blocks (real shaped

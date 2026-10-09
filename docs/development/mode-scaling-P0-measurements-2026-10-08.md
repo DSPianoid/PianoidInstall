@@ -6,6 +6,12 @@
 §11 Phase 0 / §12.2 / §12.3 #1 + #3, and the
 [register/occupancy plan](../proposals/register-memory-management-plan-2026-06-10.md) §3.3 / §8 "Phase 0 — Measure".
 **Substrate:** [string-mode coupling context](string-mode-coupling-mode-scaling-context-2026-06-06.md).
+**★ STATUS 2026-10-09:** the user's design decisions on these measurements are recorded in the
+proposal's [Revision 2026-10-09 — user decisions](http://localhost:8001/proposals/mode-scaling-4000-implementation-proposal-2026-06-06/#r-revision-2026-10-09-user-decisions):
+release cap + pre-flight approved (dev-1cda); flat tier = ONE uniform coupling (the §3.4 single-shape error —
+median 27–31 % Belarus / 48–69 % F15 — accepted as an approximation to be judged by the A/B listening render;
+rank-r basis and piecewise groups rejected, kept as fallbacks); fixed 56 shaped modes; synthetic N-mode
+extension as the mode source. §4's P2/P3/boundary rows are superseded by that revision.
 
 > **Evidence tags.** **[MEAS]** measured this session (method + script given). **[DOC]** project docs.
 > **[DERIVED]** arithmetic on [MEAS] values. **[UNMEASURED]** still open.
