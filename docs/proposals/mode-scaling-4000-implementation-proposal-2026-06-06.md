@@ -10,7 +10,7 @@ modes shaped**; mode data = **synthetic statistical extension** of the preset's 
 register cap + pre-flight = the P1 precondition (in progress, dev-1cda). Read
 [§R Revision 2026-10-09](#r-revision-2026-10-09-user-decisions) first — it carries the current phase plan
 (§R.3), the synthetic-preset generator spec (§R.4) and the ordered `/dev` task list (§R.5).
-**T2 (generator) implemented (dev-675e, unmerged). USER DECISION 2026-10-10: N ≈ 2000 at the literature-predicted
+**T2 (generator) implemented + merged (dev-675e, Basic dev a10c32e). USER DECISION 2026-10-10: N ≈ 2000 at the literature-predicted
 global modal density (n_g 0.2/Hz → f_max ≈ 10.2 kHz), real modes kept, band-wise synthetic fill; shaped = the 56
 lowest REAL modes. P4 target is now N = 2000 — see [§R.4.5](#r45-implementation-status-2026-10-09-dev-675e).**
 **★ PHASE 0 MEASURED 2026-10-08 (dev-dad7)** —
@@ -180,7 +180,7 @@ modes and filling the rest statistically, so P4 can be built and listened to wit
 
 #### R.4.5 Implementation status (2026-10-09, dev-675e)
 
-**Implemented** (PianoidBasic `feature/dev-675e-synthetic-modes`, NOT merged; v1 `d2283c3`, **v2 `d6d532b`**):
+**Implemented** (PianoidBasic `feature/dev-675e-synthetic-modes` v1 `d2283c3`, **v2 `d6d532b`**; merged --no-ff Basic dev `a10c32e` 2026-10-10):
 `Pianoid/modal_density.py` + `mode_fill.py` + `mode_extension.py` + `mode_extension_report.py` + CLI
 `python -m Pianoid.synthetic_modes` ([OVERVIEW → Synthetic mode extension](http://localhost:8001/modules/pianoid-basic/OVERVIEW/));
 tests `PianoidBasic/tests/test_synthetic_modes.py` (35, ~10 s). Reports + plots:
@@ -258,7 +258,7 @@ guards the loader failed obscurely (N = 221: `IndexError` StringMap:470; larger 
 |---|---|---|---|
 | **T0** | (dev-1cda, in progress) Release `__launch_bounds__(512,1)` + ptxas budget check + runtime pre-flight | `PianoidCore/pianoid_cuda/MainKernel.cu` (`ADDKERNEL_LAUNCH_BOUNDS`), `pianoid_cuda/setup.py` / build script (`-Xptxas -v` parse + budget), `Pianoid_synthesis.cu` (`preflightCooperativeLaunch`), optional `/health` field in `backendServer.py` | ptxas regs ≤128 / 0 spill; **per-cycle timing N≥3** cap vs no-cap at array_size 384 + 512; `[OCCUPANCY]` log line; offline `note_playback` render equivalence |
 | **T1** | P1 quarter-fork refactor, behaviour-preserving | `pianoid_cuda/Kernels.cu` (placement/bake), `MainKernel.cu` (quarter fork, gate), `constants.h` (`NUM_MODES`), `Pianoid.cu` (mode buffers), `PresetParameters.h` | **Offline render equivalence** vs T0 baseline (Belarus + F15, fp tolerance); ptxas + pre-flight; timing N≥3 |
-| **T2** | Synthetic N-mode preset generator (§R.4) — Python only, parallel with T1 | new module in `PianoidBasic/Pianoid/` (next to `fpga_preset_converter.py`) + CLI; pytest under PianoidBasic tests | §R.4.4 items 3–5 + the v2 checks of §R.4.5 (count vs target, band fill, η, energy, spacing); **done (dev-675e, unmerged)** |
+| **T2** | Synthetic N-mode preset generator (§R.4) — Python only, parallel with T1 | new module in `PianoidBasic/Pianoid/` (next to `fpga_preset_converter.py`) + CLI; pytest under PianoidBasic tests | §R.4.4 items 3–5 + the v2 checks of §R.4.5 (count vs target, band fill, η, energy, spacing); **done (dev-675e, merged Basic dev a10c32e)** |
 | **T3** | P2+P3 flat tier = uniform coupling (56 shaped / rest flat, 2 reductions, `a²` fold) | `MainKernel.cu` (flat branch, `[1×SEGMENT]` accumulators, Kahan/double `Q_sum`), `constants.h`, `Pianoid.cu`; `PianoidBasic/Pianoid/StringMap.py` (`pack_deck` width 56, flat pack), `ModelParams.py`, `Mode.py` (flat padding); `pianoid_middleware/pianoid.py` (`num_modes` ≠ `num_strings`) | (a) N_flat=0 **render equivalence** vs T1; (b) uniform-column **exactness render** split vs full deck; (c) Belarus/F15 56+140 vs full deck **listening A/B**; timing N≥3 |
 | **T4** | P4 scale with the T2 preset (target N = 2000, §R.4.5; `NUM_MODES` sizing ≥ 2048 — 4096 if the 4000 timing point is kept) | `constants.h` (`NUM_MODES`≥4096), `ModelParams.py` (`MAX_NUM_MODES`), mode-buffer allocs | ptxas + pre-flight; **timing N≥3 at N=196/1000/2000/4000** vs the 1.333 ms cycle budget; offline render no NaN/clip; **acceptance listening A/B** (§R.6) |
 | **T5** | P5 middleware + frontend plumbing | `backendServer.py` (`/health`), `PianoidTunner/src/hooks/usePreset.js` (`totalModes`), `src/components/MeasuredMatrix.jsx`, `src/components/SoundChannelsPane.jsx` | `/test-ui` (audio_off) load of the 4000-mode preset — UI responsive, axis/aggregated flat band correct; legacy presets unchanged |
