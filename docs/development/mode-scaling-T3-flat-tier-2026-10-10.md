@@ -2,7 +2,7 @@
 
 **Agent:** dev-5bf7 · **Spec:** [4000-modes proposal §R.2 / §R.5 T3](../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r5-implementation-plan-next-dev-tasks-in-order)
 · **Code:** PianoidCore `feature/dev-5bf7-flat-tier` (off dev 443d42c = T1 merged), PianoidBasic `feature/dev-5bf7-flat-pack`
-(off dev a10c32e) · **Status:** implemented + verified, NOT merged.
+(off dev a10c32e) · **Status:** implemented + verified; MERGED 2026-10-10 (Core dev 824dba5, Basic dev 2f1d072).
 Reference docs: [SYNTHESIS_ENGINE → Uniform flat tier](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#uniform-flat-tier-flattiercuh-4000-modes-t3-dev-5bf7-2026-10-10),
 [PianoidBasic OVERVIEW → Flat tier opt-in](../modules/pianoid-basic/OVERVIEW.md#flat-tier-opt-in-pack-contract-4000-modes-campaign-t3-dev-5bf7).
 
