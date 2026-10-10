@@ -164,6 +164,24 @@ To verify a frontend branch while the user's stack (`:3000` main checkout, `:300
   its uid — the CDP mouse events land at the probe centre and hit the element underneath (rulers, canvases, chart bars).
 - Removing the worktree: `cmd /c rmdir` every junction (or the whole junction dir) BEFORE `git worktree remove`.
 
+### Fully isolated agent stack (dev-2d06) — when the user's own tabs are open
+
+Open Pianoid tabs in the USER's Chrome auto-load against whatever answers on `:3001`/`:5000` (measured
+2026-10-10: ~6 user tabs auto-loaded F15_basic within 10 s of an agent starting the standard stack). When
+you need a launcher + backend of your own, keep them off the standard ports:
+
+```powershell
+$env:PIANOID_LAUNCHER_PORT='3012'; $env:PIANOID_BACKEND_PORT='5012'; $env:PIANOID_CORE_DIR='D:/repos/wt-xxxx-core'
+Start-Process -WindowStyle Hidden node.exe -ArgumentList 'server/launcher.js' -WorkingDirectory D:/repos/wt-xxxx-tunner -RedirectStandardOutput D:/tmp/launcher.log
+# CRA on a spare port, BROWSER=none (see above); backend: POST http://127.0.0.1:3012/api/start-backend
+```
+
+The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with the URL-rewrite
+`initScript` `docs/development/diagnostics/dev-2d06-isolated-stack-initscript.js` (fetch/XHR/WebSocket
+`:5000→:5012`, `:3001→:3012`, seeds the fresh origin's preset settings). The core worktree needs a `.venv`
+junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
+initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
+
 ## Shutdown
 
 **Reverse dependency order**: frontend → launcher → modal → backend.

@@ -200,6 +200,37 @@ On startup, the server runs a stale process check: finds any PID listening on th
 
 ## Lifecycle Endpoints
 
+### Lifecycle serialisation (dev-2d06)
+
+Preset lifecycle operations destroy / rebuild the engine, so they **never run concurrently** with each
+other or with a request that uses the engine. Owner: `pianoid_middleware/engine_lifecycle.py`
+(`EngineGate`, one instance `_ENGINE_GATE` in `backendServer.py`).
+
+| Request class | Routes | While a lifecycle op runs |
+|---|---|---|
+| **Lifecycle op** (exclusive) | `POST /load_preset` (all reinit kinds), `/preset/load`, `/preset/switch`, `/preset/unload`, `/preset/spawn_working_copy`, `/recalibrate_output_level`, `/shutdown` | **identical** request (same route + same JSON body) → waits and returns the in-flight result with `"coalesced": true` (only `/load_preset` and `/preset/switch` coalesce); anything else → **`409`** `{"error": "LifecycleBusy", "code": "load_in_progress", "message", "in_progress": {"op", "running_for_s"}}` |
+| **Engine use** (shared) | every other HTTP route + the engine Socket.IO events (`play`, `set_parameter`, `set_string_excitation`, `set_hammer_shape`, `set_runtime_parameters`, `set_fix_velocity`) | refused at once: HTTP **`503`** `{"code": "lifecycle_in_progress", "in_progress": {...}}`; a WS event acks `{"ok": false, "code": "lifecycle_in_progress"}` |
+| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
+
+A lifecycle op first waits for in-flight engine requests to finish (≤ 30 s, else `409` `engine_busy`);
+new engine requests are refused while it is pending. **Why 409, not a queue:** a queued *different*
+load would destroy the engine the first one just built — last-writer-wins on a destructive op is exactly
+the multi-tab interference; the caller decides whether to retry. Once a load completes, an identical
+re-load classifies `hot` (no destroy), so late duplicates are harmless.
+
+Incident (2026-10-10): several open frontend tabs each auto-loaded the last preset when the backend
+started; Werkzeug ran the loads on concurrent threads and one load's `destroyPianoid()` tore down
+another's fresh engine → `0xC0000374` / `0xC0000005`. Regression tests:
+`tests/unit/test_engine_lifecycle_gate.py`; live repro `docs/development/diagnostics/dev-2d06-concurrent_load_repro.py`.
+The frontend additionally elects ONE tab leader that performs automatic loads
+([pianoid-tunner OVERVIEW → Tab leadership](../pianoid-tunner/OVERVIEW.md#tab-leadership-dev-2d06)).
+
+`PIANOID_BACKEND_PORT` (env, default `5000`) moves the backend to another port — agents use it with the
+launcher's `PIANOID_LAUNCHER_PORT` / `PIANOID_BACKEND_PORT` / `PIANOID_CORE_DIR` for an isolated stack
+that the user's open `:3000` tabs never see.
+
+---
+
 ### `GET /ping`
 
 Simple connectivity check. No pianoid required.

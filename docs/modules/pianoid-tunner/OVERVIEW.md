@@ -311,6 +311,37 @@ The Apply button (`handleApplySettings`, Preset case) sets `presetLoadSettings` 
 
 A `beforeunload` handler in `PianoidTuner.js` sends `POST /api/stop-backend` (with `keepalive: true`) when the browser tab is closed, preventing stale backend processes. Health status is automatically refreshed (`manualHealthCheck()`) whenever a preset load completes (`isBusy` transitions from true to false).
 
+### Tab leadership (dev-2d06)
+
+**One tab leads; the others follow.** Every same-origin Pianoid tab used to perform the AUTOMATIC
+backend writes on its own — the startup auto-load (`resolveStartupAutoLoad`) with its post-load default
+writes (volume_center/range, stored feedback coefficient) and the bare-backend re-load (dev-hxfix Fix A).
+N open tabs = N concurrent `POST /load_preset` on every backend (re)start → backend crash (measured
+2026-10-10; the backend now also serialises them — [REST_API → Lifecycle serialisation](../pianoid-middleware/REST_API.md#lifecycle-serialisation-dev-2d06)).
+
+| Piece | Job |
+|---|---|
+| `utils/tabLeadership.js` | pure election protocol over `BroadcastChannel("pianoid-tab-leader")` (fallback: `localStorage` `storage`-event bus); messages `claim` / `heartbeat` (1 s) / `query` / `release`; newest claim wins (rank = claim time, tie → id); the leader mirrors `{id, rank, ts}` to `localStorage["pianoid.tabLeader"]` so a new tab sees a live leader synchronously |
+| `hooks/useTabLeadership.js` | React binding: one election per page, `visibilitychange` → `setVisible`, `pagehide` → `release`; returns `{role, reason, isLeader, isFollower, autoActionsAllowed, takeOver}` |
+| `components/TabLeaderBanner.jsx` | follower banner "Pianoid is open in another tab" + **Use this tab** (MUI `Alert` warning, filled) |
+
+**Who leads:** a new / reloaded tab that finds a **live leader** (fresh `pianoid.tabLeader` record)
+**follows it** and shows the banner — unless that leader reports itself hidden while this tab is visible,
+then it claims (`visible`). With no live leader a **visible** tab claims at once (`startup`); a hidden
+one asks and claims only if no leader answers within 1.5 s (`background`). A reload releases the old
+leader, so after a restart the first visible tab leads. **Use this tab** claims (`takeover`); a follower
+that becomes visible while the leader is hidden claims (`visible`); leader closed (`release`) or silent
+> 4 s → jittered election (visible winner `visible`, hidden winner `background`). **`autoActionsAllowed` = leader AND `stable` (held the role ≥ 1 s — when several tabs reload at once leadership can change hands within milliseconds, and a tab that leads only briefly must not start a backend / load it does not own) AND reason ≠ `background`**: automatic
+backend writes come only from a tab the user is looking at (or took over) — a hidden tab that won an
+election (all tabs reloading in the background, or a timeout caused by Chrome throttling hidden-tab
+timers) must not auto-load unseen; it is upgraded the moment the user looks at it. Gated on it: the startup auto-load (`isAutoLoadTab` → a non-leader
+WAITS with the one-shot preserved, so the tab loads once it becomes the leader the user uses) and the
+bare-backend re-load (also skipped while `/health` reports `status: "loading"`). Explicit user actions
+(Apply, switch, edits) are never gated. A `409 load_in_progress` / `engine_busy` from `/load_preset`
+shows a warning notification. Tests: `utils/__tests__/tabLeadership.test.js`,
+`utils/__tests__/startupAutoLoad.test.js`, `hooks/__tests__/useTabLeadership.test.jsx`,
+`components/__tests__/TabLeaderBanner.test.jsx`.
+
 ### `useMidi`
 
 MIDI state for the visual piano and pitch auto-select. Since W4 Phase 3 the

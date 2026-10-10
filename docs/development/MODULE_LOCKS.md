@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2d06 locks RELEASED 2026-10-10 (stopped before Step 10, NOT merged): Core pianoid_middleware/backendServer.py + NEW engine_lifecycle.py + tests/unit/test_engine_lifecycle_gate.py committed on feature/dev-2d06-lifecycle-lock 9796305 (off dev 443d42c); Tunner server/launcher.js, src/PianoidTuner.js, src/utils/startupAutoLoad.js + NEW utils/tabLeadership.js, hooks/useTabLeadership.js, components/TabLeaderBanner.jsx + tests committed on feature/dev-2d06-tab-leader 2308752..75a0eb0 (off dev 77b8a04); worktrees wt-2d06-core / wt-2d06-tunner removed (junctions unlinked first). -->
 <!-- dev-1cda locks RELEASED 2026-10-09: Core feature/dev-1cda-coop-preflight ff94281 merged --no-ff dev a92500c (after dev-19be, clean); branch + worktree wt-1cda-core removed. -->
 <!-- dev-624c locks RELEASED 2026-10-10; MERGED Core dev 443d42c (feature 953b8c1: pianoid_cuda/MainKernel.cu, Kernels.cu, NEW ModeLayout.cuh); branch + worktree wt-624c-core removed. -->
 <!-- dev-675e locks RELEASED 2026-10-10 (Phase 2): PianoidBasic synthetic_modes.py, mode_extension.py, mode_extension_report.py, modal_density.py, mode_fill.py, tests/test_synthetic_modes.py, tests/conftest.py (new), ModelParams.py + Mode.py guards — feature/dev-675e-synthetic-modes d2283c3+d6d532b merged --no-ff Basic dev a10c32e, pushed; worktree wt-675e-basic removed, branch deleted. -->
