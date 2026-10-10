@@ -1,0 +1,38 @@
+TIMING (addKernel us per 64-sample cycle, run means; budget 1333 us)
+  Belarus_8band_196modes                   base  n=5 median   461.9  min   461.2  max   463.8  = 34.6 % of budget   runs [461.2, 461.8, 461.9, 462.6, 463.8]
+  Belarus_8band_196modes                   t4    n=5 median   455.5  min   454.1  max   458.8  = 34.2 % of budget   runs [454.1, 454.3, 455.5, 455.9, 458.8]
+  Belarus_8band_196modes_N1000             t4    n=5 median   409.6  min   408.1  max   412.1  = 30.7 % of budget   runs [408.1, 408.6, 409.6, 410.6, 412.1]
+  Belarus_8band_196modes_N2000             t4    n=5 median   409.3  min   408.1  max   411.4  = 30.7 % of budget   runs [408.1, 408.3, 409.3, 411.3, 411.4]
+  Belarus_8band_196modes_N4000             t4    n=5 median   410.4  min   408.5  max   413.4  = 30.8 % of budget   runs [408.5, 410.4, 410.4, 411.2, 413.4]
+  Belarus_8band_196modes_flat              base  n=5 median   417.9  min   416.0  max   420.6  = 31.3 % of budget   runs [416.0, 416.2, 417.9, 420.4, 420.6]
+  Belarus_8band_196modes_flat              t4    n=5 median   407.7  min   404.7  max   410.5  = 30.6 % of budget   runs [404.7, 406.5, 407.7, 409.2, 410.5]
+  F15_Elyashev_array512                    base  n=5 median   986.0  min   971.3  max   986.9  = 74.0 % of budget   runs [971.3, 981.7, 986.0, 986.1, 986.9]
+  F15_Elyashev_array512                    t4    n=5 median   973.9  min   970.2  max   979.3  = 73.0 % of budget   runs [970.2, 971.3, 973.9, 974.3, 979.3]
+  F15_Elyashev_array512_N2000              t4    n=5 median   917.1  min   911.1  max   918.5  = 68.8 % of budget   runs [911.1, 912.9, 917.1, 917.2, 918.5]
+  F15_Elyashev_array512_flat               base  n=5 median   938.1  min   926.7  max   942.0  = 70.4 % of budget   runs [926.7, 931.5, 938.1, 938.4, 942.0]
+  F15_Elyashev_array512_flat               t4    n=5 median   911.0  min   900.0  max   915.8  = 68.3 % of budget   runs [900.0, 904.5, 911.0, 911.9, 915.8]
+EQUIVALENCE (relRMS, all cross-round pairs: median / max)
+  Belarus_8band_196modes                   audio base-base 1.904e-03 / 1.910e-03 | t4-t4 1.899e-03 / 1.915e-03 | base-t4 1.900e-03 / 1.917e-03
+  Belarus_8band_196modes                   modes base-base 3.214e-05 / 5.786e-05 | t4-t4 7.241e-05 / 1.532e-04 | base-t4 5.694e-05 / 1.230e-04
+  Belarus_8band_196modes                   probe base-base 4.541e-05 / 7.176e-05 | t4-t4 3.575e-05 / 5.126e-05 | base-t4 4.314e-05 / 6.280e-05
+  Belarus_8band_196modes_N1000             audio t4-t4 1.725e-03 / 1.732e-03
+  Belarus_8band_196modes_N1000             modes t4-t4 0.000e+00 / 0.000e+00
+  Belarus_8band_196modes_N1000             probe t4-t4 0.000e+00 / 0.000e+00
+  Belarus_8band_196modes_N2000             audio t4-t4 1.725e-03 / 1.737e-03
+  Belarus_8band_196modes_N2000             modes t4-t4 0.000e+00 / 0.000e+00
+  Belarus_8band_196modes_N2000             probe t4-t4 0.000e+00 / 0.000e+00
+  Belarus_8band_196modes_N4000             audio t4-t4 1.715e-03 / 1.725e-03
+  Belarus_8band_196modes_N4000             modes t4-t4 0.000e+00 / 0.000e+00
+  Belarus_8band_196modes_N4000             probe t4-t4 0.000e+00 / 0.000e+00
+  Belarus_8band_196modes_flat              audio base-base 1.709e-03 / 1.727e-03 | t4-t4 1.702e-03 / 1.714e-03 | base-t4 1.705e-03 / 1.718e-03
+  Belarus_8band_196modes_flat              modes base-base 8.260e-05 / 1.471e-04 | t4-t4 4.580e-05 / 8.154e-05 | base-t4 5.518e-05 / 1.553e-04
+  Belarus_8band_196modes_flat              probe base-base 8.279e-05 / 1.408e-04 | t4-t4 5.618e-05 / 1.038e-04 | base-t4 6.619e-05 / 1.234e-04
+  F15_Elyashev_array512                    audio base-base 1.029e-04 / 1.066e-04 | t4-t4 1.015e-04 / 1.071e-04 | base-t4 1.026e-04 / 1.063e-04
+  F15_Elyashev_array512                    modes base-base 9.903e-05 / 2.353e-04 | t4-t4 3.407e-05 / 1.792e-04 | base-t4 9.295e-05 / 2.768e-04
+  F15_Elyashev_array512                    probe base-base 2.992e-05 / 4.717e-05 | t4-t4 3.238e-05 / 6.975e-05 | base-t4 3.037e-05 / 6.643e-05
+  F15_Elyashev_array512_N2000              audio t4-t4 1.011e-04 / 1.078e-04
+  F15_Elyashev_array512_N2000              modes t4-t4 0.000e+00 / 0.000e+00
+  F15_Elyashev_array512_N2000              probe t4-t4 0.000e+00 / 0.000e+00
+  F15_Elyashev_array512_flat               audio base-base 1.027e-04 / 1.060e-04 | t4-t4 1.022e-04 / 1.061e-04 | base-t4 1.037e-04 / 1.091e-04
+  F15_Elyashev_array512_flat               modes base-base 4.928e-05 / 1.246e-04 | t4-t4 1.137e-04 / 2.769e-04 | base-t4 7.562e-05 / 2.030e-04
+  F15_Elyashev_array512_flat               probe base-base 6.874e-05 / 1.544e-04 | t4-t4 5.624e-05 / 1.380e-04 | base-t4 7.246e-05 / 2.091e-04

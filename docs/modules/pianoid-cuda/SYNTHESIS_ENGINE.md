@@ -53,7 +53,8 @@ Which thread advances which soundboard mode, and which quarter couples it throug
 (`stringMapKernel`) writes the per-thread tags into parameter slots **25 / 27 / 28**; `addKernel` reads them
 and uses `slotMode` for the feedin row → mode inverse. Notation: `B` = grid blocks (`numArrays`),
 `S` = strings per block (4), `Q` = `arraySize / S` (quarter size), `t` = `stMdIndex`, `N` = `numModes`
-(`cycle_parameters[2]`, = `num_strings` in practice: 224 Belarus, 232 F15). Mode buffers
+(`cycle_parameters[2]`: `num_strings` for a legacy preset — 224 Belarus, 232 F15; modes + sound-channel slots for a
+flat-tier preset since T4, e.g. 2004). Mode buffers
 (`dev_mode_running`, `dev_mode_state`) stay indexed by the **global** mode number `m`.
 
 | Concept | Before T1 (≤ a92500c) | T1 (dev-624c) |
@@ -106,6 +107,24 @@ scaled by its gain. Sums are fp32 trees (same error structure as `sumArray`; a d
 Debug readouts of flat `q` are in the folded unit `q'`. Host check: `validateModeLayout` (in `devMemoryInit`)
 throws `std::invalid_argument` → `ValueError` if the tiers do not fit the grid. Measurements:
 [T3 flat tier](../../development/mode-scaling-T3-flat-tier-2026-10-10.md).
+
+### Mode capacity + compact deck (4000-modes T4, dev-3d2c, 2026-10-10)
+
+| Item | Before T4 | T4 |
+|---|---|---|
+| `NUM_MODES` (`constants.h`) — mode **capacity**: `dev_mode_running` `2 × NUM_MODES`, preset mode-config region `3 × NUM_MODES` | 256 | **4096** (+11 520 reals per preset slot) |
+| Deck region (`PresetParameters.h`) | `NUM_STRINGS × NUM_MODES` | `NUM_STRINGS × MAX_DECK_COLUMNS` (**256**, unchanged 65 536 reals) — decoupled from the mode count |
+| Deck row stride / column of mode `m` | `numModes` / `m` | `ModeLayout.deckWidth` / `deckColumn(L, m)`: legacy `N` / `m` (unchanged); flat tier **compact** `nS + 1 + (N − linkedBase)` columns = `[shaped 0..nS) | ONE flat column nS = w(s) | linked]`, uniform mode → column `nS`, linked `m` → `nS + 1 + (m − linkedBase)` (Belarus N = 2000 + 4: **61** columns) |
+| Engine mode count `N` for a flat-tier preset | `num_strings` (ceiling `N + channels ≤ num_strings`) | `num_modes + num_channels` (PianoidBasic `ModelParameters.engine_mode_slots`), any `N ≤ NUM_MODES` |
+| Host checks | tiers fit the grid (`validateModeLayout`) | + `N ≤ NUM_MODES`, `deckWidth ≤ MAX_DECK_COLUMNS` (a legacy preset > 256 modes fails), blocks ≤ `SEGMENT_FOR_SHUFFLE_SUMMATION` (64); `loadPresetToLibrary`: a flat-tier deck must be exactly `num_strings × deckWidth` |
+
+The kernel reads the deck only through `deckWidth` / `deckColumn` (feedin `deck[stringNoForQuarter, col(slot mode)]`,
+feedback `deck[target, col(modeNo)]`, `flatDeckWeight` = column `nS`, debug records 4/5/9 bounded to the record row).
+At `N = 2000` the layout is `U = ceil(1944 / 56) = 35` uniform owners per block (F15 34), threads `Q … Q + 34` of
+quarters 1–3, one mode per thread; the flat reductions are N-independent apart from the block-partial warps (2).
+Registers: release **111 / 113 / 113** (sm_80/86/89; T3 109/111/111), debug **118 / 120 / 120** (T3 112/114/114),
+0 spill. fp32 `Q_sum` error at N = 2000 / 4000 ≈ 1 ulp of `Σ|q'|` (≤ 5e-7 of rms `Q_sum`) — no Kahan/double needed.
+Measurements: [T4](../../development/mode-scaling-T4-scale-2026-10-10.md).
 
 ### Register budget & cooperative co-residency pre-flight (dev-1cda, 2026-10-09)
 
@@ -568,7 +587,7 @@ Design + empirical crash-border validation: `docs/proposals/cfl-stability-guard-
 
 ### Physical model
 
-Each of the `numModes` (up to 256) soundboard resonance modes is a damped harmonic
+Each of the `numModes` (up to `NUM_MODES` = 4096 since T4) soundboard resonance modes is a damped harmonic
 oscillator driven by the aggregated bridge force from all strings. The kernel implements
 the form
 
@@ -599,7 +618,7 @@ exists):
 
 - `dev_mode_running` — running scalars `(q, q_prev)`, written every audio sample by the
   kernel and zeroed by `resetModeRunningState()`. Layout: `[q × N] [q_prev × N]`
-  (2 × N reals, where N is `init_params_.num_modes`, max 256).
+  (2 × N reals, where N is `init_params_.num_modes`, max `NUM_MODES` = 4096).
 - `dev_mode_state` — TUNABLE config triple `(dec, omega, mass_inv)`, set via
   `setNewModeParameters` / `updateModeParameters_GRANULAR`, never written by the kernel.
   Layout: `[dec × N] [omega × N] [mass_inv × N]` (3 × N reals).
@@ -673,12 +692,13 @@ coupling buffer in `PianoidPresetParameters`). A thread covers up to `NUM_FOLDS_
 mode indices via index folding, so 512 threads per block can address all 256 modes:
 
 ```
-mode_feedin[i]  = mode_coefficients[stringNo * numModes + modeIndex[i]]
-                  (loaded from preset, row-major: string × mode)
+mode_feedin[i]  = mode_coefficients[stringNo * deckWidth + deckColumn(modeIndex[i])]
+                  (loaded from preset, row-major: string × deck column; legacy deckWidth = numModes,
+                   column = mode; flat tier: compact deck, see "Mode capacity + compact deck")
 
 mode_feedback[i]:
   USE_SINGLE_DECK_MATRIX=1 (current default):
-    mode_feedback[i] = mode_coefficients[targetString * numModes + modeNo] * (*deck_feedback_coeff)
+    mode_feedback[i] = mode_coefficients[targetString * deckWidth + deckColumn(modeNo)] * (*deck_feedback_coeff)
     (feedback for target string loaded from feedin matrix × scalar coefficient)
 
   USE_SINGLE_DECK_MATRIX=0 (legacy):

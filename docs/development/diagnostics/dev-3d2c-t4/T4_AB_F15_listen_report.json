@@ -1,0 +1,323 @@
+{
+ "name": "T4_AB_F15_listen",
+ "kind": "listen",
+ "seconds": 24.7,
+ "gain": 311339.94698686246,
+ "reference": "A_196real",
+ "octave_centres_hz": [
+  31.5,
+  63,
+  125,
+  250,
+  500,
+  1000,
+  2000,
+  4000,
+  8000,
+  16000
+ ],
+ "tags": {
+  "A_196real": {
+   "wav_stereo": "D:/scratch/dev-3d2c/wav\\T4_AB_F15_listen_A_196real_stereo.wav",
+   "finite": true,
+   "peak_dbfs_ch1..4": [
+    -18.79,
+    -5.81,
+    -7.73,
+    -1.01
+   ],
+   "rms_dbfs_ch1..4": [
+    -41.43,
+    -33.42,
+    -33.98,
+    -29.1
+   ],
+   "samples_at_ceiling": 0,
+   "level_db_vs_ref_ch1..4": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "octave_db_ch1": [
+    19.1,
+    55.3,
+    63.6,
+    66.7,
+    69.1,
+    62.4,
+    51.0,
+    26.3,
+    -6.5,
+    -36.5
+   ],
+   "octave_db_ch2": [
+    23.6,
+    54.6,
+    61.5,
+    70.7,
+    76.0,
+    77.4,
+    70.6,
+    48.9,
+    14.3,
+    -18.7
+   ],
+   "octave_db_vs_ref_ch1": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "octave_db_vs_ref_ch2": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "waveform_relRMS_vs_ref_ch1..4": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "segments": [
+    {
+     "segment": "note 28",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -39.1
+    },
+    {
+     "segment": "note 40",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -43.4
+    },
+    {
+     "segment": "note 52",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -42.4
+    },
+    {
+     "segment": "note 60",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -47.3
+    },
+    {
+     "segment": "note 69",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -40.1
+    },
+    {
+     "segment": "note 79",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -45.0
+    },
+    {
+     "segment": "note 88",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -58.1
+    },
+    {
+     "segment": "note 100",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -55.9
+    },
+    {
+     "segment": "C2 chord",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -40.3
+    },
+    {
+     "segment": "C4 chord",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -40.7
+    },
+    {
+     "segment": "C5 chord",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -41.3
+    },
+    {
+     "segment": "C2-C6 chord",
+     "level_db_vs_ref_ch1": 0.0,
+     "level_db_vs_ref_ch2": 0.0,
+     "rms_dbfs_ch1": -38.2
+    }
+   ]
+  },
+  "B_N2000": {
+   "wav_stereo": "D:/scratch/dev-3d2c/wav\\T4_AB_F15_listen_B_N2000_stereo.wav",
+   "finite": true,
+   "peak_dbfs_ch1..4": [
+    -18.55,
+    -5.6,
+    -7.92,
+    -1.43
+   ],
+   "rms_dbfs_ch1..4": [
+    -41.26,
+    -33.16,
+    -33.87,
+    -29.54
+   ],
+   "samples_at_ceiling": 0,
+   "level_db_vs_ref_ch1..4": [
+    0.17,
+    0.26,
+    0.11,
+    -0.43
+   ],
+   "octave_db_ch1": [
+    19.1,
+    55.4,
+    63.7,
+    66.9,
+    69.3,
+    62.8,
+    51.8,
+    27.5,
+    -5.2,
+    -37.0
+   ],
+   "octave_db_ch2": [
+    23.6,
+    54.8,
+    61.8,
+    71.0,
+    76.3,
+    77.6,
+    71.0,
+    49.2,
+    14.6,
+    -18.3
+   ],
+   "octave_db_vs_ref_ch1": [
+    -0.02,
+    0.13,
+    0.11,
+    0.19,
+    0.14,
+    0.36,
+    0.76,
+    1.19,
+    1.33,
+    -0.42
+   ],
+   "octave_db_vs_ref_ch2": [
+    -0.01,
+    0.27,
+    0.26,
+    0.31,
+    0.3,
+    0.23,
+    0.35,
+    0.37,
+    0.34,
+    0.35
+   ],
+   "waveform_relRMS_vs_ref_ch1..4": [
+    0.0636,
+    0.0487,
+    0.091,
+    0.0674
+   ],
+   "segments": [
+    {
+     "segment": "note 28",
+     "level_db_vs_ref_ch1": 0.14,
+     "level_db_vs_ref_ch2": 0.22,
+     "rms_dbfs_ch1": -38.9
+    },
+    {
+     "segment": "note 40",
+     "level_db_vs_ref_ch1": 0.32,
+     "level_db_vs_ref_ch2": 0.51,
+     "rms_dbfs_ch1": -43.0
+    },
+    {
+     "segment": "note 52",
+     "level_db_vs_ref_ch1": 0.33,
+     "level_db_vs_ref_ch2": 0.73,
+     "rms_dbfs_ch1": -42.1
+    },
+    {
+     "segment": "note 60",
+     "level_db_vs_ref_ch1": 0.13,
+     "level_db_vs_ref_ch2": 0.22,
+     "rms_dbfs_ch1": -47.2
+    },
+    {
+     "segment": "note 69",
+     "level_db_vs_ref_ch1": 0.24,
+     "level_db_vs_ref_ch2": 0.23,
+     "rms_dbfs_ch1": -39.9
+    },
+    {
+     "segment": "note 79",
+     "level_db_vs_ref_ch1": 0.23,
+     "level_db_vs_ref_ch2": 0.17,
+     "rms_dbfs_ch1": -44.8
+    },
+    {
+     "segment": "note 88",
+     "level_db_vs_ref_ch1": 1.55,
+     "level_db_vs_ref_ch2": 0.32,
+     "rms_dbfs_ch1": -56.5
+    },
+    {
+     "segment": "note 100",
+     "level_db_vs_ref_ch1": 0.74,
+     "level_db_vs_ref_ch2": 0.35,
+     "rms_dbfs_ch1": -55.2
+    },
+    {
+     "segment": "C2 chord",
+     "level_db_vs_ref_ch1": 0.18,
+     "level_db_vs_ref_ch2": 0.38,
+     "rms_dbfs_ch1": -40.1
+    },
+    {
+     "segment": "C4 chord",
+     "level_db_vs_ref_ch1": 0.13,
+     "level_db_vs_ref_ch2": 0.32,
+     "rms_dbfs_ch1": -40.5
+    },
+    {
+     "segment": "C5 chord",
+     "level_db_vs_ref_ch1": 0.13,
+     "level_db_vs_ref_ch2": 0.23,
+     "rms_dbfs_ch1": -41.2
+    },
+    {
+     "segment": "C2-C6 chord",
+     "level_db_vs_ref_ch1": 0.12,
+     "level_db_vs_ref_ch2": 0.3,
+     "rms_dbfs_ch1": -38.1
+    }
+   ]
+  }
+ }
+}

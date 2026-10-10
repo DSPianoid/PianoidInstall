@@ -714,13 +714,16 @@ Synthetic modes also fall **below** the shaped/flat boundary (Belarus 658 Hz, F1
   `n(f)/(4 M(f))` with `M(f)` calibrated to the measured board, unit-agnostic in engine units). `plate`: constant
   `M_total` (literal plate rule, calibrated below `min(f_break, last real mode)`) — in engine units the measured
   conductance falls ~f^-2.4…-2.6, so `plate` lifts HF by tens of dB (mostly absorbed by the cap; reported only).
-- **Load:** N ≤ the current ceiling (`num_strings − num_channels`) loads on today's engine; above it the loader guards
-  reject clearly (see Piano_mode and ModeMap).
+- **Load:** without the flat tier N ≤ the legacy ceiling (`num_strings − num_channels`) and above it the loader guards
+  reject clearly (see Piano_mode and ModeMap); with `--flat-tier` (T4) N + `num_channels` ≤ the engine capacity
+  `MAX_NUM_MODES` = 4096 (see *Flat tier* below — engine mode slots decoupled from `num_strings`, compact deck).
 - `mode_extension` block (version 2.0): literature citations, decision, source name + sha256 (+ `mode_order`),
   seed, `f_max_hz` + `derived`, density law params, counts (`n_real`, `n_real_flat`, `n_synthetic`,
   `n_real_dropped_above_f_max`), `shaped_set_decision` + `shaped_boundary_hz`, placement, damping, energy (rule,
   params, cap, level change in dB), flat gains / readout (`w_c`, PROVISIONAL R.2 open item),
-  `current_engine.{ceiling_num_modes, loadable}`. `output_scale` is inherited, not re-derived (T4).
+  `current_engine.{ceiling_num_modes, loadable}` (legacy full deck) + `{flat_tier_ceiling_num_modes,
+  loadable_with_flat_tier}` (T4). `output_scale` is inherited, not re-derived (T4 measured ≤ 0.3 dB per channel at N = 2000 —
+  [T4 measurements](../../development/mode-scaling-T4-scale-2026-10-10.md)).
 - Sidecar report `<out-stem>.mode_extension_report.{json,png}`: cumulative count real / target / generated, density
   per band, η vs f, conductance per band (target / source / real out / synthetic / total), per-band counts and dB,
   spacing, physical validity, conductance level and output impulse-energy change (DATA_FLOWS closed form, k = 1).
@@ -739,6 +742,8 @@ The split is **exact**, never an approximation: the approximation lives in the p
 | Pack contract | `flat_tier.check_uniform_flat_row` (from `StringMap.pack_pitch_feedin`, every deck upload path) | every PACKED row (after mute mask × SC string gain) must be **bit-uniform** over the flat columns — the engine reads `w(s)` = the first flat column; a non-uniform row (e.g. a per-pitch flat-mode edit or mute) fails loudly |
 | A/B projection | `mode_extension.flatten_preset` / `python -m Pianoid.synthetic_modes --source SRC --flatten --out OUT` | the source's REAL modes as 56 shaped + (N − 56) flat in the T2 convention (no synthetic modes): `a(m)` = mean piano-row feedin, mass `a²·mass_inv`, piano rows 1.0, output rows `w_c`; opted in; `flat_tier_projection` metadata block. Rejects a source that mutes a flat mode |
 | Generated presets | `synthetic_modes ... --flat-tier` | opts a T2 preset in (`nS = 56`, `nF = N − 56`); without it the preset loads full-deck as before |
+| Engine mode slots (T4, dev-3d2c) | `ModelParameters.engine_mode_slots` (callers pass `num_modes_for_model=ModelParameters.ENGINE_SLOTS`: `pianoid.py` load / library / `initialize`) | **sole owner** of `num_modes_for_model` (→ `cycle_parameters[2]`): legacy = `num_strings` (divisibility + `num_modes + num_channels ≤ num_strings` guards unchanged); flat tier = `num_modes + num_channels` (the sound-channel slots at `mode_channel_index = num_modes`), ≤ `MAX_NUM_MODES` = 4096 (engine `NUM_MODES`) |
+| Compact deck (T4) | `StringMap.pitch_deck_row` (domain row, `num_modes_for_model` wide) → `StringMap.pack_pitch_feedin` (engine row) → `flat_tier.compact_deck_row` | flat tier on: the engine row is `[shaped 0..nS) | ONE flat column w(s) | linked nS+nF..)` — width `nS + 1 + num_channels` (61 for 56 + 1 + 4), so the deck is `num_strings × 61` at any N (engine `ModeLayout.cuh deckWidth / deckColumn`; the engine rejects any other size). Legacy rows unchanged (`num_strings` wide). `pack_deck(pack_for_cuda=False)` (charts) returns the domain rows |
 
 Output routing = the user's default: each output string reads the same flat sum scaled by its packed row weight
 (`w_c × string sound-channel gain`); there is no per-channel / per-mode flat editing. Flat-mode `mass` edits act on the
