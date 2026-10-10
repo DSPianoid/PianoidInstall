@@ -83,6 +83,7 @@ If you are about to ask the user to *do* something operational, **stop** — the
 
 **How it's enforced:**
 - Each editing sub-agent shuts down servers it started and cleans its own tree on exit (see `/dev` "Full clearance before every handoff"). The **orchestrator is the final guarantor**: after the last active agent reports, run the port sweep across all of the project's ports and verify `git status --short` is clean in every repo before telling the user the environment is clear.
+- **Clean BEFORE and AFTER every test/run (user directive 2026-10-10).** Every dispatch brief for an agent that starts, tests, or drives the stack MUST require the project's clean-stack procedure ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)): full sweep (incl. the agent spare ports + orphans + build holders) and all automation browser pages closed BEFORE it starts anything and again AFTER; dev servers started with browser auto-open disabled; one automation page max while testing. At handoff the orchestrator's final-guarantor check covers the same checklist — no listener on any stack OR spare port (unless the explicit one-clean-stack case), no orphan, automation pages = only `about:blank` — and REPORTS (never touches) how many of the user's own browser tabs are connected to the stack when more than one.
 - The one in-session exception: if a concurrent agent is still actively using the stack, the orchestrator does NOT sweep mid-session — clearance applies at the handoff to the user, not between overlapping agents.
 - **No orphan rows/logs at handoff.** Before declaring the environment clear, run the row-iterating sweep from "Periodic Health Check": the `## Active Dev Sessions` table must have NO row for any non-alive agent (a re-statused "MERGED" row counts as debt — DELETE it), every non-archive session log must map to a live agent THIS session (else archive-on-sight; only the live controller survives), and `MODULE_LOCKS.md` must show no active rows for non-alive agents.
 
@@ -847,6 +848,8 @@ Before relaying completion or asking the user to test, verify no stale processes
 | Backend port(s) | Port collision on restart, or a stale backend with a stale native module |
 | Docs-preview port | Stale doc preview (lower priority) |
 | Native build holders (the project's compiled-binary holders — [`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders)) | Locks rebuild — `[WinError 5] Access is denied` |
+| Agent spare ports (worktree dev servers / isolated backends — [`#ports`](../../docs/PROJECT_CONFIG.md#ports)) | Leftover agent servers hold GPU/ports and confuse which build the user sees |
+| Browser-automation pages (+ count of the user's own tabs on the stack) | Stale tabs auto-reconnect and re-apply state; several at once can crash the backend ([`#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)) |
 
 (The concrete port numbers + holder names + their `netstat`/`tasklist` check commands are in the [companion](../skill-examples/orchestrator.md) and the cited anchors.)
 

@@ -35,6 +35,19 @@ Authoritative procedure: [`PROJECT_CONFIG.md#docs-first-build--run`](../../docs/
 
 ## Step 1b — Environment Control (concrete)
 
+### Clean the stack — BEFORE and AFTER (Pianoid, [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack))
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1 -DryRun   # inventory: core + spare ports (3002-3020/5002-5020), orphans, .pyd holders
+powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1           # tree-kill concurrently supervisor + 3000/3001/5000/5001 + orphans + wt-* dev servers
+python tools/dev-pipeline/env_sweep.py                                       # verify core ports free + marker-gated spare-port sweep -> exit 0
+tasklist /M pianoidCuda.cp312-win_amd64.pyd                                 # no stale holder
+# browser: chrome-devtools list_pages -> close_page all but one -> navigate_page the last to about:blank
+# start fresh (agent form of the icon launcher; BROWSER=none = CRA opens NO tab in the user's Chrome):
+$env:BROWSER='none'; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/npmdev.log" -RedirectStandardError "D:/tmp/npmdev.err"
+curl.exe -s -X POST http://127.0.0.1:3001/api/start-backend                 # then poll :5000/health, load preset, open ONE page
+```
+AFTER: close pages first (last → `about:blank`) → stop your spare-port/worktree servers + harnesses → `kill_pianoid.ps1` + `env_sweep.py` (exit 0) → verification checklist from [`#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack).
+
 ### Kill stale processes — port-scoped kill loop (3000=frontend, 3001=launcher, 5000=backend, 5001=modal adapter)
 **Canonical, structurally-safe form** (per [`PROJECT_CONFIG.md#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep)):
 ```bash
@@ -91,6 +104,7 @@ After a successful start emit `[SERVER-START] role=<backend|frontend|adapter> po
 **Known Pianoid failure modes:** Flask debug-reloader child-takeover (`backendServer.py` runs `socketio.run(debug=True)` → reloader spawns a child, parent exits, bash-tool reaps the orphan after ~2 min; port 5000 stops responding; proper fix is gating `debug=True` behind `PIANOID_FLASK_DEBUG=1`, tracked in `WORK_IN_PROGRESS.md`). Long-running-process harness gate trips even under bypassPermissions — don't retry, escalate via SendMessage.
 
 ### Clean up — full clearance sweep
+Preferred: the clean-stack AFTER above (`tools\kill_pianoid.ps1` + `tools/dev-pipeline/env_sweep.py`, pages closed). Port-only fallback:
 ```bash
 # Graceful shutdown of servers started by this agent (or run env_sweep.py)
 for port in 5000 5001 3000 3001; do
@@ -101,7 +115,7 @@ for port in 5000 5001 3000 3001; do
   fi
 done
 ```
-All four Pianoid ports come down at handoff (unless the orchestrator flagged a concurrent agent). If chrome-devtools opened a browser, close the page before exiting.
+All four Pianoid ports + the agent spare ports come down at handoff (unless the orchestrator flagged a concurrent agent, or the brief explicitly asks for ONE clean stack left running). Close every chrome-devtools page (last → `about:blank`) before exiting.
 
 ## Step 2 — baseline perf test (concrete)
 ```bash

@@ -26,6 +26,8 @@ The Pianoid stack uses four ports. Kill **only** processes bound to these (PID-t
 
 The full clearance sweep targets exactly `3000 3001 5000 5001`.
 
+**Agent spare ports** (not part of the user's stack — only agents use them): **3002–3020** (worktree CRA dev servers, e.g. `PORT=3013 BROWSER=none npx react-scripts start` — seen on 3005, 3012–3018) and **5002–5020** (worktree / isolated backends, e.g. `:5012`). Anything Pianoid listening there is an agent artefact and is swept by the [Clean stack](#clean-stack) procedure (marker-gated — a foreign app on a spare port is reported, never killed). `:8001` (MkDocs) is not swept.
+
 ## Interpreters (per-OS) {#interpreters}
 
 The project's **only** venv is `PianoidCore/.venv/` (never the repo-root `.venv/`, never system Python). A stray binary from any other venv is silently stale at the C++ API level → runtime `AttributeError`; rebuild rather than cross-fetch.
@@ -121,9 +123,47 @@ python tools/dev-pipeline/env_sweep.py            # port-scoped kill (3000/3001/
 python tools/dev-pipeline/env_sweep.py --no-kill  # inspect only
 ```
 
-`env_sweep.py` can ONLY kill PIDs discovered as listeners on those four ports (the safety invariant is encoded in code — there is no path to kill by name). Use it instead of hand-pasting a `for port in … taskkill` loop. (Cross-platform: Windows `Get-NetTCPConnection`→`Stop-Process`; Linux `lsof`/`ss`→`kill`.)
+`env_sweep.py` can ONLY kill PIDs discovered as listeners on those four ports — plus, on the [agent spare ports](#ports) 3002–3020 / 5002–5020, listeners whose command line carries a Pianoid marker (incl. `D:\repos\wt-*` worktrees); a foreign spare-port listener is reported, never killed (`--no-spare` skips that pass). The safety invariant is encoded in code — there is no path to kill by name. Use it instead of hand-pasting a `for port in … taskkill` loop. (Cross-platform: Windows `Get-NetTCPConnection`→`Stop-Process`; Linux `lsof`/`ss`→`kill`.)
+
+The **tree-kill companion** `tools/kill_pianoid.ps1` (`-DryRun` to preview) is what makes a sweep equivalent to the user's icon launcher *and stronger*: it tree-kills the `concurrently` supervisor (a port-only kill lets it respawn its children), the core-port owners, and marker-matched orphans (`backendServer.py`, `modal_adapter_server.py`, `server/launcher.js`, `PianoidTunner`, worktree `wt-*` dev servers), and reports spare-port listeners + `pianoidCuda*.pyd` [build holders](#build-holders). The full BEFORE/AFTER procedure that uses both is [Clean stack](#clean-stack).
 
 > **User restart routine (2026-07-10, user-directed).** The user's standard restart is via the **icon launcher**, which auto-checks ports **3000/3001/5000/5001** and **kills both the backend and the npm/CRA dev server** before starting fresh; the user also does a **full browser reload** and restarts the npm server. Consequence for debugging: the server side and the served JS bundle are freshly rebuilt on every restart — so do NOT reach for a **"stale server"** or **"stale dev-server HMR"** hypothesis, and don't default to **"just hard-refresh / stale JS"** when a fix "doesn't work" for the user. The remaining vectors are **persisted browser localStorage / a saved setting** (survives a reload) or a **real bug** — isolate with a clean isolated browser context + localStorage enumeration.
+
+## Clean stack — BEFORE and AFTER every test/run (MANDATORY) {#clean-stack}
+
+**User directive (2026-10-10):** *"I always start Pianoid with an icon launcher, which cleans the stack before launching anything new. Update the testing procedure so the agent always cleans both before and after the testing."* Every agent that starts, tests, drives, or verifies Pianoid (live UI, REST, backend, offline harness that loads the engine) runs this procedure **BEFORE** it starts anything and **AFTER** it finishes — on every exit path (pass, fail, crash, abort, pause).
+
+**What the icon launcher does** (the model to mirror): Desktop `Pianoid.lnk` → `start-pianoid.bat /auto` → `check-running-servers.ps1` finds listeners on 3000/3001/5000/5001 and (on the user's *Yes*) kills them PID-targeted → `npm run dev` (launcher :3001 + CRA :3000, CRA opens ONE browser tab) → the user clicks APPLY (backend :5000). Agents must NOT run the `.bat` (timed pop-up + long-running starter = invisible CLI gate); the agent equivalent is the sweep below + the detached launcher path.
+
+**Incidents this prevents:** 4 Pianoid tabs left open on :3000 all auto-loading the preset at once → backend `0xC0000005` on 2 of 3 restarts (2026-10-10); worktree CRA servers left on 3005 / 3012–3018 and a worktree backend on :5012; isolated/guarded test tabs re-applying settings on reconnect; two-tab interference; stale `.pyd` / `SDL3.dll` holders blocking rebuilds. **Root cause of the extra tabs:** CRA's `react-scripts start` opens a NEW tab in the user's default browser on every start unless `BROWSER=none` — every agent `npm run dev` restart therefore left one more auto-loading Pianoid tab in the user's Chrome.
+
+### BEFORE (clean, then start fresh)
+
+1. **Inventory (read-only):** `powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1 -DryRun` and `python tools/dev-pipeline/env_sweep.py --no-kill` — core-port listeners, spare-port listeners, marker-matched orphans, `.pyd` holders. Log it.
+2. **Concurrency gate.** If the orchestrator/brief says a concurrent agent is actively using the stack, do NOT sweep it — work on your own spare port / worktree and clean only what you own. Otherwise the user's stack is sweepable without asking (orchestrator standing directive).
+3. **Sweep (= icon launcher + agent extras):** `powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1` (supervisor tree + core ports + orphans + `wt-*` dev servers) **then** `python tools/dev-pipeline/env_sweep.py` (re-verifies 3000/3001/5000/5001 free + marker-gated spare-port sweep) → **must exit 0**.
+4. **Build holders:** `tasklist //M pianoidCuda.cp312-win_amd64.pyd` (and `_debug`) must list nothing, except a live concurrent agent's harness (never kill another agent's process — coordinate via the orchestrator).
+5. **Browser pages:** chrome-devtools `list_pages` → `close_page` every page except one → `navigate_page` the last one to `about:blank` (the MCP cannot close its last page). Never open Pianoid in the user's own browser.
+6. **Start fresh via the launcher path** (agent form of the icon launcher, `BROWSER=none` so CRA opens NO tab):
+   ```powershell
+   $env:BROWSER='none'; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/npmdev.log" -RedirectStandardError "D:/tmp/npmdev.err"
+   ```
+   wait for 3000 + 3001 LISTENING → `POST http://127.0.0.1:3001/api/start-backend` → poll `GET :5000/health` → load the preset (UI APPLY or `POST /load_preset`) → open **exactly ONE** agent page (`new_page`/`navigate_page` on `http://localhost:3000`). A worktree FE goes on a spare port with `BROWSER=none` ([UI testing → worktree FE](guides/UI_TESTING.md#branch-fe-from-a-worktree-against-the-users-live-backend-agents)).
+
+### AFTER (on every exit path)
+
+1. **Close all agent pages:** `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank` (BEFORE stopping the backend, so no tab reconnects / re-applies settings).
+2. **Stop everything you created:** spare-port CRA servers, worktree/isolated backends, the modal adapter, in-process harnesses/pytest holding the `.pyd`, MkDocs if you started it; unlink worktree `node_modules` junctions before `git worktree remove`.
+3. **End state — exactly one of:**
+   - **Clean slate (DEFAULT)** — the `/orchestrator` "Full Clearance Before Every Handoff" / `/dev` "Clean Up After Yourself" / [P1](development/USER_INTERACTION_RULES.md) rule: run the sweep (BEFORE step 3) → nothing Pianoid running. The user restarts with the icon launcher.
+   - **One clean stack** — ONLY when the brief/orchestrator explicitly says the user needs the stack running at handoff (e.g. "restart the backend for me", a wrap that ends "backend restarted, `/load_preset` 200"): sweep, then start exactly ONE stack via BEFORE step 6 (`BROWSER=none`), preset loaded, and **zero agent pages on it** — the user's own browser is the client (they reload it themselves).
+   - **Concurrent agent using the stack** — stop only what YOU created; leave its stack; report to the orchestrator, which owns the final sweep at the user handoff.
+4. **Verification checklist** (paste the evidence into the session log / report):
+   - [ ] `Get-NetTCPConnection -State Listen | ? { $_.LocalPort -in (3000..3020 + 5000..5020) }` → **empty** (clean slate) or exactly **3000, 3001, 5000** (one stack; +5001 only if requested). Nothing on 3002–3020 / 5002–5020.
+   - [ ] `kill_pianoid.ps1 -DryRun` → **no Pianoid processes** (clean slate) or exactly ONE stack tree (one `concurrently` + launcher + CRA + one `backendServer.py` pair) — no duplicate backend, no `wt-*` dev server, no orphan.
+   - [ ] `.pyd` holders → none, or only the single stack's backend.
+   - [ ] chrome-devtools `list_pages` → only `about:blank`.
+   - [ ] Report (never touch) user-browser clients: `Get-NetTCPConnection -State Established -RemotePort 3000` from `chrome.exe` ≈ one per open Pianoid tab in the user's Chrome — if >1, say so in the report (the multi-tab concurrent-autoload crash risk).
 
 ## Docs-first for build + run (MANDATORY) {#docs-first-build--run}
 

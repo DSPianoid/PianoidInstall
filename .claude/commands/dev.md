@@ -374,6 +374,13 @@ After both checks, summarize to the user:
 
 **When you hit an operational blocker — a server won't start or won't stay up, a tab needs a fresh load, the backend keeps dropping — the answer is ALWAYS a documented procedure, NEVER offloading the step to the user.** A persistent operational blocker means you haven't found or applied the right documented procedure yet — not that the task needs the user. The most common trap: a long-running server won't stay up because it was started via Bash / `run_in_background`, which (a) hits the harness long-running-process permission gate that prompts even under bypass mode (so the process just looks "stuck"), and (b) gets reaped / reloader-orphaned after ~30–120 s. The documented fix is a detached `Start-Process -WindowStyle Hidden` with redirected output (or the project's start API) — see the startup hierarchy below + the project's live-UI / startup-troubleshooting guides ([`PROJECT_CONFIG.md#doc-hierarchy`](../../docs/PROJECT_CONFIG.md#doc-hierarchy)). Solve it; do not escalate it to the user.
 
+### Clean the Stack — BEFORE and AFTER every test/run (MANDATORY)
+
+**User directive (2026-10-10):** agents clean the stack **both before and after** any testing, the way the user's own launcher does before it starts anything. Applies to every live run, UI/REST test, backend start, and in-process harness that loads the engine — on every exit path. The concrete project procedure + verification checklist is [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) (commands in the [worked-examples companion](../skill-examples/dev.md)).
+
+- **BEFORE:** (1) inventory read-only (the kill script's dry-run + the sweep's inspect mode); (2) concurrency gate — if the orchestrator says a concurrent agent is using the stack, do not sweep it, work on your own spare port/worktree; (3) the FULL sweep — dev-server supervisor tree, every stack port, the project's agent **spare ports** ([`#ports`](../../docs/PROJECT_CONFIG.md#ports)), marker-matched orphans — and confirm no stale native build holder ([`#build-holders`](../../docs/PROJECT_CONFIG.md#build-holders)); (4) close every browser-automation page (the MCP cannot close its last page → navigate it to `about:blank`); (5) start fresh via the project's launcher path with the dev server's **browser auto-open disabled** (an auto-opened tab lands in the USER's browser and outlives you), then open **exactly ONE** automation page.
+- **AFTER:** (1) close all automation pages FIRST (last → `about:blank`), before servers go down, so no tab reconnects and re-applies state; (2) stop everything you created (spare-port dev servers, worktree/isolated backends, adapters, harnesses); (3) end state = **clean slate** (default — see *Clean Up After Yourself*), or **exactly one clean stack** via the launcher path with zero automation pages ONLY when the brief explicitly says the user needs it running, or — concurrent agent on the stack — only what you created comes down; (4) run the verification checklist (listeners = none or exactly the one-stack set; no extra project processes; no stale holder; automation pages = only `about:blank`) and log the evidence.
+
 ### Kill Stale Processes
 
 Before running any tests, builds, or starting servers, **always** kill existing project backend and frontend processes. Stale instances from previous sessions cause port conflicts and distorted output (e.g. two drivers fighting over a shared device).
@@ -435,7 +442,7 @@ Run the project's port-scoped process sweep ([`#process-sweep`](../../docs/PROJE
 - Your working tree must be clean at handoff: commit or stash real work, and **revert** temporary debug/instrumentation rather than committing it — a dirty tree is not a clean handoff
 - Include clearance in ALL exit paths: Step 10a (wrap-up), Step 10b (reset), Step 10c (pause), and error/exception paths
 - The user should never have to clean up after an agent — leaving stale processes OR uncommitted changes is a severe violation
-- If the agent used a browser-automation tool to open a page, close the page before exiting
+- Close EVERY browser-automation page you opened (last one → `about:blank`) before exiting, and never leave a dev server that auto-opened a tab in the user's browser — the AFTER half of *Clean the Stack — BEFORE and AFTER* ([`#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)), incl. its verification checklist
 
 ## Step 2: Baseline Performance Test
 

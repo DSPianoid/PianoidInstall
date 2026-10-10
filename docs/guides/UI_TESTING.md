@@ -34,31 +34,28 @@ Three processes must run together for a UI test:
 
 ## Start Sequence
 
-### 1. Clear ports (port-targeted, never blanket kill)
+### 1. Clean the stack (BEFORE — mandatory, mirrors the icon launcher)
 
-```bash
-for port in 5000 5001 3000 3001; do
-  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "Killing PID $pid on port $port"
-    taskkill //F //PID "$pid" 2>/dev/null
-  fi
-done
-sleep 2
-netstat -ano | grep -E ":(3000|3001|5000|5001) " && echo "WARNING: ports still in use" || echo "Clear"
+Follow [`PROJECT_CONFIG.md` → Clean stack](../PROJECT_CONFIG.md#clean-stack) (the SSOT procedure + verification checklist). In short:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1 -DryRun   # inventory: ports, spare ports, orphans, .pyd holders
+powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1           # tree-kill supervisor + core ports + orphans + wt-* dev servers
+python tools/dev-pipeline/env_sweep.py                                       # verify 3000/3001/5000/5001 free + spare-port sweep (exit 0)
 ```
+
+Then close every agent browser page (chrome-devtools `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank`). Skip the sweep only if the orchestrator says a concurrent agent is using the stack.
 
 !!! danger "Never blanket kill"
     Do **not** run `taskkill //F //IM python.exe` or `taskkill //F //IM node.exe`. It kills MCP servers, Chrome DevTools, and Claude Code itself.
 
 ### 2. Start launcher + frontend
 
-```bash
-cd PianoidTunner
-npm run dev > /tmp/test-ui-frontend.log 2>&1
+```powershell
+$env:BROWSER='none'; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/npmdev.log" -RedirectStandardError "D:/tmp/npmdev.err"
 ```
 
-Run this with `run_in_background: true` on the Bash tool (never shell `&` — the harness reports immediate exit).
+Detached `Start-Process` (a Bash `npm run dev` trips the harness long-running-process gate). **`BROWSER=none` is mandatory for agents:** without it CRA opens a new tab in the user's default browser on every start, and every such tab auto-loads the preset on reconnect (4 stale tabs → concurrent `/load_preset` → backend `0xC0000005`, 2026-10-10). Open exactly ONE page yourself via chrome-devtools.
 
 Wait for **both** ports to bind:
 
@@ -184,7 +181,7 @@ done
 
 The launcher installs `SIGINT`/`SIGTERM` handlers (launcher.js:346) that `taskkill /T /F` its children on exit, so killing the launcher alone usually reaps the backend. Closing the `npm run dev` terminal also triggers this.
 
-**MANDATORY**: every agent that starts any of these processes must tear them all down before exiting — regardless of test outcome. Leaving stale processes blocks the next test run.
+**MANDATORY**: every agent that starts any of these processes must tear them all down before exiting — regardless of test outcome. Leaving stale processes blocks the next test run. The full AFTER procedure (close all agent pages → stop everything you created → clean slate by default, or exactly ONE clean stack only when the user needs it running → verification checklist) is [`PROJECT_CONFIG.md` → Clean stack](../PROJECT_CONFIG.md#clean-stack); `tools\kill_pianoid.ps1` + `env_sweep.py` replace the port loop above.
 
 ---
 

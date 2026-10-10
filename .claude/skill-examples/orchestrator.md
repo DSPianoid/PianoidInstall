@@ -70,7 +70,7 @@ python -c "import json,os; p=os.path.expanduser('~/.claude/teams/pianoid-dev/inb
 
 ## Ports (body: "Full Clearance" / "Pre-Handoff Process Hygiene" / "UI Testing Agent Crash Monitoring")
 
-The Pianoid stack uses four ports (`PROJECT_CONFIG.md#ports`): **3000** (React frontend / PianoidTunner dev server), **3001** (Node launcher / backend manager, REST on `/api/*`), **5000** (Flask backend + CUDA engine), **5001** (modal adapter backend). The full-clearance sweep targets exactly `3000 3001 5000 5001`. (Docs preview: **8001** for MkDocs.)
+The Pianoid stack uses four ports (`PROJECT_CONFIG.md#ports`): **3000** (React frontend / PianoidTunner dev server), **3001** (Node launcher / backend manager, REST on `/api/*`), **5000** (Flask backend + CUDA engine), **5001** (modal adapter backend). The full-clearance sweep targets exactly `3000 3001 5000 5001`, plus the **agent spare ports** 3002–3020 (worktree CRA) / 5002–5020 (worktree / isolated backends) — marker-gated, a foreign listener there is left alone. (Docs preview: **8001** for MkDocs.) BEFORE/AFTER procedure for every test/run agent: [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack).
 
 ---
 
@@ -121,6 +121,9 @@ Pre-handoff per-resource checks:
 | 5000 | Main backend | `netstat -ano \| grep ":5000"` |
 | 5001 | Modal adapter backend | `netstat -ano \| grep ":5001"` |
 | 8001 | MkDocs server | `netstat -ano \| grep ":8001"` |
+| 3002–3020, 5002–5020 | Agent worktree CRA / isolated backends | `python tools/dev-pipeline/env_sweep.py --no-kill` (spare-port section) |
+| chrome-devtools pages | Agent browser tabs | `list_pages` → must be only `about:blank` |
+| User-browser tabs on :3000 | Report only (never touch) | `Get-NetTCPConnection -State Established -RemotePort 3000` (one per tab) |
 | `pianoidCuda.cp312-win_amd64.pyd` | Python holding the CUDA module | `tasklist //M pianoidCuda.cp312-win_amd64.pyd` |
 | `cudart64_12.dll` | Process holding CUDA runtime | `tasklist //M cudart64_12.dll` |
 

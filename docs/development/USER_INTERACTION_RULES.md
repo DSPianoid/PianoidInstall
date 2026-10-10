@@ -74,6 +74,13 @@ servers down, all working trees clean, ready for the user to launch a fresh slat
 - Clearance uses the canonical port-scoped sweep — see
   [`PROJECT_CONFIG.md#process-sweep`](../PROJECT_CONFIG.md#process-sweep) — over the project's stack ports
   ([`#ports`](../PROJECT_CONFIG.md#ports)); never blanket-kill node/python.
+- **Clean BEFORE and AFTER every test/run (user directive 2026-10-10).** Mirror the user's icon launcher:
+  sweep the stack (incl. agent spare ports + orphans + `.pyd` holders) and close every agent browser page
+  BEFORE starting anything, and again AFTER testing; agents start CRA with `BROWSER=none` (CRA otherwise
+  opens one more auto-loading tab in the user's Chrome per restart). The only time a stack is left running
+  is the explicit "one clean stack" case (e.g. the P2 restart-after-merge) — exactly ONE stack started via
+  the launcher path, zero agent tabs on it. Procedure + verification checklist:
+  [`PROJECT_CONFIG.md#clean-stack`](../PROJECT_CONFIG.md#clean-stack).
 
 ### P2 — Merge a verified fix to `dev` BEFORE the user tests it
 The user tests on the `dev` branch. Merge a verified fix to `dev` BEFORE the user tests it — do NOT keep

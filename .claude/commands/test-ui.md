@@ -31,7 +31,7 @@ The frontend toolbar exposes two MUI Chips that signal lifecycle: **"Synth"** (g
 A stale binary or stale server makes every measurement in this skill a lie. 2026-04-23 lost ~3h to a silently-stale `.pyd`.
 
 - **Before starting backend/frontend** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md` + `docs/guides/STARTUP_TROUBLESHOOTING.md`.
-- **Pre-start hygiene** — kill stale `.pyd` holders (`tasklist //M pianoidCuda.cp312-win_amd64.pyd`) and stale backends on ports 3000/3001/5000/5001. Phase 1 already does port cleanup — do NOT skip.
+- **Pre-start hygiene** — the Phase 1 clean-stack BEFORE ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)): sweep stale backends/dev servers (core + agent spare ports), `.pyd` holders, and agent browser pages — do NOT skip; Phase 7 repeats it AFTER.
 - **If this test requires a rebuild first** — canonical build = `cd /d PianoidCore && .\build_pianoid_cuda.bat --heavy --both` via the **detached `Start-Process`** form in agent context (absolute bat path, stop the `.pyd` holder first); NEVER `cmd //c … --heavy` (bricks the venv) and NEVER `pip install --force-reinstall … pianoid_cuda/` (stale `.pyd`). Full docs-first discipline + procedure: [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run) / [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first).
 - **Canonical venv only.** The project's only venv is `PianoidCore/.venv/`. If `pianoidCuda.cp312-win_amd64.pyd` or `pianoidCuda_debug.cp312-win_amd64.pyd` is MISSING from `PianoidCore/.venv/Lib/site-packages/`, **rebuild via `build_pianoid_cuda.bat`** — do NOT copy or fetch the file from any other venv (e.g. a stray root `.venv/`). Cross-venv binaries are silently stale at the C++ API level and produce runtime AttributeError. (2026-04-30 incident: 20-day-old debug pyd cross-fetched from root venv → `'pianoidCuda_debug.Pianoid' object has no attribute 'runSynthesisKernel'`.)
 - **Verify rebuild landed** before measuring: `grep -a "<marker-you-added>" PianoidCore/.venv/Lib/site-packages/pianoidCuda.cp312-win_amd64.pyd`. Missing marker = stale binary = every "AFTER" number is garbage.
@@ -145,32 +145,25 @@ If this line is missing from the log, the agent crashed before completing.
 
 ### Phase 1: Setup
 
-1. Kill stale Pianoid processes (**ONLY on Pianoid ports — never blanket-kill python.exe or node.exe**). **NEVER rely on servers already running — always kill and start fresh with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state.**
-   ```bash
-   echo "[$(date -Iseconds)] Phase 1: Killing stale processes" >> /tmp/test-ui-session.log
-   # Kill ONLY processes on Pianoid ports (5000=backend, 5001=modal adapter, 3000/3001=frontend)
-   for port in 5000 5001 3000 3001; do
-     pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-     if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-       echo "Killing PID $pid on port $port" >> /tmp/test-ui-session.log
-       taskkill //F //PID "$pid" 2>/dev/null
-     fi
-   done
-   sleep 2
-   # Verify they're dead
-   echo "[$(date -Iseconds)] Post-kill process check:" >> /tmp/test-ui-session.log
-   netstat -ano 2>/dev/null | grep -E ":(3000|3001|5000) " >> /tmp/test-ui-session.log 2>&1 || echo "  (none running)" >> /tmp/test-ui-session.log
+1. **Clean the stack — BEFORE (MANDATORY, mirrors the user's icon launcher).** Follow [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) → BEFORE. **NEVER rely on servers already running — always clean and start fresh with the correct venv (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state.** Port-targeted / marker-matched only — never blanket-kill python.exe or node.exe.
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1 -DryRun   # inventory -> log it
+   powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1           # supervisor tree + core ports + orphans + wt-* dev servers
+   python D:\repos\PianoidInstall\tools\dev-pipeline\env_sweep.py                                       # MUST exit 0 (core ports free + spare ports 3002-3020/5002-5020 swept)
+   tasklist /M pianoidCuda.cp312-win_amd64.pyd                                                         # no holder left (except a live concurrent agent's harness)
    ```
+   Then **close every agent browser page**: chrome-devtools `list_pages` → `close_page` every page but one → `navigate_page` the last to `about:blank`. Append the inventory + sweep output to `/tmp/test-ui-session.log`. (Skip the sweep only if the orchestrator says a concurrent agent is using the stack — then clean only what you own.)
 
 2. Start frontend — **use the PowerShell tool with `Start-Process -WindowStyle Hidden`, NOT `npm run dev &` in Bash.** A bare `npm run dev` spawns React + the launcher via `concurrently` (multiple child processes); under the Claude Code harness that trips the "long-running process" detector, which raises a CLI permission prompt **regardless of `bypassPermissions`** — invisible to a Telegram user, hanging the agent indefinitely. The detached `Start-Process` form avoids the gate:
    ```powershell
-   Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/test-ui-frontend.log" -RedirectStandardError "D:/tmp/test-ui-frontend.err"
+   $env:BROWSER='none'; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/test-ui-frontend.log" -RedirectStandardError "D:/tmp/test-ui-frontend.err"
    ```
+   **`BROWSER=none` is mandatory** — without it CRA opens a new tab in the user's own Chrome on every start, and those stale tabs auto-load the preset concurrently (2026-10-10 backend `0xC0000005`).
    Log the start to `/tmp/test-ui-session.log`, then poll for ports 3000 + 3001 to reach LISTENING (up to 60s); log when available. If `Start-Process` itself trips the gate on the session's first process, escalate to the orchestrator via SendMessage — do NOT retry (each retry re-prompts).
 
 3. **Timeout safeguard:** If any chrome-devtools MCP call (especially `new_page`, `navigate_page`) does not respond within 30 seconds, log the timeout to `/tmp/test-ui-session.log`, capture crash diagnostics (process list, port state), then abort and report: "Browser MCP timed out — chrome-devtools server may not be running or is unresponsive. See /tmp/test-ui-session.log for diagnostics." Do NOT retry or wait indefinitely.
 
-4. Open browser, set layout if needed, navigate to `http://localhost:3000`. Log each MCP call.
+4. Open **exactly ONE** agent page (reuse the `about:blank` page via `navigate_page`, or `new_page`), set layout if needed, navigate to `http://localhost:3000`. Never open a second Pianoid tab — every tab auto-loads the preset on (re)connect. Log each MCP call.
 
 5. Click **APPLY** → wait for the **"Synth"** Chip in the toolbar to turn green (the strict-A1 readiness signal — synthesis kernel running, GPU initialised). The "Audio" Chip may stay grey: this skill operates in audio_off mode (see Audio Mode below).
 
@@ -260,25 +253,19 @@ For features with a range (volume slider, sensitivity):
    - range=2: 4× total (center/2 to center×2)
    - range=5: 25× total
 
-### Phase 7: Cleanup (MANDATORY — NEVER SKIP)
+### Phase 7: Cleanup — AFTER (MANDATORY — NEVER SKIP)
 
-**You MUST clean up ALL servers and browser pages you started, regardless of test outcome.** Leaving stale processes prevents the user from restarting and is a severe violation.
+**Clean the stack AFTER, on every exit path** — [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) → AFTER. Leaving stale processes or tabs prevents the user from restarting cleanly and is a severe violation.
 
-```bash
-echo "[$(date -Iseconds)] Phase 7: Cleanup" >> /tmp/test-ui-session.log
-# Close browser page via chrome-devtools MCP (close_page) FIRST
-# Then stop backend gracefully
-curl -s -X POST http://127.0.0.1:3001/api/stop-backend 2>/dev/null
-# Kill ALL processes on Pianoid ports — never blanket-kill python.exe or node.exe
-for port in 5000 5001 3000 3001; do
-  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "Cleanup: killing PID $pid on port $port" >> /tmp/test-ui-session.log
-    taskkill //F //PID "$pid" 2>/dev/null
-  fi
-done
-echo "[$(date -Iseconds)] Session complete" >> /tmp/test-ui-session.log
-```
+1. **Close all agent pages FIRST** (before the backend goes down, so no tab reconnects / re-applies settings): `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank`.
+2. **Stop everything you started** (spare-port CRA, worktree/isolated backend, modal adapter, harness), then sweep:
+   ```powershell
+   curl.exe -s -X POST http://127.0.0.1:3001/api/stop-backend
+   powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1
+   python D:\repos\PianoidInstall\tools\dev-pipeline\env_sweep.py      # MUST exit 0
+   ```
+3. **End state:** clean slate (default). Only if the brief says the user needs the stack running: start exactly ONE stack via Phase 1 step 2 (`BROWSER=none`) + `/api/start-backend` + preset, with **zero** agent pages on it. If the orchestrator flagged a concurrent agent on the stack: stop only what you created.
+4. **Verification checklist** (log the evidence): listeners on 3000–3020 / 5000–5020 = none (or exactly 3000/3001/5000 for the one-stack case); `kill_pianoid.ps1 -DryRun` = no Pianoid processes (or one stack tree); no `.pyd` holder (or only that backend); `list_pages` = only `about:blank`; report (never touch) how many user-Chrome clients are ESTABLISHED to :3000.
 
 **This cleanup MUST run even if:**
 - The test failed or crashed

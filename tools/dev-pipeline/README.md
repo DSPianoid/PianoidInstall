@@ -89,6 +89,13 @@ on the four Pianoid ports `3000/3001/5000/5001`. Never by image name. Never a fi
 kill are coupled per port, so there is no code path to kill anything else. Cross-platform
 (Windows `Get-NetTCPConnection`→`Stop-Process`; Linux `lsof`/`ss`→`kill`).
 
+**Agent spare ports (2026-10-10):** listeners on `3002–3020` (worktree CRA dev servers) and
+`5002–5020` (worktree / isolated backends) are also swept — but ONLY when the listener's command
+line carries a Pianoid marker (`backendServer.py`, `server/launcher.js`, `PianoidTunner`,
+`PianoidCore`, `pianoid_middleware`, `PianoidInstall`, or a `…/wt-<name>/…` worktree path). A
+foreign app on a spare port is reported and left alone. `--no-spare` skips this pass. Part of the
+clean-stack BEFORE/AFTER procedure (`docs/PROJECT_CONFIG.md#clean-stack`).
+
 ```bash
 python tools/dev-pipeline/env_sweep.py            # sweep + verify free + per-repo git status
 python tools/dev-pipeline/env_sweep.py --no-kill  # inspect only (kill nothing)

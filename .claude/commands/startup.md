@@ -32,6 +32,7 @@ This skill is the single reference for all installation, build, and startup oper
 5. **Never blanket-kill processes** — always kill by specific PID, never `taskkill /F /IM python.exe` or `taskkill /F /IM node.exe`
 6. **Use the correct venv** — always `PianoidCore\.venv`, never root `.venv/` or system Python
 7. **Port-specific cleanup** — use `netstat -ano | findstr :<port>` to identify PIDs before killing. Pre-start hygiene: kill stale `.pyd` holders (`tasklist //M pianoidCuda.cp312-win_amd64.pyd`) and stale backends on ports 3000/3001/5000/5001.
+8. **Clean the stack BEFORE and AFTER (MANDATORY — mirrors the user's icon launcher)** — before any start/restart and again when you finish: `tools\kill_pianoid.ps1` (tree-kill + orphans + worktree `wt-*` dev servers) → `tools/dev-pipeline/env_sweep.py` (exit 0, incl. agent spare ports 3002–3020 / 5002–5020) → close every agent browser page (last one → `about:blank`); start CRA with **`BROWSER=none`** (otherwise every agent start opens one more auto-loading tab in the user's Chrome). Procedure, end states and verification checklist: [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack).
 
 **Violation consequences** — 2026-04-23 volume-iter investigation: ~3 hours of wrong conclusions from a single stale binary after skipping docs-first on a rebuild.
 
@@ -107,6 +108,7 @@ PianoidInstall/                    (installer + launcher repo)
 |--------|---------|--------|
 | **UI method (standard)** | `start-pianoid.bat` | Opens terminal with launcher + React. Backend starts on APPLY click. |
 | **UI method (manual)** | `cd PianoidTunner && npm run dev` | Same as above without pre-flight checks |
+| **Agent method** | clean-stack sweep, then `$env:BROWSER='none'; Start-Process -WindowStyle Hidden cmd.exe /c "npm run dev"` in `PianoidTunner` → `POST :3001/api/start-backend` | Same stack, detached, NO browser tab opened ([`#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)) |
 | **CLI backend only** | `cd PianoidCore && .venv\Scripts\activate && cd pianoid_middleware && python backendserver.py` | Flask on :5000, no preset loaded |
 | **CLI frontend only** | `cd PianoidTunner && npm start` | React on :3000 (no launcher on :3001) |
 | **Debug build** | `set PIANOID_USE_DEBUG=1 && python backendserver.py` | Loads `pianoidCuda_debug` |
@@ -213,6 +215,8 @@ build_pianoid_cuda.bat --heavy --both
 
 ### Step 3C: Port Conflict
 
+0. **Preferred:** the clean-stack sweep ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)) — `powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1 -DryRun` (inventory incl. spare ports 3002–3020 / 5002–5020 and `.pyd` holders) → `tools\kill_pianoid.ps1` → `python tools/dev-pipeline/env_sweep.py` (exit 0). The manual steps below are the fallback.
+
 1. Identify what's using the port:
 
 ```bash
@@ -306,7 +310,8 @@ After applying a fix:
 2. **Backend health**: `curl http://localhost:5000/health`
 3. **Preset-load smoke-test (L2 — REQUIRED after any rebuild)**: `POST /load_preset {path:"presets/BaselinePreset1.json"}` → expect **200**, `pianoid_loaded=true`, no Python traceback (an API divergence from a merge/pull shows only here, not at import)
 4. **Audio verification**: play a note through the UI or API and confirm audio output
-5. **Full stack**: open http://localhost:3000, click APPLY, play a note
+5. **Full stack**: open http://localhost:3000, click APPLY, play a note (ONE agent page only)
+6. **Clean AFTER**: close all agent pages (last → `about:blank`), then leave a clean slate — or exactly ONE stack started via the agent launcher path with zero agent pages if the user needs it running — and run the [`#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) verification checklist
 
 ### Step 5: Report
 

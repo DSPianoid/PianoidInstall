@@ -206,6 +206,8 @@ After all tasks in a wave complete, run tests appropriate to the wave's scope. R
 
 **System tests are deferred to Phase 4** — they require exclusive hardware access, and running them per-wave would serialize everything.
 
+**Any test that starts or drives the stack** (live UI, REST, engine-loading harness) runs the project's clean-stack procedure BEFORE and AFTER ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack)) — full sweep incl. agent spare ports + orphans, all automation pages closed, browser auto-open disabled on dev servers. Every wave agent's brief must say so.
+
 ### 3.5 Post-Wave Merge
 
 After wave tests pass, merge each task's branch back:
@@ -301,7 +303,7 @@ Total: Xm (estimated sequential: Ym, speedup: Z.Zx)
 
 ### 5.1 Cleanup
 
-Before declaring the environment clean, sweep the project's ports with the project's **port-scoped** sweep — never kill by image name (resolve the canonical sweep executable from [`PROJECT_CONFIG.md#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep), which names the project's richer kill script; the concrete invocation is in the [worked-examples companion](../skill-examples/multitask.md)).
+Before declaring the environment clean, run the AFTER half of the clean-stack procedure ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) — automation pages closed, spare-port/worktree servers stopped, verification checklist), then sweep the project's ports with the project's **port-scoped** sweep — never kill by image name (resolve the canonical sweep executable from [`PROJECT_CONFIG.md#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep), which names the project's richer kill script; the concrete invocation is in the [worked-examples companion](../skill-examples/multitask.md)).
 
 Ask user before each action:
 

@@ -68,6 +68,7 @@ def test_sweep_reports_still_in_use_when_kill_fails(monkeypatch):
 
 def test_main_exit_code_clear(monkeypatch, fake_repo, capsys):
     monkeypatch.setattr(env_sweep, "listeners", lambda port: [])
+    monkeypatch.setattr(env_sweep, "spare_listeners", lambda ports: [])
     monkeypatch.setattr(common, "run_git", lambda args, cwd, check=True: type(
         "P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
     rc = env_sweep.main(["--no-kill"])
@@ -77,6 +78,7 @@ def test_main_exit_code_clear(monkeypatch, fake_repo, capsys):
 
 def test_main_exit_code_2_when_in_use(monkeypatch, fake_repo, capsys):
     monkeypatch.setattr(env_sweep, "listeners", lambda port: [777] if port == 5000 else [])
+    monkeypatch.setattr(env_sweep, "spare_listeners", lambda ports: [])
     monkeypatch.setattr(env_sweep, "kill_pid", lambda pid: False)
     monkeypatch.setattr(common, "run_git", lambda args, cwd, check=True: type(
         "P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
@@ -112,3 +114,54 @@ def test_render_contains_ports_and_repos(monkeypatch):
     assert "port 3000" in text and "port 5000" in text
     assert "PianoidInstall: clean" in text
     assert "All swept ports clear" in text
+
+
+# --- agent spare-port sweep (marker-gated) ---------------------------------------------------------
+
+def test_spare_ports_cover_agent_ranges():
+    for port in (3005, 3010, 3012, 3018, 3020, 5012, 5020):
+        assert port in env_sweep.SPARE_PORTS
+    # The canonical four are swept unconditionally elsewhere, never duplicated here.
+    assert not set(env_sweep.DEFAULT_PORTS) & set(env_sweep.SPARE_PORTS)
+
+
+def test_is_pianoid_cmd_markers():
+    yes = [
+        r'"node" D:\repos\wt-febatch\node_modules\react-scripts\scripts\start.js',
+        r"python -u D:\repos\wt-sc7a-core\pianoid_middleware\backendServer.py",
+        r"node D:\repos\PianoidInstall\PianoidTunner\node_modules\react-scripts\scripts\start.js",
+        "node server/launcher.js",
+    ]
+    no = [
+        r"node C:\Users\x\AppData\Local\npm-cache\_npx\1\node_modules\chrome-devtools-mcp\build\src\index.js",
+        r"node C:\other\app\node_modules\react-scripts\scripts\start.js",
+        "", None,
+    ]
+    assert all(env_sweep.is_pianoid_cmd(c) for c in yes)
+    assert not any(env_sweep.is_pianoid_cmd(c) for c in no)
+
+
+def test_sweep_spare_kills_only_marked_listeners(monkeypatch):
+    killed = []
+    entries = [
+        {"port": 3013, "pid": 41, "name": "node.exe", "cmd": r"node D:\repos\wt-x-tunner\node_modules\react-scripts\scripts\start.js"},
+        {"port": 3010, "pid": 42, "name": "node.exe", "cmd": r"node C:\someone-else\server.js"},
+    ]
+    monkeypatch.setattr(env_sweep, "spare_listeners",
+                        lambda ports: [e for e in entries if e["pid"] not in killed and e["port"] in ports])
+    monkeypatch.setattr(env_sweep, "kill_pid", lambda pid: killed.append(pid) or True)
+    rep = env_sweep.sweep_spare(env_sweep.SPARE_PORTS, do_kill=True)
+    assert killed == [41]                       # the foreign listener is never touched
+    assert [e["pid"] for e in rep["foreign"]] == [42]
+    assert rep["still_in_use"] == []
+
+
+def test_sweep_spare_no_kill(monkeypatch):
+    killed = []
+    entry = {"port": 5012, "pid": 7, "name": "python.exe", "cmd": "python backendServer.py"}
+    monkeypatch.setattr(env_sweep, "spare_listeners", lambda ports: [entry])
+    monkeypatch.setattr(env_sweep, "kill_pid", lambda pid: killed.append(pid) or True)
+    rep = env_sweep.sweep_spare(env_sweep.SPARE_PORTS, do_kill=False)
+    assert killed == []
+    assert rep["pianoid"][0]["killed"] is False
+    assert rep["still_in_use"] == [5012]

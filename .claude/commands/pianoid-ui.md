@@ -23,7 +23,7 @@ The frontend toolbar exposes two MUI Chips signalling lifecycle: **"Synth"** (sy
 
 1. **NEVER use direct API calls** (`curl`, `fetch` via `evaluate_script`) for actions that should go through the React UI. The UI will not reflect changes and React state gets out of sync. Always interact through UI components (click, fill, press_key).
 2. **Always load presets via the Settings panel APPLY button** — this triggers `ensureBackendAndLoadPreset` which starts the backend, loads the preset, and fetches all parameters into React state.
-3. **Kill stale processes and start fresh** — NEVER rely on servers already running. Always kill stale processes on Pianoid ports (5000, 5001, 3000, 3001) and start with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state — check and fix it yourself.
+3. **Clean the stack BEFORE and AFTER, start fresh** — NEVER rely on servers already running. Always run the clean-stack sweep ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack): core ports 3000/3001/5000/5001 + agent spare ports + orphans + agent browser pages) and start with the correct venv Python (`PianoidCore/.venv/Scripts/python`). NEVER ask the user about server state — check and fix it yourself.
 4. **Never reload the page** (`window.location.reload()`) — it disconnects from the backend and may crash it. Set layout via localStorage BEFORE first navigation.
 5. **Docs-first (MANDATORY) before any server restart or rebuild** — read `docs/guides/QUICK_START.md` + `docs/modules/pianoid-middleware/REST_API.md` before starting the backend, and `docs/guides/STARTUP_TROUBLESHOOTING.md` on any startup failure. If a rebuild is needed mid-session, the canonical build is `--heavy --both` via the **detached `Start-Process`** form in agent context (NEVER `cmd //c … --heavy`, which bricks the venv; NEVER `pip install --force-reinstall … pianoid_cuda/`) — full discipline + procedure at [`PROJECT_CONFIG.md` → Docs-first for build + run](../../docs/PROJECT_CONFIG.md#docs-first-build--run) / [`BUILD_SYSTEM.md` → Canonical Install / Rebuild](../../docs/architecture/BUILD_SYSTEM.md#canonical-install--rebuild-read-this-first). Invoke `/startup` on unexpected build or startup failure rather than ad-hoc fixes. (2026-04-23: ~3h lost to a stale binary that was never docs-first-rebuilt.)
 
@@ -67,30 +67,19 @@ Backend REST API (port 5000):
 
 Follow these steps in order. Skip steps that are already satisfied.
 
-### Step 1: Kill Stale Processes
+### Step 1: Clean the Stack — BEFORE (MANDATORY)
 
-**Always run this first** to prevent audio distortion from competing processes:
+**Always run this first** — the agent equivalent of the user's icon launcher (which kills every running Pianoid server before launching). Full procedure + checklist: [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) → BEFORE.
 
-**CRITICAL: Only kill processes on Pianoid ports — NEVER blanket-kill python.exe or node.exe (kills MCP servers and Claude Code itself).**
+**CRITICAL: port-targeted / marker-matched only — NEVER blanket-kill python.exe or node.exe (kills MCP servers and Claude Code itself).**
 
-```bash
-# Kill ONLY processes on Pianoid ports (5000=backend, 3000/3001=frontend)
-for port in 5000 3000 3001; do
-  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "Killing PID $pid on port $port"
-    taskkill //F //PID "$pid" 2>/dev/null
-  fi
-done
-sleep 2
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1 -DryRun   # inventory (ports, spare ports, orphans, .pyd holders)
+powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1           # supervisor tree + core ports + orphans + wt-* dev servers
+python D:\repos\PianoidInstall\tools\dev-pipeline\env_sweep.py                                       # MUST exit 0 (3000/3001/5000/5001 free + spare ports swept)
 ```
 
-Then verify clean state:
-```bash
-curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/ 2>/dev/null || echo "DOWN"
-curl -s http://127.0.0.1:3001/api/backend-status 2>/dev/null || echo "DOWN"
-curl -s http://127.0.0.1:5000/health 2>/dev/null || echo "DOWN"
-```
+Then **close every agent browser page**: chrome-devtools `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank`. (Skip the sweep only if the orchestrator says a concurrent agent is using the stack — then clean only what you own.)
 
 ### Step 2: Set Layout (before starting frontend)
 
@@ -128,8 +117,10 @@ Layout is a binary tree: leaf nodes are window ID strings, branches have `first`
 **Use the PowerShell tool with `Start-Process -WindowStyle Hidden`, NOT a bare `npm run dev` in Bash.** `npm run dev` spawns React + the launcher via `concurrently` (multiple child processes); under the Claude Code harness that trips the "long-running process" detector, raising a CLI permission prompt **regardless of `bypassPermissions`** — invisible to a Telegram user, hanging the agent. The detached `Start-Process` form avoids the gate:
 
 ```powershell
-Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/pianoid-ui-frontend.log" -RedirectStandardError "D:/tmp/pianoid-ui-frontend.err"
+$env:BROWSER='none'; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/pianoid-ui-frontend.log" -RedirectStandardError "D:/tmp/pianoid-ui-frontend.err"
 ```
+
+**`BROWSER=none` is mandatory** — without it CRA opens a new tab in the user's own Chrome on every start; those stale tabs auto-load the preset on reconnect (4 tabs → concurrent `/load_preset` → backend `0xC0000005`, 2026-10-10).
 
 If `Start-Process` trips the gate on the session's first process, escalate to the orchestrator via SendMessage — do NOT retry.
 
@@ -158,7 +149,7 @@ If any chrome-devtools MCP call (especially `new_page`, `navigate_page`) does no
 
 Use chrome-devtools MCP:
 
-1. `new_page` → `http://localhost:3000`
+1. Open **exactly ONE** page: `navigate_page` the `about:blank` page (or `new_page`) → `http://localhost:3000`. Never a second Pianoid tab.
 2. `wait_for` → wait for "APPLY" or "Settings" text
 3. `take_screenshot` to verify UI rendered
 
@@ -394,26 +385,19 @@ Key fields: status, pianoid_loaded, gpu_initialized, audio_driver_active, availa
 
 ---
 
-## Stop Services (MANDATORY on task completion)
+## Stop Services — Clean the Stack AFTER (MANDATORY on task completion)
 
-**Always run cleanup when the UI task is finished**, whether it succeeded or failed. Do not leave services running.
+**Always run cleanup when the UI task is finished**, whether it succeeded or failed — [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) → AFTER.
 
-1. Stop backend via launcher:
-   ```bash
-   curl -s -X POST http://127.0.0.1:3001/api/stop-backend
+1. **Close all agent pages FIRST:** `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank`.
+2. **Stop everything you started, then sweep:**
+   ```powershell
+   curl.exe -s -X POST http://127.0.0.1:3001/api/stop-backend
+   powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1
+   python D:\repos\PianoidInstall\tools\dev-pipeline\env_sweep.py      # MUST exit 0
    ```
-
-2. Close browser tab: `close_page` tool
-
-3. Kill only Pianoid processes (by port, not by image name):
-   ```bash
-   for port in 5000 3000 3001; do
-     pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-     if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-       taskkill //F //PID "$pid" 2>/dev/null
-     fi
-   done
-   ```
+3. **End state:** clean slate by default. Only if the brief says the user needs the stack running: exactly ONE stack restarted via Step 3 (`BROWSER=none`) + preset, with zero agent pages on it.
+4. **Verify** (log it): no listeners on 3000–3020 / 5000–5020 (or exactly 3000/3001/5000), `kill_pianoid.ps1 -DryRun` clean (or one stack tree), no `.pyd` holder, `list_pages` = only `about:blank`.
 
 ---
 

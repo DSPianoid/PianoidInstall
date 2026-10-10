@@ -718,9 +718,9 @@ Use this checklist to verify a fresh installation:
 
 The canonical procedure for agents running `/test-ui` or verifying features in the browser lives in [UI Testing](UI_TESTING.md). Summary:
 
-1. Kill any stale processes on 3000, 3001, 5000, 5001 (port-targeted, never blanket `taskkill //IM`).
-2. `cd PianoidTunner && npm run dev` — starts launcher (3001) + React dev server (3000) together via `concurrently`.
-3. Open `http://localhost:3000`. Click **APPLY** (or POST `/api/start-backend` to :3001). The launcher spawns the backend (5000).
+1. **Clean the stack BEFORE** (and again AFTER the test) per [`PROJECT_CONFIG.md` → Clean stack](../PROJECT_CONFIG.md#clean-stack): `tools\kill_pianoid.ps1` (tree-kill + orphans + worktree dev servers) → `tools/dev-pipeline/env_sweep.py` (exit 0, incl. agent spare ports 3002–3020 / 5002–5020) → close every agent browser page (last one → `about:blank`). Port-targeted / marker-matched only, never blanket `taskkill //IM`.
+2. `npm run dev` in `PianoidTunner` with **`BROWSER=none`** (detached `Start-Process`) — starts launcher (3001) + React dev server (3000) via `concurrently`; without `BROWSER=none` CRA opens a new auto-loading tab in the user's browser on every start.
+3. Open ONE agent page on `http://localhost:3000`. Click **APPLY** (or POST `/api/start-backend` to :3001). The launcher spawns the backend (5000).
 4. Do **not** start the backend directly with `python backendserver.py` — the frontend will kill it on the next APPLY (see [Three-Process Architecture](#three-process-architecture)).
 
 ## Shutdown Sequence
@@ -738,7 +738,7 @@ for port in 3000 3001 5001 5000; do
 done
 ```
 
-The launcher has `SIGINT` / `SIGTERM` handlers that `taskkill /T /F` both children on exit (launcher.js:346). Closing the terminal where `npm run dev` runs also triggers cleanup.
+The launcher has `SIGINT` / `SIGTERM` handlers that `taskkill /T /F` both children on exit (launcher.js:346). Closing the terminal where `npm run dev` runs also triggers cleanup. Agents: the full AFTER procedure + verification checklist is [`PROJECT_CONFIG.md` → Clean stack](../PROJECT_CONFIG.md#clean-stack) (`tools\kill_pianoid.ps1` is preferred over the port loop — a port-only kill lets the `concurrently` supervisor respawn its children).
 
 ---
 

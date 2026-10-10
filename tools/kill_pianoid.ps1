@@ -9,6 +9,12 @@
     invoked from the Pianoid frontend, or the repo path). It then kills the matched
     process *trees* (taskkill /F /T) so nothing respawns, and re-checks the ports.
 
+    Agent leftovers (2026-10-10): worktree CRA dev servers on spare ports 3002-3020 and
+    worktree/isolated backends on 5002-5020 are caught by the marker pass (a wt-* worktree
+    path + a dev-server shape, or backendServer.py). Spare-port listeners and processes
+    holding pianoidCuda*.pyd (build holders) are REPORTED in every run; a foreign spare-port
+    listener and a non-server .pyd holder (a live agent's harness) are never killed here.
+
     The Pianoid stack runs under a supervisor tree:
 
         cmd.exe (user shell -- DO NOT KILL)
@@ -71,6 +77,11 @@ $ErrorActionPreference = 'Stop'
 
 $PianoidPorts = @(3000, 3001, 5000, 5001)
 
+# Agent SPARE ports (worktree CRA dev servers 3002-3020, worktree / isolated backends 5002-5020).
+# NOT killed by port (a foreign app may own one) -- a Pianoid process there is caught by the
+# command-line marker pass (incl. the wt-* worktree dev-server match); see Show-SparePortListeners.
+$SparePorts = @(3002..3020) + @(5002..5020)
+
 # Command-line substrings that positively identify a Pianoid process.
 # Matched case-insensitively against the full command line.
 $PianoidMarkers = @(
@@ -117,6 +128,14 @@ function Test-PianoidCmdLine {
 
     foreach ($m in $PianoidMarkers) {
         if ($CmdLine -like "*$m*") { return $m }
+    }
+    # Agent WORKTREE dev servers (D:\repos\wt-<name>[-tunner]\... on a spare port 3002-3020,
+    # e.g. `PORT=3013 BROWSER=none npx react-scripts start`): the worktree path carries no
+    # 'PianoidTunner' marker, so match a wt-* path ONLY together with a dev-server shape
+    # (never a bare wt-* path -- that would hit a concurrent agent's pytest/harness run).
+    if (($CmdLine -match '(?i)[\\/]wt-[^\\/\s"'']+[\\/]') -and
+        ($CmdLine -match '(?i)react-scripts|webpack|concurrently|server[\\/]launcher\.js')) {
+        return 'worktree dev server (wt-*)'
     }
     if ($hasFrontendContext) {
         if ($CmdLine -match '(?i)react-scripts') { return 'react-scripts (PianoidTunner)' }
@@ -217,6 +236,47 @@ function Get-OpenPorts {
     return ($open | Sort-Object -Unique)
 }
 
+# Report-only: listeners on the agent SPARE ports (worktree CRA 3002-3020 / worktree or isolated
+# backends 5002-5020). A Pianoid-marked one is killed by the marker pass above (it is a node/python
+# with a Pianoid / wt-* dev-server command line); anything else is shown as FOREIGN and left alone.
+function Show-SparePortListeners {
+    $conns = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+               Where-Object { $SparePorts -contains $_.LocalPort -and $_.OwningProcess -gt 0 })
+    if ($conns.Count -eq 0) {
+        Write-Host 'Spare ports    : no listeners on 3002-3020 / 5002-5020.' -ForegroundColor Green
+        return
+    }
+    Write-Host 'Spare ports    : listeners on agent spare ports (3002-3020 / 5002-5020):' -ForegroundColor Cyan
+    foreach ($c in $conns) {
+        $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
+        $tag = if ($p -and ($p.Name -in 'node.exe','python.exe') -and (Test-PianoidCmdLine -CmdLine $p.CommandLine)) { 'PIANOID (killed by marker pass)' } else { 'FOREIGN (left alone)' }
+        Write-Host ("  port {0,-5} PID {1,-7} {2,-11} {3}" -f $c.LocalPort, $c.OwningProcess, $(if ($p) { $p.Name } else { '?' }), $tag)
+    }
+}
+
+# Report-only: processes holding the CUDA engine module (build holders). A holder that is NOT a
+# matched Pianoid server is usually a live agent's in-process harness/pytest -- never killed here;
+# stop it via its owner (or the orchestrator) before a rebuild.
+function Show-BuildHolders {
+    $holders = @()
+    foreach ($mod in 'pianoidCuda.cp312-win_amd64.pyd', 'pianoidCuda_debug.cp312-win_amd64.pyd') {
+        $rows = tasklist /M $mod /FO CSV /NH 2>$null
+        foreach ($r in $rows) {
+            if ($r -match '^"([^"]+)","(\d+)"') { $holders += [pscustomobject]@{ Name = $Matches[1]; PID = [int]$Matches[2]; Module = $mod } }
+        }
+    }
+    if ($holders.Count -eq 0) {
+        Write-Host 'Build holders  : none (no process holds pianoidCuda*.pyd).' -ForegroundColor Green
+        return
+    }
+    Write-Host 'Build holders  : processes holding pianoidCuda*.pyd:' -ForegroundColor Cyan
+    foreach ($h in $holders) {
+        $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($h.PID)" -ErrorAction SilentlyContinue
+        Write-Host ("  PID {0,-7} {1,-11} {2}" -f $h.PID, $h.Name, $h.Module)
+        if ($p) { Write-Host ("            cmd: {0}" -f (Format-Cmd $p.CommandLine)) -ForegroundColor DarkGray }
+    }
+}
+
 # --- main ------------------------------------------------------------------
 
 Write-Host ''
@@ -227,6 +287,9 @@ if ($DryRun) {
 } else {
     Write-Host 'Mode           : LIVE (matched process trees will be killed)' -ForegroundColor Red
 }
+Write-Host ''
+Show-SparePortListeners
+Show-BuildHolders
 Write-Host ''
 
 $matched = @(Get-PianoidProcesses)

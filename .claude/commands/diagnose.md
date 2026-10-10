@@ -248,19 +248,18 @@ echo "[$(date -Iseconds)] CONFIG: driver=$audio_driver preset=$preset sample_rat
 
 ## Phase 2: Backend Server Startup
 
-### 2a: Clean up stale processes
+### 2a: Clean the stack — BEFORE (MANDATORY)
 
-```bash
-echo "[$(date -Iseconds)] Phase 2a: Cleaning stale processes" >> /tmp/diagnose-session.log
-for port in 5000 3000 3001; do
-  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "  Killing PID $pid on port $port" >> /tmp/diagnose-session.log
-    taskkill //F //PID "$pid" 2>/dev/null
-  fi
-done
-sleep 2
+The agent equivalent of the user's icon launcher (it kills every running Pianoid server before launching). Full procedure + checklist: [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) → BEFORE. Port-targeted / marker-matched only — never blanket-kill python.exe / node.exe.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1 -DryRun   # inventory -> append to /tmp/diagnose-session.log
+powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1           # supervisor tree + core ports + orphans + wt-* dev servers
+python D:\repos\PianoidInstall\tools\dev-pipeline\env_sweep.py                                       # MUST exit 0 (core + agent spare ports)
+tasklist /M pianoidCuda.cp312-win_amd64.pyd                                                         # no stale .pyd holder
 ```
+
+Then close every agent browser page (chrome-devtools `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank`). Skip the sweep only if the orchestrator says a concurrent agent is using the stack.
 
 ### 2b: Start backend server
 
@@ -697,8 +696,10 @@ Save all values as variables for the report: `noise_rms`, `signal_rms`, `signal_
 **Use the PowerShell tool with `Start-Process -WindowStyle Hidden`, NOT `npm run dev &` in Bash.** A bare `npm run dev` spawns React + the launcher via `concurrently` (multiple child processes); the Claude Code harness "long-running process" detector then raises a CLI permission prompt **regardless of `bypassPermissions`** — invisible to a Telegram user, hanging the agent. The detached `Start-Process` form avoids the gate:
 
 ```powershell
-Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/diagnose-frontend.log" -RedirectStandardError "D:/tmp/diagnose-frontend.err"
+$env:BROWSER='none'; Start-Process -WindowStyle Hidden -FilePath "cmd.exe" -ArgumentList "/c","npm run dev" -WorkingDirectory "D:/repos/PianoidInstall/PianoidTunner" -RedirectStandardOutput "D:/tmp/diagnose-frontend.log" -RedirectStandardError "D:/tmp/diagnose-frontend.err"
 ```
+
+**`BROWSER=none` is mandatory** — without it CRA opens a new auto-loading Pianoid tab in the user's own Chrome on every start (multi-tab concurrent `/load_preset` crash, 2026-10-10).
 
 Log the start to `/tmp/diagnose-session.log`, then wait for ports 3000 + 3001 (up to 60s). If `Start-Process` trips the gate on the session's first process, escalate to the orchestrator via SendMessage — do NOT retry.
 
@@ -706,7 +707,7 @@ Log the start to `/tmp/diagnose-session.log`, then wait for ports 3000 + 3001 (u
 
 Use Chrome DevTools MCP:
 
-1. `new_page` → `http://localhost:3000`
+1. Open **exactly ONE** page: `navigate_page` the `about:blank` page (or `new_page`) → `http://localhost:3000`
 2. `wait_for` → "APPLY" text (up to 30s)
 3. `take_screenshot` — verify UI rendered
 4. If backend is already running from Phase 2, click APPLY directly
@@ -764,34 +765,20 @@ Capture the UI state showing successful playback.
 
 ---
 
-## Cleanup (MANDATORY)
+## Cleanup — Clean the Stack AFTER (MANDATORY)
 
-Run after all phases complete (success or failure):
+Run after all phases complete (success or failure) — [`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack) → AFTER:
 
-```bash
-echo "[$(date -Iseconds)] Cleanup: stopping services" >> /tmp/diagnose-session.log
-
-# Stop backend gracefully
-curl -s -X POST http://127.0.0.1:5000/shutdown 2>/dev/null
-sleep 2
-
-# Stop launcher if running
-curl -s -X POST http://127.0.0.1:3001/api/stop-backend 2>/dev/null
-
-# Close browser tab (if opened)
-# close_page via MCP
-
-# Kill remaining processes on Pianoid ports only
-for port in 5000 3000 3001; do
-  pid=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-  if [ -n "$pid" ] && [ "$pid" != "0" ]; then
-    echo "  Cleanup: killing PID $pid on port $port" >> /tmp/diagnose-session.log
-    taskkill //F //PID "$pid" 2>/dev/null
-  fi
-done
-
-echo "[$(date -Iseconds)] Cleanup complete" >> /tmp/diagnose-session.log
-```
+1. **Close all agent pages FIRST:** `list_pages` → `close_page` all but one → `navigate_page` the last to `about:blank`.
+2. **Stop everything you started (backend, launcher, modal adapter, any mic/harness process), then sweep:**
+   ```powershell
+   curl.exe -s -X POST http://127.0.0.1:5000/shutdown
+   curl.exe -s -X POST http://127.0.0.1:3001/api/stop-backend
+   powershell -ExecutionPolicy Bypass -File D:\repos\PianoidInstall\tools\kill_pianoid.ps1
+   python D:\repos\PianoidInstall\tools\dev-pipeline\env_sweep.py      # MUST exit 0
+   ```
+3. **End state:** clean slate by default; exactly ONE stack (launcher path, `BROWSER=none`, zero agent pages) only if the brief says the user needs it running.
+4. **Verify + log** to `/tmp/diagnose-session.log`: no listeners on 3000–3020 / 5000–5020 (or exactly 3000/3001/5000), `kill_pianoid.ps1 -DryRun` clean, no `.pyd` holder, `list_pages` = only `about:blank`.
 
 ---
 

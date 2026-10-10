@@ -113,7 +113,7 @@ Regression criteria (same as `/dev` Step 5):
 | 4 | Update CUDA docs | 1 | PASSED | direct | none | n/a | 1m |
 
 ## Phase 5.1 — Cleanup (Pianoid)
-Port-scoped env sweep before declaring the env clean (per [`PROJECT_CONFIG.md#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep) — kills ONLY listeners on ports 3000/3001/5000/5001, never by image name):
+Clean-stack AFTER first ([`PROJECT_CONFIG.md#clean-stack`](../../docs/PROJECT_CONFIG.md#clean-stack): chrome-devtools pages closed → `powershell -ExecutionPolicy Bypass -File tools\kill_pianoid.ps1`), then the port-scoped env sweep before declaring the env clean (per [`PROJECT_CONFIG.md#process-sweep`](../../docs/PROJECT_CONFIG.md#process-sweep) — kills ONLY listeners on ports 3000/3001/5000/5001 + Pianoid-marked listeners on the agent spare ports 3002–3020 / 5002–5020, never by image name):
 ```bash
 python tools/dev-pipeline/env_sweep.py            # port-scoped kill + verify free + per-repo git status
 python tools/dev-pipeline/env_sweep.py --no-kill  # inspect only
