@@ -1,0 +1,727 @@
+{
+ "mode_extension": {
+  "generator": "Pianoid.synthetic_modes",
+  "version": "2.0",
+  "spec": "docs/proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r4",
+  "decision": "user 2026-10-10: N ~ 2000, extrapolation at the literature-predicted global modal density",
+  "literature": {
+   "review": "docs/development/piano-soundboard-mode-count-literature-2026-10-10.md",
+   "density": "Chabassier, Chaigne & Joly, JASA 134(1) 648-665 (2013), doi:10.1121/1.4809649: 2400 soundboard modes <= 10 kHz (Steinway D FEM); plate rise below f_lim ~ 1.1 kHz: Ege, Boutillon & Rebillat, JSV 332(5) 1288-1305 (2013), doi:10.1016/j.jsv.2012.10.012; Boutillon & Ege, JSV 332(18) 4261-4279 (2013), doi:10.1016/j.jsv.2013.03.015 (App. A, clamped-plate correction)",
+   "damping": "Ege et al. 2013: modal loss factor 1-3 %, mean ~2 %, sigma = pi eta f",
+   "energy": "mean bridge conductance <Re Y> = n(f) / (4 M_total) (asymptotic modal sum; review section 4)"
+  },
+  "source": {
+   "name": "F15_Elyashev_array512.json",
+   "sha256": "f8e569e3a2dbea09b5d94c69baa111170d762fc9e032c7bfe10ab9a53066a606",
+   "num_modes": 196,
+   "mode_order": null
+  },
+  "seed": 0,
+  "sr": 48000.0,
+  "num_modes": 2000,
+  "f_max_hz": 10172.982230750544,
+  "derived": "f_max",
+  "density": {
+   "law": "n(f) = n_g [1 - sqrt(f_b/f)]+ / (1 - sqrt(f_b/f_break)) for f <= f_break; n_g above",
+   "n_g_per_hz": 0.2,
+   "f_b_hz": 27.202592868576687,
+   "f_break_hz": 1100.0,
+   "count_at_break": 185.4035538498913
+  },
+  "n_shaped": 56,
+  "n_real": 196,
+  "n_real_flat": 140,
+  "n_synthetic": 1804,
+  "n_real_dropped_above_f_max": 0,
+  "index_ranges": {
+   "shaped": [
+    0,
+    56
+   ],
+   "flat": [
+    56,
+    2000
+   ]
+  },
+  "order": "shaped = the lowest 56 REAL modes (sorted); flat = real flat + synthetic interleaved, sorted by played Hz (per-mode 'synthetic' flag)",
+  "shaped_set_decision": "user 2026-10-10 (option A): the shaped set is the 56 lowest REAL modes, verbatim with their deck columns; every synthetic mode is flat, including those below the shaped/flat boundary frequency",
+  "shaped_boundary_hz": 1044.495074123985,
+  "placement": {
+   "coordinate": "target count c = N(f); mode k at c = k + 0.5",
+   "slot_jitter": 0.35,
+   "min_gap_count": 0.25,
+   "moved_by_min_gap": 0,
+   "fill": "each real mode takes the nearest free target slot; free slots -> synthetic"
+  },
+  "damping": {
+   "mode": "literature",
+   "eta_median": 0.02,
+   "sigma_ln": 0.25,
+   "bounds_rel_median": [
+    0.5,
+    1.5
+   ],
+   "law": "Q = 1/eta; decay rate pi eta f"
+  },
+  "energy": {
+   "rule": "measured",
+   "conductance_law": "rho(f) = exp(g0) f^g1 (band weight per Hz, LSQ log-log)",
+   "g0": -13.02473360821278,
+   "g1": -2.3772498974727054,
+   "weight": "flat mode mass = integrated-conductance weight (coupling 1); source weight = mean over strings of feedin^2 x mass_inv",
+   "band_modes": 100,
+   "floor_share": 0.1,
+   "weight_sigma_ln": 0.5,
+   "mass_cap": 7.846027427123679e-12,
+   "n_capped": 51,
+   "level": {
+    "source_total": 1.1376333174553634e-06,
+    "output_total": 1.1382162310020133e-06,
+    "real_band_output": 1.1382154473312744e-06,
+    "extension_output": 7.836707389340289e-13,
+    "real_band_level_change_db": 0.0022217275794817475,
+    "extension_rel_source_db": -61.618686714179105,
+    "broadband_level_change_db": 0.00222471773183895
+   }
+  },
+  "flat": {
+   "gain": "a(m) = mean of the deck column over piano strings (LSQ uniform fit)",
+   "mass_fold": "preset mass = a(m)^2 * mass_inv (feedin = feedback = 1 on piano rows)",
+   "output_readout_weights": {
+    "128": 2.4668522413169085,
+    "129": 4.79688968009828,
+    "130": 8.266126967588225,
+    "131": 10.58133846449771
+   },
+   "output_readout": "PROVISIONAL (proposal R.2 open item): output rows carry w_c on every flat column = LSQ fit of the real flat readout; confirm before T3"
+  },
+  "current_engine": {
+   "ceiling_num_modes": 228,
+   "loadable": false,
+   "rule": "num_modes + num_channels <= num_strings (pianoid.py num_modes_for_model = num_strings; SC slots at mode index num_modes..)"
+  },
+  "output_scale": "inherited from the source, NOT re-derived (R.4.4 item 6, at T4)"
+ },
+ "thresholds": {
+  "count_max_abs_dev_above_real": 1.0,
+  "roundtrip_cents": 0.1,
+  "min_gap_count": 0.25
+ },
+ "count": {
+  "n_generated": 2000,
+  "target_at_f_max": 2000.0000000000002,
+  "max_abs_dev": 5.501854945180185,
+  "max_abs_dev_above_real": 0.34791670416871057,
+  "rms_dev": 0.36904629045496273
+ },
+ "bands": [
+  {
+   "f_hz": [
+    27.202592868576684,
+    662.6995327308949
+   ],
+   "target_count": 99.99999999999999,
+   "real": 42,
+   "synthetic": 58,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.15735716999937904,
+    "real": 0.0660900113997392,
+    "generated": 0.15735716999937907
+   },
+   "weight": {
+    "target": 8.39924173519509e-09,
+    "source": 1.1375462105812974e-06,
+    "real_out": 1.1375462105812974e-06,
+    "synthetic": 4.446545601057438e-10,
+    "total": 1.1379908651414032e-06
+   },
+   "total_vs_target_db": 21.31898695218013,
+   "total_vs_source_db": 0.0016972786453382802,
+   "eta_median": {
+    "real": 2.669792687867236,
+    "synthetic": 0.01820648243656897
+   }
+  },
+  {
+   "f_hz": [
+    662.6995327308949,
+    1172.9822307505435
+   ],
+   "target_count": 100.00000000000001,
+   "real": 17,
+   "synthetic": 83,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.1959698033817119,
+    "real": 0.03331486657489102,
+    "generated": 0.19596980338171188
+   },
+   "weight": {
+    "target": 1.1344015812232495e-10,
+    "source": 3.154288971469866e-11,
+    "real_out": 2.4207104052737897e-11,
+    "synthetic": 8.923305406958709e-11,
+    "total": 1.1344015812232499e-10
+   },
+   "total_vs_target_db": 1.928654933106574e-15,
+   "total_vs_source_db": 5.558653456905568,
+   "eta_median": {
+    "real": 0.7378013025345407,
+    "synthetic": 0.018923639608481212
+   }
+  },
+  {
+   "f_hz": [
+    1172.9822307505435,
+    1672.9822307505435
+   ],
+   "target_count": 100.0,
+   "real": 12,
+   "synthetic": 88,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.024,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 3.6701274648836813e-11,
+    "source": 1.8477754754094195e-12,
+    "real_out": 7.844145938678331e-13,
+    "synthetic": 3.591686005496897e-11,
+    "total": 3.67012746488368e-11
+   },
+   "total_vs_target_db": -1.446491199829931e-15,
+   "total_vs_source_db": 12.980319490817525,
+   "eta_median": {
+    "real": 0.48510803836938776,
+    "synthetic": 0.01868893600210217
+   }
+  },
+  {
+   "f_hz": [
+    1672.9822307505435,
+    2172.9822307505437
+   ],
+   "target_count": 100.00000000000006,
+   "real": 8,
+   "synthetic": 92,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.015999999999999993,
+    "generated": 0.1999999999999999
+   },
+   "weight": {
+    "target": 1.7598574025221348e-11,
+    "source": 8.599703513636096e-13,
+    "real_out": 2.9360216119803904e-13,
+    "synthetic": 1.730497186402331e-11,
+    "total": 1.7598574025221348e-11
+   },
+   "total_vs_target_db": 0.0,
+   "total_vs_source_db": 13.109940006732803,
+   "eta_median": {
+    "real": 0.35238287572795207,
+    "synthetic": 0.018790925220961117
+   }
+  },
+  {
+   "f_hz": [
+    2172.9822307505437,
+    2672.9822307505437
+   ],
+   "target_count": 100.0,
+   "real": 12,
+   "synthetic": 88,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.024,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 1.0073354130861532e-11,
+    "source": 8.726128040828646e-12,
+    "real_out": 4.211012816398747e-12,
+    "synthetic": 5.862341314462785e-12,
+    "total": 1.0073354130861532e-11
+   },
+   "total_vs_target_db": 0.0,
+   "total_vs_source_db": 0.6235252071461999,
+   "eta_median": {
+    "real": 0.3029525869445411,
+    "synthetic": 0.02026172103698315
+   }
+  },
+  {
+   "f_hz": [
+    2672.9822307505437,
+    3172.9822307505433
+   ],
+   "target_count": 99.99999999999994,
+   "real": 8,
+   "synthetic": 92,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.20000000000000007,
+    "real": 0.016000000000000014,
+    "generated": 0.20000000000000018
+   },
+   "weight": {
+    "target": 6.419956648234943e-12,
+    "source": 4.658721638554964e-13,
+    "real_out": 1.0714737849239912e-13,
+    "synthetic": 6.312809269742546e-12,
+    "total": 6.419956648234945e-12
+   },
+   "total_vs_target_db": 9.64327466553287e-16,
+   "total_vs_source_db": 11.392653335725003,
+   "eta_median": {
+    "real": 0.39113079779725,
+    "synthetic": 0.018915752207804254
+   }
+  },
+  {
+   "f_hz": [
+    3172.9822307505433,
+    3672.9822307505433
+   ],
+   "target_count": 100.0,
+   "real": 5,
+   "synthetic": 95,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.01,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 4.398912023660561e-12,
+    "source": 4.698635403687928e-14,
+    "real_out": 2.3416252955336944e-14,
+    "synthetic": 4.375495770705224e-12,
+    "total": 4.3989120236605606e-12
+   },
+   "total_vs_target_db": -9.643274665532871e-16,
+   "total_vs_source_db": 19.713735296383803,
+   "eta_median": {
+    "real": 0.3244455352938214,
+    "synthetic": 0.01945318872412349
+   }
+  },
+  {
+   "f_hz": [
+    3672.9822307505433,
+    4172.982230750544
+   ],
+   "target_count": 100.00000000000011,
+   "real": 7,
+   "synthetic": 93,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.20000000000000004,
+    "real": 0.013999999999999986,
+    "generated": 0.19999999999999982
+   },
+   "weight": {
+    "target": 3.1757105173909916e-12,
+    "source": 1.2770827444785925e-12,
+    "real_out": 1.0827618675876392e-12,
+    "synthetic": 2.092948649803353e-12,
+    "total": 3.175710517390992e-12
+   },
+   "total_vs_target_db": 9.64327466553287e-16,
+   "total_vs_source_db": 3.9562187045531476,
+   "eta_median": {
+    "real": 0.28867164760087,
+    "synthetic": 0.020130283075359547
+   }
+  },
+  {
+   "f_hz": [
+    4172.982230750544,
+    4672.982230750544
+   ],
+   "target_count": 100.0,
+   "real": 6,
+   "synthetic": 94,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.012,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 2.3849738759483067e-12,
+    "source": 3.570122385932259e-12,
+    "real_out": 2.244075088149259e-12,
+    "synthetic": 2.3849738759483067e-13,
+    "total": 2.4825724757440896e-12
+   },
+   "total_vs_target_db": 0.1741830974837952,
+   "total_vs_source_db": -1.5778116817997234,
+   "eta_median": {
+    "real": 0.2568419581741999,
+    "synthetic": 0.01903075040002209
+   }
+  },
+  {
+   "f_hz": [
+    4672.982230750544,
+    5172.982230750544
+   ],
+   "target_count": 100.0,
+   "real": 4,
+   "synthetic": 96,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.008,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 1.847359399008648e-12,
+    "source": 1.0932952056067855e-12,
+    "real_out": 6.735050027577149e-13,
+    "synthetic": 1.173854396250933e-12,
+    "total": 1.847359399008648e-12
+   },
+   "total_vs_target_db": 0.0,
+   "total_vs_source_db": 2.278139509209673,
+   "eta_median": {
+    "real": 0.2339243931103549,
+    "synthetic": 0.020265582560088032
+   }
+  },
+  {
+   "f_hz": [
+    5172.982230750544,
+    5672.982230750543
+   ],
+   "target_count": 99.99999999999989,
+   "real": 4,
+   "synthetic": 96,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.20000000000000015,
+    "real": 0.008000000000000014,
+    "generated": 0.20000000000000037
+   },
+   "weight": {
+    "target": 1.4669627736192738e-12,
+    "source": 2.0786912482538742e-13,
+    "real_out": 1.467132531762503e-13,
+    "synthetic": 1.3202495204430241e-12,
+    "total": 1.4669627736192744e-12
+   },
+   "total_vs_target_db": 1.928654933106574e-15,
+   "total_vs_source_db": 8.48629105527338,
+   "eta_median": {
+    "real": 0.21556988391027315,
+    "synthetic": 0.018883187481180178
+   }
+  },
+  {
+   "f_hz": [
+    5672.982230750543,
+    6172.982230750543
+   ],
+   "target_count": 100.0,
+   "real": 9,
+   "synthetic": 91,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.018,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 1.188953768196056e-12,
+    "source": 9.118612849970766e-12,
+    "real_out": 5.751866799995077e-12,
+    "synthetic": 1.1889537681960563e-13,
+    "total": 5.870762176814683e-12
+   },
+   "total_vs_target_db": 6.935295199190213,
+   "total_vs_source_db": -1.912342896400977,
+   "eta_median": {
+    "real": 0.18955944588387788,
+    "synthetic": 0.020453850942281537
+   }
+  },
+  {
+   "f_hz": [
+    6172.982230750543,
+    6672.982230750543
+   ],
+   "target_count": 100.0,
+   "real": 5,
+   "synthetic": 95,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.01,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 9.802557867846769e-13,
+    "source": 1.2448560061239763e-11,
+    "real_out": 1.156198325718021e-11,
+    "synthetic": 9.802557867846772e-14,
+    "total": 1.1660008835858677e-11
+   },
+   "total_vs_target_db": 10.753594647594474,
+   "total_vs_source_db": -0.28420239484226567,
+   "eta_median": {
+    "real": 0.17672651741883824,
+    "synthetic": 0.01973478157567964
+   }
+  },
+  {
+   "f_hz": [
+    6672.982230750543,
+    7172.982230750543
+   ],
+   "target_count": 100.0,
+   "real": 6,
+   "synthetic": 94,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.012,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 8.200148810984952e-13,
+    "source": 7.41368816015987e-13,
+    "real_out": 5.601226691159271e-13,
+    "synthetic": 2.598922119825681e-13,
+    "total": 8.200148810984952e-13
+   },
+   "total_vs_target_db": 0.0,
+   "total_vs_source_db": 0.43787419276546063,
+   "eta_median": {
+    "real": 0.16476223607126436,
+    "synthetic": 0.01915285052275533
+   }
+  },
+  {
+   "f_hz": [
+    7172.982230750543,
+    7672.982230750543
+   ],
+   "target_count": 100.0,
+   "real": 4,
+   "synthetic": 96,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.008,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 6.945882957344318e-13,
+    "source": 3.1183539284608716e-13,
+    "real_out": 2.7051674346756137e-13,
+    "synthetic": 4.240715522668704e-13,
+    "total": 6.945882957344317e-13
+   },
+   "total_vs_target_db": -4.821637332766436e-16,
+   "total_vs_source_db": 3.4780205547323826,
+   "eta_median": {
+    "real": 0.1491514240037865,
+    "synthetic": 0.019134250826513235
+   }
+  },
+  {
+   "f_hz": [
+    7672.982230750543,
+    8172.982230750543
+   ],
+   "target_count": 100.0,
+   "real": 30,
+   "synthetic": 70,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.06,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 5.947661413715742e-13,
+    "source": 8.384838285673879e-12,
+    "real_out": 3.881882888509444e-12,
+    "synthetic": 5.947661413715743e-14,
+    "total": 3.941359502646602e-12
+   },
+   "total_vs_target_db": 8.212998127143806,
+   "total_vs_source_db": -3.2784864108371696,
+   "eta_median": {
+    "real": 0.1424261944763177,
+    "synthetic": 0.019850130848231194
+   }
+  },
+  {
+   "f_hz": [
+    8172.982230750543,
+    8672.982230750542
+   ],
+   "target_count": 99.99999999999977,
+   "real": 15,
+   "synthetic": 85,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.1999999999999999,
+    "real": 0.030000000000000054,
+    "generated": 0.20000000000000037
+   },
+   "weight": {
+    "target": 5.141606880374119e-13,
+    "source": 2.990173803593157e-12,
+    "real_out": 1.619379835287344e-13,
+    "synthetic": 3.5222270450867736e-13,
+    "total": 5.141606880374117e-13
+   },
+   "total_vs_target_db": -1.9286549331065747e-15,
+   "total_vs_source_db": -7.645975643220924,
+   "eta_median": {
+    "real": 0.1349096105371948,
+    "synthetic": 0.019735190740638307
+   }
+  },
+  {
+   "f_hz": [
+    8672.982230750542,
+    9172.982230750542
+   ],
+   "target_count": 100.0,
+   "real": 2,
+   "synthetic": 98,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.004,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 4.4823613757720745e-13,
+    "source": 3.47349329589862e-12,
+    "real_out": 3.4734650994301923e-12,
+    "synthetic": 4.482361375772075e-14,
+    "total": 3.518288713187913e-12
+   },
+   "total_vs_target_db": 8.948246078999912,
+   "total_vs_source_db": 0.055650100967998585,
+   "eta_median": {
+    "real": 0.131281636947379,
+    "synthetic": 0.019342202095354834
+   }
+  },
+  {
+   "f_hz": [
+    9172.982230750542,
+    9672.982230750544
+   ],
+   "target_count": 100.00000000000045,
+   "real": 0,
+   "synthetic": 100,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.20000000000000018,
+    "real": 0.0,
+    "generated": 0.19999999999999926
+   },
+   "weight": {
+    "target": 3.937044867692054e-13,
+    "source": 0.0,
+    "real_out": 0.0,
+    "synthetic": 3.9370448676920546e-13,
+    "total": 3.9370448676920546e-13
+   },
+   "total_vs_target_db": 9.64327466553287e-16,
+   "total_vs_source_db": null,
+   "eta_median": {
+    "real": null,
+    "synthetic": 0.02030772156480542
+   }
+  },
+  {
+   "f_hz": [
+    9672.982230750544,
+    10172.982230750544
+   ],
+   "target_count": 100.0,
+   "real": 0,
+   "synthetic": 100,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.2,
+    "real": 0.0,
+    "generated": 0.2
+   },
+   "weight": {
+    "target": 3.481382650503259e-13,
+    "source": 0.0,
+    "real_out": 0.0,
+    "synthetic": 3.4813826505032584e-13,
+    "total": 3.4813826505032584e-13
+   },
+   "total_vs_target_db": -4.821637332766436e-16,
+   "total_vs_source_db": null,
+   "eta_median": {
+    "real": null,
+    "synthetic": 0.019263096467935205
+   }
+  }
+ ],
+ "eta": {
+  "median": 0.01935352998715925,
+  "p05": 0.01325048779161568,
+  "p95": 0.02760692692917242,
+  "min": 0.010087147900290801,
+  "max": 0.02997137774503628,
+  "within_bounds": true,
+  "fraction_1_to_3_percent": 1.0
+ },
+ "spacing": {
+  "min_gap_count": 0.2842418627814709,
+  "min_gap_hz": 1.4212093139073545,
+  "min_gap_at_hz": 2256.824196318261,
+  "duplicate_frequencies_involving_synthetic": 0
+ },
+ "validity": {
+  "dec_in_0_1": true,
+  "omega_in_0_4": true,
+  "mass_positive": true,
+  "below_nyquist": true,
+  "synthetic_below_f_max": true,
+  "shaped_sorted": true,
+  "flat_sorted": true,
+  "num_modes": true,
+  "roundtrip_cents_max": 3.3751301644190686e-10,
+  "real_dec_omega_identical": true,
+  "real_duplicate_frequencies": 54,
+  "pass": true
+ },
+ "energy": {
+  "conductance": {
+   "source_total": 1.1376333174553634e-06,
+   "output_total": 1.1382162310020133e-06,
+   "real_band_output": 1.1382154473312744e-06,
+   "extension_output": 7.836707389340289e-13,
+   "real_band_level_change_db": 0.0022217275794817475,
+   "extension_rel_source_db": -61.618686714179105,
+   "broadband_level_change_db": 0.00222471773183895
+  },
+  "output_impulse_energy": {
+   "source": 2.553031778361941e-13,
+   "output": 2.557438398955428e-13,
+   "level_change_db": 0.007489610213919791,
+   "synthetic_share_db": -27.63055211242858,
+   "note": "flat force spectrum, k = 1 (velocity); string-SC gains unchanged and omitted"
+  }
+ },
+ "pass": true
+}

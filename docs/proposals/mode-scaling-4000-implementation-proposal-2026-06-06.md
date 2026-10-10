@@ -10,8 +10,9 @@ modes shaped**; mode data = **synthetic statistical extension** of the preset's 
 register cap + pre-flight = the P1 precondition (in progress, dev-1cda). Read
 [§R Revision 2026-10-09](#r-revision-2026-10-09-user-decisions) first — it carries the current phase plan
 (§R.3), the synthetic-preset generator spec (§R.4) and the ordered `/dev` task list (§R.5).
-**T2 (generator) implemented 2026-10-09 (dev-675e, unmerged) — N = 4000 is NOT reachable from Belarus (max 560) or
-F15 (max 321) under the no-compression density rule: user decision needed before P4, see [§R.4.5](#r45-implementation-status-2026-10-09-dev-675e).**
+**T2 (generator) implemented (dev-675e, unmerged). USER DECISION 2026-10-10: N ≈ 2000 at the literature-predicted
+global modal density (n_g 0.2/Hz → f_max ≈ 10.2 kHz), real modes kept, band-wise synthetic fill; shaped = the 56
+lowest REAL modes. P4 target is now N = 2000 — see [§R.4.5](#r45-implementation-status-2026-10-09-dev-675e).**
 **★ PHASE 0 MEASURED 2026-10-08 (dev-dad7)** —
 [P0 measurements](../development/mode-scaling-P0-measurements-2026-10-08.md): R0 = **119** regs release /
 99 debug, 18.5 KB smem, 0 spill; 1 block/SM, coop capacity 128 vs grid 56–58; cliff **128** regs at
@@ -105,7 +106,7 @@ framing is struck-through in place.
 | **P1-pre** (Q1, dev-1cda, in progress) | Release `__launch_bounds__(512,1)`; ptxas budget check in the build (fail/warn if `addKernel` regs > cliff or spill > 0); runtime pre-flight `coopCapacity ≥ grid` logged after audio-driver start, launch-return check kept as backstop. | ptxas: regs ≤128, 0 spill; per-cycle timing cap vs no-cap **N≥3** at array_size 384 + 512; offline render equivalence (cap must not change audio beyond fp tolerance). |
 | **P1** quarter-fork refactor (behaviour-preserving) | Unchanged from §11 P1: quarter 0 keeps the shaped path verbatim; quarters 1–3 lose the `indexInQuarter==0` gate and own re-indexed oscillators; contiguous flat-state layout; `NUM_MODES` sizing. Flat coupling still reads each mode's own deck column. | Offline render **equivalence** vs pre-P1 baseline on Belarus + F15 (fp tolerance); ptxas + pre-flight; timing N≥3. |
 | **P2+P3 (collapsed) — flat tier = uniform coupling** | Modes [0,56) shaped (full deck, current path); modes [56,N) flat: register oscillator + the **two** reductions of §R.2, `mass_inv' = a²·mass_inv` folded at pack time; shaped deck packed at width 56. No groups, no basis. | (a) N_flat=0 → **bit-for-bit-ish equal to P1**; (b) **exactness test:** a test preset whose modes ≥56 have *exactly uniform* deck columns renders the same split vs full-deck (proves the factorisation, independent of the Q2 approximation); (c) real Belarus/F15 196 modes → 56 shaped + 140 flat vs full deck: **first listening A/B** (the Q2 approximation on real data); (d) timing N≥3. |
-| **P4 — scale to 4000** | Raise `NUM_MODES`/`MAX_NUM_MODES` to ≥4096 and the mode buffers; load a generated N=4000 preset (§R.4); Kahan/double `Q_sum`. | ptxas + pre-flight at final grid; per-cycle **timing N≥3 at N = 196 / 1000 / 2000 / 4000** (expected: flat coupling cost flat in N, only the advance grows) against the 1.333 ms/64-sample cycle budget; offline render no NaN / no clipping; **acceptance A/B listening render** (§R.6). |
+| **P4 — scale to 4000** | Raise `NUM_MODES`/`MAX_NUM_MODES` to ≥4096 and the mode buffers; load a generated preset (§R.4) — **N = 2000 per the 2026-10-10 user decision (§R.4.5)**; 4000 stays a timing/capacity point; Kahan/double `Q_sum`. | ptxas + pre-flight at final grid; per-cycle **timing N≥3 at N = 196 / 1000 / 2000 / 4000** (expected: flat coupling cost flat in N, only the advance grows) against the 1.333 ms/64-sample cycle budget; offline render no NaN / no clipping; **acceptance A/B listening render** (§R.6). |
 | **P5 — middleware + frontend** | §8 plumbing minus the group fields: `/health` reports `num_modes`, `n_shaped=56`, `n_flat`; packers; `usePreset.totalModes`; MeasuredMatrix / SoundChannelsPane render shaped modes individually and the flat tier as one aggregated band. | `/test-ui` load of the 4000-mode preset: UI responsive, axis correct; legacy presets unchanged. |
 | **Generator** (new work item, §R.4) | Synthetic N-mode preset generator — pure Python, no CUDA; can run in parallel with P1. Feeds P4. | Its own validation suite (§R.4.4). |
 | **Later** | ESPRIT-measured extension of the mode set (replaces / refines the synthetic tail). | Separate proposal. |
@@ -121,7 +122,7 @@ modes and filling the rest statistically, so P4 can be built and listened to wit
 | Input | Notes |
 |---|---|
 | Source preset JSON (e.g. Belarus_8band_196modes, F15_Elyashev_array512) | Modes read through `Piano_mode.fit_params` so legacy (`mass`/`stiffness`/`damping`, Belarus) and `frequency`/`decrement` (F15) presets give the same canonical fields ([OVERVIEW → Piano_mode](http://localhost:8001/modules/pianoid-basic/OVERVIEW/)). **Frequency = the played Hz**, converted with `gpu_mode_frequency` when written back (the small-angle convention is a high-stakes fact — use the documented converter, never re-derive). |
-| `N` (target total modes) | default 4000; must be ≤ engine `NUM_MODES` after P4. |
+| `N` (target total modes) | default **2000** (user decision 2026-10-10, §R.4.5; was 4000); must be ≤ engine `NUM_MODES` after P4. |
 | `n_shaped` | fixed 56 (decision Q3) — the lowest 56 real modes keep their deck columns. |
 | `f_max` | upper frequency bound for synthetic modes (default min(20 kHz, 0.45·sr)); stability needs played f < sr/2. |
 | `seed` | RNG seed — output must be reproducible. |
@@ -141,6 +142,10 @@ modes and filling the rest statistically, so P4 can be built and listened to wit
 
 #### R.4.3 Statistics to fit (all on the real modes, log-log unless noted)
 
+> **Superseded 2026-10-10 for items 1–3** by the literature density law, η ~ 2 % and the conductance-normalised
+> weights of [§R.4.5](#r45-implementation-status-2026-10-09-dev-675e); the fitted η law survives only as the
+> `--damping blend` trend.
+
 1. **Modal density:** cumulative count `N(f)` of real modes; fit `N(f) = c·f^α` (α≈1 would be the
    thin-plate constant-density expectation — **[EST], measure, do not assume**). Synthetic frequencies =
    `N⁻¹(k + u_k)` for k = n_real … N−1 with a bounded jitter `u_k` (no coincident modes; enforce a minimum
@@ -155,6 +160,9 @@ modes and filling the rest statistically, so P4 can be built and listened to wit
    draw them jointly.
 
 #### R.4.4 Validation (the generator's own acceptance, before any engine use)
+
+> **Items 1–2 (hold-out, seam) superseded 2026-10-10** — with a literature law there is no fitted extrapolation to
+> hold out and no single seam; v2 validates count vs target, per-band fill, η, energy and spacing (§R.4.5).
 
 1. **Hold-out:** fit on the lower part of the real flat band, predict the upper part; report density-count
    error at the held-out f_max and KS / quantile errors of the Q and mass residuals (thresholds set in the
@@ -172,54 +180,77 @@ modes and filling the rest statistically, so P4 can be built and listened to wit
 
 #### R.4.5 Implementation status (2026-10-09, dev-675e)
 
-**Implemented** (PianoidBasic `feature/dev-675e-synthetic-modes`, NOT merged): `Pianoid/mode_extension.py` +
-`mode_extension_report.py` + CLI `python -m Pianoid.synthetic_modes`
-([OVERVIEW → Synthetic mode extension](http://localhost:8001/modules/pianoid-basic/OVERVIEW/)); tests
-`PianoidBasic/tests/test_synthetic_modes.py` (24, ~10 s). Reports + plots:
+**Implemented** (PianoidBasic `feature/dev-675e-synthetic-modes`, NOT merged; v1 `d2283c3`, **v2 `d6d532b`**):
+`Pianoid/modal_density.py` + `mode_fill.py` + `mode_extension.py` + `mode_extension_report.py` + CLI
+`python -m Pianoid.synthetic_modes` ([OVERVIEW → Synthetic mode extension](http://localhost:8001/modules/pianoid-basic/OVERVIEW/));
+tests `PianoidBasic/tests/test_synthetic_modes.py` (35, ~10 s). Reports + plots:
 `docs/development/diagnostics/dev-675e-synthetic-modes/`.
 
-**★ BLOCKING FINDING for P4 — N = 4000 is not reachable under R.4.3 item 1 from either source** [MEAS]. The
-power-law density fitted on the real modes (band ≥ mode 10, played Hz, anchored at the last real mode) gives:
+**Why the density rule changed [MEAS, v1 2026-10-09].** R.4.3 item 1 (fit `N(f) = c·f^α` to the real modes, never
+compress the spacing) cannot reach 4000: Belarus α 0.78 → max **560** modes below 20 kHz, F15 α 0.60 → max **321**.
+The measured decks are the *apparent* (per-point) mode set, whose density falls with f; the global board density
+does not ([literature review §1–§3](http://localhost:8001/development/piano-soundboard-mode-count-literature-2026-10-10/)).
 
-| Source | α | achievable N below f_max = 20 kHz | N = 4000 |
-|---|---|---|---|
-| Belarus_8band_196modes | 0.78 | **560** | fails loudly (exit 2) |
-| F15_Elyashev_array512 | 0.60 | **321** | fails loudly (exit 2) |
+**★ USER DECISIONS 2026-10-10 [DECIDED] — supersede R.4.1 (default N), R.4.3 items 1–3 and R.4.4 items 1–2:**
 
-The measured count N(f) *flattens* towards HF (α < 1, falling with f — Belarus band-local α 1.13 over modes 10–119 (0.23–1.8 kHz),
-0.70 over modes 56–125 (0.66–2.1 kHz)), so no extrapolation of these 196-mode sets reaches ~4000 modes without compressing the spacing,
-which R.4.3 forbids. **Needs a user decision** before P4 targets 4000: (a) accept N_max (~560 / ~321) for P4;
-(b) a physically imposed density law (e.g. constant plate density) instead of the fitted one — ~760 for Belarus at
-its 1–5 kHz density, still far below 4000; (c) an explicit density multiplier (= compressed spacing, currently
-forbidden); (d) wait for the ESPRIT-measured extension.
+| # | Decision | Implementation |
+|---|---|---|
+| D1 | "Ok let's do about 2000. Make reasonable extrapolation based on the predicted density." | Literature global density law (below), default **N = 2000**, f_max derived. |
+| D2 | Shaped set = **the 56 lowest REAL modes** (option "A"); every synthetic mode is flat, including those below the boundary. | `mode_extension.shaped_set_decision`; boundary Belarus **658 Hz**, F15 **1044 Hz** (39 / 119 synthetic modes fall below it at N = 2000). |
 
-**Generator design choices (recorded in each preset's `mode_extension` block):** `a(m)` = LSQ uniform fit of the column
-over piano strings (= column mean); output rows of flat modes carry one readout weight `w_c` per output pitch (LSQ fit
-of the real flat readout) — the R.2 open item, provisional for T3; Q / mass laws are seam-anchored (median residual of
-the top 15 band modes); synthetic mass capped at the strongest real flat mode; `output_scale` inherited (T4 item 6).
+**Density law [literature-sourced shape, parameters I]:** `n(f) = n_g·[1 − √(f_b/f)]₊ / (1 − √(f_b/f_break))` for
+f ≤ f_break (clamped-plate rise, Boutillon & Ege 2013 App. A; normalised so the rise reaches `n_g` continuously),
+`n(f) = n_g` above (Chabassier, Chaigne & Joly 2013: 2400 modes ≤ 10 kHz, Steinway D FEM). Defaults `n_g = 0.2 /Hz`
+(literature 0.12–0.24), `f_break = 1100 Hz` (Ege 2013 rib-waveguide f_lim); `f_b` anchors the lowest real mode at
+count 0.5 (Belarus 36.4 Hz, F15 27.2 Hz). `N(f_break)` ≈ 180–185, so **N = 2000 → f_max = 10.20 kHz (Belarus) /
+10.17 kHz (F15)** — 2000/0.2 = 10 kHz plus the deficit of the rise (higher than the ~8–9 kHz first guess).
 
-**Validation (seed 0)** — thresholds: hold-out count error ≤ 25 % of held-out modes, residual median shift ≤ 1σ and
-KS p ≥ 0.01; seam step ≤ 1σ (detrended, window 15); round trip < 0.1 c.
+**Fill, damping, energy [design choices I, recorded in every preset's `mode_extension` v2.0 block]:**
+- Band-wise gap fill in the target-count coordinate: each real mode takes its nearest free target slot, the free
+  slots become synthetic — synthetic modes fill every band where the real set is sparse, not only above the last real
+  mode. Jitter |u| < 0.35 count, min gap 0.25 count to real modes (= 1.25 Hz at 0.2/Hz); real modes keep exact values.
+- η truncated log-normal, median 0.02, σ_ln 0.25, 1–3 % (Ege 2013); `--damping blend` follows the real η trend up to
+  the last real mode (needed for F15: real η 0.13–13, i.e. Q 0.08–7.6 — the literature 2 % rings 10–100× longer).
+- Energy: flat-mode `mass` = integrated-conductance weight. **In engine units the measured conductance falls
+  ~f^-2.4…-2.6** (FPGA `mass_inv = Mass/f²·n_m²`; DATA_FLOWS "coefficient ≠ audible weight"), so a frequency-independent
+  `M_total` (the literal `n(f)/(4M_total)` plate rule) would lift HF conductance by tens of dB. Default `measured`:
+  the band's mean conductance follows a power law fitted to the source's band conductance (`M(f)` calibrated to the
+  measured board; band-local, so independent of the engine-unit mapping); synthetic band sum =
+  max(target − real, 10 % of target), capped per mode at the strongest real flat mode. `plate` kept as an option.
 
-| Run | hold-out: count err (held-out f_max) | Q: median shift / KS p | mass: median shift / KS p | seam σ: density / Q / mass | validity |
-|---|---|---|---|---|---|
-| Belarus → N = 560 | **+59 %** (237 vs 196) | +0.77σ / <1e-3 | +1.29σ / <1e-3 | 0.58 / 0.12 / 0.10 ✓ | ✓ |
-| F15 → N = 321 | **−60 %** (153 vs 196) | +1.98σ / <1e-3 | −0.26σ / 0.019 | **1.11** / 0.01 / 0.32 | ✓ (54 real duplicate f kept) |
-| Belarus 120 real → 196 (smoke) | +55 % | −0.32σ / 0.34 | −1.38σ / <1e-3 | **1.40** / 0.05 / 0.29 | ✓ |
-| F15 120 real → 196 (smoke) | +0.2 % | −16.7σ / <1e-3 (σ_fit 0.025) | −0.20σ / 0.38 | 0.81 / 0.05 / 0.29 ✓ | ✓ |
+**Results (seed 0)** — sample presets in scratch (3–7 MB each, byte-reproducible from CLI + seed):
 
-Reading: the single power laws do **not** predict the upper real band (density ±60 %, Q/mass shifts up to 2σ; F15 Q
-follows the FPGA Q-word grid, σ 0.025 in 1–2.5 kHz). Physical validity holds everywhere (0 < dec < 1, 0 < ω < 4,
-< sr/2, sorted, `gpu_mode_frequency` round trip < 2e-12 c, real dec/ω bit-identical, same seed → byte-identical file).
-The density seam step is the last real window's own scatter about the global law (generator side ≈ 0).
+| Run | f_max | real (flat) / synthetic | count dev vs target: max / above last real | min gap | η synthetic median (p5–p95) | conductance level vs source: real band / extension / broadband | output impulse energy | validity |
+|---|---|---|---|---|---|---|---|---|
+| Belarus → 2000 | 10200 Hz | 196 (140) / 1804 | 2.9 / 0.35 | 0.29 count (1.4 Hz) | 0.019 (0.013–0.028) | +0.31 / −29.8 / **+0.32 dB** | +0.002 dB (synthetic share −32 dB) | ✓ |
+| F15 → 2000 | 10173 Hz | 196 (140) / 1804 | 5.5 / 0.35 | 0.28 count (1.4 Hz) | 0.019 (0.013–0.028) | 0.00 / −61.6 / **0.00 dB** | +0.007 dB (−28 dB) | ✓ |
+| F15 → 2000, blend | 10173 Hz | 196 / 1804 | as above | as above | 0.20 (0.08–0.91) | 0.00 / −61.6 / 0.00 dB | 0.000 dB (−47 dB) | ✓ |
+| Belarus → 2000, plate | 10200 Hz | 196 / 1804 (1721 capped) | as above | as above | 0.019 | +4.0 / +2.9 / **+6.5 dB** | +0.009 dB | ✓ |
+| Belarus smoke → 220 (truncated real) | 1300 Hz | 101 (45) / 119 | 2.9 / 0.30 | 0.33 count | 0.020 | +0.30 / −27 / +0.25 dB | +0.001 dB | ✓ loads |
+| F15 smoke → 228 (truncated real) | 1313 Hz | 63 (7) / 165 | 0.8 / 0.33 | 0.37 count | 0.021 | 0.00 / −57 / 0.00 dB | +0.007 dB | ✓ loads |
+
+Per-band counts (real / synthetic, 100-target-mode bands): Belarus 36–689 Hz 59/41, 689–1200 39/61, 1.2–2.7 kHz
+17/83 each, 2.7–5.2 kHz 5–15/85–95, above 5.2 kHz 0/100; F15 27–663 Hz 42/58, 0.66–7.7 kHz 4–17/83–96, 7.7–8.2 kHz
+30/70 (FPGA duplicate grid), above 9.2 kHz 0/100. Count deviation > 1 only where the real set locally exceeds the
+target (F15 below 150 Hz).
+
+**Reading:** the normalisation keeps the loudness where it was (≤ 0.3 dB conductance, ≤ 0.01 dB output impulse energy),
+so the ~1800 added modes are individually weak — their share of the output impulse energy is −28…−47 dB; what they
+change is the modal density / overlap of the board response, which only the listening A/B (§R.6) can judge. If the
+synthetic tail turns out inaudible, the knob is the energy rule (`plate` is the literal physics but lifts HF; a
+partial-tilt rule would sit between) — a user decision after listening, not before.
+
+**Physical validity** (all runs): 0 < dec < 1, 0 < ω < 4, < sr/2, shaped and flat tiers sorted, synthetic
+`gpu_mode_frequency` round trip < 1e-9 c, real dec/ω bit-identical, no duplicate frequency involving a synthetic
+mode, same seed → byte-identical file.
 
 **Current-engine load path (R.4.4 item 5)** [MEAS, replay of `pianoid.py` load packing,
 `docs/development/diagnostics/dev-675e-current-loader.py`]: ceiling **N ≤ num_strings − num_channels** (Belarus 220,
-F15 228; the sound-channel slots follow the modes). Smoke presets (N = 196) and N = 220 load (deck `num_strings²`,
-flat piano columns 1.0, output columns `w_c × SC gain`). Above the ceiling the loader used to fail obscurely
-(N = 221: `IndexError` StringMap:470; N = 560/321: `'NoneType'.shape` StringMap:475); it now rejects with a clear
-`ValueError` (guards in `ModelParameters.set_num_modes`, `ModeMap.set_sound_channels`) — effective in the running
-engine after the next PianoidBasic wheel build.
+F15 228; the sound-channel slots follow the modes). The smoke presets (N = 220 / 228) load (deck `num_strings²`, flat
+piano columns 1.0, output columns `w_c × SC gain`); the N = 2000 presets are rejected with a clear `ValueError`
+("Preset has 2000 modes but the engine packs only 224 mode slots") by the guards in `ModelParameters.set_num_modes` /
+`ModeMap.set_sound_channels` — effective in the running engine after the next PianoidBasic wheel build. Before the
+guards the loader failed obscurely (N = 221: `IndexError` StringMap:470; larger N: `'NoneType'.shape` StringMap:475).
 
 ### R.5 Implementation plan — next `/dev` tasks, in order
 
@@ -227,9 +258,9 @@ engine after the next PianoidBasic wheel build.
 |---|---|---|---|
 | **T0** | (dev-1cda, in progress) Release `__launch_bounds__(512,1)` + ptxas budget check + runtime pre-flight | `PianoidCore/pianoid_cuda/MainKernel.cu` (`ADDKERNEL_LAUNCH_BOUNDS`), `pianoid_cuda/setup.py` / build script (`-Xptxas -v` parse + budget), `Pianoid_synthesis.cu` (`preflightCooperativeLaunch`), optional `/health` field in `backendServer.py` | ptxas regs ≤128 / 0 spill; **per-cycle timing N≥3** cap vs no-cap at array_size 384 + 512; `[OCCUPANCY]` log line; offline `note_playback` render equivalence |
 | **T1** | P1 quarter-fork refactor, behaviour-preserving | `pianoid_cuda/Kernels.cu` (placement/bake), `MainKernel.cu` (quarter fork, gate), `constants.h` (`NUM_MODES`), `Pianoid.cu` (mode buffers), `PresetParameters.h` | **Offline render equivalence** vs T0 baseline (Belarus + F15, fp tolerance); ptxas + pre-flight; timing N≥3 |
-| **T2** | Synthetic N-mode preset generator (§R.4) — Python only, parallel with T1 | new module in `PianoidBasic/Pianoid/` (next to `fpga_preset_converter.py`) + CLI; pytest under PianoidBasic tests | §R.4.4 items 1–5: hold-out fit report, seam plots, physical-validity + reproducibility pytest |
+| **T2** | Synthetic N-mode preset generator (§R.4) — Python only, parallel with T1 | new module in `PianoidBasic/Pianoid/` (next to `fpga_preset_converter.py`) + CLI; pytest under PianoidBasic tests | §R.4.4 items 3–5 + the v2 checks of §R.4.5 (count vs target, band fill, η, energy, spacing); **done (dev-675e, unmerged)** |
 | **T3** | P2+P3 flat tier = uniform coupling (56 shaped / rest flat, 2 reductions, `a²` fold) | `MainKernel.cu` (flat branch, `[1×SEGMENT]` accumulators, Kahan/double `Q_sum`), `constants.h`, `Pianoid.cu`; `PianoidBasic/Pianoid/StringMap.py` (`pack_deck` width 56, flat pack), `ModelParams.py`, `Mode.py` (flat padding); `pianoid_middleware/pianoid.py` (`num_modes` ≠ `num_strings`) | (a) N_flat=0 **render equivalence** vs T1; (b) uniform-column **exactness render** split vs full deck; (c) Belarus/F15 56+140 vs full deck **listening A/B**; timing N≥3 |
-| **T4** | P4 scale to 4000 with the T2 preset | `constants.h` (`NUM_MODES`≥4096), `ModelParams.py` (`MAX_NUM_MODES`), mode-buffer allocs | ptxas + pre-flight; **timing N≥3 at N=196/1000/2000/4000** vs the 1.333 ms cycle budget; offline render no NaN/clip; **acceptance listening A/B** (§R.6) |
+| **T4** | P4 scale with the T2 preset (target N = 2000, §R.4.5; `NUM_MODES` sizing ≥ 2048 — 4096 if the 4000 timing point is kept) | `constants.h` (`NUM_MODES`≥4096), `ModelParams.py` (`MAX_NUM_MODES`), mode-buffer allocs | ptxas + pre-flight; **timing N≥3 at N=196/1000/2000/4000** vs the 1.333 ms cycle budget; offline render no NaN/clip; **acceptance listening A/B** (§R.6) |
 | **T5** | P5 middleware + frontend plumbing | `backendServer.py` (`/health`), `PianoidTunner/src/hooks/usePreset.js` (`totalModes`), `src/components/MeasuredMatrix.jsx`, `src/components/SoundChannelsPane.jsx` | `/test-ui` (audio_off) load of the 4000-mode preset — UI responsive, axis/aggregated flat band correct; legacy presets unchanged |
 | later | ESPRIT-measured extension | separate proposal | — |
 

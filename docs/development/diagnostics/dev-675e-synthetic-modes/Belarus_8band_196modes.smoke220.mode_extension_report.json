@@ -1,0 +1,223 @@
+{
+ "mode_extension": {
+  "generator": "Pianoid.synthetic_modes",
+  "version": "2.0",
+  "spec": "docs/proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r4",
+  "decision": "user 2026-10-10: N ~ 2000, extrapolation at the literature-predicted global modal density",
+  "literature": {
+   "review": "docs/development/piano-soundboard-mode-count-literature-2026-10-10.md",
+   "density": "Chabassier, Chaigne & Joly, JASA 134(1) 648-665 (2013), doi:10.1121/1.4809649: 2400 soundboard modes <= 10 kHz (Steinway D FEM); plate rise below f_lim ~ 1.1 kHz: Ege, Boutillon & Rebillat, JSV 332(5) 1288-1305 (2013), doi:10.1016/j.jsv.2012.10.012; Boutillon & Ege, JSV 332(18) 4261-4279 (2013), doi:10.1016/j.jsv.2013.03.015 (App. A, clamped-plate correction)",
+   "damping": "Ege et al. 2013: modal loss factor 1-3 %, mean ~2 %, sigma = pi eta f",
+   "energy": "mean bridge conductance <Re Y> = n(f) / (4 M_total) (asymptotic modal sum; review section 4)"
+  },
+  "source": {
+   "name": "Belarus_8band_196modes.json",
+   "sha256": "5e01384e05347944019c57252576adc37b21d62bfd5a7759eb6a4423d3190a98",
+   "num_modes": 196,
+   "mode_order": null
+  },
+  "seed": 0,
+  "sr": 48000.0,
+  "num_modes": 220,
+  "f_max_hz": 1300.0507799517595,
+  "derived": "f_max",
+  "density": {
+   "law": "n(f) = n_g [1 - sqrt(f_b/f)]+ / (1 - sqrt(f_b/f_break)) for f <= f_break; n_g above",
+   "n_g_per_hz": 0.2,
+   "f_b_hz": 36.38210414482489,
+   "f_break_hz": 1100.0,
+   "count_at_break": 179.9898440096481
+  },
+  "n_shaped": 56,
+  "n_real": 101,
+  "n_real_flat": 45,
+  "n_synthetic": 119,
+  "n_real_dropped_above_f_max": 95,
+  "index_ranges": {
+   "shaped": [
+    0,
+    56
+   ],
+   "flat": [
+    56,
+    220
+   ]
+  },
+  "order": "shaped = the lowest 56 REAL modes (sorted); flat = real flat + synthetic interleaved, sorted by played Hz (per-mode 'synthetic' flag)",
+  "shaped_set_decision": "user 2026-10-10 (option A): the shaped set is the 56 lowest REAL modes, verbatim with their deck columns; every synthetic mode is flat, including those below the shaped/flat boundary frequency",
+  "shaped_boundary_hz": 658.3837337489633,
+  "placement": {
+   "coordinate": "target count c = N(f); mode k at c = k + 0.5",
+   "slot_jitter": 0.35,
+   "min_gap_count": 0.25,
+   "moved_by_min_gap": 3,
+   "fill": "each real mode takes the nearest free target slot; free slots -> synthetic"
+  },
+  "damping": {
+   "mode": "literature",
+   "eta_median": 0.02,
+   "sigma_ln": 0.25,
+   "bounds_rel_median": [
+    0.5,
+    1.5
+   ],
+   "law": "Q = 1/eta; decay rate pi eta f"
+  },
+  "energy": {
+   "rule": "measured",
+   "conductance_law": "rho(f) = exp(g0) f^g1 (band weight per Hz, LSQ log-log)",
+   "g0": -11.36582240563473,
+   "g1": -1.736992839415988,
+   "weight": "flat mode mass = integrated-conductance weight (coupling 1); source weight = mean over strings of feedin^2 x mass_inv",
+   "band_modes": 100,
+   "floor_share": 0.1,
+   "weight_sigma_ln": 0.5,
+   "mass_cap": 1.5929767092140945e-09,
+   "n_capped": 12,
+   "level": {
+    "source_total": 8.142534394794383e-07,
+    "output_total": 8.625700584725637e-07,
+    "real_band_output": 8.609504582333029e-07,
+    "extension_output": 1.6196002392608747e-09,
+    "real_band_level_change_db": 0.3018203140607928,
+    "extension_rel_source_db": -27.013517694855757,
+    "broadband_level_change_db": 0.25034777104184325
+   }
+  },
+  "flat": {
+   "gain": "a(m) = mean of the deck column over piano strings (LSQ uniform fit)",
+   "mass_fold": "preset mass = a(m)^2 * mass_inv (feedin = feedback = 1 on piano rows)",
+   "output_readout_weights": {
+    "128": 692.7788014116489,
+    "129": 451.3198734667171,
+    "130": 833.433610495114,
+    "131": 370.5621772832452
+   },
+   "output_readout": "PROVISIONAL (proposal R.2 open item): output rows carry w_c on every flat column = LSQ fit of the real flat readout; confirm before T3"
+  },
+  "current_engine": {
+   "ceiling_num_modes": 220,
+   "loadable": true,
+   "rule": "num_modes + num_channels <= num_strings (pianoid.py num_modes_for_model = num_strings; SC slots at mode index num_modes..)"
+  },
+  "output_scale": "inherited from the source, NOT re-derived (R.4.4 item 6, at T4)"
+ },
+ "thresholds": {
+  "count_max_abs_dev_above_real": 1.0,
+  "roundtrip_cents": 0.1,
+  "min_gap_count": 0.25
+ },
+ "count": {
+  "n_generated": 220,
+  "target_at_f_max": 220.0,
+  "max_abs_dev": 2.870165701483522,
+  "max_abs_dev_above_real": 0.30374225229329,
+  "rms_dev": 0.5764777893882544
+ },
+ "bands": [
+  {
+   "f_hz": [
+    36.38210414482489,
+    689.4396713461517
+   ],
+   "target_count": 100.00000000000001,
+   "real": 59,
+   "synthetic": 41,
+   "total": 100,
+   "density_per_hz": {
+    "target": 0.15312585753894445,
+    "real": 0.09034425594797721,
+    "generated": 0.15312585753894442
+   },
+   "weight": {
+    "target": 6.853623719212544e-07,
+    "source": 7.663944510837268e-07,
+    "real_out": 7.658482917410898e-07,
+    "synthetic": 4.922601537323226e-08,
+    "total": 8.15074307114322e-07
+   },
+   "total_vs_target_db": 0.7527694654837751,
+   "total_vs_source_db": 0.26744851797350344,
+   "eta_median": {
+    "real": 0.04329783941666492,
+    "synthetic": 0.018885866122350263
+   }
+  },
+  {
+   "f_hz": [
+    689.4396713461517,
+    1300.0507799517595
+   ],
+   "target_count": 119.99999999999999,
+   "real": 42,
+   "synthetic": 78,
+   "total": 120,
+   "density_per_hz": {
+    "target": 0.19652442988472993,
+    "real": 0.06878355045965548,
+    "generated": 0.19652442988472996
+   },
+   "weight": {
+    "target": 4.749575135824163e-08,
+    "source": 4.785898839571166e-08,
+    "real_out": 3.096849940265289e-08,
+    "synthetic": 1.6527251955588743e-08,
+    "total": 4.749575135824163e-08
+   },
+   "total_vs_target_db": 0.0,
+   "total_vs_source_db": -0.03308752233031111,
+   "eta_median": {
+    "real": 0.025174021955590736,
+    "synthetic": 0.020208979861595845
+   }
+  }
+ ],
+ "eta": {
+  "median": 0.01999709117580668,
+  "p05": 0.013800149803591245,
+  "p95": 0.027931503267703835,
+  "min": 0.011052146835275915,
+  "max": 0.029676984383960603,
+  "within_bounds": true,
+  "fraction_1_to_3_percent": 1.0
+ },
+ "spacing": {
+  "min_gap_count": 0.33274608052894905,
+  "min_gap_hz": 1.6637304026447453,
+  "min_gap_at_hz": 1140.8522520191382,
+  "duplicate_frequencies_involving_synthetic": 0
+ },
+ "validity": {
+  "dec_in_0_1": true,
+  "omega_in_0_4": true,
+  "mass_positive": true,
+  "below_nyquist": true,
+  "synthetic_below_f_max": true,
+  "shaped_sorted": true,
+  "flat_sorted": true,
+  "num_modes": true,
+  "roundtrip_cents_max": 8.172581696530689e-10,
+  "real_dec_omega_identical": true,
+  "real_duplicate_frequencies": 0,
+  "pass": true
+ },
+ "energy": {
+  "conductance": {
+   "source_total": 8.142534394794383e-07,
+   "output_total": 8.625700584725637e-07,
+   "real_band_output": 8.609504582333029e-07,
+   "extension_output": 1.6196002392608747e-09,
+   "real_band_level_change_db": 0.3018203140607928,
+   "extension_rel_source_db": -27.013517694855757,
+   "broadband_level_change_db": 0.25034777104184325
+  },
+  "output_impulse_energy": {
+   "source": 0.00023125535180843656,
+   "output": 0.00023129468026594375,
+   "level_change_db": 0.0007385204165566894,
+   "synthetic_share_db": -35.14158421839961,
+   "note": "flat force spectrum, k = 1 (velocity); string-SC gains unchanged and omitted"
+  }
+ },
+ "pass": true
+}

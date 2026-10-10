@@ -41,9 +41,11 @@ PianoidBasic/
         fpga_string_layout.py # FPGA string layout + string physics on the GPU grid
         fpga_preset_converter.py # FPGA folder + Pitch.txt -> GPU preset JSON (the FPGA import path + CLI)
         fpga_conversion_metadata.py # conversion metadata (UNCONFIRMED inputs, dropped fields) + report
-        mode_extension.py    # synthetic N-mode extension of a preset (4000-modes T2): fit + synthesis + flat-tier embedding
-        mode_extension_report.py # its validation (hold-out, seam, validity) + sidecar report (JSON + PNG)
-        synthetic_modes.py   # CLI: python -m Pianoid.synthetic_modes --source S --n N --seed K --out O
+        modal_density.py     # literature soundboard modal-density law n(f), N(f), inverse (synthetic extension)
+        mode_fill.py         # band-wise fill to the law: slots, min spacing, eta draw, conductance-normalised weights
+        mode_extension.py    # synthetic N-mode extension of a preset (4000-modes T2): orchestration + flat-tier embedding
+        mode_extension_report.py # its validation (count vs target, bands, eta, energy, spacing, validity) + report (JSON + PNG)
+        synthetic_modes.py   # CLI: python -m Pianoid.synthetic_modes --source S [--n N | --f-max F] --seed K --out O
         bytestream_encoding.py
         chart_animation.py
         utilities.py
@@ -668,42 +670,61 @@ Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`, `dev-f27f-
 
 ### Synthetic mode extension (4000-modes campaign T2)
 
-Files: `mode_extension.py` (generator), `mode_extension_report.py` (validation + report), `synthetic_modes.py` (CLI)
-— dev-675e, spec [proposal §R.4](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md).
+Files: `modal_density.py` (density law), `mode_fill.py` (slots, spacing, damping, energy), `mode_extension.py`
+(generator + preset assembly), `mode_extension_report.py` (validation + report), `synthetic_modes.py` (CLI) — dev-675e,
+spec [proposal §R.4](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md); density decision
+(user, 2026-10-10: "about 2000 … extrapolation based on the predicted density") and literature in
+[proposal §R.4.5](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r45-implementation-status-2026-10-09-dev-675e)
+and the [literature review](../../development/piano-soundboard-mode-count-literature-2026-10-10.md).
 
 ```
-python -m Pianoid.synthetic_modes --source Belarus_8band_196modes.json --n 560 --seed 0 --out OUT.json
-    [--f-max HZ] [--fit-from 10] [--keep-real K] [--report-dir DIR] [--no-report]
+python -m Pianoid.synthetic_modes --source Belarus_8band_196modes.json [--n 2000 | --f-max HZ] --seed 0 --out OUT.json
+    [--density 0.2] [--f-break 1100] [--eta 0.02] [--damping literature|blend] [--energy measured|plate]
+    [--truncate-real] [--fit-from 10] [--report-dir DIR] [--no-report]
 ```
 
-Keeps the source's real modes and extends to N (source untouched; same inputs + seed → byte-identical file):
+Keeps the source's real modes and fills the mode set up to a **literature global modal-density law** (source untouched;
+same inputs + seed → byte-identical file):
 
-| Modes (sorted by played Hz) | Content | Deck columns |
+| Modes | Content | Deck columns |
 |---|---|---|
-| `[0, 56)` shaped (decision Q3) | source mode dicts verbatim (+ `tier`, `synthetic: false`) | verbatim |
-| `[56, n_real)` real flat | real `frequency` / `decrement`; `mass` = `a(m)² · mass_inv`, `flat_gain` = `a(m)` | piano rows 1.0 (feedin = feedback); output rows: feedin 0, feedback `w_c` |
-| `[n_real, N)` synthetic flat (`synthetic: true`) | drawn from the fitted laws | as real flat |
+| `[0, 56)` shaped (decision Q3; **= the 56 lowest REAL modes**, user decision 2026-10-10 "A") | source mode dicts verbatim (+ `tier`, `synthetic: false`) | verbatim |
+| `[56, N)` flat, sorted by played Hz | real flat modes (real `frequency` / `decrement`; `mass` = `a(m)² · mass_inv`, `flat_gain` = `a(m)`) **interleaved** with synthetic modes (`synthetic: true`) | piano rows 1.0 (feedin = feedback); output rows: feedin 0, feedback `w_c` |
 
-- **Flat tier (proposal R.2):** `a(m)` = least-squares uniform fit of the column over the kernel's piano rows (one row
-  per string) = the column mean; with feedin = feedback the loop gain `a²` folds into `mass_inv`. Output readout
-  `w_c` per output pitch = LSQ fit of the real flat readout row (`Σ out·a / Σ a²`) — **provisional** (R.2 open item;
-  stored in `mode_extension.flat.output_readout_weights`). This embedding is exact for the flat model, so a preset with
-  N ≤ the current ceiling renders the 56-shaped / rest-flat instrument on today's engine (the T3 exactness test).
-- **Laws (fit band = real modes ≥ `fit_from`, played Hz):** density `N(f) ∝ f^α` (mid-rank count, anchored at the
-  last real mode); `ln Q` and `ln mass_inv'` linear in `ln f` with log-normal residuals (σ from the fit, draws clipped
-  at ±3σ), level anchored at the seam (`seam_offset` = median residual of the top 15 band modes). Synthetic
-  frequencies `N⁻¹(k + 0.5 + u)`, `|u| < 0.35` (≥ 0.3 count apart); `decrement` from Q via the converter's decay law;
-  `frequency` = `gpu_mode_frequency(f_played)`; synthetic `mass` capped at the strongest real flat mode.
-- **Infeasible N fails loudly** (`ModeExtensionError`, CLI exit 2, prints the achievable N) — spacing is never compressed.
-  **Measured 2026-10-09:** Belarus_8band_196modes reaches only **N = 560** below 20 kHz (α = 0.78), F15_Elyashev_array512
-  **N = 321** (α = 0.60) — N = 4000 is not reachable from either source under this rule.
-- `mode_extension` block in the preset: source name + sha256 (+ `mode_order` if the source was unsorted — F15 has 54
-  exact duplicate frequencies on the FPGA grid, kept), seed, f_max, index ranges, fitted laws, achievable N, flat
-  gains/readout, `current_engine.{ceiling_num_modes, loadable}`. `output_scale` is inherited, not re-derived (T4).
-- Sidecar report `<out-stem>.mode_extension_report.{json,png}`: hold-out (fit on the lower half of the real flat
-  band, predict the upper half: count error at the held-out f_max, KS / quantile errors of the Q and mass residuals),
-  seam continuity (detrended rolling-window step vs the real scatter), physical validity; thresholds recorded in the
-  report. Results (hold-out / seam numbers): [proposal §R.4.5](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r45-implementation-status-2026-10-09-dev-675e); report files + plots in `docs/development/diagnostics/dev-675e-synthetic-modes/`.
+Synthetic modes also fall **below** the shaped/flat boundary (Belarus 658 Hz, F15 1044 Hz); they are flat by decision.
+
+- **Density law** (`modal_density.DensityLaw`): `n(f) = n_g·[1 − √(f_b/f)]₊ / (1 − √(f_b/f_break))` for `f ≤ f_break`
+  (clamped-plate rise, normalised so it reaches `n_g` continuously), `n(f) = n_g` above; closed-form
+  `N(f) = n_g(√f − √f_b)²/k` / `N(f_break) + n_g(f − f_break)` and its inverse. Defaults `n_g = 0.2 /Hz` (literature
+  0.12–0.24; Chabassier 2013: 2400 modes ≤ 10 kHz), `f_break = 1100 Hz` (rib-waveguide transition); `f_b` is anchored
+  so the lowest real mode sits at count 0.5. Exactly one of `--n` / `--f-max` is given, the other follows from
+  `N(f_max) = N` (default N = 2000 → **f_max ≈ 10.2 kHz**); `f_max < 0.45·sr`.
+- **Fill** (`mode_fill`): in the target-count coordinate `c = N(f)` (mode k at `c = k + 0.5`) every real mode takes
+  its nearest free slot; the free slots become synthetic, so each band receives (target − real) modes. Synthetic
+  `c = slot + 0.5 + u`, `|u| < 0.35`; a draw closer than 0.25 count to a real mode moves to the farthest point of its
+  slot window. Real modes keep exact values. Real modes ≥ `f_max` are an error unless `--truncate-real` (smoke presets).
+- **Damping:** `η` truncated log-normal (median `--eta` 0.02, σ_ln 0.25, bounds ×0.5…×1.5 = 1–3 %), `Q = 1/η`,
+  `decrement` via the converter's decay law (`gamma = π f/Q`). `--damping blend`: the median follows the real modes'
+  log-log `η` trend (fit from `--fit-from`, level anchored at the last 15 real modes) up to the last real mode and
+  fades to `--eta` over one octave above — use it for presets whose real damping is far from 2 % (F15: η 0.13–13).
+- **Energy** (flat mode `mass` = its integrated-conductance weight, coupling 1; source weight = mean over strings of
+  `feedin² · mass_inv`): in 100-mode bands the synthetic band sum = `max(W_target − W_real_out, 0.1·W_target)`,
+  split with log-normal scatter (σ_ln 0.5), each capped at the strongest real flat mode. `measured` (default):
+  `W_target` follows a log-log power law fitted to the source's band conductance (the mean conductance
+  `n(f)/(4 M(f))` with `M(f)` calibrated to the measured board, unit-agnostic in engine units). `plate`: constant
+  `M_total` (literal plate rule, calibrated below `min(f_break, last real mode)`) — in engine units the measured
+  conductance falls ~f^-2.4…-2.6, so `plate` lifts HF by tens of dB (mostly absorbed by the cap; reported only).
+- **Load:** N ≤ the current ceiling (`num_strings − num_channels`) loads on today's engine; above it the loader guards
+  reject clearly (see Piano_mode and ModeMap).
+- `mode_extension` block (version 2.0): literature citations, decision, source name + sha256 (+ `mode_order`),
+  seed, `f_max_hz` + `derived`, density law params, counts (`n_real`, `n_real_flat`, `n_synthetic`,
+  `n_real_dropped_above_f_max`), `shaped_set_decision` + `shaped_boundary_hz`, placement, damping, energy (rule,
+  params, cap, level change in dB), flat gains / readout (`w_c`, PROVISIONAL R.2 open item),
+  `current_engine.{ceiling_num_modes, loadable}`. `output_scale` is inherited, not re-derived (T4).
+- Sidecar report `<out-stem>.mode_extension_report.{json,png}`: cumulative count real / target / generated, density
+  per band, η vs f, conductance per band (target / source / real out / synthetic / total), per-band counts and dB,
+  spacing, physical validity, conductance level and output impulse-energy change (DATA_FLOWS closed form, k = 1).
+  Sample reports: `docs/development/diagnostics/dev-675e-synthetic-modes/`.
 
 ---
 
