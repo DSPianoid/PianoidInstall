@@ -631,7 +631,9 @@ covers compute capabilities 80 (Ampere), 86 (Ampere), and 89 (Ada Lovelace),
 plus 75 (Turing) when specified in `setup-config.json`.
 
 Incremental builds are supported when `PIANOID_INCREMENTAL_BUILD=1`: each `.cu`
-source is skipped if the `.obj` timestamp is newer than the source file.
+source is skipped if the `.obj` timestamp is newer than the source file. Included headers (`.cuh`/`.h`)
+are **not** tracked: after editing a header (e.g. `ModeLayout.cuh`, `FlatTier.cuh`) touch the including `.cu` or build
+without incremental mode.
 
 ### Register / spill budget check (`-Xptxas -v`, dev-1cda 2026-10-09)
 

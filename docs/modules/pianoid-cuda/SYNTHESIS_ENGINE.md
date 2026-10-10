@@ -75,6 +75,38 @@ which holds for `N ≤ B·S = num_strings` (modes beyond `B·S` get no slot — 
 before). T3 replaces the flat deck coupling by the two uniform reductions and lifts this limit
 ([proposal §R.2](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r2-what-the-decisions-simplify-consequences-derived-from-55-algebra-with-ws-1)).
 
+### Uniform flat tier — `FlatTier.cuh` (4000-modes T3, dev-5bf7, 2026-10-10)
+
+**Opt-in per preset** (`model_parameters.flat_tier_num_shaped` = `nS`, `flat_tier_num_flat` = `nF` →
+`InitializationParameters` → `cycle_parameters[13]` / `[14]`; `nF = 0` = the T1 layout above, bit-for-bit the same
+code path). With `nF > 0` `makeModeLayout` has three tiers:
+
+| Tier | Modes | Owner thread / slot | Coupling |
+|---|---|---|---|
+| shaped | `[0, nS)`, `nS ≤ B` (56; F15's 58 blocks → quarter 0 of blocks 56/57 empty) | block `m`, `t = 0`, slot 0 | own deck column (quarter 0), unchanged |
+| uniform flat | `[nS, nS + nF)` | flat `f = m − nS`: block `f / U`, `t = Q + f % U`, `U = ceil(nF / B)`; slot `UNIFORM_FLAT_SLOT` (−1) | **no deck slot**: the two reductions below; `q` register-only |
+| linked | `[nS + nF, N)` (sound-channel mode slots + padding) | block `b`, `t = Q + U + j`, slot `k = 1 + j` | own deck column via slot `k` (the T1 link), `linkedPerBlock ≤ S − 1` |
+
+**Contract (exactness).** Every packed deck row must be bit-uniform over the flat columns: `deck[s, m] = w(s)` —
+enforced by the PianoidBasic packer (`flat_tier.check_uniform_flat_row`, fails the load / edit loudly); the flat gain
+`a(m)` is folded into the mode mass by the preset (`mass_inv' = a²·mass_inv`, `q' = a·q`, exact for the linear
+recurrence). The kernel reads `w(s)` = deck column `nS` once per launch (`flatDeckWeight`). Then, per audio sample:
+
+| Step | Where (MainKernel loop) | What |
+|---|---|---|
+| feedback partial | before the loop-top grid sync | warps overlapping the flat owners tree-sum `q'` → shared → thread 0 stores the block's partial in row `numStrings` of `feedback_cycle_matrix`, column = block (plain store, each block owns its column) |
+| `Q_sum` | after that grid sync, before the per-string `sumArray` | warp 0 tree-sums the 64 columns → `s_flat[1]`; stems add `fb_scale(s)·w(s)·Q_sum` (`fb_scale` = 1 on output/sound strings, `deck_feedback_coeff` on piano strings — the `mode_feedback` rule) |
+| feedin partial | with the per-mode feedin scatter | quarter leaders `w(string_k)·force_k / soundStep` → thread 0 stores the block's sum in row `numStrings` of `feedin_cycle_matrix` |
+| `F_sum` | after the feedin grid sync | warp 0 tree-sums → `s_flat[2]`; every uniform owner advances with `F = F_sum` |
+
+No new grid barrier; the cycle matrices gained one row (`(num_strings + 1) × SEGMENT`). Output routing (user
+default): an output string's packed row weight is `w_c × SC string gain`, so each channel reads the same `Q_sum`
+scaled by its gain. Sums are fp32 trees (same error structure as `sumArray`; a double cross-block stage hit the
+128-register cap in the debug variant). Registers: release 111 / debug 114 (sm_89; T1 101 / 103), 0 spill.
+Debug readouts of flat `q` are in the folded unit `q'`. Host check: `validateModeLayout` (in `devMemoryInit`)
+throws `std::invalid_argument` → `ValueError` if the tiers do not fit the grid. Measurements:
+[T3 flat tier](../../development/mode-scaling-T3-flat-tier-2026-10-10.md).
+
 ### Register budget & cooperative co-residency pre-flight (dev-1cda, 2026-10-09)
 
 A cooperative launch requires **every** grid block to be resident at once. Runtime geometry:

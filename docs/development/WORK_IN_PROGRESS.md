@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-5bf7 | T3 mode-scaling: flat tier (56 shaped + uniform-coupled flat modes, register-resident, 2 cross-block reductions) + Basic pack side + opt-in flag | [log](logs/dev-5bf7-2026-10-10-144307.md) | 2026-10-10 |
 | dev-2d06 | Concurrent /load_preset crash: backend lifecycle lock (coalesce/409, engine-route guards) + FE single-tab leadership (BroadcastChannel) + follower banner | [log](logs/dev-2d06-2026-10-10-150540.md) | 2026-10-10 |
 <!-- dev-624c COMPLETED 2026-10-10 (wrap by orchestrator agent) — 4000-modes T1 quarter-fork mode re-index (ModeLayout.cuh placement map, owner-thread load/advance/persist, slot-indexed feedin rows; behaviour-preserving): merged --no-ff PianoidCore dev 443d42c (953b8c1); HEAVY --both rebuilt (addKernel 100/101/101 rel, 102/103/103 dbg regs, 0 spill); unit 1934p/4 pre-existing (start_right_away_binary)/esprit deselected; smoke in-process Flask routes Belarus /load_preset 200, /health healthy, [OCCUPANCY] 101 regs capacity 128>=56, ASIO_CALLBACK ok, REST /play p60 peak 0.0604 FS; pushed; branch + worktree wt-624c-core removed. Open items in "Follow-ups from dev-624c". -->
 <!-- dev-675e COMPLETED 2026-10-10 (wrap by orchestrator agent) — 4000-modes T2 synthetic N-mode preset generator (literature modal-density law, N ~ 2000, band-wise fill, shaped = 56 lowest real modes) + loader mode-ceiling guards (ModelParameters.set_num_modes / ModeMap.set_sound_channels ValueError): merged --no-ff PianoidBasic dev a10c32e (d2283c3 + d6d532b); Basic pytest 35/35; Basic wheel rebuilt + installed (L1 import + guards ok); backend restarted via launcher, F15_basic /load_preset 200, /health healthy (coop ok; ASIO device absent -> SDL3 fallback, pre-existing), REST /play p60 0.507 FS; pushed; branch + worktree wt-675e-basic removed. Open items in "Follow-ups from dev-675e". -->
@@ -240,6 +241,13 @@
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
+
+## Follow-ups from dev-5bf7 (2026-10-10) — 4000-modes T3 uniform flat tier (Core `feature/dev-5bf7-flat-tier`, Basic `feature/dev-5bf7-flat-pack`; NOT merged)
+
+- **User listening verdict (§R.6)** on `D:/scratch/dev-5bf7/wav/T3_AB_{Belarus,F15}_{A_fulldeck,B_flat56}_stereo.wav` — gates T4; F15's upper 140 modes barely reach the output (A/B weakly discriminating).
+- **T4 sizing:** `NUM_MODES` / `dev_mode_running` / `MODE_STATE_SIZE` / `DECK_SIZE` (all NUM_MODES = 256); engine mode count still = `num_strings` (`pianoid.py num_modes_for_model`, `ModelParameters.set_num_modes`, `ModeMap.set_sound_channels`, `pack_pitch_feedin` pads rows to `num_strings`); deck width `nS + 1 + linked` (deferred from T3).
+- **T4 accuracy check:** `Q_sum` / `F_sum` are fp32 tree sums; compare against a float64 reference at N = 2000 (double cross-block stage cost the debug variant the 128-register cap).
+- **T5 UI:** a per-pitch flat-column deck edit / mute now fails the upload loudly (`FlatTierError`, by design); editors should show the flat tier as one band; `/health` should report `n_shaped` / `n_flat`.
 
 ## Follow-ups from dev-624c (2026-10-10) — 4000-modes T1 quarter-fork mode re-index (merged Core dev 443d42c)
 

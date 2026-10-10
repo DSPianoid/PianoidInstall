@@ -726,6 +726,24 @@ Synthetic modes also fall **below** the shaped/flat boundary (Belarus 658 Hz, F1
   spacing, physical validity, conductance level and output impulse-energy change (DATA_FLOWS closed form, k = 1).
   Sample reports: `docs/development/diagnostics/dev-675e-synthetic-modes/`.
 
+### Flat tier opt-in + pack contract (4000-modes campaign T3, dev-5bf7)
+
+The engine can couple the flat modes with **two cross-block reductions** instead of per-mode deck columns
+([SYNTHESIS_ENGINE → Mode placement](../pianoid-cuda/SYNTHESIS_ENGINE.md#mode-placement-modelayoutcuh-4000-modes-t1-quarter-fork-dev-624c-2026-10-10)).
+The split is **exact**, never an approximation: the approximation lives in the preset.
+
+| Piece | Where | What |
+|---|---|---|
+| Opt-in | `model_parameters.flat_tier_num_shaped` / `flat_tier_num_flat` (`ModelParameters`, persisted; default 0) | modes `[0, nS)` deck-shaped, `[nS, nS + nF)` uniform flat; `nF = 0` (every existing preset) = the full-deck engine path, unchanged |
+| Tier-count check | `flat_tier.validate_tier_counts` (from `pack_as_dict_for_cuda`) | `1 ≤ nS ≤ blocks`, `nS + nF ≤ num_modes`, else `FlatTierError` (ValueError) at load |
+| Pack contract | `flat_tier.check_uniform_flat_row` (from `StringMap.pack_pitch_feedin`, every deck upload path) | every PACKED row (after mute mask × SC string gain) must be **bit-uniform** over the flat columns — the engine reads `w(s)` = the first flat column; a non-uniform row (e.g. a per-pitch flat-mode edit or mute) fails loudly |
+| A/B projection | `mode_extension.flatten_preset` / `python -m Pianoid.synthetic_modes --source SRC --flatten --out OUT` | the source's REAL modes as 56 shaped + (N − 56) flat in the T2 convention (no synthetic modes): `a(m)` = mean piano-row feedin, mass `a²·mass_inv`, piano rows 1.0, output rows `w_c`; opted in; `flat_tier_projection` metadata block. Rejects a source that mutes a flat mode |
+| Generated presets | `synthetic_modes ... --flat-tier` | opts a T2 preset in (`nS = 56`, `nF = N − 56`); without it the preset loads full-deck as before |
+
+Output routing = the user's default: each output string reads the same flat sum scaled by its packed row weight
+(`w_c × string sound-channel gain`); there is no per-channel / per-mode flat editing. Flat-mode `mass` edits act on the
+folded `mass_inv' = a² · mass_inv` (the unit the preset stores).
+
 ---
 
 ## ASCII Class Hierarchy
