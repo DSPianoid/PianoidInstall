@@ -1,7 +1,7 @@
 # Mode-scaling T1 — quarter-fork mode re-index (measurements, 2026-10-10)
 
 **Agent:** dev-624c · **Spec:** [4000-modes proposal §R.5 T1](../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r5-implementation-plan-next-dev-tasks-in-order) (P1 of §R.3; §2, §4b, §7.2–7.3)
-· **Code:** PianoidCore `feature/dev-624c-quarter-fork` (off dev a92500c) · **Status:** implemented + verified, NOT merged.
+· **Code:** PianoidCore `feature/dev-624c-quarter-fork` (off dev a92500c) · **Status:** implemented + verified; MERGED into Core dev 443d42c (2026-10-10).
 Reference doc for the new map: [SYNTHESIS_ENGINE → Mode placement](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#mode-placement-modelayoutcuh-4000-modes-t1-quarter-fork-dev-624c-2026-10-10).
 
 ## 1. What changed

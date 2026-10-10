@@ -55,6 +55,7 @@ nav:
     - Controller Agent: development/CONTROLLER.md
     - Work in Progress: development/WORK_IN_PROGRESS.md
     - "Research: Soundboard Mode Count (literature)": development/piano-soundboard-mode-count-literature-2026-10-10.md
+    - "Mode Scaling T1: Quarter-Fork Mode Re-index": development/mode-scaling-T1-quarter-fork-2026-10-10.md
     - Standards:
       - Diagnostic Bug-Report Tool: development/standards/DIAGNOSTIC_BUG_REPORT_TOOL.md
   - Proposals: proposals/index.md
