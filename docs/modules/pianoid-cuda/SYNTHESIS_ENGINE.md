@@ -46,6 +46,35 @@ Grid layout (cooperative, one launch per synthesis cycle)
     s_mode_applied_force[NUM_STRINGS_IN_ARRAY]
 ```
 
+### Mode placement — `ModeLayout.cuh` (4000-modes T1 quarter-fork, dev-624c, 2026-10-10)
+
+Which thread advances which soundboard mode, and which quarter couples it through the deck, is defined in
+**one place**: `pianoid_cuda/ModeLayout.cuh` (`makeModeLayout` / `slotMode` / `ownedMode`). The bake
+(`stringMapKernel`) writes the per-thread tags into parameter slots **25 / 27 / 28**; `addKernel` reads them
+and uses `slotMode` for the feedin row → mode inverse. Notation: `B` = grid blocks (`numArrays`),
+`S` = strings per block (4), `Q` = `arraySize / S` (quarter size), `t` = `stMdIndex`, `N` = `numModes`
+(`cycle_parameters[2]`, = `num_strings` in practice: 224 Belarus, 232 F15). Mode buffers
+(`dev_mode_running`, `dev_mode_state`) stay indexed by the **global** mode number `m`.
+
+| Concept | Before T1 (≤ a92500c) | T1 (dev-624c) |
+|---|---|---|
+| Coupling slot `(b, k)` = quarter `k` of block `b` — deck feedback scatter over all strings by the quarter's threads; feedin row `r = S·b + k` reduced by block `b` into `s_mode_applied_force[k]` | mode `k·B + b` | **shaped** `k = 0`: mode `b` (`b < B`) · **flat** `k ≥ 1`: mode `B + b·F + (k−1)`, `F = flatPerBlock = ceil((N−B)/B)` (≤ 3) |
+| Parameter slot 25 (`modeNo`, per thread) | `B·quarterNumber + blockNo` | `slotMode(b, quarterNumber)` |
+| Feedin row `r` → mode (`modeIndexInQuarter`) | `(r % S)·B + r / S` | `slotMode(r / S, r % S)` |
+| Oscillator owner (advances `q`, holds `q_prev` in a register) | thread `t = k·Q` (`indexInQuarter == 0`) of each quarter — 4 per block | **explicit per-thread assignment**: shaped mode of block `b` → `t = 0`; flat mode `(b, j)` → `t = Q + j` (flat threads of quarters 1..S−1 numbered contiguously). Slot 27 = owned mode, slot 28 = its coupling slot `k` |
+| `q` exchange | `s_mode[quarterNumber]` | `s_mode[ownedSlot]` (owner writes, slot `k`'s quarter reads for the scatter) |
+| Flat-mode order on the grid | interleaved (`m = k·B + b`: consecutive modes in consecutive **blocks**) | **block-major** (consecutive flat modes on consecutive threads of one block → coalesced `mode_state` / `mode_running` reads) |
+| "No mode" | `modeNo ≥ numModes` | sentinel `numModes` (same guards) |
+
+Shaped tier = quarter 0 = modes `[0, B)` — the lowest modes, one per block (proposal §R.1 Q3). Flat tier =
+modes `[B, N)`. **T1 is behaviour-preserving:** every mode keeps its own deck column and equation; only
+the thread that runs it moves, so renders differ only by float atomic-order noise
+([dev-624c measurements](../../development/mode-scaling-T1-quarter-fork-2026-10-10.md)). **Transitional
+constraint:** a flat mode still couples through the deck via slot `k = 1 + j`, so `flatPerBlock ≤ S − 1`,
+which holds for `N ≤ B·S = num_strings` (modes beyond `B·S` get no slot — not simulated, exactly as
+before). T3 replaces the flat deck coupling by the two uniform reductions and lifts this limit
+([proposal §R.2](../../proposals/mode-scaling-4000-implementation-proposal-2026-06-06.md#r2-what-the-decisions-simplify-consequences-derived-from-55-algebra-with-ws-1)).
+
 ### Register budget & cooperative co-residency pre-flight (dev-1cda, 2026-10-09)
 
 A cooperative launch requires **every** grid block to be resident at once. Runtime geometry:

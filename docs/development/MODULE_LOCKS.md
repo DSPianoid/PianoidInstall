@@ -7,6 +7,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 <!-- dev-1cda locks RELEASED 2026-10-09: Core feature/dev-1cda-coop-preflight ff94281 merged --no-ff dev a92500c (after dev-19be, clean); branch + worktree wt-1cda-core removed. -->
+<!-- dev-624c locks RELEASED 2026-10-10 (stopped before Step 10, NOT merged): Core pianoid_cuda/MainKernel.cu, Kernels.cu, NEW ModeLayout.cuh committed on feature/dev-624c-quarter-fork 953b8c1 (off dev a92500c); worktree D:/repos/wt-624c-core kept (no .venv junction; untracked build_config.json copy). -->
 <!-- dev-675e locks RELEASED 2026-10-10 (Phase 2): PianoidBasic synthetic_modes.py, mode_extension.py, mode_extension_report.py, modal_density.py, mode_fill.py, tests/test_synthetic_modes.py, tests/conftest.py (new), ModelParams.py + Mode.py guards — feature/dev-675e-synthetic-modes d2283c3+d6d532b merged --no-ff Basic dev a10c32e, pushed; worktree wt-675e-basic removed, branch deleted. -->
 <!-- dev-19be locks RELEASED 2026-10-09: Core feature/dev-19be-audio-watchdog 53fff00+b1d7ef3 merged --no-ff dev b9c2d8a; Tunner feature/dev-19be-audio-health-fe 7429f48+e166e83 merged --no-ff dev 77b8a04; branches deleted. -->
 <!-- dev-fcef locks RELEASED 2026-10-08 (stopped before Step 10): Core pianoid_middleware/output_level.py + tests/unit/test_output_scale_live_guard.py committed on feature/dev-fcef-calib-feedback 0685d99 (off dev 0332511); NOT merged; worktree D:/repos/wt-fcef-core removed (.venv junction unlinked first). -->

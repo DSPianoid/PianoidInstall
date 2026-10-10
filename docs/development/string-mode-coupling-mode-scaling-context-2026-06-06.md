@@ -704,6 +704,12 @@ modeNo         = numArrays * quarterNumber + blockNo     // Kernels.cu:253  → 
 parameters[... 25*arraySize + idx] = modeNo             // per-thread mode tag, baked at packing
 ```
 
+> **★ Superseded in code by T1 (dev-624c, 2026-10-10, unmerged):** the placement is now
+> `ModeLayout.cuh` — quarter 0 = shaped mode `b`, flat modes block-major on threads `Q + j`, explicit
+> per-thread oscillator owners (no `indexInQuarter==0` gate). Before/after table:
+> [T1 measurements](mode-scaling-T1-quarter-fork-2026-10-10.md). The ceiling `num_modes ≤ num_strings`
+> is unchanged by T1 (the flat tier still couples through the deck); T3 lifts it.
+
 **[SRC]** (`Kernels.cu:195-298`). **Max distinct addressable modes = numArrays ×
 num_strings_in_array = num_strings.** The kernel's per-thread `modeNo` is read back in `MainKernel`
 (`:178`) and every mode op is guarded by `if (modeNo < numModes)`. The fold loop
