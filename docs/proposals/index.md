@@ -11,6 +11,7 @@ self-contained document capturing a problem, its analysis, and a proposed (or im
 
 ## Active
 
+- [ASIO Audio Core — Retire sdl_audio_core / SDL3](asio-audio-core-retire-sdl-2026-10-11.md) — inventory of every SDL audio use, ASIO host capabilities/gaps (already duplex, 18 in / 20 out on UMC1820), shared CUDA-free ASIO core + `pianoid_audio` module (preloaded output matrix, sample-locked multichannel capture, latency compensation), phased migration + open decisions
 - [Loudness Chain — Where the Engine Deviates from the Physical Model](loudness-physics-deviation-analysis-2026-10-04.md) — measured attribution of the 45–50 dB equal-mass keyboard spread: string gain ∝ ρ·dx² (code), unison ×n (code), curve duration vs period and mode-mass law (data); fix order + expected mass ranges
 - [Automatic Volume Equalization — System Review](volume-equalization-review-2026-10-04.md) — every level mechanism end to end; single-note calibration vs chords/keyboard, no limiter, inert mic equalizer, cache not keyed by load params
 
