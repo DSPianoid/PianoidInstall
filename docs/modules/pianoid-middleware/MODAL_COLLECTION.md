@@ -64,6 +64,44 @@ repo at runtime. They are now vendored in-tree:
 > [asio-audio-core-retire-sdl-2026-10-11.md](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md).
 > `sdl_audio_core` stays until the ASIO path covers all its functions.
 
+### Swept-sine mode discovery (dev-69fd, 2026-10-11)
+
+A second acquisition + identification path that uses **only** the ASIO session (`POST
+/audio/session`), independent of `RoomResponseRecorder` / `MeasurementSession`. Package
+`pianoid_middleware/modal_adapter/swept_discovery/` (CLI only, no UI yet):
+
+```
+python -m pianoid_middleware.modal_adapter.swept_discovery run   [--level-dbfs -30] [--repeat-fine 3]
+python -m pianoid_middleware.modal_adapter.swept_discovery synth [--noise-rms 3e-5]   # offline plant
+```
+
+| Stage | What it does |
+|---|---|
+| noise | one `record` session (all receivers) → noise floor of every FRF |
+| coarse | per exciter Out 1–4: exponential sine sweep 20 Hz–10 kHz, 8 s, −30 dBFS, loopback-compensated; deconvolved FRF H (F × 7 receivers × 4 exciters), 0.25 Hz grid |
+| zones | CMIF σ1/σ2 peaks (≥ 3 dB prominence, ≥ 10 dB SNR, MAC-consistent shape, duplicates merged) → one local zone per peak group, each zone owns a Voronoi "core" |
+| fine | per exciter one session of concatenated narrow linear sweeps (1 s per zone + ≥ 5 τ decay gap); zoom-DFT FRF, step ≤ B/10 |
+| fit | polyreference rational fit per zone (shared poles, variable projection), seeds from coarse + fine CMIF peaks, ≤ 2 residual-driven extra poles; accept by core, SNR ≥ 10 dB, fit MAC ≥ 0.9, 1e-4 < ζ < 0.2; cross-zone dedupe |
+
+| File | Role |
+|---|---|
+| `signals.py` | ESS / linear sweeps, level ceiling (> −12 dBFS refused, > −20 dBFS warns), fine-session scheduling (≤ 110 s per session) |
+| `frf.py` | deconvolution FRF, zoom-DFT segment FRF, noise smoothing |
+| `zones.py` | MAC, CMIF, peak criteria, zones, fine-grid seeds |
+| `fit.py` | rational fit, mode extraction (f = \|λ\|/2π, ζ, shape = SVD of the residue matrix, participation per exciter, SNR, MAC), dedupe |
+| `audio_io.py` | `RestSessionAudioIO` (`play_record` / `record` over REST — swap point for the `AudioIO` protocol of the sdl→ASIO migration) · `SimulatedPlantIO` (exact ZOH modal oscillators from `synth.oscillator`) |
+| `procedure.py` · `report.py` · `__main__.py` | orchestration + `DiscoveryConfig` defaults · JSON / npz / plots · CLI |
+
+Output folder `D:\modal_measurements\swept_discovery\<run_id>\`: `report.json` (config, sessions,
+zones, modes, rejected poles, repeatability), `modes.npz` (one scenario per exciter in the ESPRIT
+per-scenario format — `frequencies, damping_ratios, mode_shapes` (n_modes × 7, residue column of
+that exciter), `poles, amplitudes`; `report.to_per_scenario_results` is consumed unchanged by
+`EspritRunner._build_all_detections` → tracking → feedin → Apply), `coarse_frf.npz`,
+`coarse_cmif.png`, `fine_zones_NN.png`, `mac_matrix.png`, `sessions/<tag>/` (raw session data).
+First rig run (2026-10-11, `20261011-rig3`): 70 modes 33–6283 Hz, median ζ 3.2 %, 233 s;
+isolated modes repeat to ≤ 0.06 % in f. Defaults, criteria and full validation:
+[swept-sine-mode-discovery-2026-10-11.md](../../proposals/swept-sine-mode-discovery-2026-10-11.md).
+
 The `_room_response_bootstrap.py` shim and the `PIANOID_ROOMRESPONSE_PATH`
 env var have been deleted. `GET /modal/collect/health` now returns the
 status of an in-tree import probe rather than a sibling-repo discovery
