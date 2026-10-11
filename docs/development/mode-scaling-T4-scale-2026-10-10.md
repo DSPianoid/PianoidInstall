@@ -142,7 +142,7 @@ ignored): **1944 passed / 4 failed (pre-existing `test_start_right_away_binary`)
 - **Middleware / UI gaps (T5):** `/health` should report `num_modes` (engine slots), `n_shaped`, `n_flat`; mode
   editors / `getModeDisplacements` charts get 2004 modes (5 × 2004 reals) — render the flat tier as one aggregated band;
   deck editors must address the DOMAIN row (`pitch_deck_row`, one column per mode) — a per-pitch flat-column edit or
-  mute fails the upload by design (`FlatTierError`); the feedin chart (`pack_deck(pack_for_cuda=False)`) already shows
+  mute fails the upload by design (`FlatTierError`) — **T5 (dev-d0b7, 2026-10-11): edits now write one value to all flat columns of the row (backend `flat_tier.sync_flat_edit` + FE `useMatrixHistory` flatRange), `/health mode_layout` added**; the feedin chart (`pack_deck(pack_for_cuda=False)`) already shows
   domain rows. Library D2D switch between presets with different mode layouts is refused (`PresetLibraryError`) —
   the UI should offer APPLY.
 - Not done: a `/load_preset` through the user's own launcher stack (the in-process ASIO smoke above covers the engine

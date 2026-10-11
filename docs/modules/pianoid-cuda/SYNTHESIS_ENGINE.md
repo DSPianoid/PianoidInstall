@@ -89,7 +89,8 @@ code path). With `nF > 0` `makeModeLayout` has three tiers:
 | linked | `[nS + nF, N)` (sound-channel mode slots + padding) | block `b`, `t = Q + U + j`, slot `k = 1 + j` | own deck column via slot `k` (the T1 link), `linkedPerBlock ≤ S − 1` |
 
 **Contract (exactness).** Every packed deck row must be bit-uniform over the flat columns: `deck[s, m] = w(s)` —
-enforced by the PianoidBasic packer (`flat_tier.check_uniform_flat_row`, fails the load / edit loudly); the flat gain
+enforced by the PianoidBasic packer (`flat_tier.check_uniform_flat_row`, fails the load loudly; since T5 the deck write path
+`flat_tier.sync_flat_edit` writes one value to every flat column of an edited row, so edits keep the contract); the flat gain
 `a(m)` is folded into the mode mass by the preset (`mass_inv' = a²·mass_inv`, `q' = a·q`, exact for the linear
 recurrence). The kernel reads `w(s)` = deck column `nS` once per launch (`flatDeckWeight`). Then, per audio sample:
 

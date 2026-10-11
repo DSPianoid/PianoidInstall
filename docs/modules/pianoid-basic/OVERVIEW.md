@@ -746,7 +746,14 @@ The split is **exact**, never an approximation: the approximation lives in the p
 | Compact deck (T4) | `StringMap.pitch_deck_row` (domain row, `num_modes_for_model` wide) → `StringMap.pack_pitch_feedin` (engine row) → `flat_tier.compact_deck_row` | flat tier on: the engine row is `[shaped 0..nS) | ONE flat column w(s) | linked nS+nF..)` — width `nS + 1 + num_channels` (61 for 56 + 1 + 4), so the deck is `num_strings × 61` at any N (engine `ModeLayout.cuh deckWidth / deckColumn`; the engine rejects any other size). Legacy rows unchanged (`num_strings` wide). `pack_deck(pack_for_cuda=False)` (charts) returns the domain rows |
 
 Output routing = the user's default: each output string reads the same flat sum scaled by its packed row weight
-(`w_c × string sound-channel gain`); there is no per-channel / per-mode flat editing. Flat-mode `mass` edits act on the
+(`w_c × string sound-channel gain`). **Flat coupling edits are synchronous (T5, dev-d0b7, user decision 2026-10-11):**
+`StringMap.update_deck` / `update_deck_mask` (the sole writers of the raw deck rows + mute masks, reached by every
+`/set_parameter/feedin|feedback|*_mask` write) pass each row through `flat_tier.sync_flat_edit` — an edit that changes ANY
+flat cell of a row (piano-pitch feedin `w(s)`, output-pitch `128+c` feedback = the channel readout `w_c`, or a mute) sets
+EVERY flat column of that row to the edited value; rows stay independent (w is per string), shaped / linked columns stay
+individual. Changed flat cells carrying two different values are ambiguous → `FlatTierError` (all rows are validated
+before any is written). The pack-time `check_uniform_flat_row` stays the guard. Per-mode `frequency` / `mass_inv` /
+`decrement` stay individually editable for every mode, flat ones included (the algorithm limits coupling only). Flat-mode `mass` edits act on the
 folded `mass_inv' = a² · mass_inv` (the unit the preset stores).
 
 ---
