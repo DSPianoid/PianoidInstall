@@ -444,56 +444,27 @@ ESPRIT results are persisted per scenario as:
 
 REST endpoints: see [REST_API.md](REST_API.md#modal-adapter-endpoints).
 
-### Measurement Stack (Phase 0 RR-port, dev-rrport 2026-05-10)
+### Measurement Stack (in-tree; ASIO acquisition since dev-4284, 2026-10-11)
 
-`modal_adapter_server` (port 5001) imports the in-tree measurement stack
-at process start to make the `sdl_audio_core` measurement engine and the
-`RoomResponseRecorder` family available in the same Python process as
-the Modal Adapter pipeline. Both pieces ship inside PianoidCore now and
-install into `PianoidCore/.venv/Lib/site-packages/`:
-
-- `sdl_audio_core` — pybind11 C++ extension built from
-  `PianoidCore/sdl_audio_core/` by `build_pianoid_cuda.bat` (subroutine
-  `:build_sdl_audio_core`, see
-  [BUILD_SYSTEM.md](../../architecture/BUILD_SYSTEM.md#sdl_audio_core-build-phase-0-rr-port)).
-- `pianoid_middleware.modal_adapter.measurement` — the seven Python
-  modules ported verbatim from the sibling RoomResponse repo (recorder,
-  dataset_collector, missing_averages, mic_testing, signal_processor,
-  filename_utils, calibration_validator).
+`modal_adapter_server` (port 5001) runs the in-tree RoomResponse-derived measurement modules
+(`pianoid_middleware.modal_adapter.measurement`: recorder, dataset_collector, missing_averages,
+mic_testing, signal_processor, filename_utils, calibration_validator, plus `audio_io`). Audio
+acquisition is **one sample-locked ASIO session per measurement on the `:5000` backend**
+(`measurement/audio_io.py` `RemoteAudioIO` → `GET /audio/devices` / `POST /audio/session`):
+the backend is the single device owner and pauses / resumes synthesis around each session.
+The SDL3 `sdl_audio_core` extension and the `/pause_synthesis` hand-over are retired. Design,
+schema and acceptance: [MODAL_COLLECTION — ASIO acquisition](MODAL_COLLECTION.md#asio-acquisition-dev-4284).
 
 | Aspect | Detail |
 |--------|--------|
-| Probe (in-process) | `_probe_measurement_stack()` in `modal_adapter_server.py` — imports `sdl_audio_core` + `pianoid_middleware.modal_adapter.measurement.recorder` |
-| Status surface | `app.config['roomresponse_status']` (dict: `available`, `sdl_version`, `error`, `room_response_path`) — dict shape preserved for frontend backwards-compat; `room_response_path` is now always `None` |
-| Health endpoint | **`GET /modal/collect/health` is RETIRED to 410 Gone (Phase 2a).** Availability is now reflected by the modal_adapter_server's import-time logs (the in-tree measurement stack imports at process start) and by the per-Measurement device probe (`GET /modal/measurements/<id>/devices`, 503 when the stack is unavailable). |
-| Failure mode | Soft — server still starts when the import probe fails (e.g. `sdl_audio_core` not built yet) |
+| Probe | `_probe_measurement_stack()` in `modal_adapter_server.py` — imports the measurement package and asks `:5000` for the ASIO host (`GET /audio/devices`); informational banner only |
+| Status surface | `app.config['roomresponse_status']` = `{available, asio_driver, error}` |
+| Availability | Per request: `GET /modal/measurements/<id>/devices`, `collect/start` and `setup_test` return **503 `asio_unavailable`** when `:5000` is down or has no ASIO host open (load a preset with `audio_driver_type` 4) |
+| Standalone (no `:5000`) | Not available: the ASIO host opens with the engine; an engine-free host (`LocalAudioIO`) is a later phase of [asio-audio-core-retire-sdl](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md) |
 
-**Pre-Phase-0 (deleted at dev-rrport, 2026-05-10):** `_room_response_bootstrap.py`
-shim that injected `<PianoidInstall sibling>/RoomResponse` into `sys.path`
-and the `PIANOID_ROOMRESPONSE_PATH` env var. After Phase 0 PianoidCore
-no longer reaches outside its own checkout for measurement code; future
-RoomResponse updates do not propagate automatically (intended decoupling
-per proposal Q6 — see [`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../proposals/modal-adapter-measurement-entity-2026-05-10.md)).
-
-The main backend (port 5000) does NOT run the probe — `modal_bp` mounted
-on `backendServer.py` returns `available: false` with a clear error from
-the health endpoint, since `roomresponse_status` is never populated in
-that process. This is intentional: synthesis uptime must not depend on
-measurement collection availability, and the audio device cannot be
-opened twice in the same process.
-
-SDL3.dll is byte-identical between
-`PianoidCore/.venv/Lib/site-packages/pianoidCuda/` and
-`PianoidCore/.venv/Lib/site-packages/sdl_audio_core/` (both built from
-`C:\SDL3-3.2.0\`), so importing `sdl_audio_core` alongside `pianoidCuda`
-does not cause symbol or DLL conflict. Pause/resume coexistence (the
-modal-adapter-server claiming the audio device while Pianoid is paused)
-relies on `/pause_synthesis` (`backendServer.py:1844-1853`) reaching
-`pianoid.stop_playback()` → `SDL3AudioDriver::stopPlayback`
-(`SDL3AudioDriver.cpp:296-309`), which calls `SDL_DestroyAudioStream`.
-In SDL3, destroying the last stream bound to a device releases the OS
-audio device — so the device is genuinely free for `sdl_audio_core` to
-open while paused.
+**Pre-Phase-0 (deleted at dev-rrport, 2026-05-10):** `_room_response_bootstrap.py` shim and
+the `PIANOID_ROOMRESPONSE_PATH` env var — PianoidCore no longer reaches outside its own
+checkout for measurement code.
 
 ---
 

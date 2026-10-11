@@ -2625,3 +2625,5 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 
 <!-- dev-a66b lock RELEASED 2026-10-05 (ModesRule.js, Tunner feature/dev-a66b-sc-mode0 2bc752d) -->
+
+| dev-4284 | (wt-4284-core) `PianoidCore/pianoid_middleware/modal_adapter/measurement/{audio_io.py NEW,recorder.py,mic_testing.py,dataset_collector.py,__init__.py}`, `modal_adapter/{audio_setup.py NEW,collection_engine.py,setup_test_engine.py,measurement_routes.py,measurement_entity.py,routes/__init__.py}`, `pianoid_middleware/modal_adapter_server.py`, `modal_adapter/measurement_import.py`, `tests/integration/{test_measurement_import,test_measurement_routes,test_project_store,test_measurement_port,test_measurement_collect_routes,test_v1_collect_410,test_modal_collection_b1,test_setup_test_engine}.py`, `tests/unit/{test_measurement_entity.py,test_sound_channel_calibrator.py,test_audio_io.py NEW,test_audio_setup.py NEW}`, `build_pianoid_cuda.bat`, `.gitignore`, `sdl_audio_core/**`; (wt-4284-tunner) `PianoidTunner/src/modules/panels/collection/AudioDevicesSection.jsx` + tests | 2026-10-11T14:05:00Z | ASIO collection migration (sdl_audio_core retirement) |

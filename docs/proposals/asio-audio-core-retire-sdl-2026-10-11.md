@@ -1,9 +1,13 @@
 # ASIO Audio Core — Retire `sdl_audio_core` / SDL3 for All Use Cases
 
-- **Status:** PARTIALLY IMPLEMENTED — Phase 0 done + Phase 1-lite implemented by dev-1b6c
+- **Status:** PARTIALLY IMPLEMENTED — Phase 0 + Phase 1-lite done by dev-1b6c
   (2026-10-11, merged Core dev 2c15882): session inside pianoidCuda +
-  `GET /audio/devices` / `POST /audio/session` on `:5000`; rig acceptance passed (§10). Modal
-  adapter migration (Phase 3) is next. **User decisions 2026-10-11 override §4/§7 where they
+  `GET /audio/devices` / `POST /audio/session` on `:5000`; rig acceptance passed (§10).
+  **Phase 3 (modal adapter migration) done by dev-4284** (2026-10-11, unmerged at writing):
+  every `sdl_audio_core` consumer moved to the ASIO session, rig acceptance passed through the
+  UI collection flow, and `sdl_audio_core` **retired** (§10.2). Remaining: engine-free host /
+  `LocalAudioIO`, configurable rate/buffer, Phase 2 engine re-base (optional), SDL3 engine
+  fallback stays by decision. **User decisions 2026-10-11 override §4/§7 where they
   differ:** (1) the engine's SDL3 fallback driver STAYS; (2) `sdl_audio_core` is NOT retired yet
   (stays until the ASIO path covers all its functions); (3) incremental reuse of the existing ASIO
   host inside pianoidCuda, no new standalone DLL for now (optional later); (D3) licence — open,
@@ -400,3 +404,36 @@ engine client; per-type conversion `AsioSampleFormat.h`; module functions
 Not done (by scope): configurable rate/buffer, `GET/DELETE /audio/session/<id>`, engine-free
 host, `startMicCapture` multichannel, modal adapter migration (next), SDL removal (deferred by
 the user).
+
+### 10.2 Phase 3 — modal adapter migration + `sdl_audio_core` retirement (dev-4284, 2026-10-11)
+
+Reference doc: [MODAL_COLLECTION — ASIO acquisition](../modules/pianoid-middleware/MODAL_COLLECTION.md#asio-acquisition-dev-4284).
+
+| §2.1 consumer | Replacement (as built) |
+|---|---|
+| S1 `RoomResponseRecorder._record_audio` | `AudioIO.play_record` (`measurement/audio_io.py`, `RemoteAudioIO` → `:5000`): the active exciter ALONE + all receivers + loopback in one session; aligned on the measured marker round trip; onset alignment kept as a check only (D7) |
+| S2 device helpers + `get_sdl_core_info` | `get_audio_info()` (ASIO snapshot + roles) in scenario metadata; SDL resolve/ordinal code deleted |
+| S3 `test_multichannel_recording` | deleted (no caller); the session itself is the smoke test |
+| S4 `mic_testing.AudioRecorder` | `AudioIO.record` (input-only session) |
+| S5 `collection_engine.list_audio_devices`, `/devices` | proxy of `GET /audio/devices`: channel tables by NAME + `current` roles; 503 `asio_unavailable` |
+| S6 server startup probe | import probe + `:5000` ASIO host banner |
+| S7 Tunner AudioDevicesSection | exciter / receiver multi-selects + loopback output/input selects by channel name |
+| Setup schema | `audio_config` v2 (`exciters`, `receivers`, `loopback`, derived `multichannel_config`); v1 SDL setups → `legacy_sdl` provenance on read (files untouched), imports mapped |
+| S8 tests | integration tests updated, unit skip-guard removed; new `test_audio_io.py`, `test_audio_setup.py` |
+| S9 build | `:build_sdl_audio_core` removed (stale-install uninstall instead), `sdl_audio_core/` deleted; engine SDL3 + its `SDL3.dll` unchanged |
+| S10 scratch tools | not migrated (ad-hoc; superseded by the dev-1b6c acceptance harness and the collection flow) |
+
+Collection drives exciters **individually** (exciter *k* → scenario `N + k`); synthesis pause is
+the session's (no `/pause_synthesis`). Coverage check for retirement: duplex play+record,
+input-only record, output-only play, device/channel enumeration and diagnostics are all served by
+the ASIO session; the only SDL capability without an equivalent is measuring **without** the
+`:5000` backend (no engine-free ASIO host yet) — a prerequisite difference, not a function; with
+the backend down, measurements fail fast (503). Non-ASIO devices are out of scope (D1:
+measurement is ASIO-only).
+
+Rig evidence (UMC1820, live `:5000`): 4 exciters × 5 measurements, every session drove exactly
+`[Out k, Out 5]`, loopback onset 328 frames in all 20 sessions (spread 0), 0 xruns, receiver
+onsets constant across repeats; ESPRIT on the new Project: 124–137 modes per scenario. Finding:
+the drive mirror on the loopback output leaks into In 5–7 (−37…−42 dBFS early) → marker-only
+loopback for data, mirror only for Setup Test captures.
+

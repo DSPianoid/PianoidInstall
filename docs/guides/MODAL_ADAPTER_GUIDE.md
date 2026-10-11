@@ -341,7 +341,7 @@ lock chip when applicable):
 | Section | What it edits | Endpoint | 423 if locked |
 |---|---|---|---|
 | A — General | Measurement ID (read-only N1), layout (line/grid), channel mapping editor, grid editor | `PATCH /modal/measurements/<id>/mapping_config` | yes |
-| B — Audio Devices | input/output device, multichannel_config (16 fields), Setup Test surface #1 | `PATCH /modal/measurements/<id>/audio_config` | yes |
+| B — Audio Devices | ASIO channel roles: exciters (outputs) / receivers (inputs) / loopback output+input (dev-4284), channel-role indices, Setup Test surface #1 | `PATCH /modal/measurements/<id>/audio_config` | yes |
 | C — Impulse | impulse_form (sine / square / voice_coil), pulse params, **volume** (relocated from Series at dev-impulse-chart 2026-05-12), voice-coil sub-block, **configured-impulse ECharts preview** (live frontend math; matches the recorder formula 1:1), Setup Test surface #2 | `PATCH /modal/measurements/<id>/impulse_config` | yes |
 | D — Series | num_pulses, cycle_duration_ms, record_extra_time_ms, num_measurements, measurement_interval_s, averaging_start_cycle, derived calculations. **`volume` MOVED to Impulse + `recording_mode` REMOVED at dev-impulse-chart 2026-05-12.** | `PATCH /modal/measurements/<id>/series_config` | yes |
 | E — Calibration Quality Criteria | editable rule table (add/remove rows, threshold + applies_to + fail_action), Reset to defaults | `PATCH /modal/measurements/<id>/calibration_criteria` | **NO — lock-exempt** (analysis-time gate per N4) |
@@ -350,9 +350,10 @@ lock chip when applicable):
 > Unlocking this Measurement allows you to edit the audio device, impulse, series, or mapping setup, OR to record additional scenarios. Existing Projects branched from this Measurement keep their snapshot and are unaffected. Newly-branched Projects will see the edits made after unlock. Continue?
 
 **Start Collection button.** **WIRED at Phase 2c (dev-msmtui-fc, 2026-05-11).**
-Click → POST `/modal/measurements/<id>/collect/start` with `scenario_number=0`
-(scenario number is auto-incremented by the backend; the body knob lets the
-caller force a specific number for re-record). The button switches to a
+Click → POST `/modal/measurements/<id>/collect/start` with `scenario_number=0`.
+Each configured exciter is recorded **alone** as its own scenario (exciter *k* →
+scenario `scenario_number + k`; a repeated run appends measurements to the same
+scenarios). The button switches to a
 **Cancel ({phase})** stop-button while a session is in flight (active phase
 chip shown alongside). On the FIRST successful scenario completion of an
 unlocked Measurement, `acquisition.lock` is auto-written by the backend (N4).
@@ -367,13 +368,22 @@ when sticky is off. Level filter (toggle group) hides unselected levels.
 Clear button empties the buffer. Buffer is bounded to 1000 entries
 client-side (backend ring buffer is 256 — proposal §3.3).
 
-**Audio Devices Section** — **Select dropdowns wired at Phase 2c (dev-msmtui-fc).**
-The TextField "device ordinal" placeholders shipped in Phase 2b are now
-real MUI Select dropdowns populated by `GET /modal/measurements/<id>/devices`
-on mount (with a Refresh icon button to re-probe). The endpoint also returns
-`current_input` / `current_output` from the Measurement's `setup/audio_config.json`
-so the Selects pre-fill correctly. SDL version is read live from the same
-endpoint payload.
+**Audio Devices Section — ASIO channel pickers (dev-4284, 2026-10-11).** Channel tables come
+from `GET /modal/measurements/<id>/devices` (proxy of the `:5000` backend's `GET /audio/devices`;
+chip `ASIO <driver> · <rate> Hz / <buffer>`, Refresh re-probes). Pick:
+
+- **Exciters** — output channels (e.g. `Out 1`–`Out 4`), each driven alone during collection;
+- **Receivers** — input channels (e.g. `In 1`–`In 7`), recorded sample-locked in every session;
+- **Loopback output / input** — the electrical loopback (rig: `Out 5 → In 8`), the per-session
+  timing reference (both or neither).
+
+The recorded channel list (`receivers + loopback input`) is shown with its indices; the role
+fields below (calibration / reference / response channels, normalisation, alignment) index it
+(defaults: calibration = loopback, responses = all receivers). Names, not ordinals, are saved
+(`audio_config` schema v2). A Measurement recorded with SDL devices still opens and shows an
+info note with its old devices (provenance); pick ASIO channels to collect into it. No ASIO host
+on `:5000` (backend down, or not loaded on `audio_driver_type` 4) → the chip shows
+`Probe failed: ...`. Details: [MODAL_COLLECTION — ASIO acquisition](../modules/pianoid-middleware/MODAL_COLLECTION.md#asio-acquisition-dev-4284).
 
 **Impulse Section — Configured-impulse ECharts preview (dev-impulse-chart, 2026-05-12).**
 A new `<ImpulseShapeChart>` ECharts plot sits inside the Impulse section,

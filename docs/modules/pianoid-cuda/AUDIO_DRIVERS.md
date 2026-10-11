@@ -320,6 +320,10 @@ absent" — hence the `device_loss` hook. Middleware/REST surface:
 `AsioAudioInterface.cpp`. REST: [`GET /audio/devices`, `POST /audio/session`](../pianoid-middleware/REST_API.md#get-audiodevices)
 (`audio_session.py` / `audio_session_routes.py`). Proposal (Phase 1-lite of):
 [asio-audio-core-retire-sdl-2026-10-11.md](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md).
+**Consumers:** the modal adapter's Measurement collection + Setup Test (dev-4284 —
+`measurement/audio_io.py` RemoteAudioIO, one session per measurement, each exciter alone,
+marker loopback; [MODAL_COLLECTION — ASIO acquisition](../pianoid-middleware/MODAL_COLLECTION.md#asio-acquisition-dev-4284))
+and swept-sine discovery (dev-69fd). `sdl_audio_core` is retired; the engine's SDL3 fallback stays.
 
 The engine's ASIO host already creates buffers for **all** inputs and outputs and serves them
 from one `bufferSwitch`. The session generalises `playRecordedAudio` (outputs 0–7 interleaved,

@@ -6,9 +6,11 @@ migration), Phase 2a (v1 `/modal/collect/*` → 410 + real Setup Test + streamin
 messages), Phase 2b (the rebuilt 5-section Collection subpanel + shared
 `<SetupTest>` + `<CollectionLog>`), Phase 2c (per-Measurement collect family +
 branching, `/projects/copy` + `/create_from_zip` → 410), and the dev-maimport
-campaign (import an existing dataset folder/zip as a Measurement). The **only**
-outstanding item is the proposal's Phase 5 single-`SDL3.dll`-dedup benchmark
-(Gate-4) — a deployment-hygiene cleanup with no functional surface, NOT yet done.
+campaign (import an existing dataset folder/zip as a Measurement). Since
+dev-4284 (2026-10-11) acquisition runs on the ASIO measurement session of the
+`:5000` backend and `sdl_audio_core` is retired (see
+[§ ASIO acquisition](#asio-acquisition-dev-4284)); the old Phase 5
+`SDL3.dll`-dedup item is moot.
 
 The legacy v1 `/modal/collect/*` REST surface (Wave B-1) is **retired
 to HTTP 410 Gone** as part of the Modal Adapter Measurement-entity
@@ -52,55 +54,13 @@ repo at runtime. They are now vendored in-tree:
 | `pianoid_middleware.modal_adapter.measurement.filename_utils` | RR `multichannel_filename_utils.py` |
 | `pianoid_middleware.modal_adapter.measurement.calibration_validator` | RR `calibration_validator_v2.py` |
 | `pianoid_middleware.modal_adapter.measurement.default_recorderConfig.json` | RR `recorderConfig.json` (Belarus default) |
-| `PianoidCore/sdl_audio_core/` (built by `build_pianoid_cuda.bat`) | RR `sdl_audio_core/` |
+| ~~`PianoidCore/sdl_audio_core/`~~ — RETIRED dev-4284 (ASIO session replaces it) | RR `sdl_audio_core/` |
 
-> **ASIO measurement session available (dev-1b6c, 2026-10-11) — collection NOT migrated yet.**
-> The `:5000` backend now exposes a sample-locked ASIO `play_record` session
-> ([`GET /audio/devices`, `POST /audio/session`](REST_API.md#post-audiosession)): per-exciter
-> output channels, N receivers captured in the same `bufferSwitch`, loopback round trip
-> (`Out 5 → In 8` on the rig). The modal adapter's acquisition (`RoomResponseRecorder` →
-> `sdl_audio_core`, WASAPI pair endpoints, mono pulse replicated to all channels) is
-> **unchanged**; moving it onto `/audio/session` (RemoteAudioIO) is the next phase of
-> [asio-audio-core-retire-sdl-2026-10-11.md](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md).
-> `sdl_audio_core` stays until the ASIO path covers all its functions.
-
-### Swept-sine mode discovery (dev-69fd, 2026-10-11)
-
-A second acquisition + identification path that uses **only** the ASIO session (`POST
-/audio/session`), independent of `RoomResponseRecorder` / `MeasurementSession`. Package
-`pianoid_middleware/modal_adapter/swept_discovery/` (CLI only, no UI yet):
-
-```
-python -m pianoid_middleware.modal_adapter.swept_discovery run   [--level-dbfs -30] [--repeat-fine 3]
-python -m pianoid_middleware.modal_adapter.swept_discovery synth [--noise-rms 3e-5]   # offline plant
-```
-
-| Stage | What it does |
-|---|---|
-| noise | one `record` session (all receivers) → noise floor of every FRF |
-| coarse | per exciter Out 1–4: exponential sine sweep 20 Hz–10 kHz, 8 s, −30 dBFS, loopback-compensated; deconvolved FRF H (F × 7 receivers × 4 exciters), 0.25 Hz grid |
-| zones | CMIF σ1/σ2 peaks (≥ 3 dB prominence, ≥ 10 dB SNR, MAC-consistent shape, duplicates merged) → one local zone per peak group, each zone owns a Voronoi "core" |
-| fine | per exciter one session of concatenated narrow linear sweeps (1 s per zone + ≥ 5 τ decay gap); zoom-DFT FRF, step ≤ B/10 |
-| fit | polyreference rational fit per zone (shared poles, variable projection), seeds from coarse + fine CMIF peaks, ≤ 2 residual-driven extra poles; accept by core, SNR ≥ 10 dB, fit MAC ≥ 0.9, 1e-4 < ζ < 0.2; cross-zone dedupe |
-
-| File | Role |
-|---|---|
-| `signals.py` | ESS / linear sweeps, level ceiling (> −12 dBFS refused, > −20 dBFS warns), fine-session scheduling (≤ 110 s per session) |
-| `frf.py` | deconvolution FRF, zoom-DFT segment FRF, noise smoothing |
-| `zones.py` | MAC, CMIF, peak criteria, zones, fine-grid seeds |
-| `fit.py` | rational fit, mode extraction (f = \|λ\|/2π, ζ, shape = SVD of the residue matrix, participation per exciter, SNR, MAC), dedupe |
-| `audio_io.py` | `RestSessionAudioIO` (`play_record` / `record` over REST — swap point for the `AudioIO` protocol of the sdl→ASIO migration) · `SimulatedPlantIO` (exact ZOH modal oscillators from `synth.oscillator`) |
-| `procedure.py` · `report.py` · `__main__.py` | orchestration + `DiscoveryConfig` defaults · JSON / npz / plots · CLI |
-
-Output folder `D:\modal_measurements\swept_discovery\<run_id>\`: `report.json` (config, sessions,
-zones, modes, rejected poles, repeatability), `modes.npz` (one scenario per exciter in the ESPRIT
-per-scenario format — `frequencies, damping_ratios, mode_shapes` (n_modes × 7, residue column of
-that exciter), `poles, amplitudes`; `report.to_per_scenario_results` is consumed unchanged by
-`EspritRunner._build_all_detections` → tracking → feedin → Apply), `coarse_frf.npz`,
-`coarse_cmif.png`, `fine_zones_NN.png`, `mac_matrix.png`, `sessions/<tag>/` (raw session data).
-First rig run (2026-10-11, `20261011-rig3`): 70 modes 33–6283 Hz, median ζ 3.2 %, 233 s;
-isolated modes repeat to ≤ 0.06 % in f. Defaults, criteria and full validation:
-[swept-sine-mode-discovery-2026-10-11.md](../../proposals/swept-sine-mode-discovery-2026-10-11.md).
+> **Acquisition = ASIO measurement session (dev-4284, 2026-10-11).** Every measurement is
+> one sample-locked `POST /audio/session` on the `:5000` backend: each configured exciter is
+> driven ALONE (one scenario per exciter), all receivers + the loopback input are captured in
+> the same `bufferSwitch`, and the capture is aligned on the measured electrical round trip.
+> Details: [§ ASIO acquisition](#asio-acquisition-dev-4284).
 
 The `_room_response_bootstrap.py` shim and the `PIANOID_ROOMRESPONSE_PATH`
 env var have been deleted. `GET /modal/collect/health` now returns the
@@ -113,30 +73,18 @@ See [`docs/proposals/modal-adapter-measurement-entity-2026-05-10.md`](../../prop
 ## Architecture
 
 ```
-+-----------------------+        REST       +--------------------------------+
-| Modal Adapter         |   /modal/collect/*|  modal_adapter_server (5001)   |
-| Frontend (B-3, TBD)   |  ---------------> |                                |
-+-----------------------+                   |  routes.py + collection_routes |
-                                            |          |                     |
-                                            |          v                     |
-                                            |  MeasurementSession            |
-                                            |  (single active session)       |
-                                            |          |                     |
-                                            |  thread  |                     |
-                                            |          v                     |
-                                            |  measurement.RoomResponseRecorder      |
-                                            |  + measurement.SingleScenarioCollector |
-                                            |  + measurement.generate_averaged_...   |
-                                            |  (vendored in-tree, Phase 0)           |
-                                            +-----------+--------------------+
-                                                        |
-                                                        |  pause / resume
-                                                        v
-                                            +--------------------------------+
-                                            | backendServer.py (port 5000)   |
-                                            | /pause_synthesis (200 = OK)    |
-                                            | /resume_synthesis              |
-                                            +--------------------------------+
+ Tunner Collection subpanel ── REST /modal/measurements/* ──> modal_adapter_server (:5001)
+                                                               routes -> MeasurementSession
+                                                               (single active run, thread)
+                                                                 one scenario per exciter:
+                                                                 SingleScenarioCollector
+                                                                   -> RoomResponseRecorder
+                                                                      -> AudioIO (RemoteAudioIO)
+                                                                             |
+                     GET /audio/devices, POST /audio/session  <--------------+
+                                                                             v
+                                                    backendServer.py (:5000) — owns ASIO:
+                                                    pause synthesis -> play_record -> resume
 ```
 
 The collection engine sits in
@@ -146,53 +94,101 @@ is wired into the existing `modal_bp` blueprint via
 
 ### Single-active-session constraint
 
-Collection is exclusive — the audio device cannot be opened twice. The
+Collection is exclusive — one run per process. The
 `MeasurementSession` instance lives on `app.config['measurement_session']`
-and tracks one in-flight scenario at a time:
+and tracks one in-flight run at a time:
 
 | State | Meaning |
 |-------|---------|
 | `idle` | No active session |
-| `pausing` | Posting `/pause_synthesis` to backend |
-| `recording` | RoomResponseRecorder + SingleScenarioCollector running |
-| `saving` | Generating averaged_responses + measurements/ mirror |
-| `resuming` | Posting `/resume_synthesis` to backend |
+| `recording` | RoomResponseRecorder + SingleScenarioCollector running (current exciter) |
+| `saving` | Generating averaged_responses + measurements/ mirror (current exciter) |
 | `done` | Success terminal |
 | `cancelled` | Cancellation requested mid-flight |
-| `error` | Pause failed, recording crashed, or save failed |
+| `error` | Recording or save failed (the message names the cause, e.g. `asio_unavailable`, `loopback_not_detected`) |
 
-A `start()` call while another session is in flight returns HTTP 409.
-Cancellation is signalled via `threading.Event`; the worker thread
-checks between phases and on success/failure/cancel always attempts a
-final `/resume_synthesis` so Pianoid is not left paused.
+(`pausing` / `resuming` are no longer emitted — the backend's ASIO session pauses and
+resumes synthesis itself.) A `start()` while another run is in flight raises
+`CollectionConflictError` → HTTP 409; a failed ASIO pre-flight raises
+`CollectionUnavailableError` → HTTP 503 `asio_unavailable` synchronously, before any folder
+is created. Cancellation is signalled via `threading.Event` and checked between exciters.
 
-## Pause/Resume Coordination
+## ASIO acquisition (dev-4284)
 
-Pianoid must release the OS audio device before RoomResponse can open it.
-The B-0 audit confirmed `/pause_synthesis` ultimately invokes
-`SDL3AudioDriver::stopPlayback`, which destroys the SDL3 audio stream
-and releases the device.
+Proposal: [asio-audio-core-retire-sdl-2026-10-11.md](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md)
+(Phase 3). Session API: [REST_API — POST /audio/session](REST_API.md#post-audiosession),
+[AUDIO_DRIVERS — ASIO measurement session](../pianoid-cuda/AUDIO_DRIVERS.md#asio-measurement-session-dev-1b6c).
 
+| Concern | Owner / behaviour |
+|---|---|
+| Device + synthesis pause (P1) | `:5000` backend only (`audio_session.py`); the modal adapter never opens audio |
+| Transport | `measurement/audio_io.py` — `RemoteAudioIO` (`PIANOID_BACKEND_URL`, default `http://127.0.0.1:5000`): signal → temp `.npy` (TEMP), session `out_dir` → temp, `data.npy` loaded then deleted; retries `409 session_in_progress` for 60 s |
+| Errors | backend down / no ASIO host / no session API → `AudioIOUnavailable` (503 `asio_unavailable`); session abort / loopback missing → `AudioIOError` (ends the run with the reason) |
+| `LocalAudioIO` | not implemented: the ASIO host only opens with the engine; an engine-free host is a later phase. With `:5000` down, collection / Setup Test / devices fail fast with 503 |
+
+**`setup/audio_config.json` schema v2** (`modal_adapter/audio_setup.py`, applied on every
+`read_setup_config` / `write_setup_config` / create / import):
+
+```json
+{
+  "schema_version": 2, "backend": "asio",
+  "exciters":  ["Out 1", "Out 2", "Out 3", "Out 4"],
+  "receivers": ["In 1", "In 2", "In 3", "In 4", "In 5", "In 6", "In 7"],
+  "loopback":  {"output": "Out 5", "input": "In 8", "mirror": false},
+  "multichannel_config": {"enabled": true, "num_channels": 8,
+                          "channel_names": ["In 1", "...", "In 8"],
+                          "calibration_channel": 7, "loopback_channel": 7,
+                          "reference_channel": 0, "response_channels": [0, 1, 2, 3, 4, 5, 6], "...": "..."}
+}
 ```
-collect/start  -->  pausing       --> POST /pause_synthesis @ 5000
-                    | OK (200)        (200 also when no preset is loaded -- nothing to release)
-                    | 5xx or unreachable: phase=error, NO resume attempted
-                    v
-                    recording     --> RoomResponseRecorder.take_record(...)
-                    | scenario complete
-                    v
-                    saving        --> generate averaged_responses/ + scenario_N.npy mirror
-                    |
-                    v
-                    resuming      --> POST /resume_synthesis @ 5000
-                    | (always attempted on success / error / cancel paths if pause succeeded)
-                    v
-                    done | error | cancelled
-```
 
-If `/pause_synthesis` is unreachable or returns 5xx, the session aborts
-without opening the audio device — Pianoid keeps exclusive ownership.
-This is the correct fail-fast (P5) for shared-device contention.
+- Channels are ASIO driver channel **names** (stable), never SDL ordinals.
+- Recorded channel list = `receivers + [loopback.input]`; `num_channels` / `channel_names` /
+  `loopback_channel` are **derived**; user roles (`calibration_channel`, `reference_channel`,
+  `response_channels`) are kept while in range; defaults: calibration = loopback channel,
+  responses = all receivers, reference = first response; the loopback channel is never a response.
+- **v1 migration (old SDL setups).** `input_device*` / `output_device*` / `sdl_version` move to
+  `legacy_sdl` (provenance only); `multichannel_config` is kept verbatim; the file on disk is
+  NOT rewritten on read (a write stores v2). Imported SDL-era datasets map the same way; an
+  ASIO-collected dataset's `recorder_config` (`exciters` / `input_channels` / `loopback`) maps
+  back to roles. A legacy Measurement opens, analyses and branches unchanged; to collect into
+  it, pick ASIO channels (after unlocking).
+
+**Per-exciter collection.** `collect/start {scenario_number: N}` runs every configured exciter
+**alone**: exciter *k* → scenario `N + k` (a scenario = one excitation point), each with
+`num_measurements` sessions of `num_pulses` cycles. After each scenario the route's callback
+`Measurement.record_scenario` updates `scenario_indices` (+ N4 auto-lock on the first).
+Without exciters the run fails with `channels_not_configured`.
+
+**Loopback reference (D4) and alignment.** Per session the loopback output carries a one-sample
+marker at frame 0 followed by a 0.12 s lead before the drive; the marker onset on the loopback
+input (the backend's own `audio_session.measure_loopback`) is the electrical round trip of that
+session and the capture is shifted by it, so recording frame *n* = drive frame *n*. The
+recorder therefore applies **no onset re-alignment** (`shift_applied: 0`); the reference
+channel's acoustic onset is kept in metadata and the loopback channel's onset is a check
+(≤ 1 sample) when it carries the drive (D7). Without a loopback the session compensates the
+driver-reported latency and the legacy reference-onset alignment applies.
+
+**Drive mirror (`loopback.mirror`, default off).** Measured on the rig 2026-10-11: a copy of
+the drive on Out 5 leaks electrically into In 5–7 (onset 1 sample; early peak −37 / −42 /
+−41 dBFS vs −41 / −50 / −51 dBFS acoustic). Data collection therefore sends the marker only;
+a calibration-mode capture (Setup Test) whose calibration channel is the loopback channel turns
+the mirror on for that diagnostic session so the calibration channel carries the drive.
+
+**Metadata.** `session_metadata.json` → `device_info` = ASIO snapshot + channel roles
+(`get_audio_info`); each measurement's `recording_stats.audio_session` = `{session_id, exciter,
+outputs, mirror, start_sample_position, xruns, alignment, loopback{onset_frames, ...}, latency,
+levels, noise_floor_dbfs}`. Setup Test's silence criterion uses the session's pre-roll noise
+floor (the aligned capture starts at the impulse).
+
+**Rig acceptance (2026-10-11, UMC1820, via the Tunner UI + REST, live `:5000` on ASIO).**
+Measurement `ASIO-rig-2026-10-11b`: exciters Out 1–4, receivers In 1–7, loopback Out 5 → In 8.
+4 scenarios × 5 measurements: every session drove exactly `[Out k, Out 5]`; loopback onset
+**328 frames in all 20 sessions (spread 0)**; 0 xruns; receiver acoustic onsets identical across
+repeats; `averaged_responses` 8 ch; manifest `scenario_indices [0..3]` + auto-lock. Project
+`ASIO-rig-2026-10-11b_p1` → ESPRIT 200 in 64 s: 124 / 137 / 133 / 128 modes per scenario.
+Legacy `LG` (SDL v1 setup, 159 scenarios) and `LG_p1` still open. (The round trip read 328
+frames on 2026-10-11 afternoon vs 334–335 in the morning probe — constant within a stack run.)
 
 ## Output File Layout
 
@@ -273,8 +269,8 @@ All others fall back to the vendored
 | `sample_rate` | int | Audio sample rate (Hz) |
 | `num_pulses` | int | Pulses per recording cycle |
 | `volume` | float (0..1) | Output volume scale |
-| `input_device` / `input_device_name` | int / str | SDL3 input ordinal + name (name takes priority) |
-| `output_device` / `output_device_name` | int / str | SDL3 output ordinal + name |
+| `impulse_form`, `pulse_duration`, `pulse_fade`, `pulse_frequency`, `cycle_duration`, `series_config` | — | Stitched from the Measurement's impulse / series setup (dev-4284: these were dropped by the whitelist before, so collection silently used the bundled defaults) |
+| `exciters` / `input_channels` / `loopback` | list / list / object | ASIO channel roles (names) from `audio_config` v2; the engine adds `active_exciter` per scenario |
 | `multichannel_config` | object | Channel roles (`response_channels`, `calibration_channel`, `reference_channel`) and `enabled` flag |
 | `num_measurements` | int | Pulses per scenario (default 5) |
 | `measurement_interval` | float | Seconds between measurements (default 0.5) |
@@ -459,14 +455,15 @@ Phase 2a (this commit) replaces the stub with the real implementation:
 
 Flow on `POST /modal/measurements/<id>/setup_test`:
 
-1. Pause Pianoid synthesis (`POST /pause_synthesis @ 5000`). On failure
-   the route returns **502 Bad Gateway** with `code: "pause_failed"`;
-   the audio device is never opened.
+1. ASIO pre-flight (`GET /audio/devices` on `:5000`). No host → **503**
+   `asio_unavailable` (dev-4284; formerly a `/pause_synthesis` 502).
 2. Stitch the Measurement's `setup/{audio,impulse,series,mapping}_config.json`
    into a single recorder cfg via `build_recorder_config()`.
 3. Construct `RoomResponseRecorder` (in-tree port from Phase 0) and
    invoke `take_record(mode='calibration', save_files=False)` for one
-   calibration cycle — NO scenario folder, NO averaging, NO N4 auto-lock.
+   calibration cycle — one ASIO session driving the FIRST exciter (the
+   backend pauses / resumes synthesis) — NO scenario folder, NO averaging,
+   NO N4 auto-lock.
 4. Evaluate each `setup/calibration_criteria.json` entry against the
    measured signal. The default 5 criteria each dispatch to a
    per-criterion measurement function (`_measure_for_criterion`) and
@@ -476,8 +473,7 @@ Flow on `POST /modal/measurements/<id>/setup_test`:
    escalate the overall.
 5. Reduce: `overall = fail` if any `fail_action="fail"` criterion failed;
    else `warn` if any `fail_action="warn"` failed; else `pass`.
-6. Resume Pianoid synthesis (`POST /resume_synthesis @ 5000`).
-7. Write the report to `setup_test/latest.json` and the calibration
+6. Write the report to `setup_test/latest.json` and the calibration
    channel as mono 16-bit PCM to `setup_test/latest.wav` (N3 overwrite).
 
 Report shape (proposal §2.5 lines 512-535):
@@ -587,7 +583,7 @@ on top of Phase 1's `/modal/measurements/*` surface:
 | GET  | `/modal/measurements/<id>/collect/status` | Per-Measurement session snapshot incl. `messages` ring buffer |
 | POST | `/modal/measurements/<id>/collect/cancel` | Cancel in-flight scenario |
 | GET  | `/modal/measurements/<id>/collect/results/<sid>` | Fetch completed scenario result |
-| GET  | `/modal/measurements/<id>/devices` | Enumerate SDL3 devices, with the Measurement's currently-selected input/output echoed back |
+| GET  | `/modal/measurements/<id>/devices` | ASIO channel tables (proxy of `:5000` `GET /audio/devices`) + the Measurement's current channel roles |
 | GET  | `/modal/measurements/devices` | Unscoped alias for the Create-Measurement flow (no measurement_id yet) |
 
 All five collect routes are Measurement-scoped: cross-Measurement
@@ -661,26 +657,24 @@ step, out of scope for the route itself).
 
 ### Devices endpoints
 
-`GET /modal/measurements/<id>/devices` returns:
+`GET /modal/measurements/<id>/devices` returns (dev-4284; proxy of the `:5000`
+backend's `GET /audio/devices`):
 
 ```json
 {
-    "input_devices": [{"index": 0, "name": "MOTU UltraLite-mk5 (1)"}, ...],
-    "output_devices": [{"index": 1, "name": "MOTU UltraLite-mk5 (2)"}, ...],
-    "sdl_version": "3.2.0",
-    "current_input": 3,
-    "current_input_name": "MOTU UltraLite-mk5 (1)",
-    "current_output": 1,
-    "current_output_name": "MOTU UltraLite-mk5 (2)"
+    "backend": "asio", "driver": "UMC ASIO Driver", "sample_rate": 48000.0, "buffer_size": 64,
+    "latency": {"input_frames": 136, "output_frames": 168, "reported_roundtrip_frames": 304},
+    "inputs":  [{"index": 0, "name": "In 1", "type": "Int32LSB", "supported": true}, "..."],
+    "outputs": [{"index": 0, "name": "Out 1", "type": "Int32LSB", "supported": true}, "..."],
+    "engine": {"loaded": true, "lifecycle_state": "PLAYBACK_ACTIVE", "...": "..."},
+    "current": {"exciters": ["Out 1"], "receivers": ["In 1"], "loopback": {"output": "Out 5",
+                "input": "In 8", "mirror": false}, "legacy_sdl": null}
 }
 ```
 
-`current_*` are read from the Measurement's `setup/audio_config.json`
-so the frontend Audio Devices Select dropdowns can pre-select the right
-entry. The unscoped alias `/modal/measurements/devices` returns the same
-shape with `current_*` set to `null` (no Measurement context).
-
-`SDL3` not importable → 503 with `code=stack_unavailable`.
+`current` echoes the Measurement's channel roles (incl. `legacy_sdl` provenance of an old SDL
+setup) for the Tunner Audio Devices pickers; the unscoped alias returns `current: null`.
+No ASIO host on `:5000` → **503** `code=asio_unavailable`.
 
 ### routes.py C4 split (Phase 2c)
 

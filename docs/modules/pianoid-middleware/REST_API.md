@@ -188,7 +188,7 @@ On startup, the server runs a stale process check: finds any PID listening on th
   /modal/measurements/<id>/collect/status     -- (Phase 2c) session snapshot + messages ring
   /modal/measurements/<id>/collect/cancel     -- (Phase 2c) cancel in-flight scenario
   /modal/measurements/<id>/collect/results/<sid> -- (Phase 2c) completed scenario result
-  /modal/measurements/<id>/devices            -- (Phase 2c) SDL3 devices (per-Measurement)
+  /modal/measurements/<id>/devices            -- ASIO channel tables via :5000 /audio/devices (dev-4284)
   /modal/measurements/devices                 -- (Phase 2c) unscoped alias (Create flow)
   /modal/measurements/active_session          -- global "any session in flight?" probe (sole v1 survivor)
   /modal/measurements/probe                   -- (import) sniff a folder's layout, no writes
@@ -3908,12 +3908,12 @@ engine crash (report still persisted so the UI sees a fail surface).
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/modal/measurements/<id>/collect/start` | Body `{scenario_number, description?, computer?, room?, recorder_config_overrides?}`. Stitches `setup/*` → legacy recorder cfg (`_build_recorder_config_from_measurement`); caller overrides win. 409 if a session is in flight. First successful scenario auto-locks (N4) |
+| POST | `/modal/measurements/<id>/collect/start` | Body `{scenario_number, description?, computer?, room?, recorder_config_overrides?}`. Stitches `setup/*` → legacy recorder cfg (`_build_recorder_config_from_measurement`); caller overrides win. Each configured exciter is recorded alone as scenario `scenario_number + k` (one ASIO session per measurement on `:5000`). 409 if a session is in flight; 503 `asio_unavailable` without an ASIO host. First successful scenario auto-locks (N4) |
 | GET  | `/modal/measurements/<id>/collect/status` | Per-Measurement snapshot incl. `messages` ring buffer (Q8). Cross-Measurement → `{phase:"idle"}` |
 | POST | `/modal/measurements/<id>/collect/cancel` | Cancel in-flight. Cross-Measurement → 409 with active id |
 | GET  | `/modal/measurements/<id>/collect/results/<sid>` | Completed scenario result. Cross-Measurement → 404 |
-| GET  | `/modal/measurements/<id>/devices` | SDL3 devices + the Measurement's current input/output echoed for UI pre-fill |
-| GET  | `/modal/measurements/devices` | Unscoped alias (Create-Measurement flow, no id yet); `current_*` = null |
+| GET  | `/modal/measurements/<id>/devices` | ASIO channel tables (proxy of `:5000` `GET /audio/devices`: driver, rate, buffer, latencies, `inputs` / `outputs` by name) + `current` = the Measurement's exciters / receivers / loopback (+ `legacy_sdl`); 503 `asio_unavailable` without an ASIO host (dev-4284) |
+| GET  | `/modal/measurements/devices` | Unscoped alias (Create-Measurement flow, no id yet); `current` = null |
 | GET  | `/modal/measurements/active_session` | Global "any session in flight?" probe — `{measurement_id, session_id, phase, progress_pct, messages, ...}` or `{phase:"idle"}`. Sole v1 survivor |
 
 #### v2 Project endpoints
