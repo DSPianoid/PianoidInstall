@@ -2,7 +2,7 @@
 
 **Status:** implemented + validated OFFLINE (dev-fd69, Core `feature/dev-fd69-modal-methods`, Tunner
 `feature/dev-fd69-chirp-ui`, both unmerged). Live rig tests pending (the interface was disconnected
-during the session) — plan in [§6](#6-rig-test-plan-pending-the-users-go).
+during the session) — plan in [§7](#7-rig-test-plan-pending-the-users-go).
 Code reference: [MODAL_COLLECTION → Excitation types](../modules/pianoid-middleware/MODAL_COLLECTION.md#excitation-types-impulse-train-vs-chirp-dev-fd69)
 and [→ Swept-sine discovery, PolyMAX and method comparison](../modules/pianoid-middleware/MODAL_COLLECTION.md#swept-sine-discovery-polymax-and-method-comparison-dev-69fd-dev-fd69).
 
@@ -35,16 +35,17 @@ peak; the swept peak method (on the same simulated plant through its full ESS �
 chain) recovers 0–5 of 22; PolyMAX recovers 22/22 (f < 0.5 %, median 0.05 %; ζ < 15 %), 0 spurious, at
 noise 3e-3 of mean |H| (21/22 at 1e-4 plant noise through the ESS chain). The 0.8 % pair is resolved.
 
-**Rig (rig3 coarse FRF):** 63 modes, all ≤ 2 kHz (30–60 Hz: 4, 60–120: 10, 120–250: 12, 250–500: 10,
-500–1k: 22, 1–2k: 5); median ζ 1.7 %. **Above 2 kHz no pole is MPF-stable** across model orders —
+**Rig (rig3 coarse FRF):** 60 modes, all ≤ 2 kHz (30–60 Hz: 3, 60–120: 8, 120–250: 12, 250–500: 10,
+500–1k: 23, 1–2k: 4); median ζ 1.7 % (duplicate poles of one mode — residue MAC ≥ 0.9 within half a
+half-power width — are merged). **Above 2 kHz no pole is MPF-stable** across model orders —
 frequencies and damping stabilise, the participation vectors do not: the 4-exciter data there do not
 follow one consistent modal model (the σ2/σ1 ≈ 0.5 of §1). Dropping the MPF criterion yields 30–80
 "stable" poles per band that are not reproducible — not used.
 
 | Consistency of PolyMAX | Result |
 |---|---|
-| leave-one-exciter-out (4 fits on 3 exciters each) | pairs match 40–48 modes vs chance 12–16; df 0.08–0.13 %, dζ 4–7 %, shape MAC median 0.46–0.67 (chance 0.13) |
-| across runs rig1/2/3 | 39 of 90 clusters in all 3 runs, 28 in 2; df 0.12 %, dζ 4.8 %, MAC 0.84 |
+| leave-one-exciter-out (4 fits on 3 exciters each) | pairs match 41–46 modes vs chance 12–16; df 0.09–0.12 %, dζ 4–7 %, shape MAC median 0.46–0.70 (chance 0.13) |
+| across runs rig1/2/3 | 43 of 83 clusters in all 3 runs, 21 in 2; df 0.15 %, dζ 4.6 %, MAC 0.82 |
 
 ## 3. ESPRIT on chirp-derived impulse responses
 
@@ -70,27 +71,27 @@ path (ζ ≈ 0.6 % vs 1.7–3.2 % from the FRF methods) — they describe each p
 
 | Pair | matched (chance) | per band (<250 / 250–1k / 1–2k / 2k+): matched, MAC median |
 |---|---|---|
-| A swept peak (70) vs **B PolyMAX** (63) | **40 (13.8)** | 16 MAC **0.93** / 21 MAC **0.80** / 3 MAC 0.45 / 0 |
+| A swept peak (70) vs **B PolyMAX** (60) | **39 (14.5)** | 16 MAC **0.94** / 20 MAC **0.79** / 3 MAC 0.46 / 0 |
 | A vs C chirp-ESPRIT (334) | 60 (53.5) | MAC 0.22 / 0.42 / 0.27 / 0.15 |
 | A vs D impulse-ESPRIT (320) | 56 (53.2) | MAC 0.53 / 0.45 / 0.07 / 0.43 |
-| B vs C | 45 (34.8) | MAC 0.22 / 0.39 / 0.03 / — |
-| B vs D | 44 (35.5) | MAC 0.33 / 0.41 / 0.20 / — |
+| B vs C | 45 (35.0) | MAC 0.27 / 0.39 / 0.01 / — |
+| B vs D | 43 (36.0) | MAC 0.40 / 0.46 / 0.05 / — |
 | C vs D | 151 (142.5) | MAC 0.33 / 0.31 / 0.43 / 0.26 |
 
 Damping: PolyMAX ζ is 18–38 % below the swept fit (median 1.7 vs 3.2 %); both ESPRIT variants are
 another 2–4× lower. Half-power widths of the Σ|H|² peaks are wider still (297 Hz: 3.2 %, 372 Hz:
 5.1 %) — even modes "isolated" by 4 ζ f in the PolyMAX list sit on overlapping neighbours, so
-half-power is an upper bound here, not a reference. The damping level is unresolved (§6 sweep-speed
-and fine-rate tests are the next evidence).
+half-power is an upper bound here, not a reference. The damping level is unresolved — test 6 (appropriated free
+decay, model-free, §6) is the decisive measurement.
 
 ## 5. Conclusions (offline)
 
 1. **Trust the FRF-based multi-reference methods, not per-exciter ESPRIT, on this board.** Swept
-   (joint fit) and PolyMAX — independent algorithms on the same FRFs — agree on 40 modes (3× chance)
-   with shape MAC 0.93 (<250 Hz) / 0.80 (250–1 kHz). ESPRIT (impulse or chirp IRs) agrees with
+   (joint fit) and PolyMAX — independent algorithms on the same FRFs — agree on 39 modes (2.7×
+   chance) with shape MAC 0.94 (<250 Hz) / 0.79 (250–1 kHz). ESPRIT (impulse or chirp IRs) agrees with
    nothing, including itself across exciters, at better than chance.
-2. **Usable band / count today: ≈ 30 Hz–1 kHz, ~50–60 modes** (PolyMAX 58 modes < 1 kHz; ~40 confirmed
-   by the swept method; 1–2 kHz only ~5 PolyMAX modes, 3 cross-confirmed). Above ~2 kHz the 4×7
+2. **Usable band / count today: ≈ 30 Hz–1 kHz, ~50–60 modes** (PolyMAX 56 modes < 1 kHz; ~36 confirmed
+   by the swept method; 1–2 kHz only ~4 PolyMAX modes, 3 cross-confirmed). Above ~2 kHz the 4×7
    data do not support a consistent modal model (no MPF-stable poles; σ2/σ1 ≈ 0.5); the swept
    method's 16 modes there have chance-level MAC across exciters.
 3. The shape inconsistency above 250 Hz is a property of the board/rig (repeatable, LTI, high SNR),
@@ -101,7 +102,54 @@ and fine-rate tests are the next evidence).
 5. The chirp collection is ready for exciter setups (new Measurements default to it); for ESPRIT on
    this board it changes little — the identification method, not the IR length, is the limit.
 
-## 6. Rig test plan (pending the user's go)
+## 6. Multi-exciter optimal per-mode excitation (force appropriation)
+
+User objective (2026-10-11): *push the board optimally at each mode frequency.* Package
+`modal_adapter/appropriation/` (CLI `python -m pianoid_middleware.modal_adapter.appropriation`).
+
+**Method.** For mode m (pole λ_m, residue matrix R_m, receivers × exciters, from PolyMAX / swept) the
+exciter weights w (E = 4) for a sine at f_m maximise the mode's share of the board's modal energy,
+`P_m(w) = |g_m|²‖R_m w‖² / Σ_r |g_r|²‖R_r w‖²`, g_r = 1/(jω_m − λ_r) — a generalized Rayleigh
+quotient, solved as the top generalized eigenvector (real signed weights = the Dima / decka form, or
+complex = amplitude + phase per exciter). Model-free alternative on a measured FRF matrix: maximise
+`|uᴴHw|²/‖Hw‖²` (shape objective = Dima's criterion, with phase); the MMIF (real-force mode
+indicator) is provided. Weights are scaled so the strongest exciter sits at −24 dBFS (per-exciter
+limits possible).
+
+**Appropriated dwell + free decay:** all 4 exciters at once (fade-in, dwell ≥ 6τ, lock-in over 40
+cycles, 1-cycle fade-out), then the silent decay: analytic signal → modal filter (pseudo-inverse of
+the neighbourhood's shapes) → demodulation → straight-line log-amplitude and phase fits ⇒ **model-free
+f_n and ζ** (+ envelope residual = leftover neighbours). Dwell / decay are timed for ζ ≤ 0.5 % (the
+lightest damping any method reported). Optional **force reference**: current-sense input channels
+(e.g. the 2nd UMC1820 over ADAT, `--current-inputs`) give measured force phasors instead of the
+commanded drive.
+
+**Synthetic validation** (`tests/unit/test_appropriation.py`; 6 modes, four of them 400/410/422/440 Hz,
+ζ 2.5–3.5 %, 7 × 4): modal purity 0.985–0.998 (complex = real here — the simulated modes are real)
+vs 0.29–0.96 for the best single exciter; decay ζ within 0.6 % of the truth (3.002 vs 3.000 %,
+2.501 vs 2.500 %, 3.491 vs 3.500 %), f within 0.07 %, steady MAC(Y, ψ) ≥ 0.988 — **the same when the
+model's damping is wrong by ×0.5 or ×2** (the damping comes from the decay). The best single exciter's
+decay is biased −8 % / +8 % (400 / 440 Hz, envelope beating 1.9–3.9 dB). End to end (ESS FRF →
+PolyMAX → weights → dwell / decay): every mode within 0.3 % in ζ (a PolyMAX duplicate pole at 520 Hz
+surfaced here → duplicates are now merged).
+
+**Rig prediction** (rig3 PolyMAX model → `polymax\20261011-rig3\appropriation_table.json`): median
+purity 0.72 complex / 0.68 real vs 0.60 for the best single exciter (<250 Hz 0.64 / 0.61 vs 0.44;
+250–1k 0.76 / 0.72 vs 0.67). Four exciters can suppress at most three neighbours, so isolation stays
+partial in the densest regions; the decay's envelope residual flags it per mode. Real weights lose
+little vs complex on this board.
+
+**Playback (decka).** `actuator_feed.npz` = W (exciters × modes), real signed, unit max per mode, with
+the mode frequencies — the per-mode actuator drive pattern, i.e. decka semantics (dev-b59d: a decka
+column = per-transducer drive weights of one mode). If the engine drives the board through Out 1–4,
+output channel ch's feed row for engine mode k = W[ch, m(k)] for the board mode m matched to k by
+frequency (the engine has one real coefficient per mode and channel — hence the real option).
+Writing it into a preset is the converter's / output-level owner's job (P1) and needs the
+board ↔ engine mode matching — not done here. Caveat: the FRFs are drive-VOLTAGE referenced (exciter
+impedance included) — exactly what playback through the same amps needs; physical modal
+participation needs the force (current) reference.
+
+## 7. Rig test plan (pending the user's go)
 
 All through `POST /audio/session` (synthesis paused per session), levels −36…−24 dBFS, never above
 −24 (hard ceiling −12 in code). Outputs `D:\modal_measurements\rig_checks\<ts>-<check>\` and
@@ -115,9 +163,11 @@ unconnected (user to confirm, else name a free output).
 | 3 | Sweep speed: coarse ESS 8 / 30 / 60 s per exciter + noise per duration (SNR, FRF deviation vs 60 s, σ2/σ1) — then PolyMAX + swept zones on each FRF offline | `rig_checks sweep_speed --durations 8,30,60` | 15 sessions · ~9 min |
 | 4 | Swept discovery with the fixed tags + the chosen coarse duration, fine rate cap (e.g. `--fine-rate 20 --fine-gap-tau 8`), `--repeat-fine 3` | `swept_discovery run ...` | ~7–10 min |
 | 5 | Chirp collection end to end: new Measurement (chirp default), 4 exciters × 5 measurements, ESPRIT in the project, compare with §3 | Tunner Collection / REST | 20 × 11.5 s · ~4 min + ESPRIT 1 min |
-| (6) | optional, needs the user's hands: one transducer unplugged at the amp output, re-run test 1 on that output (exciter-path electrical crosstalk) | — | ~0.5 min |
+| 6 | **Appropriation + free decay** on 13 modes — isolated 76, 206, 297, 372, 520, 1048 Hz; overlapped 160, 401, 541, 673, 677, 732, 795 Hz — complex weights, real weights, and the best single exciter; compare decay ζ / f with swept / PolyMAX / ESPRIT and the half-power checks (weights from the PolyMAX model of the new test 3/4 FRFs) | `appropriation dwell <modes.npz> --modes 76.4,159.6,205.9,297.3,372,401.1,520.3,540.6,672.6,677.4,732.2,795.4,1047.5 --single` + a `--real` pass | ~40 sessions · ~4 min |
+| (7) | optional, needs the user's hands: one transducer unplugged at the amp output, re-run test 1 on that output (exciter-path electrical crosstalk) | — | ~0.5 min |
+| (8) | when the 2nd UMC1820 current sensing (ADAT) is wired: repeat test 6 with `--current-inputs` (force reference) | — | ~4 min |
 
-Total ≈ 25 min of rig time; then the comparison (§4) is re-run including the new FRFs and defaults are
+Total ≈ 30 min of rig time; then the comparison (§4) is re-run including the new FRFs and defaults are
 set (coarse duration, fine rate) from test 3's SNR / deviation vs time cost.
 
 ## Investigation history

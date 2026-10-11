@@ -225,6 +225,7 @@ python -m pianoid_middleware.modal_adapter.swept_discovery run   [--level-dbfs -
 python -m pianoid_middleware.modal_adapter.swept_discovery synth                 # offline plant
 python -m pianoid_middleware.modal_adapter.polymax <swept run dir | coarse_frf.npz> [--loo]
 python -m pianoid_middleware.modal_adapter.swept_discovery.rig_checks {linearity|crosstalk|sweep_speed}
+python -m pianoid_middleware.modal_adapter.appropriation {table|dwell} <modes.npz> [...]
 ```
 
 **Swept discovery** (`swept_discovery/`): noise record → per exciter a coarse ESS (20 Hz–10 kHz,
@@ -253,6 +254,16 @@ matters for nonlinearity / time variance and per-Hz energy).
 | selection | reference order with the most poles that have a match (f + ζ + MPF) in ≥ 30 % of the other orders; poles of one order are distinct, so close modes are never merged |
 | residues | LSFD on the selected poles (conjugate terms + 4 real residual terms), backward parsimony pruning (a pole whose removal grows the local misfit < 20 %, or < 10 dB above a pure-noise pole's share, is dropped) |
 | outputs | `modes.npz` (swept / ESPRIT per-scenario format: residue column per exciter, per-exciter SNR), `report.json` (stability, MPC, rank-1 ratio σ2/σ1 of the residue, MAC(MPF, residue participation), CMIF level, fit residual), `stabilization.png`; `--loo` = leave-one-exciter-out fits |
+
+**Force appropriation** (`appropriation/`): per identified mode, exciter weights for a sine at f_m
+that maximise the mode's share of the modal energy (generalized Rayleigh quotient on the PolyMAX /
+swept modal model; real signed or complex; or `|uᴴHw|²/‖Hw‖²` on a measured FRF; MMIF), scaled to
+−24 dBFS. `appropriation table <modes.npz> [--real]` → `appropriation_table.json` +
+`actuator_feed.npz` (W exciters × modes, real signed, unit max per mode = the per-mode actuator
+drive pattern, decka semantics). `appropriation dwell <modes.npz> --modes f1,f2 [--single]
+[--current-inputs ...]` drives all exciters at once (`SessionAudioIO.play_record_multi`), dwells
+≥ 6τ, switches off and fits the free decay through a modal filter → model-free f_n and ζ; optional
+current-sense inputs = force reference.
 
 **Comparison** (`modal_adapter/mode_comparison.py`): the cross-exciter / cross-method metrics of the
 2026-10-11 consistency analysis as a module — mutual-nearest-neighbour matching within half the mean
