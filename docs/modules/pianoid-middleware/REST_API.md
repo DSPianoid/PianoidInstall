@@ -71,6 +71,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /resume_synthesis         -- resume synthesis from pause
   /audio/reopen             -- close + re-open the requested audio driver (dev-19be)
   /debug/audio_fault        -- TEST HOOK: inject ASIO reset request / callback stall (dev-19be)
+  /audio/devices            -- ASIO host snapshot: driver, sr, buffer, latencies, channel names/types (dev-1b6c)
+  /audio/session            -- sample-locked ASIO play_record / record / play measurement (dev-1b6c)
   /get_available_notes      -- list pitches in preset
   /get_string_map           -- string layout data
   /get_block_map            -- block-to-string mapping
@@ -585,6 +587,59 @@ through the real ASIO `asioMessage` handler (ignored by a non-ASIO driver, still
 `device_loss` replays the 2026-10-08 incident (callback stall + `kAsioResetRequest` + every
 ASIO open fails until `device_return`). Response `200`
 `{injected, result, audio_health}`; `400` for an unknown kind / bad `duration_ms` / no engine.
+
+### `GET /audio/devices`
+
+(dev-1b6c) Snapshot of the ASIO host the engine has open (cached when the driver opened —
+no ASIO call from the Flask thread). Response `200`:
+`{asio: {open, driver, sample_rate, buffer_size, buffer_size_range [min, max, granularity],
+input_latency, output_latency, reported_roundtrip, output_ready, supported_sample_rates,
+inputs: [{index, name, type, type_name, supported}], outputs: [...], switch_count,
+session_active, reset_requests, latency_changes}, engine: {loaded, lifecycle_state,
+calibrating, audio_driver_active, active_driver_type}}`. With no engine loaded:
+`{asio: {open: false}, engine: {loaded: false}, note}`. `501 no_session_api` when the
+installed `pianoidCuda` predates the session API. Channel facts of the rig (UMC1820):
+[AUDIO_DRIVERS.md — ASIO measurement session](../pianoid-cuda/AUDIO_DRIVERS.md#asio-measurement-session-dev-1b6c).
+
+### `POST /audio/session`
+
+(dev-1b6c) One sample-locked measurement on the engine's ASIO device: a preloaded signal
+matrix is emitted on chosen **physical** outputs while chosen inputs are captured in the
+**same** `bufferSwitch` (output frame *n* and input frame *n* share one callback → constant
+offset, no jitter). **Synthesis is paused** for the session (`enter_calibration_mode(keep_audio
+=True)`, device stays open — decision D6) and resumed afterwards; every output the session does
+not drive is silenced. ASIO-only (409 when the engine is not on an ASIO driver). One session at
+a time; the request holds the lifecycle gate's shared slot, so a `/load_preset` waits / 409s.
+
+| Field | Meaning |
+|---|---|
+| `mode` | `play_record` (default) · `record` · `play` |
+| `outputs` / `inputs` | lists of channel **indices** (0-based) or **names** (`"Out 1"`, `"OUT 01"`, `"In 8"`, `"ADAT 3"`; case/space/leading-zero-insensitive) |
+| `signal` | `{"npy": "<path to float32 [frames, len(outputs)] .npy>"}` or `{"inline": [[...], ...]}` (1-D allowed for one output); peak must be ≤ 1.0 (full scale) — not for `record` |
+| `seconds` | `record` length |
+| `pre_roll_s` / `post_roll_s` | silence before / after the signal (defaults 0.1 / 0.5 s; post 0 for `play`) |
+| `loopback` | `{"output": "Out 5", "input": "In 8", "marker_level": 0.5}` — emits a one-sample marker on the loopback output at signal frame 0 and reports its measured onset (the electrical round trip); the input is added to the capture |
+| `compensate_latency` | `"none"` (default, raw) · `"reported"` (drop in+out reported latency) · `"loopback"` (drop the measured onset) · `true` (loopback if present else reported) · an integer frame count |
+| `timeout_s` | default 1.5 × length + 3 s |
+| `out_dir`, `tag`, `return_data` | result folder (default `<measurements base>/audio_sessions/<session_id>/`, base = `$PIANOID_MEASUREMENTS_DIR` or `D:\modal_measurements`); free-text tag; include `data` inline when ≤ 200 k samples |
+
+Session length ≤ 120 s. Response `200` (also written to `meta.json`; capture in `data.npy`,
+float32 `[frames, len(inputs)]`, normalised to each channel's full scale):
+`{session_id, tag, mode, status: "ok", driver, sample_rate, buffer_size, outputs[{index,name}],
+inputs[...], signal_frames, pre_roll_frames, post_roll_frames, frames, frames_captured,
+start_sample_position, switches, xruns, latency {input_frames, output_frames,
+reported_roundtrip_frames}, loopback {detected, onset_frames, peak_frames, peak_level_dbfs,
+measured_minus_reported_frames, output, input}, compensation {mode, shift_frames, note},
+levels {<input name>: {rms_dbfs, peak_dbfs}}, synthesis {paused, resumed}, data_path,
+data_shape, elapsed_s}`. Raw timeline: capture frame *n* = output frame *n* (pre-roll
+included); the signal starts at `pre_roll_frames`.
+
+Errors: `400` bad body / unknown or duplicate channel / signal shape, NaN or > 1.0 / too long;
+`409` `asio_not_open` · `session_in_progress` · `engine_busy` (calibration running) ·
+`asio_unavailable`; `501 no_session_api`; `502 session_aborted` (`timeout`, `reset_request` — a
+driver `kAsioResetRequest`, which the dev-19be watchdog then services on resume — or `stalled`:
+no callback for 0.5 s) with the partial result in `session` (data still written), and
+`502 loopback_not_detected` for `compensate_latency: "loopback"` without a marker onset.
 
 ### `POST /pause_synthesis`
 

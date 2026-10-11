@@ -54,6 +54,16 @@ repo at runtime. They are now vendored in-tree:
 | `pianoid_middleware.modal_adapter.measurement.default_recorderConfig.json` | RR `recorderConfig.json` (Belarus default) |
 | `PianoidCore/sdl_audio_core/` (built by `build_pianoid_cuda.bat`) | RR `sdl_audio_core/` |
 
+> **ASIO measurement session available (dev-1b6c, 2026-10-11) — collection NOT migrated yet.**
+> The `:5000` backend now exposes a sample-locked ASIO `play_record` session
+> ([`GET /audio/devices`, `POST /audio/session`](REST_API.md#post-audiosession)): per-exciter
+> output channels, N receivers captured in the same `bufferSwitch`, loopback round trip
+> (`Out 5 → In 8` on the rig). The modal adapter's acquisition (`RoomResponseRecorder` →
+> `sdl_audio_core`, WASAPI pair endpoints, mono pulse replicated to all channels) is
+> **unchanged**; moving it onto `/audio/session` (RemoteAudioIO) is the next phase of
+> [asio-audio-core-retire-sdl-2026-10-11.md](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md).
+> `sdl_audio_core` stays until the ASIO path covers all its functions.
+
 The `_room_response_bootstrap.py` shim and the `PIANOID_ROOMRESPONSE_PATH`
 env var have been deleted. `GET /modal/collect/health` now returns the
 status of an in-tree import probe rather than a sibling-repo discovery

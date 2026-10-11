@@ -312,6 +312,76 @@ absent" — hence the `device_loss` hook. Middleware/REST surface:
 
 ---
 
+## ASIO Measurement Session (dev-1b6c)
+
+**Files:** `AsioSession.h/.cpp` (session + device snapshot, no CUDA), `AsioSampleFormat.h`
+(per-`ASIOSampleType` conversion), `AsioSessionBindings.cpp` (module functions
+`pianoidCuda.asio_device_info()` / `asio_play_record(...)`), one hook in
+`AsioAudioInterface.cpp`. REST: [`GET /audio/devices`, `POST /audio/session`](../pianoid-middleware/REST_API.md#get-audiodevices)
+(`audio_session.py` / `audio_session_routes.py`). Proposal (Phase 1-lite of):
+[asio-audio-core-retire-sdl-2026-10-11.md](../../proposals/asio-audio-core-retire-sdl-2026-10-11.md).
+
+The engine's ASIO host already creates buffers for **all** inputs and outputs and serves them
+from one `bufferSwitch`. The session generalises `playRecordedAudio` (outputs 0–7 interleaved,
+mono capture of input 0) to: a preloaded float32 matrix `[frames, nOut]` on **any physical
+outputs** (routing by index; names resolved in the middleware) + capture of **N selected
+inputs** into a preallocated `[frames, nIn]` matrix + pre/post roll.
+
+| Property | Behaviour |
+|---|---|
+| Sync | `asioHostOnBufferSwitch(index, samplePosition)` runs once per switch **after** the engine client wrote outputs 0–7. Output frame *n* and input frame *n* are serviced by the same switch → the output→input offset is a hardware constant (no jitter). Frame 0 = the first switch after attach; its ASIO sample position is reported. |
+| Ownership (P1) | While attached the session is the **sole writer of every output buffer** (driven ones get the signal, all others are silenced — decision D6: the caller pauses synthesis via `enter_calibration_mode(keep_audio=True)`); it owns its capture matrix. Two extra silent switches after the end leave both halves of every double buffer silent. |
+| Real-time safety | Attach = atomic CAS of a session pointer; detach = null the pointer then wait for an in-callback counter to drain. No mutex, no allocation, no Python in the callback. |
+| Formats | Per-channel conversion by `ASIOChannelInfo.type`: Int16/24/32LSB, Int32LSB16/18/20/24, Float32/64LSB (others refused). Output floats are clamped to ±1. |
+| Abort (never hangs) | `timeout` (default 1.5× length + 2 s), `reset_request` (a latched `kAsioResetRequest` — peeked, not consumed, so the dev-19be watchdog still re-opens the driver when synthesis resumes), `stalled` (no switch for 500 ms). Partial data is returned. |
+| Device snapshot | Channel table (index, name, type), latencies, buffer range, supported rates (`ASIOCanSampleRate` 44.1–192 k) are cached **at open, on the opening (COM) thread**; `asio_device_info()` never calls the driver from another thread. `kAsioLatenciesChanged` is counted (`latency_changes`), the cached latency is not re-read. |
+| Guards | Out-of-range / duplicate channels, unsupported types, > 10 min or > 64 M capture samples → `ValueError`; host not open / session already active → `RuntimeError`. A driver with fewer than `NUMBER_CHANNELS` (8) outputs is now **skipped at open** (the engine client would otherwise get null buffer pointers). |
+| Limits (unchanged) | The host still opens at the engine's 64-frame buffer and 48 kHz (`BUFFER_SIZE`, `fSAMPLES_PER_MS`); configurable rate/buffer and a CUDA-free standalone host are the proposal's later phases. |
+
+**Capture-scale fix.** `CaptureBuffer` used to scale ASIO input by a fixed `1/2^23`
+("24-bit"). The UMC1820 delivers **Int32LSB** (full scale `2^31`), so a full-scale input read
+**±256** (+48.2 dB). The legacy mic capture (`startMicCapture` → input 0) now converts by the
+channel's real type, like the session. Consumers that use ratios (sound-channel calibrator,
+`measurement_engine` transfer ratios / spectral SNR) are unaffected; absolute mic levels
+(`/play_keyboard capture_mic` samples, the sound-test chart) drop by 48.2 dB to their true dBFS.
+
+**Engine underrun leaves stale output** (pre-existing, not changed): on an empty ring
+`consume()` returns without writing, so while synthesis is paused the ASIO double buffer
+repeats its last two halves on outputs 0–7. The session silences all outputs it does not drive
+for exactly this reason.
+
+**Rig acceptance (2026-10-11, via `POST /audio/session`, BaselinePreset1 on ASIO_CALLBACK;
+harness `docs/development/diagnostics/dev-1b6c-asio-session-acceptance.py`).** Each exciter
+Out 1–4 alone (200 Hz then 1 kHz, −30 dBFS, 3 repeats, In 1–7 + loopback In 8 in one session):
+all sessions `ok`, 0 xruns, level spread ≤ 0.1 dB, receiver phase spread ≤ 1.7° (typ. 0.3–1°);
+**loopback onset 335 frames in all 13 sessions** (incl. one after a driver re-open) = measured
+round trip, reported 304 (+31). Tone on Out 5 → In 8 −27.4 dBFS, tone on Out 6 → In 8 noise
+(−142 dBFS): only the selected physical output is driven. Injected `kAsioResetRequest` mid-
+session → `502 session_aborted` (`reset_request`), synthesis resumed, watchdog re-opened ASIO,
+next session `ok`. Synthesis before/after (3 × 10 s): 750 cycles/s, callback 1332.7–1332.9 µs,
+0 underruns, 0 producer timeouts; `/play` p60 peak 0.60476 → 0.60476. Legacy mic capture of
+the same Out 1 / 1 kHz tone: −43.0 dBFS on In 1 (= session −43.07); pre-fix binary +5.2 dBFS.
+
+### Rig facts — UMC1820 (Phase 0 probe, 2026-10-11, stack down)
+
+Standalone probe built from the vendored SDK (`D:\scratch\dev-1b6c\probe\asio_probe.cpp`).
+
+| Fact | Value |
+|---|---|
+| Driver | `UMC ASIO Driver` v1352, 18 in / 20 out, clock source `Computer` (internal), `ASIOOutputReady` not supported |
+| Channel names | in: `In 1`–`In 8`, `SPDIF 1–2`, `ADAT 1–8`; out: `Out 1`–`Out 10`, `SPDIF 1–2`, `ADAT 1–8` |
+| Sample type | **every channel `ASIOSTInt32LSB` (18)** |
+| Sample rates | 44.1 / 48 / 88.2 / 96 kHz yes; 176.4 / 192 kHz no (current 48 kHz) |
+| Buffer sizes | min 8, max 2048, preferred 64, granularity −1 (powers of 2) |
+| Reported latency in / out (frames) | buf 16: 88/168 · 32: 104/168 · **64: 136/168 (304)** · 128: 200/264 · 256: 328/408 · 512: 584/696 |
+| `bufferSwitch` thread priority | 15 (`THREAD_PRIORITY_TIME_CRITICAL`, set by the driver) |
+| Sample position | starts at 0 on `ASIOStart`, +64 per switch, 0 discontinuities in 4 × 1 s |
+| Loopback `Out 5 → In 8` (cable, user D4) | −20 dBFS-peak 1 kHz on Out 5 reads −17.4 dBFS rms on In 8 (+5.6 dB electrical gain); impulse onset **334** / peak 335 frames after emission, identical in 3 independent sessions → measured electrical round trip = reported 304 **+ 30 frames** (≈ 0.63 ms converter filter delay not included in `ASIOGetLatencies`) |
+| Crosstalk with Out 5 driven | In 1–4 −74…−80 dBFS, In 5–7 −49…−52 dBFS (~33 dB below the loopback signal) |
+| Exciter Out 1 alone, −20 dBFS 1 kHz | In 1 −32.8, In 2 −29.1, In 3 −34.3, In 4 −35.2, In 5 −46.7, In 6 −37.0, In 7 −40.2, In 8 −104 dBFS rms; acoustic onsets 342–380 frames |
+
+---
+
 ## LockFreeCircularBuffer
 
 **File:** `CircularBuffer.cuh` / `CircularBuffer.cu`

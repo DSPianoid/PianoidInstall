@@ -1,6 +1,13 @@
 # ASIO Audio Core — Retire `sdl_audio_core` / SDL3 for All Use Cases
 
-- **Status:** PROPOSAL (investigation + design; no code changed). Awaiting user decisions (§9).
+- **Status:** PARTIALLY IMPLEMENTED — Phase 0 done + Phase 1-lite implemented by dev-1b6c
+  (2026-10-11, Core `feature/dev-1b6c-asio-session`, not merged): session inside pianoidCuda +
+  `GET /audio/devices` / `POST /audio/session` on `:5000`; rig acceptance passed (§10). Modal
+  adapter migration (Phase 3) is next. **User decisions 2026-10-11 override §4/§7 where they
+  differ:** (1) the engine's SDL3 fallback driver STAYS; (2) `sdl_audio_core` is NOT retired yet
+  (stays until the ASIO path covers all its functions); (3) incremental reuse of the existing ASIO
+  host inside pianoidCuda, no new standalone DLL for now (optional later); (D3) licence — open,
+  decide later; (D4) loopback `Out 5 → In 8` installed; (D6) synthesis paused during measurements.
 - **Date:** 2026-10-11
 - **Kind:** Campaign (new shared C++ audio core + Python module; engine driver re-base; modal-collection
   migration; build-system removal of SDL).
@@ -372,3 +379,24 @@ new code with low merge risk; Phase 2 touches `.cu`/`.cpp` → `/dev` + HEAVY bu
 | **D5** | Measurement process placement: (a) `:5000` owns the device, `:5001` uses REST (`RemoteAudioIO`), standalone only when `:5000` is down; (b) move all acquisition routes into the MAIN role | (a) |
 | **D6** | During a measurement: pause all synthesis (exclusive-with-pause), or keep synthesis on disjoint outputs | Pause all (default); disjoint-channel concurrency later if wanted |
 | **D7** | Keep the calibration-channel onset alignment after sample-locked duplex lands — as a check only, or drop | Keep as an assertion (≤ 1 sample) for one release, then drop |
+
+---
+
+## 10. Implementation record — Phase 0 + Phase 1-lite (dev-1b6c, 2026-10-11)
+
+**Phase 0 facts** (standalone probe, stack down) are in
+[AUDIO_DRIVERS.md — Rig facts](../modules/pianoid-cuda/AUDIO_DRIVERS.md#rig-facts-umc1820-phase-0-probe-2026-10-11-stack-down):
+all 38 channels `ASIOSTInt32LSB`; 44.1–96 kHz; latencies per buffer size; driver callback
+thread priority 15; **capture-scale bug confirmed** (1/2^23 vs 2^31 → ×256) and fixed; loopback
+`Out 5 → In 8` round trip 334–335 frames vs reported 304.
+
+**Phase 1-lite as built** (differs from §4.1 by user decision — no DLL, no standalone host):
+`AsioSession` (session + device snapshot) hooked into the existing host's `bufferSwitch` after the
+engine client; per-type conversion `AsioSampleFormat.h`; module functions
+`pianoidCuda.asio_device_info()` / `asio_play_record()`; REST in `audio_session.py` /
+`audio_session_routes.py` (nested in the `/audio` blueprint). Design + acceptance numbers:
+[AUDIO_DRIVERS.md — ASIO Measurement Session](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asio-measurement-session-dev-1b6c),
+[REST_API.md — POST /audio/session](../modules/pianoid-middleware/REST_API.md#post-audiosession).
+Not done (by scope): configurable rate/buffer, `GET/DELETE /audio/session/<id>`, engine-free
+host, `startMicCapture` multichannel, modal adapter migration (next), SDL removal (deferred by
+the user).
