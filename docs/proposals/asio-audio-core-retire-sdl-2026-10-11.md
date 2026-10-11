@@ -1,7 +1,7 @@
 # ASIO Audio Core — Retire `sdl_audio_core` / SDL3 for All Use Cases
 
 - **Status:** PARTIALLY IMPLEMENTED — Phase 0 done + Phase 1-lite implemented by dev-1b6c
-  (2026-10-11, Core `feature/dev-1b6c-asio-session`, not merged): session inside pianoidCuda +
+  (2026-10-11, merged Core dev 2c15882): session inside pianoidCuda +
   `GET /audio/devices` / `POST /audio/session` on `:5000`; rig acceptance passed (§10). Modal
   adapter migration (Phase 3) is next. **User decisions 2026-10-11 override §4/§7 where they
   differ:** (1) the engine's SDL3 fallback driver STAYS; (2) `sdl_audio_core` is NOT retired yet
