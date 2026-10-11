@@ -190,6 +190,76 @@ repeats; `averaged_responses` 8 ch; manifest `scenario_indices [0..3]` + auto-lo
 Legacy `LG` (SDL v1 setup, 159 scenarios) and `LG_p1` still open. (The round trip read 328
 frames on 2026-10-11 afternoon vs 334–335 in the morning probe — constant within a stack run.)
 
+## Excitation types — impulse train vs chirp (dev-fd69)
+
+`setup/impulse_config.json` → `excitation_type` selects the data-collection drive
+(`measurement/chirp_excitation.py`; Tunner Impulse section selector):
+
+| `excitation_type` | Drive | Per-measurement IR | Use |
+|---|---|---|---|
+| `"impulse"` (also: field **absent** — every Measurement created before dev-fd69) | pulse train (`num_pulses` × `cycle_duration`, `impulse_form`, `volume`) | cycle average, `cycle_duration` long (e.g. 100 ms at 10 Hz) | impulse hammer / striker setups |
+| `"chirp"` (default for **new** Measurements) | exponential sine sweep `chirp.{f_start_hz 20, f_stop_hz 10000, duration_s auto, level_dbfs −30}` | ESS deconvolution, `chirp.ir_length_ms` (default 1000 ms) long, harmonic distortion separated (it lands at negative time) | transducers attached to the board (voice-coil exciters) |
+
+- `duration_s: null` = the shortest sweep whose 2nd-harmonic IR (advance `T ln2 / ln(f2/f1)`) cannot
+  overlap the IR (`ess.min_sweep_s`, ≥ 4 s; 9.87 s for 1 s over 20 Hz–10 kHz); an explicit shorter
+  value is refused. Level policy as everywhere: > −20 dBFS warns, > −12 dBFS refused.
+- The chirp IR replaces the averaged pulse cycle 1:1 (`room_response` = `impulse` = IR, t = 0 = drive
+  start on the loopback-aligned capture, shift 0) → `averaged_responses/`, `measurements/scenario_N.npy`
+  and the ESPRIT pipeline are unchanged and finally get IRs as long as the band configs' 400–600 ms
+  `ir_length_ms`. The IR is response per unit drive (deconvolved), not a raw recording.
+- The **Setup Test** (`mode='calibration'`) always drives the pulse train — it validates the rig wiring.
+- Per-measurement `recording_stats.audio_session.chirp` = config + harmonic levels (dB re linear IR, per
+  channel). Appends to an existing scenario refuse a config whose `excitation_type` / `chirp` differs
+  (`dataset_collector._config_compatible`; absent = impulse).
+
+## Swept-sine discovery, PolyMAX and method comparison (dev-69fd / dev-fd69)
+
+Acquisition + identification paths that use **only** the ASIO session (`POST /audio/session`),
+independent of `RoomResponseRecorder` / `MeasurementSession`. CLI only (no UI yet). Results and the
+rig evaluation: [modal-methods-attached-exciters-2026-10-11.md](../../development/modal-methods-attached-exciters-2026-10-11.md);
+swept design + defaults: [swept-sine-mode-discovery-2026-10-11.md](../../proposals/swept-sine-mode-discovery-2026-10-11.md).
+
+```
+python -m pianoid_middleware.modal_adapter.swept_discovery run   [--level-dbfs -30] [--coarse-s 8]
+        [--fine-s 1] [--fine-rate HZ_PER_S] [--fine-gap-tau 5] [--fine-gap-max 2] [--repeat-fine 3]
+python -m pianoid_middleware.modal_adapter.swept_discovery synth                 # offline plant
+python -m pianoid_middleware.modal_adapter.polymax <swept run dir | coarse_frf.npz> [--loo]
+python -m pianoid_middleware.modal_adapter.swept_discovery.rig_checks {linearity|crosstalk|sweep_speed}
+```
+
+**Swept discovery** (`swept_discovery/`): noise record → per exciter a coarse ESS (20 Hz–10 kHz,
+`--coarse-s` 8 s, −30 dBFS) → deconvolved FRF H (F × 7 receivers × 4 exciters, 0.25 Hz grid) → CMIF
+σ1/σ2 peaks → zones → fine narrow linear sweeps per zone (`--fine-s` minimum duration, `--fine-rate`
+caps the sweep rate so wide zones sweep slower, decay gap `--fine-gap-tau` time constants ≤
+`--fine-gap-max` s) → polyreference rational fit per zone. `report.json` carries `sweep_rate`: the
+quasi-stationarity index r/(πB²) of the coarse ESS at every peak and of every fine zone sweep
+(< 0.1 quasi-stationary; deconvolution makes the FRF exact for an LTI system at any rate — the index
+matters for nonlinearity / time variance and per-Hz energy).
+
+| File | Role |
+|---|---|
+| `audio_io.py` | `SessionAudioIO` = adapter over the modal adapter's single session client `measurement/audio_io.RemoteAudioIO` (marker-only loopback); every session persisted ALIGNED under `sessions/<tag>/` (`data.npy`, `signal.npy`, `meta.json`); a tag can be used once per run (`SessionTagReused`) · `SimulatedPlantIO` |
+| `procedure.py` | `DiscoveryConfig`, coarse / fine passes; repeat passes use their own tags `repeat{r}_fine_e{e}_s{s}` (dev-69fd's repeatability pass re-used `fine_e{e}_s1` and overwrote the main fine data of runs `20261011-rig1..3`) |
+| `signals.py` · `frf.py` · `zones.py` · `fit.py` · `report.py` | sweeps + sweep-rate helpers · FRF · CMIF zones · rational fit · outputs (ESS itself: `measurement/ess.py`, shared with the chirp collection) |
+| `rig_checks.py` | ESS harmonic distortion vs noise, repeat coherence `|mean H|²/mean|H|²`, level linearity (FRF deviation per band), early-arrival + unconnected-output crosstalk, sweep-speed SNR / deviation / σ2/σ1; live `run_*` procedures |
+
+**PolyMAX** (`polymax/`): poly-reference LSCF on the measured FRF tensor, per overlapping band
+(`band_edges` 30/60/120/250/500/1k/2k/4k/9.5k Hz, ±15 % overlap, each band owns its core).
+
+| Stage | Method · defaults |
+|---|---|
+| poles + MPFs | right matrix-fraction model in z = e^{j(ω−ω_c)Δt} (band shifted to its centre, complex coefficients — no conjugate poles needed in a band), per-output normal equations reduced to the denominator, monic α_p = I, block companion → poles λ and modal participation factors; orders 2..`p_max` 40 (p · 4 poles at order p) from ONE assembly; weights 1/noise rms |
+| stabilization | vs order p−1: f within 1 %, ζ within 10 %, MAC(MPF) ≥ 0.9 |
+| selection | reference order with the most poles that have a match (f + ζ + MPF) in ≥ 30 % of the other orders; poles of one order are distinct, so close modes are never merged |
+| residues | LSFD on the selected poles (conjugate terms + 4 real residual terms), backward parsimony pruning (a pole whose removal grows the local misfit < 20 %, or < 10 dB above a pure-noise pole's share, is dropped) |
+| outputs | `modes.npz` (swept / ESPRIT per-scenario format: residue column per exciter, per-exciter SNR), `report.json` (stability, MPC, rank-1 ratio σ2/σ1 of the residue, MAC(MPF, residue participation), CMIF level, fit residual), `stabilization.png`; `--loo` = leave-one-exciter-out fits |
+
+**Comparison** (`modal_adapter/mode_comparison.py`): the cross-exciter / cross-method metrics of the
+2026-10-11 consistency analysis as a module — mutual-nearest-neighbour matching within half the mean
+half-power half-width, chance level by ±2/3 % frequency shifts, clusters found by 1..G groups, f / ζ
+spread and shape MAC per band, chance MAC, collapsed cross-method agreement; loaders for `modes.npz`
+and ESPRIT result folders.
+
 ## Output File Layout
 
 Every scenario writes the full RoomResponse hierarchy into

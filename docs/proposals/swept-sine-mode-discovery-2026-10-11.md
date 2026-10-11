@@ -1,6 +1,7 @@
 # Swept-sine mode discovery (coarse + fine, FRF / CMIF / MAC)
 
 **Status:** IMPLEMENTED on branch, awaiting review (dev-69fd, 2026-10-11) — Core `feature/dev-69fd-swept-discovery`.
+Integrated with dev-4284 on Core `feature/dev-fd69-modal-methods` (dev-fd69): session client = `RemoteAudioIO` (`SessionAudioIO`), repeat passes get their own session tags (the §7 repeatability pass had overwritten the main fine-pass raw data of `20261011-rig*` — the fine data on disk are the last repeat), configurable fine sweep rate / decay gap, sweep-rate report; PolyMAX / chirp-ESPRIT / method comparison: [modal-methods-attached-exciters-2026-10-11.md](../development/modal-methods-attached-exciters-2026-10-11.md).
 **Request (user, 2026-10-11):** "new mode discovery procedure: swipe the frequency over each exciter
 and find matching maximums of the response amplitude and MAC. Make one raw swipe to define zones of
 interest and then fine swipe to find exact frequencies. Take reasonable defaults and criteria".
