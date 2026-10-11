@@ -598,7 +598,7 @@ A separate additive synthesis engine for testing. Generates sound as a sum of `H
 
 ### FPGA preset converter
 
-Files: `fpga_tables.py`, `fpga_string_layout.py`, `fpga_preset_converter.py`, `fpga_conversion_metadata.py`
+Files: `fpga_tables.py`, `fpga_string_layout.py`, `fpga_preset_converter.py`, `fpga_output_mapping.py`, `fpga_conversion_metadata.py`
 (dev-a480, 2026-10-01). The **single FPGA import path** (the middleware's `load_excitation_from_fpga_preset`
 delegates here; the legacy readers `read_excitations_from_txt`, `Mode.load_modes_from_txt` and
 `Pianoid.load_deck_from_txt` were removed). Spec: [FPGA → GPU port proposal §11–§12](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md).
@@ -608,6 +608,7 @@ delegates here; the legacy readers `read_excitations_from_txt`, `Mode.load_modes
 | `fpga_tables` | Read the FPGA `.txt` tables; the host program's send-all formulas (forwarded verbatim by the stm32), each a pure function citing its `Pianoid_QM.c` / `pianoid.c` line |
 | `fpga_string_layout` | F_15's strings on the GPU grid: points per string, blocks = the FPGA arrays, and physics whose kernel coefficients equal the FPGA string update term by term |
 | `fpga_preset_converter` | Excitation, modes, deck/output mapping and the CLI `python -m Pianoid.fpga_preset_converter FPGA_DIR PITCH_TXT --template T --out O` |
+| `fpga_output_mapping` | FPGA output weights → GPU output-pitch rows by **output role** (dev-b59d): `listening` (default, mono drive-magnitude mix) or `actuator_feeds` (decka columns = transducer drives) |
 | `fpga_conversion_metadata` | Describe a conversion: `preset["fpga_conversion"]` (DERIVED / UNCONFIRMED / OVERRIDDEN inputs, load params, template fallbacks used, dropped fields) and the `<out>.conversion_report.md` |
 
 **Strings (F_15's own).** Each GPU block is one FPGA 512-point array (57 arrays × 4 strings + 1 output
@@ -647,7 +648,7 @@ rows are per-mode normalised, and with the GPU mode state `q_g = |FB|·n_m·q_fp
 `∝ w/n_m` (F_15 `n_m²` spans 54 dB; before dev-f27f it was dropped). Absolute mass scale UNCONFIRMED
 (`--mode-mass host_max`: strongest mode = template coupling, stable). Decrement `--mode-q host_q` (DERIVED:
 exact FPGA decay rate `γ = −ln(1−D)/dt_mode`, `decrement = (1−e^(−γ/sr))·sr/frequency`). Deck: `Ci_coef_cos`
-per-mode normalised, signed, feedback = feedin. Output pitches: FPGA outputs `decka × out_vol × Ci_str_1_out / n_m`.
+per-mode normalised, signed, feedback = feedin. Output pitches: `decka_coeff` holds per-**transducer** drive weights of the physical board (Dima's calibration tool; [proposal §13](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md#13-output-role-decka-is-per-transducer-drive-dev-b59d-2026-10-11)), so `--output-role` decides: `listening` (default; UNCONFIRMED user decision) = every output the same mono mix `out_vol·Ci_str_1_out·‖decka[:, m]‖₂ / n_m`; `actuator_feeds` = output k = transducer drive `decka[:, col_k]·out_vol·Ci_str_1_out / n_m` (distinct drives only, `fpga_conversion.output.transducer_map` / `transducers_not_fed`). A converted preset starts Layer B from genesis (the template's calibration reference / load settings / chord target are cleared).
 Tail damper: `damper_tail` = the real ratio `(Damper − Do)·k_ref/damper_string` (no rounding; tail decrement
 exact to 2e-16). Excitation: `mu ← d`, `sigma ← e`,
 96-clock exciter step, Gaussians 0–3, the 6 engine anchors (stored == effective); the FPGA timing is decoded

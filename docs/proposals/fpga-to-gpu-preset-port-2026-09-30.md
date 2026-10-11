@@ -1,7 +1,7 @@
 # FPGA → GPU Preset Port: Algorithm Comparison and Mapping (Elyashev F_15)
 
 **Date:** 2026-09-30
-**Status:** PARTIALLY IMPLEMENTED (2026-10-02). The converter is implemented and merged (dev-a480: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe; §12): every table maps via the host/stm32 send-all formulas, F_15 plays on the GPU with its own strings at array 512 / 16 sub-steps, and the old swapped-decode presets were regenerated. Still open, hence not archived: the absolute FPGA→GPU mode-mass / output-level scale (§11.12.4, needs measurement or a hardware recording) and the GPU structural gaps of §8/§11.6 (tail tension, separate feedback matrix, per-(pitch, level) loudness, 16 outputs). Sections §1–§11.12 are the analysis history (§11.12 supersedes earlier statements); §12 is the implementation.
+**Status:** PARTIALLY IMPLEMENTED (2026-10-02). The converter is implemented and merged (dev-a480: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe; §12): every table maps via the host/stm32 send-all formulas, F_15 plays on the GPU with its own strings at array 512 / 16 sub-steps, and the old swapped-decode presets were regenerated. Still open, hence not archived: the absolute FPGA→GPU mode-mass / output-level scale (§11.12.4, needs measurement or a hardware recording) and the GPU structural gaps of §8/§11.6 (tail tension, separate feedback matrix, per-(pitch, level) loudness, 16 outputs). Sections §1–§11.12 are the analysis history (§11.12 supersedes earlier statements); §12 is the implementation; **§13 (2026-10-11) corrects the output mapping: `decka_coeff` = per-transducer drive weights → converter `output_role` (listening default | actuator_feeds).**
 **Author:** `/analyse` sub-agent
 **Predecessor:** [FPGA Preset Excitation Loader (archived 2026-06-05)](archive/fpga-preset-excitation-loader-2026-05-17.md). It covered the excitation files only. This document covers the whole preset and **challenges one of its conclusions** (§4.3).
 
@@ -560,7 +560,7 @@ With `batch3`, `√(Tn/2²⁴)/(2f(N−shteg))` implies dt ≈ 0.5–1.2 µs (me
 | Mode `decrement` | `Q_coeff·q_ratio/2³¹` gives 0.4–41 in GPU units (template 0.085) | **?** |
 | Deck feed-in / feedback | `Ci_coef_cos` per-mode normalised, signed; feedback sign resolved (FB < 0) | **A** |
 | `deck_feedback_coefficient` | `\|FB\|` = 8.57e-5 × (FPGA→GPU force/displacement scale) | **A** |
-| Output rows | `decka[:,ch]·Ci_str_1_out` | **A** (16 → template channel count) |
+| Output rows | `decka[:,ch]·Ci_str_1_out` | **A** (16 → template channel count). **Corrected by [§13](#13-output-role-decka-is-per-transducer-drive-dev-b59d-2026-10-11):** the 16 columns are per-transducer DRIVES, not receivers |
 
 ### 11.6 Revised feasibility
 
@@ -976,3 +976,64 @@ backed up as `*.pre-a480-swapped.json`. Details: [middleware OVERVIEW](../module
 equivalence re-tested) and sets `output_scale_calibrated = false`. F_15 at N = 4/8/16: pitch, decay and level
 are now N-independent (A1/C4/C7 −101.5/−115.7/−132.2 dB; at N = 16 that is +12 dB vs before); 14–39 dB below
 the Belarus template; no NaN. The regenerated `*_FPGAexc` presets (4 sub-steps) are unaffected.
+
+---
+
+## 13. Output role: `decka` is per-transducer drive (dev-b59d, 2026-10-11)
+
+**Finding (Dima's calibration tool `PresetsFromFpga/elyashev-2026-10-11/adjust_tr_10e_4khz.py`, forwarded 2026-10-11).**
+`decka_coeff` (256 modes × 16) holds per-**TRANSDUCER** (actuator) drive weights, not a listening / receiver mix.
+For each mode the tool surveys the physical soundboard (each working actuator swept separately, sensors × actuators
+FRF `A`), takes the mode shape `u` (principal left singular vector of `A`), solves the real actuator vector `a` that
+best excites it (`max |<u, A a>|`, `‖a‖²` fixed), converts it from current to command values (measured CT gain per
+actuator) and writes it into `decka[:, mode]`; `omega_coef[mode]` is the measured board frequency (identity mapping
+confirmed). `send_deka_coeff` sends one UDP packet per transducer (`CMD0_TRANSMIT_SEL`, `transd_num`). So the FPGA
+output `au_ch = Σ_m decka[m, ch]·out_vol·Ci_str_1_out[m]·Δq_m` (§11.12.4) **drives transducer ch on the physical board**.
+
+**F_15 data (measured).** All 16 transducers are driven; identical columns only 0 = 1 and 2 = 3 (one drive for two
+transducers). The allocation is a crossover, not a set of mode shapes: modes ≈ 100 carry 0.1 on TR 0–8, modes ≳ 150
+carry 0 on TR 0–8 and 0.1 on TR 9–15. The §12 mapping (distinct columns 0, 2, 4, 5 → GPU outputs 128–131) therefore
+played four individual exciter feeds as if they were microphones: TR 6–15 (incl. every high mode) were never output,
+and the channel imbalance follows (stored calibration, p60 v127 @ slider 64: ch0..3 −51.9 / −34.4 / −44.5 / −28.6 dBFS).
+
+**Decision (implemented, PianoidBasic `fpga_output_mapping.py`; CLI `--output-role`).** The GPU output channels feed
+DAC outputs. What they should carry depends on what is connected:
+
+| `output_role` | GPU output rows (pitches 128..) | Use | Status |
+|---|---|---|---|
+| `listening` (**default**) | every output = one mono mix, mode weight `out_vol·Ci_str_1_out[m]·‖decka[:, m]‖₂ / n_m` (the drive magnitude the FPGA sends into mode m), sign of `out_vol·Ci_str_1_out` | speakers / headphones | **UNCONFIRMED — user decision**: an inferred mix; the physical board's transfer (`|<u, A a>|`, radiation, its own resonance) is not in the preset and is assumed flat |
+| `actuator_feeds` | output k = transducer drive column k (`decka·out_vol·Ci_str_1_out / n_m`, QM:27817) = the §12 mapping | drive the physical board through the same exciters | faithful iff the DAC outputs are wired to those transducers; only `num_channels` (4) of the 14 distinct drives fit — `fpga_conversion.output.transducer_map` / `transducers_not_fed` |
+
+Both keep the `/ n_m` exactness fold and one common scale (largest |row| = template output-row maximum). The role and
+its note are recorded in `fpga_conversion.unknowns.output_role` and `fpga_conversion.output`. Also fixed: a converted
+preset now starts Layer B from genesis — the template's `output_scale_reference_impulse` / `output_scale_load_settings`
+/ `output_scale_target_dbfs` were deep-copied (a fresh F_15 conversion calibrated p60 to the Belarus chord target
+−20.06 dBFS × J_now/J_ref(Belarus) = −3.3 dB).
+
+**Presets.** `F15_Elyashev_array512.json` = `actuator_feeds` (regenerated: output rows and calibration bit-identical,
+only the provenance added). NEW `F15_Elyashev_array512_listening.json` = `listening`, chord-headroom calibrated.
+
+**A/B (offline, separate process, engine Layer B chord-headroom calibration, chord peak −6 dBFS):**
+
+| @ slider 64, dBFS | ch0 | ch1 | ch2 | ch3 |
+|---|---|---|---|---|
+| A actuator_feeds, p60 v127 peak | −51.91 | −34.43 | −44.52 | −28.60 |
+| B listening, p60 v127 peak | −28.69 | −28.69 | −28.69 | −28.69 |
+| A, loudest chord (cluster_treble_10) | −31.13 | −11.85 | −21.07 | −6.06 |
+| B, loudest chord (cluster_treble_10) | −6.07 | −6.07 | −6.07 | −6.07 |
+
+Targets: A −28.60 (stored −28.59), B −28.69 (loudest chord +22.69 dB vs p60). B's waveform ≈ −(A ch3) (correlation
+−0.997 p60, −0.98 C-major chord): F_15's output is dominated by its lowest modes (mode-mass scale, DATA_FLOWS
+"Coefficient != audible weight"), where TR 5 already carries the largest drive — so the audible gain is "every channel
+at the old ch3 level", not a new timbre. Evidence: `docs/development/diagnostics/dev-b59d-renders/`,
+harness `docs/development/diagnostics/dev-b59d-output-role-ab.py`.
+
+**Open questions for Dima.**
+1. Which transducer is on which amplifier / DAC output (the `actuator_feeds` wiring; are 0 = 1 and 2 = 3 two exciters
+   on one amp)? Which transducers are woofers / tweeters (TR 9–15 carry the modes ≳ 150)?
+2. Do production presets (F_15) come from this tool? F_15's per-mode `decka` norms are not constant (mode 0: 7.3,
+   modes 1–50: 1.3–2.3, high: 0.26–0.28) while the tool normalises `‖cmd‖²` per mode — hand edits or an older tool?
+3. Is there a listening reference (a mic recording of the board, or the REFINE microphone criterion) we should match
+   for the `listening` mix instead of the flat-transfer assumption?
+4. Q / decrement: confirm the `Q_coeff·q_ratio` → `D` formula (§11.12.2) is still what the current tool/firmware uses.
+

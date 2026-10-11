@@ -1,0 +1,87 @@
+{
+ "preset": "D:\\repos\\wt-b59d-core\\pianoid_middleware\\presets\\F15_Elyashev_array512_listening.json",
+ "load_params": {
+  "listen_to_modes": 0,
+  "sound_derivative_order": 1,
+  "array_size": 512,
+  "string_iteration": 16,
+  "sample_rate": 48000,
+  "samples_in_cycle": 64
+ },
+ "stored_layer_b": {
+  "output_scale": 1963191635148070.8,
+  "output_scale_calibrated": true,
+  "output_scale_reference_impulse": 7403663.128207153,
+  "output_scale_load_settings": {
+   "array_size": 512,
+   "sound_derivative_order": 1,
+   "listen_to_modes": 0,
+   "sr": 48000,
+   "mode_iteration": 64,
+   "string_iteration": 16
+  },
+  "output_scale_target_dbfs": null
+ },
+ "calibrated_layer_b": {
+  "output_scale": 90080298209152.12,
+  "output_scale_calibrated": true,
+  "output_scale_reference_impulse": 7403663.128207153,
+  "output_scale_load_settings": {
+   "array_size": 512,
+   "sound_derivative_order": 1,
+   "listen_to_modes": 0,
+   "sr": 48000,
+   "mode_iteration": 64,
+   "string_iteration": 16
+  },
+  "output_scale_target_dbfs": -28.69
+ },
+ "worst_chord": "cluster_treble_10",
+ "worst_chord_db_vs_p60": 22.69,
+ "chord_db_vs_p60": {
+  "C_maj_2hand_9": 7.16,
+  "C_maj_wide_10": 8.62,
+  "oct_bass_treble_6": 12.64,
+  "oct_A_6": 15.89,
+  "oct_chain_C_8": 12.43,
+  "cluster_mid_10": 8.47,
+  "cluster_bass_10": 2.74,
+  "cluster_tenor_10": 4.87,
+  "cluster_treble_10": 22.69,
+  "dim7_2hand_10": 6.95,
+  "D_maj_rach_10": 5.58,
+  "bass_5ths_oct_6": 1.51,
+  "F_maj_high_10": 11.7,
+  "E_min_2hand_8": 8.78,
+  "Bb_maj_2hand_10": 6.26,
+  "G_dom7_2hand_9": 8.39
+ },
+ "target_dbfs": -28.69,
+ "per_channel": {
+  "p60_v127_peak_dbfs": [
+   -28.69,
+   -28.69,
+   -28.69,
+   -28.69
+  ],
+  "worst_chord_peak_dbfs": [
+   -6.07,
+   -6.07,
+   -6.07,
+   -6.07
+  ],
+  "p60_rms_0_500ms_dbfs": [
+   -45.08,
+   -45.08,
+   -45.08,
+   -45.08
+  ],
+  "p60_energy_share_above_2khz": [
+   0.0068,
+   0.0068,
+   0.0068,
+   0.0068
+  ],
+  "nonfinite": 0
+ }
+}
