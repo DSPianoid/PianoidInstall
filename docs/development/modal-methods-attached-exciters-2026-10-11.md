@@ -287,6 +287,62 @@ consistent modal model above 2 kHz with 4 exciters × 7 piezo receivers. Out 3 i
 (2nd order; ≤ −30 dBFS). For playback the real per-mode weights (`actuator_feed.npz`) are as good as
 complex ones here.
 
+## 9. Do the exciters agree below 200 Hz? Stepped-sine experiments E1–E3 (2026-10-12)
+
+User verdict (2026-10-12): *not positive until the exciters agree on the modes, at least in the lower
+band; work below 200 Hz.* Module `swept_discovery/stepped.py` (phase-continuous step chains, ≥ 10 τ
+settle at ζ = 1.5 %, 50-cycle lock-in re the drive, ≤ 100 s sessions); scripts
+`docs/development/diagnostics/dev-fd69-{e1e2-stepped,e3-analysis}.py`; data
+`D:\modal_measurements\rig_checks\20261012T172442-e1` (20 sessions) and `...T175239-e2` (12 sessions),
+0 xruns, onset 334; analysis `D:\modal_measurements\analysis\dev-fd69-2026-10-12\e3_analysis.{log,json}`,
+plot `e1_cross_exciter_mac.png`.
+
+**Mode list < 200 Hz (25):** PolyMAX 60 s (33.0, 59.1, 67.8, 70.6, 75.7, 81.0, 81.4, 94.3, 95.3, 107.2,
+109.4, 118.3, 133.4, 136.7, 141.2, 155.1, 159.4, 173.9, 182.6, 190.0 Hz) + swept-only (36.2, 47.8, 57.9,
+64.7, 126.9 Hz). **49.9 / 50.1 Hz excluded: a ζ 0.36 % "mode" at the mains frequency = 50 Hz hum** (it
+also enters the joint PolyMAX fit — a hum notch / exclusion is needed in identification).
+
+**E1** — every exciter ALONE (Out 3 −30 dBFS, others −24): 173-point stepped sine over the ±3 B windows
+(15 pts each) + a long dwell at each exciter's own resonance (from a per-exciter local multi-mode fit:
+free poles seeded by the list, shared by the 7 sensors, constant + jω background terms) — 7 min per
+exciter. **E2** — 6 modes, ±2 B / 9 points, at −42 / −36 / −30 dBFS per exciter. **E3** — analysis.
+
+| Shape compared across the 4 exciters | median pair MAC | modes with all 6 pairs ≥ 0.9 |
+|---|---|---|
+| raw dwell response at each exciter's resonance | 0.31 | **0 / 25** |
+| residual-corrected residue (local multi-mode fit with background terms) | **0.90** | **5**: 33.0, 57.9 (= 59.1), 67.8, 81.4, 118.3 Hz |
+| same, nearest sensor(s) of both exciters removed | 0.90 | 5 (same) |
+| only exciters with participation ≥ 0.3 of the strongest | — | 7: + 64.7 (2 exciters), 126.9 (3) |
+
+Near-agreement (median pair ≥ 0.9, worst pair 0.75–0.9): 59.1, 75.7, 81.0, 95.3, 126.9, 133.4 Hz.
+Disagreeing: 36.2, 47.8, 64.7 (swept-only, ζ 5–19 %), 70.6, 94.3, 107.2, 109.4, 136.7, 141.2, 155.1, 159.4,
+173.9, 182.6, 190.0 Hz. Per-exciter resonance frequencies differ by 1.7 % (median). Pairs with Out 3 /
+Out 4 agree best (median 0.92), Out 2 worst (0.86).
+
+| Hypothesis | Test | Verdict |
+|---|---|---|
+| Neighbouring / background modes contaminate each exciter's response | raw dwell 0.31 → residual-corrected 0.90; modal overlap factor median **1.9** (> 1 for 20 / 25 modes) | **Main cause.** At its own resonance each exciter excites a different MIXTURE of overlapping modes; only a multi-mode model separates them |
+| Genuinely close modes the 4 × 7 data cannot separate | failures come in clusters: 94.3/95.3 (1 %), 107.2/109.4 (2 %), 133.4/136.7/141.2, 155.1/159.4, 173.9/182.6/190.0; one member usually agrees, the other does not; per-exciter PolyMAX counts 15 / 19 / 20 / 20 modes < 200 Hz vs 21 joint; 107.2 agrees (MAC 0.98) when E2's narrower window excludes 109.4 | **Second cause** — the per-exciter fits split / swap close pairs |
+| Low participation (exciter barely drives the mode) | participation gate: 75.7, 107.2, 159.4 are driven by ONE exciter (others < 0.3) | explains ~3 modes — not comparable from 4 exciters at all |
+| Near-field (sensor next to the driving exciter) | nearest sensors (earliest arrival = largest |H|): Out 1 → In 1, Out 2 → In 5/6, Out 3 → In 3, Out 4 → In 1/2 (inferred, geometry undocumented); removing them leaves median 0.90 | **Not the cause** |
+| Nonlinearity / level | E2: FRF deviation −42 vs −30 dBFS 0.5–3.7 dB, −36 vs −30 0.35–1.2 dB — halves per +6 dB (= SNR, not level-growing); per-step shape MAC vs level ≥ 0.97 median; pairs with the nonlinear Out 3 agree BEST | **Not the cause** below 200 Hz (Out 3's distortion is harmonic, separated) |
+| Exciter-specific (electrical / mounting) | one-exciter-out patterns: no single exciter is the outlier (pair medians 0.86–0.92) | minor |
+
+**Result.** Below 200 Hz, 5 modes agree across all 4 exciters (MAC ≥ 0.9), 6 more nearly agree (one pair
+0.75–0.9), ~3 are driven by only one exciter, and ~11 sit in clusters of genuinely close modes (overlap
+factor ≈ 2) that per-exciter fits cannot separate consistently. It is a resolution problem
+(4 drive points × 7 sensors vs ~20 heavily overlapping modes), not nonlinearity, level, near-field or a
+faulty exciter.
+
+**Recommended hands-on experiments** (in order): **E9 more sensors** — the decisive one: 7 sensor
+DOFs cannot separate 20 overlapping modes (distinct modes reach chance MAC 0.12–0.16 with 7 DOF;
+16–24 sensors or a roving sensor grid would make close pairs distinguishable); **E6 impulse-hammer
+reference** — a roving, force-referenced hammer over a grid gives many drive points and an
+exciter-independent reference (also shows whether the attached exciters' mass changes the modes);
+then E8 current sense (force reference: fixes per-exciter scale/phase and back-EMF damping — does not
+change MAC); E7 mechanical check of Out 3 (nonlinear, but not the shape problem); E4 cable swap and E5
+one-exciter-at-a-time are low value (crosstalk −63…−71 dB, no outlier exciter).
+
 ## Investigation history
 
 - 2026-10-11 consistency analysis (swept vs impulse-ESPRIT): `D:\scratch\xexc-2026-10-11\analysis.log`
