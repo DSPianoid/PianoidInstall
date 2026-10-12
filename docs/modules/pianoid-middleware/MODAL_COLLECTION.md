@@ -229,10 +229,11 @@ python -m pianoid_middleware.modal_adapter.appropriation {table|dwell} <modes.np
 ```
 
 **Swept discovery** (`swept_discovery/`): noise record → per exciter a coarse ESS (20 Hz–10 kHz,
-`--coarse-s` 8 s, −30 dBFS) → deconvolved FRF H (F × 7 receivers × 4 exciters, 0.25 Hz grid) → CMIF
-σ1/σ2 peaks → zones → fine narrow linear sweeps per zone (`--fine-s` minimum duration, `--fine-rate`
-caps the sweep rate so wide zones sweep slower, decay gap `--fine-gap-tau` time constants ≤
-`--fine-gap-max` s) → polyreference rational fit per zone. `report.json` carries `sweep_rate`: the
+`--coarse-s` 20 s since the 2026-10-12 sweep-speed test (was 8 s), −30 dBFS) → deconvolved FRF H (F × 7 receivers × 4 exciters, 0.25 Hz grid) → CMIF
+σ1/σ2 peaks → zones → fine narrow linear sweeps per zone (`--fine-s` minimum duration; `--fine-qs` 0.05 caps the
+rate at qs·π·B² for the zone's narrowest peak, ≤ `--fine-max-zone-s` 20 s — an absolute `--fine-rate`
+also exists but wide HF zones then exceed the backend's 120 s session limit; decay gap
+`--fine-gap-tau` 8 time constants ≤ `--fine-gap-max` 3 s) → polyreference rational fit per zone. `report.json` carries `sweep_rate`: the
 quasi-stationarity index r/(πB²) of the coarse ESS at every peak and of every fine zone sweep
 (< 0.1 quasi-stationary; deconvolution makes the FRF exact for an LTI system at any rate — the index
 matters for nonlinearity / time variance and per-Hz energy).
