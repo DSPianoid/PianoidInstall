@@ -343,6 +343,37 @@ then E8 current sense (force reference: fixes per-exciter scale/phase and back-E
 change MAC); E7 mechanical check of Out 3 (nonlinear, but not the shape problem); E4 cable swap and E5
 one-exciter-at-a-time are low value (crosstalk −63…−71 dB, no outlier exciter).
 
+## 10. Chirp-based ESPRIT below 200 Hz vs the E1–E3 modes (2026-10-12)
+
+Script `docs/development/diagnostics/dev-fd69-lf-chirp-esprit.py`; output
+`D:\modal_measurements\analysis\dev-fd69-2026-10-12\lf_chirp_esprit\` (`lf_esprit_compare.log`,
+plot `lf_esprit_vs_reference.png`). ESPRIT = the unchanged project pipeline (`EspritRunner`, GPU, MAC
+merging, multichannel Hankel, In 2..In 7) with a dedicated < 200 Hz band set: 25–80 Hz (decimation 40,
+order 24, 2 s window), 60–140 Hz (dec 24, order 30, 1.5 s), 110–210 Hz (dec 16, order 30, 1 s); 49–51 Hz
+(hum) dropped. IRs: (a) the live chirp collection `ASIO-chirp-2026-10-12` (20 Hz–10 kHz ESS, 1 s IRs);
+(b) a fresh LF chirp `rig_checks\20261012T182323-lfchirp` (15–300 Hz ESS 9.5 s, 2 s IRs, 3 averages,
+Out 3 −30 / others −24 dBFS, 12 sessions, 2.5 min, 0 xruns). Reference: the 25-mode list of §9 and
+the residual-corrected E1 shapes of the SAME exciter.
+
+| | (a) live chirp, 1 s IRs | (b) LF chirp, 2 s IRs |
+|---|---|---|
+| ESPRIT modes < 200 Hz per exciter | 43 / 41 / 37 / 35 | 49 / 48 / 46 / 46 (≈ 2× the 25 reference modes) |
+| reference × exciter frequency hits within B/2 | 96 / 100 (chance 79.5) | 98 / 100 (chance 83.5) |
+| shape MAC vs E1 corrected shape (same exciter) | median **0.10** (chance 0.11) | median **0.61** (chance 0.14); ≥ 0.8 in 29 / 98 |
+| ESPRIT ζ / reference ζ | 0.08 (median ζ 0.21 %) | 0.11 (median ζ 0.35 %) |
+| ESPRIT cross-exciter pairs matched (chance) | 3–9 (2.8–6.5), MAC med 0–0.21 | 9–11 (5.8–9.5), MAC med 0.27–0.43 |
+| reference modes confirmed (f within B/2 AND MAC ≥ 0.8) by ≥ 2 exciters | 0 | 7: 36.2 (3), 107.2 (3), 47.8, 64.7, 94.3, 109.4, 126.9, 182.6 (2) |
+| of the agreeing set 33.0 / 57.9–59.1 / 64.7 / 67.8 / 81.4 / 118.3 / 126.9 | none by shape | 64.7 and 126.9 by 2 exciters; 57.9–59.1, 67.8, 81.4, 118.3 by 1; 33.0 by none |
+
+**Answer:** ESPRIT does **not** independently find the same modes below 200 Hz. Every reference mode
+has an ESPRIT pole nearby, but ESPRIT returns ~2× as many poles as there are modes, so frequency
+coincidence is only ~15 % above chance. With 2 s LF IRs its shapes become clearly related to the
+stepped-sine shapes (median MAC 0.61 vs chance 0.14) — the 1 s broadband IRs carry no shape
+information here (0.10). Its damping stays 5–10× too low (0.2–0.35 % vs ≈ 1.6 % appropriated and
+1.5–3 % in the stepped-sine fits), and its four exciters agree with each other barely above chance. The
+mode list from the multi-reference FRF methods + stepped sine (§9) remains the reference; ESPRIT is a
+weak, damping-biased cross-check on this board even with a dedicated LF band set and long IRs.
+
 ## Investigation history
 
 - 2026-10-11 consistency analysis (swept vs impulse-ESPRIT): `D:\scratch\xexc-2026-10-11\analysis.log`
