@@ -51,7 +51,7 @@ def load(root, which):
     return P
 
 
-def assemble(P, ref):
+def assemble(P, ref, coils_from=None):
     f = P[0]["f"]
     piezo_m, piezo_n, labels, coords, coil_m, coil_n = [], [], [], [], [], []
     for p in P:
@@ -65,7 +65,10 @@ def assemble(P, ref):
         c = p["meta"].get("coords")
         coords += c if c else [None] * 3
     Hp = np.concatenate(piezo_m, axis=1); Np = np.concatenate(piezo_n, axis=1)
-    Hc = np.mean(coil_m, axis=0); Nc = np.mean(coil_n, axis=0) / len(P)
+    if coils_from is not None:      # input gains changed between placements: coil rows from ONE placement
+        i = [p["n"] for p in P].index(coils_from); Hc = coil_m[i]; Nc = coil_n[i]
+    else:
+        Hc = np.mean(coil_m, axis=0); Nc = np.mean(coil_n, axis=0) / len(P)
     H = np.concatenate([Hp, Hc], axis=1); N = np.concatenate([Np, Nc], axis=1)
     labels += ["coil1", "coil2", "coil3", "coil4"]
     return f, H, N, labels, coords
@@ -77,12 +80,13 @@ def main():
     ap.add_argument("--placements"); ap.add_argument("--ref", default="I", choices=["I", "V"])
     ap.add_argument("--fmax", type=float, default=1100.0); ap.add_argument("--no-prune", action="store_true")
     ap.add_argument("--p-max", type=int, default=40); ap.add_argument("--out")
+    ap.add_argument("--coils-from", type=int, help="take the 4 coil rows from this placement only (gain change)")
     ap.add_argument("--drop", default="", help="comma list of piezo labels to leave out, e.g. P01.In5")
     a = ap.parse_args()
     which = [int(x) for x in a.placements.split(",")] if a.placements else None
     t0 = time.time()
     P = load(a.root, which)
-    f, H, N, labels, coords = assemble(P, a.ref)
+    f, H, N, labels, coords = assemble(P, a.ref, a.coils_from)
     drop = {d.strip() for d in a.drop.split(",") if d.strip()}
     if drop:
         keep = [k for k, l in enumerate(labels) if l not in drop]
