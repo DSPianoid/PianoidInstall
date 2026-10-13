@@ -46,8 +46,8 @@ per-entry version, the replay ring buffer and coalescing, and emits on this sock
 
 | Write path | Machinery |
 |---|---|
-| preset parameters (`/set_parameter/*`, `/set_string_excitation/*`, `/set_hammer_shape/*`, `/excitation_energy`, calibration mass commits, auto-tuner, MIDI CC string knobs, sound-channel calibrator, every `Pianoid.update_*` facade) | `Pianoid._commit_edit`: read-only guard (409 `preset_read_only`) → Layer B edit policy → `ParameterManager` apply → `state_changed` |
-| runtime parameters (REST + WS `set_runtime_parameters`, HOT `/load_preset`, MIDI CC volume / feedback) | `runtime_params.apply_runtime_parameters` → `state_changed{domain:'runtime'}` |
+| preset parameters (`/set_parameter/*`, `/set_string_excitation/*`, `/set_hammer_shape/*`, `/excitation_energy`, calibration mass commits, auto-tuner, MIDI CC string knobs, sound-channel calibrator, every `Pianoid.update_*` facade, the stored deck feedback `store_feedback_coeff`) | `edit_commit.commit`: read-only guard (409 `preset_read_only`) → owner apply (`ParameterManager`, …) → Layer B edit policy → `state_changed`. Recorded whenever the model write completed, even if only the engine upload failed (logged); a raised error records nothing |
+| runtime parameters (REST + WS `set_runtime_parameters`, HOT + FULL `/load_preset` slider carry-over, MIDI CC volume / feedback / deck-scaling knobs, the calibration volume auto-ranging, Layer B re-layering of the live `volume_center`) | `runtime_params.apply_runtime_parameters` (`output_level` for the re-layering) → `state_changed{domain:'runtime'}` |
 | preset lifecycle (load / switch / spawn / promote / unload / save / library load, incl. `/modal/apply_to_preset`) | the library owners in `Pianoid` + the load / save routes → `preset_changed` |
 | session state (fix velocity, excitation mode, MIDI, mic, limiter, synthesis pause, audio, …) | precise `session_changed` from the helper, else generic from the route class |
 | Layer B `output_scale` (calibration, level-neutral compensation, stale flag) | `output_level.record` → `state_changed{domain:'output_level'}` |
@@ -57,14 +57,21 @@ socket.io event: `param` (precise `state_changed` from the choke point), `param_
 no fine key → `domain_invalidated{domain}` after a 2xx), `preset`, `session` (`session_changed{domain}`,
 generic when the handler recorded no precise one), `transient` (`engine_busy` start/end), `action`
 (playback / measurement, no event), `read_only`. `tests/unit/test_write_route_registry.py` fails on an
-unclassified route — a new write path cannot bypass the broadcast silently.
+unclassified route (all socket.io namespaces) — a new write path cannot bypass the broadcast silently —
+and scans EVERY module the backend loads for direct engine / model writes (C++ setters, `send_*_to_CUDA`,
+runtime setters, `mp.*` / `physics.*` assignment, `sm.update_*`) outside the owner modules. Temporary
+chart / test overrides go through `chartFunctions._engine_override`, which reports them to the safety net.
+`param` routes (except the session-wide `runtime` / `output_level` domains) are rejected UP FRONT with
+409 `preset_read_only` on a read-only original — a calibration job never reports `started` and then fails
+in its worker thread.
 
 **Source attribution (client → server, optional, additive).** REST: headers `X-Pianoid-Source`
 (`fe`·`rest`·`ws`·`mcp`·`assistant`·`calibration`·`midi_cc`·`modal`·`autotune`·`system`),
 `X-Pianoid-Client` (per-tab id), `X-Pianoid-Op` (per-write op id), `X-Pianoid-Group` (one gesture /
 command). WS write events (`set_parameter`, `set_string_excitation`, `set_hammer_shape`,
 `set_runtime_parameters`, `set_fix_velocity`): payload fields `source`, `clientId`, `opId`, `groupId`.
-Defaults: `rest` / `ws`; an unknown kind becomes `system`. Some routes force the kind (calibration family
+Defaults: `rest` / `ws`; an unknown kind becomes `system`; a worker thread a request starts keeps that
+request's `clientId` / `opId` / `groupId`. Some routes force the kind (calibration family
 → `calibration`, `/modal/apply_to_preset` → `modal`); worker threads record `calibration`, the MIDI
 listener `midi_cc`, the auto-tuner `autotune`. Existing payloads, acks (`param_ack`, emitWithAck
 returns) and responses are unchanged.
@@ -74,17 +81,20 @@ returns) and responses are unchanged.
 
 | Event | Fields | Meaning / client action |
 |---|---|---|
-| `state_changed` | `entry`, `version`, `domain`, `keys`, `fields`, `after` (+ `opIds` when coalesced) | `domain` of library `entry` changed. `version` = per-entry counter (+1 per `state_changed` of that entry). `keys` = the addressed key numbers (see key spaces below; field NAMES for `runtime`). `fields` = edited field names (`string`/`mode`/`hammer`/`excitation_energy`), else `null`. `after` = the STORED values of exactly `keys` in the `GET /get_parameter/<domain>/<key>` shape (`{"57": [..]}`), or `null` → refetch the domain |
-| `preset_changed` | `kind`, `entry`, `version` | `kind` ∈ `load_full` · `load_hot` · `load_structural` · `switch` · `spawn` · `promote` · `unload` · `save` · `library_load`; `entry` = the entry it concerns (the ACTIVE one for load / save / switch). `load_full` / `load_structural` / `switch` / `unload` replace editor data (today's `presetVersion` bump); `load_hot` keeps it; `save` / `promote` / `spawn` / `library_load` change only the library list |
+| `state_changed` | `entry`, `version`, `domain`, `keys`, `fields`, `after` (+ `opIds` when coalesced) | `domain` of library `entry` changed. `version` = per-entry counter, stamped at EMIT time: strictly +1 per emitted `state_changed` of that entry (a coalesced event takes the version of its emission), `0` for `entry null`. `keys` = the addressed key numbers (see key spaces below; field NAMES for `runtime`). `fields` = edited field names (`string`/`mode`/`hammer`/`excitation_energy`), else `null`. `after` = the STORED values of exactly `keys` in the `GET /get_parameter/<domain>/<key>` shape (`{"57": [..]}`), or `null` → refetch the domain |
+| `preset_changed` | `kind`, `entry`, `version` (the entry's current version) | `kind` ∈ `load_full` · `load_hot` · `load_structural` · `switch` · `spawn` · `promote` · `unload` · `save` · `library_load`; `entry` = the entry it concerns (the ACTIVE one for load / save / switch). `load_full` / `load_structural` / `switch` / `unload` replace editor data (today's `presetVersion` bump); `load_hot` keeps it; `save` / `promote` / `spawn` / `library_load` change only the library list |
 | `session_changed` | `domain`, `keys`, `after` | session state outside the preset: `fix_velocity` (`after {enabled, level}`), `excitation_mode` (`keys [pitch]`, `after {pitch: 0 hammer / 1 bow}`), `midi`, `mic`, `limiter`, `synthesis`, `audio`, `calibration_job`, `lifecycle` (`after null` → refetch) |
-| `domain_invalidated` | `domain` | coarse: refetch the domain. Either a `param_coarse` route (`calibration_curve`, `calibration_reference`, `calibration_params`) or the **I1b safety net**: a GPU upload group that no precise event covered — `deck` (→ `feedin`, `feedback`, `*_mask`, `sound_channel*`, `string_sound_channel`), `string`, `hammer`, `excitation`, `mode`, `excitation_coeffs` (→ `excitation_energy`). The backend log names the uncovered call site (`[journal] WARNING …`) |
+| `domain_invalidated` | `domain` | coarse: refetch the domain. Either a `param_coarse` route (`calibration_curve`, `calibration_reference`, `calibration_params`) or the **I1b safety net**: a GPU upload group that no precise event covered — `deck` (→ `feedin`, `feedback`, `*_mask`, `sound_channel*`, `string_sound_channel`), `string`, `hammer`, `excitation`, `mode`, `excitation_coeffs` (→ `excitation_energy`), `runtime` (→ `GET /get_runtime_parameters`). The backend log names the uncovered call site (`[journal] WARNING …`) |
 | `engine_busy` | `phase` `start`/`end`, `reason` (endpoint) | a `transient` route (offline chart render, `/start_test`, `/audio/session`, `/synthesis_measure`) temporarily overrides the engine and restores it; no state event follows |
 
 `state_changed` domains = the REST parameter names verbatim (same-name rule): `string` (also `physics`
 writes), `mode`, `hammer`, `gauss`, `excitation`, `string_excitation_curves`, `feedin`, `feedback`,
 `feedin_mask`, `feedback_mask`, `sound_channel`, `sound_channel_mask`, `string_sound_channel`,
 `excitation_energy` (`after {hammer_mass: {pitch: kg}, hammer_speeds?, excitation_impulse_calibration?}`),
-`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units),
+`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units;
+also `deck_scaling` = the MIDI CC deck-scaling override, `effective_volume_center` = the Layer B re-layer),
+`deck_feedback_coefficient` (the PER-PRESET stored feedback baseline, `entry` = active, `keys []`,
+`after {deck_feedback_coefficient}`; written by `store_feedback_coeff`),
 `output_level` (`keys []`, `after {output_scale, calibrated, target_dbfs}`).
 
 **`after` contract.** Stored values only — never an effective value: a mask edit carries the mask
@@ -93,8 +103,9 @@ domain (the raw row is untouched); `hammer` carries stored `hammer_width` plus t
 `after` is omitted (`null`) when more than 16 keys were edited (e.g. `key_no=all`) and for
 `string_excitation_curves` — the client refetches that domain / pitch.
 
-**Ordering, coalescing, replay.** Events are emitted in `seq` order, outside `cuda_lock` (the synth
-thread is never stalled by a socket). Events with the same `(event, domain, entry, source.kind,
+**Ordering, coalescing, replay.** Events are emitted in `seq` order from an ordered outbox drained
+outside the journal lock (a slow socket never blocks a recording writer) and outside `cuda_lock` (the
+synth thread is never stalled by a socket). Events with the same `(event, domain, entry, source.kind,
 clientId)` within **30 ms** are coalesced: the first is emitted at once, the rest of the window is
 merged into ONE event (`keys`/`fields` union, `after` merged, `opIds` list). A request that touches
 nothing emits nothing (a hammer GET → POST identity is not an edit). The journal keeps the last 2000
@@ -1133,7 +1144,14 @@ the new PER-PRESET stored feedback baseline IN MEMORY (`pianoid.mp.deck_feedback
 — NO disk I/O. The value is persisted to the preset file only on `/save_preset` (it rides
 `mp.pack()` → `model_parameters.deck_feedback_coefficient`). Range `0.0`–`1000`. The stored
 baseline is per-preset: `switch_preset` applies the target preset's value (it is no longer
-global; volume + volume-sensitivity remain global).
+global; volume + volume-sensitivity remain global). Being PRESET data it goes through the write
+machinery (dev-960f): `409 preset_read_only` on a read-only original, and it is broadcast as
+`state_changed{domain:'deck_feedback_coefficient'}` keyed to the active entry (the other fields of
+the same request stay a `runtime` event).
+
+`deck_scaling` (optional, object `{feedin_coeff, feedback_coeff, feedbackOFF}`, dev-960f): an
+engine-only re-pack of the deck with these factors (the legacy MIDI CC feedin / feedback knobs); the
+stored rows are untouched and `{}` restores the unscaled deck. Recorded as `runtime`.
 
 `volume_center` (optional, float): coefficient at level 64, in **bare** units (the frontend sends `exp((presetVolume-100)/8)`, `1.0` at the default init volume). The engine stores `volume_center × output_scale` (Layer B); the ack (`updated.volume_center`) and `GET /get_runtime_parameters` report the bare value back, plus `effective_volume_center` (the engine value). `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
 
@@ -1896,7 +1914,7 @@ Response `409` (`PresetLibraryError`) if this would unload the last preset.
 Parameter-edit endpoints (`POST /set_parameter/*`, `POST /set_string_excitation/*`,
 `POST /set_hammer_shape/*`, `POST /excitation_energy`) and every calibration mass commit reject writes
 while a read-only `original` is the active preset (the guard is the first step of the write machinery
-`Pianoid._commit_edit`; before dev-960f `/excitation_energy` and the calibration family edited a
+`edit_commit.commit` — and the `param` routes check it UP FRONT; before dev-960f `/excitation_energy` and the calibration family edited a
 read-only original silently). The orchestrator guard
 `Pianoid._assert_active_editable()` raises `PresetReadOnlyError`, which the
 dedicated error handler maps to:
@@ -1950,7 +1968,8 @@ These endpoints use the **semi-offline calibration mode**: the engine loop is st
 **Loudness lever = per-pitch `hammer_mass` (dev-168c, 2026-10-04).** Every equalizer write changes only
 `pitch.physics.hammer_mass` and recomposes that pitch's excitation coefficient
 (`c·m·v / (temporal·spatial)`, conserve mode) — the same path as `POST /excitation_energy` (one
-`ParameterUpdateRequest(kind='excitation_energy')` per `HammerMassGain.commit()` through the write
+`ParameterUpdateRequest(kind='excitation_energy')` per `HammerMassGain.commit()` — masses are STAGED
+off-model until then and dropped on cancel / error, so the model only changes through the write
 machinery: read-only guard, Layer B policy, one `state_changed` with `source.kind = 'calibration'`). The excitation
 curve volumes are never touched: they divide back out of the coefficient, so the old curve-volume writes were
 no-ops after any reload. Loudness is linear in mass (measured: mass ×0.25/×0.5/×2/×4 → −12.04/−6.02/+6.02/+12.04 dB

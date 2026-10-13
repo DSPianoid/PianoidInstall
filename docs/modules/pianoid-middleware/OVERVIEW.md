@@ -83,8 +83,7 @@ Key methods called by the REST layer:
 - `start_realtime_playback(with_midi_listener)` — launches audio + main loop threads. Switches C++ logger to RUNTIME phase.
 - `add_realtime_event(event_type, pitch, velocity, delay_ms)` — queues a MIDI event
 - `pack_for_interface(parameter, pitches, modes)` — serializes parameters for GET endpoints
-- `update_parameter(parameter, values, pitches, modes)` — legacy dispatcher; like every edit facade it goes through `_commit_edit`
-- `_commit_edit(kind, values, apply, ...)` — **THE preset-parameter write machinery** (SSOT I1, dev-960f): read-only guard → Layer B edit policy → `apply()` (ParameterManager) → `StateJournal` record (`state_changed` broadcast). Every edit from every source passes here — see [State broadcast](#state-broadcast-ssot-i1)
+- `update_parameter(parameter, values, pitches, modes)` — legacy dispatcher; like every edit facade it goes through `edit_commit.commit` (`edit_commit.py`, the preset-parameter write machinery — see [State broadcast](#state-broadcast-ssot-i1))
 - `get_chart_for_frontend(chartType, **kwargs)` — delegates to `ChartGenerator`
 - `perform_frontend_command(action_type, **kwargs)` — delegates to `ActionPerformer`
 - `save_preset(path, sm=None, modes=None, mp=None)` / `reset()` / `destroyPianoid()` — `save_preset` defaults to the live model; promote passes a working copy's model. Atomic temp-file write.
@@ -204,14 +203,14 @@ Additional parameter types handled directly (no map translation):
 |-----------|---------|--------|
 | `sound_channel` | `set_parameter_batch('sound_channel', ...)` | Updates `soundChannelModes.coefficients[pitchID]` and sends deck params to CUDA |
 
-All parameter modifications route through `ParameterManager`, and every one of them enters through the `Pianoid` write machinery `_commit_edit` (guard → Layer B → apply → journal record). The facades:
+All parameter modifications route through `ParameterManager`, and every one of them enters through the write machinery `edit_commit.commit` (guard → apply → Layer B → journal record). The facades:
 - `apply_parameter_request(request)` — canonical entry (Tranche A / M7). Accepts a typed `ParameterUpdateRequest(kind, values, pitches=None, modes=None, extra={})`. Used by the shared `_apply_parameter_request` / `_apply_string_excitation` helpers in `backendServer.py` (REST + WS), `POST /excitation_energy`, every calibration mass commit (`HammerMassGain.commit`) and the sound-channel calibrator. Kind `excitation_energy` (`{hammer_mass: {pitch: kg}, hammer_speeds: [6], excitation_impulse_calibration: c}`) is validated + applied by `excitation_energy.py` (model write + CoefficientCache recompose of only the moved factor).
 - `update_parameter()` — legacy dispatcher (tests, scripts); same machinery.
 - `update_pitch_physical_params()` (deprecated bulk: MIDI CC knobs, NoteTunner) / `update_pitch_physical_params_GRANULAR()` (auto-tuner) — single-pitch physical param update; same machinery (the bulk path gained the Layer B policy, dev-960f).
 - `update_pitch_excitation()` — single-pitch excitation update (also reachable via `kind="string_excitation_curves"`).
-- `send_deck_params_to_CUDA()` — deck SCALING for the MIDI CC feedin/feedback knobs: an engine-level override, not a model edit — the I1b safety net reports it as `domain_invalidated{deck}`.
+- (no `send_*_to_CUDA` facades on `Pianoid` since dev-960f: uploads are `ParameterManager`-internal; the MIDI CC deck-scaling knobs use the runtime `deck_scaling` field.)
 
-**Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. Their ONE write path is `runtime_params.apply_runtime_parameters` (dev-960f, extracted from `backendServer.py`): REST + WS `set_runtime_parameters`, the HOT `/load_preset` path and the MIDI CC volume / feedback knobs all call it; it records `state_changed{domain:'runtime'}`.
+**Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. Their ONE write path is `runtime_params.apply_runtime_parameters` (dev-960f, extracted from `backendServer.py`): REST + WS `set_runtime_parameters`, the HOT / FULL `/load_preset` paths, the MIDI CC volume / feedback / deck-scaling knobs and the calibration volume auto-ranging all call it; it records `state_changed{domain:'runtime'}`. Its one PRESET field, `store_feedback_coeff` (`mp.deck_feedback_coefficient`), goes through `edit_commit.commit`.
 
 **Layer B output level** (`output_level.py`, dev-0da4) owns the per-preset `output_scale`: the offline p60 v127
 measurement (refused while the engine is live — checked before any engine call), the commit rule (only a real,
@@ -249,12 +248,13 @@ One write machinery, one broadcaster (dev-960f; contract: [REST_API → State ev
 
 | Module | Sole concern |
 |---|---|
-| `state_journal.py` (`JOURNAL`) | owns `seq` (process-monotonic), per-entry `version`, the 2000-event replay ring, 30 ms coalescing, the request / thread source context (`context()`, `bind()`, `transient()`) and the I1b safety net (`touch`/`touch_upload` from every GPU upload sink → `domain_invalidated` for an uncovered upload group). Emits via the injected `socketio.emit`, under its own lock, never under `cuda_lock`. No GPU / model work |
-| `write_routes.py` | classification of EVERY Flask endpoint + socket.io event (`param` / `param_coarse` / `preset` / `session` / `transient` / `action` / `read_only`, + optional forced source); `tests/unit/test_write_route_registry.py` fails on an unclassified route |
+| `state_journal.py` (`JOURNAL`) | owns `seq` (process-monotonic), per-entry `version`, the 2000-event replay ring, 30 ms coalescing, the request / thread source context (`context()`, `bind()`, `transient()`) and the I1b safety net (`touch`/`touch_upload` from every GPU upload sink → `domain_invalidated` for an uncovered upload group). Stamps `seq` + per-entry `version` at emit time; emits via the injected `socketio.emit` from an ordered outbox drained outside its lock, never under `cuda_lock`. No GPU / model work |
+| `edit_commit.py` | THE preset-parameter write machinery `commit(pw, kind, values, apply)`: read-only guard → owner apply → Layer B policy → `state_changed` with the stored `after` snapshot (extracted from `pianoid.py`) |
+| `write_routes.py` | classification of EVERY Flask endpoint + socket.io event (`param` / `param_coarse` / `preset` / `session` / `transient` / `action` / `read_only`, + optional forced source; `param` routes are guarded up front); `tests/unit/test_write_route_registry.py` fails on an unclassified route or a direct engine / model write in any server module outside the owners |
 | `runtime_params.py` | the runtime-parameter write path (REST / WS / HOT load / MIDI CC) |
 | `excitation_energy.py` | validation + model write of the `excitation_energy` request kind |
 
-Recorders (state owners, after a successful write): `Pianoid._commit_edit` (`state_changed`), the library ops `switch_preset` / `spawn_working_copy` / `unload_preset` / `promote_working_copy` / `load_preset_to_library` + the `/load_preset` and `/save_preset` routes (`preset_changed`), `runtime_params` (`runtime`), `output_level.record` (`output_level`: calibration commit, `compensate_output_scale`, the stale-flag flip), `set_pitch_excitation_mode` + the fix-velocity helper (`session_changed`). Worker threads attribute their writes with `JOURNAL.bind('calibration', target)` (calibrate_synthesis / _acoustic, capture_reference, profiling, the sound-channel batch), the MIDI listener with `context('midi_cc')`, the auto-tuner with `context('autotune')`.
+Recorders (state owners, after a successful write): `edit_commit.commit` (`state_changed`), the library ops `switch_preset` / `spawn_working_copy` / `unload_preset` / `promote_working_copy` / `load_preset_to_library` + the `/load_preset` and `/save_preset` routes (`preset_changed`), `runtime_params` (`runtime`), `output_level.record` (`output_level`: calibration commit, `compensate_output_scale`, the stale-flag flip), `set_pitch_excitation_mode` + the fix-velocity helper (`session_changed`). Worker threads attribute their writes with `JOURNAL.bind('calibration', target)` (calibrate_synthesis / _acoustic, capture_reference, profiling, the sound-channel batch), the MIDI listener with `context('midi_cc')`, the auto-tuner with `context('autotune')`.
 
 ### `ChartGenerator` (ChartGenerator.py)
 

@@ -326,8 +326,8 @@ backendserver.py
 ## 2. Parameter Flows
 
 **One write machinery + broadcast (SSOT I1, dev-960f).** Every flow below ends the same way: the
-preset-parameter write enters `Pianoid._commit_edit` (read-only guard → Layer B policy →
-ParameterManager apply) and is recorded on the `StateJournal`, which broadcasts ONE `state_changed`
+preset-parameter write enters `edit_commit.commit` (read-only guard → ParameterManager apply →
+Layer B policy) and is recorded on the `StateJournal`, which broadcasts ONE `state_changed`
 (seq, entry/version, source, keys, stored `after`) to every socket.io client; runtime writes
 (`runtime_params`), preset lifecycle ops (`preset_changed`), session state (`session_changed`) and
 Layer B (`output_level`) are recorded the same way, and any GPU upload no precise event covers
@@ -339,7 +339,7 @@ flowchart LR
   FE[FE tab / curl / MCP / assistant] -->|REST + WS| H[route / WS handler<br/>journal context = source]
   MIDI[MIDI CC knob] --> H2[MidiListener<br/>context midi_cc]
   CAL[calibration thread] --> H3[HammerMassGain.commit<br/>context calibration]
-  H --> C[Pianoid._commit_edit<br/>guard → Layer B → apply]
+  H --> C[edit_commit.commit<br/>guard → apply → Layer B]
   H2 --> C
   H3 --> C
   H --> R[runtime_params]
@@ -1034,7 +1034,7 @@ binding and delegates bookkeeping to it.
   Working/original entries hold deep-copied, non-shared Python domain
   objects, so a parameter edit mutates only the active working copy.
 - **Read-only enforcement.** `Pianoid._assert_active_editable()` is the
-  first step of the write machinery `Pianoid._commit_edit`, so it guards
+  first step of the write machinery `edit_commit.commit`, so it guards
   every parameter edit (`update_parameter`, `apply_parameter_request` —
   incl. `/excitation_energy` and the calibration mass commits since
   dev-960f — `update_pitch_physical_params[_GRANULAR]`,
