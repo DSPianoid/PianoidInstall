@@ -11,6 +11,7 @@ self-contained document capturing a problem, its analysis, and a proposed (or im
 
 ## Active
 
+- [AI Assistant in the Pianoid UI](ai-assistant-in-ui-2026-10-13.md) — Assistant mosaic pane + launcher-hosted Claude API tool runner; read tools server-side, writes as user-confirmed ChangeSets applied via `usePreset.writeParam` (SSOT), audio-safety envelope, phased P0–P5 (MCP server + backend `param_changed` broadcast in P4). Status: proposal, awaiting decisions D1–D7
 - [ASIO Audio Core — Retire sdl_audio_core / SDL3](asio-audio-core-retire-sdl-2026-10-11.md) — inventory of every SDL audio use, ASIO host capabilities/gaps (already duplex, 18 in / 20 out on UMC1820), shared CUDA-free ASIO core + `pianoid_audio` module (preloaded output matrix, sample-locked multichannel capture, latency compensation), phased migration + open decisions. Status: Phase 0 + 1-lite (dev-1b6c) and Phase 3 modal-adapter migration + `sdl_audio_core` retirement (dev-4284) done; engine-free host pending
 - [Loudness Chain — Where the Engine Deviates from the Physical Model](loudness-physics-deviation-analysis-2026-10-04.md) — measured attribution of the 45–50 dB equal-mass keyboard spread: string gain ∝ ρ·dx² (code), unison ×n (code), curve duration vs period and mode-mass law (data); fix order + expected mass ranges
 - [Automatic Volume Equalization — System Review](volume-equalization-review-2026-10-04.md) — every level mechanism end to end; single-note calibration vs chords/keyboard, no limiter, inert mic equalizer, cache not keyed by load params
