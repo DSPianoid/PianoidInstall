@@ -764,7 +764,7 @@ Reads simulation parameters serialized for the frontend.
 | `output` | External sound output parameters (alias for feedback on output pitches) |
 | `sound_channel` | Mode-coupling coefficients per pitch (modes-listen mode `listen_to_modes=1`). Effective rows: piano pitches `0..127` |
 | `sound_channel_mask` | Persistent mute MASK for `sound_channel` — the **modes**-axis mute (`listen_to_modes=1`), keyed by **piano pitch** (not an output pitch) |
-| `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. **The output rows are NOT addressable by number** (measured dev-960f: `GET`/`POST …/string_sound_channel/128` → `416`; it is not in `OUTPUT_PITCH_RAW_PARAMS`) — only `key_no=output` reads them, so the effective rows have no granular REST writer today (no FE writer either). See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
+| `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. This is a SEPARATE table from the one the Sound Channels editor edits (the editor writes `feedback` / `feedback_mask` at `128+ch` and `sound_channel` / `sound_channel_mask` — see [Sound-channel editing](#sound-channel-editing-what-the-frontend-uses); the FE never sends `string_sound_channel`). Its output rows are addressed with `key_no=output` (whole table: measured `GET` and `POST …/string_sound_channel/output` → 200); a single numeric output key (`…/string_sound_channel/129`) → `416`, because `string_sound_channel` is not in `OUTPUT_PITCH_RAW_PARAMS` (same on `dev`). See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
 | `stability_ratio` | **Read-only.** Per-pitch FDTD CFL/Courant stability ratio = `max_θ|g(θ)|` (`CFL_LIMIT = 1`); `ratio ≤ 1` is stable (a lossless string sits at exactly `1.0`). Per pitch: `{ratio, stable, strings:[{string_index, ratio, stable}]}`, plus a top-level `_meta {cfl_limit, criterion, formula}`. **Computed HOST-side** (v2) from the current `StringMap` physics via the closed-form `cfl_stability.max_amplification` (no GPU round-trip, no debug build), honouring the per-string `tension_offset`; output/"sound" strings (pitch ≥ 128) report the sentinel `1.0`/stable. Analyst-plottable vs pitch (`key_no = "all"`, `"output"`, or `"from21to108"`). Derivation: `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound"; design `docs/proposals/cfl-stability-guard-v2.md`. `POST` to this parameter is not supported |
 
 **Pitch key space — which parameters may address the OUTPUT pitches** (`parse_range`, dev-mute2 2026-07-12).
@@ -808,8 +808,30 @@ Measured on a live backend (BaselinePreset1, 100 modes, piano pitches 23..106, o
 | `string` / `physics` | piano pitch | `{field: value}`; `length` in metres | `tail` DERIVED (= length/10), never independently stored | length edit re-derived `tail` |
 | `hammer` | piano pitch | `{hammer: {…}}` | `hammer_width` stored; `hammer_width_effective` (rendered) + `hammer_radius` derived, read-only | GET 60: stored 0.00511 vs effective 0.010605 |
 | `sound_channel`, `sound_channel_mask` | piano pitch | `[num_channels]` | stored | row length = `_meta.num_channels` |
-| `string_sound_channel` | piano pitch by number; output rows only via `output` | `[num_channels]` | effective rows 128+ only | `…/128` → 416 |
+| `string_sound_channel` (FE-unused per-channel strings-mode gain table) | piano pitch by number; its output rows via `output` (whole table) | `[num_channels]` | effective rows 128+ only | `…/output` GET + POST 200; a numeric `…/129` → 416 (not an output-pitch param) |
 | `runtime` | field names | bare values | engine `volume_center` = bare × `output_scale` | eff = bare × scale (rel err < 1e-6) |
+
+#### Sound-channel editing (what the frontend uses) {#sound-channel-editing-what-the-frontend-uses}
+
+Channel editing WORKS and is unchanged by dev-960f. The Sound Channels editor (`usePreset.js`
+`changeSoundChannelFeedback` / `changeSoundChannelValues` / the mask emitters, `useSoundChannels.js`
+`emitOneStringsRow*` adding `OUTPUT_PITCH_OFFSET = 128`) sends, all over REST:
+
+| Editor action | Request (exact FE form) | Event (dev-960f) |
+|---|---|---|
+| strings axis (`listen_to_modes=0`), channel `ch` row | `POST /set_parameter/feedback/<128+ch>` `{"<128+ch>": [num_modes]}` | `state_changed{feedback, keys [128+ch]}` |
+| strings axis mute | `POST /set_parameter/feedback_mask/<128+ch>` `{"<128+ch>": [0/1…]}` | `state_changed{feedback_mask}` |
+| strings axis whole matrix | `POST /set_parameter/feedback/output` `{"128": […], …}` | `state_changed{feedback, keys [128..]}` |
+| modes axis (`listen_to_modes=1`), pitch `p` | `POST /set_parameter/sound_channel/<p>` `{"<p>": [num_channels]}` | `state_changed{sound_channel}` |
+| modes axis mute | `POST /set_parameter/sound_channel_mask/<p>` | `state_changed{sound_channel_mask}` |
+
+Measured on `dev` (fa291d5) AND this branch with the same script
+(`docs/development/diagnostics/dev-960f-sc-edit.py`, BaselinePreset1): every request 200, GET
+read-back == written (a mask write leaves the raw row untouched), all of it survives `/save_preset` →
+full reload of the saved file, the saved JSON is identical between the two backends except
+`output_scale` (calibration-render noise, 3.9e-5 relative), and a p60 render with the edited channels
+matches between them (rel. max diff 4.9e-5, corr 0.999999999). The I0 note about `416` concerned only the
+FE-unused `string_sound_channel` table addressed with a numeric output key — never the editor's path.
 
 **`string` parameter — `length` unit.** For `parameter == string` (and `physics`),
 the `length` field is the main-section physical length in **metres**

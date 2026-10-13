@@ -254,7 +254,7 @@ All action methods share the signature `(self, pitch, velocity)`.
 |--------|-------------|----------|
 | `note_on` | command 144, velocity > 0 | Sets `dumper=1`, updates `active_pitch`, sets `self.play=True` |
 | `note_off` | command 128 or 144+vel=0 | Sets `dumper=127`, velocity=0, calls `get_result_from_pianoid(100)`, sets `self.play=True` |
-| `pitch_wheel` | command 224 | Scales tension of all strings by `1 + (velocity-64)/64/10`, pushes to CUDA |
+| `pitch_wheel` | command 224 | Bends every key pitch's tension to `base × (1 + (velocity-64)/64/10)`, `base` = the tensions captured when the wheel left its centre (repeated messages never compound; 64 restores them exactly). ONE batched `string` edit through the parameter write machinery (`Pianoid.update_parameter` → `edit_commit.commit`: guard, Layer B, `state_changed{string}` with `source.kind = midi_cc`). Fixed dev-960f (was a broken direct engine write: `getAllSt0rings` + `setUpdatedParameters`) |
 | `sustain` | CC sustain | Sends `processSustain(127 - velocity)` to CUDA |
 | `main_volume` | CC 7 | Calls `pianoid.set_volume_level(velocity)`; falls back to `set_volume(velocity)` |
 | `deck_feedback` | CC 74 (Brightness) | Exponential mapping: 64→1.0, 127→8.0, 0→0.125; calls `set_deck_feedback_coefficient` |
