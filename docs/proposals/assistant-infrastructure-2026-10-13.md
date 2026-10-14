@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-13 · **Author:** `/analyse` (orchestrator-dispatched, research + docs only, no source edits)
 **Status:** PROPOSAL — dispatchable as `/dev` tasks once the user approves the sequencing (§8)
-**Progress (2026-10-14):** I0 + I1 IMPLEMENTED (dev-960f, merged Core dev 7ba5afc). **I2 IMPLEMENTED** (dev-fbcb, merged Core dev 5fb3dd6, Tunner dev b39e523, docs master 6fb91da; live UI regression of every editor in two tabs passed). Latency: p95 96.5 ms met, p50 86.6 ms vs the 50 ms target not met (re-render cost, WIP follow-up). I3–I5 open.
+**Progress (2026-10-14):** I0 + I1 IMPLEMENTED (dev-960f, merged Core dev 7ba5afc). **I2 IMPLEMENTED** (dev-fbcb, merged Core dev 5fb3dd6, Tunner dev b39e523, docs master 6fb91da; live UI regression of every editor in two tabs passed). Latency: p95 96.5 ms met, p50 86.6 ms vs the 50 ms target not met (re-render cost, WIP follow-up). I3 implemented on feature branches (dev-3b52, not merged); I4–I5 open.
 **Parent:** [AI Assistant in the Pianoid UI](ai-assistant-in-ui-2026-10-13.md). That doc covers the assistant itself. This doc covers everything that must exist **before** it.
 **Driver (user, Telegram 2026-10-13 18:37 UTC):** *"The assistant should be able to modify parameters, change windows layouts, and initiate any actions like playback, measurement etc. Plan necessary infrastructure update before the assistant implementation. The editors should be synchronized with the backend on any change."*
 
@@ -153,6 +153,16 @@ These items depend on [`#data-model-facts`](../PROJECT_CONFIG.md#data-model-fact
 ---
 
 ## 6. I3: Backend-aware undo / history
+
+**Status: IMPLEMENTED on feature branches (dev-3b52, 2026-10-14, NOT merged)** — contract: REST_API "Undo / redo
+(SSOT I3)"; FE: Tunner OVERVIEW `useBackendUndo`. Decisions (defaults from the directives "any edits via the same
+machinery" and "the assistant needs full control"): undo unit = one commit = one step; one write context or one
+explicit `groupId` = one group (a calibration pass = one group; midi_cc streams merge within 1 s); ONE linear
+stack per library entry, GLOBAL across sources and clients; the per-editor buttons = the latest group touching the
+editor's domains, with the linear-history 409; the inverse through `apply_parameter_request` under kind `undo` /
+`redo`; cleared on load_full / load_structural / unload, kept (and announced) on switch; 200 groups per entry and
+64 MB overall; runtime sliders / output_level / session / lifecycle exempt; REST `POST /history/undo|redo` +
+`GET /history`, event `history_changed` (no WS write event). The per-editor local histories stay as views.
 
 | Piece | Spec |
 |---|---|
