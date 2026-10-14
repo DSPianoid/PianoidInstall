@@ -125,7 +125,10 @@ the assistant, calibration passes, MIDI CC — records an undo STEP: the STORED 
 before and after, in the GET shape the parameter POST accepts (`undo_history.py`). Steps of one write context
 (one REST request / WS event / worker thread — e.g. a whole Calibrate Synthesis pass) or one explicit
 `X-Pianoid-Group` / WS `groupId` form one GROUP = one undo unit; a batch / multi-pitch / whole-keyboard edit is
-one commit = one step; `midi_cc` streams on the same domain + keys within 1 s merge.
+one commit = one step; `midi_cc` streams on the same domain + keys within 1 s merge. A write that changes nothing
+stored records no step. The feedback deck is scoped for the domain filter: rows >= 128 (the Sound-Channels
+strings axis) match `feedback@output` / `feedback_mask@output`, piano rows `feedback@piano` /
+`feedback_mask@piano` (plain `feedback` matches both).
 
 | Route | Body | Result |
 |---|---|---|

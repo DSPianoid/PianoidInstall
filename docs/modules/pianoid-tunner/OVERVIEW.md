@@ -751,13 +751,16 @@ on mount / reconnect + the `history_changed` event) and calls `POST /history/und
 - **global**: the ToolBar Undo / Redo buttons (title = what will be undone) and `useHotkeys` Ctrl+Z /
   Ctrl+Shift+Z / Ctrl+Y (never while a text field is focused — the field keeps its own undo);
 - **per editor**: the MatrixTools Undo / Redo of Strings, Modes, Excitation, Feedin, Feedback, Sound Channels and
-  the Workbench Undo send the editor's `UNDO_DOMAINS` (the latest group touching them; a later overlapping edit
+  the Workbench Undo send the editor's `UNDO_DOMAINS` (Feedback = `feedback@piano`, Sound Channels =
+  `feedback@output` + the `sound_channel*` domains; the latest group touching them; a later overlapping edit
   -> 409 `history_conflict`, shown as a notification with the backend message). The buttons' enabled state and
   titles come from the backend state (`undoControl`), not from the local history.
 
 The undo comes back to every tab as `state_changed` with source kind `undo` / `redo`, applied by the I2
 reconcilers like a foreign event (also in the tab that pressed it), so `useValuesHistory` / `useMatrixHistory`
-only RECORD it — they no longer drive undo (no double undo). Pinned by `hooks/__tests__/{useBackendUndo,
+only RECORD it — they no longer drive undo (no double undo). A DrawableChart / Workbench drag-paint stroke is
+committed once on release = ONE write = one undo step (measured live: a 10-pitch tension stroke undid in one
+step); a Sound-Channels workbench paint fans out one write per output row = one step per changed row. Pinned by `hooks/__tests__/{useBackendUndo,
 useHotkeys.undo}.test.js` and `__tests__/workbenchUndoWiring.source.test.js`.
 
 ### `useBackendSync` + `useStateReconcilers` (I2, dev-fbcb)
