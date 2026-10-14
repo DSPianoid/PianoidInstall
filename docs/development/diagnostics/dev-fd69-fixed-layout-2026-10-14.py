@@ -37,31 +37,33 @@ P01 = os.path.join(RC, "rove-20261013", "analysis_p01_noP01In5_coilsP0", "report
 CONSENSUS_1012 = [33.0, 57.9, 59.1, 67.8, 81.4, 118.3]
 
 
-def capture(out, only=None, levels=None):
+def capture(out, only=None, levels=None, ins=None, loopback=True, extra_cfg=None):
     """only: subset of exciters (e.g. ["E1", "E2"]); levels: {E: dBFS} overriding LEVEL0."""
     from pianoid_middleware.modal_adapter.measurement.ess import exp_sweep
     from pianoid_middleware.modal_adapter.swept_discovery.audio_io import SessionAudioIO
     os.makedirs(out, exist_ok=True)
-    io = SessionAudioIO(os.path.join(out, "sessions"), loopback=("Out 8", "In 8"))
+    ins = ins or PIEZO
+    io = SessionAudioIO(os.path.join(out, "sessions"), loopback=("Out 8", "In 8") if loopback else None)
     cfg = {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "exciter_outputs": EXC, "piezo_inputs": dict(zip([f"P{k}" for k in range(1, 8)], PIEZO)),
            "sync": "Out 8 -> In 8 (loopback marker)", "monitor_only": ["Out 1", "Out 2"],
            "ess": [F1, F2, T, POST], "repeats": NREP, "guard_dbfs": GUARD, "stop_dbfs": STOP,
            "layout": LAYOUT, "levels": {}, "flags": []}
-    io.record(3.0, PIEZO, "silence")
+    cfg.update(extra_cfg or {}); cfg["inputs_recorded"] = ins; cfg["loopback"] = "Out 8 -> In 8" if loopback else None
+    io.record(3.0, ins, "silence")
     t0 = time.time()
     for e, o in EXC.items():
         if only and e not in only:
             continue
         lv = (levels or {}).get(e, LEVEL0[e])
         while True:
-            y, m = io.play_record(exp_sweep(F1, F2, T, FS, lv), o, PIEZO, 0.0, POST, f"{e}_m{-lv}_r1")
+            y, m = io.play_record(exp_sweep(F1, F2, T, FS, lv), o, ins, 0.0, POST, f"{e}_m{-lv}_r1")
             pk = float(20 * np.log10(np.abs(y).max() + 1e-12))
             print(f"{e} ({o}) {lv} dBFS r1 peak {pk:.1f} xruns {m.get('xruns')} onset {(m.get('loopback') or {}).get('onset_frames')}", flush=True)
             if pk <= GUARD or lv <= -60:
                 break
             lv -= 6
         for r in range(2, NREP + 1):
-            y, m = io.play_record(exp_sweep(F1, F2, T, FS, lv), o, PIEZO, 0.0, POST, f"{e}_m{-lv}_r{r}")
+            y, m = io.play_record(exp_sweep(F1, F2, T, FS, lv), o, ins, 0.0, POST, f"{e}_m{-lv}_r{r}")
             pk = float(20 * np.log10(np.abs(y).max() + 1e-12))
             if pk > STOP or m.get("xruns") or m.get("status") != "ok":
                 cfg["flags"].append({"exciter": e, "rep": r, "peak": pk, "status": m.get("status"), "xruns": m.get("xruns")})
@@ -229,7 +231,10 @@ if __name__ == "__main__":
     if sys.argv[1] == "capture":
         only = next((a.split("=", 1)[1].split(",") for a in sys.argv if a.startswith("--only=")), None)
         lv = next((dict((k, int(v)) for k, v in (x.split(":") for x in a.split("=", 1)[1].split(","))) for a in sys.argv if a.startswith("--levels=")), None)
-        capture(sys.argv[2], only, lv)
+        ins = [f"In {k}" for k in range(1, 9)] if "--all8" in sys.argv else None
+        extra = {"input_map": {**{f"In {k}": f"coil current E{k}" for k in range(1, 8)}, "In 8": "piezo P8 (collocated with E7)"},
+                 "alignment": "no loopback; current-referenced quantities latency-free"} if "--all8" in sys.argv else None
+        capture(sys.argv[2], only, lv, ins, loopback="--noloop" not in sys.argv, extra_cfg=extra)
     else:
         fmx = float(sys.argv[sys.argv.index("--fmax") + 1]) if "--fmax" in sys.argv else 1100.0
         analyse(sys.argv[2], fmx)
