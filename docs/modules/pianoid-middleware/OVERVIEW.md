@@ -83,7 +83,7 @@ Key methods called by the REST layer:
 - `start_realtime_playback(with_midi_listener)` — launches audio + main loop threads. Switches C++ logger to RUNTIME phase.
 - `add_realtime_event(event_type, pitch, velocity, delay_ms)` — queues a MIDI event
 - `pack_for_interface(parameter, pitches, modes)` — serializes parameters for GET endpoints
-- `update_parameter(parameter, values, pitches, modes)` — applies parameter updates from POST
+- `update_parameter(parameter, values, pitches, modes)` — legacy dispatcher; like every edit facade it goes through `edit_commit.commit` (`edit_commit.py`, the preset-parameter write machinery — see [State broadcast](#state-broadcast-ssot-i1))
 - `get_chart_for_frontend(chartType, **kwargs)` — delegates to `ChartGenerator`
 - `perform_frontend_command(action_type, **kwargs)` — delegates to `ActionPerformer`
 - `save_preset(path, sm=None, modes=None, mp=None)` / `reset()` / `destroyPianoid()` — `save_preset` defaults to the live model; promote passes a working copy's model. Atomic temp-file write.
@@ -203,14 +203,14 @@ Additional parameter types handled directly (no map translation):
 |-----------|---------|--------|
 | `sound_channel` | `set_parameter_batch('sound_channel', ...)` | Updates `soundChannelModes.coefficients[pitchID]` and sends deck params to CUDA |
 
-All parameter modifications route through `ParameterManager`. The `Pianoid` class exposes facade methods that delegate directly:
-- `apply_parameter_request(request)` — canonical entry (Tranche A / M7). Accepts a typed `ParameterUpdateRequest(kind, values, pitches=None, modes=None, extra={})`. Used by the shared `_apply_parameter_request` / `_apply_string_excitation` helpers in `backendServer.py` so REST and WebSocket callers share the same dispatch glue.
-- `update_parameter()` — existing dispatcher for REST API and batch operations; still supported, also reached internally via `apply_parameter_request` for the standard `kind` values.
-- `update_pitch_physical_params()` / `update_pitch_physical_params_GRANULAR()` — single-pitch physical param update
-- `update_pitch_excitation()` — single-pitch excitation update (also reachable via `kind="string_excitation_curves"` on `ParameterUpdateRequest`).
-- `send_deck_params_to_CUDA()` — deck scaling for MIDI CC handlers
+All parameter modifications route through `ParameterManager`, and every one of them enters through the write machinery `edit_commit.commit` (guard → apply → Layer B → journal record). The facades:
+- `apply_parameter_request(request)` — canonical entry (Tranche A / M7). Accepts a typed `ParameterUpdateRequest(kind, values, pitches=None, modes=None, extra={})`. Used by the shared `_apply_parameter_request` / `_apply_string_excitation` helpers in `backendServer.py` (REST + WS), `POST /excitation_energy`, every calibration mass commit (`HammerMassGain.commit`) and the sound-channel calibrator. Kind `excitation_energy` (`{hammer_mass: {pitch: kg}, hammer_speeds: [6], excitation_impulse_calibration: c}`) is validated + applied by `excitation_energy.py` (model write + CoefficientCache recompose of only the moved factor).
+- `update_parameter()` — legacy dispatcher (tests, scripts); same machinery.
+- `update_pitch_physical_params()` (deprecated bulk: MIDI CC knobs, NoteTunner) / `update_pitch_physical_params_GRANULAR()` (auto-tuner) — single-pitch physical param update; same machinery (the bulk path gained the Layer B policy, dev-960f).
+- `update_pitch_excitation()` — single-pitch excitation update (also reachable via `kind="string_excitation_curves"`).
+- (no `send_*_to_CUDA` facades on `Pianoid` since dev-960f: uploads are `ParameterManager`-internal; the MIDI CC deck-scaling knobs use the runtime `deck_scaling` field.)
 
-**Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. REST `/set_runtime_parameters` and WS `set_runtime_parameters` share a separate helper `_apply_runtime_parameters` in `backendServer.py` (Tranche A / M6).
+**Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. Their ONE write path is `runtime_params.apply_runtime_parameters` (dev-960f, extracted from `backendServer.py`): REST + WS `set_runtime_parameters`, the HOT / FULL `/load_preset` paths, the MIDI CC volume / feedback / deck-scaling knobs and the calibration volume auto-ranging all call it; it records `state_changed{domain:'runtime'}`. Its one PRESET field, `store_feedback_coeff` (`mp.deck_feedback_coefficient`), goes through `edit_commit.commit`.
 
 **Layer B output level** (`output_level.py`, dev-0da4) owns the per-preset `output_scale`: the offline p60 v127
 measurement (refused while the engine is live — checked before any engine call), the commit rule (only a real,
@@ -240,6 +240,21 @@ through POST) is owned by `hammer_payload.py` (dev-e772). Contract table:
 - `emit_midi_playback_progress(position_ms, total_ms, notes_played)` — broadcasts MIDI playback progress (thread-safe)
 - `emit_engine_error(code, message)` — broadcasts engine error via WebSocket (thread-safe)
 - `_DEBUG_PLAY` — environment flag (`PIANOID_DEBUG_PLAY=1`) to enable console print in the `/play` hot path
+- `_journal_open_request` / `_journal_fallback_events` / `_journal_close_request` (before / after / teardown request hooks) + `_ws_journal` (WS write handlers) — open the `StateJournal` context (source from the `X-Pianoid-*` headers / WS payload fields), emit the generic `session_changed` / `domain_invalidated` for the route's class in `write_routes.py`, wrap `transient` routes in `engine_busy`, and flush the I1b safety net at request end
+
+### State broadcast (SSOT I1) {#state-broadcast-ssot-i1}
+
+One write machinery, one broadcaster (dev-960f; contract: [REST_API → State events](http://localhost:8001/modules/pianoid-middleware/REST_API/#state-events-ssot-i1)).
+
+| Module | Sole concern |
+|---|---|
+| `state_journal.py` (`JOURNAL`) | owns `seq` (process-monotonic), per-entry `version`, the 2000-event replay ring, 30 ms coalescing, the request / thread source context (`context()`, `bind()`, `transient()`) and the I1b safety net (`touch`/`touch_upload` from every GPU upload sink → `domain_invalidated` for an uncovered upload group). Stamps `seq` + per-entry `version` at emit time; emits via the injected `socketio.emit` from an ordered outbox drained outside its lock, never under `cuda_lock`. No GPU / model work |
+| `edit_commit.py` | THE preset-parameter write machinery `commit(pw, kind, values, apply)`: read-only guard → owner apply → Layer B policy → `state_changed` with the stored `after` snapshot (extracted from `pianoid.py`) |
+| `write_routes.py` | classification of EVERY Flask endpoint + socket.io event (`param` / `param_coarse` / `preset` / `session` / `transient` / `action` / `read_only`, + optional forced source; `param` routes are guarded up front); `tests/unit/test_write_route_registry.py` fails on an unclassified route or a direct engine / model write in any server module outside the owners |
+| `runtime_params.py` | the runtime-parameter write path (REST / WS / HOT load / MIDI CC) |
+| `excitation_energy.py` | validation + model write of the `excitation_energy` request kind |
+
+Recorders (state owners, after a successful write): `edit_commit.commit` (`state_changed`), the library ops `switch_preset` / `spawn_working_copy` / `unload_preset` / `promote_working_copy` / `load_preset_to_library` + the `/load_preset` and `/save_preset` routes (`preset_changed`), `runtime_params` (`runtime`), `output_level.record` (`output_level`: calibration commit, `compensate_output_scale`, the stale-flag flip), `set_pitch_excitation_mode` + the fix-velocity helper (`session_changed`). Worker threads attribute their writes with `JOURNAL.bind('calibration', target)` (calibrate_synthesis / _acoustic, capture_reference, profiling, the sound-channel batch), the MIDI listener with `context('midi_cc')`, the auto-tuner with `context('autotune')`.
 
 ### `ChartGenerator` (ChartGenerator.py)
 

@@ -31,9 +31,89 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | MIDI playback progress | `midi_progress` event | Server -> Client (push) |
 | Inbound MIDI events | `midi_note_event` event | Server -> Client (push) |
 | Engine errors | `engine_error` event | Server -> Client (push) |
+| **State changes (SSOT I1)** | `state_changed` / `preset_changed` / `session_changed` / `domain_invalidated` / `engine_busy` | Server -> ALL clients (push) — see [State events](#state-events-ssot-i1) |
 | Latency measurement | `ping_ws` / `pong_ws` | Bidirectional |
 
 **Binary frame format** for minimum-latency note input: 3 bytes `[command, pitch, velocity]`.
+
+### State events (SSOT I1) {#state-events-ssot-i1}
+
+**Every** mutation of preset / engine-visible / session state, from **every** source (FE tab, curl,
+MCP, assistant, MIDI CC knob, calibration thread, auto-tuner, modal apply), goes through ONE write
+machinery and is broadcast to **all** connected clients (dev-960f). Owners record after a successful
+write; `pianoid_middleware/state_journal.py` (`JOURNAL`) is the sole owner of the sequence number, the
+per-entry version, the replay ring buffer and coalescing, and emits on this socket.
+
+| Write path | Machinery |
+|---|---|
+| preset parameters (`/set_parameter/*`, `/set_string_excitation/*`, `/set_hammer_shape/*`, `/excitation_energy`, calibration mass commits, auto-tuner, MIDI CC string knobs, sound-channel calibrator, every `Pianoid.update_*` facade, the stored deck feedback `store_feedback_coeff`) | `edit_commit.commit`: read-only guard (409 `preset_read_only`) → owner apply (`ParameterManager`, …) → Layer B edit policy → `state_changed`. Recorded whenever the model write completed, even if only the engine upload failed (logged); a raised error records nothing |
+| runtime parameters (REST + WS `set_runtime_parameters`, HOT + FULL `/load_preset` slider carry-over, MIDI CC volume / feedback / deck-scaling knobs, the calibration volume auto-ranging, Layer B re-layering of the live `volume_center`) | `runtime_params.apply_runtime_parameters` (`output_level` for the re-layering) → `state_changed{domain:'runtime'}` |
+| preset lifecycle (load / switch / spawn / promote / unload / save / library load, incl. `/modal/apply_to_preset`) | the library owners in `Pianoid` + the load / save routes → `preset_changed` |
+| session state (fix velocity, excitation mode, MIDI, mic, limiter, synthesis pause, audio, …) | precise `session_changed` from the helper, else generic from the route class |
+| Layer B `output_scale` (calibration, level-neutral compensation, stale flag) | `output_level.record` → `state_changed{domain:'output_level'}` |
+
+**Route classification.** `pianoid_middleware/write_routes.py` classifies EVERY Flask endpoint and
+socket.io event: `param` (precise `state_changed` from the choke point), `param_coarse` (preset data with
+no fine key → `domain_invalidated{domain}` after a 2xx), `preset`, `session` (`session_changed{domain}`,
+generic when the handler recorded no precise one), `transient` (`engine_busy` start/end), `action`
+(playback / measurement, no event), `read_only`. `tests/unit/test_write_route_registry.py` fails on an
+unclassified route (all socket.io namespaces) — a new write path cannot bypass the broadcast silently —
+and scans EVERY module the backend loads for direct engine / model writes (C++ setters, `send_*_to_CUDA`,
+runtime setters, `mp.*` / `physics.*` assignment, `sm.update_*`) outside the owner modules. Temporary
+chart / test overrides go through `chartFunctions._engine_override`, which reports them to the safety net.
+`param` routes (except the session-wide `runtime` / `output_level` domains) are rejected UP FRONT with
+409 `preset_read_only` on a read-only original — a calibration job never reports `started` and then fails
+in its worker thread.
+
+**Source attribution (client → server, optional, additive).** REST: headers `X-Pianoid-Source`
+(`fe`·`rest`·`ws`·`mcp`·`assistant`·`calibration`·`midi_cc`·`modal`·`autotune`·`system`),
+`X-Pianoid-Client` (per-tab id), `X-Pianoid-Op` (per-write op id), `X-Pianoid-Group` (one gesture /
+command). WS write events (`set_parameter`, `set_string_excitation`, `set_hammer_shape`,
+`set_runtime_parameters`, `set_fix_velocity`): payload fields `source`, `clientId`, `opId`, `groupId`.
+Defaults: `rest` / `ws`; an unknown kind becomes `system`; a worker thread a request starts keeps that
+request's `clientId` / `opId` / `groupId`. Some routes force the kind (calibration family
+→ `calibration`, `/modal/apply_to_preset` → `modal`); worker threads record `calibration`, the MIDI
+listener `midi_cc`, the auto-tuner `autotune`. Existing payloads, acks (`param_ack`, emitWithAck
+returns) and responses are unchanged.
+
+**Events (server → every client).** Common fields: `seq` (int, process-monotonic, +1 per emitted event
+— a gap means a missed event), `ts` (epoch s), `source {kind, clientId?, opId?, groupId?}`.
+
+| Event | Fields | Meaning / client action |
+|---|---|---|
+| `state_changed` | `entry`, `version`, `domain`, `keys`, `fields`, `after` (+ `opIds` when coalesced) | `domain` of library `entry` changed. `version` = per-entry counter, stamped at EMIT time: strictly +1 per emitted `state_changed` of that entry (a coalesced event takes the version of its emission), `0` for `entry null`. `keys` = the addressed key numbers (see key spaces below; field NAMES for `runtime`). `fields` = edited field names (`string`/`mode`/`hammer`/`excitation_energy`), else `null`. `after` = the STORED values of exactly `keys` in the `GET /get_parameter/<domain>/<key>` shape (`{"57": [..]}`), or `null` → refetch the domain |
+| `preset_changed` | `kind`, `entry`, `version` (the entry's current version) | `kind` ∈ `load_full` · `load_hot` · `load_structural` · `switch` · `spawn` · `promote` · `unload` · `save` · `library_load`; `entry` = the entry it concerns (the ACTIVE one for load / save / switch). `load_full` / `load_structural` / `switch` / `unload` replace editor data (today's `presetVersion` bump); `load_hot` keeps it; `save` / `promote` / `spawn` / `library_load` change only the library list |
+| `session_changed` | `domain`, `keys`, `after` | session state outside the preset: `fix_velocity` (`after {enabled, level}`), `excitation_mode` (`keys [pitch]`, `after {pitch: 0 hammer / 1 bow}`), `midi`, `mic`, `limiter`, `synthesis`, `audio`, `calibration_job`, `lifecycle` (`after null` → refetch) |
+| `domain_invalidated` | `domain` | coarse: refetch the domain. Either a `param_coarse` route (`calibration_curve`, `calibration_reference`, `calibration_params`) or the **I1b safety net**: a GPU upload group that no precise event covered — `deck` (→ `feedin`, `feedback`, `*_mask`, `sound_channel*`, `string_sound_channel`), `string`, `hammer`, `excitation`, `mode`, `excitation_coeffs` (→ `excitation_energy`), `runtime` (→ `GET /get_runtime_parameters`). The backend log names the uncovered call site (`[journal] WARNING …`) |
+| `engine_busy` | `phase` `start`/`end`, `reason` (endpoint) | a `transient` route (offline chart render, `/start_test`, `/audio/session`, `/synthesis_measure`) temporarily overrides the engine and restores it; no state event follows |
+
+`state_changed` domains = the REST parameter names verbatim (same-name rule): `string` (also `physics`
+writes), `mode`, `hammer`, `gauss`, `excitation`, `string_excitation_curves`, `feedin`, `feedback`,
+`feedin_mask`, `feedback_mask`, `sound_channel`, `sound_channel_mask`, `string_sound_channel`,
+`excitation_energy` (`after {hammer_mass: {pitch: kg}, hammer_speeds?, excitation_impulse_calibration?}`),
+`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units;
+also `deck_scaling` = the MIDI CC deck-scaling override, `effective_volume_center` = the Layer B re-layer),
+`deck_feedback_coefficient` (the PER-PRESET stored feedback baseline, `entry` = active, `keys []`,
+`after {deck_feedback_coefficient}`; written by `store_feedback_coeff`),
+`output_level` (`keys []`, `after {output_scale, calibrated, target_dbfs}`).
+
+**`after` contract.** Stored values only — never an effective value: a mask edit carries the mask
+domain (the raw row is untouched); `hammer` carries stored `hammer_width` plus the read-only
+`hammer_width_effective` / `hammer_radius`; `string` carries the derived `tail` (= `length`/10) read-only.
+`after` is omitted (`null`) when more than 16 keys were edited (e.g. `key_no=all`) and for
+`string_excitation_curves` — the client refetches that domain / pitch.
+
+**Ordering, coalescing, replay.** Events are emitted in `seq` order from an ordered outbox drained
+outside the journal lock (a slow socket never blocks a recording writer) and outside `cuda_lock` (the
+synth thread is never stalled by a socket). Events with the same `(event, domain, entry, source.kind,
+clientId)` within **30 ms** are coalesced: the first is emitted at once, the rest of the window is
+merged into ONE event (`keys`/`fields` union, `after` merged, `opIds` list). A request that touches
+nothing emits nothing (a hammer GET → POST identity is not an edit). The journal keeps the last 2000
+events (`JOURNAL.since(seq)` — the I2 `hello`/replay handler is not wired yet).
+
+Verified (dev-960f, live :5002 + python-socketio client): every write path → exactly the listed
+event(s), seq gapless; `tests/integration/test_state_events.py` (18 paths, no emit by a thread holding
+`cuda_lock`); `tests/unit/test_state_journal.py`.
 
 **Dependencies:** `flask-socketio>=5.3`, `python-socketio>=5.10` (backend); `socket.io-client@^4.7` (frontend).
 
@@ -58,7 +138,6 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
   /set_parameter/<p>/<k>    -- write simulation parameters
   /set_string_excitation/<pitch>  -- write single-level excitation curves
   /set_hammer_shape/<pitch>       -- write hammer geometry (delegates to dispatcher)
-  /set_mode_parameters      -- write mode parameters
   /set_fix_velocity         -- enable/disable Fix-MIDI velocity clamp (POST)
   /get_fix_velocity         -- read current Fix-MIDI clamp state (GET)
   /set_runtime_parameters   -- volume / feedback at runtime
@@ -685,7 +764,7 @@ Reads simulation parameters serialized for the frontend.
 | `output` | External sound output parameters (alias for feedback on output pitches) |
 | `sound_channel` | Mode-coupling coefficients per pitch (modes-listen mode `listen_to_modes=1`). Effective rows: piano pitches `0..127` |
 | `sound_channel_mask` | Persistent mute MASK for `sound_channel` — the **modes**-axis mute (`listen_to_modes=1`), keyed by **piano pitch** (not an output pitch) |
-| `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. To set the gain for audio output channel `ch`, POST to `<key_no> = 128 + ch`. See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
+| `string_sound_channel` | Strings-mode gain per pitch (strings-listen mode `listen_to_modes=0`). Effective rows: **output pitches `128..127+num_output_channels` only** — POSTing to a piano-pitch `<key_no>` (0..127) updates the Python store but the kernel never reads those rows. This is a SEPARATE table from the one the Sound Channels editor edits (the editor writes `feedback` / `feedback_mask` at `128+ch` and `sound_channel` / `sound_channel_mask` — see [Sound-channel editing](#sound-channel-editing-what-the-frontend-uses); the FE never sends `string_sound_channel`). Its output rows are addressed with `key_no=output` (whole table: measured `GET` and `POST …/string_sound_channel/output` → 200); a single numeric output key (`…/string_sound_channel/129`) → `416`, because `string_sound_channel` is not in `OUTPUT_PITCH_RAW_PARAMS` (same on `dev`). See `docs/modules/pianoid-basic/OVERVIEW.md` "Stored vs effective entries" for the data-model contract |
 | `stability_ratio` | **Read-only.** Per-pitch FDTD CFL/Courant stability ratio = `max_θ|g(θ)|` (`CFL_LIMIT = 1`); `ratio ≤ 1` is stable (a lossless string sits at exactly `1.0`). Per pitch: `{ratio, stable, strings:[{string_index, ratio, stable}]}`, plus a top-level `_meta {cfl_limit, criterion, formula}`. **Computed HOST-side** (v2) from the current `StringMap` physics via the closed-form `cfl_stability.max_amplification` (no GPU round-trip, no debug build), honouring the per-string `tension_offset`; output/"sound" strings (pitch ≥ 128) report the sentinel `1.0`/stable. Analyst-plottable vs pitch (`key_no = "all"`, `"output"`, or `"from21to108"`). Derivation: `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability (CFL / Courant) Bound"; design `docs/proposals/cfl-stability-guard-v2.md`. `POST` to this parameter is not supported |
 
 **Pitch key space — which parameters may address the OUTPUT pitches** (`parse_range`, dev-mute2 2026-07-12).
@@ -711,8 +790,48 @@ declared in `backendServer.OUTPUT_PITCH_RAW_PARAMS` — currently `feedback` —
   from `128..131` even while every *write* to it was rejected `416`)
 - `"from<N>to<M>"` — inclusive range, e.g. `"from21to88"` (or `"from128to131"` for the output rows)
 
-For `mode`, `feedin`, `feedback`, `output`: `key_no` is treated as a mode number range.
-For all other parameters: `key_no` is treated as a pitch number range.
+For `mode`: `key_no` is a **mode** number range. For every other parameter — **including `feedin`,
+`feedback` and the masks** — `key_no` is a **pitch** number range, and the payload row is indexed by mode
+(`len = num_modes`). (This page previously said feedin/feedback were mode-keyed; that was wrong.)
+
+#### Parameter key spaces — Data Model Card (measured, dev-960f I0)
+
+Measured on a live backend (BaselinePreset1, 100 modes, piano pitches 23..106, output pitches 128..131;
+`docs/development/diagnostics/dev-960f-i0-keyspace.py`, 19/19 PASS). These are the key spaces the
+[State events](#state-events-ssot-i1) `keys` use.
+
+| Domain | `key_no` / event `keys` | Row / value | Stored vs effective | Evidence |
+|---|---|---|---|---|
+| `feedin`, `feedback` | piano **pitch**; `feedback` also output pitches 128+ | `[num_modes]` per pitch | raw row stored; effective = raw × mask at pack time | POST feedin/57 → only row 57 changed in `…/all`; `feedin/3` (a mode, not a pitch) → 416; `feedback/128` 200, `feedin/128` 416 |
+| `feedin_mask`, `feedback_mask` | same key space as the raw row it masks | `[num_modes]` 0/1 | the mask itself; raw untouched | mask write left `GET feedback/57` bit-identical; `feedback_mask/128` 200 |
+| `mode` | **mode** number | `{field: value}` | stored | POST mode/5 → only mode 5 changed |
+| `string` / `physics` | piano pitch | `{field: value}`; `length` in metres | `tail` DERIVED (= length/10), never independently stored | length edit re-derived `tail` |
+| `hammer` | piano pitch | `{hammer: {…}}` | `hammer_width` stored; `hammer_width_effective` (rendered) + `hammer_radius` derived, read-only | GET 60: stored 0.00511 vs effective 0.010605 |
+| `sound_channel`, `sound_channel_mask` | piano pitch | `[num_channels]` | stored | row length = `_meta.num_channels` |
+| `string_sound_channel` (FE-unused per-channel strings-mode gain table) | piano pitch by number; its output rows via `output` (whole table) | `[num_channels]` | effective rows 128+ only | `…/output` GET + POST 200; a numeric `…/129` → 416 (not an output-pitch param) |
+| `runtime` | field names | bare values | engine `volume_center` = bare × `output_scale` | eff = bare × scale (rel err < 1e-6) |
+
+#### Sound-channel editing (what the frontend uses) {#sound-channel-editing-what-the-frontend-uses}
+
+Channel editing WORKS and is unchanged by dev-960f. The Sound Channels editor (`usePreset.js`
+`changeSoundChannelFeedback` / `changeSoundChannelValues` / the mask emitters, `useSoundChannels.js`
+`emitOneStringsRow*` adding `OUTPUT_PITCH_OFFSET = 128`) sends, all over REST:
+
+| Editor action | Request (exact FE form) | Event (dev-960f) |
+|---|---|---|
+| strings axis (`listen_to_modes=0`), channel `ch` row | `POST /set_parameter/feedback/<128+ch>` `{"<128+ch>": [num_modes]}` | `state_changed{feedback, keys [128+ch]}` |
+| strings axis mute | `POST /set_parameter/feedback_mask/<128+ch>` `{"<128+ch>": [0/1…]}` | `state_changed{feedback_mask}` |
+| strings axis whole matrix | `POST /set_parameter/feedback/output` `{"128": […], …}` | `state_changed{feedback, keys [128..]}` |
+| modes axis (`listen_to_modes=1`), pitch `p` | `POST /set_parameter/sound_channel/<p>` `{"<p>": [num_channels]}` | `state_changed{sound_channel}` |
+| modes axis mute | `POST /set_parameter/sound_channel_mask/<p>` | `state_changed{sound_channel_mask}` |
+
+Measured on `dev` (fa291d5) AND this branch with the same script
+(`docs/development/diagnostics/dev-960f-sc-edit.py`, BaselinePreset1): every request 200, GET
+read-back == written (a mask write leaves the raw row untouched), all of it survives `/save_preset` →
+full reload of the saved file, the saved JSON is identical between the two backends except
+`output_scale` (calibration-render noise, 3.9e-5 relative), and a p60 render with the edited channels
+matches between them (rel. max diff 4.9e-5, corr 0.999999999). The I0 note about `416` concerned only the
+FE-unused `string_sound_channel` table addressed with a numeric output key — never the editor's path.
 
 **`string` parameter — `length` unit.** For `parameter == string` (and `physics`),
 the `length` field is the main-section physical length in **metres**
@@ -813,7 +932,6 @@ The same predicate set applies to:
 - `POST /set_parameter/mode/<key_no>` (canonical route)
 - `POST /set_parameter/excitation/<key_no>` and `POST /set_parameter/gauss/<key_no>` (sigma)
 - `POST /set_string_excitation/<pitch_no>` (sigma in per-pitch curves)
-- `POST /set_mode_parameters` (legacy route — same mode predicates)
 - WS `set_parameter` and WS `set_string_excitation` (emit `error` with `code: "parameter_range_error"`)
 
 **Range bounds beyond these catastrophic predicates are NOT validated** — values
@@ -916,27 +1034,11 @@ an internal retrieval error.
 
 ---
 
-### `POST /set_mode_parameters`
+### `POST /set_mode_parameters` — RETIRED (dev-960f)
 
-Writes mode parameters for one or more modes and sends all mode params to CUDA.
-
-Request body: array of mode parameter objects:
-```json
-[
-  {"mode": 0, "parameters": {...}},
-  {"mode": 1, "parameters": {...}}
-]
-```
-
-Response `200`:
-```json
-{"Message": "OK"}
-```
-
-Response `400` — see [Engine safety net](#engine-safety-net-catastrophic-input-rejection).
-Mode predicates (`mass_inv <= 0`, `frequency < 0`, `decrement < 0`, NaN/Inf)
-apply here too. Note: this is the legacy mode-update route; new code should
-use `POST /set_parameter/mode/<key_no>`.
+Removed (404). It wrote mode objects + a bulk mode upload outside the write machinery (no Layer B
+policy, no state event), had no caller, and had been broken on `dev` (every call 500: `'ModeMap' object
+is not subscriptable`). Use `POST /set_parameter/mode/<key_no>`.
 
 ---
 
@@ -1064,7 +1166,14 @@ the new PER-PRESET stored feedback baseline IN MEMORY (`pianoid.mp.deck_feedback
 — NO disk I/O. The value is persisted to the preset file only on `/save_preset` (it rides
 `mp.pack()` → `model_parameters.deck_feedback_coefficient`). Range `0.0`–`1000`. The stored
 baseline is per-preset: `switch_preset` applies the target preset's value (it is no longer
-global; volume + volume-sensitivity remain global).
+global; volume + volume-sensitivity remain global). Being PRESET data it goes through the write
+machinery (dev-960f): `409 preset_read_only` on a read-only original, and it is broadcast as
+`state_changed{domain:'deck_feedback_coefficient'}` keyed to the active entry (the other fields of
+the same request stay a `runtime` event).
+
+`deck_scaling` (optional, object `{feedin_coeff, feedback_coeff, feedbackOFF}`, dev-960f): an
+engine-only re-pack of the deck with these factors (the legacy MIDI CC feedin / feedback knobs); the
+stored rows are untouched and `{}` restores the unscaled deck. Recorded as `runtime`.
 
 `volume_center` (optional, float): coefficient at level 64, in **bare** units (the frontend sends `exp((presetVolume-100)/8)`, `1.0` at the default init volume). The engine stores `volume_center × output_scale` (Layer B); the ack (`updated.volume_center`) and `GET /get_runtime_parameters` report the bare value back, plus `effective_volume_center` (the engine value). `0` selects the legacy `max_volume^(level/127)` formula. Non-zero enables the new sensitivity formula.
 
@@ -1825,8 +1934,10 @@ Response `409` (`PresetLibraryError`) if this would unload the last preset.
 ### Read-only enforcement — `preset_read_only` 409
 
 Parameter-edit endpoints (`POST /set_parameter/*`, `POST /set_string_excitation/*`,
-`POST /set_hammer_shape/*`, `POST /set_mode_parameters`) reject writes while a
-read-only `original` is the active preset. The orchestrator guard
+`POST /set_hammer_shape/*`, `POST /excitation_energy`) and every calibration mass commit reject writes
+while a read-only `original` is the active preset (the guard is the first step of the write machinery
+`edit_commit.commit` — and the `param` routes check it UP FRONT; before dev-960f `/excitation_energy` and the calibration family edited a
+read-only original silently). The orchestrator guard
 `Pianoid._assert_active_editable()` raises `PresetReadOnlyError`, which the
 dedicated error handler maps to:
 
@@ -1878,7 +1989,10 @@ These endpoints use the **semi-offline calibration mode**: the engine loop is st
 
 **Loudness lever = per-pitch `hammer_mass` (dev-168c, 2026-10-04).** Every equalizer write changes only
 `pitch.physics.hammer_mass` and recomposes that pitch's excitation coefficient
-(`c·m·v / (temporal·spatial)`, conserve mode) — the same path as `POST /excitation_energy`. The excitation
+(`c·m·v / (temporal·spatial)`, conserve mode) — the same path as `POST /excitation_energy` (one
+`ParameterUpdateRequest(kind='excitation_energy')` per `HammerMassGain.commit()` — masses are STAGED
+off-model until then and dropped on cancel / error, so the model only changes through the write
+machinery: read-only guard, Layer B policy, one `state_changed` with `source.kind = 'calibration'`). The excitation
 curve volumes are never touched: they divide back out of the coefficient, so the old curve-volume writes were
 no-ops after any reload. Loudness is linear in mass (measured: mass ×0.25/×0.5/×2/×4 → −12.04/−6.02/+6.02/+12.04 dB
 ±0.002 dB). Consequences:
