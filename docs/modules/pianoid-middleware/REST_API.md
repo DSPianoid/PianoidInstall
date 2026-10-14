@@ -70,7 +70,8 @@ JSON POST to a `session` route — e.g. the Excitation hammer/bow toggle — als
 `session_changed`, and a `param` route's preflight 409'd on a read-only original).
 
 **Source attribution (client → server, optional, additive).** REST: headers `X-Pianoid-Source`
-(`fe`·`rest`·`ws`·`mcp`·`assistant`·`calibration`·`midi_cc`·`modal`·`autotune`·`system`),
+(`fe`·`rest`·`ws`·`mcp`·`assistant`·`calibration`·`midi_cc`·`modal`·`autotune`·`system`; the backend itself
+stamps `undo` / `redo` on the writes a history replay makes — SSOT I3),
 `X-Pianoid-Client` (per-tab id), `X-Pianoid-Op` (per-write op id), `X-Pianoid-Group` (one gesture /
 command). WS write events (`set_parameter`, `set_string_excitation`, `set_hammer_shape`,
 `set_runtime_parameters`, `set_fix_velocity`): payload fields `source`, `clientId`, `opId`, `groupId`.
@@ -89,6 +90,7 @@ returns) and responses are unchanged.
 | `preset_changed` | `kind`, `entry`, `version` (the entry's current version) | `kind` ∈ `load_full` · `load_hot` · `load_structural` · `switch` · `spawn` · `promote` · `unload` · `save` · `library_load`; `entry` = the entry it concerns (the ACTIVE one for load / save / switch). `load_full` / `load_structural` / `switch` / `unload` replace editor data (today's `presetVersion` bump); `load_hot` keeps it; `save` / `promote` / `spawn` / `library_load` change only the library list |
 | `session_changed` | `domain`, `keys`, `after` | session state outside the preset: `fix_velocity` (`after {enabled, level}`), `excitation_mode` (`keys [pitch]`, `after {pitch: 0 hammer / 1 bow}`), `midi`, `mic`, `limiter`, `synthesis`, `audio`, `calibration_job`, `lifecycle` (`after null` → refetch) |
 | `domain_invalidated` | `domain` | coarse: refetch the domain. Either a `param_coarse` route (`calibration_curve`, `calibration_reference`, `calibration_params`) or the **I1b safety net**: a GPU upload group that no precise event covered — `deck` (→ `feedin`, `feedback`, `*_mask`, `sound_channel*`, `string_sound_channel`), `string`, `hammer`, `excitation`, `mode`, `excitation_coeffs` (→ `excitation_energy`), `runtime` (→ `GET /get_runtime_parameters`). The backend log names the uncovered call site (`[journal] WARNING …`) |
+| `history_changed` | `entry`, `can_undo`, `can_redo`, `undo` / `redo` (labels, latest first, <=20), `undo_domains` / `redo_domains`, `depth` | the undo history of `entry` changed (a recorded edit, an undo / redo, a clear on load / unload) or the active entry switched — the same payload as `GET /history` (SSOT I3). A HINT outside the state-event stream: no `seq` / `version`, not replayed by `hello` (clients re-read `GET /history` on reconnect) |
 | `engine_busy` | `phase` `start`/`end`, `reason` (endpoint) | a `transient` route (offline chart render, `/start_test`, `/audio/session`, `/synthesis_measure`) temporarily overrides the engine and restores it; no state event follows |
 
 `state_changed` domains = the REST parameter names verbatim (same-name rule): `string` (also `physics`
@@ -115,6 +117,43 @@ clientId)` within **30 ms** are coalesced: the first is emitted at once, the res
 merged into ONE event (`keys`/`fields` union, `after` merged, `opIds` list). A request that touches
 nothing emits nothing (a hammer GET → POST identity is not an edit). The journal keeps the last 2000
 events (`JOURNAL.since(seq)`).
+
+### Undo / redo (SSOT I3) {#undo--redo-ssot-i3}
+
+Every edit made through the write machinery (`edit_commit.commit`) — from ANY source: the editors, REST / MCP /
+the assistant, calibration passes, MIDI CC — records an undo STEP: the STORED values of exactly the edited keys
+before and after, in the GET shape the parameter POST accepts (`undo_history.py`). Steps of one write context
+(one REST request / WS event / worker thread — e.g. a whole Calibrate Synthesis pass) or one explicit
+`X-Pianoid-Group` / WS `groupId` form one GROUP = one undo unit; a batch / multi-pitch / whole-keyboard edit is
+one commit = one step; `midi_cc` streams on the same domain + keys within 1 s merge. A write that changes nothing
+stored records no step. The feedback deck is scoped for the domain filter: rows >= 128 (the Sound-Channels
+strings axis) match `feedback@output` / `feedback_mask@output`, piano rows `feedback@piano` /
+`feedback_mask@piano` (plain `feedback` matches both).
+
+| Route | Body | Result |
+|---|---|---|
+| `POST /history/undo` | `{"domains": [...]}` optional | reverts the latest group of the ACTIVE library entry, or the latest group touching `domains` (an editor's own Undo). 200 `{entry, label, steps, can_undo, can_redo, undo, redo, ...}`; 409 `history_empty` / `history_conflict` (a LATER group changed one of the same `(domain, key)` — undo that first) / `history_irreversible` (a step whose `before` could not be captured completely) / `preset_read_only` (the active entry is an original, up front) |
+| `POST /history/redo` | same | re-applies the latest undone group (same filter / codes) |
+| `GET /history` | — | `{entry, can_undo, can_redo, undo, redo, undo_domains, redo_domains, depth}` (= the `history_changed` payload) |
+
+- The inverse runs THROUGH the machinery (`Pianoid.apply_parameter_request` -> `edit_commit.commit`: read-only
+  guard, Layer B policy, `state_changed`) under source kind `undo` / `redo`, so every open editor follows like
+  any other change (I2; the initiating tab too — `undo` is not an optimistic `fe` write). A replay records no
+  history. A new group clears the entry's redo stack.
+- One linear undo + redo stack PER LIBRARY ENTRY, global across sources and clients. Cleared on `preset_changed`
+  `load_full` / `load_structural` (all entries) and `unload` (that entry); kept across `switch` (and announced
+  for the switched-to entry); bounded to 200 groups per entry and a 64 MB estimate overall (oldest first).
+- Undoable domains: `string` (also `physics`), `mode`, `hammer`, `gauss`, `excitation`, `string_excitation_curves`,
+  `feedin`, `feedback`, `feedin_mask`, `feedback_mask` (a mask undo restores the mask, never the raw row),
+  `sound_channel`, `sound_channel_mask`, `string_sound_channel`, `excitation_energy`, `deck_feedback_coefficient`
+  (the stored "Set" baseline). NOT undoable (`undo_history.EXEMPT`): `runtime` live sliders, `output_level` (re-run
+  the calibration), session state, preset lifecycle, coarse calibration data. `tests/unit/test_undo_history.py`
+  fails on a journaled domain that is neither.
+- Measured: every undoable domain round-trips bit-exact through REST (`tests/integration/test_undo_routes.py`).
+  Exception: a legacy SUB-FLOOR stored hammer width is floored by any real hammer edit (Basic `Hammer` A1), so it
+  cannot be restored (the rendered shape is identical). The `note_playback` render after edit + undo matches the
+  pre-edit render within the render's own run-to-run noise (~2e-4 relative: the offline render is not
+  bit-deterministic and an upload lands at the next cycle boundary).
 
 **Reconnect protocol (I2, dev-fbcb).** On every (re)connect — and whenever a client sees a `seq` gap — it
 sends `hello {clientId, boot, lastSeq}` and the ack is either `{ok, boot, seq, events: [{event, payload}, …]}`
