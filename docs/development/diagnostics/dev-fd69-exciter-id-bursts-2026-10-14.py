@@ -17,6 +17,10 @@ from pianoid_middleware.modal_adapter.swept_discovery.audio_io import SessionAud
 
 FS = 48000
 OUTS = [f"Out {k}" for k in range(1, 8)]
+for a in list(sys.argv):                 # --outs 6  or  --outs 1,6  (subset, same slot timing from t = 0)
+    if a.startswith("--outs="):
+        OUTS = [f"Out {int(k)}" for k in a.split("=", 1)[1].split(",")]
+        sys.argv.remove(a)
 INS = [f"In {k}" for k in range(1, 9)]
 if "--all-inputs" in sys.argv:          # every enumerated ASIO input (SPDIF + ADAT / 2nd UMC1820)
     sys.argv.remove("--all-inputs")
@@ -58,7 +62,7 @@ def db(v):
     return float(20 * np.log10(max(float(v), 1e-12)))
 
 
-gap = y[int((STEP * 6 + (TONE_T0 + TONE_DUR + 0.5 if TONE else DUR + 0.3)) * FS):]  # after the last slot's ringdown
+gap = y[int((STEP * (len(OUTS) - 1) + (TONE_T0 + TONE_DUR + 0.5 if TONE else DUR + 0.3)) * FS):]  # after the last slot's ringdown
 noise = [db(np.sqrt(np.mean(gap[:, j] ** 2))) for j in range(len(INS))]
 rep = {"status": meta.get("status"), "xruns": meta.get("xruns"), "level_dbfs": LVL,
        "noise_rms_dbfs": dict(zip(INS, noise)), "per_output": {}}
