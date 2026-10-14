@@ -95,7 +95,8 @@ returns) and responses are unchanged.
 writes), `mode`, `hammer`, `gauss`, `excitation`, `string_excitation_curves`, `feedin`, `feedback`,
 `feedin_mask`, `feedback_mask`, `sound_channel`, `sound_channel_mask`, `string_sound_channel`,
 `excitation_energy` (`after {hammer_mass: {pitch: kg}, hammer_speeds?, excitation_impulse_calibration?}`),
-`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units;
+`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units —
+`amplitude_gate_enabled` as `0`/`1` there, a bool on `GET /get_runtime_parameters`;
 also `deck_scaling` = the MIDI CC deck-scaling override, `effective_volume_center` = the Layer B re-layer),
 `deck_feedback_coefficient` (the PER-PRESET stored feedback baseline, `entry` = active, `keys []`,
 `after {deck_feedback_coefficient}`; written by `store_feedback_coeff`),
