@@ -26,6 +26,9 @@ if "--all-inputs" in sys.argv:          # every enumerated ASIO input (SPDIF + A
     sys.argv.remove("--all-inputs")
     INS += ["SPDIF 1", "SPDIF 2"] + [f"ADAT {k}" for k in range(1, 9)]
 STEP, DUR, LVL = 3.0, 1.0, -30.0
+for a in list(sys.argv):                 # --level=-42  (burst / tone level, dBFS)
+    if a.startswith("--level="):
+        LVL = float(a.split("=", 1)[1]); sys.argv.remove(a)
 TONE = "--with-tone" in sys.argv        # per exciter: chirp 0-1 s, gap, 100 Hz sine 2-4 s, gap -> 6 s slots
 if TONE:
     sys.argv.remove("--with-tone")
