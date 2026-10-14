@@ -7,6 +7,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
 | dev-b59d | (worktrees D:/repos/wt-b59d-basic, D:/repos/wt-b59d-core on feature/dev-b59d-output-role) Basic `Pianoid/fpga_preset_converter.py`, `Pianoid/fpga_conversion_metadata.py`, NEW `Pianoid/fpga_output_mapping.py`; Core `tests/unit/test_fpga_preset_converter.py`, NEW `pianoid_middleware/presets/F15_Elyashev_array512_listening.json` (+ report), `pianoid_middleware/presets/F15_Elyashev_array512.conversion_report.md` | 2026-10-11T18:40:00Z | FPGA converter output_role (decka = actuator drives; listening mix) + F15 regeneration |
+<!-- dev-3b52 locks RELEASED 2026-10-14 (Phase 2): all rows; merged PianoidCore dev fde2151 / PianoidTunner dev 1249232 / PianoidInstall master 94a95e8 -->
 <!-- dev-fbcb locks RELEASED 2026-10-14 (Phase 2): all rows; merged PianoidCore dev 5fb3dd6, PianoidTunner dev b39e523, PianoidInstall master 6fb91da -->
 <!-- dev-960f locks RELEASED 2026-10-14 (Phase 2): all rows; merged PianoidCore dev 7ba5afc (feature/dev-960f-ssot-journal 71047ae+b1f9408+787956a) + PianoidInstall master 37fe427 -->
 <!-- dev-d0b7 locks RELEASED 2026-10-11 (Phase 2): Basic Pianoid/flat_tier.py, StringMap.py, tests/test_flat_tier.py; Core pianoid_middleware/backendServer.py, tests/unit/test_health_mode_layout.py; Tunner src/utils/flatTier.js, hooks/useMatrixHistory.js, usePreset.js, useSoundChannels.js, PianoidTuner.js + tests -->
