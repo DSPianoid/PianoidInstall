@@ -32,7 +32,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | Inbound MIDI events | `midi_note_event` event | Server -> Client (push) |
 | Engine errors | `engine_error` event | Server -> Client (push) |
 | **State changes (SSOT I1)** | `state_changed` / `preset_changed` / `session_changed` / `domain_invalidated` / `engine_busy` | Server -> ALL clients (push) — see [State events](#state-events-ssot-i1) |
-| Latency measurement | `ping_ws` / `pong_ws` | Bidirectional |
+| Latency measurement + I2 liveness probe | `ping_ws` (acked; optional payload) / `pong_ws` | Bidirectional |
+| Reconnect / gap handshake (I2) | `hello {clientId, boot, lastSeq}` → ack `{ok, boot, seq, events \| resync}` | Client -> Server (request/response) |
 
 **Binary frame format** for minimum-latency note input: 3 bytes `[command, pitch, velocity]`.
 
@@ -109,7 +110,19 @@ synth thread is never stalled by a socket). Events with the same `(event, domain
 clientId)` within **30 ms** are coalesced: the first is emitted at once, the rest of the window is
 merged into ONE event (`keys`/`fields` union, `after` merged, `opIds` list). A request that touches
 nothing emits nothing (a hammer GET → POST identity is not an edit). The journal keeps the last 2000
-events (`JOURNAL.since(seq)` — the I2 `hello`/replay handler is not wired yet).
+events (`JOURNAL.since(seq)`).
+
+**Reconnect protocol (I2, dev-fbcb).** On every (re)connect — and whenever a client sees a `seq` gap — it
+sends `hello {clientId, boot, lastSeq}` and the ack is either `{ok, boot, seq, events: [{event, payload}, …]}`
+(every event after `lastSeq`, in order, from the ring) or `{ok, boot, seq, resync: true}` (first contact, a
+different `boot` = the backend process restarted and `seq` started over, or `lastSeq` outside the ring) — the
+client then refetches. `boot` is a per-process id (`backendServer.JOURNAL_BOOT`). The FE also probes liveness
+with an acked `ping_ws` every 5 s; two unanswered probes = a half-open socket → forced reconnect → `hello`.
+(`ping_ws` with a payload used to raise `TypeError` server-side — no ack, no `pong_ws` — fixed dev-fbcb.)
+Verified live (dev-fbcb): REST write → open editor p50 86.6 / p95 96.5 ms (50 runs; server part 4 ms, the
+rest is the page's re-render); an edit in one tab shows in a second tab with exactly one backend write;
+offline 12 s → replay; backend suspended 15 s (half-open) → probe-forced reconnect; backend killed +
+restarted → resync.
 
 Verified (dev-960f, live :5002 + python-socketio client): every write path → exactly the listed
 event(s), seq gapless; `tests/integration/test_state_events.py` (18 paths, no emit by a thread holding

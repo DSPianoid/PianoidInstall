@@ -141,6 +141,11 @@ keep the React-side state coherent with the engine's truth:
    library deep-copies per entry and was never the cause; the leak was a stale
    in-flight client write surviving the transition. Global runtime writes
    (volume/feedback) are library-wide and are NOT cancelled.
+5. **The backend broadcast is the only remote-state input (I2, dev-fbcb).** A change made by any OTHER
+   client (another tab, REST/assistant, MIDI CC, calibration) reaches this tab only as a backend state
+   event (`useBackendSync` → `useStateReconcilers`), applied through the owning store's API as an
+   `External` history step or a state-only setter — never by polling, never by a reconciler that emits.
+   Own events are skipped (tab id on every write). A missed event is replayed (`hello`) or resynced.
 
 **Reference implementation**: `PianoidTunner/src/hooks/useSoundChannels.js`
 (Sound Channels editor, refactored Phase C2).
