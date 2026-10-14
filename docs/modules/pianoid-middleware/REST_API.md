@@ -32,7 +32,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | Inbound MIDI events | `midi_note_event` event | Server -> Client (push) |
 | Engine errors | `engine_error` event | Server -> Client (push) |
 | **State changes (SSOT I1)** | `state_changed` / `preset_changed` / `session_changed` / `domain_invalidated` / `engine_busy` | Server -> ALL clients (push) — see [State events](#state-events-ssot-i1) |
-| Latency measurement | `ping_ws` / `pong_ws` | Bidirectional |
+| Latency measurement + I2 liveness probe | `ping_ws` (acked; optional payload) / `pong_ws` | Bidirectional |
+| Reconnect / gap handshake (I2) | `hello {clientId, boot, lastSeq}` → ack `{ok, boot, seq, events \| resync}` | Client -> Server (request/response) |
 
 **Binary frame format** for minimum-latency note input: 3 bytes `[command, pitch, velocity]`.
 
@@ -63,7 +64,10 @@ runtime setters, `mp.*` / `physics.*` assignment, `sm.update_*`) outside the own
 chart / test overrides go through `chartFunctions._engine_override`, which reports them to the safety net.
 `param` routes (except the session-wide `runtime` / `output_level` domains) are rejected UP FRONT with
 409 `preset_read_only` on a read-only original — a calibration job never reports `started` and then fails
-in its worker thread.
+in its worker thread. A CORS preflight (`OPTIONS`, answered by Flask-CORS without running the view) bypasses
+all of this: no source context, no up-front 409, no fallback event (dev-fbcb: before the fix every browser
+JSON POST to a `session` route — e.g. the Excitation hammer/bow toggle — also broadcast a keyless
+`session_changed`, and a `param` route's preflight 409'd on a read-only original).
 
 **Source attribution (client → server, optional, additive).** REST: headers `X-Pianoid-Source`
 (`fe`·`rest`·`ws`·`mcp`·`assistant`·`calibration`·`midi_cc`·`modal`·`autotune`·`system`),
@@ -91,7 +95,8 @@ returns) and responses are unchanged.
 writes), `mode`, `hammer`, `gauss`, `excitation`, `string_excitation_curves`, `feedin`, `feedback`,
 `feedin_mask`, `feedback_mask`, `sound_channel`, `sound_channel_mask`, `string_sound_channel`,
 `excitation_energy` (`after {hammer_mass: {pitch: kg}, hammer_speeds?, excitation_impulse_calibration?}`),
-`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units;
+`runtime` (`entry null`, `keys` = updated field names, `after` = the `updated` ack dict, bare units —
+`amplitude_gate_enabled` as `0`/`1` there, a bool on `GET /get_runtime_parameters`;
 also `deck_scaling` = the MIDI CC deck-scaling override, `effective_volume_center` = the Layer B re-layer),
 `deck_feedback_coefficient` (the PER-PRESET stored feedback baseline, `entry` = active, `keys []`,
 `after {deck_feedback_coefficient}`; written by `store_feedback_coeff`),
@@ -109,7 +114,23 @@ synth thread is never stalled by a socket). Events with the same `(event, domain
 clientId)` within **30 ms** are coalesced: the first is emitted at once, the rest of the window is
 merged into ONE event (`keys`/`fields` union, `after` merged, `opIds` list). A request that touches
 nothing emits nothing (a hammer GET → POST identity is not an edit). The journal keeps the last 2000
-events (`JOURNAL.since(seq)` — the I2 `hello`/replay handler is not wired yet).
+events (`JOURNAL.since(seq)`).
+
+**Reconnect protocol (I2, dev-fbcb).** On every (re)connect — and whenever a client sees a `seq` gap — it
+sends `hello {clientId, boot, lastSeq}` and the ack is either `{ok, boot, seq, events: [{event, payload}, …]}`
+(every event after `lastSeq`, in order, from the ring) or `{ok, boot, seq, resync: true}` (first contact, a
+different `boot` = the backend process restarted and `seq` started over, or `lastSeq` outside the ring) — the
+client then refetches. `boot` is a per-process id (`backendServer.JOURNAL_BOOT`). The FE also probes liveness
+with an acked `ping_ws` every 5 s; two unanswered probes = a half-open socket → forced reconnect → `hello`.
+(`ping_ws` with a payload used to raise `TypeError` server-side — no ack, no `pong_ws` — fixed dev-fbcb.)
+Verified live (dev-fbcb): REST write → open editor p50 86.6 / p95 96.5 ms (50 runs; server part 4 ms, the
+rest is the page's re-render); an edit in one tab shows in a second tab with exactly one backend write;
+offline 12 s → replay; backend suspended 15 s (half-open) → probe-forced reconnect; backend killed +
+restarted → resync. Every editor domain is mirrored, plus the runtime surface (volume slider, volume
+sensitivity `volume_center`/`volume_range`, feedback slider position from the EFFECTIVE `feedback_coeff` /
+`feedback`, the stored baseline), `excitation_mode` and `output_level` (read-only in the Synth chip
+tooltip) — measured live: each foreign REST write showed in the open control == the backend GET, zero FE
+writes; a fresh tab hydrates all of them from the GETs.
 
 Verified (dev-960f, live :5002 + python-socketio client): every write path → exactly the listed
 event(s), seq gapless; `tests/integration/test_state_events.py` (18 paths, no emit by a thread holding
@@ -140,6 +161,8 @@ event(s), seq gapless; `tests/integration/test_state_events.py` (18 paths, no em
   /set_hammer_shape/<pitch>       -- write hammer geometry (delegates to dispatcher)
   /set_fix_velocity         -- enable/disable Fix-MIDI velocity clamp (POST)
   /get_fix_velocity         -- read current Fix-MIDI clamp state (GET)
+  /set_excitation_mode      -- set a pitch's excitation type hammer/bow (POST)
+  /get_excitation_mode      -- read every preset pitch's excitation type (GET)
   /set_runtime_parameters   -- volume / feedback at runtime
   /play                     -- trigger note on/off
   /play_mode/<mode_no>      -- trigger mode playback
@@ -1128,6 +1151,23 @@ Response `400` if `Pianoid not initialized`.
 Defaults at backend start: `{enabled: false, level: 64}` (mf). Defaults
 restore on backend restart only — preset switches preserve the runtime
 state per option B.
+
+---
+
+### `GET /get_excitation_mode`
+
+Read-back of the per-pitch excitation TYPE (Universal-Excitation Phase 2) for every pitch of the active
+preset — `0` = hammer (impulse, one-shot), `1` = bow (sustained). Session state on the live engine (not
+preset-persisted). The frontend `useExcitationModes` hook hydrates from it on mount, on `presetVersion`
+bumps and on an I2 resync; live edits arrive as `session_changed{domain: 'excitation_mode', keys: [pitch],
+after: {pitch: 0|1}}` (written by `POST /set_excitation_mode {pitch, mode: "hammer"|"bow"|0|1}`).
+
+Response `200`:
+```json
+{"modes": {"21": 0, "22": 0, "60": 1}}
+```
+
+Response `400` if `Pianoid not initialized`. Classified `read_only` (records no event).
 
 ---
 
