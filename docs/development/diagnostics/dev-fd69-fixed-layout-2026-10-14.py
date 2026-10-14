@@ -13,7 +13,7 @@ residues, cross-exciter MAC (21 pairs, noise-whitened rows), chance level, parti
 damping, board-map shapes (layout-20261014/board_layout.json) and a comparison with the roving
 placements 0-2 (P0+P1 analysis) and the 2026-10-12 consensus modes.
 
-Usage: python <this> capture <out_dir>  |  python <this> analyse <out_dir> [--fmax 1100]
+Usage: python <this> capture <out_dir> [--only=E1,E2] [--levels=E1:-48,E2:-48]  |  python <this> analyse <out_dir> [--fmax 1100]
 """
 import itertools
 import json
@@ -37,7 +37,8 @@ P01 = os.path.join(RC, "rove-20261013", "analysis_p01_noP01In5_coilsP0", "report
 CONSENSUS_1012 = [33.0, 57.9, 59.1, 67.8, 81.4, 118.3]
 
 
-def capture(out):
+def capture(out, only=None, levels=None):
+    """only: subset of exciters (e.g. ["E1", "E2"]); levels: {E: dBFS} overriding LEVEL0."""
     from pianoid_middleware.modal_adapter.measurement.ess import exp_sweep
     from pianoid_middleware.modal_adapter.swept_discovery.audio_io import SessionAudioIO
     os.makedirs(out, exist_ok=True)
@@ -49,7 +50,9 @@ def capture(out):
     io.record(3.0, PIEZO, "silence")
     t0 = time.time()
     for e, o in EXC.items():
-        lv = LEVEL0[e]
+        if only and e not in only:
+            continue
+        lv = (levels or {}).get(e, LEVEL0[e])
         while True:
             y, m = io.play_record(exp_sweep(F1, F2, T, FS, lv), o, PIEZO, 0.0, POST, f"{e}_m{-lv}_r1")
             pk = float(20 * np.log10(np.abs(y).max() + 1e-12))
@@ -224,7 +227,9 @@ def analyse(out, fmax=1100.0):
 
 if __name__ == "__main__":
     if sys.argv[1] == "capture":
-        capture(sys.argv[2])
+        only = next((a.split("=", 1)[1].split(",") for a in sys.argv if a.startswith("--only=")), None)
+        lv = next((dict((k, int(v)) for k, v in (x.split(":") for x in a.split("=", 1)[1].split(","))) for a in sys.argv if a.startswith("--levels=")), None)
+        capture(sys.argv[2], only, lv)
     else:
         fmx = float(sys.argv[sys.argv.index("--fmax") + 1]) if "--fmax" in sys.argv else 1100.0
         analyse(sys.argv[2], fmx)
