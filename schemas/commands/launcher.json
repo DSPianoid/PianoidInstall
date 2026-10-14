@@ -1,0 +1,66 @@
+{
+  "family": "launcher",
+  "description": "Process control served by the launcher (:3001): the synthesis backend (:5000) and the modal adapter (:5001).",
+  "commands": [
+    {
+      "name": "launcher.status",
+      "title": "Process status",
+      "description": "{running, pid, modalRunning, modalPid} of the launcher-owned processes.",
+      "target": "launcher",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "GET", "path": "/api/backend-status"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.backend.start",
+      "title": "Start the backend",
+      "description": "Starts the synthesis backend (:5000).",
+      "target": "launcher",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "POST", "path": "/api/start-backend"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.backend.stop",
+      "title": "Stop the backend",
+      "description": "Stops the synthesis backend (:5000).",
+      "target": "launcher",
+      "tier": "excluded",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "POST", "path": "/api/stop-backend"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.modal.start",
+      "title": "Start the modal adapter",
+      "description": "Starts the modal adapter (:5001).",
+      "target": "launcher",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "POST", "path": "/api/start-modal-adapter"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.modal.stop",
+      "title": "Stop the modal adapter",
+      "description": "Stops the modal adapter (:5001).",
+      "target": "launcher",
+      "tier": "excluded",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "POST", "path": "/api/stop-modal-adapter"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    }
+  ]
+}

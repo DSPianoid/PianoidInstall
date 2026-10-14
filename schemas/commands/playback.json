@@ -1,0 +1,127 @@
+{
+  "family": "playback",
+  "description": "Live playback on the running engine: notes, modes, the keyboard sweep, MIDI files, reset.",
+  "commands": [
+    {
+      "name": "play.note",
+      "title": "Play a note",
+      "description": "Note-on / note-off / sustain event on the live engine. pitch = MIDI note number = preset pitch id (keys 21-108; output pitches >= 128 never sound). velocity 0-127 MIDI; command 144 = NOTE_ON (velocity 0 = NOTE_OFF), 128 = NOTE_OFF, 176-178 with pitch 64 = sustain pedal.",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-play",
+      "route": {"method": "POST", "path": "/play"},
+      "args": {
+        "type": "object",
+        "required": ["pitch"],
+        "additionalProperties": false,
+        "properties": {
+          "pitch": {"type": "integer", "minimum": 0, "maximum": 255, "description": "MIDI note number (preset pitch id)"},
+          "velocity": {"type": "integer", "minimum": 0, "maximum": 127, "default": 100, "description": "MIDI velocity"},
+          "command": {"type": "integer", "enum": [128, 144, 176, 177, 178], "default": 144, "description": "MIDI status: 144 note-on, 128 note-off, 176-178 sustain (pitch 64)"},
+          "delay_ms": {"type": "number", "minimum": 0, "default": 0, "description": "Scheduling delay, ms"},
+          "source": {"type": "string", "enum": ["midi"], "description": "'midi' = hardware MIDI input: the Fix-MIDI velocity clamp applies"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "play.mode",
+      "title": "Play a resonance mode",
+      "description": "Immediate playback of one resonance mode (debug builds return the mode-state record).",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-play_modemode_no",
+      "route": {"method": "POST", "path": "/play_mode/{mode_no}"},
+      "args": {
+        "type": "object",
+        "required": ["mode_no"],
+        "additionalProperties": false,
+        "properties": {
+          "mode_no": {"type": "integer", "minimum": 0, "description": "Mode index"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "play.keyboard",
+      "title": "Play the keyboard sweep (live)",
+      "description": "Schedules a NOTE_ON/NOTE_OFF sweep over the keyboard on the live driver and returns immediately. With capture_mic the call blocks until the microphone capture ends.",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-play_keyboard",
+      "route": {"method": "POST", "path": "/play_keyboard", "fixed": {"mode": "online"}},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "speed_ms_per_note": {"type": "number", "minimum": 10, "maximum": 2000, "default": 100, "description": "NOTE_ON to NOTE_OFF duration per key, ms"},
+          "velocity": {"type": "integer", "minimum": 0, "maximum": 127, "default": 63, "description": "MIDI velocity (0 is clamped to 1)"},
+          "pitches": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "description": "Explicit pitch list; omit for all pitches"},
+          "capture_mic": {"type": "boolean", "default": false, "description": "Record the microphone while playing (blocks)"},
+          "tail_ms": {"type": "number", "minimum": 0, "maximum": 10000, "default": 2000, "description": "Extra capture after the last NOTE_OFF, ms"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "play.midi_file",
+      "title": "Play a MIDI file",
+      "description": "Starts online playback of a bundled MIDI file. Long-running: returns a jobId; the job finishes when playback completes or is stopped (job.cancel or play.midi_file_stop).",
+      "target": "backend",
+      "tier": "act",
+      "long_running": true,
+      "job_family": "midi_playback",
+      "doc": "modules/pianoid-middleware/REST_API.md#post-midi_playback",
+      "route": {"method": "POST", "path": "/midi_playback", "fixed": {"action": "start"}},
+      "args": {
+        "type": "object",
+        "required": ["midi_file"],
+        "additionalProperties": false,
+        "properties": {
+          "midi_file": {"type": "string", "enum": ["elise.mid", "mond_1.mid"], "description": "Bundled MIDI file"},
+          "start_delay_ms": {"type": "integer", "minimum": 0, "default": 500, "description": "Delay before the first event, ms"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "play.midi_file_stop",
+      "title": "Stop MIDI file playback",
+      "description": "Stops online MIDI file playback.",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-midi_playback",
+      "route": {"method": "POST", "path": "/midi_playback", "fixed": {"action": "stop"}},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "play.reset",
+      "title": "Reset the engine state",
+      "description": "Re-initialises the simulation state (silences ringing notes) without reloading the preset.",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-reset",
+      "route": {"method": "GET", "path": "/reset"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "play.stats",
+      "title": "Playback statistics",
+      "description": "EventQueue buffer and engine statistics.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-playback_stats",
+      "route": {"method": "GET", "path": "/playback_stats"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    }
+  ]
+}

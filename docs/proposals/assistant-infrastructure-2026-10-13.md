@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-13 · **Author:** `/analyse` (orchestrator-dispatched, research + docs only, no source edits)
 **Status:** PROPOSAL — dispatchable as `/dev` tasks once the user approves the sequencing (§8)
-**Progress (2026-10-14):** I0 + I1 IMPLEMENTED (dev-960f, merged Core dev 7ba5afc). **I2 IMPLEMENTED** (dev-fbcb, merged Core dev 5fb3dd6, Tunner dev b39e523, docs master 6fb91da; live UI regression of every editor in two tabs passed). Latency: p95 96.5 ms met, p50 86.6 ms vs the 50 ms target not met (re-render cost, WIP follow-up). **I3 IMPLEMENTED** (dev-3b52, merged PianoidCore dev fde2151 / PianoidTunner dev 1249232 / PianoidInstall master 94a95e8; live two-tab verification of every editor's undo/redo passed). I4–I5 open.
+**Progress (2026-10-14):** I0 + I1 IMPLEMENTED (dev-960f, merged Core dev 7ba5afc). **I2 IMPLEMENTED** (dev-fbcb, merged Core dev 5fb3dd6, Tunner dev b39e523, docs master 6fb91da; live UI regression of every editor in two tabs passed). Latency: p95 96.5 ms met, p50 86.6 ms vs the 50 ms target not met (re-render cost, WIP follow-up). **I3 IMPLEMENTED** (dev-3b52, merged PianoidCore dev fde2151 / PianoidTunner dev 1249232 / PianoidInstall master 94a95e8; live two-tab verification of every editor's undo/redo passed). **I4 (I4.0–I4.2) IMPLEMENTED on branches, NOT merged** (dev-6026, Phase 1: registry `schemas/commands` + executor `/command` / WS `command` / `/commands` + jobs with calibration / modal / MIDI adapters + FE command bus with the playback / preset / render families migrated; I4.3 panel migration open). I5 open.
 **Parent:** [AI Assistant in the Pianoid UI](ai-assistant-in-ui-2026-10-13.md). That doc covers the assistant itself. This doc covers everything that must exist **before** it.
 **Driver (user, Telegram 2026-10-13 18:37 UTC):** *"The assistant should be able to modify parameters, change windows layouts, and initiate any actions like playback, measurement etc. Plan necessary infrastructure update before the assistant implementation. The editors should be synchronized with the backend on any change."*
 
@@ -176,6 +176,8 @@ editor's domains, with the linear-history 409; the inverse through `apply_parame
 ---
 
 ## 7. I4: Unified command / action layer (= the future tool registry)
+
+**Status (dev-6026, 2026-10-14):** I4.0–I4.2 implemented — contract: [REST_API "Commands and jobs (I4)"](../modules/pianoid-middleware/REST_API.md#commands-and-jobs-i4); working design: `docs/development/command-layer-i4-design-2026-10-14.md`. Open: I4.3 (calibration / modal / rig panels and the launcher buttons onto the bus; their routes already produce jobs).
 
 | Piece | Spec |
 |---|---|

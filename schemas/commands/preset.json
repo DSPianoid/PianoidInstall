@@ -1,0 +1,163 @@
+{
+  "family": "preset",
+  "description": "Preset lifecycle: the GPU preset library (originals and working copies), Apply (full load) and save.",
+  "commands": [
+    {
+      "name": "preset.list",
+      "title": "List library presets",
+      "description": "The preset library entry records ({name, kind original|working, source, path}) and the active entry.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-presetlist",
+      "route": {"method": "GET", "path": "/preset/list"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.load",
+      "title": "Apply (load) a preset",
+      "description": "Initialises the engine from a preset file with the given load settings. A HOT change (volume / feedback only) keeps the engine; a STRUCTURAL change (path, array_size, sample_rate, iterations, driver, buffer, audio_on, debug) is a full reload that stops audio. `volume` here is the preset level anchor, NOT the slider level.",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset",
+      "route": {"method": "POST", "path": "/load_preset"},
+      "args": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": true,
+        "properties": {
+          "path": {"type": "string", "description": "Preset JSON path relative to pianoid_middleware (e.g. presets/BaselinePreset1.json)"},
+          "audio_on": {"type": "integer", "enum": [0, 1]},
+          "audio_driver_type": {"type": "integer", "enum": [0, 1, 2, 3, 4], "description": "0 SDL3 default, 1 ASIO, 2 SDL auto, 3 SDL3, 4 ASIO_CALLBACK"},
+          "array_size": {"type": "integer", "minimum": 1},
+          "sample_rate": {"type": "integer", "minimum": 1, "description": "kHz"},
+          "cycle_iterations": {"type": "integer", "minimum": 1},
+          "string_iterations": {"type": "integer", "minimum": 1},
+          "audio_buffer_size": {"type": "integer", "minimum": 1},
+          "volume": {"type": "number", "description": "Preset level anchor (default 100), not the slider level"},
+          "listen_to_midi": {"type": "integer", "enum": [0, 1]},
+          "debug_mode": {"type": "integer", "enum": [0, 1]},
+          "start_right_away": {"type": "integer", "enum": [0, 1]}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.save",
+      "title": "Save the active preset",
+      "description": "Writes the ACTIVE library entry to a JSON file (.json appended when missing). Saving onto a loaded original's file refreshes that original.",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-save_preset",
+      "route": {"method": "POST", "path": "/save_preset"},
+      "args": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string", "description": "Target file, e.g. presets/MySave.json"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.load_to_library",
+      "title": "Load a preset into the library",
+      "description": "Loads a preset file as a read-only original library entry without activating it (it must share the running engine's string layout).",
+      "target": "backend",
+      "tier": "write",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-presetload",
+      "route": {"method": "POST", "path": "/preset/load"},
+      "args": {
+        "type": "object",
+        "required": ["path", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string", "description": "Preset JSON path"},
+          "name": {"type": "string", "description": "Unique library name"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.switch",
+      "title": "Switch the active preset",
+      "description": "Atomic switch to a library entry; playback continues. Leaving a working copy saves its live edits to its slot.",
+      "target": "backend",
+      "tier": "write",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-presetswitch",
+      "route": {"method": "POST", "path": "/preset/switch"},
+      "args": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "description": "Library entry name"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.spawn_working_copy",
+      "title": "Spawn a working copy",
+      "description": "Creates an editable working copy of a library entry (its current state, live edits included).",
+      "target": "backend",
+      "tier": "write",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-presetspawn_working_copy",
+      "route": {"method": "POST", "path": "/preset/spawn_working_copy"},
+      "args": {
+        "type": "object",
+        "required": ["source"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {"type": "string", "description": "Library entry to copy"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.promote",
+      "title": "Promote a working copy",
+      "description": "Overwrites the source original's JSON file on disk with the working copy (permanent).",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-presetpromote",
+      "route": {"method": "POST", "path": "/preset/promote"},
+      "args": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "description": "Working copy name"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.unload",
+      "title": "Unload a library preset",
+      "description": "Removes a library entry (the last one cannot be unloaded); unloading the active entry switches first.",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-presetunload",
+      "route": {"method": "POST", "path": "/preset/unload"},
+      "args": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "description": "Library entry name"}
+        }
+      },
+      "result": {"type": "object"}
+    }
+  ]
+}

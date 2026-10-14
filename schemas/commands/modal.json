@@ -1,0 +1,62 @@
+{
+  "family": "modal",
+  "description": "The modal adapter (separate :5001 process): extraction stages over a measurement folder, and applying the result to the running preset (:5000).",
+  "commands": [
+    {
+      "name": "modal.run_stage",
+      "title": "Run a modal extraction stage",
+      "description": "Runs one extraction stage on the modal adapter (:5001): pipeline (load, mapping, ESPRIT, tracking, feedin), esprit, tracking or feedin. The remaining args are the stage's own body (see the stage endpoint). Long-running: returns a jobId; progress comes from /modal/status.",
+      "target": "modal",
+      "tier": "destructive",
+      "long_running": true,
+      "job_family": "modal",
+      "doc": "modules/pianoid-middleware/REST_API.md#post-modalrun_pipeline",
+      "route": {"method": "POST", "path": "/modal/run_{stage}"},
+      "args": {
+        "type": "object",
+        "required": ["stage"],
+        "additionalProperties": true,
+        "properties": {
+          "stage": {"type": "string", "enum": ["pipeline", "esprit", "tracking", "feedin"], "description": "Extraction stage"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "modal.status",
+      "title": "Modal extraction status",
+      "description": "Progress of the running extraction (state idle|running|done|error, progress, message).",
+      "target": "modal",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-modalstatus",
+      "route": {"method": "GET", "path": "/modal/status"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "modal.cancel",
+      "title": "Cancel the modal extraction",
+      "description": "Cancels the current modal adapter operation.",
+      "target": "modal",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#modal-adapter-endpoints-port-5001",
+      "route": {"method": "POST", "path": "/modal/cancel"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "modal.apply_to_preset",
+      "title": "Apply modal results to the preset",
+      "description": "Applies the selected extracted modes (frequencies, damping, feedin / feedback) to the running synthesis preset on :5000. Rewrites whole preset sections.",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#modal-adapter-endpoints-port-5001",
+      "route": {"method": "POST", "path": "/modal/apply_to_preset"},
+      "args": {"type": "object", "additionalProperties": true, "properties": {}},
+      "result": {"type": "object"}
+    }
+  ]
+}

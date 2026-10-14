@@ -1,0 +1,73 @@
+{
+  "family": "calibration",
+  "description": "Keyboard loudness calibration. Each pass rewrites per-pitch hammer_mass (one undo group per pass) and runs for seconds to minutes.",
+  "commands": [
+    {
+      "name": "calibration.synthesis",
+      "title": "Calibrate synthesis (offline)",
+      "description": "Step 2: one-pass offline synthesis calibration, no microphone. Long-running: returns a jobId. velocity is MIDI 1-127 (0 is refused); pitches = list or 'all' (key pitches only).",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": true,
+      "job_family": "calibration",
+      "doc": "modules/pianoid-middleware/REST_API.md#calibration-endpoints",
+      "route": {"method": "POST", "path": "/calibrate_synthesis"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "velocity": {"type": "integer", "minimum": 1, "maximum": 127, "default": 95, "description": "MIDI velocity"},
+          "target_rms": {"type": "number", "minimum": 0, "description": "Target RMS; default = the saved reference"},
+          "pitches": {"oneOf": [{"type": "string", "enum": ["all"]}, {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 127}, "minItems": 1}], "default": "all", "description": "Pitch list or 'all'"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "calibration.acoustic",
+      "title": "Calibrate acoustically (microphone)",
+      "description": "Step 3: microphone-based acoustic calibration with precision awareness. Long-running: returns a jobId. Needs a selected microphone and a saved reference (or target_rms).",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": true,
+      "job_family": "calibration",
+      "doc": "modules/pianoid-middleware/REST_API.md#calibration-endpoints",
+      "route": {"method": "POST", "path": "/calibrate_acoustic"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "velocity": {"type": "integer", "minimum": 1, "maximum": 127, "default": 95, "description": "MIDI velocity"},
+          "target_rms": {"type": "number", "minimum": 0, "description": "Target RMS; default = the saved reference"},
+          "precision_threshold": {"type": "number", "minimum": 0, "description": "Precision threshold (dB)"},
+          "pitches": {"oneOf": [{"type": "string", "enum": ["all"]}, {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 127}, "minItems": 1}], "default": "all", "description": "Pitch list or 'all'"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "calibration.status",
+      "title": "Calibration status",
+      "description": "Progress of the running calibration pass (running, progress 0-1, step, message, results).",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-calibration_status",
+      "route": {"method": "GET", "path": "/calibration_status"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "calibration.cancel",
+      "title": "Cancel calibration",
+      "description": "Stops the running calibration after the current pitch.",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-calibration_cancel",
+      "route": {"method": "POST", "path": "/calibration_cancel"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    }
+  ]
+}

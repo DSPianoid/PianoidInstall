@@ -35,6 +35,8 @@ Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
 REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on port 5000 before spawning. `start-modal-adapter` kills stale processes on port 5001 before spawning. Both use port-specific WMIC patterns (`backendserver.py` for 5000, `modal_adapter_server.py` for 5001) to catch orphan processes not yet bound to their port. `kill-stale` kills processes on both ports without starting new ones.
 
+Command registry (I4, dev-6026): `GET /api/commands` serves the registry's `launcher` family (read from `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`) and `POST /api/command/<name>` runs `launcher.status` / `launcher.backend.start|stop` / `launcher.modal.start|stop` through the same handlers, with the executor envelope `{ok, status, result | error}`.
+
 `stopBackend()` uses a two-phase shutdown: first sends `POST /shutdown` to the Flask backend for graceful GPU cleanup (3-second timeout), then falls back to `taskkill /T /F` if the process is still alive. A `process.on('exit')` handler ensures force-kill as a last resort.
 
 ---
@@ -763,6 +765,38 @@ committed once on release = ONE write = one undo step (measured live: a 10-pitch
 step); a Sound-Channels workbench paint fans out one write per output row = one step per changed row. Pinned by `hooks/__tests__/{useBackendUndo,
 useHotkeys.undo}.test.js` and `__tests__/workbenchUndoWiring.source.test.js`.
 
+### `commandBus` + `useCommandBus` — the command layer (I4, dev-6026)
+
+The frontend side of the command registry ([REST_API "Commands and jobs (I4)"](../pianoid-middleware/REST_API.md#commands-and-jobs-i4)).
+`utils/commandBus.js` runs a registry command by name, so a UI button, curl, MCP and the assistant make the same call
+(only the source differs: `fe` + this tab's clientId + an opId):
+
+- `dispatch(name, args, opts)` resolves `{ok, status, result, jobId?, error?}` (never rejects); `call(name, args)`
+  resolves an axios-like `{status, data}` and throws a `CommandError` whose `response` is axios-shaped, so the
+  existing `error.response.data` handlers keep working.
+- Pre-flight validation with `utils/commandSchema.js` (the registry's JSON Schema subset; the backend re-validates
+  and is authoritative). Both validators run the shared `schemas/commands/_conformance.json` cases.
+- Transport by `target`: `backend` / `modal` → WS `command` (acked; 10 s, 180 s for destructive / long-running)
+  while the socket is connected, else `POST /command/<name>`. A WS ack timeout is **not** retried over REST (the
+  command may have run: a save, load or play must never execute twice). `{noAck: true}` = fire-and-forget emit
+  (`play.note`), REST when the emit is refused (socket down / degraded). `launcher` → `POST :3001/api/command/<name>`.
+  `ui` → a handler registered with `registerUi(name, fn)` (the layout API, I5).
+- The registry is loaded from `GET :5000/commands` on every (re)connect (`useCommandBus`), falling back to the
+  launcher's family (`GET :3001/api/commands`) while the backend is down.
+- Jobs: `useCommandBus` folds the `job_*` events into the bus's job store (`getJobs` / `subscribeJobs`) and returns
+  `jobs` (newest first) — every tab sees every job, whichever client started it.
+
+Migrated call sites (I4.2): `usePreset` `playNote` (`play.note`, noAck), `playMode` (`play.mode`), `reset`
+(`play.reset`), `loadPreset` (`preset.load`), `savePreset` (`preset.save`), the library `loadPresetToLibrary` /
+`switchPreset` / `unloadPreset` / `spawnWorkingCopy` / `promoteWorkingCopy` (`preset.*`); the Play All sweep
+(`play.keyboard` / `render.keyboard`); the chart window (`render.chart`). Not yet migrated (I4.3): the calibration,
+modal-adapter and rig panels (their routes already create jobs, so their progress is in the job store), the
+launcher start / stop buttons (`useBackendProcess`), and internal metric renders (`useCflStability`,
+`useFeedbackAutoLevel`). Hook tests that mock axios by route URL run the bus as its wrapped routes with
+`jest.mock("../../utils/commandBus", () => require("../../testSupport/commandBusRouteMock"))`; the Jest registry
+fixture reads `$PIANOID_COMMANDS_DIR` or `<PianoidInstall>/schemas/commands`. Tests: `utils/__tests__/{commandBus,
+commandSchema}.test.js`.
+
 ### `useBackendSync` + `useStateReconcilers` (I2, dev-fbcb)
 
 Backend-authoritative editor sync — every open editor follows every backend change, from any client. Contract: [REST_API → State events](http://localhost:8001/modules/pianoid-middleware/REST_API/#state-events-ssot-i1).
@@ -1011,7 +1045,9 @@ All bucket state is owned by `useSettings` (sole writer of each bucket). `usePre
 
 ## API Integration Pattern
 
-All API calls use `axios` with `PIANOID_URL = "http://127.0.0.1:5000"`.
+All API calls use `axios` with `PIANOID_URL = "http://127.0.0.1:5000"`. Playback, preset lifecycle and renders go
+through the command bus instead (registry commands over WS `command` / `POST /command/<name>`; see
+[`commandBus`](#commandbus-usecommandbus-the-command-layer-i4-dev-6026)); the routes below stay the wrapped targets.
 
 The pattern used throughout `usePreset`:
 

@@ -1,0 +1,79 @@
+{
+  "family": "render",
+  "description": "Offline renders and charts. A render stops the live audio for its duration (about 2 s), hence the destructive tier.",
+  "commands": [
+    {
+      "name": "render.chart_types",
+      "title": "List chart and action types",
+      "description": "The chart registry: chart types with their parameter schemas, action types, dynamic charts.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-graph_names",
+      "route": {"method": "GET", "path": "/graph_names"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "render.chart",
+      "title": "Render a chart",
+      "description": "Renders any registered chart type (see render.chart_types) with its chart-specific parameters. Returns data, headers and, for sound charts, audio_data (base64 WAV).",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-get_chart_test",
+      "route": {"method": "POST", "path": "/get_chart_test"},
+      "args": {
+        "type": "object",
+        "required": ["chartType"],
+        "additionalProperties": true,
+        "properties": {
+          "chartType": {"type": "string", "description": "Registered chart type name"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "render.note_playback",
+      "title": "Render one note offline",
+      "description": "Deterministic offline render of a single note (the audio_off verification surface). Returns the waveform chart and audio_data (base64 WAV).",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/CHART_SYSTEM.md",
+      "route": {"method": "POST", "path": "/get_chart_test", "fixed": {"chartType": "note_playback"}},
+      "args": {
+        "type": "object",
+        "required": ["pitch"],
+        "additionalProperties": false,
+        "properties": {
+          "pitch": {"type": "integer", "minimum": 0, "maximum": 127, "description": "MIDI note number"},
+          "velocity": {"type": "integer", "minimum": 1, "maximum": 127, "description": "MIDI velocity"},
+          "duration_ms": {"type": "number", "minimum": 1, "description": "Note-on duration, ms"},
+          "display_length_ms": {"type": "number", "minimum": 1, "description": "Rendered / displayed length, ms"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "render.keyboard",
+      "title": "Render the keyboard sweep offline",
+      "description": "Stops the online engine, renders the NOTE_ON/NOTE_OFF sweep offline into a peak-normalised WAV (audio_data base64), then restarts the engine.",
+      "target": "backend",
+      "tier": "destructive",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-play_keyboard",
+      "route": {"method": "POST", "path": "/play_keyboard", "fixed": {"mode": "offline"}},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "speed_ms_per_note": {"type": "number", "minimum": 10, "maximum": 2000, "default": 100, "description": "NOTE_ON to NOTE_OFF duration per key, ms"},
+          "velocity": {"type": "integer", "minimum": 0, "maximum": 127, "default": 63, "description": "MIDI velocity (0 is clamped to 1)"},
+          "pitches": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "description": "Explicit pitch list; omit for all pitches"}
+        }
+      },
+      "result": {"type": "object"}
+    }
+  ]
+}
