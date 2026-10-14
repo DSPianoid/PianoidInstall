@@ -30,6 +30,22 @@ EXC = ["Out 1", "Out 2", "Out 3", "Out 4"]
 LEVELS = {"Out 1": (-42, -36, -30, -24, -18), "Out 2": (-42, -36, -30, -24, -18),
           "Out 3": (-42, -36, -30, -24), "Out 4": (-42, -36, -30, -24, -18)}
 PIEZO = [f"In {k}" for k in range(1, 8)]
+# --plan "Out 9:-36,-30,-24;Out 10:-36,-30,-24;Out 3:-36,-30;Out 4:-36,-30,-24"  (overrides EXC / LEVELS)
+# --map  "E1=Out 9,E2=Out 10,E3=Out 3,..."  (exciter -> output map, recorded in the run metadata)
+# --no-elec  skip the Out 8 -> In 8 interface-floor session
+OUTPUT_MAP, ELEC = None, True
+for _a in list(sys.argv):
+    if _a.startswith("--plan="):
+        _p = [x.split(":") for x in _a.split("=", 1)[1].split(";") if x.strip()]
+        EXC = [o.strip() for o, _ in _p]
+        LEVELS = {o.strip(): tuple(int(v) for v in l.split(",")) for o, l in _p}
+        sys.argv.remove(_a)
+    elif _a.startswith("--map="):
+        OUTPUT_MAP = dict(x.split("=") for x in _a.split("=", 1)[1].split(","))
+        sys.argv.remove(_a)
+    elif _a == "--no-elec":
+        ELEC = False
+        sys.argv.remove(_a)
 PEAK_STOP = -3.0
 BANDS = ((30, 250, "<250"), (250, 1000, "250-1k"), (1000, 2000, "1-2k"), (2000, 9500, "2k+"))
 
@@ -57,12 +73,16 @@ def capture(out):
     from pianoid_middleware.modal_adapter.swept_discovery.audio_io import SessionAudioIO
     io = SessionAudioIO(os.path.join(out, "sessions"), loopback=("Out 8", "In 8"))
     log = []
+    os.makedirs(out, exist_ok=True)
+    json.dump({"exciters": EXC, "levels": LEVELS, "output_map": OUTPUT_MAP, "piezos": PIEZO,
+               "sync": "Out 8 -> In 8"}, open(os.path.join(out, "run_config.json"), "w"), indent=1)
     # electrical floor: Out 8 -> In 8 with NO loopback marker (Out 8 carries the test signal itself)
     ioe = SessionAudioIO(os.path.join(out, "sessions_elec"), loopback=None)
-    y, m = ioe.play_record(build(-18), "Out 8", ["In 8"], 0.0, 1.0, "elec_m18")
-    log.append({"tag": "elec_m18", "status": m.get("status"), "xruns": m.get("xruns"),
+    if ELEC:
+      y, m = ioe.play_record(build(-18), "Out 8", ["In 8"], 0.0, 1.0, "elec_m18")
+      log.append({"tag": "elec_m18", "status": m.get("status"), "xruns": m.get("xruns"),
                 "peak_dbfs": float(20 * np.log10(np.abs(y).max() + 1e-12))})
-    print(log[-1], flush=True)
+      print(log[-1], flush=True)
     io.record(T + 1.0, PIEZO, "noise")          # ESS harmonic-window noise floor of the piezos
     for e in EXC:
         for lv in LEVELS[e]:
@@ -101,12 +121,14 @@ def analyse(out):
                     "h2_db": 20 * np.log10(a[1] / (a[0] + 1e-15)), "h3_db": 20 * np.log10(a[2] / (a[0] + 1e-15))}
         return r
 
-    ye = np.load(os.path.join(out, "sessions_elec", "elec_m18", "data.npy")).astype(float)
-    te = tones_of(ye, -18)
-    x = exp_sweep(F1, F2, T, FS, -18)
-    he = harmonic_distortion(ye[:int((T + 1.0) * FS)], x, (F1, F2, T))
-    res["electrical_floor"] = {"ess": he, "tones_thd_db": {f: float(v["thd_db"][0]) for f, v in te.items()}}
-    for e in EXC:
+    ep = os.path.join(out, "sessions_elec", "elec_m18", "data.npy")
+    if os.path.exists(ep):
+        ye = np.load(ep).astype(float)
+        te = tones_of(ye, -18)
+        x = exp_sweep(F1, F2, T, FS, -18)
+        he = harmonic_distortion(ye[:int((T + 1.0) * FS)], x, (F1, F2, T))
+        res["electrical_floor"] = {"ess": he, "tones_thd_db": {f: float(v["thd_db"][0]) for f, v in te.items()}}
+    for e in [x for x in dict.fromkeys(r.get("exciter") for r in log) if x]:
         rows = [r for r in log if r.get("exciter") == e]
         H, d = {}, {}
         tones, raw = {}, {}
@@ -166,7 +188,8 @@ def analyse(out):
     json.dump(res, open(os.path.join(out, "nonlin.json"), "w"), indent=1, default=float)
 
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
-    col = {"Out 1": "#36c", "Out 2": "#69e", "Out 3": "#c33", "Out 4": "#e88"}
+    col = {"Out 1": "#36c", "Out 2": "#69e", "Out 3": "#c33", "Out 4": "#e88", "Out 9": "#173", "Out 10": "#4b6",
+           "Out 5": "#a6c", "Out 6": "#c90", "Out 7": "#888"}
     pk = {(r["exciter"], r["level"]): max(r["peaks_dbfs"]) for r in log if "exciter" in r}
     fig, ax = plt.subplots(1, 4, figsize=(21, 4.8))
     for e, ex in res["per_exciter"].items():
@@ -181,7 +204,8 @@ def analyse(out):
         lv_dev = [l for l in L if l != -30]
         ax[3].plot(lv_dev, [dev[f"{l:+.0f} vs -30 dBFS"]["250-1k"]["abs_db_median"] for l in lv_dev], "o-", color=col[e], label=e)
     nf = np.median([ex["ess_h2_noise_db_median"][0] for ex in res["per_exciter"].values()])
-    ax[0].axhline(np.median(res["electrical_floor"]["ess"]["h2_db"]), color="k", ls=":", lw=1, label="interface H2 (-18 dBFS)")
+    if res["electrical_floor"]:
+        ax[0].axhline(np.median(res["electrical_floor"]["ess"]["h2_db"]), color="k", ls=":", lw=1, label="interface H2 (-18 dBFS)")
     ax[0].set(xlabel="drive dBFS", ylabel="dB re linear IR (median 7 piezos)", title="ESS H2 / H3 vs drive")
     ax[1].set(xlabel="max piezo peak dBFS (board motion proxy)", ylabel="H2 dB re linear", title="ESS H2 at equal board motion")
     ax[2].set(xlabel="drive dBFS", ylabel="dB re fundamental (force domain)", title="Tone H2, FRF-equalised (100 / 200 Hz)")
