@@ -85,18 +85,21 @@ With Bl and T(ω), **F/I** follows, and every per-ampere FRF becomes **per newto
 
 **Clock risk:** if the two units are not sample-locked, cross-unit FRFs (piezo on unit 2 / current on unit 1) drift in phase. **Test:** split one signal into both units and verify zero drift over 120 s.
 
-**Grid density.** The board's physical size is not recorded. Below, lengths are in units of the board height (the photo frame; width ≈ 1.3). The bending wavelength is estimated from the measured mode density n(f) ≈ 0.05–0.1 modes/Hz (200 Hz–1 kHz) via `λ ≈ sqrt(π S / (f n))`, with plate area S ≈ 0.9:
+**Grid density** (board about 1200 × 1000 mm, user 2026-10-14; frame in §10, decision 4).
+- The bending wavelength is estimated from the measured mode density n(f) ≈ 0.05–0.1 modes/Hz (200 Hz–1 kHz) via `λ ≈ sqrt(π S / (f n))`.
+- The plate area is S ≈ 1.08 m² (1.2 × 1.0 m, minus the rounded outline).
 
-| Band | λ (board heights) | Spacing for 3 points/λ | Grid points (whole board) | Placements at 7 roving |
+| Band | λ | Spacing for 3 points/λ | Grid (whole board) | Placements at 7 roving |
 |---|---|---|---|---|
-| < 200 Hz | ≥ 0.5 | ~0.17 | ~35–40 (7 × 6) | 5–6 |
-| 200 Hz–1 kHz | 0.23–0.5 (1 kHz: 0.17–0.23) | ~0.07 at 1 kHz | ~150–200 (15 × 12) | 22–28 |
-| 1–2 kHz | 0.12–0.16 | ~0.045 | ~400–500 (25 × 20) | 60–70 (impractical with piezos; use a scanning laser vibrometer or a roving hammer + fixed sensors) |
+| < 200 Hz | ≥ 410–580 mm | 140–195 mm → **200 mm** | 6 × 5 = **30** | 5 |
+| ~500 Hz | 260–370 mm | 87–123 mm → **100 mm** | 12 × 10 ≈ **110** (corners cut) | ~16 |
+| 1 kHz | 180–260 mm | 60–87 mm → **75 mm** | 16 × 13 ≈ **190** | ~27 |
+| 2 kHz | 130–180 mm | 43–61 mm → **50 mm** | 24 × 20 ≈ **450** | ~65 (impractical with piezos; use a scanning laser vibrometer or a roving hammer + fixed sensors) |
 
 **Practical plan:**
-- A **6 × 5 grid (30 points) for < 200 Hz** first: 5 placements.
-- Then densify to **12 × 9 (≈ 100 points)**, good to about 600–700 Hz: about 15 placements.
-- Physical coordinates (cm, measured with a ruler, origin at a board corner) are recorded per placement in `placement.json`.
+- A **200 mm grid**: points at x = 100…1100 and y = 100…900 mm, 6 × 5 = 30 points, 5 placements. Good to about 180 Hz at 3 points/λ.
+- Then a **100 mm grid** (≈ 110 points, about 16 placements): good to about 500 Hz at 3 points/λ, and about 800 Hz at 2 points/λ.
+- Coordinates are recorded in mm in the board frame of §10 (origin bottom-left, front side). The positions are marked with a ruler; the photo-derived positions carry about ±30 mm uncertainty.
 
 **Per-placement capture:**
 - **MIMO** (all 7 exciters, orthogonal multisines, 3 realisations, about 4.5 min) for speed above 35 Hz.
@@ -118,6 +121,7 @@ With Bl and T(ω), **F/I** follows, and every per-ampere FRF becomes **per newto
   - **(b)** calibrate each piezo in place against that accelerometer (side by side, same location).
 
   Without a calibrated sensor, shapes and relative scaling are still obtained; absolute modal mass is not.
+- **Decision 2 (2026-10-14): no calibrated accelerometer is available. The program uses relative scaling only.** S4 is dropped. Mode shapes are unit-normalised. Driving-point residues are compared in relative terms only (ratios between modes and exciters), and no absolute modal masses are produced.
 
 **Reciprocity check:**
 - With collocated sensors at exciters i and j (same sensor type, force-referenced), `H_ij = H_ji` should hold.
@@ -143,7 +147,7 @@ With Bl and T(ω), **F/I** follows, and every per-ampere FRF becomes **per newto
   - ESS for reference FRFs and harmonic separation;
   - MIMO orthogonal multisines for fast surveys above 35 Hz, with a direct estimate of the nonlinear-distortion variance;
   - the LF ESS (15–150 Hz) for < 35 Hz.
-- **Levels:** guard −6 dBFS on any input and stop at −3 dBFS. Ceilings: E1/E2 (Out 9/10) ≤ −36 dBFS, others ≤ −30. **E2 is mechanically nonlinear:** keep it ≥ 6 dB below the others, or have its mounting fixed first (inspection recommended).
+- **Levels:** guard −6 dBFS on any input and stop at −3 dBFS. Ceilings: E1/E2 (Out 9/10) ≤ −36 dBFS, others ≤ −30. **E2 is mechanically nonlinear** (decision 3): until its mounting is inspected (planned 2026-10-15), every capture drives E2 **6 dB below its planned level**.
 - **Session-to-session reference:**
   - keep **P8 at E7 fixed** for the whole program;
   - every placement includes E7 → P8 (per ampere) as the drift/consistency check;
@@ -161,7 +165,7 @@ Durations are rig time, plus the user's re-patching. "User" means a physical act
 | S1b | Added mass | **User**: attach Δm1 (≈ 10 g), then Δm2 (≈ 20 g), to each reaction mass in turn (or to 3 representative exciters) | ESS 15–200 Hz per exciter per mass, −36 dBFS | 30–45 min | M, K, Bl per exciter; the T(ω) model; the 32.5 Hz added-mass test (§7.3) |
 | S2 | 2nd UMC over ADAT | **User**: optical cable + clock config; split one test signal into both units | 120 s tone/noise into both units | 15 min | sample-lock verification (no drift) |
 | S3 | Driving-point placement | **User**: 7 piezos, one next to each exciter, on unit 2 (P8 stays at E7) | ESS 7 × 3 (20 Hz–2 kHz, today's levels) + LF ESS | 15 min + 15 min patching | 7 × 7 collocated matrix, driving points, reciprocity (21 pairs) |
-| S4 | Calibrated accelerometer (optional) | **User**: roving accelerometer at the 7 drive points | short ESS per position | 20 min | piezo calibration factors → mass-normalised shapes |
+| S4 | Calibrated accelerometer — **dropped (decision 2)** | **User**: roving accelerometer at the 7 drive points | short ESS per position | 20 min | piezo calibration factors → mass-normalised shapes |
 | S5 | LF grid, 6 × 5 = 30 points | **User**: 7 roving piezos, 5 placements, coordinates in cm | per placement: MIMO 4.5 min + LF ESS 3 min | 5 × (8 + 5) ≈ 65 min | < 200 Hz shapes on 30 points + 7 drive points; the 32.5 Hz shape |
 | S6 | Mid grid, ≈ 100 points | as S5, 10 more placements | as S5 | ≈ 2.2 h (can be split across days) | shapes up to ~600–700 Hz |
 | S7 | Reprocessing (analysis only) | — | — | — | §3 per-ampere re-reference of 10-13/10-14 data; consensus poles per ampere vs per volt |
@@ -176,10 +180,21 @@ Durations are rig time, plus the user's re-patching. "User" means a physical act
 
 **Total rig time:** about 5–6 h, plus patching. S0–S3 (about 2 h) answer the force/scaling and 32 Hz questions. S5–S6 build the shape grid.
 
-## 10. Open decisions (user)
+## 10. User decisions (2026-10-14)
 
-1. Option B (2nd UMC over ADAT) vs option A (4 currents + 4 piezos on one unit).
-2. Whether a calibrated accelerometer is available (absolute modal mass, S4).
-3. The E2 mounting inspection before the grid sessions (its motion H2 is −16 dB at −36 dBFS).
-4. The board's physical dimensions and a coordinate origin (needed for the grid and the shapes).
-5. Whether to run the reprocessing (S7) first: no rig time, and it answers how much of the cross-exciter disagreement was electrical.
+1. **Keep the installed setup today** (In 1–7 = coil currents of E1–E7, In 8 = P8 at E7; no 2nd interface). The exciters have not moved since the morning, so the morning 7 × 7 piezo FRFs (P1–P7) count as known.
+   - The coil currents are to be tried as **7 additional response points** (back-EMF at each exciter location).
+   - The B1–B3 feasibility analysis says this is mixed: the In 1–4 harness carries instantaneous crosstalk (about −40 dB), In 5–7 track the P8 line, and only an LF residue (≲ 200 Hz) is partly reciprocal.
+   - One broadband 7 × 7 capture is planned as the decisive test (session log, 2026-10-14 evening).
+   - Options A/B of §5 remain the route to a motion grid on a later day.
+2. **No calibrated accelerometer:** relative scaling only (§6). S4 is dropped.
+3. **E2 is used as is, 6 dB below the planned levels;** the user inspects its mounting on 2026-10-15.
+4. **Board about 1200 × 1000 mm.** Frame:
+   - x = 0–1200 mm left → right, y = 0–1000 mm bottom → top;
+   - origin at the bottom-left of the board outline as seen in the photo (front/piezo side);
+   - the exciters are on the reverse at the same (x, y), with nothing mirrored.
+   - `layout-20261014/board_layout.json` now carries `piezos_green_mm` / `exciters_red_mm`, alongside the normalised photo coordinates (where y ran top → bottom).
+   - **Uncertainty about ±30 mm** (up to about ±50 mm near the edges). The photo outline aspect was 1.30 against the stated 1.20, a perspective and outline-reading error.
+   - Shape plots use mm axes (`dev-fd69-replot-shapes-mm-2026-10-14.py`; fixed-layout and LF analyses).
+
+**Still open:** option A vs B for the motion grid on a later day, and whether to run the reprocessing (S7) first.

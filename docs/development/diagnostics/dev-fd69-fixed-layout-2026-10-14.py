@@ -202,8 +202,8 @@ def analyse(out, fmax=1100.0):
     ax.set_yticks(range(len(fm))); ax.set_yticklabels([f"{x:.0f}" for x in fm], fontsize=5); ax.set_title("AutoMAC of consensus shapes (7 piezos)")
     plt.tight_layout(); plt.savefig(os.path.join(out, "automac.png"), dpi=85); plt.close()
     L = json.load(open(LAYOUT)); asp = L["aspect_w_over_h"]
-    P = np.array([[L["piezos_green"][str(k)][0] * asp, L["piezos_green"][str(k)][1]] for k in range(1, 8)])
-    Ex = np.array([[L["exciters_red"][str(k)][0] * asp, L["exciters_red"][str(k)][1]] for k in range(1, 8)])
+    P = np.array([L["piezos_green_mm"][str(k)] for k in range(1, 8)], float)          # mm, origin bottom-left
+    Ex = np.array([L["exciters_red_mm"][str(k)] for k in range(1, 8)], float)
     idx = list(np.flatnonzero(fm < 400))[:20]
     fig, axs = plt.subplots(4, 5, figsize=(20, 13), squeeze=False)
     for a_, r in zip(axs.ravel(), idx):
@@ -212,7 +212,7 @@ def analyse(out, fmax=1100.0):
         a_.plot(Ex[:, 0], Ex[:, 1], "k^", ms=6)
         for k in range(7):
             a_.annotate(f"P{k + 1}", P[k], fontsize=6)
-        a_.set_xlim(0, asp); a_.set_ylim(1, 0); a_.set_aspect("equal"); a_.set_xticks([]); a_.set_yticks([])
+        a_.set_xlim(0, L["board_mm"]["width"]); a_.set_ylim(0, L["board_mm"]["height"]); a_.set_aspect("equal"); a_.tick_params(labelsize=6)
         a_.set_title(f"{fm[r]:.1f} Hz  z {100 * zm[r]:.1f}%  MAC {np.median(M[r]):.2f}", fontsize=8)
     for a_ in axs.ravel()[len(idx):]:
         a_.axis("off")

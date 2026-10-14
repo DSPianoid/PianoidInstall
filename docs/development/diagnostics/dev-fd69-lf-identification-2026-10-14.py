@@ -196,14 +196,14 @@ def analyse(out):
     plt.tight_layout(); plt.savefig(os.path.join(out, "lf_cmif.png"), dpi=85); plt.close()
     if len(fm):
         L = json.load(open(LAYOUT)); asp = L["aspect_w_over_h"]
-        P = np.array([[L["piezos_green"][str(k)][0] * asp, L["piezos_green"][str(k)][1]] for k in range(1, 8)])
-        Ex = np.array([[L["exciters_red"][str(k)][0] * asp, L["exciters_red"][str(k)][1]] for k in range(1, 8)])
+        P = np.array([L["piezos_green_mm"][str(k)] for k in range(1, 8)], float)          # mm, origin bottom-left
+        Ex = np.array([L["exciters_red_mm"][str(k)] for k in range(1, 8)], float)
         n = len(fm); cols = min(5, n); rows_ = int(np.ceil(n / cols))
         fig, axs = plt.subplots(rows_, cols, figsize=(4 * cols, 3.3 * rows_), squeeze=False)
         for a_, r in zip(axs.ravel(), range(n)):
             v = psi[r] * np.exp(-1j * 0.5 * np.angle(np.sum(psi[r] ** 2))); re = v.real / max(np.abs(v).max(), 1e-300)
             a_.scatter(P[:, 0], P[:, 1], c=re, s=80 + 400 * np.abs(re), cmap="coolwarm", vmin=-1, vmax=1, edgecolors="k")
-            a_.plot(Ex[:, 0], Ex[:, 1], "k^", ms=5); a_.set_xlim(0, asp); a_.set_ylim(1, 0); a_.set_aspect("equal"); a_.set_xticks([]); a_.set_yticks([])
+            a_.plot(Ex[:, 0], Ex[:, 1], "k^", ms=5); a_.set_xlim(0, L["board_mm"]["width"]); a_.set_ylim(0, L["board_mm"]["height"]); a_.set_aspect("equal"); a_.tick_params(labelsize=6)
             a_.set_title(f"{fm[r]:.1f} Hz z {100 * zm[r]:.1f}% MAC {np.median(M[r]):.2f}", fontsize=8)
         for a_ in axs.ravel()[n:]:
             a_.axis("off")

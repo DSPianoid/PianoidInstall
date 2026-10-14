@@ -34,6 +34,13 @@ layout = {"source": "user photo 2026-10-14 (Telegram), 1280x960; approximate, no
           "exciters_red": {str(k): norm(v) for k, v in EXC_PX.items()},
           "pixels": {"piezos": PIEZO_PX, "exciters": EXC_PX, "bbox": [X0, X1, Y0, Y1]},
           "open": ["green piezo number -> input (In 5-8)", "red number == Out number?"]}
+# physical frame (user 2026-10-14: board about 1200 x 1000 mm): x left->right, y bottom->top, origin bottom-left
+# of the outline as photographed (front / piezo side; exciters at the same x, y on the reverse)
+W_MM, H_MM = 1200.0, 1000.0
+layout["board_mm"] = {"width": W_MM, "height": H_MM, "source": "user 2026-10-14: about 1200 x 1000 mm"}
+layout["uncertainty_mm"] = "~+-30 mm typical (photo outline aspect 1.30 vs stated 1.20; up to ~+-50 mm near the edges)"
+layout["piezos_green_mm"] = {k: [round(v[0] * W_MM), round((1 - v[1]) * H_MM)] for k, v in layout["piezos_green"].items()}
+layout["exciters_red_mm"] = {k: [round(v[0] * W_MM), round((1 - v[1]) * H_MM)] for k, v in layout["exciters_red"].items()}
 json.dump(layout, open(os.path.join(D, "board_layout.json"), "w"), indent=1)
 
 # distance (board units, aspect kept) vs burst level per input and candidate piezo
