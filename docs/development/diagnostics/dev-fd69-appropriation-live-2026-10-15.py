@@ -18,7 +18,7 @@ live:  per mode one session: 7 dwells (one per vector), each 2.0 s settle + 1.0 
        all 7 outputs, In 1-8 recorded; guard: stop if any input > -3 dBFS.
 eval:  lock-in at f_m on the measure windows -> measured ||y|| and modal projection per vector, dB re the optimum
        vector; live vs predicted; MAC(mode vector, optimum).
-Usage: python <this> prep <prefix> <coil_run> <out> | live <out> | eval <out>
+Usage: python <this> prep <prefix> <coil_run> <out> [--only=f1,f2,..] [--reuse=<prep.json>] | live <out> | eval <out>
 """
 import itertools
 import json
@@ -71,7 +71,8 @@ def frfs8(run, fmax=1150.0):
     return f[keep], Hs, onset
 
 
-def prep(prefix, coil_run, out):
+def prep(prefix, coil_run, out, only=None, reuse=None):
+    """only: list of mode frequencies to plan (nearest pole); reuse: prep.json whose pole list is reused (no re-fit)."""
     os.makedirs(out, exist_ok=True)
     from pianoid_middleware.modal_adapter.polymax.identify import PolymaxConfig, identify
     from pianoid_middleware.modal_adapter.polymax.lsfd import lsfd
@@ -82,21 +83,28 @@ def prep(prefix, coil_run, out):
         f, Hs, on = frfs8(r); F = f; M.append(Hs.mean(0)); V.append(np.maximum(Hs.var(0) / 3, 1e-30)); ON[os.path.basename(r)] = on
     f = F
     hum = np.all([np.abs(f - h) > 1.0 for h in HUM], axis=0)
+    if reuse:
+        modes = [{"f": m["f"], "zeta": m["zeta_pct"] / 100, "src": m["src"]} for m in json.load(open(reuse))["modes"]]
+        cons = [m for m in modes if m["src"].startswith("consensus")]
+    else:
+        modes = None
     # consensus < 200 Hz (3 runs, 12 fits each)
     rng = np.random.default_rng(3); allp = []; nf = {}
-    for k, r in enumerate(runs):
+    for k, r in enumerate([] if reuse else runs):
         fr, reps = cs.load_run(r)
         P = cs.fits_for_run(fr, reps, 200.0, 1, rng); nf[k] = len(P)
         allp += [(fz, z, lam, k, i) for i, fit in enumerate(P) for fz, z, lam in fit]
-    tot = sum(nf.values()); cons = []
-    for c in cs.cluster(allp):
+    tot = sum(nf.values()) or 1
+    cons = cons if reuse else []
+    for c in ([] if reuse else cs.cluster(allp)):
         if len({p[3] for p in c}) >= 2 and len({(p[3], p[4]) for p in c}) / tot >= 0.25:
             cons.append((float(np.median([p[0] for p in c])), float(np.median([p[1] for p in c]))))
     # 200-1100 Hz single PolyMAX on the mean of the 3 runs
     Hm = np.mean(M, axis=0); Vm = np.mean(V, axis=0) / 3
     s = (f >= 200) & (f <= 1100) & hum
-    fit = identify(f[s], Hm[s], PolymaxConfig(band_edges=(200.0, 350.0, 600.0, 1100.0), p_max=40, prune=True), Vm[s])
-    modes = [{"f": a, "zeta": b, "src": "consensus <200"} for a, b in cons] + [{"f": x["f_hz"], "zeta": x["zeta"], "src": "PolyMAX 200-1100"} for x in fit["modes"]]
+    if not reuse:
+        fit = identify(f[s], Hm[s], PolymaxConfig(band_edges=(200.0, 350.0, 600.0, 1100.0), p_max=40, prune=True), Vm[s])
+        modes = [{"f": a, "zeta": b, "src": "consensus <200"} for a, b in cons] + [{"f": x["f_hz"], "zeta": x["zeta"], "src": "PolyMAX 200-1100"} for x in fit["modes"]]
     lam = np.array([lam_of(m["f"], m["zeta"]) for m in modes])
     bands = [(25.0, 200.0), (200.0, 600.0), (600.0, 1100.0)]
 
@@ -148,7 +156,9 @@ def prep(prefix, coil_run, out):
                      "v_current": [[round(float(abs(x)), 3), round(float(np.degrees(np.angle(x))), 1)] for x in vI]})
         rows[-1]["_vecs"] = vecs; rows[-1]["_Y"] = Yk; rows[-1]["_u"] = u; rows[-1]["_rs"] = rs
     sel = [r for r in rows if r["repeat_mac"] >= 0.9 and 40 <= r["f"] <= 1100 and (r["rank1"] >= 0.6 or (r["f"] < 200 and r["rank1"] >= 0.5))]
-    if len(sel) > 18:
+    if only:
+        sel = [min(rows, key=lambda r: abs(r["f"] - q)) for q in only]
+    elif len(sel) > 18:
         idx = np.round(np.linspace(0, len(sel) - 1, 18)).astype(int); sel = [sel[i] for i in idx]
     for r in sel:
         # drive voltages V = I / Y, common scale per mode so that all outputs stay under the caps (peak = |V|)
@@ -239,7 +249,9 @@ def evaluate(out):
 
 if __name__ == "__main__":
     if sys.argv[1] == "prep":
-        prep(*sys.argv[2:5])
+        only = next(([float(x) for x in a.split("=", 1)[1].split(",")] for a in sys.argv if a.startswith("--only=")), None)
+        reuse = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--reuse=")), None)
+        prep(*sys.argv[2:5], only=only, reuse=reuse)
     elif sys.argv[1] == "live":
         live(sys.argv[2])
     else:
