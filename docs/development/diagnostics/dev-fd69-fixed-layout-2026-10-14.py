@@ -232,8 +232,12 @@ if __name__ == "__main__":
         only = next((a.split("=", 1)[1].split(",") for a in sys.argv if a.startswith("--only=")), None)
         lv = next((dict((k, int(v)) for k, v in (x.split(":") for x in a.split("=", 1)[1].split(","))) for a in sys.argv if a.startswith("--levels=")), None)
         ins = [f"In {k}" for k in range(1, 9)] if "--all8" in sys.argv else None
-        extra = {"input_map": {**{f"In {k}": f"coil current E{k}" for k in range(1, 8)}, "In 8": "piezo P8 (collocated with E7)"},
-                 "alignment": "no loopback; current-referenced quantities latency-free"} if "--all8" in sys.argv else None
+        if "--piezomap" in sys.argv:       # 10-15: P1-P7 on In 1-7 (10-14 positions), P8 (at E7) on In 8, weights on the exciters
+            extra = {"input_map": {**{f"In {k}": f"piezo P{k}" for k in range(1, 8)}, "In 8": "piezo P8 (collocated with E7)"},
+                     "alignment": "no loopback; latency tracked from the E7 -> P8 driving-point IR", "exciter_weights": "on (10-15)"}
+        else:
+            extra = {"input_map": {**{f"In {k}": f"coil current E{k}" for k in range(1, 8)}, "In 8": "piezo P8 (collocated with E7)"},
+                     "alignment": "no loopback; current-referenced quantities latency-free"} if "--all8" in sys.argv else None
         capture(sys.argv[2], only, lv, ins, loopback="--noloop" not in sys.argv, extra_cfg=extra)
     else:
         fmx = float(sys.argv[sys.argv.index("--fmax") + 1]) if "--fmax" in sys.argv else 1100.0
