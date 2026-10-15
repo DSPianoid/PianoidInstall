@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-a709 | Measured-modes preset F15_measured_plywood_2026-10-15 (measured < 1 kHz, 7 exciter channels, 196 shaped) + 12-channel bound + ASIO output map + keyboard equalization + live playback | [log](logs/dev-a709-2026-10-15-115619.md) | 2026-10-15 |
+| ~~dev-a709~~ | **PARKED at Phase 1 (user, 2026-10-15)** — measured-modes preset F15_measured_plywood_2026-10-15 + 12-channel bound + ASIO output map + equalization; 7 open questions in the design note §11; shared venv holds this branch build | [log](logs/dev-a709-2026-10-15-115619.md) | 2026-10-15 |
 | dev-69fd | Swept-sine mode discovery (coarse+fine per exciter, FRF/MAC) via ASIO /audio/session | [log](logs/dev-69fd-2026-10-11-132421.md) | 2026-10-11 |
 | dev-4284 | Phase 3: migrate modal adapter audio acquisition sdl_audio_core -> ASIO /audio/session (AudioIO Local/Remote), setup schema migration, Tunner channel pickers; then retire sdl_audio_core if no consumers remain | [log](logs/dev-4284-2026-10-11-131702.md) | 2026-10-11 | In Progress |
 | dev-b59d | Fix FPGA preset converter output semantics: decka_coeff = actuator drive weights (output_role actuator_feeds vs listening), regenerate F15_Elyashev_array512 | [log](logs/dev-b59d-2026-10-11-180403.md) | 2026-10-11 |
@@ -257,7 +257,9 @@
 - Running the 7-channel preset needs the branch middleware too (`pianoid.py` / `audio_channels.py`); dev's `pianoid.py` still forces 4 channels.
 - `/midi_playback` 500: `pretty_midi` imports `pkg_resources` (missing in the venv) — pre-existing env defect (fix: `setuptools` < 81, or drop `pretty_midi`).
 - Legacy ASIO non-callback driver (type 1) indexes its 8-element packet by every device output (pre-existing OOB on > 8-output devices; unused by default).
-- Open user questions: [design note §11](measured-plywood-preset-2026-10-15.md#11-open-questions-for-the-user).
+- **PARKED (user 2026-10-15: "We will work with this preset later, so keep those questions open").** No merge / push. Open questions (design note §11): (1) bass weight (measured band ~34 dB below F15's sub-1 kHz; lift by an offset?), (2) per-channel voltage trims E1..E7 −4.7/−4.5/−0.3/+4.5/+3.5/+0.8/+0.7 dB, (3) boundary to ~1.02 kHz to include the 1010.38 Hz core mode, (4) 220.07 Hz damping 0.83 % vs 1.9 %, (5) string couplings are placeholder F15 columns (no bridge), (6) equalization needs a 39 dB hammer-mass range (58 keys < 2 g), (7) MIDI player: fix venv (`setuptools` < 81) or drop `pretty_midi`.
+- **Any rebuild from dev DROPS the 12-channel engine + output map** from the shared venv; the measured preset (7 channels) then needs this branch rebuilt (`build_pianoid.py --heavy --both --core D:/repos/wt-a709-core`; copy `detect_paths.py` into the worktree root first) and the backend run from `wt-a709-core` with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`.
+- Locks released while parked (re-acquire on resume): Basic `Pianoid/measured_mode_preset.py`, `tests/test_measured_mode_preset.py`; Core `pianoid_middleware/{pianoid.py, audio_channels.py}`, `pianoid_cuda/{constants.h, Pianoid.cu, Pianoid_debug.cu, AsioAudioInterface.cpp/.h, ASIOAudioDriver.cpp, AsioSessionBindings.cpp, AddArraysWithCUDA.cpp}`, the preset, `tests/unit/test_audio_channels.py`, `tests/integration/test_measured_preset_channels.py`.
 - Worktrees `D:/repos/wt-a709-core` (`.venv` JUNCTION -> main venv: unlink before `git worktree remove`) and `D:/repos/wt-a709-basic`.
 
 ## Follow-ups from dev-b59d (2026-10-11) — FPGA converter output role (Basic + Core feature/dev-b59d-output-role, NOT merged)

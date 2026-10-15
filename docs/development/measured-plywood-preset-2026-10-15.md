@@ -1,6 +1,6 @@
 # Measured-modes preset F15_measured_plywood_2026-10-15 (dev-a709)
 
-**Status:** built and verified offline, 2026-10-15. On branch `feature/dev-a709-measured-preset` (PianoidBasic, PianoidCore). Not merged, not pushed.
+**Status:** built, verified offline, equalized and played on the board, 2026-10-15. **PARKED at Phase 1** (user: "We will work with this preset later, so keep those questions open"). Branch `feature/dev-a709-measured-preset` (PianoidBasic, PianoidCore). Not merged, not pushed. The shared venv holds this branch's engine build (12 channels + ASIO output map); a rebuild from dev drops it, and this preset then needs the branch rebuilt.
 
 **User request (2026-10-15):** start from the FPGA-imported preset and replace every mode below 1 kHz with the modes measured on the plywood board. Use all modes found with confidence. Fill 7 sound channels with the measured drive vectors. Give the modes above 1 kHz equal or random channel values. Keep the string couplings as in the FPGA preset. Set the modal masses of the measured modes from the measurement, but critically, at a physically reasonable absolute level. Leave everything above 1 kHz as it is. Use the 196 shaped-modes option.
 
@@ -188,7 +188,7 @@ Setup and routing check:
 All per-output peaks stayed ≤ −31 dBFS (ceiling −30), with E2 at −6 dB. The acoustic result (distortion, rattle,
 balance) was judged by ear by the user; the agent had no listening microphone.
 
-## 11. Open questions for the user
+## 11. Open questions for the user (kept open, user 2026-10-15)
 
 1. **Bass weight.** At physically constant modal masses anchored to the FPGA level at 1 kHz, the measured low modes are about 34 dB weaker than F15's sub-1 kHz modes, and F15's dominant 44.5 Hz mode is gone. Is that the intended "physical" balance, or should the measured band be lifted by a fixed offset (one number)?
 2. **Routing and trims.** Engine channels 0..6 = E1..E7 come out of device outputs 1..7, but E1/E2 are physically on Out 9/10. Also decide whether to apply the per-channel voltage trims (§6) in the output stage or bake them into the rows.
