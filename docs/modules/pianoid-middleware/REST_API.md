@@ -203,7 +203,8 @@ with `utils/commandSchema.js`, and both run the shared `schemas/commands/_confor
 | `POST /command/<name>` | the command's args | `{ok, status, result, jobId?}` (`error` on failure); the HTTP status is the wrapped route's. 400 `invalid_args {details: [{path, message}]}` before any dispatch; 404 `unknown_command`; 409 `wrong_target` (a `launcher` / `ui` command); 503 `modal_unavailable` |
 | WS `command` (acked) | `{name, args, source?, clientId?, opId?, groupId?}` | the same object as the ack |
 | `GET /commands` | — | `{commands: [<registry records + family>], families}` |
-| `GET /commands?format=tools` | — | `{tools: [{name, description, input_schema}]}` — Anthropic tool definitions (dots → `__`, tier and long-running in the description, `excluded` left out) |
+| `GET /commands?format=tools` | — | `{tools: [{name, description, input_schema}]}` — Anthropic tool definitions (dots → `__`, tier and long-running in the description, `excluded` left out; the `ui` family included — it runs through the launcher relay) |
+| `POST :3001/api/command/ui.<…>` (launcher) | the `ui` command's args | relayed to the LEADER tab (I5): `{ok, status, result}`; 503 `no_leader_tab`, 504 `ui_timeout`, 429 `rate_limited`, 423 `blocked_by_user` — see [Tunner UI commands](../pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491). `POST /command/ui.*` on :5000 is 409 `wrong_target` |
 | `GET /command_names` | — | DEPRECATED (`{"commands": ["volume"]}`), superseded by `GET /commands` |
 
 **Execution = re-dispatch of the existing route.** A backend command runs the wrapped Flask route

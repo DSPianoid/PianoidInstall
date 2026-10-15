@@ -35,7 +35,7 @@ Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
 REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on port 5000 before spawning. `start-modal-adapter` kills stale processes on port 5001 before spawning. Both use port-specific WMIC patterns (`backendserver.py` for 5000, `modal_adapter_server.py` for 5001) to catch orphan processes not yet bound to their port. `kill-stale` kills processes on both ports without starting new ones.
 
-Command registry (I4, dev-6026): `GET /api/commands` serves the registry's `launcher` family (read from `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`) and `POST /api/command/<name>` runs `launcher.status` / `launcher.backend.start|stop` / `launcher.modal.start|stop` through the same handlers, with the executor envelope `{ok, status, result | error}`.
+Command registry (I4, dev-6026): `GET /api/commands` serves the registry's `launcher` family (read from `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`) and `POST /api/command/<name>` runs `launcher.status` / `launcher.backend.start|stop` / `launcher.modal.start|stop` through the same handlers, with the executor envelope `{ok, status, result | error}`. It also lists the `ui` family and relays `POST /api/command/ui.*` to the leader tab over `/ws/ui-control` ([UI commands (I5)](#ui-commands-i5-dev-c491)); the two WebSocket paths (`/ws/console`, `/ws/ui-control`) are routed on the server's `upgrade` event.
 
 `stopBackend()` uses a two-phase shutdown: first sends `POST /shutdown` to the Flask backend for graceful GPU cleanup (3-second timeout), then falls back to `taskkill /T /F` if the process is still alive. A `process.on('exit')` handler ensures force-kill as a last resort.
 
@@ -780,7 +780,7 @@ The frontend side of the command registry ([REST_API "Commands and jobs (I4)"](.
   while the socket is connected, else `POST /command/<name>`. A WS ack timeout is **not** retried over REST (the
   command may have run: a save, load or play must never execute twice). `{noAck: true}` = fire-and-forget emit
   (`play.note`), REST when the emit is refused (socket down / degraded). `launcher` → `POST :3001/api/command/<name>`.
-  `ui` → a handler registered with `registerUi(name, fn)` (the layout API, I5).
+  `ui` → a handler registered with `registerUi(name, fn)` — the [UI commands (I5)](#ui-commands-i5-dev-c491).
 - The registry is loaded from `GET :5000/commands` on every (re)connect (`useCommandBus`), falling back to the
   launcher's family (`GET :3001/api/commands`) while the backend is down.
 - Jobs: `useCommandBus` folds the `job_*` events into the bus's job store (`getJobs` / `subscribeJobs`) and returns
@@ -796,6 +796,50 @@ launcher start / stop buttons (`useBackendProcess`), and internal metric renders
 `jest.mock("../../utils/commandBus", () => require("../../testSupport/commandBusRouteMock"))`; the Jest registry
 fixture reads `$PIANOID_COMMANDS_DIR` or `<PianoidInstall>/schemas/commands`. Tests: `utils/__tests__/{commandBus,
 commandSchema}.test.js`.
+
+### UI commands (I5, dev-c491)
+
+The view of a tab — panes, maximized pane, named layout, selection, chart ties (zoom), workbenches — is driven by
+the registry's `ui` family (PianoidInstall `schemas/commands/ui.json`, target `ui`), so the assistant can operate
+the UI with the same verbs as a user. Design: `docs/development/ui-commands-i5-design-2026-10-15.md`.
+
+| Command | Args | Effect / result |
+|---|---|---|
+| `ui.snapshot` (tier read) | — | `{leader, layout, panes, maximized, layoutName, layouts, availablePanes, selection {pitch, pitches, mode, modes, parameter, level}, ties, workbenches}` |
+| `ui.pane.open` / `ui.pane.close` | `pane` | add (window-manager placement) / remove a pane, also a workbench id; closing the maximized pane returns to the multi-pane view |
+| `ui.pane.maximize` / `ui.pane.restore` | `pane` / — | maximize an open pane / leave maximized mode |
+| `ui.layout.reset` / `ui.layout.apply_named` / `ui.layout.set` | — / `name` / `layout` | default layout / a saved named layout / a validated mosaic tree (known panes, no duplicates, open workbenches; the global Workbench re-added) |
+| `ui.select.pitch` / `ui.select.mode` | `pitch` / `mode` (or null) | the single selection |
+| `ui.select.pitch_range` / `ui.select.mode_range` | `range: [from, to]` or null | the global selection; tied charts zoom to it |
+| `ui.select.param` | `groupe`, `name`, `gaussIndex?` | `activateWorkbenchParam` (the global Workbench follows) |
+| `ui.select.level` | `level` pp · p · mf · f · ff | the toolbar velocity level |
+| `ui.chart.tie` | `pane`, `tied` | follow the selection (zoomed) or show the full extent |
+| `ui.workbench.open` / `ui.workbench.focus` | `groupe`, `name`, `kind?` / `id` | spawn a workbench (idempotent for a fixed one: an open one is returned, not toggled closed) / make its parameter active |
+
+- **Ownership.** `utils/uiCommands.js` holds pure handlers over a context; `hooks/useUiCommands.js` registers them
+  with the command bus (`registerUi`) and PianoidTuner passes the owners' live state and actions (`useLayout`
+  maximize / restore / closeMaximized / default, `addWindowToLayout` / `removeWindowFromLayout`,
+  `handleMosaicConfigSelect`, `activateWorkbenchParam`, `handleOpenWorkbench`, the `useCurrentValues` setters).
+  `ui.layout.set` goes through `ensureGlobalWorkbench`; no tree is built ad hoc. Each handler waits for React to
+  commit and returns the affected state, so commands can be chained.
+- **Zoom** = selection + tie: "zoom modes 0–40 in Modes" = `ui.select.mode_range {range: [0, 40]}` +
+  `ui.chart.tie {pane: "Modes", tied: true}`. Pitches are MIDI numbers on the piano axis; the Sound Channels strings
+  axis (output pitches ≥ 128) is SC-local and never follows the global selection.
+- **Errors:** 404 `unknown_pane` / `unknown_layout` / `unknown_groupe` / `unknown_workbench`; 409 `pane_maximized`
+  (restore first) / `pane_not_open`; 400 `invalid_layout {problems}` / `invalid_range`.
+- **Per tab.** Layout state is NOT synced across tabs (each tab keeps its own view). Remote callers drive the
+  **leader** tab: while it leads, `useUiCommands` connects to the launcher relay `ws://localhost:3001/ws/ui-control`
+  (`{type: "register", clientId}`; the newest registration wins) and answers `{type: "command", requestId, name,
+  args, source}` with the bus result. Followers never register; a tab that stopped leading answers 409
+  `not_leader`. Remote entry point: `POST :3001/api/command/ui.<…>` (source = `X-Pianoid-Source`, default
+  `remote`) → 503 `no_leader_tab` / 504 `ui_timeout` (10 s) / 429 `rate_limited` (> 10 per second)
+  (`server/uiControlRelay.js`). `POST :5000/command/ui.*` stays 409 `wrong_target`.
+- **Safety.** View only (no backend writes). While remote commands arrive the leader shows a chip "Layout driven by
+  <source>" with **Stop** (`components/UiRemoteChip.jsx`): Stop refuses further REMOTE ui commands in this tab (423
+  `blocked_by_user`) until **Allow**; local dispatches are never blocked. Every dispatch is recorded in the
+  `actionRecorder` with its source. `ui` commands are included in `GET /commands?format=tools`.
+- Tests: `utils/__tests__/uiCommands.test.js` (handlers through the real bus + registry, tree validation, relay),
+  `hooks/__tests__/useUiCommands.test.jsx` (leader-only registration, relayed result, Stop / Allow).
 
 ### `useBackendSync` + `useStateReconcilers` (I2, dev-fbcb)
 

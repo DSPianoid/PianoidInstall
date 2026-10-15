@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-13 · **Author:** `/analyse` (orchestrator-dispatched, research + docs only, no source edits)
 **Status:** PROPOSAL — dispatchable as `/dev` tasks once the user approves the sequencing (§8)
-**Progress (2026-10-14):** I0 + I1 IMPLEMENTED (dev-960f, merged Core dev 7ba5afc). **I2 IMPLEMENTED** (dev-fbcb, merged Core dev 5fb3dd6, Tunner dev b39e523, docs master 6fb91da; live UI regression of every editor in two tabs passed). Latency: p95 96.5 ms met, p50 86.6 ms vs the 50 ms target not met (re-render cost, WIP follow-up). **I3 IMPLEMENTED** (dev-3b52, merged PianoidCore dev fde2151 / PianoidTunner dev 1249232 / PianoidInstall master 94a95e8; live two-tab verification of every editor's undo/redo passed). **I4 (I4.0–I4.2) IMPLEMENTED on branches, NOT merged** (dev-6026, Phase 1: registry `schemas/commands` + executor `/command` / WS `command` / `/commands` + jobs with calibration / modal / MIDI adapters + FE command bus with the playback / preset / render families migrated; I4.3 panel migration open). I5 open.
+**Progress (2026-10-14):** I0 + I1 IMPLEMENTED (dev-960f, merged Core dev 7ba5afc). **I2 IMPLEMENTED** (dev-fbcb, merged Core dev 5fb3dd6, Tunner dev b39e523, docs master 6fb91da; live UI regression of every editor in two tabs passed). Latency: p95 96.5 ms met, p50 86.6 ms vs the 50 ms target not met (re-render cost, WIP follow-up). **I3 IMPLEMENTED** (dev-3b52, merged PianoidCore dev fde2151 / PianoidTunner dev 1249232 / PianoidInstall master 94a95e8; live two-tab verification of every editor's undo/redo passed). **I4 (I4.0–I4.2) IMPLEMENTED on branches, NOT merged** (dev-6026, Phase 1: registry `schemas/commands` + executor `/command` / WS `command` / `/commands` + jobs with calibration / modal / MIDI adapters + FE command bus with the playback / preset / render families migrated; I4.3 panel migration open). **I5 IMPLEMENTED on branches, NOT merged** (dev-c491, stacked on dev-6026: the `ui` command family + launcher `/ws/ui-control` leader relay + Stop/Allow chip; layout state per tab).
 **Parent:** [AI Assistant in the Pianoid UI](ai-assistant-in-ui-2026-10-13.md). That doc covers the assistant itself. This doc covers everything that must exist **before** it.
 **Driver (user, Telegram 2026-10-13 18:37 UTC):** *"The assistant should be able to modify parameters, change windows layouts, and initiate any actions like playback, measurement etc. Plan necessary infrastructure update before the assistant implementation. The editors should be synchronized with the backend on any change."*
 
@@ -140,6 +140,8 @@ These items depend on [`#data-model-facts`](../PROJECT_CONFIG.md#data-model-fact
 ---
 
 ## 5. I5: Layout control API (FE command bus)
+
+**Status (dev-c491, 2026-10-15):** implemented — contract: [Tunner UI commands (I5)](../modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491); design: `docs/development/ui-commands-i5-design-2026-10-15.md`. The relay is the launcher WS path `/ws/ui-control` (not a socket.io namespace; the launcher speaks plain `ws`).
 
 | Piece | Spec |
 |---|---|
