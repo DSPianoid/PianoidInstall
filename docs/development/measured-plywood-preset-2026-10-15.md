@@ -191,7 +191,7 @@ balance) was judged by ear by the user; the agent had no listening microphone.
 ## 11. Open questions for the user (kept open, user 2026-10-15)
 
 1. **Bass weight.** At physically constant modal masses anchored to the FPGA level at 1 kHz, the measured low modes are about 34 dB weaker than F15's sub-1 kHz modes, and F15's dominant 44.5 Hz mode is gone. Is that the intended "physical" balance, or should the measured band be lifted by a fixed offset (one number)?
-2. **Routing and trims.** Engine channels 0..6 = E1..E7 come out of device outputs 1..7, but E1/E2 are physically on Out 9/10. Also decide whether to apply the per-channel voltage trims (§6) in the output stage or bake them into the rows.
+2. **Voltage trims.** Routing is solved (the output map, §9). Should the per-channel voltage trims (§6: E1..E7 −4.7 / −4.5 / −0.3 / +4.5 / +3.5 / +0.8 / +0.7 dB) be applied in the output stage, baked into the rows, or left off?
 3. **Boundary.** The live-validated 1010.38 Hz mode is excluded by the strict 1 kHz boundary. Should the boundary move to about 1.02 kHz to include it (one FPGA mode at 1019.6 Hz would be dropped)?
 4. **220.07 Hz damping.** 0.83 % is kept; 1.9 % is the alternative.
 5. **Couplings.** The nearest-frequency F15 columns are a placeholder: this board has no bridge or string positions. Keep them, or derive couplings from the measured shapes at notional bridge points?
