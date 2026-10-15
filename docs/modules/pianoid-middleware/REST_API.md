@@ -34,6 +34,8 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | **State changes (SSOT I1)** | `state_changed` / `preset_changed` / `session_changed` / `domain_invalidated` / `engine_busy` | Server -> ALL clients (push) — see [State events](#state-events-ssot-i1) |
 | Latency measurement + I2 liveness probe | `ping_ws` (acked; optional payload) / `pong_ws` | Bidirectional |
 | Reconnect / gap handshake (I2) | `hello {clientId, boot, lastSeq}` → ack `{ok, boot, seq, events \| resync}` | Client -> Server (request/response) |
+| Registry command (I4) | `command {name, args, …}` → ack `{ok, status, result, jobId?}` — see [Commands and jobs](#commands-and-jobs-i4) | Client -> Server (request/response) |
+| Job lifecycle (I4) | `job_started` / `job_progress` / `job_finished` / `job_failed` / `job_cancelled` | Server -> ALL clients (push) |
 
 **Binary frame format** for minimum-latency note input: 3 bytes `[command, pitch, velocity]`.
 
@@ -175,6 +177,77 @@ Verified (dev-960f, live :5002 + python-socketio client): every write path → e
 event(s), seq gapless; `tests/integration/test_state_events.py` (18 paths, no emit by a thread holding
 `cuda_lock`); `tests/unit/test_state_journal.py`.
 
+### Commands and jobs (I4) {#commands-and-jobs-i4}
+
+One declarative **command registry** fronts the routes, so the UI, REST, WS, curl, MCP and the assistant make
+literally the same call (dev-6026; design: `docs/development/command-layer-i4-design-2026-10-14.md`).
+
+**Registry.** PianoidInstall `schemas/commands/<family>.json` (families `playback`, `preset`, `render`,
+`param`, `history`, `calibration`, `modal`, `job`, `launcher`). Each command: `name` (`play.note`,
+`preset.save`, `render.note_playback`, `param.set`, `calibration.synthesis`, `modal.run_stage`, `job.cancel`,
+…), `target` (`backend` · `modal` · `launcher` · `ui`), `tier` (`read` · `ui` · `act` · `write` ·
+`destructive` · `excluded`, the assistant envelope tier of the parent proposal §4.1; UI / REST callers may
+run every tier, `excluded` is never exported as a tool), `long_running`, `doc` (the MkDocs anchor of the
+wrapped route), `route` and the `args` / `result` JSON Schemas. `route` = `{method, path, fixed?,
+body_arg?}`: `{arg}` path placeholders are filled from the args, `fixed` values are merged into the body
+(e.g. `play.keyboard` = `/play_keyboard {mode: "online"}`, `render.keyboard` = `{mode: "offline"}`),
+`body_arg` makes one arg the whole body (`param.set` → `values`), the other args are the JSON body (the
+query string for a GET). Core reads `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`;
+a missing registry fails the backend import (fail fast). The schemas use a declared draft-07 subset
+(`type`, `properties`, `required`, `additionalProperties`, `enum`, `const`, `minimum`, `maximum`,
+`minItems`, `maxItems`, `items`, `oneOf` + annotations): Core validates with `jsonschema`, the frontend
+with `utils/commandSchema.js`, and both run the shared `schemas/commands/_conformance.json` cases.
+
+| Route / event | Body | Result |
+|---|---|---|
+| `POST /command/<name>` | the command's args | `{ok, status, result, jobId?}` (`error` on failure); the HTTP status is the wrapped route's. 400 `invalid_args {details: [{path, message}]}` before any dispatch; 404 `unknown_command`; 409 `wrong_target` (a `launcher` / `ui` command); 503 `modal_unavailable` |
+| WS `command` (acked) | `{name, args, source?, clientId?, opId?, groupId?}` | the same object as the ack |
+| `GET /commands` | — | `{commands: [<registry records + family>], families}` |
+| `GET /commands?format=tools` | — | `{tools: [{name, description, input_schema}]}` — Anthropic tool definitions (dots → `__`, tier and long-running in the description, `excluded` left out) |
+| `GET /command_names` | — | DEPRECATED (`{"commands": ["volume"]}`), superseded by `GET /commands` |
+
+**Execution = re-dispatch of the existing route.** A backend command runs the wrapped Flask route
+in-process (`command_registry.dispatch_route`: a fresh app context + `test_request_context` +
+`full_dispatch_request`), with the caller's source as the `X-Pianoid-*` headers (REST: passed through,
+default `rest`; WS: the payload fields, default `ws`; the frontend bus sends `fe`). The journal hooks, the
+`write_routes` classification, the read-only guard and the error handlers therefore run exactly as for a
+direct call: the same command via the route, `/command` or WS `command` produces identical journal entries
+except `source` (`tests/integration/test_command_contract.py`), and one command is one undo group.
+`/command` and WS `command` themselves are classified `action`. A `modal` command is forwarded to the modal
+adapter (`$PIANOID_MODAL_URL`, default `http://127.0.0.1:5001`) with the same body.
+
+**Jobs** (`job_manager.py`, `command_routes.py`). A long-running command returns `jobId` at once (also added
+to the wrapped route's own JSON response) and the job reports to ALL clients:
+
+| Event | Payload |
+|---|---|
+| `job_started` | `{job}` |
+| `job_progress` | `{jobId, pct, stage, msg}` (≤ 10 Hz per job) |
+| `job_finished` | `{jobId, result, job}` |
+| `job_failed` | `{jobId, error, job}` |
+| `job_cancelled` | `{jobId, result, job}` |
+
+`job` = `{id, name, family, state (pending · running · finished · failed · cancelled), pct, stage, msg,
+result, error, started_at, finished_at, source}`. The events are unsequenced UI hints (like
+`history_changed`); a reconnecting client re-reads `job.list` (the newest 50 jobs). Jobs are created **per
+route**: a request to the route of a long-running command opens a pending job before the view runs and
+accepts it after a 2xx (an error status drops it), so a job also exists when an old panel or curl calls
+the route directly. The family adapters (one active job per family):
+
+| Family (commands) | Progress | End | `job.cancel` → |
+|---|---|---|---|
+| `calibration` (`calibration.synthesis`, `calibration.acoustic`) | the `calibration` progress emitter (`progress` × 100, `step`, `message`) | the worker's return value (`job_finished`) or exception (`job_failed`) | `calibration.cancel` |
+| `modal` (`modal.run_stage`) | `:5001 GET /modal/status` polled every 0.5 s (`current_point / total_points`) | status `done` / `error`; a stage answering without `task_id` ran synchronously and its response is the result | `modal.cancel` |
+| `midi_playback` (`play.midi_file`) | `get_online_midi_playback_status()` polled every 0.5 s | `complete` / playback inactive | `play.midi_file_stop` |
+
+A cancelled job ends as `job_cancelled` with the partial result. Measured live (dev-6026, worktree stack, two tabs): the UI's Calibrate Synthesis
+(an old panel calling the route directly) → `job_started` + 84 `job_progress` + `job_finished`, one undo group,
+and the second tab's job store showed it finished; `calibration.synthesis` via WS `command` (source `assistant`)
++ `job.cancel` after 5 progress events → `job_cancelled` 6 pitches in, then `history.undo` restored every stored
+hammer mass byte-identically. `play.note` through WS `command` vs the raw `play` event (ack round trip, 200 note-offs,
+3 runs): added p50 0.53–0.59 ms, added p95 0.64–0.79 ms. The old channels (`calibration`,
+`midi_progress`, `/calibration_status`, `/modal/status`) are unchanged.
+
 **Dependencies:** `flask-socketio>=5.3`, `python-socketio>=5.10` (backend); `socket.io-client@^4.7` (frontend).
 
 **Configuration:** `async_mode="threading"` for cuda_lock compatibility. `cors_allowed_origins="*"` for localhost deployment. Server started via `socketio.run()` instead of `app.run()`.
@@ -192,7 +265,9 @@ event(s), seq gapless; `tests/integration/test_state_events.py` (18 paths, no em
   /load_preset              -- initialize engine
   /save_preset              -- persist preset
   /reset                    -- reset engine state
-  /command_names            -- available command names
+  /commands                 -- command registry (I4); ?format=tools = tool definitions
+  /command/<name>           -- run a registry command (I4)
+  /command_names            -- DEPRECATED, superseded by /commands
   /graph_names              -- chart and action type catalogue
   /get_parameter/<p>/<k>    -- read simulation parameters
   /set_parameter/<p>/<k>    -- write simulation parameters
@@ -2037,7 +2112,7 @@ The matching WebSocket handlers emit an `error` event with
 
 ### `GET /command_names`
 
-Returns available command names.
+**Deprecated** — superseded by `GET /commands` ([Commands and jobs](#commands-and-jobs-i4)). Returns a stub list.
 
 Response `200`:
 ```json
@@ -2248,7 +2323,7 @@ Response `200` (in progress):
 
 ### `POST /calibration_cancel`
 
-Cancels a running keyboard equalization. The equalization thread stops after the current pitch completes.
+Cancels a running calibration pass (synthesis / acoustic). The pass stops after the current pitch completes. (Until dev-6026 the synthesis and acoustic passes ignored the cancel and ran to the end: the tuners poll a copy of the running flag that `cancel()` now flips too. A pass the engine refuses — not `PLAYBACK_ACTIVE` — no longer leaves the controller `running`, which used to 409 every later pass.)
 
 Response `200`:
 ```json

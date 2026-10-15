@@ -1,0 +1,56 @@
+{
+  "family": "job",
+  "description": "The job model of long-running commands (calibration, modal stages, MIDI file playback). Served by the :5000 executor itself.",
+  "commands": [
+    {
+      "name": "job.list",
+      "title": "List jobs",
+      "description": "The recent jobs (newest first, up to 50): {id, name, family, state, pct, stage, msg, result, error, started_at, finished_at, source}.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#commands-and-jobs-i4",
+      "route": {"internal": "job.list"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "job.get",
+      "title": "Get a job",
+      "description": "One job by id.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#commands-and-jobs-i4",
+      "route": {"internal": "job.get"},
+      "args": {
+        "type": "object",
+        "required": ["jobId"],
+        "additionalProperties": false,
+        "properties": {
+          "jobId": {"type": "string"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "job.cancel",
+      "title": "Cancel a job",
+      "description": "Cancels a running job through its family's own cancel (calibration -> calibration.cancel, modal -> modal.cancel, midi_playback -> play.midi_file_stop).",
+      "target": "backend",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#commands-and-jobs-i4",
+      "route": {"internal": "job.cancel"},
+      "args": {
+        "type": "object",
+        "required": ["jobId"],
+        "additionalProperties": false,
+        "properties": {
+          "jobId": {"type": "string"}
+        }
+      },
+      "result": {"type": "object"}
+    }
+  ]
+}
