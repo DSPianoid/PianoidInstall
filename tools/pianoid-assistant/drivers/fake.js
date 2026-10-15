@@ -17,6 +17,7 @@ export const DEFAULT_SCRIPT = [
   },
   { match: 'play', steps: [{ tool: 'mcp__pianoid__play__note', input: { pitch: 60, velocity: 80 } }, { say: 'Played C4.' }] },
   { match: 'save', steps: [{ tool: 'mcp__pianoid__preset__save', input: { path: 'presets/assistant_fake_test.json' } }, { say: 'Save step finished.' }] },
+  { match: 'calibrate', steps: [{ tool: 'mcp__pianoid__calibration__synthesis', input: { pitches: [60] } }, { say: 'Calibration step finished.' }] },
   { match: 'research', steps: [{ escalate: 'multi-step analysis' }, { say: 'Escalated.' }] },
 ];
 

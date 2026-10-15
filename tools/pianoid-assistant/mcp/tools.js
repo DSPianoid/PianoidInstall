@@ -43,9 +43,9 @@ export function toolFor(cmd) {
   };
 }
 
-/** The tools a role sees: every registry command it may ever run (+ search_docs), sorted. */
-export function listTools(commands, role = 'owner', settings = {}) {
-  return [...commands.filter((c) => listedFor(c, role, settings)).map(toolFor), SEARCH_DOCS]
+/** Every registry command that may ever run (+ search_docs), sorted. */
+export function listTools(commands, settings = {}) {
+  return [...commands.filter((c) => listedFor(c, settings)).map(toolFor), SEARCH_DOCS]
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -56,9 +56,8 @@ export function endpointFor(cmd) {
 }
 
 /** Run one command over HTTP; returns the executor envelope {ok, status, result | error}. */
-export async function callCommand(cmd, args, { source = 'assistant', client = null, fetchImpl = fetch } = {}) {
+export async function callCommand(cmd, args, { source = 'assistant', fetchImpl = fetch } = {}) {
   const headers = { 'Content-Type': 'application/json', 'X-Pianoid-Source': source };
-  if (client) headers['X-Pianoid-Client'] = client;
   let res;
   try {
     res = await fetchImpl(endpointFor(cmd), { method: 'POST', headers, body: JSON.stringify(args || {}) });

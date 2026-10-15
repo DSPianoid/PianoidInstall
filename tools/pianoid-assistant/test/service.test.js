@@ -69,10 +69,9 @@ function fakePianoid() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, calls, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
-async function startService(extraConfig) {
+async function startService() {
   const fake = await fakePianoid();
   const home = tmpHome();
-  if (extraConfig) fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify(extraConfig));
   const svc = createAssistantService({
     env: { ...process.env, ANTHROPIC_API_KEY: '', PIANOID_ASSISTANT_HOME: home, PIANOID_BACKEND_URL: fake.url, PIANOID_LAUNCHER_URL: fake.url },
     port: 0, driver: 'fake',
@@ -101,7 +100,7 @@ test('turn: ui command runs through policy + the real MCP server; context block;
   try {
     t.send({ type: 'hello' });
     const st = await t.waitFor((m) => m.type === 'state');
-    assert.equal(st.role, 'owner');
+    assert.equal(st.user, undefined);                // no user management (D5)
     assert.equal(st.model.current, 'claude-sonnet-5-5');
     t.send({ type: 'turn', text: 'open Modes' });
     await t.waitFor((m) => m.type === 'message' && m.role === 'assistant');
@@ -109,7 +108,7 @@ test('turn: ui command runs through policy + the real MCP server; context block;
     assert.ok(call, JSON.stringify(t.fake.calls.map((c) => c.url)));
     assert.equal(JSON.parse(call.body).pane, 'Modes');
     assert.equal(call.source, 'assistant');
-    assert.equal(call.client, 'assistant/owner');
+    assert.equal(call.client, undefined);
     assert.ok(t.fake.calls.some((c) => c.url === '/api/command/ui.snapshot'));      // per-turn context
     const act = t.msgs.filter((m) => m.type === 'activity').map((m) => m.entry).find((e) => e.command === 'ui.pane.open');
     assert.equal(act.decision, 'allow');
@@ -135,26 +134,17 @@ test('confirm round trip for a destructive command (owner): reject then accept',
   } finally { await t.close(); }
 });
 
-test('collaborator: destructive denied without asking; switching user restarts with the role', async () => {
-  const t = await startService({ users: [{ id: 'owner', name: 'Leonid', role: 'owner' }, { id: 'dima', name: 'Dima', role: 'collaborator' }], activeUser: 'owner' });
+test('data opt-out: measurement tools denied without asking; restarts the session', async () => {
+  const t = await startService();
   try {
-    t.send({ type: 'settings', addUser: { name: 'Guest Two', role: 'collaborator' } });
-    const added = await t.waitFor((m) => m.type === 'state' && m.users.length === 3);
-    assert.deepEqual(added.users[2], { id: 'guest-two', name: 'Guest Two', role: 'collaborator' });
-    t.send({ type: 'settings', user: 'dima' });
-    const st = await t.waitFor((m) => m.type === 'state' && m.role === 'collaborator');
-    assert.equal(st.user.name, 'Dima');
-    t.send({ type: 'turn', text: 'save it' });
+    t.send({ type: 'settings', dataOptOut: true });
+    await t.waitFor((m) => m.type === 'state' && m.dataOptOut === true);
+    t.send({ type: 'turn', text: 'calibrate now' });
     await t.waitFor((m) => m.type === 'busy' && m.busy === false);
     assert.ok(!t.msgs.some((m) => m.type === 'confirm'));
-    const act = t.msgs.filter((m) => m.type === 'activity').map((m) => m.entry).find((e) => e.command === 'preset.save');
+    const act = t.msgs.filter((m) => m.type === 'activity').map((m) => m.entry).find((e) => e.command === 'calibration.synthesis');
     assert.equal(act.decision, 'deny');
-    assert.equal(act.user, 'Dima');
-    assert.ok(!t.fake.calls.some((c) => c.url === '/command/preset.save'));
-    t.send({ type: 'turn', text: 'play' });
-    await t.waitFor((m) => m.type === 'message' && m.role === 'assistant' && /Played/.test(m.text));
-    const play = t.fake.calls.find((c) => c.url === '/command/play.note');
-    assert.equal(play.client, 'assistant/dima');
+    assert.ok(!t.fake.calls.some((c) => c.url === '/command/calibration.synthesis'));
   } finally { await t.close(); }
 });
 
@@ -186,11 +176,12 @@ test('SDK options of the real runtime: no built-in tools, no settings, strict si
     assert.deepEqual(o.settingSources, []);
     assert.equal(o.strictMcpConfig, true);
     assert.deepEqual(Object.keys(o.mcpServers).sort(), ['assistant', 'pianoid']);
-    assert.ok(o.mcpServers.pianoid.args.includes('--role') && o.mcpServers.pianoid.args.includes('owner'));
+    assert.ok(!o.mcpServers.pianoid.args.includes('--role'));
     assert.ok(o.cwd.startsWith(t.svc.paths.root));
     assert.ok(!o.cwd.toLowerCase().includes('pianoidinstall'));
     assert.equal(o.env.CLAUDE_CONFIG_DIR, t.svc.paths.claudeHome);
     assert.equal(o.env.ANTHROPIC_API_KEY, undefined);
+    assert.equal(o.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1');
     assert.equal(typeof o.systemPrompt, 'string');
     assert.equal(o.permissionMode, 'default');
   } finally { await t.close(); }

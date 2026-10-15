@@ -45,7 +45,7 @@ export function createAssistantService({
   };
   const statusBody = () => ({
     ok: true, driver, login, paths: { root: paths.root, claudeHome: paths.claudeHome, workspace: paths.workspace },
-    loginCommand: loginCommand(paths), busy: session.busy, user: session.user, model: session.model,
+    loginCommand: loginCommand(paths), busy: session.busy, model: session.model,
   });
 
   const server = http.createServer((req, res) => {

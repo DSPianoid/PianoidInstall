@@ -5,9 +5,9 @@ The AI assistant of the Pianoid UI (proposal: `docs/proposals/ai-assistant-in-ui
 
 | Part | Phase | What |
 |---|---|---|
-| `mcp/server.js` | A4 | stdio MCP server: every command-registry command (`schemas/commands`) as a tool (`play.note` → `play__note`), tier annotations, `search_docs`; `--role collaborator` hides and refuses destructive / process-control tools |
+| `mcp/server.js` | A4 | stdio MCP server: every command-registry command (`schemas/commands`) as a tool (`play.note` → `play__note`), tier annotations, `search_docs`; excluded (and opted-out) tools hidden and refused |
 | `service/server.js` | A1 | the assistant service on `127.0.0.1:3002` (spawned by the launcher): Claude Code headless through the Claude Agent SDK on the user's **subscription**, in an **isolated Claude home**; the pane protocol over WS `/ws` |
-| `policy.js` | A4 / A1 | the permission policy (D3 / D4 / D5), called for every tool call |
+| `policy.js` | A4 / A1 | the permission policy (D3 / D4), called for every tool call |
 
 ## Setup
 
@@ -35,17 +35,20 @@ while the service is down (`launcher.assistant.start`).
   paid API).
 - SDK options: `tools: []` (no built-in tool: no Bash, Read, Edit, Web…), `settingSources: []` (no settings, no
   CLAUDE.md), `strictMcpConfig: true` with only the `pianoid` MCP server and the in-process `escalate_model` tool, a
-  custom system prompt (`service/prompt.js`).
+  custom system prompt (`service/prompt.js`), `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
 
 ## Policy
 
-| | owner | collaborator |
-|---|---|---|
-| read, ui, act (playback, renders), `search_docs` | run | run |
-| write (`param.set`, `runtime.set`, `preset.switch`, `history.*`, …) | confirm (direct within the envelope from A2) | confirm |
-| destructive (save, promote, full load, unload, calibration, modal jobs) | confirm | denied |
-| launcher process control | confirm | denied |
-| "Block measurement data" switch on | modal / calibration denied | same |
+One installation = one user (D5: no user management): a collaborator runs Pianoid on their own system or in their own
+directory / OS account, with their own assistant home and their own subscription login.
+
+| | |
+|---|---|
+| read, ui, act (playback, renders), `search_docs` | run |
+| write (`param.set`, `runtime.set`, `preset.switch`, `history.*`, …) | confirm (direct within the envelope from A2) |
+| destructive (save, promote, full load, unload, calibration, modal jobs) | confirm |
+| launcher process control | confirm |
+| "Block measurement data" switch on | modal / calibration denied |
 
 Confirms are answered in the pane; Stop interrupts the turn, declines pending confirms and cancels the turn's jobs.
 

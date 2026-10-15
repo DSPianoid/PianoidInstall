@@ -807,14 +807,14 @@ the command registry). Proposal + user decisions D1–D7: `docs/proposals/ai-ass
 `docs/development/assistant-a4-a1-design-2026-10-15.md`; package README `tools/pianoid-assistant/README.md`.
 
 - `components/Assistant/AssistantPane.jsx` + `hooks/useAssistant.js` (WS `ws://127.0.0.1:3002/ws`, pure
-  `assistantReducer`): user selector + add user (owner / collaborator, D5: the selector is not authentication), role
-  chip, model picker (Auto = Sonnet 5.5 with self-escalation to Opus 5.5 shown on the model chip; or Sonnet / Opus
+  `assistantReducer`): model picker (Auto = Sonnet 5.5 with self-escalation to Opus 5.5 shown on the model chip; or Sonnet / Opus
   forced, D2), usage indicator (the plan window from the SDK `rate_limit_event` + token totals; no caps, D7), "Block
-  measurement data" switch (D4, default off), Chat (streamed) and Activity (every tool call with its policy decision,
-  user and role) tabs, Stop, a confirm dialog for gated commands, the one-time login command while the isolated home is
+  measurement data" switch (D4, default off), Chat (streamed) and Activity (every tool call with its policy decision)
+  tabs, Stop, a confirm dialog for gated commands, the one-time login command while the isolated home is
   not logged in, and **Start assistant** while the service is down.
 - Policy (the service's `canUseTool`, never the prompt): read / ui / act (incl. renders) run; writes confirm until the
-  A2 envelope; destructive and launcher control confirm for an owner and are denied for a collaborator.
+  A2 envelope; destructive and launcher control confirm. One installation = one user (D5): a collaborator runs their
+  own Pianoid installation / OS account with their own assistant login; there is no in-app user management.
 - The assistant drives this UI through the I5 `ui` commands (leader tab), so its pane opening / zooming shows the
   "Layout driven by assistant" chip.
 

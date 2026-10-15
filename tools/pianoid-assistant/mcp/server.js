@@ -3,12 +3,12 @@
  * Pianoid MCP server (assistant phase A4): every command-registry command as an MCP tool, plus
  * search_docs. stdio transport.
  *
- *   node mcp/server.js [--role owner|collaborator] [--source assistant|mcp] [--client <label>]
+ *   node mcp/server.js [--source assistant|mcp] [--data-opt-out true]
  *
- * --role collaborator hides (and refuses) what a collaborator may never run (D5); the assistant
- * service's canUseTool policy is the primary gate, this is defence in depth. Used by the assistant
- * runtime (the service spawns it through the Agent SDK) and standalone by Claude Code / the
- * orchestrator (.mcp.json), where Claude Code's own permission prompt confirms destructive tools.
+ * Excluded commands are never listed and denied tools are refused (defence in depth; the assistant
+ * service's canUseTool policy is the primary gate). Used by the assistant runtime (the service
+ * spawns it through the Agent SDK) and standalone by Claude Code / the orchestrator (.mcp.json),
+ * where Claude Code's own permission prompt confirms destructive tools.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,14 +26,14 @@ const arg = (name, fallback) => {
 };
 
 export function createPianoidMcpServer({
-  role = 'owner', source = 'mcp', client = null, commands = loadCommands(),
+  source = 'mcp', commands = loadCommands(),
   docsDir = path.join(INSTALL_ROOT, 'docs'), fetchImpl = fetch, settings = {},
 } = {}) {
   const byName = new Map(commands.map((c) => [c.name, c]));
   let docs = null;
   const server = new Server({ name: 'pianoid', version: '0.1.0' }, { capabilities: { tools: {} } });
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listTools(commands, role, settings) }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listTools(commands, settings) }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args = {} } = req.params;
@@ -47,9 +47,9 @@ export function createPianoidMcpServer({
     }
     const cmd = byName.get(commandName(name));
     if (!cmd) return text({ error: 'unknown_tool', tool: name }, true);
-    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, role, settings });
+    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings });
     if (verdict.action === 'deny') return text({ error: 'denied', reason: verdict.reason }, true);
-    const res = await callCommand(cmd, args, { source, client, fetchImpl });
+    const res = await callCommand(cmd, args, { source, fetchImpl });
     return text(compact(res), !res.ok);
   });
   return server;
@@ -59,7 +59,7 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   const settings = { dataOptOut: arg('data-opt-out', 'false') === 'true' };
   const server = createPianoidMcpServer({
-    role: arg('role', 'owner'), source: arg('source', 'mcp'), client: arg('client', null), settings,
+    source: arg('source', 'mcp'), settings,
   });
   await server.connect(new StdioServerTransport());
 }

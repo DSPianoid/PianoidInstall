@@ -14,32 +14,25 @@ import { buildIndex, search, slugify, pageUrl } from '../mcp/docsIndex.js';
 
 const COMMANDS = loadCommands();
 const byName = Object.fromEntries(COMMANDS.map((c) => [c.name, c]));
-const d = (name, role = 'owner', settings = {}) => {
+const d = (name, settings = {}) => {
   const c = byName[name];
-  return decide({ command: c.name, tier: c.tier, family: c.family, role, settings }).action;
+  return decide({ command: c.name, tier: c.tier, family: c.family, settings }).action;
 };
 
-test('policy: D3 / D5 table on the real registry tiers', () => {
-  for (const n of ['ui.snapshot', 'ui.pane.open', 'play.note', 'render.note_playback', 'render.chart', 'param.get', 'job.list', 'search_docs'].filter((x) => byName[x])) {
+test('policy: D3 table on the real registry tiers (single user, D5)', () => {
+  for (const n of ['ui.snapshot', 'ui.pane.open', 'play.note', 'render.note_playback', 'render.chart', 'param.get', 'job.list']) {
     assert.equal(d(n), 'allow', n);
-    assert.equal(d(n, 'collaborator'), 'allow', n);
   }
-  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) {
-    assert.equal(d(n), 'confirm', n);                 // until the A2 envelope
-    assert.equal(d(n, 'collaborator'), 'confirm', n);
-  }
+  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'confirm', n);   // until A2
   for (const n of ['preset.save', 'preset.promote', 'preset.load', 'preset.unload', 'calibration.synthesis', 'modal.run_stage', 'modal.apply_to_preset']) {
     assert.equal(d(n), 'confirm', n);
-    assert.equal(d(n, 'collaborator'), 'deny', n);
   }
   assert.equal(d('launcher.backend.start'), 'confirm');
-  assert.equal(d('launcher.backend.start', 'collaborator'), 'deny');
-  assert.equal(d('launcher.status', 'collaborator'), 'allow');
+  assert.equal(d('launcher.status'), 'allow');
   assert.equal(d('launcher.backend.stop'), 'deny');                      // excluded tier
-  assert.equal(d('calibration.status', 'owner', { dataOptOut: true }), 'deny');
-  assert.equal(d('modal.status', 'owner', { dataOptOut: true }), 'deny');
-  assert.equal(d('play.note', 'owner', { dataOptOut: true }), 'allow');
-  assert.equal(decide({ command: 'x', tier: 'read', role: 'guest' }).action, 'deny');
+  assert.equal(d('calibration.status', { dataOptOut: true }), 'deny');
+  assert.equal(d('modal.status', { dataOptOut: true }), 'deny');
+  assert.equal(d('play.note', { dataOptOut: true }), 'allow');
 });
 
 test('renders are act tier (D3), excluded never listed', () => {
@@ -69,7 +62,7 @@ const fakeFetch = () => {
   return fn;
 };
 
-test('MCP list: registry tools with tier annotations; collaborator filtering', async () => {
+test('MCP list: registry tools with tier annotations; data opt-out hides measurement tools', async () => {
   const owner = await connect({ fetchImpl: fakeFetch() });
   const { tools } = await owner.listTools();
   const t = Object.fromEntries(tools.map((x) => [x.name, x]));
@@ -79,26 +72,25 @@ test('MCP list: registry tools with tier annotations; collaborator filtering', a
   assert.equal(t.param__get.annotations.idempotentHint, true);
   assert.deepEqual(t.play__note.inputSchema, byName['play.note'].args);
   assert.match(t.play__note.description, /tier: act/);
-  const collab = await connect({ role: 'collaborator', fetchImpl: fakeFetch() });
-  const cnames = (await collab.listTools()).tools.map((x) => x.name);
-  for (const n of ['preset__save', 'calibration__synthesis', 'modal__run_stage', 'launcher__backend__start']) assert.ok(!cnames.includes(n), n);
-  for (const n of ['param__set', 'play__note', 'ui__pane__open', 'render__note_playback']) assert.ok(cnames.includes(n), n);
+  const optOut = await connect({ settings: { dataOptOut: true }, fetchImpl: fakeFetch() });
+  const names = (await optOut.listTools()).tools.map((x) => x.name);
+  assert.ok(!names.includes('modal__run_stage') && !names.includes('calibration__synthesis'));
+  assert.ok(names.includes('play__note'));
 });
 
-test('MCP call: backend -> :5000/command, ui -> :3001/api/command, source + client headers; collaborator refused', async () => {
+test('MCP call: backend -> :5000/command, ui -> :3001/api/command, source header; denied tool refused', async () => {
   const f = fakeFetch();
-  const client = await connect({ source: 'assistant', client: 'assistant/leonid', fetchImpl: f });
+  const client = await connect({ source: 'assistant', fetchImpl: f });
   let r = await client.callTool({ name: 'play__note', arguments: { pitch: 60 } });
   assert.equal(r.isError, false);
   assert.equal(f.calls[0].url, 'http://127.0.0.1:5000/command/play.note');
   assert.equal(f.calls[0].headers['X-Pianoid-Source'], 'assistant');
-  assert.equal(f.calls[0].headers['X-Pianoid-Client'], 'assistant/leonid');
+  assert.equal(f.calls[0].headers['X-Pianoid-Client'], undefined);
   r = await client.callTool({ name: 'ui__pane__open', arguments: { pane: 'Modes' } });
   assert.equal(f.calls[1].url, 'http://127.0.0.1:3001/api/command/ui.pane.open');
-  const collab = await connect({ role: 'collaborator', fetchImpl: f });
-  r = await collab.callTool({ name: 'preset__save', arguments: { path: 'presets/x.json' } });
+  r = await client.callTool({ name: 'launcher__backend__stop', arguments: {} });
   assert.equal(r.isError, true);
-  assert.match(r.content[0].text, /collaborators cannot/);
+  assert.match(r.content[0].text, /never available/);
   assert.equal(f.calls.length, 2);
   r = await client.callTool({ name: 'nope', arguments: {} });
   assert.equal(r.isError, true);
@@ -133,12 +125,12 @@ test('compact keeps results small', () => {
 test('stdio: the real server process lists tools (standalone .mcp.json use)', async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [path.join(INSTALL_ROOT, 'tools', 'pianoid-assistant', 'mcp', 'server.js'), '--role', 'collaborator'],
+    args: [path.join(INSTALL_ROOT, 'tools', 'pianoid-assistant', 'mcp', 'server.js'), '--data-opt-out', 'true'],
     env: { ...process.env, PIANOID_COMMANDS_DIR: path.join(INSTALL_ROOT, 'schemas', 'commands') },
   });
   const client = new Client({ name: 'stdio-test', version: '0' });
   await client.connect(transport);
   const names = (await client.listTools()).tools.map((t) => t.name);
-  assert.ok(names.includes('play__note') && !names.includes('preset__save'));
+  assert.ok(names.includes('play__note') && names.includes('preset__save') && !names.includes('modal__run_stage'));
   await client.close();
 });

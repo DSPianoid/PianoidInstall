@@ -1,9 +1,9 @@
 /**
  * One assistant session for the pane: the driver (real SDK or fake), the policy gate on every tool
  * call (canUseTool -> policy.js, with confirms answered in the pane), model choice + escalation
- * (D2), per-user activity log (D5), usage (D7), Stop, and the per-turn UI / health context.
- * Changing the user, role or data opt-out restarts the session (the MCP server is spawned with the
- * role's arguments, so the role filter holds in two places).
+ * (D2), the activity log, usage (D7), Stop, and the per-turn UI / health context. One installation
+ * = one user (D5: no user management). Changing the data opt-out restarts the session (the MCP
+ * server is spawned with it, so the filter holds in two places).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,21 +43,19 @@ export class AssistantSession {
     this.status = 'idle';
   }
 
-  get user() { return this.config.users.find((u) => u.id === this.config.activeUser) || this.config.users[0]; }
-  get role() { return this.user.role; }
   baseModel() { return this.config.model === 'opus' ? MODELS.opus : MODELS.sonnet; }
 
   /** The full pane state (sent on connect). */
   state() {
     return {
-      type: 'state', user: this.user, users: this.config.users, role: this.role, modelChoice: this.config.model,
+      type: 'state', modelChoice: this.config.model,
       model: this.model, dataOptOut: !!this.config.dataOptOut, busy: this.busy, transcript: this.transcript,
       activity: this.activity, usage: this.usage, status: this.status,
       pendingConfirms: [...this.pending.values()].map((p) => p.request),
     };
   }
 
-  /** The SDK options for this user / role (exported for the isolation tests). */
+  /** The SDK options of the runtime (exported for the isolation tests). */
   sdkOptions() {
     const settings = { dataOptOut: !!this.config.dataOptOut };
     const env = childEnv(this.paths);
@@ -69,8 +67,7 @@ export class AssistantSession {
     const pianoid = {
       type: 'stdio',
       command: process.execPath,
-      args: [MCP_SERVER, '--role', this.role, '--source', 'assistant', '--client', `assistant/${this.user.id}`,
-        '--data-opt-out', String(settings.dataOptOut)],
+      args: [MCP_SERVER, '--source', 'assistant', '--data-opt-out', String(settings.dataOptOut)],
       env: mcpEnv,
     };
     const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason));
@@ -79,7 +76,7 @@ export class AssistantSession {
       cwd: this.paths.workspace,
       env,
       model: this.model.current,
-      systemPrompt: systemPrompt({ role: this.role, userName: this.user.name }),
+      systemPrompt: systemPrompt(),
       tools: [],                       // NO built-in tools (no Bash / Read / Edit / Web)
       settingSources: [],              // no user / project / local settings, no CLAUDE.md
       strictMcpConfig: true,           // only the servers below
@@ -118,7 +115,7 @@ export class AssistantSession {
     if (tool === 'search_docs') return { behavior: 'allow', updatedInput: input };
     const cmd = this.byName.get(commandName(tool));
     if (!cmd) return { behavior: 'deny', message: `unknown Pianoid tool ${tool}` };
-    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, role: this.role, settings: { dataOptOut: !!this.config.dataOptOut } });
+    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings: { dataOptOut: !!this.config.dataOptOut } });
     const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, input, decision: verdict.action, reason: verdict.reason });
     if (verdict.action === 'allow') return { behavior: 'allow', updatedInput: input };
     if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
@@ -131,7 +128,7 @@ export class AssistantSession {
 
   askConfirm(entry, cmd, input, reason, signal) {
     const id = `c${this.nextId++}`;
-    const request = { type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input, reason, user: this.user.name };
+    const request = { type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input, reason };
     return new Promise((resolve) => {
       const done = (allow) => {
         if (!this.pending.has(id)) return;
@@ -151,7 +148,7 @@ export class AssistantSession {
   }
 
   logActivity(fields) {
-    const entry = { id: `a${this.nextId++}`, at: Date.now(), user: this.user.name, role: this.role, status: 'pending', ...fields, input: summarize(fields.input) };
+    const entry = { id: `a${this.nextId++}`, at: Date.now(), status: 'pending', ...fields, input: summarize(fields.input) };
     if (fields.decision === 'deny') entry.status = 'denied';
     this.activity.push(entry);
     if (this.activity.length > 200) this.activity.shift();
@@ -203,7 +200,6 @@ export class AssistantSession {
     };
     const running = (jobs.result?.jobs || []).filter((j) => j.state === 'running').map((j) => ({ id: j.id, name: j.name, pct: j.pct }));
     return {
-      user: { name: this.user.name, role: this.role },
       backend: h,
       preset: presets.unreachable ? null : { active: presets.active, entries: (presets.presets || []).map((p) => `${p.name} (${p.kind})`) },
       ui: ui.ok ? ui.result : { unavailable: ui.error || 'no leader tab' },
@@ -216,8 +212,8 @@ export class AssistantSession {
     this.busy = true;
     this.turnJobs = [];
     this.broadcast({ type: 'busy', busy: true });
-    this.transcript.push({ role: 'user', text, user: this.user.name, at: Date.now() });
-    this.broadcast({ type: 'message', role: 'user', text, user: this.user.name });
+    this.transcript.push({ role: 'user', text, at: Date.now() });
+    this.broadcast({ type: 'message', role: 'user', text });
     try {
       await this.ensureStarted();
       const ctx = await this.context();
@@ -249,18 +245,8 @@ export class AssistantSession {
     this.turnJobs = [];
   }
 
-  async updateSettings({ user, model, dataOptOut, addUser }) {
+  async updateSettings({ model, dataOptOut }) {
     let restart = false;
-    if (addUser && typeof addUser.name === 'string' && addUser.name.trim() && ['owner', 'collaborator'].includes(addUser.role)) {
-      const base = addUser.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'user';
-      let id = base;
-      for (let i = 2; this.config.users.some((u) => u.id === id); i += 1) id = `${base}-${i}`;
-      this.config.users = [...this.config.users, { id, name: addUser.name.trim(), role: addUser.role }];
-    }
-    if (user && user !== this.config.activeUser && this.config.users.some((u) => u.id === user)) {
-      this.config.activeUser = user;
-      restart = true;
-    }
     if (typeof dataOptOut === 'boolean' && dataOptOut !== !!this.config.dataOptOut) {
       this.config.dataOptOut = dataOptOut;
       restart = true;
