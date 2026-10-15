@@ -1,6 +1,6 @@
 # Measured-modes preset F15_measured_plywood_2026-10-15 (dev-a709)
 
-**Status:** built, verified offline, equalized and played on the board, 2026-10-15. **PARKED at Phase 1** (user: "We will work with this preset later, so keep those questions open"). Branch `feature/dev-a709-measured-preset` (PianoidBasic, PianoidCore). Not merged, not pushed. The shared venv holds this branch's engine build (12 channels + ASIO output map); a rebuild from dev drops it, and this preset then needs the branch rebuilt.
+**Status:** built, verified offline, equalized and played on the board, 2026-10-15. **MERGED** (user-approved): Core dev a67f132, Basic dev 4de6f9a (not pushed); engine HEAVY `--both` rebuilt from merged dev. The open questions (§11) stay open.
 
 **User request (2026-10-15):** start from the FPGA-imported preset and replace every mode below 1 kHz with the modes measured on the plywood board. Use all modes found with confidence. Fill 7 sound channels with the measured drive vectors. Give the modes above 1 kHz equal or random channel values. Keep the string couplings as in the FPGA preset. Set the modal masses of the measured modes from the measurement, but critically, at a physically reasonable absolute level. Leave everything above 1 kHz as it is. Use the 196 shaped-modes option.
 
@@ -140,10 +140,10 @@ not co-reside (`coop_launch_shortage`). FE sound-channel editors and the SDL dri
 A library preset still adopts the running engine's channel count; this preset cannot be D2D-switched anyway (236
 strings → 409, APPLY).
 
-**Shared install:** the shared venv holds this branch's build (heavy `--both` 2026-10-15 13:16Z from
-`wt-a709-core`), i.e. AHEAD of Core dev. 4-channel regression: BaselinePreset1 p60 + C-major chord, offline,
-before vs after max |diff| / peak 2.6e-4, identical to the engine's own run-to-run spread (2.5e-4). If the branch
-is not merged, rebuild from dev.
+**Install:** merged into Core dev a67f132 and rebuilt there (HEAVY `--both`, `pianoidCuda.NUM_CHANNELS` 12 in both
+variants). 4-channel regression: BaselinePreset1 p60 + C-major chord, offline, before vs merged max |diff| / peak
+2.1e-4, identical to the engine's own run-to-run spread (2.5e-4). `/load_preset` 200 for BaselinePreset1 (4 ch) and
+F15_measured_plywood_2026-10-15 (7 ch).
 
 ## 10. Verification (offline, audio off, separate process, engine with fixes 1 + 2)
 
