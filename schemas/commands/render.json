@@ -1,6 +1,6 @@
 {
   "family": "render",
-  "description": "Offline renders and charts. A render stops the live audio for its duration (about 2 s), hence the destructive tier.",
+  "description": "Offline renders and charts. A render stops the live audio for its duration (about 2 s); renders still run freely (act tier, user decision D3, 2026-10-15).",
   "commands": [
     {
       "name": "render.chart_types",
@@ -19,7 +19,7 @@
       "title": "Render a chart",
       "description": "Renders any registered chart type (see render.chart_types) with its chart-specific parameters. Returns data, headers and, for sound charts, audio_data (base64 WAV).",
       "target": "backend",
-      "tier": "destructive",
+      "tier": "act",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#post-get_chart_test",
       "route": {"method": "POST", "path": "/get_chart_test"},
@@ -38,7 +38,7 @@
       "title": "Render one note offline",
       "description": "Deterministic offline render of a single note (the audio_off verification surface). Returns the waveform chart and audio_data (base64 WAV).",
       "target": "backend",
-      "tier": "destructive",
+      "tier": "act",
       "long_running": false,
       "doc": "modules/pianoid-middleware/CHART_SYSTEM.md",
       "route": {"method": "POST", "path": "/get_chart_test", "fixed": {"chartType": "note_playback"}},
@@ -60,7 +60,7 @@
       "title": "Render the keyboard sweep offline",
       "description": "Stops the online engine, renders the NOTE_ON/NOTE_OFF sweep offline into a peak-normalised WAV (audio_data base64), then restarts the engine.",
       "target": "backend",
-      "tier": "destructive",
+      "tier": "act",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#post-play_keyboard",
       "route": {"method": "POST", "path": "/play_keyboard", "fixed": {"mode": "offline"}},

@@ -1,6 +1,6 @@
 {
   "family": "launcher",
-  "description": "Process control served by the launcher (:3001): the synthesis backend (:5000) and the modal adapter (:5001).",
+  "description": "Process control served by the launcher (:3001): the synthesis backend (:5000), the modal adapter (:5001) and the assistant service (:3002).",
   "commands": [
     {
       "name": "launcher.status",
@@ -59,6 +59,42 @@
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md",
       "route": {"method": "POST", "path": "/api/stop-modal-adapter"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.assistant.status",
+      "title": "Assistant service status",
+      "description": "{running, pid, url} of the assistant service (127.0.0.1:3002).",
+      "target": "launcher",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "GET", "path": "/api/assistant/status"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.assistant.start",
+      "title": "Start the assistant service",
+      "description": "Starts the assistant service (Claude subscription runtime in its isolated Claude home).",
+      "target": "launcher",
+      "tier": "act",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "POST", "path": "/api/assistant/start"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "launcher.assistant.stop",
+      "title": "Stop the assistant service",
+      "description": "Stops the assistant service.",
+      "target": "launcher",
+      "tier": "excluded",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md",
+      "route": {"method": "POST", "path": "/api/assistant/stop"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
     }
