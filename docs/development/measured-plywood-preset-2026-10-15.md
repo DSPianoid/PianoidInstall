@@ -172,6 +172,22 @@ The verification-surface rule is met offline, not live: the stack and ASIO belon
   - This is the documented outcome. The evenness is kept and the level is compensated.
 - **Layer B.** Calibrated after the equalization (above). Persisted.
 
+## 10b. Live playback on the board (2026-10-15, user-approved)
+
+Setup and routing check:
+- Backend from the branch (`wt-a709-core`), ASIO callback, `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`.
+- E2 row × 0.5 (−6 dB) for the session.
+- Script: `diagnostics/dev-a709-live-playback-2026-10-15.py`. Results: `dev-a709-measured-preset/live/`.
+
+| Step | Result |
+|---|---|
+| Routing tone per channel (others muted; p69 v127 at init volume 89; `/measure_rms` on piezo P1 = In 1) | all-muted baseline −90.3 dB. Each exciter alone: E1 −69.3, E2 −63.4, E3 −75.6, E4 −81.3, E5 −68.2, E6 −60.9, E7 −66.5. Every channel drives the board, and E1/E2 arrive via Out 9/10; with identity routing they would have gone to the monitor-only Out 1/2. Output peak −42 dBFS |
+| Chords, v80, 3 s each (C major, A minor, open low C2 G2 E3, open high C6 E6 G6 C7) | volume 89: peak −38.3 dBFS. Ramp to volume 95: per-output latched peaks E1..E7 −35.0 / −36.2 / −33.4 / −35.7 / −33.1 / −33.9 / −31.1 dBFS. No clipping, no limiting, audio state ok |
+| MIDI | `/midi_playback` → 500 (`pretty_midi` imports `pkg_resources`, which the shared venv lacks: a pre-existing environment defect). `elise.mid` was streamed instead through `POST /play` (mido, real time, sustain pedal): the first 120 s of 165.6 s. Peaks E1..E7 −35.4 / −40.3 / −36.7 / −38.0 / −34.4 / −39.1 / −35.9 dBFS, no clipping, 0 produce timeouts |
+
+All per-output peaks stayed ≤ −31 dBFS (ceiling −30), with E2 at −6 dB. The acoustic result (distortion, rattle,
+balance) was judged by ear by the user; the agent had no listening microphone.
+
 ## 11. Open questions for the user
 
 1. **Bass weight.** At physically constant modal masses anchored to the FPGA level at 1 kHz, the measured low modes are about 34 dB weaker than F15's sub-1 kHz modes, and F15's dominant 44.5 Hz mode is gone. Is that the intended "physical" balance, or should the measured band be lifted by a fixed offset (one number)?
@@ -179,6 +195,8 @@ The verification-surface rule is met offline, not live: the stack and ASIO belon
 3. **Boundary.** The live-validated 1010.38 Hz mode is excluded by the strict 1 kHz boundary. Should the boundary move to about 1.02 kHz to include it (one FPGA mode at 1019.6 Hz would be dropped)?
 4. **220.07 Hz damping.** 0.83 % is kept; 1.9 % is the alternative.
 5. **Couplings.** The nearest-frequency F15 columns are a placeholder: this board has no bridge or string positions. Keep them, or derive couplings from the measured shapes at notional bridge points?
+6. **Equalization range.** The keyboard needs 39 dB of hammer-mass range (58 keys below 2 g). Accept, or reshape (e.g. a perception curve, or a smaller target spread)?
+7. **MIDI player.** Fix the venv (`setuptools` < 81 for `pkg_resources`), or drop the `pretty_midi` dependency from `MidiRecord`?
 
 ## 12. Mode table (measured, modes 0..37)
 

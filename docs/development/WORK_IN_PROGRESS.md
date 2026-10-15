@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-a709 | Measured-modes preset F15_measured_plywood_2026-10-15 (measured < 1 kHz, 7 exciter channels, 196 shaped) + 12-channel bound + ASIO output map + keyboard equalization + live playback | [log](logs/dev-a709-2026-10-15-115619.md) | 2026-10-15 |
 | dev-69fd | Swept-sine mode discovery (coarse+fine per exciter, FRF/MAC) via ASIO /audio/session | [log](logs/dev-69fd-2026-10-11-132421.md) | 2026-10-11 |
 | dev-4284 | Phase 3: migrate modal adapter audio acquisition sdl_audio_core -> ASIO /audio/session (AudioIO Local/Remote), setup schema migration, Tunner channel pickers; then retire sdl_audio_core if no consumers remain | [log](logs/dev-4284-2026-10-11-131702.md) | 2026-10-11 | In Progress |
 | dev-b59d | Fix FPGA preset converter output semantics: decka_coeff = actuator drive weights (output_role actuator_feeds vs listening), regenerate F15_Elyashev_array512 | [log](logs/dev-b59d-2026-10-11-180403.md) | 2026-10-11 |
@@ -250,6 +251,14 @@
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
+
+## Follow-ups from dev-a709 (2026-10-15) — measured plywood preset + 12-channel engine bound (Core / Basic feature/dev-a709-measured-preset, NOT merged)
+- **SHARED VENV HOLDS A BRANCH BUILD:** `pianoidCuda` (+ debug) was HEAVY `--both` built 2026-10-15 13:16Z from `D:/repos/wt-a709-core` (Core 8fb5d09: `NUM_CHANNELS` 12, per-channel buffers, ASIO output map) — AHEAD of Core dev. Benign for <= 4-channel presets (BaselinePreset1 offline render diff = run-to-run noise). If the branch is not merged, REBUILD FROM DEV.
+- Running the 7-channel preset needs the branch middleware too (`pianoid.py` / `audio_channels.py`); dev's `pianoid.py` still forces 4 channels.
+- `/midi_playback` 500: `pretty_midi` imports `pkg_resources` (missing in the venv) — pre-existing env defect (fix: `setuptools` < 81, or drop `pretty_midi`).
+- Legacy ASIO non-callback driver (type 1) indexes its 8-element packet by every device output (pre-existing OOB on > 8-output devices; unused by default).
+- Open user questions: [design note §11](measured-plywood-preset-2026-10-15.md#11-open-questions-for-the-user).
+- Worktrees `D:/repos/wt-a709-core` (`.venv` JUNCTION -> main venv: unlink before `git worktree remove`) and `D:/repos/wt-a709-basic`.
 
 ## Follow-ups from dev-b59d (2026-10-11) — FPGA converter output role (Basic + Core feature/dev-b59d-output-role, NOT merged)
 - **User decision — `output_role` default.** `decka_coeff` = per-TRANSDUCER drive weights (Dima's adjust_tr tool), not a listening mix. Converter default is now `listening` (mono, mode weight `out_vol·Ci_str_1_out·‖decka[:, m]‖₂ / n_m`, flat board transfer assumed — UNCONFIRMED); `actuator_feeds` keeps the old per-transducer mapping. New preset `F15_Elyashev_array512_listening.json` (calibrated, chord target −28.69 dBFS, all 4 channels p60 −28.69 / loudest chord −6.07) vs `F15_Elyashev_array512.json` (= actuator_feeds; ch0..3 −51.9/−34.4/−44.5/−28.6). A/B WAVs `D:/tmp/dev-b59d-ab/{A_actuator,B_listening}/*.wav`. B ≈ −(A ch3) in timbre (lowest modes dominate) — the gain is channel balance. Proposal §13.
