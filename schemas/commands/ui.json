@@ -1,0 +1,521 @@
+{
+  "family": "ui",
+  "description": "View-only layout / selection control of the LEADER tab (served by the frontend; remote calls go through the launcher relay :3001/ws/ui-control). Layout state is per tab.",
+  "commands": [
+    {
+      "name": "ui.snapshot",
+      "title": "UI snapshot",
+      "description": "The leader tab's view state: layout tree, open panes, maximized pane, active named layout + saved names, the panes that can be opened, the selection (pitch, pitch range, mode, mode range, parameter, velocity level), per-pane tie (zoom) flags and the workbench bindings.",
+      "target": "ui",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.pane.open",
+      "title": "Open a pane",
+      "description": "Adds a pane to the layout (window-manager placement). 409 pane_maximized while a pane is maximized: ui.pane.restore first.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "pane"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pane": {
+            "type": "string",
+            "description": "Pane id as shown in ui.snapshot availablePanes / panes (e.g. 'Modes', 'Feedin', 'Workbench:Strings.tension:3')"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.pane.close",
+      "title": "Close a pane",
+      "description": "Removes a pane (also a dynamic workbench). Closing the maximized pane returns to the multi-pane view minus that pane.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "pane"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pane": {
+            "type": "string",
+            "description": "Pane id as shown in ui.snapshot availablePanes / panes (e.g. 'Modes', 'Feedin', 'Workbench:Strings.tension:3')"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.pane.maximize",
+      "title": "Maximize a pane",
+      "description": "Shows one open pane full screen.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "pane"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pane": {
+            "type": "string",
+            "description": "Pane id as shown in ui.snapshot availablePanes / panes (e.g. 'Modes', 'Feedin', 'Workbench:Strings.tension:3')"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.pane.restore",
+      "title": "Restore the layout",
+      "description": "Leaves maximized mode.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.layout.reset",
+      "title": "Default layout",
+      "description": "Replaces the live layout with the default layout.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.layout.apply_named",
+      "title": "Apply a saved layout",
+      "description": "Applies a named layout saved with Manage Layouts (see ui.snapshot layouts).",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.layout.set",
+      "title": "Set the layout tree",
+      "description": "Replaces the live layout with a react-mosaic tree: a pane id string, or {first, second, direction: 'row'|'column', splitPercentage?}. Every leaf must be a known pane (no duplicates; Workbench:* leaves must be open workbenches). The global Workbench is re-added if missing.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "layout"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "layout": {
+            "type": [
+              "string",
+              "object"
+            ],
+            "description": "Mosaic tree"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.select.pitch",
+      "title": "Select a pitch",
+      "description": "The single selected pitch (MIDI number on the piano axis), or null.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "pitch"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pitch": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 127
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.select.pitch_range",
+      "title": "Select a pitch range",
+      "description": "The global pitch selection [from, to] (MIDI numbers, piano axis); tied charts zoom to it. null clears. The Sound Channels strings axis (output pitches >= 128) is SC-local and never follows it.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "range"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "range": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[from, to] inclusive, or null to clear"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.select.mode",
+      "title": "Select a mode",
+      "description": "The single selected mode index, or null.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.select.mode_range",
+      "title": "Select a mode range",
+      "description": "The global mode selection [from, to]; tied charts (Modes, Feedin / Feedback mode axis, SC mode axis) zoom to it. null clears.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "range"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "range": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[from, to] inclusive, or null to clear"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.select.param",
+      "title": "Activate a parameter",
+      "description": "Makes a parameter the active one (the global Workbench follows it). groupe = the editor (Strings, Modes, Excitation, Feedin, Feedback, ...), name = the parameter (e.g. tension, frequency, coefficient).",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "groupe",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "groupe": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gaussIndex": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.select.level",
+      "title": "Select the velocity level",
+      "description": "The toolbar velocity level.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "level"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "pp",
+              "p",
+              "mf",
+              "f",
+              "ff"
+            ]
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.chart.tie",
+      "title": "Tie / untie a chart",
+      "description": "tied = the pane's chart follows the global selection (zoomed); untied = full extent.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "pane",
+          "tied"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pane": {
+            "type": "string",
+            "description": "Pane id as shown in ui.snapshot availablePanes / panes (e.g. 'Modes', 'Feedin', 'Workbench:Strings.tension:3')"
+          },
+          "tied": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.workbench.open",
+      "title": "Open a workbench",
+      "description": "Spawns a fixed workbench pane for a parameter (or a panel-following one with kind 'panel-dynamic'); returns its pane id.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "groupe",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "groupe": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "panel-dynamic"
+            ],
+            "default": "fixed"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ui.workbench.focus",
+      "title": "Focus a workbench",
+      "description": "Makes a workbench's parameter the active parameter.",
+      "target": "ui",
+      "tier": "ui",
+      "long_running": false,
+      "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
+      "route": {
+        "handler": "frontend-leader-tab"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Workbench pane id"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    }
+  ]
+}
