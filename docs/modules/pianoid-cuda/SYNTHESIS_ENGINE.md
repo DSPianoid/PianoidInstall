@@ -796,6 +796,22 @@ Where:
 The preset configures exactly 4 output channels in Belarus_8band_196modes, yielding 4 of
 the 22 strings as "sound strings" with `outerSoundChannel` values `1..4` and contributing
 2 stem points each (8 writes per cycle, filling `dev_soundFloat[0..samplesInCycle·4−1]`).
+
+**Channel count = the preset's, up to `NUM_CHANNELS` = 12** (dev-a709; the one place the bound is stated —
+`constants.h`, read by the middleware as `pianoidCuda.NUM_CHANNELS`): `pianoid_middleware/audio_channels.py` takes
+`mode_sound_channels.num_channels` (legacy presets without it: 4), validates `1..12` (else the load fails), and
+`pianoid.py` clamps it to the number of output pitches. `InitializationParameters.num_channels` sizes
+`dev_soundFloat` / `dev_soundInt` (`mode_iteration × num_channels`), the record and the driver buffers; the
+per-channel kernel state `dev_sound_prev_diff` / `dev_limiter_peak` (indexed `outerSoundChannel − 1`) and the
+host `LockFreeCircularBuffer` arrays are sized `NUM_CHANNELS`. The GPU budget (output strings are blocks too) is the
+init cooperative-launch pre-flight (`coop_launch_shortage`). **Regression history:** the count was data-driven
+(`len(sound_pitches)`) until Core 5282bc3 (2025-09-19) forced `num_channels = 4`; the two kernel buffers were
+added with 4 elements (f178ad8, 24d5251) and `NUM_CHANNELS` was 8 (7aefda3) — a > 4-channel preset wrote out of
+bounds (measured with the 7-channel F15_measured_plywood_2026-10-15: `dev_soundFloat` = 256 = 64 × 4).
+Regression test: `tests/integration/test_measured_preset_channels.py` (7 and 12 channels write every channel,
+13 fails the load). An output pitch may own
+several strings (all in its row's block): they share the pitch's deck row and write the same sample, so the
+channel level does not change (measured, ≤ 0.01 dB).
 Full audio chain and empirical verification in
 [VOLUME_ITER_BUG_INVESTIGATION.md](../../development/archive/VOLUME_ITER_BUG_INVESTIGATION.md#audio-path-discovery).
 

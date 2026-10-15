@@ -151,5 +151,5 @@ optionally overridden at runtime. See [AUDIO_DRIVERS.md](AUDIO_DRIVERS.md).
 | `MAX_ARRAY_SIZE` | 512 | Maximum spatial points per string array |
 | `PHYSICAL_PARAMETERS_NUMBER` | 16 | Physical parameters per string |
 | `EXCITATION_FACTOR` | 8 | Velocity-level excitation slots (see `NUM_BASE_LEVELS=6` for base-level interpolation) |
-| `NUM_CHANNELS` | 8 | GPU audio output channels |
+| `NUM_CHANNELS` | 12 | GPU audio output channels: the single bound (one output pitch per channel, pitches 128..139; exposed as `pianoidCuda.NUM_CHANNELS`). The preset sets the count; see [SYNTHESIS_ENGINE → Audio Output](SYNTHESIS_ENGINE.md#audio-output) |
 | `WARP_SIZE` | 32 | CUDA warp size |

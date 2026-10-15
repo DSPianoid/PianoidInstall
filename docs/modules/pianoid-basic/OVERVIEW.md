@@ -669,6 +669,28 @@ Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`, `dev-f27f-
 
 ---
 
+### Measured-modes preset builder (dev-a709)
+
+File: `measured_mode_preset.py`. CLI `python -m Pianoid.measured_mode_preset BASE.json MEASURED.json --out OUT.json
+[--n-modes 196] [--hf-level energy|max] [--seed 0] [--fpga-dir DIR --template T.json]`. Replaces the modes of an
+FPGA-converted base preset below the measured table's `boundary_hz` by measured board modes; the base modes at and
+above it stay verbatim, in order. Decisions + the first preset (F15_measured_plywood_2026-10-15):
+[measured-plywood-preset](../../development/measured-plywood-preset-2026-10-15.md).
+
+| Field | Rule |
+|---|---|
+| `frequency` | `gpu_mode_frequency(f)` of the measured (damped) frequency — the recurrence plays it exactly |
+| `decrement` | exact rate: `γ = ζ·2π·f/√(1−ζ²)`, `decrement = (1 − e^(−γ/sr))·sr/frequency` |
+| `mass` (`mass_inv`) | table `mass_inv_rel` × the geometric-mean `mass_inv` of the base modes in `anchor_band` (1–1.5 kHz): continuous level at the boundary (the GPU mass unit is uncalibrated) |
+| piano deck | each measured mode inherits a base column below the boundary: nearest in log-frequency, distinct when a free column is within `detour_cents` (50) of the nearest, else shared |
+| output pitches | `128 + k` per table channel, feedback row = the channel weights; base / fill modes get one magnitude with seeded random signs; one common scale = the base's largest output-row value. Output strings fill trailing blocks; the last output pitch owns the spare strings |
+| count | `n_modes` (196): short → the next FPGA modes from the source tables via the converter (checked to reproduce the base exactly), k capped at the base's max; long → cut from the top |
+| Layer B | genesis (`output_scale_calibrated = false`, reference cleared) |
+
+Provenance: `preset["measured_modes_build"]` (coupling sources, shared columns, anchor, fill scale / caps, channel
+scheme, the measured table). Loading > 4 channels needs the engine channel count from the preset (PianoidCore
+`pianoid.py` + `Pianoid.cu`, dev-a709 — [SYNTHESIS_ENGINE → Audio Output](../pianoid-cuda/SYNTHESIS_ENGINE.md#audio-output)).
+
 ### Synthetic mode extension (4000-modes campaign T2)
 
 Files: `modal_density.py` (density law), `mode_fill.py` (slots, spacing, damping, energy), `mode_extension.py`

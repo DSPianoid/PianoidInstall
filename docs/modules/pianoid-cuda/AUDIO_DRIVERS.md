@@ -175,6 +175,17 @@ public:
 `circular_buffer_chunks = 4` is recommended for ASIO (minimal latency). SDL3 typically
 uses 16 or more chunks for stability.
 
+**Engine channel → device output map (dev-a709, callback driver `audio_driver_type 4`).** Engine channel `k` plays
+on ASIO output `map[k]` (0-based); default (no map) = identity, outputs `0..num_channels−1`. The map is a
+per-machine **session setting**: environment variable `PIANOID_AUDIO_OUTPUT_MAP` of the backend process
+(comma-separated, length = the preset's channel count), applied by `pianoid_middleware/audio_channels.py` through
+`pianoidCuda.setAsioOutputMap(list)` before the driver opens (`getAsioOutputMap()` reads it back). With a map,
+every unmapped device output is written silence each `bufferSwitch` (e.g. the monitor outputs). Validation:
+entries `0..31`, distinct (`ValueError`); at driver init the map length must equal the engine's channels and the
+device must have `max(map)+1` outputs (else the device is skipped → the documented ASIO→SDL3 fallback). The
+legacy non-callback ASIO driver (type 1) rejects a map. Example (10-15 plywood rig, E1..E7 on Out 9, 10, 3..7):
+`PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`. Not used by SDL (stereo downmix of channels 0/1).
+
 ---
 
 ## AudioDriverFactory
