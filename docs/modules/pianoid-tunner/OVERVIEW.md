@@ -178,17 +178,22 @@ the frontend change hot-reloads.
 highlight (`sweepingNote` → `VirtualPiano`) starts when the `play.keyboard` response arrives and
 is anchored to its `schedule_epoch_ms` (the wall-clock time the backend's `delay_ms = 0` refers
 to; the request round-trip midpoint on an older backend — `utils/sweepClock.resolveSweepAnchor`).
-A 16 ms tick derives the note index from the elapsed time (`sweepIndexAt`), so it never drifts.
-Before, a free-running `setInterval(speed_ms)` started *before* the request: a constant
-RTT + scheduling offset (219 ms WS latency in the user's report = two notes at 100 ms) plus
-interval drift over 88 notes — the user reported "indication is not in sync with the sound".
+PianoidTuner sets `sweep = {anchor, step, notes}` ONCE; `VirtualPiano` runs the clock itself
+(`hooks/useSweepNote`: a 16 ms tick derives the note index from the elapsed time,
+`sweepIndexAt`), so it never drifts and a step re-renders only the keyboard — a per-note
+PianoidTuner state change re-rendered the whole app (~116 ms measured), which alone put the
+highlight 100–240 ms behind and skipped notes. Measured live (isolated stack, 100 ms/note × 88,
+highlight paint time vs `schedule_epoch_ms + i·100`): before, lag grew −3 → 1407 ms over the
+sweep (a free-running `setInterval(speed_ms)` started *before* the request); after, median
+10–11 ms over 3 runs, p95 ≤ 160 ms, last note on time. The user had reported "indication is
+not in sync with the sound".
 A stop pressed before the response arrives cancels the highlight (`sweepRunRef`). The audible
 note additionally trails its schedule by the audio output buffer (a few ms on ASIO). (The
 backend `midi_note_event` Socket.IO stream is **not** usable for this: it fires only for the
 unified hardware-MIDI listener, not for `/play_keyboard`-scheduled events.)
 
 **Stop (■) — both modes (consolidated when dev-177a + dev-8abf merged, 2026-05-31).**
-`stopSweep` clears the online highlight tick (`sweepHighlightRef`) **and**
+`stopSweep` clears the online sweep-end timer (`sweepHighlightRef`) and `sweep` **and**
 pauses + revokes the offline `<audio>` blob URL (`sweepAudioRef`). So ■ stops offline
 playback immediately (the WAV is a local `<audio>`), but for online it only halts the
 highlight + local state — the notes were already scheduled up-front on the backend cycle

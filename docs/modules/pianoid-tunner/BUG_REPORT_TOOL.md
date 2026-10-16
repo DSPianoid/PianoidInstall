@@ -196,6 +196,7 @@ Three parts, each a single-concern module (mirrors the manual tool's shape):
 | `endpoint_unresponsive` | axios interceptor: **5xx** (except a lifecycle 503), or the **3rd consecutive** network error / timeout of a host that has answered before (dev-2cce R2, below) | **yes** — EXCEPT the optional modal-adapter `:5001/health` poll (excluded; see below) |
 | `endpoint_timeout` | a network error / timeout below that threshold, before the host ever answered, or during this tab's own preset load (`isBusy`) | no — context |
 | `endpoint_busy` | `503 {code:"lifecycle_in_progress"}` — the engine gate refusing a request while a preset lifecycle op runs | no — context |
+| `read_refused` | a 4xx on a **GET** (e.g. `400 "No preset loaded"` before the first load) — only refused WRITES are `param_rejected` | no — context |
 | `js_error` | `window.onerror` | **yes** |
 | `unhandled_rejection` | `window.onunhandledrejection` | **yes** |
 | `param_rejected` | axios interceptor: **HTTP 4xx** (a prohibited/clamped value) | only in **burst** (≥5 in 5 s ⇒ `reject_burst`) |
@@ -238,11 +239,12 @@ timeouts and duplicate deliveries:
 |---|---|---|
 | FE loaded before the backend started (every start, the user's restart routine) | `/health` `ERR_NETWORK` → `endpoint_unresponsive` | a host that has **never answered** since app load is not down — its failures are `endpoint_timeout` (`createUnresponsiveGate` in `autoReporter.js`) |
 | Preset load / re-init (the engine gate) | `/midi/ports` `503` ×3 per window | `503 lifecycle_in_progress` → `endpoint_busy` (context) |
+| Before the first preset load | ~8 startup GETs answer `400 "No preset loaded"` → `reject_burst` (measured live on every fresh start) | a 4xx on a GET → `read_refused` (context) |
 | Preset re-init (old realtime thread stopped, new one not yet started) | WS `lifecycle` events (`GPU_READY` / `PARAMETERS_LOADED` → `healthy`) with `running:false` → `backend_crashed` 0.3 s after the load | thread-stopped is confirmed by a fresh `GET /health` 8 s later (skipped while `isBusy` or the probe says `loading`) |
 | Backend busy under a write burst | ONE 2 s `/health` timeout → `endpoint_unresponsive` | `UNRESPONSIVE_THRESHOLD` = 3 consecutive network/timeout failures of the host; any success of that host resets the count |
 | A large (12 MB, N2000 preset) report | the 5 s collector POST timed out mid-save → the lifeboat copy was delivered again later (5 duplicate pairs) | `COLLECTOR_TIMEOUT_MS` = 30 s, and every report carries a `reportId` — the collector saves it once ([REST `POST /bug_report`](../pianoid-middleware/REST_API.md#post-bug_report)) |
 
-Pinned by `hooks/__tests__/useAutoReport.lifecycle.test.jsx`.
+Pinned by `hooks/__tests__/useAutoReport.lifecycle.test.jsx`. Live (isolated stack, measured preset, 2026-10-16): a fresh start + one full re-init filed 3 reports before the fix (`reject_burst`, `endpoint_unresponsive` 503, `backend_crashed` `healthy/running:false`); after it, a fresh start + two full re-inits filed none, while a real backend stop still filed `endpoint_unresponsive`.
 
 ### Trigger policy — one report per fault EPISODE
 
