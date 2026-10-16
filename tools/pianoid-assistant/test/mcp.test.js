@@ -134,3 +134,16 @@ test('stdio: the real server process lists tools (standalone .mcp.json use)', as
   assert.ok(names.includes('play__note') && names.includes('preset__save') && !names.includes('modal__run_stage'));
   await client.close();
 });
+
+test('v2 P1 state reads are listed read-only and allowed without a confirm', () => {
+  const STATE = ['system.health', 'system.environment', 'system.snapshot', 'audio.devices', 'midi.ports',
+    'midi.broadcast_state', 'preset.summary', 'preset.files', 'param.inventory'];
+  const tools = new Map(listTools(COMMANDS).map((t) => [t.name, t]));
+  for (const name of STATE) {
+    const cmd = COMMANDS.find((c) => c.name === name);
+    assert.ok(cmd, name);
+    assert.equal(cmd.tier, 'read', name);
+    assert.equal(tools.get(name.replace(/\./g, '__')).annotations.readOnlyHint, true, name);
+    assert.equal(decide({ command: name, tier: cmd.tier, family: cmd.family }).action, 'allow', name);
+  }
+});

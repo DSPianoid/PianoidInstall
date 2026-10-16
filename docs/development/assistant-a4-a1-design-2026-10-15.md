@@ -163,3 +163,26 @@ The new warnings put clipping / limiter / gate / stale level in front of the mod
 (fixed on the unmerged dev-7bb0 branch). After a non-FE load, the Preset pane's "CURRENT PRESET" still names the previous file.
 `tests/unit/test_start_right_away_binary.py` fails 4/5 on dev (the fail-fast reads the preset path relative to the cwd, and the exact-body
 asserts predate `load_param_warnings`).
+
+## 9. Assistant v2 P1: state reads and the model router (dev-fcef, 2026-10-16)
+
+Implements phase P1 of the assistant v2 proposal (`docs/proposals/assistant-v2-2026-10-16.md`, Install branch `feature/plan-assistant-v2`) §3 and §5 (user approval
+2026-10-16 19:23Z), plus follow-up l.
+
+| Layer | Change |
+|---|---|
+| Core | `system_routes.py` + `system_state.py`: `GET /system/environment`, `/system/snapshot`, `/preset/files`, `/preset/summary`, `/param/inventory`, all `read_only`. The env read is an allow-list (no `ANTHROPIC_*`, tokens, `PATH`, profile; paths outside the repos redacted). [REST_API](../modules/pianoid-middleware/REST_API.md#system-state-reads-assistant-v2-p1) |
+| Core | follow-up l: `mask_rows.py`: a malformed `feedin_mask` / `feedback_mask` write answers `400 invalid_mask_row` before anything is written. Measured in session 2c86b530: these writes answered **416** with a traceback, not 500 as §8 said |
+| Registry | family `system` (`system.health`, `system.environment`, `system.snapshot`, `audio.devices`), `midi.ports`, `midi.broadcast_state`, `preset.summary`, `preset.files`, `param.inventory` (all read) |
+| Inventory | `schemas/params/*.json`: 24 domains, 77 fields, every value from the docs, `UNKNOWN` where they are silent (12 fields), 9 doc conflicts listed in `_index.json` |
+| Service | `service/router.js` (pure): layer 1 EN + RU pre-route + a crashed-engine context signal, layer 2 triggers (heavy tools, a retry of a refused command, 2 consecutive tool errors), layer 3 `escalate_model`; sticky for 2 turns; each decision is a `model route` activity entry. Digest: `environment` fingerprint (GPU, build, repo branch@SHA, output map; re-read at most every 30 s). Prompt: the new reads |
+
+**Conservative choices** (the proposal left them open): only a crashed engine routes to Opus from the context, not
+`warnings` (the F15 session had a load-mismatch warning on every turn). The "write without a matching recipe" trigger
+waits for the runbook (P3). "No sound" counts as a complaint only when phrased as one. `midi.status` is
+`midi.broadcast_state` (the listener state is in `midi.ports`). `PresetsFromFpga/` is not a preset root (it has no
+loadable JSON).
+
+**Tests:** Core `tests/unit/test_system_state.py`, `test_mask_rows.py`; assistant `test/router.test.js` with
+`test/routing-corpus.json` (57 cases: 24 transcript turns, 19 requirement examples, 14 Russian), `mcp.test.js`
+(state reads listed read-only and allowed), `contextDigest.test.js`, `service.test.js` (stickiness end to end).

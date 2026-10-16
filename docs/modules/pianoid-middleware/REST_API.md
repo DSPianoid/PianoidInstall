@@ -1109,6 +1109,17 @@ Response `400` — engine safety net rejection (see "Engine safety net" below):
 {"error": "mode.decrement=-1 rejected: decrement must be >= 0 (negative damping causes runaway amplitude)"}
 ```
 
+Response `400` — a malformed `feedin_mask` / `feedback_mask` write (dev-fcef, follow-up l; owner
+`pianoid_middleware/mask_rows.py`): every pitch of `key_no` needs a row of exactly `num_modes` values.
+Checked before anything is written; it rejects exactly the writes StringMap used to fail with a 416 +
+Python traceback (measured in the 2026-10-16 assistant session 2c86b530: rows of 3 / 198 values for 196
+modes, a range with one row only). WS `set_parameter` returns the same message in its `error`.
+```json
+{"error": "invalid_mask_row", "parameter": "feedin_mask", "expected_length": 196, "problem_count": 2,
+ "problems": [{"pitch": 21, "problem": "3 values"}, {"pitch": 22, "problem": "no row"}],
+ "message": "feedin_mask: every pitch of the range needs a row of exactly 196 0/1 values (num_modes); ..."}
+```
+
 Response `416`:
 ```json
 {"message": "Wrong parameter request"}
