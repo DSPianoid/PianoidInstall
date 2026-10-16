@@ -77,6 +77,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Shared helpers: bounded nvidia-smi calls, the lock record (this script is its sole writer),
+# and the lock-in-effect test used by -Status and by check-gpu-clock.ps1.
+. (Join-Path $PSScriptRoot 'gpu_clock_state.ps1')
+
 $TaskName = 'PianoidGpuRtConfig'
 $LogDir   = Join-Path $env:ProgramData 'Pianoid'
 $LogFile  = Join-Path $LogDir 'gpu_rt_config.log'
@@ -84,17 +88,19 @@ $LogFile  = Join-Path $LogDir 'gpu_rt_config.log'
 # --------------------------------------------------------------------------------------
 # Logging. The boot-time run has no console attached, so everything also goes to a file --
 # that file is how the operator confirms the task actually fired at boot.
+# The file is written FIRST: a console write can block (a click into a QuickEdit console
+# freezes the process at its next write), and the file must still show how far we got.
 # --------------------------------------------------------------------------------------
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $line = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
-    Write-Host $line
     try {
         if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
         Add-Content -Path $LogFile -Value $line -Encoding utf8
     } catch {
         # Never let a logging failure take down the actual work.
     }
+    Write-Host $line
 }
 
 function Test-Elevated {
@@ -111,16 +117,6 @@ function Assert-Elevated {
     }
 }
 
-function Get-NvidiaSmi {
-    $cmd = Get-Command nvidia-smi -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    foreach ($c in @((Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'),
-                     (Join-Path ${env:ProgramFiles} 'NVIDIA Corporation\NVSMI\nvidia-smi.exe'))) {
-        if (Test-Path $c) { return $c }
-    }
-    return $null
-}
-
 # --------------------------------------------------------------------------------------
 # At boot, an "At startup" task can easily fire BEFORE the NVIDIA driver stack (nvlddmkm /
 # NVML) is ready -- nvidia-smi then fails and a naive script would silently do nothing.
@@ -133,8 +129,9 @@ function Wait-ForDriver {
     $attempt = 0
     while ((Get-Date) -lt $deadline) {
         $attempt++
-        $out = & $Smi --query-gpu=clocks.max.sm --format=csv,noheader,nounits 2>&1
-        if ($LASTEXITCODE -eq 0 -and "$out" -match '\d+') {
+        $r = Invoke-Smi -Smi $Smi -Arguments @('--query-gpu=clocks.max.sm', '--format=csv,noheader,nounits')
+        $out = $r.Output
+        if ($r.ExitCode -eq 0 -and $out -match '\d+') {
             if ($attempt -gt 1) { Write-Log "NVIDIA driver ready after $attempt attempt(s)." }
             return $true
         }
@@ -146,10 +143,11 @@ function Wait-ForDriver {
 
 function Get-ClockState {
     param([string]$Smi)
-    $csv = & $Smi --query-gpu=clocks.sm,clocks.max.sm,clocks.mem,clocks.max.mem,pstate,utilization.gpu,power.draw `
-                  --format=csv,noheader,nounits 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "nvidia-smi query failed: $csv" }
-    $f = ("$csv" -split ',').Trim()
+    $r = Invoke-Smi -Smi $Smi -Arguments @(
+        '--query-gpu=clocks.sm,clocks.max.sm,clocks.mem,clocks.max.mem,pstate,utilization.gpu,power.draw',
+        '--format=csv,noheader,nounits')
+    if ($r.ExitCode -ne 0) { throw "nvidia-smi query failed: $($r.Output)" }
+    $f = (($r.Output -split "`r?`n")[0] -split ',').Trim()
     [pscustomobject]@{
         SmMhz    = [int]$f[0]
         SmMaxMhz = [int]$f[1]
@@ -174,35 +172,43 @@ function Invoke-Apply {
         $before.SmMhz, $before.SmMaxMhz, $before.MemMhz, $before.MemMaxMhz, $before.PState, $before.UtilPct, $before.PowerW)
 
     # Graphics/SM clock -- the one that matters for cycle time. Hard-fail if this does not take.
-    $out = & $Smi -lgc "$($before.SmMaxMhz),$($before.SmMaxMhz)" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "Failed to lock graphics clock: $out" 'ERROR'
+    $r = Invoke-Smi -Smi $Smi -Arguments @('-lgc', "$($before.SmMaxMhz),$($before.SmMaxMhz)")
+    if ($r.ExitCode -ne 0) {
+        Write-Log "Failed to lock graphics clock: $($r.Output)" 'ERROR'
         exit 1
     }
     Write-Log "Graphics/SM clock LOCKED at $($before.SmMaxMhz) MHz."
 
     # Memory clock -- a bonus, and not supported on every GeForce/driver combo. Never fatal.
-    $out = & $Smi -lmc "$($before.MemMaxMhz),$($before.MemMaxMhz)" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "Memory clock lock not supported on this GPU/driver -- graphics clock is locked, continuing. ($out)" 'WARN'
+    $r = Invoke-Smi -Smi $Smi -Arguments @('-lmc', "$($before.MemMaxMhz),$($before.MemMaxMhz)")
+    if ($r.ExitCode -ne 0) {
+        Write-Log "Memory clock lock not supported on this GPU/driver -- graphics clock is locked, continuing. ($($r.Output))" 'WARN'
     } else {
         Write-Log "Memory clock LOCKED at $($before.MemMaxMhz) MHz."
     }
 
+    # The record is how check-gpu-clock.ps1 recognises the lock (see gpu_clock_state.ps1).
+    # Write it before the informational read-back, which must never fail the apply.
+    $live = Get-GpuLiveState -Smi $Smi
+    if (-not $live) { Write-Log 'Could not read the GPU identity -- lock record NOT written.' 'WARN'; return }
+    Write-GpuLockRecord -Live $live -SmTargetMhz $before.SmMaxMhz -MemTargetMhz $before.MemMaxMhz
+    Write-Log "Lock record written: $GpuLockRecordFile"
+
     Start-Sleep -Milliseconds 500
-    $after = Get-ClockState -Smi $Smi
-    Write-Log ("AFTER : sm={0} MHz (max {1}), mem={2} MHz, pstate={3}, util={4}%, power={5} W" -f `
-        $after.SmMhz, $after.SmMaxMhz, $after.MemMhz, $after.PState, $after.UtilPct, $after.PowerW)
+    try { $after = Get-ClockState -Smi $Smi } catch { Write-Log "AFTER read-back skipped: $_" 'WARN'; return }
+    Write-Log ("AFTER : sm={0} MHz (max {1}), mem={2} MHz, pstate={3}, util={4}%, power={5} W, gpu_idle={6}" -f `
+        $after.SmMhz, $after.SmMaxMhz, $after.MemMhz, $after.PState, $after.UtilPct, $after.PowerW, $live.IdleActive)
 }
 
 function Invoke-Reset {
     param([string]$Smi)
     Assert-Elevated 'Resetting GPU clocks'
-    $out = & $Smi -rgc 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Log "Failed to reset graphics clock: $out" 'ERROR'; exit 1 }
+    $r = Invoke-Smi -Smi $Smi -Arguments @('-rgc')
+    if ($r.ExitCode -ne 0) { Write-Log "Failed to reset graphics clock: $($r.Output)" 'ERROR'; exit 1 }
+    Remove-GpuLockRecord
     Write-Log 'Graphics clock reset to default dynamic boost.'
-    $out = & $Smi -rmc 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Log "Memory clock reset unsupported (ignored). ($out)" 'WARN' }
+    $r = Invoke-Smi -Smi $Smi -Arguments @('-rmc')
+    if ($r.ExitCode -ne 0) { Write-Log "Memory clock reset unsupported (ignored). ($($r.Output))" 'WARN' }
     else { Write-Log 'Memory clock reset to default.' }
 }
 
@@ -248,13 +254,15 @@ function Invoke-Status {
     Write-Host ("  Power draw    : {0} W" -f $s.PowerW)
     Write-Host ''
 
-    # A locked GPU sits at (or within boost-bin rounding of) its ceiling. Well below it =
-    # the lock is not in effect. This is a heuristic: nvidia-smi exposes no direct
-    # "is a clock lock active" query on GeForce.
-    if ($s.SmMhz -ge ($s.SmMaxMhz * 0.95)) {
-        Write-Host '  => Clocks look LOCKED at max.' -ForegroundColor Green
+    # Same decision as the launcher gate (lock record + driver corroboration). Not a clock
+    # ratio: a locked RTX 4090 reads 2790 of 3120 MHz -- see gpu_clock_state.ps1.
+    $lock = Test-GpuClockLocked -Smi $Smi
+    if (-not $lock) {
+        Write-Host '  => Lock state unknown (nvidia-smi query failed).' -ForegroundColor Yellow
+    } elseif ($lock.Locked) {
+        Write-Host '  => Clocks are LOCKED (applied by Pianoid since this boot).' -ForegroundColor Green
     } else {
-        Write-Host '  => Clocks are NOT locked (running dynamic boost).' -ForegroundColor Yellow
+        Write-Host ("  => Clocks are NOT locked: {0}." -f $lock.Reason) -ForegroundColor Yellow
         Write-Host '     Under Pianoid load this is the low-latency problem: the driver holds the'
         Write-Host '     GPU well below its ceiling even at high utilization.'
     }

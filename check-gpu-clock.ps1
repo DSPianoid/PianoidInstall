@@ -33,7 +33,14 @@
       clocks not locked      -> explain WHY on the console, then ONE UAC prompt; on approval the
                                 clocks are locked and the launch proceeds.
       user declines the UAC  -> warn that dropouts are likely, LAUNCH ANYWAY (degraded, running).
-      anything else fails    -> silent fall-through, launch proceeds.
+      apply takes too long   -> after WORKER_TIMEOUT_SEC, say so and LAUNCH ANYWAY.
+      anything else fails    -> silent fall-through, launch proceeds (nvidia-smi missing,
+                                erroring or hung: every call is bounded, see gpu_clock_state.ps1).
+
+    "Locked" is decided by Test-GpuClockLocked (tools/gpu_clock_state.ps1): the lock record the
+    worker writes after a successful lock, valid for this boot / GPU / driver, corroborated by the
+    driver's gpu_idle clock-event reason. It is NOT a clock ratio -- a locked RTX 4090 reads
+    2790 of 3120 MHz, which the old 95%-of-max test misread as "not locked" on every launch.
 
     It NEVER blocks the launch: it never returns the abort code (30) that start-pianoid.bat
     honours for the CUDA check. Pianoid always starts.
@@ -55,13 +62,12 @@ param(
 # Best-effort by contract: never let this check take down the launch.
 $ErrorActionPreference = 'Continue'
 
-# A locked GPU holds (at or within boost-bin rounding of) its ceiling even at idle -- that is
-# exactly what the lock does, and it is what makes this a reliable discriminator at launch time,
-# when Pianoid is not yet running and an UNLOCKED card would be sitting far down at idle clocks.
-# nvidia-smi exposes no direct "is a clock lock active" query on GeForce, so this is the check.
-$LOCKED_FRACTION = 0.95
+# Upper bound on the elevated apply, counted from UAC approval. A normal apply takes ~1 s; the
+# launch must never wait on it indefinitely (2026-10-16: an unbounded -Wait froze the launcher).
+$WORKER_TIMEOUT_SEC = 20
 
 $WORKER = Join-Path $PSScriptRoot 'tools\gpu_rt_config.ps1'
+$STATE  = Join-Path $PSScriptRoot 'tools\gpu_clock_state.ps1'
 
 function Fall-Through {
     # The best-effort exit: say nothing, change nothing, let Pianoid launch.
@@ -69,33 +75,18 @@ function Fall-Through {
 }
 
 if ($env:PIANOID_SKIP_GPU_CLOCK_CHECK -eq '1') { Fall-Through }
-if (-not (Test-Path $WORKER)) { Fall-Through }
+if (-not (Test-Path $WORKER) -or -not (Test-Path $STATE)) { Fall-Through }
+try { . $STATE } catch { Fall-Through }
 
 # --- Is nvidia-smi even here? (No GPU / no driver -> not our problem; check-cuda.ps1 owns that.)
-$smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
-if (-not $smi) {
-    foreach ($c in @((Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'),
-                     (Join-Path ${env:ProgramFiles} 'NVIDIA Corporation\NVSMI\nvidia-smi.exe'))) {
-        if (Test-Path $c) { $smi = $c; break }
-    }
-    if (-not $smi) { Fall-Through }
-} else {
-    $smi = $smi.Source
-}
+$smi = Get-NvidiaSmi
+if (-not $smi) { Fall-Through }
 
-# --- The check itself: one nvidia-smi call, ~100 ms. -----------------------------------------
-try {
-    $csv = & $smi --query-gpu=clocks.sm,clocks.max.sm --format=csv,noheader,nounits 2>&1
-    if ($LASTEXITCODE -ne 0) { Fall-Through }
-    $f = ("$csv" -split ',').Trim()
-    $sm    = [int]$f[0]
-    $smMax = [int]$f[1]
-    if ($smMax -le 0) { Fall-Through }
-} catch {
-    Fall-Through
-}
+# --- The check itself: one bounded nvidia-smi call + the lock record, ~300 ms. ----------------
+try { $lock = Test-GpuClockLocked -Smi $smi -TimeoutMs 5000 } catch { Fall-Through }
+if (-not $lock) { Fall-Through }     # nvidia-smi errored or hung -> not decidable, launch.
 
-if ($sm -ge ($smMax * $LOCKED_FRACTION)) {
+if ($lock.Locked) {
     # Locked. The common case. Say nothing, cost nothing.
     exit 0
 }
@@ -108,9 +99,9 @@ Write-Host ''
 Write-Host '  ----------------------------------------------------------------------'
 Write-Host '   Pianoid: GPU clocks are NOT locked for low-latency audio.' -ForegroundColor Yellow
 Write-Host ''
-Write-Host ("   The GPU is running at {0} MHz of {1} MHz. Windows cleared the clock" -f $sm, $smMax)
-Write-Host '   lock on the last restart. Left as-is, the synthesis cycle runs several'
-Write-Host '   times slower than the hardware allows and you will hear DROPOUTS.'
+Write-Host ("   Reason: {0}." -f $lock.Reason)
+Write-Host '   Left as-is, the driver downclocks the GPU under Pianoid''s load, the synthesis'
+Write-Host '   cycle runs several times slower than the hardware allows, and you will hear DROPOUTS.'
 Write-Host ''
 Write-Host '   Windows will now ask for Administrator permission so Pianoid can lock'
 Write-Host '   the clocks. Click YES.' -ForegroundColor Cyan
@@ -121,18 +112,24 @@ Write-Host '  ------------------------------------------------------------------
 Write-Host ''
 
 # --- Elevate and apply. gpu_rt_config.ps1 is the SOLE writer of GPU clock state. ---------------
+# Hidden window: no console for a stray click to freeze (QuickEdit), and nothing to close by hand.
+# Bounded wait, never -Wait: if the worker hangs, the launch goes ahead and the worker is left to
+# finish or die on its own (an elevated process cannot be killed from here).
 try {
-    $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru -ErrorAction Stop `
+    $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden -PassThru -ErrorAction Stop `
         -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
             '-File', "`"$WORKER`"", '-Apply'
         )
-    if ($p.ExitCode -eq 0) {
-        # Read the state back from the driver rather than trusting the exit code.
-        $csv = & $smi --query-gpu=clocks.sm,clocks.max.sm --format=csv,noheader,nounits 2>&1
-        $f = ("$csv" -split ',').Trim()
-        if ($LASTEXITCODE -eq 0 -and [int]$f[0] -ge ([int]$f[1] * $LOCKED_FRACTION)) {
-            Write-Host ("   GPU clocks LOCKED at {0} MHz. Launching." -f $f[0]) -ForegroundColor Green
+    if (-not $p.WaitForExit($WORKER_TIMEOUT_SEC * 1000)) {
+        Write-Host ("   The clock-lock tool did not finish within {0} s. Launching anyway" -f $WORKER_TIMEOUT_SEC) -ForegroundColor Yellow
+        Write-Host ("   (dropouts possible). Details: {0}" -f (Join-Path $env:ProgramData 'Pianoid\gpu_rt_config.log'))
+        Write-Host ''
+    } elseif ($p.ExitCode -eq 0) {
+        # Re-check rather than trusting the exit code.
+        $after = Test-GpuClockLocked -Smi $smi -TimeoutMs 5000
+        if ($after -and $after.Locked) {
+            Write-Host ("   GPU clocks LOCKED (now {0} MHz). Launching." -f $after.Live.SmMhz) -ForegroundColor Green
             Write-Host ''
         } else {
             Write-Host '   Clock lock did not take effect. Launching anyway (dropouts possible).' -ForegroundColor Yellow
