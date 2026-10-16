@@ -32,22 +32,27 @@ The live stack uses **three cooperating processes**. Starting or killing the wro
 **Rule (user-approved 2026-10-16).** An agent must **never** start a backend the launcher did not spawn (a bare `python backendServer.py`, an in-process Flask harness, anything else) on the core port **5000**. Use one of these instead:
 
 1. **The launcher:** `POST http://127.0.0.1:3001/api/start-backend`. The launcher owns the process, so open tabs accept it.
-2. **A fully isolated spare-port stack:** your own launcher + backend on spare ports (e.g. `:3012` / `:5012`), see [UI Testing → Fully isolated agent stack](UI_TESTING.md#fully-isolated-agent-stack-dev-2d06-when-the-users-own-tabs-are-open). Read the caveat below first.
+2. **A fully isolated spare-port stack:** your own launcher + backend on spare ports (e.g. `:3012` / `:5012`), see [UI Testing → Fully isolated agent stack](UI_TESTING.md#fully-isolated-agent-stack-dev-2d06-when-the-users-own-tabs-are-open).
 
 **Why.** Any open Tunner tab, including the user's own tabs that agents never control, runs the guard above on its next bootstrap, APPLY or reconnect. If :5000 answers and the launcher reports it does not own that process, the tab calls `/api/kill-stale` and the launcher kills the process tree (`taskkill /T /F`). Measured 2026-10-16 (inv-audio-on-death): an agent's bare `python` backend on :5000 disappeared mid-load with nothing in its own log. It looked like a silent crash. It was the user's tab calling kill-stale.
 
 **For any direct agent launch, use `python -u`** (or set `PYTHONUNBUFFERED=1`). Block-buffered stdout loses its last lines when the process is killed with `/F`, and those lines are the ones that show what the backend was doing.
 
-**Every launcher kill is logged** (dev-7bb0). `killProcessesOnPort` appends one line to the **killing launcher's** `<CORE_DIR>/logs/backend_stdout.log` (`modal_stdout.log` for :5001 kills):
+**Every launcher kill is logged** (dev-7bb0). `killProcessesOnPort` appends one line to the **killing launcher's** `<CORE_DIR>/logs/backend_stdout.log` (`modal_stdout.log` for modal-port kills):
 
 ```
 [launcher 2026-10-16T10:12:03.123Z] killed PID(s) 41234 on :5000 (reason: kill-stale) [by port: 41234]
 ```
 
-`reason` is `kill-stale` (a tab's guard), `start-backend` or `start-modal-adapter` (the launcher's stale sweep before it spawns). `by port` / `by cmdline <script>` says how the sweep found the PID.
+`reason` is `kill-stale` (a tab's guard), `start-backend` or `start-modal-adapter` (the launcher's stale sweep before it spawns). `by port` / `by cmdline <script>` says how the sweep found the PID (see the note below).
 
-!!! warning "The launcher's kill sweep is not strictly port-scoped (measured 2026-10-16, dev-7bb0)"
-    `killProcessesOnPort` kills the processes on the port **and** every process whose command line contains `backendServer.py` (on Windows via WMIC; for the modal port, `modal_adapter_server.py`, and the modal port is always 5001). So a kill-stale or start-backend on **any** launcher also kills the backends that other launchers run on other ports. A spare-port stack therefore protects you from the user's tabs **auto-loading** your backend, but **not** from their kill-stale sweep. In the other direction, your isolated launcher's `start-backend` / `kill-stale` kills the user's :5000 backend and :5001 modal adapter. Before you start an isolated stack, check that the user has no Pianoid backend running (`kill_pianoid.ps1 -DryRun`). Never call `/api/kill-stale` yourself. If your backend dies unexpectedly, look for a `[launcher …] killed PID(s)` line first (see [Backend dies silently mid-load](#symptom-backend-dies-silently-mid-load-no-traceback)).
+!!! note "What a launcher kills (dev-7bb0, 2026-10-16)"
+    A launcher's kill sweep (`server/processSweep.js`) kills only:
+
+    1. processes with a TCP endpoint on **its own** port (backend `PIANOID_BACKEND_PORT`, modal adapter `PIANOID_MODAL_PORT`, defaults 5000 / 5001), and
+    2. python processes whose script argument is **its own** absolute script path (`<CORE_DIR>/pianoid_middleware/backendServer.py`, or `modal_adapter_server.py`), provided neither the process nor a child listens on a port outside this launcher's two ports. This catches orphans that died before they bound the port.
+
+    Not killed: other stacks' backends (an isolated launcher on :3012 no longer touches :5000 / :5001, and the user's launcher no longer touches :5012, even when both use the same `CORE_DIR`); shells, `wmic` or `powershell` whose command line only mentions the script; `python -c ...` / `python -m ...`; a bare backend started with a **relative** script path, unless it is on this launcher's port. Before this change the sweep killed every process whose command line contained `backendServer.py`, so stacks killed each other's backends. Still: never call `/api/kill-stale` yourself. If your backend dies unexpectedly, look for a `[launcher …] killed PID(s)` line first (see [Backend dies silently mid-load](#symptom-backend-dies-silently-mid-load-no-traceback)).
 
 ### Reloading the browser tab is safe (dev-hxfix, 2026-06-22)
 

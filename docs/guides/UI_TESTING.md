@@ -174,7 +174,7 @@ Open Pianoid tabs in the USER's Chrome auto-load against whatever answers on `:3
 you need a launcher + backend of your own, keep them off the standard ports:
 
 ```powershell
-$env:PIANOID_LAUNCHER_PORT='3012'; $env:PIANOID_BACKEND_PORT='5012'; $env:PIANOID_CORE_DIR='D:/repos/wt-xxxx-core'
+$env:PIANOID_LAUNCHER_PORT='3012'; $env:PIANOID_BACKEND_PORT='5012'; $env:PIANOID_MODAL_PORT='5013'; $env:PIANOID_CORE_DIR='D:/repos/wt-xxxx-core'
 Start-Process -WindowStyle Hidden node.exe -ArgumentList 'server/launcher.js' -WorkingDirectory D:/repos/wt-xxxx-tunner -RedirectStandardOutput D:/tmp/launcher.log
 # CRA on a spare port, BROWSER=none (see above); backend: POST http://127.0.0.1:3012/api/start-backend
 ```
@@ -185,12 +185,14 @@ The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with 
 junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
 initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
 
-**Not isolated from the kill sweep (measured 2026-10-16, dev-7bb0).** Every launcher's kill sweep also kills processes
-by command line (`backendServer.py`; for the modal adapter, `modal_adapter_server.py` on the fixed port 5001), not only
-processes on its own port. So the user's tab calling kill-stale on :3001 also kills your :5012 backend, and your
-launcher's `start-backend` also kills the user's :5000 backend and :5001 modal adapter. Start an isolated stack only
-while `kill_pianoid.ps1 -DryRun` shows no user backend, and never call `/api/kill-stale` yourself. Each kill is noted
-in the killing launcher's `<CORE_DIR>/logs/backend_stdout.log` (`[launcher <time>] killed PID(s) … (reason: …)`).
+**Kill sweeps stay inside their own stack (dev-7bb0, 2026-10-16).** A launcher kills only what is on its own ports
+(`PIANOID_BACKEND_PORT`, `PIANOID_MODAL_PORT`) or python running its own `<CORE_DIR>` script that listens nowhere else,
+so the user's tab calling kill-stale on :3001 leaves your :5012 backend alone, and your launcher's `start-backend`
+leaves the user's :5000 / :5001 alone. Give the isolated launcher its own modal port too (`PIANOID_MODAL_PORT='5013'`);
+the launcher passes it to `modal_adapter_server.py --port`. Never call `/api/kill-stale` yourself. Each kill is noted in
+the killing launcher's `<CORE_DIR>/logs/backend_stdout.log` (`[launcher <time>] killed PID(s) … (reason: …)`).
+Measured: the user's Pianoid tabs reconnect to any launcher on **:3001** within 3 s, so even a two-stack test must not
+use the default ports while the user has tabs open.
 
 ## Shutdown
 

@@ -445,8 +445,8 @@ The frontend additionally elects ONE tab leader that performs automatic loads
 ([pianoid-tunner OVERVIEW → Tab leadership](../pianoid-tunner/OVERVIEW.md#tab-leadership-dev-2d06)).
 
 `PIANOID_BACKEND_PORT` (env, default `5000`) moves the backend to another port — agents use it with the
-launcher's `PIANOID_LAUNCHER_PORT` / `PIANOID_BACKEND_PORT` / `PIANOID_CORE_DIR` for an isolated stack
-that the user's open `:3000` tabs never see.
+launcher's `PIANOID_LAUNCHER_PORT` / `PIANOID_BACKEND_PORT` / `PIANOID_MODAL_PORT` / `PIANOID_CORE_DIR` for an isolated stack
+that the user's open `:3000` tabs never see (the launcher starts `modal_adapter_server.py --port $PIANOID_MODAL_PORT`).
 
 ---
 
