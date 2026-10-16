@@ -21,6 +21,9 @@ Three processes must run together for a UI test:
 
 **Critical coupling**: the frontend's APPLY handler (`ensureBackendAndLoadPreset`, PianoidTuner.js:297) kills any backend on :5000 that the launcher does not own. See [Three-Process Architecture](STARTUP_TROUBLESHOOTING.md#three-process-architecture). Never start the backend manually and then use the UI to APPLY — the backend will be killed.
 
+!!! danger "Agent rule: never an unowned backend on :5000"
+    Agents never start a backend the launcher did not spawn (bare `python backendServer.py`, an in-process Flask harness) on **:5000**. Start it through the launcher (`POST :3001/api/start-backend`) or use a [fully isolated agent stack](#fully-isolated-agent-stack-dev-2d06-when-the-users-own-tabs-are-open) on spare ports. The reason: any open Tunner tab, including the user's own, calls `/api/kill-stale` on a :5000 backend the launcher does not own, and the backend disappears with no traceback. Use `python -u` for any direct launch so the stdout tail survives a kill. Every launcher kill is noted in `backend_stdout.log` as `[launcher <time>] killed PID(s) …`. Details: [STARTUP_TROUBLESHOOTING → Agents: never run an unowned backend on :5000](STARTUP_TROUBLESHOOTING.md#agents-never-run-an-unowned-backend-on-5000).
+
 ---
 
 ## Prerequisites
@@ -171,7 +174,7 @@ Open Pianoid tabs in the USER's Chrome auto-load against whatever answers on `:3
 you need a launcher + backend of your own, keep them off the standard ports:
 
 ```powershell
-$env:PIANOID_LAUNCHER_PORT='3012'; $env:PIANOID_BACKEND_PORT='5012'; $env:PIANOID_CORE_DIR='D:/repos/wt-xxxx-core'
+$env:PIANOID_LAUNCHER_PORT='3012'; $env:PIANOID_BACKEND_PORT='5012'; $env:PIANOID_MODAL_PORT='5013'; $env:PIANOID_CORE_DIR='D:/repos/wt-xxxx-core'
 Start-Process -WindowStyle Hidden node.exe -ArgumentList 'server/launcher.js' -WorkingDirectory D:/repos/wt-xxxx-tunner -RedirectStandardOutput D:/tmp/launcher.log
 # CRA on a spare port, BROWSER=none (see above); backend: POST http://127.0.0.1:3012/api/start-backend
 ```
@@ -181,6 +184,15 @@ The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with 
 `:5000→:5012`, `:3001→:3012`, seeds the fresh origin's preset settings). The core worktree needs a `.venv`
 junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
 initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
+
+**Kill sweeps stay inside their own stack (dev-7bb0, 2026-10-16).** A launcher kills only what is on its own ports
+(`PIANOID_BACKEND_PORT`, `PIANOID_MODAL_PORT`) or python running its own `<CORE_DIR>` script that listens nowhere else,
+so the user's tab calling kill-stale on :3001 leaves your :5012 backend alone, and your launcher's `start-backend`
+leaves the user's :5000 / :5001 alone. Give the isolated launcher its own modal port too (`PIANOID_MODAL_PORT='5013'`);
+the launcher passes it to `modal_adapter_server.py --port`. Never call `/api/kill-stale` yourself. Each kill is noted in
+the killing launcher's `<CORE_DIR>/logs/backend_stdout.log` (`[launcher <time>] killed PID(s) … (reason: …)`).
+Measured: the user's Pianoid tabs reconnect to any launcher on **:3001** within 3 s, so even a two-stack test must not
+use the default ports while the user has tabs open.
 
 ## Shutdown
 
