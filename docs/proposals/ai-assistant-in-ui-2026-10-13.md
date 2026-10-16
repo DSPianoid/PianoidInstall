@@ -1,7 +1,7 @@
 # AI Assistant in the Pianoid UI — Proposal (rev 2: full control)
 
 **Date:** 2026-10-13 · **Author:** `/analyse` (orchestrator-dispatched, research + docs only)
-**Status:** DECIDED (user, Telegram 2026-10-15: D1–D7 in §9). Infrastructure I0–I5 DONE ([assistant-infrastructure-2026-10-13.md](assistant-infrastructure-2026-10-13.md)). **A4 + A1 in implementation** (dev-df3c, one combined phase; design: `docs/development/assistant-a4-a1-design-2026-10-15.md`).
+**Status:** DECIDED (user, Telegram 2026-10-15: D1–D7 in §9). Infrastructure I0–I5 DONE ([assistant-infrastructure-2026-10-13.md](assistant-infrastructure-2026-10-13.md)). **A4 + A1 DONE** (dev-df3c, one combined phase, merged PianoidInstall master 6e721b8 / PianoidTunner dev 8ddb6bf, 2026-10-16; live real-runtime check 6/6 PASS; design + results: `docs/development/assistant-a4-a1-design-2026-10-15.md`). Next: A2 (direct writes within the envelope + auto-revert), A3, A5.
 **Requests (Telegram, 2026-10-13):** (1) "propose a plan to embed AI assistant into the Pianoid interface." (2) 18:37 UTC: "The assistant should be able to modify parameters, change windows layouts, and initiate any actions like playback, measurement etc. Plan necessary infrastructure update before the assistant implementation. The editors should be synchronized with the backend on any change."
 
 **Revision history:**
