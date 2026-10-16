@@ -17,7 +17,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { INSTALL_ROOT, commandName, loadCommands } from '../lib/registry.js';
 import { decide } from '../policy.js';
-import { callCommand, compact, listTools, SEARCH_DOCS } from './tools.js';
+import { callCommand, compact, listTools, SEARCH_DOCS, shapeResult } from './tools.js';
 import { buildIndex, search } from './docsIndex.js';
 
 const arg = (name, fallback) => {
@@ -50,7 +50,7 @@ export function createPianoidMcpServer({
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings });
     if (verdict.action === 'deny') return text({ error: 'denied', reason: verdict.reason }, true);
     const res = await callCommand(cmd, args, { source, fetchImpl });
-    return text(compact(res), !res.ok);
+    return text(compact(shapeResult(cmd, res)), !res.ok);
   });
   return server;
 }

@@ -77,6 +77,48 @@
         }
       },
       "result": {"type": "object"}
+    },
+    {
+      "name": "param.mute_modes",
+      "title": "Mute / unmute / solo a mode range",
+      "description": "Mutes, unmutes or solos a set of MODES on a set of keys through the deck masks (feedin_mask / feedback_mask), writing the whole num_modes rows for you in one undo step. modes: 'all' | 'from<a>to<b>' | n | [n, ...] (mode indices). pitches: piano keys, default 'all' (never the output pitches 128+). side: feedin | feedback | both (default). action: mute | unmute | solo (solo = the named modes on, every other mode off). 'Mute all modes except 0 and 1' = {modes: [0, 1], action: 'solo'}. The raw deck values are never touched.",
+      "target": "backend",
+      "tier": "write",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
+      "route": {"method": "POST", "path": "/mute/modes"},
+      "args": {
+        "type": "object",
+        "required": ["modes"],
+        "additionalProperties": false,
+        "properties": {
+          "modes": {"type": ["string", "integer", "array"], "description": "Mode indices: 'all', 'from<a>to<b>', n or a list"},
+          "pitches": {"type": ["string", "integer", "array"], "description": "Piano keys: 'all' (default), 'from<a>to<b>', n or a list"},
+          "side": {"type": "string", "enum": ["feedin", "feedback", "both"], "description": "Which deck mask (default both)"},
+          "action": {"type": "string", "enum": ["mute", "unmute", "solo"], "description": "Default mute"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "param.mute_channels",
+      "title": "Mute / unmute / solo output channels",
+      "description": "Mutes, unmutes or solos OUTPUT (sound) channels with the mask that really mutes them for the loaded preset: listen_to_modes 0 (strings axis) -> the feedback_mask row of output pitch 128+ch; listen_to_modes 1 (modes axis) -> column ch of sound_channel_mask on every piano key. channels: 'all' | n | [n, ...] (0-based). action: mute | unmute | solo (solo = only the named channels on). A channel row is written whole (unmute / solo clear its per-mode mutes). The result names the axis / mask used and channels_on. 'Channel 0 only' = {channels: [0], action: 'solo'}; 'unmute all' = {channels: 'all', action: 'unmute'}.",
+      "target": "backend",
+      "tier": "write",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
+      "route": {"method": "POST", "path": "/mute/channels"},
+      "args": {
+        "type": "object",
+        "required": ["channels"],
+        "additionalProperties": false,
+        "properties": {
+          "channels": {"type": ["string", "integer", "array"], "description": "0-based channel numbers: 'all', n or a list"},
+          "action": {"type": "string", "enum": ["mute", "unmute", "solo"], "description": "Default mute"}
+        }
+      },
+      "result": {"type": "object"}
     }
   ]
 }

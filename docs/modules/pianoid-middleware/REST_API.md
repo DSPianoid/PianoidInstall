@@ -625,6 +625,22 @@ Initializes the engine from a preset file (Apply). Optionally starts playback im
 
 The classification logic is the pure, CUDA-free `pianoid_middleware/preset_reinit.py` (`classify_reinit`); the route diffs against a signature stashed on the pianoid object at each full load (`backendServer.py:load_preset_route`). Pre-Cluster-C behaviour (always full) is preserved for any caller whose response omits `reinit`.
 
+**Omitted load settings keep the live values (dev-0a88).** Every load setting a request OMITS is
+filled from the live engine's signature (the settings of the last full load, kept current by
+in-place re-inits) BEFORE the hot / structural classification — the same "omitted = keep" rule
+the classifier already applied, now also on the full path: `{"path": "presets/X.json"}` alone
+reloads X with the user's current `sample_rate`, `string_iterations`, `sound_derivative_order`,
+`array_size`, `listen_to_modes`, driver, buffer, `volume` anchor, `audio_on`,
+`start_right_away`, `listen_to_midi`, `midi_port` (the path is never inherited; a legacy alias
+such as `user_1` counts as given). Every success response lists them as
+`inherited_load_params` (`{}` when nothing was inherited), and `load_param_warnings` now also
+covers inherited values. With no engine loaded nothing is inherited and the four keys below are
+still required (400 `invalid_preset_request`). Before dev-0a88 an assistant "load X, keep my
+settings" failed on the four keys, and an omitted `listen_to_modes` / `sound_derivative_order` /
+`array_size` on a full reload silently fell back to the route defaults (`1` / `1` / `384`).
+Owner: `pianoid_middleware/load_settings.py` (`inherit_missing`); tests
+`tests/unit/test_load_settings.py`.
+
 Default preset: `presets/BaselinePreset1.json`
 
 Request body (default initialization settings):
@@ -740,6 +756,29 @@ Real CPU synthesis (PianoidBasic) is a deferred "cpu-sim" path that would be all
 gate later — `docs/proposals/no-cuda-cpu-synthesis-2026-06-10.md`.
 
 ---
+
+### `GET /load_settings`
+
+(dev-0a88) The settings the running engine was loaded with, in `/load_preset` request form, what
+the loaded preset declares (`fpga_conversion.load_params` / `required_load_params`, see
+*Load-param warnings*) and the mismatches. Read-only (registry `preset.load_settings`). Response
+`200`:
+
+```json
+{"loaded": true, "path": "presets/F15_measured_plywood_2026-10-15.json",
+ "settings": {"array_size": 512, "string_iterations": 8, "cycle_iterations": 64, "sample_rate": 48000,
+              "listen_to_modes": 0, "sound_derivative_order": 2, "debug_mode": 0, "audio_on": 1,
+              "audio_driver_type": 4, "audio_buffer_size": 4, "volume": 127, "start_right_away": 1,
+              "listen_to_midi": 1, "midi_port": 0},
+ "declared": {"listen_to_modes": 0, "sound_derivative_order": 1, "array_size": 512,
+              "string_iteration": 16, "sample_rate": 48000, "samples_in_cycle": 64},
+ "mismatches": [{"param": "string_iterations", "required": 16, "requested": 8},
+                {"param": "sound_derivative_order", "required": 1, "requested": 2}]}
+```
+
+`sample_rate` is in Hz; `volume` is the load level anchor (not the slider). `path` is the last
+FULL load's file (a library switch does not change it). No engine: `{"loaded": false, "path": null,
+"settings": {}, "declared": {}, "mismatches": []}`.
 
 ### `POST /save_preset`
 
@@ -1078,6 +1117,37 @@ should be < 1e10") were intentionally removed from both UI and backend per
 dev-2706.
 
 ---
+
+### Mute operations (dev-0a88)
+
+Whole-row mask writes for the two common mutes, so a caller never hand-builds `num_modes`-long
+rows (owner `pianoid_middleware/mute_ops.py`, tests `tests/unit/test_mute_ops.py`). Each request
+reads the current masks, changes only what it names and writes through the same choke point as
+`POST /set_parameter/<mask>/<range>` (`write_routes` class `param`): ONE request = ONE undo group,
+`state_changed` to every editor, the read-only guard (409 on an original).
+
+| Route | Body | Writes |
+|---|---|---|
+| `POST /mute/modes` | `{modes, pitches = "all", side = "both", action = "mute"}` | `feedin_mask` and / or `feedback_mask` rows of the piano `pitches` (never the output pitches): the named `modes` set to 0 (`mute`) / 1 (`unmute`), or `solo` = the named modes 1 and every other mode 0 |
+| `POST /mute/channels` | `{channels, action = "mute"}` | the mask that mutes an OUTPUT channel for the loaded preset (below), each channel row written whole: `mute` = 0, `unmute` = 1, `solo` = the named channels 1, the others 0 |
+
+`modes` / `pitches` / `channels`: `"all"`, `n`, `"from<a>to<b>"` or a list (0-based channels).
+`side`: `feedin` · `feedback` · `both`. `action`: `mute` · `unmute` · `solo`.
+
+**Which mask is a channel** (see [Sound-channel editing](#sound-channel-editing-what-the-frontend-uses)):
+`listen_to_modes = 0` (strings axis, e.g. the F15 FPGA / measured presets) → the `feedback_mask`
+row of output pitch `128 + ch`; `listen_to_modes = 1` (modes axis) → column `ch` of
+`sound_channel_mask` on every piano pitch. Writing the other one is a silent no-op for the
+sound (measured in the 2026-10-16 assistant session: `sound_channel_mask` "channel 0 only" on a
+`listen_to_modes = 0` preset changed nothing). `unmute` / `solo` clear the channel's own per-mode
+mutes (the row becomes all 1).
+
+Response `200`: `{message: "OK", action, written: [<mask>…]}` plus, for modes,
+`{modes: [...], pitches: [first, last], side}` and, for channels, `{axis: "strings" | "modes",
+parameter, channels, channels_on, num_channels, listen_to_modes, output_pitches?}` (`channels_on`
+= the channels with any mask value 1 after the write). `400 invalid_mute_request` (bad
+action / side, an index out of range — nothing written), `400` no preset loaded, `416` a write
+the choke point rejected.
 
 ### `POST /set_string_excitation/<pitch_no>`
 

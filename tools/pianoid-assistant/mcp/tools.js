@@ -70,6 +70,38 @@ export async function callCommand(cmd, args, { source = 'assistant', fetchImpl =
   return body;
 }
 
+/** Peak / RMS of one rendered series (the model cannot listen to samples; it needs the level). */
+export function seriesStats(series) {
+  let peak = 0;
+  let sum = 0;
+  for (const v of series) {
+    const a = Math.abs(v);
+    if (a > peak) peak = a;
+    sum += v * v;
+  }
+  const rms = series.length ? Math.sqrt(sum / series.length) : 0;
+  const db = (x) => (x > 0 ? Math.round(20 * Math.log10(x) * 10) / 10 : null);
+  return { samples: series.length, peak_abs: peak, rms, peak_db: db(peak), silent: peak === 0 };
+}
+
+/**
+ * Render results carry base64 audio and every sample (a 1 s note = 48k numbers): replace them with
+ * per-series stats, so the model reads the level instead of guessing from the first samples
+ * (dev-0a88: a silent render, Max 0.000000, was read as "real signal").
+ */
+export function shapeResult(cmd, res) {
+  if (cmd.family !== 'render' || !res?.result || typeof res.result !== 'object') return res;
+  const { audio_data: audio, data, ...rest } = res.result;
+  const shaped = { ...rest };
+  if (audio) shaped.audio_data = `[${[].concat(audio).length} audio clip(s) omitted: the user can play them in the chart pane]`;
+  if (Array.isArray(data)) {
+    const headers = rest.chart_headers || [];
+    shaped.series = data.map((s, i) => (Array.isArray(s) && s.every((v) => typeof v === 'number')
+      ? { name: headers[i] ?? `series ${i}`, ...seriesStats(s) } : s));
+  }
+  return { ...res, result: shaped };
+}
+
 /** Keep tool results small: long arrays are summarised (the model can narrow its request). */
 export function compact(value, { maxArray = 64, maxString = 4000, depth = 0 } = {}) {
   if (typeof value === 'string') {

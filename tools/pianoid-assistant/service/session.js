@@ -12,6 +12,7 @@ import { commandName } from '../lib/registry.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
 import { contextBlock, systemPrompt } from './prompt.js';
+import { buildDigest } from './contextDigest.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -188,23 +189,15 @@ export class AssistantSession {
       }
     };
     const post = (url) => get(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pianoid-Source': 'assistant' }, body: '{}' });
-    const [ui, health, presets, jobs] = await Promise.all([
+    const [ui, health, runtime, load, presets, jobs] = await Promise.all([
       post(`${this.launcherUrl}/api/command/ui.snapshot`),
       get(`${this.backendUrl}/health`),
+      get(`${this.backendUrl}/get_runtime_parameters`),
+      get(`${this.backendUrl}/load_settings`),
       get(`${this.backendUrl}/preset/list`),
       post(`${this.backendUrl}/command/job.list`),
     ]);
-    const h = health.unreachable ? { unreachable: true } : {
-      status: health.status, pianoid_loaded: health.pianoid_loaded, lifecycle: health.lifecycle, limiting: health.limiting,
-      exception: health.exception, audio_driver_fallback: health.audio_driver_fallback?.active,
-    };
-    const running = (jobs.result?.jobs || []).filter((j) => j.state === 'running').map((j) => ({ id: j.id, name: j.name, pct: j.pct }));
-    return {
-      backend: h,
-      preset: presets.unreachable ? null : { active: presets.active, entries: (presets.presets || []).map((p) => `${p.name} (${p.kind})`) },
-      ui: ui.ok ? ui.result : { unavailable: ui.error || 'no leader tab' },
-      runningJobs: running,
-    };
+    return buildDigest({ health, runtime, load, presets, jobs, ui });
   }
 
   async turn(text) {
