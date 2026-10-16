@@ -266,7 +266,8 @@ export class AssistantSession {
   onEvent(ev) {
     switch (ev.type) {
       case 'init':
-        this.broadcast({ type: 'session', sessionId: ev.sessionId, model: ev.model, mcpServers: ev.mcpServers });
+        this.sessionInfo = { sessionId: ev.sessionId, model: ev.model, tools: ev.tools || [], mcpServers: ev.mcpServers || [] };
+        this.broadcast({ type: 'session', ...this.sessionInfo });
         break;
       case 'delta':
         if (this.currentAssistant) this.currentAssistant.text += ev.text;
@@ -290,7 +291,7 @@ export class AssistantSession {
         break;
       case 'result': {
         const u = ev.usage || {};
-        this.usage.lastTurn = { inputTokens: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), outputTokens: u.output_tokens || 0, durationMs: ev.durationMs, model: this.model.current };
+        this.usage.lastTurn = { inputTokens: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), outputTokens: u.output_tokens || 0, durationMs: ev.durationMs, model: this.model.current, modelsUsed: ev.models || null };
         this.usage.totals.inputTokens += this.usage.lastTurn.inputTokens;
         this.usage.totals.outputTokens += this.usage.lastTurn.outputTokens;
         this.usage.totals.turns += 1;

@@ -90,3 +90,23 @@ the turn (`query.interrupt()`), denies pending confirms and cancels running jobs
 | Service + fake driver | `node --test` | a scripted turn → activity, confirm round trip, opt-out deny, escalation, Stop |
 | Pane | Jest | render, user / model switch messages, confirm dialog, login banner |
 | Live | chrome-devtools, real UI, after the user's one-time login | "open Modes and Feedin side by side and zoom modes 0–40" → screenshot; "why no sound" with the backend up; a played note shows in `/playback_stats`; a confirm for a destructive command; the assistant cannot read `~/.claude` (no file tools listed) |
+
+## 7. Results (Phase 1, live on the real subscription runtime, 2026-10-16)
+
+Isolated agent stack (launcher :3012, backend :5012 audio_off, CRA :3005 with the port-rewrite initScript; the user's
+own browser tab kept auto-loading against `:5000`, so the standard ports were avoided), one automation page, the
+assistant home logged in by the user (claude.ai Max).
+
+| Check | Result | Evidence |
+|---|---|---|
+| Panes / zoom | PASS — "Modes maximized, selection 0–40, zoomed": `ui.select.mode_range [0,40]` + `ui.chart.tie Modes` + `ui.pane.maximize Modes`, all `allow` | `logs/dev-df3c-live-01`, `-02` |
+| "Why no sound?" | PASS — read-only diagnosis through `runtime.get`, `play.stats`, `launcher.status`, `preset.list` (+ the per-turn health context): healthy engine, 0 events played, volume 64, feedback 1.0, limiter off, SDL3 fallback | `-03` |
+| Confirm on a write | PASS — `param.set mode 5 frequency` (same value) raised the dialog with the args; Allow → `POST /command/param.set` 200, value unchanged, no undo step (no-op) | `-04` |
+| No file tools | PASS — the runtime's own init lists 61 tools: 60 `mcp__pianoid__*` + `mcp__assistant__escalate_model`, no built-ins; MCP servers `pianoid` (dynamic) + `assistant` (sdk); asked to read `~/.claude/CLAUDE.md` it answers it has no file access and no skills | `-05` |
+| Usage indicator | PASS — `rate_limit_event`: seven_day 59 % `allowed_warning` (chip shows it), five_hour 2 %; per-turn tokens | `-07` |
+| Sonnet default / Opus | PASS — default Sonnet 5.5; self-escalation on a research prompt switched to Opus 5.5 (badge) and back after the turn; forced Opus in the picker → turn on Opus (`modelUsage` gained `claude-opus-5-5`), Auto → Sonnet | `-06`, `-07` |
+
+Defects found and fixed on the branch: the assistant could close / hide its own chat pane (a remote
+`ui.pane.close Assistant` is now refused, 409 `assistant_pane_protected`, and the prompt says to keep the chat
+visible); replies quoted raw tool ids (prompt: plain words). Added for evidence: `/status` carries the runtime's init
+tool list and each turn's `modelsUsed`.

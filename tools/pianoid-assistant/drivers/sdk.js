@@ -61,6 +61,7 @@ export function normalize(msg) {
     case 'result':
       return [{
         type: 'result', subtype: msg.subtype, usage: msg.usage || null, costUsd: msg.total_cost_usd ?? null,
+        models: msg.modelUsage ? Object.keys(msg.modelUsage) : null,
         durationMs: msg.duration_ms ?? null, numTurns: msg.num_turns ?? null, text: msg.result ?? null,
       }];
     default:
