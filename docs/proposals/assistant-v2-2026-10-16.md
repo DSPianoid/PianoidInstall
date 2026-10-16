@@ -154,18 +154,27 @@ the one the assistant follows.
 
 ### 4.2 Coverage audit: UI actions vs registry commands
 
-Method: the registry (60 commands on the dev-0a88 branch) against the routes the Tunner `dev` source calls (a grep of
-`fetch` / `axios` / `socket.emit` targets and the `usePreset` / `useUiCommands` bus calls). It is a route-level audit; the
-per-control audit is the P3 coverage test. Today **52 source files** still call routes directly; `usePreset`
-(parameter writes, preset switch) and `useUiCommands` (the `ui` family, I5) already go through `utils/commandBus.js`.
+Method: a read-only audit of the Tunner source (every user-triggerable control with its transport and category; audit
+sub-agent, 2026-10-16) against the registry (60 commands on the dev-0a88 branch; master lacks `param.mute_*` and
+`preset.load_settings`).
 
-**Covered** (UI action → command): volume / feedback slider → `runtime.set`; Reset → `play.reset`; the load dialog →
-`preset.load` (+ `preset.load_settings`); library switch / working copy / promote / unload / save → `preset.*`; every matrix
-and editor write through `usePreset.writeParam` → `param.set` (+ `param.mute_*` for mute rows, dev-0a88); keys / Play All /
-MIDI file → `play.note` / `play.keyboard` / `play.midi_file*`; charts → `render.chart` / `render.chart_types`; undo / redo →
-`history.*`; Calibrate Synthesis / Acoustic → `calibration.*`; modal stage buttons → `modal.run_stage`; Apply to preset →
-`modal.apply_to_preset`; panes, layout reset / apply named, selections, chart tie, workbenches → `ui.*`; backend / modal
-adapter start → `launcher.*`.
+**Main finding: the FE command bus carries few families.** `utils/commandBus.js` (WS `command` with ack, else
+`POST /command/<name>`) carries only `preset.*`, `play.note` / `play.mode` / `play.reset` / `play.keyboard`, `render.chart` /
+`render.keyboard`, `launcher.assistant.start` and the `ui.*` family. Everything else bypasses it:
+
+| Covered by a command, but sent another way | FE transport today |
+|---|---|
+| parameter and mask edits (`param.set`) | `usePreset.writeParam` → WS `set_parameter` or REST `/set_parameter/<kind>/<key>` (masks via `emitMaskRows`) |
+| volume / feedback / sensitivity fold (`runtime.set`) | WS / REST `set_runtime_parameters` |
+| undo / redo (`history.*`) | REST `/history/*` with `UNDO_DOMAINS` (`useBackendUndo.js`) |
+| backend / modal adapter start (`launcher.*`) | the legacy `:3001/api/*` routes |
+
+So the UI does not yet make "literally the same call" as the assistant for its most common actions. P3 moves these onto
+the bus first; the journal `source` and the undo grouping then match by construction.
+
+**Covered through the bus:** the preset toolbar and Preset pane (reload, switch, save as, add to library, unload, working
+copy, promote); keys, Play All online / offline, Modes play; chart windows; all 17 `ui.*` commands (`utils/uiCommands.js`,
+relayed by `server/uiControlRelay.js`: 10 commands/s, 10 s timeout).
 
 **Missing** (no command; the P3 list):
 
@@ -187,7 +196,22 @@ adapter start → `launcher.*`.
 | Preset export / download (`PresetConfigBar.jsx`) | FE-only download | `preset.export {entry}` → an artefact (§4.3), not a browser download | read |
 | Bug dialog (`BugReportDialog.jsx`) | FE-only download | `ui.bug_report.collect` (§7) | read |
 | Chart pop-out windows (`newWindowChart.jsx`) | a new browser window | none (out of scope: the assistant drives the leader tab) | — |
-| ASIO device and session | `GET /audio/devices`, `POST /audio/session` (no FE caller; the modal measurement panel proxies it) | `audio.devices` (read), `audio.session` (destructive, hard-confirm), the D-h test tone | read / destructive |
+| ASIO device and session | `GET /audio/devices`, `POST /audio/session` (no FE caller; the FE also never calls MIDI-file playback, `play.stats`, `render.note_playback`, `job.*`, `history.get`) | `audio.devices` (read), `audio.session` (destructive, hard-confirm), the D-h test tone | read / destructive |
+| Excitation mode (hammer / bow) | `/get_excitation_mode`, `/set_excitation_mode` | `param.excitation_mode.get/set` | write / `params` |
+| Calibration pane (`CalibrationPanel.jsx`, `CurveEditor.jsx`) | `/set_reference`, `/reference`, `POST /precision_profile`, `/calibration_curve/*` (apply / follow / flat / revert / load / save / RCM), Excitation-pane `/save_reference` | `calibration.reference.*`, `calibration.precision_profile`, `calibration.curve.*` | read / destructive |
+| Sound-channel calibration batch | `/modal/calibrate_sound_channel/batch` (+ `/batch/status`) | `modal.calibrate_sound_channel_batch` (a job) | destructive |
+| Modal FRF and modal-mass runs, deletes | `/modal/run_frf`, `/modal/run_modal_mass`, `DELETE /modal/modal_mass` | more `modal.run_stage` stages; `modal.results.delete` | destructive |
+| Collection controls | `/collect/{start,status,cancel}`, `/unlock`, `/setup_test`, section `PATCH`, `/devices`, `/validate` | `modal.measurement.collect.*` | destructive (rig) |
+| Synth chip, chart actions, capture | `POST /start_test {action_type}`, `POST /capture` | `render.action`, `render.capture` | act |
+| Pause / resume synthesis | `/pause_synthesis`, `/resume_synthesis` | `play.pause` / `play.resume` | act |
+| Stop sweep | FE only (no backend stop) | `play.keyboard_stop` (needs a backend stop route) | act |
+| Kill stale (`BackendStatusIndicator.jsx`) | `:3001/api/kill-stale` | stays **excluded** (process kill) | — |
+| Named load-settings configs, auto-load toggle (`PresetConfigBar.jsx`) | localStorage `presetLoadConfigs` + JSON export / import | `preset.load_configs.*` | ui |
+| View toggles: clear selection, autoscale, orientation, audibility view, matrix rotate, show all levels, MatrixTools tool state, pane refresh, mode-ruler / derived workbenches | FE | `ui.select.clear`, `ui.view.set {pane, option, value}`, `ui.pane.refresh`, more `ui.workbench.open` kinds | ui |
+| Global settings: pitch numbering, workbench placement, log scale | localStorage `uiPreferences` | `ui.settings.*` | ui |
+| Global settings: amplitude gate, crash-guard ceiling | `set_runtime_parameters {amplitude_gate_enabled, amplitude_limit}` | stays **excluded** for the assistant (parent §4.1) | excluded |
+| Hotkeys (`useHotkeys.js`: Space play, Ctrl+Z / Y, arrows, +/- volume, Shift +/- feedback, [ ] preset, Esc reset) | the same handlers | each hotkey maps to its command (no new command) | — |
+| Assistant chat protocol, tab takeover, remote-control Allow / Stop | WS `:3002/ws`, FE | none: the user's own controls, never assistant tools | — |
 
 Excluded on purpose (parent §4.1, unchanged): `/shutdown`, `/api/stop-backend`, `/debug/audio_fault`, project delete, the
 gate / amplitude limit, the mic device change.
@@ -211,15 +235,18 @@ tools, plus one narrow analysis tool in an OS sandbox".
 | | (A) Agent SDK `Bash` + sandbox settings / permission hook | (B) custom `analysis.run_python` MCP tool, OS-sandboxed executor (**recommended**) | (C) container (Docker / WSL2) executor |
 |---|---|---|---|
 | Surface for the model | a full shell; policy = parse the command line in `canUseTool` / a PreToolUse hook | one tool: `{code, inputs: [artefact ids], timeout_s}` | the same tool as (B), a different executor |
-| Isolation on Windows | Claude Code's built-in Bash sandbox is not documented for native Windows; a command-string filter is whack-a-mole (`python -c`, PowerShell encodings) | AppContainer (no network capability, file access only to granted folders) + a Job Object (memory, CPU time, one process, kill on close) | strong (namespaces, `--network none`, read-only mounts) |
+| Isolation on Windows | **none: the SDK sandbox does not work on native Windows** (Agent SDK sandboxing docs: it "runs commands unsandboxed"; it covers only Bash / PowerShell, for macOS / Linux / WSL2). What is left is a command-string filter in `canUseTool` / a PreToolUse hook: whack-a-mole (`python -c`, PowerShell encodings) | AppContainer (no network capability, file access only to granted folders) + a Job Object (memory, CPU time, one process, kill on close) | strong (namespaces, `--network none`, read-only mounts) |
 | Dependencies | none | a small native launcher (Python `ctypes` or a Node addon) + an analysis venv | Docker Desktop or a WSL2 distro on every installation; a collaborator's machine may not have it |
 | Fits D1 (minimal seal break) | no | yes | yes |
-| Verdict | reject | **recommend**, with a P5 spike to prove the AppContainer launcher | the fallback if the AppContainer spike fails; also the Linux path (bubblewrap / a container) |
+| Verdict | **reject** (decisive: no OS sandbox on native Windows) | **recommend**, with a P5 spike to prove the AppContainer launcher | the fallback if the AppContainer spike fails; also the Linux path (bubblewrap / a container) |
 
 #### The recommended design (B)
 
 - **Tool:** `analysis.run_python {code, inputs[], timeout_s ≤ 300, memory_mb ≤ 2048}` in a new in-process SDK MCP server
-  `analysis` (the service runs it; the model never gets Bash). Category `code` (§9). It returns `{exit, stdout (≤ 20 kB, truncated
+  `analysis` (the service runs it; the model never gets Bash). An in-process MCP tool runs **unsandboxed inside the service
+  process** (SDK custom-tools docs), so the handler never evaluates the code: it only writes `code.py` and spawns the separate
+  sandboxed process below. `disallowedTools` also denies `Bash` / `PowerShell` in every mode, and a PreToolUse hook (it can deny
+  even in bypass mode) re-checks every `analysis` call against the policy. Category `code` (§9). It returns `{exit, stdout (≤ 20 kB, truncated
   with a marker), stderr (≤ 8 kB), files: [{name, kind, size, artefact_id}], elapsed_s}`.
 - **Workspace:** `%USERPROFILE%\.pianoid-assistant\analysis\` with `artifacts\` (inputs, read-only to the run) and
   `runs\<run_id>\` (`code.py`, `in\` = hard links / copies of the requested artefacts, `out\`, the cwd). It sits outside
@@ -408,8 +435,13 @@ strips third-party measurement data (Elyashev / FPGA preset contents, modal meas
 
 ## 8. Requirement 5: web search
 
-**Tools.** The Agent SDK's built-in WebSearch and WebFetch. They are **not** given to the main assistant. A **researcher
-sub-agent** (the SDK `agents` option, Opus) holds exactly `WebSearch`, `WebFetch` and `search_docs`, no Pianoid tools,
+**Tools.** The Agent SDK's built-in WebSearch and WebFetch. SDK facts (code.claude.com/docs/en/agent-sdk + tools-reference):
+`tools: [...]` selects which built-ins exist; `WebFetch(domain:…)` allow / deny rules work; WebSearch has **no operator domain
+allow-list**, and its availability under claude.ai subscription auth through the SDK is **not documented**. The first P7 task
+measures it in the isolated home (if unavailable: WebFetch on an allow-listed search front end, decision V6), and verifies that
+the rules apply through `allowedTools` / `disallowedTools` with `settingSources: []`. The tools are **not** given to the main
+assistant. A **researcher
+sub-agent** (the SDK `agents` option; a sub-agent carries its own `tools` and `model: 'opus'`, SDK subagents docs) holds exactly `WebSearch`, `WebFetch` and `search_docs`, no Pianoid tools,
 no code. The main assistant calls it with a question and gets a summary with source URLs. Injected text in a web page
 can then at most bias a summary; it cannot call a Pianoid tool, run code or file anything in the same context.
 
@@ -517,11 +549,11 @@ model exist; its spike runs early because its result decides V1 / V2. The total 
 | # | Decision | Recommendation |
 |---|---|---|
 | **V1** | Code execution at all, and its approval: allowed? Ask for every run, or Auto after the escape suite passes? | allow, through the narrow `analysis.run_python` only (never Bash); Ask by default, Auto possible after the suite passes, never in a tainted turn |
-| **V2** | The executor: native Windows AppContainer + Job Object, or a container (Docker Desktop / WSL2) required on every installation? And a separate analysis venv (numpy / scipy / matplotlib / soundfile, about 150 MB)? | AppContainer (no new dependency for collaborators), container as the fallback if the P5a spike fails; yes to the separate venv |
+| **V2** | The executor: native Windows AppContainer + Job Object, or a container (Docker Desktop / WSL2) required on every installation? And a separate analysis venv (numpy / scipy / matplotlib / soundfile, about 150 MB)? | AppContainer (no new dependency for collaborators; the SDK sandbox is not an option on native Windows), container as the fallback if the P5a spike fails; yes to the separate venv |
 | **V3** | Signals while live audio runs: renders are refused live (R6). Accept "analysis of renders needs audio off", or fund engine work for a render that does not stop realtime playback (feasibility **UNKNOWN**, not evaluated by dev-0a88), or use rig recordings (`audio.session`) only? | accept for now; investigate the non-stopping render as a separate engine task |
 | **V4** | Bug destination: local collector only / GitHub on a click / GitHub automatically? Are the four repos private, and may an issue carry preset or measurement data? | local always (Auto) + GitHub on a click, preset / measurement data stripped by default |
 | **V5** | A GitHub fine-grained PAT (issues: write on the four DSPianoid repos) in the Windows Credential Manager, used only by the service | yes, if V4 includes GitHub |
-| **V6** | Web: a researcher sub-agent with no Pianoid tools (recommended) vs web tools on the main assistant; URL provenance; the D4 switch extended to web queries (default off) | sub-agent + provenance + query filter off by default |
+| **V6** | Web: a researcher sub-agent with no Pianoid tools (recommended) vs web tools on the main assistant; URL provenance; the D4 switch extended to web queries (default off) | sub-agent + provenance + query filter off by default; if WebSearch turns out unavailable on the subscription (undocumented), accept WebFetch on an allow-listed search front end |
 | **V7** | The approval categories and their defaults (§9); scope of "Don't ask again" (session vs installation) | as in §9; session as the default scope |
 | **V8** | The hard-confirm list (§9): add or remove items? In particular `preset.load` (full reload) and `code` | as in §9 (full reload hard-confirm; code not hard-confirm but Ask by default) |
 | **V9** | Escalation: deterministic rules + tool / failure triggers + self-escalation only, or also a Haiku classifier per turn (a model call per turn on the subscription)? Stickiness of 2 turns? | rules + triggers + self-escalation; no classifier; stickiness 2 |
