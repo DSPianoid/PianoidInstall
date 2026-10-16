@@ -15,7 +15,10 @@
 
 const LIMITER_KNEE_DBFS = -1.94;     // 0.8 of full scale (REST_API.md Layer B / limiter)
 const FULL_SCALE = 2147483647;       // INT32 full scale: the limiter ceiling / clip rail
-const HEAVY_REDUCTION_DB = -20;      // the limiter cutting this much makes the output near-silent
+// The output is NOT limited: MainKernel.cu (W5-A, dev-excenergy) writes it UNLIMITED and the Sint32 cast
+// saturates at the INT32 rail (SYNTHESIS_ENGINE.md "Output-clipping telemetry (dev-538e)"). The /health
+// `limiting` / `limiting_info.gain_reduction_db` are host-side TELEMETRY (backendServer._gain_reduction_db
+// computes what a limiter would apply from the peak); no stage attenuates. A peak above full scale = hard clipping.
 
 const pct = (x) => `${Math.round(x * 1000) / 10}%`;
 const dbfs = (x) => (x > 0 ? `${(20 * Math.log10(x)).toFixed(1)} dBFS` : '-inf dBFS');
@@ -34,26 +37,30 @@ export function audioDigest(health) {
   };
 }
 
-/** The limiter's gain reduction: live (now, worst channel) and the worst latched since the last load / clear. */
-function limiterDigest(health) {
-  const lim = health.limiter;
-  const info = health.limiting_info || lim?.limiting_info;
-  if (!lim && !info) return null;
-  const now = (lim?.channels || []).reduce((m, c) => Math.min(m, c.gain_reduction_db ?? 0), 0);
-  return {
-    gain_reduction_db_now: Math.round(now * 10) / 10,
-    worst_latched: info ? {
-      gain_reduction_db: Math.round(info.gain_reduction_db * 10) / 10,
-      peak_x_full_scale: info.peak != null ? Number((info.peak / FULL_SCALE).toPrecision(3)) : null,
-      channel: info.channel,
-    } : null,
-  };
+/** The worst latched output peak over full scale (telemetry; nothing attenuates it, see above). */
+function overFullScale(health) {
+  const info = health.limiting_info || health.limiter?.limiting_info;
+  if (!info || info.peak == null || info.peak < FULL_SCALE) return null;
+  const x = info.peak / FULL_SCALE;
+  return { peak_x_full_scale: Number(x.toPrecision(3)), db_over: Math.round(200 * Math.log10(x)) / 10, channel: info.channel };
+}
+
+/** Strings axis: channels whose whole feedback_mask output row is 0 (= muted), from GET feedback_mask/output. */
+function channelsDigest(outputMask) {
+  if (!outputMask || outputMask.unreachable) return {};
+  const rows = Object.entries(outputMask).filter(([k, r]) => /^[0-9]+$/.test(k) && Array.isArray(r))
+    .sort(([a], [b]) => Number(a) - Number(b));
+  if (!rows.length) return {};
+  const on = [];
+  const muted = [];
+  rows.forEach(([, r], ch) => (r.some((v) => Number(v) !== 0) ? on : muted).push(ch));
+  return { channels_on: on, channels_muted: muted };
 }
 
 export function levelDigest(health, runtime = {}) {
   const os = health.output_scale && !health.output_scale.error ? health.output_scale : null;
   return {
-    limiter: limiterDigest(health),
+    over_full_scale: overFullScale(health),
     clipping: health.clipping ?? null,
     clipping_now: health.clipping_now ?? null,
     peak_level: health.peak_level ?? null,
@@ -80,14 +87,18 @@ export function warnings({ backend, audio, level, load, layout, ui }) {
   if (audio.driver_active === false && backend.pianoid_loaded) w.push('No audio driver is active: nothing can be heard.');
   if (audio.fallback) w.push(`Audio fell back from ${audio.requested} to ${audio.active}${audio.fallback_reason ? ` (${audio.fallback_reason})` : ''}.`);
   if (audio.alert) w.push(`Audio watchdog: ${audio.alert}`);
-  if (level.clipping) {
-    w.push(`Output CLIPPED since the last load: latched peak ${pct(level.peak_level ?? 1)} of full scale (${dbfs(level.peak_level ?? 1)}). The level is far too high; hard clipping and the amplitude guard can make the output distorted or silent.`);
+  const over = level.over_full_scale;
+  if (over) {
+    w.push(`Output far above full scale since the last load: worst peak ${over.peak_x_full_scale} x full scale (+${over.db_over} dB) on channel ${over.channel}. The output is not limited, so it hard-clips at the INT32 rail: harsh distortion. Check load.mismatches and output_scale.`);
+  } else if (level.clipping) {
+    w.push(`Output CLIPPED since the last load: latched peak ${pct(level.peak_level ?? 1)} of full scale. It hard-clips at the INT32 rail (distortion): the level is too high.`);
   } else if (level.limiting) {
-    w.push(`The limiter engaged since the last load (peaks above ${LIMITER_KNEE_DBFS} dBFS${level.peak_level != null ? `, latched peak ${dbfs(level.peak_level)}` : ''}).`);
+    w.push(`Peaks above ${LIMITER_KNEE_DBFS} dBFS (near full scale) since the last load${level.peak_level != null ? `, latched peak ${dbfs(level.peak_level)}` : ''}. Telemetry only: nothing is attenuated.`);
   }
-  const worst = level.limiter?.worst_latched;
-  if (worst && worst.gain_reduction_db <= HEAVY_REDUCTION_DB) {
-    w.push(`The limiter has cut the output by ${worst.gain_reduction_db} dB (pre-limit peak ${worst.peak_x_full_scale} x full scale on channel ${worst.channel}; now ${level.limiter.gain_reduction_db_now} dB). At this level the output sounds near-silent or "completely mute": the level is orders of magnitude too high (look at load.mismatches and output_scale). The latch only clears on the next preset load.`);
+  if (layout?.channels_on && layout.channels_on.length === 0) {
+    w.push('EVERY output channel is muted (all feedback_mask rows 128+ are 0): nothing can sound. Unmute with param__mute_channels (channels all, unmute).');
+  } else if (layout?.channels_muted?.length) {
+    w.push(`Muted output channels: ${layout.channels_muted.join(', ')} (their feedback_mask rows 128+ are all 0).`);
   }
   if (level.gate_trip_count > 0) w.push(`The amplitude crash guard tripped ${level.gate_trip_count} times (runaway or NaN displacement; each trip resets the strings, which sounds like silence or clicks).`);
   if (level.output_scale?.stale) {
@@ -110,7 +121,7 @@ export function warnings({ backend, audio, level, load, layout, ui }) {
 
 /** The whole digest. `raw` = {health, runtime, load, presets, jobs, ui} (unreachable -> {unreachable: true}). */
 export function buildDigest(raw) {
-  const { health = {}, runtime = {}, load = null, presets = {}, jobs = {}, ui = {} } = raw;
+  const { health = {}, runtime = {}, load = null, presets = {}, jobs = {}, ui = {}, outputMask = null } = raw;
   if (health.unreachable) {
     return { backend: { unreachable: true }, ui: uiDigest(ui), warnings: ['The backend (:5000) is not reachable: no engine is running.'] };
   }
@@ -125,6 +136,7 @@ export function buildDigest(raw) {
     num_modes: health.mode_layout?.num_modes ?? null,
     listen_to_modes: health.listen_mode == null ? null : Number(health.listen_mode),
     channel_mute_mask: health.listen_mode ? 'sound_channel_mask (modes axis)' : 'feedback_mask on output pitches 128+ch (strings axis)',
+    ...(!health.listen_mode ? channelsDigest(outputMask) : {}),
   } : null;
   const uiD = uiDigest(ui);
   const running = (jobs.result?.jobs || []).filter((j) => j.state === 'running').map((j) => ({ id: j.id, name: j.name, pct: j.pct }));

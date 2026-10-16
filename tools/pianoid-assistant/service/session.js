@@ -205,15 +205,16 @@ export class AssistantSession {
       }
     };
     const post = (url) => get(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pianoid-Source': 'assistant' }, body: '{}' });
-    const [ui, health, runtime, load, presets, jobs] = await Promise.all([
+    const [ui, health, runtime, load, presets, jobs, outputMask] = await Promise.all([
       post(`${this.launcherUrl}/api/command/ui.snapshot`),
       get(`${this.backendUrl}/health`),
       get(`${this.backendUrl}/get_runtime_parameters`),
       get(`${this.backendUrl}/load_settings`),
       get(`${this.backendUrl}/preset/list`),
       post(`${this.backendUrl}/command/job.list`),
+      get(`${this.backendUrl}/get_parameter/feedback_mask/output`),
     ]);
-    return buildDigest({ health, runtime, load, presets, jobs, ui });
+    return buildDigest({ health, runtime, load, presets, jobs, ui, outputMask });
   }
 
   async turn(text) {

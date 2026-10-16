@@ -54,7 +54,7 @@ test('digest: a healthy normal state has no warnings', () => {
 test('digest: unreachable backend / limiter only / gate trips / no driver', () => {
   assert.match(buildDigest({ health: { unreachable: true }, ui: {} }).warnings[0], /not reachable/);
   const lim = buildDigest({ health: { ...HEALTH, clipping: false, peak_level: 0.9, output_scale: null }, runtime: {}, load: null, ui: {} });
-  assert.match(lim.warnings.join(), /limiter engaged/);
+  assert.match(lim.warnings.join(), /Telemetry only: nothing is attenuated/);
   const g = buildDigest({ health: { ...HEALTH, clipping: false, limiting: false, gate_trip_count: 4, lifecycle: { audio_driver_active: false }, output_scale: null }, ui: {} });
   assert.match(g.warnings.join(), /crash guard tripped 4 times/);
   assert.match(g.warnings.join(), /No audio driver is active/);
@@ -108,17 +108,34 @@ test('streamed text after tool calls starts a new paragraph', async () => {
   assert.equal(s.currentAssistant.text, 'Checking.\n\nI found it.');
 });
 
-test('limiter: a -72 dB latched gain reduction (the user session) is a near-silence warning', () => {
+test('over full scale: the -72 dB telemetry of the user session is hard clipping, never silence', () => {
   const h = {
     ...HEALTH, clipping: true, peak_level: 4037,
     limiting_info: { gain_reduction_db: -72.1, peak: 8.67e12, channel: 0 },
-    limiter: { channels: [{ channel: 0, gain_reduction_db: -71.9 }, { channel: 1, gain_reduction_db: 0 }] },
+    limiter: { channels: [{ channel: 0, gain_reduction_db: -71.9 }] },
   };
   const d = buildDigest({ health: h, runtime: {}, load: LOAD, ui: {} });
-  assert.deepEqual(d.level.limiter, { gain_reduction_db_now: -71.9, worst_latched: { gain_reduction_db: -72.1, peak_x_full_scale: 4040, channel: 0 } });
-  assert.match(d.warnings.join('\n'), /cut the output by -72.1 dB .* near-silent or "completely mute"/);
-  const quiet = buildDigest({ health: { ...HEALTH, limiting_info: { gain_reduction_db: -1.2, peak: 2.2e9, channel: 3 } }, ui: {} });
-  assert.doesNotMatch(quiet.warnings.join('\n'), /cut the output/);
+  assert.deepEqual(d.level.over_full_scale, { peak_x_full_scale: 4040, db_over: 72.1, channel: 0 });
+  const w = d.warnings.join('\n');
+  assert.match(w, /far above full scale .* hard-clips at the INT32 rail: harsh distortion/);
+  assert.doesNotMatch(w, /silen|mute/i);
+  const below = buildDigest({ health: { ...HEALTH, clipping: false, limiting_info: { gain_reduction_db: -1.2, peak: 1.9e9, channel: 3 } }, ui: {} });
+  assert.equal(below.level.over_full_scale, null);
+  assert.match(below.warnings.join('\n'), /Telemetry only: nothing is attenuated/);
+});
+
+test('channels: all feedback_mask output rows 0 (the measured completely-mute cause) is the first-class warning', () => {
+  const zero = Array(196).fill(0);
+  const one = Array(196).fill(1);
+  const allMuted = Object.fromEntries([128, 129, 130].map((p) => [String(p), zero]));
+  const d = buildDigest({ health: { ...HEALTH, limiting: false, clipping: false }, load: LOAD, ui: {}, outputMask: allMuted });
+  assert.deepEqual(d.layout.channels_on, []);
+  assert.match(d.warnings.join('\n'), /EVERY output channel is muted/);
+  const some = buildDigest({ health: { ...HEALTH, limiting: false, clipping: false }, ui: {}, outputMask: { 128: one, 129: zero, 130: one } });
+  assert.deepEqual(some.layout.channels_muted, [1]);
+  assert.match(some.warnings.join('\n'), /Muted output channels: 1/);
+  const modesAxis = buildDigest({ health: { ...HEALTH, listen_mode: true }, ui: {}, outputMask: allMuted });
+  assert.equal(modesAxis.layout.channels_on, undefined);
 });
 
 test('R6: renders are denied while live audio runs, allowed when it does not; unknown fails closed', async () => {
