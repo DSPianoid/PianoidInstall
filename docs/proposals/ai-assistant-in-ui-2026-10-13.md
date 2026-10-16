@@ -1,12 +1,13 @@
 # AI Assistant in the Pianoid UI — Proposal (rev 2: full control)
 
 **Date:** 2026-10-13 · **Author:** `/analyse` (orchestrator-dispatched, research + docs only)
-**Status:** PROPOSAL — awaiting user decisions (§9). **Implementation is blocked on the infrastructure prerequisites** in [assistant-infrastructure-2026-10-13.md](assistant-infrastructure-2026-10-13.md).
+**Status:** DECIDED (user, Telegram 2026-10-15: D1–D7 in §9). Infrastructure I0–I5 DONE ([assistant-infrastructure-2026-10-13.md](assistant-infrastructure-2026-10-13.md)). **A4 + A1 in implementation** (dev-df3c, one combined phase; design: `docs/development/assistant-a4-a1-design-2026-10-15.md`).
 **Requests (Telegram, 2026-10-13):** (1) "propose a plan to embed AI assistant into the Pianoid interface." (2) 18:37 UTC: "The assistant should be able to modify parameters, change windows layouts, and initiate any actions like playback, measurement etc. Plan necessary infrastructure update before the assistant implementation. The editors should be synchronized with the backend on any change."
 
 **Revision history:**
 - **rev 1** (commit 0d01a05): read tools on the server; writes as Apply-button change sets applied by the frontend.
-- **rev 2** (this): **full control.** The assistant executes parameter writes, layout and UI commands, and actions (playback, preset ops, renders, measurements, rig jobs) itself, through a unified command layer. A safety envelope plus confirmation **only for destructive or irreversible ops**. Editors stay correct because the backend broadcasts every change, which is the infrastructure prerequisite. rev 1 also stated that feedin/feedback are keyed by *mode*. That is **wrong**: they are keyed by *pitch* (`parse_range`). REST_API.md carries the same error, and fixing it is infra item I0.
+- **rev 3** (2026-10-15): the user's decisions D1–D7 (§9). The runtime is the user's **Claude subscription** (Claude Agent SDK in an isolated Claude home, no API key); Sonnet 5.5 default with Opus 5.5 escalation; renders free; a single user per installation (no user management); no spend caps. §1, §3, §6 and §7 follow them.
+- **rev 2**: **full control.** The assistant executes parameter writes, layout and UI commands, and actions (playback, preset ops, renders, measurements, rig jobs) itself, through a unified command layer. A safety envelope plus confirmation **only for destructive or irreversible ops**. Editors stay correct because the backend broadcasts every change, which is the infrastructure prerequisite. rev 1 also stated that feedin/feedback are keyed by *mode*. That is **wrong**: they are keyed by *pitch* (`parse_range`). REST_API.md carries the same error, and fixing it is infra item I0.
 
 **Prior art:** no other proposal covers an in-UI assistant. Related: [`standalone-process-agents-2026-06-19.md`](standalone-process-agents-2026-06-19.md), [`m12-host-supervisor-app-2026-06-14.md`](m12-host-supervisor-app-2026-06-14.md), `tools/supervisor/README.md`, [`model-agnostic-agents-2026-06-19.md`](model-agnostic-agents-2026-06-19.md).
 
@@ -18,11 +19,11 @@
 
 | | |
 |---|---|
-| **Recommendation** | An **Assistant pane** (react-mosaic, MUI v6 dark) talks to an **assistant service in the Node launcher (`:3001`)**. The service runs the Claude API tool loop (Anthropic TS SDK tool runner) with the key kept on the server. **Its tools are generated from the unified command registry** (infra I4). Backend commands go to Flask `/command/<name>` (source=`assistant`). UI commands (layout, panes, workbenches, selection, zoom) go to the **leader tab's FE command bus** over the launcher `/ui-control` WS (infra I5). Every resulting state change is broadcast by the backend (infra I1), and every editor in every tab reconciles to it (infra I2). Undo is backend-side and grouped per assistant command (infra I3). The **MCP server is then a thin adapter** over the same registry. |
-| **Model** | `claude-opus-5-5` at effort `medium` by default; `claude-sonnet-5-5` selectable; `claude-haiku-5-5` only for bulk digesting. |
+| **Recommendation** | An **Assistant pane** (react-mosaic, MUI v6 dark) talks to an **assistant service spawned by the Node launcher** (`127.0.0.1:3002`). The service runs **Claude Code headless through the Claude Agent SDK on the user's subscription**, in an **isolated Claude home** (its own `CLAUDE_CONFIG_DIR`; it never shares credentials, skills, memory or settings with the user's `~/.claude`; D1). **Its only tools come from the Pianoid MCP server, generated from the unified command registry** (infra I4; A4). Backend commands go to Flask `/command/<name>` (source=`assistant`). UI commands (layout, panes, workbenches, selection, zoom) go to the **leader tab's FE command bus** over the launcher `/ui-control` WS (infra I5). Every resulting state change is broadcast by the backend (infra I1), and every editor in every tab reconciles to it (infra I2). Undo is backend-side and grouped per assistant command (infra I3). The **MCP server is then a thin adapter** over the same registry. |
+| **Model** | **Sonnet 5.5 by default; Opus 5.5 for research / complex tasks** (multi-step diagnosis, measurement analysis, generation / optimisation): the assistant may self-escalate (shown in the pane) and the user can force either from a picker (D2). |
 | **Infrastructure first** | I0 data-model card → I1 backend broadcast → I2 FE sync (incl. half-open WS fix) → I3 backend undo; I4 command registry + jobs and I5 layout API in parallel. About 20–27 agent-days, critical path about 12–15 days. |
 | **Assistant phases (after infra)** | A1 read, explain, diagnose + UI/layout control + playback (M) → A2 direct parameter and preset writes in the envelope, with grouped undo (M) → A3 renders, measurements, rig, calibration jobs (L) → A4 MCP adapter (S) → A5 preset generation / optimisation loops (L) |
-| **Biggest risks** | Audio harm from direct writes (envelope + destructive confirms + undo); data-model mistakes (key spaces, stored vs effective); API spend; a global `ANTHROPIC_API_KEY` flipping Claude Code to paid billing (§7). |
+| **Biggest risks** | Audio harm from direct writes (envelope + destructive confirms + undo); data-model mistakes (key spaces, stored vs effective); subscription usage limits (live indicator, D7); an `ANTHROPIC_API_KEY` in the environment flipping the session to paid API billing (the service refuses to start, §7). |
 
 ---
 
@@ -56,19 +57,20 @@ rev 1 found that the backend has **no change broadcast**, so any write not made 
 | Latency | low (no harness boot) | high (Claude Code harness) | client-dependent |
 | Tool surface | exactly the registry | coding harness (Bash / Edit) must be locked down | exactly the registry |
 
-**Recommendation: (a) as the in-UI runtime, (c) as a by-product, and (b) behind a driver seam.**
+**Decision (D1, 2026-10-15): (b) + (c).** The runtime is the Agent SDK on the subscription, in an isolated Claude home, and it reaches Pianoid **only** through the MCP server (c), which is therefore built first (A4). Option (a) (the API tool runner) is dropped: no API key anywhere. The policy (tiers, confirms, opt-out) is enforced in the service's `canUseTool` hook and, for denials, again in the MCP server — never in the prompt.
 
 ```
- Browser                                 Node launcher :3001                              Flask :5000 / modal :5001
- ┌──────────────────────────┐  SSE/WS  ┌──────────────────────────────────┐  HTTP     ┌──────────────────────────────┐
- │ AssistantPane            │◄────────►│ assistant: tool runner (TS SDK)  │──────────►│ /command/<name> (I4)         │
- │  chat · activity log ·   │          │  tools = registry (I4.0) → tiers │           │  → apply_parameter_request   │
- │  Undo group · Stop       │          │  policy.ts envelope · confirms   │           │  → StateJournal seq++ (I1)   │
- │                          │          │  /ui-control relay (I5) ─────────┼──┐        │  → jobs: started/progress    │
- │ FE command bus (I5) ◄────┼──────────┼──────────────────────────────────┘  │        └──────────────┬───────────────┘
- │ useBackendSync (I2) ◄────┼──────────┼───────── state_changed / preset_changed / job_* broadcast ◄──┘
- └──────────────────────────┘          │ key: PIANOID_ASSISTANT_API_KEY   │──HTTPS──► Claude API
-                                       └──────────────────────────────────┘
+ Browser                     assistant service 127.0.0.1:3002 (spawned by the launcher)       Flask :5000 / launcher :3001
+ ┌────────────────────────┐ WS ┌───────────────────────────────────────────────┐            ┌─────────────────────────────┐
+ │ AssistantPane          │◄──►│ Agent SDK query() — Claude Code headless      │            │ :5000 /command/<name> (I4)  │
+ │  user/role · model     │    │  CLAUDE_CONFIG_DIR = ~/.pianoid-assistant/... │            │  → journal (I1) → editors   │
+ │  chat · activity · Stop│    │  tools: [] · settingSources: [] · strict MCP  │            │    in every tab (I2)        │
+ │  usage · confirms      │    │  canUseTool → policy.js (roles, tiers, D3)    │            │  → undo groups (I3), jobs   │
+ └────────────────────────┘    │      │ stdio                                  │  HTTP      │ :3001 /api/command/ui.* →   │
+                               │  Pianoid MCP server (A4, from the registry) ──┼───────────►│   leader tab relay (I5)     │
+                               └───────────────┬───────────────────────────────┘            └─────────────────────────────┘
+                                               │ subscription OAuth (isolated home)
+                                               ▼  Claude (Sonnet 5.5 / Opus 5.5)
 ```
 
 ---
@@ -83,7 +85,7 @@ rev 1 found that the backend has **no change broadcast**, so any write not made 
 | **ui** | executes freely (view only, leader tab, "assistant driving" chip with Stop) | `ui.pane.open/close/maximize/restore`, `ui.layout.set/apply_named`, `ui.workbench.select/spawn`, `ui.select.pitch/range/modes/param/level`, `ui.chart.tie/untie/zoom` |
 | **act** | executes freely within rate limits | `play.note` / `play.chord` / `play.mode` / `play.stop`, `reset`, `midi_playback` start/stop |
 | **write** | **executes directly** if inside the envelope (§4.3); outside it, asks for an override | `param.set` (string / mode / excitation / hammer / feedin / feedback / masks / sound_channel), `runtime.set` (volume / feedback slider), `preset.switch`, `preset.spawn_working_copy`, `history.undo/redo` |
-| **destructive** | **always confirms** (dialog naming the side effect) | `preset.save` over an existing file, `preset.promote` (overwrites the original JSON), `preset.unload`, `preset.load` (full re-init), `render.*` (stops audio ~2 s), `level.recalibrate`, `calibration.*` (mic, minutes, rewrites hammer_mass), `modal.run_stage` / `modal.apply_to_preset`, `rig.session`, envelope overrides |
+| **destructive** | **always confirms** (dialog naming the side effect) | `preset.save` over an existing file, `preset.promote` (overwrites the original JSON), `preset.unload`, `preset.load` (full re-init), `level.recalibrate`, `calibration.*` (mic, minutes, rewrites hammer_mass), `modal.run_stage` / `modal.apply_to_preset`, `rig.session`, envelope overrides. **Renders (`render.*`) are NOT confirm-gated (D3): act tier.** |
 | **excluded** | never exposed | `/shutdown`, `/debug/audio_fault`, launcher kill / stop, project delete, `amplitude_gate_enabled=false`, raising `amplitude_limit`, mic device change |
 
 ### 4.2 Data-model rules the tools enforce (from `#data-model-facts`; I0 card)
@@ -125,32 +127,34 @@ API notes (claude-api reference): Opus 5.5 always thinks, so tune `effort`; forc
 
 ## 6. Phased plan (re-sequenced on the infrastructure)
 
-**Gate:** each A-phase lists the infra items it needs. Infra details, tasks and verification are in [assistant-infrastructure-2026-10-13.md](assistant-infrastructure-2026-10-13.md).
+**Order (D1 / D6, 2026-10-15):** infra I0–I5 is done; **A4 then A1** (one combined /dev phase, dev-df3c), then A2, A3, A5. **Gate:** each A-phase lists the infra items it needs. Infra details, tasks and verification are in [assistant-infrastructure-2026-10-13.md](assistant-infrastructure-2026-10-13.md).
 
 | Phase | Needs | Scope | Files / modules | Verification surface | Effort |
 |---|---|---|---|---|---|
 | **P0** | — | User decisions D1–D7; `docs/guides/PARAMETER_GLOSSARY.md`; confirm the MkDocs search index; key storage | PianoidInstall docs (+ `mkdocs.yml` nav, structural, needs approval) | user review | S |
-| **A1: read, explain, diagnose, drive the UI, play** | I1, I2, I4.0, I5 | Assistant pane (chat, activity log, Stop, cost footer, model / effort picker); launcher service + tool runner; read / ui / act tiers; `search_docs`; UI snapshot per turn | PianoidTunner `server/assistant/{router,runner,prompt,registryTools,summarise,docsIndex,keyStore,policy}.js`, `server/launcher.js`; `src/components/Assistant/*`; `src/hooks/useAssistant.js`; pane registry entry | Node tests with a fake client (zero spend); Jest for the pane; live (`/pianoid-ui` + chrome-devtools): "open Modes + Feedin side by side and zoom modes 0–40" → screenshot; "why no sound" with the backend down / up; play note → `/playback_stats` count increases; a follower tab cannot be driven | M (3–4 d) |
+| **A1: read, explain, diagnose, drive the UI, play** | A4, I1, I2, I4.0, I5 | Assistant pane (chat, activity log, Stop, **usage indicator**, model picker (Auto / Sonnet / Opus), data opt-out switch); the assistant service on the Agent SDK in the isolated home; read / ui / act tiers (+ write tier confirm-gated until A2); `search_docs`; UI snapshot per turn | PianoidInstall `tools/pianoid-assistant/{service,drivers,policy.js}`; PianoidTunner `server/launcher.js`, `src/components/Assistant/*`, `src/hooks/useAssistant.js`; pane registry entry | Node tests with a fake client (zero spend); Jest for the pane; live (`/pianoid-ui` + chrome-devtools): "open Modes + Feedin side by side and zoom modes 0–40" → screenshot; "why no sound" with the backend down / up; play note → `/playback_stats` count increases; a follower tab cannot be driven | M (3–4 d) |
 | **A2: direct writes** | + I3, I4.1–4.2 (param / preset / runtime families) | `write` tier executed directly within the envelope; auto working copy; grouped undo UI; post-write `render.note_playback` metric + auto-revert on a level breach; override confirm | `policy.js` (+ tests), activity-log Undo; no new backend code (registry + journal exist) | **audio_off `note_playback`:** an assistant command and the identical manual edit give **bit-identical buffers**; Undo restores the pre-edit buffer bit-exactly; the open editor (and a second tab) shows the change within the I2 latency bound; envelope tests | M (2–3 d) |
 | **A3: jobs** | + I4.1 jobs, I4.3 (calibration / modal / rig families) | destructive-tier jobs with confirm; progress from `job_*` events; interpretation; opens result panes | `server/assistant/jobs.js`, pane job cards | **audio_on (`/diagnose`)** for calibration / rig; modal stage results equal to a manual run; rig-absent → clean diagnosis, no hang | M–L (3–4 d) |
-| **A4: MCP adapter** | I4 | stdio MCP server generated from the registry (tiers → MCP annotations; destructive via elicitation / confirm) for Claude Code, the orchestrator, `/pianoid-ui`, `/test-ui` | PianoidInstall `tools/pianoid-mcp/` (Node), `.mcp.json` template | Claude Code `list_tools`; a write through MCP shows in the open editor (I2 surface) | S (1–2 d) |
+| **A4: MCP adapter — FIRST (D1)** | I4 | stdio MCP server generated from the registry (tiers → MCP annotations; excluded / opted-out tools hidden; destructive confirmed by the host: the pane's policy for the assistant, Claude Code's permission prompt standalone) for the assistant runtime, Claude Code, the orchestrator, `/pianoid-ui`, `/test-ui` | PianoidInstall `tools/pianoid-assistant/mcp/` (Node), `.mcp.json` template | Claude Code `list_tools`; a write through MCP shows in the open editor (I2 surface) | S (1–2 d) |
 | **A5: generation / optimisation** | A2, A3 | "a preset like X", "match this target": a working copy + propose → render → measure loop; long runs through the driver seam (supervisor / Agent SDK); an "escalate to orchestrator" button carrying a bug-report JSON | `server/assistant/drivers/{api,supervisor}.js`; supervisor channel adapter | metric convergence; every step undoable; spend within the task budget | L |
 
 ---
 
-## 7. Costs and billing
+## 7. Billing and usage (D1, D7)
 
-Estimates per turn, before measurement (Opus 5.5 $4 / $20 per MTok, cache read $0.20; Sonnet 5.5 $2 / $10, cache read $0.20):
+**Subscription, no API key.** The assistant runs on the user's Claude subscription through the Agent SDK (its bundled
+Claude Code CLI), logged in once inside the isolated home:
 
-| Turn | Opus 5.5 | Sonnet 5.5 |
-|---|---|---|
-| explain / UI command (1–2 tools) | ≈ $0.035 | ≈ $0.018 |
-| diagnose / compare (3–6 tools) | ≈ $0.11 | ≈ $0.06 |
-| edit + render verify (4–6 tools) | ≈ $0.15 | ≈ $0.08 |
+```powershell
+$env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; claude auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR
+```
 
-Typical use (20–40 turns a day) costs about $1–4/day; heavy use (100 turns) about $5–10/day on Opus. The A1 cost footer replaces these estimates with measured `usage` after a week. Controls: a session token budget, a daily cap (D7), and the model picker.
+`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the environment would switch billing to the paid API
+(`tools/supervisor/src/cost-safety.ts`): the assistant service refuses to start while either is set and builds the
+child environment from an allow-list. The user's own `~/.claude` login is never read (separate `CLAUDE_CONFIG_DIR`).
 
-**Billing catch.** `tools/supervisor/src/cost-safety.ts` treats `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` in the environment as switching billing to the API. A globally exported key would flip the user's Claude Code sessions to paid billing. Use a **launcher-only** `PIANOID_ASSISTANT_API_KEY` or a gitignored 0600 key file (`secret-store.ts` masking pattern), passed explicitly to `new Anthropic({ apiKey })`, never sent to the browser, never logged. The launcher binds to 127.0.0.1.
+**No caps (D7).** The pane shows a live usage indicator only: the SDK's `rate_limit_event` (plan window status,
+utilization, reset time) and each turn's token totals. The per-turn estimates of rev 2 (API prices) no longer apply.
 
 ---
 
@@ -163,24 +167,27 @@ Typical use (20–40 turns a day) costs about $1–4/day; heavy use (100 turns) 
 | R3 | Wrong key space / units / stored-vs-effective | Major | I0 data-model card, registry schemas carry units and key spaces, read-before-write enforced |
 | R4 | Engine disturbance | Major | LLM loop in the launcher, not `:5000`; I1 emits outside `cuda_lock`; renders and jobs rate-limited |
 | R5 | The assistant fighting the user (simultaneous edits) | Major | the user's edits win by `seq`; the assistant sees foreign `state_changed` in its per-turn context; Stop button |
-| R6 | API spend | Major | budgets, cost footer, model picker, verified caching |
-| R7 | Key leakage / billing flip | Major | launcher-only key (§7) |
-| R8 | Third-party rig data (Elyashev) sent to the API | Major (policy) | D4; per-project opt-out blocks the modal and rig tools |
+| R6 | Subscription usage limits | Major | live usage indicator (D7), Sonnet default with escalation only when needed (D2) |
+| R7 | Billing flip / credential sharing | Major | no API key anywhere, the service refuses to start with one; isolated `CLAUDE_CONFIG_DIR` (§7) |
+| R8 | Third-party rig data (Elyashev) sent to the model | Major (policy) | D4: allowed; a built-in opt-out switch (default off) blocks the modal / calibration / rig tools |
 | R9 | Infra scope (≈ 3–5 weeks before the first assistant byte) | Major (schedule) | I2.4 / I5 / I4.0 in parallel; A1 can start once I1 + I2 + I5 land (I3 / I4.1+ not needed for A1) |
 
 ---
 
-## 9. Open decisions for the user
+## 9. Decisions (user, Telegram 2026-10-15)
 
-| # | Decision | Options | Recommendation |
-|---|---|---|---|
-| D1 | Billing / runtime | (i) API key through the launcher; (ii) subscription through the supervisor / Agent SDK driver | (i) for A1–A4; (ii) behind the seam for A5 |
-| D2 | Default model | Opus 5.5 medium / Sonnet 5.5 / per use case | Opus 5.5 medium, Sonnet selectable |
-| **D3 (restated)** | **Execution autonomy** | **The assistant executes directly** (parameter writes, UI / layout, playback, preset switch, working copies) inside the envelope; **confirm only for destructive or irreversible ops** (save over a file, promote, unload, full load, renders, recalibration, calibration, modal apply, rig jobs, envelope overrides). Open sub-choices: (a) should renders (audio stops ~2 s) be destructive-tier or free? (b) should the post-write auto-revert on a level breach be on by default? | as stated; (a) destructive-tier at first; (b) on |
-| D4 | Data sharing | may preset / measurement data incl. Elyashev captures go to the API? | user / collaborator call; per-project opt-out either way |
-| D5 | Audience | user only / collaborators too | affects the explain weight and whether to tighten the envelope |
-| D6 | Infra sequencing | all infra before A1 / start A1 after I1 + I2 + I5 (recommended) | start A1 after I1 + I2 + I5 |
-| D7 | Spend cap | daily $ cap | start at $5/day |
+| # | Decision | Ruling |
+|---|---|---|
+| D1 | Billing / runtime | The assistant runs on the user's **Claude subscription** (Claude Code / Agent SDK), **not an API key**. It uses a **separate Claude home** (its own `CLAUDE_CONFIG_DIR`) and **never shares credentials, skills or memory** with the user's `~/.claude`. No `ANTHROPIC_API_KEY` anywhere. A one-time OAuth login inside the isolated home (§7). |
+| D2 | Model | **Sonnet 5.5 by default; Opus 5.5 for research / complex tasks** (multi-step diagnosis, measurement analysis, generation / optimisation). The assistant may **self-escalate** (visible in the pane); the user can **force either** from a picker. |
+| D3 | Execution autonomy | Execute directly within the envelope (working copy, undoable). **Renders run freely** (not confirm-gated). The **post-write level check with auto-revert is ON**. **Confirm only:** save over a file, promote, full reload, calibration, modal / rig jobs, envelope overrides. |
+| D4 | Data | **All data may go to the model**, including the Elyashev / FPGA data. A built-in opt-out switch exists, **default off**. |
+| D5 | Audience | **Single user per installation; no user management** (user, 2026-10-15: "User management is a complication, don't do it. Each user will work on his own system or in his own directory on the shared system"; "Collaborators will work on their own subscriptions, that is one of the reasons I asked for the separate Claude home"). Each person — the owner or a collaborator such as Dima — runs Pianoid on their own system or in their own directory / OS account, with their own assistant home (`%USERPROFILE%\.pianoid-assistant`) and their **own** subscription login. There are no in-app users, roles or per-user labels: the D3 policy applies to whoever runs the installation, and the journal / undo keep the existing source labels (`assistant`). This also keeps the runtime within the Agent SDK terms (no claude.ai login offered to third parties: everyone logs in with their own account). |
+| D6 | Sequencing | The infrastructure I0–I5 is done; **A4 (MCP adapter) first, then A1** on top. |
+| D7 | Usage limits | **No caps.** A live usage indicator in the pane only. |
+
+Implementation notes (dev-df3c): the write tier stays confirm-gated until the A2 envelope + auto-revert land;
+`preset.unload` also confirms (it discards a working copy's edits); the D4 opt-out is a single pane switch for now.
 
 ---
 

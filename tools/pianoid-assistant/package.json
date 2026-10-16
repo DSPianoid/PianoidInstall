@@ -1,0 +1,19 @@
+{
+  "name": "@pianoid/assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pianoid AI assistant: MCP server over the command registry (A4) + the assistant service on the Claude subscription runtime in an isolated Claude home (A1).",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.301",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ws": "^8.18.3",
+    "zod": "^4.6.7"
+  }
+}

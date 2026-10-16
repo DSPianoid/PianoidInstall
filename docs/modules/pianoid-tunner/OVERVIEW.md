@@ -797,6 +797,27 @@ launcher start / stop buttons (`useBackendProcess`), and internal metric renders
 fixture reads `$PIANOID_COMMANDS_DIR` or `<PianoidInstall>/schemas/commands`. Tests: `utils/__tests__/{commandBus,
 commandSchema}.test.js`.
 
+### AI assistant pane (A1, dev-df3c)
+
+Pane id `Assistant` (Utility). The assistant runs as a separate service (PianoidInstall `tools/pianoid-assistant`,
+`127.0.0.1:3002`, spawned by the launcher with `launcher.assistant.start`): Claude Code headless through the Claude
+Agent SDK on the user's **Claude subscription**, in an **isolated Claude home** (`%USERPROFILE%\.pianoid-assistant`,
+its own `CLAUDE_CONFIG_DIR`; no built-in tools, no settings / CLAUDE.md, only the Pianoid MCP server generated from
+the command registry). Proposal + user decisions D1–D7: `docs/proposals/ai-assistant-in-ui-2026-10-13.md`; design:
+`docs/development/assistant-a4-a1-design-2026-10-15.md`; package README `tools/pianoid-assistant/README.md`.
+
+- `components/Assistant/AssistantPane.jsx` + `hooks/useAssistant.js` (WS `ws://127.0.0.1:3002/ws`, pure
+  `assistantReducer`): model picker (Auto = Sonnet 5.5 with self-escalation to Opus 5.5 shown on the model chip; or Sonnet / Opus
+  forced, D2), usage indicator (the plan window from the SDK `rate_limit_event` + token totals; no caps, D7), "Block
+  measurement data" switch (D4, default off), Chat (streamed) and Activity (every tool call with its policy decision)
+  tabs, Stop, a confirm dialog for gated commands, the one-time login command while the isolated home is
+  not logged in, and **Start assistant** while the service is down.
+- Policy (the service's `canUseTool`, never the prompt): read / ui / act (incl. renders) run; writes confirm until the
+  A2 envelope; destructive and launcher control confirm. One installation = one user (D5): a collaborator runs their
+  own Pianoid installation / OS account with their own assistant login; there is no in-app user management.
+- The assistant drives this UI through the I5 `ui` commands (leader tab), so its pane opening / zooming shows the
+  "Layout driven by assistant" chip.
+
 ### UI commands (I5, dev-c491)
 
 The view of a tab — panes, maximized pane, named layout, selection, chart ties (zoom), workbenches — is driven by
