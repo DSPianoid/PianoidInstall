@@ -107,3 +107,40 @@ test('streamed text after tool calls starts a new paragraph', async () => {
   s.onEvent({ type: 'delta', text: ' it.' });
   assert.equal(s.currentAssistant.text, 'Checking.\n\nI found it.');
 });
+
+test('limiter: a -72 dB latched gain reduction (the user session) is a near-silence warning', () => {
+  const h = {
+    ...HEALTH, clipping: true, peak_level: 4037,
+    limiting_info: { gain_reduction_db: -72.1, peak: 8.67e12, channel: 0 },
+    limiter: { channels: [{ channel: 0, gain_reduction_db: -71.9 }, { channel: 1, gain_reduction_db: 0 }] },
+  };
+  const d = buildDigest({ health: h, runtime: {}, load: LOAD, ui: {} });
+  assert.deepEqual(d.level.limiter, { gain_reduction_db_now: -71.9, worst_latched: { gain_reduction_db: -72.1, peak_x_full_scale: 4040, channel: 0 } });
+  assert.match(d.warnings.join('\n'), /cut the output by -72.1 dB .* near-silent or "completely mute"/);
+  const quiet = buildDigest({ health: { ...HEALTH, limiting_info: { gain_reduction_db: -1.2, peak: 2.2e9, channel: 3 } }, ui: {} });
+  assert.doesNotMatch(quiet.warnings.join('\n'), /cut the output/);
+});
+
+test('R6: renders are denied while live audio runs, allowed when it does not; unknown fails closed', async () => {
+  const { decide, LIVE_RENDER_REASON } = await import('../policy.js');
+  assert.deepEqual(decide({ command: 'render.note_playback', tier: 'act', family: 'render', settings: { liveAudio: true } }), { action: 'deny', reason: LIVE_RENDER_REASON });
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', settings: {} }).action, 'allow');
+  assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', settings: { liveAudio: true } }).action, 'allow');
+  const { AssistantSession } = await import('../service/session.js');
+  const cmd = { name: 'render.note_playback', tier: 'act', family: 'render' };
+  const make = (routes) => new AssistantSession({
+    paths: {}, config: { model: 'auto' }, commands: [cmd], driverFactory: () => null,
+    fetchImpl: async (url) => {
+      const r = Object.entries(routes).find(([k]) => url.endsWith(k));
+      if (!r) throw new Error('down');
+      return { json: async () => r[1] };
+    },
+  });
+  const live = make({ '/health': { pianoid_loaded: true, backend_thread_running: true }, '/load_settings': { settings: { audio_on: 1 } } });
+  const v = await live.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, { toolUseID: 't' });
+  assert.equal(v.behavior, 'deny');
+  assert.match(v.message, /blocked while live audio is running/);
+  const off = make({ '/health': { pianoid_loaded: true, backend_thread_running: true }, '/load_settings': { settings: { audio_on: 0 } } });
+  assert.equal((await off.canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'allow');
+  assert.equal((await make({}).canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'deny');
+});

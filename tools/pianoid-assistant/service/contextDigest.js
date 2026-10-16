@@ -14,6 +14,8 @@
  */
 
 const LIMITER_KNEE_DBFS = -1.94;     // 0.8 of full scale (REST_API.md Layer B / limiter)
+const FULL_SCALE = 2147483647;       // INT32 full scale: the limiter ceiling / clip rail
+const HEAVY_REDUCTION_DB = -20;      // the limiter cutting this much makes the output near-silent
 
 const pct = (x) => `${Math.round(x * 1000) / 10}%`;
 const dbfs = (x) => (x > 0 ? `${(20 * Math.log10(x)).toFixed(1)} dBFS` : '-inf dBFS');
@@ -32,9 +34,26 @@ export function audioDigest(health) {
   };
 }
 
+/** The limiter's gain reduction: live (now, worst channel) and the worst latched since the last load / clear. */
+function limiterDigest(health) {
+  const lim = health.limiter;
+  const info = health.limiting_info || lim?.limiting_info;
+  if (!lim && !info) return null;
+  const now = (lim?.channels || []).reduce((m, c) => Math.min(m, c.gain_reduction_db ?? 0), 0);
+  return {
+    gain_reduction_db_now: Math.round(now * 10) / 10,
+    worst_latched: info ? {
+      gain_reduction_db: Math.round(info.gain_reduction_db * 10) / 10,
+      peak_x_full_scale: info.peak != null ? Number((info.peak / FULL_SCALE).toPrecision(3)) : null,
+      channel: info.channel,
+    } : null,
+  };
+}
+
 export function levelDigest(health, runtime = {}) {
   const os = health.output_scale && !health.output_scale.error ? health.output_scale : null;
   return {
+    limiter: limiterDigest(health),
     clipping: health.clipping ?? null,
     clipping_now: health.clipping_now ?? null,
     peak_level: health.peak_level ?? null,
@@ -65,6 +84,10 @@ export function warnings({ backend, audio, level, load, layout, ui }) {
     w.push(`Output CLIPPED since the last load: latched peak ${pct(level.peak_level ?? 1)} of full scale (${dbfs(level.peak_level ?? 1)}). The level is far too high; hard clipping and the amplitude guard can make the output distorted or silent.`);
   } else if (level.limiting) {
     w.push(`The limiter engaged since the last load (peaks above ${LIMITER_KNEE_DBFS} dBFS${level.peak_level != null ? `, latched peak ${dbfs(level.peak_level)}` : ''}).`);
+  }
+  const worst = level.limiter?.worst_latched;
+  if (worst && worst.gain_reduction_db <= HEAVY_REDUCTION_DB) {
+    w.push(`The limiter has cut the output by ${worst.gain_reduction_db} dB (pre-limit peak ${worst.peak_x_full_scale} x full scale on channel ${worst.channel}; now ${level.limiter.gain_reduction_db_now} dB). At this level the output sounds near-silent or "completely mute": the level is orders of magnitude too high (look at load.mismatches and output_scale). The latch only clears on the next preset load.`);
   }
   if (level.gate_trip_count > 0) w.push(`The amplitude crash guard tripped ${level.gate_trip_count} times (runaway or NaN displacement; each trip resets the strings, which sounds like silence or clicks).`);
   if (level.output_scale?.stale) {

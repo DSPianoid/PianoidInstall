@@ -116,7 +116,8 @@ export class AssistantSession {
     if (tool === 'search_docs') return { behavior: 'allow', updatedInput: input };
     const cmd = this.byName.get(commandName(tool));
     if (!cmd) return { behavior: 'deny', message: `unknown Pianoid tool ${tool}` };
-    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings: { dataOptOut: !!this.config.dataOptOut } });
+    const liveAudio = cmd.family === 'render' ? await this.liveAudio() : false;
+    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings: { dataOptOut: !!this.config.dataOptOut, liveAudio } });
     const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, input, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
     if (verdict.action === 'allow') return { behavior: 'allow', updatedInput: input };
     if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
@@ -125,6 +126,21 @@ export class AssistantSession {
     return allowed
       ? { behavior: 'allow', updatedInput: input }
       : { behavior: 'deny', message: `The user declined ${cmd.name}.` };
+  }
+
+  /**
+   * Is the engine producing live audio (R6)? = realtime thread running AND loaded with audio_on.
+   * Unknown (backend unreachable) counts as live: the gate fails closed.
+   */
+  async liveAudio() {
+    try {
+      const get = async (p) => (await this.fetchImpl(`${this.backendUrl}${p}`, { signal: AbortSignal.timeout?.(2500) })).json();
+      const [health, load] = await Promise.all([get('/health'), get('/load_settings')]);
+      if (!health.pianoid_loaded) return false;
+      return !!health.backend_thread_running && Number(load?.settings?.audio_on) === 1;
+    } catch (e) {
+      return true;
+    }
   }
 
   askConfirm(entry, cmd, input, reason, signal) {

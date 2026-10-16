@@ -12,10 +12,15 @@
  *   destructive (save, promote, load, unload, calibration, modal jobs)   confirm
  *   launcher process control                confirm
  *   data opt-out ON (D4, default off)       modal / calibration tools DENY
+ *   render.* while live audio runs          DENY (R6: an offline render stops realtime playback and
+ *                                           runs inside the live engine - backend crash risk)
  *   excluded                                never listed; deny if asked anyway
  */
 const MEASUREMENT_FAMILIES = new Set(['modal', 'calibration']);
 const READ_ONLY_LAUNCHER = new Set(['launcher.status', 'launcher.assistant.status']);
+export const LIVE_RENDER_REASON = 'offline renders are blocked while live audio is running: a render stops realtime '
+  + 'playback and runs inside the live engine (backend crash risk). Judge the level from the context (peak, '
+  + 'limiter, clipping) or ask the user to listen';
 
 export function decide({ command, tier, family, settings = {} }) {
   if (!command) return { action: 'deny', reason: 'not a Pianoid tool' };
@@ -23,6 +28,7 @@ export function decide({ command, tier, family, settings = {} }) {
   if (settings.dataOptOut && MEASUREMENT_FAMILIES.has(family)) {
     return { action: 'deny', reason: 'measurement data is opted out (pane switch "Block measurement data")' };
   }
+  if (family === 'render' && settings.liveAudio) return { action: 'deny', reason: LIVE_RENDER_REASON };
   if (family === 'launcher' && !READ_ONLY_LAUNCHER.has(command)) {
     return { action: 'confirm', reason: 'process control (launcher)' };
   }
