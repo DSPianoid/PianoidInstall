@@ -28,6 +28,8 @@ The full clearance sweep targets exactly `3000 3001 5000 5001`.
 
 **Agent spare ports** (not part of the user's stack — only agents use them): **3002–3020** (worktree CRA dev servers, e.g. `PORT=3013 BROWSER=none npx react-scripts start` — seen on 3005, 3012–3018) and **5002–5020** (worktree / isolated backends, e.g. `:5012`). Anything Pianoid listening there is an agent artefact and is swept by the [Clean stack](#clean-stack) procedure (marker-gated — a foreign app on a spare port is reported, never killed). `:8001` (MkDocs) is not swept.
 
+**Never run an unowned backend on :5000.** Agents start a :5000 backend only through the launcher (`POST :3001/api/start-backend`); anything else goes on a spare-port isolated stack. An open Tunner tab (the user's too) calls `/api/kill-stale` on any :5000 backend the launcher does not own. Use `python -u` for direct launches. Launcher kills are logged in `backend_stdout.log`, and the launcher's sweep also matches by command line, so spare ports do not protect a backend from it: [STARTUP_TROUBLESHOOTING → Agents: never run an unowned backend on :5000](guides/STARTUP_TROUBLESHOOTING.md#agents-never-run-an-unowned-backend-on-5000).
+
 ## Interpreters (per-OS) {#interpreters}
 
 The project's **only** venv is `PianoidCore/.venv/` (never the repo-root `.venv/`, never system Python). A stray binary from any other venv is silently stale at the C++ API level → runtime `AttributeError`; rebuild rather than cross-fetch.

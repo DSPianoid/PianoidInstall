@@ -27,6 +27,28 @@ The live stack uses **three cooperating processes**. Starting or killing the wro
 
 **Rule**: for UI testing, always start the full `npm run dev` (launcher + frontend together) and let the launcher own the backend. Do not start the backend directly via `python backendserver.py` unless you are also willing to bypass the UI (curl-only interaction).
 
+### Agents: never run an unowned backend on :5000 {#agents-never-run-an-unowned-backend-on-5000}
+
+**Rule (user-approved 2026-10-16).** An agent must **never** start a backend the launcher did not spawn (a bare `python backendServer.py`, an in-process Flask harness, anything else) on the core port **5000**. Use one of these instead:
+
+1. **The launcher:** `POST http://127.0.0.1:3001/api/start-backend`. The launcher owns the process, so open tabs accept it.
+2. **A fully isolated spare-port stack:** your own launcher + backend on spare ports (e.g. `:3012` / `:5012`), see [UI Testing → Fully isolated agent stack](UI_TESTING.md#fully-isolated-agent-stack-dev-2d06-when-the-users-own-tabs-are-open). Read the caveat below first.
+
+**Why.** Any open Tunner tab, including the user's own tabs that agents never control, runs the guard above on its next bootstrap, APPLY or reconnect. If :5000 answers and the launcher reports it does not own that process, the tab calls `/api/kill-stale` and the launcher kills the process tree (`taskkill /T /F`). Measured 2026-10-16 (inv-audio-on-death): an agent's bare `python` backend on :5000 disappeared mid-load with nothing in its own log. It looked like a silent crash. It was the user's tab calling kill-stale.
+
+**For any direct agent launch, use `python -u`** (or set `PYTHONUNBUFFERED=1`). Block-buffered stdout loses its last lines when the process is killed with `/F`, and those lines are the ones that show what the backend was doing.
+
+**Every launcher kill is logged** (dev-7bb0). `killProcessesOnPort` appends one line to the **killing launcher's** `<CORE_DIR>/logs/backend_stdout.log` (`modal_stdout.log` for :5001 kills):
+
+```
+[launcher 2026-10-16T10:12:03.123Z] killed PID(s) 41234 on :5000 (reason: kill-stale) [by port: 41234]
+```
+
+`reason` is `kill-stale` (a tab's guard), `start-backend` or `start-modal-adapter` (the launcher's stale sweep before it spawns). `by port` / `by cmdline <script>` says how the sweep found the PID.
+
+!!! warning "The launcher's kill sweep is not strictly port-scoped (measured 2026-10-16, dev-7bb0)"
+    `killProcessesOnPort` kills the processes on the port **and** every process whose command line contains `backendServer.py` (on Windows via WMIC; for the modal port, `modal_adapter_server.py`, and the modal port is always 5001). So a kill-stale or start-backend on **any** launcher also kills the backends that other launchers run on other ports. A spare-port stack therefore protects you from the user's tabs **auto-loading** your backend, but **not** from their kill-stale sweep. In the other direction, your isolated launcher's `start-backend` / `kill-stale` kills the user's :5000 backend and :5001 modal adapter. Before you start an isolated stack, check that the user has no Pianoid backend running (`kill_pianoid.ps1 -DryRun`). Never call `/api/kill-stale` yourself. If your backend dies unexpectedly, look for a `[launcher …] killed PID(s)` line first (see [Backend dies silently mid-load](#symptom-backend-dies-silently-mid-load-no-traceback)).
+
 ### Reloading the browser tab is safe (dev-hxfix, 2026-06-22)
 
 A plain browser **reload no longer kills the backend.** Earlier builds had a
@@ -451,6 +473,14 @@ already be built and importable (see the previous symptom).
 
 ## Backend Startup Failures
 
+### Symptom: backend dies silently mid-load, no traceback
+
+The backend process disappears (often during `/load_preset`). `backend_stdout.log` ends with no traceback and there is no Windows crash dialog. **Before you diagnose a crash, check whether a launcher killed it:**
+
+1. `grep "\[launcher " PianoidCore/logs/backend_stdout.log`, and the same in an agent core worktree's `logs/backend_stdout.log`. A `killed PID(s) <pid> … (reason: kill-stale)` line at the time of death means an open Tunner tab's guard killed it. `reason: start-backend` means a launcher's stale sweep before it spawned a new backend. Launchers older than dev-7bb0 (2026-10-16) write no such line.
+2. If the backend was **not** started by the launcher on :5000, assume kill-stale: see [Agents: never run an unowned backend on :5000](#agents-never-run-an-unowned-backend-on-5000).
+3. Only after that, investigate a real crash: the process exit code, the Windows Event Log (Application, `python.exe`), and `faulthandler` output. Run direct launches with `python -u` so the stdout tail is not lost.
+
 ### Symptom: Flask server starts but `/load_preset` fails
 
 **Check the backend console output** for Python tracebacks. Common causes:
@@ -709,6 +739,7 @@ Use this checklist to verify a fresh installation:
 | CUDA build log | `PianoidCore\build.log` | Full nvcc/MSVC compiler output |
 | Backend console | Terminal running `backendserver.py` | Flask requests, CUDA init, errors |
 | Launcher console | Terminal running `npm run dev` | Backend spawn/kill events |
+| Launcher kill notes | `PianoidCore\logs\backend_stdout.log` (`modal_stdout.log` for :5001) | One `[launcher <time>] killed PID(s) … (reason: …)` line per kill sweep |
 | WebSocket console | `ws://localhost:3001/ws/console` | Real-time backend log stream (from UI) |
 | PianoidLogger | `PianoidCore\pianoid_middleware\logs\` | File-based engine logs (if enabled) |
 
@@ -721,7 +752,7 @@ The canonical procedure for agents running `/test-ui` or verifying features in t
 1. **Clean the stack BEFORE** (and again AFTER the test) per [`PROJECT_CONFIG.md` → Clean stack](../PROJECT_CONFIG.md#clean-stack): `tools\kill_pianoid.ps1` (tree-kill + orphans + worktree dev servers) → `tools/dev-pipeline/env_sweep.py` (exit 0, incl. agent spare ports 3002–3020 / 5002–5020) → close every agent browser page (last one → `about:blank`). Port-targeted / marker-matched only, never blanket `taskkill //IM`.
 2. `npm run dev` in `PianoidTunner` with **`BROWSER=none`** (detached `Start-Process`) — starts launcher (3001) + React dev server (3000) via `concurrently`; without `BROWSER=none` CRA opens a new auto-loading tab in the user's browser on every start.
 3. Open ONE agent page on `http://localhost:3000`. Click **APPLY** (or POST `/api/start-backend` to :3001). The launcher spawns the backend (5000).
-4. Do **not** start the backend directly with `python backendserver.py` — the frontend will kill it on the next APPLY (see [Three-Process Architecture](#three-process-architecture)).
+4. Do **not** start the backend directly with `python backendserver.py` on :5000. Any open tab, including the user's, will kill-stale it (see [Agents: never run an unowned backend on :5000](#agents-never-run-an-unowned-backend-on-5000)).
 
 ## Shutdown Sequence
 

@@ -21,6 +21,9 @@ Three processes must run together for a UI test:
 
 **Critical coupling**: the frontend's APPLY handler (`ensureBackendAndLoadPreset`, PianoidTuner.js:297) kills any backend on :5000 that the launcher does not own. See [Three-Process Architecture](STARTUP_TROUBLESHOOTING.md#three-process-architecture). Never start the backend manually and then use the UI to APPLY — the backend will be killed.
 
+!!! danger "Agent rule: never an unowned backend on :5000"
+    Agents never start a backend the launcher did not spawn (bare `python backendServer.py`, an in-process Flask harness) on **:5000**. Start it through the launcher (`POST :3001/api/start-backend`) or use a [fully isolated agent stack](#fully-isolated-agent-stack-dev-2d06-when-the-users-own-tabs-are-open) on spare ports. The reason: any open Tunner tab, including the user's own, calls `/api/kill-stale` on a :5000 backend the launcher does not own, and the backend disappears with no traceback. Use `python -u` for any direct launch so the stdout tail survives a kill. Every launcher kill is noted in `backend_stdout.log` as `[launcher <time>] killed PID(s) …`. Details: [STARTUP_TROUBLESHOOTING → Agents: never run an unowned backend on :5000](STARTUP_TROUBLESHOOTING.md#agents-never-run-an-unowned-backend-on-5000).
+
 ---
 
 ## Prerequisites
@@ -181,6 +184,13 @@ The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with 
 `:5000→:5012`, `:3001→:3012`, seeds the fresh origin's preset settings). The core worktree needs a `.venv`
 junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
 initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
+
+**Not isolated from the kill sweep (measured 2026-10-16, dev-7bb0).** Every launcher's kill sweep also kills processes
+by command line (`backendServer.py`; for the modal adapter, `modal_adapter_server.py` on the fixed port 5001), not only
+processes on its own port. So the user's tab calling kill-stale on :3001 also kills your :5012 backend, and your
+launcher's `start-backend` also kills the user's :5000 backend and :5001 modal adapter. Start an isolated stack only
+while `kill_pianoid.ps1 -DryRun` shows no user backend, and never call `/api/kill-stale` yourself. Each kill is noted
+in the killing launcher's `<CORE_DIR>/logs/backend_stdout.log` (`[launcher <time>] killed PID(s) … (reason: …)`).
 
 ## Shutdown
 
