@@ -36,7 +36,10 @@ while the service is down (`launcher.assistant.start`).
 - SDK options: `tools: []` (no built-in tool: no Bash, Read, Edit, Web…), `settingSources: []` (no settings, no
   CLAUDE.md), `strictMcpConfig: true` with only the `pianoid` MCP server and the in-process `escalate_model` tool, a
   custom system prompt (`service/prompt.js`), `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
-
+- Per-turn context: `service/contextDigest.js` builds the `<pianoid_context>` block from `/health`,
+  `/get_runtime_parameters`, `/load_settings`, `/preset/list`, `job.list` and `ui.snapshot`: audio (requested / active /
+  fallback), level (clipping, limiter, gate trips, output_scale state), load settings vs the preset's declared ones, the
+  mode layout and listen mode, and precomputed `warnings` (dev-0a88).
 ## Policy
 
 One installation = one user (D5: no user management): a collaborator runs Pianoid on their own system or in their own

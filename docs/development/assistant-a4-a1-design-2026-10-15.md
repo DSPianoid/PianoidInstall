@@ -1,6 +1,6 @@
 # Assistant A4 + A1: design note (dev-df3c)
 
-**Date:** 2026-10-15 (rev: D5 = single user per installation, no user management) · **Agent:** dev-df3c · **Implements:** [AI assistant proposal](../proposals/ai-assistant-in-ui-2026-10-13.md) phases **A4** (MCP adapter) and **A1** (the pane), on the
+**Date:** 2026-10-15 (rev: D5 = single user per installation, no user management; rev 2026-10-16 dev-0a88: §8 revision from the user transcripts) · **Agent:** dev-df3c · **Implements:** [AI assistant proposal](../proposals/ai-assistant-in-ui-2026-10-13.md) phases **A4** (MCP adapter) and **A1** (the pane), on the
 user decisions D1–D7 of 2026-10-15 (recorded in the proposal §9). Builds on the merged infrastructure I0–I5
 (command registry, `/command`, jobs, undo, the `ui` family + leader relay).
 
@@ -110,3 +110,56 @@ Defects found and fixed on the branch: the assistant could close / hide its own 
 `ui.pane.close Assistant` is now refused, 409 `assistant_pane_protected`, and the prompt says to keep the chat
 visible); replies quoted raw tool ids (prompt: plain words). Added for evidence: `/status` carries the runtime's init
 tool list and each turn's `modelsUsed`.
+
+## 8. Revision from the user transcripts (dev-0a88, 2026-10-16)
+
+The user's first real session (11:59–12:23 UTC, F15 presets) failed on 9 of 11 requests. The per-request review and
+the defect list a–l are in [the transcript review](assistant-transcript-review-2026-10-16.md). Changes:
+
+| Layer | Change |
+|---|---|
+| Core (`pianoid_middleware`) | `/load_preset`: an omitted load setting keeps the live engine's value on every path (`load_settings.py`; `inherited_load_params` in the response). `GET /load_settings`. `POST /mute/modes` and `POST /mute/channels` (`mute_ops.py`): whole-row mask writes through the choke point, one undo group; the channel mask follows the listen mode. [REST_API](../modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88) |
+| Registry | `param.mute_modes`, `param.mute_channels` (write), `preset.load_settings` (read); `preset.load` text: omitted settings are kept |
+| Service | `service/contextDigest.js` (pure): `audio {requested, active, fallback}`, `level` (clipping, peak, limiter, gate trips, slider, deck_feedback_coefficient, output_scale state), `load` (settings, declared, mismatches), `layout` (num_modes, listen mode, channel mask), the UI snapshot without the layout tree, `warnings`. Activity results matched by tool-use id; a blank line between text blocks around tool calls |
+| MCP | render results: per-series `{samples, peak_abs, rms, all_zero}` (raw units, before output_scale), no base64 / samples; long 0/1 rows → `{mask_length, on, off}` |
+| Prompt | mask shapes + the mute commands; channel mask by listen mode; keep-settings loads + mismatch report; fallback / clipping / stale-level reading; why-no-sound order (incl. mode masks); raw render units; offer only what the tools can do; open the pane that shows a change (SC shows channel mutes on both axes; Feedback is disabled in single-matrix mode); plain text, no markdown; no guessed causes |
+| Tunner | `PitchesModesMatrixCanvas`: a preset with another key range loaded outside the tab (REST / the assistant) crashed the whole UI (`matrix[col]` undefined). Reproduced live. The draw now skips a matrix that does not cover the range |
+
+**Live re-run** (isolated stack: launcher :3012, CRA :3013, assistant :3014, backend :5012 from the worktrees, audio off,
+`listen_to_modes` 0, the user's d2 / si8 / 512 / volume 127 settings; the real subscription runtime in the isolated home; one
+automation page; confirms answered Allow by a WS client, as the user's click):
+
+| User request (as typed) | Before (transcript) | After |
+|---|---|---|
+| lower the volume | OK | OK: one confirmed `runtime.set 64 → 48` |
+| load preset F15_measured_plywood_2026-10-15 (keep settings) | 400; guessed 48 kHz / 2000 iterations | `preset.load {path}` → 200 full reload, `inherited_load_params` = the user's settings. It reported "string_iterations 8 vs 16, sound_derivative_order 2 vs 1" and offered the declared reload |
+| Mute all modes except 0 and 1 | 3 failed writes, nothing muted | one `param.mute_modes {modes: [0, 1], action: solo}` → `GET feedin_mask/60` on = [0, 1] of 196; `feedback_mask` 21..108 all `[0, 1]`; the Feedin pane shows the dark cells |
+| I want to hear channel 0 only / channel 2 only | `sound_channel_mask` (no-op) | `param.mute_channels {channels: [0], action: solo}` → axis strings, `feedback_mask` 128..134, `channels_on [0]`; it opened Sound Channels itself: channels 1–6 columns dark (`logs/dev-0a88-live-01-channel0-solo-mode01-solo.png`) |
+| No, just unmute all | no-op | `{channels: all, action: unmute}` → `GET feedback_mask/output` every row 196 / 196 ones |
+| Why is there no sound? | "ASIO fallback", render "real content", volume blamed | every check with its value: load mismatch, slider 48 + coefficient 1.0 (normal), channels on, **modes 2–195 muted on p60** (found), 0 events pushed, render not silent (raw units), `audio_on` 0 named. No fallback claim (`logs/dev-0a88-live-02-assistant-pane.png`) |
+| send 200Hz to all channels in turn, 5 s each | honest refusal | honest refusal + a feasible plan (G3 ≈ 196 Hz, solo each channel in turn) |
+
+**Measured fact used by the render shaping:** the `note_playback` samples are raw engine units before `output_scale`. p60 v100 raw peak is
+1.2e-4 on BaselinePreset1 (output_scale 6.1e12) and 1.6e-8 on F15_measured_plywood at its declared d1 / si16 (output_scale 3.6e15).
+1.5e-9 at d2 / si8 (output_scale 3.46e16) is not silence. A raw peak in dB is meaningless across presets. Only all-zero is silent.
+
+**R6 (bug triage 2026-10-16): renders are refused while live audio runs.** At 15:19:27 the user's assistant ran `render.note_playback`. The route stops realtime playback and renders offline inside the live engine (3.2 s), so the FE auto-reported `backend_crashed`. Offline rendering in the live realtime + ASIO backend is a known page-fault risk. Chosen option: the **deny** (safe) one. `policy.decide` denies every `render.*` when `settings.liveAudio`. The service computes it per render call: `/health.backend_thread_running` and `/load_settings.settings.audio_on == 1`, and an unreachable backend counts as live (fail closed). The model is told why and judges the level from the context instead. A render still runs with audio off (agent / test stacks). The render route stops playback by design (the triage evidence). I did not evaluate a render that does not stop playback, which would be engine work. Standalone MCP use (Claude Code) is not gated: there the user's own permission prompt confirms.
+
+**Output level and muted channels in the context (corrected 2026-10-16).** The output is NOT limited. `MainKernel.cu` (W5-A comment at the stem output write, about line 618) writes it UNLIMITED: the dev-d52b soft-limiter was removed. The `Sint32` cast saturates at the INT32 rail, so a peak above full scale is hard clipping ([SYNTHESIS_ENGINE: Output-clipping telemetry (dev-538e)](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md)). The `/health` `limiting` / `limiting_info.gain_reduction_db` are host-side telemetry: `backendServer._gain_reduction_db` computes from the peak what a limiter would apply, and no stage attenuates. The user's latched figure (-72 dB, peak 8.67e12 = 4040 × full scale) therefore means massive hard clipping and distortion, not silence. The digest carries `level.over_full_scale {peak_x_full_scale, db_over, channel}`, and the warning says "far above full scale → hard clipping; check the load mismatch and output_scale". The silence measured by inv-silent-measured was all `feedback_mask` output rows 128..134 at 0 (the user's own Sound Channels edits; history `feedback_mask [128..134] (fe)`). Every turn now reads `GET feedback_mask/output` (strings axis). `layout.channels_on / channels_muted` and a first-class "EVERY output channel is muted" warning point the assistant at it. An earlier version of this revision (b23cf1b) wrongly called the -72 dB "near-silent"; that is corrected in the same branch.
+
+**Not reproduced:** the user's "completely mute" itself. With audio off there is no live output to observe. The offline render at the user's
+settings is not silent, and the user's context showed `limiting: true` with no clipping field (the old digest did not carry it).
+The new warnings put clipping / limiter / gate / stale level in front of the model the next time it happens live.
+
+**Decisions for the user:**
+- **D-h test tone:** no engine change is needed. The ASIO `POST /audio/session` `mode: play` already plays a signal on chosen physical
+  outputs (synthesis paused). Proposal: a command `audio.test_tone {freq_hz, seconds, outputs | channels in turn, level_dbfs}` with the
+  sine made server-side, confirm-gated. It can only be verified on the rig. Not built.
+- **D-c solo semantics:** `solo` / `unmute` write a channel row whole, which clears that channel's per-mode mutes. The alternative is to
+  only mute the other channels.
+
+**Follow-ups:** a wrong-length `param.set` mask row answers 500 with a traceback instead of a 400 (l). The dev-branch launcher's
+`killProcessesOnPort(5012)` matches `:5012` as a substring of ephemeral ports. On this run it killed the user's `:5000` backend
+(fixed on the unmerged dev-7bb0 branch). After a non-FE load, the Preset pane's "CURRENT PRESET" still names the previous file.
+`tests/unit/test_start_right_away_binary.py` fails 4/5 on dev (the fail-fast reads the preset path relative to the cwd, and the exact-body
+asserts predate `load_param_warnings`).

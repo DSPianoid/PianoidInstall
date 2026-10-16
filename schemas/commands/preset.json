@@ -17,7 +17,7 @@
     {
       "name": "preset.load",
       "title": "Apply (load) a preset",
-      "description": "Initialises the engine from a preset file with the given load settings. A HOT change (volume / feedback only) keeps the engine; a STRUCTURAL change (path, array_size, sample_rate, iterations, driver, buffer, audio_on, debug) is a full reload that stops audio. `volume` here is the preset level anchor, NOT the slider level.",
+      "description": "Initialises the engine from a preset file with the given load settings. A HOT change (volume / feedback only) keeps the engine; a STRUCTURAL change (path, array_size, sample_rate, iterations, driver, buffer, audio_on, debug) is a full reload that stops audio. `volume` here is the preset level anchor, NOT the slider level. Every load setting you OMIT keeps the live engine's value (preset.load_settings lists them), so {path} alone reloads with the user's current settings; only with no engine loaded are sample_rate / string_iterations / audio_on / start_right_away required. The response lists inherited_load_params and load_param_warnings (settings that differ from what the preset declares).",
       "target": "backend",
       "tier": "destructive",
       "long_running": false,
@@ -157,6 +157,18 @@
           "name": {"type": "string", "description": "Library entry name"}
         }
       },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.load_settings",
+      "title": "Read the live load settings",
+      "description": "The settings the running engine was loaded with, in preset.load form (sample_rate Hz, string_iterations, sound_derivative_order, array_size, listen_to_modes, audio_driver_type, volume = the load level anchor, ...), what the loaded preset declares it needs (declared) and the differences (mismatches). preset.load keeps every setting you omit at these live values.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-load_settings",
+      "route": {"method": "GET", "path": "/load_settings"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
     }
   ]
