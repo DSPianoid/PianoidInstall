@@ -107,7 +107,7 @@ export class AssistantSession {
 
   // ---- policy gate ------------------------------------------------------------------------
 
-  async canUseTool(toolName, input, { signal } = {}) {
+  async canUseTool(toolName, input, { signal, toolUseID } = {}) {
     if (toolName === ESCALATE_TOOL) return { behavior: 'allow', updatedInput: input };
     if (!toolName.startsWith(PIANOID_PREFIX)) {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
@@ -117,7 +117,7 @@ export class AssistantSession {
     const cmd = this.byName.get(commandName(tool));
     if (!cmd) return { behavior: 'deny', message: `unknown Pianoid tool ${tool}` };
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings: { dataOptOut: !!this.config.dataOptOut } });
-    const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, input, decision: verdict.action, reason: verdict.reason });
+    const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, input, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
     if (verdict.action === 'allow') return { behavior: 'allow', updatedInput: input };
     if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     const allowed = await this.askConfirm(entry, cmd, input, verdict.reason, signal);
@@ -262,17 +262,25 @@ export class AssistantSession {
         this.sessionInfo = { sessionId: ev.sessionId, model: ev.model, tools: ev.tools || [], mcpServers: ev.mcpServers || [] };
         this.broadcast({ type: 'session', ...this.sessionInfo });
         break;
-      case 'delta':
-        if (this.currentAssistant) this.currentAssistant.text += ev.text;
-        this.broadcast({ type: 'delta', text: ev.text });
+      case 'delta': {
+        // a text block after tool calls starts a new paragraph (it used to run on: "arriving.I found")
+        const sep = this.textBreak && this.currentAssistant?.text ? '\n\n' : '';
+        this.textBreak = false;
+        if (this.currentAssistant) this.currentAssistant.text += sep + ev.text;
+        this.broadcast({ type: 'delta', text: sep + ev.text });
         break;
+      }
       case 'assistant':
+        if (ev.toolUses.length) this.textBreak = true;
         for (const tu of ev.toolUses) {
           if (tu.name === ESCALATE_TOOL) this.broadcast({ type: 'escalation', reason: tu.input?.reason });
         }
         break;
       case 'tool_result': {
-        const entry = [...this.activity].reverse().find((a) => a.status === 'pending');
+        // by tool-use id: parallel calls finish in any order (dev-0a88: the newest-pending guess
+        // showed one call's result on another); the oldest pending entry only when no id is known
+        const entry = this.activity.find((a) => ev.toolUseId && a.toolUseId === ev.toolUseId)
+          || this.activity.find((a) => a.status === 'pending' && !a.toolUseId);
         if (entry) this.updateActivity(entry, { status: ev.isError ? 'error' : 'ok', result: summarize(ev.text, 400) });
         const m = /"jobId":\s*"([^"]+)"/.exec(ev.text || '');
         if (m) this.turnJobs.push(m[1]);

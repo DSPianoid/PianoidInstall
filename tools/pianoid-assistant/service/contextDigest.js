@@ -41,7 +41,7 @@ export function levelDigest(health, runtime = {}) {
     limiting: health.limiting ?? null,
     gate_trip_count: health.gate_trip_count ?? null,
     volume_level: runtime.volume_level ?? null,
-    feedback: runtime.deck_feedback_coefficient ?? null,
+    deck_feedback_coefficient: runtime.deck_feedback_coefficient ?? null,
     output_scale: os && {
       value: os.value, calibrated: os.calibrated, stale: os.stale, settings_match: os.settings_match,
       target_dbfs: os.target_dbfs, ...(os.warning ? { warning: os.warning } : {}),
@@ -74,7 +74,7 @@ export function warnings({ backend, audio, level, load, layout, ui }) {
     w.push(`Loaded with settings the preset does not declare: ${load.mismatches.map((m) => `${m.param} ${m.requested} (preset: ${m.required})`).join(', ')}. The sound and level are an approximation; reloading with the declared values is the fix.`);
   }
   if (level.volume_level === 0) w.push('The volume slider is at 0.');
-  if (level.feedback === 0) w.push('Deck feedback is 0 (no soundboard coupling).');
+  if (level.deck_feedback_coefficient === 0) w.push('Deck feedback is 0 (no soundboard coupling).');
   const sel = ui?.selection;
   if (layout?.num_modes != null && sel) {
     const modes = [sel.mode, ...(sel.modes || [])].filter((m) => typeof m === 'number');

@@ -70,8 +70,40 @@ test('render results: audio and samples replaced by per-series stats', () => {
   assert.equal(out.result.data, undefined);
   assert.deepEqual(out.result.series[0].name, 'Generated Sound (Channel 0)');
   assert.equal(out.result.series[0].peak_abs, 1);
-  assert.equal(out.result.series[0].peak_db, 0);
+  assert.equal(out.result.series[0].all_zero, false);
   assert.equal(out.result.text_fields['Generated Sound Max'], '0.000000');
   assert.equal(shapeResult({ family: 'param' }, res), res);          // only renders are shaped
-  assert.deepEqual(seriesStats([0, 0]), { samples: 2, peak_abs: 0, rms: 0, peak_db: null, silent: true });
+  assert.deepEqual(seriesStats([0, 0]), { samples: 2, peak_abs: 0, rms: 0, all_zero: true, units: 'raw (before output_scale and volume)' });
+});
+
+test('activity: parallel tool results are attributed by tool-use id, not to the newest pending call', async () => {
+  const { AssistantSession } = await import('../service/session.js');
+  const s = new AssistantSession({ paths: {}, config: { model: 'auto' }, commands: [], driverFactory: () => null });
+  const a = s.logActivity({ command: 'param.mute_modes', toolUseId: 'tu1', decision: 'allow' });
+  const b = s.logActivity({ command: 'ui.select.mode_range', toolUseId: 'tu2', decision: 'allow' });
+  s.onEvent({ type: 'tool_result', toolUseId: 'tu1', isError: false, text: 'mute result' });
+  s.onEvent({ type: 'tool_result', toolUseId: 'tu2', isError: false, text: 'ui result' });
+  assert.equal(a.result, 'mute result');
+  assert.equal(b.result, 'ui result');
+});
+
+test('compact: long mask rows become on / off ranges; short ones and value rows stay', async () => {
+  const { compact, maskSummary } = await import('../mcp/tools.js');
+  const row = [1, 1, ...Array(194).fill(0)];
+  assert.deepEqual(maskSummary(row), { mask_length: 196, on: '0-1', off: '2-195' });
+  assert.deepEqual(compact({ 60: row }), { 60: { mask_length: 196, on: '0-1', off: '2-195' } });
+  assert.deepEqual(maskSummary([0, 1, 0, 1, 1]), { mask_length: 5, on: '1, 3-4', off: '0, 2' });
+  assert.deepEqual(compact([1, 0, 1]), [1, 0, 1]);
+  assert.equal(compact(Array(100).fill(0.5)).length, 65);
+});
+
+test('streamed text after tool calls starts a new paragraph', async () => {
+  const { AssistantSession } = await import('../service/session.js');
+  const s = new AssistantSession({ paths: {}, config: { model: 'auto' }, commands: [], driverFactory: () => null });
+  s.currentAssistant = { role: 'assistant', text: '' };
+  s.onEvent({ type: 'delta', text: 'Checking.' });
+  s.onEvent({ type: 'assistant', toolUses: [{ name: 'mcp__pianoid__play__stats', input: {} }] });
+  s.onEvent({ type: 'delta', text: 'I found' });
+  s.onEvent({ type: 'delta', text: ' it.' });
+  assert.equal(s.currentAssistant.text, 'Checking.\n\nI found it.');
 });
