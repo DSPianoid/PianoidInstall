@@ -1592,7 +1592,7 @@ Request body:
 - `capture_mic` (online only, default `false`): when `true`, the server calls `startMicCapture` before scheduling events, sleeps synchronously for `speed_ms_per_note * num_pitches + tail_ms`, then calls `stopMicCapture` and writes an un-normalized 16-bit PCM mic WAV to `/tmp/keyboard_mic_<timestamp>.wav`. Requires an active audio driver with a selected input device — set via `POST /set_mic_device` if needed.
 - `tail_ms` (online, `capture_mic` only): extra capture time after the last NOTE_OFF to catch decay. Clamped to 0–10000 ms, default 2000.
 
-Online response (no mic): scheduled event count + nominal duration, returns immediately.
+Online response (no mic): scheduled event count + nominal duration, returns immediately — `{status, mode, scheduled_note_on, total_pitches, speed_ms_per_note, duration_ms, schedule_epoch_ms}`. `schedule_epoch_ms` (dev-2cce) = the backend wall-clock time (`time.time()·1000`) that `delay_ms = 0` refers to: note *i* is scheduled at `schedule_epoch_ms + i·speed_ms_per_note`. The frontend Play All highlight anchors to it (same machine, same clock).
 Online response (with mic): adds `mic_wav_path`, `mic_sample_rate`, `mic_samples`, `mic_peak`, `mic_rms`, `mic_nonzero_fraction`. Blocks until capture finishes.
 Offline response: `wav_path`, `audio_data`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
 
@@ -2008,10 +2008,15 @@ the report JSON here so it lands on disk in a folder the dev/orchestrator watche
 (it downloads client-side). See
 [BUG_REPORT_TOOL.md → Auto-Fire](../pianoid-tunner/BUG_REPORT_TOOL.md#auto-fire-on-internal-system-faults).
 
-Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}`).
-Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|manual>-<hex6>.json`
+Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}` and `reportId`).
+Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|manual>-<reportId|hex6>.json`
 (dir auto-created; oldest pruned beyond 500 files). The collector is wrapped so
 it can never take the backend down.
+
+**Idempotent by `reportId` (dev-2cce).** A report with a `reportId` always maps to the same
+file, created exclusively: a re-delivery (the client timed out while a large report was still
+being saved, then flushed its localStorage copy) answers `200` with `"duplicate": true` and is
+not saved again, so the first (full) copy is kept. Without a `reportId` the suffix is a random hex6.
 
 Response `200`:
 ```json
