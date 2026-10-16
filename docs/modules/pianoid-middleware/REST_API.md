@@ -780,6 +780,69 @@ the loaded preset declares (`fpga_conversion.load_params` / `required_load_param
 FULL load's file (a library switch does not change it). No engine: `{"loaded": false, "path": null,
 "settings": {}, "declared": {}, "mismatches": []}`.
 
+### System state reads (assistant v2 P1) {#system-state-reads-assistant-v2-p1}
+
+(dev-fcef) Read-only routes behind the assistant's state commands (owner
+`pianoid_middleware/system_routes.py` over the pure helpers in `system_state.py`, tests
+`tests/unit/test_system_state.py`; `write_routes` class `read_only`). Design: assistant v2 proposal §3.
+Registry: `system.health` (= `GET /health`), `system.environment`, `system.snapshot`, `audio.devices`
+(= `GET /audio/devices`), `midi.ports` (= `GET /midi/ports`), `midi.broadcast_state` (= `GET /midi/broadcast`),
+`preset.summary`, `preset.files`, `param.inventory`.
+
+**Data rule (D4 / V13).** Everything here may reach the model, so the environment variables are an
+**allow-list** (`system_state.ENV_ALLOW`): never `ANTHROPIC_*`, tokens, `PATH` or the user profile. A
+path-valued variable is shown only when it points inside the Core or Install checkout, else as
+`"<set: outside the repos>"`. Preset files are listed only under the allow-listed root, never a
+caller-given folder.
+
+### `GET /system/environment`
+
+`{gpu: {gpus: [{name, memory_total, driver_version}], driver_cuda_version}, engine_build: {variant
+release|debug, loaded, module_file, build_time (UTC, the .pyd mtime), packages: {Pianoid, pianoidCuda,
+pianoidCuda_debug}}, repos: {PianoidInstall|PianoidCore|PianoidBasic|PianoidTunner: {path, branch, sha,
+dirty} | {path, error}}, python, os, process: {pid, backend_port}, output_map: {raw, map, identity,
+meaning}, env: {<allow-listed PIANOID_* that are set>}, fingerprint: {gpu, build, repos: {core:
+"dev@963b6ce*", ...} ('*' = dirty), output_map}}`. The GPU block is read once per process
+(`nvidia-smi`); the repo state is read per call (`git rev-parse` / `status --untracked-files=no`, 3 s
+timeout each). Install = two levels above the command registry dir (`$PIANOID_COMMANDS_DIR`); Basic and
+Tunner = the folders inside it. `output_map` = `PIANOID_AUDIO_OUTPUT_MAP`: engine channel k plays on
+ASIO device output `map[k]`, unset = identity ([AUDIO_DRIVERS](../pianoid-cuda/AUDIO_DRIVERS.md)).
+
+### `GET /system/snapshot`
+
+`{timestamp, health (GET /health), load_settings (GET /load_settings), environment (above),
+active_preset (GET /preset/summary of the active entry, null without an engine)}`. The assistant's
+per-turn context carries only the environment `fingerprint` (so it notices an engine / build change
+between turns); this read is the first call of a "full state" question.
+
+### `GET /preset/files`
+
+`{roots: {presets: "presets"}, count, truncated, files: [{root, file, load_path, size_kb, modified,
+header}]}`: every `*.json` under `pianoid_middleware/presets` (two folder levels, at most 200).
+`load_path` (`presets/<file>`) is what `POST /load_preset` and `POST /preset/load` take. `header` =
+`{num_modes, num_strings, num_channels, listen_to_modes, sr, array_size, string_iteration,
+sound_derivative_order, output_scale, output_scale_calibrated, output_scale_target_dbfs (those present),
+piano_pitches: [first, last, count], declared_load_params, provenance?: {fpga_conversion: {converter,
+options}, measured_modes_build: {builder}}}`, or `{error}` for a file that is not a preset. Headers are
+cached by mtime + size (the first call parses every file). `PresetsFromFpga/` holds raw FPGA tables, not
+loadable presets, and is not a root.
+
+### `GET /preset/summary`
+
+`?entry=<library name>` (default the active entry). `{name, kind, source, path, source_path, active,
+editable, model_parameters (the in-memory entry: the header keys above), undo_depth (groups in the
+backend undo history of this entry), file (the header of source_path), load? (active entry only: the
+GET /load_settings body)}`. `400` no engine; `404 {error: unknown_entry, entries}`.
+
+### `GET /param/inventory`
+
+The parameter inventory, PianoidInstall `schemas/params/*.json` (`$PIANOID_PARAMS_DIR`, else `params`
+next to the command registry dir): per domain `{domain, title, read, write, key_space, shape,
+stored_vs_effective, doc, fields: [{name, units, range, class, meaning, doc}]}`. No query = the overview
+`{unknown_policy, doc_conflicts, domains: [{domain, title, group, key_space, write, fields: [names]}]}`;
+`?domain=<name>` = one domain in full; `404 {error: unknown_domain, domains}`. Every value comes from the
+docs; **`UNKNOWN` = the docs do not state it** (measure before relying on it).
+
 ### `POST /save_preset`
 
 Saves the ACTIVE library entry (its Python model + its non-model `extras` such as

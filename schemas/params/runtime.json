@@ -1,0 +1,190 @@
+{
+  "group": "runtime",
+  "description": "Live session parameters (volume, deck feedback, amplitude guard) and other session state outside the preset.",
+  "domains": [
+    {
+      "domain": "runtime",
+      "title": "Runtime (session) parameters",
+      "read": "runtime.get",
+      "write": "runtime.set {volume?, feedback?, feedback_coeff?, store_feedback_coeff?, volume_center?, volume_range?}; max_volume, amplitude_limit, amplitude_gate_enabled, deck_scaling: REST POST /set_runtime_parameters only (not in runtime.set args)",
+      "key_space": "field names (state_changed keys = the updated field names, entry null)",
+      "shape": "bare values: GET {volume_level, volume_center, effective_volume_center, output_scale, volume_range, deck_feedback_coefficient, amplitude_limit?, amplitude_gate_enabled?}; SET body uses volume (not volume_level)",
+      "stored_vs_effective": "Session state, not preset data (not undoable; never persisted in the preset except store_feedback_coeff, see deck_feedback_coefficient). volume_center is reported and set in BARE units; the engine value is bare x output_scale (effective_volume_center). The slider level survives every load kind.",
+      "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters",
+      "fields": [
+        {
+          "name": "volume",
+          "units": "0-127 slider level (MIDI range)",
+          "range": "integer 0..127",
+          "class": "stored",
+          "meaning": "SET name of the slider level: amplitude = volume_center * volume_range^((level-64)/63), or the legacy max_volume^(level/127) when volume_center == 0. Not the load-time 'volume' anchor.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "volume_level",
+          "units": "0-127 slider level",
+          "range": "integer 0..127; a first load starts at 64",
+          "class": "stored",
+          "meaning": "GET name of the same slider level (session state owned by set_runtime_parameters; no load kind changes it).",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "feedback",
+          "units": "0 = silence; 1-127 MIDI-style level (64 -> 1.0, 127 -> 8.0, 1 -> ~0.125); other values a direct coefficient",
+          "range": "coefficient after mapping 0.0..1000",
+          "class": "stored",
+          "meaning": "Deck feedback coefficient by level (auto-detected mapping); scales piano-pitch resonance feedback only.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "feedback_coeff",
+          "units": "direct effective deck feedback coefficient",
+          "range": "0.0..1000",
+          "class": "effective",
+          "meaning": "Bypasses the feedback level mapping; the two-layer FE slider sends effective = stored_coeff(preset) x slider multiplier. Lower feedback = louder / sharper attack but stable (a damping coefficient; risk = clipping).",
+          "doc": "modules/pianoid-tunner/OVERVIEW.md#bottom-bar-volume-feedback-reset-dev-uiqueue-t2-2026-06-15"
+        },
+        {
+          "name": "deck_feedback_coefficient",
+          "units": "deck coupling scalar (engine value)",
+          "range": "0.0..1000 (validation range)",
+          "class": "effective",
+          "meaning": "GET: the live engine deck feedback coefficient (RuntimeParameters default 1.0); feedback = feedin x this scalar on piano-pitch rows.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#runtime-feedback-coefficient"
+        },
+        {
+          "name": "volume_center",
+          "units": "bare amplitude coefficient at level 64 (FE sends exp((presetVolume-100)/8), 1.0 at the default init volume 100)",
+          "range": "0 selects the legacy formula; > 0 the sensitivity formula",
+          "class": "stored",
+          "meaning": "Level-64 anchor in bare units; GET returns the bare value so it can be SET back unchanged.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "effective_volume_center",
+          "units": "engine amplitude coefficient",
+          "range": "= volume_center x output_scale",
+          "class": "effective",
+          "meaning": "The raw engine value the kernel uses (read-only).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-health"
+        },
+        {
+          "name": "output_scale",
+          "units": "linear scale factor",
+          "range": "UNKNOWN",
+          "class": "read-only",
+          "meaning": "The active preset's Layer B scale (see derived.json output_level).",
+          "doc": "modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale"
+        },
+        {
+          "name": "volume_range",
+          "units": "sensitivity multiplier (ratio)",
+          "range": "default 10; at level 127 the coefficient is center*range, at 0 center/range",
+          "class": "stored",
+          "meaning": "Volume sensitivity; per session only, never persisted in presets, global across library preset switches.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "max_volume",
+          "units": "legacy-formula ceiling (amplitude)",
+          "range": "> 0",
+          "class": "stored",
+          "meaning": "Changes the coefficient only while volume_center == 0 (legacy formula); written read-modify-write.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "amplitude_limit",
+          "units": "string displacement (engine units)",
+          "range": "1.0 .. 1e7, CLAMPED; default 1.0e4; non-finite -> 400",
+          "class": "stored",
+          "meaning": "Runtime crash-guard ceiling: the in-kernel guard trips (self-heals) when |displacement| > amplitude_limit; per session.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "amplitude_gate_enabled",
+          "units": "bool (0/1 on SET and in the event, bool on GET)",
+          "range": "default true",
+          "class": "stored",
+          "meaning": "Toggles only the amplitude branch of the crash-guard; the isnan check stays active unconditionally; per session.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        },
+        {
+          "name": "deck_scaling",
+          "units": "object {feedin_coeff, feedback_coeff, feedbackOFF}",
+          "range": "{} restores the unscaled deck",
+          "class": "effective",
+          "meaning": "Engine-only re-pack of the deck with these factors (the legacy MIDI CC knobs); the stored rows are untouched.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        }
+      ]
+    },
+    {
+      "domain": "deck_feedback_coefficient",
+      "title": "Stored per-preset feedback baseline",
+      "read": "REST GET /health stored_feedback_coeff (no registry command; runtime.get deck_feedback_coefficient is the live engine value)",
+      "write": "runtime.set {store_feedback_coeff}",
+      "key_space": "global for the active preset (state_changed keys [])",
+      "shape": "{deck_feedback_coefficient}",
+      "stored_vs_effective": "PRESET data, in memory until /save_preset (model_parameters.deck_feedback_coefficient); undoable; 409 on a read-only original. The live engine value is effective = stored x the FE slider multiplier. switch_preset applies the target preset's value.",
+      "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters",
+      "fields": [
+        {
+          "name": "store_feedback_coeff",
+          "units": "deck feedback coefficient",
+          "range": "0.0..1000; default 1.0",
+          "class": "stored",
+          "meaning": "The 'Set' / fold button value: the new per-preset stored feedback baseline.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+        }
+      ]
+    },
+    {
+      "domain": "fix_velocity",
+      "title": "Fix-MIDI velocity clamp",
+      "read": "none in the registry; REST GET /get_fix_velocity",
+      "write": "none in the registry; REST POST /set_fix_velocity {enabled, level} (both required)",
+      "key_space": "global (session_changed domain fix_velocity)",
+      "shape": "{enabled, level}",
+      "stored_vs_effective": "Session state on the running engine: not preset-persisted, not reset on preset switch, reset to {enabled: false, level: 64} on backend restart. Clamps only MIDI-source NOTE_ON velocities.",
+      "doc": "modules/pianoid-middleware/REST_API.md#fix-midi-velocity-clamp",
+      "fields": [
+        {
+          "name": "enabled",
+          "units": "bool",
+          "range": "true | false; default false",
+          "class": "stored",
+          "meaning": "When true, MIDI-source NOTE_ON velocities are clamped to level.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_fix_velocity"
+        },
+        {
+          "name": "level",
+          "units": "MIDI velocity",
+          "range": "int 0..127; default 64",
+          "class": "stored",
+          "meaning": "The clamped velocity (0 = silent note, 127 = fortissimo).",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_fix_velocity"
+        }
+      ]
+    },
+    {
+      "domain": "excitation_mode",
+      "title": "Per-pitch excitation type (hammer / bow)",
+      "read": "none in the registry; REST GET /get_excitation_mode",
+      "write": "none in the registry; REST POST /set_excitation_mode {pitch, mode: hammer|bow|0|1}",
+      "key_space": "piano pitch",
+      "shape": "{modes: {pitch: 0|1}}",
+      "stored_vs_effective": "Session state on the live engine, not preset-persisted.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode",
+      "fields": [
+        {
+          "name": "modes",
+          "units": "per pitch: 0 = hammer (impulse, one-shot), 1 = bow (sustained)",
+          "range": "0 | 1",
+          "class": "stored",
+          "meaning": "Excitation type of each pitch of the active preset.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode"
+        }
+      ]
+    }
+  ]
+}

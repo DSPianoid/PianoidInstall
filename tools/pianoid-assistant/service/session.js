@@ -1,7 +1,8 @@
 /**
  * One assistant session for the pane: the driver (real SDK or fake), the policy gate on every tool
  * call (canUseTool -> policy.js, with confirms answered in the pane), model choice + escalation
- * (D2), the activity log, usage (D7), Stop, and the per-turn UI / health context. One installation
+ * (D2) with the v2 router (service/router.js: pre-route, tool / failure triggers, self-escalation,
+ * stickiness), the activity log, usage (D7), Stop, and the per-turn UI / health context. One installation
  * = one user (D5: no user management). Changing the data opt-out restarts the session (the MCP
  * server is spawned with it, so the filter holds in two places).
  */
@@ -13,12 +14,14 @@ import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
 import { contextBlock, systemPrompt } from './prompt.js';
 import { buildDigest } from './contextDigest.js';
+import { Router } from './router.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
 export const MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
 const PIANOID_PREFIX = 'mcp__pianoid__';
 const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
+const ENV_TTL_MS = 30000;
 
 const summarize = (v, n = 300) => {
   const s = typeof v === 'string' ? v : JSON.stringify(v);
@@ -38,6 +41,8 @@ export class AssistantSession {
     this.activity = [];
     this.usage = { rateLimit: null, lastTurn: null, totals: { inputTokens: 0, outputTokens: 0, turns: 0 } };
     this.model = { current: this.baseModel(), escalated: false, reason: null };
+    this.router = new Router();
+    this.driverModel = null;          // the model the running driver was last set to
     this.pending = new Map();         // confirm id -> {resolve, entry}
     this.turnJobs = [];
     this.nextId = 1;
@@ -93,6 +98,7 @@ export class AssistantSession {
     this.status = 'starting';
     this.driver = this.driverFactory();
     await this.driver.start(this.sdkOptions(), (ev) => this.onEvent(ev));
+    this.driverModel = this.model.current;
     this.status = 'ready';
   }
 
@@ -101,6 +107,7 @@ export class AssistantSession {
     if (this.driver) await this.driver.stop();
     this.driver = null;
     this.model = { current: this.baseModel(), escalated: false, reason: null };
+    this.router.reset();
     this.status = 'idle';
     this.broadcast(this.state());
   }
@@ -116,13 +123,18 @@ export class AssistantSession {
     if (tool === 'search_docs') return { behavior: 'allow', updatedInput: input };
     const cmd = this.byName.get(commandName(tool));
     if (!cmd) return { behavior: 'deny', message: `unknown Pianoid tool ${tool}` };
+    await this.trigger(this.router.onToolCall(cmd.name));      // layer 2, before the call runs
     const liveAudio = cmd.family === 'render' ? await this.liveAudio() : false;
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings: { dataOptOut: !!this.config.dataOptOut, liveAudio } });
     const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, input, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
     if (verdict.action === 'allow') return { behavior: 'allow', updatedInput: input };
-    if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
+    if (verdict.action === 'deny') {
+      this.router.onRefused(cmd.name);
+      return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
+    }
     const allowed = await this.askConfirm(entry, cmd, input, verdict.reason, signal);
     this.updateActivity(entry, { decision: allowed ? 'confirmed' : 'rejected', status: allowed ? 'pending' : 'rejected' });
+    if (!allowed) this.router.onRefused(cmd.name);
     return allowed
       ? { behavior: 'allow', updatedInput: input }
       : { behavior: 'deny', message: `The user declined ${cmd.name}.` };
@@ -180,16 +192,46 @@ export class AssistantSession {
 
   // ---- model (D2) -------------------------------------------------------------------------
 
+  /** Layer 3: the model's own escalate_model call. */
   async escalate(reason) {
     if (this.config.model !== 'auto') {
       return `The user fixed the model to ${this.config.model}; continuing on ${this.model.current}.`;
     }
-    if (!this.model.escalated) {
-      await this.driver?.setModel(MODELS.opus);
-      this.model = { current: MODELS.opus, escalated: true, reason };
-      this.broadcast({ type: 'model', ...this.model });
-    }
+    await this.trigger(this.router.onEscalated(reason));
     return `Escalated to ${MODELS.opus} for this turn (${reason}).`;
+  }
+
+  /** Switch the running turn to Opus for a layer-2/3 trigger (null = nothing fired). Auto only. */
+  async trigger(why) {
+    if (!why || this.config.model !== 'auto') return;
+    await this.useModel(MODELS.opus, `Opus: ${why}`);
+    this.logRoute('opus', `Opus: ${why}`);
+  }
+
+  /** Set the model of the session (the driver only when it changes) and tell the pane. */
+  async useModel(model, reason) {
+    if (this.driver && this.driverModel !== model) {
+      await this.driver.setModel(model);
+      this.driverModel = model;
+    }
+    this.model = { current: model, escalated: model === MODELS.opus && this.config.model === 'auto', reason };
+    this.broadcast({ type: 'model', ...this.model });
+  }
+
+  logRoute(model, reason) {
+    this.logActivity({ command: 'model route', tier: 'router', decision: model, reason, status: 'ok' });
+  }
+
+  /** Layer 1 + stickiness at the start of a turn (the picker's forced model wins). */
+  async routeTurn(text, ctx) {
+    if (this.config.model !== 'auto') {
+      this.logRoute(this.config.model, `picker: ${this.config.model} (forced)`);
+      return;
+    }
+    const d = this.router.beginTurn(text, ctx);
+    const reason = `${d.model === 'opus' ? 'Opus' : 'Sonnet'}: ${d.rule}`;
+    await this.useModel(MODELS[d.model], d.model === 'opus' ? reason : null);
+    this.logRoute(d.model, reason);
   }
 
   // ---- turns ------------------------------------------------------------------------------
@@ -205,7 +247,7 @@ export class AssistantSession {
       }
     };
     const post = (url) => get(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pianoid-Source': 'assistant' }, body: '{}' });
-    const [ui, health, runtime, load, presets, jobs, outputMask] = await Promise.all([
+    const [ui, health, runtime, load, presets, jobs, outputMask, environment] = await Promise.all([
       post(`${this.launcherUrl}/api/command/ui.snapshot`),
       get(`${this.backendUrl}/health`),
       get(`${this.backendUrl}/get_runtime_parameters`),
@@ -213,8 +255,18 @@ export class AssistantSession {
       get(`${this.backendUrl}/preset/list`),
       post(`${this.backendUrl}/command/job.list`),
       get(`${this.backendUrl}/get_parameter/feedback_mask/output`),
+      this.environment(get),
     ]);
-    return buildDigest({ health, runtime, load, presets, jobs, ui, outputMask });
+    return buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
+  }
+
+  /** GET /system/environment, re-read at most every ENV_TTL_MS (it runs git / nvidia-smi in the backend). */
+  async environment(get) {
+    const now = Date.now();
+    if (!this.envCache || now - this.envCache.at > ENV_TTL_MS || this.envCache.body.unreachable) {
+      this.envCache = { at: now, body: await get(`${this.backendUrl}/system/environment`) };
+    }
+    return this.envCache.body;
   }
 
   async turn(text) {
@@ -225,8 +277,9 @@ export class AssistantSession {
     this.transcript.push({ role: 'user', text, at: Date.now() });
     this.broadcast({ type: 'message', role: 'user', text });
     try {
-      await this.ensureStarted();
       const ctx = await this.context();
+      await this.routeTurn(text, ctx);
+      await this.ensureStarted();
       this.currentAssistant = { role: 'assistant', text: '', model: this.model.current, at: Date.now() };
       await this.driver.send(contextBlock(ctx) + text);
     } catch (e) {
@@ -263,8 +316,12 @@ export class AssistantSession {
     }
     if (model && ['auto', 'sonnet', 'opus'].includes(model) && model !== this.config.model) {
       this.config.model = model;
+      this.router.reset();
       this.model = { current: this.baseModel(), escalated: false, reason: null };
-      if (this.driver && !restart) await this.driver.setModel(this.model.current);
+      if (this.driver && !restart) {
+        await this.driver.setModel(this.model.current);
+        this.driverModel = this.model.current;
+      }
     }
     saveConfig(this.paths, this.config);
     if (restart) await this.restart();
@@ -299,6 +356,7 @@ export class AssistantSession {
         const entry = this.activity.find((a) => ev.toolUseId && a.toolUseId === ev.toolUseId)
           || this.activity.find((a) => a.status === 'pending' && !a.toolUseId);
         if (entry) this.updateActivity(entry, { status: ev.isError ? 'error' : 'ok', result: summarize(ev.text, 400) });
+        this.trigger(this.router.onToolResult(ev.isError)).catch(() => {});
         const m = /"jobId":\s*"([^"]+)"/.exec(ev.text || '');
         if (m) this.turnJobs.push(m[1]);
         break;
@@ -320,10 +378,12 @@ export class AssistantSession {
           this.currentAssistant = null;
         }
         this.broadcast({ type: 'usage', usage: this.usage });
-        if (this.model.escalated && this.config.model === 'auto') {
-          this.model = { current: MODELS.sonnet, escalated: false, reason: null };
-          this.driver?.setModel(MODELS.sonnet).catch(() => {});
-          this.broadcast({ type: 'model', ...this.model });
+        if (this.config.model === 'auto') {
+          // stickiness: Opus stays for the next STICKY_TURNS turns after an Opus turn (router.js)
+          const next = this.router.endTurn();
+          if (MODELS[next] !== this.model.current) {
+            this.useModel(MODELS[next], next === 'opus' ? this.model.reason : null).catch(() => {});
+          }
         }
         this.endTurn();
         break;

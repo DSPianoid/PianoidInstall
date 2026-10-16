@@ -122,6 +122,30 @@
       "route": {"method": "GET", "path": "/playback_stats"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "midi.ports",
+      "title": "Read the MIDI input ports",
+      "description": "The rtmidi input ports (array index = port id), the port the unified MIDI listener holds open (active_port, null when not listening) and whether the listener runs (listening; it starts with a load with listen_to_midi 1). Works before a preset is loaded.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-midiports",
+      "route": {"method": "GET", "path": "/midi/ports"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "midi.broadcast_state",
+      "title": "Read the MIDI broadcast gate",
+      "description": "Whether incoming MIDI notes are forwarded to the UI as midi_note_event messages ({enabled}). Independent of the listener state (midi.ports). 400 when no preset is loaded.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-midibroadcast",
+      "route": {"method": "GET", "path": "/midi/broadcast"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
     }
   ]
 }

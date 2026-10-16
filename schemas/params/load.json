@@ -1,0 +1,162 @@
+{
+  "group": "load",
+  "description": "Load settings: the /load_preset (preset.load) request fields the engine is initialised with, read back by preset.load_settings.",
+  "domains": [
+    {
+      "domain": "load_settings",
+      "title": "Preset load settings",
+      "read": "preset.load_settings (returns {loaded, path, settings, declared, mismatches})",
+      "write": "preset.load {path, ...settings} (destructive: a STRUCTURAL change is a full reload that stops audio; a HOT change of volume / max_volume / feedback / feedback_coeff keeps the engine)",
+      "key_space": "field names; one set for the running engine (the last FULL load)",
+      "shape": "{field: value} in /load_preset request form",
+      "stored_vs_effective": "Every omitted setting keeps the live engine's value (listed as inherited_load_params); with no engine loaded, sample_rate, string_iterations, audio_on and start_right_away are required. 'declared' = what the preset requires (fpga_conversion.load_params / required_load_params); mismatches are non-blocking warnings (load_param_warnings). output_scale is valid only at the load settings it was calibrated at (array_size, sound_derivative_order, listen_to_modes, sr, mode_iteration, string_iteration).",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-load_settings",
+      "fields": [
+        {
+          "name": "path",
+          "units": "preset JSON path relative to pianoid_middleware (e.g. presets/BaselinePreset1.json)",
+          "range": "an existing preset file (else 400 invalid_preset_request before the engine is touched)",
+          "class": "stored",
+          "meaning": "The preset file of the last FULL load (never inherited; a library switch does not change it).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-load_settings"
+        },
+        {
+          "name": "sample_rate",
+          "units": "request: kHz (a value < 1000 is multiplied by 1000); load_settings read-back: Hz",
+          "range": "UNKNOWN (example 48)",
+          "class": "stored",
+          "meaning": "Audio sample rate; structural (full reload); part of the output_scale calibration key.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "string_iterations",
+          "units": "FDTD sub-steps per audio sample",
+          "range": "UNKNOWN (request example 4; dt = 1/(sample_rate x string_iterations))",
+          "class": "stored",
+          "meaning": "Number of string wave-equation steps per audio sample; structural; the float32 bass-pitch drift at high values is documented with a fix pending merge (dev-1e95).",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#fdtd-discretization"
+        },
+        {
+          "name": "cycle_iterations",
+          "units": "samples per cycle",
+          "range": "minimum 16, default 64; must match the audio buffer size",
+          "class": "stored",
+          "meaning": "Samples per synthesis cycle; structural.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "array_size",
+          "units": "spatial discretisation points per string block",
+          "range": "384 (default) or 512; clamped to 384..512",
+          "class": "stored",
+          "meaning": "Grid size per block; a value different from the preset's native array_size rescales the string geometry proportionally; structural.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "listen_to_modes",
+          "units": "0 | 1",
+          "range": "0 or 1 (default 1)",
+          "class": "stored",
+          "meaning": "0 = sound channels carry string bridge displacement (strings axis), 1 = they carry mode forces (modes axis); decides which mask mutes a channel; structural.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "sound_derivative_order",
+          "units": "1 | 2",
+          "range": "1 = velocity, 2 = acceleration",
+          "class": "stored",
+          "meaning": "Output derivative order of the stem signal (1st derivative = velocity, 2nd = acceleration); structural; d1 vs d2 changes the level by ~19 dB (calibration key).",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#audio-output"
+        },
+        {
+          "name": "audio_driver_type",
+          "units": "enum",
+          "range": "0 = default (SDL3, hardware-free), 1 = ASIO, 2 = SDL (auto), 3 = SDL3, 4 = ASIO_CALLBACK",
+          "class": "stored",
+          "meaning": "Audio driver; prefer 4 when an ASIO device exists, else 2; 0 for tests / headless; structural (no driver-only reopen path).",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "audio_buffer_size",
+          "units": "buffer chunks",
+          "range": "2 = low latency, 4 = balanced, 8 = high stability",
+          "class": "stored",
+          "meaning": "Audio buffer depth; structural.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "volume",
+          "units": "preset (init) volume; bare volume_center = exp((volume-100)/8), max_volume = volume_center^(127/64)",
+          "range": "default 100 (bare center 1.0)",
+          "class": "stored",
+          "meaning": "The load-time LEVEL ANCHOR, NOT the slider level (same name, different thing); HOT change; not calibrated by output_scale (volume 127 = +29.31 dB).",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "max_volume",
+          "units": "anchor ceiling (amplitude)",
+          "range": "float; takes precedence over volume (bare center = max_volume^(64/127))",
+          "class": "stored",
+          "meaning": "Explicit level-anchor ceiling; HOT change.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "audio_on",
+          "units": "0 | 1",
+          "range": "0 or 1",
+          "class": "stored",
+          "meaning": "UNKNOWN beyond its role: REST_API lists it only as a structural load setting, required when no engine is loaded.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "start_right_away",
+          "units": "binary",
+          "range": "1 = start realtime playback in a background thread; 0 (or any non-1) = initialise only",
+          "class": "stored",
+          "meaning": "Whether realtime playback starts at load (values 2 and 3 were removed).",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "listen_to_midi",
+          "units": "0 | 1",
+          "range": "0 or 1; the PIANOID_LISTEN_TO_MIDI env var ('0'/'1') overrides the request",
+          "class": "stored",
+          "meaning": "1 = start the unified MIDI listener thread (cycle-aligned dispatch); hot-toggle later via POST /midi/start and /midi/stop.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "midi_port",
+          "units": "rtmidi input-port index",
+          "range": "default 0; enumerate with GET /midi/ports",
+          "class": "stored",
+          "meaning": "MIDI input port used when listen_to_midi = 1.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "debug_mode",
+          "units": "0 | 1",
+          "range": "0 = release, 1 = debug build + extraction",
+          "class": "stored",
+          "meaning": "Debug engine variant with result extraction; structural.",
+          "doc": "modules/pianoid-tunner/OVERVIEW.md#usesettings"
+        },
+        {
+          "name": "use_simulation",
+          "units": "0 | 1",
+          "range": "0 only (1 is rejected 400 FeatureNotSupported before the engine is destroyed)",
+          "class": "stored",
+          "meaning": "Vestigial placeholder-engine switch; always 0.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "use_cuda",
+          "units": "UNKNOWN",
+          "range": "UNKNOWN (request example 1)",
+          "class": "UNKNOWN",
+          "meaning": "UNKNOWN (appears in the documented request body without a description).",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        }
+      ]
+    }
+  ]
+}
