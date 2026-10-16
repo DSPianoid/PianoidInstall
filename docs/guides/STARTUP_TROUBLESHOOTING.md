@@ -262,7 +262,26 @@ so the lock is verified on **every** launch:
 | Clocks already locked | Silent no-op. No prompt, no delay. (The common case.) |
 | Clocks not locked | The console explains why, then **one UAC prompt** — click **Yes**, the clocks lock, Pianoid launches. |
 | You decline the UAC | Warns that dropouts are likely and **launches anyway** — degraded, never blocked. |
-| No NVIDIA GPU / no `nvidia-smi` / script missing | Silent fall-through; Pianoid launches. |
+| The apply does not finish within 20 s | Says so and **launches anyway**; details in the log below. |
+| No NVIDIA GPU / `nvidia-smi` missing, erroring or hung / script missing | Silent fall-through; Pianoid launches. Every `nvidia-smi` call is bounded (5-10 s). |
+
+**How "locked" is recognised.** Not from the clock reading: `nvidia-smi` on GeForce has no "a lock is
+active" query, and a locked RTX 4090 reads **2790 of 3120 MHz** (89% — 3120 is the clock-table max the
+card's voltage curve never reaches), while the same card unlocked with a GPU client open read 2535 MHz
+(81%). The old 95%-of-max test therefore reported "not locked" — and raised UAC — on **every** launch.
+Instead, `gpu_rt_config.ps1 -Apply` writes a **lock record** (`%ProgramData%\Pianoid\gpu_clock_lock.json`:
+boot time, GPU UUID, driver version, targets) after a successful lock, and the check accepts it only if
+the boot time, GPU and driver still match **and** the driver's `gpu_idle` clock-event reason is not active
+(it is under an unlocked idle GPU; a min=max lock prevents it). `-Reset` deletes the record. Shared
+logic: `tools\gpu_clock_state.ps1`. Tests: `docs/development/diagnostics/dev-gpuclock-check-tests.ps1`.
+
+So the UAC prompt appears **once per boot** (the first launch after a restart, or after a driver update)
+— unless the optional boot task below is installed.
+
+**If the launch ever seemed to hang at this check** (2026-10-16): the elevated apply used to run in a
+visible console with an unbounded wait. It now runs **hidden** (no console a stray click can freeze in
+QuickEdit mode), the launcher waits at most 20 s, and the log line is written to the file before the
+console. If an apply stalls, the log ends after its last completed step.
 
 Checking at launch (rather than via a boot-time task) is deliberate:
 
