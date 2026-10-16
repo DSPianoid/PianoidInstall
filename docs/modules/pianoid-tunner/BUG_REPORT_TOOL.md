@@ -192,8 +192,10 @@ Three parts, each a single-concern module (mirrors the manual tool's shape):
 | Signal kind | Source | Significant? (auto-fires) |
 |---|---|---|
 | `backend_exception` | `/health` `exception:true` (engine/MIDI fault latched) | **yes** |
-| `backend_crashed` | `/health` `status:'crashed'` OR `backend_thread_running:false` while loaded | **yes** |
-| `endpoint_unresponsive` | axios interceptor: network error / timeout / **5xx** | **yes** — EXCEPT the optional modal-adapter `:5001/health` poll (excluded; see below) |
+| `backend_crashed` | `/health` `status:'crashed'` (at once) OR `backend_thread_running:false` while loaded — the latter only when a fresh `/health` **still** shows it `CRASH_CONFIRM_MS` = 8 s later and is not `status:'loading'` (dev-2cce R4, below) | **yes** |
+| `endpoint_unresponsive` | axios interceptor: **5xx** (except a lifecycle 503), or the **3rd consecutive** network error / timeout of a host that has answered before (dev-2cce R2, below) | **yes** — EXCEPT the optional modal-adapter `:5001/health` poll (excluded; see below) |
+| `endpoint_timeout` | a network error / timeout below that threshold, before the host ever answered, or during this tab's own preset load (`isBusy`) | no — context |
+| `endpoint_busy` | `503 {code:"lifecycle_in_progress"}` — the engine gate refusing a request while a preset lifecycle op runs | no — context |
 | `js_error` | `window.onerror` | **yes** |
 | `unhandled_rejection` | `window.onunhandledrejection` | **yes** |
 | `param_rejected` | axios interceptor: **HTTP 4xx** (a prohibited/clamped value) | only in **burst** (≥5 in 5 s ⇒ `reject_burst`) |
@@ -226,6 +228,21 @@ optional server never produces a report. (Genuine `:5001` *operations* — e.g.
 per-host episode dedup below, so a down `:5001` yields at most ONE report, not a
 flood.) This closed a runaway where a stopped `:5001` produced 300+ identical
 `endpoint_unresponsive` reports in minutes.
+
+### Lifecycle and startup windows are not faults (dev-2cce, 2026-10-16)
+
+The 2026-10-16 triage found 14 of 39 auto-reports were expected windows, plus single `/health`
+timeouts and duplicate deliveries:
+
+| Window | What it looked like | Rule now |
+|---|---|---|
+| FE loaded before the backend started (every start, the user's restart routine) | `/health` `ERR_NETWORK` → `endpoint_unresponsive` | a host that has **never answered** since app load is not down — its failures are `endpoint_timeout` (`createUnresponsiveGate` in `autoReporter.js`) |
+| Preset load / re-init (the engine gate) | `/midi/ports` `503` ×3 per window | `503 lifecycle_in_progress` → `endpoint_busy` (context) |
+| Preset re-init (old realtime thread stopped, new one not yet started) | WS `lifecycle` events (`GPU_READY` / `PARAMETERS_LOADED` → `healthy`) with `running:false` → `backend_crashed` 0.3 s after the load | thread-stopped is confirmed by a fresh `GET /health` 8 s later (skipped while `isBusy` or the probe says `loading`) |
+| Backend busy under a write burst | ONE 2 s `/health` timeout → `endpoint_unresponsive` | `UNRESPONSIVE_THRESHOLD` = 3 consecutive network/timeout failures of the host; any success of that host resets the count |
+| A large (12 MB, N2000 preset) report | the 5 s collector POST timed out mid-save → the lifeboat copy was delivered again later (5 duplicate pairs) | `COLLECTOR_TIMEOUT_MS` = 30 s, and every report carries a `reportId` — the collector saves it once ([REST `POST /bug_report`](../pianoid-middleware/REST_API.md#post-bug_report)) |
+
+Pinned by `hooks/__tests__/useAutoReport.lifecycle.test.jsx`.
 
 ### Trigger policy — one report per fault EPISODE
 
@@ -288,6 +305,7 @@ against a real generated sample. `BUG_REPORT_SCHEMA_VERSION = 2` (v2 added the
 ```jsonc
 {
   "schemaVersion": 1,                 // integer; bump on any breaking shape change
+  "reportId":    "<16 hex>",          // identity of this report (additive, dev-2cce): the collector saves it once
   "createdAt":   "<ISO-8601>",        // wall-clock: when the report was generated
   "appLoadedAt": "<ISO-8601>",        // wall-clock: when the app/session loaded (APP_LOADED_AT)
   "sessionMs":   <number>,            // performance.now() at generation — the anchor for action `t`

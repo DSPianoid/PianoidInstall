@@ -131,7 +131,7 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 | `Zoomer` | `Zoomer.jsx` | Zoom control for chart views |
 | `TestChart` | `TestChart.jsx` | Test/debug chart component |
 | `ModeWaveChart` | `ModeWaveChart.js` | Waveform chart for a single mode |
-| `ModesRule` | `ModesRule.js` | Modes ruler/axis component. **Mode 0 is a real mode (dev-a66b, 2026-10-05):** "no mouse-down" is `mouseDownMode == null`, never a falsy test — the old `if (!mouseDownMode)` dropped every drag that STARTED on mode 0 (the selection could only begin at mode 1, e.g. `[1,126]`) and the release of a right-click play on mode 0. Pinned by `ModesRule.modeZero.test.jsx`. **Double-click = 1-wide selection only in the `doubleClickToSelect` model** — in the legacy model each click's mouseUp clears the range and `handleDoubleClick` is gated off; every selection-capable ruler must opt in (dev-2493: the `MeasuredMatrix` rulers had not → "double click does not work" in the SC/Feedin/Feedback matrix view). Pinned by `ModesRule.dblclick.test.jsx` |
+| `ModesRule` | `ModesRule.js` | Modes ruler/axis component. **Mode 0 is a real mode (dev-a66b, 2026-10-05):** "no mouse-down" is `mouseDownMode == null`, never a falsy test — the old `if (!mouseDownMode)` dropped every drag that STARTED on mode 0 (the selection could only begin at mode 1, e.g. `[1,126]`) and the release of a right-click play on mode 0. Pinned by `ModesRule.modeZero.test.jsx`. The Modes panel props in `PianoidTuner` follow the same rule (`selectedMode != null && selectedMode >= 0`; the old `selectedMode && selectedMode > 0` showed "Select a mode" for mode 0 — dev-2cce M2, `__tests__/modeZeroGuard.source.test.js`). **Double-click = 1-wide selection only in the `doubleClickToSelect` model** — in the legacy model each click's mouseUp clears the range and `handleDoubleClick` is gated off; every selection-capable ruler must opt in (dev-2493: the `MeasuredMatrix` rulers had not → "double click does not work" in the SC/Feedin/Feedback matrix view). Pinned by `ModesRule.dblclick.test.jsx` |
 | `MatrixTable` | `MatrixTable.js` | Raw HTML table for matrix data |
 | `ContinuousPressButton` | `ContinuousPressButton.js` | Button that fires repeatedly while held |
 | `PresetPanel` | `PresetPanel/PresetPanel.jsx` | Mosaic pane for preset loading + library management. Sections: a named-startup-config switcher (`PresetConfigBar`), Current Preset, Library, footer Apply (see "Preset Panel" below). The previous monolithic Settings pane was extracted into this dedicated pane (dev-a328, 2026-05-01). Working-copy model (dev-bfe2, 2026-05-18): the Library list renders entry records — a lock icon for read-only `original` entries, an "editable" chip + `source` caption for `working` copies; per-entry Spawn working copy / Promote (working copies only, behind a confirm dialog) / Unload actions |
@@ -174,15 +174,21 @@ tested in `src/utils/__tests__/audioPlayback.test.js`. `wav_path` is still logge
 debug. The backend `audio_data` addition requires a **backend restart** to take effect;
 the frontend change hot-reloads.
 
-**On-screen highlight.** Because the browser no longer times the audio, the swept-key
-highlight (`sweepingNote` → `VirtualPiano`) is driven by a **visual-only** `setInterval`
-walking the same `speed_ms` grid. It is cosmetic — small drift vs the (even) audio is
-harmless. (The backend `midi_note_event` Socket.IO stream is **not** usable for this: it
-fires only for the unified hardware-MIDI listener, not for `/play_keyboard`-scheduled
-events.)
+**On-screen highlight — follows the backend schedule (dev-2cce, 2026-10-16).** The swept-key
+highlight (`sweepingNote` → `VirtualPiano`) starts when the `play.keyboard` response arrives and
+is anchored to its `schedule_epoch_ms` (the wall-clock time the backend's `delay_ms = 0` refers
+to; the request round-trip midpoint on an older backend — `utils/sweepClock.resolveSweepAnchor`).
+A 16 ms tick derives the note index from the elapsed time (`sweepIndexAt`), so it never drifts.
+Before, a free-running `setInterval(speed_ms)` started *before* the request: a constant
+RTT + scheduling offset (219 ms WS latency in the user's report = two notes at 100 ms) plus
+interval drift over 88 notes — the user reported "indication is not in sync with the sound".
+A stop pressed before the response arrives cancels the highlight (`sweepRunRef`). The audible
+note additionally trails its schedule by the audio output buffer (a few ms on ASIO). (The
+backend `midi_note_event` Socket.IO stream is **not** usable for this: it fires only for the
+unified hardware-MIDI listener, not for `/play_keyboard`-scheduled events.)
 
 **Stop (■) — both modes (consolidated when dev-177a + dev-8abf merged, 2026-05-31).**
-`stopSweep` clears the online visual-highlight `setInterval` (`sweepHighlightRef`) **and**
+`stopSweep` clears the online highlight tick (`sweepHighlightRef`) **and**
 pauses + revokes the offline `<audio>` blob URL (`sweepAudioRef`). So ■ stops offline
 playback immediately (the WAV is a local `<audio>`), but for online it only halts the
 highlight + local state — the notes were already scheduled up-front on the backend cycle
@@ -662,6 +668,11 @@ Global keyboard shortcut handler. Registers `keydown`/`keyup` listeners on `wind
 
 Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95, ff=127.
 
+**Key auto-repeat (dev-2cce R7).** A held key auto-repeats `keydown` (~every 32 ms,
+`e.repeat`). Space, `[` / `]` and Escape act on the FIRST press only — a held Space used to
+re-strike the note ~30×/s (170 NOTE_ON vs 11 NOTE_OFF in one report) and a held `]` would
+re-switch presets. Arrows (pitch scrub) and the volume / feedback keys (ramp) keep auto-repeat.
+
 ### `useChainEditor`
 
 Client-side chain editing state machine with snapshot-based undo/redo. Provides a working copy of tracked chains (`editedChains`), dirty tracking, and interaction mode switching (`select`, `addPoint`, `drawChain`, `connectChains`, `breakChain`, `dissolve`).
@@ -754,7 +765,7 @@ on mount / reconnect + the `history_changed` event) and calls `POST /history/und
   Ctrl+Shift+Z / Ctrl+Y (never while a text field is focused — the field keeps its own undo);
 - **per editor**: the MatrixTools Undo / Redo of Strings, Modes, Excitation, Feedin, Feedback, Sound Channels and
   the Workbench Undo send the editor's `UNDO_DOMAINS` (Feedback = `feedback@piano`, Sound Channels =
-  `feedback@output` + the `sound_channel*` domains; the latest group touching them; a later overlapping edit
+  `feedback@output` + the `sound_channel*` domains, Mass workbench = `excitation_energy`; the latest group touching them; a later overlapping edit
   -> 409 `history_conflict`, shown as a notification with the backend message). The buttons' enabled state and
   titles come from the backend state (`undoControl`), not from the local history.
 
@@ -764,6 +775,15 @@ only RECORD it — they no longer drive undo (no double undo). A DrawableChart /
 committed once on release = ONE write = one undo step (measured live: a 10-pitch tension stroke undid in one
 step); a Sound-Channels workbench paint fans out one write per output row = one step per changed row. Pinned by `hooks/__tests__/{useBackendUndo,
 useHotkeys.undo}.test.js` and `__tests__/workbenchUndoWiring.source.test.js`.
+
+**Mass workbench writes (dev-2cce R1).** The per-pitch hammer-mass workbench (groupe `Mass`, grams
+over `availableNotes`) commits an edit as ONE `POST /excitation_energy {hammer_mass: {pitch: kg}}`
+(`useExcitationEnergy.setMassForPitches`, built by `massChangesFromGrams`): only pitches the backend
+HAS a mass for (the map can be sparse — those bars render as 0 g), clamped to the backend range
+(0, 1] kg with a 0.1 g minimum, float-tolerant diff. So one apply = one write = one undo step, and
+the write is in the bug-report action history (`param_write`, `kind: "excitation_energy"`). Before,
+it sent one POST per pitch and wrote 0 kg for absent pitches (21 × `400` + a POST flood that starved
+`/health`, 2026-10-16).
 
 ### `commandBus` + `useCommandBus` — the command layer (I4, dev-6026)
 
