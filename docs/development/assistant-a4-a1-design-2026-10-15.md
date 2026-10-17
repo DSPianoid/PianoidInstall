@@ -217,3 +217,65 @@ overview 13.1 kB, `system.health` 3.2 kB. All are under about 4k tokens.
 define what `audio_on` 0 does to the live output. An archived note (orchestrator-session-state 2026-05-01) records
 that `audio_on` 0 still leaves `audio_driver_active` true. A digest warning would need that behaviour measured on the
 rig first, so none was added.
+
+## 10. Assistant v2 P2: approvals and the A2 envelope (dev-4324, 2026-10-17)
+
+Implements phase P2 of the assistant v2 proposal (§9, Install branch `feature/plan-assistant-v2`) with the A2 envelope of
+the [parent proposal §4.3](../proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution) (D3: the
+post-write level check with auto-revert is ON). User approval 2026-10-17 13:48Z.
+
+| Layer | Change |
+|---|---|
+| Registry | `approval_category` on every command (`view` 39, `playback` 9, `renders` 3, `params` 3, `runtime` 1, `preset_nav` 3, `history` 2, `hard_confirm` 11, `excluded` 3); `history.undo` / `redo` take an optional `group` |
+| Inventory | `envelope` entries in `schemas/params`: `runtime.volume` (up at most +6 per step), `runtime.feedback_coeff` (x1.5 per step both ways, at most x2.0 of the stored baseline), `mode.decrement` (cut at most 50%, never < 0), the mask domains (mute / solo / unmute commands); `_index.json` `envelope`: 128 keys per command, 20 Auto writes per turn, the level-breach rule, and the list of what is NOT in the envelope |
+| Core | `POST /history/undo` / `redo` `{group}` = only the latest group with that `X-Pianoid-Group` id (the linear check still applies); `GET /history` adds `undo_groups` / `redo_groups` ([REST_API](../modules/pianoid-middleware/REST_API.md#undo--redo-ssot-i3)) |
+| Policy (`policy.js`, pure) | excluded → opt-out → R6 → web-tainted turn (hard) → the hard-confirm list (hard) → category Ask (the dialog may offer "Don't ask again") → category Auto: `params` / `runtime` only with an envelope verdict ok (else a hard confirm = an envelope override), the rest allow |
+| `approvals.js` (pure) | the 11 categories of §9 with defaults; effective = session ?? installation ?? default; fixed: `view` (Auto), `code` (Ask until the sandbox escape suite passes, V1), `hard_confirm`, `excluded` |
+| `envelope.js` (pure) | the checks against `before` values the service reads first (`GET /get_runtime_parameters`, `/health` `stored_feedback_coeff`, `GET /get_parameter/mode/<key_no>`), the revert plan, `levelBreach(before, after)` |
+| Service | `service/autoWrite.js`: the MCP server spawned by the service sends every call to `POST /internal/command/<name>` (JSON only, no `Origin`), which runs it only with a permit the policy just left; each `params` / `runtime` write carries its own group `assistant-<tag>-t<turn>-w<n>` (one action = one undo group); an Auto write is followed by a level check (settle 1.2 s, then a 15 s watch); a breach reverts it (`POST /history/undo {group}`, or a `runtime.set` of the values read before: runtime is not in the backend history). The tool result carries `assistant {auto, group, level_check | auto_reverted, reason}`; a later revert reaches the next turn as `assistant_notes`. WS: `approvals`, `undo {groupId}`, `undo_turn {turn}`, `confirm {remember}` |
+| Pane | Permissions popover (shield icon: one Ask / Auto row per category, "Save for this installation / this session only", fixed rows disabled with the reason, the hard-confirm list greyed), the `Auto: …` chip while an Ask-by-default category is Auto, "Don't ask again for <category>" + scope on the confirm dialog (not on a hard confirm), Undo per applied action and `reverted: <why>` in the activity log |
+
+**Level breach** (REST_API `/health`, dev-538e): `clipping_now`; `clipping` newly latched; `gate_trip_count` grew; or the
+latched `peak_level` newly above `output_scale.target_dbfs` + 3 dB. An unreadable `/health` decides nothing.
+
+**Conservative choices (documented, not asked):**
+- Only limits the docs give are in the envelope. String edits (needs a prospective CFL ratio, not available), hammer /
+  gauss / excitation, raw feedin / feedback / sound_channel rows, `mode.frequency` / `mass_inv`, `runtime.feedback` (the
+  level mapping is auto-detected by value), `store_feedback_coeff`, `volume_center`, `volume_range` stay Ask-only even
+  when their category is Auto.
+- `mode.decrement` may also rise at most x2 per step (the doc limits only the cut); a mode with decrement 0 asks.
+- `feedback_coeff` is bounded both ways (lower feedback is louder, the risk is clipping).
+- Mute / solo / unmute are in the envelope (no magnitude; an unmute is covered by the level watch).
+- `code` stays Ask (§9: Auto only after the sandbox escape suite, V1); there is no `analysis.run_python` yet. `web`,
+  `bug_local`, `layout_save` are categories without commands until P3 / P6 / P7.
+- `preset.save` / `preset.unload` always ask (whether the file exists or the entry has edits is not checked);
+  `calibration.cancel`, `modal.cancel`, `job.cancel` stay in `playback` (Auto: a cancel must never wait for a dialog).
+- The auto working copy of §4.3 is not built: a write to a read-only original answers 409 and the model can spawn a
+  working copy (category `preset_nav`).
+- The confirm dialog's "Don't ask again" defaults to this session; the popover defaults to this installation (the
+  deliberate place for a lasting change).
+
+**Tests:** `test/approvals.test.js` (the policy table on the real registry: the hard-confirm list never Auto with every
+category and scope set to Auto; the envelope limits from `schemas/params`; the breach rule; the service end to end with
+the fake driver: Auto without a dialog under its own group, outside the envelope asks hard, a hard confirm asks, a level
+breach reverts by group and a runtime breach re-sets the value read before, the executor refuses a call without a
+permit / with an Origin / non-JSON, the pane Undo, persistence across a service restart); Core
+`test_undo_history.py` (group filter) + `tests/integration/test_undo_routes.py` (a `/command` write under
+`X-Pianoid-Group`, a later fe edit, `POST /history/undo {group}` reverts only the named group); Jest
+`ApprovalsPopover.test.jsx`.
+
+**Live check (2026-10-17, isolated stack).** Launcher :3012, backend :5012 (BaselinePreset1, `audio_on` 0, driver 0,
+working copy), CRA :3013 (port-rewrite initScript incl. :3002 → :3014, isolated browser context), the assistant :3014
+on the real subscription runtime in its home (its `config.json` backed up before and restored after; `claude-home`
+untouched). The assistant's backend URL went through a pass-through proxy (`docs/development/diagnostics/dev-4324-health-breach-proxy.js`)
+that, when armed, reports `clipping: true` after a write: a mocked breach with no note played.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Permissions popover; `params` + `runtime` → Auto (this installation) | `config.json` gained `approvals {params: auto, runtime: auto}`; `Auto: params, runtime` chip | `logs/dev-4324-live-01-permissions-default.png` |
+| Auto params without a dialog | "Mute all modes except 0 and 1 (solo them)" → `param.mute_modes` decision `auto`, no dialog; `GET /history` `undo_groups ["assistant-b9c0-t1-w1"]`, label `(assistant)`; `GET feedin_mask/60` on = [0, 1] of 100; the model opened Feedin itself | `-02-auto-params-no-dialog.png` |
+| Undo per action | the activity Undo → `POST /history/undo {group}` → feedin_mask/60 sum 100 / 100 again, the group moved to `redo_groups` | activity `reverted · undo (pane)` |
+| Hard confirm still asks | "Save the active preset to presets/assistant_p2_test.json" → dialog `preset.save (saves over a preset file)`, "always asks", no checkbox; declined, no file written | `-03-hard-confirm-save.png` |
+| Envelope override asks | "Set the volume slider to 100 in one step" (Auto runtime) → dialog `outside the envelope: volume 64 -> 100 (+36; at most +6 per step)`; declined, volume 64; the model did not retry and offered steps of 6 | `-04-envelope-override-asks.png` |
+| Level breach → auto-revert | proxy armed; "Raise the volume slider by 4 levels" → `runtime.set {volume: 68}` auto; the next `/health` read clipping (proxy injected 1); `revert … level breach: the output clipped (latched)` → `runtime.set {volume: 64}`; backend `volume_level` 64; the model told the user it was reverted and why | `-05-level-breach-auto-revert.png` |
+| Settings persist across a service restart | launcher `assistant/stop` + `start` (new PID, Activity (0)) → the popover still shows `params` / `runtime` Auto, the chip shown | `-06-settings-persist-after-restart.png` |
