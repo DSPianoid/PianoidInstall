@@ -1,6 +1,6 @@
 # Measured-modes preset F15_measured_plywood_2026-10-15 (dev-a709)
 
-**Status:** built, verified offline, equalized and played on the board, 2026-10-15. **MERGED** (user-approved): Core dev a67f132, Basic dev 4de6f9a (not pushed); engine HEAVY `--both` rebuilt from merged dev. The open questions (§11) stay open.
+**Status:** built, verified offline, equalized and played on the board, 2026-10-15. **MERGED** (user-approved): Core dev a67f132, Basic dev 4de6f9a (not pushed); engine HEAVY `--both` rebuilt from merged dev. The user decided the open questions (§11) on 2026-10-17; the rebuilt preset `F15_measured_plywood_2026-10-17` is in [§14](#14-decisions-2026-10-17-preset-f15_measured_plywood_2026-10-17). The 10-15 preset stays unchanged for A/B.
 
 **User request (2026-10-15):** start from the FPGA-imported preset and replace every mode below 1 kHz with the modes measured on the plywood board. Use all modes found with confidence. Fill 7 sound channels with the measured drive vectors. Give the modes above 1 kHz equal or random channel values. Keep the string couplings as in the FPGA preset. Set the modal masses of the measured modes from the measurement, but critically, at a physically reasonable absolute level. Leave everything above 1 kHz as it is. Use the 196 shaped-modes option.
 
@@ -188,7 +188,7 @@ Setup and routing check:
 All per-output peaks stayed ≤ −31 dBFS (ceiling −30), with E2 at −6 dB. The acoustic result (distortion, rattle,
 balance) was judged by ear by the user; the agent had no listening microphone.
 
-## 11. Open questions for the user (kept open, user 2026-10-15)
+## 11. Open questions for the user (asked 2026-10-15, decided 2026-10-17: §14)
 
 1. **Bass weight.** At physically constant modal masses anchored to the FPGA level at 1 kHz, the measured low modes are about 34 dB weaker than F15's sub-1 kHz modes, and F15's dominant 44.5 Hz mode is gone. Is that the intended "physical" balance, or should the measured band be lifted by a fixed offset (one number)?
 2. **Voltage trims.** Routing is solved (the output map, §9). Should the per-channel voltage trims (§6: E1..E7 −4.7 / −4.5 / −0.3 / +4.5 / +3.5 / +0.8 / +0.7 dB) be applied in the output stage, baked into the rows, or left off?
@@ -256,4 +256,94 @@ PianoidCore/.venv/Scripts/python docs/development/diagnostics/dev-a709-measured-
 python measured_mode_preset.py <Core>/pianoid_middleware/presets/F15_Elyashev_array512.json <measured_modes.json> --out <Core>/pianoid_middleware/presets/F15_measured_plywood_2026-10-15.json
 # 4. offline verification + Layer B (chord headroom)
 PianoidCore/.venv/Scripts/python docs/development/diagnostics/dev-a709-verify-preset-2026-10-15.py <preset> <out_dir> --core <Core>
+```
+
+## 14. Decisions 2026-10-17: preset F15_measured_plywood_2026-10-17
+
+The user decided the questions of §11 (Telegram, 2026-10-17). Agent dev-b8e3 rebuilt the preset with Q3 and Q4. Everything else is as in §1 to §10.
+
+| Q | Decision | Effect on the preset |
+|---|---|---|
+| 1 Bass weight | Leave as measured, no lift | none |
+| 2 Voltage trims | None; all channels equal | none |
+| 3 Boundary | Move from 1.00 to about 1.02 kHz, so the 1010.38 Hz core mode is included | boundary **1020 Hz**, see below |
+| 4 220.07 Hz damping | Average of the two estimates | ζ **1.3775 %**, see below |
+| 5 Couplings | Keep the placeholder (nearest F15 column) | none (rule of §7) |
+| 6 Equalization range | Accept the full range (keys exactly level) | equalization re-run, full range |
+| 7 MIDI player | Handled separately | none |
+
+### 14.1 Boundary 1020 Hz (Q3)
+
+- **What lies near 1 kHz.** Measured: 979.11 Hz and the core mode 1010.38 Hz. F15 field frequencies: 996.10, **1019.61**, 1043.68 Hz. The builder compares the F15 field frequency with the boundary (`measured_mode_preset.build`). F15 1019.61 plays at 1020.37 Hz, only 17 c above the measured 1010.38 Hz, so it is a near-duplicate of it.
+- **Choice.** Boundary 1020 Hz. The measured 1010.38 Hz mode is kept, F15 1019.61 is dropped, and the F15 modes start at 1043.68 Hz (it plays at 1044.5 Hz).
+- **No overlap.** The nearest neighbours are 979.11 → 1010.38 Hz (54 c) and 1010.38 → 1044.5 Hz (58 c). F15's own spacing there is 40 c. Exact-duplicate frequencies exist only from 2.2 kHz up. They are F15's FPGA frequency grid and are unchanged from 10-15.
+- **1010.38 Hz mode.**
+  - ζ 1.24 %, PolyMAX (the decay value 1.53 % is higher, so it is an upper bound: rule of §4.3).
+  - 1/m residual +0.3 dB.
+  - Coupling column: that of F15 1019.61 (+16 c). The piano deck is therefore bit-identical to 10-15.
+  - Channel weights E1..E7: −0.24 / +0.69 / +0.17 / +0.21 / +1.00 / +0.37 / +0.43.
+- **Mass trend.** The trend is refit over 39 modes (exponent 2.15, residual SD 4.5 dB, both unchanged). The other 38 measured `mass_inv` values move by at most ±0.025 dB. The anchor is unchanged: band 1000 to 1500 Hz, 14 F15 modes, 5.29e-13.
+- **Mode set.** 196 = 39 measured + 141 F15 (1043.68 to 8255.2 Hz, verbatim) + 16 FPGA fill (unchanged, k-cap at FPGA 198 and 200).
+
+### 14.2 220.07 Hz damping (Q4)
+
+| Estimate | ζ | Source |
+|---|---|---|
+| PolyMAX | 0.830 % | `20261015T124849-appropriation/prep.json` `zeta_pct` (runs 0.76 / 0.84 % in `q_decay.json` `zeta_polymax_runs_pct`; q-confidence class "tight") |
+| Stop-and-decay | 1.925 % | `20261015T142258-q-decay/q_decay.json` `zeta_decay_pct` (purity "beating", confidence "poor") |
+| **Applied: mean** | **1.3775 %** (Q 36) | `decrement` 0.052148 → **0.086545**. τ = 1/γ: 87 ms → 52 ms |
+
+The brief's "about 1.3 %" uses the rounded 1.9 %. The exact mean of the two stored values is 1.3775 %.
+
+### 14.3 Output rows of the unchanged modes
+
+- **Problem.** The builder draws the random channel signs of all modes above the boundary as one (7, n_hi) array. With one mode fewer above the boundary it would re-draw every sign: only 50 % agree with 10-15. The sign pattern would then change in every high mode, which spoils the A/B.
+- **Fix.** `diagnostics/dev-b8e3-carry-hf-weights-2026-10-17.py` runs before the equalization. Every mode at or above index 39 that is identical to a 10-15 mode (same frequency, decrement and mass; the k-th duplicate pairs with the k-th) takes that mode's output-row weight in every channel. It carried 157 of 157.
+- **Result.** The output rows equal 10-15 everywhere except mode 38, which now holds the measured 1010.38 Hz vector. Recorded in `measured_modes_build.hf_weights_carried`.
+
+### 14.4 Equalization and Layer B (Q6, re-run)
+
+The same offline in-process harness was used (§10a, `dev-a709-equalize-preset-2026-10-15.py`): audio off, the engine never started, no backend. It started from the base hammer masses, at v95. Layer B was then recalibrated with `dev-a709-verify-preset-2026-10-15.py --write-layer-b`.
+
+| | 10-15 | 10-17 |
+|---|---|---|
+| Keyboard RMS spread before equalization | 32.18 dB | 32.51 dB |
+| Spread after | 0.0014 dB | **0.0013 dB** |
+| Hammer-mass range needed | 39.4 dB | **39.3 dB** |
+| Keys below 2 g | 58 (min 0.214 g) | 60 (min 0.217 g); p-max pinned at 20 g |
+| Layer B: worst chord / target p60 | oct_chain_C_8 +21.9 dB / −27.91 dBFS | oct_chain_C_8 +20.1 dB / **−26.11 dBFS** |
+| `output_scale` | 3.668e15 | 4.546e15 |
+
+- **Hammer masses vs 10-15.** The common shift is −0.07 dB. The largest per-key changes: p78 / p79 +5.2 dB, p80 +2.6 dB, p104..p106 +1.9 to +2.5 dB. Their bare RMS fell by the same amount.
+- **Cause.** The replaced F15 mode 38 (1019.61 Hz) had `mass_inv` 1.74e-11 and `decrement` 2.04. The measured 1010.38 Hz mode has 5.5e-13 and 0.078. It is 30 dB weaker, and these keys couple strongly into that column (p104..p106 have the largest |deck| of column 38).
+
+### 14.5 Verification (offline, separate process, audio off)
+
+| Check | Result |
+|---|---|
+| Load at the declared settings (512, si 16, d1, strings mode) | `num_modes` 196, `num_channels` 7, `num_strings` 236, `mode_channel_index` 196 |
+| Readback vs preset, all 196 modes | max relative error: dec 5.0e-8, omega 5.6e-8, mass_inv 5.6e-8 |
+| Mode probe, all 39 measured modes | frequency within **0.16 c**; ζ within **0.78 %** (median 0.23 %); channel ratios within 0.0074 dB; channel 6 (2-string pitch) within 0.006 dB |
+| 220.07 Hz (mode 7) | plays 220.071 Hz; ζ 1.381 % (target 1.3775 %, +0.25 %) |
+| 1010.38 Hz (mode 38) | plays 1010.379 Hz; ζ 1.235 % (target 1.24 %, −0.37 %) |
+| Notes p60 / p100 v127 at the calibrated level | finite, 0 clipped samples. Per-channel peaks: p60 −30.4 to −26.1 dBFS, p100 −30.3 to −20.6 dBFS |
+| Preset diff vs 10-15 | Changed: `modes`, the output rows (mode 38 only), the per-key `hammer_mass`, the Layer B fields (`output_scale`, `output_scale_target_dbfs`, `output_scale_reference_impulse`) and `measured_modes_build`. Unchanged: the piano deck and every other pitch field |
+
+No live backend ran, and no offline render ran in a live backend.
+
+### 14.6 Reproduce (10-17)
+
+```
+# measured table with the decisions (defaults reproduce the 10-15 table byte-identically)
+PianoidCore/.venv/Scripts/python docs/development/diagnostics/dev-a709-measured-table-2026-10-15.py D:/modal_measurements/rig_checks \
+    docs/development/diagnostics/dev-a709-measured-preset/measured_residues.json \
+    docs/development/diagnostics/dev-a709-measured-preset/build-2026-10-17/measured_modes.json --boundary-hz 1020 --zeta-average 220.07
+# preset (installed Pianoid package, unchanged builder)
+PianoidCore/.venv/Scripts/python -m Pianoid.measured_mode_preset <Core>/pianoid_middleware/presets/F15_Elyashev_array512.json \
+    <build-2026-10-17/measured_modes.json> --out <Core>/pianoid_middleware/presets/F15_measured_plywood_2026-10-17.json
+# keep the 10-15 output rows of the unchanged modes
+PianoidCore/.venv/Scripts/python docs/development/diagnostics/dev-b8e3-carry-hf-weights-2026-10-17.py <10-17 preset> <10-15 preset>
+# equalization (full range), then Layer B + verification
+PianoidCore/.venv/Scripts/python docs/development/diagnostics/dev-a709-equalize-preset-2026-10-15.py <10-17 preset> <build-2026-10-17/equalize> --core <Core> --write
+PianoidCore/.venv/Scripts/python docs/development/diagnostics/dev-a709-verify-preset-2026-10-15.py <10-17 preset> <build-2026-10-17/verify> --core <Core> --write-layer-b
 ```
