@@ -196,7 +196,7 @@ balance) was judged by ear by the user; the agent had no listening microphone.
 4. **220.07 Hz damping.** 0.83 % is kept; 1.9 % is the alternative.
 5. **Couplings.** The nearest-frequency F15 columns are a placeholder: this board has no bridge or string positions. Keep them, or derive couplings from the measured shapes at notional bridge points?
 6. **Equalization range.** The keyboard needs 39 dB of hammer-mass range (58 keys below 2 g). Accept, or reshape (e.g. a perception curve, or a smaller target spread)?
-7. **MIDI player.** Fix the venv (`setuptools` < 81 for `pkg_resources`), or drop the `pretty_midi` dependency from `MidiRecord`?
+7. **MIDI player.** Fix the venv (`setuptools` < 81 for `pkg_resources`), or drop the `pretty_midi` dependency from `MidiRecord`? **Decided (user, 2026-10-17):** drop `pretty_midi`; MIDI files are read with `mido` (`midi_file_reader.py`, dev-672e).
 
 ## 12. Mode table (measured, modes 0..37)
 
