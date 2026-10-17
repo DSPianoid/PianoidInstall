@@ -641,8 +641,8 @@ In FPGA-converted presets (`mass_inv = Mass/f^2 * n_m^2`, see `modules/pianoid-b
 spans ~10 orders: F15 ch0, unit coefficient, p60 -> RMS mode0 1.0e-7, mode2 6.8e-8, mode20 4.1e-14, mode67 4.0e-16.
 So editing most of the row is inaudible; only the lowest modes (0..~7 in F15) shape the channel.
 FPGA-converted presets fill these rows by the converter's **output role** (dev-b59d): the FPGA `decka_coeff` columns are
-per-transducer DRIVES, so `actuator_feeds` (default) writes one transducer drive per output and `listening` writes one mono
-mix to every output (`modules/pianoid-basic/OVERVIEW.md` FPGA converter).
+per-transducer DRIVES, so `listening` writes one mono mix to every output and `actuator_feeds` writes one transducer drive
+per output (`modules/pianoid-basic/OVERVIEW.md` FPGA converter).
 
 **Analytic audible weight (dev-4505, the Sound Channels "Audibility" view).** The frontend computes the per-mode
 response without any render (`PianoidTunner/src/utils/audibility.js`): RMS of the order-`k` sample difference

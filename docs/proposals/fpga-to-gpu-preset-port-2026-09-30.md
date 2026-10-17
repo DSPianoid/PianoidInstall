@@ -1001,8 +1001,8 @@ DAC outputs. What they should carry depends on what is connected:
 
 | `output_role` | GPU output rows (pitches 128..) | Use | Status |
 |---|---|---|---|
-| `listening` (opt-in) | every output = one mono mix, mode weight `out_vol·Ci_str_1_out[m]·‖decka[:, m]‖₂ / n_m` (the drive magnitude the FPGA sends into mode m), sign of `out_vol·Ci_str_1_out` | speakers / headphones | inferred mix (`--output-role listening`, recorded OVERRIDDEN); the physical board's transfer (`|<u, A a>|`, radiation, its own resonance) is not in the preset and is assumed flat |
-| `actuator_feeds` (**default**) | output k = transducer drive column k (`decka·out_vol·Ci_str_1_out / n_m`, QM:27817) = the §12 mapping | drive the physical board through the same exciters | **DECIDED 2026-10-17** (orchestrator, delegated by the user: the rig drives the board); faithful iff the DAC outputs are wired to those transducers; only `num_channels` (4) of the 14 distinct drives fit — `fpga_conversion.output.transducer_map` / `transducers_not_fed` |
+| `listening` (**default**) | every output = one mono mix, mode weight `out_vol·Ci_str_1_out[m]·‖decka[:, m]‖₂ / n_m` (the drive magnitude the FPGA sends into mode m), sign of `out_vol·Ci_str_1_out` | speakers / headphones | **UNCONFIRMED — user decision**: an inferred mix; the physical board's transfer (`|<u, A a>|`, radiation, its own resonance) is not in the preset and is assumed flat |
+| `actuator_feeds` | output k = transducer drive column k (`decka·out_vol·Ci_str_1_out / n_m`, QM:27817) = the §12 mapping | drive the physical board through the same exciters | faithful iff the DAC outputs are wired to those transducers; only `num_channels` (4) of the 14 distinct drives fit — `fpga_conversion.output.transducer_map` / `transducers_not_fed` |
 
 Both keep the `/ n_m` exactness fold and one common scale (largest |row| = template output-row maximum). The role and
 its note are recorded in `fpga_conversion.unknowns.output_role` and `fpga_conversion.output`. Also fixed: a converted
@@ -1010,13 +1010,8 @@ preset now starts Layer B from genesis — the template's `output_scale_referenc
 / `output_scale_target_dbfs` were deep-copied (a fresh F_15 conversion calibrated p60 to the Belarus chord target
 −20.06 dBFS × J_now/J_ref(Belarus) = −3.3 dB).
 
-**Presets (dev-b59d, 2026-10-18).** `F15_Elyashev_array512.json` (and the user's `_N2000`) are left untouched (the user's
-working preset; = `actuator_feeds`). NEW A/B pair, both converted today and shipped calibrated (Layer B copied from the
-reference whose output rows are bit-identical, so a live load never runs a calibration render):
-`F15_Elyashev_array512_actuator_2026-10-18.json` = `actuator_feeds` (≡ `F15_Elyashev_array512.json`: every engine field
-identical incl. output_scale 7.898e13 / target −28.59; only `fpga_conversion` provenance added) and
-`F15_Elyashev_array512_listening_2026-10-18.json` = `listening` (4 identical channels, 196 non-zero weights each vs 128;
-output_scale 9.008e13 = +1.14 dB, target −28.69).
+**Presets.** `F15_Elyashev_array512.json` = `actuator_feeds` (regenerated: output rows and calibration bit-identical,
+only the provenance added). NEW `F15_Elyashev_array512_listening.json` = `listening`, chord-headroom calibrated.
 
 **A/B (offline, separate process, engine Layer B chord-headroom calibration, chord peak −6 dBFS):**
 
