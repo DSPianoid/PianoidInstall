@@ -10,6 +10,8 @@ import WebSocket from 'ws';
 import { assistantPaths, assertSubscriptionOnly, authStatus, childEnv, ensureHome, loginCommand } from '../service/home.js';
 import { createAssistantService } from '../service/server.js';
 import { normalize } from '../drivers/sdk.js';
+import { FakeDriver } from '../drivers/fake.js';
+import { createArtifact, readArtifact } from '../analysis/store.js';
 
 const tmpHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'pianoid-assistant-test-'));
 
@@ -63,18 +65,21 @@ function fakePianoid() {
       if (req.url === '/health') return res.end(JSON.stringify({ status: 'healthy', pianoid_loaded: true }));
       if (req.url === '/preset/list') return res.end(JSON.stringify({ active: 'P (working 1)', presets: [{ name: 'P (working 1)', kind: 'working' }] }));
       if (req.url.endsWith('/ui.snapshot')) return res.end(JSON.stringify({ ok: true, status: 200, result: { panes: ['Strings'] } }));
+      if (req.url === '/command/render.note_playback') {
+        return res.end(JSON.stringify({ ok: true, status: 200, result: { audio_data: [Buffer.from('RIFF....WAVE').toString('base64')], data: [[0, 0.25, -0.5]], chart_headers: ['p60'] } }));
+      }
       return res.end(JSON.stringify({ ok: true, status: 200, result: { done: req.url } }));
     });
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, calls, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
-async function startService() {
+async function startService({ driverFactory = null } = {}) {
   const fake = await fakePianoid();
   const home = tmpHome();
   const svc = createAssistantService({
     env: { ...process.env, ANTHROPIC_API_KEY: '', PIANOID_ASSISTANT_HOME: home, PIANOID_BACKEND_URL: fake.url, PIANOID_LAUNCHER_URL: fake.url },
-    port: 0, driver: 'fake',
+    port: 0, driver: 'fake', driverFactory,
   });
   const port = await svc.listen();
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -185,7 +190,10 @@ test('SDK options of the real runtime: no built-in tools, no settings, strict si
     assert.deepEqual(o.tools, []);
     assert.deepEqual(o.settingSources, []);
     assert.equal(o.strictMcpConfig, true);
-    assert.deepEqual(Object.keys(o.mcpServers).sort(), ['assistant', 'pianoid']);
+    assert.deepEqual(Object.keys(o.mcpServers).sort(), ['analysis', 'assistant', 'pianoid']);   // analysis: v2 P5
+    assert.deepEqual(o.disallowedTools, ['Bash', 'PowerShell']);
+    assert.equal(o.hooks.PreToolUse.length, 1);
+    assert.equal(o.mcpServers.pianoid.env.PIANOID_ANALYSIS_ARTIFACTS, t.svc.session.analysis.artifacts);
     assert.ok(!o.mcpServers.pianoid.args.includes('--role'));
     assert.ok(o.cwd.startsWith(t.svc.paths.root));
     assert.ok(!o.cwd.toLowerCase().includes('pianoidinstall'));
@@ -199,4 +207,65 @@ test('SDK options of the real runtime: no built-in tools, no settings, strict si
 
 test('the service refuses to start with an API key in its environment', () => {
   assert.throws(() => createAssistantService({ env: { ...process.env, ANTHROPIC_API_KEY: 'sk-x', PIANOID_ASSISTANT_HOME: tmpHome() }, driver: 'fake' }), /paid API/);
+});
+
+test('v2 P5: render export -> run_python over the pane: the code confirm, a plot message, the PNG served', async () => {
+  const script = [{
+    match: 'compare',
+    steps: [
+      { tool: 'mcp__pianoid__render__note_playback', input: { pitch: 60, export: true } },
+      { tool: 'mcp__analysis__run_python', input: { code: 'print(1)', inputs: [{ $ref: '0.artifact.id' }] } },
+      { say: 'Compared.' },
+    ],
+  }];
+  const t = await startService({ driverFactory: () => new FakeDriver({ script }) });
+  let ran = null;
+  t.svc.session.runPythonImpl = async (args, { paths }) => {     // the launcher itself: analysis.test.js
+    ran = args;
+    const png = createArtifact(paths.artifacts, { kind: 'png', source: 'analysis.run_python', files: [{ name: 'cmp.png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }] });
+    return { ok: true, exit: 0, stdout: '1', stderr: '', files: [{ artifact_id: png.id, name: 'cmp.png', kind: 'png', size: 9 }], skipped: [], limits_hit: [] };
+  };
+  try {
+    t.send({ type: 'turn', text: 'compare the spectra' });
+    const c = await t.waitFor((m) => m.type === 'confirm');
+    assert.equal(c.command, 'analysis.run_python');                  // category code: asks
+    assert.equal(c.args.code, 'print(1)');                            // the user sees the code
+    assert.equal(ran, null);
+    t.send({ type: 'confirm', id: c.id, allow: true });
+    const plot = await t.waitFor((m) => m.type === 'message' && m.role === 'plot');
+    const exported = readArtifact(t.svc.session.analysis.artifacts, ran.inputs[0]);
+    assert.equal(exported.command, 'render.note_playback');
+    assert.deepEqual(exported.files.map((f) => f.name), ['audio_0.wav', 'series_0.npy']);
+    const res = await fetch(plot.files[0].url);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'image/png');
+    assert.equal((await fetch(`http://127.0.0.1:${t.port}/artifacts/${ran.inputs[0]}/meta.json`)).status, 404);
+    await t.waitFor((m) => m.type === 'busy' && m.busy === false);
+    const act = t.msgs.filter((m) => m.type === 'activity').map((m) => m.entry).filter((e) => e.command === 'analysis.run_python').pop();
+    assert.equal(act.files[0].name, 'cmp.png');
+    const route = t.msgs.filter((m) => m.type === 'activity' && m.entry.command === 'model route').map((m) => m.entry.reason);
+    assert.ok(route.some((r) => /^Opus: code \/ analysis/.test(r)), JSON.stringify(route));    // pre-routed (layer 1)
+  } finally { await t.close(); }
+});
+
+test('v2 P5: a declined code run never reaches the sandbox; a shell call is denied by the hook', async () => {
+  const script = [{
+    match: 'run',
+    steps: [{ tool: 'Bash', input: { command: 'dir' } }, { tool: 'mcp__analysis__run_python', input: { code: 'print(2)' } }],
+  }];
+  const t = await startService({ driverFactory: () => new FakeDriver({ script }) });
+  let ran = false;
+  t.svc.session.runPythonImpl = async () => { ran = true; return { ok: true, files: [] }; };
+  try {
+    t.send({ type: 'turn', text: 'run it' });
+    const c = await t.waitFor((m) => m.type === 'confirm');
+    t.send({ type: 'confirm', id: c.id, allow: false });
+    await t.waitFor((m) => m.type === 'busy' && m.busy === false);
+    assert.equal(ran, false);
+    const act = t.msgs.filter((m) => m.type === 'activity').map((m) => m.entry);
+    assert.ok(!act.some((e) => e.command === 'Bash'));                 // denied before the policy log
+    assert.equal(act.filter((e) => e.command === 'analysis.run_python').pop().decision, 'rejected');
+    const route = act.filter((e) => e.command === 'model route').map((e) => e.reason);
+    assert.ok(route.includes("Opus: tool trigger: first code run (analysis.run_python)"), JSON.stringify(route));   // layer 2
+  } finally { await t.close(); }
 });

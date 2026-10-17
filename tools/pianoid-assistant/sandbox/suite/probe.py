@@ -153,7 +153,13 @@ def t_persist1(a):
         with open("persist-marker.txt", "w") as f:
             f.write("marker")
         return "WRITTEN"
+    def w_storage():  # the container's own registry storage key (FullControl for the container)
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, a["storage_key"]) as k:
+            winreg.SetValueEx(k, "persist-marker-%s" % a["tag"], 0, winreg.REG_SZ, "marker")
+        return "WRITTEN"
     res["write_container_folder"] = outcome(w_container)
+    res["write_container_registry"] = outcome(w_storage)
     res["write_own_rundir"] = outcome(w_rundir)
     res["LOCALAPPDATA_seen"] = os.environ.get("LOCALAPPDATA", "")
     return res
@@ -164,7 +170,15 @@ def t_persist2(a):
         def f():
             return "PRESENT" if os.path.exists(p) and open(p).read() == "marker" else "ABSENT"
         return f
+    def reg():
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, a["storage_key"]) as k:
+                return "PRESENT" if winreg.QueryValueEx(k, "persist-marker-%s" % a["tag"])[0] == "marker" else "ABSENT"
+        except FileNotFoundError:
+            return "ABSENT"
     return {"container_folder_marker": outcome(chk(os.path.join(a["container_folder"], "persist-marker-%s.txt" % a["tag"]))),
+            "container_registry_marker": outcome(reg),
             "prev_run_dir_marker": outcome(chk(os.path.join(a["prev_run_dir"], "persist-marker.txt")))}
 
 

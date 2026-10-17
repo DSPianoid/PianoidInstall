@@ -1,15 +1,19 @@
-// PianoidSandbox.exe - P5a spike: run untrusted analysis Python in an AppContainer (no capabilities)
-// inside a Job Object. Feasibility prototype, not production code.
+// PianoidSandbox.exe - the assistant's analysis sandbox (v2 P5): runs untrusted analysis Python in an
+// AppContainer (zero capabilities) inside a Job Object. Spike + SAFE suite: docs/development/
+// assistant-v2-sandbox-spike-2026-10-16.md; production hardening (dev-11f8): the container folder is wiped
+// after every run and must be empty before the next, a disk watchdog, and the wall clock as the hard bound.
 //
-//   PianoidSandbox.exe setup   --profile NAME --grant-rx DIR [--grant-rx DIR ...]
+//   PianoidSandbox.exe setup   --profile NAME --grant-rx DIR [--grant-rx DIR ...]      (idempotent)
 //   PianoidSandbox.exe run     --profile NAME --python EXE --run-dir DIR --script FILE
-//                              [--wall-s 60] [--cpu-s 60] [--mem-mb 2048] [--stdout-cap 20480] [--stderr-cap 8192]
-//                              [--no-child-policy] [--no-job] [--keep-grant]
+//                              [--wall-s 60] [--cpu-s wall/2] [--mem-mb 2048] [--disk-mb 200]
+//                              [--stdout-cap 20480] [--stderr-cap 8192]
+//                              [--no-child-policy] [--no-job] [--keep-grant]   (control runs of the suite only)
 //   PianoidSandbox.exe cleanup --profile NAME [--revoke DIR ...]
 //   PianoidSandbox.exe sid     --profile NAME
 //
-// `run` prints one JSON object on stdout: exit code, capped stdout/stderr, job notifications, the out\ listing.
-// Build: build.bat (csc from .NET Framework 4, no SDK needed).
+// `run` prints one JSON object on stdout: exit code, capped stdout/stderr, job notifications, `limits_hit`,
+// the container-folder wipe evidence, the out\ listing.
+// Build: build.bat (csc from .NET Framework 4, no SDK needed). The .exe is not committed.
 
 using System;
 using System.Collections.Generic;
@@ -105,6 +109,8 @@ static class Native
         public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
     }
     [StructLayout(LayoutKind.Sequential)]
+    public struct JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION { public JOBOBJECT_BASIC_ACCOUNTING_INFORMATION Basic; public IO_COUNTERS Io; } // Io.e = WriteTransferCount
+    [StructLayout(LayoutKind.Sequential)]
     public struct JOBOBJECT_ASSOCIATE_COMPLETION_PORT { public IntPtr CompletionKey; public IntPtr CompletionPort; }
 
     public const uint EXTENDED_STARTUPINFO_PRESENT = 0x80000, CREATE_SUSPENDED = 0x4,
@@ -142,7 +148,7 @@ static class Program
         {
             if (args.Length < 1) { Console.Error.WriteLine("usage: setup|run|cleanup|sid ..."); return 2; }
             var o = ParseArgs(args, 1);
-            string profile = Get(o, "profile", "pianoid.analysis.spike");
+            string profile = Get(o, "profile", "pianoid.analysis");
             switch (args[0])
             {
                 case "setup": return Setup(profile, All(o, "grant-rx"));
@@ -161,7 +167,7 @@ static class Program
         IntPtr sid;
         if (create)
         {
-            int hr = Native.CreateAppContainerProfile(profile, profile, "Pianoid assistant analysis sandbox (P5a spike)", IntPtr.Zero, 0, out sid);
+            int hr = Native.CreateAppContainerProfile(profile, profile, "Pianoid assistant analysis sandbox", IntPtr.Zero, 0, out sid);
             if (hr == 0) return sid;
             if (hr != HR_ALREADY_EXISTS) throw new Win32Exception(hr, "CreateAppContainerProfile 0x" + hr.ToString("X8"));
         }
@@ -188,6 +194,15 @@ static class Program
             InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
         di.SetAccessControl(acl);   // SetNamedSecurityInfo: propagates the inheritable ACE to existing children
     }
+    static bool HasRule(string dir, string sidStr, FileSystemRights rights)
+    {
+        var sid = new SecurityIdentifier(sidStr);
+        foreach (FileSystemAccessRule r in new DirectoryInfo(dir).GetAccessControl(AccessControlSections.Access)
+                     .GetAccessRules(true, false, typeof(SecurityIdentifier)))
+            if (r.IdentityReference.Equals(sid) && r.AccessControlType == AccessControlType.Allow
+                && (r.FileSystemRights & rights) == rights) return true;
+        return false;
+    }
     static void Revoke(string dir, string sidStr)
     {
         var di = new DirectoryInfo(dir);
@@ -201,9 +216,14 @@ static class Program
     {
         var sw = Stopwatch.StartNew();
         string sid = SidString(GetSid(profile, true));
-        foreach (var d in rxDirs) Grant(d, sid, FileSystemRights.ReadAndExecute);
+        var granted = new List<string>(); var present = new List<string>();
+        foreach (var d in rxDirs)   // idempotent: a re-run skips the (1.7 s) re-propagation when the ACE is there
+        {
+            if (HasRule(d, sid, FileSystemRights.ReadAndExecute)) { present.Add(d); continue; }
+            Grant(d, sid, FileSystemRights.ReadAndExecute); granted.Add(d);
+        }
         Console.WriteLine("{\"profile\":" + J(profile) + ",\"sid\":" + J(sid) + ",\"container_folder\":" + J(ContainerFolder(sid))
-            + ",\"granted_rx\":" + JArr(rxDirs) + ",\"ms\":" + sw.ElapsedMilliseconds + "}");
+            + ",\"granted_rx\":" + JArr(granted) + ",\"already_rx\":" + JArr(present) + ",\"ms\":" + sw.ElapsedMilliseconds + "}");
         return 0;
     }
     static int Cleanup(string profile, List<string> dirs)
@@ -223,9 +243,13 @@ static class Program
         string python = Path.GetFullPath(Get(o, "python", null));
         string runDir = Path.GetFullPath(Get(o, "run-dir", null));
         string script = Get(o, "script", "code.py");
-        int wallS = int.Parse(Get(o, "wall-s", "60"));
-        int cpuS = int.Parse(Get(o, "cpu-s", wallS.ToString()));
+        // The wall clock is the hard bound: the job CPU-time limit fires late (measured ~2x, spike §5), so
+        // the CPU budget is capped at half the wall budget and END_OF_JOB_TIME still lands inside the wall.
+        int wallS = Math.Max(1, int.Parse(Get(o, "wall-s", "60")));
+        int cpuMax = Math.Max(1, wallS / 2);
+        int cpuS = Math.Min(int.Parse(Get(o, "cpu-s", cpuMax.ToString())), cpuMax);
         long memMb = long.Parse(Get(o, "mem-mb", "2048"));
+        long diskCap = long.Parse(Get(o, "disk-mb", "200")) << 20;
         int outCap = int.Parse(Get(o, "stdout-cap", "20480"));
         int errCap = int.Parse(Get(o, "stderr-cap", "8192"));
         bool useJob = !o.ContainsKey("no-job");
@@ -234,6 +258,17 @@ static class Program
 
         IntPtr sidPtr = GetSid(profile, false);
         string sid = SidString(sidPtr);
+        // Every run of a profile shares the container's own folder (Packages\<profile>\AC) and its own registry
+        // storage key (FullControl for the container): a run could leave data there for the next one (spike §5,
+        // confirmed for the folder). Both are wiped after every run, and a run refuses to start unless both are empty.
+        string acFolder = ContainerFolder(sid);
+        int acBefore = WipeDir(acFolder) + WipeStorageKey(profile);
+        if (acBefore != 0)
+        {
+            Console.WriteLine("{\"ok\":false,\"error\":" + J("container folder / registry storage not empty (" + acBefore + " entries left after the wipe): "
+                + "refusing the run, a previous run's data would be reachable") + ",\"ac_folder\":" + J(acFolder) + "}");
+            return 1;
+        }
         Directory.CreateDirectory(Path.Combine(runDir, "out"));
         Directory.CreateDirectory(Path.Combine(runDir, "tmp"));
         Grant(runDir, sid, FileSystemRights.Modify);
@@ -335,47 +370,125 @@ static class Program
         var to = new Thread(outBuf.Pump) { IsBackground = true }; to.Start();
         var te = new Thread(errBuf.Pump) { IsBackground = true }; te.Start();
 
+        // Disk watchdog: no NTFS quota without admin, so the run dir + the container folder are polled and the
+        // job's write counter is read; either over the cap terminates the job (500 MB took 0.28 s in the spike).
+        var dog = new DiskWatchdog(new[] { runDir, acFolder }, diskCap, job, pi.hProcess);
+        var td = new Thread(dog.Loop) { IsBackground = true }; td.Start();
+
         bool wallKilled = false;
         if (Native.WaitForSingleObject(pi.hProcess, (uint)wallS * 1000) != 0)
         {
-            wallKilled = true;
+            wallKilled = !dog.Killed;
             if (useJob) Native.TerminateJobObject(job, 0xC0DE0001); else Native.TerminateProcess(pi.hProcess, 0xC0DE0002);
             Native.WaitForSingleObject(pi.hProcess, 5000);
         }
+        dog.Stop = true; td.Join(1000);
         long elapsedRun = total.ElapsedMilliseconds - tSpawn0;
         uint exitCode; Native.GetExitCodeProcess(pi.hProcess, out exitCode);
         to.Join(2000); te.Join(2000);
 
-        var msgs = new List<string>(); uint totalProcs = 0; double cpuUsed = 0;
+        var msgs = new List<string>(); uint totalProcs = 0; double cpuUsed = 0; ulong written = dog.Written;
         if (useJob)
         {
             uint n; UIntPtr key; IntPtr ov;
             while (Native.GetQueuedCompletionStatus(port, out n, out key, out ov, 0)) msgs.Add(JobMsg(n));
-            var acct = QueryJob<Native.JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(job, 1);
-            totalProcs = acct.TotalProcesses; cpuUsed = acct.TotalUserTime / 1e7;
+            var acct = QueryJob<Native.JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION>(job, 8);
+            totalProcs = acct.Basic.TotalProcesses; cpuUsed = acct.Basic.TotalUserTime / 1e7; written = acct.Io.e;
             Native.CloseHandle(job); Native.CloseHandle(port); // kill-on-close takes anything left
         }
         Native.CloseHandle(pi.hThread); Native.CloseHandle(pi.hProcess);
         if (!keepGrant) Revoke(runDir, sid);
 
+        long runBytes = DirBytes(runDir), acBytes = DirBytes(acFolder);   // the post-run check (mmap writes bypass the counter)
+        int acAfter = WipeDir(acFolder) + WipeStorageKey(profile);
+
         // out\ caps: <= 20 files, <= 5 MB each, <= 20 MB total (reported; over-cap files are flagged, not returned).
-        var files = new StringBuilder("["); long sum = 0; int count = 0;
+        var files = new StringBuilder("["); long sum = 0; int count = 0; bool anyOver = false;
         foreach (var f in new DirectoryInfo(Path.Combine(runDir, "out")).GetFiles("*", SearchOption.TopDirectoryOnly))
         {
             count++; sum += f.Length;
             bool over = count > 20 || f.Length > 5L * 1024 * 1024 || sum > 20L * 1024 * 1024;
+            anyOver |= over;
             if (count > 1) files.Append(',');
             files.Append("{\"name\":" + J(f.Name) + ",\"size\":" + f.Length + ",\"over_cap\":" + (over ? "true" : "false") + "}");
         }
         files.Append(']');
 
+        var limits = new List<string>();
+        if (wallKilled) limits.Add("wall");
+        if (msgs.Contains("END_OF_JOB_TIME") || msgs.Contains("END_OF_PROCESS_TIME")) limits.Add("cpu");
+        if (msgs.Contains("PROCESS_MEMORY_LIMIT") || msgs.Contains("JOB_MEMORY_LIMIT")) limits.Add("memory");
+        if (dog.Killed || runBytes + acBytes > diskCap) limits.Add("disk");
+        if (msgs.Contains("ACTIVE_PROCESS_LIMIT")) limits.Add("processes");
+        if (outBuf.Truncated) limits.Add("stdout");
+        if (errBuf.Truncated) limits.Add("stderr");
+        if (anyOver) limits.Add("out_files");
+
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
         Console.WriteLine("{\"ok\":true,\"exit\":" + exitCode + ",\"exit_hex\":\"0x" + exitCode.ToString("X8") + "\""
-            + ",\"wall_killed\":" + (wallKilled ? "true" : "false") + ",\"job_msgs\":" + JArr(msgs)
-            + ",\"job_total_processes\":" + totalProcs + ",\"cpu_user_s\":" + cpuUsed.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)
+            + ",\"limits_hit\":" + JArr(limits)
+            + ",\"wall_killed\":" + (wallKilled ? "true" : "false") + ",\"disk_killed\":" + (dog.Killed ? "true" : "false")
+            + ",\"job_msgs\":" + JArr(msgs)
+            + ",\"job_total_processes\":" + totalProcs + ",\"cpu_user_s\":" + cpuUsed.ToString("0.000", inv)
+            + ",\"limits\":{\"wall_s\":" + wallS + ",\"cpu_s\":" + cpuS + ",\"mem_mb\":" + memMb + ",\"disk_mb\":" + (diskCap >> 20) + "}"
+            + ",\"disk\":{\"peak_bytes\":" + dog.Peak + ",\"written_bytes\":" + written + ",\"rundir_bytes\":" + runBytes
+            + ",\"ac_bytes\":" + acBytes + "}"
+            + ",\"ac_folder\":" + J(acFolder) + ",\"ac_entries_before\":" + acBefore + ",\"ac_entries_after\":" + acAfter
             + ",\"stdout\":" + J(outBuf.Text()) + ",\"stdout_truncated\":" + (outBuf.Truncated ? "true" : "false")
             + ",\"stderr\":" + J(errBuf.Text()) + ",\"stderr_truncated\":" + (errBuf.Truncated ? "true" : "false")
             + ",\"files\":" + files + ",\"ms_grant\":" + tGrant + ",\"ms_run\":" + elapsedRun + ",\"ms_total\":" + total.ElapsedMilliseconds + "}");
         return 0;
+    }
+
+    // Deletes everything inside `dir` (not `dir` itself); returns the number of entries still there.
+    static int WipeDir(string dir)
+    {
+        if (dir == null || !Directory.Exists(dir)) return 0;
+        var di = new DirectoryInfo(dir);
+        foreach (var f in di.GetFiles("*", SearchOption.AllDirectories))
+            try { f.Attributes = FileAttributes.Normal; } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        foreach (var e in di.GetFileSystemInfos())
+        {
+            try { if (e is DirectoryInfo) ((DirectoryInfo)e).Delete(true); else e.Delete(); }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+        return di.GetFileSystemInfos().Length;
+    }
+
+    // The container's registry storage (created with the profile, with an empty "Children" subkey that stays):
+    // deletes every value and every other subkey, and everything under Children; returns the entries left.
+    public const string StorageRoot = @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppContainer\Storage\";
+    static int WipeStorageKey(string profile)
+    {
+        using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(StorageRoot + profile, true))
+        {
+            if (k == null) return 0;
+            WipeKey(k, "Children");
+            int left = 0; bool children = false;
+            using (var c = k.OpenSubKey("Children", true))
+                if (c != null) { children = true; WipeKey(c, null); left += c.ValueCount + c.SubKeyCount; }
+            return left + k.ValueCount + k.SubKeyCount - (children ? 1 : 0);
+        }
+    }
+    static void WipeKey(Microsoft.Win32.RegistryKey k, string keep)
+    {
+        foreach (var v in k.GetValueNames()) try { k.DeleteValue(v); } catch (Exception) { }
+        foreach (var s in k.GetSubKeyNames())
+            if (s != keep) try { k.DeleteSubKeyTree(s); } catch (Exception) { }
+    }
+
+    // Current bytes under `dir`; FileInfo.Refresh reads the file record, not the stale directory entry of an open file.
+    public static long DirBytes(string dir)
+    {
+        if (dir == null || !Directory.Exists(dir)) return 0;
+        long sum = 0;
+        try
+        {
+            foreach (var f in new DirectoryInfo(dir).EnumerateFiles("*", SearchOption.AllDirectories))
+                try { f.Refresh(); sum += f.Length; } catch (IOException) { }
+        }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+        return sum;
     }
 
     static string JobMsg(uint n)
@@ -403,6 +516,8 @@ static class Program
         int e = Marshal.GetLastWin32Error(); Marshal.FreeHGlobal(p);
         if (!ok) throw new Win32Exception(e, "SetInformationJobObject class " + cls);
     }
+    public static ulong JobWrittenBytes(IntPtr job)
+    { return QueryJob<Native.JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION>(job, 8).Io.e; }
     static T QueryJob<T>(IntPtr job, int cls)
     {
         int sz = Marshal.SizeOf(typeof(T)); IntPtr p = Marshal.AllocHGlobal(sz);
@@ -427,6 +542,37 @@ static class Program
         var sb = new StringBuilder("[");
         for (int i = 0; i < l.Count; i++) { if (i > 0) sb.Append(','); sb.Append(J(l[i])); }
         return sb.Append(']').ToString();
+    }
+}
+
+// Polls the job's WriteTransferCount every 10 ms (exact, includes the stdout / stderr pipes) and the bytes under
+// the watched dirs every 50 ms (catches memory-mapped writes). Either over the cap terminates the job (or the
+// process, in a no-job control run). The overshoot is bounded by the write rate x the poll interval.
+class DiskWatchdog
+{
+    readonly string[] dirs; readonly long cap; readonly IntPtr job, proc;
+    public volatile bool Stop, Killed; public long Peak; public ulong Written;
+    public DiskWatchdog(string[] dirs, long cap, IntPtr job, IntPtr proc) { this.dirs = dirs; this.cap = cap; this.job = job; this.proc = proc; }
+    public void Loop()
+    {
+        for (int tick = 0; !Stop && !Killed; tick++)
+        {
+            long size = -1;
+            if (tick % 5 == 0)
+            {
+                size = 0;
+                foreach (var d in dirs) size += Program.DirBytes(d);
+                if (size > Peak) Peak = size;
+            }
+            if (job != IntPtr.Zero) Written = Program.JobWrittenBytes(job);
+            if (size > cap || (long)Written > cap)
+            {
+                Killed = true;
+                if (job != IntPtr.Zero) Native.TerminateJobObject(job, 0xC0DE0003); else Native.TerminateProcess(proc, 0xC0DE0003);
+                return;
+            }
+            Thread.Sleep(10);
+        }
     }
 }
 

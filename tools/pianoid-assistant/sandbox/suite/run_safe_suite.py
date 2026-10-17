@@ -1,4 +1,5 @@
-# run_safe_suite.py - the §6 SAFE escape suite for the P5a sandbox spike (spike doc §6 / §9).
+# run_safe_suite.py - the §6 SAFE escape suite of the analysis sandbox (spike doc §6 / §9; re-run against the
+# production launcher by dev-11f8, P5: the disk cap and the container wipe (folder + registry storage) now PASS).
 #
 # Runs OUTSIDE the sandbox. It plants its own canaries (files, one HKCU key, one env var), starts its own
 # 127.0.0.1 TCP+UDP listener, runs every negative test first in CONTROL mode (no AppContainer; some tests also
@@ -71,6 +72,54 @@ class Listener:
 
     def close(self):
         self.stop = True; time.sleep(0.3); self.tcp.close(); self.udp.close()
+
+
+STORAGE = "\\".join(["Software", "Classes", "Local Settings", "Software", "Microsoft", "Windows", "CurrentVersion",
+                      "AppContainer", "Storage", PROFILE])
+
+
+def storage_entries():
+    """Values + subkeys of the container's registry storage, minus its empty system subkey Children."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STORAGE) as k:
+            n_sub, n_val, _ = winreg.QueryInfoKey(k)
+            names = [winreg.EnumKey(k, i) for i in range(n_sub)]
+        return n_val + len([n for n in names if n != "Children"])
+    except FileNotFoundError:
+        return 0
+
+
+def verdicts(t):
+    """PASS / FAIL per test from the recorded control + sandbox outcomes (control must detect, sandbox must block)."""
+    v = {}
+    def sb(name): return t[name]["sandbox"]
+    def ct(name): return t[name].get("control")
+    f = sb("files")
+    canaries_blocked = all(r == {"read": "DENIED", "list": "DENIED", "write_new": "DENIED", "append": "DENIED"}
+                           for k, r in f["probe"].items() if k != "runtime_dir")
+    v["files"] = (canaries_blocked and not f["after"]["canaries_modified"] and not f["after"]["new_files"]
+                  and bool(ct("files")["after"]["canaries_modified"]))
+    v["write_runtime"] = (f["probe"]["runtime_dir"]["write_new"] == "DENIED" and not f["after"]["runtime_new_files"]
+                          and ct("files")["probe"]["runtime_dir"]["write_new"] == "WRITTEN")
+    v["net"] = sb("net")["listener"] == {"tcp_conns": 0, "tcp_bytes": 0, "udp_pkts": 0} and ct("net")["listener"]["tcp_conns"] > 0
+    v["child"] = (not any(r.startswith("SPAWNED") for r in sb("child")["probe"].values())
+                  and sb("child")["job_total_processes"] == 1
+                  and all(r.startswith("SPAWNED") for r in ct("child")["probe"].values()))
+    v["env"] = sb("env")["probe"]["SPIKE_CANARY_ENV"] == "ABSENT" and ct("env")["probe"]["SPIKE_CANARY_ENV"] == "PRESENT"
+    v["registry"] = (sb("reg")["probe"] == {"read": "DENIED", "write_subkey": "DENIED"} and not sb("reg")["subkey_created"]
+                     and ct("reg")["probe"]["read"] == "READABLE")
+    v["memory"] = "memory" in sb("mem")["limits_hit"] and ct("mem")["probe"]["outcome"] == "ALLOCATED_ALL"
+    v["cpu"] = "cpu" in sb("cpu")["limits_hit"] and not sb("cpu")["wall_killed"]
+    v["wall"] = "wall" in sb("wall")["limits_hit"] and ct("wall")["probe"]["outcome"] == "FINISHED"
+    v["disk"] = "disk" in sb("disk")["limits_hit"] and sb("disk")["rundir_mb"] < 300
+    p1, p2 = sb("persist1"), sb("persist2")["probe"]
+    v["cross_run"] = (p1["probe"]["write_container_folder"] == "WRITTEN" and p1["probe"]["write_container_registry"] == "WRITTEN"
+                      and p1["outside_after"] == {"ac_entries": 0, "storage_entries": 0}
+                      and p2 == {"container_folder_marker": "ABSENT", "container_registry_marker": "ABSENT",
+                                 "prev_run_dir_marker": "ABSENT"})
+    pc, ps = ct("positive")["probe"], sb("positive")["probe"]
+    v["positive"] = pc == ps and ps["png"] and ps["peaks_hz"] == [440.0, 1000.0]
+    return {k: "PASS" if ok else "FAIL" for k, ok in v.items()}
 
 
 def main():
@@ -148,13 +197,13 @@ def main():
                     fh.write(secrets.token_hex(32))
             return {"canaries_modified": changed, "new_files": new, "runtime_new_files": rt_new}
 
-        def run(test, mode, args, flags, wall=60, cpu=None, mem=2048):
+        def run(test, mode, args, flags, wall=60, cpu=None, mem=2048, disk=200):
             rd = os.path.join(runs, "suite-%s-%s-%s" % (tag, test, mode))
             os.makedirs(rd, exist_ok=True); run_dirs.append(rd)
             with open(os.path.join(rd, "code.py"), "w", encoding="utf-8") as f:
                 f.write("TEST = %r\nARGS = %s\n" % (test, json.dumps(args)) + probe_src)
             cmd = [launcher, "run", "--profile", PROFILE, "--python", python, "--run-dir", rd, "--script", "code.py",
-                   "--wall-s", str(wall), "--cpu-s", str(cpu or wall), "--mem-mb", str(mem)] + flags
+                   "--wall-s", str(wall), "--cpu-s", str(cpu or wall), "--mem-mb", str(mem), "--disk-mb", str(disk)] + flags
             base = baseline(); listener.reset()
             t0 = time.time()
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=wall + 60)
@@ -166,6 +215,8 @@ def main():
                 except Exception:
                     continue
             rec = {"mode": mode, "flags": flags, "exit_hex": j.get("exit_hex"), "wall_killed": j.get("wall_killed"),
+                   "limits_hit": j.get("limits_hit"), "limits": j.get("limits"), "disk": j.get("disk"),
+                   "ac_entries_before": j.get("ac_entries_before"), "ac_entries_after": j.get("ac_entries_after"),
                    "job_msgs": j.get("job_msgs"), "job_total_processes": j.get("job_total_processes"),
                    "cpu_user_s": j.get("cpu_user_s"), "probe": probe, "stderr_tail": j.get("stderr", "")[-600:],
                    "listener": {"tcp_conns": listener.tcp_conns, "tcp_bytes": listener.tcp_bytes, "udp_pkts": listener.udp_pkts},
@@ -203,11 +254,15 @@ def main():
         run("cpu", "sandbox", {"burn_s": 15, "max_wall_s": 20}, [], wall=30, cpu=3)
         run("wall", "control", {"sleep_s": 8}, CTRL, wall=20)
         run("wall", "sandbox", {"sleep_s": 8}, [], wall=3)
-        run("disk", "sandbox", {"cap_mb": 500}, [], wall=60)
-        pa = {"container_folder": container_folder, "tag": tag}
+        run("disk", "sandbox", {"cap_mb": 500}, [], wall=60, disk=200)
+        pa = {"container_folder": container_folder, "tag": tag, "storage_key": STORAGE}
         r1 = run("persist1", "sandbox", pa, [])
+        r1["outside_after"] = {"ac_entries": len(os.listdir(container_folder)) if os.path.isdir(container_folder) else 0,
+                               "storage_entries": storage_entries()}
         run("persist2", "sandbox", dict(pa, prev_run_dir=run_dirs[-1]), [])
         run("positive", "control", {}, CTRL); run("positive", "sandbox", {}, [])
+        results["verdicts"] = verdicts(results["tests"])
+        print("VERDICTS", json.dumps(results["verdicts"]))
     finally:
         cl = {}
         if listener:

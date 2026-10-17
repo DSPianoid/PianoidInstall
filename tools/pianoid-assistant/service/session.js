@@ -15,12 +15,21 @@ import { childEnv, saveConfig } from './home.js';
 import { contextBlock, systemPrompt } from './prompt.js';
 import { buildDigest } from './contextDigest.js';
 import { Router } from './router.js';
+import { runPython, validateInput } from '../analysis/runPython.js';
+import { analysisPaths } from '../analysis/store.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
 export const MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
 const PIANOID_PREFIX = 'mcp__pianoid__';
 const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
+const ANALYSIS_TOOL = 'mcp__analysis__run_python';
+// The v2 P5 sandbox tool as the policy and the router see it (category `code`: always asks).
+export const ANALYSIS_CMD = {
+  name: 'analysis.run_python', title: 'Run analysis code in the sandbox', tier: 'act', family: 'analysis', category: 'code',
+};
+// Never available, whatever a setting says: no shell for the model (the analysis tool is the only code path).
+export const DISALLOWED_TOOLS = ['Bash', 'PowerShell'];
 const ENV_TTL_MS = 30000;
 
 const summarize = (v, n = 300) => {
@@ -32,8 +41,11 @@ export class AssistantSession {
   constructor({
     paths, config, commands, driverFactory, broadcast = () => {}, fetchImpl = fetch,
     backendUrl = 'http://127.0.0.1:5000', launcherUrl = 'http://127.0.0.1:3001', commandsDir,
+    analysis = analysisPaths(), runPythonImpl = runPython, publicUrl = 'http://127.0.0.1:3002',
   }) {
-    Object.assign(this, { paths, config, driverFactory, broadcast, fetchImpl, backendUrl, launcherUrl, commandsDir });
+    Object.assign(this, {
+      paths, config, driverFactory, broadcast, fetchImpl, backendUrl, launcherUrl, commandsDir, analysis, runPythonImpl, publicUrl,
+    });
     this.byName = new Map(commands.map((c) => [c.name, c]));
     this.driver = null;
     this.busy = false;
@@ -68,6 +80,7 @@ export class AssistantSession {
     const mcpEnv = {
       PATH: env.PATH || env.Path || '', SYSTEMROOT: env.SYSTEMROOT || env.SystemRoot || '',
       PIANOID_BACKEND_URL: this.backendUrl, PIANOID_LAUNCHER_URL: this.launcherUrl,
+      PIANOID_ANALYSIS_ARTIFACTS: this.analysis.artifacts,
     };
     if (this.commandsDir) mcpEnv.PIANOID_COMMANDS_DIR = this.commandsDir;
     const pianoid = {
@@ -78,15 +91,20 @@ export class AssistantSession {
     };
     const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason));
     assistant.escalate = (reason) => this.escalate(reason);     // the fake driver calls it directly
+    const analysis = SdkDriver.analysisTools((args) => this.runAnalysis(args));
+    analysis.runPython = (args) => this.runAnalysis(args);      // the fake driver calls it directly
     return {
       cwd: this.paths.workspace,
       env,
       model: this.model.current,
       systemPrompt: systemPrompt(),
       tools: [],                       // NO built-in tools (no Bash / Read / Edit / Web)
+      disallowedTools: DISALLOWED_TOOLS,   // and the shells denied by name, in every mode
       settingSources: [],              // no user / project / local settings, no CLAUDE.md
       strictMcpConfig: true,           // only the servers below
-      mcpServers: { pianoid, assistant },
+      mcpServers: { pianoid, assistant, analysis },
+      // a PreToolUse hook can deny even where a permission mode would allow: the analysis call is re-checked
+      hooks: { PreToolUse: [{ hooks: [async (input) => this.preToolUse(input)] }] },
       permissionMode: 'default',
       includePartialMessages: true,
       canUseTool: (toolName, input, opts) => this.canUseTool(toolName, input, opts),
@@ -116,6 +134,7 @@ export class AssistantSession {
 
   async canUseTool(toolName, input, { signal, toolUseID } = {}) {
     if (toolName === ESCALATE_TOOL) return { behavior: 'allow', updatedInput: input };
+    if (toolName === ANALYSIS_TOOL) return this.canRunAnalysis(input, { signal, toolUseID });
     if (!toolName.startsWith(PIANOID_PREFIX)) {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
     }
@@ -138,6 +157,68 @@ export class AssistantSession {
     return allowed
       ? { behavior: 'allow', updatedInput: input }
       : { behavior: 'deny', message: `The user declined ${cmd.name}.` };
+  }
+
+  /** The policy verdict of one analysis call (invalid input = deny; else category `code` = confirm). */
+  analysisVerdict(input) {
+    try {
+      validateInput(input);
+    } catch (e) {
+      return { action: 'deny', reason: `invalid analysis.run_python input: ${e.message}` };
+    }
+    return decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted } });
+  }
+
+  async canRunAnalysis(input, { signal, toolUseID }) {
+    await this.trigger(this.router.onToolCall(ANALYSIS_CMD.name));   // layer 2: the first code run escalates
+    const verdict = this.analysisVerdict(input);
+    const shown = { ...input, code: undefined, code_lines: String(input?.code ?? '').split('\n').length };
+    const entry = this.logActivity({ command: ANALYSIS_CMD.name, tier: ANALYSIS_CMD.tier, input: shown, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
+    if (verdict.action === 'deny') {
+      this.router.onRefused(ANALYSIS_CMD.name);
+      return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
+    }
+    const allowed = await this.askConfirm(entry, ANALYSIS_CMD, input, verdict.reason, signal);
+    this.updateActivity(entry, { decision: allowed ? 'confirmed' : 'rejected', status: allowed ? 'pending' : 'rejected' });
+    if (!allowed) {
+      this.router.onRefused(ANALYSIS_CMD.name);
+      return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
+    }
+    this.analysisEntry = entry;
+    return { behavior: 'allow', updatedInput: input };
+  }
+
+  /**
+   * PreToolUse hook (runs before canUseTool, and can deny in any permission mode): the shells and any tool
+   * outside the three servers are denied; an analysis call is re-checked against the policy. It never
+   * allows on its own, so canUseTool (the confirm) still decides.
+   */
+  preToolUse(input) {
+    const name = input?.tool_name || '';
+    const deny = (reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
+    if (DISALLOWED_TOOLS.includes(name)) return deny(`${name} is never available to the Pianoid assistant`);
+    if (name === ANALYSIS_TOOL) {
+      const v = this.analysisVerdict(input.tool_input);
+      return v.action === 'deny' ? deny(`Denied by the Pianoid policy: ${v.reason}`) : {};
+    }
+    if (name === ESCALATE_TOOL || name.startsWith(PIANOID_PREFIX)) return {};
+    return deny(`${name} is not available to the Pianoid assistant`);
+  }
+
+  /** The analysis tool handler: the sandboxed run, then the PNGs to the pane (chat + activity). */
+  async runAnalysis(args) {
+    const res = await this.runPythonImpl(args, { paths: this.analysis });
+    const files = (res.files || []).map((f) => ({ ...f, url: `${this.publicUrl}/artifacts/${f.artifact_id}/${encodeURIComponent(f.name)}` }));
+    const entry = this.analysisEntry;
+    this.analysisEntry = null;
+    if (entry) this.updateActivity(entry, { files, limitsHit: res.limits_hit || [] });
+    const images = files.filter((f) => f.kind === 'png');
+    if (images.length) {
+      const msg = { role: 'plot', text: '', files: images, at: Date.now() };
+      this.transcript.push(msg);
+      this.broadcast({ type: 'message', ...msg });
+    }
+    return { ...res, files: files.map(({ url, ...f }) => f) };
   }
 
   /**

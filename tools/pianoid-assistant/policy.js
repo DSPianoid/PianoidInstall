@@ -15,6 +15,8 @@
  *   render.* while live audio runs          DENY (R6: an offline render stops realtime playback and
  *                                           runs inside the live engine - backend crash risk)
  *   excluded                                never listed; deny if asked anyway
+ *   category `code` (analysis.run_python)   confirm, always (v2 P5; V1: Auto only after a user decision,
+ *                                           and never in a tainted turn) — P2's approvals keep it locked Ask
  */
 const MEASUREMENT_FAMILIES = new Set(['modal', 'calibration']);
 const READ_ONLY_LAUNCHER = new Set(['launcher.status', 'launcher.assistant.status']);
@@ -22,9 +24,14 @@ export const LIVE_RENDER_REASON = 'offline renders are blocked while live audio 
   + 'playback and runs inside the live engine (backend crash risk). Judge the level from the context (peak, '
   + 'limiter, clipping) or ask the user to listen';
 
-export function decide({ command, tier, family, settings = {} }) {
+export const CODE_REASON = 'runs analysis code in the sandbox (category code: Ask)';
+
+export function decide({ command, tier, family, category, settings = {} }) {
   if (!command) return { action: 'deny', reason: 'not a Pianoid tool' };
   if (tier === 'excluded') return { action: 'deny', reason: `${command} is never available to the assistant` };
+  if (category === 'code') {
+    return { action: 'confirm', reason: settings.tainted ? `${CODE_REASON}; this turn read untrusted content` : CODE_REASON };
+  }
   if (settings.dataOptOut && MEASUREMENT_FAMILIES.has(family)) {
     return { action: 'deny', reason: 'measurement data is opted out (pane switch "Block measurement data")' };
   }

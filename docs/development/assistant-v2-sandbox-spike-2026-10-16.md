@@ -9,9 +9,11 @@ Every negative test was blocked in the sandbox, and each one was detected in con
 remain, both known in advance and both fixable in the launcher: cross-run persistence through the AppContainer
 folder, and no disk quota. Results: [§9](#9-safe-suite-results-2026-10-17). Recommendation: [§7](#7-recommendation).**
 
+**P5 (2026-10-17, dev-11f8): the launcher is in production at `tools/pianoid-assistant/sandbox/` with the §7 changes and a container registry wipe; the SAFE suite re-run passes all tests, including the disk cap and the cross-run check: [§10](#10-production-launcher-and-safe-re-run-p5-dev-11f8-2026-10-17).**
+
 ## 1. Method
 
-- Launcher: `tools/pianoid-assistant/sandbox-spike/launcher/PianoidSandbox.cs`. C#, built by `build.bat` with
+- Launcher: `tools/pianoid-assistant/sandbox-spike/launcher/PianoidSandbox.cs` (since P5: `sandbox/launcher/`). C#, built by `build.bat` with
   the .NET Framework 4 `csc.exe` that ships with Windows (no SDK, no admin). Verbs: `setup`, `run`, `cleanup`,
   `sid`.
 - Interpreter: a private copy of the Python 3.12.3 runtime with numpy 2.5.4, scipy 1.18.1, matplotlib 3.11.2 and
@@ -218,3 +220,55 @@ action itself.
 **Failed containment:** none of the escape tests (files, runtime write, network, child processes, env,
 registry). Two isolation gaps, both listed in §5 before the run: the shared `AC\` folder (cross-run channel) and
 no disk cap. The CPU limit works but overshoots by about 2×.
+
+## 10. Production launcher and SAFE re-run (P5, dev-11f8, 2026-10-17)
+
+The launcher moved to `tools/pianoid-assistant/sandbox/` and got the three §7 changes, plus one more:
+
+| Change | How | Measured |
+|---|---|---|
+| Container folder wipe | `Packages\<profile>\AC` is emptied after every run; a run refuses to start (`ok:false`) unless it is empty. The system subfolders (`INetCache`, `INetCookies`, `INetHistory`, `Temp`) go too; a run works without them | 2 runs: run 1 wrote a marker, `ac_entries_after = 0`, run 2 saw only its own marker |
+| Container registry storage wipe (new) | The container has FullControl on `HKCU\Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppContainer\Storage\<profile>`, so it was a second cross-run channel. Every value and subkey is deleted after each run (the empty system subkey `Children` stays), with the same check before a run | the container wrote a value and a subkey there; the next run did not see them |
+| Disk watchdog | the job's `WriteTransferCount` every 10 ms and the run dir + container folder size every 50 ms (`FileInfo.Refresh`: an open file's directory entry is stale); either over `--disk-mb` (default 200) calls `TerminateJobObject` (`0xC0DE0003`). The post-run size check stays | a 500 MB fill at about 1.8 GB/s is killed at 240-270 MB; 400 x 1 MB files at 251 MB; a 400 MB mmap fill at 214 MB |
+| Wall clock = the hard bound | `--cpu-s` is capped at `wall / 2` | `--cpu-s 3`: `END_OF_JOB_TIME` at 4.4 s and 7.2 s of user CPU (still loose), well inside a 30 s wall |
+| `limits_hit` | `wall`, `cpu`, `memory`, `disk`, `processes`, `stdout`, `stderr`, `out_files` in the result | — |
+| idempotent `setup` | skips the RX grant when the ACE is already there | 1551 ms first, 16 ms after |
+
+**SAFE suite, the same approved scope** (canaries only, the harness's own 127.0.0.1 listener, 5 spawn attempts, no
+credential paths), against the production launcher, profile `pianoid.analysis.suite`. It ran twice (tags `184070a7` and
+`8ded898a`) with identical outcomes. The harness now prints a verdict per test. The `persist` probes also write a
+marker into the container's own registry storage, the same kind of target as the container-folder marker.
+
+| Test | Sandbox (both runs) | Verdict |
+|---|---|---|
+| files (5 canary dirs: read, list, create, append) | DENIED x4 each; hashes unchanged, no new files (control: all READABLE / WRITTEN) | PASS |
+| write to runtime | DENIED (control WRITTEN) | PASS |
+| net (TCP + UDP to the harness listener) | TCP timeout, UDP `sendto` OK; the listener got 0 / 0 / 0 (control 1 conn, 1 byte, 1 packet) | PASS |
+| child (5 attempts) | none spawned (`DENIED` x4, `os.spawnv` `OSError`), `job_total_processes = 1` (control: 5 x SPAWNED) | PASS |
+| env | `SPIKE_CANARY_ENV` ABSENT, env = the 16-name allow-list | PASS |
+| registry (HKCU canary key) | read DENIED, subkey DENIED, not created | PASS |
+| memory (2048 MB limit) | `MemoryError` at 1792 MB, `PROCESS_MEMORY_LIMIT`, `limits_hit: memory` | PASS |
+| CPU time | `END_OF_JOB_TIME`, `0xC0000044`, `limits_hit: cpu` | PASS (loose) |
+| wall clock (3 s) | killed at 3.1 s, `0xC0DE0001`, `limits_hit: wall` | PASS |
+| **disk** (500 MB attempted, cap 200 MB) | killed `0xC0DE0003`; 270 MB / 240 MB on disk; `limits_hit: disk` | **PASS** (was NOT CAPPED) |
+| **cross-run** | run 1 WROTE to the container folder and the container registry storage; checked from outside after run 1: 0 entries, 0 values; run 2: container-folder marker ABSENT, registry marker ABSENT, previous run dir ABSENT | **PASS** (was LEAKS) |
+| positive (WAV, FFT, PNG) | peaks 440 / 1000 Hz, hash `f3a12090fd2964b3` = control | PASS |
+
+The first run's harness verdict for `child` was FAIL because the verdict expected `DENIED` and `os.spawnv` reports a
+bare `OSError`. That was a harness bug: no process was spawned, and `job_total_processes` was 1. The verdict now
+checks "no SPAWNED and one process"; recomputed from the saved results, both runs pass.
+
+**Cleanup after both runs, checked from outside:** profile `pianoid.analysis.suite` deleted (`0x00000000`), its
+`Packages\` folder and `Storage\` key are gone, there is no `S-1-15-2` ACE on `runtime\` or `runs\`, and the canaries,
+the HKCU canary key and the run dirs are all gone. The development profile `pianoid.analysis.dev11f8` (used for the
+wipe and watchdog checks above) was deleted the same way.
+
+**What stays installed** (the production setup, `node tools/pianoid-assistant/analysis/setup.js`): the AppContainer
+profile `pianoid.analysis` (its `Packages\pianoid.analysis` folder, empty between runs, and its registry entries);
+one ReadAndExecute ACE for its SID on `analysis\runtime\`; `analysis\runtime\` (311 MB), `analysis\venv\` (283 MB, the
+pip host only), `analysis\runs\` (the newest 50 runs) and `analysis\artifacts\` (the newest 500 artefacts). The spike's
+`runs\r0` is still there (97 kB). No admin, no system-wide change. To uninstall: `PianoidSandbox.exe cleanup --profile
+pianoid.analysis --revoke <runtime>` and delete `%USERPROFILE%\.pianoid-assistant\analysis\`.
+
+Still open (unchanged from §5, outside the approved scope): objects readable by ALL APPLICATION PACKAGES, DNS without
+`internetClient`, the win32k surface, the clipboard.
