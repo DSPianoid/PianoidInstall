@@ -4,6 +4,7 @@
  */
 import { listedFor } from '../policy.js';
 import { toolName } from '../lib/registry.js';
+import { withExportArg } from '../analysis/export.js';
 
 export const BACKEND_URL = process.env.PIANOID_BACKEND_URL || 'http://127.0.0.1:5000';
 export const LAUNCHER_URL = process.env.PIANOID_LAUNCHER_URL || 'http://127.0.0.1:3001';
@@ -32,7 +33,7 @@ export function toolFor(cmd) {
     title: cmd.title,
     description: `${cmd.title}. ${cmd.description} [command: ${cmd.name}; tier: ${cmd.tier}`
       + `${cmd.long_running ? '; long-running: returns jobId, follow with job.get' : ''}]`,
-    inputSchema: cmd.args,
+    inputSchema: withExportArg(cmd, cmd.args),
     annotations: {
       title: cmd.title,
       readOnlyHint: ro,

@@ -32,6 +32,7 @@
     {"source": "requirement 1", "text": "What GPU and build is running?", "expect": "sonnet"},
     {"source": "requirement 1", "text": "show me the parameter list for modes", "expect": "sonnet"},
     {"source": "requirement 2", "text": "compare the spectra of C4 on presets A and B", "expect": "opus", "category": "code / analysis"},
+    {"source": "P5 live E2E", "text": "compare the spectra of a C4 and a C5 render", "expect": "opus", "category": "code / analysis"},
     {"source": "requirement 2", "text": "play C4", "expect": "sonnet"},
     {"source": "requirement 2", "text": "open the Feedin pane", "expect": "sonnet"},
     {"source": "requirement 2", "text": "set mode 5 frequency to 220", "expect": "sonnet"},

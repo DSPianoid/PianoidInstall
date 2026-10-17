@@ -89,6 +89,33 @@ export class SdkDriver {
     });
   }
 
+  /**
+   * In-process MCP server `analysis` with run_python (v2 P5). The handler (the session) only writes the code
+   * to a run dir and spawns the OS sandbox; it never evaluates it.
+   */
+  static analysisTools(onRunPython) {
+    return createSdkMcpServer({
+      name: 'analysis',
+      version: '0.1.0',
+      tools: [tool('run_python',
+        'Run Python analysis code in an isolated sandbox (no network, no processes, no files except its own run dir; '
+        + 'numpy, scipy, matplotlib with the Agg backend, soundfile). Inputs are artefact ids: get them with export: true '
+        + 'on render.note_playback / render.chart / render.keyboard / param.get / preset.summary. In the code: ARTIFACTS '
+        + '(id -> meta: command, args, files, sample_rate, series_units), artifact_path(id, name=None) (the first file by '
+        + 'default; render artefacts hold audio_<i>.wav and series_<i>.npy), OUT = "out". Files written to OUT '
+        + '(.png .csv .json .npy .txt .wav, at most 20 files / 5 MB each) come back as artefact ids; PNGs are shown to the '
+        + 'user in the pane. print() goes to stdout (20 kB cap). Limits: wall clock timeout_s (default 60, max 120), '
+        + 'CPU half of it, memory 2 GB, disk 200 MB. Every run asks the user first. [category: code]',
+        {
+          code: z.string().describe('Python 3.12 source'),
+          inputs: z.array(z.string()).max(10).optional().describe('artefact ids to copy into the run'),
+          timeout_s: z.number().int().min(1).max(120).optional(),
+          memory_mb: z.number().int().min(256).max(2048).optional(),
+        },
+        async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await onRunPython(args), null, 1) }] }))],
+    });
+  }
+
   async start(options, onEvent) {
     this.input = new InputQueue();
     this.q = this.queryImpl({ prompt: this.input, options });

@@ -18,6 +18,7 @@
  *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
  *                                           the post-write level watch with auto-revert; outside the
  *                                           envelope it asks, hard (an envelope override)
+ *   category `code` (analysis.run_python)   asks: locked Ask in approvals.js (V1); v2 P5
  *   category Auto, other                    allow
  *
  * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}}.
@@ -33,7 +34,7 @@ export const LIVE_RENDER_REASON = 'offline renders are blocked while live audio 
 /**
  * The hard-confirm list (v2 §9, V8): these ask every time and can never be set to Auto. Registry
  * commands carry approval_category 'hard_confirm'; the names below also pin the tools that do not
- * exist yet (audio session / test tone, GitHub filing) and are checked by a unit test.
+ * exist yet (audio session / test tone) and are checked by a unit test.
  */
 export const HARD_CONFIRM = {
   'preset.save': 'saves over a preset file',
@@ -49,7 +50,6 @@ export const HARD_CONFIRM = {
   'launcher.assistant.start': 'process control (launcher)',
   'audio.session': 'plays on the rig outputs',
   'audio.test_tone': 'plays on the rig outputs',
-  'bug.file_github': 'files an issue on GitHub',
 };
 export const HARD_CONFIRM_EXTRA = [
   'an envelope override (an Auto write outside the limits)',

@@ -20,8 +20,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { INSTALL_ROOT, commandName, loadCommands } from '../lib/registry.js';
 import { decide } from '../policy.js';
-import { callCommand, compact, listTools, SEARCH_DOCS, shapeResult } from './tools.js';
+import { BACKEND_URL, callCommand, compact, listTools, SEARCH_DOCS, shapeResult } from './tools.js';
 import { buildIndex, search } from './docsIndex.js';
+import { exportResult, splitExport } from '../analysis/export.js';
+import { analysisPaths } from '../analysis/store.js';
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -31,6 +33,7 @@ const arg = (name, fallback) => {
 export function createPianoidMcpServer({
   source = 'mcp', commands = loadCommands(),
   docsDir = path.join(INSTALL_ROOT, 'docs'), fetchImpl = fetch, settings = {}, execUrl = null,
+  artifactsDir = analysisPaths().artifacts,
 } = {}) {
   const byName = new Map(commands.map((c) => [c.name, c]));
   let docs = null;
@@ -52,9 +55,25 @@ export function createPianoidMcpServer({
     if (!cmd) return text({ error: 'unknown_tool', tool: name }, true);
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings });
     if (verdict.action === 'deny') return text({ error: 'denied', reason: verdict.reason }, true);
-    const res = await callCommand(cmd, args, { source, fetchImpl, execUrl });
-    return text(compact(shapeResult(cmd, res)), !res.ok);
+    const { args: cmdArgs, exportRequested } = splitExport(cmd, args);
+    const res = await callCommand(cmd, cmdArgs, { source, fetchImpl, execUrl });
+    const shaped = shapeResult(cmd, res);
+    if (exportRequested) shaped.artifact = await exportArtifact(cmd, cmdArgs, res);
+    return text(compact(shaped), !res.ok);
   });
+  /** `export: true`: the full result as an artefact, with the load settings it was rendered at. */
+  async function exportArtifact(cmd, cmdArgs, res) {
+    let loadSettings = null;
+    try {
+      loadSettings = (await (await fetchImpl(`${BACKEND_URL}/load_settings`)).json())?.settings ?? null;
+    } catch (e) { /* backend gone: export without it */ }
+    try {
+      return exportResult(artifactsDir, cmd, cmdArgs, res, { load_settings: loadSettings })
+        || { error: 'nothing to export (no audio / series / result)' };
+    } catch (e) {
+      return { error: `export failed: ${e.message}` };
+    }
+  }
   return server;
 }
 

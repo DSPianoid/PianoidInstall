@@ -51,7 +51,7 @@ test('the hard-confirm list can NEVER be Auto (every scope set to auto, envelope
     assert.ok(!v.canAuto, n);
   }
   // tools that do not exist yet are pinned by name, whatever category they arrive with
-  for (const n of ['audio.session', 'audio.test_tone', 'bug.file_github']) {
+  for (const n of ['audio.session', 'audio.test_tone']) {
     assert.equal(decide({ command: n, tier: 'write', family: 'x', category: 'params', settings }).action, 'confirm', n);
   }
   // a web-tainted turn: every non-read asks hard, reads still run

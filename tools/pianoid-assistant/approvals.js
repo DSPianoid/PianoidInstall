@@ -25,7 +25,7 @@ export const CATEGORIES = [
   { id: 'preset_nav', label: 'Preset navigation', covers: 'switch preset, spawn a working copy, load into the library', default: 'ask' },
   { id: 'history', label: 'Undo / redo', covers: 'history.undo / history.redo', default: 'ask' },
   { id: 'layout_save', label: 'Save a named layout', covers: 'saving a named layout (command arrives with the runbook, P3)', default: 'ask' },
-  { id: 'code', label: 'Analysis code', covers: 'analysis.run_python (arrives with the sandbox, P5)', default: 'ask', locked: 'Ask until the analysis sandbox escape suite passes (V1)' },
+  { id: 'code', label: 'Analysis code', covers: 'analysis.run_python: runs analysis code in the sandbox (P5)', default: 'ask', locked: 'Ask until the analysis sandbox escape suite passes (V1)' },
   { id: 'web', label: 'Web research', covers: 'searches and fetches by the researcher (arrives in P7)', default: 'auto' },
   { id: 'bug_local', label: 'Local bug reports', covers: 'filing a report to the local collector (arrives in P6)', default: 'auto' },
 ];

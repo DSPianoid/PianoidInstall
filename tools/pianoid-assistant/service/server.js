@@ -4,6 +4,7 @@
  *   GET  /status   {ok, login, driver, paths, loginCommand}
  *   POST /internal/command/<name>   the executor of the service's own MCP server (v2 P2, autoWrite.js):
  *                  runs a command the policy just allowed (a permit), else 403 not_permitted
+ *   GET  /artifacts/<id>/<file>   one file of an analysis artefact (the pane shows the PNGs; v2 P5)
  *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, remember?} |
  *                  settings | approvals {category, mode, scope} | undo {groupId} | undo_turn {turn}};
  *                  server {type: state | message | delta | activity | confirm | confirm_done |
@@ -12,6 +13,7 @@
  * with an API key in its environment (D1). PIANOID_ASSISTANT_DRIVER=fake = zero-spend scripted
  * driver (tests, demos).
  */
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +24,7 @@ import { SdkDriver } from '../drivers/sdk.js';
 import { FakeDriver } from '../drivers/fake.js';
 import { assertSubscriptionOnly, assistantPaths, authStatus, ensureHome, loadConfig, loginCommand } from './home.js';
 import { AssistantSession } from './session.js';
+import { analysisPaths, artifactFile, CONTENT_TYPES, kindOf } from '../analysis/store.js';
 
 export function createAssistantService({
   env = process.env, port = Number(env.PIANOID_ASSISTANT_PORT) || 3002, driver = env.PIANOID_ASSISTANT_DRIVER || 'sdk',
@@ -36,7 +39,9 @@ export function createAssistantService({
     for (const ws of clients) if (ws.readyState === 1) ws.send(data);
   };
   const factory = driverFactory || (() => (driver === 'fake' ? new FakeDriver() : new SdkDriver()));
+  const analysis = analysisPaths(env);
   const session = new AssistantSession({
+    analysis,
     paths, config: loadConfig(paths), commands: loadCommands(dir), driverFactory: factory, broadcast, fetchImpl,
     commandsDir: dir, backendUrl: env.PIANOID_BACKEND_URL || 'http://127.0.0.1:5000',
     launcherUrl: env.PIANOID_LAUNCHER_URL || 'http://127.0.0.1:3001', limits: loadLimits(paramsDir(env)), settleMs,
@@ -87,6 +92,14 @@ export function createAssistantService({
       res.end(JSON.stringify(statusBody()));
       return;
     }
+    const m = /^\/artifacts\/([^/]+)\/([^/?]+)$/.exec(req.url || '');
+    const file = m && artifactFile(analysis.artifacts, m[1], decodeURIComponent(m[2]));
+    if (req.method === 'GET' && file) {
+      res.setHeader('Content-Type', CONTENT_TYPES[kindOf(file)] || 'application/octet-stream');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      fs.createReadStream(file).pipe(res);
+      return;
+    }
     res.statusCode = 404;
     res.end();
   });
@@ -132,6 +145,7 @@ export function createAssistantService({
     session, paths, server,
     listen: () => new Promise((resolve) => server.listen(port, '127.0.0.1', () => {
       session.execUrl = `http://127.0.0.1:${server.address().port}/internal/command`;
+      session.publicUrl = `http://127.0.0.1:${server.address().port}`;   // the pane loads the plots from here
       resolve(server.address().port);
     })),
     close: async () => {
