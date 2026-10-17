@@ -1,7 +1,7 @@
 # Assistant v2: state, runbook, code, physics, bugs, web, approvals (proposal)
 
-**Date:** 2026-10-16 · **Author:** plan-assistant-v2 (orchestrator-dispatched; design only, no code) · **Status:** PROPOSAL, awaiting the
-user decisions in [§12](#12-decisions-for-the-user).
+**Date:** 2026-10-16 · **Author:** plan-assistant-v2 (orchestrator-dispatched; design only, no code) · **Status:** APPROVED by the user ("Go"); in
+progress: P1, P2 and P5 DONE (merge SHAs in [§11](#11-phased-plan)); the decisions recorded so far are in [§12](#12-decisions-for-the-user).
 **Builds on:** [AI assistant proposal](ai-assistant-in-ui-2026-10-13.md) (decisions D1–D7, §9), the
 [A4 + A1 design note](../development/assistant-a4-a1-design-2026-10-15.md) (merged, dev-df3c), and the **unmerged** dev-0a88
 revision (PianoidInstall `feature/dev-0a88-assistant-rev`, PianoidCore `feature/dev-0a88-assistant-ops`, PianoidTunner
@@ -34,7 +34,7 @@ revision (PianoidInstall `feature/dev-0a88-assistant-rev`, PianoidCore `feature/
 
 | | |
 |---|---|
-| **What changes** | v1 is a tightly sealed tool user: one MCP server (the registry), `escalate_model`, no files, no shell, no web, every write confirmed. v2 keeps that seal as the default and opens **four controlled doors**, each with its own gate in the service policy (never in the prompt): (a) a **runbook** layer over the registry, so every UI action is a command and common tasks are machine-readable recipes; (b) a sandboxed **`analysis.run_python`** tool that works on exported signal artefacts only; (c) a **researcher sub-agent** that alone holds WebSearch / WebFetch; (d) **bug filing** to the local collector, and to GitHub after a click. |
+| **What changes** | v1 is a tightly sealed tool user: one MCP server (the registry), `escalate_model`, no files, no shell, no web, every write confirmed. v2 keeps that seal as the default and opens **four controlled doors**, each with its own gate in the service policy (never in the prompt): (a) a **runbook** layer over the registry, so every UI action is a command and common tasks are machine-readable recipes; (b) a sandboxed **`analysis.run_python`** tool that works on exported signal artefacts only; (c) a **researcher sub-agent** that alone holds WebSearch / WebFetch; (d) **bug filing** to the native Pianoid bug-report system only (the backend collector `POST /bug_report`; never GitHub: user decision 2026-10-17). |
 | **Knowledge** | A full state snapshot (`system.*` reads: environment, build, GPU, audio map, the preset files, a parameter inventory) and a **physics primer** with a sourced **timbre → parameter** table. Directions come from the docs, and magnitudes stay UNKNOWN until they are measured (§6). |
 | **Models** | A **deterministic pre-router** picks Opus for physics / prediction, code, bug analysis, comparisons and multi-step plans before the turn starts. Tool triggers (first code run, a bug draft, web research) and failure triggers (repeated tool errors) escalate during the turn, and the model can still self-escalate (§5). |
 | **Approvals** | Per-category **Ask / Auto** switches in the pane, persisted per installation in the assistant's `config.json`. A **hard-confirm list** can never be set to Auto, and a turn **tainted** by web content asks again for every write / exec / filing (§9). |
@@ -60,7 +60,7 @@ The prompt carries the data-model facts and the reading rules; `search_docs` is 
 | 2c Write and run code | e.g. compare two spectra | none (`tools: []`) | **no execution, no artefacts**: render results are summarised to `{samples, peak_abs, rms, all_zero}` (dev-0a88) and the raw audio is dropped; renders are refused while live audio runs (R6) | §4.3 |
 | 2d / 3 Opus triggers | robust, per action | `escalate_model` self-call only (the prompt's "research or complex reasoning") | no deterministic routing; the transcripts show Sonnet staying on a failing multi-step diagnosis (session 2c86b530, 9 of 11 FAIL) without escalating | §5 |
 | 3 Physics | the model's principles, timbre requests | the prompt's data-model facts; `search_docs` can find SYNTHESIS_ENGINE sections | **no physics primer, no timbre → parameter map**; no prediction discipline (state the hypothesis, A/B it) | §6 |
-| 4 Bug filing | detect + file at once | the FE auto-fires reports to `POST /bug_report` → `PianoidCore/logs/reports/` (269 files on this machine today); the manual 🐞 dialog only **downloads** | the assistant cannot file, list or de-duplicate; no GitHub path (`gh` is not installed here; no token) | §7 |
+| 4 Bug filing | detect + file at once | the FE auto-fires reports to `POST /bug_report` → `PianoidCore/logs/reports/` (269 files on this machine today); the manual 🐞 dialog only **downloads** | the assistant cannot file, list or de-duplicate (GitHub filing is not wanted: user decision 2026-10-17) | §7 |
 | 5 Web search | theory and practice | none | everything: the tools, the injection guard, the D4 query rule | §8 |
 | 6 Category auto-approve | e.g. param edits run at once | every write confirms (A2's envelope + auto-revert never built) | no categories, no persisted setting, no hard-confirm list; Auto for parameters needs the A2 envelope first (D3) | §9 |
 
@@ -227,7 +227,7 @@ tools, plus one narrow analysis tool in an OS sandbox".
 |---|---|
 | **Assets** | the assistant's own OAuth credentials (`claude-home\.credentials.json`; a stolen token is the user's subscription); the user's `~/.claude` (credentials, MCP tokens, memory); the repos (source, unpublished presets, the Elyashev / FPGA third-party data); `D:\modal_measurements`; the running engine (the hearing and speakers at the end of the audio chain); the machine (persistence, startup items) |
 | **Injection sources** | web pages (high: anyone writes them); preset metadata and names, FPGA conversion notes, measurement project names (medium: third-party files); bug reports and logs (medium: they quote user text and tracebacks); docs (low: repo-reviewed, but long and old); the user's own pasted text (trusted) |
-| **What injected text can make the model do** | write code that reads files, opens sockets, spawns processes, calls `:5000` / `:3001` / `:3002` directly (bypassing the policy and the envelope), loops forever, fills the disk, or prints secrets into the chat; put data into a WebFetch URL (exfiltration); file a GitHub issue with private data |
+| **What injected text can make the model do** | write code that reads files, opens sockets, spawns processes, calls `:5000` / `:3001` / `:3002` directly (bypassing the policy and the envelope), loops forever, fills the disk, or prints secrets into the chat; put data into a WebFetch URL (exfiltration) |
 | **Design rule** | the "lethal trifecta" (private data + untrusted content + an outbound channel) must never meet in one unconfirmed step: the sandbox has no network, web content taints the turn (§8), and filing / publishing is always confirmed |
 
 #### Options
@@ -389,19 +389,16 @@ render floor, N ≥ 3) measures direction and magnitude per row on the three fix
 
 ## 7. Requirement 4: identifying and filing bugs
 
-**Where issues go.** Two destinations, in order:
+> **USER DECISION 2026-10-17:** the assistant **NEVER files bugs to GitHub**. Bugs go only to the native Pianoid
+> bug-report system: the backend collector `POST /bug_report`, the same store as the 🐞 / auto-fire reports. GitHub
+> filing, the PAT and decisions V4 / V5 are removed from this plan.
 
-1. **The local collector (always).** `POST /bug_report` (exists; the FE auto-fire already uses it) gets a new trigger kind
+**Where issues go.** One destination:
+
+1. **The native collector (always).** `POST /bug_report` (exists; the FE auto-fire already uses it) gets a new trigger kind
    `assistant`: `bugreport-<time>-assistant-<kind>-<hex>.json` in `PianoidCore/logs/reports/`. It is local, it is what the
    orchestrator and dev agents already consume, and it needs no credentials. The assistant does this **without asking**
    (category `bug_local`, Auto by default): it is a local file, the same as the FE auto-fire.
-2. **GitHub issues (on a click).** On `DSPianoid/PianoidCore` / `PianoidTunner` / `PianoidBasic` / `PianoidInstall` (the
-   assistant's own defects go to PianoidInstall, where `tools/pianoid-assistant` lives). The pane shows a **draft card**
-   (title, repo, labels, body, the attached report) with **File on GitHub**. Filing is **hard-confirm**: it publishes outside
-   the machine. The token is a fine-grained PAT (issues: write on the four repos) in the Windows Credential Manager, read
-   only by the service; the model and the sandbox never see it. (`gh` is not installed on this machine; the service calls the
-   REST API directly.)
-
 **When a bug is identified.** The trigger set, checked by the service, not left to the model's judgment alone:
 
 | Signal | Example | Draft |
@@ -423,13 +420,11 @@ leader tab: ring buffer of 200 actions, config, runtime); the matching auto-fire
 
 **De-duplication.** A fingerprint = hash(kind, command, HTTP status, error code / exception type, component). Before
 drafting: (1) the local collector index (`bug.list_reports`, fingerprints of the last 500 reports); (2) `docs/development/KNOWN_BUGS.md`
-headings; (3) on GitHub, open issues labelled `fp:<hash>`, then a title keyword search. A match → "known: #123 / report X",
-add a comment only on a click. Many identical auto-fires (269 reports here, mostly `endpoint_unresponsive`) collapse into
+headings. A match → "known: report X". Many identical auto-fires (269 reports here, mostly `endpoint_unresponsive`) collapse into
 one draft with a count.
 
-**Data rule.** D4 lets data go to the model, but a GitHub issue goes to whoever can read the repo. The draft therefore
-strips third-party measurement data (Elyashev / FPGA preset contents, modal measurement arrays) unless the user ticks
-"include preset data". Whether the repos are private, and whether that is enough, is decision V4.
+**Data rule.** Reports stay on the machine (`PianoidCore/logs/reports/`), so D4 applies as for the model: no
+extra stripping is needed, since nothing is published.
 
 ---
 
@@ -477,15 +472,16 @@ category → decision):
 | `preset_nav` | `preset.switch`, `preset.spawn_working_copy`, `preset.load_to_library` | Ask | yes |
 | `history` | `history.undo` / `redo` | Ask | yes |
 | `layout_save` | named-layout save (new command) | Ask | yes |
-| `code` | `analysis.run_python` | Ask | only after the sandbox escape suite passes (V1) |
+| `code` | `analysis.run_python` | Ask | yes (user, 2026-10-17); P2 / P5 ship it locked Ask (follow-up: unlock the switch) |
 | `web` | the researcher (search / fetch) | Auto (searches) | yes |
-| `bug_local` | `bug.report_local` | Auto | yes |
+| `bug_local` | `bug.report_local` (the native `POST /bug_report`) | Auto | yes |
 
 **Hard-confirm list (never Auto, enforced in `policy.js`, a unit test pins it):** `preset.save` over an existing file;
 `preset.promote`; `preset.unload` of an entry with unsaved edits; `preset.load` (full reload: it re-initialises the engine);
 `calibration.*`; `modal.run_stage` / `modal.apply_to_preset`; `audio.session` and the test tone (rig / physical outputs,
-D-h); launcher process control; envelope overrides; GitHub filing (`bug.file_github`); anything in a web-tainted turn.
+D-h); launcher process control; envelope overrides; anything in a web-tainted turn.
 `excluded` stays excluded (`/shutdown`, the gate and the amplitude limit, …).
+**CONFIRMED by the user as-is (2026-10-17)** (V8): `code` is not on it; it is Ask by default and may be switched to Auto.
 
 **The pane.** A "Permissions" popover next to the model picker: one row per category with **Ask / Auto**, a "this session
 only" option, the hard-confirm list shown greyed with the reason. A confirm dialog gets a checkbox "Don't ask again for
@@ -514,7 +510,7 @@ level check with auto-revert land in P2, before the `params` switch can be set t
  │  draft cards · plots     │    │  MCP pianoid (registry + runbook + docs + timbre)│         │   leader tab relay (I5)      │
  └──────────────────────────┘    │  MCP analysis (in-process) ── run_python ──┐     │         └──────────────────────────────┘
                                  │  agent "researcher": WebSearch, WebFetch   │     │
-                                 │  bug drafts → GitHub REST (PAT, Cred. Mgr) │     │
+                                 │  bug reports → POST /bug_report (native)   │     │
                                  └────────────────────────────────────────────┼─────┘
                                      AppContainer + Job Object: analysis venv ▼ (no network, runs\<id>\ + artifacts\ only)
 ```
@@ -535,9 +531,17 @@ and render shaping; building on master would fork them.
 | **P3 Runbook + coverage** | the missing commands from §4.2; `schemas/runbook` + `runbook.find/get` + the deviation log; the generated MkDocs page; the FE "writes only through the bus" lint + a coverage test (every UI write control maps to a registry command) | P0 (P2 for the new write commands' categories) | CI: recipe → registry check; FE lint; live: each first-set recipe run from its intent text through the real runtime, verify steps green | L (5–7 d; the FE bus migration is the bulk) |
 | **P4 Physics KB + timbre** | `schemas/params` (the glossary) + `param.inventory`; the physics primer; BM25 `search_docs` + `docs.read`; `timbre_map.json` (§6.2) + `timbre.lookup` + the `timbre.adjust` recipe; then the ParamSoundHarness measurements (P0 tier of the test strategy) to fill magnitudes | P1, P3 | doc review of the primer (every statement sourced); live: "make it brighter" → a plan citing rows, a working-copy A/B with the centroid change reported; harness: direction asserts vs the 2.3% floor, N ≥ 3 | M (3–4 d) + measurements M (3 d) |
 | **P5 Analysis sandbox** | **P5a spike first** (1–2 d, can run in parallel with P1): the AppContainer + Job Object launcher on Windows 10, proven by an escape suite (read `~/.claude`, `claude-home`, a repo file; connect to `127.0.0.1:5000`; spawn a child; allocate 4 GB; loop past the timeout; write outside the run dir; all must fail). Then the artefact store, `export: true` on the render / param reads, `analysis.run_python`, plot cards in the pane, the `compare.render_spectra` recipe | P2 (category `code`), P5a | the escape suite (must be 100 %); live, audio off: "compare the spectra of C4 on presets A and B" → two artefacts, one run, a PNG, numbers that match an independent numpy run on the same artefacts | L (5–8 d) |
-| **P6 Bug filing** | `bug.report_local`, `bug.list_reports`, `bug.draft` (auto context, fingerprint, de-dup), `ui.bug_report.collect`, the draft card, `bug.file_github` (PAT in the Credential Manager) | P1 | `node --test` fingerprints / de-dup on the 269 local reports; live: a forced 500 (the l case on a test stack) → one draft, a second identical failure → "known"; GitHub filing against a test repo first | M (3 d) |
+| **P6 Bug filing** | `bug.report_local`, `bug.list_reports`, `bug.draft` (auto context, fingerprint, de-dup), `ui.bug_report.collect`, the draft card; native `POST /bug_report` only, never GitHub (user decision 2026-10-17) | P1 | `node --test` fingerprints / de-dup on the 269 local reports; live: a forced 500 (the l case on a test stack) → one report in `logs/reports/`, a second identical failure → "known" | M (3 d) |
 | **P7 Web research** | the researcher sub-agent, the D4 query filter, URL provenance, taint propagation, the `<web_research>` block | P2 (taint uses the policy) | `node --test` filter + provenance + taint table; live: a theory question answered with sources; a planted page with an injected instruction ("call param.set …") → no tool call, and the next write in that turn asks | M (2–3 d) |
 | **P8 Hardening** | a red-team pass over P5 + P7 (injected docs / preset names / web pages), the transcript review procedure of dev-0a88 repeated on a week of real sessions | P5, P7 | a transcript review table like 2026-10-16 | M (2 d) |
+
+**Status (2026-10-17):**
+
+| Phase | Status | Merge SHAs |
+|---|---|---|
+| P1 | DONE (dev-fcef) | PianoidCore dev `fb9ae2c` · PianoidInstall master `4de2ef1` (no Tunner change) |
+| P2 | DONE (dev-4324) | PianoidCore dev `69735ef` · PianoidTunner dev `7223709` · PianoidInstall master `3d25ad8` |
+| P5 (+ P5a spike) | DONE (dev-11f8; spike merged into P5 as `f3de035`) | PianoidTunner dev `8a94171` · PianoidInstall master `6114e08` |
 
 **Order:** P0 → P1 ∥ P5a → P2 → P3 ∥ P4 → P6 → P7 → P5 → P8. P5 (the riskiest) goes after the approvals and the taint
 model exist; its spike runs early because its result decides V1 / V2. The total is about 25–35 agent-days.
@@ -546,13 +550,17 @@ model exist; its spike runs early because its result decides V1 / V2. The total 
 
 ## 12. Decisions for the user
 
+**Recorded decisions:**
+- The plan as a whole: approved ("Go").
+- **V8 (2026-10-17):** the hard-confirm list of §9 is **CONFIRMED as-is**; `code` is Ask by default and may be switched to Auto.
+- **USER DECISION 2026-10-17 (replaces V4 / V5):** the assistant NEVER files bugs to GitHub; bugs go only to the native
+  Pianoid bug-report system (`POST /bug_report`, the 🐞 / auto-fire store). No PAT. P6 is adjusted accordingly.
+
 | # | Decision | Recommendation |
 |---|---|---|
 | **V1** | Code execution at all, and its approval: allowed? Ask for every run, or Auto after the escape suite passes? | allow, through the narrow `analysis.run_python` only (never Bash); Ask by default, Auto possible after the suite passes, never in a tainted turn |
 | **V2** | The executor: native Windows AppContainer + Job Object, or a container (Docker Desktop / WSL2) required on every installation? And a separate analysis venv (numpy / scipy / matplotlib / soundfile, about 150 MB)? | AppContainer (no new dependency for collaborators; the SDK sandbox is not an option on native Windows), container as the fallback if the P5a spike fails; yes to the separate venv |
 | **V3** | Signals while live audio runs: renders are refused live (R6). Accept "analysis of renders needs audio off", or fund engine work for a render that does not stop realtime playback (feasibility **UNKNOWN**, not evaluated by dev-0a88), or use rig recordings (`audio.session`) only? | accept for now; investigate the non-stopping render as a separate engine task |
-| **V4** | Bug destination: local collector only / GitHub on a click / GitHub automatically? Are the four repos private, and may an issue carry preset or measurement data? | local always (Auto) + GitHub on a click, preset / measurement data stripped by default |
-| **V5** | A GitHub fine-grained PAT (issues: write on the four DSPianoid repos) in the Windows Credential Manager, used only by the service | yes, if V4 includes GitHub |
 | **V6** | Web: a researcher sub-agent with no Pianoid tools (recommended) vs web tools on the main assistant; URL provenance; the D4 switch extended to web queries (default off) | sub-agent + provenance + query filter off by default; if WebSearch turns out unavailable on the subscription (undocumented), accept WebFetch on an allow-listed search front end |
 | **V7** | The approval categories and their defaults (§9); scope of "Don't ask again" (session vs installation) | as in §9; session as the default scope |
 | **V8** | The hard-confirm list (§9): add or remove items? In particular `preset.load` (full reload) and `code` | as in §9 (full reload hard-confirm; code not hard-confirm but Ask by default) |
