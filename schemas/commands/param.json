@@ -119,6 +119,18 @@
         }
       },
       "result": {"type": "object"}
+    },
+    {
+      "name": "param.inventory",
+      "title": "Read the parameter inventory",
+      "description": "The parameter glossary (schemas/params): every parameter domain with its key space, row shape, stored vs effective, the command that reads / writes it and the doc anchor; with {domain} one domain with every field (units, range, class stored / derived / read-only, one-line meaning, doc anchor). UNKNOWN = the docs do not state it: never present it as known, measure it.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-paraminventory",
+      "route": {"method": "GET", "path": "/param/inventory"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {"domain": {"type": "string", "description": "one domain, e.g. mode, string, hammer, feedin_mask, runtime, load_settings; omit for the overview"}}},
+      "result": {"type": "object"}
     }
   ]
 }

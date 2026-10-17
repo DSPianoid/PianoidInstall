@@ -1,0 +1,106 @@
+{
+  "group": "string",
+  "description": "Per-pitch string physics (the FDTD string model) as served by GET /get_parameter/string.",
+  "domains": [
+    {
+      "domain": "string",
+      "title": "String physics",
+      "read": "param.get {parameter: string, key_no}",
+      "write": "param.set {parameter: string, key_no, values} (values = {pitch: {field: value}}, the GET shape; REST_API also documents the alias parameter name 'physics')",
+      "key_space": "piano pitch (the preset's key range, e.g. 23..106); output pitches 128+ are rejected 416",
+      "shape": "{field: value} per pitch; length in metres",
+      "stored_vs_effective": "Fields are stored per pitch; tail is DERIVED (= length/10), never independently stored, and re-derived on a length edit (Data Model Card). Physics edits change the level by physics and are kept as heard: they do NOT clear output_scale_calibrated (Layer B edit policy). A string edit is checked against the FDTD CFL bound; how a breach is handled is a doc conflict (see _index.json doc_conflicts).",
+      "doc": "modules/pianoid-middleware/REST_API.md#parameter-key-spaces-data-model-card-measured-dev-960f-i0",
+      "fields": [
+        {
+          "name": "length",
+          "units": "metres (main-section physical length, p_main * dx)",
+          "range": "finite (NaN/Inf rejected 400); no other documented bound",
+          "class": "stored",
+          "meaning": "Main-section (speaking) physical length; a POSTed value is interpreted as metres and re-derives dx and tail; length up -> pitch down.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        },
+        {
+          "name": "tail",
+          "units": "UNKNOWN (the Data Model Card gives tail = length/10; PARAMETER_SYSTEM slot 1 calls the engine value a tail point count)",
+          "range": "UNKNOWN",
+          "class": "derived",
+          "meaning": "Derived tail section (= length/10), read-only: never independently stored.",
+          "doc": "modules/pianoid-middleware/REST_API.md#parameter-key-spaces-data-model-card-measured-dev-960f-i0"
+        },
+        {
+          "name": "tension",
+          "units": "N",
+          "range": "finite; must keep the FDTD amplification max|g| <= 1 (two-sided box 8*coeff_bending <= coeff_tension <= 1 + 8*coeff_bending)",
+          "class": "stored",
+          "meaning": "String tension T; f0 rises as sqrt(T); raising it raises coeff_tension and the CFL ratio (check stability_ratio first).",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#physicalparameters"
+        },
+        {
+          "name": "rho",
+          "units": "kg/m (linear mass density)",
+          "range": "finite; part of the CFL combination check",
+          "class": "stored",
+          "meaning": "Linear (per-unit-length) density; rho up -> f0 down; in the physical string-gain model it also feeds the excitation coefficient G = R/(rho*dx^2).",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#physicalparameters"
+        },
+        {
+          "name": "r",
+          "units": "m (string radius)",
+          "range": "finite; part of the CFL combination check (bending stiffness scales with r^4)",
+          "class": "stored",
+          "meaning": "String radius; r up -> inharmonicity B up (B scales with r^4); tightens the CFL bound through coeff_bending.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#physicalparameters"
+        },
+        {
+          "name": "jung",
+          "units": "UNKNOWN (documented as a Young's modulus coefficient, no unit stated)",
+          "range": "finite; part of the CFL combination check; the Belarus preset stores it negative (SYNTHESIS_ENGINE)",
+          "class": "stored",
+          "meaning": "Young's modulus coefficient E of the bending-stiffness term; E up -> inharmonicity B up.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#physicalparameters"
+        },
+        {
+          "name": "gamma",
+          "units": "UNKNOWN (viscous / velocity damping coefficient; dt-scaled in the engine)",
+          "range": "finite; no other documented bound (velocity damping does not change the CFL bound)",
+          "class": "stored",
+          "meaning": "Velocity damping gamma of the string PDE; gamma up -> decay time tau down (shorter sustain).",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#wave-equation-fdtd-string-simulation"
+        },
+        {
+          "name": "dispersion_damping",
+          "units": "UNKNOWN (per-sub-step effect at the reference grid 48 kHz x 4; the engine applies x dt/dt_ref)",
+          "range": "finite; raising it TIGHTENS the CFL bound",
+          "class": "stored",
+          "meaning": "Frequency-dependent (HF) damping gamma_HF (model name disp_decay, engine slot frequency_damping); up -> faster high-frequency decay.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#numerical-scheme-invariants"
+        },
+        {
+          "name": "detuning",
+          "units": "fraction (per-string detuning step)",
+          "range": "UNKNOWN",
+          "class": "stored",
+          "meaning": "Per-string tension detuning step (model name tension_offset) for the chorus effect of multi-string unisons; up -> beat rate up; honoured by the CFL check per string.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#pitch"
+        },
+        {
+          "name": "damper_string",
+          "units": "UNKNOWN (per-sub-step effect at the reference grid 48 kHz x 4)",
+          "range": "UNKNOWN",
+          "class": "stored",
+          "meaning": "Damper coefficient on the string, multiplied by the damper step count (18 closed, 0 open while the key is held); up -> shorter release.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#coefficient-scaling-table"
+        },
+        {
+          "name": "damper_tail",
+          "units": "dimensionless multiplier on damper_string",
+          "range": "UNKNOWN (examples: default 127, FPGA converter 1..1e6)",
+          "class": "stored",
+          "meaning": "Tail damper: tail decrement = damper_string * damper_tail; stock presets store damper_tail == damper_string, so it is near-inert until set as a multiplier (e.g. 127).",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#coefficient-scaling-table"
+        }
+      ]
+    }
+  ]
+}

@@ -153,7 +153,17 @@ test('escalation in auto mode; forced model ignores it; Stop denies a pending co
   try {
     t.send({ type: 'turn', text: 'research this' });
     await t.waitFor((m) => m.type === 'model' && m.escalated === true && m.current === 'claude-opus-5-5');
-    await t.waitFor((m) => m.type === 'model' && m.escalated === false && m.current === 'claude-sonnet-5-5');  // back after the turn
+    const routes = () => t.msgs.filter((m) => m.type === 'activity' && m.entry.command === 'model route').map((m) => m.entry);
+    await t.waitFor((m) => m.type === 'busy' && m.busy === false);
+    assert.match(routes()[0].reason, /^Opus: code \/ analysis \("research"\)/);     // v2 pre-route (layer 1)
+    // stickiness: the next 2 turns stay on Opus, the third returns to Sonnet
+    for (const [i, expect] of [[1, /sticky follow-up \(1 of 2/], [2, /sticky follow-up \(2 of 2/], [3, /^Sonnet: plain action/]]) {
+      t.msgs.length = 0;
+      t.send({ type: 'turn', text: `open Modes ${i}` });
+      await t.waitFor((m) => m.type === 'busy' && m.busy === false);
+      assert.match(routes()[0].reason, expect);
+    }
+    await t.waitFor((m) => m.type === 'model' && m.escalated === false && m.current === 'claude-sonnet-5-5');
     t.send({ type: 'settings', model: 'sonnet' });
     await t.waitFor((m) => m.type === 'state' && m.modelChoice === 'sonnet');
     t.msgs.length = 0;

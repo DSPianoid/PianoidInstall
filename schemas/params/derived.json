@@ -1,0 +1,86 @@
+{
+  "group": "derived",
+  "description": "Read-only or engine-derived quantities: the FDTD stability ratio and the Layer B per-preset output level.",
+  "domains": [
+    {
+      "domain": "stability_ratio",
+      "title": "FDTD CFL / Courant stability ratio",
+      "read": "param.get {parameter: stability_ratio, key_no} (key_no a pitch, 'all', 'output' or 'from<a>to<b>')",
+      "write": "read-only (POST not supported)",
+      "key_space": "piano pitch; output pitches (>= 128) report the sentinel 1.0 / stable",
+      "shape": "per pitch {ratio, stable, strings: [{string_index, ratio, stable}]} plus a top-level _meta {cfl_limit, criterion, formula}",
+      "stored_vs_effective": "Derived host-side from the current string physics via the closed-form amplification (no GPU round-trip), honouring the per-string tension_offset. Reports the EXACT max|g| boundary, not the margin-shifted acceptance threshold.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+      "fields": [
+        {
+          "name": "ratio",
+          "units": "max_theta |g(theta)| (amplification factor, dimensionless)",
+          "range": "<= 1 stable (CFL_LIMIT = 1); a lossless string sits at exactly 1.0",
+          "class": "derived",
+          "meaning": "Worst-string FDTD amplification of the pitch; > 1 diverges.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#fdtd-stability-cfl-courant-bound"
+        },
+        {
+          "name": "stable",
+          "units": "bool",
+          "range": "true | false",
+          "class": "derived",
+          "meaning": "Whether ratio is within CFL_LIMIT.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        },
+        {
+          "name": "strings",
+          "units": "list of {string_index, ratio, stable}",
+          "range": "one entry per string of the pitch",
+          "class": "derived",
+          "meaning": "Per-string ratios (unison strings differ by tension_offset).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        },
+        {
+          "name": "_meta",
+          "units": "{cfl_limit, criterion, formula}",
+          "range": "cfl_limit = 1",
+          "class": "read-only",
+          "meaning": "The limit and the criterion the ratios are measured against.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        }
+      ]
+    },
+    {
+      "domain": "output_level",
+      "title": "Layer B per-preset output level (output_scale)",
+      "read": "runtime.get (output_scale, effective_volume_center); the full block: REST GET /health output_scale (no registry system.health yet)",
+      "write": "none in the registry; REST POST /recalibrate_output_level {absolute?, chord_peak_dbfs?} (stops and restarts the realtime engine around an offline render). Never trigger an offline calibration render on a live engine.",
+      "key_space": "global for the active preset (state_changed keys [])",
+      "shape": "{output_scale, calibrated, target_dbfs} (state event after); /health adds value, stale, settings_match, load_settings, last_calibration, reference_impulse, impulse, impulse_level_db, target_source, warning",
+      "stored_vs_effective": "Persisted per preset (model_parameters.output_scale + output_scale_calibrated); engine volume_center = bare volume_center x output_scale. Derived by an offline p60 v127 render only when the flag is false, never on a live engine; valid only at the load settings it was measured at. Shape edits (gauss, hammer) clear the flag; level edits (excitation_energy) and physics edits (string, mode) do not. Never edit it to change loudness; global loudness = runtime volume.",
+      "doc": "modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale",
+      "fields": [
+        {
+          "name": "output_scale",
+          "units": "linear scale factor",
+          "range": "UNKNOWN",
+          "class": "derived",
+          "meaning": "Per-preset linear scale that lands p60 v127 at the calibration target at slider 64.",
+          "doc": "modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale"
+        },
+        {
+          "name": "calibrated",
+          "units": "bool",
+          "range": "true | false",
+          "class": "stored",
+          "meaning": "output_scale_calibrated: false = stale (a shape edit or genesis), the stored scale stays in use until a legal calibration runs.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-health"
+        },
+        {
+          "name": "target_dbfs",
+          "units": "dBFS",
+          "range": "null = engine default -2 dBFS; chord-headroom calibration takes chord_peak_dbfs in [-40, -1]",
+          "class": "stored",
+          "meaning": "The dBFS that p60 v127 is calibrated to at slider 64 (output_scale_target_dbfs).",
+          "doc": "modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale"
+        }
+      ]
+    }
+  ]
+}

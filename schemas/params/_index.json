@@ -1,0 +1,84 @@
+{
+  "description": "Machine-readable parameter inventory of the Pianoid engine (the parameter glossary): every parameter domain and field with units, range, key space, stored vs derived/effective, the registry command that reads / writes it and its doc anchor. Served to the in-UI assistant by param.inventory. Every value is taken from the docs; anchors are relative to docs/ (MkDocs slugs).",
+  "files": [
+    "string.json",
+    "mode.json",
+    "excitation.json",
+    "coupling.json",
+    "derived.json",
+    "runtime.json",
+    "load.json"
+  ],
+  "unknown_policy": "UNKNOWN = the docs do not state it; measure before relying on it",
+  "doc_conflicts": [
+    {
+      "what": "Hammer width floor: Basic OVERVIEW says the width is clamped to a minimum of 3*dx; REST_API says the rendered width is hammer_width_effective = max(stored, 1.05*dx).",
+      "sources": [
+        "modules/pianoid-basic/OVERVIEW.md#pianohammer",
+        "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+      ]
+    },
+    {
+      "what": "CFL handling of a string edit: REST_API (v2) says an edit that would diverge is REJECTED with 400 CflRejected and never applied; PARAMETER_SYSTEM says the granular gate SKIPS the upload (edit stays in the Python model, no 4xx, accept threshold CFL_MARGIN = 0.8 on the Courant number); SYNTHESIS_ENGINE (v3, 2026-07-08) says the gate is REMOVED, CFL is an indicator only and every edit is applied.",
+      "sources": [
+        "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection",
+        "modules/pianoid-cuda/PARAMETER_SYSTEM.md#host-side-cfl-stability-gate-physical-params-granular-path",
+        "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#where-the-cfl-reading-lives-v3-host-side-indication-only-gate-removed"
+      ]
+    },
+    {
+      "what": "gauss_flat length: REST_API says a flat array of 100 values (5 levels x 20); Basic OVERVIEW says 6 base velocity levels (LEVEL_INDICES 0,5,31,63,95,127) with 20 reals per level, legacy 5-level presets migrated on load.",
+      "sources": [
+        "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+        "modules/pianoid-basic/OVERVIEW.md#gausscurve-and-excitationcurve"
+      ]
+    },
+    {
+      "what": "Output-pitch feedin: Basic OVERVIEW 'Coupling Coefficients' says feedback equals feedin for both regular AND output pitches; the 'Output Pitches' table (and SYNTHESIS_ENGINE) say output pitches have feedin = 0 and feedback = the mode shape at the receiver.",
+      "sources": [
+        "modules/pianoid-basic/OVERVIEW.md#coupling-coefficients",
+        "modules/pianoid-basic/OVERVIEW.md#output-pitches-receiver-points",
+        "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#coupling-coefficients"
+      ]
+    },
+    {
+      "what": "Effectiveness of stored feedback rows: /health single_deck_matrix says the active build has ONE packed matrix (feedin only), feedback = feedin x deck_feedback_coeff, and the per-pitch feedback matrix editor is meaningless; the Sound-channel editing section measures that feedback/<128+ch> row edits change the render. Which feedback rows (piano vs output pitches) are kernel-effective is not stated in one place.",
+      "sources": [
+        "modules/pianoid-middleware/REST_API.md#get-health",
+        "modules/pianoid-middleware/REST_API.md#sound-channel-editing-what-the-frontend-uses",
+        "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#coupling-coefficients"
+      ]
+    },
+    {
+      "what": "Runtime parameters and the volume formula: PARAMETER_SYSTEM lists RuntimeParameters as {volume_level, deck_feedback_coefficient} with only the legacy max_volume^(level/127) formula; REST_API documents volume_center / volume_range (the default sensitivity formula center*range^((level-64)/63)), amplitude_limit and amplitude_gate_enabled.",
+      "sources": [
+        "modules/pianoid-cuda/PARAMETER_SYSTEM.md#parameter-categories",
+        "modules/pianoid-cuda/PARAMETER_SYSTEM.md#volume-calculation",
+        "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+      ]
+    },
+    {
+      "what": "String 'tail': the Data Model Card says the GET field tail is DERIVED (= length/10); PARAMETER_SYSTEM slot 1 and Basic StringGeometry call tail a spatial point count. The unit of the GET value is therefore unstated.",
+      "sources": [
+        "modules/pianoid-middleware/REST_API.md#parameter-key-spaces-data-model-card-measured-dev-960f-i0",
+        "modules/pianoid-cuda/PARAMETER_SYSTEM.md#physical-parameters-16-per-string",
+        "modules/pianoid-basic/OVERVIEW.md#stringgeometry"
+      ]
+    },
+    {
+      "what": "Mode state layout: SYNTHESIS_ENGINE 'Discrete update' says dev_mode_state holds only the 3xN config (dec, omega, mass_inv) with q / q_prev in dev_mode_running; 'Mode Excitation' still describes dev_mode_state as the 5N [q, q_prev, dec, omega, mass_inv] layout.",
+      "sources": [
+        "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#discrete-update",
+        "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#mode-excitation"
+      ]
+    },
+    {
+      "what": "Defaults differ by layer: string_iteration defaults to 12 in Basic ModelParameters, 4 in the documented /load_preset body, 6 in GET /get_settings; listen_to_modes defaults to False in Basic ModelParameters but 1 in /load_preset.",
+      "sources": [
+        "modules/pianoid-basic/OVERVIEW.md#modelparameters",
+        "modules/pianoid-middleware/REST_API.md#post-load_preset",
+        "modules/pianoid-middleware/REST_API.md#get-get_settings"
+      ]
+    }
+  ]
+}

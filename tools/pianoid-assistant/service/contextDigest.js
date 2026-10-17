@@ -119,11 +119,21 @@ export function warnings({ backend, audio, level, load, layout, ui }) {
   return w;
 }
 
-/** The whole digest. `raw` = {health, runtime, load, presets, jobs, ui} (unreachable -> {unreachable: true}). */
+/**
+ * The environment fingerprint line (v2 P1): GPU, build variant, repo branch@SHA ('*' = dirty), output map,
+ * from GET /system/environment `fingerprint`, so the model notices an engine / build change between turns.
+ * The full environment is the system__environment tool.
+ */
+export function environmentDigest(environment) {
+  const fp = environment && !environment.unreachable ? environment.fingerprint : null;
+  return fp ? { gpu: fp.gpu, build: fp.build, repos: fp.repos, output_map: fp.output_map ?? null } : null;
+}
+
+/** The whole digest. `raw` = {health, runtime, load, presets, jobs, ui, outputMask, environment} (unreachable -> {unreachable: true}). */
 export function buildDigest(raw) {
-  const { health = {}, runtime = {}, load = null, presets = {}, jobs = {}, ui = {}, outputMask = null } = raw;
+  const { health = {}, runtime = {}, load = null, presets = {}, jobs = {}, ui = {}, outputMask = null, environment = null } = raw;
   if (health.unreachable) {
-    return { backend: { unreachable: true }, ui: uiDigest(ui), warnings: ['The backend (:5000) is not reachable: no engine is running.'] };
+    return { backend: { unreachable: true }, ui: uiDigest(ui), environment: environmentDigest(environment), warnings: ['The backend (:5000) is not reachable: no engine is running.'] };
   }
   const backend = {
     status: health.status, pianoid_loaded: health.pianoid_loaded, exception: health.exception,
@@ -141,7 +151,7 @@ export function buildDigest(raw) {
   const uiD = uiDigest(ui);
   const running = (jobs.result?.jobs || []).filter((j) => j.state === 'running').map((j) => ({ id: j.id, name: j.name, pct: j.pct }));
   return {
-    backend, audio, level, load: loadD, layout,
+    backend, environment: environmentDigest(environment), audio, level, load: loadD, layout,
     preset: presets.unreachable ? null : { active: presets.active, entries: (presets.presets || []).map((p) => `${p.name} (${p.kind})`) },
     ui: uiD,
     runningJobs: running,

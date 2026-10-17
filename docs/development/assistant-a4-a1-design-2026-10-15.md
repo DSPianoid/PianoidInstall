@@ -163,3 +163,57 @@ The new warnings put clipping / limiter / gate / stale level in front of the mod
 (fixed on the unmerged dev-7bb0 branch). After a non-FE load, the Preset pane's "CURRENT PRESET" still names the previous file.
 `tests/unit/test_start_right_away_binary.py` fails 4/5 on dev (the fail-fast reads the preset path relative to the cwd, and the exact-body
 asserts predate `load_param_warnings`).
+
+## 9. Assistant v2 P1: state reads and the model router (dev-fcef, 2026-10-16)
+
+Implements phase P1 of the assistant v2 proposal (`docs/proposals/assistant-v2-2026-10-16.md`, Install branch `feature/plan-assistant-v2`) §3 and §5 (user approval
+2026-10-16 19:23Z), plus follow-up l.
+
+| Layer | Change |
+|---|---|
+| Core | `system_routes.py` + `system_state.py`: `GET /system/environment`, `/system/snapshot`, `/preset/files`, `/preset/summary`, `/param/inventory`, all `read_only`. The env read is an allow-list (no `ANTHROPIC_*`, tokens, `PATH`, profile; paths outside the repos redacted). [REST_API](../modules/pianoid-middleware/REST_API.md#system-state-reads-assistant-v2-p1) |
+| Core | follow-up l: `mask_rows.py`: a malformed `feedin_mask` / `feedback_mask` write answers `400 invalid_mask_row` before anything is written. Measured in session 2c86b530: these writes answered **416** with a traceback, not 500 as §8 said |
+| Registry | family `system` (`system.health`, `system.environment`, `system.snapshot`, `audio.devices`), `midi.ports`, `midi.broadcast_state`, `preset.summary`, `preset.files`, `param.inventory` (all read) |
+| Inventory | `schemas/params/*.json`: 24 domains, 77 fields, every value from the docs, `UNKNOWN` where they are silent (12 fields), 9 doc conflicts listed in `_index.json` |
+| Service | `service/router.js` (pure): layer 1 EN + RU pre-route + a crashed-engine context signal, layer 2 triggers (heavy tools, a retry of a refused command, 2 consecutive tool errors), layer 3 `escalate_model`; sticky for 2 turns; each decision is a `model route` activity entry. Digest: `environment` fingerprint (GPU, build, repo branch@SHA, output map; re-read at most every 30 s). Prompt: the new reads |
+
+**Conservative choices** (the proposal left them open): only a crashed engine routes to Opus from the context, not
+`warnings` (the F15 session had a load-mismatch warning on every turn). The "write without a matching recipe" trigger
+waits for the runbook (P3). "No sound" counts as a complaint only when phrased as one. `midi.status` is
+`midi.broadcast_state` (the listener state is in `midi.ports`). `PresetsFromFpga/` is not a preset root (it has no
+loadable JSON).
+
+**Tests:** Core `tests/unit/test_system_state.py`, `test_mask_rows.py`; assistant `test/router.test.js` with
+`test/routing-corpus.json` (57 cases: 24 transcript turns, 19 requirement examples, 14 Russian), `mcp.test.js`
+(state reads listed read-only and allowed), `contextDigest.test.js`, `service.test.js` (stickiness end to end).
+
+**Live check (2026-10-17, isolated stack).** Launcher :3012, CRA :3013 (port-rewrite initScript incl. :3002 → :3014,
+isolated browser context), backend :5012 from the worktree, assistant :3014. The real subscription runtime ran in the
+isolated home, Auto picker. F15_measured_plywood at its declared settings, `audio_on` 0, no notes played. Confirms were
+declined by the WS client. Evidence: `logs/dev-fcef-live-01-assistant-activity-routing.png` (the activity log with the
+`model route` entries).
+
+| Turn (as typed) | Route | Reads | Answer |
+|---|---|---|---|
+| What's my environment? GPU, driver, build, and which code versions are running. | Sonnet: plain action / read | `system.environment` | RTX 4090 24 GB, driver 565.90 / CUDA 12.7, release `.pyd` built 2026-10-15 17:04 UTC, Pianoid 0.1.15, both repos' branch@SHA clean, output map unset = identity |
+| What is my output map? | Sonnet | (from the context fingerprint) | unset → identity (channel k → output k), ASIO callback only, 7 channels none muted, set via `PIANOID_AUDIO_OUTPUT_MAP` before the backend starts |
+| Which presets do I have? | Sonnet | `preset.files`, `preset.list` | the files grouped by family with modes / strings / channels / listen axis, the non-presets named, the 2 library entries (original read-only + active working copy) |
+| Make the sound brighter. Only tell me your plan ... | **Opus: timbre edit** | `param.inventory` (hammer, mode, excitation, gauss), `param.get hammer 60` | a plan led by hammer width ↓ (docs), A/B renders, level recalibration; sharpness left alone because its direction is UNKNOWN in the docs |
+| And the bass? | **Opus: sticky 1 of 2** | `param.get hammer 21..40` | bass widths 0.036 to 0.087 m with an outlier at key 27 |
+| ok, lower the volume a little | **Opus: sticky 2 of 2** | `runtime.set` → confirm declined | volume still 64, nothing changed |
+| Open the Feedin pane | Sonnet: plain action / read | `ui.pane.open` | the pane was already open |
+| Почему нет звука? Ноты не играй и ничего не меняй. | **Opus: bug analysis ("нет звука")** | `system.health`, `midi.ports`, `play.stats`, `param.get` masks, `audio.devices`, `runtime.get` | every check with its value; 0 events played; the MIDI listener is off (`listen_to_midi` 0) |
+
+Follow-up l on the live route: the three session cases (a 3-value row plus a placeholder key, 198 values, one row
+for an 88-pitch range) each answered `400 invalid_mask_row` with the pitches, through `/command/param.set` and the
+direct route. `GET feedin_mask/all` was byte-identical before and after. A correct same-value row write answered 200,
+and the masks stayed unchanged.
+
+Result sizes measured via `/command` on F15: `system.snapshot` 7.2 kB, `preset.files` 11.7 kB, the `param.inventory`
+overview 13.1 kB, `system.health` 3.2 kB. All are under about 4k tokens.
+
+**Gap found (not fixed; needs measurement):** asked why there is no sound with `audio_on` 0, the assistant reported
+`audio_on` 0 while the ASIO driver is active and said it does not know what that means. The current docs do not
+define what `audio_on` 0 does to the live output. An archived note (orchestrator-session-state 2026-05-01) records
+that `audio_on` 0 still leaves `audio_driver_active` true. A digest warning would need that behaviour measured on the
+rig first, so none was added.

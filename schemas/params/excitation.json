@@ -1,0 +1,232 @@
+{
+  "group": "excitation",
+  "description": "Hammer excitation: the temporal force curve (5 Gaussians per velocity level), the spatial hammer shape, and the excitation-energy loudness factors.",
+  "domains": [
+    {
+      "domain": "gauss",
+      "title": "Temporal excitation curves (base levels)",
+      "read": "param.get {parameter: gauss, key_no}",
+      "write": "param.set {parameter: gauss, key_no, values} (the GET shape); one level of one pitch: REST POST /set_string_excitation/<pitch_no> (no registry command)",
+      "key_space": "piano pitch",
+      "shape": "per pitch: {velocity level (the 6 base levels 0,5,31,63,95,127): {component 0..4: {mu, sigma, volume, shift}}}",
+      "stored_vs_effective": "The 6 base levels are stored; the 128 levels the engine uses are linear interpolations between them. The force is the sum of 5 Gaussians with a per-component ReLU on the GPU (the GPU formula is the one used in synthesis; Python calculate() clips the total instead). In conserve mode the curve carries SHAPE: the coefficient divides the curve integral out, so loudness is set by c*m*v (excitation_energy). A curve edit is a shape edit: it clears output_scale_calibrated (recalibration trigger).",
+      "doc": "modules/pianoid-basic/OVERVIEW.md#gausscurve-and-excitationcurve",
+      "fields": [
+        {
+          "name": "mu",
+          "units": "x-units = segments of mode_iteration/sr (1.333 ms at 64 samples/cycle, 48 kHz)",
+          "range": "finite; the GPU writes segments 0..6 of the 8-segment window (9.33 ms written at 64/48 kHz)",
+          "class": "stored",
+          "meaning": "Peak time of one Gaussian component; mu up -> peak later.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#gausscurve-and-excitationcurve"
+        },
+        {
+          "name": "sigma",
+          "units": "same x-units as mu",
+          "range": "> 0 (<= 0 rejected 400); finite",
+          "class": "stored",
+          "meaning": "Width of one Gaussian component; sigma up -> wider and duller; a shorter pulse gives a louder transient at the same impulse.",
+          "doc": "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection"
+        },
+        {
+          "name": "volume",
+          "units": "dimensionless engine amplitude (no physical force unit)",
+          "range": "finite; no other documented bound",
+          "class": "stored",
+          "meaning": "Peak amplitude of one Gaussian component (curve shape; the conserve-mode coefficient divides the curve integral out).",
+          "doc": "proposals/excitation-physical-energy-2026-06-16.md#12-where-excitation-strength-is-set-today-the-magic-numbers"
+        },
+        {
+          "name": "shift",
+          "units": "fraction of volume",
+          "range": "finite; no other documented bound",
+          "class": "stored",
+          "meaning": "Vertical (baseline) offset of one component = its ReLU threshold offset; assert its effect against the GPU force buffer, never Python calculate().",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#excitation-parameter-storage-preset-region"
+        }
+      ]
+    },
+    {
+      "domain": "gauss_full",
+      "title": "Temporal excitation curves (all 128 levels)",
+      "read": "param.get {parameter: gauss_full, key_no}",
+      "write": "read-only in practice (no documented POST form; edit the base levels through gauss)",
+      "key_space": "piano pitch",
+      "shape": "per pitch: {velocity level 0..127: {component 0..4: {mu, sigma, volume, shift}}} (same fields as gauss)",
+      "stored_vs_effective": "Levels other than the 6 base levels are interpolated (derived) from the base levels.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+      "fields": []
+    },
+    {
+      "domain": "gauss_flat",
+      "title": "Temporal excitation curves (flat array)",
+      "read": "param.get {parameter: gauss_flat, key_no}",
+      "write": "read-only in practice (no documented POST form)",
+      "key_space": "piano pitch",
+      "shape": "flat array per pitch; REST_API says 100 values (the GPU per-level layout is [mu x5, sigma x5, volume x5, shift x5]); length vs 6 base levels is a doc conflict (see _index.json)",
+      "stored_vs_effective": "Same stored base-level data as gauss, flattened.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+      "fields": []
+    },
+    {
+      "domain": "string_excitation_curves",
+      "title": "One velocity level of one pitch's curves",
+      "read": "param.get {parameter: gauss, key_no: <pitch>} (no GET of its own)",
+      "write": "none in the registry; REST POST /set_string_excitation/<pitch_no> {level, curves: {component: {sigma, mu, volume, shift}}}",
+      "key_space": "one piano pitch (path) + one velocity level (body)",
+      "shape": "{level, curves: {component index: {sigma, mu, volume, shift}}}",
+      "stored_vs_effective": "Writes the same stored curves as gauss; the state_changed event for this domain carries after = null (the client refetches the pitch). Shape edit: clears output_scale_calibrated.",
+      "doc": "modules/pianoid-middleware/REST_API.md#post-set_string_excitationpitch_no",
+      "fields": [
+        {
+          "name": "level",
+          "units": "velocity level index",
+          "range": "UNKNOWN",
+          "class": "stored",
+          "meaning": "The velocity level whose curves are set.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_string_excitationpitch_no"
+        },
+        {
+          "name": "curves",
+          "units": "per component: mu / sigma / volume / shift as in gauss",
+          "range": "sigma > 0; every field finite (else 400 before any state change)",
+          "class": "stored",
+          "meaning": "Gaussian component parameters of that level, keyed by component index.",
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_string_excitationpitch_no"
+        }
+      ]
+    },
+    {
+      "domain": "hammer",
+      "title": "Spatial hammer shape",
+      "read": "param.get {parameter: hammer, key_no}; the exact per-node shape: REST GET /get_hammer_shape/<pitch_no> (no registry command)",
+      "write": "param.set {parameter: hammer, key_no, values} (values = {pitch: {hammer: {...}}}, the GET shape; GET -> POST is the identity); REST POST /set_hammer_shape/<pitch_no> {shape, width, position, sharpness}",
+      "key_space": "piano pitch",
+      "shape": "{hammer: {hammer_shape, hammer_width, hammer_position, hammer_sharpness, hammer_radius, hammer_width_effective}} per pitch",
+      "stored_vs_effective": "hammer_width is STORED; hammer_width_effective (rendered = max(stored, 1.05*dx)) and hammer_radius are derived, read-only. A legacy sub-floor stored width is kept as stored until a real width edit floors it. Read-only fields are ignored on POST, a field equal to the stored value is not an edit, an unknown field -> 416. Hammer geometry edits are shape edits: they clear output_scale_calibrated.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+      "fields": [
+        {
+          "name": "hammer_width",
+          "units": "m",
+          "range": "finite; the rendered width has a floor (doc conflict: 1.05*dx in REST_API vs 3*dx in Basic OVERVIEW)",
+          "class": "stored",
+          "meaning": "Hammer contact width; width up -> spectral centroid down (duller).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        },
+        {
+          "name": "hammer_width_effective",
+          "units": "m",
+          "range": ">= the width floor",
+          "class": "derived",
+          "meaning": "The width the engine renders = max(stored, 1.05*dx); read-only.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        },
+        {
+          "name": "hammer_position",
+          "units": "ratio of l_main",
+          "range": "[0, 1]",
+          "class": "stored",
+          "meaning": "Strike point along the main string; striking at L/n suppresses the n-th partial (comb filter).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_hammer_shapepitch_no"
+        },
+        {
+          "name": "hammer_sharpness",
+          "units": "0..1",
+          "range": "[0, 1]",
+          "class": "stored",
+          "meaning": "Curvature parameter of the hammer profile; its centroid direction is UNKNOWN (needs a one-time measurement per the test strategy).",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#pianohammer"
+        },
+        {
+          "name": "hammer_shape",
+          "units": "enum: 'circular' (default) | 'parabolic'",
+          "range": "'circular' | 'parabolic'",
+          "class": "read-only",
+          "meaning": "Profile function of the hammer; ignored on a param.set (read-only field).",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#pianohammer"
+        },
+        {
+          "name": "hammer_radius",
+          "units": "dimensionless ratio (pack() converts radius to a ratio for the kernel)",
+          "range": "UNKNOWN",
+          "class": "derived",
+          "meaning": "Arc radius of the circular profile derived from width and sharpness; read-only.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#pianohammer"
+        }
+      ]
+    },
+    {
+      "domain": "excitation",
+      "title": "Combined hammer + temporal excitation",
+      "read": "param.get {parameter: excitation, key_no}",
+      "write": "param.set {parameter: excitation, key_no, values} (sigma > 0 is enforced on this route)",
+      "key_space": "piano pitch",
+      "shape": "per pitch: the hammer GET block plus an 'excitation' flat array of the base-level curve parameters",
+      "stored_vs_effective": "Combines the stored hammer and gauss data; see those domains.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+      "fields": [
+        {
+          "name": "hammer",
+          "units": "as the hammer domain",
+          "range": "as the hammer domain",
+          "class": "stored",
+          "meaning": "The hammer block of the pitch (see domain hammer).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        },
+        {
+          "name": "excitation",
+          "units": "as the gauss fields",
+          "range": "UNKNOWN",
+          "class": "stored",
+          "meaning": "Flat array of the temporal curve parameters (see gauss_flat).",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no"
+        }
+      ]
+    },
+    {
+      "domain": "excitation_energy",
+      "title": "Excitation energy (loudness factors)",
+      "read": "none in the registry; REST GET /excitation_energy",
+      "write": "none in the registry for a direct edit (REST POST /excitation_energy, any subset of the fields); calibration.synthesis / calibration.acoustic change hammer_mass",
+      "key_space": "hammer_mass: piano pitch; hammer_speeds: the 6 velocity breakpoints; excitation_impulse_calibration: global",
+      "shape": "{hammer_mass: {pitch: kg}, hammer_speeds: [6], excitation_impulse_calibration: c, level_indices: [6]}",
+      "stored_vs_effective": "Stored model values, persisted per preset; the engine uses the composed per-(string, level) coefficient c*m*v*G/(temporal*spatial). These are LEVEL edits (by-design loudness): they do NOT clear output_scale_calibrated, and a re-calibration keeps the mass/speed/c level (impulse reference). Global loudness belongs to the runtime volume, not here.",
+      "doc": "modules/pianoid-middleware/REST_API.md#calibration-endpoints",
+      "fields": [
+        {
+          "name": "hammer_mass",
+          "units": "kg (UI may show grams)",
+          "range": "physical range 2-20 g (0.002-0.020 kg); /rescale_hammer_mass and every calibration pass move all masses into it with one common factor",
+          "class": "stored",
+          "meaning": "Per-pitch hammer mass, the per-pitch loudness lever (mass up -> louder); one value per pitch, every velocity level.",
+          "doc": "proposals/excitation-physical-energy-2026-06-16.md#34-the-tunable-per-pitch-mass-parameter-d5"
+        },
+        {
+          "name": "hammer_speeds",
+          "units": "m/s",
+          "range": "UNKNOWN (defaults ppp 0.3 -> fff 5.5 m/s, linear between the 6 breakpoints)",
+          "class": "stored",
+          "meaning": "Six per-velocity-level hammer speeds (at level_indices); the per-level loudness (speed up -> louder).",
+          "doc": "proposals/excitation-physical-energy-2026-06-16.md#33-the-speedlevel-mapping-tunable-per-level-speeds-d2"
+        },
+        {
+          "name": "excitation_impulse_calibration",
+          "units": "N*s -> engine-amplitude constant",
+          "range": "UNKNOWN",
+          "class": "stored",
+          "meaning": "Global calibration constant c mapping the impulse m*v to engine amplitude; a clean global rescale.",
+          "doc": "proposals/excitation-physical-energy-2026-06-16.md#33-the-speedlevel-mapping-tunable-per-level-speeds-d2"
+        },
+        {
+          "name": "level_indices",
+          "units": "MIDI velocity",
+          "range": "[0, 5, 31, 63, 95, 127]",
+          "class": "read-only",
+          "meaning": "The velocity breakpoints the 6 hammer_speeds belong to.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#modelparameters"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "group": "mode",
+  "description": "Soundboard resonance modes (damped harmonic oscillators) as served by GET /get_parameter/mode.",
+  "domains": [
+    {
+      "domain": "mode",
+      "title": "Resonance modes",
+      "read": "param.get {parameter: mode, key_no}",
+      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?}})",
+      "key_space": "MODE index 0..num_modes-1 (not a pitch; the only domain keyed by mode)",
+      "shape": "{field: value} per mode",
+      "stored_vs_effective": "frequency, decrement and mass_inv are stored; stiffness and damping are derived (read-only); mass is a read-only legacy alias of mass_inv. Mode edits are physics edits: they do NOT clear output_scale_calibrated.",
+      "doc": "modules/pianoid-middleware/REST_API.md#parameter-key-spaces-data-model-card-measured-dev-960f-i0",
+      "fields": [
+        {
+          "name": "frequency",
+          "units": "Hz, as a small-angle parameter: the mode plays acos(1 - omega/2)*sr/(2*pi) Hz, sharp of frequency by about (pi*f/sr)^2/6 (+1 cent at 1 kHz, +100 cents at 8.9 kHz, 48 kHz)",
+          "range": ">= 0 (< 0 rejected 400); finite",
+          "class": "stored",
+          "meaning": "Mode frequency; moving it moves that partial of the output.",
+          "doc": "modules/pianoid-basic/OVERVIEW.md#piano_mode-and-modemap"
+        },
+        {
+          "name": "decrement",
+          "units": "UNKNOWN (enters dec = dt * decrement * frequency)",
+          "range": ">= 0 (< 0 rejected 400: negative damping grows without bound); finite",
+          "class": "stored",
+          "meaning": "Mode damping; decrement up -> that band's decay time tau down.",
+          "doc": "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection"
+        },
+        {
+          "name": "mass_inv",
+          "units": "UNKNOWN (inverse-mass coefficient 1/m on the preset's calibration scale, not SI)",
+          "range": "> 0 (<= 0 rejected 400); finite",
+          "class": "stored",
+          "meaning": "Inverse-mass coefficient multiplying the applied force (q'' + 2*gamma*q' + omega^2*q = mass_inv * F); UI label 1/mass; up -> louder mode.",
+          "doc": "modules/pianoid-cuda/MODE_PHYSICS.md#tldr"
+        },
+        {
+          "name": "stiffness",
+          "units": "UNKNOWN (calibration convention, not SI)",
+          "range": "UNKNOWN",
+          "class": "derived",
+          "meaning": "Derived read-only: stiffness = mass_inv * (2*pi*f)^2 (mass_inv plays the role of m in this calibration convention).",
+          "doc": "modules/pianoid-cuda/MODE_PHYSICS.md#what-did-not-change"
+        },
+        {
+          "name": "damping",
+          "units": "UNKNOWN (calibration convention, not SI)",
+          "range": "UNKNOWN",
+          "class": "derived",
+          "meaning": "Derived read-only: damping = 2*zeta*sqrt(k * mass_inv).",
+          "doc": "modules/pianoid-cuda/MODE_PHYSICS.md#what-did-not-change"
+        },
+        {
+          "name": "mass",
+          "units": "same as mass_inv",
+          "range": "same as mass_inv",
+          "class": "read-only",
+          "meaning": "Legacy GET alias with the same value as mass_inv; a POSTed 'mass' is still accepted with a deprecation warning, 'mass_inv' is preferred.",
+          "doc": "modules/pianoid-cuda/MODE_PHYSICS.md#what-the-user-sees"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "group": "coupling",
+  "description": "String-mode coupling (the deck rows), their persistent mute masks, and the output sound-channel tables.",
+  "domains": [
+    {
+      "domain": "feedin",
+      "title": "Deck feed-in (string -> mode)",
+      "read": "param.get {parameter: feedin, key_no}",
+      "write": "param.set {parameter: feedin, key_no, values} (values = {pitch: [num_modes]}); to silence modes use param.mute_modes (mask, don't zero)",
+      "key_space": "piano PITCH (not a mode; feedin/3 addresses pitch 3, a mode index is 416); output pitches 128+ are rejected 416",
+      "shape": "[num_modes] row per pitch, indexed by mode",
+      "stored_vs_effective": "Raw row stored; effective = raw x feedin_mask at pack time. Values are a per-mode normalised spatial coupling in 0..1 (1 = the mode's spatial maximum over all bridge positions); raw un-normalised magnitudes (~1e-4) give near-silent output. On a flat-tier preset one value is written to all flat columns of an edited row (/health mode_layout). No Layer B level class.",
+      "doc": "modules/pianoid-middleware/REST_API.md#parameter-key-spaces-data-model-card-measured-dev-960f-i0",
+      "fields": []
+    },
+    {
+      "domain": "feedback",
+      "title": "Deck feedback (mode -> string) and strings-axis output rows",
+      "read": "param.get {parameter: feedback, key_no} (key_no 'output' or 'from128to<127+n>' for the output rows)",
+      "write": "param.set {parameter: feedback, key_no, values}; strings-axis channel rows: param.set {parameter: feedback, key_no: 128+ch}; mutes: param.mute_modes / param.mute_channels",
+      "key_space": "piano pitch, AND the output pitches 128..127+num_output_channels (the only raw domain that may address them; REST_API also documents the alias parameter name 'output' for these rows)",
+      "shape": "[num_modes] row per pitch, indexed by mode",
+      "stored_vs_effective": "Raw row stored; effective = raw x feedback_mask at pack time. Feedback equals feedin by reciprocity for piano pitches; an output pitch's row carries the mode shape at that receiver and, in strings listen mode (listen_to_modes=0), IS the channel's output path. The runtime deck feedback coefficient scales the piano-pitch rows only (output rows >= 128 stay x1). Whether piano-pitch feedback rows are independently effective under the single-deck build is a doc conflict (see _index.json).",
+      "doc": "modules/pianoid-middleware/REST_API.md#sound-channel-editing-what-the-frontend-uses",
+      "fields": []
+    },
+    {
+      "domain": "output",
+      "title": "Output-pitch feedback rows (documented alias)",
+      "read": "param.get {parameter: feedback, key_no: output} (use the canonical name; the 'output' parameter name is a documented alias that was not confirmed in the GET route's parameter list)",
+      "write": "param.set {parameter: feedback, key_no: output | 128+ch, values}",
+      "key_space": "output pitches 128..127+num_output_channels",
+      "shape": "[num_modes] row per output pitch, indexed by mode",
+      "stored_vs_effective": "Same rows as feedback at 128+ (see feedback): in strings listen mode (listen_to_modes=0) they are the per-channel output path.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_parameterparameterkey_no",
+      "fields": []
+    },
+    {
+      "domain": "feedin_mask",
+      "title": "Feed-in mute mask",
+      "read": "param.get {parameter: feedin_mask, key_no}",
+      "write": "param.mute_modes {modes, pitches?, side: feedin|both, action}; or param.set {parameter: feedin_mask, key_no, values}",
+      "key_space": "same pitch key space as feedin (piano pitches)",
+      "shape": "[num_modes] row of 0/1 per pitch",
+      "stored_vs_effective": "The mask itself is stored and persistent; it is applied as a pure multiply at pack time (deck[m] x deck_mask[m]); the raw feedin row is untouched, so unmute restores it bit-exactly.",
+      "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
+      "fields": []
+    },
+    {
+      "domain": "feedback_mask",
+      "title": "Feedback mute mask (incl. strings-axis channel mute)",
+      "read": "param.get {parameter: feedback_mask, key_no}",
+      "write": "param.mute_modes {side: feedback|both} for piano pitches; param.mute_channels for output channels when listen_to_modes=0 (row 128+ch); or param.set {parameter: feedback_mask, key_no, values}",
+      "key_space": "same pitch key space as feedback, including the output pitches 128+",
+      "shape": "[num_modes] row of 0/1 per pitch",
+      "stored_vs_effective": "Persistent mask, applied as a multiply at pack time; the raw feedback row is untouched. In strings listen mode the row of output pitch 128+ch is the mask that mutes output channel ch.",
+      "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
+      "fields": []
+    },
+    {
+      "domain": "sound_channel",
+      "title": "Modes-axis sound-channel coupling",
+      "read": "param.get {parameter: sound_channel, key_no} (the payload adds _meta {num_channels, mode_channel_index})",
+      "write": "param.set {parameter: sound_channel, key_no: <pitch>, values} (values = {pitch: [num_channels]})",
+      "key_space": "piano PITCH (effective rows 0..127)",
+      "shape": "[num_channels] row per pitch, indexed by output channel",
+      "stored_vs_effective": "Stored for every pitch 0..139; effective ONLY in modes listen mode (listen_to_modes=1), piano-pitch rows 0..127, injected into the feedin slots at mode_channel_index. Inert in strings mode (measured: x50 on p60 -> no level change). Units UNKNOWN in the docs. No Layer B level class.",
+      "doc": "modules/pianoid-basic/OVERVIEW.md#stored-vs-effective-entries-high-stakes-data-model-fact",
+      "fields": []
+    },
+    {
+      "domain": "sound_channel_mask",
+      "title": "Modes-axis channel mute mask",
+      "read": "param.get {parameter: sound_channel_mask, key_no}",
+      "write": "param.mute_channels {channels, action} when listen_to_modes=1 (column ch on every piano pitch); or param.set {parameter: sound_channel_mask, key_no, values}",
+      "key_space": "piano PITCH (not an output pitch)",
+      "shape": "[num_channels] row of 0/1 per pitch",
+      "stored_vs_effective": "Persistent mask; the modes-axis mute. Writing it on a listen_to_modes=0 preset is a silent no-op for the sound (measured).",
+      "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
+      "fields": []
+    },
+    {
+      "domain": "string_sound_channel",
+      "title": "Strings-mode per-channel gain table (FE-unused)",
+      "read": "param.get {parameter: string_sound_channel, key_no: output} (whole output table; a numeric output key such as 129 -> 416)",
+      "write": "param.set {parameter: string_sound_channel, key_no: output, values}; no FE writer",
+      "key_space": "stored for piano pitches by number, but effective rows are the output pitches 128..127+num_output_channels, addressed only via key_no 'output'",
+      "shape": "[num_channels] row per pitch, indexed by output channel",
+      "stored_vs_effective": "Stored for every pitch 0..139; the kernel reads only the output-pitch rows 128+ in strings mode (listen_to_modes=0); piano-pitch rows are a NO-OP (POST succeeds, nothing audible). string_coefficients[128+ch][ch] is the gain on channel ch; off-diagonals mix channels. Old presets default to 40.0 per channel. A separate table from the one the Sound Channels editor edits (that writes feedback / feedback_mask at 128+ch). Units UNKNOWN.",
+      "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#sound-channel-gain-path-strings-mode",
+      "fields": []
+    }
+  ]
+}

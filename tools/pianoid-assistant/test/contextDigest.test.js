@@ -161,3 +161,11 @@ test('R6: renders are denied while live audio runs, allowed when it does not; un
   assert.equal((await off.canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'allow');
   assert.equal((await make({}).canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'deny');
 });
+
+test('environment fingerprint (v2 P1): GPU, build, repos, output map; absent when unreachable', () => {
+  const environment = { gpu: { gpus: [{ name: 'RTX' }] }, fingerprint: { gpu: 'RTX', build: 'release', repos: { core: 'dev@abc1234*' }, output_map: '8,9' } };
+  const d = buildDigest({ health: { status: 'healthy', pianoid_loaded: true }, environment });
+  assert.deepEqual(d.environment, { gpu: 'RTX', build: 'release', repos: { core: 'dev@abc1234*' }, output_map: '8,9' });
+  assert.equal(buildDigest({ health: { status: 'healthy' }, environment: { unreachable: true } }).environment, null);
+  assert.equal(buildDigest({ health: { unreachable: true } }).environment, null);
+});

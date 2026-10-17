@@ -170,6 +170,30 @@
       "route": {"method": "GET", "path": "/load_settings"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "preset.summary",
+      "title": "Summarise a library preset",
+      "description": "One library entry (default: the active one): kind, source, path, editable, its in-memory model parameters (num_modes, num_strings, num_channels, listen_to_modes, sr, array_size, output_scale state, ...), the file header (piano pitch range, declared load params, provenance such as fpga_conversion), undo_depth (edits in the backend history) and, for the active entry, the live load settings with the mismatches. 404 lists the entries.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-presetsummary",
+      "route": {"method": "GET", "path": "/preset/summary"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {"entry": {"type": "string", "description": "library entry name (preset.list); default the active entry"}}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "preset.files",
+      "title": "List the preset files on disk",
+      "description": "The preset JSON files under the allow-listed preset root (pianoid_middleware/presets, two levels deep, at most 200): file, size, mtime and a cheap header (num_modes, num_strings, num_channels, listen_to_modes, piano pitch range, declared load params, provenance). load_path is the path preset.load / preset.load_to_library take. Never any other folder.",
+      "target": "backend",
+      "tier": "read",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-presetfiles",
+      "route": {"method": "GET", "path": "/preset/files"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
     }
   ]
 }
