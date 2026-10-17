@@ -184,7 +184,7 @@ backendserver.py: midi_playback_route() (line 883)
   ─► pianoid.load_midi_for_online_playback(midi_file, start_delay_ms)
       │                                              pianoid.py:1240
       ▼
-  1. MidiRecord().read_midi(midi_file, sustain=True)   // parse MIDI bytes
+  1. MidiRecord().read_midi(midi_file, sustain=True)   // midi_file_reader.py (mido): ms timings, track-0 tempo map
   2. estimator.getCurrentCycle()                        // current engine cycle
   3. start_offset = int(delay_ms/1000 * sample_rate / samples_per_cycle)
   4. For each MIDI event:
