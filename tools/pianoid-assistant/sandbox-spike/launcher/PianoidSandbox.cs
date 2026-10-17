@@ -245,7 +245,9 @@ static class Program
             {"SystemRoot", sysRoot}, {"windir", sysRoot}, {"SystemDrive", sysRoot.Substring(0, 2)},
             {"PATH", Path.GetDirectoryName(python) + ";" + sysRoot + @"\System32"},
             {"TEMP", Path.Combine(runDir, "tmp")}, {"TMP", Path.Combine(runDir, "tmp")},
-            {"HOME", runDir}, {"USERPROFILE", runDir}, {"LOCALAPPDATA", Path.Combine(runDir, "tmp")},  // LOCALAPPDATA is mandatory for an AppContainer CreateProcess (else error 203) {"MPLBACKEND", "Agg"}, {"MPLCONFIGDIR", Path.Combine(runDir, "tmp")},
+            {"HOME", runDir}, {"USERPROFILE", runDir},
+            {"LOCALAPPDATA", Path.Combine(runDir, "tmp")},  // mandatory for an AppContainer CreateProcess (else error 203)
+            {"MPLBACKEND", "Agg"}, {"MPLCONFIGDIR", Path.Combine(runDir, "tmp")},
             {"CUDA_VISIBLE_DEVICES", "-1"}, {"PYTHONIOENCODING", "utf-8"},
             {"OMP_NUM_THREADS", "2"}, {"OPENBLAS_NUM_THREADS", "2"},
             {"NUMBER_OF_PROCESSORS", Environment.GetEnvironmentVariable("NUMBER_OF_PROCESSORS") ?? "1"},
