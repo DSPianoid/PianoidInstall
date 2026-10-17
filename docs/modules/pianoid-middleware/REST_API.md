@@ -136,7 +136,8 @@ strings axis) match `feedback@output` / `feedback_mask@output`, piano rows `feed
 |---|---|---|
 | `POST /history/undo` | `{"domains": [...]}` optional | reverts the latest group of the ACTIVE library entry, or the latest group touching `domains` (an editor's own Undo). 200 `{entry, label, steps, can_undo, can_redo, undo, redo, ...}`; 409 `history_empty` / `history_conflict` (a LATER group changed one of the same `(domain, key)` — undo that first) / `history_irreversible` (a step whose `before` could not be captured completely) / `preset_read_only` (the active entry is an original, up front) |
 | `POST /history/redo` | same | re-applies the latest undone group (same filter / codes) |
-| `GET /history` | — | `{entry, can_undo, can_redo, undo, redo, undo_domains, redo_domains, depth}` (= the `history_changed` payload) |
+| `POST /history/undo` / `redo` with `{"group": "<id>"}` | (assistant v2 P2, dev-4324) | only the latest group with that explicit `X-Pianoid-Group` / WS `groupId` id (the assistant's auto-revert and its Undo per action); combinable with `domains`; same 409 codes (`history_empty` when that group has nothing left); 400 for an empty / non-string id |
+| `GET /history` | — | `{entry, can_undo, can_redo, undo, redo, undo_domains, redo_domains, undo_groups, redo_groups, depth}` (= the `history_changed` payload; `undo_groups` / `redo_groups` = the explicit group id of each listed group, `null` for an implicit one) |
 
 - The inverse runs THROUGH the machinery (`Pianoid.apply_parameter_request` -> `edit_commit.commit`: read-only
   guard, Layer B policy, `state_changed`) under source kind `undo` / `redo`, so every open editor follows like

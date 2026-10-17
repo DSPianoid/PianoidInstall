@@ -16,14 +16,14 @@ const COMMANDS = loadCommands();
 const byName = Object.fromEntries(COMMANDS.map((c) => [c.name, c]));
 const d = (name, settings = {}) => {
   const c = byName[name];
-  return decide({ command: c.name, tier: c.tier, family: c.family, settings }).action;
+  return decide({ command: c.name, tier: c.tier, family: c.family, category: c.approval_category, settings }).action;
 };
 
 test('policy: D3 table on the real registry tiers (single user, D5)', () => {
   for (const n of ['ui.snapshot', 'ui.pane.open', 'play.note', 'render.note_playback', 'render.chart', 'param.get', 'job.list']) {
     assert.equal(d(n), 'allow', n);
   }
-  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'confirm', n);   // until A2
+  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'confirm', n);   // Ask by default (v2 §9)
   for (const n of ['preset.save', 'preset.promote', 'preset.load', 'preset.unload', 'calibration.synthesis', 'modal.run_stage', 'modal.apply_to_preset']) {
     assert.equal(d(n), 'confirm', n);
   }
@@ -144,6 +144,6 @@ test('v2 P1 state reads are listed read-only and allowed without a confirm', () 
     assert.ok(cmd, name);
     assert.equal(cmd.tier, 'read', name);
     assert.equal(tools.get(name.replace(/\./g, '__')).annotations.readOnlyHint, true, name);
-    assert.equal(decide({ command: name, tier: cmd.tier, family: cmd.family }).action, 'allow', name);
+    assert.equal(decide({ command: name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category }).action, 'allow', name);
   }
 });

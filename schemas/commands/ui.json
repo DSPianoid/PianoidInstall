@@ -8,6 +8,7 @@
       "description": "The leader tab's view state: layout tree, open panes, maximized pane, active named layout + saved names, the panes that can be opened, the selection (pitch, pitch range, mode, mode range, parameter, velocity level), per-pane tie (zoom) flags and the workbench bindings.",
       "target": "ui",
       "tier": "read",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -28,6 +29,7 @@
       "description": "Adds a pane to the layout (window-manager placement). 409 pane_maximized while a pane is maximized: ui.pane.restore first.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -56,6 +58,7 @@
       "description": "Removes a pane (also a dynamic workbench). Closing the maximized pane returns to the multi-pane view minus that pane.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -84,6 +87,7 @@
       "description": "Shows one open pane full screen.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -112,6 +116,7 @@
       "description": "Leaves maximized mode.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -132,6 +137,7 @@
       "description": "Replaces the live layout with the default layout.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -152,6 +158,7 @@
       "description": "Applies a named layout saved with Manage Layouts (see ui.snapshot layouts).",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -179,6 +186,7 @@
       "description": "Replaces the live layout with a react-mosaic tree: a pane id string, or {first, second, direction: 'row'|'column', splitPercentage?}. Every leaf must be a known pane (no duplicates; Workbench:* leaves must be open workbenches). The global Workbench is re-added if missing.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -210,6 +218,7 @@
       "description": "The single selected pitch (MIDI number on the piano axis), or null.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -242,6 +251,7 @@
       "description": "The global pitch selection [from, to] (MIDI numbers, piano axis); tied charts zoom to it. null clears. The Sound Channels strings axis (output pitches >= 128) is SC-local and never follows it.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -283,6 +293,7 @@
       "description": "The single selected mode index, or null.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -314,6 +325,7 @@
       "description": "The global mode selection [from, to]; tied charts (Modes, Feedin / Feedback mode axis, SC mode axis) zoom to it. null clears.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -355,6 +367,7 @@
       "description": "Makes a parameter the active one (the global Workbench follows it). groupe = the editor (Strings, Modes, Excitation, Feedin, Feedback, ...), name = the parameter (e.g. tension, frequency, coefficient).",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -390,6 +403,7 @@
       "description": "The toolbar velocity level.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -424,6 +438,7 @@
       "description": "tied = the pane's chart follows the global selection (zoomed); untied = full extent.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -456,6 +471,7 @@
       "description": "Spawns a fixed workbench pane for a parameter (or a panel-following one with kind 'panel-dynamic'); returns its pane id.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {
@@ -495,6 +511,7 @@
       "description": "Makes a workbench's parameter the active parameter.",
       "target": "ui",
       "tier": "ui",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-tunner/OVERVIEW.md#ui-commands-i5-dev-c491",
       "route": {

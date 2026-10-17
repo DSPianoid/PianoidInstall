@@ -7,8 +7,10 @@ The AI assistant of the Pianoid UI (proposal: `docs/proposals/ai-assistant-in-ui
 |---|---|---|
 | `mcp/server.js` | A4 | stdio MCP server: every command-registry command (`schemas/commands`) as a tool (`play.note` → `play__note`), tier annotations, `search_docs`; excluded (and opted-out) tools hidden and refused |
 | `service/server.js` | A1 | the assistant service on `127.0.0.1:3002` (spawned by the launcher): Claude Code headless through the Claude Agent SDK on the user's **subscription**, in an **isolated Claude home**; the pane protocol over WS `/ws` |
-| `policy.js` | A4 / A1 | the permission policy (D3 / D4), called for every tool call |
+| `policy.js` | A4 / A1 / v2 P2 | the permission policy (D3 / D4, categories, hard-confirm list, envelope verdict), called for every tool call |
 | `service/router.js` | v2 P1 | the model router (pure): pre-route, tool / failure triggers, self-escalation, stickiness |
+| `approvals.js`, `envelope.js`, `lib/paramLimits.js` | v2 P2 | per-category Ask / Auto (pure); the A2 envelope checks + level-breach rule (pure); the limits read from `schemas/params` |
+| `service/autoWrite.js` | v2 P2 | the executor of the service's MCP server: permits, one undo group per action, the post-write level watch and auto-revert |
 
 ## Setup
 
@@ -68,13 +70,16 @@ directory / OS account, with their own assistant home and their own subscription
 
 | | |
 |---|---|
-| read, ui, act (playback, renders), `search_docs` | run |
-| write (`param.set`, `runtime.set`, `preset.switch`, `history.*`, …) | confirm (direct within the envelope from A2) |
-| destructive (save, promote, full load, unload, calibration, modal jobs) | confirm |
-| launcher process control | confirm |
+| reads, ui, `search_docs` (category `view`) | run |
+| playback, renders | run (Auto by default; renders refused while live audio runs, R6) |
+| `params`, `runtime`, `preset_nav`, `history` | Ask by default; Auto per category. Auto `params` / `runtime` run only inside the A2 envelope, then the level watch with auto-revert |
+| the hard-confirm list (save, promote, full load, unload, calibration, modal jobs, launcher start, …) | always confirm (category `hard_confirm`, never Auto) |
 | "Block measurement data" switch on | modal / calibration denied |
 
-Confirms are answered in the pane; Stop interrupts the turn, declines pending confirms and cancels the turn's jobs.
+Every registry command names its `approval_category`; a missing one fails the registry load. The categories are set in
+the pane's Permissions popover (per installation in `config.json` `approvals`, or for this session only) and by the
+confirm dialog's "Don't ask again" (this session by default). Confirms are answered in the pane; Stop interrupts the
+turn, declines pending confirms, drops the turn's permits and cancels the turn's jobs. Details: design note §10.
 
 ## Standalone MCP (Claude Code / the orchestrator)
 

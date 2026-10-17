@@ -18,7 +18,15 @@
           "range": "integer 0..127",
           "class": "stored",
           "meaning": "SET name of the slider level: amplitude = volume_center * volume_range^((level-64)/63), or the legacy max_volume^(level/127) when volume_center == 0. Not the load-time 'volume' anchor.",
-          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
+          "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters",
+          "envelope": {
+            "min": 0,
+            "max": 127,
+            "integer": true,
+            "max_up_per_step": 6,
+            "note": "down is free within 0..127 (quieter)",
+            "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+          }
         },
         {
           "name": "volume_level",
@@ -42,7 +50,13 @@
           "range": "0.0..1000",
           "class": "effective",
           "meaning": "Bypasses the feedback level mapping; the two-layer FE slider sends effective = stored_coeff(preset) x slider multiplier. Lower feedback = louder / sharper attack but stable (a damping coefficient; risk = clipping).",
-          "doc": "modules/pianoid-tunner/OVERVIEW.md#bottom-bar-volume-feedback-reset-dev-uiqueue-t2-2026-06-15"
+          "doc": "modules/pianoid-tunner/OVERVIEW.md#bottom-bar-volume-feedback-reset-dev-uiqueue-t2-2026-06-15",
+          "envelope": {
+            "max_step_ratio": 1.5,
+            "max_multiplier_of_stored": 2.0,
+            "note": "step ratio new/current within [1/1.5, 1.5] both ways (lower feedback is LOUDER, the risk is clipping); new / stored baseline (/health stored_feedback_coeff) <= 2.0",
+            "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+          }
         },
         {
           "name": "deck_feedback_coefficient",

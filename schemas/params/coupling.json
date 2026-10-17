@@ -44,7 +44,16 @@
       "shape": "[num_modes] row of 0/1 per pitch",
       "stored_vs_effective": "The mask itself is stored and persistent; it is applied as a pure multiply at pack time (deck[m] x deck_mask[m]); the raw feedin row is untouched, so unmute restores it bit-exactly.",
       "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
-      "fields": []
+      "fields": [],
+      "envelope": {
+        "kind": "mask",
+        "commands": [
+          "param.mute_modes",
+          "param.mute_channels"
+        ],
+        "note": "mute / solo / unmute only switch existing rows on or off (no magnitude); an unmute is covered by the post-write level watch. A raw param.set of a mask row asks.",
+        "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+      }
     },
     {
       "domain": "feedback_mask",
@@ -55,7 +64,16 @@
       "shape": "[num_modes] row of 0/1 per pitch",
       "stored_vs_effective": "Persistent mask, applied as a multiply at pack time; the raw feedback row is untouched. In strings listen mode the row of output pitch 128+ch is the mask that mutes output channel ch.",
       "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
-      "fields": []
+      "fields": [],
+      "envelope": {
+        "kind": "mask",
+        "commands": [
+          "param.mute_modes",
+          "param.mute_channels"
+        ],
+        "note": "mute / solo / unmute only switch existing rows on or off (no magnitude); an unmute is covered by the post-write level watch. A raw param.set of a mask row asks.",
+        "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+      }
     },
     {
       "domain": "sound_channel",
@@ -77,7 +95,16 @@
       "shape": "[num_channels] row of 0/1 per pitch",
       "stored_vs_effective": "Persistent mask; the modes-axis mute. Writing it on a listen_to_modes=0 preset is a silent no-op for the sound (measured).",
       "doc": "modules/pianoid-middleware/REST_API.md#mute-operations-dev-0a88",
-      "fields": []
+      "fields": [],
+      "envelope": {
+        "kind": "mask",
+        "commands": [
+          "param.mute_modes",
+          "param.mute_channels"
+        ],
+        "note": "mute / solo / unmute only switch existing rows on or off (no magnitude); an unmute is covered by the post-write level watch. A raw param.set of a mask row asks.",
+        "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+      }
     },
     {
       "domain": "string_sound_channel",

@@ -9,6 +9,9 @@
  * service's canUseTool policy is the primary gate). Used by the assistant runtime (the service
  * spawns it through the Agent SDK) and standalone by Claude Code / the orchestrator (.mcp.json),
  * where Claude Code's own permission prompt confirms destructive tools.
+ * With `--exec-url` (set by the assistant service, v2 P2) every call goes to the service's
+ * permit-gated executor instead of the backend: the service names the undo group, runs the Auto
+ * write's level watch and auto-revert, and refuses a call its policy did not just allow.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +30,7 @@ const arg = (name, fallback) => {
 
 export function createPianoidMcpServer({
   source = 'mcp', commands = loadCommands(),
-  docsDir = path.join(INSTALL_ROOT, 'docs'), fetchImpl = fetch, settings = {},
+  docsDir = path.join(INSTALL_ROOT, 'docs'), fetchImpl = fetch, settings = {}, execUrl = null,
 } = {}) {
   const byName = new Map(commands.map((c) => [c.name, c]));
   let docs = null;
@@ -47,9 +50,9 @@ export function createPianoidMcpServer({
     }
     const cmd = byName.get(commandName(name));
     if (!cmd) return text({ error: 'unknown_tool', tool: name }, true);
-    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings });
+    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings });
     if (verdict.action === 'deny') return text({ error: 'denied', reason: verdict.reason }, true);
-    const res = await callCommand(cmd, args, { source, fetchImpl });
+    const res = await callCommand(cmd, args, { source, fetchImpl, execUrl });
     return text(compact(shapeResult(cmd, res)), !res.ok);
   });
   return server;
@@ -59,7 +62,7 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 if (isMain) {
   const settings = { dataOptOut: arg('data-opt-out', 'false') === 'true' };
   const server = createPianoidMcpServer({
-    source: arg('source', 'mcp'), settings,
+    source: arg('source', 'mcp'), settings, execUrl: arg('exec-url', null),
   });
   await server.connect(new StdioServerTransport());
 }

@@ -2,9 +2,12 @@
 /**
  * The Pianoid assistant service (phase A1): 127.0.0.1:3002, spawned by the launcher.
  *   GET  /status   {ok, login, driver, paths, loginCommand}
- *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm | settings};
+ *   POST /internal/command/<name>   the executor of the service's own MCP server (v2 P2, autoWrite.js):
+ *                  runs a command the policy just allowed (a permit), else 403 not_permitted
+ *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, remember?} |
+ *                  settings | approvals {category, mode, scope} | undo {groupId} | undo_turn {turn}};
  *                  server {type: state | message | delta | activity | confirm | confirm_done |
- *                  usage | model | escalation | busy | session | error | login}
+ *                  usage | model | escalation | busy | session | error | login | approvals}
  * Runs on the user's Claude SUBSCRIPTION in the isolated home (service/home.js); refuses to start
  * with an API key in its environment (D1). PIANOID_ASSISTANT_DRIVER=fake = zero-spend scripted
  * driver (tests, demos).
@@ -14,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { commandsDir, loadCommands } from '../lib/registry.js';
+import { loadLimits, paramsDir } from '../lib/paramLimits.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { FakeDriver } from '../drivers/fake.js';
 import { assertSubscriptionOnly, assistantPaths, authStatus, ensureHome, loadConfig, loginCommand } from './home.js';
@@ -21,7 +25,7 @@ import { AssistantSession } from './session.js';
 
 export function createAssistantService({
   env = process.env, port = Number(env.PIANOID_ASSISTANT_PORT) || 3002, driver = env.PIANOID_ASSISTANT_DRIVER || 'sdk',
-  driverFactory = null, authCheck = authStatus, fetchImpl = fetch,
+  driverFactory = null, authCheck = authStatus, fetchImpl = fetch, settleMs,
 } = {}) {
   assertSubscriptionOnly(env);
   const paths = ensureHome(assistantPaths(env));
@@ -35,7 +39,7 @@ export function createAssistantService({
   const session = new AssistantSession({
     paths, config: loadConfig(paths), commands: loadCommands(dir), driverFactory: factory, broadcast, fetchImpl,
     commandsDir: dir, backendUrl: env.PIANOID_BACKEND_URL || 'http://127.0.0.1:5000',
-    launcherUrl: env.PIANOID_LAUNCHER_URL || 'http://127.0.0.1:3001',
+    launcherUrl: env.PIANOID_LAUNCHER_URL || 'http://127.0.0.1:3001', limits: loadLimits(paramsDir(env)), settleMs,
   });
 
   let login = null;
@@ -50,7 +54,32 @@ export function createAssistantService({
     usage: session.usage,
   });
 
+  const exec = (req, res, name) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', async () => {
+      let out;
+      try {
+        out = await session.auto.exec(name, raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        out = { status: 400, body: { ok: false, status: 400, error: 'bad_request', message: e.message } };
+      }
+      res.statusCode = out.status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(out.body));
+    });
+  };
+
   const server = http.createServer((req, res) => {
+    const internal = /^\/internal\/command\/([\w.]+)$/.exec(req.url);
+    if (internal && req.method === 'POST') {
+      // the service's own MCP child only: no browser page (an Origin header) and JSON only (no CORS)
+      if (req.headers.origin || !String(req.headers['content-type'] || '').startsWith('application/json')) {
+        res.statusCode = 403;
+        return res.end();
+      }
+      return exec(req, res, internal[1]);
+    }
     res.setHeader('Access-Control-Allow-Origin', '*');
     if (req.url === '/status') {
       if (req.headers['x-recheck'] || !login) checkLogin();
@@ -83,9 +112,15 @@ export function createAssistantService({
         } else if (msg.type === 'stop') {
           await session.stop();
         } else if (msg.type === 'confirm') {
-          session.confirm(msg.id, msg.allow);
+          session.confirm(msg.id, msg.allow, msg.remember);
         } else if (msg.type === 'settings') {
           await session.updateSettings(msg);
+        } else if (msg.type === 'approvals') {
+          session.updateApprovals(msg);
+        } else if (msg.type === 'undo' && typeof msg.groupId === 'string') {
+          await session.auto.undoGroup(msg.groupId);
+        } else if (msg.type === 'undo_turn' && Number.isInteger(msg.turn)) {
+          await session.auto.undoTurn(msg.turn);
         }
       } catch (e) {
         ws.send(JSON.stringify({ type: 'error', message: e?.message || String(e) }));
@@ -95,8 +130,12 @@ export function createAssistantService({
 
   return {
     session, paths, server,
-    listen: () => new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server.address().port))),
+    listen: () => new Promise((resolve) => server.listen(port, '127.0.0.1', () => {
+      session.execUrl = `http://127.0.0.1:${server.address().port}/internal/command`;
+      resolve(server.address().port);
+    })),
     close: async () => {
+      session.auto.stopWatches();
       await session.restart().catch(() => {});
       for (const ws of clients) ws.terminate();
       wss.close();

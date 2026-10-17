@@ -5,7 +5,7 @@
  *   claude-home\   CLAUDE_CONFIG_DIR of the assistant: its own subscription login, .claude.json,
  *                  sessions, settings — never the user's ~/.claude
  *   workspace\     the session cwd: empty, outside every repo (no CLAUDE.md on it or its ancestors)
- *   config.json    service settings (model choice, data opt-out)
+ *   config.json    service settings (model choice, data opt-out, the per-installation approvals)
  * One installation = one user (D5): whoever runs Pianoid logs the assistant in with THEIR OWN
  * subscription; %USERPROFILE% resolves per OS user, so users on a shared system stay separate.
  * The child process gets an ALLOW-LISTED env (never process.env): no ANTHROPIC_* key, and HOME /
@@ -95,6 +95,7 @@ export function authStatus(paths, { spawn = spawnSync, env = process.env } = {})
 export const DEFAULT_CONFIG = {
   model: 'auto',           // auto (Sonnet, may escalate) | sonnet | opus  (D2)
   dataOptOut: false,       // D4: default off
+  approvals: {},           // v2 P2: {category: 'ask' | 'auto'} set "for this installation" (approvals.js defaults otherwise)
 };
 
 export function loadConfig(paths) {

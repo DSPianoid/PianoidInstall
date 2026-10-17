@@ -8,6 +8,7 @@
       "description": "Reverts the latest edit group of the active entry, or the latest group touching `domains` (e.g. feedback@output).",
       "target": "backend",
       "tier": "write",
+      "approval_category": "history",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#undo--redo-ssot-i3",
       "route": {"method": "POST", "path": "/history/undo"},
@@ -15,7 +16,8 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "domains": {"type": "array", "items": {"type": "string"}, "description": "Optional domain filter"}
+          "domains": {"type": "array", "items": {"type": "string"}, "description": "Optional domain filter"},
+          "group": {"type": "string", "description": "Optional: only the latest group with this X-Pianoid-Group id (e.g. one assistant turn)"}
         }
       },
       "result": {"type": "object"}
@@ -26,6 +28,7 @@
       "description": "Re-applies the latest undone group (same domain filter as history.undo).",
       "target": "backend",
       "tier": "write",
+      "approval_category": "history",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#undo--redo-ssot-i3",
       "route": {"method": "POST", "path": "/history/redo"},
@@ -33,7 +36,8 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "domains": {"type": "array", "items": {"type": "string"}, "description": "Optional domain filter"}
+          "domains": {"type": "array", "items": {"type": "string"}, "description": "Optional domain filter"},
+          "group": {"type": "string", "description": "Optional: only the latest group with this X-Pianoid-Group id (e.g. one assistant turn)"}
         }
       },
       "result": {"type": "object"}
@@ -41,9 +45,10 @@
     {
       "name": "history.get",
       "title": "Undo / redo state",
-      "description": "{entry, can_undo, can_redo, undo, redo, undo_domains, redo_domains, depth}.",
+      "description": "{entry, can_undo, can_redo, undo, redo, undo_domains, redo_domains, undo_groups, redo_groups, depth}.",
       "target": "backend",
       "tier": "read",
+      "approval_category": "view",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#undo--redo-ssot-i3",
       "route": {"method": "GET", "path": "/history"},
