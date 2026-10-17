@@ -279,6 +279,21 @@ All action methods share the signature `(self, pitch, velocity)`.
 
 ---
 
+## MIDI files (`MidiRecord.read_midi`)
+
+`/midi_playback` and the offline render read a MIDI file into `{ms: [events]}` through `MidiRecord.read_midi` (parse: `midi_file_reader.read_midi_instruments`, mido; [data flow](../../architecture/DATA_FLOWS.md)).
+
+| Rule | Behaviour |
+|---|---|
+| Instruments | Only the piano-named instruments (track name contains `piano`, any case) when the file has any, else every instrument; each read once (dev-35e6; before, piano-named instruments were read twice) |
+| Notes | NOTE_ON (144) at the start, NOTE_OFF (128) at the end, times truncated to ms |
+| Sustain (`sustain=True`) | CC64 → command 176 pitch 64, value = raw CC. From the played instruments' own tracks, and from **CC-only tracks** (no notes, e.g. a separate "Pedal" track) whose channel is a played instrument's channel — scheduled once per CC event, not once per instrument |
+| Sustain scope | The engine has one sustain pedal (`SUSTAIN` carries only the value, no channel — [event layout](../pianoid-cuda/PLAYBACK_SYSTEM.md)), so a pedal applies to every sounding note. The channel only decides whether a CC-only track's pedal is used |
+
+Bundled files: `elise.mid` 2236 events (154 sustain), `mond_1.mid` 2596 events (308 sustain from its "Pedal" track).
+
+---
+
 ## midi_commands.py
 
 Provides a command data structure and a command-queue processor. These are lower-level utilities; the active listener in `pianoidMidiListener.py` does not use them directly.
