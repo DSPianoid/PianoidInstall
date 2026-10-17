@@ -5,16 +5,22 @@
  * stickiness), the activity log, usage (D7), Stop, and the per-turn UI / health context. One installation
  * = one user (D5: no user management). Changing the data opt-out restarts the session (the MCP
  * server is spawned with it, so the filter holds in two places).
+ * v2 P2: per-category Ask / Auto approvals (approvals.js; installation default in config.json, session
+ * overrides in memory), the hard-confirm list and the A2 envelope (policy.js, envelope.js); the MCP
+ * server executes through service/autoWrite.js (permits, undo groups, level watch, auto-revert).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decide } from '../policy.js';
+import { decide, HARD_CONFIRM, HARD_CONFIRM_EXTRA } from '../policy.js';
+import { applyChange, describe, modeOf, usesEnvelope } from '../approvals.js';
+import { check as checkEnvelope } from '../envelope.js';
 import { commandName } from '../lib/registry.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
 import { contextBlock, systemPrompt } from './prompt.js';
 import { buildDigest } from './contextDigest.js';
 import { Router } from './router.js';
+import { AutoWriter } from './autoWrite.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -31,9 +37,16 @@ const summarize = (v, n = 300) => {
 export class AssistantSession {
   constructor({
     paths, config, commands, driverFactory, broadcast = () => {}, fetchImpl = fetch,
-    backendUrl = 'http://127.0.0.1:5000', launcherUrl = 'http://127.0.0.1:3001', commandsDir,
+    backendUrl = 'http://127.0.0.1:5000', launcherUrl = 'http://127.0.0.1:3001', commandsDir, limits, settleMs,
   }) {
     Object.assign(this, { paths, config, driverFactory, broadcast, fetchImpl, backendUrl, launcherUrl, commandsDir });
+    this.sessionApprovals = {};       // "this session only" overrides (the service's lifetime)
+    this.notes = [];                  // auto-revert notes for the next turn's context
+    this.execUrl = null;              // set by the server once it listens (the MCP server's executor)
+    this.auto = new AutoWriter({
+      backendUrl, launcherUrl, fetchImpl, limits, settleMs,
+      log: (f) => this.logActivity(f), update: (e, f) => this.updateActivity(e, f), note: (n) => this.notes.push(n),
+    });
     this.byName = new Map(commands.map((c) => [c.name, c]));
     this.driver = null;
     this.busy = false;
@@ -57,8 +70,28 @@ export class AssistantSession {
       type: 'state', modelChoice: this.config.model,
       model: this.model, dataOptOut: !!this.config.dataOptOut, busy: this.busy, transcript: this.transcript,
       activity: this.activity, usage: this.usage, status: this.status,
-      pendingConfirms: [...this.pending.values()].map((p) => p.request),
+      pendingConfirms: [...this.pending.values()].map((p) => p.request), approvals: this.approvalsView(),
     };
+  }
+
+  approvalState() { return { installation: this.config.approvals || {}, session: this.sessionApprovals }; }
+
+  approvalsView() {
+    const hard = [...Object.entries(HARD_CONFIRM).map(([command, reason]) => ({ command, reason })),
+      ...HARD_CONFIRM_EXTRA.map((reason) => ({ command: null, reason }))];
+    return describe(this.approvalState(), hard);
+  }
+
+  /** Change one category (the popover, or "Don't ask again"); installation scope persists in config.json. */
+  updateApprovals({ category, mode, scope = 'session' }) {
+    const next = applyChange(this.approvalState(), { category, mode, scope });
+    this.sessionApprovals = next.session;
+    if (scope === 'installation') {
+      this.config.approvals = next.installation;
+      saveConfig(this.paths, this.config);
+    }
+    this.logActivity({ command: 'approvals', tier: 'settings', decision: mode, status: 'ok', reason: `${category} -> ${mode} (${scope === 'installation' ? 'this installation' : 'this session'})` });
+    this.broadcast({ type: 'approvals', approvals: this.approvalsView() });
   }
 
   /** The SDK options of the runtime (exported for the isolation tests). */
@@ -73,7 +106,8 @@ export class AssistantSession {
     const pianoid = {
       type: 'stdio',
       command: process.execPath,
-      args: [MCP_SERVER, '--source', 'assistant', '--data-opt-out', String(settings.dataOptOut)],
+      args: [MCP_SERVER, '--source', 'assistant', '--data-opt-out', String(settings.dataOptOut),
+        ...(this.execUrl ? ['--exec-url', this.execUrl] : [])],
       env: mcpEnv,
     };
     const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason));
@@ -125,19 +159,37 @@ export class AssistantSession {
     if (!cmd) return { behavior: 'deny', message: `unknown Pianoid tool ${tool}` };
     await this.trigger(this.router.onToolCall(cmd.name));      // layer 2, before the call runs
     const liveAudio = cmd.family === 'render' ? await this.liveAudio() : false;
-    const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, settings: { dataOptOut: !!this.config.dataOptOut, liveAudio } });
-    const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, input, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
-    if (verdict.action === 'allow') return { behavior: 'allow', updatedInput: input };
+    const category = cmd.approval_category;
+    const approvals = this.approvalState();
+    let before = null;
+    let envelope = null;
+    if (usesEnvelope(category) && modeOf(category, approvals) === 'auto') {
+      before = await this.auto.before(cmd, input);       // the values the envelope compares against
+      envelope = checkEnvelope({ cmd, input, before, limits: this.auto.limits, autoWrites: this.auto.autoWrites });
+    }
+    const verdict = decide({
+      command: cmd.name, tier: cmd.tier, family: cmd.family, category,
+      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: false, approvals, envelope },
+    });
+    const decision = verdict.action === 'allow' && verdict.auto ? 'auto' : verdict.action;
+    const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, category, input, decision, reason: verdict.reason, toolUseId: toolUseID });
+    if (verdict.action === 'allow') {
+      this.auto.permit(cmd, input, { auto: !!verdict.auto, watch: !!verdict.watch, before, entry });
+      return { behavior: 'allow', updatedInput: input };
+    }
     if (verdict.action === 'deny') {
       this.router.onRefused(cmd.name);
       return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     }
-    const allowed = await this.askConfirm(entry, cmd, input, verdict.reason, signal);
-    this.updateActivity(entry, { decision: allowed ? 'confirmed' : 'rejected', status: allowed ? 'pending' : 'rejected' });
-    if (!allowed) this.router.onRefused(cmd.name);
-    return allowed
-      ? { behavior: 'allow', updatedInput: input }
-      : { behavior: 'deny', message: `The user declined ${cmd.name}.` };
+    const { allow, remember } = await this.askConfirm(entry, cmd, input, verdict, signal);
+    this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
+    if (!allow) {
+      this.router.onRefused(cmd.name);
+      return { behavior: 'deny', message: `The user declined ${cmd.name}.` };
+    }
+    if (remember && verdict.canAuto) this.updateApprovals({ category, mode: 'auto', scope: remember });
+    this.auto.permit(cmd, input, { entry });
+    return { behavior: 'allow', updatedInput: input };
   }
 
   /**
@@ -155,15 +207,19 @@ export class AssistantSession {
     }
   }
 
-  askConfirm(entry, cmd, input, reason, signal) {
+  /** A confirm dialog in the pane -> {allow, remember: null | 'session' | 'installation'}. */
+  askConfirm(entry, cmd, input, verdict, signal) {
     const id = `c${this.nextId++}`;
-    const request = { type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input, reason };
+    const request = {
+      type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input,
+      reason: verdict.reason, category: cmd.approval_category, hard: !!verdict.hard, canAuto: !!verdict.canAuto,
+    };
     return new Promise((resolve) => {
-      const done = (allow) => {
+      const done = (allow, remember = null) => {
         if (!this.pending.has(id)) return;
         this.pending.delete(id);
         this.broadcast({ type: 'confirm_done', id, allow });
-        resolve(allow);
+        resolve({ allow, remember: allow && ['session', 'installation'].includes(remember) ? remember : null });
       };
       this.pending.set(id, { request, resolve: done });
       signal?.addEventListener?.('abort', () => done(false));
@@ -171,9 +227,9 @@ export class AssistantSession {
     });
   }
 
-  confirm(id, allow) {
+  confirm(id, allow, remember) {
     const p = this.pending.get(id);
-    if (p) p.resolve(!!allow);
+    if (p) p.resolve(!!allow, remember);
   }
 
   logActivity(fields) {
@@ -247,6 +303,7 @@ export class AssistantSession {
       }
     };
     const post = (url) => get(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pianoid-Source': 'assistant' }, body: '{}' });
+    const notes = this.notes.splice(0);
     const [ui, health, runtime, load, presets, jobs, outputMask, environment] = await Promise.all([
       post(`${this.launcherUrl}/api/command/ui.snapshot`),
       get(`${this.backendUrl}/health`),
@@ -257,7 +314,9 @@ export class AssistantSession {
       get(`${this.backendUrl}/get_parameter/feedback_mask/output`),
       this.environment(get),
     ]);
-    return buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
+    const digest = buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
+    const auto = this.approvalsView().autoActive;
+    return { ...digest, approvals: { auto: auto.length ? auto : 'none' }, ...(notes.length ? { assistant_notes: notes } : {}) };
   }
 
   /** GET /system/environment, re-read at most every ENV_TTL_MS (it runs git / nvidia-smi in the backend). */
@@ -273,6 +332,7 @@ export class AssistantSession {
     if (this.busy) return this.broadcast({ type: 'error', message: 'A turn is already running (Stop it first).' });
     this.busy = true;
     this.turnJobs = [];
+    this.auto.beginTurn();
     this.broadcast({ type: 'busy', busy: true });
     this.transcript.push({ role: 'user', text, at: Date.now() });
     this.broadcast({ type: 'message', role: 'user', text });
@@ -295,6 +355,7 @@ export class AssistantSession {
 
   async stop() {
     for (const p of [...this.pending.values()]) p.resolve(false);
+    this.auto.clearPermits();
     if (this.busy && this.driver) {
       try { await this.driver.interrupt(); } catch (e) { /* not running */ }
     }
@@ -353,7 +414,7 @@ export class AssistantSession {
       case 'tool_result': {
         // by tool-use id: parallel calls finish in any order (dev-0a88: the newest-pending guess
         // showed one call's result on another); the oldest pending entry only when no id is known
-        const entry = this.activity.find((a) => ev.toolUseId && a.toolUseId === ev.toolUseId)
+        const entry = this.activity.findLast((a) => ev.toolUseId && a.toolUseId === ev.toolUseId)
           || this.activity.find((a) => a.status === 'pending' && !a.toolUseId);
         if (entry) this.updateActivity(entry, { status: ev.isError ? 'error' : 'ok', result: summarize(ev.text, 400) });
         this.trigger(this.router.onToolResult(ev.isError)).catch(() => {});

@@ -80,5 +80,30 @@
         "modules/pianoid-middleware/REST_API.md#get-get_settings"
       ]
     }
-  ]
+  ],
+  "envelope": {
+    "description": "The A2 envelope of the assistant's Auto writes (categories params / runtime, v2 proposal section 9): a field or domain carries an `envelope` entry only where the docs give a limit; everything else is Ask-only (the policy asks even when the category is Auto).",
+    "max_keys_per_command": 128,
+    "max_auto_writes_per_turn": 20,
+    "level_breach": {
+      "over_target_db": 3,
+      "signals": [
+        "clipping (newly latched)",
+        "clipping_now",
+        "peak_level above target_dbfs + 3 dB (newly)",
+        "gate_trip_count increase"
+      ],
+      "watch_s": 15,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-health"
+    },
+    "not_in_envelope": [
+      "string (needs a prospective CFL check, not available)",
+      "hammer / gauss / excitation (no documented step limit)",
+      "feedin / feedback / sound_channel raw rows (no documented step limit)",
+      "mode.frequency / mode.mass_inv",
+      "runtime.feedback (level mapping auto-detected by value)",
+      "runtime.store_feedback_coeff / volume_center / volume_range"
+    ],
+    "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+  }
 }

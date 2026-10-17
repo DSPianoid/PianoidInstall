@@ -50,19 +50,24 @@ export function listTools(commands, settings = {}) {
 }
 
 /** Where a command executes: the :5000 executor (backend + modal) or the launcher (launcher + ui). */
-export function endpointFor(cmd) {
-  const base = cmd.target === 'launcher' || cmd.target === 'ui' ? `${LAUNCHER_URL}/api/command/` : `${BACKEND_URL}/command/`;
+export function endpointFor(cmd, { backend = BACKEND_URL, launcher = LAUNCHER_URL } = {}) {
+  const base = cmd.target === 'launcher' || cmd.target === 'ui' ? `${launcher}/api/command/` : `${backend}/command/`;
   return base + cmd.name;
 }
 
-/** Run one command over HTTP; returns the executor envelope {ok, status, result | error}. */
-export async function callCommand(cmd, args, { source = 'assistant', fetchImpl = fetch } = {}) {
+/**
+ * Run one command over HTTP; returns the executor envelope {ok, status, result | error}.
+ * `execUrl` = the assistant service's executor (`<execUrl>/<name>`, v2 P2) instead of the backend;
+ * `group` = an X-Pianoid-Group (one undo group, REST_API "Undo / redo (SSOT I3)").
+ */
+export async function callCommand(cmd, args, { source = 'assistant', fetchImpl = fetch, execUrl = null, group = null, urls } = {}) {
   const headers = { 'Content-Type': 'application/json', 'X-Pianoid-Source': source };
+  if (group) headers['X-Pianoid-Group'] = group;
   let res;
   try {
-    res = await fetchImpl(endpointFor(cmd), { method: 'POST', headers, body: JSON.stringify(args || {}) });
+    res = await fetchImpl(execUrl ? `${execUrl}/${cmd.name}` : endpointFor(cmd, urls), { method: 'POST', headers, body: JSON.stringify(args || {}) });
   } catch (e) {
-    const where = cmd.target === 'launcher' || cmd.target === 'ui' ? 'the launcher (:3001)' : 'the backend (:5000)';
+    const where = execUrl ? 'the assistant service' : cmd.target === 'launcher' || cmd.target === 'ui' ? 'the launcher (:3001)' : 'the backend (:5000)';
     return { ok: false, status: 0, error: 'unreachable', message: `${where} is not reachable: ${e.message}` };
   }
   let body;

@@ -26,7 +26,14 @@
           "range": ">= 0 (< 0 rejected 400: negative damping grows without bound); finite",
           "class": "stored",
           "meaning": "Mode damping; decrement up -> that band's decay time tau down.",
-          "doc": "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection"
+          "doc": "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection",
+          "envelope": {
+            "min": 0,
+            "min_step_ratio": 0.5,
+            "max_step_ratio": 2.0,
+            "note": "the doc limits the cut (at most 50% per step, never < 0); the x2 raise bound is a conservative addition (dev-4324: no documented raise limit). A mode whose decrement is 0 asks.",
+            "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+          }
         },
         {
           "name": "mass_inv",

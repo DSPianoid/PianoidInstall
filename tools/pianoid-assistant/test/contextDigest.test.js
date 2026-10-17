@@ -140,11 +140,11 @@ test('channels: all feedback_mask output rows 0 (the measured completely-mute ca
 
 test('R6: renders are denied while live audio runs, allowed when it does not; unknown fails closed', async () => {
   const { decide, LIVE_RENDER_REASON } = await import('../policy.js');
-  assert.deepEqual(decide({ command: 'render.note_playback', tier: 'act', family: 'render', settings: { liveAudio: true } }), { action: 'deny', reason: LIVE_RENDER_REASON });
-  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', settings: {} }).action, 'allow');
-  assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', settings: { liveAudio: true } }).action, 'allow');
+  assert.deepEqual(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { liveAudio: true } }), { action: 'deny', reason: LIVE_RENDER_REASON });
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: {} }).action, 'allow');
+  assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', category: 'playback', settings: { liveAudio: true } }).action, 'allow');
   const { AssistantSession } = await import('../service/session.js');
-  const cmd = { name: 'render.note_playback', tier: 'act', family: 'render' };
+  const cmd = { name: 'render.note_playback', tier: 'act', family: 'render', approval_category: 'renders' };
   const make = (routes) => new AssistantSession({
     paths: {}, config: { model: 'auto' }, commands: [cmd], driverFactory: () => null,
     fetchImpl: async (url) => {
