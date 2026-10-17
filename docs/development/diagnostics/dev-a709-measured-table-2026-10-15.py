@@ -8,17 +8,20 @@ docs/development/measured-plywood-preset-2026-10-15.md.
 Selection  (< BOUNDARY_HZ):  the 24 live-validated core modes + every other mode with repeat MAC >= 0.9;
                              dropped: repeat MAC < 0.9, and 49.69 Hz (mains-adjacent, see EXCLUDE).
 Damping    tight decay class (599/650/715/820/876/901 Hz) -> stop-and-decay zeta; otherwise PolyMAX zeta, capped
-           by the decay zeta when one exists (decay = upper bound); 220.07 Hz -> PolyMAX 0.83 % (flagged).
+           by the decay zeta when one exists (decay = upper bound); 220.07 Hz -> PolyMAX 0.83 % (flagged), or with
+           --zeta-average 220.07 the mean of PolyMAX and stop-and-decay (user decision 2026-10-17).
 Mass       1/m ~ sigma1 * u_max * v_max (residue per ampere, shape scaled to max 1 at the sampled points); the
            common power-law trend over the kept modes is the sensor chain (removed: a plate's modal mass is ~M/4
            at every frequency); per-mode residual clipped to +-MASS_CLIP_DB; mass_inv_rel = 10^(residual/20)
            (geometric mean 1 over the kept modes before clipping).
 Channels   v_real (real-normal projection of v_current, max |.| = 1), order E1..E7.
 Usage: python <this> <rig_checks dir> <measured_residues.json> <out measured_modes.json>
+           [--boundary-hz 1000] [--zeta-average F ...]
+  2026-10-15 build: the defaults. 2026-10-17 build (user decisions Q3/Q4): --boundary-hz 1020 --zeta-average 220.07.
 """
+import argparse
 import json
 import os
-import sys
 
 import numpy as np
 
@@ -27,7 +30,7 @@ REPEAT_MIN = 0.9
 MASS_CLIP_DB = 6.0
 EXCLUDE = {49.69: "mains-adjacent (0.6 % below 50 Hz), cross-exciter MAC 0.12 = chance, mode vector -6.2 dB re the "
                   "optimum, not live-validated; earlier days: 53.2 Hz 'confirmed, weak', nothing at 49-50 Hz"}
-ZETA_OVERRIDE = {220.07: ("polymax", "PolyMAX 0.83 % (runs 0.76/0.84, q-confidence 'tight') vs decay 1.93 % "
+ZETA_OVERRIDE = {220.07: ("PolyMAX 0.83 % (runs 0.76/0.84, q-confidence 'tight') vs decay 1.93 % "
                                      "('beating' with 232 Hz, confidence 'poor'): PolyMAX kept, flagged")}
 
 
@@ -41,12 +44,12 @@ def load(rig, residues_path):
     return prep, core, qd, qc, res
 
 
-def select(prep, core):
+def select(prep, core, boundary_hz):
     kept, dropped = [], []
     for m in prep["modes"]:
         f = m["f"]
-        if f >= BOUNDARY_HZ:
-            dropped.append({"f": f, "reason": f">= {BOUNDARY_HZ:.0f} Hz boundary (FPGA modes kept there)"
+        if f >= boundary_hz:
+            dropped.append({"f": f, "reason": f">= {boundary_hz:.0f} Hz boundary (FPGA modes kept there)"
                                               + (" - live-validated core mode" if f in core else "")})
         elif f in EXCLUDE:
             dropped.append({"f": f, "reason": EXCLUDE[f]})
@@ -59,12 +62,16 @@ def select(prep, core):
     return kept, dropped
 
 
-def zeta_of(m, qd, qc):
+def zeta_of(m, qd, qc, average):
     """(zeta, source) per the damping rule."""
     f, z_pm = m["f"], m["zeta_pct"] / 100
-    if f in ZETA_OVERRIDE:
-        return z_pm, ZETA_OVERRIDE[f][1]
     d = qd.get(f)
+    if f in average:
+        z_d = d["zeta_decay_pct"] / 100
+        return (z_pm + z_d) / 2, (f"mean of PolyMAX {100 * z_pm:.3f} % (prep.json) and stop-and-decay {100 * z_d:.3f} % "
+                                  f"(q_decay.json, '{d['confidence']}'): user decision 2026-10-17")
+    if f in ZETA_OVERRIDE:
+        return z_pm, ZETA_OVERRIDE[f]
     if d and d["confidence"] == "tight":
         return d["zeta_decay_pct"] / 100, "stop-and-decay (tight)"
     if d and d["zeta_decay_pct"] / 100 < z_pm:
@@ -83,21 +90,21 @@ def masses(kept, res):
     return 10 ** (clipped / 20), r_db, clipped, float(b)
 
 
-def main(rig, residues_path, out_path):
+def main(rig, residues_path, out_path, boundary_hz=BOUNDARY_HZ, average=()):
     prep, core, qd, qc, res = load(rig, residues_path)
-    kept, dropped = select(prep, core)
+    kept, dropped = select(prep, core, boundary_hz)
     rel, r_db, clipped, expo = masses(kept, res)
     modes = []
     for (m, why), mr, rd, cd in zip(kept, rel, r_db, clipped):
-        z, zsrc = zeta_of(m, qd, qc)
+        z, zsrc = zeta_of(m, qd, qc, average)
         r = res[m["f"]]
-        modes.append({"f_hz": m["f"], "zeta": round(z, 5), "zeta_source": zsrc, "mass_inv_rel": round(float(mr), 4),
+        modes.append({"f_hz": m["f"], "zeta": round(z, 6), "zeta_source": zsrc, "mass_inv_rel": round(float(mr), 4),
                       "mass_residual_db": round(float(rd), 2), "mass_clipped": bool(abs(rd) > MASS_CLIP_DB),
                       "channels": r["v_real"], "real_projection_energy": round(r["v_real_energy"], 3),
                       "selection": why, "repeat_mac": m["repeat_mac"], "rank1": m["rank1"],
                       "cross_exciter_mac": m["cross_exciter_mac"], "src": m["src"]})
     out = {"source": {"rig_checks": rig, "prep": prep["runs"], "residues": residues_path},
-           "boundary_hz": BOUNDARY_HZ, "channel_order": [f"E{k}" for k in range(1, 8)],
+           "boundary_hz": boundary_hz, "channel_order": [f"E{k}" for k in range(1, 8)],
            "channel_convention": "real-normal projection of v_current (equal coil-current RMS), max |.| = 1",
            "mass_rule": {"estimator": "sigma1 * u_max * v_max (residues per ampere)", "trend_exponent": round(expo, 3),
                          "trend": "removed (sensor chain; plate modal mass ~ M/4, frequency-independent)",
@@ -113,4 +120,11 @@ def main(rig, residues_path, out_path):
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:4])
+    ap = argparse.ArgumentParser()
+    ap.add_argument("rig")
+    ap.add_argument("residues")
+    ap.add_argument("out")
+    ap.add_argument("--boundary-hz", type=float, default=BOUNDARY_HZ)
+    ap.add_argument("--zeta-average", type=float, nargs="*", default=[])
+    a = ap.parse_args()
+    main(a.rig, a.residues, a.out, a.boundary_hz, set(a.zeta_average))
