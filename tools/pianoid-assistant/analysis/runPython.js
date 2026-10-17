@@ -9,12 +9,11 @@
  * become new artefacts. Returns {ok, exit, stdout (capped), stderr (capped), files: [{artifact_id, name, kind,
  * size}], skipped, limits_hit, elapsed_s, run_id}.
  */
-import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ARTIFACT_ID, analysisPaths, createArtifact, kindOf, readArtifact } from './store.js';
+import { ARTIFACT_ID, analysisPaths, createArtifact, kindOf, newId, readArtifact } from './store.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const LAUNCHER = process.env.PIANOID_SANDBOX_LAUNCHER
@@ -67,13 +66,9 @@ export function validateInput(input = {}) {
   return { code, inputs, timeoutS, memoryMb };
 }
 
-function newRunId() {
-  return `r-${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}-${crypto.randomBytes(3).toString('hex')}`;
-}
-
 /** Create runs\<id>\ with code.py (prelude), user.py, in\<artefact>\ copies + in\index.json. */
 export function prepareRun(paths, { code, inputs }) {
-  const runId = newRunId();
+  const runId = newId('r');
   const dir = path.join(paths.runs, runId);
   const index = {};
   for (const id of inputs) {

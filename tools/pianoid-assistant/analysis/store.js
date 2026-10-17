@@ -36,10 +36,11 @@ export function analysisPaths(env = process.env) {
 
 export const kindOf = (name) => KINDS[path.extname(name).toLowerCase()] || null;
 
-function newId(now = new Date()) {
+/** `<prefix>-<local yyyymmddhhmmss>-<hex6>`: the id format of artefacts (a-) and runs (r-). */
+export function newId(prefix, now = new Date()) {
   const p = (n, w = 2) => String(n).padStart(w, '0');
   const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
-  return `a-${stamp}-${crypto.randomBytes(3).toString('hex')}`;
+  return `${prefix}-${stamp}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
 /**
@@ -48,7 +49,7 @@ function newId(now = new Date()) {
  */
 export function createArtifact(dir, { kind, source, meta = {}, files }) {
   if (!files?.length) throw new Error('an artefact needs at least one file');
-  const id = newId();
+  const id = newId('a');
   const out = path.join(dir, id);
   fs.mkdirSync(out, { recursive: true });
   const listed = files.map(({ name, data }) => {

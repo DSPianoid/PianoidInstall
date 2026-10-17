@@ -270,5 +270,7 @@ pip host only), `analysis\runs\` (the newest 50 runs) and `analysis\artifacts\` 
 `runs\r0` is still there (97 kB). No admin, no system-wide change. To uninstall: `PianoidSandbox.exe cleanup --profile
 pianoid.analysis --revoke <runtime>` and delete `%USERPROFILE%\.pianoid-assistant\analysis\`.
 
+**Live E2E (2026-10-17, isolated stack, audio_on 0):** "compare the spectra of a C4 and a C5 render" was routed to Opus. It rendered p60 and p72 with `export: true` (2 artefacts: WAV + raw series), asked before the run (the confirm showed the code), ran the code in the sandbox and showed `c4_c5_spectra.png` in the pane. An independent numpy run on the same artefacts gives the same f1 (252.18 / 503.68 Hz) and centroids (1098 / 1800 Hz). After the run the container folder had 0 entries and the run dir no ACE (session log dev-11f8, screenshots `logs/dev-11f8-live-0*.png`).
+
 Still open (unchanged from §5, outside the approved scope): objects readable by ALL APPLICATION PACKAGES, DNS without
 `internetClient`, the win32k surface, the clipboard.
