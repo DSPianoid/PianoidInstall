@@ -141,6 +141,19 @@ A legacy `src/App.js` single-file layout existed as the original prototype, was 
 
 ---
 
+### Calibrate (attack loudness) — `AttackCalibrateButton.jsx` + `useAttackCalibration.js` (dev-89f7)
+
+The Virtual Piano toolbar's **Calibrate** button (tune icon, next to Play All) equalizes the A-weighted
+ATTACK level (first 300 ms, energy-summed over the unmuted output channels) of every key to the
+**selected key**, within 0.5 dB, by per-key `hammer_mass` (up to 3 passes). The dialog confirms the
+reference key, the velocity (the toolbar level) and the channels, then runs the registry command
+`calibration.attack_equalize` (a calibration-family job): a determinate progress bar from `job_progress`,
+**Stop** = `job.cancel`; at the end the summary (max deviation and std before → after, passes, renders /
+time, keys still outside, keys at the 0.1 g / 1 kg mass limit) and **Undo** = `history.undo {group}` (the
+whole run is ONE undo group; the output level is never changed, so the undo is complete). Disabled on a
+read-only original. Backend contract: [REST API — POST /calibrate_attack](../pianoid-middleware/REST_API.md#post-calibrate_attack).
+Tests: `src/components/__tests__/AttackCalibrateButton.test.jsx`.
+
 ### Play All (keyboard sweep) — `startSweep` / `stopSweep` in `PianoidTuner.js`
 
 The Virtual Piano pane's toolbar "Play All" button (▶ / ■) sweeps every available
