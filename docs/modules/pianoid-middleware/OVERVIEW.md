@@ -129,8 +129,8 @@ Load the result with the parameters recorded in `fpga_conversion.load_params` �
 converted strings are F_15's own, one GPU block per FPGA 512-point array), `string_iteration=16` (needs PianoidCore ≥ 682a535),
 `listen_to_modes=0`, `sound_derivative_order=1` (the FPGA output weights map onto the output-pitch feedback rows, which
 only the strings-mode path reads). The FPGA's 16 outputs are per-transducer **drives** of the physical board, so the
-converter's `--output-role` picks a mono `listening` mix (default; `F15_Elyashev_array512_listening`) or `actuator_feeds`
-(`F15_Elyashev_array512`: output k = one transducer drive) — [proposal §13](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md#13-output-role-decka-is-per-transducer-drive-dev-b59d-2026-10-11). The preset's `fpga_conversion` block records every input not read from the tables: DERIVED from the
+converter's `--output-role` picks `actuator_feeds` (default since 2026-10-18: output k = one transducer drive, for driving the
+board; `F15_Elyashev_array512`, `F15_Elyashev_array512_actuator_2026-10-18`) or a mono `listening` mix (`F15_Elyashev_array512_listening_2026-10-18`) — [proposal §13](../../proposals/fpga-to-gpu-preset-port-2026-09-30.md#13-output-role-decka-is-per-transducer-drive-dev-b59d-2026-10-11). The preset's `fpga_conversion` block records every input not read from the tables: DERIVED from the
 FPGA code and stm32 firmware (F_15 Pitch.txt, speaking offset, mode Q, clocks 512/256/96, output Δq) or
 UNCONFIRMED (mode-mass absolute scale; any non-F_15 Pitch.txt) and every dropped or
 approximated field; a `<out>.conversion_report.md` is written next to it.
