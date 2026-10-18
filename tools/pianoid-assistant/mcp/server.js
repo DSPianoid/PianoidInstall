@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Pianoid MCP server (assistant phase A4): every command-registry command as an MCP tool, plus
- * search_docs. stdio transport.
+ * Pianoid MCP server (assistant phase A4): every command-registry command as an MCP tool, plus the
+ * read-only local tools search_docs, read_docs and ops_status (dev-6b34). stdio transport.
  *
  *   node mcp/server.js [--source assistant|mcp] [--data-opt-out true]
  *
@@ -20,8 +20,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { INSTALL_ROOT, commandName, loadCommands } from '../lib/registry.js';
 import { decide } from '../policy.js';
-import { BACKEND_URL, callCommand, compact, listTools, SEARCH_DOCS, shapeResult } from './tools.js';
-import { buildIndex, search } from './docsIndex.js';
+import { BACKEND_URL, callCommand, compact, listTools, READ_DOCS, SEARCH_DOCS, shapeResult } from './tools.js';
+import { buildIndex, readSection, search } from './docsIndex.js';
+import { OPS_STATUS, opsStatus } from './opsStatus.js';
 import { exportResult, splitExport } from '../analysis/export.js';
 import { analysisPaths } from '../analysis/store.js';
 
@@ -33,7 +34,7 @@ const arg = (name, fallback) => {
 export function createPianoidMcpServer({
   source = 'mcp', commands = loadCommands(),
   docsDir = path.join(INSTALL_ROOT, 'docs'), fetchImpl = fetch, settings = {}, execUrl = null,
-  artifactsDir = analysisPaths().artifacts,
+  artifactsDir = analysisPaths().artifacts, readOps = opsStatus,
 } = {}) {
   const byName = new Map(commands.map((c) => [c.name, c]));
   let docs = null;
@@ -51,6 +52,12 @@ export function createPianoidMcpServer({
       if (!docs) docs = buildIndex(docsDir);
       return text(search(docs, String(args.query || ''), Math.min(10, args.limit || 5)));
     }
+    if (name === READ_DOCS.name) {
+      if (!docs) docs = buildIndex(docsDir);
+      const section = readSection(docs, { page: args.page, anchor: args.anchor });
+      return text(section, !!section.error);
+    }
+    if (name === OPS_STATUS.name) return text(await readOps());
     const cmd = byName.get(commandName(name));
     if (!cmd) return text({ error: 'unknown_tool', tool: name }, true);
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings });

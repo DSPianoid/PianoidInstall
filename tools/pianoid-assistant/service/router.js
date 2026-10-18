@@ -105,6 +105,23 @@ export const RULES = [
       stems(['разниц', 'отличи', 'отличае', 'по сравнению'])],
   },
   {
+    // dev-6b34: install / update / rebuild procedures are multi-step plans with gotchas (the operations primer).
+    // Not bare "update" / "set up" / "установ" (a parameter update, "set up channel 3", "установи громкость"):
+    // only the build / git / dependency words and the "how do I <op> <the app>" questions.
+    category: 'operations procedure', route: 'opus',
+    test: [
+      words(['install', 'installation', 'installing', 'reinstall', 'rebuild', 'rebuilding', 'recompile', 'compile',
+        'git pull', 'pull from git', 'from git', 'new machine', 'new computer', 'new pc', 'dependencies', 'npm install',
+        'npm ci', 'pip install', 'venv', 'update everything', 'update pianoid', 'update the repos', 'update all repos',
+        'update the code', 'upgrade pianoid', 'update available', 'updates available', 'launcher', 'start-pianoid',
+        'setup-pianoid', 'update-repos']),
+      re(`${W}how\\s+(?:do|can|should)\\s+i\\s+(?:update|upgrade|build|start|launch|set\\s+up|setup)\\s+(?:pianoid|it|everything|the\\s+(?:app|engine|backend|frontend|stack|launcher|assistant|repos?))${E}`),
+      stems(['переустанов', 'пересобр', 'пересбор', 'скомпил', 'установить pianoid', 'установка pianoid', 'как установить',
+        'новый компьютер', 'новом компьютере', 'новую машину', 'зависимост', 'обновить всё', 'обновить все',
+        'обнови всё', 'обнови все', 'обновить pianoid', 'обновление pianoid', 'обновить репо', 'лаунчер']),
+    ],
+  },
+  {
     category: 'multi-step plan', route: 'opus',
     test: [
       words(['then', 'after that', 'afterwards', 'for each', 'for every', 'in turn', 'one by one', 'one after another',

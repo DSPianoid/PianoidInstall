@@ -5,6 +5,7 @@
 import { listedFor } from '../policy.js';
 import { toolName } from '../lib/registry.js';
 import { withExportArg } from '../analysis/export.js';
+import { OPS_STATUS } from './opsStatus.js';
 
 export const BACKEND_URL = process.env.PIANOID_BACKEND_URL || 'http://127.0.0.1:5000';
 export const LAUNCHER_URL = process.env.PIANOID_LAUNCHER_URL || 'http://127.0.0.1:3001';
@@ -25,6 +26,28 @@ export const SEARCH_DOCS = {
   annotations: { title: 'Search the Pianoid documentation', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 };
 
+export const READ_DOCS = {
+  name: 'read_docs',
+  title: 'Read one documentation section',
+  description: 'One whole section (heading, body and subsections, up to about 6k tokens) of one Pianoid documentation page, '
+    + 'or the page outline (headings, anchors, links) when no anchor is given. page = a docs path ("guides/OPERATIONS_FOR_ASSISTANT.md") '
+    + 'or a search_docs / http://localhost:8001 link (its #anchor is used). [tier: read]',
+  inputSchema: {
+    type: 'object',
+    required: ['page'],
+    additionalProperties: false,
+    properties: {
+      page: { type: 'string', description: 'e.g. "guides/OPERATIONS_FOR_ASSISTANT.md" or "http://localhost:8001/guides/QUICK_START/#step-3-build-all-packages"' },
+      anchor: { type: 'string', description: 'Section anchor, e.g. "update"; omit it for the outline' },
+    },
+  },
+  annotations: { title: 'Read one documentation section', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+};
+
+/** The server's own read-only tools (no registry command, no backend call): they run without a confirm. */
+export const LOCAL_TOOLS = [SEARCH_DOCS, READ_DOCS, OPS_STATUS];
+export const LOCAL_READ_TOOLS = new Set(LOCAL_TOOLS.map((t) => t.name));
+
 /** MCP tool definition of one registry command. */
 export function toolFor(cmd) {
   const ro = cmd.tier === 'read' || cmd.tier === 'ui';
@@ -44,9 +67,9 @@ export function toolFor(cmd) {
   };
 }
 
-/** Every registry command that may ever run (+ search_docs), sorted. */
+/** Every registry command that may ever run (+ the local read tools), sorted. */
 export function listTools(commands, settings = {}) {
-  return [...commands.filter((c) => listedFor(c, settings)).map(toolFor), SEARCH_DOCS]
+  return [...commands.filter((c) => listedFor(c, settings)).map(toolFor), ...LOCAL_TOOLS]
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

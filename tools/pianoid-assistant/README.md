@@ -5,7 +5,7 @@ The AI assistant of the Pianoid UI (proposal: `docs/proposals/ai-assistant-in-ui
 
 | Part | Phase | What |
 |---|---|---|
-| `mcp/server.js` | A4 | stdio MCP server: every command-registry command (`schemas/commands`) as a tool (`play.note` → `play__note`), tier annotations, `search_docs`; excluded (and opted-out) tools hidden and refused |
+| `mcp/server.js` | A4 | stdio MCP server: every command-registry command (`schemas/commands`) as a tool (`play.note` → `play__note`), tier annotations, `search_docs` (+ `read_docs`, `ops_status`: see Operations knowledge); excluded (and opted-out) tools hidden and refused |
 | `service/server.js` | A1 | the assistant service on `127.0.0.1:3002` (spawned by the launcher): Claude Code headless through the Claude Agent SDK on the user's **subscription**, in an **isolated Claude home**; the pane protocol over WS `/ws` |
 | `policy.js` | A4 / A1 / v2 P2 | the permission policy (D3 / D4, categories, hard-confirm list, envelope verdict), called for every tool call |
 | `service/router.js` | v2 P1 | the model router (pure): pre-route, tool / failure triggers, self-escalation, stickiness |
@@ -125,7 +125,7 @@ The service picks the model per turn when the picker is **Auto** (a forced Sonne
 
 | Layer | When | Rule (activity entry `model route`) |
 |---|---|---|
-| 1 pre-route | before the turn | English + Russian keywords: bug analysis, timbre edit, physics / prediction, code / analysis, comparison, multi-step plan → Opus; else Sonnet. Context: a crashed engine (`status` crashed / exception) → Opus |
+| 1 pre-route | before the turn | English + Russian keywords: bug analysis, timbre edit, physics / prediction, code / analysis, comparison, operations procedure (install / update / rebuild / start, dev-6b34), multi-step plan → Opus; else Sonnet. Context: a crashed engine (`status` crashed / exception) → Opus |
 | 2 triggers | during the turn, before the call | the first `analysis.run_python` / `bug.draft` / web research (later phases); a retry of a denied or declined command; 2 consecutive tool errors |
 | 3 self | the model calls `escalate_model` | unchanged |
 
@@ -163,6 +163,22 @@ settings are not a bug —, `description`, `component`, `steps`, `expected`, `ac
 chat messages and the last 30 activity entries. The confirm dialog shows the draft as filed plus the attachment list;
 only the report the user saw is filed, once (the handler looks it up by the draft's canonical JSON). Not built yet
 (v2 §7): the service-side triggers, de-duplication, `ui.bug_report.collect`.
+
+## Operations knowledge (dev-6b34)
+
+The assistant explains install, start, update and rebuild procedures; it never runs them (no shell). Its source is the
+operations primer `docs/guides/OPERATIONS_FOR_ASSISTANT.md` (served at
+http://localhost:8001/guides/OPERATIONS_FOR_ASSISTANT/: new machine, start / stop, update from git, rebuild,
+symptom → procedure, gotchas, the assistant's own setup, the doc / script disagreements), plus two read-only tools of the
+`pianoid` MCP server that run without a confirm (`service/session.js` `LOCAL_READ_TOOLS`, like `search_docs`):
+
+| Tool | What |
+|---|---|
+| `read_docs {page, anchor?}` (`mcp/docsIndex.js` `readSection`) | one whole docs section with its subsections (≤ 24k chars), or the page outline without an anchor; `page` = a docs path or a `search_docs` link |
+| `ops_status {}` (`mcp/opsStatus.js`) | per repo: branch, SHA, ahead / behind `origin/<integration>` as of the last fetch (never fetches), local changes; the engine (release + debug) and the Basic wheel against the files changed in the checkout since they were built (`HEAD@{build time}..HEAD` + later uncommitted edits); Tunner / assistant npm deps against `node_modules/.package-lock.json`; the sandbox; hints linking the primer. Git runs with `GIT_OPTIONAL_LOCKS=0` (no index refresh) |
+
+The prompt routes such questions to `ops_status` then `read_docs` on the primer; the router sends them to Opus
+(category `operations procedure`). Tests: `test/opsStatus.test.js` (real git fixtures), `test/routing-corpus.json`.
 
 ## Standalone MCP (Claude Code / the orchestrator)
 
