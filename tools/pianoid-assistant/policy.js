@@ -51,6 +51,7 @@ export const HARD_CONFIRM = {
   'preset.load': 'full reload: re-initialises the engine',
   'calibration.synthesis': 'calibration (minutes; rewrites the levels)',
   'calibration.acoustic': 'calibration with the microphone (rewrites hammer_mass)',
+  'calibration.attack_equalize': 'calibration (minutes; rewrites hammer_mass of every key)',
   'modal.run_stage': 'modal measurement job',
   'modal.apply_to_preset': 'writes measured modes into the preset',
   'launcher.backend.start': 'process control (launcher)',
