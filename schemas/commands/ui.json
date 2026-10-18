@@ -5,7 +5,7 @@
     {
       "name": "ui.snapshot",
       "title": "UI snapshot",
-      "description": "The leader tab's view state: layout tree, open panes, maximized pane, active named layout + saved names, the panes that can be opened, the selection (pitch, pitch range, mode, mode range, parameter, velocity level), per-pane tie (zoom) flags and the workbench bindings.",
+      "description": "The leader tab's view state: layout tree, open panes, maximized pane, active named layout + saved names, the panes that can be opened, the selection (pitch, pitch range, mode, mode range, parameter, velocity level), the active context (active: the parameter the wheel edits or null, the active pitch / mode / channel, its value, wheel step, follow_midi), per-pane tie (zoom) flags and the workbench bindings.",
       "target": "ui",
       "tier": "read",
       "approval_category": "view",
