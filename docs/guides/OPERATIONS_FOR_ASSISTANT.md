@@ -193,7 +193,7 @@ before the UI appeared (the user describes it) or the backend start after APPLY 
 | "no CUDA device" / "NVML not found" / CUDA broken | `system.environment` if the backend is up | PowerShell in PianoidInstall `powershell -NoProfile -ExecutionPolicy Bypass -File diagnose-cuda.ps1` (verdict + fix); display driver: `install-gpu-driver.bat` (Admin, reboots); [NVML not found](STARTUP_TROUBLESHOOTING.md#symptom-nvidia-smi-reports-nvml-not-found-gpu-visible-but-cuda-fails) |
 | "< 60 SMs" warning | — | full-keyboard 58-block presets may not launch; use a `*_56SM` preset ([QUICK_START](QUICK_START.md#no-prompt-launch-desktop-shortcut-update-check)) |
 | `npm run dev` fails | `ops_status` (`npm_ci_needed`) | `node --version` must be 20.x; in PianoidTunner remove `node_modules`, `npm ci` (or `npm install`); "Plugin react was conflicted": `PianoidTunner\.env` must contain `DISABLE_ESLINT_PLUGIN=true` |
-| the Assistant pane cannot start the service | `launcher.assistant.status` (`lastError`) | "assistant dependencies missing": `npm install` in `tools\pianoid-assistant`; not logged in: [Assistant setup](#assistant-setup) |
+| the Assistant pane cannot start the service, or says "not connected" | `launcher.assistant.status` (`lastError`) | "assistant dependencies missing": `npm install` in `tools\pianoid-assistant`; not connected: the **Connect Claude subscription** button ([Assistant setup](#assistant-setup)) |
 | a change "has no effect" after a rebuild | `ops_status` (engine build times) | [Rebuild](#rebuild) failure table, last two rows |
 | first install on a new machine | — | [New machine install](#new-machine) |
 
@@ -216,16 +216,21 @@ before the UI appeared (the user describes it) or the backend start after APPLY 
 
 ## Assistant setup {#assistant-setup}
 
-Source: `tools/pianoid-assistant/README.md` (Setup, Analysis sandbox, Isolation), `PianoidTunner/server/launcher.js`.
+Source: `tools/pianoid-assistant/README.md` (Setup, First-time setup, Analysis sandbox, Isolation), `PianoidTunner/server/launcher.js`.
 
 1. **Dependencies:** cmd, `cd <PianoidInstall>\tools\pianoid-assistant`, `npm install` (Node 20+). Again after a
    PianoidInstall pull that changed its `package.json` / `package-lock.json`.
-2. **Login (once):** the assistant runs on the user's Claude subscription in its OWN Claude home
-   (`%USERPROFILE%\.pianoid-assistant\claude-home`, never `~/.claude`). The pane shows the login command while that
-   home is not logged in; PowerShell:
+2. **Connect the Claude subscription (once):** the assistant runs on the user's Claude subscription in its OWN Claude
+   home (`%USERPROFILE%\.pianoid-assistant\claude-home`, never `~/.claude`). While that home is not logged in, the
+   Assistant pane shows "Claude subscription not connected" with a **Connect Claude subscription** button (the chat
+   input is disabled). Click it, then **Open Claude login**: sign in with the Claude account in the new browser tab;
+   the pane switches to connected by itself (the header chip shows email · plan; its menu has **Disconnect**, which
+   logs out the isolated home only). If the sign-in page shows a code instead, use "The sign-in page shows a code
+   instead?" and paste it. Needs the `claude` CLI on PATH (otherwise the pane says "The Claude Code CLI (claude) was not
+   found on PATH"). Terminal fallback ("Or sign in from a terminal" in the pane), PowerShell:
    `$env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; claude auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR`.
-   An in-pane **Connect** flow is being built (dev-dc2a, not merged yet). The service refuses to start while
-   `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set (it would bill the paid API).
+   Source: `tools/pianoid-assistant/README.md` "First-time setup: connect the Claude subscription" (dev-dc2a). The
+   service refuses to start while `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set (it would bill the paid API).
 3. **Start:** the pane's **Start assistant** button (`launcher.assistant.start`, asks); the service listens on
    127.0.0.1:3002.
 4. **Analysis sandbox (once, optional, for analysis code):** `node analysis\setup.js` in `tools\pianoid-assistant`
