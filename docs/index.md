@@ -140,6 +140,9 @@ interactive latency.
   first-run checklist
 - [guides/UI_TESTING.md](guides/UI_TESTING.md) — Canonical live UI test procedure: start
   sequence, interaction patterns, deterministic sound measurement, shutdown
+- [guides/OPERATIONS_FOR_ASSISTANT.md](guides/OPERATIONS_FOR_ASSISTANT.md) — Operations primer
+  (install on a new machine, start / stop, update from git, rebuild, symptom → procedure, gotchas,
+  the assistant's own setup, doc / script disagreements); the in-UI assistant reads it with `read_docs`
 
 ### Proposals
 

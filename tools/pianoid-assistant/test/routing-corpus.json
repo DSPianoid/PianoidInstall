@@ -60,6 +60,20 @@
     {"source": "ru", "text": "сравни спектры двух пресетов", "expect": "opus", "category": "code / analysis"},
     {"source": "ru", "text": "включи каналы по очереди, по пять секунд", "expect": "opus", "category": "multi-step plan"},
     {"source": "ru", "text": "что будет, если увеличить натяжение?", "expect": "opus", "category": "physics / prediction"},
-    {"source": "ru", "text": "объясни физику затухания", "expect": "opus", "category": "physics / prediction"}
+    {"source": "ru", "text": "объясни физику затухания", "expect": "opus", "category": "physics / prediction"},
+    {"source": "ops", "text": "how do I update and rebuild?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ops", "text": "how do I update everything from git and rebuild?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ops", "text": "what do I need to install on a new machine?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ops", "text": "the launcher is stuck at start, what do I do?", "expect": "opus", "category": "bug analysis"},
+    {"source": "ops", "text": "is an update available?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ops", "text": "do I need to rebuild after the pull?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ops", "text": "how do I start pianoid?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ops", "text": "npm install failed for the assistant", "expect": "opus", "category": "bug analysis"},
+    {"source": "ops negative", "text": "update the volume to 80", "expect": "sonnet"},
+    {"source": "ops negative", "text": "set up channel 3 solo", "expect": "sonnet"},
+    {"source": "ops negative", "text": "start the backend", "expect": "sonnet"},
+    {"source": "ru ops", "text": "как обновить всё и пересобрать?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ru ops", "text": "что нужно установить на новом компьютере?", "expect": "opus", "category": "operations procedure"},
+    {"source": "ru ops negative", "text": "установи громкость 80", "expect": "sonnet"}
   ]
 }

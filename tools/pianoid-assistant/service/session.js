@@ -15,6 +15,7 @@ import { decide, HARD_CONFIRM, HARD_CONFIRM_EXTRA } from '../policy.js';
 import { applyChange, describe, modeOf, usesEnvelope } from '../approvals.js';
 import { check as checkEnvelope } from '../envelope.js';
 import { commandName } from '../lib/registry.js';
+import { LOCAL_READ_TOOLS } from '../mcp/tools.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
 import { contextBlock, systemPrompt } from './prompt.js';
@@ -182,7 +183,7 @@ export class AssistantSession {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
     }
     const tool = toolName.slice(PIANOID_PREFIX.length);
-    if (tool === 'search_docs') return { behavior: 'allow', updatedInput: input };
+    if (LOCAL_READ_TOOLS.has(tool)) return { behavior: 'allow', updatedInput: input };   // search_docs, read_docs, ops_status
     const cmd = this.byName.get(commandName(tool));
     if (!cmd) return { behavior: 'deny', message: `unknown Pianoid tool ${tool}` };
     await this.trigger(this.router.onToolCall(cmd.name));      // layer 2, before the call runs
