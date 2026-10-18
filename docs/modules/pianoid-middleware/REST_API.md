@@ -2098,8 +2098,9 @@ Diagnostic bug-report **collector** (dev-bugauto, 2026-07-11). The frontend
 AUTO-fires a bug report on an internal system fault (backend crash/exception,
 unresponsive endpoint, prohibited/clamped values, uncaught FE error) and POSTs
 the report JSON here so it lands on disk in a folder the dev/orchestrator watches
-— no user download, no click. The **manual** 🐞 flow does NOT hit this endpoint
-(it downloads client-side). See
+— no user download, no click. The **manual** 🐞 dialog files its report here too
+(dev-fe18, 2026-10-18; `trigger: {auto: false}` → the `manual` tag) and downloads
+client-side only when this endpoint is unreachable. See
 [BUG_REPORT_TOOL.md → Auto-Fire](../pianoid-tunner/BUG_REPORT_TOOL.md#auto-fire-on-internal-system-faults).
 
 Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}` and `reportId`).

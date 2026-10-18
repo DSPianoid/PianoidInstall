@@ -185,6 +185,19 @@ The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with 
 junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
 initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
 
+**Never reload an initScript page (dev-fe18 incident, 2026-10-18).** A `location.reload()` from inside the page
+(e.g. after seeding `localStorage`) dropped the rewrite, and for ~4 min the agent tab drove the USER's live :5000
+(11 hammer writes, a played note, two 2 MB reports that stalled `/health`). Re-enter only through `navigate_page`
+with the `initScript`, or — for any session that reloads — put the same rewrite as an inline `<script>` at the top
+of the worktree's `public/index.html` (survives every reload; revert it before committing) and assert
+`window.__mockRewrite` plus zero `performance` resource entries to `:5000`/`:3001` before every measurement.
+
+**GPU-free FE harness (dev-fe18).** When no GPU / backend slot is free, `docs/development/diagnostics/dev-fe18-mock-backend.py
+<bug-report.json> [port]` (PianoidCore venv, no engine import) serves a manual bug report's `configSnapshot` over the
+REST + socket.io surface the Tunner boots from (hello resync, `get_parameter/*`, `set_parameter` logged with a
+timestamp at `GET /mock/writes`, `POST /bug_report` kept at `GET /mock/last_report_actions`). Point the page at it with
+the rewrite above (`:5000|:5001|:3001|:3002 → :<port>`): the user's exact preset + layout, real browser timings, no GPU.
+
 **Kill sweeps stay inside their own stack (dev-7bb0, 2026-10-16).** A launcher kills only what is on its own ports
 (`PIANOID_BACKEND_PORT`, `PIANOID_MODAL_PORT`) or python running its own `<CORE_DIR>` script that listens nowhere else,
 so the user's tab calling kill-stale on :3001 leaves your :5012 backend alone, and your launcher's `start-backend`
