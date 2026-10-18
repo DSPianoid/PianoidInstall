@@ -328,6 +328,19 @@ was off: off freezes the y-axis at an earlier maximum. There is no ui command fo
 state in `PianoidTuner.js` (4553 LOC, RED), and the file should not grow without a split plan. So only the prompt
 changed: it now says to tell the user to switch the toggle on and to give the values read with `param__get`.
 
+**Measured (isolated :5012, Core worktree 7c6cd6d, BaselinePreset1, `audio_on` 0, driver 0, `start_right_away` 1, no
+notes, user stack down).**
+- `note_playback` p60 ×3: 200 in 2.46–2.49 s, and `backend_thread_running` was true after each one.
+- `/health` polled at 5 Hz during a p48 render: `backend_thread_running` / `main_loop_should_continue` true → **false
+  for about 2.5 s** → true. That is the stop → render → restart, observed.
+- `/command/render.keyboard` [60, 62]: 200 in 1.30 s, offline, 2175 cycles, and the thread was true after it.
+- `/command/render.chart_types`: 200, the registry.
+- `/get_chart_test {chartType: "live_play"}` (an action name): **416** `Invalid chart type`, and the thread was unchanged.
+  The REST_API "499 for actions" line is corrected.
+- The backend log has no traceback.
+- Through `AssistantSession.canUseTool` on that backend: `liveAudio` false, and `render.note_playback`,
+  `render.chart_types` and `render.keyboard` were all allowed with no dialog.
+
 **Not verified here:** the live-audio render itself (`audio_on` 1 needs the user's terminal approval). The user checks
 it in their own session: ask for a note render with live audio, then confirm the dialog. Expected: live audio pauses
 for about 2–3 s and comes back, with `/health.backend_thread_running` true after the render.
