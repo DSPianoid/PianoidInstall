@@ -358,6 +358,15 @@ interleaved across all output channels), RMS over **all output channels** in 30�
 channels. Before dev-168c it sliced the interleaved buffer as if it were mono, i.e. measured ~7.5–75 ms of mixed
 channels on a 4-channel preset.
 
+**Attack equalization (`attack_equalizer.py`, dev-89f7).** `calibrate_attack(reference_pitch, pitches, velocity)` —
+the Virtual Piano Calibrate button — equalizes the A-weighted 300 ms ATTACK level (energy sum over the unmuted
+channels) of every key to the reference by `hammer_mass`, iterating to a tolerance; it renders through
+`SynthesisTuner.render_note` (the offline render primitive `_synthesis_only_measure` also uses) and runs inside the
+same pass lifecycle as the synthesis / acoustic passes (`_calibration_pass`: running flag + cancel ref, one
+calibration-mode entry, staged masses dropped on exit). No physical-range rescale (it would move `output_scale`,
+which undo cannot restore). Route `POST /calibrate_attack` (`attack_calibration_route.py`, one explicit undo group);
+contract [REST_API → POST /calibrate_attack](REST_API.md#post-calibrate_attack).
+
 **Volume correction algorithm:** Direct linear correction exploiting the linear RMS-to-mass relationship (`RMS = K(pitch) * hammer_mass`; measured exact to ±0.002 dB for ×0.25…×4 on BaselinePreset1 and F15_Elyashev_array512). A single measurement determines the correction factor (`target_rms / measured_rms`), reducing per-note calibration from 20-30 measurements (bisection) to 1-2 measurements. Bisection is retained as a fallback for clipping, near-zero signal, or unexpected nonlinearity.
 
 Key methods:

@@ -2456,6 +2456,42 @@ Moves every key pitch's `hammer_mass` into the physical range (2–20 g) with on
 
 ---
 
+### `POST /calibrate_attack`
+
+**A-weighted attack equalization** — the Virtual Piano **Calibrate** button (dev-89f7), registry command
+`calibration.attack_equalize` (calibration job family, approval `hard_confirm`). Equalizes what the ear hears
+first: every key's A-weighted level in the first 300 ms after its onset, energy-summed over the heard channels,
+to the reference key, by per-key `hammer_mass`. (`/calibrate_synthesis` matches a 30–300 ms *flat* RMS: on
+F15_measured_plywood it left the treble +13…+21 dB louder at the attack, A-weighted.) Procedure from the
+assistant's manual run (bug reports `2026-10-18T11-34-56` / `11-52-34`).
+
+Body: `{"reference_pitch": 62, "velocity": 95, "pitches": "all", "tolerance_db": 0.5, "max_passes": 3,
+"channels": null, "window_ms": 300}` — `reference_pitch` required (a key of the preset; its mass is never
+changed); `velocity` 1–127; `pitches` = `"all"` (key pitches) or a list; `tolerance_db` 0.01–6;
+`max_passes` 0–10 (`0` = **measure only**: renders and reports `before_db`, writes nothing); `channels` = output channels to measure, default **every unmuted channel**; `window_ms` 50–2000.
+
+| Step | What |
+|---|---|
+| session | ONE calibration session (`enter_calibration_mode(keep_audio=True)` once): the realtime engine stops once for the whole run and restarts at the end — no per-key restart |
+| render | per key: `SynthesisTuner.render_note` (string state reset, note-on, held `window_ms` + 150 ms, offline, record buffer de-interleaved to all output channels) |
+| metric | per channel the IEC 61672 A-weighting (analog prototype, bilinear, 0 dB at 1 kHz; −3.7 dB at 10 kHz at 48 kHz, inside class 1); onset = the A-weighted energy envelope (sum over channels, 1 ms smoothing) first reaching −40 dB of its peak; `L = sqrt(Σ_ch RMS_ch²)` over `[onset, onset + window_ms)` |
+| channels heard | the engine output channels the mute masks leave ON (`mute_ops.channel_states`: strings mode `feedback_mask` rows of output pitches 128+ch, modes mode `sound_channel_mask`). `PIANOID_AUDIO_OUTPUT_MAP` only routes channel k to output `map[k]` and drops none. All muted → `job_failed` |
+| correction | `m_k ×= L_ref / L_k` (loudness is linear in mass), clamped to the Mass-workbench range **0.1 g … 1 kg** (clamped keys reported); committed per pass through `HammerMassGain.commit` (the write machinery) |
+| iteration | re-measure only the corrected keys; repeat until every key is within `tolerance_db` or `max_passes`; keys already inside are never touched; the reference is re-rendered at the end (`reference_drift_db`, the key-isolation check) |
+| level | **no** physical-range rescale and **no** `output_scale` change (undo cannot restore `output_level`: the mass-only result undoes completely). Never calls `calibrate_output_scale` |
+| undo | the worker writes in ONE explicit group — the request's `X-Pianoid-Group` / WS `groupId`, else `attack-eq-<id>` — returned as `group`; `POST /history/undo {"group": …}` restores every mass |
+
+Response `200` `{status: "started", step: "attack_equalize", group, reference_pitch, pitches, velocity, jobId}`;
+`400` no preset / invalid body / reference not a key · `409` a calibration is running. The job (`job_finished`)
+result: `{reference_pitch, velocity, channels, window_ms, tolerance_db, load_settings (the result is valid at
+these), reference_level, reference_drift_db, before_db / after_db {pitch: dB re reference}, max_abs_dev_before_db,
+max_abs_dev_after_db, std_before_db, std_after_db (over all keys incl. the reference), converged, passes [{passes,
+max_abs_db, std_db, corrected}], clamped {pitch: min|max}, silent [pitch], mass_grams_before / _after, renders,
+runtime_s, cancelled, group}`. `job.cancel` stops after the current render (`job_cancelled`, passes already
+committed stay — Undo restores them).
+
+---
+
 ### `GET /calibration_status`
 
 Returns the current calibration progress. Used to poll `equalize_keyboard` status from the frontend.

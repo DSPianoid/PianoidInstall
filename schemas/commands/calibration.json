@@ -48,6 +48,32 @@
       "result": {"type": "object"}
     },
     {
+      "name": "calibration.attack_equalize",
+      "title": "Equalize attack loudness (A-weighted)",
+      "description": "The Virtual Piano Calibrate button: equalizes every key's A-weighted ATTACK level (first 300 ms after the onset, energy-summed over the heard = unmuted output channels) to the reference key within tolerance_db, by per-key hammer_mass (clamped 0.1 g .. 1 kg), iterating up to max_passes. Offline renders in ONE calibration session (the realtime engine stops once). No output_scale change, no mass rescale. ONE undo group: the result's `group` (history.undo {group}). Long-running: returns a jobId; job.cancel stops it after the current render.",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "hard_confirm",
+      "long_running": true,
+      "job_family": "calibration",
+      "doc": "modules/pianoid-middleware/REST_API.md#post-calibrate_attack",
+      "route": {"method": "POST", "path": "/calibrate_attack"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reference_pitch"],
+        "properties": {
+          "reference_pitch": {"type": "integer", "minimum": 0, "maximum": 127, "description": "The reference key (MIDI pitch; the Virtual Piano's selected key)"},
+          "velocity": {"type": "integer", "minimum": 1, "maximum": 127, "default": 95, "description": "MIDI velocity (the toolbar level)"},
+          "pitches": {"oneOf": [{"type": "string", "enum": ["all"]}, {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 127}, "minItems": 1}], "default": "all", "description": "Keys to equalize: list or 'all' (key pitches only; the reference is never changed)"},
+          "tolerance_db": {"type": "number", "minimum": 0.01, "maximum": 6, "default": 0.5, "description": "Stop when every key is within this many dB of the reference"},
+          "max_passes": {"type": "integer", "minimum": 0, "maximum": 10, "default": 3, "description": "Correction passes at most; 0 = measure only (no write)"},
+          "channels": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 15}, "minItems": 1, "description": "Output channels to measure; default = every unmuted channel"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
       "name": "calibration.status",
       "title": "Calibration status",
       "description": "Progress of the running calibration pass (running, progress 0-1, step, message, results).",
