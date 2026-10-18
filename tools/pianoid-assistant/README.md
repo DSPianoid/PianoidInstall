@@ -23,7 +23,9 @@ npm test              # zero spend: policy, MCP server, isolation, service on th
 
 ### First-time setup: connect the Claude subscription
 
-On a new system, open the **Assistant** pane and click **Connect Claude subscription**, then **Open Claude login**
+On a new system, first `npm install` in this folder (`setup-pianoid.bat` / `.sh` run `npm ci` here); it also
+installs the Claude Code CLI that ships with the Agent SDK, so **no global `claude` CLI is needed**. Then open the
+**Assistant** pane and click **Connect Claude subscription**, then **Open Claude login**
 and sign in with your Claude account in the tab that opens; the pane switches to connected on its own (no restart).
 If the sign-in page shows a code instead, use "The sign-in page shows a code instead?" and paste it. The login goes
 into the assistant's own isolated home (never `~/.claude`). The header then shows the account (email · plan); its
@@ -31,11 +33,18 @@ menu has **Disconnect** (asks first; signs out only the isolated home). The chat
 assistant is not connected. The pane shows a **Start assistant** button while the service is down
 (`launcher.assistant.start`); the service starts and serves the connect routes while not logged in.
 
-Fallback, PowerShell (also under "Or sign in from a terminal" in the pane):
+Fallback, PowerShell (also under "Or sign in from a terminal" in the pane, which shows it with the CLI the service
+found; with a global CLI replace the `& "…claude.exe"` part by `claude`):
 
 ```powershell
-$env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; claude auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR
+$env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; & "<PianoidInstall>\tools\pianoid-assistant\node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe" auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR
 ```
+
+Which CLI (`service/home.js` `claudeCli`, dev-5293): `PIANOID_ASSISTANT_CLAUDE_CLI` (a JSON array) > the SDK-bundled
+native binary (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude[.exe]`, an optional dependency of the SDK,
+resolved the way the SDK resolves it; the same binary the sessions run) > `claude` on PATH. With none, status and
+login fail with "The Claude Code CLI was not found. Fix: … `npm install` …, then restart the assistant"; the service
+re-resolves on the next status check, so after `npm install` a re-check is enough.
 
 How it works (`service/auth.js`, dev-dc2a): `POST /auth/login` runs `claude auth login --claudeai` with the isolated
 env (allow-listed, no `ANTHROPIC_*`). Without a TTY the CLI prints a manual URL (its page shows a code, read from the
@@ -47,8 +56,8 @@ verifying | connected | failed | cancelled | timeout, 10 min). `POST /auth/login
 `POST /auth/logout {confirm: true}` runs `claude auth logout` only after `claude auth status` reports the isolated home
 as its `configDirectory`. The service refuses any home other than `<root>\claude-home` (never `~/.claude`, never a
 root equal to the user profile). The POSTs take JSON only, from a `localhost` / `127.0.0.1` page or no page.
-`PIANOID_ASSISTANT_CLAUDE_CLI` (a JSON array) overrides the CLI; `fixtures/fake-claude.js` is the fake CLI of
-`test/auth.test.js`.
+`fixtures/fake-claude.js` is the fake CLI of `test/auth.test.js`; `test/cliResolver.test.js` checks the resolver
+order with fakes plus the real bundled CLI on a throwaway home (logged out, login prints a URL, cancel).
 
 ## Analysis sandbox (v2 P5)
 
