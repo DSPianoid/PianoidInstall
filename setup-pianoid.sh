@@ -163,6 +163,9 @@ echo "Node.js version: $(node --version)"
 # npm ci installs exactly from the committed package-lock.json (reproducible,
 # clean node_modules) rather than resolving fresh like `npm install`.
 ( cd "$TUNNER_DIR" && npm ci )
+# The assistant's dependencies (incl. the Claude Code CLI bundled with the Agent SDK, used by
+# "Connect Claude subscription"). Optional: Pianoid runs without the assistant, so a failure only warns.
+( cd "$ROOT_DIR/tools/pianoid-assistant" && npm ci )   || echo "WARNING: assistant npm ci failed - the Assistant pane will not start (fix: cd tools/pianoid-assistant && npm install)"
 echo "  OK  STEP 4 COMPLETED"
 echo
 

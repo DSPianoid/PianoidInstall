@@ -208,6 +208,18 @@ if not !NPM_EXIT! equ 0 (
     goto :error
 )
 
+rem The assistant's dependencies (incl. the Claude Code CLI bundled with the Agent SDK, used by
+rem "Connect Claude subscription"). Optional: Pianoid runs without the assistant, so a failure only warns.
+echo Installing the assistant dependencies (tools\pianoid-assistant)...
+pushd "%ROOT_DIR%tools\pianoid-assistant"
+npm ci
+set "ASSISTANT_NPM_EXIT=!errorlevel!"
+popd
+if not !ASSISTANT_NPM_EXIT! equ 0 (
+    echo WARNING: assistant npm ci failed with exit code !ASSISTANT_NPM_EXIT! - the Assistant pane will not start.
+    echo          Fix later: cd tools\pianoid-assistant, then npm install
+)
+
 echo.
 echo   OK  STEP 4 COMPLETED
 echo.

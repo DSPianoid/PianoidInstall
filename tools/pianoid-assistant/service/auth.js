@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn as spawnAsync, spawnSync } from 'node:child_process';
-import { authStatus, childEnv, claudeCli, cliSpawnOptions } from './home.js';
+import { CLI_MISSING, authStatus, childEnv, claudeCli, cliSpawnOptions } from './home.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -52,18 +52,26 @@ export const publicLogin = (s) => (s && {
 
 export class AuthManager {
   constructor({
-    paths, env = process.env, cli = claudeCli(env), spawn = spawnAsync, spawnSyncImpl = spawnSync,
+    paths, env = process.env, cli = null, resolveCli = claudeCli, spawn = spawnAsync, spawnSyncImpl = spawnSync,
     timeoutMs = LOGIN_TIMEOUT_MS, onChange = () => {}, pollMs = 200,
   }) {
     assertOwnHome(paths, env);
-    Object.assign(this, { paths, env, cli, spawn, spawnSyncImpl, timeoutMs, onChange, pollMs });
+    Object.assign(this, { paths, env, cli: cli || resolveCli(env), resolveCli, spawn, spawnSyncImpl, timeoutMs, onChange, pollMs });
     this.urlFile = path.join(paths.root, 'auth-url.txt');
     this.flow = { state: 'idle' };
     this.child = null;
   }
 
+  /** The CLI to run (re-resolved while none was found, so an `npm install` needs no service restart). */
+  requireCli() {
+    this.cli ||= this.resolveCli(this.env);
+    if (!this.cli) throw new Error(CLI_MISSING);
+    return this.cli;
+  }
+
   status() {
     assertOwnHome(this.paths, this.env);
+    this.requireCli();
     const s = authStatus(this.paths, { spawn: this.spawnSyncImpl, env: this.env, cli: this.cli });
     if (s?.configDirectory && norm(s.configDirectory) !== norm(this.paths.claudeHome)) {
       throw new Error(`The CLI reported another home (${s.configDirectory}); refusing`);
@@ -79,6 +87,7 @@ export class AuthManager {
   login() {
     if (ACTIVE.has(this.flow.state)) return this.flowState();
     assertOwnHome(this.paths, this.env);
+    this.requireCli();
     fs.rmSync(this.urlFile, { force: true });
     const env = {
       ...childEnv(this.paths, this.env),

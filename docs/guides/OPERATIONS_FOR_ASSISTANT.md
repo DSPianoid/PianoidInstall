@@ -52,7 +52,7 @@ Source: [QUICK_START](QUICK_START.md), the root `README.md` (Installation),
 | 1. Clone | cmd, any parent folder: `git clone https://github.com/DSPianoid/PianoidInstall`, then `cd PianoidInstall`, then `clone-packages.bat` | clones PianoidTunner, PianoidCore, PianoidBasic (branch `dev`) inside PianoidInstall |
 | 2. System packages | `setup-packages.bat`, **Admin**, in PianoidInstall; choose **1** (normal install) | via `setup-dev.ps1`: Python 3.12, VS 2022 Build Tools (C++), CUDA Toolkit 12.6, SDL2 2.30.8 to `C:\SDL2-2.30.8`, SDL3 3.1.6 to `C:\SDL3-3.1.6`, Node.js 20. Versions: `setup-config.json`. Options 2-5 force-reinstall Python / CUDA / Node / all; 6 writes a sample config; 7 reinstalls the NVIDIA **display driver** (separate, prompts on the risks, reboots). A restart may be needed after VS or CUDA. |
 | 3. Build everything | `setup-pianoid.bat`, cmd (not Admin), in PianoidInstall | (1) creates `PianoidCore\.venv` (python, else `py -3.12` / `py -3`) and installs `PianoidCore\requirements.txt`; (2) `build_pianoid_basic.bat`; (3) `build_pianoid_cuda.bat --heavy --both`; (4) `npm ci` in PianoidTunner. 5-15 min; compiler output in `PianoidCore\build.log`. |
-| 4. Assistant dependencies | cmd: `cd <PianoidInstall>\tools\pianoid-assistant` then `npm install` | **not** done by `setup-pianoid.bat`. Without it the launcher refuses to start the assistant ("assistant dependencies missing: run npm install in …", `launcher.js`). Then the one-time login, see [Assistant setup](#assistant-setup). |
+| 4. Assistant dependencies | cmd: `cd <PianoidInstall>\tools\pianoid-assistant` then `npm install` | `setup-pianoid.bat` / `.sh` run `npm ci` there at the end of step 4 (a failure only warns: Pianoid runs without the assistant). It also installs the Claude Code CLI bundled with the Agent SDK, so no global `claude` is needed. Without it the launcher refuses to start the assistant ("assistant dependencies missing: run npm install in …", `launcher.js`). Then the one-time login, see [Assistant setup](#assistant-setup). |
 | 5. Desktop shortcut (optional) | double-click `make-shortcut.bat` | a Desktop **Pianoid** icon running `start-pianoid.bat /auto` |
 | 6. Docs server (optional) | cmd in PianoidInstall: `pip install mkdocs mkdocs-material`, then `mkdocs serve -a localhost:8001` | serves these docs at http://localhost:8001 (root README "Documentation") |
 | 7. Check | [First-Run Checklist](STARTUP_TROUBLESHOOTING.md#first-run-checklist) | `PianoidCore\.venv\Scripts\python -c "import pianoidCuda; print('OK')"` and `… -c "import Pianoid; print('OK')"` (cmd in PianoidCore); `npm run dev` starts; APPLY turns the status green; a key plays. |
@@ -194,6 +194,7 @@ before the UI appeared (the user describes it) or the backend start after APPLY 
 | "< 60 SMs" warning | — | full-keyboard 58-block presets may not launch; use a `*_56SM` preset ([QUICK_START](QUICK_START.md#no-prompt-launch-desktop-shortcut-update-check)) |
 | `npm run dev` fails | `ops_status` (`npm_ci_needed`) | `node --version` must be 20.x; in PianoidTunner remove `node_modules`, `npm ci` (or `npm install`); "Plugin react was conflicted": `PianoidTunner\.env` must contain `DISABLE_ESLINT_PLUGIN=true` |
 | the Assistant pane cannot start the service, or says "not connected" | `launcher.assistant.status` (`lastError`) | "assistant dependencies missing": `npm install` in `tools\pianoid-assistant`; not connected: the **Connect Claude subscription** button ([Assistant setup](#assistant-setup)) |
+| the Connect panel says "The Claude Code CLI was not found" (older builds: "… not found on PATH") | the pane's own message (it names the fix) | cmd: `cd <PianoidInstall>\tools\pianoid-assistant`, `npm install`, then restart the assistant (**Start assistant**). The service runs the CLI bundled with the Agent SDK (`node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe`), so no global `claude` is needed. Builds before dev-5293 required `claude` on PATH: pull PianoidInstall first. |
 | a change "has no effect" after a rebuild | `ops_status` (engine build times) | [Rebuild](#rebuild) failure table, last two rows |
 | first install on a new machine | — | [New machine install](#new-machine) |
 
@@ -218,17 +219,19 @@ before the UI appeared (the user describes it) or the backend start after APPLY 
 
 Source: `tools/pianoid-assistant/README.md` (Setup, First-time setup, Analysis sandbox, Isolation), `PianoidTunner/server/launcher.js`.
 
-1. **Dependencies:** cmd, `cd <PianoidInstall>\tools\pianoid-assistant`, `npm install` (Node 20+). Again after a
-   PianoidInstall pull that changed its `package.json` / `package-lock.json`.
+1. **Dependencies:** cmd, `cd <PianoidInstall>\tools\pianoid-assistant`, `npm install` (Node 20+; `setup-pianoid.bat`
+   does it on a new machine). Again after a PianoidInstall pull that changed its `package.json` / `package-lock.json`.
 2. **Connect the Claude subscription (once):** the assistant runs on the user's Claude subscription in its OWN Claude
    home (`%USERPROFILE%\.pianoid-assistant\claude-home`, never `~/.claude`). While that home is not logged in, the
    Assistant pane shows "Claude subscription not connected" with a **Connect Claude subscription** button (the chat
    input is disabled). Click it, then **Open Claude login**: sign in with the Claude account in the new browser tab;
    the pane switches to connected by itself (the header chip shows email · plan; its menu has **Disconnect**, which
    logs out the isolated home only). If the sign-in page shows a code instead, use "The sign-in page shows a code
-   instead?" and paste it. Needs the `claude` CLI on PATH (otherwise the pane says "The Claude Code CLI (claude) was not
-   found on PATH"). Terminal fallback ("Or sign in from a terminal" in the pane), PowerShell:
-   `$env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; claude auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR`.
+   instead?" and paste it. No global `claude` CLI needed: the service runs the CLI bundled with the Agent SDK
+   (installed by step 1), else `claude` on PATH (override `PIANOID_ASSISTANT_CLAUDE_CLI`). With neither, the pane says
+   "The Claude Code CLI was not found" and names the fix (step 1, then restart the assistant). Terminal fallback ("Or
+   sign in from a terminal" in the pane, which shows the command with the CLI the service found), PowerShell:
+   `$env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; & "<PianoidInstall>\tools\pianoid-assistant\node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe" auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR`.
    Source: `tools/pianoid-assistant/README.md` "First-time setup: connect the Claude subscription" (dev-dc2a). The
    service refuses to start while `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set (it would bill the paid API).
 3. **Start:** the pane's **Start assistant** button (`launcher.assistant.start`, asks); the service listens on
