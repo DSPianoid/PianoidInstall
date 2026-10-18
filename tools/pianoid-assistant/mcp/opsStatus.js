@@ -97,29 +97,37 @@ export async function repoState(root, repo, git = defaultGit) {
 
 /**
  * The input files of one build changed since `ms` in every repo it reads: committed (HEAD@{ms}..HEAD) or
- * uncommitted and written after `ms`. [repo/file, ...], or null when a repo's reflog does not reach `ms`.
+ * uncommitted and written after `ms`. {files: [repo/file, ...], unknown: [repos that could not be checked]}.
+ * A repo whose reflog does not reach `ms` (a newer clone / worktree, an expired reflog) falls back to the
+ * mtimes: an input not written since `ms` cannot have changed since; one written later = unknown (a pull or a
+ * mere checkout touch cannot be told apart there).
  */
 export async function changedSince(root, ms, inputs, git = defaultGit) {
   const out = [];
+  const unknown = [];
+  const after = (dir, f) => (mtime(path.join(dir, f)) ?? 0) > ms + MTIME_SLACK_MS;
   for (const [name, specs] of Object.entries(inputs)) {
     const dir = repoDir(root, name);
     if (!fs.existsSync(dir)) continue;
-    // HEAD@{time} older than the reflog resolves to its OLDEST entry: refuse that (unknown), never under-report.
+    // HEAD@{time} older than the reflog resolves to its OLDEST entry: never use that (it would under-report).
     const [log, then] = await Promise.all([
       git(dir, ['reflog', 'show', '--format=%gd', '--date=unix', 'HEAD']),
       git(dir, ['rev-parse', '--verify', '-q', `HEAD@{${iso(ms)}}`]),
     ]);
     const oldest = Number((/\{(\d+)\}$/.exec(lines(log).pop() || '') || [])[1]) * 1000;
-    if (!then || !(oldest <= ms)) return null;
-    const [committed, local] = await Promise.all([
+    const [committed, local] = then && oldest <= ms ? await Promise.all([
       git(dir, ['diff', '--name-only', then, 'HEAD', '--', ...specs]),
       git(dir, ['diff', '--name-only', 'HEAD', '--', ...specs]),
-    ]);
-    if (committed == null) return null;
-    const fresh = lines(local).filter((f) => (mtime(path.join(dir, f)) ?? 0) > ms + MTIME_SLACK_MS);
+    ]) : [null, null];
+    if (committed == null) {
+      const tracked = await git(dir, ['ls-files', '--', ...specs]);
+      if (tracked == null || lines(tracked).some((f) => after(dir, f))) unknown.push(name);
+      continue;
+    }
+    const fresh = lines(local).filter((f) => after(dir, f));
     for (const f of new Set([...lines(committed), ...fresh])) out.push(`${name}/${f}`);
   }
-  return out;
+  return { files: out, unknown };
 }
 
 /** The venv like the build scripts resolve it: PIANOID_VENV_DIR, .venv-pointer, PianoidCore/.venv (BUILD_SYSTEM.md). */
@@ -142,9 +150,13 @@ export function sitePackages(venv) {
 /** {built, changed_since, rebuild_needed} of one installed artefact (its time = `ms`; null = not installed). */
 async function staleness(root, ms, inputs, git) {
   if (ms == null) return { built: null, rebuild_needed: true };
-  const changed = await changedSince(root, ms, inputs, git);
-  if (changed == null) return { built: iso(ms), rebuild_needed: null, unknown: 'the git history does not reach the build time' };
-  return { built: iso(ms), changed_since: changed.slice(0, 10), rebuild_needed: changed.length > 0 };
+  const { files, unknown } = await changedSince(root, ms, inputs, git);
+  return {
+    built: iso(ms), changed_since: files.slice(0, 10),
+    // a change found is a rebuild; none found is "fine" only when every repo's history reaches the build time
+    rebuild_needed: files.length > 0 ? true : unknown.length ? null : false,
+    ...(unknown.length ? { unknown: `the git history of ${unknown.join(', ')} does not reach the build time and its inputs were written since (a pull or a checkout touch: not checked)` } : {}),
+  };
 }
 
 const moduleTime = (site, name) => {
@@ -197,7 +209,7 @@ export function hints({ repos, engine, basic, tunner, assistant, leftovers }) {
   if (basic.rebuild_needed) out.push(hint('basic_rebuild_needed', basic.built ? `PianoidBasic changed since the wheel was installed (${basic.built})${files(basic)}` : 'the Pianoid (Basic) wheel is not installed', 'rebuild'));
   if (tunner.present && tunner.needed) out.push(hint('npm_ci_needed', `PianoidTunner dependencies changed since the last npm install, or node_modules is missing${files(tunner)}`, 'symptoms'));
   if (assistant.npm.present && assistant.npm.needed) out.push(hint('assistant_npm_install_needed', `the assistant dependencies changed since the last npm install, or node_modules is missing${files(assistant.npm)}`, 'assistant-setup'));
-  if (leftovers.length) out.push(hint('interrupted_uninstall', `pip left ${leftovers.join(', ')} in site-packages (an uninstall that did not finish, e.g. a locked file)`, 'rebuild'));
+  if (leftovers.length) out.push(hint('pip_leftovers', `info only: site-packages holds ${leftovers.join(', ')}, folders an earlier pip uninstall left behind; pip skips them ("Ignoring invalid distribution"). Not a rebuild reason on its own: the engine / Basic checks above are what count`, 'gotchas'));
   return out;
 }
 

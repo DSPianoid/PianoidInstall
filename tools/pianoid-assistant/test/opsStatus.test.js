@@ -124,9 +124,23 @@ test('ops_status: behind origin, a feature branch, a stale debug build, missing 
   assert.equal(r.repos[2].behind, 1);
   assert.equal(r.repos[1].branch, 'feature/x');
   const codes = r.hints.map((h) => h.code);
-  for (const c of ['update_available', 'not_on_integration_branch', 'npm_ci_needed', 'interrupted_uninstall']) assert.ok(codes.includes(c), c);
+  for (const c of ['update_available', 'not_on_integration_branch', 'npm_ci_needed', 'pip_leftovers']) assert.ok(codes.includes(c), c);
   assert.equal(r.engine.debug.rebuild_needed, null);          // no reflog entry that old: unknown, not "fine"
-  assert.match(r.engine.debug.unknown, /history does not reach/);
+  assert.match(r.engine.debug.unknown, /history of PianoidCore does not reach/);
+});
+
+test('ops_status: a build older than the reflog falls back to the input mtimes (not written since = fine)', async () => {
+  const f = fixture();
+  const debug = path.join(f.site, 'pianoidCuda_debug.cp312-win_amd64.pyd');
+  fs.utimesSync(debug, new Date(T(9)), new Date(T(9)));
+  for (const rel of ['pianoid_cuda/Main.cu', 'pianoid_cuda/setup.py']) fs.utimesSync(path.join(f.core, rel), new Date(T(8)), new Date(T(8)));
+  let r = await opsStatus({ root: f.root, env: {}, sandbox });
+  assert.equal(r.engine.debug.rebuild_needed, false);
+  assert.equal(r.engine.debug.unknown, undefined);
+  fs.utimesSync(path.join(f.core, 'pianoid_cuda/Main.cu'), new Date(T(12)), new Date(T(12)));
+  r = await opsStatus({ root: f.root, env: {}, sandbox });
+  assert.equal(r.engine.debug.rebuild_needed, null);
+  assert.match(r.engine.debug.unknown, /history of PianoidCore does not reach/);
 });
 
 test('ops_status: missing pieces (no venv, no clone) and the never-write guarantee', async () => {
