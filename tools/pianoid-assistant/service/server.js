@@ -2,6 +2,9 @@
 /**
  * The Pianoid assistant service (phase A1): 127.0.0.1:3002, spawned by the launcher.
  *   GET  /status   {ok, login, driver, paths, loginCommand}
+ *   GET  /auth/status [?recheck=1]   {ok, login, flow}; POST /auth/login | /auth/login/code {code} |
+ *                  /auth/login/cancel | /auth/logout {confirm: true}: the in-app subscription connect of the
+ *                  isolated home (service/auth.js, dev-dc2a). POSTs: JSON only, from a localhost page or no page
  *   POST /internal/command/<name>   the executor of the service's own MCP server (v2 P2, autoWrite.js):
  *                  runs a command the policy just allowed (a permit), else 403 not_permitted
  *   GET  /artifacts/<id>/<file>   one file of an analysis artefact (the pane shows the PNGs; v2 P5)
@@ -22,13 +25,16 @@ import { commandsDir, loadCommands } from '../lib/registry.js';
 import { loadLimits, paramsDir } from '../lib/paramLimits.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { FakeDriver } from '../drivers/fake.js';
-import { assertSubscriptionOnly, assistantPaths, authStatus, ensureHome, loadConfig, loginCommand } from './home.js';
+import { assertSubscriptionOnly, assistantPaths, ensureHome, loadConfig, loginCommand } from './home.js';
+import { AuthManager, publicLogin } from './auth.js';
 import { AssistantSession } from './session.js';
 import { analysisPaths, artifactFile, CONTENT_TYPES, kindOf } from '../analysis/store.js';
 
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
 export function createAssistantService({
   env = process.env, port = Number(env.PIANOID_ASSISTANT_PORT) || 3002, driver = env.PIANOID_ASSISTANT_DRIVER || 'sdk',
-  driverFactory = null, authCheck = authStatus, fetchImpl = fetch, settleMs,
+  driverFactory = null, authOptions = {}, fetchImpl = fetch, settleMs,
 } = {}) {
   assertSubscriptionOnly(env);
   const paths = ensureHome(assistantPaths(env));
@@ -48,8 +54,18 @@ export function createAssistantService({
   });
 
   let login = null;
+  const sendLogin = (ws) => ws.send(JSON.stringify({ type: 'login', login, loginCommand: loginCommand(paths) }));
+  const auth = new AuthManager({
+    paths, env, ...authOptions,
+    onChange: (s) => { login = publicLogin(s); for (const ws of clients) if (ws.readyState === 1) sendLogin(ws); },
+  });
   const checkLogin = () => {
-    login = driver === 'fake' ? { loggedIn: true, authMethod: 'fake' } : authCheck(paths);
+    try {
+      login = driver === 'fake' && !authOptions.cli ? { loggedIn: true, authMethod: 'fake' }
+        : publicLogin(auth.status()) || { loggedIn: false, error: 'The Claude Code CLI (claude) was not found on PATH' };
+    } catch (e) {
+      login = { loggedIn: false, error: e.message };
+    }
     return login;
   };
   const statusBody = () => ({
@@ -75,7 +91,58 @@ export function createAssistantService({
     });
   };
 
+  const authRoute = (req, res, route) => {
+    const origin = req.headers.origin;
+    if (origin && !LOCAL_ORIGIN.test(origin)) {
+      res.statusCode = 403;
+      return res.end();
+    }
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.statusCode = 204;
+      return res.end();
+    }
+    const reply = (status, body) => {
+      res.statusCode = status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(body));
+    };
+    const run = (fn) => {
+      try {
+        reply(200, { ok: true, ...fn() });
+      } catch (e) {
+        reply(409, { ok: false, error: e.message, login, flow: auth.flowState() });
+      }
+    };
+    if (route === 'status' && req.method === 'GET') {
+      return run(() => {
+        if (/[?&]recheck=1/.test(req.url) || !login) checkLogin();
+        return { login, flow: auth.flowState() };
+      });
+    }
+    // a POST must be JSON (a cross-site form cannot send it without a preflight, refused above)
+    if (req.method !== 'POST' || !String(req.headers['content-type'] || '').startsWith('application/json')) return reply(405, { ok: false });
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      let body = {};
+      try { body = raw ? JSON.parse(raw) : {}; } catch (e) { return reply(400, { ok: false, error: 'bad JSON' }); }
+      if (route === 'login') return run(() => ({ flow: auth.login() }));
+      if (route === 'login/code') return run(() => ({ flow: auth.submitCode(body.code) }));
+      if (route === 'login/cancel') return run(() => ({ flow: auth.cancel() }));
+      if (route === 'logout') {
+        if (body.confirm !== true) return reply(400, { ok: false, error: 'logout needs {confirm: true}' });
+        return run(() => ({ ...auth.logout(), login, flow: auth.flowState() }));
+      }
+      return reply(404, { ok: false });
+    });
+  };
+
   const server = http.createServer((req, res) => {
+    const authUrl = /^\/auth\/(status|login|login\/code|login\/cancel|logout)(\?.*)?$/.exec(req.url || '');
+    if (authUrl) return authRoute(req, res, authUrl[1]);
     const internal = /^\/internal\/command\/([\w.]+)$/.exec(req.url);
     if (internal && req.method === 'POST') {
       // the service's own MCP child only: no browser page (an Origin header) and JSON only (no CORS)
@@ -113,14 +180,11 @@ export function createAssistantService({
       try { msg = JSON.parse(String(raw)); } catch (e) { return; }
       try {
         if (msg.type === 'hello') {
-          const l = checkLogin();
+          checkLogin();
           ws.send(JSON.stringify(session.state()));
-          ws.send(JSON.stringify({ type: 'login', login: l, loginCommand: loginCommand(paths) }));
+          sendLogin(ws);
         } else if (msg.type === 'turn' && typeof msg.text === 'string' && msg.text.trim()) {
-          if (!(login || checkLogin())?.loggedIn) {
-            ws.send(JSON.stringify({ type: 'login', login, loginCommand: loginCommand(paths) }));
-            return;
-          }
+          if (!(login || checkLogin())?.loggedIn) return sendLogin(ws);
           await session.turn(msg.text.trim());
         } else if (msg.type === 'stop') {
           await session.stop();
@@ -142,13 +206,14 @@ export function createAssistantService({
   });
 
   return {
-    session, paths, server,
+    session, paths, server, auth,
     listen: () => new Promise((resolve) => server.listen(port, '127.0.0.1', () => {
       session.execUrl = `http://127.0.0.1:${server.address().port}/internal/command`;
       session.publicUrl = `http://127.0.0.1:${server.address().port}`;   // the pane loads the plots from here
       resolve(server.address().port);
     })),
     close: async () => {
+      auth.cancel();
       session.auto.stopWatches();
       await session.restart().catch(() => {});
       for (const ws of clients) ws.terminate();

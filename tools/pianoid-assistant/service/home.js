@@ -78,15 +78,28 @@ export function loginCommand(paths) {
   };
 }
 
-/** `claude auth status --json` inside the isolated home (null when the CLI is not on PATH). */
-export function authStatus(paths, { spawn = spawnSync, env = process.env } = {}) {
-  const r = spawn('claude', ['auth', 'status', '--json'], {
-    env: childEnv(paths, env), cwd: paths.workspace, encoding: 'utf8', shell: process.platform === 'win32', timeout: 20000,
+/** The Claude Code CLI as [command, ...args]: `claude` on PATH (override PIANOID_ASSISTANT_CLAUDE_CLI, a JSON array). */
+export function claudeCli(env = process.env) {
+  return env.PIANOID_ASSISTANT_CLAUDE_CLI ? JSON.parse(env.PIANOID_ASSISTANT_CLAUDE_CLI) : ['claude'];
+}
+
+/** spawn options for the CLI: a bare name needs the shell on Windows (claude.cmd via PATHEXT). */
+export function cliSpawnOptions(cli) {
+  return { shell: process.platform === 'win32' && !path.isAbsolute(cli[0]), windowsHide: true };
+}
+
+/** `claude auth status --json` inside the isolated home (null when the CLI is not on PATH). Never a token. */
+export function authStatus(paths, { spawn = spawnSync, env = process.env, cli = claudeCli(env) } = {}) {
+  const r = spawn(cli[0], [...cli.slice(1), 'auth', 'status', '--json'], {
+    env: childEnv(paths, env), cwd: paths.workspace, encoding: 'utf8', timeout: 20000, ...cliSpawnOptions(cli),
   });
   if (r.error || r.status === null) return null;
   try {
     const s = JSON.parse(r.stdout);
-    return { loggedIn: !!s.loggedIn, authMethod: s.authMethod, subscriptionType: s.subscriptionType ?? null, email: s.email ?? null };
+    return {
+      loggedIn: !!s.loggedIn, authMethod: s.authMethod, subscriptionType: s.subscriptionType ?? null, email: s.email ?? null,
+      orgName: s.orgName ?? null, configDirectory: s.configDirectory ?? null,
+    };
   } catch (e) {
     return null;
   }
