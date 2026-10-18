@@ -2021,6 +2021,10 @@ Request body: chart type name plus any chart-specific parameters:
 ```
 
 If `chartType` resolves to an action type in the registry, the action is executed and the response has status `499`.
+(Measured in code, dev-947d: the route looks a name up as `chart` and `dynamic_chart` only, so an action name such as
+`auto_tune` does not resolve and answers `416`; actions run through `POST /start_test`.) Every chart function that renders
+offline stops the realtime engine first and restarts it on every path, a failed render included (dev-947d:
+`note_playback` and offline `sound_test` used to skip the restart on a render error).
 
 Response `200`:
 ```json
@@ -2084,8 +2088,10 @@ the report JSON here so it lands on disk in a folder the dev/orchestrator watche
 [BUG_REPORT_TOOL.md → Auto-Fire](../pianoid-tunner/BUG_REPORT_TOOL.md#auto-fire-on-internal-system-faults).
 
 Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}` and `reportId`).
-Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|manual>-<reportId|hex6>.json`
-(dir auto-created; oldest pruned beyond 500 files). The collector is wrapped so
+Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|assistant-<kind>|manual>-<reportId|hex6>.json`
+(dir auto-created; oldest pruned beyond 500 files). `assistant-<kind>` = a report filed by the assistant's
+`bug.report` (`trigger: {auto: false, source: "assistant", kind: app_bug|environment}`, dev-947d). `PIANOID_REPORTS_DIR`
+overrides the folder (an isolated / worktree backend writing into the main checkout's store). The collector is wrapped so
 it can never take the backend down.
 
 **Idempotent by `reportId` (dev-2cce).** A report with a `reportId` always maps to the same

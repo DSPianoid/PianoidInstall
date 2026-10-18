@@ -40,6 +40,7 @@ export class FakeDriver {
     await this.mcp.connect(new StdioClientTransport({ command: cfg.command, args: cfg.args, env: { ...process.env, ...(cfg.env || {}) } }));
     this.escalate = options.mcpServers?.assistant?.escalate;   // set by the session for the fake runtime
     this.runPython = options.mcpServers?.analysis?.runPython;
+    this.bugReport = options.mcpServers?.assistant?.bugReport;
     onEvent({ type: 'init', sessionId: 'fake-session', model: this.model, tools: [], mcpServers: [{ name: 'pianoid', status: 'connected' }] });
   }
 
@@ -84,6 +85,8 @@ export class FakeDriver {
         let isError = false;
         if (step.tool.startsWith('mcp__analysis__')) {
           text = JSON.stringify(await this.runPython(args));
+        } else if (step.tool === 'mcp__assistant__bug_report') {
+          text = JSON.stringify(await this.bugReport(args));
         } else {
           const r = await this.mcp.callTool({ name: step.tool.replace(/^mcp__pianoid__/, ''), arguments: args });
           text = r.content?.[0]?.text || '';

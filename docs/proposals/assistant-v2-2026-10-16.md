@@ -398,7 +398,7 @@ render floor, N ≥ 3) measures direction and magnitude per row on the three fix
 1. **The native collector (always).** `POST /bug_report` (exists; the FE auto-fire already uses it) gets a new trigger kind
    `assistant`: `bugreport-<time>-assistant-<kind>-<hex>.json` in `PianoidCore/logs/reports/`. It is local, it is what the
    orchestrator and dev agents already consume, and it needs no credentials. The assistant does this **without asking**
-   (category `bug_local`, Auto by default): it is a local file, the same as the FE auto-fire.
+   (category `bug_local`; **Ask by default since dev-947d**: the confirm dialog shows the draft; switchable to Auto): it is a local file, the same as the FE auto-fire.
 **When a bug is identified.** The trigger set, checked by the service, not left to the model's judgment alone:
 
 | Signal | Example | Draft |
@@ -466,7 +466,7 @@ category → decision):
 |---|---|---|---|
 | `view` | `ui.*`, reads | Auto (as today) | yes (fixed) |
 | `playback` | `play.*`, MIDI file | Auto (as today) | yes |
-| `renders` | `render.*` (with audio off; R6 deny stays) | Auto (D3) | yes |
+| `renders` | `render.*` (with live audio the stop / render / restart renders ask every time, other renders are denied: R6 revised 2026-10-18, dev-947d) | Auto (D3) | yes |
 | `params` | `param.set`, `param.mute_*`, excitation / hammer routes | **Ask** | yes, **inside the A2 envelope** + the post-write level check with auto-revert (D3); outside the envelope it asks anyway |
 | `runtime` | `runtime.set` (volume, feedback slider) | Ask | yes, inside the envelope (volume +6 levels per step, feedback bounds) |
 | `preset_nav` | `preset.switch`, `preset.spawn_working_copy`, `preset.load_to_library` | Ask | yes |
@@ -474,7 +474,7 @@ category → decision):
 | `layout_save` | named-layout save (new command) | Ask | yes |
 | `code` | `analysis.run_python` | Ask | yes (user, 2026-10-17); P2 / P5 ship it locked Ask (follow-up: unlock the switch) |
 | `web` | the researcher (search / fetch) | Auto (searches) | yes |
-| `bug_local` | `bug.report_local` (the native `POST /bug_report`) | Auto | yes |
+| `bug_local` | `bug.report` (the native `POST /bug_report`; built minimal by dev-947d) | **Ask** (orchestrator brief 2026-10-18: show the draft first) | yes |
 
 **Hard-confirm list (never Auto, enforced in `policy.js`, a unit test pins it):** `preset.save` over an existing file;
 `preset.promote`; `preset.unload` of an entry with unsaved edits; `preset.load` (full reload: it re-initialises the engine);

@@ -269,3 +269,25 @@ test('v2 P5: a declined code run never reaches the sandbox; a shell call is deni
     assert.ok(route.includes("Opus: tool trigger: first code run (analysis.run_python)"), JSON.stringify(route));   // layer 2
   } finally { await t.close(); }
 });
+
+test('dev-947d: bug.report over the pane: the draft in the confirm, then one POST /bug_report with the context', async () => {
+  const draft = { title: 'Renders refused during live audio', classification: 'app_bug', description: 'R6 denies every render.' };
+  const script = [{ match: 'file', steps: [{ tool: 'mcp__assistant__bug_report', input: draft }, { say: 'Filed.' }] }];
+  const t = await startService({ driverFactory: () => new FakeDriver({ script }) });
+  try {
+    t.send({ type: 'turn', text: 'file it as a bug' });
+    const c = await t.waitFor((m) => m.type === 'confirm');
+    assert.equal(c.command, 'bug.report');
+    assert.equal(c.args.title, draft.title);
+    assert.ok(c.args.attached.includes('versions'));
+    assert.ok(!t.fake.calls.some((x) => x.url === '/bug_report'));
+    t.send({ type: 'confirm', id: c.id, allow: true });
+    await t.waitFor((m) => m.type === 'busy' && m.busy === false);
+    const posts = t.fake.calls.filter((x) => x.url === '/bug_report');
+    assert.equal(posts.length, 1);
+    const body = JSON.parse(posts[0].body);
+    assert.deepEqual(body.trigger, { auto: false, source: 'assistant', kind: 'app_bug' });
+    assert.equal(body.pianoid_context.backend.status, 'healthy');
+    assert.equal(body.transcript_excerpt.at(-1).text, 'file it as a bug');
+  } finally { await t.close(); }
+});

@@ -44,7 +44,7 @@ evaluates the code: it writes it to a run dir and spawns the sandbox.
 | `sandbox/launcher/PianoidSandbox.cs` | the launcher (C#, `build.bat` with the Windows .NET 4 `csc`, no SDK, no admin; the `.exe` is not committed). AppContainer with zero capabilities (no network, incl. localhost) + Job Object (memory 2 GB, one process, kill on close, UI limits, below-normal priority). **Wall clock = the hard bound**, CPU time capped at wall / 2 (the job CPU limit fires ~2x late). **Disk watchdog**: the job's write counter (10 ms) and the run dir + container folder size (50 ms) over `--disk-mb` (200) terminate the job (measured kill at 240-270 MB for a 1.8 GB/s fill). **Container wipe**: the container's own folder (`%LOCALAPPDATA%\Packages\<profile>\AC`) and registry storage key are wiped after every run, and a run refuses to start unless both are empty. Output: `limits_hit` (`wall`, `cpu`, `memory`, `disk`, `processes`, `stdout`, `stderr`, `out_files`) |
 | `analysis/runPython.js` | the tool: `{code, inputs: [artefact ids], timeout_s <= 120 (60), memory_mb <= 2048}` -> `runs\<run_id>\` (`code.py` = a service prelude with an audit hook as defence in depth, `user.py` = the model's code, `in\<id>\` copies, `out\`, `tmp\`) -> `{ok, exit, stdout (20 kB), stderr (8 kB), files: [{artifact_id, name, kind, size}], skipped, limits_hit, elapsed_s}`. The code sees `ARTIFACTS`, `artifact_path(id, name=None)`, `OUT`. Runs pruned to the newest 50 |
 | `analysis/store.js` | the artefact store `%USERPROFILE%\.pianoid-assistant\analysis\artifacts\<id>\` (`meta.json` + data; ids `a-<yyyymmddhhmmss>-<hex6>`; newest 500 kept). Only the service creates artefacts; the model passes ids, never paths |
-| `analysis/export.js` | `export: true` on `render.note_playback` / `render.chart` / `render.keyboard` / `param.get` / `preset.summary`: the MCP server strips the flag, runs the command, saves `audio_<i>.wav` (as the backend wrote it) + `series_<i>.npy` (raw engine units before output_scale and volume) or `result.json`, with the command, args and the live `/load_settings`, and returns `artifact: {id, files}`. R6 still holds: no render (so no export) under live audio |
+| `analysis/export.js` | `export: true` on `render.note_playback` / `render.chart` / `render.keyboard` / `param.get` / `preset.summary`: the MCP server strips the flag, runs the command, saves `audio_<i>.wav` (as the backend wrote it) + `series_<i>.npy` (raw engine units before output_scale and volume) or `result.json`, with the command, args and the live `/load_settings`, and returns `artifact: {id, files}`. With live audio a render asks first (it pauses live audio for a few seconds, R6 revised by dev-947d) |
 | pane | a run's PNGs show in the chat ("Analysis result") and on its activity entry, served by the service at `GET /artifacts/<id>/<file>` (listed data files only); a code confirm shows the code |
 
 **Policy:** category `code` always asks (`policy.js`); a tainted turn (web content, P7) says so in the reason and still
@@ -87,7 +87,7 @@ removes it, its ACEs, canaries and run dirs in `finally`; it prints a PASS / FAI
   paid API).
 - SDK options: `tools: []` (no built-in tool: no Bash, Read, Edit, Web…), `disallowedTools: ['Bash', 'PowerShell']`,
   `settingSources: []` (no settings, no CLAUDE.md), `strictMcpConfig: true` with only the `pianoid` MCP server, the
-  in-process `escalate_model` tool and the in-process `analysis` server (v2 P5), a PreToolUse re-check hook, a
+  in-process `assistant` server (`escalate_model`, `bug_report`) and the in-process `analysis` server (v2 P5), a PreToolUse re-check hook, a
   custom system prompt (`service/prompt.js`), `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
 - Per-turn context: `service/contextDigest.js` builds the `<pianoid_context>` block from `/health`,
   `/get_runtime_parameters`, `/load_settings`, `/preset/list`, `job.list` and `ui.snapshot`: audio (requested / active /
@@ -121,7 +121,8 @@ directory / OS account, with their own assistant home and their own subscription
 | | |
 |---|---|
 | reads, ui, `search_docs` (category `view`) | run |
-| playback, renders | run (Auto by default; renders refused while live audio runs, R6) |
+| playback, renders | run (Auto by default). With live audio (R6, dev-947d): `render.note_playback` / `render.chart` / `render.keyboard` (the routes stop the realtime engine, render offline and restart it) ask every time, even with `renders` on Auto; any other `render.*` (e.g. a calibration render) is denied; read-tier `render.chart_types` never asks |
+| `bug.report` (`bug_local`) | Ask by default (switchable); the dialog shows the full draft (see Bug reports) |
 | `params`, `runtime`, `preset_nav`, `history` | Ask by default; Auto per category. Auto `params` / `runtime` run only inside the A2 envelope, then the level watch with auto-revert |
 | the hard-confirm list (save, promote, full load, unload, calibration, modal jobs, launcher start, …) | always confirm (category `hard_confirm`, never Auto) |
 | "Block measurement data" switch on | modal / calibration denied |
@@ -130,6 +131,18 @@ Every registry command names its `approval_category`; a missing one fails the re
 the pane's Permissions popover (per installation in `config.json` `approvals`, or for this session only) and by the
 confirm dialog's "Don't ask again" (this session by default). Confirms are answered in the pane; Stop interrupts the
 turn, declines pending confirms, drops the turn's permits and cancels the turn's jobs. Details: design note §10.
+
+## Bug reports (v2 P6 minimal, dev-947d)
+
+`bug_report` on the in-process `assistant` server (`mcp__assistant__bug_report`, registry-style name `bug.report`,
+category **`bug_local`**, Ask by default). Native only: `POST /bug_report` on the backend, the same store as the 🐞 /
+automatic reports (`PianoidCore/logs/reports/bugreport-<createdAt>-assistant-<kind>-<reportId>.json`); never GitHub
+(user decision 2026-10-17). The model gives the draft (`title`, `classification` app_bug | environment — the user's own
+settings are not a bug —, `description`, `component`, `steps`, `expected`, `actual`, `evidence`); `service/bugReport.js`
+(not the model) attaches the latest `pianoid_context`, `versions` (repos, build, GPU, assistant model), the last 12
+chat messages and the last 30 activity entries. The confirm dialog shows the draft as filed plus the attachment list;
+only the report the user saw is filed, once (the handler looks it up by the draft's canonical JSON). Not built yet
+(v2 §7): the service-side triggers, de-duplication, `ui.bug_report.collect`.
 
 ## Standalone MCP (Claude Code / the orchestrator)
 

@@ -138,28 +138,58 @@ test('channels: all feedback_mask output rows 0 (the measured completely-mute ca
   assert.equal(modesAxis.layout.channels_on, undefined);
 });
 
-test('R6: renders are denied while live audio runs, allowed when it does not; unknown fails closed', async () => {
-  const { decide, LIVE_RENDER_REASON } = await import('../policy.js');
-  assert.deepEqual(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { liveAudio: true } }), { action: 'deny', reason: LIVE_RENDER_REASON });
+test('R6 (dev-947d): with live audio the stop/render/restart renders ask, reads never, any other render is denied', async () => {
+  const { decide, LIVE_RENDER_REASON, LIVE_RENDER_CONFIRM, LIVE_RENDERS } = await import('../policy.js');
+  const live = { liveAudio: true };
+  for (const command of LIVE_RENDERS) {
+    assert.deepEqual(decide({ command, tier: 'act', family: 'render', category: 'renders', settings: live }), { action: 'confirm', reason: LIVE_RENDER_CONFIRM });
+  }
+  // reads are never gated (the transcript's render.chart_types refusal)
+  assert.equal(decide({ command: 'render.chart_types', tier: 'read', family: 'render', category: 'view', settings: live }).action, 'allow');
+  // a render that does not stop / restart the engine (e.g. an output_scale calibration render) stays blocked
+  assert.deepEqual(decide({ command: 'render.recalibrate_output_level', tier: 'act', family: 'render', category: 'renders', settings: live }), { action: 'deny', reason: LIVE_RENDER_REASON });
+  // renders Auto does not skip the live-audio confirm; a web-tainted turn makes it hard
+  const auto = { ...live, approvals: { installation: { renders: 'auto' } } };
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: auto }).action, 'confirm');
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { ...live, tainted: true } }).hard, true);
   assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: {} }).action, 'allow');
-  assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', category: 'playback', settings: { liveAudio: true } }).action, 'allow');
+  assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', category: 'playback', settings: live }).action, 'allow');
+
   const { AssistantSession } = await import('../service/session.js');
-  const cmd = { name: 'render.note_playback', tier: 'act', family: 'render', approval_category: 'renders' };
-  const make = (routes) => new AssistantSession({
-    paths: {}, config: { model: 'auto' }, commands: [cmd], driverFactory: () => null,
-    fetchImpl: async (url) => {
-      const r = Object.entries(routes).find(([k]) => url.endsWith(k));
-      if (!r) throw new Error('down');
-      return { json: async () => r[1] };
-    },
-  });
-  const live = make({ '/health': { pianoid_loaded: true, backend_thread_running: true }, '/load_settings': { settings: { audio_on: 1 } } });
-  const v = await live.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, { toolUseID: 't' });
-  assert.equal(v.behavior, 'deny');
-  assert.match(v.message, /blocked while live audio is running/);
-  const off = make({ '/health': { pianoid_loaded: true, backend_thread_running: true }, '/load_settings': { settings: { audio_on: 0 } } });
-  assert.equal((await off.canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'allow');
-  assert.equal((await make({}).canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'deny');
+  const cmds = [
+    { name: 'render.note_playback', tier: 'act', family: 'render', approval_category: 'renders' },
+    { name: 'render.chart_types', tier: 'read', family: 'render', approval_category: 'view' },
+  ];
+  const make = (routes, answer) => {
+    const confirms = [];
+    const s = new AssistantSession({
+      paths: {}, config: { model: 'auto' }, commands: cmds, driverFactory: () => null,
+      broadcast: (m) => { if (m.type === 'confirm') { confirms.push(m); setImmediate(() => s.confirm(m.id, answer)); } },
+      fetchImpl: async (url) => {
+        const r = Object.entries(routes).find(([k]) => url.endsWith(k));
+        if (!r) throw new Error('down');
+        return { json: async () => r[1] };
+      },
+    });
+    return { s, confirms };
+  };
+  const LIVE = { '/health': { pianoid_loaded: true, backend_thread_running: true }, '/load_settings': { settings: { audio_on: 1 } } };
+  const yes = make(LIVE, true);
+  assert.equal((await yes.s.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, { toolUseID: 't' })).behavior, 'allow');
+  assert.equal(yes.confirms.length, 1);
+  assert.match(yes.confirms[0].reason, /live audio pauses/);
+  assert.equal(yes.confirms[0].canAuto, false);
+  const no = make(LIVE, false);
+  assert.equal((await no.s.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, {})).behavior, 'deny');
+  assert.equal((await make(LIVE, false).s.canUseTool('mcp__pianoid__render__chart_types', {}, {})).behavior, 'allow');
+  const off = make({ ...LIVE, '/load_settings': { settings: { audio_on: 0 } } }, false);
+  assert.equal((await off.s.canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'allow');
+  assert.equal(off.confirms.length, 0);
+  // backend unreachable counts as live: the render asks (fail closed), the read still runs
+  const down = make({}, false);
+  assert.equal((await down.s.canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'deny');
+  assert.equal(down.confirms.length, 1);
+  assert.equal((await down.s.canUseTool('mcp__pianoid__render__chart_types', {}, {})).behavior, 'allow');
 });
 
 test('environment fingerprint (v2 P1): GPU, build, repos, output map; absent when unreachable', () => {
