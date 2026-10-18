@@ -24,6 +24,8 @@ import { AutoWriter } from './autoWrite.js';
 import { runPython, validateInput } from '../analysis/runPython.js';
 import { analysisPaths } from '../analysis/store.js';
 import { splitExport } from '../analysis/export.js';
+import { canonical } from './autoWrite.js';
+import { BUG_CMD, BUG_TOOL, buildReport, fileReport, preview, validateDraft } from './bugReport.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -128,8 +130,9 @@ export class AssistantSession {
         ...(this.execUrl ? ['--exec-url', this.execUrl] : [])],
       env: mcpEnv,
     };
-    const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason));
+    const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason), (args) => this.fileBug(args));
     assistant.escalate = (reason) => this.escalate(reason);     // the fake driver calls it directly
+    assistant.bugReport = (args) => this.fileBug(args);
     const analysis = SdkDriver.analysisTools((args) => this.runAnalysis(args));
     analysis.runPython = (args) => this.runAnalysis(args);      // the fake driver calls it directly
     return {
@@ -174,6 +177,7 @@ export class AssistantSession {
   async canUseTool(toolName, input, { signal, toolUseID } = {}) {
     if (toolName === ESCALATE_TOOL) return { behavior: 'allow', updatedInput: input };
     if (toolName === ANALYSIS_TOOL) return this.canRunAnalysis(input, { signal, toolUseID });
+    if (toolName === BUG_TOOL) return this.canFileBug(input, { signal, toolUseID });
     if (!toolName.startsWith(PIANOID_PREFIX)) {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
     }
@@ -258,8 +262,43 @@ export class AssistantSession {
       const v = this.analysisVerdict(input.tool_input);
       return v.action === 'deny' ? deny(`Denied by the Pianoid policy: ${v.reason}`) : {};
     }
-    if (name === ESCALATE_TOOL || name.startsWith(PIANOID_PREFIX)) return {};
+    if (name === ESCALATE_TOOL || name === BUG_TOOL || name.startsWith(PIANOID_PREFIX)) return {};
     return deny(`${name} is not available to the Pianoid assistant`);
+  }
+
+  /**
+   * bug.report (v2 §7, dev-947d): the host builds the report (draft + context, versions, transcript, activity),
+   * category bug_local asks with the full draft in the dialog, and only the report the user saw is filed.
+   */
+  async canFileBug(input, { signal, toolUseID }) {
+    let verdict;
+    let report = null;
+    try {
+      validateDraft(input);
+      report = buildReport({ draft: input, transcript: this.transcript, activity: this.activity, context: this.lastContext, model: this.model.current });
+      verdict = decide({ ...BUG_CMD, command: BUG_CMD.name, settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState() } });
+    } catch (e) {
+      verdict = { action: 'deny', reason: `invalid bug report draft: ${e.message}` };
+    }
+    const entry = this.logActivity({ command: BUG_CMD.name, tier: BUG_CMD.tier, category: BUG_CMD.category, input: { title: input?.title }, decision: verdict.action === 'allow' ? 'auto' : verdict.action, reason: verdict.reason, toolUseId: toolUseID });
+    if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
+    if (verdict.action === 'confirm') {
+      const { allow, remember } = await this.askConfirm(entry, BUG_CMD, preview(report), verdict, signal);
+      this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
+      if (!allow) return { behavior: 'deny', message: `The user declined ${BUG_CMD.name}.` };
+      if (remember && verdict.canAuto) this.updateApprovals({ category: BUG_CMD.category, mode: 'auto', scope: remember });
+    }
+    this.bugDrafts = new Map([...(this.bugDrafts || []), [canonical(input), report]]);
+    return { behavior: 'allow', updatedInput: input };
+  }
+
+  /** The bug_report tool handler: files the report the policy (or the user) just allowed. */
+  async fileBug(args) {
+    const key = canonical(args);
+    const report = this.bugDrafts?.get(key);
+    if (!report) return { ok: false, error: 'not_permitted', message: 'this draft was not allowed by the assistant policy' };
+    this.bugDrafts.delete(key);
+    return fileReport(report, { backendUrl: this.backendUrl, fetchImpl: this.fetchImpl });
   }
 
   /** The analysis tool handler: the sandboxed run, then the PNGs to the pane (chat + activity). */
@@ -424,6 +463,7 @@ export class AssistantSession {
     this.broadcast({ type: 'message', role: 'user', text });
     try {
       const ctx = await this.context();
+      this.lastContext = ctx;               // bug.report attaches it
       await this.routeTurn(text, ctx);
       await this.ensureStarted();
       this.currentAssistant = { role: 'assistant', text: '', model: this.model.current, at: Date.now() };

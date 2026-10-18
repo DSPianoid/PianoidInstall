@@ -77,15 +77,31 @@ export class SdkDriver {
     this.input = null;
   }
 
-  /** In-process MCP server with the escalate_model tool (the session supplies the handler). */
-  static assistantTools(onEscalate) {
+  /** In-process MCP server with escalate_model and bug_report (the session supplies the handlers). */
+  static assistantTools(onEscalate, onBugReport = async () => ({ ok: false, error: 'bug filing is not available' })) {
     return createSdkMcpServer({
       name: 'assistant',
       version: '0.1.0',
       tools: [tool('escalate_model',
         'Switch to the stronger model (Opus 5.5) for the rest of this turn: research, multi-step diagnosis, measurement analysis, preset generation / optimisation. Give a one-line reason; the user sees it.',
         { reason: z.string() },
-        async ({ reason }) => ({ content: [{ type: 'text', text: await onEscalate(reason) }] }))],
+        async ({ reason }) => ({ content: [{ type: 'text', text: await onEscalate(reason) }] })),
+      tool('bug_report',
+        'File a bug report to the local Pianoid bug collector (POST /bug_report: the same store as the bug-button and '
+        + 'automatic reports; never GitHub). Only for an app bug or an environment fault your reads confirmed, not the '
+        + "user's own settings. Show the user the draft in the chat first. The host attaches the context, versions, the "
+        + 'recent chat and activity itself; the user confirms the full report in a dialog. [category: bug_local]',
+        {
+          title: z.string().max(200),
+          classification: z.enum(['app_bug', 'environment']),
+          description: z.string().describe('what happens, where, why it is wrong'),
+          component: z.string().optional().describe('e.g. assistant policy, backend /get_chart_test, Tunner Workbench'),
+          steps: z.array(z.string()).max(20).optional(),
+          expected: z.string().optional(),
+          actual: z.string().optional(),
+          evidence: z.array(z.string()).max(20).optional().describe('tool results, error texts, context values with their numbers'),
+        },
+        async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await onBugReport(args), null, 1) }] }))],
     });
   }
 

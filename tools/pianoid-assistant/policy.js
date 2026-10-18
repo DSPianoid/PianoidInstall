@@ -10,8 +10,9 @@
  *
  *   excluded                                never listed; deny if asked anyway
  *   data opt-out ON (D4, default off)       modal / calibration tools DENY
- *   render.* while live audio runs          DENY (R6: an offline render stops realtime playback and
- *                                           runs inside the live engine - backend crash risk)
+ *   render.* (act) while live audio runs    the stop -> render -> restart renders (LIVE_RENDERS) ask
+ *                                           (live audio pauses for the render); any other render, e.g. an
+ *                                           output_scale calibration render, is DENIED (R6). Reads never.
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
  *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
  *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
@@ -27,9 +28,16 @@ import { modeOf, switchable, usesEnvelope } from './approvals.js';
 
 const MEASUREMENT_FAMILIES = new Set(['modal', 'calibration']);
 const READ_TIERS = new Set(['read', 'ui']);
-export const LIVE_RENDER_REASON = 'offline renders are blocked while live audio is running: a render stops realtime '
-  + 'playback and runs inside the live engine (backend crash risk). Judge the level from the context (peak, '
-  + 'limiter, clipping) or ask the user to listen';
+export const LIVE_RENDER_REASON = 'this render is blocked while live audio is running: only the renders that stop the '
+  + 'realtime engine, render offline and restart it are allowed (a calibration render inside the live engine is a '
+  + 'backend crash risk). Judge the level from the context (peak, limiter, clipping) or ask the user to listen';
+export const LIVE_RENDER_CONFIRM = 'live audio pauses for a few seconds: the engine stops, renders offline and restarts by itself';
+/**
+ * The renders whose backend route stops the realtime engine, renders offline and restarts it (R6, dev-947d):
+ * /get_chart_test chart functions (_stop_online_engine / _restart_online_engine) and /play_keyboard offline
+ * (try / finally restart). Every other render.* stays denied while live audio runs (fail closed).
+ */
+export const LIVE_RENDERS = new Set(['render.chart', 'render.note_playback', 'render.keyboard']);
 
 /**
  * The hard-confirm list (v2 §9, V8): these ask every time and can never be set to Auto. Registry
@@ -62,13 +70,15 @@ export function decide({ command, tier, family, category, settings = {} }) {
   if (settings.dataOptOut && MEASUREMENT_FAMILIES.has(family)) {
     return { action: 'deny', reason: 'measurement data is opted out (pane switch "Block measurement data")' };
   }
-  if (family === 'render' && settings.liveAudio) return { action: 'deny', reason: LIVE_RENDER_REASON };
+  const liveRender = family === 'render' && settings.liveAudio && !READ_TIERS.has(tier);
+  if (liveRender && !LIVE_RENDERS.has(command)) return { action: 'deny', reason: LIVE_RENDER_REASON };
   if (settings.tainted && !READ_TIERS.has(tier)) {
     return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
   }
   if (HARD_CONFIRM[command] || category === 'hard_confirm') {
     return { action: 'confirm', hard: true, reason: HARD_CONFIRM[command] || 'on the hard-confirm list' };
   }
+  if (liveRender) return { action: 'confirm', reason: LIVE_RENDER_CONFIRM };
   const mode = modeOf(category, settings.approvals);
   if (mode === 'ask') {
     return { action: 'confirm', canAuto: switchable(category), reason: `${category}: Ask` };

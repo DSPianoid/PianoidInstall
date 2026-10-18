@@ -1,6 +1,6 @@
 {
   "family": "render",
-  "description": "Offline renders and charts. A render stops the live audio for its duration (about 2 s); renders still run freely (act tier, user decision D3, 2026-10-15).",
+  "description": "Offline renders and charts. A render stops the live audio for its duration (about 2 s) and the route restarts it; renders run freely with audio off (act tier, user decision D3, 2026-10-15) and ask first while live audio runs (assistant R6, dev-947d).",
   "commands": [
     {
       "name": "render.chart_types",

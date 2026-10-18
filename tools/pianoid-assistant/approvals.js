@@ -19,7 +19,7 @@
 export const CATEGORIES = [
   { id: 'view', label: 'View and reads', covers: 'UI commands (panes, selection, zoom) and every read', default: 'auto', locked: 'reads and view changes always run' },
   { id: 'playback', label: 'Playback', covers: 'play notes / chords / modes / MIDI files, reset, cancel a job', default: 'auto' },
-  { id: 'renders', label: 'Offline renders', covers: 'render.* (refused while live audio runs)', default: 'auto' },
+  { id: 'renders', label: 'Offline renders', covers: 'render.* (with live audio each render asks: live audio pauses briefly)', default: 'auto' },
   { id: 'params', label: 'Parameter edits', covers: 'param.set, mode / channel mutes', default: 'ask', envelope: true },
   { id: 'runtime', label: 'Volume and feedback', covers: 'runtime.set (volume, feedback slider)', default: 'ask', envelope: true },
   { id: 'preset_nav', label: 'Preset navigation', covers: 'switch preset, spawn a working copy, load into the library', default: 'ask' },
@@ -27,7 +27,7 @@ export const CATEGORIES = [
   { id: 'layout_save', label: 'Save a named layout', covers: 'saving a named layout (command arrives with the runbook, P3)', default: 'ask' },
   { id: 'code', label: 'Analysis code', covers: 'analysis.run_python: runs analysis code in the sandbox (P5)', default: 'ask', locked: 'Ask until the analysis sandbox escape suite passes (V1)' },
   { id: 'web', label: 'Web research', covers: 'searches and fetches by the researcher (arrives in P7)', default: 'auto' },
-  { id: 'bug_local', label: 'Local bug reports', covers: 'filing a report to the local collector (arrives in P6)', default: 'auto' },
+  { id: 'bug_local', label: 'Local bug reports', covers: 'bug.report: files a report to the local collector (POST /bug_report)', default: 'ask' },
 ];
 
 /** Categories that are never switchable and are not shown as rows (they have their own section). */
