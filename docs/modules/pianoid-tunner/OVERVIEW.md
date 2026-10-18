@@ -686,7 +686,7 @@ Global keyboard shortcut handler. Registers `keydown`/`keyup` listeners on `wind
 | Shift + - | Feedback −5 (clamped 0–127) |
 | Ctrl + - | Feedback → 0 |
 | [ / ] | Previous / next library preset |
-| Escape | Reset synthesiser |
+| Escape | Clear the active parameter if one is active (dev-b21b, [Active context](#active-context-wheel-editing-dev-b21b-2026-10-18)); otherwise reset synthesiser |
 
 Velocity is derived from the selected excitation level: pp=0, p=31, mf=63, f=95, ff=127.
 
@@ -868,7 +868,7 @@ the UI with the same verbs as a user. Design: `docs/development/ui-commands-i5-d
 
 | Command | Args | Effect / result |
 |---|---|---|
-| `ui.snapshot` (tier read) | — | `{leader, layout, panes, maximized, layoutName, layouts, availablePanes, selection {pitch, pitches, mode, modes, parameter, level}, ties, workbenches}` |
+| `ui.snapshot` (tier read) | — | `{leader, layout, panes, maximized, layoutName, layouts, availablePanes, selection {pitch, pitches, mode, modes, parameter, level}, active {parameter, pitch, mode, channel, step, step_locked, follow_midi, value / missing}, ties, workbenches}` (`active`: [Active context](#active-context-wheel-editing-dev-b21b-2026-10-18)) |
 | `ui.pane.open` / `ui.pane.close` | `pane` | add (window-manager placement) / remove a pane, also a workbench id; closing the maximized pane returns to the multi-pane view |
 | `ui.pane.maximize` / `ui.pane.restore` | `pane` / — | maximize an open pane / leave maximized mode |
 | `ui.layout.reset` / `ui.layout.apply_named` / `ui.layout.set` | — / `name` / `layout` | default layout / a saved named layout / a validated mosaic tree (known panes, no duplicates, open workbenches; the global Workbench re-added) |
@@ -1019,6 +1019,45 @@ User report 2026-10-18: "Hammer position editing works with delay, chart rerende
 **Now every edit path of `HammerStringChart` (handle drag, chart wheel, the Pos/Width/Sharp fields) STAGES its value** through the generic `hooks/useStagedParamEdits.js`: the chart and the fields show the staged value at once (a re-render of the chart only), and `onParamChange(name, value, pitch)` runs ONCE per gesture — 150 ms after the last edit (`WHEEL_SETTLE_MS`), on a pointer/key interaction outside the chart, when the pitch changes, on handle release (`ondragend`), or on unmount. The commit carries the pitch the edit was made on (`PianoidTuner.handleHammerParamChange(name, value, pitch = selectedPitch)`), so a pitch switch mid-gesture never lands on the new pitch. A committed value stays displayed until the prop catches up; the hook's self-echo ring (half a wheel step tolerance — the width round-trip drift) and external-edit re-seed replace the old `liveValRef`/emit-ring machinery described above (same guarantees: N notches = N steps, no backward re-seed). Wheels over a numeric field belong to that `NumInput` only. Result: 20 notches → 20 steps, 12 ms median per notch, ~0.2 s total main thread, 1 backend write; the Workbench bar follows at the commit. Pinned by `HammerStringChart.staged.test.jsx` (+ the existing wheel suites).
 
 **Charts no longer rebuild on unrelated renders (same session).** `echarts-for-react` disposes and re-creates a chart whenever `onEvents` is not deep-equal to the previous render's, and re-runs `setOption` (notMerge: a full rebuild) whenever `option` differs — functions compare by reference. `GaussChart` passed fresh `onEvents` handlers (full re-init on every app render) and a fresh tooltip closure; `DrawableChart` built fresh formatter closures. Both now keep stable function identities (handlers / formatters read live inputs through refs), so an unchanged chart is left alone. `PitchesModesMatrixCanvas` keyed its effects on the parent's per-render range arrays (a ResizeObserver rebuild, an extra `setCellSize` render and a full matrix repaint on every app render); it now keys them by value and memoizes the matrix + colour scale.
+
+### Active context & wheel editing (dev-b21b, 2026-10-18)
+
+User spec (Telegram, 2026-10-18): at any moment there is ONE or NONE of each of **active parameter**, **active pitch**, **active mode** and **active channel**; the mouse wheel edits the active parameter at the active slots it needs, anywhere on the page.
+
+**Model — one read model over the existing owners (P1).** `hooks/useActiveContext.js` adds no second copy of any selection:
+
+| Slot | Owner (sole writer) | Set by |
+|---|---|---|
+| parameter | `useCurrentValues.selectedParameter` while `paramFocused` | left-click its data field, left-click a bar of its bar chart, right-click anywhere on its bar chart (every activation goes through `updateDefaultWorkbench` / `focusWorkbench`, which set the focus); cleared by **Esc** or the status **x** — the workbenches keep following `selectedParameter` |
+| pitch | `useCurrentValues.selectedPitch` | left-click on any keyboard (Virtual Piano or a bar chart's ruler); **Follow MIDI** |
+| mode | `useCurrentValues.selectedMode` | left-click on a mode ruler |
+| channel | `useSoundChannels.selectedChannel` (SC-local, never the global pitch) | left-click on the channel ruler |
+
+Owned by the hook itself, per session (never persisted): `followMidi` (default on — it replaces the hidden Virtual Piano "Auto Select" setting, now retired and no longer shown), the per-parameter wheel **step locks**, and the transient hint. Read-only fields (Strings `tail`, Modes `stiffness` / `damping`, `utils/readOnlyParams.js`), derived workbenches and the data-less mode-ruler workbench never become the active parameter. Pure rules: `utils/activeContext.js`.
+
+**Wheel (`hooks/useActiveParamWheel.js`).** While a parameter is active, ONE capture-phase window listener takes every wheel event (so a tick never also reaches a chart's or a field's own wheel handler) — except inside a modal surface (dialog / menu / popover) or while ANOTHER numeric field is focused. With no active parameter the wheel keeps its normal scroll / zoom / field behaviour.
+
+| Parameter | Slots needed | Shift + wheel (the existing selection range) |
+|---|---|---|
+| Strings, Excitation (hammer + gauss at the toolbar level), Mass | pitch | every pitch of `selectedPitches` |
+| Modes | mode | every mode of `selectedModes` |
+| Feedin, Feedback | pitch x mode | every pitch of `selectedPitches` at the active mode |
+| Sound Channels (strings axis) | mode x channel (no channel in the averaged view) | every mode of `selectedModes` of the channel row; not editable in listen-to-modes |
+
+A missing slot changes nothing and shows a hint in the status ("select a mode"). Windows sends Shift+wheel as `deltaX` — either delta counts. **One burst = one write = one backend undo step:** ticks are staged through `hooks/useStagedParamEdits.js` (the status shows `base -> staged` at once; a running total keeps N ticks = N steps) and committed 300 ms after the last tick, on any pointer / key interaction, on a slot / parameter / Shift change, or on Esc. The write is the editor's own: ONE edited slot of a per-key parameter -> its `Cell` change (`applyStringsChange` / `applyModesChange` / `applyExcitationChange`, e.g. `set_parameter string/60`); a Shift range, Mass or a matrix -> the Workbench vector write `handleVectorChange(vector, binding)` (Mass sends the changed pitches only; the matrices are written whole by their editors, as before).
+
+**Step.** The digit position of the parameter's **data field** (`[data-param-field="<groupe>:<name>[#gauss]"]`: Strings, Modes, gauss cells, the Mass field, the Feedin / Feedback / Sound Channels MatrixTools value field). It LOCKS on a click on a digit (read at pointerdown: focusing NumInput widens its padding and shifts the text before the click event) or on the first tick of a burst while the pointer is over a digit; hover alone never changes it. The lock holds for that parameter for the whole session. Before a lock the step is the value's third significant digit (`auto`). The active parameter's field shows every relevant digit (`useActiveFieldDecimals`: at least 4 significant digits of a small value and the locked step's digit; NumInput now applies a changed `decPlaces` prop). The hammer Pos % / Width mm fields show scaled units and are not step fields.
+
+**UI.**
+- **Toolbar status** (the existing Pitch / Mode / Level block, `components/ActiveContextStatus.jsx`): a MIDI mark beside the pitch while Follow MIDI is on; `Ch:`; `Param:` with the label and an **x** (= Esc); `Step <n>` with a lock (or `auto`); the active value (`= v`) or the burst's `base -> staged (n keys)`; the hint.
+- **Esc** (`useHotkeys` `onEscape`): clears the active parameter (also from a focused data field, which it leaves); an Esc with no active parameter still resets the synthesiser; an open dialog swallows Esc first (MUI).
+- **Charts:** `DrawableChart` outlines the active bar (enlarged point on a line chart), so the active pitch / mode stays visible with the ruler collapsed; only the left button paints; a right-click on a `RowEditor` chart suppresses the browser menu (Shift+right-click keeps it). Strings / Modes highlight the field of the ACTIVE parameter (none after Esc).
+- **Virtual Piano toolbar:** Follow MIDI toggle (piano icon, lit when on) after Play All / Calibrate.
+- **Ruler toggle** (`hooks/useChartRulers.js`, ruler icon) on every bar-chart pane — Workbench and its clones, Feedin, Feedback, Sound Channels: off = `RowEditor showRuler={false}` drops the keyboard / mode / channel ruler and the chart fills the pane; the pane border does not move. Per pane id, kept in `localStorage.chartRulersHidden` and saved / applied / renamed / deleted with each named layout (`mosaicConfigChartRulers`).
+
+**Assistant.** `ui.snapshot` carries `active` = `{parameter, pitch, mode, channel, step, step_locked, follow_midi, value | missing}` (`activeContextSnapshot`), so the per-turn `<pianoid_context>` UI digest tells the assistant what "raise this a bit" refers to. Read-only: no new command.
+
+Tests: `utils/__tests__/activeContext.test.js` (targets, slots, Shift, step, digits, Cell changes), `hooks/__tests__/useActiveParamWheel.test.jsx` (N ticks = 1 write, axes, hints, modal / field exclusions, step locks, Esc commit, granular Cell write), `hooks/__tests__/useActiveContext.test.jsx` (focus, Esc vs reset, follow MIDI, locks, snapshot), `components/__tests__/activeContextUi.test.jsx` (ruler collapse + layouts, right-click, active bar, status), `components/__tests__/activeContextFields.test.jsx` (data fields, digits, wiring). Live check on a mock backend: session log `dev-b21b`.
 
 ### Savable mosaic layouts (dev-uiqueue, 2026-06-15)
 

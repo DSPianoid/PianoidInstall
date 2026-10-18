@@ -211,3 +211,15 @@ test('level: current vs latched clipping', () => {
   const live = buildDigest({ health: { ...HEALTH, clipping: true, clipping_now: true, peak_level: 3.2, peak_level_now: 3.2 }, runtime: {}, load: null, ui: {} });
   assert.ok(live.warnings.some((w) => /CLIPPED/.test(w) && !/Not clipping now/.test(w)));
 });
+
+// dev-b21b: the leader tab's ACTIVE context (ui.snapshot `active`) reaches the model unchanged, so
+// "raise this a bit" resolves to the active parameter at the active pitch / mode / channel.
+test('ui: the active context passes through the digest (read-only)', () => {
+  const active = {
+    parameter: { groupe: 'Feedin', name: 'coefficient' }, pitch: 60, mode: 3, channel: null,
+    step: 0.01, step_locked: true, follow_midi: false, value: 0.42,
+  };
+  const d = buildDigest({ health: HEALTH, runtime: {}, load: null, ui: { ok: true, result: { leader: true, layout: 'Feedin', selection: { mode: 3 }, active } } });
+  assert.deepEqual(d.ui.active, active);
+  assert.equal(d.ui.layout, undefined);
+});
