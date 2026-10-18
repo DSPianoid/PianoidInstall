@@ -143,7 +143,7 @@ automation page; confirms answered Allow by a WS client, as the user's click):
 1.2e-4 on BaselinePreset1 (output_scale 6.1e12) and 1.6e-8 on F15_measured_plywood at its declared d1 / si16 (output_scale 3.6e15).
 1.5e-9 at d2 / si8 (output_scale 3.46e16) is not silence. A raw peak in dB is meaningless across presets. Only all-zero is silent.
 
-**R6 (bug triage 2026-10-16): renders are refused while live audio runs.** At 15:19:27 the user's assistant ran `render.note_playback`. The route stops realtime playback and renders offline inside the live engine (3.2 s), so the FE auto-reported `backend_crashed`. Offline rendering in the live realtime + ASIO backend is a known page-fault risk. Chosen option: the **deny** (safe) one. `policy.decide` denies every `render.*` when `settings.liveAudio`. The service computes it per render call: `/health.backend_thread_running` and `/load_settings.settings.audio_on == 1`, and an unreachable backend counts as live (fail closed). The model is told why and judges the level from the context instead. A render still runs with audio off (agent / test stacks). The render route stops playback by design (the triage evidence). I did not evaluate a render that does not stop playback, which would be engine work. Standalone MCP use (Claude Code) is not gated: there the user's own permission prompt confirms.
+**R6 (bug triage 2026-10-16): renders are refused while live audio runs.** At 15:19:27 the user's assistant ran `render.note_playback`. The route stops realtime playback and renders offline inside the live engine (3.2 s), so the FE auto-reported `backend_crashed`. Offline rendering in the live realtime + ASIO backend is a known page-fault risk. Chosen option: the **deny** (safe) one. `policy.decide` denies every `render.*` when `settings.liveAudio`. The service computes it per render call: `/health.backend_thread_running` and `/load_settings.settings.audio_on == 1`, and an unreachable backend counts as live (fail closed). The model is told why and judges the level from the context instead. A render still runs with audio off (agent / test stacks). The render route stops playback by design (the triage evidence). I did not evaluate a render that does not stop playback, which would be engine work. Standalone MCP use (Claude Code) is not gated: there the user's own permission prompt confirms. **Revised 2026-10-18 (§11):** with live audio the stop / render / restart renders ask instead of being denied, and reads are never gated.
 
 **Output level and muted channels in the context (corrected 2026-10-16).** The output is NOT limited. `MainKernel.cu` (W5-A comment at the stem output write, about line 618) writes it UNLIMITED: the dev-d52b soft-limiter was removed. The `Sint32` cast saturates at the INT32 rail, so a peak above full scale is hard clipping ([SYNTHESIS_ENGINE: Output-clipping telemetry (dev-538e)](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md)). The `/health` `limiting` / `limiting_info.gain_reduction_db` are host-side telemetry: `backendServer._gain_reduction_db` computes from the peak what a limiter would apply, and no stage attenuates. The user's latched figure (-72 dB, peak 8.67e12 = 4040 × full scale) therefore means massive hard clipping and distortion, not silence. The digest carries `level.over_full_scale {peak_x_full_scale, db_over, channel}`, and the warning says "far above full scale → hard clipping; check the load mismatch and output_scale". The silence measured by inv-silent-measured was all `feedback_mask` output rows 128..134 at 0 (the user's own Sound Channels edits; history `feedback_mask [128..134] (fe)`). Every turn now reads `GET feedback_mask/output` (strings axis). `layout.channels_on / channels_muted` and a first-class "EVERY output channel is muted" warning point the assistant at it. An earlier version of this revision (b23cf1b) wrongly called the -72 dB "near-silent"; that is corrected in the same branch.
 
@@ -279,3 +279,55 @@ that, when armed, reports `clipping: true` after a write: a mocked breach with n
 | Envelope override asks | "Set the volume slider to 100 in one step" (Auto runtime) → dialog `outside the envelope: volume 64 -> 100 (+36; at most +6 per step)`; declined, volume 64; the model did not retry and offered steps of 6 | `-04-envelope-override-asks.png` |
 | Level breach → auto-revert | proxy armed; "Raise the volume slider by 4 levels" → `runtime.set {volume: 68}` auto; the next `/health` read clipping (proxy injected 1); `revert … level breach: the output clipped (latched)` → `runtime.set {volume: 64}`; backend `volume_level` 64; the model told the user it was reverted and why | `-05-level-breach-auto-revert.png` |
 | Settings persist across a service restart | launcher `assistant/stop` + `start` (new PID, Activity (0)) → the popover still shows `params` / `runtime` Auto, the chip shown | `-06-settings-persist-after-restart.png` |
+
+## 11. Renders during live audio, and bug filing (dev-947d, 2026-10-18)
+
+From the user's session ab7294d3 (2026-10-18 05:58–07:10Z, F15_measured_plywood, ASIO live). R6 (§8) refused
+`render.chart_types`, which is a registry read, and every render, so the assistant proposed a full reload with audio
+off. The user corrected it: the engine stops, renders and restarts by itself, and the UI's offline Play All does the
+same during live audio. The user asked to file both issues as bugs, and the assistant had no filing tool.
+
+**Code proof of the restart path (Core dev 15896da).**
+
+| Route | Sequence | Gap found |
+|---|---|---|
+| `/get_chart_test` (class `transient` → `engine_busy`) → chart functions | `_stop_online_engine` (`stop_playback` + `endMainLoop`), render under `cuda_lock`, `_restart_online_engine` (the backend `_restart_realtime_thread` hook re-spawns the realtime thread) | `note_playback` returned on a render exception with no restart. Offline `sound_test` restarted only on success. In both cases live audio stayed silent until re-APPLY. **Fixed:** both restart on every path (`tests/unit/test_chart_render_restart.py`, 2 of its 4 tests fail before the fix) |
+| `/play_keyboard` offline (`render.keyboard`) | stop → render → restart in `try / finally` | none |
+| output_scale calibration (`calibrate_output_scale`) | refuses to render while `shouldContinue()` / `isRunning()` (REST_API Layer B); `/recalibrate_output_level` stops → renders → restarts | not reachable through `render.*`: `/get_chart_test` looks names up as `chart` / `dynamic_chart` only, so action types (incl. `auto_tune`) answer 416, and no chart function calls `output_level`. The 0xC0000006 incident (2026-06-26) was a calibration render at preset switch with the engine **not** stopped |
+
+**Policy (R6 revised).**
+- Read tiers are never gated.
+- With live audio, `LIVE_RENDERS` = `render.note_playback`, `render.chart` and `render.keyboard` ask every time, even with
+  `renders` on Auto. The reason shown is "live audio pauses for a few seconds: the engine stops, renders offline and
+  restarts by itself". The dialog has no "Don't ask again".
+- Any other `render.*` with live audio is denied, fail closed. That covers a future calibration-render command.
+- A web-tainted turn makes the confirm hard.
+- An unreachable backend still counts as live, so the render asks.
+- The 2026-10-16 15:19 false `backend_crashed` auto-report predates the R4 fix. `useAutoReport` now confirms a stopped
+  thread with a fresh `/health` 8 s later (`CRASH_CONFIRM_MS`) and is suppressed while the engine is busy. A render of
+  2–3 s has restarted the thread by then.
+
+**Bug filing (v2 §7, P6 minimal).**
+- `bug_report` on the in-process `assistant` server, registry-style name `bug.report`, category `bug_local`, **Ask** by
+  default and switchable.
+- `service/bugReport.js` attaches the latest `pianoid_context`, the versions, the last 12 chat messages and the last 30
+  activity entries.
+- The dialog shows the draft as it will be filed. Only that report is POSTed, once, to `POST /bug_report`.
+- The collector names the file `-assistant-<kind>-`. `PIANOID_REPORTS_DIR` lets an isolated backend write into the
+  main store. Never GitHub.
+- The prompt tells the model to offer filing when its reads confirm an app bug or an environment fault.
+
+**The user's two bugs, filed** through this path: an `AssistantSession` with the user's own transcript, context and
+activity, confirmed as the user's "File both issues as bugs". The collector was an isolated backend on :5012 (Core
+worktree, no preset, no CUDA context) writing into `PianoidCore/logs/reports/`:
+- `bugreport-2026-10-18T07-35-18-387Z-assistant-app_bug-1e126e19c4de5b10.json`: renders blocked during live audio.
+- `bugreport-2026-10-18T07-35-18-486Z-assistant-app_bug-2830f22348a2b3fb.json`: `render.chart_types` refused as a render.
+
+**Chart auto-scale.** The mode `mass_inv` values (~1e-12) looked like empty bars because the pane's Auto-scale toggle
+was off: off freezes the y-axis at an earlier maximum. There is no ui command for it. The toggle is per-pane settings
+state in `PianoidTuner.js` (4553 LOC, RED), and the file should not grow without a split plan. So only the prompt
+changed: it now says to tell the user to switch the toggle on and to give the values read with `param__get`.
+
+**Not verified here:** the live-audio render itself (`audio_on` 1 needs the user's terminal approval). The user checks
+it in their own session: ask for a note render with live audio, then confirm the dialog. Expected: live audio pauses
+for about 2–3 s and comes back, with `/health.backend_thread_running` true after the render.
