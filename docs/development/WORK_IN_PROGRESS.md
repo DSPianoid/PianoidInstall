@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-fe18 | FE fixes 2026-10-18: A two-lane bar-chart toolbars, B hammer-position edit lag/jumps, C manual bug-report dialog POSTs /bug_report (worktrees wt-fe18-install / wt-fe18-tunner) | [log](logs/dev-fe18-2026-10-18-145936.md) | 2026-10-18 | In Progress |
 | dev-69fd | Swept-sine mode discovery (coarse+fine per exciter, FRF/MAC) via ASIO /audio/session | [log](logs/dev-69fd-2026-10-11-132421.md) | 2026-10-11 |
 | dev-4284 | Phase 3: migrate modal adapter audio acquisition sdl_audio_core -> ASIO /audio/session (AudioIO Local/Remote), setup schema migration, Tunner channel pickers; then retire sdl_audio_core if no consumers remain | [log](logs/dev-4284-2026-10-11-131702.md) | 2026-10-11 | In Progress |
 <!-- dev-5293 COMPLETED 2026-10-18 (Phase 2, user pre-approved merge) — assistant "Connect Claude subscription" without a global CLI: service/home.js claudeCli = PIANOID_ASSISTANT_CLAUDE_CLI > SDK-bundled native binary (@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude[.exe], 2.1.301) > claude on PATH; no CLI -> exact npm install fix, re-resolved without restart; terminal fallback names the resolved CLI; setup-pianoid.bat/.sh npm ci the assistant (non-fatal); no new dependency; npm test 86 pass; merged --no-ff PianoidInstall master 8e53bba; NOT pushed. Log: logs/archive/dev-5293-2026-10-18-114113.md -->

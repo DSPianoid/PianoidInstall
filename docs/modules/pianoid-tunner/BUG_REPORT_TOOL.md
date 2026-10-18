@@ -47,7 +47,10 @@ into a ring buffer; on demand a snapshot is assembled, packaged into a report, a
                   │  fetchRuntimeParameters()  ──▶  GET /get_runtime_parameters  (live engine truth)
                   │  getActionHistory()  ──▶  actionRecorder buffer copy
                   ▼
-              bugReport.buildReport()  ──▶  self-contained JSON  (schemaVersion 1)
+              bugReport.buildReport()  ──▶  self-contained JSON  (schemaVersion 2)
+                  ▼
+              postReportToCollector()  ──▶  POST /bug_report  ──▶  PianoidCore/logs/reports/…-manual-<reportId>.json
+                  │  (collector unreachable / refused)
                   ▼
               downloadReport()  ──▶  pianoid-bug-report-<ISO>.json   (copy-to-clipboard fallback)
 ```
@@ -56,7 +59,7 @@ into a ring buffer; on demand a snapshot is assembled, packaged into a report, a
 |---|---|---|
 | Ring buffer | `src/utils/actionRecorder.js` | Always-on, module-singleton, re-render-free capture of the last 200 actions. |
 | Report builder | `src/utils/bugReport.js` | Assemble + serialize + download/copy; the live `GET /get_runtime_parameters` call. |
-| Dialog | `src/components/BugReportDialog.jsx` | Collect the description, orchestrate generation, download/copy. |
+| Dialog | `src/components/BugReportDialog.jsx` | Collect the description, orchestrate generation, file the report in the backend store (download/copy as the fallback). |
 | 🐞 button | `src/components/BottomBar.jsx` | Unobtrusive `onReportProblem` affordance at the far end of the bottom bar. |
 | Snapshot builder + capture wiring | `src/PianoidTuner.js` | `buildBugSnapshot()` + the `selection` / `settings_change` / `layout_change` effects; owns the dialog. |
 
@@ -101,8 +104,11 @@ Owns **no** app state. The caller (`PianoidTuner`) passes a `buildSnapshot()` fu
 the current FE config; the dialog adds the live runtime params and the action-history copy. On
 **Generate report** it: calls `buildSnapshot()`, awaits `fetchRuntimeParameters()` (proceeds even if
 that returns `{ error }` — a down backend is itself a data point), builds the report, and
-**auto-downloads immediately** (the primary delivery path). It then shows a status alert and offers
-**Download** (again) and **Copy** buttons, plus a size/action-count/schema-version caption.
+**files it in the backend's report store** — `POST /bug_report` via `autoReporter.postReportToCollector`,
+the same collector and folder as the auto and assistant reports (dev-fe18, 2026-10-18). On success the
+alert shows the stored report id and file name; when the POST fails or the collector answers
+`ok: false`, the report is **downloaded** instead and the alert says why. The **Download** and
+**Copy** buttons stay available either way, plus a size/action-count/schema-version caption.
 
 ### The 🐞 button (`BottomBar.jsx`)
 
@@ -383,12 +389,12 @@ Notes on specific fields:
 3. In **Report a problem**, type one sentence in *What happened?* (e.g. "Volume jumped after switching
    preset and playing C4"). The dialog shows how many actions are currently recorded.
 4. Click **Generate report**. The report is built (config snapshot + live runtime params + action
-   history) and the browser **auto-downloads** `pianoid-bug-report-<timestamp>.json`.
-5. If the download is blocked, use the **Download** or **Copy** buttons the dialog reveals.
-6. **Send the JSON file** to the developer / agent (Telegram, email, etc.).
-
-No backend round-trip is required to *save* the report (it is generated entirely client-side); the
-only network call is the read-only `GET /get_runtime_parameters` to capture live engine state.
+   history) and saved in the backend's report store (`PianoidCore/logs/reports/`, next to the auto
+   reports); the dialog shows `Report <id> saved to the bug-report store (<file>)`.
+5. If the backend is unreachable, the browser **downloads** `pianoid-bug-report-<timestamp>.json`
+   instead; **Download** / **Copy** are always offered.
+6. A stored report needs no hand-off (agents read the store); a downloaded one is sent to the
+   developer / agent (Telegram, email, etc.).
 
 ---
 
