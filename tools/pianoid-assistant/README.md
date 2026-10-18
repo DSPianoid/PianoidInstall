@@ -21,14 +21,34 @@ npm install
 npm test              # zero spend: policy, MCP server, isolation, service on the fake driver
 ```
 
-One-time login of the assistant's own Claude home (never `~/.claude`), PowerShell:
+### First-time setup: connect the Claude subscription
+
+On a new system, open the **Assistant** pane and click **Connect Claude subscription**, then **Open Claude login**
+and sign in with your Claude account in the tab that opens; the pane switches to connected on its own (no restart).
+If the sign-in page shows a code instead, use "The sign-in page shows a code instead?" and paste it. The login goes
+into the assistant's own isolated home (never `~/.claude`). The header then shows the account (email · plan); its
+menu has **Disconnect** (asks first; signs out only the isolated home). The chat input stays disabled while the
+assistant is not connected. The pane shows a **Start assistant** button while the service is down
+(`launcher.assistant.start`); the service starts and serves the connect routes while not logged in.
+
+Fallback, PowerShell (also under "Or sign in from a terminal" in the pane):
 
 ```powershell
 $env:CLAUDE_CONFIG_DIR="$env:USERPROFILE\.pianoid-assistant\claude-home"; claude auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR
 ```
 
-The Assistant pane shows this command while the isolated home is not logged in, and a **Start assistant** button
-while the service is down (`launcher.assistant.start`).
+How it works (`service/auth.js`, dev-dc2a): `POST /auth/login` runs `claude auth login --claudeai` with the isolated
+env (allow-listed, no `ANTHROPIC_*`). Without a TTY the CLI prints a manual URL (its page shows a code, read from the
+CLI's stdin: `POST /auth/login/code {code}`) and opens a browser itself with a second URL that returns to its own
+`localhost` callback. The service sets the CLI's `BROWSER` to `service/captureUrl.cmd` / `.sh`, so no tab opens behind
+the user's back: the pane's **Open Claude login** opens that URL. `GET /auth/status [?recheck=1]` = `{login, flow}`
+(login = loggedIn, authMethod, email, orgName, subscriptionType; never a token; `flow.state` idle | starting | waiting |
+verifying | connected | failed | cancelled | timeout, 10 min). `POST /auth/login/cancel` kills the CLI tree.
+`POST /auth/logout {confirm: true}` runs `claude auth logout` only after `claude auth status` reports the isolated home
+as its `configDirectory`. The service refuses any home other than `<root>\claude-home` (never `~/.claude`, never a
+root equal to the user profile). The POSTs take JSON only, from a `localhost` / `127.0.0.1` page or no page.
+`PIANOID_ASSISTANT_CLAUDE_CLI` (a JSON array) overrides the CLI; `fixtures/fake-claude.js` is the fake CLI of
+`test/auth.test.js`.
 
 ## Analysis sandbox (v2 P5)
 
