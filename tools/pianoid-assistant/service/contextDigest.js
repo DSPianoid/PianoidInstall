@@ -64,6 +64,7 @@ export function levelDigest(health, runtime = {}) {
     clipping: health.clipping ?? null,
     clipping_now: health.clipping_now ?? null,
     peak_level: health.peak_level ?? null,
+    peak_level_now: health.peak_level_now ?? null,
     limiting: health.limiting ?? null,
     gate_trip_count: health.gate_trip_count ?? null,
     volume_level: runtime.volume_level ?? null,
@@ -88,10 +89,14 @@ export function warnings({ backend, audio, level, load, layout, ui }) {
   if (audio.fallback) w.push(`Audio fell back from ${audio.requested} to ${audio.active}${audio.fallback_reason ? ` (${audio.fallback_reason})` : ''}.`);
   if (audio.alert) w.push(`Audio watchdog: ${audio.alert}`);
   const over = level.over_full_scale;
+  // clipping_now / peak_level_now = the recent output (last seconds); the rest is latched since the load.
+  const nowNote = level.clipping_now === false
+    ? ` Not clipping now${level.peak_level_now != null ? ` (current peak ${dbfs(level.peak_level_now)})` : ''}: the peak is held from earlier.`
+    : '';
   if (over) {
-    w.push(`Output far above full scale since the last load: worst peak ${over.peak_x_full_scale} x full scale (+${over.db_over} dB) on channel ${over.channel}. The output is not limited, so it hard-clips at the INT32 rail: harsh distortion. Check load.mismatches and output_scale.`);
+    w.push(`Output far above full scale since the last load: worst peak ${over.peak_x_full_scale} x full scale (+${over.db_over} dB) on channel ${over.channel}. The output is not limited, so it hard-clips at the INT32 rail: harsh distortion. Check load.mismatches and output_scale.${nowNote}`);
   } else if (level.clipping) {
-    w.push(`Output CLIPPED since the last load: latched peak ${pct(level.peak_level ?? 1)} of full scale. It hard-clips at the INT32 rail (distortion): the level is too high.`);
+    w.push(`Output CLIPPED since the last load: latched peak ${pct(level.peak_level ?? 1)} of full scale. It hard-clips at the INT32 rail (distortion): the level is too high.${nowNote}`);
   } else if (level.limiting) {
     w.push(`Peaks above ${LIMITER_KNEE_DBFS} dBFS (near full scale) since the last load${level.peak_level != null ? `, latched peak ${dbfs(level.peak_level)}` : ''}. Telemetry only: nothing is attenuated.`);
   }

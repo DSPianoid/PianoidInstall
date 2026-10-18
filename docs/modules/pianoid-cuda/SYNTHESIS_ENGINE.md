@@ -524,7 +524,10 @@ test.
 > per output channel into `dev_limiter_peak` via `atomicMaxPeakReal` (a non-negative-float atomic-max). This
 > **revives** the previously-inert limiter telemetry (`getLimiterPeaks` / `get_limiter_status` / `/health`):
 > a channel peak reaching/exceeding INT32 full-scale (`2147483647`, the `Sint32` cast/driver rail) is
-> **clipping**, surfaced on `/health` as `clipping` (latched) / `clipping_now` / `peak_level`.
+> **clipping**, surfaced on `/health` as `clipping` (latched) / `clipping_now` / `peak_level`. The buffer is
+> a peak-HOLD (the engine keeps no "current" value): the backend reads and resets it per telemetry read and
+> keeps the current-vs-latched views itself (dev-f8f9, [REST_API → GET /health](../pianoid-middleware/REST_API.md#get-health)).
+> Offline renders write the same buffer; the backend drops those windows.
 
 The CFL/Courant reading is computed **on the host, in `parameter_manager.py`**
 (`cfl_stability.py` computes the closed-form `max_θ|g(θ)|` and the Courant number). It runs inside the
