@@ -579,8 +579,23 @@ without polling. Engine-side mechanics: see
 - `last_gate_trip` (int): the synthesis-cycle index of the most recent trip, or `-1` if `gate_trip_count == 0`.
 - `cooperative_launch` (top-level, added dev-1cda 2026-10-09; present even when no preset is loaded): the `addKernel` cooperative co-residency report — `{checked, ok, kernel, phase, grid_blocks, block_threads, num_regs, static_smem, max_threads_per_block, blocks_per_sm, device_sms, num_sms, capacity, message}` from `<module>.getCoopOccupancyReport()`. `phase` = `init` (pre-flight at `devMemoryInit`), `online` (re-check after the audio driver starts) or `launch` (the cooperative launch itself failed). `ok=false` ⇒ the grid cannot co-reside: an `init` shortage fails the load (`/load_preset` 500 `coop_launch_shortage`; with no engine left, this field keeps that failure — `{checked, ok:false, kernel, phase:"init", message}` — until the next successful load); an `online`/`launch` failure stops the realtime thread and also sets `exception` (status `crashed`). `null` = never checked (no load yet). See [SYNTHESIS_ENGINE → Register budget](../pianoid-cuda/SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09).
 - `clipping` (bool): **latched** — `true` if any output channel's post-volume peak reached/exceeded INT32 full-scale (`2147483647`, the driver's hard-clip rail) since the last `/clear_limiting` or preset load. Survives the slow poll (clip-hold). Drives the toolbar clipping indicator.
-- `clipping_now` (bool): instantaneous — a channel peak `>=` full-scale on the most recent buffer.
-- `peak_level` (float): the latched peak output magnitude as a fraction of full-scale (`>= 1.0` ⇔ clipping). Also surfaced (with per-channel detail) inside the existing `limiter` sub-object (`limiter.clipping` / `limiter.clipping_now` / `limiter.peak_level`), which revives the previously-inert limiter telemetry now that the kernel writes the per-channel peak again.
+- `clipping_now` (bool): **current** — a channel's current peak (below) `>=` full-scale.
+- `peak_level` (float): the latched peak output magnitude as a fraction of full-scale (`>= 1.0` ⇔ clipping).
+- `peak_level_now` (float, dev-f8f9): the current peak as a fraction of full-scale.
+- All of them are also inside the `limiter` sub-object, with per-channel detail.
+
+**Current vs latched (dev-f8f9, 2026-10-18).** The kernel keeps ONE per-channel peak-hold buffer (`dev_limiter_peak`, cleared only by `resetLimiterPeaks`). The backend (`limiter_telemetry.py`) reads AND resets it on every telemetry read (`/health`, the `param_ack` limiting ride), so the buffer holds the peak since the previous read:
+
+| View | Fields | Meaning |
+|---|---|---|
+| current | `clipping_now`, `peak_level_now`, `limiter.active`, `limiter.clipping_now`, `limiter.peak_level_now`, per channel `pre_limit_peak` / `active` / `gain_reduction_db` | the peak since the previous read, decaying with `limiter.current_half_life_s` (0.5 s) across reads: about 0 within a second or two of silence |
+| latched | `clipping`, `peak_level`, `limiting`, `limiting_info`, `limiter.latched_active`, `limiter.latched_max_gain_reduction_db`, per channel `latched_peak` | the max since `/clear_limiting` or the preset load |
+
+Only **live, audible** output counts: the realtime thread runs and no transient override is in progress (`engine_busy` below). Offline / calibration renders write the same kernel buffer but never reach the driver; their peaks are dropped (also when live playback restarts after a render). A cycle written between the read and the reset is lost; a clip lasts many cycles. Before dev-f8f9 every "current" field was derived from the held buffer, so after one clip `clipping_now` stayed `true` and `pre_limit_peak == latched_peak` until a clear (bug report 2026-10-18T10-23-10), and the latch also held offline-render peaks.
+
+**`engine_busy` (dev-f8f9)** — `{active, reason, since, last}`: the engine is overridden on purpose, so a stopped realtime thread or a slow backend is expected. `active` + `reason` = a transient route in progress (offline chart render `get_chart_test`, `/start_test`, `/audio/session`, `/synthesis_measure`; the same window as the WS `engine_busy` start/end events) or a calibration (`reason: "calibration"`, synthesis paused by `enter_calibration_mode`); `since` = its start. `last` = the latest finished transient `{reason, started_at, ended_at}`. Times are wall-clock ms, like `timestamp`. The frontend auto-reporter uses it to tell a render / calibration pause from a fault ([BUG_REPORT_TOOL](../pianoid-tunner/BUG_REPORT_TOOL.md)).
+
+**`backend_thread_running`** is owned by the realtime managing thread (`long_running_procedure`, started only by `_spawn_realtime_thread`). It is `false` while a render or a calibration has the engine stopped. Since dev-f8f9 `exit_calibration_mode` restarts live playback through the same owner (`pianoid._restart_realtime_thread`), so the flag (and the preset's MIDI listener) come back after a calibration; before, they stayed off until the next render or preset load.
 
 `GET /get_runtime_parameters` mirrors the runtime state and, on a dev-538e binary, adds
 `amplitude_limit` (float) and `amplitude_gate_enabled` (bool) alongside `volume_level` / `volume_center` /
@@ -2513,19 +2528,27 @@ Returns empty list if pianoid is not initialized.
 
 Sets the microphone input device by name.
 
-Request body:
+Request body (`""` or omitted = system default):
 ```json
 {
-  "device_name": "Microphone (Realtek)"
+  "device": "Microphone (Realtek)"
 }
 ```
 
 Response `200`:
 ```json
-{"message": "Mic device set"}
+{"status": "ok", "device": "Microphone (Realtek)"}
 ```
 
-Response `400` if pianoid not initialized.
+Response `400` if pianoid not initialized; `500` with `error` if the driver refuses.
+
+The UI selector is `MicDeviceSelector` in the **Calibration Settings** pane. The selection lives in the
+audio driver (lost on a preset load) and there is no read-back route. **ASIO:** the driver lists one
+device (the ASIO driver itself, e.g. `["UMC ASIO Driver"]`), `set_mic_device` is a no-op, and mic
+capture (`startMicCapture`, `play.keyboard capture_mic`, acoustic calibration) records the **first
+input only (In 1)**: `AsioAudioInterface.cpp` reads input buffer 0. Choosing another ASIO input needs
+an engine change (not available; the measurement session `POST /audio/session` chooses inputs but
+pauses synthesis).
 
 ---
 

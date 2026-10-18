@@ -199,3 +199,15 @@ test('environment fingerprint (v2 P1): GPU, build, repos, output map; absent whe
   assert.equal(buildDigest({ health: { status: 'healthy' }, environment: { unreachable: true } }).environment, null);
   assert.equal(buildDigest({ health: { unreachable: true } }).environment, null);
 });
+
+// dev-f8f9 (bug report 2026-10-18T10-23-10): /health clipping_now / peak_level_now are the CURRENT
+// output, clipping / peak_level the latched hold; the digest carries both and the clipping warning
+// says when the held peak is not current.
+test('level: current vs latched clipping', () => {
+  const held = buildDigest({ health: { ...HEALTH, clipping: true, clipping_now: false, peak_level: 3.2, peak_level_now: 0.01 }, runtime: {}, load: null, ui: {} });
+  assert.equal(held.level.peak_level_now, 0.01);
+  assert.equal(held.level.clipping_now, false);
+  assert.ok(held.warnings.some((w) => /CLIPPED since the last load.*Not clipping now \(current peak -40\.0 dBFS\)/.test(w)));
+  const live = buildDigest({ health: { ...HEALTH, clipping: true, clipping_now: true, peak_level: 3.2, peak_level_now: 3.2 }, runtime: {}, load: null, ui: {} });
+  assert.ok(live.warnings.some((w) => /CLIPPED/.test(w) && !/Not clipping now/.test(w)));
+});

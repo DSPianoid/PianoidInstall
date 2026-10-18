@@ -193,7 +193,7 @@ Three parts, each a single-concern module (mirrors the manual tool's shape):
 |---|---|---|
 | `backend_exception` | `/health` `exception:true` (engine/MIDI fault latched) | **yes** |
 | `backend_crashed` | `/health` `status:'crashed'` (at once) OR `backend_thread_running:false` while loaded — the latter only when a fresh `/health` **still** shows it `CRASH_CONFIRM_MS` = 8 s later and is not `status:'loading'` (dev-2cce R4, below) | **yes** |
-| `endpoint_unresponsive` | axios interceptor: **5xx** (except a lifecycle 503), or the **3rd consecutive** network error / timeout of a host that has answered before (dev-2cce R2, below) | **yes** — EXCEPT the optional modal-adapter `:5001/health` poll (excluded; see below) |
+| `endpoint_unresponsive` | axios interceptor: **5xx** (except a lifecycle 503), or the **3rd consecutive** network error / timeout of a host that has answered before (dev-2cce R2, below); for the `:5000` backend only once a `/health` re-probe rules out a render / calibration window (dev-f8f9, below) | **yes** — EXCEPT the optional modal-adapter `:5001/health` poll (excluded; see below) |
 | `endpoint_timeout` | a network error / timeout below that threshold, before the host ever answered, or during this tab's own preset load (`isBusy`) | no — context |
 | `endpoint_busy` | `503 {code:"lifecycle_in_progress"}` — the engine gate refusing a request while a preset lifecycle op runs | no — context |
 | `read_refused` | a 4xx on a **GET** (e.g. `400 "No preset loaded"` before the first load) — only refused WRITES are `param_rejected` | no — context |
@@ -243,6 +243,19 @@ timeouts and duplicate deliveries:
 | Preset re-init (old realtime thread stopped, new one not yet started) | WS `lifecycle` events (`GPU_READY` / `PARAMETERS_LOADED` → `healthy`) with `running:false` → `backend_crashed` 0.3 s after the load | thread-stopped is confirmed by a fresh `GET /health` 8 s later (skipped while `isBusy` or the probe says `loading`) |
 | Backend busy under a write burst | ONE 2 s `/health` timeout → `endpoint_unresponsive` | `UNRESPONSIVE_THRESHOLD` = 3 consecutive network/timeout failures of the host; any success of that host resets the count |
 | A large (12 MB, N2000 preset) report | the 5 s collector POST timed out mid-save → the lifeboat copy was delivered again later (5 duplicate pairs) | `COLLECTOR_TIMEOUT_MS` = 30 s, and every report carries a `reportId` — the collector saves it once ([REST `POST /bug_report`](../pianoid-middleware/REST_API.md#post-bug_report)) |
+
+### Render and calibration pauses are not faults (dev-f8f9, 2026-10-18)
+
+The 2026-10-18 triage (12 auto-reports 11:06-11:48Z, correlated with `backend_stdout.log`) found
+no real crash. Every `backend_crashed` was a calibration or an offline render with the realtime
+thread stopped, or the flag left off after a calibration. Every `endpoint_unresponsive` was `/health`
+starved for ~10 s at the end of a ~47 s `render.chart` (`sound_test`, 88 pitches) with live audio.
+
+| Window | Rule now |
+|---|---|
+| Render / calibration in progress | `/health` `engine_busy.active` ([REST](../pianoid-middleware/REST_API.md#get-health)): the crash-confirm probe files nothing |
+| `:5000` outage (3rd consecutive failure) | re-probe `/health` every `OUTAGE_PROBE_MS` (5 s). Unreachable for `OUTAGE_MAX_MS` (60 s) → `endpoint_unresponsive` (`confirmedAfterMs`). Answers with `engine_busy` active, `status:'loading'`, or `engine_busy.last.ended_at` after the outage began (5 s margin) → `endpoint_busy` (context, with `reason`). Answers with no busy window → `endpoint_unresponsive` (`recoveredAfterMs`: a stall that recovered) |
+| After a calibration | backend fix: `exit_calibration_mode` restarts live playback through the realtime-thread owner, so `backend_thread_running` is `true` again |
 
 Pinned by `hooks/__tests__/useAutoReport.lifecycle.test.jsx`. Live (isolated stack, measured preset, 2026-10-16): a fresh start + one full re-init filed 3 reports before the fix (`reject_burst`, `endpoint_unresponsive` 503, `backend_crashed` `healthy/running:false`); after it, a fresh start + two full re-inits filed none, while a real backend stop still filed `endpoint_unresponsive`.
 
