@@ -14,6 +14,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 export const BILLING_FLIPPING_ENV_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
@@ -70,17 +72,58 @@ export function childEnv(paths, env = process.env) {
   return out;
 }
 
-/** The exact one-time login command for the user (PowerShell / Git Bash). */
-export function loginCommand(paths) {
+/** The exact one-time login command for the user (PowerShell / Git Bash), with the CLI the service resolved. */
+export function loginCommand(paths, cli = null) {
+  const bare = !cli || (cli.length === 1 && cli[0] === 'claude');
+  const ps = bare ? 'claude' : `& ${cli.map((a) => `'${a}'`).join(' ')}`;
+  const sh = bare ? 'claude' : cli.map((a) => `"${a.replace(/\\/g, '/')}"`).join(' ');
   return {
-    powershell: `$env:CLAUDE_CONFIG_DIR="${paths.claudeHome}"; claude auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR`,
-    bash: `CLAUDE_CONFIG_DIR="${paths.claudeHome.replace(/\\/g, '/')}" claude auth login --claudeai`,
+    powershell: `$env:CLAUDE_CONFIG_DIR="${paths.claudeHome}"; ${ps} auth login --claudeai; Remove-Item Env:CLAUDE_CONFIG_DIR`,
+    bash: `CLAUDE_CONFIG_DIR="${paths.claudeHome.replace(/\\/g, '/')}" ${sh} auth login --claudeai`,
   };
 }
 
-/** The Claude Code CLI as [command, ...args]: `claude` on PATH (override PIANOID_ASSISTANT_CLAUDE_CLI, a JSON array). */
-export function claudeCli(env = process.env) {
-  return env.PIANOID_ASSISTANT_CLAUDE_CLI ? JSON.parse(env.PIANOID_ASSISTANT_CLAUDE_CLI) : ['claude'];
+const ASSISTANT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const CLI_MISSING = 'The Claude Code CLI was not found. Fix: in a terminal run '
+  + `\`cd "${ASSISTANT_DIR}"\` then \`npm install\` (it installs the CLI that ships with the Agent SDK), then restart the assistant.`;
+
+const SDK = '@anthropic-ai/claude-agent-sdk';
+const sdkResolve = (id) => createRequire(import.meta.resolve(SDK)).resolve(id);
+const isMusl = () => process.platform === 'linux' && process.report?.getReport?.()?.header?.glibcVersionRuntime === undefined;
+
+/**
+ * The SDK's own native Claude Code binary (the one it runs the sessions with), resolved the way the SDK does:
+ * its per-platform optional dependency `@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude[.exe]`,
+ * looked up from the SDK's location. null when `npm install` has not installed it.
+ */
+export function bundledClaudeCli({ platform = process.platform, arch = process.arch, musl = isMusl(), resolve = sdkResolve,
+  exists = fs.existsSync } = {}) {
+  const linux = [`${SDK}-linux-${arch}`, `${SDK}-linux-${arch}-musl`];
+  const pkgs = platform === 'linux' ? (musl ? linux.reverse() : linux) : [`${SDK}-${platform}-${arch}`];
+  for (const pkg of pkgs) {
+    try {
+      const p = resolve(`${pkg}/claude${platform === 'win32' ? '.exe' : ''}`);
+      if (exists(p)) return p;
+    } catch (e) { /* not installed: try the next */ }
+  }
+  return null;
+}
+
+/** Is a bare `claude` on PATH (claude.cmd / .exe via PATHEXT on Windows)? */
+export function claudeOnPath({ spawn = spawnSync } = {}) {
+  const r = spawn(process.platform === 'win32' ? 'where' : 'which', ['claude'], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  return !r.error && r.status === 0;
+}
+
+/**
+ * The Claude Code CLI as [command, ...args], or null when there is none:
+ * PIANOID_ASSISTANT_CLAUDE_CLI (a JSON array) > the SDK-bundled binary > `claude` on PATH. No global install needed.
+ */
+export function claudeCli(env = process.env, { bundled = bundledClaudeCli, onPath = claudeOnPath } = {}) {
+  if (env.PIANOID_ASSISTANT_CLAUDE_CLI) return JSON.parse(env.PIANOID_ASSISTANT_CLAUDE_CLI);
+  const exe = bundled();
+  if (exe) return [exe];
+  return onPath() ? ['claude'] : null;
 }
 
 /** spawn options for the CLI: a bare name needs the shell on Windows (claude.cmd via PATHEXT). */
@@ -88,8 +131,9 @@ export function cliSpawnOptions(cli) {
   return { shell: process.platform === 'win32' && !path.isAbsolute(cli[0]), windowsHide: true };
 }
 
-/** `claude auth status --json` inside the isolated home (null when the CLI is not on PATH). Never a token. */
+/** `claude auth status --json` inside the isolated home (null when there is no CLI or it fails). Never a token. */
 export function authStatus(paths, { spawn = spawnSync, env = process.env, cli = claudeCli(env) } = {}) {
+  if (!cli) return null;
   const r = spawn(cli[0], [...cli.slice(1), 'auth', 'status', '--json'], {
     env: childEnv(paths, env), cwd: paths.workspace, encoding: 'utf8', timeout: 20000, ...cliSpawnOptions(cli),
   });

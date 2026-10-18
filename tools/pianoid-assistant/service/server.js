@@ -54,7 +54,7 @@ export function createAssistantService({
   });
 
   let login = null;
-  const sendLogin = (ws) => ws.send(JSON.stringify({ type: 'login', login, loginCommand: loginCommand(paths) }));
+  const sendLogin = (ws) => ws.send(JSON.stringify({ type: 'login', login, loginCommand: loginCommand(paths, auth.cli) }));
   const auth = new AuthManager({
     paths, env, ...authOptions,
     onChange: (s) => { login = publicLogin(s); for (const ws of clients) if (ws.readyState === 1) sendLogin(ws); },
@@ -62,7 +62,7 @@ export function createAssistantService({
   const checkLogin = () => {
     try {
       login = driver === 'fake' && !authOptions.cli ? { loggedIn: true, authMethod: 'fake' }
-        : publicLogin(auth.status()) || { loggedIn: false, error: 'The Claude Code CLI (claude) was not found on PATH' };
+        : publicLogin(auth.status()) || { loggedIn: false, error: `The Claude Code CLI (${auth.cli.join(' ')}) failed to report its login status` };
     } catch (e) {
       login = { loggedIn: false, error: e.message };
     }
@@ -70,7 +70,7 @@ export function createAssistantService({
   };
   const statusBody = () => ({
     ok: true, driver, login, paths: { root: paths.root, claudeHome: paths.claudeHome, workspace: paths.workspace },
-    loginCommand: loginCommand(paths), busy: session.busy, model: session.model,
+    loginCommand: loginCommand(paths, auth.cli), busy: session.busy, model: session.model,
     session: session.sessionInfo || null,     // the runtime's own init: its tool list (isolation evidence)
     usage: session.usage,
   });
