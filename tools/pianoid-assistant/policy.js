@@ -57,6 +57,11 @@ export const HARD_CONFIRM = {
   'launcher.backend.start': 'process control (launcher)',
   'launcher.modal.start': 'process control (launcher)',
   'launcher.assistant.start': 'process control (launcher)',
+  'modal.rig_capture': 'plays sweeps on the rig exciters and records the inputs',
+  'modal.rig_sine': 'plays a sine on the rig exciters',
+  'modal.rig_record': 'records the rig inputs (synthesis pauses)',
+  'modal.rig_process': 'runs a measurement-pipeline step (FRF / PolyMAX / coefficients / preset build); writes files',
+  'preset.create': 'writes a new preset file (structure change)',
   'audio.session': 'plays on the rig outputs',
   'audio.test_tone': 'plays on the rig outputs',
 };

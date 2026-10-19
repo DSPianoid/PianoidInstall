@@ -205,6 +205,81 @@
       "route": {"method": "GET", "path": "/preset/files"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "preset.create",
+      "title": "Create a preset with a new structure",
+      "description": "Writes a NEW preset presets/<name>.json from a base preset with the given number of strings, output channels (exciters), array_size and (optionally fewer) modes: removes unison strings (treble_first / bass_first), re-packs the blocks, rebuilds the output pitches 128.. and scales the string geometry to array_size; refuses when a block does not fit. The new channels copy the base's first output row (set real weights with modal.rig_process build_preset). Never overwrites unless overwrite: true. Output scale must be re-derived after loading. Long-running: returns a jobId.",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "hard_confirm",
+      "long_running": true,
+      "job_family": "rig",
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/preset_create"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "name",
+          "num_strings",
+          "num_channels",
+          "array_size"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "New preset name (letters, digits, . _ -)"
+          },
+          "base_preset": {
+            "type": "string",
+            "default": "F15_Elyashev_array512",
+            "description": "Base preset name in presets/"
+          },
+          "num_strings": {
+            "type": "integer",
+            "minimum": 8,
+            "maximum": 256,
+            "description": "Total strings incl. the output strings (a multiple of the strings per block, 4)"
+          },
+          "num_channels": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "array_size": {
+            "type": "integer",
+            "minimum": 384,
+            "maximum": 512
+          },
+          "num_modes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2000,
+            "default": 0,
+            "description": "0 = keep the base's modes; else keep the first N"
+          },
+          "string_removal": {
+            "type": "string",
+            "enum": [
+              "treble_first",
+              "bass_first"
+            ],
+            "default": "treble_first",
+            "description": "Which unisons lose a string first (3-string unisons before 2-string ones)"
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
     }
   ]
 }

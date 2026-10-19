@@ -17,11 +17,13 @@ import path from 'node:path';
 
 export const ARTIFACT_ID = /^a-\d{14}-[0-9a-f]{6}$/;
 export const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-export const KINDS = { '.png': 'png', '.csv': 'csv', '.json': 'json', '.npy': 'npy', '.wav': 'wav', '.txt': 'txt' };
+export const KINDS = { '.png': 'png', '.csv': 'csv', '.json': 'json', '.npy': 'npy', '.npz': 'npz', '.wav': 'wav', '.txt': 'txt' };
 export const CONTENT_TYPES = {
-  png: 'image/png', csv: 'text/csv', json: 'application/json', npy: 'application/octet-stream', wav: 'audio/wav', txt: 'text/plain',
+  png: 'image/png', csv: 'text/csv', json: 'application/json', npy: 'application/octet-stream', npz: 'application/octet-stream',
+  wav: 'audio/wav', txt: 'text/plain',
 };
 const KEEP_ARTIFACTS = 500;
+export const KEEP_BYTES = 4 * 1024 ** 3;     // dev-8a9e: rig-file exports are large; the oldest go beyond 4 GB
 
 export function analysisPaths(env = process.env) {
   const home = env.PIANOID_ASSISTANT_HOME || path.join(env.USERPROFILE || os.homedir(), '.pianoid-assistant');
@@ -44,16 +46,20 @@ export function newId(prefix, now = new Date()) {
 }
 
 /**
- * Create one artefact. files: [{name, data: Buffer | string}] (names must match FILE_NAME and a known
- * kind); meta: anything JSON. Returns the stored meta (with id).
+ * Create one artefact. files: [{name, data: Buffer | string} | {name, from: absolute path to copy}] (names must
+ * match FILE_NAME and a known kind); meta: anything JSON. Returns the stored meta (with id).
  */
 export function createArtifact(dir, { kind, source, meta = {}, files }) {
   if (!files?.length) throw new Error('an artefact needs at least one file');
   const id = newId('a');
   const out = path.join(dir, id);
   fs.mkdirSync(out, { recursive: true });
-  const listed = files.map(({ name, data }) => {
+  const listed = files.map(({ name, data, from }) => {
     if (!FILE_NAME.test(name) || !kindOf(name)) throw new Error(`bad artefact file name: ${name}`);
+    if (from) {
+      fs.copyFileSync(from, path.join(out, name));
+      return { name, kind: kindOf(name), size: fs.statSync(path.join(out, name)).size };
+    }
     fs.writeFileSync(path.join(out, name), data);
     return { name, kind: kindOf(name), size: Buffer.byteLength(data) };
   });
@@ -80,9 +86,16 @@ export function artifactFile(dir, id, name) {
   return path.join(dir, id, name);
 }
 
-function prune(dir, keep = KEEP_ARTIFACTS) {
-  const ids = fs.readdirSync(dir).filter((n) => ARTIFACT_ID.test(n)).sort();
+export function prune(dir, keep = KEEP_ARTIFACTS, keepBytes = KEEP_BYTES) {
+  let ids = fs.readdirSync(dir).filter((n) => ARTIFACT_ID.test(n)).sort();
   for (const id of ids.slice(0, Math.max(0, ids.length - keep))) fs.rmSync(path.join(dir, id), { recursive: true, force: true });
+  ids = ids.slice(Math.max(0, ids.length - keep));
+  const size = (id) => (readArtifact(dir, id)?.files || []).reduce((n, f) => n + (f.size || 0), 0);
+  let total = 0;
+  for (let i = ids.length - 1; i >= 0; i -= 1) {           // newest first; never the newest one
+    total += size(ids[i]);
+    if (total > keepBytes && i < ids.length - 1) fs.rmSync(path.join(dir, ids[i]), { recursive: true, force: true });
+  }
 }
 
 // ---- encoders --------------------------------------------------------------------------------
