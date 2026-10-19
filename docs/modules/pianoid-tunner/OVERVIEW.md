@@ -566,7 +566,7 @@ Feedback semantics (per `project_feedback_coeff_is_damping`): lower feedback = l
 but STABLE (it is a damping coefficient, decays at all values) — the only risk is output CLIPPING at
 low feedback (headroom), NOT instability, so NO stability guard is added. The "Set" fold button
 (`foldFeedbackIntoPreset`) moved to the bottom bar with the slider. **Coefficient field (dev-7888, 2026-10-19):**
-a `NumInput` ("Coefficient", `min 0` / `max 1000` = the backend's `store_feedback_coeff` bound, 3
+a `NumInput` ("Coefficient", `min 0`, no upper bound since dev-e591 (negative / non-finite ignored), 3
 decimals) next to the slider shows the EFFECTIVE coefficient (`stored × multiplier`, `0` at the
 leftmost mute), live with the slider; a typed value calls `usePreset.setFeedbackCoefficient(v)` →
 stored := `v`, slider → 64 (persisted), one `set_runtime_parameters {feedback_coeff, store_feedback_coeff}`

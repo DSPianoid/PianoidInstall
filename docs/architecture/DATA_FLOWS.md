@@ -799,7 +799,7 @@ effective_coeff = stored_coeff[active preset]  ×  env_multiplier(slider positio
   NO disk I/O). Disk write happens only on `/save_preset`.
 - **Coefficient data field (dev-7888, 2026-10-19):** a `NumInput` next to the bottom-bar slider
   SHOWS the effective coefficient applied now (`stored × env_multiplier`, `0` at the leftmost
-  mute) and follows the slider live. TYPING a value `v` (range `0`–`1000`, the backend bound)
+  mute) and follows the slider live. TYPING a value `v` (any finite `v >= 0`, no upper bound since dev-e591)
   sets it directly: `stored_coeff := v`, slider → 64 (×1, persisted to `feedbackSliderPos`), so
   effective = `v` and the slider then moves around it. ONE immediate
   `POST /set_runtime_parameters { feedback_coeff: v, store_feedback_coeff: v }` (a pending slider
