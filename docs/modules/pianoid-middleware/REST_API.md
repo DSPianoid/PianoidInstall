@@ -2548,44 +2548,53 @@ Response `200` (no calibration running):
 
 ### `GET /mic_devices`
 
-Lists available microphone input devices.
+The mic capture input (`startMicCapture`, `play.keyboard capture_mic`, acoustic calibration records
+ONE input). Logic: `mic_input.py` (dev-d191). Assistant read: `calibration.mic_devices`.
 
-Response `200`:
+Response `200`, not ASIO (`asio: false`, choose a device by name):
 ```json
-{
-  "devices": ["Microphone (Realtek)", "Line In (ASIO)"]
-}
+{"devices": ["Microphone (Realtek)", "Line In"], "asio": false}
 ```
 
-Returns empty list if pianoid is not initialized.
+Response `200`, ASIO open (`asio: true`): the one device is the driver; the choice is its physical
+input. `inputs` = the open device's channel table (`asio_device_info`), `input_channel` = the input
+the capture records (default `0` = In 1):
+```json
+{"devices": ["UMC ASIO Driver"], "asio": true, "input_channel": 2,
+ "inputs": [{"index": 0, "name": "In 1", "supported": true}, {"index": 1, "name": "In 2", "supported": true}]}
+```
+
+`{"devices": []}` if pianoid is not initialized; `{"devices": [], "error": ...}` on a driver error.
 
 ---
 
 ### `POST /set_mic_device`
 
-Sets the microphone input device by name.
+Selects the mic capture input. Request body, any of:
 
-Request body (`""` or omitted = system default):
-```json
-{
-  "device": "Microphone (Realtek)"
-}
-```
+| Field | Meaning |
+|---|---|
+| `device` | Not ASIO: input device by name (`""` = system default). Omitting both fields = `device: ""` (system default). |
+| `input_channel` | ASIO: the physical input (0-based index into `inputs` of `GET /mic_devices`). |
 
-Response `200`:
-```json
-{"status": "ok", "device": "Microphone (Realtek)"}
-```
+Response `200`: `{"status": "ok", "device": "Microphone (Realtek)"}` and/or `{"status": "ok", "input_channel": 2}`
+(`input_channel` = the stored value read back from the engine).
 
-Response `400` if pianoid not initialized; `500` with `error` if the driver refuses.
+| Error | When |
+|---|---|
+| `400` | pianoid not initialized; `input_channel` not an integer; the open device has no such input, or its sample type is unsupported (engine `ValueError`, e.g. `ASIO input 42 outside 0..17 of 'UMC ASIO Driver'`) |
+| `409` | `input_channel` with no ASIO device open (SDL3 / no driver) |
+| `501` | the installed `pianoidCuda` predates `setAsioCaptureInput` (rebuild) |
+| `500` | the driver refuses the device |
 
-The UI selector is `MicDeviceSelector` in the **Calibration Settings** pane. The selection lives in the
-audio driver (lost on a preset load) and there is no read-back route. **ASIO:** the driver lists one
-device (the ASIO driver itself, e.g. `["UMC ASIO Driver"]`), `set_mic_device` is a no-op, and mic
-capture (`startMicCapture`, `play.keyboard capture_mic`, acoustic calibration) records the **first
-input only (In 1)**: `AsioAudioInterface.cpp` reads input buffer 0. Choosing another ASIO input needs
-an engine change (not available; the measurement session `POST /audio/session` chooses inputs but
-pauses synthesis).
+**Ownership.** The ASIO input is owned by the engine (`ASIOAudioDriver::setCaptureInputChannel`,
+module functions `pianoidCuda.setAsioCaptureInput` / `getAsioCaptureInput`): one process-wide value,
+kept across preset loads and driver re-opens; a newly opened device that lacks it resets it to 0
+(In 1, logged). The bufferSwitch capture reads it lock-free. The non-ASIO device selection lives in
+the SDL3 driver (lost on a preset load, no read-back). Each change is a `session_changed{mic}` event.
+The UI selector is `MicDeviceSelector` in the **Calibration Settings** pane (on ASIO an input picker).
+The measurement session `POST /audio/session` chooses its own inputs (and pauses synthesis);
+this setting is for the mic capture during synthesis only.
 
 ---
 

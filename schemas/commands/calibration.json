@@ -87,6 +87,19 @@
       "result": {"type": "object"}
     },
     {
+      "name": "calibration.mic_devices",
+      "title": "Microphone inputs",
+      "description": "The mic capture input: devices, and on ASIO (asio true) the physical inputs [{index, name, supported}] with the selected input_channel (0 = In 1). Read only; the user chooses the input in Calibration Settings.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-mic_devices",
+      "route": {"method": "GET", "path": "/mic_devices"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
       "name": "calibration.cancel",
       "title": "Cancel calibration",
       "description": "Stops the running calibration after the current pitch.",
