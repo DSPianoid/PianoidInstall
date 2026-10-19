@@ -45,7 +45,7 @@ unprompted. The documented working levels are in [Rig facts → levels](#rig-lev
 ## Rig facts {#rig}
 
 Source: [report 10-14 §1, §3, §5](../development/report-mode-discovery-2026-10-14.md), the dev-fd69 session log
-(`development/logs/dev-fd69-2026-10-11-165927.md`, 10-14 evening … 10-15), [measured preset §2, §6,
+(`development/logs/archive/dev-fd69-2026-10-11-165927.md`, 10-14 evening … 10-15), [measured preset §2, §6,
 §10b](../development/measured-plywood-preset-2026-10-15.md), [AUDIO_DRIVERS → ASIOAudioDriver and Rig
 facts](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver).
 
@@ -138,8 +138,8 @@ session below 200 Hz is about 45 min (3 × full 7 × 7 + consensus); the minimum
 
 Scripts named below live in `docs/development/diagnostics/` (dev-fd69 / dev-a709 / dev-b8e3) and
 `D:\modal_measurements\rig_checks\*.py`. The modal-adapter packages they import (`polymax`, `swept_discovery`,
-`appropriation`, `measurement`) are on the **unmerged** Core branch `feature/dev-fd69-modal-methods` (worktree
-`D:\repos\wt-fd69-core`); see [Branch status](#branch-status).
+`appropriation`, `measurement`) are in Core `dev` (merged 2026-10-19, Core dev 68615df);
+see [Branch status](#branch-status).
 
 ### Step 0: state and preconditions {#step-0}
 
@@ -206,7 +206,7 @@ Scripts named below live in `docs/development/diagnostics/` (dev-fd69 / dev-a709
 - **Purpose:** poles (f, ζ) and residues from the FRF matrix.
 - **Method ranking on this board** ([report 10-12 §4, §6.1](../development/report-mode-discovery-2026-10-12.md)):
   1. **PolyMAX** (multi-reference pLSCF + LSFD): primary f, ζ and shapes up to about 1.1 kHz; its ζ matches the
-     model-free decays (ratio 1.01). CLI `python -m pianoid_middleware.modal_adapter.polymax` (fd69 branch).
+     model-free decays (ratio 1.01). CLI `python -m pianoid_middleware.modal_adapter.polymax` (Core dev).
   2. **Consensus below 200 Hz:** single PolyMAX fits there are unreliable (the same data gave different lists).
      Run **18 fits per run** (3 band sets × 2 orders × 3 bootstrap) over ≥ 3 runs and keep the poles that recur.
      Script `dev-fd69-consensus-lt200-2026-10-14.py` (190 s per run).
@@ -261,7 +261,7 @@ Scripts named below live in `docs/development/diagnostics/` (dev-fd69 / dev-a709
 - **Hand to the user / agent:** `dev-fd69-appropriation-live-2026-10-15.py` (plan from 3 FRF runs; stepped sine at
   f_m, 2 s settle + 1 s lock-in; vectors: mode, optimum = top singular vector of H_I(f_m), best single, uniform,
   3 random), at **equal coil-current RMS**, max −36 dBFS (E2 −42). CLI `python -m
-  pianoid_middleware.modal_adapter.appropriation` (fd69 branch).
+  pianoid_middleware.modal_adapter.appropriation` (Core dev).
 - **Acceptance (10-15, 24 modes):** the mode vector beats single / uniform / random in every mode; median −0.3 dB
   on the target mode and −0.6 dB on the total response vs the optimum; live − predicted about 0 dB median (max
   2.3 dB at 220 Hz).
@@ -523,13 +523,11 @@ Do not re-open it unless the user asks; if asked, propose the tap test, not anot
 
 ### Branch status {#branch-status}
 
-As of 2026-10-19: the Core branches `feature/dev-fd69-modal-methods` (which contains `feature/dev-4284-asio-collection`
-and `feature/dev-69fd-swept-discovery`) are **not merged into Core `dev`**. They carry the PolyMAX, swept
-discovery, appropriation, rig-check and ASIO-acquisition code that the measurement scripts use. The merge is
-reviewed and staged (dev-db3c): Core `feature/dev-db3c-fd69-integration` (worktree `D:\repos\wt-db3c-core`) and
-Tunner `feature/dev-db3c-fd69-integration` (`D:\repos\wt-db3c-tunner`, the ASIO channel pickers and the
-chirp selector) merge cleanly onto `dev` with tests green. It lands after a HEAVY rebuild, because it retires
-`sdl_audio_core` and changes `build_pianoid_cuda.bat`. Until then the CLIs run from `D:\repos\wt-fd69-core`. The measured
+As of 2026-10-19: the rig-measurement code is **merged into Core `dev`** (68615df, dev-db3c): dev-fd69 (PolyMAX,
+chirp / ESS collection, rig checks, appropriation, mode comparison, stepped-sine dwells), dev-4284 (modal-adapter
+acquisition on the ASIO `POST /audio/session`, `sdl_audio_core` retired) and dev-69fd (swept discovery). Tunner
+`dev` (5b42d38) has the ASIO channel pickers and the impulse | chirp selector. The CLIs run from the main
+checkout `PianoidCore`; the old fd69 / 4284 / 69fd worktrees are gone. The measured
 preset work (dev-a709, dev-b8e3) **is** merged (Core dev a67f132 / 537e7e6, Basic dev 4de6f9a): the preset
 files, the builder `Pianoid.measured_mode_preset` and the 12-channel engine with the output map.
 
@@ -538,7 +536,7 @@ files, the builder `Pianoid.measured_mode_preset` and the 12-channel engine with
 | Step | Missing | Today |
 |---|---|---|
 | 1–4, 6, 8 (rig capture) | a registry command over `POST /audio/session` (play a signal on chosen outputs, record chosen inputs) | agent scripts |
-| 5–7 (PolyMAX, consensus, LSFD, shapes) | an analysis command / job; the code is on the unmerged fd69 branch | agent scripts / CLIs |
+| 5–7 (PolyMAX, consensus, LSFD, shapes) | an analysis command / job; the code is in Core dev (CLIs only) | agent scripts / CLIs |
 | any | importing a recording (`.npz`, session WAVs) as an analysis artefact | `analysis.run_python` takes only render / `param.get` / `preset.summary` artefacts |
 | 9 (builder, carry-over, Layer B) | a build / Layer B command | agent scripts |
 | 11 (level on a sensor) | an exportable mic / piezo capture (`/measure_rms` and `play.keyboard capture_mic` are not exportable artefacts) | the user listens; `system.health` peaks |
@@ -568,7 +566,7 @@ For orientation when talking to the user or handing over to an agent (the assist
 - Dima's adjust_tr_10e vs Pianoid: `development/dima-vs-pianoid-mode-discovery-2026-10-11.md` (in the main
   checkout, not committed as of 2026-10-19): current vs voltage reference, his stepped-sine method and its limits
 - [Measured plywood preset](../development/measured-plywood-preset-2026-10-15.md), incl. §14 (decisions 2026-10-17)
-- dev-fd69 session log `development/logs/dev-fd69-2026-10-11-165927.md` (10-13 … 10-15: currents, weights, 32.5 Hz retraction, appropriation, Q)
+- dev-fd69 session log `development/logs/archive/dev-fd69-2026-10-11-165927.md` (10-13 … 10-15: currents, weights, 32.5 Hz retraction, appropriation, Q)
 - [WORK_IN_PROGRESS → follow-ups of dev-fd69, dev-4284, dev-69fd](../development/WORK_IN_PROGRESS.md)
 - [AUDIO_DRIVERS → ASIOAudioDriver](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver) (output map, mic capture input), [ASIO Measurement Session](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asio-measurement-session-dev-1b6c)
 - [Modal Adapter Pipeline Guide](MODAL_ADAPTER_GUIDE.md) and [REST_API → modal routes](../modules/pianoid-middleware/REST_API.md#post-modalrun_pipeline) (the ESPRIT pipeline behind `modal.run_stage`)

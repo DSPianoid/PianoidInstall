@@ -1,6 +1,6 @@
 # Soundboard mode discovery: consolidated report (2026-10-14)
 
-Supersedes report-mode-discovery-2026-10-12.md. That report stays unchanged because it was sent to Dima; see it for theory and method details. This version covers the sessions of 10-12, 10-13 and 10-14. Data: D:\modal_measurements\rig_checks\. Session log: logs/dev-fd69-2026-10-11-165927.md. Plan: proposals/modal-current-referenced-program-2026-10-14.md.
+Supersedes report-mode-discovery-2026-10-12.md. That report stays unchanged because it was sent to Dima; see it for theory and method details. This version covers the sessions of 10-12, 10-13 and 10-14. Data: D:\modal_measurements\rig_checks\. Session log: logs/archive/dev-fd69-2026-10-11-165927.md. Plan: proposals/modal-current-referenced-program-2026-10-14.md.
 
 Two terms:
 - **MAC** measures how alike two mode shapes are: 1 = identical, about 0.1-0.3 = no better than chance with 7 sensors.

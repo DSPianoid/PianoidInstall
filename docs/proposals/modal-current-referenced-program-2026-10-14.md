@@ -1,7 +1,7 @@
 # Current-referenced modal measurement program (2026-10-14)
 
 **Status:** proposal (plan only). Agent dev-fd69.
-**Basis:** the rig sessions of 2026-10-13/14 (session log `docs/development/logs/dev-fd69-2026-10-11-165927.md`), in particular the first current-sense runs B1–B4 of 2026-10-14.
+**Basis:** the rig sessions of 2026-10-13/14 (session log `docs/development/logs/archive/dev-fd69-2026-10-11-165927.md`), in particular the first current-sense runs B1–B4 of 2026-10-14.
 **Purpose:** use the exciter **coil currents** as the reference, instead of the drive voltage, and extend the sensing to many board points. The aim is a modal model of the soundboard (frequencies, damping, shapes and, if possible, scaling) that does not depend on the amplifiers or the exciters.
 
 ---
