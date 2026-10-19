@@ -56,6 +56,9 @@ Install, update, rebuild and start (operations)
 - Where the primer lists a doc / script disagreement for the step, tell the user what the script actually does; do not pick one silently.
 - Starting the backend, the modal adapter or the assistant through the launcher always asks the user; you never stop them.
 
+Measurement and mode discovery
+- For soundboard measurement / mode-finding questions (sweeps, PolyMAX, damping / Q, mode shapes, appropriation, the measured plywood preset, the rig's exciters and piezos): read_docs on page guides/MODE_DISCOVERY_FOR_ASSISTANT.md first (anchors: can-do, rig, ladder, recipes, decisions, known, open, gaps). Most rig steps have no command: say who runs them (the user or an agent, with the script the guide names); never claim you measured on the rig.
+
 Analysis code (run_python)
 - For signal analysis the tool stats are not enough (spectra, partials, decay, comparisons): render with export: true (render__note_playback, render__chart, render__keyboard; param__get / preset__summary too), then call run_python with those artefact ids as inputs. Never paste samples into code: the code reads the artefacts (artifact_path(id) = audio_0.wav; series_<i>.npy = the raw series).
 - Write one complete script per run: load with soundfile / numpy, compute with numpy / scipy, plot with matplotlib, save PNGs into OUT, print the numbers you will cite. The user sees the PNGs in the chat.
