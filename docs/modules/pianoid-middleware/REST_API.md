@@ -1467,13 +1467,13 @@ Request body:
 - `1`–`127` — MIDI-style exponential mapping: 64 → 1.0, 127 → 8.0, 1 → ~0.125
 - Outside `1`–`127` (e.g. `2.5`) — used as direct coefficient
 
-Valid coefficient after mapping: any finite value `>= 0` (no upper bound since dev-e591; negative / NaN / inf → error). **Engine bound:** `Pianoid::setRuntimeParameters` (`Pianoid_parameters.cu`) still REJECTS a coefficient `> 1000` (the write fails, the engine keeps its last accepted value) until the scheduled C++ change lands.
+Valid coefficient after mapping: any finite value `>= 0` (no upper bound since dev-e591; negative / NaN / inf → error). The engine (`Pianoid::setRuntimeParameters`) applies the same rule (finite, `>= 0`); before dev-e591 it rejected `> 1000`, so the slider stopped having an effect at 1000.
 
 `feedback_coeff` (optional, float, dev-fbsl 2026-06-05): a DIRECT effective deck feedback
 coefficient that BYPASSES the `feedback` level mapping above. Used by the two-layer
 feedback slider, which composes `effective = stored_coeff(preset) × env_multiplier(slider)`
 frontend-side and sends the product here. Calls `set_deck_feedback_coefficient(value)`
-directly. Any finite value `>= 0`, no upper bound (negative / non-finite → error; the engine bound above still applies). Scales PIANO-pitch resonance feedback only (the dev-d52b
+directly. Any finite value `>= 0`, no upper bound (negative / non-finite → error). Scales PIANO-pitch resonance feedback only (the dev-d52b
 `dev_feedback_output_mask` keeps sound-channel/output rows ≥128 at ×1).
 
 `store_feedback_coeff` (optional, float, dev-fbsl 2026-06-05): the "Set" / fold button writes

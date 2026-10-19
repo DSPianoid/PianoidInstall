@@ -897,7 +897,7 @@ is synchronised with `thread_group::sync()` before and after.
 `STATIC_INPUT` category (not part of the TUNABLE double-buffered preset region). Updated
 via direct `cudaMemcpy` + `cudaDeviceSynchronize()`. Controlled at runtime by MIDI CC 74
 with exponential mapping: `8.0^((CC - 64) / 63)` — CC 0 → 0.125, CC 64 → 1.0,
-CC 127 → 8.0. Validation range (`Pianoid::setRuntimeParameters`): 0.0–1000.0 — a value above 1000 is REJECTED (the whole `RuntimeParameters` write fails, the device keeps the last accepted value), and NaN passes the check. The Python/REST/FE layers have no upper bound since dev-e591; removing this engine bound (finite, `>= 0`) is a pending compiled change. The kernel itself applies the coefficient unclamped.
+CC 127 → 8.0. Validation (`Pianoid::setRuntimeParameters`): finite and `>= 0`, NO upper bound (dev-e591; was 0.0–1000.0, where a value above 1000 rejected the whole `RuntimeParameters` write and NaN passed). A rejected value fails the whole write (the device keeps the last accepted values). The kernel applies the coefficient unclamped.
 
 ### FEEDBACK_OFF Debug Switch
 
