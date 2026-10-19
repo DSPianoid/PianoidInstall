@@ -185,6 +185,8 @@ The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with 
 junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
 initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
 
+**Keep the machine light while the user's live stack runs (dev-2a50 incident, 2026-10-19).** A full-parallel Jest run (one worker per core, ~6 min) plus a fresh worktree CRA compile, started while the user played on :3000/:5000, starved the realtime backend: their tab auto-reported `/health` timeouts and a 5.4 s `/midi/ports` stall, and they closed the stack. No request or kill reached it — the load alone did. Rule: while the user's live stack runs, Jest only with `--maxWorkers=2` or targeted suites; no fresh CRA compile; heavy builds and full test runs wait until it is down.
+
 **Never reload an initScript page (dev-fe18 incident, 2026-10-18).** A `location.reload()` from inside the page
 (e.g. after seeding `localStorage`) dropped the rewrite, and for ~4 min the agent tab drove the USER's live :5000
 (11 hammer writes, a played note, two 2 MB reports that stalled `/health`). Re-enter only through `navigate_page`
