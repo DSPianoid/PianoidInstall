@@ -200,8 +200,8 @@ export function hints({ repos, engine, basic, tunner, assistant, leftovers }) {
     if (!r.present) { out.push(hint('repo_missing', `${r.name} is not cloned at ${r.path}`, 'new-machine', { repo: r.name })); continue; }
     if (r.error) continue;
     if (r.behind > 0) out.push(hint('update_available', `${r.name} is ${r.behind} commit(s) behind origin/${r.integration} (as of the last fetch ${r.last_fetch ?? 'unknown'})`, 'update', { repo: r.name }));
-    if (r.branch !== r.integration) out.push(hint('not_on_integration_branch', `${r.name} is on ${r.branch}, not ${r.integration}: update-repos.bat pulls the current branch`, 'conflicts', { repo: r.name }));
-    if (r.dirty) out.push(hint('local_changes', `${r.name} has ${r.changed.length}${r.changed.length === 10 ? '+' : ''} changed tracked file(s): a pull may refuse`, 'update', { repo: r.name }));
+    if (r.branch !== r.integration) out.push(hint('not_on_integration_branch', `${r.name} is on ${r.branch}, not ${r.integration}: update-repos.bat skips it (it updates only ${r.integration})`, 'update', { repo: r.name }));
+    if (r.dirty) out.push(hint('local_changes', `${r.name} has ${r.changed.length}${r.changed.length === 10 ? '+' : ''} changed tracked file(s): ${r.name === 'PianoidInstall' ? 'update-repos.bat skips it' : 'a pull may refuse'}`, 'update', { repo: r.name }));
   }
   if (!engine.release.built) out.push(hint('engine_missing', 'pianoidCuda is not installed in the venv', 'rebuild'));
   else if (engine.release.rebuild_needed) out.push(hint('cuda_rebuild_needed', `compiled sources changed since the engine was built (${engine.release.built})${files(engine.release)}`, 'rebuild'));

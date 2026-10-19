@@ -151,11 +151,28 @@ set "UPDATE_RC=0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%check-updates.ps1"
 set "UPDATE_RC=%errorlevel%"
 
+rem update-repos.bat pulls PianoidInstall too, which may rewrite THIS file.
+rem cmd.exe reads a running .bat by byte offset, so after such an update the
+rem rest of this (old) file must not run: the block below is parsed as a
+rem whole, compares this file with a copy taken before the update and, if it
+rem changed, runs the NEW start-pianoid.bat and exits.
 if "%UPDATE_RC%"=="10" (
     echo Updates accepted - running update-repos.bat ...
     echo.
     if exist "%ROOT_DIR%update-repos.bat" (
+        set "SELF_BEFORE=%TEMP%\pianoid-start-before-update-%RANDOM%.bat"
+        copy /y "%~f0" "!SELF_BEFORE!" >nul 2>&1
         call "%ROOT_DIR%update-repos.bat"
+        fc /b "%~f0" "!SELF_BEFORE!" >nul 2>&1
+        if errorlevel 1 (
+            del "!SELF_BEFORE!" >nul 2>&1
+            echo.
+            echo start-pianoid.bat was updated - restarting it...
+            echo.
+            if "%NOPROMPT%"=="1" (call "%~f0" /auto-noupdate) else (call "%~f0" %*)
+            exit /b
+        )
+        del "!SELF_BEFORE!" >nul 2>&1
     ) else (
         echo WARNING: update-repos.bat not found - skipping update, proceeding to launch.
     )

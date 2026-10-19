@@ -73,7 +73,7 @@ The script runs these steps in this order before anything starts:
 |---|---|---|---|
 | 1 | Prerequisite check (folders, `PianoidCore\.venv`, `PianoidTunner\node_modules`) | on failure "STARTUP FAILED … run setup-pianoid.bat"; the window waits for a key (also under `/auto`) | — |
 | 2 | `check-running-servers.ps1`: is a stack already listening on 3000 / 3001 / 5000 / 5001? | pop-up **Kill & restart / Cancel** (kills only the owners of those ports) | `/auto`: timed, 30 s, timeout = Cancel = no launch. Bare run: waits for a click |
-| 3 | `check-updates.ps1`: `git fetch` each repo, count commits on its integration branch missing from `HEAD` | if any repo is behind: Yes / No pop-up; **Yes runs `update-repos.bat` in the same window** (see [Update](#update)) | fetch timeout 8 s per repo; skipped with `/auto-noupdate` |
+| 3 | `check-updates.ps1`: `git fetch` each repo, count commits on its integration branch missing from `HEAD` | if any repo is behind: Yes / No pop-up; **Yes runs `update-repos.bat` in the same window** (see [Update](#update)); if that pull changed `start-pianoid.bat`, the window says "start-pianoid.bat was updated - restarting it" and the new version continues | fetch timeout 8 s per repo; skipped with `/auto-noupdate` |
 | 4 | `check-cuda.ps1`: CUDA device + SM count | warning pop-up for no device / broken CUDA (`/auto`: timed 30 s, then continue); the < 60 SM warning only on bare runs | Cancel aborts the launch |
 | 5 | `check-gpu-clock.ps1`: GPU clocks locked? | if not: an explanation, then **one UAC prompt** (once per boot); declining launches anyway | the apply waits at most 20 s, then launches anyway; skip with `PIANOID_SKIP_GPU_CLOCK_CHECK=1` |
 | 6 | `start "Pianoid" … npm run dev` in PianoidTunner | a new window **Pianoid**: launcher (:3001) + React UI (:3000); the browser opens http://localhost:3000 | the CRA compile takes a while on first start |
@@ -100,24 +100,28 @@ startup check fetches at every launch). The launch pop-up (step 3 above) fetches
 PowerShell in PianoidInstall, `powershell -ExecutionPolicy Bypass -File check-updates.ps1 -WhatIf`.
 
 **Before updating:** each repo on its integration branch and without local changes (`ops_status` `branch`, `dirty`).
-`update-repos.bat` pulls the CURRENT branch with `--ff-only` and stops on a diverged branch, a missing upstream or a
-conflict. A PianoidBasic checkout left dirty by its own build (line endings only, see
+`update-repos.bat` pulls each repo's integration branch (`origin/master` for PianoidInstall, `origin/dev` for the
+others) with `--ff-only`. It **skips** (warns, never switches) a repo checked out on another branch, and skips
+PianoidInstall while it has changes to tracked files; it stops on a diverged branch or a conflict. A PianoidBasic checkout left dirty by its own build (line endings only, see
 [Gotchas](#gotchas)) is restored with `git -C <PianoidInstall>\PianoidBasic checkout -- Pianoid/`; only do that when
 `git -C <PianoidInstall>\PianoidBasic diff --ignore-all-space --stat` is empty (no real edits).
 
 **Steps** (source: `update-repos.bat`,
 [BUILD_SYSTEM → update-repos](../architecture/BUILD_SYSTEM.md#update-reposbatsh-automated-pull-post-pull-rebuild)):
 
-1. PianoidInstall itself (docs, scripts, assistant): cmd, `git -C <PianoidInstall> pull --ff-only`.
-   `update-repos.bat` does **not** pull PianoidInstall. If `tools\pianoid-assistant\package.json` or
-   `package-lock.json` changed: `npm install` in `tools\pianoid-assistant`, then restart the assistant (Start
-   assistant button).
-2. The three sub-repos + the rebuild: cmd in PianoidInstall, `update-repos.bat` (default CUDA variant `--both`;
-   `--release` / `--debug` for one variant). It pulls Core, Basic, Tunner, then rebuilds only what changed:
-   Core `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py` -> CUDA heavy build; any Basic change -> Basic build + CUDA heavy
-   build; Tunner `package.json` / `package-lock.json` -> `npm ci`. Before a CUDA build it stops the backend itself
-   (`POST :3001/api/stop-backend`, else the PID listening on :5000). Run it in a foreground window; a CUDA build
-   takes 5-15 min.
+1. Everything in one go: cmd in PianoidInstall, `update-repos.bat` (or Yes in the launch pop-up; default CUDA
+   variant `--both`, `--release` / `--debug` for one variant; `--dry-run` fetches and prints what it would pull and
+   rebuild, changing nothing). It pulls **PianoidInstall first** (docs, scripts, assistant, the command registry
+   Core needs), then Core, Basic, Tunner, and rebuilds only what changed: Core
+   `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py/build_config.json` -> CUDA heavy build; any Basic change -> Basic build;
+   Tunner `package.json` / `package-lock.json` (or no `node_modules`) -> `npm install`; the same for
+   `tools\pianoid-assistant` (then restart the assistant with the Start assistant button if it was running).
+   Before a CUDA build it stops the backend itself (`POST :3001/api/stop-backend`, else the PID listening on :5000).
+   When the pull changed `update-repos.bat` or `start-pianoid.bat`, the new version takes over by itself (the window
+   says so). Run it in a foreground window; a CUDA build takes 5-15 min.
+2. **Once per machine** whose `update-repos.bat` predates this (dev-a22b, 2026-10-19; the old script never pulls
+   PianoidInstall, so the pop-up alone cannot fix it): cmd, `git -C <PianoidInstall> pull --ff-only origin master`,
+   then step 1.
 3. Check: the script prints the import check and asks for the `/load_preset` smoke test: start Pianoid, click
    **APPLY**, the status turns green and the backend log has no traceback. The assistant can confirm it afterwards
    with `system.health` / `system.environment` (the engine `build_time` is the new build).
@@ -135,8 +139,8 @@ rebuilds everything (slow) instead of what changed.
 |---|---|
 | `pianoid_cuda/*.cu`, `*.cpp`, `*.cuh`, `*.h`, `setup.py`, `detect_paths.py`, `build_config.json` | CUDA **heavy** `--both` |
 | any `PianoidBasic/**` | `build_pianoid_basic.bat` (+ CUDA heavy if a `.cu/.cpp` also changed) |
-| `pianoid_middleware/*.py` only | CUDA **light** `--both` (docs); `update-repos.bat` does no build here, see [conflicts](#conflicts) |
-| PianoidTunner `package.json` / `package-lock.json` | `npm install` (docs) / `npm ci` (scripts) |
+| `pianoid_middleware/*.py` only | CUDA **light** `--both` (docs); `update-repos.bat` does no build here, see [conflicts](#conflicts) C2 |
+| PianoidTunner `package.json` / `package-lock.json` | `npm install` (`setup-pianoid.bat` uses `npm ci`) |
 | tests or docs only | none |
 
 After a pull or merge that brought any of the above, the rebuild + the `/load_preset` 200 check are **blocking**
@@ -244,16 +248,16 @@ Source: `tools/pianoid-assistant/README.md` (Setup, First-time setup, Analysis s
 
 ## Doc / script disagreements {#conflicts}
 
-Found 2026-10-18 (dev-6b34) against PianoidInstall master `e3e1f0e` / PianoidCore dev `269efbd`. Not resolved here:
-tell the user which behaviour they will actually get (the script's) and that the doc differs.
+Found 2026-10-18 (dev-6b34) against PianoidInstall master `e3e1f0e` / PianoidCore dev `269efbd`. Unless marked
+RESOLVED: tell the user which behaviour they will actually get (the script's) and that the doc differs.
 
 | # | Topic | Doc says | Script does |
 |---|---|---|---|
-| C1 | updating PianoidInstall | the launch check (`check-updates.ps1`) counts PianoidInstall against `origin/master` and offers `update-repos.bat` | `update-repos.bat` pulls only Core, Basic, Tunner: accepting the pop-up never updates PianoidInstall (pull it by hand, [Update](#update) step 1) |
-| C2 | middleware-only pull | matrix: LIGHT CUDA `--both` | `update-repos.bat` classifies `pianoid_middleware/*.py` as no rebuild |
-| C3 | PianoidBasic change | matrix / gate table: Basic build, + CUDA only if `.cu/.cpp` changed | `update-repos.bat`: Basic build **and** a CUDA heavy build on any Basic change (the BUILD_SYSTEM update-repos paragraph agrees with the script) |
-| C4 | Tunner dependency change | matrix and STARTUP_TROUBLESHOOTING: `npm install` | `setup-pianoid.bat` and `update-repos.bat`: `npm ci` |
-| C5 | which branch is pulled | `check-updates.ps1` compares `HEAD` with the integration branch | `update-repos.bat` pulls the current branch (`--ff-only`; only warns when not on `dev`): on a feature branch the pop-up keeps reporting "behind" after an update |
+| C1 | updating PianoidInstall | the launch check (`check-updates.ps1`) counts PianoidInstall against `origin/master` and offers `update-repos.bat` | RESOLVED 2026-10-19 (dev-a22b): `update-repos.bat` / `.sh` pull PianoidInstall first and hand over to their own new version. A machine still on the old script needs one manual pull ([Update](#update) step 2) |
+| C2 | middleware-only pull | matrix: LIGHT CUDA `--both` | `update-repos.bat` classifies `pianoid_middleware/*.py` as no rebuild. Measured 2026-10-19 (dev-a22b): the middleware runs from the source tree (not in `.venv` site-packages) and `build_pianoid_cuda.bat` builds only `pianoid_cuda/` + `sdl_audio_core/`, so the script is right and the matrix row is over-cautious (light build = no effect on the middleware) |
+| C3 | PianoidBasic change | matrix / gate table: Basic build, + CUDA only if `.cu/.cpp` changed | RESOLVED 2026-10-19 (dev-a22b): `update-repos.bat` / `.sh` follow the matrix (Basic build only; the CUDA build does not read PianoidBasic) |
+| C4 | Tunner dependency change | matrix and STARTUP_TROUBLESHOOTING: `npm install` | `setup-pianoid.bat`: `npm ci`. `update-repos.bat` / `.sh`: `npm install` since 2026-10-19 (dev-a22b) |
+| C5 | which branch is pulled | `check-updates.ps1` compares `HEAD` with the integration branch | RESOLVED 2026-10-19 (dev-a22b): `update-repos.bat` / `.sh` pull `origin/<integration>` and skip, with a warning, a repo on another branch |
 | C6 | default build variant | canonical block: "default variant = `--both`" | `build_pianoid_cuda.bat` defaults to `--heavy` + **release** only (its usage text says so); BUILD_SYSTEM "Building variants" agrees with the script |
 | ~~C7~~ | `sdl_audio_core` | RESOLVED 2026-10-19 (dev-db3c): dev-4284 is merged (Core dev 68615df); `sdl_audio_core/` is gone and the HEAVY build only uninstalls a stale copy (`[CLEANUP]`) | matches |
 | C8 | root `build_pianoid_cuda.bat` / `build_pianoid_basic.bat` | BUILD_SYSTEM: "thin launcher wrappers" | full old copies that expect `pianoid_cuda\` and `.venv` in the repo root; `copy_installation_to_core.bat` copies them over the canonical PianoidCore scripts (and a missing `build_pianoid_complete.bat`) |
