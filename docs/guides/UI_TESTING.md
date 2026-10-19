@@ -166,6 +166,9 @@ To verify a frontend branch while the user's stack (`:3000` main checkout, `:300
   `position:fixed; pointer-events:none` probe `<div role=button aria-label=probeX>` at the target point and click/drag
   its uid — the CDP mouse events land at the probe centre and hit the element underneath (rulers, canvases, chart bars).
 - Removing the worktree: `cmd /c rmdir` every junction (or the whole junction dir) BEFORE `git worktree remove`.
+- **Jest in a Tunner worktree** (`D:\repos\wt-*`, outside PianoidInstall): set `PIANOID_COMMANDS_DIR` to
+  `PianoidInstall\schemas\commands` (or the branch's own registry), else every suite that imports `usePreset` fails to
+  run with `command registry not found D:\repos\schemas\commands` (the registry resolves from `PianoidTunner/..`).
 
 ### Fully isolated agent stack (dev-2d06) — when the user's own tabs are open
 

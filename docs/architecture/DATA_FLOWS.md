@@ -797,6 +797,17 @@ effective_coeff = stored_coeff[active preset]  ×  env_multiplier(slider positio
   (effective unchanged → no audible jump) and resets the slider to 64; persists the new baseline
   IN MEMORY via `POST /set_runtime_parameters { store_feedback_coeff }` (writes `pianoid.mp`,
   NO disk I/O). Disk write happens only on `/save_preset`.
+- **Coefficient data field (dev-7888, 2026-10-19):** a `NumInput` next to the bottom-bar slider
+  SHOWS the effective coefficient applied now (`stored × env_multiplier`, `0` at the leftmost
+  mute) and follows the slider live. TYPING a value `v` (range `0`–`1000`, the backend bound)
+  sets it directly: `stored_coeff := v`, slider → 64 (×1, persisted to `feedbackSliderPos`), so
+  effective = `v` and the slider then moves around it. ONE immediate
+  `POST /set_runtime_parameters { feedback_coeff: v, store_feedback_coeff: v }` (a pending slider
+  write is cancelled first) — the stored part is the same per-preset, in-memory, undoable
+  `deck_feedback_coefficient` step as "Set" (undo restores the baseline; the slider re-positions
+  to keep the engine's effective value). No-op on a read-only original
+  (`usePreset.setFeedbackCoefficient`). Why: a slider stuck off-center in localStorage (e.g. 108 =
+  ×4.27) silently multiplied every loaded preset while the effective value was invisible.
 - **OWNERSHIP INVERSION (was global, now per-preset):** `switch_preset` NO LONGER snapshots/
   restores `deck_feedback_coefficient` globally — it applies the target preset's
   `mp.deck_feedback_coefficient` instead. Volume + volume-sensitivity remain global.
