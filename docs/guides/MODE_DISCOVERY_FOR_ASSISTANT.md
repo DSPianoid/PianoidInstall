@@ -525,7 +525,11 @@ Do not re-open it unless the user asks; if asked, propose the tap test, not anot
 
 As of 2026-10-19: the Core branches `feature/dev-fd69-modal-methods` (which contains `feature/dev-4284-asio-collection`
 and `feature/dev-69fd-swept-discovery`) are **not merged into Core `dev`**. They carry the PolyMAX, swept
-discovery, appropriation, rig-check and ASIO-acquisition code that the measurement scripts use. The measured
+discovery, appropriation, rig-check and ASIO-acquisition code that the measurement scripts use. The merge is
+reviewed and staged (dev-db3c): Core `feature/dev-db3c-fd69-integration` (worktree `D:\repos\wt-db3c-core`) and
+Tunner `feature/dev-db3c-fd69-integration` (`D:\repos\wt-db3c-tunner`, the ASIO channel pickers and the
+chirp selector) merge cleanly onto `dev` with tests green. It lands after a HEAVY rebuild, because it retires
+`sdl_audio_core` and changes `build_pianoid_cuda.bat`. Until then the CLIs run from `D:\repos\wt-fd69-core`. The measured
 preset work (dev-a709, dev-b8e3) **is** merged (Core dev a67f132 / 537e7e6, Basic dev 4de6f9a): the preset
 files, the builder `Pianoid.measured_mode_preset` and the 12-channel engine with the output map.
 
