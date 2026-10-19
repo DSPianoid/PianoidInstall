@@ -6,12 +6,19 @@
  *   render.*      audio_data (base64 WAV, as the backend wrote it) -> audio_<i>.wav;
  *                 data (numeric series, RAW engine units before output_scale and volume) -> series_<i>.npy
  *   param.get / preset.summary   the result -> result.json
+ *   modal.rig_files (dev-8a9e)   the rig run files the backend resolved (GET /rig/files: absolute paths inside the
+ *                 measurement dir) are COPIED into one artefact, names flattened (sessions/E1_m42_r1/data.npy ->
+ *                 sessions__E1_m42_r1__data.npy); at most RIG_EXPORT_MAX_BYTES. The model still passes no path.
  *
  * R6 is untouched: render tools are refused while live audio runs, so there is no render to export then.
  */
-import { createArtifact, npyFloat64, wavInfo } from './store.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createArtifact, FILE_NAME, kindOf, npyFloat64, wavInfo } from './store.js';
 
-export const EXPORTABLE = new Set(['render.note_playback', 'render.chart', 'render.keyboard', 'param.get', 'preset.summary']);
+export const EXPORTABLE = new Set(['render.note_playback', 'render.chart', 'render.keyboard', 'param.get', 'preset.summary',
+  'modal.rig_files']);
+export const RIG_EXPORT_MAX_BYTES = 400 * 1024 * 1024;
 export const SERIES_UNITS = 'raw engine units (before output_scale and volume)';
 
 export const EXPORT_ARG = {
@@ -35,10 +42,34 @@ export function splitExport(cmd, args = {}) {
 
 const isSeries = (s) => Array.isArray(s) && s.length > 0 && s.every((v) => typeof v === 'number');
 
-/** The files + meta of one command result (pure). Null when there is nothing to export. */
+/** A run-relative name as one artefact file name (sessions/E1_m42_r1/data.npy -> sessions__E1_m42_r1__data.npy). */
+export const flatName = (name) => String(name).replace(/[\\/]+/g, '__');
+
+/** modal.rig_files: copy the files the backend resolved into one artefact (throws on a bad / oversize listing). */
+function rigFilesArtifact(base, result) {
+  const listed = Array.isArray(result.files) ? result.files : [];
+  if (!listed.length) return null;
+  let total = 0;
+  const files = listed.map((f) => {
+    const name = flatName(f.name);
+    if (!FILE_NAME.test(name) || !kindOf(name)) throw new Error(`cannot export ${f.name}: not a .npy / .npz / .json / .wav / .csv / .txt / .png file`);
+    if (!path.isAbsolute(String(f.path)) || !fs.statSync(f.path).isFile()) throw new Error(`cannot export ${f.name}: no file`);
+    total += fs.statSync(f.path).size;
+    return { name, from: f.path };
+  });
+  if (total > RIG_EXPORT_MAX_BYTES) throw new Error(`the files are ${Math.round(total / 1e6)} MB; at most ${RIG_EXPORT_MAX_BYTES / 1048576} MB per export`);
+  return {
+    kind: 'rig', source: 'modal.rig_files',
+    meta: { ...base, run: result.run, area: result.area, original_names: Object.fromEntries(files.map((f, i) => [f.name, listed[i].name])) },
+    files,
+  };
+}
+
+/** The files + meta of one command result (pure, except modal.rig_files which copies files). Null when there is nothing to export. */
 export function artifactFromResult(cmd, args, result, context = {}) {
   if (!result || typeof result !== 'object' || result.jobId) return null;
   const base = { command: cmd.name, args, ...context };
+  if (cmd.name === 'modal.rig_files') return rigFilesArtifact(base, result);
   if (cmd.family !== 'render') {
     return { kind: 'json', source: cmd.name, meta: base, files: [{ name: 'result.json', data: JSON.stringify(result) }] };
   }

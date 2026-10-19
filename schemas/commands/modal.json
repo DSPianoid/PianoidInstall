@@ -1,6 +1,6 @@
 {
   "family": "modal",
-  "description": "The modal adapter (separate :5001 process): extraction stages over a measurement folder, and applying the result to the running preset (:5000).",
+  "description": "The modal adapter (separate :5001 process): extraction stages over a measurement folder, and applying the result to the running preset (:5000). Rig measurement pipeline (dev-8a9e): ASIO capture / sine / record over /audio/session on :5000, the fixed pipeline steps and the run files.",
   "commands": [
     {
       "name": "modal.run_stage",
@@ -61,6 +61,1139 @@
       "route": {"method": "POST", "path": "/modal/apply_to_preset"},
       "args": {"type": "object", "additionalProperties": true, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "modal.rig_capture",
+      "title": "Capture the FRF sessions on the rig (ASIO sweeps)",
+      "description": "Plays a sweep (ESS or linear) on each exciter in turn, records the chosen inputs, repeats, and saves every session under <measurements>/rig_runs/<run_id>/ (config.json + sessions/<exciter>_m<level>_r<k>/{data,signal}.npy + meta.json). Level guard: a first repeat peaking above guard_dbfs is redone step_db lower; any input above stop_dbfs aborts. DRIVES THE EXCITERS: say what plays, where, how loud and how long before the call. Long-running: returns a jobId (job.get: progress, then the run id).",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "hard_confirm",
+      "long_running": true,
+      "job_family": "rig",
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/capture"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "exciters",
+          "inputs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "default": "capture",
+            "description": "Run label (letters, digits, . _ -; at most 60 chars). The run id is <yyyymmddThhmmss>-<label>"
+          },
+          "exciters": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "required": [
+                "output"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "output": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Exciter label, e.g. 'E1' (default: E<k>)"
+                },
+                "level_dbfs": {
+                  "type": "number",
+                  "minimum": -90,
+                  "maximum": -24,
+                  "default": -42,
+                  "description": "Peak level in dBFS (safe maximum -24 dBFS, enforced)"
+                }
+              }
+            },
+            "description": "Exciters in drive order (channel map: exciter label -> ASIO output, level per exciter)"
+          },
+          "inputs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "required": [
+                "input"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "input": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Sensor label, e.g. 'P1' (default: the channel name)"
+                }
+              }
+            },
+            "description": "Input channels to record (channel map: sensor label -> ASIO input)"
+          },
+          "sweep": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ess",
+                  "linear"
+                ],
+                "default": "ess",
+                "description": "Exponential (ESS) or linear sine sweep"
+              },
+              "f_start_hz": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 20000,
+                "default": 20
+              },
+              "f_stop_hz": {
+                "type": "number",
+                "minimum": 2,
+                "maximum": 24000,
+                "default": 2000
+              },
+              "duration_s": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 60,
+                "default": 20
+              },
+              "fade_in_oct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3,
+                "default": 0.25,
+                "description": "ESS fade-in (octaves)"
+              },
+              "fade_out_oct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3,
+                "default": 0.1,
+                "description": "ESS fade-out (octaves)"
+              },
+              "fade_ms": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2000,
+                "default": 50,
+                "description": "Linear sweep raised-cosine fades (ms)"
+              }
+            },
+            "description": "The excitation signal",
+            "default": {}
+          },
+          "timing": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "post_roll_s": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 30,
+                "default": 3,
+                "description": "Recording after the sweep (the decay tail)"
+              },
+              "settle_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 60,
+                "default": 1,
+                "description": "Pause between sessions"
+              },
+              "repeats": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 3,
+                "description": "Sweeps per exciter (averaged by the FRF step)"
+              },
+              "noise_record_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 30,
+                "default": 3,
+                "description": "Silence recorded first (noise floor; 0 = skip)"
+              },
+              "order": {
+                "type": "string",
+                "enum": [
+                  "exciter_major",
+                  "repeat_major"
+                ],
+                "default": "exciter_major",
+                "description": "exciter_major: all repeats of E1, then E2...; repeat_major: E1..En, then the next repeat (spreads drift)"
+              }
+            },
+            "description": "Timing, repeats and averaging",
+            "default": {}
+          },
+          "guard": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "guard_dbfs": {
+                "type": "number",
+                "minimum": -60,
+                "maximum": -1,
+                "default": -6
+              },
+              "stop_dbfs": {
+                "type": "number",
+                "minimum": -60,
+                "maximum": 0,
+                "default": -3
+              },
+              "step_db": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24,
+                "default": 6
+              },
+              "min_level_dbfs": {
+                "type": "number",
+                "minimum": -90,
+                "maximum": -24,
+                "default": -60
+              }
+            },
+            "description": "Input level guards",
+            "default": {}
+          },
+          "loopback": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "default": null,
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+              },
+              "input": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+              }
+            },
+            "description": "Optional marker loopback (an output wired to an input not in inputs) for sample alignment; null = align on the reported latency"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "minimum": 8000,
+            "maximum": 192000,
+            "description": "Expected device sample rate (Hz). The ASIO device rate is set by the engine (48 kHz, block 64); a different value fails the run instead of resampling. Omit to accept the device rate"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false,
+            "description": "Plan only: validate, build the signals, report sessions / durations / peaks; plays and records nothing"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.rig_sine",
+      "title": "Play a sine on rig outputs (optionally record inputs)",
+      "description": "Plays a sine of frequency_hz on the chosen outputs (each with its own level, fades in / out) for duration_s, or until modal.rig_cancel / job.cancel when until_stopped (then in chunks of chunk_s, at most max_duration_s; the stop lands at the end of the current chunk). With record_inputs it also records those inputs (play + record) and saves them under <measurements>/rig_runs/<run_id>/sessions/. DRIVES THE EXCITERS. Long-running: returns a jobId.",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "hard_confirm",
+      "long_running": true,
+      "job_family": "rig",
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/sine"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "frequency_hz",
+          "outputs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "default": "sine",
+            "description": "Run label (letters, digits, . _ -; at most 60 chars). The run id is <yyyymmddThhmmss>-<label>"
+          },
+          "frequency_hz": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 20000
+          },
+          "outputs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "required": [
+                "output"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "output": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+                },
+                "level_dbfs": {
+                  "type": "number",
+                  "minimum": -90,
+                  "maximum": -24,
+                  "default": -48,
+                  "description": "Peak level in dBFS (safe maximum -24 dBFS, enforced)"
+                },
+                "phase_deg": {
+                  "type": "number",
+                  "minimum": -360,
+                  "maximum": 360,
+                  "default": 0,
+                  "description": "Phase of this output (degrees; 180 = inverted: signed drive vectors for appropriation)"
+                }
+              }
+            }
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 600,
+            "default": 5
+          },
+          "until_stopped": {
+            "type": "boolean",
+            "default": false
+          },
+          "max_duration_s": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1800,
+            "default": 300,
+            "description": "Cap for until_stopped"
+          },
+          "chunk_s": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 5,
+            "description": "Session length for long / until-stopped tones (a short gap between chunks)"
+          },
+          "fade_in_ms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 5000,
+            "default": 50
+          },
+          "fade_out_ms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 5000,
+            "default": 50
+          },
+          "chunk_fade_ms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 500,
+            "default": 10,
+            "description": "Fade at the inner chunk edges"
+          },
+          "record_inputs": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "required": [
+                "input"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "input": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Sensor label, e.g. 'P1' (default: the channel name)"
+                }
+              }
+            },
+            "description": "Inputs recorded during the tone (empty = play only)",
+            "default": []
+          },
+          "post_roll_s": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10,
+            "default": 0.5
+          },
+          "sample_rate": {
+            "type": "integer",
+            "minimum": 8000,
+            "maximum": 192000,
+            "description": "Expected device sample rate (Hz). The ASIO device rate is set by the engine (48 kHz, block 64); a different value fails the run instead of resampling. Omit to accept the device rate"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false,
+            "description": "Plan only: validate, build the signals, report sessions / durations / peaks; plays and records nothing"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.rig_record",
+      "title": "Record rig inputs",
+      "description": "Records the chosen inputs for duration_s (no drive; synthesis pauses for the recording) and saves <measurements>/rig_runs/<run_id>/sessions/record/{data.npy, meta.json}; returns per-channel RMS / peak dBFS and a clipping flag. Optional software trigger: keep the data from the first crossing of trigger.level_dbfs on trigger.input minus trigger.pre_s. Read the data with modal.rig_files (export: true) -> analysis.run_python. Long-running: returns a jobId.",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "hard_confirm",
+      "long_running": true,
+      "job_family": "rig",
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/record"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "inputs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "default": "record",
+            "description": "Run label (letters, digits, . _ -; at most 60 chars). The run id is <yyyymmddThhmmss>-<label>"
+          },
+          "inputs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "required": [
+                "input"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "input": {
+                  "type": [
+                    "string",
+                    "integer"
+                  ],
+                  "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Sensor label, e.g. 'P1' (default: the channel name)"
+                }
+              }
+            },
+            "description": "Input channels to record (channel map: sensor label -> ASIO input)"
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 110,
+            "default": 5
+          },
+          "trigger": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "default": null,
+            "additionalProperties": false,
+            "properties": {
+              "input": {
+                "type": [
+                  "string",
+                  "integer"
+                ],
+                "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+              },
+              "level_dbfs": {
+                "type": "number",
+                "minimum": -120,
+                "maximum": 0,
+                "default": -40
+              },
+              "pre_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10,
+                "default": 0.1
+              }
+            },
+            "description": "Software trigger on one of the recorded inputs (null = keep everything)"
+          },
+          "clip_dbfs": {
+            "type": "number",
+            "minimum": -20,
+            "maximum": 0,
+            "default": -0.1,
+            "description": "Peak at or above this = clipping"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "minimum": 8000,
+            "maximum": 192000,
+            "description": "Expected device sample rate (Hz). The ASIO device rate is set by the engine (48 kHz, block 64); a different value fails the run instead of resampling. Omit to accept the device rate"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false,
+            "description": "Plan only: validate, build the signals, report sessions / durations / peaks; plays and records nothing"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.rig_process",
+      "title": "Run a measurement-pipeline step",
+      "description": "Runs ONE fixed pipeline step on a capture run (no shell; the step's options are typed): frf (sessions -> frf/frf.npz + frf/coarse_frf.npz: H per repeat and averaged, inputs x exciters), polymax (frf -> polymax/report.json + modes.npz + stabilization.png), coefficients (polymax -> coefficients/measured_table.json: f, zeta, relative 1/m and real exciter weights per mode, the preset builder's input), build_preset (measured_table + a base preset -> a NEW preset presets/<name>.json; optional structure change first). area rig_checks reads an older capture under <measurements>/rig_checks read-only; outputs always go to rig_runs/<run>/. Long-running: returns a jobId.",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "hard_confirm",
+      "long_running": true,
+      "job_family": "rig",
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/process"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "step",
+          "run"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "frf",
+              "polymax",
+              "coefficients",
+              "build_preset"
+            ]
+          },
+          "run": {
+            "type": "string",
+            "description": "Run id (folder name), from modal.rig_runs"
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "rig_runs",
+              "rig_checks"
+            ],
+            "default": "rig_runs"
+          },
+          "frf": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ir_window_s": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 30,
+                "default": 4,
+                "description": "Impulse-response window (s): the FRF resolution is 1 / window"
+              },
+              "taper_frac": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5,
+                "default": 0.1,
+                "description": "Raised-cosine taper at the window end (fraction)"
+              },
+              "pre_samples": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 48000,
+                "default": 30,
+                "description": "Samples kept before t = 0 (converter delay / pre-ringing)"
+              },
+              "f_min_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24000,
+                "default": 0,
+                "description": "Lowest FRF line kept (0 = the sweep start)"
+              },
+              "f_max_hz": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24000,
+                "default": 1200,
+                "description": "Highest FRF line kept (at most the sweep stop)"
+              },
+              "average": {
+                "type": "string",
+                "enum": [
+                  "mean",
+                  "median"
+                ],
+                "default": "mean",
+                "description": "Average over the repeats"
+              },
+              "regularization": {
+                "type": "number",
+                "minimum": 1e-12,
+                "maximum": 1,
+                "default": 1e-06,
+                "description": "In-band deconvolution regularisation"
+              },
+              "noise_from_repeats": {
+                "type": "boolean",
+                "default": false,
+                "description": "Also store the repeat variance as noise_power3 (PolyMAX weighting / pruning)"
+              },
+              "exciters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": [],
+                "description": "Exciter labels to use (empty = all)"
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": [],
+                "description": "Input labels to use (empty = all)"
+              }
+            },
+            "description": "frf step options",
+            "default": {}
+          },
+          "polymax": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "p_max": {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 120,
+                "default": 40,
+                "description": "Maximum model order per band"
+              },
+              "band_edges": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 40,
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 24000
+                },
+                "default": [
+                  30.0,
+                  60.0,
+                  120.0,
+                  250.0,
+                  500.0,
+                  1000.0,
+                  2000.0,
+                  4000.0,
+                  9500.0
+                ],
+                "description": "Band boundaries (Hz)"
+              },
+              "overlap": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5,
+                "default": 0.15
+              },
+              "max_lines": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 20000,
+                "default": 4000
+              },
+              "f_min_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24000,
+                "default": 0,
+                "description": "Fit band low edge (0 = the FRF start)"
+              },
+              "f_max_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24000,
+                "default": 0,
+                "description": "Fit band high edge (0 = the FRF end)"
+              },
+              "snr_detect_db": {
+                "type": "number",
+                "minimum": -20,
+                "maximum": 80,
+                "default": 10
+              },
+              "prune": {
+                "type": "boolean",
+                "default": true
+              },
+              "prune_min_gain": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10,
+                "default": 0.2
+              },
+              "prune_min_snr_db": {
+                "type": "number",
+                "minimum": -20,
+                "maximum": 80,
+                "default": 10
+              },
+              "loo": {
+                "type": "boolean",
+                "default": false,
+                "description": "Also fit every leave-one-exciter-out subset"
+              },
+              "stab": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "p_min": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60,
+                    "default": 2
+                  },
+                  "tol_f": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.2,
+                    "default": 0.01
+                  },
+                  "tol_zeta": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2,
+                    "default": 0.1
+                  },
+                  "tol_mpf": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.9
+                  },
+                  "zeta_min": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.0001
+                  },
+                  "zeta_max": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.2
+                  },
+                  "min_stable_frac": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0.3
+                  },
+                  "use_mpf": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "description": "Stabilisation thresholds",
+                "default": {}
+              },
+              "hum_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100,
+                "default": 50,
+                "description": "Mains frequency to exclude (0 = none)"
+              },
+              "hum_harmonics": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20,
+                "default": 3,
+                "description": "Harmonics of hum_hz excluded (1 = the fundamental only)"
+              },
+              "hum_width_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10,
+                "default": 1.0,
+                "description": "Half width of each excluded hum band (Hz)"
+              }
+            },
+            "description": "polymax step options (hum lines are removed from the FRF before the fit)",
+            "default": {}
+          },
+          "coefficients": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "residue_svd",
+                  "modal_appropriation"
+                ],
+                "default": "residue_svd",
+                "description": "residue_svd: the top right singular vector of each mode's residue matrix (inputs x exciters); modal_appropriation: the modal-objective appropriation vector"
+              },
+              "f_min_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24000,
+                "default": 20
+              },
+              "boundary_hz": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 24000,
+                "default": 1020,
+                "description": "Modes below are measured; the builder keeps the base modes above"
+              },
+              "min_stability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.3,
+                "description": "Minimum PolyMAX stability (fraction of stable orders)"
+              },
+              "max_fit_residual": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10,
+                "default": 1.0
+              },
+              "min_rank1_ratio": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0
+              },
+              "zeta_min": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.0005
+              },
+              "zeta_max": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.2
+              },
+              "mass_trend": {
+                "type": "string",
+                "enum": [
+                  "fit",
+                  "none"
+                ],
+                "default": "fit",
+                "description": "fit: remove the power-law trend of the residue amplitude over f (instrument chain), keep the per-mode deviation"
+              },
+              "mass_clip_db": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 60,
+                "default": 6
+              },
+              "ridge": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.001,
+                "description": "modal_appropriation regularisation"
+              },
+              "zeta_overrides": {
+                "type": "array",
+                "default": [],
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "f_hz",
+                    "zeta"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "f_hz": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "zeta": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "tol_hz": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "default": 1.0
+                    }
+                  }
+                },
+                "description": "Replace zeta of the mode nearest f_hz (within tol_hz), e.g. a stop-and-decay value"
+              },
+              "hum_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100,
+                "default": 50,
+                "description": "Mains frequency to exclude (0 = none)"
+              },
+              "hum_harmonics": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20,
+                "default": 3,
+                "description": "Harmonics of hum_hz excluded (1 = the fundamental only)"
+              },
+              "hum_width_hz": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10,
+                "default": 1.0,
+                "description": "Half width of each excluded hum band (Hz)"
+              }
+            },
+            "description": "coefficients step options",
+            "default": {}
+          },
+          "build": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "New preset name (letters, digits, . _ -), written to presets/<name>.json"
+              },
+              "base_preset": {
+                "type": "string",
+                "default": "F15_Elyashev_array512",
+                "description": "Base preset name in presets/ (needs keys 21..108)"
+              },
+              "n_modes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 256,
+                "default": 196
+              },
+              "hf_level": {
+                "type": "string",
+                "enum": [
+                  "energy",
+                  "max"
+                ],
+                "default": "energy"
+              },
+              "seed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000,
+                "default": 0
+              },
+              "num_strings": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 256,
+                "default": 0,
+                "description": "0 = keep the base's piano strings"
+              },
+              "array_size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 512,
+                "default": 0,
+                "description": "0 = keep the base's; else 384..512"
+              },
+              "string_removal": {
+                "type": "string",
+                "enum": [
+                  "treble_first",
+                  "bass_first"
+                ],
+                "default": "treble_first"
+              },
+              "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Replace an existing preset file of that name"
+              }
+            },
+            "description": "build_preset step options",
+            "default": {}
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.rig_runs",
+      "title": "List rig measurement runs",
+      "description": "The capture / pipeline runs under <measurements>/rig_runs (and the older rig_checks), newest first: id, size, steps done. With run: that run's config, step reports and every file (relative names for modal.rig_files).",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "GET",
+        "path": "/rig/runs"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "rig_runs",
+              "rig_checks"
+            ],
+            "default": "rig_runs"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.rig_files",
+      "title": "Rig run files (export for analysis)",
+      "description": "Metadata of files of one run (relative names from modal.rig_runs). With export: true the files are copied into ONE analysis artefact (names flattened: sessions/E1_m42_r1/data.npy -> sessions__E1_m42_r1__data.npy) for analysis.run_python; at most 10 files, 400 MB.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "GET",
+        "path": "/rig/files"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "run",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "area": {
+            "type": "string",
+            "enum": [
+              "rig_runs",
+              "rig_checks"
+            ],
+            "default": "rig_runs"
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.rig_cancel",
+      "title": "Stop the rig job",
+      "description": "Stops the running rig job (capture, sine, record or pipeline step). A sweep / chunk already playing finishes (at most its own length).",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "playback",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/cancel"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
     }
   ]
 }

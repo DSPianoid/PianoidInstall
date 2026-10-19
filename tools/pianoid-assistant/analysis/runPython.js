@@ -71,25 +71,33 @@ export function prepareRun(paths, { code, inputs }) {
   const runId = newId('r');
   const dir = path.join(paths.runs, runId);
   const index = {};
+  let inputBytes = 0;
   for (const id of inputs) {
     const meta = readArtifact(paths.artifacts, id);
     if (!meta) throw new Error(`inputs: unknown artefact ${id}`);
     fs.mkdirSync(path.join(dir, 'in', id), { recursive: true });
-    for (const f of meta.files) fs.copyFileSync(path.join(paths.artifacts, id, f.name), path.join(dir, 'in', id, f.name));
+    for (const f of meta.files) {
+      fs.copyFileSync(path.join(paths.artifacts, id, f.name), path.join(dir, 'in', id, f.name));
+      inputBytes += fs.statSync(path.join(dir, 'in', id, f.name)).size;
+    }
     index[id] = meta;
   }
   fs.mkdirSync(path.join(dir, 'in'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'in', 'index.json'), JSON.stringify(index));
   fs.writeFileSync(path.join(dir, 'code.py'), PRELUDE);
   fs.writeFileSync(path.join(dir, 'user.py'), code);
-  return { runId, dir };
+  return { runId, dir, inputBytes };
 }
 
-/** The launcher argv of one run (no shell). */
-export function launcherArgs(paths, dir, { timeoutS, memoryMb }) {
+/**
+ * The launcher argv of one run (no shell). The disk watchdog measures the run dir, so the input copies (rig
+ * recordings can be hundreds of MB, dev-8a9e) are added to the 200 MB the code itself may write.
+ */
+export function launcherArgs(paths, dir, { timeoutS, memoryMb, inputBytes = 0 }) {
+  const diskMb = LIMITS.diskMb + Math.ceil(inputBytes / (1024 * 1024));
   return ['run', '--profile', PROFILE, '--python', path.join(paths.runtime, 'python.exe'), '--run-dir', dir,
     '--script', 'code.py', '--wall-s', String(timeoutS), '--cpu-s', String(Math.max(1, Math.floor(timeoutS / 2))),
-    '--mem-mb', String(memoryMb), '--disk-mb', String(LIMITS.diskMb)];
+    '--mem-mb', String(memoryMb), '--disk-mb', String(diskMb)];
 }
 
 const execLauncher = (file, args, timeoutMs) => new Promise((resolve) => {
@@ -132,7 +140,7 @@ export async function runPython(input, { paths = analysisPaths(), launcher = LAU
   let run;
   try { run = prepareRun(paths, v); } catch (e) { return { ok: false, error: e.message }; }
   const t0 = Date.now();
-  const r = await exec(launcher, launcherArgs(paths, run.dir, v), (v.timeoutS + 30) * 1000);
+  const r = await exec(launcher, launcherArgs(paths, run.dir, { ...v, inputBytes: run.inputBytes }), (v.timeoutS + 30) * 1000);
   let j;
   try { j = JSON.parse(r.stdout.trim().split(/\r?\n/).pop()); } catch (e) {
     return { ok: false, run_id: run.runId, error: `sandbox launcher failed: ${(r.stderr || r.error?.message || r.stdout).slice(-600)}` };

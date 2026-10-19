@@ -976,6 +976,39 @@ driver `kAsioResetRequest`, which the dev-19be watchdog then services on resume 
 no callback for 0.5 s) with the partial result in `session` (data still written), and
 `502 loopback_not_detected` for `compensate_latency: "loopback"` without a marker onset.
 
+### Rig measurement pipeline (assistant) {#rig-pipeline}
+
+(dev-8a9e, `rig_pipeline_routes.py` + `modal_adapter/rig_pipeline/`) The board-measurement → preset pipeline as
+fixed, typed steps for the assistant (registry `modal.rig_*`, `preset.create`; parameters, defaults and ranges =
+the registry args in `schemas/commands/modal.json` / `preset.json`, the single source; the guide
+[MODE_DISCOVERY_FOR_ASSISTANT → Rig commands](../../guides/MODE_DISCOVERY_FOR_ASSISTANT.md#rig-commands) lists them).
+Each write route validates its body against its command schema (400 `invalid_args` with every violation), fills
+the defaults and runs ONE step as a child process
+`python -m pianoid_middleware.modal_adapter.rig_pipeline <step> --spec <file>` (cwd PianoidCore, no shell). The
+response is `{started, step, dry_run, jobId}`; the `rig` job (`job.get`) carries progress and, at the end, the
+step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO steps call back
+[`POST /audio/session`](#post-audiosession) on this backend (ASIO callback driver; synthesis pauses per session).
+
+| Route | Command | Step |
+|---|---|---|
+| `POST /rig/capture` | `modal.rig_capture` (hard confirm) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
+| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record) |
+| `POST /rig/record` | `modal.rig_record` (hard confirm) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
+| `POST /rig/process` | `modal.rig_process` (hard confirm) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
+| `POST /rig/preset_create` | `preset.create` (hard confirm) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
+| `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
+| `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
+| `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
+
+Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = `$PIANOID_MEASUREMENTS_DIR`, else
+`D:\modal_measurements`; run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
+flags, status), `sessions/<exciter>_m<level>_r<k>/{data.npy (aligned capture, float32 [frames, inputs]),
+signal.npy, meta.json}` (`silence/`, `chunk<NNN>/`, `record/` for the other kinds), then `frf/` (`frf.npz`: f, H
+[repeats, F, inputs, exciters]; `coarse_frf.npz`: freqs, H3 = the repeat average; `report.json`), `polymax/`
+(`report.json`, `modes.npz`, `stabilization.png`) and `coefficients/` (`measured_table.json` = the input of
+`Pianoid.measured_mode_preset`, `report.json`). A step on a `rig_checks` capture writes its outputs to
+`rig_runs/<run>/` (with `source.json`). Presets go to `pianoid_middleware/presets/<name>.json`.
+
 ### `POST /pause_synthesis`
 
 Pauses the synthesis cycle (transitions `PLAYBACK_ACTIVE` → `PAUSED`). GPU resources are retained — the engine stops producing audio but can resume instantly.
