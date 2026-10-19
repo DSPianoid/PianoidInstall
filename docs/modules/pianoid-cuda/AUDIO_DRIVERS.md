@@ -186,6 +186,16 @@ device must have `max(map)+1` outputs (else the device is skipped → the docume
 legacy non-callback ASIO driver (type 1) rejects a map. Example (10-15 plywood rig, E1..E7 on Out 9, 10, 3..7):
 `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`. Not used by SDL (stereo downmix of channels 0/1).
 
+**Mic capture input (dev-d191).** `startCapture` (→ `startMicCapture`, `play.keyboard capture_mic`, acoustic
+calibration) records ONE physical input: `ASIOAudioDriver::setCaptureInputChannel(int)` /
+`getCaptureInputChannel()` (static; module functions `pianoidCuda.setAsioCaptureInput(channel)` /
+`getAsioCaptureInput()`), default `0` = In 1. A process-wide `std::atomic<int>` like the output map: it survives
+driver re-creation (preset loads, watchdog re-opens); `init()` resets an index the newly opened device lacks to 0
+(`PLOG_ERR`). The setter validates against the open-device snapshot (`asioDeviceSnapshot()`: the input exists and
+its sample type is supported → else `std::invalid_argument` / `ValueError`; no device open → `std::runtime_error`).
+The bufferSwitch capture reads the atomic per switch and converts `bufferInfos[ch]` by `channelInfos[ch].type`
+(was hard-wired to input 0). REST: [`/mic_devices`, `/set_mic_device {input_channel}`](../pianoid-middleware/REST_API.md#post-set_mic_device).
+
 ---
 
 ## AudioDriverFactory
