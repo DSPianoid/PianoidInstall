@@ -565,9 +565,15 @@ mapping already sent via `feedback_coeff`), owned by usePreset as `feedbackSensi
 Feedback semantics (per `project_feedback_coeff_is_damping`): lower feedback = louder/sharper attack
 but STABLE (it is a damping coefficient, decays at all values) — the only risk is output CLIPPING at
 low feedback (headroom), NOT instability, so NO stability guard is added. The "Set" fold button
-(`foldFeedbackIntoPreset`) moved to the bottom bar with the slider. Pinned by
+(`foldFeedbackIntoPreset`) moved to the bottom bar with the slider. **Coefficient field (dev-7888, 2026-10-19):**
+a `NumInput` ("Coefficient", `min 0` / `max 1000` = the backend's `store_feedback_coeff` bound, 3
+decimals) next to the slider shows the EFFECTIVE coefficient (`stored × multiplier`, `0` at the
+leftmost mute), live with the slider; a typed value calls `usePreset.setFeedbackCoefficient(v)` →
+stored := `v`, slider → 64 (persisted), one `set_runtime_parameters {feedback_coeff, store_feedback_coeff}`
+(the undoable stored-baseline step). Inert on a read-only original. See DATA_FLOWS §2.6. Pinned by
 `components/__tests__/BottomBar.test.jsx` (renders all three; Reset fires; Set fold disabled@neutral;
-volume + feedback Sensitivity fields commit through to their handlers).
+volume + feedback Sensitivity fields commit through to their handlers; the coefficient field shows
+stored × multiplier and commits/clamps typed values) + `hooks/__tests__/usePreset.feedbackCoeffField.test.js`.
 
 ### Diagnostic bug-report tool (dev-6ef1, 2026-07-10)
 
