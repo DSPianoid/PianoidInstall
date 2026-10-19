@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-2a50 locks RELEASED 2026-10-19 (Phase 2): Tunner ToolBar.jsx, ActiveContextStatus.jsx, utils/activeContext.js (+ tests); merged PianoidTunner dev f76e618; worktree wt-2a50-tunner removed (junctions unlinked first). -->
 <!-- dev-b21b locks RELEASED 2026-10-18 (Phase 2): all rows; merged PianoidTunner dev c59462c / PianoidInstall master c03f67c; worktrees wt-b21b-tunner / wt-b21b-install removed (junctions unlinked first). -->
 <!-- dev-89f7 locks RELEASED 2026-10-18 (Phase 2): all rows (Core attack_equalizer.py / attack_calibration_route.py NEW, calibration_controller.py, synthesis_tuner.py, backendServer.py, write_routes.py, tests/unit/test_attack_equalizer.py; Tunner PianoidTuner.js, AttackCalibrateButton.jsx, useAttackCalibration.js + test; Install schemas/commands/calibration.json, tools/pianoid-assistant/policy.js 1 line (OK dev-c0de); GPU slot released); merged PianoidCore dev 682fb4e / PianoidTunner dev 902b413 / PianoidInstall master 9ac4580; worktrees wt-89f7-core / wt-89f7-tunner / wt-89f7-install removed (junctions unlinked first). -->
 <!-- dev-947d locks RELEASED 2026-10-18 (Phase 2): all rows (released at Phase 1 incl. the GPU slot); merged PianoidCore dev 62efe53 / PianoidInstall master 77ce220; worktrees wt-947d-install / wt-947d-core removed (junctions unlinked first). -->
