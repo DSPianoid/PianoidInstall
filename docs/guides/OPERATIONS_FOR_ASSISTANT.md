@@ -20,6 +20,7 @@ have pulled, built, installed, killed or restarted anything. It can read the sta
 | Start the backend / the modal adapter / the assistant service (`launcher.backend.start`, `launcher.modal.start`, `launcher.assistant.start`) | assistant, **asks the user every time** (hard-confirm, never Auto) | `launcher.json` `approval_category: hard_confirm`; `tools/pianoid-assistant/README.md` (Policy) |
 | Stop the backend / modal adapter / assistant | **never** the assistant (`excluded`) | `launcher.json` |
 | Everything else on this page: git, builds, `npm`, setup scripts, kill scripts, GPU clock, drivers | **the user** | the scripts themselves |
+| Soundboard measurement / mode discovery (sweeps, PolyMAX, appropriation, the measured preset): what the assistant can run and what it hands over | see [Mode Discovery Guide](MODE_DISCOVERY_FOR_ASSISTANT.md) (`read_docs` on that page) | the measurement reports |
 
 **Shells.** "cmd" = Command Prompt (a `.bat` can also be double-clicked in Explorer). "PowerShell" = Windows
 PowerShell. "Admin" = started with *Run as administrator*. In cmd, `tasklist /M …` takes ONE slash; the docs'

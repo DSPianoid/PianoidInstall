@@ -68,6 +68,7 @@ nav:
     - Modal Adapter Pipeline: guides/MODAL_ADAPTER_GUIDE.md
     - Telegram Channel & Voice I/O: guides/TELEGRAM_CHANNEL_SETUP.md
     - Operations Primer (assistant): guides/OPERATIONS_FOR_ASSISTANT.md
+    - Mode Discovery (assistant): guides/MODE_DISCOVERY_FOR_ASSISTANT.md
 
 markdown_extensions:
   - pymdownx.highlight:

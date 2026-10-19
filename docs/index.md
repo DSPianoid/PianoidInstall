@@ -143,6 +143,11 @@ interactive latency.
 - [guides/OPERATIONS_FOR_ASSISTANT.md](guides/OPERATIONS_FOR_ASSISTANT.md) — Operations primer
   (install on a new machine, start / stop, update from git, rebuild, symptom → procedure, gotchas,
   the assistant's own setup, doc / script disagreements); the in-UI assistant reads it with `read_docs`
+- [guides/MODE_DISCOVERY_FOR_ASSISTANT.md](guides/MODE_DISCOVERY_FOR_ASSISTANT.md) — Soundboard mode discovery
+  for the assistant: rig facts (E1–E7 output map, P1–P8, weights, resonances, E2 distortion, crosstalk), the
+  procedure ladder (sweeps → PolyMAX / consensus → Q → shapes → appropriation → measured preset → load at the
+  declared settings) with commands vs hand-offs, `analysis.run_python` recipes, decision tables, settled results
+  and open questions
 
 ### Proposals
 

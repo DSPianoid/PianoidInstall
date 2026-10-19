@@ -79,6 +79,17 @@ export const RULES = [
     ],
   },
   {
+    // dev-modeguide: soundboard measurement / mode finding (docs/guides/MODE_DISCOVERY_FOR_ASSISTANT.md).
+    category: 'mode discovery', route: 'opus',
+    test: [
+      words(['mode discovery', 'discover modes', 'discover the modes', 'find modes', 'find the modes', 'measure modes',
+        'measure the modes', 'modal measurement', 'modal measurements', 'polymax', 'force appropriation', 'appropriation',
+        'mode shapes', 'measured preset', 'measured modes']),
+      stems(['найти моды', 'найди моды', 'поиск мод', 'измерить моды', 'измерение мод', 'измерь моды', 'формы мод',
+        'модальн', 'измеренн\\p{L}*\\s+мод']),
+    ],
+  },
+  {
     category: 'physics / prediction', route: 'opus',
     test: [
       words(['why', 'what happens if', 'what would happen', 'what will happen', 'predict', 'prediction', 'physics',

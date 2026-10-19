@@ -74,6 +74,11 @@
     {"source": "ops negative", "text": "start the backend", "expect": "sonnet"},
     {"source": "ru ops", "text": "как обновить всё и пересобрать?", "expect": "opus", "category": "operations procedure"},
     {"source": "ru ops", "text": "что нужно установить на новом компьютере?", "expect": "opus", "category": "operations procedure"},
-    {"source": "ru ops negative", "text": "установи громкость 80", "expect": "sonnet"}
+    {"source": "ru ops negative", "text": "установи громкость 80", "expect": "sonnet"},
+    {"source": "requirement dev-modeguide", "text": "start the mode discovery on the board", "expect": "opus", "category": "mode discovery"},
+    {"source": "requirement dev-modeguide", "text": "measure the modes of the soundboard", "expect": "opus", "category": "mode discovery"},
+    {"source": "requirement dev-modeguide", "text": "which modes did PolyMAX find below 200 Hz?", "expect": "opus", "category": "mode discovery"},
+    {"source": "ru dev-modeguide", "text": "найти моды деки", "expect": "opus", "category": "mode discovery"},
+    {"source": "ru dev-modeguide", "text": "загрузи пресет с измеренными модами", "expect": "opus", "category": "mode discovery"}
   ]
 }
