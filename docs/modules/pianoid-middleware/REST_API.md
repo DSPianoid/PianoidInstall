@@ -1467,19 +1467,19 @@ Request body:
 - `1`–`127` — MIDI-style exponential mapping: 64 → 1.0, 127 → 8.0, 1 → ~0.125
 - Outside `1`–`127` (e.g. `2.5`) — used as direct coefficient
 
-Valid coefficient range after mapping: `0.0`–`1000`.
+Valid coefficient after mapping: any finite value `>= 0` (no upper bound since dev-e591; negative / NaN / inf → error). The engine (`Pianoid::setRuntimeParameters`) applies the same rule (finite, `>= 0`); before dev-e591 it rejected `> 1000`, so the slider stopped having an effect at 1000.
 
 `feedback_coeff` (optional, float, dev-fbsl 2026-06-05): a DIRECT effective deck feedback
 coefficient that BYPASSES the `feedback` level mapping above. Used by the two-layer
 feedback slider, which composes `effective = stored_coeff(preset) × env_multiplier(slider)`
 frontend-side and sends the product here. Calls `set_deck_feedback_coefficient(value)`
-directly. Range `0.0`–`1000`. Scales PIANO-pitch resonance feedback only (the dev-d52b
+directly. Any finite value `>= 0`, no upper bound (negative / non-finite → error). Scales PIANO-pitch resonance feedback only (the dev-d52b
 `dev_feedback_output_mask` keeps sound-channel/output rows ≥128 at ×1).
 
 `store_feedback_coeff` (optional, float, dev-fbsl 2026-06-05): the "Set" / fold button writes
 the new PER-PRESET stored feedback baseline IN MEMORY (`pianoid.mp.deck_feedback_coefficient`)
 — NO disk I/O. The value is persisted to the preset file only on `/save_preset` (it rides
-`mp.pack()` → `model_parameters.deck_feedback_coefficient`). Range `0.0`–`1000`. The stored
+`mp.pack()` → `model_parameters.deck_feedback_coefficient`). Any finite value `>= 0`, no upper bound (negative / non-finite → error). The stored
 baseline is per-preset: `switch_preset` applies the target preset's value (it is no longer
 global; volume + volume-sensitivity remain global). Being PRESET data it goes through the write
 machinery (dev-960f): `409 preset_read_only` on a read-only original, and it is broadcast as
