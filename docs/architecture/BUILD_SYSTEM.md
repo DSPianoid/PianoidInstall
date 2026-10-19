@@ -101,19 +101,31 @@ stale binaries because merge→push had no rebuild step.
 `update-repos.bat` (Windows) / `update-repos.sh` (Linux), at the install root, automate
 this gate for a routine "pull latest and rebuild what's needed" sweep. They:
 
-1. `git pull --ff-only` each sub-repo (PianoidCore, PianoidTunner, PianoidBasic) on its
-   **current** branch — they do NOT switch branches, and WARN (but still pull) if a repo
-   is not on `dev`.
-2. Compute each repo's pulled diff and rebuild per the table above:
-   PianoidCore `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py` → CUDA build; any PianoidBasic
-   change → PianoidBasic build (+ CUDA, it is consumed by the engine); PianoidTunner
-   `package.json`/`package-lock.json` → `npm ci`. Nothing relevant → no-op (idempotent).
-3. Before any CUDA rebuild, stop the `.pyd`/`.so` holder (launcher REST
+1. `git pull --ff-only origin <integration>` each repo — **PianoidInstall (`master`) first**,
+   then PianoidCore, PianoidBasic, PianoidTunner (`dev`), the branches `check-updates.ps1`
+   compares against. A repo on another branch is SKIPPED with a warning (never switched);
+   PianoidInstall is also skipped while tracked files are modified.
+2. Self-update: the `.bat` runs from a `%TEMP%` copy (cmd reads a running batch file by byte
+   offset) and the `.sh` body is one function called on the last line. When the PianoidInstall
+   pull changed the script, it hands over to the new version (`PIANOID_UPDATE_REEXEC=1`,
+   `PIANOID_UPDATE_INSTALL_PRE=<pre-pull SHA>`; the new version skips the PianoidInstall pull).
+   `start-pianoid.bat` compares itself before/after the update call and restarts itself when it
+   changed.
+3. Compute each repo's pulled diff and rebuild per the table above:
+   PianoidCore `.cu/.cpp/.cuh/.h/setup.py/detect_paths.py/build_config.json` → CUDA heavy build;
+   any PianoidBasic change → PianoidBasic build (the CUDA build does not read PianoidBasic);
+   PianoidTunner `package.json`/`package-lock.json` (or no `node_modules`) → `npm install`;
+   the same for `tools/pianoid-assistant` (PianoidInstall). `pianoid_middleware/*.py` only →
+   no build: the middleware runs from the source tree. Nothing relevant → no-op (idempotent).
+4. Before any CUDA rebuild, stop the `.pyd`/`.so` holder (launcher REST
    `POST /api/stop-backend`, else a port-targeted kill of the listener on 5000) so the
    `--heavy` uninstall does not fail and brick the venv.
 
 CUDA variant flags mirror `build_pianoid_cuda.{bat,sh}`: default `--both` (release + debug);
-`--release` / `--debug` build a single variant; `--help` prints usage. Run it from a
+`--release` / `--debug` build a single variant; `--dry-run` fetches and prints what would be
+pulled and rebuilt without changing anything; `--help` prints usage. Sandbox tests (temp git
+repos, stubbed build/npm/curl): `tools/tests/update-repos/test_update_repos.ps1` (Windows) and
+`test_update_repos.sh` (bash). Run it from a
 foreground terminal (it is interactive — it stops the backend itself). After a CUDA rebuild
 it reminds you to run the import + `/load_preset` 200 verification.
 
