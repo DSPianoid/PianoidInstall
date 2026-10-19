@@ -1,46 +1,150 @@
 # Mode Discovery Guide (soundboard measurement, for the assistant)
 
 **Audience:** the in-UI Pianoid assistant (and anyone who needs the measurement procedure in one place). **Owner:**
-dev-modeguide, 2026-10-19. Everything below is distilled from the measurement reports and logs listed in
+dev-modeguide, 2026-10-19; rig commands dev-8a9e, 2026-10-19. Everything below is distilled from the measurement reports and logs listed in
 [Sources](#sources); each section names its source. Where the sources do not support a claim, it is marked
 **UNKNOWN**. Do not fill those in: say so and offer the measurement that would settle it.
 
 Read this page with `read_docs` (page `guides/MODE_DISCOVERY_FOR_ASSISTANT.md`) and the anchor that fits:
-`can-do`, `rig`, `ladder` (or a step: `step-0` … `step-11`), `recipes`, `decisions`, `known`, `open`, `gaps`,
-`data-layout`.
+`can-do`, `rig-commands` (or one: `cmd-capture`, `cmd-sine`, `cmd-record`, `cmd-process`, `cmd-create`,
+`cmd-reads`), `example`, `rig`, `ladder` (or a step: `step-0` … `step-11`), `recipes`, `decisions`, `known`,
+`open`, `gaps`, `data-layout`.
 
 ## What the assistant can and cannot do here {#can-do}
 
-The measurement work of 2026-10-11 … 10-17 was done by **agents running scripts** against the ASIO measurement
-session (`POST /audio/session`). That session is **not** in the command registry (`audio.devices` says so), and
-the assistant has no shell and no file access. So most of the ladder is **"hand to the user / an agent"**. The
-assistant's own part is: read the state, check the setup, explain the procedure and its acceptance criteria,
-load and verify the measured preset, analyse offline renders, and play (with confirmation) on the board.
+Since dev-8a9e (2026-10-19) the assistant runs the **whole ladder itself** through fixed, typed commands (no shell,
+no file paths): ASIO capture, sine and record on the rig, the FRF matrix, PolyMAX, the exciter coefficients, the
+measured-preset builder and a new preset structure. Every command and parameter is in [Rig commands](#rig-commands);
+the end-to-end example for a 7-exciter / 8-piezo rig is the [Worked example](#example). What still needs the user:
+the wiring, the output map of the backend, and listening.
 
 | The assistant can (registry name) | Category |
 |---|---|
-| `system.snapshot`, `system.environment` (incl. the output map), `system.health` (peaks, clipping), `audio.devices` (ASIO in / out list), `calibration.mic_devices` (ASIO inputs + the selected capture input) | read, no confirm |
-| `preset.files`, `preset.summary`, `preset.load_settings`, `param.get` (modes, deck rows, masks), `param.inventory` | read, no confirm |
-| `preset.load` (load at the declared settings), `modal.run_stage`, `modal.apply_to_preset`, `calibration.synthesis`, `calibration.attack_equalize`, `launcher.modal.start` | **hard confirm, every time** |
+| `system.snapshot`, `system.environment` (incl. the output map), `system.health` (peaks, clipping), `audio.devices` (ASIO in / out list), `calibration.mic_devices` | read, no confirm |
+| `preset.files`, `preset.summary`, `preset.load_settings`, `param.get`, `param.inventory` | read, no confirm |
+| `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact) | read, no confirm |
+| `modal.rig_capture` (sweeps per exciter, inputs recorded), `modal.rig_sine` (a tone, optional recording), `modal.rig_record` (inputs only) | **hard confirm, every run** (drives / records the rig) |
+| `modal.rig_process` (`frf`, `polymax`, `coefficients`, `build_preset`), `preset.create` (a new preset structure) | **hard confirm, every run** (writes files) |
+| `modal.rig_cancel` (stops the rig job), `job.get`, `job.list`, `job.cancel` | playback / read |
+| `preset.load`, `modal.run_stage`, `modal.apply_to_preset`, `calibration.synthesis`, `calibration.attack_equalize`, `launcher.modal.start` | **hard confirm, every time** |
 | `render.note_playback`, `render.chart`, `render.keyboard` (offline; `export: true` makes an artefact) | renders (asks while live audio plays) |
 | `play.note`, `play.mode`, `play.reset` (live: the sound goes to the exciters on the board) | playback |
 | `param.mute_modes`, `param.mute_channels`, `param.set` | params (Ask unless Auto, inside the safety envelope) |
-| `analysis.run_python` on artefacts from renders / `param.get` / `preset.summary` | asks every run |
-| `job.get`, `job.list`, `job.cancel`, `modal.status`, `modal.cancel`, `calibration.status`, `calibration.cancel` | read / act |
+| `analysis.run_python` on artefacts from renders / `param.get` / `preset.summary` / **`modal.rig_files`** | asks every run |
 
 | The assistant cannot | Why |
 |---|---|
-| Drive a sweep, multisine, stepped sine or stop-and-decay on the rig, or record the piezos | `/audio/session` is not exposed; no command plays a test signal on chosen outputs and records chosen inputs |
-| Read the recordings in `D:\modal_measurements\` | no file access; `analysis.run_python` takes only artefact ids (renders, `param.get`, `preset.summary`) |
-| Run PolyMAX, the consensus fit, LSFD, the appropriation planner or the preset builder | they are Python CLIs / scripts (see each step) |
-| Set `PIANOID_AUDIO_OUTPUT_MAP` | it is an environment variable of the backend process; the user restarts the backend with it |
+| Set `PIANOID_AUDIO_OUTPUT_MAP` | an environment variable of the backend process; the user restarts the backend with it. The rig commands address **physical** outputs by name (`Out 9`) and do not need it; playing the preset does |
 | See the wiring (which exciter / piezo is on which jack) | ask the user; the last documented wiring is in [Rig facts](#rig) |
+| Drive above **−24 dBFS** | the safe ceiling of every rig `level_dbfs` (registry maximum, checked again by the step) |
+| A gap-free tone longer than `chunk_s` | an `/audio/session` session is at most 120 s; long / `until_stopped` tones run in chunks with a short gap |
+| The 18-fit consensus below 200 Hz, shape plots on the board map, the Layer B recalibration | no command: run several `polymax` fits with other `band_edges` / `p_max` and compare ([R7](#r7)), or hand over |
 
 **Safety (applies to every live step).** Rig audio drives seven exciters on a real board. Always say in one line
-what will play, on which outputs, how loud and how long, and get the user's yes. Never play loud or long audio
-unprompted. The documented working levels are in [Rig facts → levels](#rig-levels); the playback ceiling used on
-10-15 was per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. Read `system.health`
-(`peak_level_now`, `clipping_now`) after any live step.
+what will play, on which outputs, how loud and how long, and get the user's yes (the hard confirm shows the args
+again). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
+documented working levels are in [Rig facts → levels](#rig-levels); the playback ceiling used on 10-15 was
+per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. Read `system.health` (`peak_level_now`,
+`clipping_now`) after any live step. Every rig command needs a preset loaded on the **ASIO callback driver**
+(`audio_driver_type 4`); synthesis pauses during each session and resumes after it.
+
+## Rig commands {#rig-commands}
+
+Source of truth: the registry args (`schemas/commands/modal.json`, `preset.json`); the ranges below are enforced
+there (a violation is a 400 `invalid_args` listing every field). Channels are ASIO names (`Out 9`, `In 1`,
+`ADAT 3`) or 0-based indices. Every write command returns a `jobId`: follow it with `job.get` (progress, then
+`result` or `error`). One rig job runs at a time; `modal.rig_cancel` (or `job.cancel`) stops it (a sweep or chunk
+already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (`<measurements>` =
+`$PIANOID_MEASUREMENTS_DIR`, else `D:\modal_measurements`; run id `<yyyymmddThhmmss>-<label>`); older captures
+under `rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
+[REST_API → Rig measurement pipeline](../modules/pianoid-middleware/REST_API.md#rig-pipeline).
+
+### `modal.rig_capture`: sweeps per exciter (hard confirm) {#cmd-capture}
+
+| Arg | Default | Range / values | Meaning |
+|---|---|---|---|
+| `exciters[]` (required) | | 1–12 × `{output, name = E<k>, level_dbfs = −42}` | drive order; channel map exciter → output; level −90 … **−24** dBFS |
+| `inputs[]` (required) | | 1–16 × `{input, name = the channel}` | channel map sensor → input |
+| `sweep.type` | `ess` | `ess` · `linear` | exponential or linear sine sweep |
+| `sweep.f_start_hz` / `sweep.f_stop_hz` | 20 / 2000 | 1 … 20000 / 2 … 24000 | below sr / 2 |
+| `sweep.duration_s` | 20 | 1 … 60 | per sweep |
+| `sweep.fade_in_oct` / `sweep.fade_out_oct` | 0.25 / 0.1 | 0 … 3 | ESS fades (octaves) |
+| `sweep.fade_ms` | 50 | 0 … 2000 | linear-sweep fades (ms) |
+| `timing.post_roll_s` | 3 | 0.1 … 30 | decay tail recorded after each sweep (sweep + tail ≤ 110 s) |
+| `timing.repeats` | 3 | 1 … 10 | sweeps per exciter (averaged by `frf`) |
+| `timing.settle_s` | 1 | 0 … 60 | pause between sessions |
+| `timing.noise_record_s` | 3 | 0 … 30 | silence recorded first (noise floor; 0 = skip) |
+| `timing.order` | `exciter_major` | `exciter_major` · `repeat_major` | all repeats of E1, then E2 …; or E1 … En per repeat (spreads drift) |
+| `guard.guard_dbfs` / `guard.step_db` / `guard.min_level_dbfs` | −6 / 6 / −60 | −60 … −1 / 1 … 24 / −90 … −24 | an exciter's FIRST take peaking above `guard_dbfs` on any input is redone `step_db` lower (not below `min_level_dbfs`) |
+| `guard.stop_dbfs` | −3 | −60 … 0 | a later take above it aborts the run |
+| `loopback` | null | `{output, input}` | marker loopback for sample alignment (an input not in `inputs`); null = align on the reported latency |
+| `sample_rate` | the device's | 8000 … 192000 | expected rate; the engine sets it (48 kHz, block 64; not settable here: a mismatch fails) |
+| `label` / `dry_run` | `capture` / false | | `dry_run` plans only (sessions, `estimated_s`, levels); plays nothing |
+
+Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), `flags`, `peaks_dbfs` per take.
+
+### `modal.rig_sine`: a tone, optional recording (hard confirm) {#cmd-sine}
+
+| Arg | Default | Range | Meaning |
+|---|---|---|---|
+| `frequency_hz` (required) | | 1 … 20000 | |
+| `outputs[]` (required) | | 1–12 × `{output, level_dbfs = −48, phase_deg = 0}` | per-output level (≤ −24 dBFS) and phase (180 = inverted: a signed drive vector such as an appropriation vector) |
+| `duration_s` | 5 | 0.1 … 600 | |
+| `until_stopped` / `max_duration_s` | false / 300 | … 1800 | play until `modal.rig_cancel`, at most `max_duration_s` |
+| `chunk_s` | 5 | 1 … 100 | session length of long tones (short gap between chunks; a stop lands at a chunk end) |
+| `fade_in_ms` / `fade_out_ms` / `chunk_fade_ms` | 50 / 50 / 10 | 0 … 5000 / 0 … 5000 / 0 … 500 | fades at the start, the end and the inner chunk edges |
+| `record_inputs[]` | [] | 0–16 × `{input, name}` | play + record (each chunk under `sessions/chunk<NNN>/`); result `levels_last_chunk` |
+| `post_roll_s` | 0.5 | 0 … 10 | recording after the last chunk (the free decay after a dwell) |
+| `label` / `sample_rate` / `dry_run` | `sine` | | as above |
+
+### `modal.rig_record`: inputs only (hard confirm) {#cmd-record}
+
+`inputs[]` (required, as above), `duration_s` (5; 0.1 … 110), `trigger` (null, or `{input, level_dbfs = −40,
+pre_s = 0.1}`: keep the data from the first crossing minus `pre_s`, saved as `sessions/record/data_triggered.npy`),
+`clip_dbfs` (−0.1: a peak at or above it = clipping), `label`, `sample_rate`, `dry_run`. Result: per channel
+`rms_dbfs`, `peak_dbfs`, `clipping`, the overall `clipping` flag and the `files` for `modal.rig_files`.
+
+### `modal.rig_process`: the pipeline steps (hard confirm) {#cmd-process}
+
+`{step, run, area = rig_runs, frf | polymax | coefficients | build: {options}}`. A `rig_checks` source writes its
+outputs to `rig_runs/<run>/` (with `source.json`); run the steps in this order.
+
+| Step | Options (default; range) | Output |
+|---|---|---|
+| `frf` | `ir_window_s` (4; 0.1 … 30: resolution = 1 / window), `taper_frac` (0.1), `pre_samples` (30), `f_min_hz` (0 = the sweep start), `f_max_hz` (1200), `average` (`mean` · `median` over the repeats), `regularization` (1e-6), `noise_from_repeats` (false: store the repeat variance for PolyMAX), `exciters` / `inputs` (label subsets; [] = all) | `frf/frf.npz` (f, H [repeats, F, inputs, exciters]), `frf/coarse_frf.npz` (freqs, H3 = the average), `frf/report.json` (labels, repeat SNR per path) |
+| `polymax` | `p_max` (40; 4 … 120), `band_edges` (30, 60, 120, 250, 500, 1000, 2000, 4000, 9500), `overlap` (0.15), `max_lines` (4000), `f_min_hz` / `f_max_hz` (0 = the FRF's), `snr_detect_db` (10), `prune` (true), `prune_min_gain` (0.2), `prune_min_snr_db` (10), `loo` (false), `stab` {`p_min` 2, `tol_f` 0.01, `tol_zeta` 0.1, `tol_mpf` 0.9, `zeta_min` 1e-4, `zeta_max` 0.2, `min_stable_frac` 0.3, `use_mpf` true}, `hum_hz` (50) / `hum_harmonics` (3) / `hum_width_hz` (1): lines removed before the fit | `polymax/report.json` (per mode f, ζ, stability, shape, MPF), `polymax/modes.npz`, `polymax/stabilization.png` |
+| `coefficients` | `method` (`residue_svd` · `modal_appropriation`), `f_min_hz` (20), `boundary_hz` (1020), `min_stability` (0.3), `max_fit_residual` (1), `min_rank1_ratio` (0), `zeta_min` / `zeta_max` (5e-4 / 0.2), `mass_trend` (`fit` · `none`), `mass_clip_db` (6), `ridge` (1e-3), `zeta_overrides[]` (`{f_hz, zeta, tol_hz = 1}`, e.g. a stop-and-decay ζ), hum options as above | `coefficients/measured_table.json` (the builder input: per mode f, ζ, `mass_inv_rel`, real channel weights with max \|·\| = 1, below `boundary_hz`), `coefficients/report.json` (dropped modes and why, the trend exponent, energy kept by the real projection) |
+| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights |
+
+Laws ([measured preset §5, §6](../development/measured-plywood-preset-2026-10-15.md)): relative 1/m ∝
+σ1 · max\|u\| · max\|v\| of each mode's residue matrix (inputs × exciters), its power-law trend over f removed
+(instrument chain), the rest clipped to ± `mass_clip_db`; weights = the real projection of the drive vector
+(rotate by the largest entry's phase, real part, max \|·\| = 1). **These weights are per drive volt** (the
+capture's reference); the 10-17 preset used per-ampere weights from coil currents.
+
+### `preset.create`: a new preset structure (hard confirm) {#cmd-create}
+
+| Arg | Default | Range | Meaning |
+|---|---|---|---|
+| `name` (required) | | letters, digits, `. _ -` | `presets/<name>.json`; an existing name is refused unless `overwrite: true` |
+| `num_strings` (required) | | 8 … 256, a multiple of 4 | piano strings + the output strings (`ceil(channels / 4) × 4`) |
+| `num_channels` (required) | | 1 … 12 | output pitches 128 … 127 + n (one per exciter) |
+| `array_size` (required) | | 384 … 512 | the string geometry is scaled by new / old; every block must fit |
+| `num_modes` | 0 (keep) | 0 … 2000 | keep the first N modes |
+| `base_preset` | `F15_Elyashev_array512` | | a preset in `presets/` |
+| `string_removal` | `treble_first` | `treble_first` · `bass_first` | which unisons lose a string (3-string ones first); try the other order if a block does not fit |
+| `overwrite` | false | | |
+
+The new channels copy the base's first output row (equal weights); `modal.rig_process build_preset` writes the
+measured weights. The output scale is marked uncalibrated (the engine re-derives it at load). Adding strings or
+modes beyond the base is refused.
+
+### `modal.rig_runs`, `modal.rig_files`: reads (no confirm) {#cmd-reads}
+
+`modal.rig_runs {area, limit}` lists the runs (id, kind, steps done, size); with `{run}` it gives one run's config,
+step reports and every file (relative names). `modal.rig_files {run, area, files: [≤ 10 relative names], export:
+true}` copies them into ONE analysis artefact (names flattened: `sessions/E1_m42_r1/data.npy` →
+`sessions__E1_m42_r1__data.npy`; at most 400 MB) whose id `analysis.run_python` takes ([R6](#r6)).
 
 ## Rig facts {#rig}
 
@@ -136,10 +240,9 @@ Each step: purpose, the command (or the hand-off), parameters, expected output, 
 Timing comes from [report 10-14 §7](../development/report-mode-discovery-2026-10-14.md). The minimum trustworthy
 session below 200 Hz is about 45 min (3 × full 7 × 7 + consensus); the minimum useful one about 20 min.
 
-Scripts named below live in `docs/development/diagnostics/` (dev-fd69 / dev-a709 / dev-b8e3) and
-`D:\modal_measurements\rig_checks\*.py`. The modal-adapter packages they import (`polymax`, `swept_discovery`,
-`appropriation`, `measurement`) are in Core `dev` (merged 2026-10-19, Core dev 68615df);
-see [Branch status](#branch-status).
+Each step names its **command** ([Rig commands](#rig-commands)). The agent scripts of the original sessions
+(`docs/development/diagnostics/`, `D:\modal_measurements\rig_checks\*.py`) are kept as references; the commands
+are their parametric form (dev-8a9e). See [Branch status](#branch-status).
 
 ### Step 0: state and preconditions {#step-0}
 
@@ -156,9 +259,11 @@ see [Branch status](#branch-status).
 ### Step 1: wiring / ID check {#step-1}
 
 - **Purpose:** prove each output drives the exciter you think, and each input carries its own sensor.
-- **Hand to the user / agent:** passive noise record (silence 5–10 s, all inputs), then ID bursts (1 s chirp
-  100 Hz–2 kHz per exciter, 3 s apart, −42 dBFS). Scripts: `dev-fd69-exciter-id-bursts-2026-10-14.py`,
-  `rig_checks\wiring_capture.py` + `wiring_analyse.py`. About 1 min.
+- **Commands:** `modal.rig_record` (silence 5–10 s, all inputs: the floor and hum per input), then one short
+  `modal.rig_capture` as ID bursts: every exciter at −42 dBFS, `sweep {f_start_hz: 100, f_stop_hz: 2000,
+  duration_s: 1}`, `timing {repeats: 1, post_roll_s: 2, settle_s: 1}` (about 1 min); `modal.rig_runs {run}` then
+  shows `peaks_dbfs` per exciter × input (or export a session with `modal.rig_files` and compare levels with
+  `analysis.run_python`). A single exciter: `modal.rig_sine` (e.g. 200 Hz, −42 dBFS, 1 s) with `record_inputs`.
 - **Acceptance:** with coil currents on the inputs, In k answers only Ek (own current +30 … +39 dB, crosstalk 24–33
   dB down); with piezos, every exciter reaches the board; the E7 → P8 IR peak is at a stable sample within the
   session; the passive record shows the floor plus 50 Hz hum only.
@@ -170,9 +275,10 @@ see [Branch status](#branch-status).
 
 - **Purpose:** each exciter's fs and admittance (needed for per-ampere data and to tell exciter resonances from
   board modes).
-- **Hand to the user / agent:** "B2": 20 s ESS 15–200 Hz × 2 per exciter, coil currents recorded (5.7 min).
-  Scripts: `dev-fd69-current-ref-b2b4-2026-10-14.py`; driving point: `rig_checks\drivingpoint_capture.py` +
-  `drivingpoint_analyse.py`.
+- **Command:** `modal.rig_capture` with `sweep {f_start_hz: 15, f_stop_hz: 200, duration_s: 20}`,
+  `timing.repeats: 2`, and the coil-current inputs in `inputs` (5.7 min for 7 exciters); then `modal.rig_process
+  frf` (`f_max_hz: 200`, `ir_window_s: 8`). The admittance is the exciter's own current row of H; read it with
+  `modal.rig_files` + `analysis.run_python`.
 - **Expected:** the fs table above; admittance flat above 60 Hz.
 - **Pitfall:** per ampere is not per newton near fs (inertial exciters). There is no force calibration and no
   calibrated accelerometer, so all scales are relative.
@@ -180,8 +286,9 @@ see [Branch status](#branch-status).
 ### Step 3: linearity and distortion ladder {#step-3}
 
 - **Purpose:** choose safe levels; find a distorting exciter.
-- **Hand to the user / agent:** 8 s ESS 20 Hz–10 kHz (+ 3–4 tones) at 3–5 levels per exciter (3–6 min).
-  Scripts: `dev-fd69-nonlin-exciters-2026-10-14.py`; current vs motion: B3 in `dev-fd69-current-ref-b2b4-2026-10-14.py`.
+- **Commands:** one `modal.rig_capture` per level (`sweep {f_start_hz: 20, f_stop_hz: 10000, duration_s: 8}`,
+  `timing.repeats: 1`, levels e.g. −48 / −42 / −36 / −30 dBFS; `label` per level), plus `modal.rig_sine` tones with
+  `record_inputs` (H2 / H3 from the spectrum in `analysis.run_python`). Compare the `frf` of the runs.
 - **Acceptance:** the linear FRF scales within 0.5 dB per +6 dB; H2 of motion vs the coil current tells mechanical
   from electrical distortion.
 - **Decision rule:** an exciter whose motion H2 is well above its current H2 is mechanical (mounting): lower its
@@ -190,11 +297,10 @@ see [Branch status](#branch-status).
 ### Step 4: multi-exciter excitation (the FRF matrix) {#step-4}
 
 - **Purpose:** the 8 × 7 (sensors × exciters) FRF matrix that every extraction uses.
-- **Hand to the user / agent:** full 7 × 7 ESS: 20 s ESS 20 Hz–2 kHz (+ 3 s tail), **3 repeats per exciter**, 21
-  sessions, 8.8 min, at the [sweep levels](#rig-levels). Optional: MIMO orthogonal multisines (all 7 at once,
-  20 Hz–2 kHz, 4.3 min) for fast surveys **above 35 Hz**; a dedicated LF ESS 15–150 Hz (30 s) below 35 Hz.
-  Scripts: `dev-fd69-fixed-layout-2026-10-14.py`, `dev-fd69-lf-identification-2026-10-14.py`,
-  `dev-fd69-mimo-2026-10-14.py`; swept discovery CLI `python -m pianoid_middleware.modal_adapter.swept_discovery run`.
+- **Commands:** `modal.rig_capture` (defaults = the 10-14 / 10-15 protocol: ESS 20 Hz–2 kHz, 20 s + 3 s tail,
+  3 repeats, 21 sessions, about 9 min at the [sweep levels](#rig-levels); `dry_run: true` first), then
+  `modal.rig_process {step: frf}`. A dedicated LF run below 35 Hz: `sweep {f_start_hz: 15, f_stop_hz: 150,
+  duration_s: 30}`. MIMO multisines (all exciters at once) have no command.
 - **Acceptance:** 0 xruns; peaks below the guards; repeat coherence high (10-12: γ² ≥ 0.9996, 42–48 dB repeat SNR).
 - **Pitfalls:** below 30 Hz the 7-exciter multisine and the sweep differ by 10–20 dB (unresolved, not per-exciter
   stick-slip): use the sweep there. Per-volt data favour the hot outputs (Out 9 / 10): use per-ampere data
@@ -206,10 +312,11 @@ see [Branch status](#branch-status).
 - **Purpose:** poles (f, ζ) and residues from the FRF matrix.
 - **Method ranking on this board** ([report 10-12 §4, §6.1](../development/report-mode-discovery-2026-10-12.md)):
   1. **PolyMAX** (multi-reference pLSCF + LSFD): primary f, ζ and shapes up to about 1.1 kHz; its ζ matches the
-     model-free decays (ratio 1.01). CLI `python -m pianoid_middleware.modal_adapter.polymax` (Core dev).
+     model-free decays (ratio 1.01). Command `modal.rig_process {step: polymax}` (e.g. `polymax.f_max_hz: 1100`).
   2. **Consensus below 200 Hz:** single PolyMAX fits there are unreliable (the same data gave different lists).
      Run **18 fits per run** (3 band sets × 2 orders × 3 bootstrap) over ≥ 3 runs and keep the poles that recur.
-     Script `dev-fd69-consensus-lt200-2026-10-14.py` (190 s per run).
+     Script `dev-fd69-consensus-lt200-2026-10-14.py` (190 s per run); with the commands: several `polymax` fits
+     with other `band_edges` / `p_max` and a comparison in `analysis.run_python` ([R7](#r7)).
   3. **Swept joint fit** (dev-69fd): independent cross-check of f and shapes; its ζ reads about 30 % high.
   4. **Per-exciter ESPRIT: do not use on this board** (impulse or chirp IRs). Cross-exciter agreement is at
      chance level; ζ reads low (down to 0.1–0.2 %).
@@ -231,10 +338,12 @@ see [Branch status](#branch-status).
 ### Step 6: damping validation (Q) {#step-6}
 
 - **Purpose:** trust the ζ that goes into the preset.
-- **Hand to the user / agent:** Q confidence (analysis only): `dev-fd69-q-confidence-2026-10-15.py` (PolyMAX per
-  run, settings spread, enhanced-FRF half-power / SDOF, free decays). Focused stop-and-decay (live):
-  `dev-fd69-q-decay-2026-10-15.py`: per mode a ±1.5 % tuning sweep (7 dwells), then 3 × (steady drive with the
-  mode or optimum vector → 5 ms stop → decay ≥ max(1 s, 12 τ)), max −36 dBFS (E2 −42). 24 modes, 48 sessions.
+- **Commands:** PolyMAX ζ per run (`polymax` on each capture run). Stop-and-decay (live): `modal.rig_sine` at
+  f_m with the mode's drive vector (`outputs[].level_dbfs` / `phase_deg` from the coefficients weights), a steady
+  `duration_s` (e.g. 3 s), `fade_out_ms` 5, `record_inputs` all piezos and `post_roll_s` ≥ max(1 s, 12 τ); fit the
+  decay in `analysis.run_python` ([R2](#r2) on the exported chunk); max −36 dBFS (E2 −42). A chosen ζ goes back with
+  `coefficients.zeta_overrides`. (Reference scripts: `dev-fd69-q-confidence-2026-10-15.py`,
+  `dev-fd69-q-decay-2026-10-15.py`.)
 - **Acceptance:** decays repeat (sd ≤ 0.08 pp); a decay is clean when the log-envelope residual is < 0.8 dB, the
   decay frequency stays within 1 % of the target, and the gap covers ≥ 3 τ.
 - **Which ζ to use** (applied in the measured preset, §4.3): tight decay class → the decay value; beating or
@@ -247,8 +356,10 @@ see [Branch status](#branch-status).
 ### Step 7: mode shapes {#step-7}
 
 - **Purpose:** the response shape u (over the piezos) and the drive vector v (over the exciters) per mode.
-- **Hand to the user / agent:** LSFD with the fixed pole list: `dev-fd69-mode-shapes-appropriation-2026-10-15.py`
-  (output `mode-shapes-20261015\mode_shapes.json`), board-mm plots `dev-fd69-replot-shapes-mm-2026-10-14.py`.
+- **Command:** the `polymax` report holds per mode the shape over the inputs and the MPF over the exciters;
+  `coefficients/report.json` the real weights. Board-mm plots: `analysis.run_python` with the layout coordinates
+  (ask the user) or the reference scripts `dev-fd69-mode-shapes-appropriation-2026-10-15.py`,
+  `dev-fd69-replot-shapes-mm-2026-10-14.py`.
 - **Expected per mode:** u, v, rank-1 share, cross-exciter MAC, repeat MAC; reliability class.
 - **Pitfalls:** shapes repeat run to run (MAC 0.95) but different exciters see different shapes (about 0.3): the
   modes overlap and 7 sensors cannot separate them. That is the main limit, not noise. **Shapes are not
@@ -258,10 +369,10 @@ see [Branch status](#branch-status).
 
 - **Purpose:** check that driving the exciters in proportion to a mode's drive vector excites that mode; this
   vector becomes the preset's channel weights.
-- **Hand to the user / agent:** `dev-fd69-appropriation-live-2026-10-15.py` (plan from 3 FRF runs; stepped sine at
-  f_m, 2 s settle + 1 s lock-in; vectors: mode, optimum = top singular vector of H_I(f_m), best single, uniform,
-  3 random), at **equal coil-current RMS**, max −36 dBFS (E2 −42). CLI `python -m
-  pianoid_middleware.modal_adapter.appropriation` (Core dev).
+- **Commands:** per mode `modal.rig_sine` at f_m with the weights as levels and signs (`phase_deg` 0 / 180;
+  level_k = max level + 20 log10 \|w_k\|), `duration_s` 3 (2 s settle + 1 s lock-in), `record_inputs`; compare with
+  a best-single and a uniform vector (lock-in amplitude in `analysis.run_python`). Max −36 dBFS (E2 −42). The
+  10-15 protocol (equal coil-current RMS, 3 random vectors) is `dev-fd69-appropriation-live-2026-10-15.py`.
 - **Acceptance (10-15, 24 modes):** the mode vector beats single / uniform / random in every mode; median −0.3 dB
   on the target mode and −0.6 dB on the total response vs the optimum; live − predicted about 0 dB median (max
   2.3 dB at 220 Hz).
@@ -273,11 +384,13 @@ see [Branch status](#branch-status).
 - **Purpose:** replace the base preset's low modes with the measured ones. Done twice:
   `F15_measured_plywood_2026-10-15` and, with the user's decisions, **`F15_measured_plywood_2026-10-17`** (the
   current one; the 10-15 file stays for A/B).
-- **Hand to an agent** (no command): [measured preset §13 and §14.6](../development/measured-plywood-preset-2026-10-15.md#146-reproduce-10-17):
-  `dev-a709-measured-modes-2026-10-15.py` (residues per ampere) → `dev-a709-measured-table-2026-10-15.py
-  --boundary-hz 1020 --zeta-average 220.07` → `python -m Pianoid.measured_mode_preset BASE MEASURED --out OUT` →
-  `dev-b8e3-carry-hf-weights-2026-10-17.py` → `dev-a709-equalize-preset-2026-10-15.py --write` →
-  `dev-a709-verify-preset-2026-10-15.py --write-layer-b`. All offline, in a separate process, audio off.
+- **Commands:** `modal.rig_process {step: coefficients}` (`boundary_hz` 1020; ζ choices via `zeta_overrides`)
+  → `modal.rig_process {step: build_preset, build: {name, base_preset, n_modes, num_strings, array_size}}` (a NEW
+  preset; a different structure in the same step, or `preset.create` alone). Then `preset.load` at the declared
+  settings and `calibration.synthesis` (equalization; not while live audio plays). Not covered by a command: the
+  10-17 carry-over of the HF weights and the Layer B recalibration (`dev-b8e3-carry-hf-weights-2026-10-17.py`,
+  `dev-a709-verify-preset-2026-10-15.py --write-layer-b`), the per-ampere residues (`dev-a709-measured-modes`);
+  the 10-17 reproduction is [measured preset §14.6](../development/measured-plywood-preset-2026-10-15.md#146-reproduce-10-17).
 - **The rules it applies** (so the assistant can explain them):
 
 | Topic | Rule (10-17) |
@@ -332,11 +445,11 @@ see [Branch status](#branch-status).
 
 The sandbox has numpy / scipy / soundfile / matplotlib, no network, no Pianoid access and no files except its
 inputs. Inputs are **artefact ids**: make them with `export: true` on `render.note_playback`, `render.chart`,
-`render.keyboard`, `param.get` or `preset.summary`. In the code: `ARTIFACTS[id]` (the meta),
-`artifact_path(id)` (the first file; `artifact_path(id, 'series_0.npy')` for another), and `OUT` for PNG / CSV /
-JSON outputs. Never paste samples into the code. Rig recordings cannot be inputs (see [Gaps](#gaps)), so these
-recipes work on **offline renders and preset data**. Renders are raw engine units: compare renders of the same
-preset, report frequencies, ratios and dB differences.
+`render.keyboard`, `param.get`, `preset.summary` or **`modal.rig_files`** (rig recordings and pipeline outputs).
+In the code: `ARTIFACTS[id]` (the meta), `artifact_path(id)` (the first file; `artifact_path(id, 'series_0.npy')`
+for another), and `OUT` for PNG / CSV / JSON outputs. Never paste samples into the code. Renders are raw engine
+units: compare renders of the same preset, report frequencies, ratios and dB differences. Rig recordings are
+float32 `[frames, inputs]` at full scale 1.0, aligned to the drive (frame 0 = the sweep start).
 
 ### R1: which measured modes show up in a note {#r1}
 
@@ -446,6 +559,27 @@ Overlap factor per mode = half-power bandwidth / mean spacing to the neighbours 
 single-mode estimators (half-power, peak picking, free decay) are biased: prefer PolyMAX values. Pure arithmetic
 on a list from the doc or from `param.get` (R3).
 
+### R6: a rig recording or FRF in the sandbox {#r6}
+
+`modal.rig_runs {run}` lists the files; export what you need (≤ 10 files, ≤ 400 MB), e.g.
+`modal.rig_files {run, files: ["frf/coarse_frf.npz", "sessions/E3_m36_r1/data.npy"], export: true}`:
+
+```python
+import json, numpy as np
+aid = list(ARTIFACTS)[0]
+d = np.load(artifact_path(aid, 'frf__coarse_frf.npz'))          # freqs (F,), H3 (F, inputs, exciters)
+x = np.load(artifact_path(aid, 'sessions__E3_m36_r1__data.npy'))  # one take, (frames, inputs)
+s1 = np.linalg.svd(d['H3'], compute_uv=False)[:, 0]             # CMIF: peaks = modes
+print(json.dumps({'H3': list(d['H3'].shape), 'cmif_peak_hz': float(d['freqs'][np.argmax(s1)]),
+                  'take_peak_dbfs': float(20 * np.log10(np.abs(x).max()))}))
+```
+
+### R7: compare two PolyMAX fits (consensus) {#r7}
+
+Run `polymax` on the same run with other settings (e.g. `band_edges` shifted by half a band, `p_max` 30 / 50):
+each run overwrites `polymax/`, so export `polymax/report.json` after each fit, then match the mode lists (a pole
+recurring within 0.3 % in most fits is kept; see [step 5](#step-5)).
+
 ## Decision tables {#decisions}
 
 ### Symptom → what to check {#decisions-symptoms}
@@ -531,20 +665,26 @@ checkout `PianoidCore`; the old fd69 / 4284 / 69fd worktrees are gone. The measu
 preset work (dev-a709, dev-b8e3) **is** merged (Core dev a67f132 / 537e7e6, Basic dev 4de6f9a): the preset
 files, the builder `Pianoid.measured_mode_preset` and the 12-channel engine with the output map.
 
+The rig commands (dev-8a9e, 2026-10-19): Core `rig_pipeline_routes.py` + `modal_adapter/rig_pipeline/` (ASIO
+capture / sine / record, frf, polymax, coefficients, build_preset), Basic `Pianoid/preset_restructure.py` (run from
+the checkout by the step, no Basic rebuild needed), the registry `modal.rig_*` / `preset.create` and the assistant's
+policy and `modal.rig_files` export. A pull + backend restart + assistant restart activates them (no CUDA build).
+
 ## Gaps: steps with no command {#gaps}
 
 | Step | Missing | Today |
 |---|---|---|
-| 1–4, 6, 8 (rig capture) | a registry command over `POST /audio/session` (play a signal on chosen outputs, record chosen inputs) | agent scripts |
-| 5–7 (PolyMAX, consensus, LSFD, shapes) | an analysis command / job; the code is in Core dev (CLIs only) | agent scripts / CLIs |
-| any | importing a recording (`.npz`, session WAVs) as an analysis artefact | `analysis.run_python` takes only render / `param.get` / `preset.summary` artefacts |
-| 9 (builder, carry-over, Layer B) | a build / Layer B command | agent scripts |
-| 11 (level on a sensor) | an exportable mic / piezo capture (`/measure_rms` and `play.keyboard capture_mic` are not exportable artefacts) | the user listens; `system.health` peaks |
+| 4 | MIMO multisines (all exciters at once) | sweeps one exciter at a time (`modal.rig_capture`) |
+| 5 | the automatic 18-fit consensus below 200 Hz | several `polymax` fits + [R7](#r7) |
+| 6, 8 | the stepped tuning sweep / equal coil-current scaling of the 10-15 scripts | `modal.rig_sine` dwells, the levels computed by the assistant |
+| 9 | per-ampere residues, the HF-weight carry-over, Layer B | reference scripts (see [step 9](#step-9)) |
 | 10 (output map) | a way to set `PIANOID_AUDIO_OUTPUT_MAP` | the user restarts the backend with the variable |
+| a tone longer than 110 s without gaps | `/audio/session` sessions are at most 120 s | `until_stopped` chunks |
 
 ## Data layout (`D:\modal_measurements\rig_checks`) {#data-layout}
 
-For orientation when talking to the user or handing over to an agent (the assistant cannot read it):
+The assistant reads these through `modal.rig_runs` / `modal.rig_files` (`area: rig_checks`, read-only). Its own
+runs go to `rig_runs/<run_id>/` ([Rig commands](#rig-commands)).
 
 - One folder per capture: `<YYYYMMDD>T<HHMMSS>-<label>` (for example `20261015T124849-7x7-piezos-weights-r1`,
   `20261015T142258-q-decay`), with `sessions\` (the per-session recordings), a `config.json` or
@@ -557,6 +697,54 @@ For orientation when talking to the user or handing over to an agent (the assist
   positions and the photo.
 - Helper scripts at the top level: `wiring_*`, `drivingpoint_*`, `frf4ref_*`, `rove_*`, `current_analyse.py`.
 - Earlier data: `D:\modal_measurements\swept_discovery\`, `appropriation\`, `analysis\dev-fd69-2026-10-1{1,2}\`.
+
+## Worked example: 7 exciters, 8 piezos, a 224-string / 7-channel / 384 preset {#example}
+
+The rig: exciters E1..E7 on **Out 9, Out 10, Out 3 … Out 7** (the engine's output map `8,9,2,3,4,5,6`, 0-based),
+piezos P1..P8 on **In 1 … In 8** (no loopback input free: alignment on the reported latency). Every step below is
+one confirmed command; say what it plays before each live one.
+
+0. **State.** `system.snapshot` (ASIO callback driver, no fallback; a preset loaded), `audio.devices` (the UMC with
+   In 1–8 / Out 1–10). Ask the user to confirm the wiring above and that D: has ≥ 5 GB free.
+1. **Noise floor.** `modal.rig_record {label: "floor", inputs: [{input: "In 1", name: "P1"}, …, {input: "In 8",
+   name: "P8"}], duration_s: 5}` → `rms_dbfs` per piezo (expect the floor + 50 Hz hum; no `clipping`).
+2. **Plan, then capture.**
+   ```json
+   {"label": "dima-7x8", "dry_run": true,
+    "exciters": [{"name": "E1", "output": "Out 9", "level_dbfs": -42}, {"name": "E2", "output": "Out 10", "level_dbfs": -48},
+                 {"name": "E3", "output": "Out 3", "level_dbfs": -36}, {"name": "E4", "output": "Out 4", "level_dbfs": -30},
+                 {"name": "E5", "output": "Out 5", "level_dbfs": -36}, {"name": "E6", "output": "Out 6", "level_dbfs": -42},
+                 {"name": "E7", "output": "Out 7", "level_dbfs": -36}],
+    "inputs": [{"name": "P1", "input": "In 1"}, {"name": "P2", "input": "In 2"}, {"name": "P3", "input": "In 3"},
+               {"name": "P4", "input": "In 4"}, {"name": "P5", "input": "In 5"}, {"name": "P6", "input": "In 6"},
+               {"name": "P7", "input": "In 7"}, {"name": "P8", "input": "In 8"}],
+    "sweep": {"type": "ess", "f_start_hz": 20, "f_stop_hz": 2000, "duration_s": 20},
+    "timing": {"repeats": 3, "post_roll_s": 3, "settle_s": 1, "noise_record_s": 3}}
+   ```
+   `modal.rig_capture` with that body returns the plan (21 sessions, about 510 s). Tell the user: "ESS 20 Hz–2 kHz,
+   20 s, on each of the 7 exciters in turn, 3 times, at −30 … −48 dBFS, about 9 minutes". On yes, the same body
+   with `dry_run: false`. `job.get` until finished → `run` (e.g. `20261020T101500-dima-7x8`), `levels`, `flags`.
+3. **FRF.** `modal.rig_process {step: "frf", run, frf: {ir_window_s: 4, f_max_hz: 1200}}` → 8 × 7 paths, 3
+   repeats, 0.25 Hz lines; check `repeat_snr_db_median` in `modal.rig_runs {run}`.
+4. **PolyMAX.** `modal.rig_process {step: "polymax", run, polymax: {f_max_hz: 1100}}` → `n_modes`, the f range,
+   median ζ (on the plywood board: about 40–55 modes in 20 Hz–1.1 kHz, ζ median about 1.6 %).
+5. **Coefficients.** `modal.rig_process {step: "coefficients", run, coefficients: {boundary_hz: 1020,
+   min_stability: 0.3}}` → `measured_table.json` (f, ζ, `mass_inv_rel`, 7 real weights per mode); check
+   `coefficients/report.json` `dropped` and the trend exponent (about 2.1 on this board).
+6. **The preset.** `modal.rig_process {step: "build_preset", run, build: {name: "dima_board_224_7_384",
+   base_preset: "F15_Elyashev_array512", num_strings: 224, array_size: 384, n_modes: 196}}` → a NEW preset with
+   224 strings (216 piano + 8 output strings), 7 channels (output pitches 128..134 = E1..E7), array_size 384, the
+   measured modes below 1020 Hz and the F15 modes above. (Structure only, no measurement: `preset.create {name,
+   num_strings: 224, num_channels: 7, array_size: 384}`.)
+7. **Load and check.** `preset.files` → `preset.load {path, array_size: 384, …}` (hard confirm) → `preset.summary`
+   (`num_strings 224`, `num_channels 7`, `array_size 384`) → one `render.note_playback` (not `all_zero`). The user
+   restarts the backend with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6` before playing it on the board (step 11).
+
+Verified offline on 2026-10-19 (dev-8a9e, no audio): steps 3–6 on the 10-15 piezo run `20261015T124849-7x7-piezos-
+weights-r1` gave 42 PolyMAX modes (ζ median 1.6 %), 41 table modes reproducing 28 of the 39 published measured
+modes within 0.5 % (median 0.12 %) from that single run, and a 224 / 7 / 384 preset the engine loads and renders.
+Steps 1–2 (live ASIO) are not verified on the rig yet.
+
 
 ## Sources {#sources}
 

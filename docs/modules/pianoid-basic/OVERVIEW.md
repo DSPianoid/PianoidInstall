@@ -691,6 +691,25 @@ Provenance: `preset["measured_modes_build"]` (coupling sources, shared columns, 
 scheme, the measured table). Loading > 4 channels needs the engine channel count from the preset (PianoidCore
 `pianoid.py` + `Pianoid.cu`, dev-a709 — [SYNTHESIS_ENGINE → Audio Output](../pianoid-cuda/SYNTHESIS_ENGINE.md#audio-output)).
 
+### Preset structure change (dev-8a9e)
+
+File: `preset_restructure.py`, `restructure(base, num_strings, num_channels, array_size, num_modes, removal)` →
+`(preset, provenance)` (pure; CLI `python preset_restructure.py BASE.json OUT.json --num-strings 224
+--num-channels 7 --array-size 384`). Used by the assistant's `preset.create` and `build_preset` (PianoidCore
+`modal_adapter/rig_pipeline`, which runs it from this checkout).
+
+| Item | Rule |
+|---|---|
+| strings | `num_strings` = piano strings + `ceil(channels / nsa) × nsa` output strings; unison strings are removed (most strings first, `treble_first` / `bass_first`), the rest renumbered 0..n-1; adding strings is refused |
+| blocks | untouched blocks are kept; the strings of the blocks that lost one are re-packed by an exact search, else all piano blocks largest-first; a block fits when `2 + Σ(main + tail + STEM_LENGTH + interval) ≤ array_size` (`StringBlock.add_string`) |
+| channels | `set_output_pitches` + `resize_sound_channels` of the measured builder (new channels copy the first output row) |
+| array_size | geometry `main` / `tail` × new / old (the loader's law), declared `array_size` (and `fpga_conversion.load_params`) updated |
+| modes | the first `num_modes` kept, deck columns cut; `num_modes + channels ≤ num_strings` |
+| Layer B | `output_scale_calibrated = false` |
+
+Provenance: `preset["preset_structure_build"]` (removed strings, packing, scales). Check: F15_Elyashev_array512 →
+224 / 7 / 384 is accepted by `StringMap` and loads + renders in the engine (dev-8a9e, 2026-10-19).
+
 ### Synthetic mode extension (4000-modes campaign T2)
 
 Files: `modal_density.py` (density law), `mode_fill.py` (slots, spacing, damping, energy), `mode_extension.py`
