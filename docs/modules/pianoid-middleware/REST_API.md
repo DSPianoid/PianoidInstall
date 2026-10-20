@@ -1076,6 +1076,62 @@ Response `200`:
 
 ---
 
+### Exciter monitor (dev-8f54) {#exciter-monitor}
+
+Current / board sensors on the ASIO inputs during normal playback, and a per-exciter current-limit safety
+limiter: `exciter_monitor_routes.py` over `exciter_monitor.py` / `exciter_monitor_config.py`; engine stage
+`ExciterMonitor.cpp` ([AUDIO_DRIVERS → Exciter monitor](../pianoid-cuda/AUDIO_DRIVERS.md#exciter-monitor-dev-8f54)).
+Design: [controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md). Needs the ASIO
+callback driver (`audio_driver_type 4`); stored per machine under `exciter_monitor` in
+`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (hard confirm),
+`audio.exciters_clear`.
+
+#### `GET /audio/exciters`
+
+`read_only` → `{config, telemetry}`. `telemetry` (also the socket event **`exciter_telemetry`**, at
+`config.telemetry_hz` = 25 Hz while enabled and an ASIO device is open):
+
+| Field | Meaning |
+|---|---|
+| `enabled`, `api`, `device_open`, `configured` | monitor on · an engine with the API is loaded · ASIO open · the engine runs the current config |
+| `sample_rate`, `buffer_size`, `rate {frames_per_s, expected, ok}` | input frames metered per second over the window (≈ the sample rate during playback) |
+| `inputs[]` | `{index, name ("In 1"), label, kind, unit ("FS" when uncalibrated), uncalibrated, full_scale, present, rms, peak, rms_fs, peak_fs, rms_dbfs, peak_dbfs, clipping, test_level}` |
+| `exciters[]` | `{channel, name, present, output {peak_dbfs, rms_dbfs} (post-limiter), current {input, input_name, rms, peak, unit, full_scale, limit, target, uncalibrated} \| null, board {...} \| null, gain_db, min_gain_db, trim_db, limiting, at_floor, attacks (cumulative), latched {max_current_peak, min_gain_db, attacks}, warnings[]}` |
+| `warnings[]` | `{code, exciter?, message}`: `sensor_silent` (plays, sense below `sensor_check.min_sense_dbfs` for `hold_s`), `map_suspect` (another current input carries it), `input_clipping` (≥ 0.99 FS), `limit_floor` (gain at the floor > 1 s), `uncalibrated`, `rate_low` (< 90 % of the sample rate) |
+
+Values are `null` when nothing was metered (no device, disabled). The window is the time since the previous
+sample (each sample resets the engine window).
+
+#### `POST /audio/exciters/config`
+
+`session` (`session_changed {domain: exciter_monitor}`). Body = a partial patch; the result is validated,
+saved and pushed to the engine at once → `{status, config, telemetry}`; `400 invalid_config` (with the reason) /
+`400 engine_refused`.
+
+| Key | Patch rule · fields |
+|---|---|
+| `enabled`, `telemetry_hz` (1–60) | replace |
+| `inputs` | merged by `index` (0–31): `{index, kind current\|board\|other, label, scale (units per full scale, > 0, null = uncalibrated), unit}` |
+| `exciters` | merged by `channel` (engine channel 0–15): `{channel, name, sense_input, board_input (metered inputs or null), limit (block peak, sense unit, null = no limiter), target (RMS, closed loop), release_ms (10–10000)}` |
+| `limiter` | `{floor_db (−60…0, −30), release_threshold (0.05–1, 0.9), holdoff_switches (null = one measured round trip + 1)}` |
+| `closed_loop` | `{enabled (false), rate_db_per_s (1), max_cut_db (12), max_boost_db (0, ≤ 6)}` |
+| `sensor_check` | `{output_dbfs (−50), min_sense_dbfs (−90), hold_s (0.4)}` |
+| `{…, "remove": true}` / `replace: true` / `reset: true` | drop one list item · replace the lists · start from the default |
+
+Example (E3 limited to 1.5 A peak with a 0.1 Ω sense into a 2 V full-scale input: `scale` = 20 A/FS):
+`{"enabled": true, "inputs": [{"index": 2, "scale": 20}], "exciters": [{"channel": 2, "limit": 1.5}]}`.
+
+#### `POST /audio/exciters/clear`
+
+`session`: clears the latched values and puts every limiter gain back to its ceiling → `{status}`.
+
+#### `POST /debug/exciter_test_level`
+
+TEST HOOK (`session`): `{input, level_fs}` — physical input `input` reads at least a sine of peak `level_fs`
+(0–4 FS, 0 = off) in the engine, so the limiter can be exercised without a sensor. `409` with no engine.
+
+---
+
 ## Parameter Endpoints
 
 ### `GET /get_parameter/<parameter>/<key_no>`
