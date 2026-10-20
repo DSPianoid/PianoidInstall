@@ -326,7 +326,7 @@
     {
       "name": "modal.rig_sine",
       "title": "Play a sine on rig outputs (optionally record inputs)",
-      "description": "Plays a sine of frequency_hz on the chosen outputs (each with its own level, fades in / out) for duration_s, or until modal.rig_cancel / job.cancel when until_stopped (then in chunks of chunk_s, at most max_duration_s; the stop lands at the end of the current chunk). With record_inputs it also records those inputs (play + record) and saves them under <measurements>/rig_runs/<run_id>/sessions/. DRIVES THE EXCITERS. Long-running: returns a jobId.",
+      "description": "Plays a sine of frequency_hz on the chosen outputs (each with its own level, fades in / out) for duration_s, or until modal.rig_cancel / job.cancel when until_stopped (then in chunks of chunk_s, at most max_duration_s; the stop lands at the end of the current chunk). With record_inputs it also records those inputs (play + record) and saves them under <measurements>/rig_runs/<run_id>/sessions/. With sequence: several tones in turn (per step frequency / outputs / duration, pause_s of silence between), e.g. each exciter after the other. DRIVES THE EXCITERS. Long-running: returns a jobId.",
       "target": "backend",
       "tier": "destructive",
       "approval_category": "hard_confirm",
@@ -465,6 +465,76 @@
             "minimum": 0,
             "maximum": 10,
             "default": 0.5
+          },
+          "pause_s": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 600,
+            "default": 1,
+            "description": "sequence only: silence after each step (a step's own pause_s overrides it; none after the last step)"
+          },
+          "sequence": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 64,
+            "default": [],
+            "description": "Tones played in turn, each its own session(s): every step = the top-level tone with the step's frequency_hz / outputs / duration_s (absent = the top-level value), then pause_s of silence. E.g. one output after another with 2 s pauses. Not with until_stopped. With record_inputs every step is recorded (sessions/s<NN>_chunk<NNN>/); result levels_per_step. Empty = play the top-level tone once",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "frequency_hz": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 20000
+                },
+                "outputs": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 12,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "output"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "output": {
+                        "type": [
+                          "string",
+                          "integer"
+                        ],
+                        "description": "ASIO channel: a name ('Out 9', 'In 1', 'ADAT 3') or a 0-based index"
+                      },
+                      "level_dbfs": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": -24,
+                        "default": -48,
+                        "description": "Peak level in dBFS (safe maximum -24 dBFS, enforced)"
+                      },
+                      "phase_deg": {
+                        "type": "number",
+                        "minimum": -360,
+                        "maximum": 360,
+                        "default": 0,
+                        "description": "Phase of this output (degrees; 180 = inverted: signed drive vectors for appropriation)"
+                      }
+                    }
+                  }
+                },
+                "duration_s": {
+                  "type": "number",
+                  "minimum": 0.1,
+                  "maximum": 600
+                },
+                "pause_s": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 600
+                }
+              }
+            }
           },
           "sample_rate": {
             "type": "integer",

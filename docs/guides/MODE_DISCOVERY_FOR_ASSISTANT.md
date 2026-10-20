@@ -97,6 +97,20 @@ Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), 
 | `record_inputs[]` | [] | 0–16 × `{input, name}` | play + record (each chunk under `sessions/chunk<NNN>/`); result `levels_last_chunk` |
 | `post_roll_s` | 0.5 | 0 … 10 | recording after the last chunk (the free decay after a dwell) |
 | `label` / `sample_rate` / `dry_run` | `sine` | | as above |
+| `sequence[]` | [] | 0–64 × `{frequency_hz, outputs[], duration_s, pause_s}` (all optional) | tones in turn: each step = the top-level tone with the step's values, then `pause_s` of silence (none after the last); not with `until_stopped`; ≤ 1800 s of tone. Sessions `s<NN>_chunk<NNN>`; result `steps[]`, `estimated_s`, with `record_inputs` also `levels_per_step` |
+| `pause_s` | 1 | 0 … 600 | the default pause after each sequence step |
+
+A sequence of exciters with pauses (e.g. 200 Hz, 3 s each, 2 s apart): `{frequency_hz: 200, duration_s: 3,
+outputs: [{output: "Out 9"}], pause_s: 2, sequence: [{outputs: [{output: "Out 9", level_dbfs: -42}]},
+{outputs: [{output: "Out 10", level_dbfs: -42}]}, {outputs: [{output: "Out 11", level_dbfs: -42}],
+frequency_hz: 80}]}` — the top-level `frequency_hz` / `outputs` are required (the step defaults); only the
+steps play.
+
+**`asio_not_realtime` / "session aborted: timeout".** Every rig command first reads `GET /audio/devices`
+→ `asio.clock`; when `realtime` is false the step refuses before anything plays: the driver calls back
+slower than the engine's 64-frame buffer implies (`realtime_ratio` < 1, typically `buffer_size_range`
+not including 64). Tell the user: set the interface's ASIO buffer size to 64 samples in its driver control
+panel, then reload the preset; re-read the device until `clock.realtime` is true. (dev-431a)
 
 ### `modal.rig_record`: inputs only (hard confirm) {#cmd-record}
 

@@ -930,11 +930,25 @@ no ASIO call from the Flask thread). Response `200`:
 `{asio: {open, driver, sample_rate, buffer_size, buffer_size_range [min, max, granularity],
 input_latency, output_latency, reported_roundtrip, output_ready, supported_sample_rates,
 inputs: [{index, name, type, type_name, supported}], outputs: [...], switch_count,
-session_active, reset_requests, latency_changes}, engine: {loaded, lifecycle_state,
-calibrating, audio_driver_active, active_driver_type}}`. With no engine loaded:
+session_active, reset_requests, latency_changes, clock}, engine: {loaded, lifecycle_state,
+calibrating, audio_driver_active, active_driver_type, active_driver, active_audio_driver_type}}`. With no engine loaded:
 `{asio: {open: false}, engine: {loaded: false}, note}`. `501 no_session_api` when the
 installed `pianoidCuda` predates the session API. Channel facts of the rig (UMC1820):
 [AUDIO_DRIVERS.md — ASIO measurement session](../pianoid-cuda/AUDIO_DRIVERS.md#asio-measurement-session-dev-1b6c).
+
+**`asio.clock`** (dev-431a, `asio_clock.py`): the measured bufferSwitch pace against the engine's
+buffer — `{measured, buffer_size, buffer_size_in_driver_range, expected_switch_rate_hz (= sample_rate /
+buffer_size), switch_rate_hz, switch_period_ms, frames_per_switch_measured, realtime_ratio, realtime}`
+(the `switch_count` timed between counter edges over 0.25 s; `realtime` = within 5 %). The engine creates
+its ASIO buffers at 64 frames and every consumer counts 64 frames per switch; a driver that only allows
+another size (field case: `buffer_size_range [1152, 1152]`) accepts them but switches at its own pace
+(measured there: every 4 ms instead of 1.33 ms → `realtime_ratio` ≈ 0.33): synthesis and sessions then run
+slower than real time. Remedy: set the driver's ASIO buffer to 64 samples in its control panel and reload
+the preset. `{measured: false}` on a binary without `switch_count`.
+**Driver numbering:** `active_driver_type` is the engine's `AudioDriverType` enum (SDL2 0 · SDL3 1 · ASIO 2 ·
+ASIO_CALLBACK 3); `active_audio_driver_type` is the SAME driver in the preset / `/load_preset`
+`audio_driver_type` numbering (1 ASIO · 2 SDL · 3 SDL3 · 4 ASIO callback); `active_driver` is the name
+(the `/health` fallback block uses the same names). So `3` here and "ASIO_CALLBACK (4)" elsewhere agree.
 
 ### `POST /audio/session`
 
@@ -955,7 +969,7 @@ a time; the request holds the lifecycle gate's shared slot, so a `/load_preset` 
 | `pre_roll_s` / `post_roll_s` | silence before / after the signal (defaults 0.1 / 0.5 s; post 0 for `play`) |
 | `loopback` | `{"output": "Out 5", "input": "In 8", "marker_level": 0.5}` — emits a one-sample marker on the loopback output at signal frame 0 and reports its measured onset (the electrical round trip); the input is added to the capture |
 | `compensate_latency` | `"none"` (default, raw) · `"reported"` (drop in+out reported latency) · `"loopback"` (drop the measured onset) · `true` (loopback if present else reported) · an integer frame count |
-| `timeout_s` | default 1.5 × length + 3 s |
+| `timeout_s` | default 1.5 × length + 3 s (length = pre-roll + signal + post-roll at the device rate); the HTTP client (`RemoteAudioIO`) waits 1.5 × 120 + 33 s, above the longest session's timeout |
 | `out_dir`, `tag`, `return_data` | result folder (default `<measurements base>/audio_sessions/<session_id>/`, base = the [measurements folder](#measurements-folder)); free-text tag; include `data` inline when ≤ 200 k samples |
 
 Session length ≤ 120 s. Response `200` (also written to `meta.json`; capture in `data.npy`,
@@ -971,9 +985,12 @@ included); the signal starts at `pre_roll_frames`.
 
 Errors: `400` bad body / unknown or duplicate channel / signal shape, NaN or > 1.0 / too long;
 `409` `asio_not_open` · `session_in_progress` · `engine_busy` (calibration running) ·
-`asio_unavailable`; `501 no_session_api`; `502 session_aborted` (`timeout`, `reset_request` — a
+`asio_unavailable` · `asio_not_realtime` (dev-431a: checked before anything plays or synthesis pauses — the
+driver does not switch at `sample_rate / buffer_size`, see `asio.clock` above; the body carries `clock` and
+the message the numbers and the remedy); `501 no_session_api`; `502 session_aborted` (`timeout`, `reset_request` — a
 driver `kAsioResetRequest`, which the dev-19be watchdog then services on resume — or `stalled`:
-no callback for 0.5 s) with the partial result in `session` (data still written), and
+no callback for 0.5 s) with the partial result in `session` (data still written; the message carries the frames captured,
+the elapsed time, switches × buffer size, xruns and the frames/s achieved vs the device rate), and
 `502 loopback_not_detected` for `compensate_latency: "loopback"` without a marker onset.
 
 ### Rig measurement pipeline (assistant) {#rig-pipeline}
@@ -992,7 +1009,7 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 | Route | Command | Step |
 |---|---|---|
 | `POST /rig/capture` | `modal.rig_capture` (hard confirm) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
-| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record) |
+| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
 | `POST /rig/record` | `modal.rig_record` (hard confirm) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
 | `POST /rig/process` | `modal.rig_process` (hard confirm) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
 | `POST /rig/preset_create` | `preset.create` (hard confirm) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
