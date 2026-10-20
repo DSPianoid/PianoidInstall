@@ -33,7 +33,7 @@ Build: `react-scripts 5.0.1` (CRA), output at `build/`.
 
 `server/launcher.js` — Node.js script that spawns and manages the Flask backend (`backendServer.py`) as a child process. Used by `useBackendProcess` hook to start/stop the backend from the frontend UI.
 
-REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`. WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on the backend port (`PIANOID_BACKEND_PORT`, default 5000) before spawning; `start-modal-adapter` does the same on the modal port (`PIANOID_MODAL_PORT`, default 5001, passed to the adapter as `--port`). `kill-stale` sweeps both ports without starting anything. The sweep (`server/processSweep.js`, dev-7bb0) kills only processes on this launcher's port, plus python processes whose script argument is this launcher's own `<CORE_DIR>` script and that listen on no other port (orphans that never bound); other stacks' backends and shells that merely mention the script are left alone. Every kill appends `[launcher <time>] killed PID(s) … (reason: …)` to `<CORE_DIR>/logs/backend_stdout.log` (`modal_stdout.log` for the modal port) — see [STARTUP_TROUBLESHOOTING → Agents: never run an unowned backend on :5000](../../guides/STARTUP_TROUBLESHOOTING.md#agents-never-run-an-unowned-backend-on-5000).
+REST endpoints: `POST /api/start-backend`, `POST /api/stop-backend`, `POST /api/kill-stale`, `GET /api/backend-status`, and the layouts files (`GET /api/layouts`, `POST /api/layouts/saved`, `POST /api/layouts/live` — see [Layouts file](#layouts-file-the-primary-store-dev-4777-2026-10-20)). WebSocket at `/ws/console` streams stdout/stderr and process status. `start-backend` automatically kills any stale process on the backend port (`PIANOID_BACKEND_PORT`, default 5000) before spawning; `start-modal-adapter` does the same on the modal port (`PIANOID_MODAL_PORT`, default 5001, passed to the adapter as `--port`). `kill-stale` sweeps both ports without starting anything. The sweep (`server/processSweep.js`, dev-7bb0) kills only processes on this launcher's port, plus python processes whose script argument is this launcher's own `<CORE_DIR>` script and that listen on no other port (orphans that never bound); other stacks' backends and shells that merely mention the script are left alone. Every kill appends `[launcher <time>] killed PID(s) … (reason: …)` to `<CORE_DIR>/logs/backend_stdout.log` (`modal_stdout.log` for the modal port) — see [STARTUP_TROUBLESHOOTING → Agents: never run an unowned backend on :5000](../../guides/STARTUP_TROUBLESHOOTING.md#agents-never-run-an-unowned-backend-on-5000).
 
 Command registry (I4, dev-6026): `GET /api/commands` serves the registry's `launcher` family (read from `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`) and `POST /api/command/<name>` runs `launcher.status` / `launcher.backend.start|stop` / `launcher.modal.start|stop` through the same handlers, with the executor envelope `{ok, status, result | error}`. It also lists the `ui` family and relays `POST /api/command/ui.*` to the leader tab over `/ws/ui-control` ([UI commands (I5)](#ui-commands-i5-dev-c491)); the two WebSocket paths (`/ws/console`, `/ws/ui-control`) are routed on the server's `upgrade` event.
 
@@ -1074,7 +1074,8 @@ The data model and pure transforms live in `src/hooks/mosaicConfigStore.js`; the
 of `PianoidTuner.js` (P1: `PianoidTuner` is the layout owner — via `useLayout` — so it is the sole
 writer of the named-config maps; the store is pure, no React/state).
 
-**Storage shape (3 localStorage keys, mirroring the preset-config pattern):**
+**Storage shape.** The primary store is the **layouts file** (next section, dev-4777); the 3
+localStorage keys below are its cache, mirroring the preset-config pattern:
 
 - `mosaicLayout` — the **live/active** layout tree (unchanged, still owned by `useLayout`). Kept equal
   to the active named layout.
@@ -1152,6 +1153,57 @@ open-workbenches list) passed in AS-IS via a `paneSelector` slot — not recreat
 window-management logic in `PianoidTuner.js`; this feature builds on the live inline copy. Pure store is
 unit-tested in `hooks/__tests__/mosaicConfigStore.test.jsx`; the Manage popup in
 `components/__tests__/MosaicConfigManager.test.jsx`.
+
+### Layouts file — the primary store (dev-4777, 2026-10-20)
+
+The named layouts live in files in the PianoidTunner checkout, written by the launcher (:3001), so they
+travel through git to other machines. The browser keeps only a cache (the localStorage keys above).
+
+| File | Holds | git |
+|------|-------|-----|
+| `PianoidTunner/layouts/saved_layouts.json` | `{format:"pianoid-layouts", version:1, active, configs, workbenches, chartRulers}` = `activeMosaicConfig`, `mosaicConfigs`, `mosaicConfigWorkbenches`, `mosaicConfigChartRulers` | tracked — commit it to take the layouts along |
+| `PianoidTunner/layouts/live_layout.json` | `{layout}` = the live `mosaicLayout` | ignored (changes on every drag) |
+
+The directory resolves from `server/savedLayouts.js` (`<checkout>/layouts`, env `PIANOID_LAYOUTS_DIR`
+overrides it for isolated stacks). It is **not** under `public/`: CRA's dev server reloads the page when a
+file there changes.
+
+**Launcher routes** (`server/savedLayouts.js`): `GET /api/layouts` → `{ok, saved, rev, live}` (`saved`/`live`
+null when absent; `rev` = sha1 of the saved file, `"none"` when absent); `POST /api/layouts/saved?baseRev=<rev>`
+writes the document (temp file + rename) → `{ok, rev, names}`; 400 bad document, **409** `changed_since_read`
+(+ `saved`, `rev`) when the file changed since `baseRev`; `POST /api/layouts/live` `{layout}`. JSON body
+limit 5 MB.
+
+**Sync** (`hooks/useLayoutFileSync.js`; pure document helpers in `hooks/layoutTransfer.js`). `PianoidTuner`
+stays the sole writer of the maps (P1): the hook only reads/writes the file and hands the file's state back
+through `onLoaded`. At mount the app renders from the cache, then `GET /api/layouts` replaces the maps, the
+active name and the live layout with the file's (a missing live file keeps the cached live layout, or
+applies the active layout when the active name changed). After that, any change of the maps (save-as, save to
+current, rename, delete, select, workbench spawn snapshot, ruler snapshot) is written once, 300 ms debounced,
+and only when the document differs from the file's (no speculative writes); the live layout 1 s debounced.
+
+**Migration.** If the file is missing, or the `mosaicLayoutsFileSynced` flag is absent from localStorage
+(first run, or edits made while the file was unreachable), `mergeLocalIntoFile` brings the cache into the file
+once: layouts the file lacks are added; a same-name layout that differs is added as `"<name> (browser)"`; the
+file's layouts are never changed; the file's active layout stays active (the browser's if the file has none).
+A snackbar lists the added names.
+
+**Failure modes.** Launcher down → status `offline`: the app runs on the cache, nothing is written to the file
+(it may hold layouts this tab never read), the flag is cleared on the first change so the next start merges.
+Unparseable file → status `invalid`: the cache is used and the file is never overwritten. **Two tabs:** each
+write names the revision it read; on 409 the tab merges its document into the newer file
+(`mergeLocalIntoFile`, keeping its own active layout), writes that and applies it — a layout another tab added
+is never lost (a layout renamed or deleted in one tab can reappear under its old name).
+
+**Download / Import** (Manage popup, under "Save current layout as"): a status line names the file (or warns
+when it is unreachable / invalid); **Download layouts** saves the same document as `saved_layouts.json`;
+**Import layouts** reads such a file and adds the layouts whose name is missing (same-name layouts are kept and
+listed; the active layout does not change).
+
+Tests: `hooks/__tests__/layoutTransfer.test.js` (build / parse / migration merge / import),
+`hooks/__tests__/useLayoutFileSync.test.jsx` (load, migration, write-on-change, offline, invalid file, failed
+write, two-tab 409 merge, live layout), `utils/__tests__/launcherSavedLayouts.test.js` (files, validation,
+routes, 409), `components/__tests__/MosaicConfigManager.test.jsx` (status line, Download, Import).
 
 ---
 
