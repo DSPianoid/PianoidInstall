@@ -1194,6 +1194,60 @@
       "result": {
         "type": "object"
       }
+    },
+    {
+      "name": "modal.measurements_dir",
+      "title": "Measurements folder",
+      "description": "The folder every rig command (capture / sine / record / process / runs / files) and the modal adapter read and write: measurements_dir, its source (setting = the runtime setting, env = PIANOID_MEASUREMENTS_DIR, default = <PianoidInstall>/measurements), whether it exists, and every layer (setting, env, default, settings_file).",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#measurements-folder",
+      "route": {
+        "method": "GET",
+        "path": "/measurements/dir"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "modal.set_measurements_dir",
+      "title": "Move the measurements folder",
+      "description": "Sets the runtime setting for the measurements folder (persisted in the gitignored local settings file; wins over PIANOID_MEASUREMENTS_DIR and the default). path: an ABSOLUTE folder that exists or can be created and is writable (it is created); null or \"\" clears the setting (back to the env var / default). Existing data is NOT moved: runs in the old folder are no longer listed. Refused while a rig job runs. Result = the new modal.measurements_dir state.",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "hard_confirm",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#measurements-folder",
+      "route": {
+        "method": "POST",
+        "path": "/measurements/dir"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
     }
   ]
 }

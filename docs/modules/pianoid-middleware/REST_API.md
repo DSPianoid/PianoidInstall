@@ -956,7 +956,7 @@ a time; the request holds the lifecycle gate's shared slot, so a `/load_preset` 
 | `loopback` | `{"output": "Out 5", "input": "In 8", "marker_level": 0.5}` — emits a one-sample marker on the loopback output at signal frame 0 and reports its measured onset (the electrical round trip); the input is added to the capture |
 | `compensate_latency` | `"none"` (default, raw) · `"reported"` (drop in+out reported latency) · `"loopback"` (drop the measured onset) · `true` (loopback if present else reported) · an integer frame count |
 | `timeout_s` | default 1.5 × length + 3 s |
-| `out_dir`, `tag`, `return_data` | result folder (default `<measurements base>/audio_sessions/<session_id>/`, base = `$PIANOID_MEASUREMENTS_DIR` or `D:\modal_measurements`); free-text tag; include `data` inline when ≤ 200 k samples |
+| `out_dir`, `tag`, `return_data` | result folder (default `<measurements base>/audio_sessions/<session_id>/`, base = the [measurements folder](#measurements-folder)); free-text tag; include `data` inline when ≤ 200 k samples |
 
 Session length ≤ 120 s. Response `200` (also written to `meta.json`; capture in `data.npy`,
 float32 `[frames, len(inputs)]`, normalised to each channel's full scale):
@@ -999,15 +999,37 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 | `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
 | `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
 | `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
+| `GET /measurements/dir` | `modal.measurements_dir` | the measurements folder and where it comes from ([below](#measurements-folder)) |
+| `POST /measurements/dir` | `modal.set_measurements_dir` (hard confirm) | moves the measurements folder (runtime setting) |
 
-Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = `$PIANOID_MEASUREMENTS_DIR`, else
-`D:\modal_measurements`; run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
+Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the [measurements folder](#measurements-folder); run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
 flags, status), `sessions/<exciter>_m<level>_r<k>/{data.npy (aligned capture, float32 [frames, inputs]),
 signal.npy, meta.json}` (`silence/`, `chunk<NNN>/`, `record/` for the other kinds), then `frf/` (`frf.npz`: f, H
 [repeats, F, inputs, exciters]; `coarse_frf.npz`: freqs, H3 = the repeat average; `report.json`), `polymax/`
 (`report.json`, `modes.npz`, `stabilization.png`) and `coefficients/` (`measured_table.json` = the input of
 `Pianoid.measured_mode_preset`, `report.json`). A step on a `rig_checks` capture writes its outputs to
 `rig_runs/<run>/` (with `source.json`). Presets go to `pianoid_middleware/presets/<name>.json`.
+
+#### Measurements folder {#measurements-folder}
+
+(dev-3f58, `modal_adapter/measurements_location.py`) The ONE folder every rig step and read, the audio sessions
+(`audio_sessions/`), the modal adapter's measurements (:5001) and the measurement CLIs (`swept_discovery`,
+`appropriation`, `rig_checks`) use. Resolution, first set wins:
+
+| # | Source (`source`) | Where |
+|---|---|---|
+| 1 | runtime setting (`setting`) | `measurements_dir` in the local settings file `<PianoidInstall>/pianoid_local_settings.json` (gitignored; `$PIANOID_LOCAL_SETTINGS` overrides the file path). Written by `POST /measurements/dir`; survives restarts |
+| 2 | `$PIANOID_MEASUREMENTS_DIR` (`env`) | the environment of the backend / adapter |
+| 3 | repo default (`default`) | `<PianoidInstall>/measurements` (resolved from the install location, never a drive path; gitignored) |
+
+The settings file is read on every call, so :5000, :5001 and the rig-step child processes see a change at
+once. Folders are created on demand by the writers.
+
+- `GET /measurements/dir` (`read_only`) -> `{measurements_dir, source, exists, setting, env, default, settings_file}`.
+- `POST /measurements/dir {"path": "<absolute folder>" | null}` (`action`) -> the same body. `path` must be
+  absolute, a folder (or not exist yet) and writable: the folder is created and probed with a temp file, else
+  `400 bad_request`; `null` / `""` clears the setting (back to the env var / default); `409 rig_busy` while a rig
+  job runs. **Data is never moved:** runs in the old folder are simply no longer listed.
 
 ### `POST /pause_synthesis`
 

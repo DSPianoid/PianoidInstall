@@ -22,7 +22,8 @@ the wiring, the output map of the backend, and listening.
 |---|---|
 | `system.snapshot`, `system.environment` (incl. the output map), `system.health` (peaks, clipping), `audio.devices` (ASIO in / out list), `calibration.mic_devices` | read, no confirm |
 | `preset.files`, `preset.summary`, `preset.load_settings`, `param.get`, `param.inventory` | read, no confirm |
-| `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact) | read, no confirm |
+| `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact), `modal.measurements_dir` (where the measurement data lives) | read, no confirm |
+| `modal.set_measurements_dir` (moves the measurements folder; data is not moved) | **hard confirm, every time** |
 | `modal.rig_capture` (sweeps per exciter, inputs recorded), `modal.rig_sine` (a tone, optional recording), `modal.rig_record` (inputs only) | **hard confirm, every run** (drives / records the rig) |
 | `modal.rig_process` (`frf`, `polymax`, `coefficients`, `build_preset`), `preset.create` (a new preset structure) | **hard confirm, every run** (writes files) |
 | `modal.rig_cancel` (stops the rig job), `job.get`, `job.list`, `job.cancel` | playback / read |
@@ -54,9 +55,9 @@ Source of truth: the registry args (`schemas/commands/modal.json`, `preset.json`
 there (a violation is a 400 `invalid_args` listing every field). Channels are ASIO names (`Out 9`, `In 1`,
 `ADAT 3`) or 0-based indices. Every write command returns a `jobId`: follow it with `job.get` (progress, then
 `result` or `error`). One rig job runs at a time; `modal.rig_cancel` (or `job.cancel`) stops it (a sweep or chunk
-already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (`<measurements>` =
-`$PIANOID_MEASUREMENTS_DIR`, else `D:\modal_measurements`; run id `<yyyymmddThhmmss>-<label>`); older captures
-under `rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
+already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the
+[measurements folder](#cmd-measurements-dir); run id `<yyyymmddThhmmss>-<label>`); older captures under
+`rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
 [REST_API → Rig measurement pipeline](../modules/pianoid-middleware/REST_API.md#rig-pipeline).
 
 ### `modal.rig_capture`: sweeps per exciter (hard confirm) {#cmd-capture}
@@ -145,6 +146,20 @@ modes beyond the base is refused.
 step reports and every file (relative names). `modal.rig_files {run, area, files: [≤ 10 relative names], export:
 true}` copies them into ONE analysis artefact (names flattened: `sessions/E1_m42_r1/data.npy` →
 `sessions__E1_m42_r1__data.npy`; at most 400 MB) whose id `analysis.run_python` takes ([R6](#r6)).
+
+### `modal.measurements_dir`, `modal.set_measurements_dir`: the measurements folder {#cmd-measurements-dir}
+
+Every rig command (capture, sine, record, process, runs, files / export) and the modal adapter use ONE folder.
+`modal.measurements_dir {}` (read, no confirm) answers `{measurements_dir, source, exists, setting, env, default,
+settings_file}`; `source` says which layer won: `setting` (the runtime setting) > `env`
+(`PIANOID_MEASUREMENTS_DIR`) > `default` (`<PianoidInstall>/measurements`, next to the install, on any drive).
+`modal.set_measurements_dir {path}` (hard confirm) sets the runtime setting: an ABSOLUTE folder that exists or can
+be created and is writable (it is created); `path: null` clears it. The choice persists across restarts (the
+gitignored `pianoid_local_settings.json` in the install root). It never moves data: runs in the old folder are no
+longer listed, so tell the user; it is refused while a rig job runs. Use it when the user asks to keep
+measurements elsewhere (another drive, a shared folder), or when `modal.rig_runs` shows an unexpected empty
+folder: read `modal.measurements_dir` first. Contract:
+[REST_API → Measurements folder](../modules/pianoid-middleware/REST_API.md#measurements-folder).
 
 ## Rig facts {#rig}
 
@@ -241,7 +256,7 @@ Timing comes from [report 10-14 §7](../development/report-mode-discovery-2026-1
 session below 200 Hz is about 45 min (3 × full 7 × 7 + consensus); the minimum useful one about 20 min.
 
 Each step names its **command** ([Rig commands](#rig-commands)). The agent scripts of the original sessions
-(`docs/development/diagnostics/`, `D:\modal_measurements\rig_checks\*.py`) are kept as references; the commands
+(`docs/development/diagnostics/`, `<measurements>/rig_checks/*.py` on the measuring machine) are kept as references; the commands
 are their parametric form (dev-8a9e). See [Branch status](#branch-status).
 
 ### Step 0: state and preconditions {#step-0}
@@ -681,9 +696,10 @@ policy and `modal.rig_files` export. A pull + backend restart + assistant restar
 | 10 (output map) | a way to set `PIANOID_AUDIO_OUTPUT_MAP` | the user restarts the backend with the variable |
 | a tone longer than 110 s without gaps | `/audio/session` sessions are at most 120 s | `until_stopped` chunks |
 
-## Data layout (`D:\modal_measurements\rig_checks`) {#data-layout}
+## Data layout (`<measurements>/rig_checks`) {#data-layout}
 
-The assistant reads these through `modal.rig_runs` / `modal.rig_files` (`area: rig_checks`, read-only). Its own
+`<measurements>` = the [measurements folder](#cmd-measurements-dir) (`modal.measurements_dir`); on the
+measuring PC of the 10-11 … 10-15 sessions it is `D:\modal_measurements`. The assistant reads these through `modal.rig_runs` / `modal.rig_files` (`area: rig_checks`, read-only). Its own
 runs go to `rig_runs/<run_id>/` ([Rig commands](#rig-commands)).
 
 - One folder per capture: `<YYYYMMDD>T<HHMMSS>-<label>` (for example `20261015T124849-7x7-piezos-weights-r1`,
@@ -696,7 +712,7 @@ runs go to `rig_runs/<run_id>/` ([Rig commands](#rig-commands)).
   bottom of the board as photographed, piezo face) for `piezos_green` 1–8 and `exciters_red` 1–7, plus the pixel
   positions and the photo.
 - Helper scripts at the top level: `wiring_*`, `drivingpoint_*`, `frf4ref_*`, `rove_*`, `current_analyse.py`.
-- Earlier data: `D:\modal_measurements\swept_discovery\`, `appropriation\`, `analysis\dev-fd69-2026-10-1{1,2}\`.
+- Earlier data: `<measurements>\swept_discovery\`, `appropriation\`, `analysis\dev-fd69-2026-10-1{1,2}\`.
 
 ## Worked example: 7 exciters, 8 piezos, a 224-string / 7-channel / 384 preset {#example}
 
