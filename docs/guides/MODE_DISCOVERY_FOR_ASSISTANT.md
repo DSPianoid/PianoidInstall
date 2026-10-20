@@ -53,8 +53,9 @@ per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. R
 
 Source of truth: the registry args (`schemas/commands/modal.json`, `preset.json`); the ranges below are enforced
 there (a violation is a 400 `invalid_args` listing every field). Channels are ASIO names (`Out 9`, `In 1`,
-`ADAT 3`) or 0-based indices. Every write command returns a `jobId`: follow it with `job.get` (progress, then
-`result` or `error`). One rig job runs at a time; `modal.rig_cancel` (or `job.cancel`) stops it (a sweep or chunk
+`ADAT 3`) or 0-based indices. Every write command returns a `jobId`: follow it with `job.get {jobId, wait_s: 60}` (answers when the job ends or
+after 60 s, with `pct` / `msg`; repeat until finished, failed or cancelled: a PolyMAX fit can take 2–3 minutes and
+reports `band i/n (lo-hi Hz): k modes`), then `result` or `error`. One rig job runs at a time; `modal.rig_cancel` (or `job.cancel`) stops it (a sweep or chunk
 already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the
 [measurements folder](#cmd-measurements-dir); run id `<yyyymmddThhmmss>-<label>`); older captures under
 `rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
@@ -82,7 +83,10 @@ already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (
 | `sample_rate` | the device's | 8000 … 192000 | expected rate; the engine sets it (48 kHz, block 64; not settable here: a mismatch fails) |
 | `label` / `dry_run` | `capture` / false | | `dry_run` plans only (sessions, `estimated_s`, levels); plays nothing |
 
-Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), `flags`, `peaks_dbfs` per take.
+Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), `flags`, `peaks_dbfs` per take (the
+loudest input), and with a noise record `noise_floor` (per input) + `rms_above_noise_db` `{take: {input: dB}}`:
+which exciter → sensor paths carry the sweep (about 0 dB = that input heard only its own noise; judge the
+capture by this, not by the take peak, which a noisy input can dominate).
 
 ### `modal.rig_sine`: a tone, optional recording (hard confirm) {#cmd-sine}
 
@@ -107,10 +111,12 @@ frequency_hz: 80}]}` — the top-level `frequency_hz` / `outputs` are required (
 steps play.
 
 **`asio_not_realtime` / "session aborted: timeout".** Every rig command first reads `GET /audio/devices`
-→ `asio.clock`; when `realtime` is false the step refuses before anything plays: the driver calls back
-slower than the engine's 64-frame buffer implies (`realtime_ratio` < 1, typically `buffer_size_range`
-not including 64). Tell the user: set the interface's ASIO buffer size to 64 samples in its driver control
-panel, then reload the preset; re-read the device until `clock.realtime` is true. (dev-431a)
+→ `asio.clock`; when `realtime` is false the step refuses before anything plays: the driver does not call back
+at `sample_rate / buffer_size` (`realtime_ratio` far from 1). Since dev-431a the engine opens the ASIO device at a
+size the driver allows (a whole number of 64-frame blocks: 64 when allowed, else e.g. a fixed 1152) and stays in
+real time there, so a fixed-buffer driver is no longer a reason to refuse. If it still refuses: tell the user to
+set the interface's ASIO buffer size to 64 samples in its driver control panel, then reload the preset; re-read
+the device until `clock.realtime` is true. (dev-431a)
 
 ### `modal.rig_record`: inputs only (hard confirm) {#cmd-record}
 
@@ -129,7 +135,7 @@ outputs to `rig_runs/<run>/` (with `source.json`); run the steps in this order.
 | `frf` | `ir_window_s` (4; 0.1 … 30: resolution = 1 / window), `taper_frac` (0.1), `pre_samples` (30), `f_min_hz` (0 = the sweep start), `f_max_hz` (1200), `average` (`mean` · `median` over the repeats), `regularization` (1e-6), `noise_from_repeats` (false: store the repeat variance for PolyMAX), `exciters` / `inputs` (label subsets; [] = all) | `frf/frf.npz` (f, H [repeats, F, inputs, exciters]), `frf/coarse_frf.npz` (freqs, H3 = the average), `frf/report.json` (labels, repeat SNR per path) |
 | `polymax` | `p_max` (40; 4 … 120), `band_edges` (30, 60, 120, 250, 500, 1000, 2000, 4000, 9500), `overlap` (0.15), `max_lines` (4000), `f_min_hz` / `f_max_hz` (0 = the FRF's), `snr_detect_db` (10), `prune` (true), `prune_min_gain` (0.2), `prune_min_snr_db` (10), `loo` (false), `stab` {`p_min` 2, `tol_f` 0.01, `tol_zeta` 0.1, `tol_mpf` 0.9, `zeta_min` 1e-4, `zeta_max` 0.2, `min_stable_frac` 0.3, `use_mpf` true}, `hum_hz` (50) / `hum_harmonics` (3) / `hum_width_hz` (1): lines removed before the fit | `polymax/report.json` (per mode f, ζ, stability, shape, MPF), `polymax/modes.npz`, `polymax/stabilization.png` |
 | `coefficients` | `method` (`residue_svd` · `modal_appropriation`), `f_min_hz` (20), `boundary_hz` (1020), `min_stability` (0.3), `max_fit_residual` (1), `min_rank1_ratio` (0), `zeta_min` / `zeta_max` (5e-4 / 0.2), `mass_trend` (`fit` · `none`), `mass_clip_db` (6), `ridge` (1e-3), `zeta_overrides[]` (`{f_hz, zeta, tol_hz = 1}`, e.g. a stop-and-decay ζ), hum options as above | `coefficients/measured_table.json` (the builder input: per mode f, ζ, `mass_inv_rel`, real channel weights with max \|·\| = 1, below `boundary_hz`), `coefficients/report.json` (dropped modes and why, the trend exponent, energy kept by the real projection) |
-| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights |
+| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights; result `n_measured` + `n_base_kept_above_boundary` + `n_fill_from_fpga_tables` = `n_modes` |
 
 Laws ([measured preset §5, §6](../development/measured-plywood-preset-2026-10-15.md)): relative 1/m ∝
 σ1 · max\|u\| · max\|v\| of each mode's residue matrix (inputs × exciters), its power-law trend over f removed
@@ -187,7 +193,7 @@ facts](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver).
 | Fact | Value | Source |
 |---|---|---|
 | Board | 8 mm plywood, about 1200 × 1000 mm (no bridge, no strings). Mass used for the preset: 650 kg/m³ → M = 6.24 kg | measured preset §2, §5.2 |
-| Interface | Behringer UMC1820, `UMC ASIO Driver`; 18 in / 20 out (`In 1`–`In 8`, `Out 1`–`Out 10`, SPDIF, ADAT); every channel Int32LSB; the engine opens it at 48 kHz, buffer 64 | AUDIO_DRIVERS rig facts |
+| Interface | Behringer UMC1820, `UMC ASIO Driver`; 18 in / 20 out (`In 1`–`In 8`, `Out 1`–`Out 10`, SPDIF, ADAT); every channel Int32LSB; the engine opens it at 48 kHz, buffer 64 (its driver offers powers of two 8 … 2048 only) | AUDIO_DRIVERS rig facts |
 | Round trip | loopback onset 334–335 frames (reported 304 + about 30 frames converter delay); constant within one backend run, it can shift between backend instances (E7 → P8 IR peak 39 → 46 samples on 10-15) | AUDIO_DRIVERS; fd69 log 10-15 |
 | Exciters | E1–E7, inertial voice-coil exciters on the board | report 10-14 §1 |
 | Piezos | P1–P8 (P8 collocated with E7 = the driving point). Positions: `layout-20261014/board_layout.json` (from a photo, ±30 mm, up to ±50 mm at the edges) | report 10-14 §1 |
@@ -284,6 +290,10 @@ are their parametric form (dev-8a9e). See [Branch status](#branch-status).
   inspected, and whether D: has ≥ 5 GB free (the assistant cannot see the disk).
 - **Pitfall:** a healthy-looking `/health` does not prove the interface is present (the rig dropped out before);
   `audio.devices` lists the device the engine actually opened.
+- **Pitfall (2026-10-20):** with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6` (7 entries) a load of a preset with
+  another channel count fails with `PIANOID_AUDIO_OUTPUT_MAP has 7 entries for 4 channels` and leaves **no engine**
+  ("core not loaded"); a Tunner tab that re-applies its stored 4-channel load on connect does this. Load a
+  7-channel preset (the measured one) with `preset.load`.
 
 ### Step 1: wiring / ID check {#step-1}
 
@@ -773,7 +783,11 @@ one confirmed command; say what it plays before each live one.
 Verified offline on 2026-10-19 (dev-8a9e, no audio): steps 3–6 on the 10-15 piezo run `20261015T124849-7x7-piezos-
 weights-r1` gave 42 PolyMAX modes (ζ median 1.6 %), 41 table modes reproducing 28 of the 39 published measured
 modes within 0.5 % (median 0.12 %) from that single run, and a 224 / 7 / 384 preset the engine loads and renders.
-Steps 1–2 (live ASIO) are not verified on the rig yet.
+Verified live through the in-UI assistant on 2026-10-20 (dev-431a, UMC1820 at 64, amplifiers apparently off): step 1
+(`rig_record`, 8 inputs), step 2 dry run and a real 7-exciter capture at −48 dBFS (2 s sweeps: every session
+frame-exact in real time, 0 xruns; the inputs carried only noise, so PolyMAX found 0 modes and `coefficients`
+refuses with "PolyMAX found no modes"), then steps 3–7 on the real 10-15 run `20261015T124849-7x7-piezos-weights-r1`
+(47 modes, 46 in the table, `dima_test_224_7_384` = 46 measured + 141 base + 9 FPGA fill, loaded, p60 renders).
 
 
 ## Sources {#sources}

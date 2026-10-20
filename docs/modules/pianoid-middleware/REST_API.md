@@ -219,7 +219,9 @@ except `source` (`tests/integration/test_command_contract.py`), and one command 
 adapter (`$PIANOID_MODAL_URL`, default `http://127.0.0.1:5001`) with the same body.
 
 **Jobs** (`job_manager.py`, `command_routes.py`). A long-running command returns `jobId` at once (also added
-to the wrapped route's own JSON response) and the job reports to ALL clients:
+to the wrapped route's own JSON response) and the job reports to ALL clients. `job.get {jobId, wait_s}` (dev-431a):
+`wait_s` > 0 (≤ 60) answers when the job ends or after that many seconds, so one call follows a long step (a
+PolyMAX fit takes minutes; the rig steps report per-band / per-session progress in `pct` / `msg`):
 
 | Event | Payload |
 |---|---|
@@ -939,12 +941,16 @@ installed `pianoidCuda` predates the session API. Channel facts of the rig (UMC1
 **`asio.clock`** (dev-431a, `asio_clock.py`): the measured bufferSwitch pace against the engine's
 buffer — `{measured, buffer_size, buffer_size_in_driver_range, expected_switch_rate_hz (= sample_rate /
 buffer_size), switch_rate_hz, switch_period_ms, frames_per_switch_measured, realtime_ratio, realtime}`
-(the `switch_count` timed between counter edges over 0.25 s; `realtime` = within 5 %). The engine creates
-its ASIO buffers at 64 frames and every consumer counts 64 frames per switch; a driver that only allows
-another size (field case: `buffer_size_range [1152, 1152]`) accepts them but switches at its own pace
-(measured there: every 4 ms instead of 1.33 ms → `realtime_ratio` ≈ 0.33): synthesis and sessions then run
-slower than real time. Remedy: set the driver's ASIO buffer to 64 samples in its control panel and reload
-the preset. `{measured: false}` on a binary without `switch_count`.
+(the `switch_count` timed between counter edges over 0.25 s with `time.perf_counter`; `realtime` = within 15 %:
+a wrong-pace host is off by an integer factor, while the old 15.6 ms `time.monotonic` + 5 % refused a healthy
+UMC1820 at 0.965 … 1.07, dev-431a live). Since the dev-431a C++ fix the host creates its ASIO buffers at a
+driver-legal **whole number of 64-frame engine blocks** (64 whenever the driver allows it; else the driver's
+preferred size or the smallest legal multiple; `PIANOID_ASIO_BUFFER_SIZE` requests another legal multiple) and
+runs the engine block callback N times per switch, so `buffer_size` here is that host buffer and a fixed-size
+driver (field case: `buffer_size_range [1152, 1152]`, which before the fix switched every 24 ms while the host
+counted 64 frames → `realtime_ratio` ≈ 0.33) runs in real time. The check stays as the guard against a driver
+that still does not switch at `sample_rate / buffer_size`; remedy: set the driver's ASIO buffer to 64 samples
+and reload the preset. `{measured: false}` on a binary without `switch_count`.
 **Driver numbering:** `active_driver_type` is the engine's `AudioDriverType` enum (SDL2 0 · SDL3 1 · ASIO 2 ·
 ASIO_CALLBACK 3); `active_audio_driver_type` is the SAME driver in the preset / `/load_preset`
 `audio_driver_type` numbering (1 ASIO · 2 SDL · 3 SDL3 · 4 ASIO callback); `active_driver` is the name

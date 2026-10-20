@@ -175,6 +175,22 @@ public:
 `circular_buffer_chunks = 4` is recommended for ASIO (minimal latency). SDL3 typically
 uses 16 or more chunks for stability.
 
+**Host buffer size + ring depth (dev-431a, `AsioBufferSize.h`).** The engine renders and consumes audio in
+64-frame blocks (`BUFFER_SIZE`). `init_asio_static_data` creates the ASIO buffers at a **driver-legal whole number of
+blocks**: 64 whenever `ASIOGetBufferSize` allows it (unchanged on the UMC1820's 8 … 2048), else the driver's
+preferred size when it is a whole number of blocks, else the smallest legal multiple (≤ 8192); no usable size →
+the device is skipped (the ASIO → SDL3 fallback). `bufferSwitch` then runs the engine block callback
+(`audioCallbackForASIO`, one ring chunk per call) `host / 64` times on consecutive sub-blocks. Before this the host
+forced 64: a driver allowing only 1152 (field case, UMC driver `[1152, 1152]`) accepted the buffers but switched
+every 24 ms → synthesis and measurement sessions at 1/3 real time. A switch of N blocks consumes N chunks in one
+burst, so after each open the ring depth is set to `max(configured, 2 × N)` (`asiobuf::ringChunksFor`,
+`LockFreeCircularBuffer::setNumChunks`; storage unchanged); at 64 it stays the configured 8. Log lines:
+`ASIO BufferSize 1024 (16 engine blocks of 64 per switch)`, `ASIO: ring depth 32 chunks (…)`.
+`PIANOID_ASIO_BUFFER_SIZE=<frames>` (backend environment, callback driver only) requests another legal multiple
+(per machine / diagnostics); an illegal value is warned and the automatic choice is used. Measured live on the
+UMC1820 (2026-10-20; the driver only offers powers of two, so 1152 itself cannot be selected there): 1024 and
+2048 → rig sessions frame-exact in real time (0 xruns), synthesis 0 underruns / ~2480 callbacks; 64 unchanged.
+
 **Engine channel → device output map (dev-a709, callback driver `audio_driver_type 4`).** Engine channel `k` plays
 on ASIO output `map[k]` (0-based); default (no map) = identity, outputs `0..num_channels−1`. The map is a
 per-machine **session setting**: environment variable `PIANOID_AUDIO_OUTPUT_MAP` of the backend process
@@ -361,7 +377,7 @@ inputs** into a preallocated `[frames, nIn]` matrix + pre/post roll.
 | Abort (never hangs) | `timeout` (default 1.5× length + 2 s), `reset_request` (a latched `kAsioResetRequest` — peeked, not consumed, so the dev-19be watchdog still re-opens the driver when synthesis resumes), `stalled` (no switch for 500 ms). Partial data is returned. |
 | Device snapshot | Channel table (index, name, type), latencies, buffer range, supported rates (`ASIOCanSampleRate` 44.1–192 k) are cached **at open, on the opening (COM) thread**; `asio_device_info()` never calls the driver from another thread. `kAsioLatenciesChanged` is counted (`latency_changes`), the cached latency is not re-read. |
 | Guards | Out-of-range / duplicate channels, unsupported types, > 10 min or > 64 M capture samples → `ValueError`; host not open / session already active → `RuntimeError`. A driver with fewer than `NUMBER_CHANNELS` (8) outputs is now **skipped at open** (the engine client would otherwise get null buffer pointers). |
-| Limits (unchanged) | The host still opens at the engine's 64-frame buffer and 48 kHz (`BUFFER_SIZE`, `fSAMPLES_PER_MS`); configurable rate/buffer and a CUDA-free standalone host are the proposal's later phases. |
+| Limits | 48 kHz (`fSAMPLES_PER_MS`); the host buffer is a driver-legal multiple of the 64-frame block (dev-431a, see [ASIOAudioDriver](#asioaudiodriver)) and a session advances `buffer_size` frames per switch; a CUDA-free standalone host is the proposal's later phase. |
 
 **Capture-scale fix.** `CaptureBuffer` used to scale ASIO input by a fixed `1/2^23`
 ("24-bit"). The UMC1820 delivers **Int32LSB** (full scale `2^31`), so a full-scale input read
@@ -485,6 +501,7 @@ SDL3: audioStreamCallback  /  ASIO: audioCallbackForASIO
 Audio hardware
 ```
 
-Buffer depth (`circular_buffer_chunks`) trades latency for stability:
+Buffer depth (`circular_buffer_chunks`; the ASIO callback driver deepens it to 2 × the blocks per switch on a
+multi-block host buffer, dev-431a) trades latency for stability:
 - 4 chunks (ASIO default): minimal latency, requires consistent GPU cycle timing
 - 16+ chunks (SDL3 default): greater cushion against timing jitter
