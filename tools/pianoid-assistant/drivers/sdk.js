@@ -78,7 +78,8 @@ export class SdkDriver {
   }
 
   /** In-process MCP server with escalate_model and bug_report (the session supplies the handlers). */
-  static assistantTools(onEscalate, onBugReport = async () => ({ ok: false, error: 'bug filing is not available' })) {
+  static assistantTools(onEscalate, onBugReport = async () => ({ ok: false, error: 'bug filing is not available' }), onPlanRequest) {
+    const planTools = onPlanRequest ? [SdkDriver.planTool(onPlanRequest)] : [];   // dev-28f1, DORMANT (flag off: absent)
     return createSdkMcpServer({
       name: 'assistant',
       version: '0.1.0',
@@ -101,8 +102,30 @@ export class SdkDriver {
           actual: z.string().optional(),
           evidence: z.array(z.string()).max(20).optional().describe('tool results, error texts, context values with their numbers'),
         },
-        async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await onBugReport(args), null, 1) }] }))],
+        async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await onBugReport(args), null, 1) }] })), ...planTools],
     });
+  }
+
+  /** request_plan_approval (dev-28f1): asks the USER to pre-approve a plan; it never grants anything itself. */
+  static planTool(onPlanRequest) {
+    const chan = z.union([z.string(), z.number().int()]);
+    return tool('request_plan_approval',
+      'Ask the user to pre-approve a multi-step plan ONCE in the pane instead of confirming every step. Give the steps and '
+      + 'the narrowest envelope. Only the user can grant it (in the pane); you can never create, widen or extend a grant. '
+      + 'Hard-confirm commands (rig drives, preset writes, ...) are covered only if the user ticks them; overwrite / delete '
+      + 'actions are never pre-ticked. Levels are capped at -24 dBFS. Waits for the answer.',
+      {
+        title: z.string().max(120),
+        steps: z.array(z.string().max(300)).min(1).max(30),
+        commands: z.array(z.string()).min(1).max(30).describe('registry command names, e.g. modal.rig_capture'),
+        max_level_dbfs: z.number().max(-24).optional().describe('the highest drive level (dBFS, <= -24)'),
+        output_channels: z.array(chan).max(16).optional(),
+        input_channels: z.array(chan).max(16).optional(),
+        max_drive_s: z.number().min(0).max(3600).optional().describe('total drive time of all steps (s)'),
+        folders: z.array(z.string()).max(10).optional().describe('folders the steps may write, e.g. rig_runs, presets/<name>'),
+        expires_in_min: z.number().min(1).max(120),
+      },
+      async (args) => ({ content: [{ type: 'text', text: JSON.stringify(await onPlanRequest(args), null, 1) }] }));
   }
 
   /**

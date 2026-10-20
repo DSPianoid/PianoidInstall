@@ -9,7 +9,8 @@
  *                  runs a command the policy just allowed (a permit), else 403 not_permitted
  *   GET  /artifacts/<id>/<file>   one file of an analysis artefact (the pane shows the PNGs; v2 P5)
  *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, remember?} |
- *                  settings | approvals {category, mode, scope} | undo {groupId} | undo_turn {turn}};
+ *                  settings | approvals {category, mode, scope} | undo {groupId} | undo_turn {turn} |
+ *                  plan_grant {id, accept, ticked} | plan_revoke (dev-28f1, only with PIANOID_ASSISTANT_PLAN_APPROVAL=1)};
  *                  server {type: state | message | delta | activity | confirm | confirm_done |
  *                  usage | model | escalation | busy | session | error | login | approvals}
  * Runs on the user's Claude SUBSCRIPTION in the isolated home (service/home.js); refuses to start
@@ -194,6 +195,10 @@ export function createAssistantService({
           await session.updateSettings(msg);
         } else if (msg.type === 'approvals') {
           session.updateApprovals(msg);
+        } else if (msg.type === 'plan_grant') {
+          session.answerPlan(msg);              // dev-28f1: ignored unless PIANOID_ASSISTANT_PLAN_APPROVAL=1
+        } else if (msg.type === 'plan_revoke') {
+          session.revokePlan();
         } else if (msg.type === 'undo' && typeof msg.groupId === 'string') {
           await session.auto.undoGroup(msg.groupId);
         } else if (msg.type === 'undo_turn' && Number.isInteger(msg.turn)) {

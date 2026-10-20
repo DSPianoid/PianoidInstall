@@ -14,6 +14,12 @@
  *                                           (live audio pauses for the render); any other render, e.g. an
  *                                           output_scale calibration render, is DENIED (R6). Reads never.
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
+ *   a plan approval (dev-28f1, DORMANT:     `settings.plan` = planApproval.js matchGrant, set by the service
+ *     PIANOID_ASSISTANT_PLAN_APPROVAL=1)    only with the flag on: a step inside the user's grant runs
+ *                                           (auto). A hard-confirm command only when the user ticked it
+ *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
+ *                                           never `code`, never reads. After the deny rows and the tainted
+ *                                           row, so a plan can never bypass them
  *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
  *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
  *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
@@ -82,6 +88,8 @@ export function decide({ command, tier, family, category, settings = {} }) {
   if (settings.tainted && !READ_TIERS.has(tier)) {
     return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
   }
+  const planVerdict = planStep({ command, tier, category, settings });
+  if (planVerdict) return planVerdict;
   if (HARD_CONFIRM[command] || category === 'hard_confirm') {
     return { action: 'confirm', hard: true, reason: HARD_CONFIRM[command] || 'on the hard-confirm list' };
   }
@@ -96,6 +104,21 @@ export function decide({ command, tier, family, category, settings = {} }) {
     return { action: 'allow', auto: true, watch: true, reason: `${category}: Auto, ${env.reason}` };
   }
   return READ_TIERS.has(tier) ? { action: 'allow', reason: tier } : { action: 'allow', auto: true, reason: `${category}: Auto` };
+}
+
+/**
+ * The plan-approval row (null = no plan verdict, the rows below decide). `settings.plan` is absent unless
+ * the flag is on and a grant matched, so with the flag off this returns null for every call.
+ */
+function planStep({ command, tier, category, settings }) {
+  const plan = settings.plan;
+  if (!plan?.ok || READ_TIERS.has(tier) || category === 'code') return null;
+  if ((HARD_CONFIRM[command] || category === 'hard_confirm') && plan.ticked !== true) return null;
+  if (usesEnvelope(category)) {
+    if (!settings.envelope?.ok) return null;
+    return { action: 'allow', auto: true, watch: true, plan: plan.grantId, reason: `${plan.reason}; ${settings.envelope.reason}` };
+  }
+  return { action: 'allow', auto: true, plan: plan.grantId, reason: plan.reason };
 }
 
 /** Is a command listed at all (the MCP server hides what can never run)? */
