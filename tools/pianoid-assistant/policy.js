@@ -61,6 +61,7 @@ export const HARD_CONFIRM = {
   'modal.rig_sine': 'plays a sine on the rig exciters',
   'modal.rig_record': 'records the rig inputs (synthesis pauses)',
   'modal.rig_process': 'runs a measurement-pipeline step (FRF / PolyMAX / coefficients / preset build); writes files',
+  'modal.set_measurements_dir': 'moves the measurements folder every rig command uses (data is not moved)',
   'preset.create': 'writes a new preset file (structure change)',
   'audio.session': 'plays on the rig outputs',
   'audio.test_tone': 'plays on the rig outputs',
