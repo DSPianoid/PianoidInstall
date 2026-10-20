@@ -730,6 +730,17 @@ preset / missing `sample_rate`, `string_iterations`, `audio_on`, `start_right_aw
 engine and its unsaved edits are untouched. Before dev-12a5 such a request destroyed the engine
 first and then returned 500 (FileNotFoundError / KeyError) → `No preset loaded`.
 
+**Output map vs channel count (dev-16af).** Before ANY reinit kind, the backend's
+`PIANOID_AUDIO_OUTPUT_MAP` is checked against the preset's channel count (`mode_sound_channels.num_channels`,
+legacy 4) and the request's driver ([AUDIO_DRIVERS → output map](../pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver)).
+Response `409` when it cannot apply — a map SHORTER than the channel count, or a map with a driver other than
+`4` (ASIO callback): `{"error": "OutputMapMismatch", "code": "output_map_mismatch", "message":
+"PIANOID_AUDIO_OUTPUT_MAP has 4 entries for 7 channels (...) - nothing was torn down: the loaded engine keeps
+running."}`. A LONGER map loads on its first N entries; every success response carries `output_map_warning`
+(`null`, or `"PIANOID_AUDIO_OUTPUT_MAP has 7 entries for 4 channels: using the first 4 (8,9,2,3)"`, also logged).
+Before dev-16af the map raised inside `initialize()` after `destroyPianoid()` → no engine (incident 2026-10-20:
+a stale tab re-applied a 4-channel preset under the 7-entry rig map).
+
 Response `200` (hot re-init — only runtime params changed; engine + UI state kept):
 ```json
 {"message": "Preset hot-reloaded (runtime params only)", "reinit": "hot", "applied": {"volume_center": 0.3679}}
@@ -2192,6 +2203,17 @@ it can never take the backend down.
 file, created exclusively: a re-delivery (the client timed out while a large report was still
 being saved, then flushed its localStorage copy) answers `200` with `"duplicate": true` and is
 not saved again, so the first (full) copy is kept. Without a `reportId` the suffix is a random hex6.
+
+**One fault, one report across tabs (dev-16af).** Every open tab runs its own auto-reporter, so one backend
+fault used to be filed once per tab (2026-10-20 16:57Z: two tabs, two reports). An AUTO report whose
+fingerprint — `trigger.episode` (the FE episode key: `backend_fault`, `endpoint_unresponsive:<host>`,
+`js_error:<message>` …), else `trigger.kind` — matches one saved within `PIANOID_REPORT_DEDUP_S` (default
+`120` s, `0` disables) of its own `createdAt` (so late lifeboat flushes still match) is not saved: `200
+{"ok": true, "duplicate": true, "duplicate_of": "<first file>", "saved": "<first file>"}` and an info log line.
+Manual and assistant reports are never de-duplicated. The index is in memory per reports folder
+(`pianoid_middleware/bug_report_dedup.py`): a duplicate arriving after a backend restart is saved again.
+Why server-side and not tab leadership: the collector is the one owner that sees every tab (and every
+browser); a leader-only reporter would drop a fault only a follower tab saw, and leadership changes hands.
 
 Response `200`:
 ```json
