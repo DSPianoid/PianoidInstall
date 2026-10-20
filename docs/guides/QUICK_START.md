@@ -235,6 +235,7 @@ The backend (port 5000) is **not started yet** — it launches on demand when yo
 | `/api/stop-backend` | POST | Graceful shutdown → force kill |
 | `/api/kill-stale` | POST | Force-kill any process on port 5000 |
 | `/api/backend-status` | GET | Returns `{ running, pid }` |
+| `/api/preset-file-dialog` | POST | Native "Load preset" dialog (tkinter, venv Python) opened in `<CORE_DIR>/pianoid_middleware/presets`; answers when the user closes it: `{ok, cancelled, path, name, initialDir}` (`path` = `presets/<rel>` or the absolute path), `{ok:false, busy}` while one is open, `{ok:false, error}` if the dialog cannot run |
 | `/ws/console` | WebSocket | Real-time backend log stream |
 
 ### No-prompt launch, desktop shortcut & update check
