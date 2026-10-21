@@ -283,6 +283,55 @@ All action methods share the signature `(self, pitch, velocity)`.
 
 ---
 
+## Channels and the sustain pedal (dev-6f0c)
+
+**Omni decode.** `midi_to_event_type` (and the `schedule_event` lifecycle gate / Fix-MIDI clamp) read the message TYPE from the status high nibble and ignore the channel: NOTE_ON `0x90-0x9F`, NOTE_OFF `0x80-0x8F` (or NOTE_ON velocity 0), CC64 sustain `0xB0-0xBF`. Before dev-6f0c the decode matched exact bytes: notes on channel 1 only (`144`/`128`) and the pedal on channels 1-3 only (`176-178`), so a keyboard set to channel 2+ played nothing and a pedal on channel 4+ was ignored (measured on the pre-fix code: `0x99`/`0x89` and `0xB3 64` returned `None`). The engine has one instrument and one pedal, so the channel has no meaning there. Other CCs (e.g. `0xB2 1 x` = mod wheel on channel 3, the source of the `Unknown MIDI command: 178` log line) are still dropped; the log line itself is reported once per status (dev-c6b6).
+
+**Pedal semantics — a switch at the MIDI threshold (measured, dev-6f0c).** `sustain_engine_value` maps CC64 `0-63` -> SUSTAIN `0` (up) and `64-127` -> `127` (down), on the live path, the old `/midi_playback`, the offline MidiRecord render and the MIDI player. Reason, measured in the live online ring (BaselinePreset1, p60, note-off at 700 ms, level at 1.0 s re the attack peak): with the raw value passed through, the engine's damper law `int(((127 - v) * dumper_position)^0.6)` ([SYNTHESIS_ENGINE.md](../pianoid-cuda/SYNTHESIS_ENGINE.md)) leaves every `v < 127` at >= 1 damper step, and one step damps a released string almost like 18: v = 0 / 32 / 64 / 96 / 110 / 118 / 122 / 125 gave −45.8 / −45.8 / −46.0 / −47.3 / −48.2 / −49.3 / −48.3 / −42.4 dB, only v = 127 sustained (−16.2 dB). So "half pedal" did nothing, and a pedal whose full press reads 120-126 did not sustain at all. With the switch: 0 / 32 -> −45.8 dB (up), 64…127 -> −16.2 dB (down). True half-pedal needs an engine damper curve that grades between 0 and 1 step (WIP follow-up). The bundled files only use 0 / 127 (renders unchanged).
+
+| Live measurement (dev-6f0c, ring, p60) | Result |
+|---|---|
+| no pedal, key 200-700 ms | −45.8 dB at 1.0 s, floor −60 by 1.4 s |
+| pedal down (0xB2, ch3) | −16.2 dB at 1.0 s, −26.2 at 2.4 s; pedal up at 2.5 s -> −53 dB by 2.7 s (−28 dB/s) |
+| pedal ch5 + notes ch10 (0xB4 / 0x99 / 0x89) | identical to ch3 (all bytes accepted; pre-fix they were dropped) |
+| re-strike while sustained (2nd NOTE_ON at 1.5 s) | jumps to −8.1 dB at 1.8 s, rings until pedal up at 3.0 s, then −55 dB by 3.4 s |
+| key held through pedal-up (pedal up 1.0 s, key off 2.5 s) | note keeps sounding (−35 dB at 2.2 s vs −60 pedal up) and stops at the key release; pedal down adds ~5 dB of sympathetic ringing while the key is held (−13.9 vs −18.8 dB at 0.6 s) |
+
+**What a real pedal needs:** a sustain pedal plugged into the keyboard (or a MIDI interface) that sends CC64 on any channel; select that device's input port in the MIDI panel (`POST /midi/select_port`) and start the listener (`listen_to_midi=1` or `POST /midi/start`). No channel setting is needed. A pedal whose polarity is reversed (sends 0 when pressed) must be fixed on the keyboard. Switch and continuous pedals both work (threshold 64); half-pedal is not supported by the engine yet.
+
+**Verification.** Unit level (no engine): `tests/unit/test_midi_player.py` drives the listener loop with a fake rtmidi port (pedal on channel 3, notes on channel 10) and pushes the same bytes through `schedule_event` into a real `RealTimeEventBuffer`. Live: `docs/development/diagnostics/dev-6f0c-sustain-player-live.py` (table above; `--only half_sweep` = the pedal-value sweep), in-process on ASIO. The rtmidi leg itself needs a hardware keyboard or a loopMIDI cable (winmm has no virtual ports).
+
+## MIDI player (dev-6f0c)
+
+A backend player for MIDI files with transport, seek, speed, loop, transpose, velocity scale and track / channel mutes. Its UI is the **MIDI Player** mosaic pane ([Tunner OVERVIEW](../pianoid-tunner/OVERVIEW.md)); routes are `/midi_player/*` ([REST_API.md](REST_API.md)).
+
+| File | Concern |
+|---|---|
+| `midi_song.py` | MIDI file -> `MidiSong`: time-sorted raw events with track + channel (tempo map of track 0, as the offline reader; NOTE_OFF/CC before NOTE_ON on the same tick); keeps notes + CC64/120/121/123 |
+| `midi_player.py` | `MidiPlayer`: the player state (sole owner) and the scheduler thread |
+| `midi_player_sink.py` | `PianoidEngineSink`: the engine adapter (buffer push / clear, cycle clock, preset pitches) behind the EngineGate shared slot |
+| `midi_player_routes.py` | REST shell + the MIDI library listing |
+
+**Where the timing runs: the backend, on the engine's cycle clock.** Every event is pushed into the engine's `RealTimeEventBuffer` with the target cycle computed from the song position (`cycle = cycle0 + (t - pos0) / (ms_per_cycle * speed)`), the same cycle-accurate path the live MIDI input and the old whole-file `/midi_playback` use. Notes land on the exact synthesis cycle (quantum = one cycle, `mode_iteration / sample_rate`) with no scheduling jitter of their own. Browser timers were rejected: every note would pick up the WS round trip and `setTimeout` jitter (tens of ms, and seconds in a throttled background tab).
+
+**Lookahead window, not a whole-file push.** The thread (10 ms tick) pushes only the events due in the next `LOOKAHEAD_MS = 150` ms of wall time. So pause / seek / stop just `clear()` that window; a speed change re-anchors the clock at the pushed horizon, without clearing; and a long file never reaches the buffer's 10000-event back-pressure, which evicts NOTE_OFFs (= stuck notes; the old `/midi_playback` push hits it on long files).
+
+| Behaviour | Rule |
+|---|---|
+| Note pairing | `_held[(track, channel, pitch)] = engine pitch` at NOTE_ON (after transpose); the NOTE_OFF damps that pitch, so changing transpose mid-note never leaves a note hanging; a pitch still held by another source is not damped |
+| All notes off | pause, stop, seek, end of song, loop wrap: clear the window, NOTE_OFF every pitch struck since the last release, SUSTAIN 0 |
+| Seek / resume | play resumes at the first event at or after the position, after a 40 ms lead; the pedal state at that position is re-sent (chased CC64) |
+| Sustain + key CCs | CC64 -> SUSTAIN (switch at 64, as the live path); CC121 -> SUSTAIN 0; CC123 / CC120 -> NOTE_OFF of that track+channel's held notes; other CCs dropped (engine has no per-channel volume / pan / soft pedal) |
+| Mutes | muted track / channel: its NOTE_ONs and CCs are skipped, its held notes released at once; NOTE_OFFs always pass (no stuck notes). Muting a separate "Pedal" track removes the sustain |
+| Transpose / velocity | ±24 semitones; velocity × 0.1-2.0 clamped to 1-127; notes outside the preset's pitches are skipped and counted (`skipped_notes`) |
+| Loop | seamless: release at the end cycle, restart at the next cycle |
+| Engine lost | a preset load (EngineGate refusal) or a rebuilt engine (buffer identity changed) stops the player without touching the engine |
+| State push | Socket.IO `midi_player_state` on every change and every 250 ms while playing |
+
+**Measured live (dev-6f0c, ASIO callback, BaselinePreset1, in-process):** cycle clock 1.3315 ms measured vs 1.3333 ms assumed (`mode_iteration / sample_rate`, −0.14 %); a metronome file at 400 ms gave onsets exactly 400.0 ms apart (std 0.0 at the 20 ms envelope resolution), at speed 1.5 a mean of 265.7 ms (expected 266.7); elise.mid from 10 s: position advanced 2961 ms in 3003 ms of wall time (the 40 ms start lead), pause -> output −71 dB re playing within 2 s, resume at 2x advanced 3923 ms in 2003 ms; event buffer peak 14 events, 0 dropped.
+
+The MIDI folder is `<PianoidInstall>/midi` (env `PIANOID_MIDI_DIR`; contents git-ignored); `GET /midi_player/library` lists it plus the bundled `MIDI_records/`. The old `/midi_playback` (`play.midi_file`, whole-file push, stop without note-offs) is unchanged for the assistant's command; moving it onto the player is a WIP follow-up.
+
 ## MIDI files (`MidiRecord.read_midi`)
 
 `/midi_playback` and the offline render read a MIDI file into `{ms: [events]}` through `MidiRecord.read_midi` (parse: `midi_file_reader.read_midi_instruments`, mido; [data flow](../../architecture/DATA_FLOWS.md)).

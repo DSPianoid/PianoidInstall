@@ -1,0 +1,5 @@
+# dev-6f0c: the MIDI Player pane's native file dialog opens in this folder.
+# Your MIDI files stay local (not committed); the bundled examples live in
+# PianoidCore/pianoid_middleware/MIDI_records/.
+*
+!.gitignore

@@ -286,6 +286,7 @@ hammer mass byte-identically. `play.note` through WS `command` vs the raw `play`
   /play_mode/<mode_no>      -- trigger mode playback
   /play_keyboard            -- full-keyboard sweep (online+mic capture / offline render)
   /midi_playback            -- MIDI file playback control
+  /midi_player/*            -- MIDI-file player: status, library, load, transport, seek, options, mute (dev-6f0c)
   /playback_stats           -- EventQueue statistics
   /pause_synthesis          -- pause synthesis cycle (keeps GPU)
   /resume_synthesis         -- resume synthesis from pause
@@ -1865,6 +1866,22 @@ Response `200`:
 ```
 
 Response `400` for invalid action or pianoid not initialized.
+
+### MIDI player — `/midi_player/*` (dev-6f0c)
+
+Backend-timed MIDI-file player ([MIDI_SYSTEM.md → MIDI player](MIDI_SYSTEM.md#midi-player-dev-6f0c)). Every POST answers the full **status**; the same status is pushed as Socket.IO `midi_player_state` on each change and every 250 ms while playing. Errors: `400 {error, status}` (no file loaded, file not found / not MIDI / > 16 MB, engine not running, bad body).
+
+| Method + path | Body | Effect |
+|---|---|---|
+| `GET /midi_player/status` | — | current status |
+| `GET /midi_player/library` | — | `{midi_dir, bundled_dir, files: [{name, path, source: "midi"\|"bundled", folder, bytes}]}` (`<PianoidInstall>/midi` or `$PIANOID_MIDI_DIR`, recursive, + `MIDI_records/`) |
+| `POST /midi_player/load` | `{"path": "<absolute path>"}` or multipart field `file` | stop, parse, load (mutes cleared; speed / loop / transpose / velocity kept) |
+| `POST /midi_player/transport` | `{"action": "play" \| "pause" \| "stop"}` | play needs a running engine; pause/stop = all notes off; stop rewinds to 0 |
+| `POST /midi_player/seek` | `{"position_ms": float}` | while playing: all notes off, resume there (pedal state chased) |
+| `POST /midi_player/options` | any of `speed` (0.25-4), `loop` (bool), `transpose` (−24..24), `velocity_scale` (0.1-2) | values clamped to the ranges |
+| `POST /midi_player/mute` | `{"track": i}` or `{"channel": 0-15}` + `"muted": bool` | muting releases that source's held notes |
+
+Status: `{loaded, song: {name, path ("" for an upload), duration_ms, events, initial_bpm, midi_type, tracks: [{index, name, channels, notes, pedal_events}], channels: [{channel, notes}]}, state: "stopped"|"playing"|"paused", position_ms, duration_ms, speed, loop, transpose, velocity_scale, muted_tracks, muted_channels, loops, skipped_notes, error, version}`. Write class: `action` (status/library `read_only`).
 Response `404` if MIDI file not found.
 Response `500` for unexpected errors.
 
