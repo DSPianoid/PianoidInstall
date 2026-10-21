@@ -3,8 +3,12 @@
 **Status:** Phase 1 IMPLEMENTED (dev-8f54, 2026-10-20): multi-input metering in the ASIO callback, calibrated
 per-exciter current / board readings, the per-exciter current-limit safety limiter, the `exciter_telemetry`
 stream, the Exciter Monitor pane, assistant commands. Phase 2 (closed-loop level trim tuned on the rig, board
-amplitude limit, sensor-fault actions) is open. Verified on the UMC1820 with no sensors connected (plumbing,
-limiter with a lowered limit and with the injected test level); not verified with real current sensors.
+amplitude limit, sensor-fault actions) is open. Verified live on the UMC1820 with no sensors connected
+(2026-10-21, map 8,9,2,3,4,5,6, buffer 64): inputs metered at 47.3-48.7 k frames/s during playback, telemetry at
+24 events/s, a limit below the input noise drove E1 to the -30 dB floor (output peak -40 -> -55 dBFS) with E2
+untouched, the injected test level gave the expected first step (-9.5 dB for 0.3 FS over a 0.1 FS limit), one step
+per hold-off and the 500 ms release; the pane updated live. Not verified with real current sensors (calibration,
+closed loop).
 
 **User request (2026-10-20):** "Controlled playback: normal system functioning, with current sensors plugged
 into the inputs. Control the current and, ideally, the board amplitude on each exciter. The UI should show a
