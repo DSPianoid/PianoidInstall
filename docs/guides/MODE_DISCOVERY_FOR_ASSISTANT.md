@@ -291,10 +291,10 @@ are their parametric form (dev-8a9e). See [Branch status](#branch-status).
   inspected, and whether D: has ≥ 5 GB free (the assistant cannot see the disk).
 - **Pitfall:** a healthy-looking `/health` does not prove the interface is present (the rig dropped out before);
   `audio.devices` lists the device the engine actually opened.
-- **Pitfall (2026-10-20):** with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6` (7 entries) a load of a preset with
-  another channel count fails with `PIANOID_AUDIO_OUTPUT_MAP has 7 entries for 4 channels` and leaves **no engine**
-  ("core not loaded"); a Tunner tab that re-applies its stored 4-channel load on connect does this. Load a
-  7-channel preset (the measured one) with `preset.load`.
+- **Output map vs channel count (fixed 2026-10-20, dev-16af):** with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`
+  (7 entries) a preset with FEWER channels loads on the first N outputs (`output_map_warning` in the result); one
+  with MORE channels is refused (`409 output_map_mismatch`) and the running engine is kept. A Tunner tab no longer
+  re-applies its stored load over a different loaded preset. Play the measured 7-channel preset with `preset.load`.
 
 ### Step 1: wiring / ID check {#step-1}
 

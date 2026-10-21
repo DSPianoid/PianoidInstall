@@ -194,13 +194,19 @@ UMC1820 (2026-10-20; the driver only offers powers of two, so 1152 itself cannot
 **Engine channel → device output map (dev-a709, callback driver `audio_driver_type 4`).** Engine channel `k` plays
 on ASIO output `map[k]` (0-based); default (no map) = identity, outputs `0..num_channels−1`. The map is a
 per-machine **session setting**: environment variable `PIANOID_AUDIO_OUTPUT_MAP` of the backend process
-(comma-separated, length = the preset's channel count), applied by `pianoid_middleware/audio_channels.py` through
+(comma-separated, at least the preset's channel count), applied by `pianoid_middleware/audio_channels.py` through
 `pianoidCuda.setAsioOutputMap(list)` before the driver opens (`getAsioOutputMap()` reads it back). With a map,
 every unmapped device output is written silence each `bufferSwitch` (e.g. the monitor outputs). Validation:
 entries `0..31`, distinct (`ValueError`); at driver init the map length must equal the engine's channels and the
 device must have `max(map)+1` outputs (else the device is skipped → the documented ASIO→SDL3 fallback). The
 legacy non-callback ASIO driver (type 1) rejects a map. Example (10-15 plywood rig, E1..E7 on Out 9, 10, 3..7):
 `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`. Not used by SDL (stereo downmix of channels 0/1).
+**Map vs preset channel count (dev-16af).** A map **longer** than the preset's channels is a per-machine map
+for a wider preset: its **first N** entries are used (channel `k` still plays on `map[k]`) and `/load_preset`
+answers with `output_map_warning`. A **shorter** map cannot route every channel, and a map with a
+non-callback driver cannot apply: `/load_preset` refuses both with `409 output_map_mismatch` **before** it
+tears anything down — the running engine keeps playing (`audio_channels.load_output_map_check`). Before this,
+the 7-entry rig map + a 4-channel preset raised inside `initialize()` after `destroyPianoid()` and left no engine.
 
 **Mic capture input (dev-d191).** `startCapture` (→ `startMicCapture`, `play.keyboard capture_mic`, acoustic
 calibration) records ONE physical input: `ASIOAudioDriver::setCaptureInputChannel(int)` /

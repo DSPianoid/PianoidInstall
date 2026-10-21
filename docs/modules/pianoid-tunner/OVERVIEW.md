@@ -370,6 +370,18 @@ shows a warning notification. Tests: `utils/__tests__/tabLeadership.test.js`,
 `utils/__tests__/startupAutoLoad.test.js`, `hooks/__tests__/useTabLeadership.test.jsx`,
 `components/__tests__/TabLeaderBanner.test.jsx`.
 
+**An automatic load never replaces a different loaded preset (dev-16af).** Leadership decides WHICH tab
+may auto-load, not WHAT it loads: on 2026-10-20 a stale tab became leader on reconnect and re-applied its
+stored 4-channel load over the 7-channel preset the backend ran. Both automatic paths (the startup auto-load
+and the bare-backend re-load) now go through `autoLoadPreset` → `utils/autoReapplyGuard.js`: a fresh
+`GET /load_settings` first; **no engine** (or the backend unreachable — it is cold-started) → load the tab's
+stored settings; **the same preset file** → load (an identical re-load is hot); **a different preset** →
+**adopt** it: re-load the backend's own `path` + `settings` (classified hot — nothing is destroyed; the
+tab's editors hydrate from what runs) and show a persistent info "The backend already runs X — this tab
+synced to it instead of re-applying its stored Y. Press APPLY to load that one." A deliberate APPLY is never
+routed through the guard. If the adopted load brings its own load-param warning, the snackbar shows both texts. Verified live 2026-10-21 (F15 loaded, tab with a stored Belarus load → hot adopt, no re-init; `development/logs/livetest-dev-16af-adopt-loaded-preset.png`). A `409 output_map_mismatch` ([REST_API → /load_preset](../pianoid-middleware/REST_API.md#post-load_preset))
+shows the same "Preset not loaded" warning as `load_in_progress`. Tests: `utils/__tests__/autoReapplyGuard.test.js`.
+
 ### `useMidi`
 
 MIDI state for the visual piano and pitch auto-select. Since W4 Phase 3 the
