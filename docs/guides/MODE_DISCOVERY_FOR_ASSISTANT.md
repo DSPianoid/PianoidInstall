@@ -268,6 +268,7 @@ per exciter; relative levels E1 +4.7, E2 +4.5, E3 +0.3, E4 −4.5, E5 −3.5, E6
 | Linearity | small level dependence: about 1 dB per 12 dB below 250 Hz, frequencies within 0.15 %; superposition holds above 35 Hz (all 7 at once = one at a time within 0.4–0.6 dB) |
 | Drift | about 0.13 % in frequency and 0.4–0.6 dB at LF over 1.7 h |
 | Disk | keep ≥ 5 GB free on D: (a full disk aborted a run on 10-14); a full 7 × 7 is 0.7–0.8 GB |
+| Live current limit (playback) | the exciter monitor (`audio.exciters` read, `audio.exciters_config` hard confirm) meters the sense / board inputs during normal playback and limits each exciter's current; it needs the input map + scales set per machine (default OFF, uncalibrated). [REST_API → Exciter monitor](../modules/pianoid-middleware/REST_API.md#exciter-monitor) |
 
 ## The procedure ladder {#ladder}
 

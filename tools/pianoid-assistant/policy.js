@@ -63,6 +63,7 @@ export const HARD_CONFIRM = {
   'modal.rig_process': 'runs a measurement-pipeline step (FRF / PolyMAX / coefficients / preset build); writes files',
   'modal.set_measurements_dir': 'moves the measurements folder every rig command uses (data is not moved)',
   'preset.create': 'writes a new preset file (structure change)',
+  'audio.exciters_config': 'changes the exciter current limits / sensor mapping (hardware protection)',
   'audio.session': 'plays on the rig outputs',
   'audio.test_tone': 'plays on the rig outputs',
 };

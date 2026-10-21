@@ -423,6 +423,43 @@ Standalone probe built from the vendored SDK (`D:\scratch\dev-1b6c\probe\asio_pr
 
 ---
 
+## Exciter Monitor (dev-8f54)
+
+**Files:** `ExciterMonitor.h/.cpp` (metering + limiter, no CUDA, no ASIO calls), `ExciterMonitorBindings.cpp`
+(module functions, registered from `AsioSessionBindings.cpp`), one hook in `AsioAudioInterface.cpp`. Middleware
+/ REST / UI: [REST_API → Exciter monitor](../pianoid-middleware/REST_API.md#exciter-monitor). Design:
+[controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md).
+
+During **normal playback** (callback driver, synthesis running, no session) the host meters N selected physical
+inputs (current-sense / board sensors) and applies a per-exciter safety gain to the engine channels' outputs.
+
+| Property | Behaviour |
+|---|---|
+| Place | `bufferSwitchTimeInfo`, right after the engine block callback(s) wrote this switch's outputs, before the mic capture and the session hook. Exciter k = engine channel k; its buffer is the one the engine wrote (`map[k]`, or output k without a map) |
+| Metering | per configured input and switch: conversion by `channelInfos[i].type`, block peak and sum of squares, accumulated into a window; per exciter the post-gain output peak / sum of squares (Int32LSB outputs only) |
+| Limiter | sense block peak > `limit_fs` → `gain = max(floor, gain · limit / peak)`, then `holdoff_switches` switches without a further attack (the reading lags the output by one round trip); below `release_threshold · limit` the gain recovers to its ceiling (`trim`) with `release_ms`; the band in between holds. The gain is ramped linearly over the switch; int32 writes saturate. Only the over-limit exciter is attenuated |
+| Real time | config in through a seqlock (the callback keeps its last copy, never waits); telemetry out through a second seqlock; `exciter_monitor_read(reset_window)` bumps an epoch the callback sees at its next switch (≤ 1 switch of samples falls between windows). No allocation, no lock, no Python in the callback. Disabled = one atomic load per switch |
+| Scope | process-wide like the output map: survives preset loads and driver re-opens; a new backend starts disabled (the middleware pushes the stored config when it sees an open device) |
+| Interplay | the kernel limiter telemetry (`/health.limiter`) is measured **before** this stage; `output_scale` / volume are untouched. A session (`/audio/session`) overwrites the outputs after the monitor ran. While the engine underruns (synthesis paused) the stale repeated buffer is re-scaled by a gain < 1 each switch (it decays) |
+| Units | fractions of full scale only; amperes / board units are the middleware's calibration |
+
+```cpp
+// pianoidCuda module functions (ASIO builds)
+exciter_monitor_configure(enabled, inputs, exciters=[{sense_input, limit_fs, release_ms, trim}],
+                          floor_gain=0.0316, holdoff_switches=8, release_threshold=0.9)  // ValueError on bad config
+exciter_monitor_config()                   // the last accepted config
+exciter_monitor_read(reset_window=True)    // {enabled, switches, window_switches, window_frames, buffer_size,
+                                           //  sample_rate, config_version, applied_version, inputs[], exciters[]}
+exciter_monitor_set_test_level(input, level_fs)   // TEST HOOK: input reads >= a sine of that peak (0 = off)
+exciter_monitor_reset_gains()
+_exciter_monitor_process_test_switch(inputs, outputs, sample_rate)  // TEST HOOK, refused while ASIO is open
+```
+
+Host-only test of the limiter dynamics: `tests/cpp/test_exciter_monitor.cpp` (run by
+`tests/unit/test_exciter_monitor_cpp.py`, MSVC).
+
+---
+
 ## LockFreeCircularBuffer
 
 **File:** `CircularBuffer.cuh` / `CircularBuffer.cu`
