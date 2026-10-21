@@ -194,7 +194,7 @@ body_arg?}`: `{arg}` path placeholders are filled from the args, `fixed` values 
 (e.g. `play.keyboard` = `/play_keyboard {mode: "online"}`, `render.keyboard` = `{mode: "offline"}`),
 `body_arg` makes one arg the whole body (`param.set` → `values`), the other args are the JSON body (the
 query string for a GET). Core reads `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`;
-a missing registry fails the backend import (fail fast). The schemas use a declared draft-07 subset
+a missing registry fails the backend import (fail fast). A registry that is **newer than the backend** (a backend command whose route this Core lacks, e.g. only PianoidInstall was pulled) does not fail: that command is skipped with one `command registry: N backend command(s) have no route on this backend` warning (`Registry.unrouted`), and the per-route job hook never raises. Before dev-c6b6 (2026-10-21) the hook's `url_map.match` raised NotFound and every route answered 404, `/health` included. The schemas use a declared draft-07 subset
 (`type`, `properties`, `required`, `additionalProperties`, `enum`, `const`, `minimum`, `maximum`,
 `minItems`, `maxItems`, `items`, `oneOf` + annotations): Core validates with `jsonschema`, the frontend
 with `utils/commandSchema.js`, and both run the shared `schemas/commands/_conformance.json` cases.
