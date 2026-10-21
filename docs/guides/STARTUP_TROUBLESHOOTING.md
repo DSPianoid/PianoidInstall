@@ -505,6 +505,14 @@ The backend process disappears (often during `/load_preset`). `backend_stdout.lo
 2. If the backend was **not** started by the launcher on :5000, assume kill-stale: see [Agents: never run an unowned backend on :5000](#agents-never-run-an-unowned-backend-on-5000).
 3. Only after that, investigate a real crash: the process exit code, the Windows Event Log (Application, `python.exe`), and `faulthandler` output. Run direct launches with `python -u` so the stdout tail is not lost.
 
+### Symptom: every route times out during bulk edits (/health, /midi/ports), then recovers {#backend-stall-bulk-writes}
+
+Bug R3 (fixed by dev-c6b6, 2026-10-20). The UI reports `endpoint_unresponsive` for up to minutes while you apply whole-curve or whole-keyboard edits: excitation `from21to108`, mode `from0to195`, or a run of feedback rows. `backend_stdout.log` shows no request completing during the gap.
+
+- **What was measured:** the backend never stopped answering. `curl /health` stayed at 26-58 ms during the whole gap. Each bulk write ran 20-30x too slow while it held `cuda_lock` (excitation `from21to108` 16-30 s, mode-all 3.5-5 s), and the writes queued behind each other. Once the FE fell back to REST, the queued writes filled Chrome's **6 connections per host**, so the browser could not even send `/health`. Cause: the unified MIDI listener spun on rtmidi's non-blocking poll and held the GIL ([MIDI_SYSTEM → Listener thread loop](../modules/pianoid-middleware/MIDI_SYSTEM.md#listener-thread-loop)). Stopping MIDI (`POST /midi/stop`) made the same writes 0.75-1.1 s and 0.12 s.
+- **Diagnose a new stall:** run `py-spy dump --pid <pid>` during the stall. Use the PID of the `C:\Python312\python.exe` **child** that listens on the port: the venv `python.exe` is only a launcher stub, and dumping it fails with os error 299. Look for one thread marked `active+gil` in every dump, and for writer threads parked at `with self.cuda_lock`. Compare `curl /health` (outside the browser) with the UI's `/health`.
+- **Logs:** the launcher caps `backend_stdout.log` at 20 MB (`PIANOID_LOG_MAX_MB`) and keeps `.1`-`.3`. The per-write array dumps are off. Set `PIANOID_DEBUG_PARAMS=1` on the backend to print `/set_parameter` bodies again.
+
 ### Symptom: Flask server starts but `/load_preset` fails
 
 **Check the backend console output** for Python tracebacks. Common causes:
@@ -764,6 +772,7 @@ Use this checklist to verify a fresh installation:
 | Backend console | Terminal running `backendserver.py` | Flask requests, CUDA init, errors |
 | Launcher console | Terminal running `npm run dev` | Backend spawn/kill events |
 | Launcher kill notes | `PianoidCore\logs\backend_stdout.log` (`modal_stdout.log` for :5001) | One `[launcher <time>] killed PID(s) … (reason: …)` line per kill sweep |
+| Backend stdout (rotated) | `PianoidCore\logs\backend_stdout.log` + `.1`…`.3` | Launcher-captured backend stdout/stderr; rotated at 20 MB (`PIANOID_LOG_MAX_MB`), on open and while running (dev-c6b6) |
 | WebSocket console | `ws://localhost:3001/ws/console` | Real-time backend log stream (from UI) |
 | PianoidLogger | `PianoidCore\pianoid_middleware\logs\` | File-based engine logs (if enabled) |
 

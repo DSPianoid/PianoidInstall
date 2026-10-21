@@ -240,6 +240,7 @@ through POST) is owned by `hammer_payload.py` (dev-e772). Contract table:
 - `emit_midi_playback_progress(position_ms, total_ms, notes_played)` — broadcasts MIDI playback progress (thread-safe)
 - `emit_engine_error(code, message)` — broadcasts engine error via WebSocket (thread-safe)
 - `_DEBUG_PLAY` — environment flag (`PIANOID_DEBUG_PLAY=1`) to enable console print in the `/play` hot path
+- `_DEBUG_PARAMS` — environment flag (`PIANOID_DEBUG_PARAMS=1`) to print every `POST /set_parameter` body (off by default since dev-c6b6: the unconditional 196-value dumps were most of an 80 MB / 2-day `backend_stdout.log`; `ParameterManager` also passes `verbose=False` to `update_deck` / `update_deck_mask`)
 - `_journal_open_request` / `_journal_fallback_events` / `_journal_close_request` (before / after / teardown request hooks) + `_ws_journal` (WS write handlers) — open the `StateJournal` context (source from the `X-Pianoid-*` headers / WS payload fields), emit the generic `session_changed` / `domain_invalidated` for the route's class in `write_routes.py`, wrap `transient` routes in `engine_busy`, and flush the I1b safety net at request end
 
 ### State broadcast (SSOT I1) {#state-broadcast-ssot-i1}

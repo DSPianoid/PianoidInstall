@@ -103,7 +103,9 @@ while self.listen and not self.exception:
     if pending: listener.select_port(pending)
 
     msg = listener.get_message()
-    if msg is None: continue
+    if msg is None:
+        time.sleep(MIDI_IDLE_SLEEP_S)   # 1 ms — NEVER a bare `continue` (see below)
+        continue
     status, data1, data2 = msg[0][:3]
     self.schedule_event(status, data1, data2)        # cycle-aligned dispatch
 
@@ -112,6 +114,8 @@ while self.listen and not self.exception:
 ```
 
 The loop exits cleanly when `self.listen` is set False or `self.exception` is raised; the rtmidi port is closed on exit so the OS releases it for the next listener start.
+
+**Idle wait, not a spin (dev-c6b6, 2026-10-20, bug R3).** rtmidi's `get_message()` is a non-blocking C call that keeps the GIL. With a bare `continue`, the listener thread held the GIL almost permanently, so every GIL release in any other thread (a numpy ufunc, a stdout write, socket I/O) waited a full 5 ms switch interval. Parameter writes, which run under `cuda_lock`, became 20-30x slower: `excitation/from21to108` took 16-30 s with the listener on and 0.75-1.1 s with it stopped; `mode/from0to195` took 3.5-5 s vs 0.12 s. The queued writes then filled the browser's 6-connections-per-host pool, so every route (`/health`, `/midi/ports`) looked frozen for up to 179 s. The loop now drains every pending message and sleeps `MIDI_IDLE_SLEEP_S` (1 ms requested, about 1-3 ms on Windows) only when nothing is pending. rtmidi queues messages between polls, so none are lost. Regression test: `tests/unit/test_midi_listener_idle_gil.py`. An unmapped status (for example CC `178` from a controller that streams it) is logged **once** per process instead of on every message.
 
 ---
 
