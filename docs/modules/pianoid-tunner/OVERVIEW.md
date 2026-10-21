@@ -378,7 +378,7 @@ stored settings; **the same preset file** → load (an identical re-load is hot)
 **adopt** it: re-load the backend's own `path` + `settings` (classified hot — nothing is destroyed; the
 tab's editors hydrate from what runs) and show a persistent info "The backend already runs X — this tab
 synced to it instead of re-applying its stored Y. Press APPLY to load that one." A deliberate APPLY is never
-routed through the guard. A `409 output_map_mismatch` ([REST_API → /load_preset](../pianoid-middleware/REST_API.md#post-load_preset))
+routed through the guard. If the adopted load brings its own load-param warning, the snackbar shows both texts. Verified live 2026-10-21 (F15 loaded, tab with a stored Belarus load → hot adopt, no re-init; `development/logs/livetest-dev-16af-adopt-loaded-preset.png`). A `409 output_map_mismatch` ([REST_API → /load_preset](../pianoid-middleware/REST_API.md#post-load_preset))
 shows the same "Preset not loaded" warning as `load_in_progress`. Tests: `utils/__tests__/autoReapplyGuard.test.js`.
 
 ### `useMidi`
