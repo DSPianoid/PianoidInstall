@@ -25,6 +25,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--out', required=True)
 ap.add_argument('--preset', default='presets/BaselinePreset1.json')
 ap.add_argument('--pitch', type=int, default=60)
+ap.add_argument('--only', choices=['all', 'half_sweep'], default='all')
 args = ap.parse_args()
 
 sys.path.insert(0, os.getcwd())
@@ -126,6 +127,19 @@ def pedal_scenarios():
         }
         np.save(os.path.join(args.out, f'env_{name}.npy'), env)
         log(name, json.dumps(out[name]))
+    return out
+
+
+def half_pedal_sweep():
+    """Pedal value -> level after the key release (700 ms): where the continuous pedal bites."""
+    k, sr, out = args.pitch, P().mp.sample_rate(), {}
+    for value in (0, 32, 64, 96, 110, 118, 122, 125, 127):
+        sound, _ = capture([(100, 0xB2, 64, value), (200, 0x92, k, 100), (700, 0x82, k, 0),
+                            (2500, 0xB2, 64, 0)], 3.0)
+        env, _, _ = envelope_db(sound, sr)
+        out[value] = {'db_at_ms': {t: level_at(env, t) for t in (600, 800, 1000, 1400, 2000)},
+                      'slope_db_s_900_2300': slope(env, 900, 2300)}
+        log('half sweep', value, out[value])
     return out
 
 
@@ -247,6 +261,9 @@ def main():
     REPORT['health'] = {'status': h.get('status'), 'driver': (h.get('audio_driver_fallback') or {}).get('active')}
     log('health', REPORT['health'])
     REPORT['pitches_in_preset'] = args.pitch in P().get_all_pitches_in_preset(convert_to_notes=False)
+    if args.only == 'half_sweep':
+        REPORT['half_pedal_sweep'] = half_pedal_sweep()
+        return
     REPORT['cycle_clock'] = cycle_clock()
     log('cycle clock', REPORT['cycle_clock'])
     REPORT['pedal'] = pedal_scenarios()
