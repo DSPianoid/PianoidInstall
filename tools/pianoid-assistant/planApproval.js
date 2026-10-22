@@ -16,6 +16,7 @@
  *   matchGrant(grant, {cmd, input, now})  -> {ok, reason, ticked?, driveS?}
  *   recordUse(grant, {command, driveS, now}) -> grant (new object)
  *   describeGrant(grant, now)             -> the pane's view
+ *   planState(grant, ended, now)          -> the model's per-turn view (context plan_approval)
  *
  * Fail closed: a value the matcher cannot read (an unknown level default, a drive time it cannot
  * compute, a path outside the folders) is OUTSIDE the envelope, so the step asks as before.
@@ -245,6 +246,33 @@ export function matchGrant(grant, { cmd, input = {}, now = Date.now() } = {}) {
 export function recordUse(grant, { command, driveS = 0, now = Date.now(), activityId = null }) {
   const log = [...grant.log, { at: now, command, driveS, activityId }].slice(-200);
   return { ...grant, driveUsedS: grant.driveUsedS + (driveS || 0), log };
+}
+
+/** "less than a minute ago" / "3 min ago" for an end time (the model's wording of a revoke / expiry). */
+export function agoText(at, now = Date.now()) {
+  const min = Math.floor(Math.max(0, now - at) / 60000);
+  return min < 1 ? 'less than a minute ago' : `${min} min ago`;
+}
+
+/** The confirm-reason note for a step after the plan ended (`ended` = {title, how: revoked | expired, at}). */
+export const endedReason = (ended, now = Date.now()) => out(`the plan "${ended.title}" ${ended.how === 'expired' ? 'expired' : 'was revoked'} ${agoText(ended.at, now)}`).reason;
+
+/**
+ * The model's per-turn view (context plan_approval): none / active with the envelope and the minutes
+ * left / revoked or expired with when. `ended` is the last plan that ended (null = none).
+ */
+export function planState(grant, ended = null, now = Date.now()) {
+  if (grant && !grant.revoked && now < grant.expiresAt) {
+    const e = grant.envelope;
+    return {
+      state: 'active', title: grant.title, commands: grant.commands, hard_ticked: grant.hardTicked,
+      max_level_dbfs: e.maxLevelDbfs, outputs: e.outputs, inputs: e.inputs, folders: e.folders,
+      drive_used_s: grant.driveUsedS, max_drive_s: e.maxDriveS, uses: grant.log.length,
+      remaining_min: Math.ceil((grant.expiresAt - now) / 60000),
+    };
+  }
+  if (ended) return { state: ended.how, title: ended.title, at: new Date(ended.at).toISOString(), ago: agoText(ended.at, now) };
+  return { state: 'none' };
 }
 
 /** The pane's view of the grant (null = none / inactive). */

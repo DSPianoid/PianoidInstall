@@ -9,6 +9,7 @@ import { SdkDriver } from '../drivers/sdk.js';
 import { planPrompt, systemPrompt } from '../service/prompt.js';
 import {
   FLAG, enabled, validateRequest, createGrant, matchGrant, recordUse, describeGrant, footprint, LEVEL_CAP_DBFS,
+  planState, agoText, endedReason,
 } from '../planApproval.js';
 import { AssistantSession, PLAN_TOOL } from '../service/session.js';
 
@@ -317,8 +318,75 @@ test('flag ON: Stop declines a pending request; expiry revokes and logs', async 
   s.answerPlan({ id, accept: true, ticked: [] });
   await p2;
   s.plan.grant.expiresAt = Date.now() - 1;                                      // time passes
-  assert.equal(s.planMatch(C('play.note'), {}), null);
+  assert.match(s.planMatch(C('play.note'), {}).reason, /outside the plan approval: the plan "Board measurement" expired less than a minute ago/);
   assert.equal(s.plan.grant, null);
   assert.ok(s.activity.some((a) => a.command === 'plan approval' && a.decision === 'revoked' && a.reason === 'expired'));
   clearTimeout(s.plan.timer);
+});
+
+// ---- the model's view of the plan state (dev-28f3) -------------------------------------------
+
+test('planState: none / active (envelope + minutes left) / revoked / expired (when); agoText', () => {
+  assert.deepEqual(planState(null, null, NOW), { state: 'none' });
+  const g = recordUse(createGrant(req(), { ticked: ['modal.rig_capture'], now: NOW }), { command: 'modal.rig_capture', driveS: 120, now: NOW });
+  const a = planState(g, null, NOW + 10 * 60000 + 1);
+  assert.deepEqual(a, {
+    state: 'active', title: 'Board measurement', commands: g.commands, hard_ticked: ['modal.rig_capture'],
+    max_level_dbfs: -36, outputs: ['out 9', 'out 10'], inputs: ['in 1', 'in 2'], folders: ['rig_runs', 'presets/boarda'],
+    drive_used_s: 120, max_drive_s: 130, uses: 1, remaining_min: 20,
+  });
+  assert.deepEqual(planState(g, null, g.expiresAt), { state: 'none' });                 // expired with no record = none
+  const ended = { title: 'Board measurement', how: 'revoked', at: NOW };
+  assert.deepEqual(planState(null, ended, NOW + 2 * 60000 + 5), { state: 'revoked', title: 'Board measurement', at: new Date(NOW).toISOString(), ago: '2 min ago' });
+  assert.equal(planState(null, { ...ended, how: 'expired' }, NOW).state, 'expired');
+  assert.equal(agoText(NOW, NOW + 59999), 'less than a minute ago');
+  assert.equal(endedReason(ended, NOW + 3 * 60000), 'outside the plan approval: the plan "Board measurement" was revoked 3 min ago');
+});
+
+test('flag ON: context plan_approval tracks grant -> revoke -> new grant -> expiry; the confirm and the decline say why', async () => {
+  const { s, sent } = mkSession(true);
+  assert.deepEqual((await s.context()).plan_approval, { state: 'none' });
+  const grant = async (over = {}) => {
+    const p = s.requestPlan({ ...RIG_REQ, ...over });
+    s.answerPlan({ id: sent.findLast((m) => m.type === 'plan_request').id, accept: true, ticked: ['modal.rig_capture'] });
+    await p;
+  };
+  await grant();
+  const act = (await s.context()).plan_approval;
+  assert.deepEqual([act.state, act.remaining_min, act.max_drive_s], ['active', 30, 130]);
+  s.revokePlan();
+  const rev = (await s.context()).plan_approval;
+  assert.deepEqual([rev.state, rev.title, rev.ago], ['revoked', 'Board measurement', 'less than a minute ago']);
+  // the next drive asks again: the dialog reason and the model's decline message name the revoke
+  const p1 = s.canUseTool(tool('modal.rig_capture'), CAPTURE, { toolUseID: 'r1' });
+  await new Promise((r) => setImmediate(r));
+  const c1 = sent.findLast((m) => m.type === 'confirm');
+  assert.equal(c1.hard, true);
+  assert.match(c1.reason, /\(outside the plan approval: the plan "Board measurement" was revoked less than a minute ago\)$/);
+  s.confirm(c1.id, false);
+  assert.match((await p1).message, /declined modal\.rig_capture\. It asked because it is outside the plan approval: the plan "Board measurement" was revoked/);
+  // an auto step after the end carries no plan note (only a confirm is annotated)
+  assert.equal((await s.canUseTool(tool('play.note'), { pitch: 60 }, { toolUseID: 'r2' })).behavior, 'allow');
+  assert.ok(!/plan/.test(s.activity.findLast((a) => a.command === 'play.note').reason || ''));
+  // a new grant clears the ended record; its expiry is reported as expired
+  await grant({ expires_in_min: 1 });
+  assert.equal((await s.context()).plan_approval.state, 'active');
+  s.plan.grant.expiresAt = Date.now() - 1;                                      // time passes
+  const exp = (await s.context()).plan_approval;
+  assert.deepEqual([exp.state, exp.title], ['expired', 'Board measurement']);
+  assert.ok(s.activity.some((a) => a.command === 'plan approval' && a.decision === 'revoked' && a.reason === 'expired'));
+  clearTimeout(s.plan.timer);
+});
+
+test('kill-switch (flag=0): no plan_approval in the context, no plan note on a confirm or decline', async () => {
+  const { s, sent } = mkSession(false);
+  assert.equal('plan_approval' in (await s.context()), false);
+  s.revokePlan();
+  assert.equal(s.plan.ended, null);
+  const p = s.canUseTool(tool('modal.rig_capture'), CAPTURE, { toolUseID: 'k1' });
+  await new Promise((r) => setImmediate(r));
+  const c = sent.find((m) => m.type === 'confirm');
+  assert.equal(c.reason, HARD_CONFIRM['modal.rig_capture']);
+  s.confirm(c.id, false);
+  assert.equal((await p).message, 'The user declined modal.rig_capture.');
 });

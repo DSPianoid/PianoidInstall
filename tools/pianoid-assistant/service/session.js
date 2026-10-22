@@ -28,7 +28,7 @@ import { splitExport } from '../analysis/export.js';
 import { canonical } from './autoWrite.js';
 import { BUG_CMD, BUG_TOOL, buildReport, fileReport, preview, validateDraft } from './bugReport.js';
 import {
-  enabled as planFlag, validateRequest, createGrant, matchGrant, recordUse, describeGrant,
+  enabled as planFlag, validateRequest, createGrant, matchGrant, recordUse, describeGrant, planState, endedReason,
 } from '../planApproval.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +86,7 @@ export class AssistantSession {
     this.turnJobs = [];
     this.nextId = 1;
     this.status = 'idle';
-    this.plan = { enabled: planApproval === true, grant: null, requests: new Map(), timer: null };   // dev-28f1
+    this.plan = { enabled: planApproval === true, grant: null, ended: null, requests: new Map(), timer: null };   // dev-28f1; ended = dev-28f3
   }
 
   baseModel() { return this.config.model === 'opus' ? MODELS.opus : MODELS.sonnet; }
@@ -233,7 +233,7 @@ export class AssistantSession {
     this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
     if (!allow) {
       this.router.onRefused(cmd.name);
-      return { behavior: 'deny', message: `The user declined ${cmd.name}.` };
+      return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
     if (remember && verdict.canAuto) this.updateApprovals({ category, mode: 'auto', scope: remember });
     this.auto.permit(cmd, executed(cmd, input), { entry });
@@ -398,14 +398,21 @@ export class AssistantSession {
 
   broadcastPlan() { this.broadcast({ type: 'plan', planApproval: this.planView() }); }
 
-  /** The grant's verdict on one registry call (null with the flag off or no grant: the policy never sees a plan). */
+  /**
+   * The grant's verdict on one registry call (null with the flag off or no plan ever granted: the policy never
+   * sees a plan). After a revoke / expiry: {ok: false, reason} naming it, so the confirm says why it asks again.
+   */
   planMatch(cmd, input) {
-    if (!this.plan.enabled || !this.plan.grant) return null;
-    if (Date.now() >= this.plan.grant.expiresAt) {
-      this.expirePlan();
-      return null;
-    }
-    return matchGrant(this.plan.grant, { cmd, input });
+    if (!this.plan.enabled) return null;
+    this.expirePlan();
+    if (this.plan.grant) return matchGrant(this.plan.grant, { cmd, input });
+    return this.plan.ended ? { ok: false, reason: endedReason(this.plan.ended) } : null;
+  }
+
+  /** The context's plan_approval (dev-28f3): none / active (envelope, minutes left) / revoked / expired (when). */
+  planContext() {
+    this.expirePlan();
+    return planState(this.plan.grant, this.plan.ended);
   }
 
   /** One auto-approved step: drive time + the grant's own log (the activity entry carries `plan`). */
@@ -452,6 +459,7 @@ export class AssistantSession {
     const replaced = !!this.planView();
     const grant = createGrant(p.request, { ticked: Array.isArray(ticked) ? ticked : [] });
     this.plan.grant = grant;
+    this.plan.ended = null;
     clearTimeout(this.plan.timer);
     this.plan.timer = setTimeout(() => this.expirePlan(), Math.max(0, grant.expiresAt - Date.now()) + 50);
     this.plan.timer.unref?.();
@@ -469,7 +477,8 @@ export class AssistantSession {
   /** One-click revoke from the pane (WS `plan_revoke`); also the expiry. */
   revokePlan(reason = 'revoked by the user') {
     if (!this.plan.enabled || !this.plan.grant) return;
-    const { id } = this.plan.grant;
+    const { id, title } = this.plan.grant;
+    this.plan.ended = { title, how: reason === 'expired' ? 'expired' : 'revoked', at: Date.now() };
     this.plan.grant = null;
     clearTimeout(this.plan.timer);
     this.logActivity({ command: 'plan approval', tier: 'settings', decision: 'revoked', status: 'ok', plan: id, reason });
@@ -550,7 +559,11 @@ export class AssistantSession {
     ]);
     const digest = buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
     const auto = this.approvalsView().autoActive;
-    return { ...digest, approvals: { auto: auto.length ? auto : 'none' }, ...(notes.length ? { assistant_notes: notes } : {}) };
+    return {
+      ...digest, approvals: { auto: auto.length ? auto : 'none' },
+      ...(this.plan.enabled ? { plan_approval: this.planContext() } : {}),
+      ...(notes.length ? { assistant_notes: notes } : {}),
+    };
   }
 
   /** GET /system/environment, re-read at most every ENV_TTL_MS (it runs git / nvidia-smi in the backend). */
