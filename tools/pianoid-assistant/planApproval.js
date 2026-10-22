@@ -1,6 +1,7 @@
 /**
- * Plan pre-approval of the assistant (dev-28f1). Pure. DORMANT: the service only uses it when the
- * env flag PIANOID_ASSISTANT_PLAN_APPROVAL=1; with the flag off nothing here is reached.
+ * Plan pre-approval of the assistant (dev-28f1; ON by default since dev-28f2, user approval 2026-10-22). Pure.
+ * Kill-switch: PIANOID_ASSISTANT_PLAN_APPROVAL=0 (or false / off / no) in the service's environment turns it
+ * off; then nothing here is reached and the service is the pre-feature one.
  *
  * The assistant may only REQUEST a plan approval (validateRequest): plan steps plus an envelope
  * (commands, max level dBFS, output / input channels, max total drive time, allowed folders, expiry).
@@ -20,7 +21,9 @@
  * compute, a path outside the folders) is OUTSIDE the envelope, so the step asks as before.
  */
 export const FLAG = 'PIANOID_ASSISTANT_PLAN_APPROVAL';
-export const enabled = (env = process.env) => env?.[FLAG] === '1';
+const OFF_VALUES = new Set(['0', 'false', 'off', 'no']);
+/** ON unless the kill-switch is set: absent / empty / any other value = on. */
+export const enabled = (env = process.env) => !OFF_VALUES.has(String(env?.[FLAG] ?? '').trim().toLowerCase());
 
 export const LEVEL_CAP_DBFS = -24;            // the policy cap (rig schemas, prompt); a plan never raises it
 export const MAX_EXPIRY_MIN = 120;

@@ -79,6 +79,20 @@ Style
 - Report what you changed and how to undo it (the Undo button on the action in the Activity tab, or history__undo).`;
 }
 
+/**
+ * Plan pre-approval (dev-28f1, on by default since dev-28f2): appended to systemPrompt() unless the
+ * service runs with the kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0 (then the tool does not exist either).
+ */
+export function planPrompt() {
+  return `
+
+Plan approval (request_plan_approval)
+- Before a multi-step job that would otherwise ask the user at every step — above all the rig pipeline (modal__rig_capture dry run -> capture or rig_sine / rig_record -> rig_process frf -> polymax -> coefficients -> build_preset -> preset__create / preset__load -> a render), or a series of drives on the same outputs — call request_plan_approval ONCE first, with the steps and the NARROWEST envelope that covers them: the commands, max_level_dbfs (<= -24; the cap is never raised), the output and input channels, max_drive_s (total drive time), the folders the job writes, expires_in_min (<= 120, as short as the job needs). Then wait for the user's answer.
+- Only the user grants it, in the pane; you can never create, widen or extend a grant. A hard-confirm command (rig drives, preset writes, preset__create, ...) is covered only if the user ticks it in the plan card; unticked it still asks at its step. analysis run_python is never part of a plan: every run still asks.
+- Steps inside the grant run without a confirm (each is logged). Anything outside it (another command, a louder level, another channel, more drive time, another folder, after expiry or revoke) asks as before: say in one line which step falls outside and why. If the user declines the plan, continue step by step with the normal confirms.
+- One-off actions and single reads need no plan.`;
+}
+
 /** The labelled per-turn context block (volatile; prepended to the user text). */
 export function contextBlock(snapshot) {
   return `<pianoid_context>\n${JSON.stringify(snapshot)}\n</pianoid_context>\n\n`;

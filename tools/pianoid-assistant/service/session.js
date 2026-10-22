@@ -18,7 +18,7 @@ import { commandName } from '../lib/registry.js';
 import { LOCAL_READ_TOOLS } from '../mcp/tools.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
-import { contextBlock, systemPrompt } from './prompt.js';
+import { contextBlock, planPrompt, systemPrompt } from './prompt.js';
 import { buildDigest } from './contextDigest.js';
 import { Router } from './router.js';
 import { AutoWriter } from './autoWrite.js';
@@ -36,13 +36,8 @@ export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
 export const MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
 const PIANOID_PREFIX = 'mcp__pianoid__';
 const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
-// The plan-approval request tool (dev-28f1, DORMANT): registered only with PIANOID_ASSISTANT_PLAN_APPROVAL=1.
+// The plan-approval request tool (dev-28f1): registered unless the kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0.
 export const PLAN_TOOL = 'mcp__assistant__request_plan_approval';
-export const PLAN_PROMPT = '\n\nPlan approval: for a multi-step plan (e.g. a rig measurement: capture -> process -> preset) you may '
-  + 'call request_plan_approval ONCE with the steps and the narrowest envelope (commands, max_level_dbfs <= -24, output / '
-  + 'input channels, max_drive_s, folders, expires_in_min). The user approves it in the pane (or not); you can never create, '
-  + 'widen or extend a grant. Steps inside the grant run without a confirm; anything outside still asks. Say when a step '
-  + 'falls outside it.';
 const ANALYSIS_TOOL = 'mcp__analysis__run_python';
 // The v2 P5 sandbox tool as the policy and the router see it (category `code`: always asks).
 export const ANALYSIS_CMD = {
@@ -157,7 +152,7 @@ export class AssistantSession {
       cwd: this.paths.workspace,
       env,
       model: this.model.current,
-      systemPrompt: this.plan.enabled ? systemPrompt() + PLAN_PROMPT : systemPrompt(),
+      systemPrompt: this.plan.enabled ? systemPrompt() + planPrompt() : systemPrompt(),
       tools: [],                       // NO built-in tools (no Bash / Read / Edit / Web)
       disallowedTools: DISALLOWED_TOOLS,   // and the shells denied by name, in every mode
       settingSources: [],              // no user / project / local settings, no CLAUDE.md
@@ -397,7 +392,7 @@ export class AssistantSession {
     this.broadcast({ type: 'activity', entry });
   }
 
-  // ---- plan approval (dev-28f1, DORMANT behind PIANOID_ASSISTANT_PLAN_APPROVAL) ------------------
+  // ---- plan approval (dev-28f1, on unless PIANOID_ASSISTANT_PLAN_APPROVAL=0) ----------------------
 
   planView() { return describeGrant(this.plan.grant); }
 

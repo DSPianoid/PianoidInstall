@@ -10,7 +10,7 @@ The AI assistant of the Pianoid UI (proposal: `docs/proposals/ai-assistant-in-ui
 | `policy.js` | A4 / A1 / v2 P2 | the permission policy (D3 / D4, categories, hard-confirm list, envelope verdict), called for every tool call |
 | `service/router.js` | v2 P1 | the model router (pure): pre-route, tool / failure triggers, self-escalation, stickiness |
 | `approvals.js`, `envelope.js`, `lib/paramLimits.js` | v2 P2 | per-category Ask / Auto (pure); the A2 envelope checks + level-breach rule (pure); the limits read from `schemas/params` |
-| `planApproval.js` | dev-28f1 (DORMANT) | plan pre-approval (pure): the assistant's request, the user-only grant, envelope matching, expiry; see Plan pre-approval |
+| `planApproval.js` | dev-28f1 (on by default since dev-28f2) | plan pre-approval (pure): the assistant's request, the user-only grant, envelope matching, expiry; see Plan pre-approval |
 | `service/autoWrite.js` | v2 P2 | the executor of the service's MCP server: permits, one undo group per action, the post-write level watch and auto-revert |
 | `analysis/` + `sandbox/` | v2 P5 | the analysis sandbox: `analysis.run_python` (in-process MCP server `analysis`), the artefact store, `export: true` on renders / reads, the AppContainer + Job Object launcher `PianoidSandbox.exe` and its SAFE escape suite |
 
@@ -162,13 +162,16 @@ the pane's Permissions popover (per installation in `config.json` `approvals`, o
 confirm dialog's "Don't ask again" (this session by default). Confirms are answered in the pane; Stop interrupts the
 turn, declines pending confirms, drops the turn's permits and cancels the turn's jobs. Details: design note §10.
 
-## Plan pre-approval (dev-28f1, DORMANT: off by default)
+## Plan pre-approval (dev-28f1; ON by default since dev-28f2, user approval 2026-10-22)
 
-Behind **`PIANOID_ASSISTANT_PLAN_APPROVAL=1`** in the assistant service's environment. Without it (the default) nothing
-changes: no tool, no prompt text, no state field, no pane entry; the WS `plan_grant` / `plan_revoke` messages are
-ignored (`test/planApproval.test.js` proves it, incl. `decide()` equal to the pre-feature table).
+On unless the assistant service's environment has the kill-switch **`PIANOID_ASSISTANT_PLAN_APPROVAL=0`** (also
+`false` / `off` / `no`; restart the assistant after changing it). With the kill-switch nothing of the feature exists:
+no tool, no prompt text, no state field, no pane entry; the WS `plan_grant` / `plan_revoke` messages are ignored
+(`test/planApproval.test.js` proves it, incl. `decide()` equal to the pre-feature table).
 
-With it on, the user approves a multi-step plan ONCE in the pane instead of confirming every step:
+On (the default), the user approves a multi-step plan ONCE in the pane instead of confirming every step. The system
+prompt (`service/prompt.js` `planPrompt()`) tells the model to request a plan first for multi-step jobs, above all the
+rig pipeline (capture → process → preset → load / render):
 
 | | |
 |---|---|

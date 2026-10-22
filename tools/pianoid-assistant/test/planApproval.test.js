@@ -1,4 +1,4 @@
-// Plan pre-approval (dev-28f1, DORMANT behind PIANOID_ASSISTANT_PLAN_APPROVAL): the request, the user-only grant,
+// Plan pre-approval (dev-28f1; ON by default since dev-28f2, kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0): the request, the user-only grant,
 // envelope matching, expiry, revoke, the activity log, the policy invariants and the flag-off no-change proof.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +6,7 @@ import { decide, HARD_CONFIRM } from '../policy.js';
 import { CATEGORIES } from '../approvals.js';
 import { loadCommands } from '../lib/registry.js';
 import { SdkDriver } from '../drivers/sdk.js';
-import { systemPrompt } from '../service/prompt.js';
+import { planPrompt, systemPrompt } from '../service/prompt.js';
 import {
   FLAG, enabled, validateRequest, createGrant, matchGrant, recordUse, describeGrant, footprint, LEVEL_CAP_DBFS,
 } from '../planApproval.js';
@@ -44,12 +44,12 @@ const req = (over = {}) => {
   return v.request;
 };
 
-test('the flag: OFF unless PIANOID_ASSISTANT_PLAN_APPROVAL is exactly "1"', () => {
+test('the flag: ON by default; PIANOID_ASSISTANT_PLAN_APPROVAL=0 (false / off / no) is the kill-switch', () => {
   assert.equal(FLAG, 'PIANOID_ASSISTANT_PLAN_APPROVAL');
-  assert.equal(enabled({}), false);
-  for (const v of ['0', '', 'true', 'yes', ' 1']) assert.equal(enabled({ [FLAG]: v }), false, v);
-  assert.equal(enabled({ [FLAG]: '1' }), true);
-  // the test process itself runs with the default (off): every session below that does not opt in is dormant
+  assert.equal(enabled({}), true);
+  for (const v of ['1', '', 'true', 'yes', 'on']) assert.equal(enabled({ [FLAG]: v }), true, v);
+  for (const v of ['0', ' 0 ', 'false', 'OFF', 'no']) assert.equal(enabled({ [FLAG]: v }), false, v);
+  // a session without the option follows the process environment
   assert.equal(new AssistantSession({ paths: {}, config: {}, commands: COMMANDS, driverFactory: () => null }).plan.enabled, enabled());
 });
 
@@ -196,8 +196,8 @@ const mkSession = (planApproval) => {
 };
 const tool = (n) => `mcp__pianoid__${n.replace(/\./g, '__')}`;
 
-test('flag OFF (default): the session is byte-for-byte the pre-feature one', async () => {
-  const { s, sent } = mkSession(enabled({}));        // the default environment (no flag)
+test('kill-switch (flag=0): the session is byte-for-byte the pre-feature one', async () => {
+  const { s, sent } = mkSession(enabled({ [FLAG]: '0' }));   // the kill-switch environment
   assert.equal(s.plan.enabled, false);
   assert.equal('planApproval' in s.state(), false);
   assert.deepEqual(Object.keys(s.state()), ['type', 'modelChoice', 'model', 'dataOptOut', 'busy', 'transcript', 'activity', 'usage', 'status', 'pendingConfirms', 'approvals']);
@@ -225,13 +225,26 @@ test('flag OFF (default): the session is byte-for-byte the pre-feature one', asy
   assert.ok(!s.activity.some((a) => 'plan' in a));
 });
 
-test('flag OFF: the SDK assistant server is built exactly as before (no plan tool)', () => {
+test('kill-switch: the SDK assistant server is built exactly as before (no plan tool)', () => {
   const a = SdkDriver.assistantTools(async () => '', async () => ({}));
   const b = SdkDriver.assistantTools(async () => '', async () => ({}), undefined);
   const names = (srv) => Object.keys(srv.instance?._registeredTools || {});
   assert.deepEqual(names(a), names(b));
   assert.ok(!names(a).includes('request_plan_approval'));
   assert.ok(names(SdkDriver.assistantTools(async () => '', async () => ({}), async () => ({}))).includes('request_plan_approval'));
+});
+
+test('default (no flag): on — state carries planApproval, the tool and the rig-pipeline prompt are there', () => {
+  const { s } = mkSession(enabled({}));
+  assert.equal(s.plan.enabled, true);
+  assert.equal(s.state().planApproval, null);
+  assert.deepEqual(s.state().pendingPlanRequests, []);
+  const opts = s.sdkOptions();
+  assert.equal(opts.systemPrompt, systemPrompt() + planPrompt());
+  assert.match(opts.systemPrompt, /request_plan_approval ONCE first/);
+  assert.match(opts.systemPrompt, /rig pipeline/);
+  assert.match(opts.systemPrompt, /run_python is never part of a plan/);
+  assert.equal(typeof opts.mcpServers.assistant.requestPlan, 'function');
 });
 
 test('flag ON: request -> only the user click grants -> steps auto-run, logged; outside still asks; revoke', async () => {

@@ -43,7 +43,8 @@ the wiring, the output map of the backend, and listening.
 
 **Safety (applies to every live step).** Rig audio drives seven exciters on a real board. Always say in one line
 what will play, on which outputs, how loud and how long, and get the user's yes (the hard confirm shows the args
-again). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
+again). For the whole pipeline, ask once instead with `request_plan_approval` (steps + the narrowest envelope; the
+user ticks which hard-confirm commands it covers; a step outside it still asks — [Operations → plan approval](OPERATIONS_FOR_ASSISTANT.md#plan-approval)). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
 documented working levels are in [Rig facts → levels](#rig-levels); the playback ceiling used on 10-15 was
 per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. Read `system.health` (`peak_level_now`,
 `clipping_now`) after any live step. Every rig command needs a preset loaded on the **ASIO callback driver**

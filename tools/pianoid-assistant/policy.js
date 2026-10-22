@@ -14,8 +14,8 @@
  *                                           (live audio pauses for the render); any other render, e.g. an
  *                                           output_scale calibration render, is DENIED (R6). Reads never.
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
- *   a plan approval (dev-28f1, DORMANT:     `settings.plan` = planApproval.js matchGrant, set by the service
- *     PIANOID_ASSISTANT_PLAN_APPROVAL=1)    only with the flag on: a step inside the user's grant runs
+ *   a plan approval (dev-28f1, on unless   `settings.plan` = planApproval.js matchGrant, set by the service
+ *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
  *                                           (auto). A hard-confirm command only when the user ticked it
  *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
  *                                           never `code`, never reads. After the deny rows and the tainted

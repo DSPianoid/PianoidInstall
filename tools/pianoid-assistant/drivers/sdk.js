@@ -79,7 +79,7 @@ export class SdkDriver {
 
   /** In-process MCP server with escalate_model and bug_report (the session supplies the handlers). */
   static assistantTools(onEscalate, onBugReport = async () => ({ ok: false, error: 'bug filing is not available' }), onPlanRequest) {
-    const planTools = onPlanRequest ? [SdkDriver.planTool(onPlanRequest)] : [];   // dev-28f1, DORMANT (flag off: absent)
+    const planTools = onPlanRequest ? [SdkDriver.planTool(onPlanRequest)] : [];   // dev-28f1 (kill-switch off: absent)
     return createSdkMcpServer({
       name: 'assistant',
       version: '0.1.0',
