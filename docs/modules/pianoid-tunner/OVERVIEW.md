@@ -1220,9 +1220,15 @@ and only when the document differs from the file's (no speculative writes); the 
 
 **Migration.** If the file is missing, or the `mosaicLayoutsFileSynced` flag is absent from localStorage
 (first run, or edits made while the file was unreachable), `mergeLocalIntoFile` brings the cache into the file
-once: layouts the file lacks are added; a same-name layout that differs is added as `"<name> (browser)"`; the
-file's layouts are never changed; the file's active layout stays active (the browser's if the file has none).
-A snackbar lists the added names.
+once: layouts the file lacks are added; a same-name layout that differs is added as `"<name> (browser)"`
+(numbered when taken) unless the file already holds a layout with exactly that content; the file's layouts are
+never changed; the file's active layout stays active (the browser's if the file has none). A snackbar lists the
+added names. **Only the user's own layouts migrate (dev-lay2, 2026-10-22):** a cache with no `mosaicConfigs`
+key (a fresh browser profile — `loadConfigs` `didSeed`, passed as `cacheIsSeed`) is never merged, and a layout
+equal to the built-in default (`useLayout` `initialMosaicLayout`, no bindings/rulers, key-order-insensitive) is
+never migrated. The tracked file is written on load **only** when a real browser layout was added; with no file
+and nothing to migrate, nothing is written until the first real change. Before this, every fresh browser added
+its seeded default as `"Default (browser) N"` and dirtied the tracked file.
 
 **Failure modes.** Launcher down → status `offline`: the app runs on the cache, nothing is written to the file
 (it may hold layouts this tab never read), the flag is cleared on the first change so the next start merges.
@@ -1236,9 +1242,9 @@ when it is unreachable / invalid); **Download layouts** saves the same document 
 **Import layouts** reads such a file and adds the layouts whose name is missing (same-name layouts are kept and
 listed; the active layout does not change).
 
-Tests: `hooks/__tests__/layoutTransfer.test.js` (build / parse / migration merge / import),
-`hooks/__tests__/useLayoutFileSync.test.jsx` (load, migration, write-on-change, offline, invalid file, failed
-write, two-tab 409 merge, live layout), `utils/__tests__/launcherSavedLayouts.test.js` (files, validation,
+Tests: `hooks/__tests__/layoutTransfer.test.js` (build / parse / migration merge incl. default-skip + content
+dedupe + idempotence / import), `hooks/__tests__/useLayoutFileSync.test.jsx` (load, migration, write-on-change,
+offline, invalid file, failed write, two-tab 409 merge, live layout, fresh profiles write nothing on load), `utils/__tests__/launcherSavedLayouts.test.js` (files, validation,
 routes, 409), `components/__tests__/MosaicConfigManager.test.jsx` (status line, Download, Import).
 
 ---
