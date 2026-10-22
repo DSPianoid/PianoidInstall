@@ -154,7 +154,7 @@ The emit callback (`_emit_midi_callback`, constructor-injected in Phase 0) is ca
 
 The W4 Phase 3 milestone added a runtime broadcast toggle to suppress the `midi_note_event` Socket.IO stream without stopping the listener thread or synthesis engine. Two new filters live in `backendServer.emit_midi_note_event(...)`:
 
-1. **Note-only filter.** Only NOTE_OFF (status `128`-`143`) and NOTE_ON (status `144`-`159`) survive. CC (sustain CC#64 included), program-change, pitch-wheel, aftertouch, and sysex are dropped — they have no place on a "last note pressed" indicator stream. Sustain still drives synthesis via `schedule_event(...)`; the drop is on the emit path only.
+1. **Note-only filter.** Only NOTE_OFF (status `128`-`143`) and NOTE_ON (status `144`-`159`) survive. CC (sustain CC#64 included), program-change, pitch-wheel, aftertouch, and sysex are dropped — they have no place on a "last note pressed" indicator stream. Sustain still drives synthesis via `schedule_event(...)`; the drop is on the emit path only. Every message (CC, pitch bend, sysex, ...) goes to the MIDI monitor through the separate `midi_message` stream ([below](#pedal-mapping-and-the-midi-monitor-dev-ped1)), gated by the same switch.
 2. **Broadcast on/off gate.** Reads `pianoid.get_midi_broadcast_enabled()` per call. Default `True` on every fresh `Pianoid` init (so existing behaviour is preserved). Falsy short-circuits the emit. Toggled via `POST /midi/broadcast {"enabled": bool}` — see `REST_API.md`.
 
 ### State location
@@ -297,7 +297,23 @@ All action methods share the signature `(self, pitch, velocity)`.
 | re-strike while sustained (2nd NOTE_ON at 1.5 s) | jumps to −8.1 dB at 1.8 s, rings until pedal up at 3.0 s, then −55 dB by 3.4 s |
 | key held through pedal-up (pedal up 1.0 s, key off 2.5 s) | note keeps sounding (−35 dB at 2.2 s vs −60 pedal up) and stops at the key release; pedal down adds ~5 dB of sympathetic ringing while the key is held (−13.9 vs −18.8 dB at 0.6 s) |
 
-**What a real pedal needs:** a sustain pedal plugged into the keyboard (or a MIDI interface) that sends CC64 on any channel; select that device's input port in the MIDI panel (`POST /midi/select_port`) and start the listener (`listen_to_midi=1` or `POST /midi/start`). No channel setting is needed. A pedal whose polarity is reversed (sends 0 when pressed) must be fixed on the keyboard. Switch and continuous pedals both work (threshold 64); half-pedal is not supported by the engine yet.
+**What a real pedal needs:** a sustain pedal plugged into the keyboard (or a MIDI interface); select that device's input port in the MIDI panel (`POST /midi/select_port`) and start the listener (`listen_to_midi=1` or `POST /midi/start`). No channel setting is needed. A pedal that sends another CC than 64, or sends 0 when pressed, is mapped in the MIDI panel's pedal row (below). Switch and continuous pedals both work (threshold 64); half-pedal is not supported by the engine yet.
+
+## Pedal mapping and the MIDI monitor (dev-ped1)
+
+**Why (2026-10-22, "MIDI input does not see a pedal pressed").** The panel's log was the note-only `midi_note_event` stream, so a pedal message could never be seen. Measured on the user's live backend log: keys on port 2 `MIDIIN2 (AMC-10)` (the device also exposes port 1 `AMC-10`); while the user tried the pedal the only non-note messages were CC#0 (Bank Select) on channels 1, 2 and 3 (`Unknown MIDI command: 176/177/178, pitch: 0`, logged once per status). CC64 is decoded silently, so the log cannot say whether it ever arrived.
+
+| Piece | File | Concern |
+|---|---|---|
+| `MidiInputHub` (process singleton, `shared_hub()`) | `midi_input.py` | sole owner of the pedal settings (`sustain_cc` default 64, `polarity` normal / inverted, `show_realtime`, `monitor_all_ports`; persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json`), the sustain state the engine was last sent, the monitor sink; `describe_message` decodes every MIDI type |
+| Listener loop | `pianoid.MIDI_listener_unified` | `hub.map_message`: the configured sustain CC on any channel -> CC64 with the polarity applied (`127 - v` when inverted), system messages (`0xF0`-`0xFF`) never reach the engine; after the dispatch `hub.publish` sends the monitor record |
+| rtmidi adapter | `pianoidMidiListener.py` | `ignore_types(sysex=False, timing=False, active_sense=False)` on the played port; `MidiPortTaps` opens the other input ports for the monitor only (a busy port is skipped), re-synced on a port switch |
+| REST + stream | `midi_input_routes.py` | `GET`/`POST /midi/input`, Socket.IO `midi_message` ([REST_API](REST_API.md#get-midiinput)); registry `midi.input_settings` / `midi.set_input_settings` |
+| UI | Tunner `MidiPedalRow.jsx`, `MidiMonitorLog.jsx`, `useMidiInput.js` | PEDAL DOWN/UP chip, Sustain CC, polarity, clock and all-ports switches; the monitor rows (time, port, `*` = tapped port, channel, label, raw hex) |
+
+**How to read the monitor for a pedal.** Press and release the pedal: (a) rows `B? 40 7F` / `B? 40 00` = a standard CC64 pedal, the chip follows; (b) rows with another CC (e.g. `B2 00 7F` = CC 0 Bank Select) = set Sustain CC to that number; (c) value 0 on press and 127 on release = set Inverted; (d) rows only with `*` in the port column = the pedal comes on another input port than the keys (select that port); (e) nothing at all = the pedal never reaches the computer (keyboard setting / cable). Polarity auto-detect was not added: most pedals send nothing at rest, so the first value seen is a press and would invert a normal pedal.
+
+**Verification.** `tests/unit/test_midi_input.py` (no engine, no pianoidCuda, fake rtmidi): every message type decoded, CC64 on all 16 channels, threshold, inverted polarity, remapped CC, system messages kept from the engine, persistence, the listener loop (monitor record per message, taps monitor-only, port-switch re-sync) and the REST shell. Live: press the pedal with the panel open.
 
 **Verification.** Unit level (no engine): `tests/unit/test_midi_player.py` drives the listener loop with a fake rtmidi port (pedal on channel 3, notes on channel 10) and pushes the same bytes through `schedule_event` into a real `RealTimeEventBuffer`. Live: `docs/development/diagnostics/dev-6f0c-sustain-player-live.py` (table above; `--only half_sweep` = the pedal-value sweep), in-process on ASIO. The rtmidi leg itself needs a hardware keyboard or a loopMIDI cable (winmm has no virtual ports).
 

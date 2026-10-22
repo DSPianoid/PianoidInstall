@@ -30,6 +30,7 @@ Both servers have CORS enabled for all origins. The frontend connects to both se
 | Calibration progress | `calibration` event | Server -> Client (push) |
 | MIDI playback progress | `midi_progress` event | Server -> Client (push) |
 | Inbound MIDI events | `midi_note_event` event | Server -> Client (push) |
+| MIDI monitor (every inbound message, raw hex) | `midi_message` event — see [below](#socketio-midi_message-server-client) | Server -> Client (push) |
 | Engine errors | `engine_error` event | Server -> Client (push) |
 | **State changes (SSOT I1)** | `state_changed` / `preset_changed` / `session_changed` / `domain_invalidated` / `engine_busy` | Server -> ALL clients (push) — see [State events](#state-events-ssot-i1) |
 | Latency measurement + I2 liveness probe | `ping_ws` (acked; optional payload) / `pong_ws` | Bidirectional |
@@ -2138,6 +2139,45 @@ Payload (when both filters pass):
 - `velocity`: MIDI data2 (velocity; `0` on NOTE_ON encodes the running-status NOTE_OFF convention used by some hardware).
 
 Start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default) or `POST /midi/start` (runtime). Stop the chatter without stopping synthesis via `POST /midi/broadcast {"enabled": false}` (W4 Phase 3).
+
+---
+
+### `GET /midi/input`
+
+(dev-ped1) The live MIDI input settings and the sustain state. Owner: `midi_input.MidiInputHub` (process-wide, survives preset loads; routes in `midi_input_routes.py`). Works before a preset is loaded. Registry: `midi.input_settings`.
+
+Response 200:
+```json
+{"sustain_cc": 64, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
+ "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3}}
+```
+
+- `sustain_cc`: the CC number treated as the sustain pedal (default 64). That CC, on any channel, reaches the engine as CC64.
+- `polarity`: `normal` (value >= 64 = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the engine's switch at 64).
+- `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
+- `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
+- `sustain_down` / `sustain_value`: the pedal state the engine was last sent / the last raw value of the sustain CC (`null` before the first one).
+- `counts`: messages per type on the played and the tapped ports since the backend started.
+
+### `POST /midi/input`
+
+Any subset of `{"sustain_cc": 0-127, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool}`. Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
+
+### Socket.IO `midi_message` (server -> client)
+
+(dev-ped1) One record for **every** message the listener receives — notes, CC, program change, pitch bend, aftertouch, sysex (summary), and clock / active sensing when `show_realtime` — from the played port and, with `monitor_all_ports`, the other input ports. Pushed after the engine dispatch (never delays a note); gated by the same broadcast switch as `midi_note_event`. The engine never receives system messages (`0xF0`-`0xFF`).
+
+```json
+{"raw": "B2 00 7F", "bytes": 3, "status": 178, "channel": 3, "type": "control_change",
+ "number": 0, "value": 127, "name": "Bank Select", "label": "CC 0 Bank Select = 127",
+ "port": 2, "port_name": "MIDIIN2 (AMC-10) 2", "playing": true, "time": 1761140000.123,
+ "delta": 0.0123, "sustain": false, "sustain_down": false}
+```
+
+- `type`: `note_on`, `note_off` (also NOTE_ON velocity 0), `poly_aftertouch`, `control_change`, `program_change`, `channel_aftertouch`, `pitch_bend`, `sysex`, `clock`, `start`, `continue`, `stop`, `active_sensing`, `reset`, `mtc_quarter_frame`, `song_position`, `song_select`, `tune_request`.
+- `channel`: 1-16 (null for system messages). `number`: note or CC number. `value`: velocity / CC value / program / pressure / pitch bend (-8192..8191, 0 = centre).
+- `raw`: the bytes as received, hex (sysex: first 16 bytes + `...`). `playing`: false = a tapped port (monitor only).
+- `sustain`: this message is the configured sustain CC; `sustain_down`: the engine's pedal state after it.
 
 ---
 
