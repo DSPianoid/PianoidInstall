@@ -155,6 +155,41 @@
       "route": {"method": "GET", "path": "/midi/broadcast"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "midi.input_settings",
+      "title": "Read the MIDI pedal settings and live sustain state",
+      "description": "Which CC is the sustain pedal (sustain_cc, default 64), its polarity ('normal' = value >= 64 is down; 'inverted' = the pedal sends 0 when pressed), show_realtime (clock / active sensing shown in the MIDI monitor), monitor_all_ports (the monitor also shows the input ports the listener does not play from), the sustain state the engine was last sent (sustain_down; sustain_value = last raw value of the sustain CC) and per-type message counts since the backend started. Every incoming message is also pushed to the MIDI monitor as Socket.IO midi_message (raw hex, port, channel). Works before a preset is loaded.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-midiinput",
+      "route": {"method": "GET", "path": "/midi/input"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "midi.set_input_settings",
+      "title": "Set the MIDI pedal mapping",
+      "description": "Change any subset of the live MIDI input settings (persisted across backend restarts; applies to the next incoming message). sustain_cc: the CC number the pedal sends (0-127, 64 = standard; read midi.input_settings counts or the MIDI monitor to see what the pedal really sends). polarity: 'inverted' for a pedal that sends 0 when pressed and 127 when released. show_realtime: show MIDI clock / active sensing in the monitor. monitor_all_ports: also monitor the other input ports (applies at the next listener start or port switch).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-midiinput",
+      "route": {"method": "POST", "path": "/midi/input"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sustain_cc": {"type": "integer", "minimum": 0, "maximum": 127, "description": "CC number of the sustain pedal (64 = standard)"},
+          "polarity": {"type": "string", "enum": ["normal", "inverted"], "description": "normal: value >= 64 = down; inverted: value < 64 = down"},
+          "show_realtime": {"type": "boolean", "description": "Show clock / active sensing in the MIDI monitor"},
+          "monitor_all_ports": {"type": "boolean", "description": "Also monitor the input ports the listener does not play from"}
+        }
+      },
+      "result": {"type": "object"}
     }
   ]
 }
