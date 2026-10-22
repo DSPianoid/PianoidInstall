@@ -178,7 +178,9 @@ uses 16 or more chunks for stability.
 **Engine channel → device output map (dev-a709, callback driver `audio_driver_type 4`).** Engine channel `k` plays
 on ASIO output `map[k]` (0-based); default (no map) = identity, outputs `0..num_channels−1`. The map is a
 per-machine **session setting**: environment variable `PIANOID_AUDIO_OUTPUT_MAP` of the backend process
-(comma-separated, length = the preset's channel count), applied by `pianoid_middleware/audio_channels.py` through
+(comma-separated, **at least** the preset's channel count — channel `k` always takes entry `k`, so one machine
+map such as `8,9,2,3,4,5,6,7` serves every preset up to 8 channels; only the first `num_channels` entries are sent,
+the unused tail must still be valid and distinct — dev-a90b), applied by `pianoid_middleware/audio_channels.py` through
 `pianoidCuda.setAsioOutputMap(list)` before the driver opens (`getAsioOutputMap()` reads it back). With a map,
 every unmapped device output is written silence each `bufferSwitch` (e.g. the monitor outputs). Validation:
 entries `0..31`, distinct (`ValueError`); at driver init the map length must equal the engine's channels and the

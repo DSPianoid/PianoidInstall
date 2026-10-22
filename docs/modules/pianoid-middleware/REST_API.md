@@ -744,6 +744,20 @@ Response `400` (when `use_simulation=1`):
 }
 ```
 
+Response `409` (preset does not fit this machine, added dev-a90b 2026-10-22): checked by
+`pianoid_middleware/load_fit.py` on the full path **before** the live engine is destroyed, so the current
+preset keeps playing — `{"error": "PresetDoesNotFit", "code": <code>, "message": "… The current preset was kept."}`:
+
+| `code` | When | Extra fields |
+|---|---|---|
+| `output_map_mismatch` | `PIANOID_AUDIO_OUTPUT_MAP` has fewer entries than the preset's channels, or is set with a driver other than ASIO callback (4), or the channel count is outside `1..NUM_CHANNELS` | — |
+| `coop_launch_shortage` | the preset's grid (`ceil(num_strings / num_strings_in_array)` blocks) exceeds the live engine's `cooperative_launch.capacity` | `blocks`, `capacity` |
+
+The co-residency check only uses the live report when the request's `array_size` (clamped 384..512) equals its
+`block_threads` and the build variant (`debug_mode`) matches — capacity depends on both. With no live engine or
+another kernel configuration it is skipped and the init pre-flight below decides (500, engine already gone).
+FE: the Tunner shows both codes as a persistent notification (409 warning, 500 error).
+
 Response `500` (cooperative co-residency shortage, added dev-1cda 2026-10-09): the engine's init
 pre-flight found that the `addKernel` grid (`num_strings/4` blocks of `array_size` threads) cannot
 be co-resident on this GPU — `{"error": "CoopLaunchShortage", "code": "coop_launch_shortage",
