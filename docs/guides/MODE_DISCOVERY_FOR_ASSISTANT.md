@@ -166,8 +166,9 @@ it is two steps: (1) `modal.rig_process` `build_preset` from the base with `num_
 (2) `preset.create` with `base_preset` = the step-1 preset, `num_strings` = 4 × N blocks, `num_channels`,
 `array_size` = its own, `string_removal: outer_keys`. Example: Tuning18-10-26ver1 (236 strings) + the 10-21 run's
 74 measured modes (6 exciters, 196 modes) → 224 strings / 56 blocks / 8 channels drops keys 21–23 and 106–108
-(keys 24–105 keep their unisons, every other block unchanged). The channels added beyond the measured exciters
-are not silent: mute or zero them (and reorder a channel to match the output map) after loading, then save.
+(keys 24–105 keep their unisons, every other block unchanged). A channel change keeps each existing channel's
+measured row; the channels added beyond the measured exciters copy channel 0 and are NOT silent: zero their
+`feedback` rows (and move a channel to match the output map) after loading, then save.
 
 ### `modal.rig_runs`, `modal.rig_files`: reads (no confirm) {#cmd-reads}
 
