@@ -175,18 +175,38 @@ public:
 `circular_buffer_chunks = 4` is recommended for ASIO (minimal latency). SDL3 typically
 uses 16 or more chunks for stability.
 
+**Host buffer size + ring depth (dev-431a, `AsioBufferSize.h`).** The engine renders and consumes audio in
+64-frame blocks (`BUFFER_SIZE`). `init_asio_static_data` creates the ASIO buffers at a **driver-legal whole number of
+blocks**: 64 whenever `ASIOGetBufferSize` allows it (unchanged on the UMC1820's 8 … 2048), else the driver's
+preferred size when it is a whole number of blocks, else the smallest legal multiple (≤ 8192); no usable size →
+the device is skipped (the ASIO → SDL3 fallback). `bufferSwitch` then runs the engine block callback
+(`audioCallbackForASIO`, one ring chunk per call) `host / 64` times on consecutive sub-blocks. Before this the host
+forced 64: a driver allowing only 1152 (field case, UMC driver `[1152, 1152]`) accepted the buffers but switched
+every 24 ms → synthesis and measurement sessions at 1/3 real time. A switch of N blocks consumes N chunks in one
+burst, so after each open the ring depth is set to `max(configured, 2 × N)` (`asiobuf::ringChunksFor`,
+`LockFreeCircularBuffer::setNumChunks`; storage unchanged); at 64 it stays the configured 8. Log lines:
+`ASIO BufferSize 1024 (16 engine blocks of 64 per switch)`, `ASIO: ring depth 32 chunks (…)`.
+`PIANOID_ASIO_BUFFER_SIZE=<frames>` (backend environment, callback driver only) requests another legal multiple
+(per machine / diagnostics); an illegal value is warned and the automatic choice is used. Measured live on the
+UMC1820 (2026-10-20; the driver only offers powers of two, so 1152 itself cannot be selected there): 1024 and
+2048 → rig sessions frame-exact in real time (0 xruns), synthesis 0 underruns / ~2480 callbacks; 64 unchanged.
+
 **Engine channel → device output map (dev-a709, callback driver `audio_driver_type 4`).** Engine channel `k` plays
 on ASIO output `map[k]` (0-based); default (no map) = identity, outputs `0..num_channels−1`. The map is a
 per-machine **session setting**: environment variable `PIANOID_AUDIO_OUTPUT_MAP` of the backend process
-(comma-separated, **at least** the preset's channel count — channel `k` always takes entry `k`, so one machine
-map such as `8,9,2,3,4,5,6,7` serves every preset up to 8 channels; only the first `num_channels` entries are sent,
-the unused tail must still be valid and distinct — dev-a90b), applied by `pianoid_middleware/audio_channels.py` through
+(comma-separated, at least the preset's channel count), applied by `pianoid_middleware/audio_channels.py` through
 `pianoidCuda.setAsioOutputMap(list)` before the driver opens (`getAsioOutputMap()` reads it back). With a map,
 every unmapped device output is written silence each `bufferSwitch` (e.g. the monitor outputs). Validation:
 entries `0..31`, distinct (`ValueError`); at driver init the map length must equal the engine's channels and the
 device must have `max(map)+1` outputs (else the device is skipped → the documented ASIO→SDL3 fallback). The
 legacy non-callback ASIO driver (type 1) rejects a map. Example (10-15 plywood rig, E1..E7 on Out 9, 10, 3..7):
 `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`. Not used by SDL (stereo downmix of channels 0/1).
+**Map vs preset channel count (dev-16af).** A map **longer** than the preset's channels is a per-machine map
+for a wider preset: its **first N** entries are used (channel `k` still plays on `map[k]`) and `/load_preset`
+answers with `output_map_warning`. A **shorter** map cannot route every channel, and a map with a
+non-callback driver cannot apply: `/load_preset` refuses both with `409 output_map_mismatch` **before** it
+tears anything down — the running engine keeps playing (`audio_channels.load_output_map_check`). Before this,
+the 7-entry rig map + a 4-channel preset raised inside `initialize()` after `destroyPianoid()` and left no engine.
 
 **Mic capture input (dev-d191).** `startCapture` (→ `startMicCapture`, `play.keyboard capture_mic`, acoustic
 calibration) records ONE physical input: `ASIOAudioDriver::setCaptureInputChannel(int)` /
@@ -363,7 +383,7 @@ inputs** into a preallocated `[frames, nIn]` matrix + pre/post roll.
 | Abort (never hangs) | `timeout` (default 1.5× length + 2 s), `reset_request` (a latched `kAsioResetRequest` — peeked, not consumed, so the dev-19be watchdog still re-opens the driver when synthesis resumes), `stalled` (no switch for 500 ms). Partial data is returned. |
 | Device snapshot | Channel table (index, name, type), latencies, buffer range, supported rates (`ASIOCanSampleRate` 44.1–192 k) are cached **at open, on the opening (COM) thread**; `asio_device_info()` never calls the driver from another thread. `kAsioLatenciesChanged` is counted (`latency_changes`), the cached latency is not re-read. |
 | Guards | Out-of-range / duplicate channels, unsupported types, > 10 min or > 64 M capture samples → `ValueError`; host not open / session already active → `RuntimeError`. A driver with fewer than `NUMBER_CHANNELS` (8) outputs is now **skipped at open** (the engine client would otherwise get null buffer pointers). |
-| Limits (unchanged) | The host still opens at the engine's 64-frame buffer and 48 kHz (`BUFFER_SIZE`, `fSAMPLES_PER_MS`); configurable rate/buffer and a CUDA-free standalone host are the proposal's later phases. |
+| Limits | 48 kHz (`fSAMPLES_PER_MS`); the host buffer is a driver-legal multiple of the 64-frame block (dev-431a, see [ASIOAudioDriver](#asioaudiodriver)) and a session advances `buffer_size` frames per switch; a CUDA-free standalone host is the proposal's later phase. |
 
 **Capture-scale fix.** `CaptureBuffer` used to scale ASIO input by a fixed `1/2^23`
 ("24-bit"). The UMC1820 delivers **Int32LSB** (full scale `2^31`), so a full-scale input read
@@ -406,6 +426,43 @@ Standalone probe built from the vendored SDK (`D:\scratch\dev-1b6c\probe\asio_pr
 | Loopback `Out 5 → In 8` (cable, user D4) | −20 dBFS-peak 1 kHz on Out 5 reads −17.4 dBFS rms on In 8 (+5.6 dB electrical gain); impulse onset **334** / peak 335 frames after emission, identical in 3 independent sessions → measured electrical round trip = reported 304 **+ 30 frames** (≈ 0.63 ms converter filter delay not included in `ASIOGetLatencies`) |
 | Crosstalk with Out 5 driven | In 1–4 −74…−80 dBFS, In 5–7 −49…−52 dBFS (~33 dB below the loopback signal) |
 | Exciter Out 1 alone, −20 dBFS 1 kHz | In 1 −32.8, In 2 −29.1, In 3 −34.3, In 4 −35.2, In 5 −46.7, In 6 −37.0, In 7 −40.2, In 8 −104 dBFS rms; acoustic onsets 342–380 frames |
+
+---
+
+## Exciter Monitor (dev-8f54)
+
+**Files:** `ExciterMonitor.h/.cpp` (metering + limiter, no CUDA, no ASIO calls), `ExciterMonitorBindings.cpp`
+(module functions, registered from `AsioSessionBindings.cpp`), one hook in `AsioAudioInterface.cpp`. Middleware
+/ REST / UI: [REST_API → Exciter monitor](../pianoid-middleware/REST_API.md#exciter-monitor). Design:
+[controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md).
+
+During **normal playback** (callback driver, synthesis running, no session) the host meters N selected physical
+inputs (current-sense / board sensors) and applies a per-exciter safety gain to the engine channels' outputs.
+
+| Property | Behaviour |
+|---|---|
+| Place | `bufferSwitchTimeInfo`, right after the engine block callback(s) wrote this switch's outputs, before the mic capture and the session hook. Exciter k = engine channel k; its buffer is the one the engine wrote (`map[k]`, or output k without a map) |
+| Metering | per configured input and switch: conversion by `channelInfos[i].type`, block peak and sum of squares, accumulated into a window; per exciter the post-gain output peak / sum of squares (Int32LSB outputs only) |
+| Limiter | sense block peak > `limit_fs` → `gain = max(floor, gain · limit / peak)`, then `holdoff_switches` switches without a further attack (the reading lags the output by one round trip); below `release_threshold · limit` the gain recovers to its ceiling (`trim`) with `release_ms`; the band in between holds. The gain is ramped linearly over the switch; int32 writes saturate. Only the over-limit exciter is attenuated |
+| Real time | config in through a seqlock (the callback keeps its last copy, never waits); telemetry out through a second seqlock; `exciter_monitor_read(reset_window)` bumps an epoch the callback sees at its next switch (≤ 1 switch of samples falls between windows). No allocation, no lock, no Python in the callback. Disabled = one atomic load per switch |
+| Scope | process-wide like the output map: survives preset loads and driver re-opens; a new backend starts disabled (the middleware pushes the stored config when it sees an open device) |
+| Interplay | the kernel limiter telemetry (`/health.limiter`) is measured **before** this stage; `output_scale` / volume are untouched. A session (`/audio/session`) overwrites the outputs after the monitor ran. While the engine underruns (synthesis paused) the stale repeated buffer is re-scaled by a gain < 1 each switch (it decays) |
+| Units | fractions of full scale only; amperes / board units are the middleware's calibration |
+
+```cpp
+// pianoidCuda module functions (ASIO builds)
+exciter_monitor_configure(enabled, inputs, exciters=[{sense_input, limit_fs, release_ms, trim}],
+                          floor_gain=0.0316, holdoff_switches=8, release_threshold=0.9)  // ValueError on bad config
+exciter_monitor_config()                   // the last accepted config
+exciter_monitor_read(reset_window=True)    // {enabled, switches, window_switches, window_frames, buffer_size,
+                                           //  sample_rate, config_version, applied_version, inputs[], exciters[]}
+exciter_monitor_set_test_level(input, level_fs)   // TEST HOOK: input reads >= a sine of that peak (0 = off)
+exciter_monitor_reset_gains()
+_exciter_monitor_process_test_switch(inputs, outputs, sample_rate)  // TEST HOOK, refused while ASIO is open
+```
+
+Host-only test of the limiter dynamics: `tests/cpp/test_exciter_monitor.cpp` (run by
+`tests/unit/test_exciter_monitor_cpp.py`, MSVC).
 
 ---
 
@@ -487,6 +544,7 @@ SDL3: audioStreamCallback  /  ASIO: audioCallbackForASIO
 Audio hardware
 ```
 
-Buffer depth (`circular_buffer_chunks`) trades latency for stability:
+Buffer depth (`circular_buffer_chunks`; the ASIO callback driver deepens it to 2 × the blocks per switch on a
+multi-block host buffer, dev-431a) trades latency for stability:
 - 4 chunks (ASIO default): minimal latency, requires consistent GPU cycle timing
 - 16+ chunks (SDL3 default): greater cushion against timing jitter

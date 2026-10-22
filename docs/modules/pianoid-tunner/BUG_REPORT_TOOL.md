@@ -189,7 +189,7 @@ Three parts, each a single-concern module (mirrors the manual tool's shape):
 | Part | File | Concern |
 |---|---|---|
 | Signal capture | `src/utils/systemSignals.js` | Record internal faults into the SAME ring buffer (`type:"system_signal"`) + classify significance + notify subscribers. Module singleton, re-render-free, never-throws. |
-| Auto-report controller | `src/utils/autoReporter.js` | Dedup/rate-limit/debounce → assemble (reuse `buildReport`) → deliver (collector POST, localStorage fallback, flush-on-reconnect). |
+| Auto-report controller | `src/utils/autoReporter.js` | Dedup/rate-limit/debounce → assemble (reuse `buildReport`) → deliver (collector POST, localStorage fallback, flush-on-recovery + backoff retry, `createPendingRetrier`). |
 | Wiring | `src/hooks/useAutoReport.js` | Install the fault sources (axios interceptor, `/health` watch, `window.onerror`/`unhandledrejection`), gate on the setting, feed the controller. Mounted once in `PianoidTuner`. |
 | Collector | `PianoidCore/pianoid_middleware/backendServer.py` → `POST /bug_report` | Save the posted report JSON to `PianoidCore/logs/reports/`. |
 
@@ -297,9 +297,21 @@ the diagnostic core (fault/trigger, `actionHistory`, `fe`, `health`,
 `runtimeParams`) is kept. localStorage **survives the user's full-reload restart
 routine**, so the backend-crash report — the most important one — is not lost.
 
-**FLUSH-ON-RECONNECT.** When the backend returns (a `/health` recovery edge, a WS
-reconnect, or app mount after a reload), every persisted report is POSTed to the
-collector and cleared from localStorage. Reports that still fail stay queued.
+**FLUSH-ON-RECOVERY + RETRY (dev-16af).** Every persisted report is POSTed to the collector and
+cleared from localStorage as soon as the backend is back, through one retrier
+(`createPendingRetrier` in `autoReporter.js`): **at once** on app mount, a WS reconnect, ANY
+`/health` transition into a healthy state (incl. `disconnected` → `healthy` — a stall), and a
+successful `:5000` request while something is queued (throttled to one attempt per 5 s); and on a
+**backoff timer** (5 s doubling to 60 s) while the queue is non-empty, so a report is delivered even
+with no edge at all. Reports that still fail stay queued. Before the fix the queue flushed only on a
+WS reconnect, mount, or a recovery from `crashed`/`exception`: reports stored during the 2026-10-20
+13:42–13:47Z backend stall (WS up, `/health` timing out = `disconnected`) waited until 16:30Z.
+Tests: `hooks/__tests__/useAutoReport.deliveryRetry.test.jsx`.
+
+**One report per fault across tabs (dev-16af).** Each report carries `trigger.episode` (the episode
+key above); the collector saves the first report of an episode and answers the other tabs'
+copies within 120 s with `duplicate: true`
+([REST `POST /bug_report`](../pianoid-middleware/REST_API.md#post-bug_report)).
 
 ### Settings toggle
 

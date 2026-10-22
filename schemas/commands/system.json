@@ -53,6 +53,55 @@
       "route": {"method": "GET", "path": "/audio/devices"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "audio.exciters",
+      "title": "Read the exciter currents",
+      "description": "The exciter monitor (dev-8f54): its configuration (metered ASIO inputs with scale / unit, per exciter = engine channel: sense_input, board_input, current limit, target) and the latest telemetry: per exciter current RMS / peak, board RMS / peak, output peak dBFS, limiter gain dB, limiting, attacks, latched max, warnings (sensor_silent, map_suspect, input_clipping, limit_floor, uncalibrated, rate_low). enabled false = not metering.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-audioexciters",
+      "route": {"method": "GET", "path": "/audio/exciters"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "audio.exciters_config",
+      "title": "Set exciter limits and input mapping",
+      "description": "Partial update of the exciter monitor configuration (validated, saved per machine, applied at once): enabled; inputs merged by index [{index, kind current|board|other, label, scale (units per full scale, null = uncalibrated), unit}]; exciters merged by channel [{channel, name, sense_input, board_input, limit (peak, sense unit; null = no limiter), target (RMS, closed loop), release_ms}] ({..., remove: true} drops one; replace: true replaces the lists; reset: true = defaults); limiter {floor_db, release_threshold, holdoff_switches}; closed_loop {enabled, rate_db_per_s, max_cut_db, max_boost_db}; sensor_check {output_dbfs, min_sense_dbfs, hold_s}; telemetry_hz. Hard confirm: limits and mapping protect the exciters and amplifiers.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "hard_confirm",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-audioexcitersconfig",
+      "route": {"method": "POST", "path": "/audio/exciters/config"},
+      "args": {"type": "object", "properties": {
+        "enabled": {"type": "boolean"},
+        "inputs": {"type": "array", "items": {"type": "object"}},
+        "exciters": {"type": "array", "items": {"type": "object"}},
+        "limiter": {"type": "object"},
+        "closed_loop": {"type": "object"},
+        "sensor_check": {"type": "object"},
+        "telemetry_hz": {"type": "number", "minimum": 1, "maximum": 60},
+        "replace": {"type": "boolean"},
+        "reset": {"type": "boolean"}
+      }, "additionalProperties": false},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "audio.exciters_clear",
+      "title": "Clear the exciter limiter",
+      "description": "Clears the exciter monitor's latched values (max current, min gain, attacks) and puts every limiter gain back to its ceiling.",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "playback",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-audioexcitersclear",
+      "route": {"method": "POST", "path": "/audio/exciters/clear"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
     }
   ]
 }

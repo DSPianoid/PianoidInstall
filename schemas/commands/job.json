@@ -18,7 +18,7 @@
     {
       "name": "job.get",
       "title": "Get a job",
-      "description": "One job by id.",
+      "description": "One job by id. wait_s > 0 waits (at most that long) for the job to end before answering: follow a long step with job.get {jobId, wait_s: 60} instead of many quick polls.",
       "target": "backend",
       "tier": "read",
       "approval_category": "view",
@@ -30,7 +30,8 @@
         "required": ["jobId"],
         "additionalProperties": false,
         "properties": {
-          "jobId": {"type": "string"}
+          "jobId": {"type": "string"},
+          "wait_s": {"type": "number", "minimum": 0, "maximum": 60, "default": 0, "description": "Wait up to this many seconds for the job to finish / fail / be cancelled (0 = answer at once)"}
         }
       },
       "result": {"type": "object"}

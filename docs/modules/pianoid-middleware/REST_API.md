@@ -194,7 +194,7 @@ body_arg?}`: `{arg}` path placeholders are filled from the args, `fixed` values 
 (e.g. `play.keyboard` = `/play_keyboard {mode: "online"}`, `render.keyboard` = `{mode: "offline"}`),
 `body_arg` makes one arg the whole body (`param.set` → `values`), the other args are the JSON body (the
 query string for a GET). Core reads `$PIANOID_COMMANDS_DIR`, else `<PianoidInstall>/schemas/commands`;
-a missing registry fails the backend import (fail fast). The schemas use a declared draft-07 subset
+a missing registry fails the backend import (fail fast). A registry that is **newer than the backend** (a backend command whose route this Core lacks, e.g. only PianoidInstall was pulled) does not fail: that command is skipped with one `command registry: N backend command(s) have no route on this backend` warning (`Registry.unrouted`), and the per-route job hook never raises. Before dev-c6b6 (2026-10-21) the hook's `url_map.match` raised NotFound and every route answered 404, `/health` included. The schemas use a declared draft-07 subset
 (`type`, `properties`, `required`, `additionalProperties`, `enum`, `const`, `minimum`, `maximum`,
 `minItems`, `maxItems`, `items`, `oneOf` + annotations): Core validates with `jsonschema`, the frontend
 with `utils/commandSchema.js`, and both run the shared `schemas/commands/_conformance.json` cases.
@@ -219,7 +219,9 @@ except `source` (`tests/integration/test_command_contract.py`), and one command 
 adapter (`$PIANOID_MODAL_URL`, default `http://127.0.0.1:5001`) with the same body.
 
 **Jobs** (`job_manager.py`, `command_routes.py`). A long-running command returns `jobId` at once (also added
-to the wrapped route's own JSON response) and the job reports to ALL clients:
+to the wrapped route's own JSON response) and the job reports to ALL clients. `job.get {jobId, wait_s}` (dev-431a):
+`wait_s` > 0 (≤ 60) answers when the job ends or after that many seconds, so one call follows a long step (a
+PolyMAX fit takes minutes; the rig steps report per-band / per-session progress in `pct` / `msg`):
 
 | Event | Payload |
 |---|---|
@@ -284,6 +286,7 @@ hammer mass byte-identically. `play.note` through WS `command` vs the raw `play`
   /play_mode/<mode_no>      -- trigger mode playback
   /play_keyboard            -- full-keyboard sweep (online+mic capture / offline render)
   /midi_playback            -- MIDI file playback control
+  /midi_player/*            -- MIDI-file player: status, library, load, transport, seek, options, mute (dev-6f0c)
   /playback_stats           -- EventQueue statistics
   /pause_synthesis          -- pause synthesis cycle (keeps GPU)
   /resume_synthesis         -- resume synthesis from pause
@@ -728,6 +731,17 @@ preset / missing `sample_rate`, `string_iterations`, `audio_on`, `start_right_aw
 engine and its unsaved edits are untouched. Before dev-12a5 such a request destroyed the engine
 first and then returned 500 (FileNotFoundError / KeyError) → `No preset loaded`.
 
+**Output map vs channel count (dev-16af).** Before ANY reinit kind, the backend's
+`PIANOID_AUDIO_OUTPUT_MAP` is checked against the preset's channel count (`mode_sound_channels.num_channels`,
+legacy 4) and the request's driver ([AUDIO_DRIVERS → output map](../pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver)).
+Response `409` when it cannot apply — a map SHORTER than the channel count, or a map with a driver other than
+`4` (ASIO callback): `{"error": "OutputMapMismatch", "code": "output_map_mismatch", "message":
+"PIANOID_AUDIO_OUTPUT_MAP has 4 entries for 7 channels (...) - nothing was torn down: the loaded engine keeps
+running."}`. A LONGER map loads on its first N entries; every success response carries `output_map_warning`
+(`null`, or `"PIANOID_AUDIO_OUTPUT_MAP has 7 entries for 4 channels: using the first 4 (8,9,2,3)"`, also logged).
+Before dev-16af the map raised inside `initialize()` after `destroyPianoid()` → no engine (incident 2026-10-20:
+a stale tab re-applied a 4-channel preset under the 7-entry rig map).
+
 Response `200` (hot re-init — only runtime params changed; engine + UI state kept):
 ```json
 {"message": "Preset hot-reloaded (runtime params only)", "reinit": "hot", "applied": {"volume_center": 0.3679}}
@@ -744,19 +758,15 @@ Response `400` (when `use_simulation=1`):
 }
 ```
 
-Response `409` (preset does not fit this machine, added dev-a90b 2026-10-22): checked by
+Response `409` (preset's kernel grid does not fit this GPU, added dev-a90b 2026-10-22): checked by
 `pianoid_middleware/load_fit.py` on the full path **before** the live engine is destroyed, so the current
-preset keeps playing — `{"error": "PresetDoesNotFit", "code": <code>, "message": "… The current preset was kept."}`:
-
-| `code` | When | Extra fields |
-|---|---|---|
-| `output_map_mismatch` | `PIANOID_AUDIO_OUTPUT_MAP` has fewer entries than the preset's channels, or is set with a driver other than ASIO callback (4), or the channel count is outside `1..NUM_CHANNELS` | — |
-| `coop_launch_shortage` | the preset's grid (`ceil(num_strings / num_strings_in_array)` blocks) exceeds the live engine's `cooperative_launch.capacity` | `blocks`, `capacity` |
-
-The co-residency check only uses the live report when the request's `array_size` (clamped 384..512) equals its
-`block_threads` and the build variant (`debug_mode`) matches — capacity depends on both. With no live engine or
-another kernel configuration it is skipped and the init pre-flight below decides (500, engine already gone).
-FE: the Tunner shows both codes as a persistent notification (409 warning, 500 error).
+preset keeps playing — `{"error": "PresetDoesNotFit", "code": "coop_launch_shortage", "message": "… The current
+preset was kept.", "blocks": 59, "capacity": 56}`: the preset's grid (`ceil(num_strings / num_strings_in_array)`
+blocks) exceeds the live engine's `cooperative_launch.capacity`. The live report is only used when the request's
+`array_size` (clamped 384..512) equals its `block_threads` and the build variant (`debug_mode`) matches — capacity
+depends on both. With no live engine or another kernel configuration it is skipped and the init pre-flight below
+decides (500, engine already gone). FE: the Tunner shows `coop_launch_shortage` as a persistent notification
+(409 warning, 500 error).
 
 Response `500` (cooperative co-residency shortage, added dev-1cda 2026-10-09): the engine's init
 pre-flight found that the `addKernel` grid (`num_strings/4` blocks of `array_size` threads) cannot
@@ -944,11 +954,29 @@ no ASIO call from the Flask thread). Response `200`:
 `{asio: {open, driver, sample_rate, buffer_size, buffer_size_range [min, max, granularity],
 input_latency, output_latency, reported_roundtrip, output_ready, supported_sample_rates,
 inputs: [{index, name, type, type_name, supported}], outputs: [...], switch_count,
-session_active, reset_requests, latency_changes}, engine: {loaded, lifecycle_state,
-calibrating, audio_driver_active, active_driver_type}}`. With no engine loaded:
+session_active, reset_requests, latency_changes, clock}, engine: {loaded, lifecycle_state,
+calibrating, audio_driver_active, active_driver_type, active_driver, active_audio_driver_type}}`. With no engine loaded:
 `{asio: {open: false}, engine: {loaded: false}, note}`. `501 no_session_api` when the
 installed `pianoidCuda` predates the session API. Channel facts of the rig (UMC1820):
 [AUDIO_DRIVERS.md — ASIO measurement session](../pianoid-cuda/AUDIO_DRIVERS.md#asio-measurement-session-dev-1b6c).
+
+**`asio.clock`** (dev-431a, `asio_clock.py`): the measured bufferSwitch pace against the engine's
+buffer — `{measured, buffer_size, buffer_size_in_driver_range, expected_switch_rate_hz (= sample_rate /
+buffer_size), switch_rate_hz, switch_period_ms, frames_per_switch_measured, realtime_ratio, realtime}`
+(the `switch_count` timed between counter edges over 0.25 s with `time.perf_counter`; `realtime` = within 15 %:
+a wrong-pace host is off by an integer factor, while the old 15.6 ms `time.monotonic` + 5 % refused a healthy
+UMC1820 at 0.965 … 1.07, dev-431a live). Since the dev-431a C++ fix the host creates its ASIO buffers at a
+driver-legal **whole number of 64-frame engine blocks** (64 whenever the driver allows it; else the driver's
+preferred size or the smallest legal multiple; `PIANOID_ASIO_BUFFER_SIZE` requests another legal multiple) and
+runs the engine block callback N times per switch, so `buffer_size` here is that host buffer and a fixed-size
+driver (field case: `buffer_size_range [1152, 1152]`, which before the fix switched every 24 ms while the host
+counted 64 frames → `realtime_ratio` ≈ 0.33) runs in real time. The check stays as the guard against a driver
+that still does not switch at `sample_rate / buffer_size`; remedy: set the driver's ASIO buffer to 64 samples
+and reload the preset. `{measured: false}` on a binary without `switch_count`.
+**Driver numbering:** `active_driver_type` is the engine's `AudioDriverType` enum (SDL2 0 · SDL3 1 · ASIO 2 ·
+ASIO_CALLBACK 3); `active_audio_driver_type` is the SAME driver in the preset / `/load_preset`
+`audio_driver_type` numbering (1 ASIO · 2 SDL · 3 SDL3 · 4 ASIO callback); `active_driver` is the name
+(the `/health` fallback block uses the same names). So `3` here and "ASIO_CALLBACK (4)" elsewhere agree.
 
 ### `POST /audio/session`
 
@@ -969,8 +997,8 @@ a time; the request holds the lifecycle gate's shared slot, so a `/load_preset` 
 | `pre_roll_s` / `post_roll_s` | silence before / after the signal (defaults 0.1 / 0.5 s; post 0 for `play`) |
 | `loopback` | `{"output": "Out 5", "input": "In 8", "marker_level": 0.5}` — emits a one-sample marker on the loopback output at signal frame 0 and reports its measured onset (the electrical round trip); the input is added to the capture |
 | `compensate_latency` | `"none"` (default, raw) · `"reported"` (drop in+out reported latency) · `"loopback"` (drop the measured onset) · `true` (loopback if present else reported) · an integer frame count |
-| `timeout_s` | default 1.5 × length + 3 s |
-| `out_dir`, `tag`, `return_data` | result folder (default `<measurements base>/audio_sessions/<session_id>/`, base = `$PIANOID_MEASUREMENTS_DIR` or `D:\modal_measurements`); free-text tag; include `data` inline when ≤ 200 k samples |
+| `timeout_s` | default 1.5 × length + 3 s (length = pre-roll + signal + post-roll at the device rate); the HTTP client (`RemoteAudioIO`) waits 1.5 × 120 + 33 s, above the longest session's timeout |
+| `out_dir`, `tag`, `return_data` | result folder (default `<measurements base>/audio_sessions/<session_id>/`, base = the [measurements folder](#measurements-folder)); free-text tag; include `data` inline when ≤ 200 k samples |
 
 Session length ≤ 120 s. Response `200` (also written to `meta.json`; capture in `data.npy`,
 float32 `[frames, len(inputs)]`, normalised to each channel's full scale):
@@ -985,9 +1013,12 @@ included); the signal starts at `pre_roll_frames`.
 
 Errors: `400` bad body / unknown or duplicate channel / signal shape, NaN or > 1.0 / too long;
 `409` `asio_not_open` · `session_in_progress` · `engine_busy` (calibration running) ·
-`asio_unavailable`; `501 no_session_api`; `502 session_aborted` (`timeout`, `reset_request` — a
+`asio_unavailable` · `asio_not_realtime` (dev-431a: checked before anything plays or synthesis pauses — the
+driver does not switch at `sample_rate / buffer_size`, see `asio.clock` above; the body carries `clock` and
+the message the numbers and the remedy); `501 no_session_api`; `502 session_aborted` (`timeout`, `reset_request` — a
 driver `kAsioResetRequest`, which the dev-19be watchdog then services on resume — or `stalled`:
-no callback for 0.5 s) with the partial result in `session` (data still written), and
+no callback for 0.5 s) with the partial result in `session` (data still written; the message carries the frames captured,
+the elapsed time, switches × buffer size, xruns and the frames/s achieved vs the device rate), and
 `502 loopback_not_detected` for `compensate_latency: "loopback"` without a marker onset.
 
 ### Rig measurement pipeline (assistant) {#rig-pipeline}
@@ -1006,22 +1037,44 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 | Route | Command | Step |
 |---|---|---|
 | `POST /rig/capture` | `modal.rig_capture` (hard confirm) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
-| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record) |
+| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
 | `POST /rig/record` | `modal.rig_record` (hard confirm) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
 | `POST /rig/process` | `modal.rig_process` (hard confirm) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
 | `POST /rig/preset_create` | `preset.create` (hard confirm) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
 | `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
 | `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
 | `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
+| `GET /measurements/dir` | `modal.measurements_dir` | the measurements folder and where it comes from ([below](#measurements-folder)) |
+| `POST /measurements/dir` | `modal.set_measurements_dir` (hard confirm) | moves the measurements folder (runtime setting) |
 
-Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = `$PIANOID_MEASUREMENTS_DIR`, else
-`D:\modal_measurements`; run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
+Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the [measurements folder](#measurements-folder); run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
 flags, status), `sessions/<exciter>_m<level>_r<k>/{data.npy (aligned capture, float32 [frames, inputs]),
 signal.npy, meta.json}` (`silence/`, `chunk<NNN>/`, `record/` for the other kinds), then `frf/` (`frf.npz`: f, H
 [repeats, F, inputs, exciters]; `coarse_frf.npz`: freqs, H3 = the repeat average; `report.json`), `polymax/`
 (`report.json`, `modes.npz`, `stabilization.png`) and `coefficients/` (`measured_table.json` = the input of
 `Pianoid.measured_mode_preset`, `report.json`). A step on a `rig_checks` capture writes its outputs to
 `rig_runs/<run>/` (with `source.json`). Presets go to `pianoid_middleware/presets/<name>.json`.
+
+#### Measurements folder {#measurements-folder}
+
+(dev-3f58, `modal_adapter/measurements_location.py`) The ONE folder every rig step and read, the audio sessions
+(`audio_sessions/`), the modal adapter's measurements (:5001) and the measurement CLIs (`swept_discovery`,
+`appropriation`, `rig_checks`) use. Resolution, first set wins:
+
+| # | Source (`source`) | Where |
+|---|---|---|
+| 1 | runtime setting (`setting`) | `measurements_dir` in the local settings file `<PianoidInstall>/pianoid_local_settings.json` (gitignored; `$PIANOID_LOCAL_SETTINGS` overrides the file path). Written by `POST /measurements/dir`; survives restarts |
+| 2 | `$PIANOID_MEASUREMENTS_DIR` (`env`) | the environment of the backend / adapter |
+| 3 | repo default (`default`) | `<PianoidInstall>/measurements` (resolved from the install location, never a drive path; gitignored) |
+
+The settings file is read on every call, so :5000, :5001 and the rig-step child processes see a change at
+once. Folders are created on demand by the writers.
+
+- `GET /measurements/dir` (`read_only`) -> `{measurements_dir, source, exists, setting, env, default, settings_file}`.
+- `POST /measurements/dir {"path": "<absolute folder>" | null}` (`action`) -> the same body. `path` must be
+  absolute, a folder (or not exist yet) and writable: the folder is created and probed with a temp file, else
+  `400 bad_request`; `null` / `""` clears the setting (back to the env var / default); `409 rig_busy` while a rig
+  job runs. **Data is never moved:** runs in the old folder are simply no longer listed.
 
 ### `POST /pause_synthesis`
 
@@ -1042,6 +1095,62 @@ Response `200`:
 ```json
 {"message": "Synthesis resumed"}
 ```
+
+---
+
+### Exciter monitor (dev-8f54) {#exciter-monitor}
+
+Current / board sensors on the ASIO inputs during normal playback, and a per-exciter current-limit safety
+limiter: `exciter_monitor_routes.py` over `exciter_monitor.py` / `exciter_monitor_config.py`; engine stage
+`ExciterMonitor.cpp` ([AUDIO_DRIVERS → Exciter monitor](../pianoid-cuda/AUDIO_DRIVERS.md#exciter-monitor-dev-8f54)).
+Design: [controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md). Needs the ASIO
+callback driver (`audio_driver_type 4`); stored per machine under `exciter_monitor` in
+`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (hard confirm),
+`audio.exciters_clear`.
+
+#### `GET /audio/exciters`
+
+`read_only` → `{config, telemetry}`. `telemetry` (also the socket event **`exciter_telemetry`**, at
+`config.telemetry_hz` = 25 Hz while enabled and an ASIO device is open):
+
+| Field | Meaning |
+|---|---|
+| `enabled`, `api`, `device_open`, `configured` | monitor on · an engine with the API is loaded · ASIO open · the engine runs the current config |
+| `sample_rate`, `buffer_size`, `rate {frames_per_s, expected, ok}` | input frames metered per second over the window (≈ the sample rate during playback) |
+| `inputs[]` | `{index, name ("In 1"), label, kind, unit ("FS" when uncalibrated), uncalibrated, full_scale, present, rms, peak, rms_fs, peak_fs, rms_dbfs, peak_dbfs, clipping, test_level}` |
+| `exciters[]` | `{channel, name, present, output {peak_dbfs, rms_dbfs} (post-limiter), current {input, input_name, rms, peak, unit, full_scale, limit, target, uncalibrated} \| null, board {...} \| null, gain_db, min_gain_db, trim_db, limiting, at_floor, attacks (cumulative), latched {max_current_peak, min_gain_db, attacks}, warnings[]}` |
+| `warnings[]` | `{code, exciter?, message}`: `sensor_silent` (plays, sense below `sensor_check.min_sense_dbfs` for `hold_s`), `map_suspect` (another current input carries it), `input_clipping` (≥ 0.99 FS), `limit_floor` (gain at the floor > 1 s), `uncalibrated`, `rate_low` (< 90 % of the sample rate) |
+
+Values are `null` when nothing was metered (no device, disabled). The window is the time since the previous
+sample (each sample resets the engine window).
+
+#### `POST /audio/exciters/config`
+
+`session` (`session_changed {domain: exciter_monitor}`). Body = a partial patch; the result is validated,
+saved and pushed to the engine at once → `{status, config, telemetry}`; `400 invalid_config` (with the reason) /
+`400 engine_refused`.
+
+| Key | Patch rule · fields |
+|---|---|
+| `enabled`, `telemetry_hz` (1–60) | replace |
+| `inputs` | merged by `index` (0–31): `{index, kind current\|board\|other, label, scale (units per full scale, > 0, null = uncalibrated), unit}` |
+| `exciters` | merged by `channel` (engine channel 0–15): `{channel, name, sense_input, board_input (metered inputs or null), limit (block peak, sense unit, null = no limiter), target (RMS, closed loop), release_ms (10–10000)}` |
+| `limiter` | `{floor_db (−60…0, −30), release_threshold (0.05–1, 0.9), holdoff_switches (null = one measured round trip + 1)}` |
+| `closed_loop` | `{enabled (false), rate_db_per_s (1), max_cut_db (12), max_boost_db (0, ≤ 6)}` |
+| `sensor_check` | `{output_dbfs (−50), min_sense_dbfs (−90), hold_s (0.4)}` |
+| `{…, "remove": true}` / `replace: true` / `reset: true` | drop one list item · replace the lists · start from the default |
+
+Example (E3 limited to 1.5 A peak with a 0.1 Ω sense into a 2 V full-scale input: `scale` = 20 A/FS):
+`{"enabled": true, "inputs": [{"index": 2, "scale": 20}], "exciters": [{"channel": 2, "limit": 1.5}]}`.
+
+#### `POST /audio/exciters/clear`
+
+`session`: clears the latched values and puts every limiter gain back to its ceiling → `{status}`.
+
+#### `POST /debug/exciter_test_level`
+
+TEST HOOK (`session`): `{input, level_fs}` — physical input `input` reads at least a sine of peak `level_fs`
+(0–4 FS, 0 = off) in the engine, so the limiter can be exercised without a sensor. `409` with no engine.
 
 ---
 
@@ -1767,6 +1876,22 @@ Response `200`:
 ```
 
 Response `400` for invalid action or pianoid not initialized.
+
+### MIDI player — `/midi_player/*` (dev-6f0c)
+
+Backend-timed MIDI-file player ([MIDI_SYSTEM.md → MIDI player](MIDI_SYSTEM.md#midi-player-dev-6f0c)). Every POST answers the full **status**; the same status is pushed as Socket.IO `midi_player_state` on each change and every 250 ms while playing. Errors: `400 {error, status}` (no file loaded, file not found / not MIDI / > 16 MB, engine not running, bad body).
+
+| Method + path | Body | Effect |
+|---|---|---|
+| `GET /midi_player/status` | — | current status |
+| `GET /midi_player/library` | — | `{midi_dir, bundled_dir, files: [{name, path, source: "midi"\|"bundled", folder, bytes}]}` (`<PianoidInstall>/midi` or `$PIANOID_MIDI_DIR`, recursive, + `MIDI_records/`) |
+| `POST /midi_player/load` | `{"path": "<absolute path>"}` or multipart field `file` | stop, parse, load (mutes cleared; speed / loop / transpose / velocity kept) |
+| `POST /midi_player/transport` | `{"action": "play" \| "pause" \| "stop"}` | play needs a running engine; pause/stop = all notes off; stop rewinds to 0 |
+| `POST /midi_player/seek` | `{"position_ms": float}` | while playing: all notes off, resume there (pedal state chased) |
+| `POST /midi_player/options` | any of `speed` (0.25-4), `loop` (bool), `transpose` (−24..24), `velocity_scale` (0.1-2) | values clamped to the ranges |
+| `POST /midi_player/mute` | `{"track": i}` or `{"channel": 0-15}` + `"muted": bool` | muting releases that source's held notes |
+
+Status: `{loaded, song: {name, path ("" for an upload), duration_ms, events, initial_bpm, midi_type, tracks: [{index, name, channels, notes, pedal_events}], channels: [{channel, notes}]}, state: "stopped"|"playing"|"paused", position_ms, duration_ms, speed, loop, transpose, velocity_scale, muted_tracks, muted_channels, loops, skipped_notes, error, version}`. Write class: `action` (status/library `read_only`).
 Response `404` if MIDI file not found.
 Response `500` for unexpected errors.
 
@@ -2161,6 +2286,17 @@ it can never take the backend down.
 file, created exclusively: a re-delivery (the client timed out while a large report was still
 being saved, then flushed its localStorage copy) answers `200` with `"duplicate": true` and is
 not saved again, so the first (full) copy is kept. Without a `reportId` the suffix is a random hex6.
+
+**One fault, one report across tabs (dev-16af).** Every open tab runs its own auto-reporter, so one backend
+fault used to be filed once per tab (2026-10-20 16:57Z: two tabs, two reports). An AUTO report whose
+fingerprint — `trigger.episode` (the FE episode key: `backend_fault`, `endpoint_unresponsive:<host>`,
+`js_error:<message>` …), else `trigger.kind` — matches one saved within `PIANOID_REPORT_DEDUP_S` (default
+`120` s, `0` disables) of its own `createdAt` (so late lifeboat flushes still match) is not saved: `200
+{"ok": true, "duplicate": true, "duplicate_of": "<first file>", "saved": "<first file>"}` and an info log line.
+Manual and assistant reports are never de-duplicated. The index is in memory per reports folder
+(`pianoid_middleware/bug_report_dedup.py`): a duplicate arriving after a backend restart is saved again.
+Why server-side and not tab leadership: the collector is the one owner that sees every tab (and every
+browser); a leader-only reporter would drop a fault only a follower tab saw, and leadership changes hands.
 
 Response `200`:
 ```json

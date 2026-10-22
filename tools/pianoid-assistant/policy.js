@@ -14,6 +14,12 @@
  *                                           (live audio pauses for the render); any other render, e.g. an
  *                                           output_scale calibration render, is DENIED (R6). Reads never.
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
+ *   a plan approval (dev-28f1, on unless   `settings.plan` = planApproval.js matchGrant, set by the service
+ *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
+ *                                           (auto). A hard-confirm command only when the user ticked it
+ *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
+ *                                           never `code`, never reads. After the deny rows and the tainted
+ *                                           row, so a plan can never bypass them
  *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
  *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
  *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
@@ -61,7 +67,9 @@ export const HARD_CONFIRM = {
   'modal.rig_sine': 'plays a sine on the rig exciters',
   'modal.rig_record': 'records the rig inputs (synthesis pauses)',
   'modal.rig_process': 'runs a measurement-pipeline step (FRF / PolyMAX / coefficients / preset build); writes files',
+  'modal.set_measurements_dir': 'moves the measurements folder every rig command uses (data is not moved)',
   'preset.create': 'writes a new preset file (structure change)',
+  'audio.exciters_config': 'changes the exciter current limits / sensor mapping (hardware protection)',
   'audio.session': 'plays on the rig outputs',
   'audio.test_tone': 'plays on the rig outputs',
 };
@@ -81,6 +89,8 @@ export function decide({ command, tier, family, category, settings = {} }) {
   if (settings.tainted && !READ_TIERS.has(tier)) {
     return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
   }
+  const planVerdict = planStep({ command, tier, category, settings });
+  if (planVerdict) return planVerdict;
   if (HARD_CONFIRM[command] || category === 'hard_confirm') {
     return { action: 'confirm', hard: true, reason: HARD_CONFIRM[command] || 'on the hard-confirm list' };
   }
@@ -95,6 +105,21 @@ export function decide({ command, tier, family, category, settings = {} }) {
     return { action: 'allow', auto: true, watch: true, reason: `${category}: Auto, ${env.reason}` };
   }
   return READ_TIERS.has(tier) ? { action: 'allow', reason: tier } : { action: 'allow', auto: true, reason: `${category}: Auto` };
+}
+
+/**
+ * The plan-approval row (null = no plan verdict, the rows below decide). `settings.plan` is absent unless
+ * the flag is on and a grant matched, so with the flag off this returns null for every call.
+ */
+function planStep({ command, tier, category, settings }) {
+  const plan = settings.plan;
+  if (!plan?.ok || READ_TIERS.has(tier) || category === 'code') return null;
+  if ((HARD_CONFIRM[command] || category === 'hard_confirm') && plan.ticked !== true) return null;
+  if (usesEnvelope(category)) {
+    if (!settings.envelope?.ok) return null;
+    return { action: 'allow', auto: true, watch: true, plan: plan.grantId, reason: `${plan.reason}; ${settings.envelope.reason}` };
+  }
+  return { action: 'allow', auto: true, plan: plan.grantId, reason: plan.reason };
 }
 
 /** Is a command listed at all (the MCP server hides what can never run)? */

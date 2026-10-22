@@ -15,3 +15,8 @@ __pycache__/
 
 # Local clone of the user-level config repo (DSPianoid/claude-config); not part of this repo
 claude-config/
+
+# Measurement data (default <PianoidInstall>/measurements) and the local runtime settings (measurements folder)
+/measurements/
+/pianoid_local_settings.json
+/pianoid_local_settings.json.tmp

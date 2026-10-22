@@ -22,7 +22,8 @@ the wiring, the output map of the backend, and listening.
 |---|---|
 | `system.snapshot`, `system.environment` (incl. the output map), `system.health` (peaks, clipping), `audio.devices` (ASIO in / out list), `calibration.mic_devices` | read, no confirm |
 | `preset.files`, `preset.summary`, `preset.load_settings`, `param.get`, `param.inventory` | read, no confirm |
-| `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact) | read, no confirm |
+| `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact), `modal.measurements_dir` (where the measurement data lives) | read, no confirm |
+| `modal.set_measurements_dir` (moves the measurements folder; data is not moved) | **hard confirm, every time** |
 | `modal.rig_capture` (sweeps per exciter, inputs recorded), `modal.rig_sine` (a tone, optional recording), `modal.rig_record` (inputs only) | **hard confirm, every run** (drives / records the rig) |
 | `modal.rig_process` (`frf`, `polymax`, `coefficients`, `build_preset`), `preset.create` (a new preset structure) | **hard confirm, every run** (writes files) |
 | `modal.rig_cancel` (stops the rig job), `job.get`, `job.list`, `job.cancel` | playback / read |
@@ -42,7 +43,8 @@ the wiring, the output map of the backend, and listening.
 
 **Safety (applies to every live step).** Rig audio drives seven exciters on a real board. Always say in one line
 what will play, on which outputs, how loud and how long, and get the user's yes (the hard confirm shows the args
-again). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
+again). For the whole pipeline, ask once instead with `request_plan_approval` (steps + the narrowest envelope; the
+user ticks which hard-confirm commands it covers; a step outside it still asks — [Operations → plan approval](OPERATIONS_FOR_ASSISTANT.md#plan-approval)). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
 documented working levels are in [Rig facts → levels](#rig-levels); the playback ceiling used on 10-15 was
 per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. Read `system.health` (`peak_level_now`,
 `clipping_now`) after any live step. Every rig command needs a preset loaded on the **ASIO callback driver**
@@ -52,11 +54,12 @@ per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. R
 
 Source of truth: the registry args (`schemas/commands/modal.json`, `preset.json`); the ranges below are enforced
 there (a violation is a 400 `invalid_args` listing every field). Channels are ASIO names (`Out 9`, `In 1`,
-`ADAT 3`) or 0-based indices. Every write command returns a `jobId`: follow it with `job.get` (progress, then
-`result` or `error`). One rig job runs at a time; `modal.rig_cancel` (or `job.cancel`) stops it (a sweep or chunk
-already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (`<measurements>` =
-`$PIANOID_MEASUREMENTS_DIR`, else `D:\modal_measurements`; run id `<yyyymmddThhmmss>-<label>`); older captures
-under `rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
+`ADAT 3`) or 0-based indices. Every write command returns a `jobId`: follow it with `job.get {jobId, wait_s: 60}` (answers when the job ends or
+after 60 s, with `pct` / `msg`; repeat until finished, failed or cancelled: a PolyMAX fit can take 2–3 minutes and
+reports `band i/n (lo-hi Hz): k modes`), then `result` or `error`. One rig job runs at a time; `modal.rig_cancel` (or `job.cancel`) stops it (a sweep or chunk
+already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the
+[measurements folder](#cmd-measurements-dir); run id `<yyyymmddThhmmss>-<label>`); older captures under
+`rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
 [REST_API → Rig measurement pipeline](../modules/pianoid-middleware/REST_API.md#rig-pipeline).
 
 ### `modal.rig_capture`: sweeps per exciter (hard confirm) {#cmd-capture}
@@ -81,7 +84,10 @@ under `rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
 | `sample_rate` | the device's | 8000 … 192000 | expected rate; the engine sets it (48 kHz, block 64; not settable here: a mismatch fails) |
 | `label` / `dry_run` | `capture` / false | | `dry_run` plans only (sessions, `estimated_s`, levels); plays nothing |
 
-Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), `flags`, `peaks_dbfs` per take.
+Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), `flags`, `peaks_dbfs` per take (the
+loudest input), and with a noise record `noise_floor` (per input) + `rms_above_noise_db` `{take: {input: dB}}`:
+which exciter → sensor paths carry the sweep (about 0 dB = that input heard only its own noise; judge the
+capture by this, not by the take peak, which a noisy input can dominate).
 
 ### `modal.rig_sine`: a tone, optional recording (hard confirm) {#cmd-sine}
 
@@ -96,6 +102,22 @@ Total sweep time per run ≤ 1800 s. Result: `run`, `levels` (after the guard), 
 | `record_inputs[]` | [] | 0–16 × `{input, name}` | play + record (each chunk under `sessions/chunk<NNN>/`); result `levels_last_chunk` |
 | `post_roll_s` | 0.5 | 0 … 10 | recording after the last chunk (the free decay after a dwell) |
 | `label` / `sample_rate` / `dry_run` | `sine` | | as above |
+| `sequence[]` | [] | 0–64 × `{frequency_hz, outputs[], duration_s, pause_s}` (all optional) | tones in turn: each step = the top-level tone with the step's values, then `pause_s` of silence (none after the last); not with `until_stopped`; ≤ 1800 s of tone. Sessions `s<NN>_chunk<NNN>`; result `steps[]`, `estimated_s`, with `record_inputs` also `levels_per_step` |
+| `pause_s` | 1 | 0 … 600 | the default pause after each sequence step |
+
+A sequence of exciters with pauses (e.g. 200 Hz, 3 s each, 2 s apart): `{frequency_hz: 200, duration_s: 3,
+outputs: [{output: "Out 9"}], pause_s: 2, sequence: [{outputs: [{output: "Out 9", level_dbfs: -42}]},
+{outputs: [{output: "Out 10", level_dbfs: -42}]}, {outputs: [{output: "Out 11", level_dbfs: -42}],
+frequency_hz: 80}]}` — the top-level `frequency_hz` / `outputs` are required (the step defaults); only the
+steps play.
+
+**`asio_not_realtime` / "session aborted: timeout".** Every rig command first reads `GET /audio/devices`
+→ `asio.clock`; when `realtime` is false the step refuses before anything plays: the driver does not call back
+at `sample_rate / buffer_size` (`realtime_ratio` far from 1). Since dev-431a the engine opens the ASIO device at a
+size the driver allows (a whole number of 64-frame blocks: 64 when allowed, else e.g. a fixed 1152) and stays in
+real time there, so a fixed-buffer driver is no longer a reason to refuse. If it still refuses: tell the user to
+set the interface's ASIO buffer size to 64 samples in its driver control panel, then reload the preset; re-read
+the device until `clock.realtime` is true. (dev-431a)
 
 ### `modal.rig_record`: inputs only (hard confirm) {#cmd-record}
 
@@ -114,7 +136,7 @@ outputs to `rig_runs/<run>/` (with `source.json`); run the steps in this order.
 | `frf` | `ir_window_s` (4; 0.1 … 30: resolution = 1 / window), `taper_frac` (0.1), `pre_samples` (30), `f_min_hz` (0 = the sweep start), `f_max_hz` (1200), `average` (`mean` · `median` over the repeats), `regularization` (1e-6), `noise_from_repeats` (false: store the repeat variance for PolyMAX), `exciters` / `inputs` (label subsets; [] = all) | `frf/frf.npz` (f, H [repeats, F, inputs, exciters]), `frf/coarse_frf.npz` (freqs, H3 = the average), `frf/report.json` (labels, repeat SNR per path) |
 | `polymax` | `p_max` (40; 4 … 120), `band_edges` (30, 60, 120, 250, 500, 1000, 2000, 4000, 9500), `overlap` (0.15), `max_lines` (4000), `f_min_hz` / `f_max_hz` (0 = the FRF's), `snr_detect_db` (10), `prune` (true), `prune_min_gain` (0.2), `prune_min_snr_db` (10), `loo` (false), `stab` {`p_min` 2, `tol_f` 0.01, `tol_zeta` 0.1, `tol_mpf` 0.9, `zeta_min` 1e-4, `zeta_max` 0.2, `min_stable_frac` 0.3, `use_mpf` true}, `hum_hz` (50) / `hum_harmonics` (3) / `hum_width_hz` (1): lines removed before the fit | `polymax/report.json` (per mode f, ζ, stability, shape, MPF), `polymax/modes.npz`, `polymax/stabilization.png` |
 | `coefficients` | `method` (`residue_svd` · `modal_appropriation`), `f_min_hz` (20), `boundary_hz` (1020), `min_stability` (0.3), `max_fit_residual` (1), `min_rank1_ratio` (0), `zeta_min` / `zeta_max` (5e-4 / 0.2), `mass_trend` (`fit` · `none`), `mass_clip_db` (6), `ridge` (1e-3), `zeta_overrides[]` (`{f_hz, zeta, tol_hz = 1}`, e.g. a stop-and-decay ζ), hum options as above | `coefficients/measured_table.json` (the builder input: per mode f, ζ, `mass_inv_rel`, real channel weights with max \|·\| = 1, below `boundary_hz`), `coefficients/report.json` (dropped modes and why, the trend exponent, energy kept by the real projection) |
-| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights |
+| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights; result `n_measured` + `n_base_kept_above_boundary` + `n_fill_from_fpga_tables` = `n_modes` |
 
 Laws ([measured preset §5, §6](../development/measured-plywood-preset-2026-10-15.md)): relative 1/m ∝
 σ1 · max\|u\| · max\|v\| of each mode's residue matrix (inputs × exciters), its power-law trend over f removed
@@ -146,6 +168,20 @@ step reports and every file (relative names). `modal.rig_files {run, area, files
 true}` copies them into ONE analysis artefact (names flattened: `sessions/E1_m42_r1/data.npy` →
 `sessions__E1_m42_r1__data.npy`; at most 400 MB) whose id `analysis.run_python` takes ([R6](#r6)).
 
+### `modal.measurements_dir`, `modal.set_measurements_dir`: the measurements folder {#cmd-measurements-dir}
+
+Every rig command (capture, sine, record, process, runs, files / export) and the modal adapter use ONE folder.
+`modal.measurements_dir {}` (read, no confirm) answers `{measurements_dir, source, exists, setting, env, default,
+settings_file}`; `source` says which layer won: `setting` (the runtime setting) > `env`
+(`PIANOID_MEASUREMENTS_DIR`) > `default` (`<PianoidInstall>/measurements`, next to the install, on any drive).
+`modal.set_measurements_dir {path}` (hard confirm) sets the runtime setting: an ABSOLUTE folder that exists or can
+be created and is writable (it is created); `path: null` clears it. The choice persists across restarts (the
+gitignored `pianoid_local_settings.json` in the install root). It never moves data: runs in the old folder are no
+longer listed, so tell the user; it is refused while a rig job runs. Use it when the user asks to keep
+measurements elsewhere (another drive, a shared folder), or when `modal.rig_runs` shows an unexpected empty
+folder: read `modal.measurements_dir` first. Contract:
+[REST_API → Measurements folder](../modules/pianoid-middleware/REST_API.md#measurements-folder).
+
 ## Rig facts {#rig}
 
 Source: [report 10-14 §1, §3, §5](../development/report-mode-discovery-2026-10-14.md), the dev-fd69 session log
@@ -158,7 +194,7 @@ facts](../modules/pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver).
 | Fact | Value | Source |
 |---|---|---|
 | Board | 8 mm plywood, about 1200 × 1000 mm (no bridge, no strings). Mass used for the preset: 650 kg/m³ → M = 6.24 kg | measured preset §2, §5.2 |
-| Interface | Behringer UMC1820, `UMC ASIO Driver`; 18 in / 20 out (`In 1`–`In 8`, `Out 1`–`Out 10`, SPDIF, ADAT); every channel Int32LSB; the engine opens it at 48 kHz, buffer 64 | AUDIO_DRIVERS rig facts |
+| Interface | Behringer UMC1820, `UMC ASIO Driver`; 18 in / 20 out (`In 1`–`In 8`, `Out 1`–`Out 10`, SPDIF, ADAT); every channel Int32LSB; the engine opens it at 48 kHz, buffer 64 (its driver offers powers of two 8 … 2048 only) | AUDIO_DRIVERS rig facts |
 | Round trip | loopback onset 334–335 frames (reported 304 + about 30 frames converter delay); constant within one backend run, it can shift between backend instances (E7 → P8 IR peak 39 → 46 samples on 10-15) | AUDIO_DRIVERS; fd69 log 10-15 |
 | Exciters | E1–E7, inertial voice-coil exciters on the board | report 10-14 §1 |
 | Piezos | P1–P8 (P8 collocated with E7 = the driving point). Positions: `layout-20261014/board_layout.json` (from a photo, ±30 mm, up to ±50 mm at the edges) | report 10-14 §1 |
@@ -233,6 +269,7 @@ per exciter; relative levels E1 +4.7, E2 +4.5, E3 +0.3, E4 −4.5, E5 −3.5, E6
 | Linearity | small level dependence: about 1 dB per 12 dB below 250 Hz, frequencies within 0.15 %; superposition holds above 35 Hz (all 7 at once = one at a time within 0.4–0.6 dB) |
 | Drift | about 0.13 % in frequency and 0.4–0.6 dB at LF over 1.7 h |
 | Disk | keep ≥ 5 GB free on D: (a full disk aborted a run on 10-14); a full 7 × 7 is 0.7–0.8 GB |
+| Live current limit (playback) | the exciter monitor (`audio.exciters` read, `audio.exciters_config` hard confirm) meters the sense / board inputs during normal playback and limits each exciter's current; it needs the input map + scales set per machine (default OFF, uncalibrated). [REST_API → Exciter monitor](../modules/pianoid-middleware/REST_API.md#exciter-monitor) |
 
 ## The procedure ladder {#ladder}
 
@@ -241,7 +278,7 @@ Timing comes from [report 10-14 §7](../development/report-mode-discovery-2026-1
 session below 200 Hz is about 45 min (3 × full 7 × 7 + consensus); the minimum useful one about 20 min.
 
 Each step names its **command** ([Rig commands](#rig-commands)). The agent scripts of the original sessions
-(`docs/development/diagnostics/`, `D:\modal_measurements\rig_checks\*.py`) are kept as references; the commands
+(`docs/development/diagnostics/`, `<measurements>/rig_checks/*.py` on the measuring machine) are kept as references; the commands
 are their parametric form (dev-8a9e). See [Branch status](#branch-status).
 
 ### Step 0: state and preconditions {#step-0}
@@ -255,6 +292,10 @@ are their parametric form (dev-8a9e). See [Branch status](#branch-status).
   inspected, and whether D: has ≥ 5 GB free (the assistant cannot see the disk).
 - **Pitfall:** a healthy-looking `/health` does not prove the interface is present (the rig dropped out before);
   `audio.devices` lists the device the engine actually opened.
+- **Output map vs channel count (fixed 2026-10-20, dev-16af):** with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`
+  (7 entries) a preset with FEWER channels loads on the first N outputs (`output_map_warning` in the result); one
+  with MORE channels is refused (`409 output_map_mismatch`) and the running engine is kept. A Tunner tab no longer
+  re-applies its stored load over a different loaded preset. Play the measured 7-channel preset with `preset.load`.
 
 ### Step 1: wiring / ID check {#step-1}
 
@@ -681,9 +722,10 @@ policy and `modal.rig_files` export. A pull + backend restart + assistant restar
 | 10 (output map) | a way to set `PIANOID_AUDIO_OUTPUT_MAP` | the user restarts the backend with the variable |
 | a tone longer than 110 s without gaps | `/audio/session` sessions are at most 120 s | `until_stopped` chunks |
 
-## Data layout (`D:\modal_measurements\rig_checks`) {#data-layout}
+## Data layout (`<measurements>/rig_checks`) {#data-layout}
 
-The assistant reads these through `modal.rig_runs` / `modal.rig_files` (`area: rig_checks`, read-only). Its own
+`<measurements>` = the [measurements folder](#cmd-measurements-dir) (`modal.measurements_dir`); on the
+measuring PC of the 10-11 … 10-15 sessions it is `D:\modal_measurements`. The assistant reads these through `modal.rig_runs` / `modal.rig_files` (`area: rig_checks`, read-only). Its own
 runs go to `rig_runs/<run_id>/` ([Rig commands](#rig-commands)).
 
 - One folder per capture: `<YYYYMMDD>T<HHMMSS>-<label>` (for example `20261015T124849-7x7-piezos-weights-r1`,
@@ -696,7 +738,7 @@ runs go to `rig_runs/<run_id>/` ([Rig commands](#rig-commands)).
   bottom of the board as photographed, piezo face) for `piezos_green` 1–8 and `exciters_red` 1–7, plus the pixel
   positions and the photo.
 - Helper scripts at the top level: `wiring_*`, `drivingpoint_*`, `frf4ref_*`, `rove_*`, `current_analyse.py`.
-- Earlier data: `D:\modal_measurements\swept_discovery\`, `appropriation\`, `analysis\dev-fd69-2026-10-1{1,2}\`.
+- Earlier data: `<measurements>\swept_discovery\`, `appropriation\`, `analysis\dev-fd69-2026-10-1{1,2}\`.
 
 ## Worked example: 7 exciters, 8 piezos, a 224-string / 7-channel / 384 preset {#example}
 
@@ -743,7 +785,11 @@ one confirmed command; say what it plays before each live one.
 Verified offline on 2026-10-19 (dev-8a9e, no audio): steps 3–6 on the 10-15 piezo run `20261015T124849-7x7-piezos-
 weights-r1` gave 42 PolyMAX modes (ζ median 1.6 %), 41 table modes reproducing 28 of the 39 published measured
 modes within 0.5 % (median 0.12 %) from that single run, and a 224 / 7 / 384 preset the engine loads and renders.
-Steps 1–2 (live ASIO) are not verified on the rig yet.
+Verified live through the in-UI assistant on 2026-10-20 (dev-431a, UMC1820 at 64, amplifiers apparently off): step 1
+(`rig_record`, 8 inputs), step 2 dry run and a real 7-exciter capture at −48 dBFS (2 s sweeps: every session
+frame-exact in real time, 0 xruns; the inputs carried only noise, so PolyMAX found 0 modes and `coefficients`
+refuses with "PolyMAX found no modes"), then steps 3–7 on the real 10-15 run `20261015T124849-7x7-piezos-weights-r1`
+(47 modes, 46 in the table, `dima_test_224_7_384` = 46 measured + 141 base + 9 FPGA fill, loaded, p60 renders).
 
 
 ## Sources {#sources}

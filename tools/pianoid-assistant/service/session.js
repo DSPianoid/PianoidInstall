@@ -18,7 +18,7 @@ import { commandName } from '../lib/registry.js';
 import { LOCAL_READ_TOOLS } from '../mcp/tools.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
-import { contextBlock, systemPrompt } from './prompt.js';
+import { contextBlock, planPrompt, systemPrompt } from './prompt.js';
 import { buildDigest } from './contextDigest.js';
 import { Router } from './router.js';
 import { AutoWriter } from './autoWrite.js';
@@ -27,12 +27,17 @@ import { analysisPaths } from '../analysis/store.js';
 import { splitExport } from '../analysis/export.js';
 import { canonical } from './autoWrite.js';
 import { BUG_CMD, BUG_TOOL, buildReport, fileReport, preview, validateDraft } from './bugReport.js';
+import {
+  enabled as planFlag, validateRequest, createGrant, matchGrant, recordUse, describeGrant, planState, endedReason,
+} from '../planApproval.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
 export const MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
 const PIANOID_PREFIX = 'mcp__pianoid__';
 const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
+// The plan-approval request tool (dev-28f1): registered unless the kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0.
+export const PLAN_TOOL = 'mcp__assistant__request_plan_approval';
 const ANALYSIS_TOOL = 'mcp__analysis__run_python';
 // The v2 P5 sandbox tool as the policy and the router see it (category `code`: always asks).
 export const ANALYSIS_CMD = {
@@ -56,6 +61,7 @@ export class AssistantSession {
     paths, config, commands, driverFactory, broadcast = () => {}, fetchImpl = fetch,
     backendUrl = 'http://127.0.0.1:5000', launcherUrl = 'http://127.0.0.1:3001', commandsDir, limits, settleMs,
     analysis = analysisPaths(), runPythonImpl = runPython, publicUrl = 'http://127.0.0.1:3002',
+    planApproval = planFlag(),
   }) {
     Object.assign(this, {
       paths, config, driverFactory, broadcast, fetchImpl, backendUrl, launcherUrl, commandsDir, analysis, runPythonImpl, publicUrl,
@@ -80,6 +86,7 @@ export class AssistantSession {
     this.turnJobs = [];
     this.nextId = 1;
     this.status = 'idle';
+    this.plan = { enabled: planApproval === true, grant: null, ended: null, requests: new Map(), timer: null };   // dev-28f1; ended = dev-28f3
   }
 
   baseModel() { return this.config.model === 'opus' ? MODELS.opus : MODELS.sonnet; }
@@ -91,6 +98,9 @@ export class AssistantSession {
       model: this.model, dataOptOut: !!this.config.dataOptOut, busy: this.busy, transcript: this.transcript,
       activity: this.activity, usage: this.usage, status: this.status,
       pendingConfirms: [...this.pending.values()].map((p) => p.request), approvals: this.approvalsView(),
+      ...(this.plan.enabled ? {
+        planApproval: this.planView(), pendingPlanRequests: [...this.plan.requests.values()].map((r) => r.request),
+      } : {}),
     };
   }
 
@@ -131,16 +141,18 @@ export class AssistantSession {
         ...(this.execUrl ? ['--exec-url', this.execUrl] : [])],
       env: mcpEnv,
     };
-    const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason), (args) => this.fileBug(args));
+    const planTool = this.plan.enabled ? [(args) => this.requestPlan(args)] : [];
+    const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason), (args) => this.fileBug(args), ...planTool);
     assistant.escalate = (reason) => this.escalate(reason);     // the fake driver calls it directly
     assistant.bugReport = (args) => this.fileBug(args);
+    if (this.plan.enabled) assistant.requestPlan = (args) => this.requestPlan(args);
     const analysis = SdkDriver.analysisTools((args) => this.runAnalysis(args));
     analysis.runPython = (args) => this.runAnalysis(args);      // the fake driver calls it directly
     return {
       cwd: this.paths.workspace,
       env,
       model: this.model.current,
-      systemPrompt: systemPrompt(),
+      systemPrompt: this.plan.enabled ? systemPrompt() + planPrompt() : systemPrompt(),
       tools: [],                       // NO built-in tools (no Bash / Read / Edit / Web)
       disallowedTools: DISALLOWED_TOOLS,   // and the shells denied by name, in every mode
       settingSources: [],              // no user / project / local settings, no CLAUDE.md
@@ -179,6 +191,7 @@ export class AssistantSession {
     if (toolName === ESCALATE_TOOL) return { behavior: 'allow', updatedInput: input };
     if (toolName === ANALYSIS_TOOL) return this.canRunAnalysis(input, { signal, toolUseID });
     if (toolName === BUG_TOOL) return this.canFileBug(input, { signal, toolUseID });
+    if (this.plan.enabled && toolName === PLAN_TOOL) return { behavior: 'allow', updatedInput: input };   // a request only
     if (!toolName.startsWith(PIANOID_PREFIX)) {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
     }
@@ -192,16 +205,22 @@ export class AssistantSession {
     const approvals = this.approvalState();
     let before = null;
     let envelope = null;
-    if (usesEnvelope(category) && modeOf(category, approvals) === 'auto') {
+    const plan = this.planMatch(cmd, input);                   // null unless the flag is on and a grant is active
+    if (usesEnvelope(category) && (modeOf(category, approvals) === 'auto' || plan?.ok)) {
       before = await this.auto.before(cmd, input);       // the values the envelope compares against
       envelope = checkEnvelope({ cmd, input, before, limits: this.auto.limits, autoWrites: this.auto.autoWrites });
     }
     const verdict = decide({
       command: cmd.name, tier: cmd.tier, family: cmd.family, category,
-      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: false, approvals, envelope },
+      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: false, approvals, envelope, ...(plan?.ok ? { plan } : {}) },
     });
-    const decision = verdict.action === 'allow' && verdict.auto ? 'auto' : verdict.action;
-    const entry = this.logActivity({ command: cmd.name, tier: cmd.tier, category, input, decision, reason: verdict.reason, toolUseId: toolUseID });
+    if (plan && !plan.ok && verdict.action === 'confirm') verdict.reason = `${verdict.reason} (${plan.reason})`;
+    const decision = verdict.plan ? 'plan' : verdict.action === 'allow' && verdict.auto ? 'auto' : verdict.action;
+    const entry = this.logActivity({
+      command: cmd.name, tier: cmd.tier, category, input, decision, reason: verdict.reason, toolUseId: toolUseID,
+      ...(verdict.plan ? { plan: verdict.plan } : {}),
+    });
+    if (verdict.plan) this.usePlan(cmd, plan, entry);
     if (verdict.action === 'allow') {
       this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry });
       return { behavior: 'allow', updatedInput: input };
@@ -214,7 +233,7 @@ export class AssistantSession {
     this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
     if (!allow) {
       this.router.onRefused(cmd.name);
-      return { behavior: 'deny', message: `The user declined ${cmd.name}.` };
+      return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
     if (remember && verdict.canAuto) this.updateApprovals({ category, mode: 'auto', scope: remember });
     this.auto.permit(cmd, executed(cmd, input), { entry });
@@ -264,6 +283,7 @@ export class AssistantSession {
       return v.action === 'deny' ? deny(`Denied by the Pianoid policy: ${v.reason}`) : {};
     }
     if (name === ESCALATE_TOOL || name === BUG_TOOL || name.startsWith(PIANOID_PREFIX)) return {};
+    if (this.plan.enabled && name === PLAN_TOOL) return {};
     return deny(`${name} is not available to the Pianoid assistant`);
   }
 
@@ -372,6 +392,103 @@ export class AssistantSession {
     this.broadcast({ type: 'activity', entry });
   }
 
+  // ---- plan approval (dev-28f1, on unless PIANOID_ASSISTANT_PLAN_APPROVAL=0) ----------------------
+
+  planView() { return describeGrant(this.plan.grant); }
+
+  broadcastPlan() { this.broadcast({ type: 'plan', planApproval: this.planView() }); }
+
+  /**
+   * The grant's verdict on one registry call (null with the flag off or no plan ever granted: the policy never
+   * sees a plan). After a revoke / expiry: {ok: false, reason} naming it, so the confirm says why it asks again.
+   */
+  planMatch(cmd, input) {
+    if (!this.plan.enabled) return null;
+    this.expirePlan();
+    if (this.plan.grant) return matchGrant(this.plan.grant, { cmd, input });
+    return this.plan.ended ? { ok: false, reason: endedReason(this.plan.ended) } : null;
+  }
+
+  /** The context's plan_approval (dev-28f3): none / active (envelope, minutes left) / revoked / expired (when). */
+  planContext() {
+    this.expirePlan();
+    return planState(this.plan.grant, this.plan.ended);
+  }
+
+  /** One auto-approved step: drive time + the grant's own log (the activity entry carries `plan`). */
+  usePlan(cmd, match, entry) {
+    this.plan.grant = recordUse(this.plan.grant, { command: cmd.name, driveS: match.driveS, activityId: entry.id });
+    this.broadcastPlan();
+  }
+
+  /**
+   * The assistant's request_plan_approval tool: validates and shows the request in the pane, then waits for the
+   * user. It never creates a grant: only answerPlan (the pane's click, WS `plan_grant`) does.
+   */
+  requestPlan(args) {
+    if (!this.plan.enabled) return Promise.resolve({ ok: false, error: 'plan approval is not enabled' });
+    const v = validateRequest(args, this.byName);
+    if (!v.ok) {
+      this.logActivity({ command: 'plan approval', tier: 'settings', decision: 'deny', reason: `invalid request: ${v.error}` });
+      return Promise.resolve({ ok: false, error: v.error });
+    }
+    const id = `p${this.nextId++}`;
+    const request = { type: 'plan_request', id, ...v.request };
+    const entry = this.logActivity({
+      command: 'plan approval', tier: 'settings', input: { title: v.request.title, commands: v.request.commands.map((c) => c.name) },
+      decision: 'confirm', reason: 'requested by the assistant: the user decides in the pane',
+    });
+    return new Promise((resolve) => {
+      this.plan.requests.set(id, { request, entry, resolve });
+      this.broadcast(request);
+    });
+  }
+
+  /** The user's answer to a plan request (WS `plan_grant` {id, accept, ticked}): the ONLY way a grant is created. */
+  answerPlan({ id, accept, ticked } = {}) {
+    if (!this.plan.enabled) return;
+    const p = this.plan.requests.get(id);
+    if (!p) return;
+    this.plan.requests.delete(id);
+    this.broadcast({ type: 'plan_request_done', id, accept: !!accept });
+    if (!accept) {
+      this.updateActivity(p.entry, { decision: 'rejected', status: 'rejected' });
+      p.resolve({ ok: true, granted: false, message: 'The user declined the plan approval: every step asks as usual.' });
+      return;
+    }
+    const replaced = !!this.planView();
+    const grant = createGrant(p.request, { ticked: Array.isArray(ticked) ? ticked : [] });
+    this.plan.grant = grant;
+    this.plan.ended = null;
+    clearTimeout(this.plan.timer);
+    this.plan.timer = setTimeout(() => this.expirePlan(), Math.max(0, grant.expiresAt - Date.now()) + 50);
+    this.plan.timer.unref?.();
+    this.updateActivity(p.entry, { decision: 'confirmed', status: 'ok' });
+    const left = p.request.commands.filter((c) => !grant.commands.includes(c.name)).map((c) => c.name);
+    this.logActivity({
+      command: 'plan approval', tier: 'settings', decision: 'granted', status: 'ok', plan: grant.id,
+      reason: `granted by the user${replaced ? ' (replaces the previous plan)' : ''} until ${new Date(grant.expiresAt).toISOString()}: `
+        + `${grant.commands.join(', ') || 'no command'}${left.length ? `; still asking: ${left.join(', ')}` : ''}`,
+    });
+    this.broadcastPlan();
+    p.resolve({ ok: true, granted: true, plan: this.planView(), still_asking: left });
+  }
+
+  /** One-click revoke from the pane (WS `plan_revoke`); also the expiry. */
+  revokePlan(reason = 'revoked by the user') {
+    if (!this.plan.enabled || !this.plan.grant) return;
+    const { id, title } = this.plan.grant;
+    this.plan.ended = { title, how: reason === 'expired' ? 'expired' : 'revoked', at: Date.now() };
+    this.plan.grant = null;
+    clearTimeout(this.plan.timer);
+    this.logActivity({ command: 'plan approval', tier: 'settings', decision: 'revoked', status: 'ok', plan: id, reason });
+    this.broadcastPlan();
+  }
+
+  expirePlan() {
+    if (this.plan.grant && Date.now() >= this.plan.grant.expiresAt) this.revokePlan('expired');
+  }
+
   // ---- model (D2) -------------------------------------------------------------------------
 
   /** Layer 3: the model's own escalate_model call. */
@@ -442,7 +559,11 @@ export class AssistantSession {
     ]);
     const digest = buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
     const auto = this.approvalsView().autoActive;
-    return { ...digest, approvals: { auto: auto.length ? auto : 'none' }, ...(notes.length ? { assistant_notes: notes } : {}) };
+    return {
+      ...digest, approvals: { auto: auto.length ? auto : 'none' },
+      ...(this.plan.enabled ? { plan_approval: this.planContext() } : {}),
+      ...(notes.length ? { assistant_notes: notes } : {}),
+    };
   }
 
   /** GET /system/environment, re-read at most every ENV_TTL_MS (it runs git / nvidia-smi in the backend). */
@@ -482,6 +603,7 @@ export class AssistantSession {
 
   async stop() {
     for (const p of [...this.pending.values()]) p.resolve(false);
+    for (const id of [...this.plan.requests.keys()]) this.answerPlan({ id, accept: false });
     this.auto.clearPermits();
     if (this.busy && this.driver) {
       try { await this.driver.interrupt(); } catch (e) { /* not running */ }
