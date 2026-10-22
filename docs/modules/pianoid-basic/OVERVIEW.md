@@ -702,7 +702,7 @@ File: `preset_restructure.py`, `restructure(base, num_strings, num_channels, arr
 |---|---|
 | strings | `num_strings` = piano strings + `ceil(channels / nsa) × nsa` output strings; unison strings are removed (most strings first, `treble_first` / `bass_first`), the rest renumbered 0..n-1; adding strings is refused |
 | blocks | untouched blocks are kept; the strings of the blocks that lost one are re-packed by an exact search, else all piano blocks largest-first; a block fits when `2 + Σ(main + tail + STEM_LENGTH + interval) ≤ array_size` (`StringBlock.add_string`) |
-| channels | `set_output_pitches` + `resize_sound_channels` of the measured builder (new channels copy the first output row) |
+| channels | `set_output_pitches` + `resize_sound_channels` of the measured builder (new channels copy the first output row; the modes mute mask `mode_sound_channels_mute_mask` is resized too — user mutes kept, new channels unmuted, rows of removed output pitches dropped, dev-a90b) |
 | array_size | geometry `main` / `tail` × new / old (the loader's law), declared `array_size` (and `fpga_conversion.load_params`) updated |
 | modes | the first `num_modes` kept, deck columns cut; `num_modes + channels ≤ num_strings` |
 | Layer B | `output_scale_calibrated = false` |
