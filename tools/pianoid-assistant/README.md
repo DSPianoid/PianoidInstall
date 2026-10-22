@@ -10,6 +10,7 @@ The AI assistant of the Pianoid UI (proposal: `docs/proposals/ai-assistant-in-ui
 | `policy.js` | A4 / A1 / v2 P2 | the permission policy (D3 / D4, categories, hard-confirm list, envelope verdict), called for every tool call |
 | `service/router.js` | v2 P1 | the model router (pure): pre-route, tool / failure triggers, self-escalation, stickiness |
 | `approvals.js`, `envelope.js`, `lib/paramLimits.js` | v2 P2 | per-category Ask / Auto (pure); the A2 envelope checks + level-breach rule (pure); the limits read from `schemas/params` |
+| `planApproval.js` | dev-28f1 (DORMANT) | plan pre-approval (pure): the assistant's request, the user-only grant, envelope matching, expiry; see Plan pre-approval |
 | `service/autoWrite.js` | v2 P2 | the executor of the service's MCP server: permits, one undo group per action, the post-write level watch and auto-revert |
 | `analysis/` + `sandbox/` | v2 P5 | the analysis sandbox: `analysis.run_python` (in-process MCP server `analysis`), the artefact store, `export: true` on renders / reads, the AppContainer + Job Object launcher `PianoidSandbox.exe` and its SAFE escape suite |
 
@@ -160,6 +161,22 @@ Every registry command names its `approval_category`; a missing one fails the re
 the pane's Permissions popover (per installation in `config.json` `approvals`, or for this session only) and by the
 confirm dialog's "Don't ask again" (this session by default). Confirms are answered in the pane; Stop interrupts the
 turn, declines pending confirms, drops the turn's permits and cancels the turn's jobs. Details: design note §10.
+
+## Plan pre-approval (dev-28f1, DORMANT: off by default)
+
+Behind **`PIANOID_ASSISTANT_PLAN_APPROVAL=1`** in the assistant service's environment. Without it (the default) nothing
+changes: no tool, no prompt text, no state field, no pane entry; the WS `plan_grant` / `plan_revoke` messages are
+ignored (`test/planApproval.test.js` proves it, incl. `decide()` equal to the pre-feature table).
+
+With it on, the user approves a multi-step plan ONCE in the pane instead of confirming every step:
+
+| | |
+|---|---|
+| request | the assistant calls `request_plan_approval` (in-process `assistant` server) with `steps` and an envelope: `commands`, `max_level_dbfs` (≤ −24: the policy cap is unchanged), `output_channels`, `input_channels`, `max_drive_s` (total), `folders`, `expires_in_min` (≤ 120). `planApproval.js` `validateRequest` checks it against the registry (`code` / excluded never plannable); the tool waits for the user |
+| grant | ONLY the pane's click (WS `plan_grant {id, accept, ticked}` for a pending request id) creates it; the assistant can never create, widen or extend one. A hard-confirm command (rig drives, `preset.create`, `modal.set_measurements_dir`, preset writes, …) is covered only when the user ticks it; irreversible ones (overwrite / delete / external filing: `IRREVERSIBLE`) are flagged and never pre-ticked. In memory only (ends with the service) |
+| match | `matchGrant`: command in the grant, every drive level ≤ the grant max, every output / input channel listed, cumulative drive time within `max_drive_s`, every write folder (`rig_runs`, `<area>/<run>`, `presets/<name>`, a path) inside `folders`, not expired / revoked. Anything it cannot read fails closed (asks) |
+| policy | `policy.js` plan row: AFTER excluded / data opt-out / live-render deny and AFTER the tainted-turn row, never for `code` or reads; a hard-confirm command only with `ticked`; `params` / `runtime` still need the A2 envelope (then the level watch). Outside the grant everything asks as before, the confirm reason says why |
+| pane | "Plan approval active · N min left" chip with **Revoke** (WS `plan_revoke`); the request dialog (steps, limits, commands with the tick boxes). Every auto-approved step is an activity entry with decision `plan` + the grant id, and in the grant's own log; grant / revoke / expiry are activity entries too |
 
 ## Bug reports (v2 P6 minimal, dev-947d)
 
