@@ -7,8 +7,8 @@ Two MIDI listener implementations exist:
 - **Python `MIDI_listener_unified`** (active) — defined in
   `pianoid_middleware/pianoid.py`. Uses `rtmidi` via the helper in
   `pianoidMidiListener.py` to read MIDI bytes, then pushes NOTE / SUSTAIN events
-  to the C++ `RealTimeEventBuffer`. Started by `start_midi_listener_unified(midi_port=0)`
-  (default port 0 — decision A1 of the MIDI refactor revised plan).
+  to the C++ `RealTimeEventBuffer`. Started by `start_midi_listener_unified(midi_port=None)`
+  (None = the user's saved port, else auto-detect — dev-392a, [Input port](#input-port-saved-port-and-auto-detect-dev-392a); was port 0, decision A1).
 - **Python `MidiListener`** (legacy) — `pianoidMidiListener.py` class with YAML
   keyboard config and advanced features (mode pad, per-note CC). Not wired in
   the current startup path; retained for reference and for the per-note CC
@@ -80,9 +80,9 @@ The unified ingress path uses two surfaces, both wired in `pianoid.py`:
 
 `emit_midi_callback` is a keyword-only constructor parameter (decision A2 — inject the callback explicitly at construction; do **not** rely on dynamic introspection or try/except imports). Signature `(command: int, pitch: int, velocity: int) -> None`. Invoked from the unified MIDI listener thread AFTER `schedule_event` has handed the event to the cycle-aligned `RealTimeEventBuffer`, so callback latency does not block audio. The default in standalone Pianoid usage is `None` (no broadcast). When the backend constructs Pianoid via `pianoid.initialize(...)`, `backendServer.py` injects `emit_midi_note_event` — a thin wrapper around `socketio.emit('midi_note_event', {command, pitch, velocity})` — so Socket.IO clients receive every observed inbound MIDI byte. Phase 2 (W3) will add a broadcast on/off toggle without changing the listener.
 
-### `Pianoid.start_realtime_playback(with_midi_listener=False, midi_port=0)`
+### `Pianoid.start_realtime_playback(with_midi_listener=False, midi_port=None)`
 
-`midi_port` is the rtmidi input-port index opened when `with_midi_listener=True`. Default `0` (A1). The same `midi_port` argument is propagated through `start_realtime_playback_unified` and `start_midi_listener_unified` to `MIDI_listener_unified` itself.
+`midi_port` is the rtmidi input-port index forced when `with_midi_listener=True`. Default `None` = saved port, else auto-detect (dev-392a; was `0`). The same `midi_port` argument is propagated through `start_realtime_playback_unified` and `start_midi_listener_unified` to `MIDI_listener_unified` itself.
 
 ### `Pianoid.list_midi_ports()`
 
@@ -96,7 +96,7 @@ Queues an in-place port switch consumed by the listener thread at the top of its
 
 ```
 listener = MidiListener(parent=self)
-listener.select_port(midi_port)           # initial port (default 0)
+ports.start(midi_port)                    # forced / saved / auto-detect (midi_port_select.PortController)
 
 while self.listen and not self.exception:
     pending = consume(_midi_port_request)  # in-place switch request
@@ -139,7 +139,7 @@ Precedence (highest → lowest): env-var override → request body → backend d
 
 | Endpoint | Effect | Backed by |
 |---|---|---|
-| `POST /midi/start {"port": N}` | If listener is idle, calls `Pianoid.start_midi_listener_unified(midi_port=N)`. If running, returns current state — does NOT re-spawn (would race for the rtmidi port). | `pianoid.start_midi_listener_unified` |
+| `POST /midi/start {"port": N}` | If listener is idle, calls `Pianoid.start_midi_listener_unified(midi_port=N)` (no `port` = saved port / auto-detect, dev-392a). If running, returns current state — does NOT re-spawn (would race for the rtmidi port). | `pianoid.start_midi_listener_unified` |
 | `POST /midi/stop` | If listener is running, calls `Pianoid.stop_midi_listener()` — sets `self.listen = False`, joins `_midi_thread` (1 s timeout). If idle, returns current state. | `pianoid.stop_midi_listener` (Phase 2 addition) |
 
 ### `Pianoid.stop_midi_listener(join_timeout=1.0)`
@@ -165,7 +165,7 @@ The flag lives on the running `Pianoid` instance (`self._midi_broadcast_enabled`
 
 The frontend (`PianoidTunner/src/components/MidiComponent.jsx`) bootstraps state from `GET /midi/ports` and `GET /midi/broadcast` on mount and on `presetVersion` bumps, then issues optimistic POSTs on toggle (mirroring the `useFixVelocity` pattern). The user-facing surface in the MIDI pane has three control rows:
 
-- **Listener row** — start/stop button (`POST /midi/start` / `POST /midi/stop`), listening chip, port select (`POST /midi/select_port`), refresh ports button.
+- **Listener row** — start/stop button (`POST /midi/start` / `POST /midi/stop`), listening chip, port select (`Auto` + ports; `POST /midi/select_port`, persisted, dev-392a) with the auto / manual chip, refresh ports button.
 - **Broadcast row** — Switch wired to `POST /midi/broadcast`; chip shows current state.
 - **Command-display log** — subscribes to the `midi_note_event` Socket.IO stream and shows the most recent 200 events (when broadcast is OFF, this stream stops too — log idles).
 
@@ -340,6 +340,24 @@ A 0 / 127 switch pedal behaves as before. A continuous pedal no longer flutters 
 **Replay of the capture** (`test_capture_replay_*`): with the AMC-10 map the 3 855 played-port messages give exactly one pedal down and one pedal up, both from `B1`; the 122 left-pedal and 3 594 ch3 messages pass with the sustain state untouched; with `sustain_channel = null` the ch3 noise ends the replay with the pedal held down.
 
 **Verification.** Unit level (no engine): `tests/unit/test_midi_player.py` drives the listener loop with a fake rtmidi port (pedal on channel 3, notes on channel 10) and pushes the same bytes through `schedule_event` into a real `RealTimeEventBuffer`. Live: `docs/development/diagnostics/dev-6f0c-sustain-player-live.py` (table above; `--only half_sweep` = the pedal-value sweep), in-process on ASIO. The rtmidi leg itself needs a hardware keyboard or a loopMIDI cable (winmm has no virtual ports).
+
+## Input port: saved port and auto-detect (dev-392a)
+
+**Why (2026-10-23, "MIDI input is a bit of a problem, always resets to UMC1820").** Measured in `PianoidCore/logs/backend_stdout.log`: every `/load_preset` logged `midi_port=0` -> `MIDI listener active (unified mode, port 0)` (port 0 = `UMC1820 MIDI In`); the user picked port 2 (`[MIDI] Switched to port 2`, 2026-10-22 12:57 and 2026-10-23 16:14), and the next loads went back to port 0. Causes: the Tunner never sends `midi_port`, so the route default `0` applied; `/midi/select_port` changed the running listener only; the dev-0a88 reload signature kept re-sending the load's `0`; the browser-saved default port (dev-febatch star, dev-midiinit applier) re-pointed only an ALREADY running listener and raced the asynchronous listener start after a load.
+
+**Rule now (the backend owns the choice: `MidiInputHub.settings['input_port']` + runtime `port_state`; logic in `midi_port_select.py`).** At every listener start:
+
+| Order | Source | Mode |
+|---|---|---|
+| 1 | `midi_port` in the `/load_preset` request or `port` in `/midi/start` | `forced` (this start only; not persisted, not inherited by later loads) |
+| 2 | `input_port`: the port the user picked (Tunner select / `POST /midi/select_port`), persisted by NAME without the rtmidi index suffix, so a re-ordered list still matches | `manual` |
+| 3 | nothing saved, or the saved device is unplugged | `auto` |
+
+**Auto-detect.** Every input port is opened; the first port that sends **meaningful** input is played, and the message that decided goes to the engine. The rest stay monitor-only (`midi_message` with `*`) until then. Meaningful = a note-on, a program change, or a CC / pitch bend that moves at least 16 / 1024 from the first value seen on that port. Note-off, aftertouch, clock, active sensing, and sysex never count. A key beats a moved controller that arrives in the same poll. The thresholds come from measurements on the user's AMC-10 (3 captures, ~30 min): its floating CC#0 on channel 3 streams 10-25 Hz with values 40-43 on BOTH ports. A plain "first message wins" would pick it at once. Its left pedal at rest drifts 118-124. Replaying the capture, the detector first fires on the right pedal (B1 value 108), never on the noise (`tests/unit/test_midi_port_select.py`). `POST /midi/select_port {"port": "auto"}` (Tunner: "Auto" in the port select) drops the saved port and detects again at once.
+
+**The AMC-10's two ports.** `AMC-10 1` and `MIDIIN2 (AMC-10) 2` carried identical CC streams in every capture (same counts per status: pedals and the noise). Playing both would double every event, so the listener plays ONE port. The keys were seen on port 2 (dev-ped1 live log); whether port 1 also carries the keys is not yet measured. If a live check shows keys on one port and pedals on the other, the fix is to merge the listener's input across that device's ports, not to pick one (open: needs the live key check, dev-392a report).
+
+**UI.** MIDI panel port select: `Auto (first port that plays)` + the ports. The chip next to it shows `AUTO: waiting` / `AUTO: <port>` / `MANUAL` / `FORCED` (`port_state`, pushed as Socket.IO `midi_input_state`). Picking a port persists it, through `/midi/select_port` while listening or `/midi/input {input_port}` while stopped. **Start** sends no port. A browser-saved default from the old star is moved to the backend once, then cleared (`useMidiDefaultPort`).
 
 ## MIDI player (dev-6f0c)
 
