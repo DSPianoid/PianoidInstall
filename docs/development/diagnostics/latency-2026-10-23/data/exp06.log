@@ -1,0 +1,242 @@
+string.tension|n1 ack ms [7.0, 5.0, 5.4, 26.5, 45.3]
+string.tension|n12 ack ms [8.5, 7.5, 7.5, 8.5, 7.7]
+string.tension|n88 ack ms [15.9, 17.0, 15.5, 15.9, 13.4]
+string.rho|n1 ack ms [7.9, 8.5, 6.5, 8.5, 7.5]
+gauss|n1 ack ms [26.9, 30.5, 31.0, 43.0, 26.9]
+gauss|n8 ack ms [186.1, 189.6, 198.1, 182.5, 196.0]
+gauss|n9 ack ms [77.9, 84.0, 121.2, 84.1, 77.5]
+gauss|n12 ack ms [97.3, 95.2, 99.4, 103.6, 276.6]
+gauss|n88 ack ms [618.0, 624.4, 608.8, 615.4, 776.8]
+hammer|n1 ack ms [9.5, 8.3, 8.1, 7.5, 11.0]
+hammer|n12 ack ms [24.0, 25.4, 20.9, 35.5, 21.2]
+hammer|n88 ack ms [105.2, 111.7, 109.2, 107.2, 118.8]
+mode|n1 ack ms [10.0, 6.0, 6.0, 6.5, 7.5]
+mode|n196 ack ms [10.8, 9.0, 13.5, 12.5, 9.5]
+feedin60 ack ms [19.4, 14.0, 20.6, 16.0, 16.9]
+sc_feedback128 ack ms [8.3, 6.5, 6.0, 7.0, 7.0]
+runtime.volume ack ms [2.6, 2.0, 2.0, 2.5, 2.5]
+
+== string.tension|n1 ack median 7.0
+   edit_commit.commit                                   2.50 ms (max    14.98)  calls 1
+   main._apply_parameter_request                        2.50 ms (max    15.88)  calls 1
+   pm.apply                                             2.43 ms (max    13.98)  calls 1
+   pm.update_parameter                                  2.43 ms (max    13.98)  calls 1
+   pm.update_pitches_physical_params_GRANULAR           2.43 ms (max    11.99)  calls 1
+   cuda_lock.hold                                       2.03 ms (max    11.99)  calls 1
+   pm._flush_gpu_write_plan                             2.03 ms (max    11.99)  calls 1
+   pm._gpu_upload                                       1.51 ms (max    11.99)  calls 1
+   cpp.updateMultiStringParameter_NEW                   1.00 ms (max     1.96)  calls 1
+   edit_commit._record(journal+after)                   0.51 ms (max     1.08)  calls 1
+
+== string.tension|n12 ack median 7.7
+   edit_commit.commit                                   3.50 ms (max     3.94)  calls 1
+   main._apply_parameter_request                        3.50 ms (max     3.94)  calls 1
+   pm.apply                                             2.50 ms (max     2.94)  calls 1
+   pm.update_parameter                                  2.50 ms (max     2.94)  calls 1
+   pm.update_pitches_physical_params_GRANULAR           2.50 ms (max     2.94)  calls 1
+   cuda_lock.hold                                       1.00 ms (max     2.00)  calls 1
+   pm._flush_gpu_write_plan                             1.00 ms (max     2.00)  calls 1
+   pm._gpu_upload                                       1.00 ms (max     2.00)  calls 1
+   undo.finish                                          1.00 ms (max     1.00)  calls 1
+   cpp.updateMultiStringParameter_NEW                   0.81 ms (max     0.97)  calls 1
+   pm._pitch_upload_amp                                 0.51 ms (max     1.94)  calls 12
+   pm._apply_pitch_physical_to_model                    0.00 ms (max     1.00)  calls 12
+   pm._collect_pitch_gpu_writes                         0.00 ms (max     0.00)  calls 12
+
+== string.tension|n88 ack median 15.9
+   edit_commit.commit                                  11.48 ms (max    13.96)  calls 1
+   main._apply_parameter_request                       11.48 ms (max    13.96)  calls 1
+   pm.apply                                             7.98 ms (max     9.97)  calls 1
+   pm.update_parameter                                  7.98 ms (max     9.97)  calls 1
+   pm.update_pitches_physical_params_GRANULAR           7.98 ms (max     9.97)  calls 1
+   pm._pitch_upload_amp                                 4.96 ms (max     6.03)  calls 88
+   undo.finish                                          1.99 ms (max     2.00)  calls 1
+   cuda_lock.hold                                       1.95 ms (max     2.00)  calls 1
+   pm._flush_gpu_write_plan                             1.95 ms (max     2.00)  calls 1
+   pm._gpu_upload                                       1.94 ms (max     2.00)  calls 1
+   pm._apply_pitch_physical_to_model                    1.04 ms (max     3.00)  calls 88
+   undo.begin                                           1.00 ms (max     1.50)  calls 1
+   cpp.updateMultiStringParameter_NEW                   0.95 ms (max     1.00)  calls 1
+   pm._collect_pitch_gpu_writes                         0.00 ms (max     1.00)  calls 88
+
+== string.rho|n1 ack median 7.9
+   edit_commit.commit                                   3.99 ms (max     4.97)  calls 1
+   main._apply_parameter_request                        3.99 ms (max     4.97)  calls 1
+   pm.apply                                             3.50 ms (max     3.99)  calls 1
+   pm.update_parameter                                  3.50 ms (max     3.99)  calls 1
+   cuda_lock.hold                                       3.30 ms (max     3.98)  calls 1
+   pm._flush_gpu_write_plan                             3.30 ms (max     3.98)  calls 1
+   pm.update_pitches_physical_params_GRANULAR           3.30 ms (max     3.98)  calls 1
+   pm._recompose_excitation_coefficients                1.99 ms (max     2.50)  calls 1
+   coeff.recompose                                      1.00 ms (max     1.00)  calls 1
+   cpp.setNewExcitationCoefficients                     1.00 ms (max     1.00)  calls 1
+   pm._gpu_upload                                       1.00 ms (max     1.98)  calls 1
+
+== gauss|n1 ack median 30.5
+   edit_commit.commit                                  25.95 ms (max    26.49)  calls 1
+   main._apply_parameter_request                       25.95 ms (max    26.49)  calls 1
+   pm.apply                                            24.95 ms (max    25.49)  calls 1
+   pm.update_parameter                                 24.95 ms (max    25.49)  calls 1
+   cuda_lock.hold                                      22.44 ms (max    22.96)  calls 1
+   pm._gpu_upload                                      15.96 ms (max    16.95)  calls 3
+   pm._upload_excitation_rows_for_pitches              15.96 ms (max    16.95)  calls 1
+   cpp.waitForParameterUpdate                          10.83 ms (max    14.04)  calls 3
+   pm._recompose_excitation_coefficients                5.49 ms (max     6.98)  calls 1
+   coeff.recompose                                      4.50 ms (max     5.80)  calls 1
+   undo.finish                                          1.00 ms (max     1.02)  calls 1
+   cpp.updateExcitationBaseLevelsForString              0.00 ms (max     0.75)  calls 3
+
+== gauss|n8 ack median 189.6
+   edit_commit.commit                                 181.13 ms (max   190.62)  calls 1
+   main._apply_parameter_request                      181.13 ms (max   190.62)  calls 1
+   pm.apply                                           178.63 ms (max   187.63)  calls 1
+   pm.update_parameter                                178.63 ms (max   187.63)  calls 1
+   cuda_lock.hold                                     159.17 ms (max   167.68)  calls 1
+   pm._upload_excitation_rows_for_pitches             122.26 ms (max   128.20)  calls 1
+   pm._gpu_upload                                     122.01 ms (max   128.20)  calls 24
+   cpp.waitForParameterUpdate                          98.71 ms (max   106.80)  calls 24
+   pm._recompose_excitation_coefficients               35.89 ms (max    42.51)  calls 1
+   coeff.recompose                                     34.96 ms (max    41.00)  calls 1
+   edit_commit._record(journal+after)                   1.50 ms (max     2.00)  calls 1
+   cpp.updateExcitationBaseLevelsForString              1.13 ms (max     6.43)  calls 24
+   undo.finish                                          1.00 ms (max     1.99)  calls 1
+   cpp.setNewExcitationCoefficients                     0.97 ms (max     1.00)  calls 1
+   edit_commit._snapshot                                0.52 ms (max     1.00)  calls 1
+
+== gauss|n9 ack median 84.0
+   edit_commit.commit                                  70.14 ms (max   113.73)  calls 1
+   main._apply_parameter_request                       70.14 ms (max   113.73)  calls 1
+   pm.apply                                            67.16 ms (max   109.74)  calls 1
+   pm.update_parameter                                 67.16 ms (max   109.74)  calls 1
+   cuda_lock.hold                                      45.21 ms (max    87.29)  calls 1
+   pm._recompose_excitation_coefficients               39.07 ms (max    79.80)  calls 1
+   coeff.recompose                                     38.08 ms (max    77.80)  calls 1
+   pm._gpu_upload                                       2.99 ms (max     4.99)  calls 1
+   sm.pack_base_excitations                             2.85 ms (max     2.99)  calls 1
+   cpp.setNewExcitationBaseLevels                       2.00 ms (max     3.50)  calls 1
+   edit_commit._record(journal+after)                   1.99 ms (max     2.00)  calls 1
+   undo.finish                                          1.99 ms (max     2.00)  calls 1
+   edit_commit._snapshot                                0.99 ms (max     1.00)  calls 1
+   cpp.setNewExcitationCoefficients                     0.51 ms (max     1.00)  calls 1
+
+== gauss|n12 ack median 99.4
+   edit_commit.commit                                  90.45 ms (max   267.63)  calls 1
+   main._apply_parameter_request                       90.45 ms (max   267.63)  calls 1
+   pm.apply                                            86.46 ms (max   262.64)  calls 1
+   pm.update_parameter                                 86.46 ms (max   262.64)  calls 1
+   cuda_lock.hold                                      55.54 ms (max    61.13)  calls 1
+   pm._recompose_excitation_coefficients               48.51 ms (max    50.16)  calls 1
+   coeff.recompose                                     47.52 ms (max    48.56)  calls 1
+   pm._gpu_upload                                       3.29 ms (max     5.98)  calls 1
+   sm.pack_base_excitations                             2.99 ms (max     4.99)  calls 1
+   cpp.setNewExcitationBaseLevels                       2.29 ms (max     3.00)  calls 1
+   edit_commit._record(journal+after)                   2.00 ms (max     3.00)  calls 1
+   undo.finish                                          1.99 ms (max     1.99)  calls 1
+   edit_commit._snapshot                                1.00 ms (max     1.00)  calls 1
+
+== gauss|n88 ack median 618.0
+   edit_commit.commit                                 612.42 ms (max   773.43)  calls 1
+   main._apply_parameter_request                      612.42 ms (max   773.43)  calls 1
+   pm.apply                                           598.91 ms (max   759.38)  calls 1
+   pm.update_parameter                                598.91 ms (max   759.38)  calls 1
+   cuda_lock.hold                                     392.52 ms (max   398.44)  calls 1
+   pm._recompose_excitation_coefficients              384.99 ms (max   391.92)  calls 1
+   coeff.recompose                                    383.99 ms (max   390.92)  calls 1
+   undo.finish                                         10.48 ms (max    12.06)  calls 1
+   sm.pack_base_excitations                             3.53 ms (max     5.48)  calls 1
+   pm._gpu_upload                                       3.50 ms (max     5.50)  calls 1
+   cpp.setNewExcitationBaseLevels                       1.99 ms (max     2.50)  calls 1
+   undo.begin                                           1.99 ms (max     2.99)  calls 1
+
+== hammer|n1 ack median 8.3
+   edit_commit.commit                                   4.50 ms (max     5.50)  calls 1
+   main._apply_parameter_request                        4.50 ms (max     5.50)  calls 1
+   pm.apply                                             4.02 ms (max     4.50)  calls 1
+   pm.update_parameter                                  4.02 ms (max     4.50)  calls 1
+   cuda_lock.hold                                       3.36 ms (max     4.50)  calls 2
+   pm._recompose_excitation_coefficients                2.36 ms (max     2.96)  calls 1
+   coeff.recompose                                      1.49 ms (max     2.36)  calls 1
+   pm._send_hammer_update                               1.00 ms (max     1.54)  calls 1
+   pm._upload_hammer_blocks_for_pitches                 1.00 ms (max     1.54)  calls 1
+   pm._gpu_upload                                       0.97 ms (max     1.00)  calls 1
+   cuda_lock.wait                                       0.00 ms (max     0.00)  calls 2
+
+== hammer|n12 ack median 24.0
+   edit_commit.commit                                  17.54 ms (max    20.46)  calls 1
+   main._apply_parameter_request                       17.54 ms (max    20.46)  calls 1
+   pm.apply                                            16.54 ms (max    19.46)  calls 1
+   pm.update_parameter                                 16.54 ms (max    19.46)  calls 1
+   cuda_lock.hold                                       9.67 ms (max    13.48)  calls 2
+   pm._recompose_excitation_coefficients                5.98 ms (max     6.98)  calls 1
+   coeff.recompose                                      5.01 ms (max     5.98)  calls 1
+   pm._send_hammer_update                               3.95 ms (max     6.49)  calls 1
+   pm.send_hammer_params_to_CUDA                        3.95 ms (max     6.49)  calls 1
+   cpp.setNewExcitationCoefficients                     1.00 ms (max     1.00)  calls 1
+   pm._gpu_upload                                       1.00 ms (max     2.51)  calls 1
+   sm.pack_hammers                                      1.00 ms (max     3.50)  calls 1
+   undo.finish                                          1.00 ms (max     1.00)  calls 1
+   cpp.setNewHammerParameters                           0.77 ms (max     1.00)  calls 1
+   cuda_lock.wait                                       0.00 ms (max     0.00)  calls 2
+
+== hammer|n88 ack median 109.2
+   main._apply_parameter_request                      105.25 ms (max   115.60)  calls 1
+   edit_commit.commit                                 104.25 ms (max   115.60)  calls 1
+   pm.apply                                           101.75 ms (max   112.70)  calls 1
+   pm.update_parameter                                101.75 ms (max   112.70)  calls 1
+   cuda_lock.hold                                      36.90 ms (max    37.90)  calls 2
+   pm._recompose_excitation_coefficients               31.91 ms (max    33.91)  calls 1
+   coeff.recompose                                     29.92 ms (max    33.91)  calls 1
+   pm._send_hammer_update                               4.99 ms (max     5.50)  calls 1
+   pm.send_hammer_params_to_CUDA                        4.99 ms (max     5.50)  calls 1
+   sm.pack_hammers                                      2.97 ms (max     3.99)  calls 1
+   undo.finish                                          1.99 ms (max     1.99)  calls 1
+   pm._gpu_upload                                       1.53 ms (max     2.99)  calls 1
+   undo.begin                                           0.90 ms (max     1.00)  calls 1
+   cuda_lock.wait                                       0.00 ms (max     0.00)  calls 2
+
+== mode|n1 ack median 6.5
+   edit_commit.commit                                   2.97 ms (max     4.50)  calls 1
+   main._apply_parameter_request                        2.97 ms (max     4.50)  calls 1
+   edit_commit._record(journal+after)                   1.00 ms (max     1.00)  calls 1
+   undo.finish                                          1.00 ms (max     1.00)  calls 1
+   cuda_lock.hold                                       0.97 ms (max     1.52)  calls 1
+   pm._gpu_upload                                       0.97 ms (max     1.52)  calls 1
+   pm.apply                                             0.97 ms (max     1.52)  calls 1
+   pm.update_mode_params_GRANULAR                       0.97 ms (max     1.52)  calls 1
+   pm.update_parameter                                  0.97 ms (max     1.52)  calls 1
+
+== mode|n196 ack median 10.8
+   edit_commit.commit                                   5.98 ms (max     6.96)  calls 1
+   main._apply_parameter_request                        5.98 ms (max     6.96)  calls 1
+   pm.apply                                             3.99 ms (max     3.99)  calls 1
+   pm.update_mode_params_GRANULAR                       3.99 ms (max     3.99)  calls 1
+   pm.update_parameter                                  3.99 ms (max     3.99)  calls 1
+   cuda_lock.hold                                       1.99 ms (max     2.00)  calls 1
+   pm._gpu_upload                                       1.99 ms (max     2.00)  calls 1
+   undo.finish                                          1.00 ms (max     2.02)  calls 1
+
+== feedin60 ack median 16.9
+   edit_commit.commit                                  12.97 ms (max    15.74)  calls 1
+   main._apply_parameter_request                       12.97 ms (max    15.74)  calls 1
+   cuda_lock.hold                                      10.97 ms (max    14.74)  calls 1
+   pm._gpu_upload                                      10.97 ms (max    14.74)  calls 3
+   pm._send_deck_update                                10.97 ms (max    14.74)  calls 1
+   pm._upload_deck_rows_for_pitches                    10.97 ms (max    14.74)  calls 1
+   pm.apply                                            10.97 ms (max    14.74)  calls 1
+   pm.update_parameter                                 10.97 ms (max    14.74)  calls 1
+   cpp.waitForParameterUpdate                           8.49 ms (max    11.26)  calls 3
+   undo.finish                                          1.00 ms (max     1.02)  calls 1
+   cpp.updateDeckRow                                    0.00 ms (max     1.00)  calls 3
+
+== sc_feedback128 ack median 7.0
+   edit_commit.commit                                   2.50 ms (max     2.99)  calls 1
+   main._apply_parameter_request                        2.50 ms (max     2.99)  calls 1
+   cuda_lock.hold                                       1.00 ms (max     1.50)  calls 1
+   pm._gpu_upload                                       1.00 ms (max     1.50)  calls 1
+   pm._send_deck_update                                 1.00 ms (max     1.50)  calls 1
+   pm._upload_deck_rows_for_pitches                     1.00 ms (max     1.50)  calls 1
+   pm.apply                                             1.00 ms (max     1.50)  calls 1
+   pm.update_parameter                                  1.00 ms (max     1.50)  calls 1
+   undo.finish                                          1.00 ms (max     1.00)  calls 1
+
+== runtime.volume ack median 2.5

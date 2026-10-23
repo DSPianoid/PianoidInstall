@@ -1,0 +1,345 @@
+{
+ "energy.calibration_x0.5": {
+  "separation": 1.0003812145254756,
+  "by_delay": {
+   "0": [
+    "old",
+    "old",
+    "old"
+   ],
+   "2": [
+    "old",
+    "old",
+    "old"
+   ],
+   "5": [
+    "old",
+    "new",
+    "old"
+   ],
+   "10": [
+    "new",
+    "old",
+    "old"
+   ],
+   "20": [
+    "new",
+    "old",
+    "new"
+   ],
+   "40": [
+    "new",
+    "new",
+    "new"
+   ],
+   "80": [
+    "new",
+    "new",
+    "new"
+   ],
+   "160": [
+    "new",
+    "new",
+    "new"
+   ]
+  },
+  "first_all_new_delay_ms": 40,
+  "ack": {
+   "n": 24,
+   "median": 19.473791122436523,
+   "min": 7.911920547485352,
+   "max": 32.71484375,
+   "p90": 30.690479278564453
+  },
+  "rows": [
+   {
+    "d_ms": 0,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0004163767835718199,
+    "err_new": 0.5000903382632453,
+    "strike_minus_send_ms": 0.0,
+    "ack_ms": 26.706695556640625,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d0_r0_1792771694812.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.00039604087736321133,
+    "err_new": 0.5000914556193785,
+    "strike_minus_send_ms": 2.0143985748291016,
+    "ack_ms": 18.62645149230957,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d2_r0_1792771698364.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0004056045969627198,
+    "err_new": 0.5000922990686484,
+    "strike_minus_send_ms": 5.1021575927734375,
+    "ack_ms": 19.34504508972168,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d5_r0_1792771701942.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 0,
+    "class": "new",
+    "err_old": 1.0004160127621726,
+    "err_new": 0.0007302163069642787,
+    "strike_minus_send_ms": 10.096311569213867,
+    "ack_ms": 9.098052978515625,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d10_r0_1792771705504.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 0,
+    "class": "new",
+    "err_old": 1.0004094023147048,
+    "err_new": 0.0007095969561366282,
+    "strike_minus_send_ms": 20.004987716674805,
+    "ack_ms": 8.470773696899414,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d20_r0_1792771709055.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 0,
+    "class": "new",
+    "err_old": 1.000400857100456,
+    "err_new": 0.0007203209587397868,
+    "strike_minus_send_ms": 39.92342948913574,
+    "ack_ms": 7.911920547485352,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d40_r0_1792771712626.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 0,
+    "class": "new",
+    "err_old": 1.0004181954373272,
+    "err_new": 0.0007242232562689129,
+    "strike_minus_send_ms": 80.62291145324707,
+    "ack_ms": 8.963584899902344,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d80_r0_1792771716196.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 0,
+    "class": "new",
+    "err_old": 1.0004208460743638,
+    "err_new": 0.0007243764746503788,
+    "strike_minus_send_ms": 160.0356101989746,
+    "ack_ms": 31.469106674194336,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d160_r0_1792771719752.wav"
+   },
+   {
+    "d_ms": 0,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.00041285534662687814,
+    "err_new": 0.5000853241695252,
+    "strike_minus_send_ms": 0.11134147644042969,
+    "ack_ms": 27.94337272644043,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d0_r1_1792771723309.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0003722451524177149,
+    "err_new": 0.5000847518659298,
+    "strike_minus_send_ms": 1.8279552459716797,
+    "ack_ms": 8.306264877319336,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d2_r1_1792771726865.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 1,
+    "class": "new",
+    "err_old": 1.000425220950179,
+    "err_new": 0.0006663754723348728,
+    "strike_minus_send_ms": 4.909515380859375,
+    "ack_ms": 8.408546447753906,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d5_r1_1792771730405.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0003964985898884627,
+    "err_new": 0.5000847483436456,
+    "strike_minus_send_ms": 10.659456253051758,
+    "ack_ms": 18.823623657226562,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d10_r1_1792771733942.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0004351380274145078,
+    "err_new": 0.5000817033818187,
+    "strike_minus_send_ms": 20.383596420288086,
+    "ack_ms": 29.10900115966797,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d20_r1_1792771737504.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 1,
+    "class": "new",
+    "err_old": 1.0004423779158036,
+    "err_new": 0.0007243080474169903,
+    "strike_minus_send_ms": 40.40241241455078,
+    "ack_ms": 8.419036865234375,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d40_r1_1792771741056.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 1,
+    "class": "new",
+    "err_old": 1.0004410369901486,
+    "err_new": 0.0007259055388582706,
+    "strike_minus_send_ms": 80.10149002075195,
+    "ack_ms": 24.35159683227539,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d80_r1_1792771744622.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 1,
+    "class": "new",
+    "err_old": 1.000437891074665,
+    "err_new": 0.0007390866534375972,
+    "strike_minus_send_ms": 161.03601455688477,
+    "ack_ms": 31.368255615234375,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d160_r1_1792771748184.wav"
+   },
+   {
+    "d_ms": 0,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.00041452601755072825,
+    "err_new": 0.5000806363755107,
+    "strike_minus_send_ms": 0.08034706115722656,
+    "ack_ms": 25.30360221862793,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d0_r2_1792771751736.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.000455180240008284,
+    "err_new": 0.500083069618826,
+    "strike_minus_send_ms": 2.0723342895507812,
+    "ack_ms": 25.79021453857422,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d2_r2_1792771755281.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.000427980328960377,
+    "err_new": 0.5000813726976915,
+    "strike_minus_send_ms": 5.11479377746582,
+    "ack_ms": 19.602537155151367,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d5_r2_1792771758831.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0004213542307583544,
+    "err_new": 0.5000831313808088,
+    "strike_minus_send_ms": 9.868383407592773,
+    "ack_ms": 18.933534622192383,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d10_r2_1792771762383.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 2,
+    "class": "new",
+    "err_old": 1.0004382902593143,
+    "err_new": 0.0007459233994149456,
+    "strike_minus_send_ms": 19.88983154296875,
+    "ack_ms": 20.964622497558594,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d20_r2_1792771765939.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 2,
+    "class": "new",
+    "err_old": 1.0004325269777783,
+    "err_new": 0.00071556751015606,
+    "strike_minus_send_ms": 40.68279266357422,
+    "ack_ms": 7.920265197753906,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d40_r2_1792771769518.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 2,
+    "class": "new",
+    "err_old": 1.0004341839380408,
+    "err_new": 0.0007085942634668236,
+    "strike_minus_send_ms": 80.69372177124023,
+    "ack_ms": 32.71484375,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d80_r2_1792771773067.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 2,
+    "class": "new",
+    "err_old": 1.0004190041911014,
+    "err_new": 0.0007150227825561342,
+    "strike_minus_send_ms": 160.0356101989746,
+    "ack_ms": 24.634838104248047,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_energy.calibration_x0.5_d160_r2_1792771776626.wav"
+   }
+  ]
+ }
+}

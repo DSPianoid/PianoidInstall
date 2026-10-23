@@ -1,0 +1,25 @@
+py-spy> Sampling process 500 times a second for 14 seconds. Press Control-C to exit.
+
+py-spy> 1.00s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 1.55s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 2.14s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 2.76s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 3.29s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 3.80s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 4.33s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 4.92s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 5.42s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 5.94s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 6.55s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 7.10s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 7.54s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 7.87s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 8.15s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 8.46s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 8.69s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 8.94s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 9.18s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 9.43s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> 9.74s behind in sampling, results may be inaccurate. Try reducing the sampling rate
+py-spy> Wrote raw flamegraph data to 'data/pyspy_gauss88.txt'. Samples: 7420 Errors: 102
+py-spy> You can use the flamegraph.pl script from https://github.com/brendangregg/flamegraph to generate a SVG
