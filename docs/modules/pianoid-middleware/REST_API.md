@@ -1960,7 +1960,7 @@ Request body:
 
 - `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`, or `"auto"` (dev-392a): drop the saved port and auto-detect again now.
 
-A queued switch is **persisted** (dev-392a) as `input_port` in `GET /midi/input`: the port NAME without the rtmidi index suffix (`"MIDIIN2 (VMini)"`), or `null` for `"auto"`. Every later listener start (preset load, `/midi/start`, backend restart) opens that port again. A refused request (409) persists nothing.
+The listener **persists** a switch once it succeeded (dev-392a) as `input_port` in `GET /midi/input`: the port NAME without the rtmidi index suffix (`"MIDIIN2 (VMini)"`), or `null` for `"auto"`. Every later listener start (preset load, `/midi/start`, backend restart) opens that port again. The new port is opened before the old one is released; a failed open (port held elsewhere) keeps the old port and persists nothing, and a refused request (409) persists nothing. Route owner: `midi_input_routes.py` (the `/midi/ports`, `/midi/select_port`, `/midi/start`, `/midi/stop` routes moved there from `backendServer.py`, dev-392a).
 
 Response `200`:
 ```json
@@ -2158,9 +2158,9 @@ Response 200:
  "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3}}
 ```
 
-- `sustain_cc`: the CC number treated as the sustain pedal (default 64). It reaches the engine as CC64 `127` / `0` (switch with hysteresis: down at >= 74, up at <= 54 after the polarity); any other CC64 is dropped.
+- `sustain_cc`: the CC number treated as the sustain pedal (default 64). The default pedal (64, any channel) reaches the engine unchanged (switch at 64). A remapped one (another CC, or a `sustain_channel`) reaches it as CC64 `127` / `0` (hysteresis after the polarity: down at >= 74, up at <= 54). Any other CC64 is dropped.
 - `sustain_channel` (dev-392a): the pedal's MIDI channel 1-16, or `null` = any channel (default). Set it when several pedals send the same CC on different channels (the AMC-10: CC 0 on channels 1-3, sustain = channel 2).
-- `polarity`: `normal` (value >= 64 = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the engine's switch at 64).
+- `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the switch: the engine's at 64 for the default pedal, the hysteresis for a remapped one).
 - `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
 - `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
