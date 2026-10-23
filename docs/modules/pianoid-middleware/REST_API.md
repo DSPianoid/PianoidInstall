@@ -2148,11 +2148,12 @@ Start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default
 
 Response 200:
 ```json
-{"sustain_cc": 64, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
+{"sustain_cc": 64, "sustain_channel": null, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
  "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3}}
 ```
 
-- `sustain_cc`: the CC number treated as the sustain pedal (default 64). That CC, on any channel, reaches the engine as CC64.
+- `sustain_cc`: the CC number treated as the sustain pedal (default 64). It reaches the engine as CC64 `127` / `0` (switch with hysteresis: down at >= 74, up at <= 54 after the polarity); any other CC64 is dropped.
+- `sustain_channel` (dev-392a): the pedal's MIDI channel 1-16, or `null` = any channel (default). Set it when several pedals send the same CC on different channels (the AMC-10: CC 0 on channels 1-3, sustain = channel 2).
 - `polarity`: `normal` (value >= 64 = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the engine's switch at 64).
 - `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
@@ -2161,7 +2162,7 @@ Response 200:
 
 ### `POST /midi/input`
 
-Any subset of `{"sustain_cc": 0-127, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool}`. Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
+Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool}`. Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
 
 ### Socket.IO `midi_message` (server -> client)
 
