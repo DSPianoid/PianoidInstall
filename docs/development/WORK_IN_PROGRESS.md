@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-392a | Channel-aware sustain pedal: sustain=CC#0 on ch2 inverted + hysteresis; configure user setting | [log](logs/dev-392a-2026-10-23-133536.md) | 2026-10-23 | In Progress |
 <!-- dev-lay2 COMPLETED 2026-10-23 (user-approved local merge, NOT pushed): fresh browser profiles no longer write 'Default (browser) N' into the tracked layouts/saved_layouts.json (seeded cache never migrated, built-in default never migrated, content dedupe of '(browser)' copies, file written on load only when a real layout was added). Merged Tunner dev 9747061 (feature 69b05a3, branch deleted). Jest full 2318 pass; live: 2 fresh profiles left the file byte-identical, real save writes. 'Default (browser)' (custom 7-pane layout) kept per user. Log logs/archive/dev-lay2-2026-10-22-200651.md -->
 | dev-fpga1 | FPGA Tier-1: packet encoder+fake board, Import FPGA folder, GPU->FPGA exporter (no hardware) | [log](logs/dev-fpga1-2026-10-23-031744.md) | 2026-10-23 | In Progress |
 <!-- dev-scbar COMPLETED 2026-10-22 — SC chart-type single owner (utils/chartVisualization, default bar, _vizSchema 2 migration of auto-persisted "line") + line-mode mute band; merged Tunner dev 0fb483b / Install master c7af556 (NOT pushed); other systems: update + restart, migration auto-runs. -->
