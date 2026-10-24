@@ -1,0 +1,8023 @@
+{
+ "string.tension|n1": {
+  "ack": {
+   "n": 5,
+   "median": 7.030725479125977,
+   "min": 5.041599273681641,
+   "max": 45.25613784790039,
+   "p90": 37.73956298828125
+  },
+  "stages_median": {
+   "cpp.updateMultiStringParameter_NEW": {
+    "ms_median": 1.0,
+    "ms_max": 1.96,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 2.03,
+    "ms_max": 11.99,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.51,
+    "ms_max": 1.08,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 2.5,
+    "ms_max": 14.98,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 2.5,
+    "ms_max": 15.88,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.9,
+    "calls_median": 1
+   },
+   "pm._apply_pitch_physical_to_model": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._collect_pitch_gpu_writes": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._flush_gpu_write_plan": {
+    "ms_median": 2.03,
+    "ms_max": 11.99,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.51,
+    "ms_max": 11.99,
+    "calls_median": 1
+   },
+   "pm._pitch_upload_amp": {
+    "ms_median": 0.0,
+    "ms_max": 0.4,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 2.43,
+    "ms_max": 13.98,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 2.43,
+    "ms_max": 13.98,
+    "calls_median": 1
+   },
+   "pm.update_pitches_physical_params_GRANULAR": {
+    "ms_median": 2.43,
+    "ms_max": 11.99,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 7.030725479125977,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.4,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.03,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.03,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.03,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      2.03,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.43,
+      1
+     ],
+     "pm.update_parameter": [
+      2.43,
+      1
+     ],
+     "pm.apply": [
+      2.43,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.43,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.43,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 5.041599273681641,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      1.0,
+      1
+     ],
+     "pm.update_parameter": [
+      1.0,
+      1
+     ],
+     "pm.apply": [
+      1.0,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.08,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.08,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.08,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 5.436182022094727,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.99,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.99,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      1.99,
+      1
+     ],
+     "pm.update_parameter": [
+      1.99,
+      1
+     ],
+     "pm.apply": [
+      1.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.51,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 26.46470069885254,
+    "stages": {
+     "main.parse_range": [
+      0.9,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.96,
+      1
+     ],
+     "pm._gpu_upload": [
+      11.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      11.99,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      11.99,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      11.99,
+      1
+     ],
+     "pm.update_parameter": [
+      13.98,
+      1
+     ],
+     "pm.apply": [
+      13.98,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      14.98,
+      1
+     ],
+     "main._apply_parameter_request": [
+      15.88,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 45.25613784790039,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.51,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.51,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      2.51,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.51,
+      1
+     ],
+     "pm.update_parameter": [
+      2.51,
+      1
+     ],
+     "pm.apply": [
+      2.51,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.51,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.51,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "string.tension|n12": {
+  "ack": {
+   "n": 5,
+   "median": 7.698297500610352,
+   "min": 7.489204406738281,
+   "max": 8.48698616027832,
+   "p90": 8.486700057983398
+  },
+  "stages_median": {
+   "cpp.updateMultiStringParameter_NEW": {
+    "ms_median": 0.81,
+    "ms_max": 0.97,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 1.0,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 3.5,
+    "ms_max": 3.94,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 3.5,
+    "ms_max": 3.94,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._apply_pitch_physical_to_model": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 12
+   },
+   "pm._collect_pitch_gpu_writes": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 12
+   },
+   "pm._flush_gpu_write_plan": {
+    "ms_median": 1.0,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.0,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "pm._pitch_upload_amp": {
+    "ms_median": 0.51,
+    "ms_max": 1.94,
+    "calls_median": 12
+   },
+   "pm.apply": {
+    "ms_median": 2.5,
+    "ms_max": 2.94,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 2.5,
+    "ms_max": 2.94,
+    "calls_median": 1
+   },
+   "pm.update_pitches_physical_params_GRANULAR": {
+    "ms_median": 2.5,
+    "ms_max": 2.94,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 8.48698616027832,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      12
+     ],
+     "pm._pitch_upload_amp": [
+      1.5,
+      12
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      12
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.72,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.5,
+      1
+     ],
+     "pm.update_parameter": [
+      2.5,
+      1
+     ],
+     "pm.apply": [
+      2.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 7.489204406738281,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.5,
+      12
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      12
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      12
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.97,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      2.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.5,
+      1
+     ],
+     "pm.update_parameter": [
+      2.5,
+      1
+     ],
+     "pm.apply": [
+      2.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 7.489919662475586,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      12
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      12
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      12
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      1.99,
+      1
+     ],
+     "pm.update_parameter": [
+      1.99,
+      1
+     ],
+     "pm.apply": [
+      1.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.99,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 8.486270904541016,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      1.0,
+      12
+     ],
+     "pm._pitch_upload_amp": [
+      0.51,
+      12
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      12
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.81,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.5,
+      1
+     ],
+     "pm.update_parameter": [
+      2.5,
+      1
+     ],
+     "pm.apply": [
+      2.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 7.698297500610352,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      12
+     ],
+     "pm._pitch_upload_amp": [
+      1.94,
+      12
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      12
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.82,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.94,
+      1
+     ],
+     "pm.update_parameter": [
+      2.94,
+      1
+     ],
+     "pm.apply": [
+      2.94,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.94,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.94,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "string.tension|n88": {
+  "ack": {
+   "n": 5,
+   "median": 15.873432159423828,
+   "min": 13.427257537841797,
+   "max": 16.954898834228516,
+   "p90": 16.53604507446289
+  },
+  "stages_median": {
+   "cpp.updateMultiStringParameter_NEW": {
+    "ms_median": 0.95,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 1.95,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 11.48,
+    "ms_max": 13.96,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 11.48,
+    "ms_max": 13.96,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._apply_pitch_physical_to_model": {
+    "ms_median": 1.04,
+    "ms_max": 3.0,
+    "calls_median": 88
+   },
+   "pm._collect_pitch_gpu_writes": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 88
+   },
+   "pm._flush_gpu_write_plan": {
+    "ms_median": 1.95,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.94,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "pm._pitch_upload_amp": {
+    "ms_median": 4.96,
+    "ms_max": 6.03,
+    "calls_median": 88
+   },
+   "pm.apply": {
+    "ms_median": 7.98,
+    "ms_max": 9.97,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 7.98,
+    "ms_max": 9.97,
+    "calls_median": 1
+   },
+   "pm.update_pitches_physical_params_GRANULAR": {
+    "ms_median": 7.98,
+    "ms_max": 9.97,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.99,
+    "ms_max": 2.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 15.907764434814453,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      1.04,
+      88
+     ],
+     "pm._pitch_upload_amp": [
+      6.03,
+      88
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      88
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.95,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.95,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      9.01,
+      1
+     ],
+     "pm.update_parameter": [
+      9.97,
+      1
+     ],
+     "pm.apply": [
+      9.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      11.97,
+      1
+     ],
+     "main._apply_parameter_request": [
+      11.97,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 16.954898834228516,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      2.99,
+      88
+     ],
+     "pm._pitch_upload_amp": [
+      4.91,
+      88
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      88
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.0,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      2.0,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      9.97,
+      1
+     ],
+     "pm.update_parameter": [
+      9.97,
+      1
+     ],
+     "pm.apply": [
+      9.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      13.96,
+      1
+     ],
+     "main._apply_parameter_request": [
+      13.96,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 15.468835830688477,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.5,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      3.0,
+      88
+     ],
+     "pm._pitch_upload_amp": [
+      2.05,
+      88
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      1.0,
+      88
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.94,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.94,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.94,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      7.98,
+      1
+     ],
+     "pm.update_parameter": [
+      7.98,
+      1
+     ],
+     "pm.apply": [
+      7.98,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      11.48,
+      1
+     ],
+     "main._apply_parameter_request": [
+      11.48,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 15.873432159423828,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.9,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      1.0,
+      88
+     ],
+     "pm._pitch_upload_amp": [
+      4.96,
+      88
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      88
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.03,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.03,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.03,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      6.99,
+      1
+     ],
+     "pm.update_parameter": [
+      6.99,
+      1
+     ],
+     "pm.apply": [
+      6.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      9.85,
+      1
+     ],
+     "main._apply_parameter_request": [
+      9.85,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 13.427257537841797,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      1.0,
+      88
+     ],
+     "pm._pitch_upload_amp": [
+      4.99,
+      88
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      88
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.95,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.95,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.95,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      1.95,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      7.93,
+      1
+     ],
+     "pm.update_parameter": [
+      7.93,
+      1
+     ],
+     "pm.apply": [
+      7.93,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      2.0,
+      1
+     ],
+     "edit_commit.commit": [
+      10.8,
+      1
+     ],
+     "main._apply_parameter_request": [
+      10.8,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "string.rho|n1": {
+  "ack": {
+   "n": 5,
+   "median": 7.882595062255859,
+   "min": 6.544589996337891,
+   "max": 8.498907089233398,
+   "p90": 8.49308967590332
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.updateMultiStringParameter_NEW": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 3.3,
+    "ms_max": 3.98,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 3.99,
+    "ms_max": 4.97,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 3.99,
+    "ms_max": 4.97,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._apply_pitch_physical_to_model": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._collect_pitch_gpu_writes": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._flush_gpu_write_plan": {
+    "ms_median": 3.3,
+    "ms_max": 3.98,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.0,
+    "ms_max": 1.98,
+    "calls_median": 1
+   },
+   "pm._pitch_upload_amp": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 1.99,
+    "ms_max": 2.5,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 3.5,
+    "ms_max": 3.99,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 3.5,
+    "ms_max": 3.99,
+    "calls_median": 1
+   },
+   "pm.update_pitches_physical_params_GRANULAR": {
+    "ms_median": 3.3,
+    "ms_max": 3.98,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 7.882595062255859,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      0.51,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      1.51,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.5,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      2.5,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.5,
+      1
+     ],
+     "pm.update_parameter": [
+      2.5,
+      1
+     ],
+     "pm.apply": [
+      2.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 8.498907089233398,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.31,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.0,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      1.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      3.3,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      3.3,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      3.3,
+      1
+     ],
+     "pm.update_parameter": [
+      3.99,
+      1
+     ],
+     "pm.apply": [
+      3.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.99,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 6.544589996337891,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.0,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      1.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.99,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      2.99,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      2.99,
+      1
+     ],
+     "pm.update_parameter": [
+      2.99,
+      1
+     ],
+     "pm.apply": [
+      2.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.99,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 8.484363555908203,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.98,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.0,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      2.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      3.98,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      3.98,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      3.98,
+      1
+     ],
+     "pm.update_parameter": [
+      3.98,
+      1
+     ],
+     "pm.apply": [
+      3.98,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      4.97,
+      1
+     ],
+     "main._apply_parameter_request": [
+      4.97,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 7.491588592529297,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "pm._apply_pitch_physical_to_model": [
+      0.0,
+      1
+     ],
+     "pm._pitch_upload_amp": [
+      0.0,
+      1
+     ],
+     "pm._collect_pitch_gpu_writes": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateMultiStringParameter_NEW": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.0,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      2.5,
+      1
+     ],
+     "cuda_lock.hold": [
+      3.5,
+      1
+     ],
+     "pm._flush_gpu_write_plan": [
+      3.5,
+      1
+     ],
+     "pm.update_pitches_physical_params_GRANULAR": [
+      3.5,
+      1
+     ],
+     "pm.update_parameter": [
+      3.5,
+      1
+     ],
+     "pm.apply": [
+      3.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      3.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      3.5,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "gauss|n1": {
+  "ack": {
+   "n": 5,
+   "median": 30.472755432128906,
+   "min": 26.944398880004883,
+   "max": 42.95158386230469,
+   "p90": 38.170719146728516
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 4.5,
+    "ms_max": 5.8,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.updateExcitationBaseLevelsForString": {
+    "ms_median": 0.0,
+    "ms_max": 0.75,
+    "calls_median": 3
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 10.83,
+    "ms_max": 14.04,
+    "calls_median": 3
+   },
+   "cuda_lock.hold": {
+    "ms_median": 22.44,
+    "ms_max": 22.96,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 25.95,
+    "ms_max": 26.49,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 25.95,
+    "ms_max": 26.49,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 15.96,
+    "ms_max": 16.95,
+    "calls_median": 3
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 5.49,
+    "ms_max": 6.98,
+    "calls_median": 1
+   },
+   "pm._upload_excitation_rows_for_pitches": {
+    "ms_median": 15.96,
+    "ms_max": 16.95,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 24.95,
+    "ms_max": 25.49,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 24.95,
+    "ms_max": 25.49,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.02,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 26.944398880004883,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      8.03,
+      3
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.75,
+      3
+     ],
+     "pm._gpu_upload": [
+      10.0,
+      3
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      10.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      4.5,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      5.47,
+      1
+     ],
+     "cuda_lock.hold": [
+      15.47,
+      1
+     ],
+     "pm.update_parameter": [
+      21.27,
+      1
+     ],
+     "pm.apply": [
+      21.27,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.02,
+      1
+     ],
+     "edit_commit.commit": [
+      22.3,
+      1
+     ],
+     "main._apply_parameter_request": [
+      22.3,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 30.472755432128906,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      10.83,
+      3
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      15.96,
+      3
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      15.96,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      5.8,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      6.98,
+      1
+     ],
+     "cuda_lock.hold": [
+      22.94,
+      1
+     ],
+     "pm.update_parameter": [
+      25.49,
+      1
+     ],
+     "pm.apply": [
+      25.49,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      26.49,
+      1
+     ],
+     "main._apply_parameter_request": [
+      26.49,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 30.999422073364258,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      13.48,
+      3
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      16.47,
+      3
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      16.47,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      5.5,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      6.49,
+      1
+     ],
+     "cuda_lock.hold": [
+      22.96,
+      1
+     ],
+     "pm.update_parameter": [
+      25.46,
+      1
+     ],
+     "pm.apply": [
+      25.46,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      26.46,
+      1
+     ],
+     "main._apply_parameter_request": [
+      26.46,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 42.95158386230469,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      14.04,
+      3
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      16.95,
+      3
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      16.95,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.51,
+      1
+     ],
+     "coeff.recompose": [
+      4.5,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      5.49,
+      1
+     ],
+     "cuda_lock.hold": [
+      22.44,
+      1
+     ],
+     "pm.update_parameter": [
+      24.95,
+      1
+     ],
+     "pm.apply": [
+      24.95,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      25.95,
+      1
+     ],
+     "main._apply_parameter_request": [
+      25.95,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 26.94559097290039,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      9.47,
+      3
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      12.48,
+      3
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      12.48,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      4.5,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      5.49,
+      1
+     ],
+     "cuda_lock.hold": [
+      17.97,
+      1
+     ],
+     "pm.update_parameter": [
+      20.96,
+      1
+     ],
+     "pm.apply": [
+      20.96,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      21.96,
+      1
+     ],
+     "main._apply_parameter_request": [
+      21.96,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "gauss|n8": {
+  "ack": {
+   "n": 5,
+   "median": 189.61453437805176,
+   "min": 182.50489234924316,
+   "max": 198.11463356018066,
+   "p90": 197.2679615020752
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 34.96,
+    "ms_max": 41.0,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.97,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.updateExcitationBaseLevelsForString": {
+    "ms_median": 1.13,
+    "ms_max": 6.43,
+    "calls_median": 24
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 98.71,
+    "ms_max": 106.8,
+    "calls_median": 24
+   },
+   "cuda_lock.hold": {
+    "ms_median": 159.17,
+    "ms_max": 167.68,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 1.5,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.52,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 181.13,
+    "ms_max": 190.62,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 181.13,
+    "ms_max": 190.62,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 122.01,
+    "ms_max": 128.2,
+    "calls_median": 24
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 35.89,
+    "ms_max": 42.51,
+    "calls_median": 1
+   },
+   "pm._upload_excitation_rows_for_pitches": {
+    "ms_median": 122.26,
+    "ms_max": 128.2,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 178.63,
+    "ms_max": 187.63,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 178.63,
+    "ms_max": 187.63,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.99,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 186.0673427581787,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      98.65,
+      24
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      1.7,
+      24
+     ],
+     "pm._gpu_upload": [
+      122.01,
+      24
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      122.26,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.97,
+      1
+     ],
+     "coeff.recompose": [
+      34.96,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      35.89,
+      1
+     ],
+     "cuda_lock.hold": [
+      158.14,
+      1
+     ],
+     "pm.update_parameter": [
+      176.1,
+      1
+     ],
+     "pm.apply": [
+      176.1,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      178.09,
+      1
+     ],
+     "main._apply_parameter_request": [
+      178.09,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 189.61453437805176,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      98.71,
+      24
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.0,
+      24
+     ],
+     "pm._gpu_upload": [
+      120.42,
+      24
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      120.69,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      37.48,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      38.48,
+      1
+     ],
+     "cuda_lock.hold": [
+      159.17,
+      1
+     ],
+     "pm.update_parameter": [
+      178.63,
+      1
+     ],
+     "pm.apply": [
+      178.63,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.52,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.5,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      181.13,
+      1
+     ],
+     "main._apply_parameter_request": [
+      181.13,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 198.11463356018066,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      102.81,
+      24
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      0.0,
+      24
+     ],
+     "pm._gpu_upload": [
+      125.17,
+      24
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      125.17,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      41.0,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      42.51,
+      1
+     ],
+     "cuda_lock.hold": [
+      167.68,
+      1
+     ],
+     "pm.update_parameter": [
+      187.63,
+      1
+     ],
+     "pm.apply": [
+      187.63,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      2.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      190.62,
+      1
+     ],
+     "main._apply_parameter_request": [
+      190.62,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 182.50489234924316,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      82.05,
+      24
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      6.43,
+      24
+     ],
+     "pm._gpu_upload": [
+      120.34,
+      24
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      120.34,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      32.34,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      33.23,
+      1
+     ],
+     "cuda_lock.hold": [
+      153.57,
+      1
+     ],
+     "pm.update_parameter": [
+      171.52,
+      1
+     ],
+     "pm.apply": [
+      171.52,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.99,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      175.02,
+      1
+     ],
+     "main._apply_parameter_request": [
+      175.02,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 195.997953414917,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      106.8,
+      24
+     ],
+     "cpp.updateExcitationBaseLevelsForString": [
+      1.13,
+      24
+     ],
+     "pm._gpu_upload": [
+      128.2,
+      24
+     ],
+     "pm._upload_excitation_rows_for_pitches": [
+      128.2,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      34.37,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      35.37,
+      1
+     ],
+     "cuda_lock.hold": [
+      163.57,
+      1
+     ],
+     "pm.update_parameter": [
+      184.52,
+      1
+     ],
+     "pm.apply": [
+      184.52,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      188.51,
+      1
+     ],
+     "main._apply_parameter_request": [
+      188.51,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "gauss|n9": {
+  "ack": {
+   "n": 5,
+   "median": 83.97531509399414,
+   "min": 77.54707336425781,
+   "max": 121.21438980102539,
+   "p90": 106.37779235839844
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 38.08,
+    "ms_max": 77.8,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationBaseLevels": {
+    "ms_median": 2.0,
+    "ms_max": 3.5,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.51,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 45.21,
+    "ms_max": 87.29,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 1.99,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.99,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 70.14,
+    "ms_max": 113.73,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 70.14,
+    "ms_max": 113.73,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 2.99,
+    "ms_max": 4.99,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 39.07,
+    "ms_max": 79.8,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 67.16,
+    "ms_max": 109.74,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 67.16,
+    "ms_max": 109.74,
+    "calls_median": 1
+   },
+   "sm.pack_base_excitations": {
+    "ms_median": 2.85,
+    "ms_max": 2.99,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.99,
+    "ms_max": 2.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 77.88562774658203,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      1.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      35.49,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      36.49,
+      1
+     ],
+     "cuda_lock.hold": [
+      41.47,
+      1
+     ],
+     "pm.update_parameter": [
+      63.41,
+      1
+     ],
+     "pm.apply": [
+      63.41,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      67.4,
+      1
+     ],
+     "main._apply_parameter_request": [
+      67.4,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 83.97531509399414,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.85,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      2.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      4.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      38.08,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      39.07,
+      1
+     ],
+     "cuda_lock.hold": [
+      46.91,
+      1
+     ],
+     "pm.update_parameter": [
+      71.99,
+      1
+     ],
+     "pm.apply": [
+      72.98,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      2.0,
+      1
+     ],
+     "edit_commit.commit": [
+      75.98,
+      1
+     ],
+     "main._apply_parameter_request": [
+      75.98,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 121.21438980102539,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      3.5,
+      1
+     ],
+     "pm._gpu_upload": [
+      4.5,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      77.8,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      79.8,
+      1
+     ],
+     "cuda_lock.hold": [
+      87.29,
+      1
+     ],
+     "pm.update_parameter": [
+      109.74,
+      1
+     ],
+     "pm.apply": [
+      109.74,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      2.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      113.73,
+      1
+     ],
+     "main._apply_parameter_request": [
+      113.73,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 84.12289619445801,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      2.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.51,
+      1
+     ],
+     "coeff.recompose": [
+      38.23,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      39.23,
+      1
+     ],
+     "cuda_lock.hold": [
+      45.21,
+      1
+     ],
+     "pm.update_parameter": [
+      67.16,
+      1
+     ],
+     "pm.apply": [
+      67.16,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.99,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.99,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      70.14,
+      1
+     ],
+     "main._apply_parameter_request": [
+      70.14,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 77.54707336425781,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      1.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.93,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.51,
+      1
+     ],
+     "coeff.recompose": [
+      36.09,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      37.08,
+      1
+     ],
+     "cuda_lock.hold": [
+      42.07,
+      1
+     ],
+     "pm.update_parameter": [
+      65.97,
+      1
+     ],
+     "pm.apply": [
+      65.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      2.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      69.96,
+      1
+     ],
+     "main._apply_parameter_request": [
+      69.96,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "gauss|n12": {
+  "ack": {
+   "n": 5,
+   "median": 99.4102954864502,
+   "min": 95.18980979919434,
+   "max": 276.60155296325684,
+   "p90": 207.3962688446045
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 47.52,
+    "ms_max": 48.56,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationBaseLevels": {
+    "ms_median": 2.29,
+    "ms_max": 3.0,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.0,
+    "ms_max": 1.09,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 55.54,
+    "ms_max": 61.13,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 2.0,
+    "ms_max": 3.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 90.45,
+    "ms_max": 267.63,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 90.45,
+    "ms_max": 267.63,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 3.29,
+    "ms_max": 5.98,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 48.51,
+    "ms_max": 50.16,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 86.46,
+    "ms_max": 262.64,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 86.46,
+    "ms_max": 262.64,
+    "calls_median": 1
+   },
+   "sm.pack_base_excitations": {
+    "ms_median": 2.99,
+    "ms_max": 4.99,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.99,
+    "ms_max": 1.99,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 97.34964370727539,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      2.16,
+      1
+     ],
+     "pm._gpu_upload": [
+      3.16,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      46.66,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      46.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      53.12,
+      1
+     ],
+     "pm.update_parameter": [
+      84.04,
+      1
+     ],
+     "pm.apply": [
+      84.04,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.99,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      89.27,
+      1
+     ],
+     "main._apply_parameter_request": [
+      89.27,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 95.18980979919434,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      1.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      2.29,
+      1
+     ],
+     "pm._gpu_upload": [
+      3.29,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      46.97,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      47.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      53.26,
+      1
+     ],
+     "pm.update_parameter": [
+      81.18,
+      1
+     ],
+     "pm.apply": [
+      81.18,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      3.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      86.17,
+      1
+     ],
+     "main._apply_parameter_request": [
+      86.17,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 99.4102954864502,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      48.56,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      49.56,
+      1
+     ],
+     "cuda_lock.hold": [
+      55.54,
+      1
+     ],
+     "pm.update_parameter": [
+      86.46,
+      1
+     ],
+     "pm.apply": [
+      86.46,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      2.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      90.45,
+      1
+     ],
+     "main._apply_parameter_request": [
+      90.45,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 103.58834266662598,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      3.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      2.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      3.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      47.52,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      48.51,
+      1
+     ],
+     "cuda_lock.hold": [
+      56.49,
+      1
+     ],
+     "pm.update_parameter": [
+      89.41,
+      1
+     ],
+     "pm.apply": [
+      89.41,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      2.99,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      94.39,
+      1
+     ],
+     "main._apply_parameter_request": [
+      94.39,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 276.60155296325684,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      4.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      3.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      5.98,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.09,
+      1
+     ],
+     "coeff.recompose": [
+      48.16,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      50.16,
+      1
+     ],
+     "cuda_lock.hold": [
+      61.13,
+      1
+     ],
+     "pm.update_parameter": [
+      262.64,
+      1
+     ],
+     "pm.apply": [
+      262.64,
+      1
+     ],
+     "edit_commit._snapshot": [
+      1.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      2.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      267.63,
+      1
+     ],
+     "main._apply_parameter_request": [
+      267.63,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "gauss|n88": {
+  "ack": {
+   "n": 5,
+   "median": 617.9952621459961,
+   "min": 608.790397644043,
+   "max": 776.8423557281494,
+   "p90": 715.8655643463135
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 383.99,
+    "ms_max": 390.92,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationBaseLevels": {
+    "ms_median": 1.99,
+    "ms_max": 2.5,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 392.52,
+    "ms_max": 398.44,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 612.42,
+    "ms_max": 773.43,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 612.42,
+    "ms_max": 773.43,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 3.5,
+    "ms_max": 5.5,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 384.99,
+    "ms_max": 391.92,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 598.91,
+    "ms_max": 759.38,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 598.91,
+    "ms_max": 759.38,
+    "calls_median": 1
+   },
+   "sm.pack_base_excitations": {
+    "ms_median": 3.53,
+    "ms_max": 5.48,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 1.99,
+    "ms_max": 2.99,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 10.48,
+    "ms_max": 12.06,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 617.9952621459961,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      2
+     ],
+     "undo.begin": [
+      1.98,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      3.53,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      390.92,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      391.92,
+      1
+     ],
+     "cuda_lock.hold": [
+      398.44,
+      1
+     ],
+     "pm.update_parameter": [
+      598.91,
+      1
+     ],
+     "pm.apply": [
+      598.91,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      10.48,
+      1
+     ],
+     "edit_commit.commit": [
+      611.38,
+      1
+     ],
+     "main._apply_parameter_request": [
+      611.38,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 624.4003772735596,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      2
+     ],
+     "undo.begin": [
+      2.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.02,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.97,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.97,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      386.54,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      387.54,
+      1
+     ],
+     "cuda_lock.hold": [
+      392.52,
+      1
+     ],
+     "pm.update_parameter": [
+      604.43,
+      1
+     ],
+     "pm.apply": [
+      604.43,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      10.48,
+      1
+     ],
+     "edit_commit.commit": [
+      617.91,
+      1
+     ],
+     "main._apply_parameter_request": [
+      617.91,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 608.790397644043,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.99,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      4.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      3.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      369.13,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      369.44,
+      1
+     ],
+     "cuda_lock.hold": [
+      378.41,
+      1
+     ],
+     "pm.update_parameter": [
+      591.3,
+      1
+     ],
+     "pm.apply": [
+      591.3,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      9.97,
+      1
+     ],
+     "edit_commit.commit": [
+      604.27,
+      1
+     ],
+     "main._apply_parameter_request": [
+      604.27,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 615.4096126556396,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      2.99,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      5.48,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      1.99,
+      1
+     ],
+     "pm._gpu_upload": [
+      5.5,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      383.99,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      384.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      395.96,
+      1
+     ],
+     "pm.update_parameter": [
+      597.95,
+      1
+     ],
+     "pm.apply": [
+      597.95,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      11.48,
+      1
+     ],
+     "edit_commit.commit": [
+      612.42,
+      1
+     ],
+     "main._apply_parameter_request": [
+      612.42,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 776.8423557281494,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.99,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_base_excitations": [
+      2.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewExcitationBaseLevels": [
+      2.5,
+      1
+     ],
+     "pm._gpu_upload": [
+      3.5,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      371.42,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      372.42,
+      1
+     ],
+     "cuda_lock.hold": [
+      378.91,
+      1
+     ],
+     "pm.update_parameter": [
+      759.38,
+      1
+     ],
+     "pm.apply": [
+      759.38,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      12.06,
+      1
+     ],
+     "edit_commit.commit": [
+      773.43,
+      1
+     ],
+     "main._apply_parameter_request": [
+      773.43,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "hammer|n1": {
+  "ack": {
+   "n": 5,
+   "median": 8.254289627075195,
+   "min": 7.487297058105469,
+   "max": 10.96963882446289,
+   "p90": 10.37740707397461
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 1.49,
+    "ms_max": 2.36,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.updateHammerBlockRow": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 3.36,
+    "ms_max": 4.5,
+    "calls_median": 2
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 2
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 4.5,
+    "ms_max": 5.5,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 4.5,
+    "ms_max": 5.5,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 0.97,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 2.36,
+    "ms_max": 2.96,
+    "calls_median": 1
+   },
+   "pm._send_hammer_update": {
+    "ms_median": 1.0,
+    "ms_max": 1.54,
+    "calls_median": 1
+   },
+   "pm._upload_hammer_blocks_for_pitches": {
+    "ms_median": 1.0,
+    "ms_max": 1.54,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 4.02,
+    "ms_max": 4.5,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 4.02,
+    "ms_max": 4.5,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 9.489059448242188,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateHammerBlockRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.54,
+      1
+     ],
+     "pm._upload_hammer_blocks_for_pitches": [
+      1.54,
+      1
+     ],
+     "cuda_lock.hold": [
+      4.5,
+      2
+     ],
+     "pm._send_hammer_update": [
+      1.54,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.0,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      2.96,
+      1
+     ],
+     "pm.update_parameter": [
+      4.5,
+      1
+     ],
+     "pm.apply": [
+      4.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      5.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      5.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 8.254289627075195,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateHammerBlockRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.97,
+      1
+     ],
+     "pm._upload_hammer_blocks_for_pitches": [
+      0.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.46,
+      2
+     ],
+     "pm._send_hammer_update": [
+      0.97,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.49,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      1.49,
+      1
+     ],
+     "pm.update_parameter": [
+      3.29,
+      1
+     ],
+     "pm.apply": [
+      3.29,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.99,
+      1
+     ],
+     "edit_commit.commit": [
+      4.28,
+      1
+     ],
+     "main._apply_parameter_request": [
+      4.28,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 8.09025764465332,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateHammerBlockRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "pm._upload_hammer_blocks_for_pitches": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      3.36,
+      2
+     ],
+     "pm._send_hammer_update": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.99,
+      1
+     ],
+     "coeff.recompose": [
+      2.36,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      2.36,
+      1
+     ],
+     "pm.update_parameter": [
+      4.33,
+      1
+     ],
+     "pm.apply": [
+      4.33,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      5.35,
+      1
+     ],
+     "main._apply_parameter_request": [
+      5.35,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 7.487297058105469,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateHammerBlockRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.0,
+      1
+     ],
+     "pm._upload_hammer_blocks_for_pitches": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      3.5,
+      2
+     ],
+     "pm._send_hammer_update": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.51,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      2.51,
+      1
+     ],
+     "pm.update_parameter": [
+      3.5,
+      1
+     ],
+     "pm.apply": [
+      3.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      4.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      4.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 10.96963882446289,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateHammerBlockRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "pm._upload_hammer_blocks_for_pitches": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.99,
+      2
+     ],
+     "pm._send_hammer_update": [
+      1.0,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      1.02,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      2.0,
+      1
+     ],
+     "pm.update_parameter": [
+      4.02,
+      1
+     ],
+     "pm.apply": [
+      4.02,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      4.02,
+      1
+     ],
+     "main._apply_parameter_request": [
+      4.02,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "hammer|n12": {
+  "ack": {
+   "n": 5,
+   "median": 23.961544036865234,
+   "min": 20.92123031616211,
+   "max": 35.5219841003418,
+   "p90": 31.49089813232422
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 5.01,
+    "ms_max": 5.98,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.setNewHammerParameters": {
+    "ms_median": 0.77,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 9.67,
+    "ms_max": 13.48,
+    "calls_median": 2
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 2
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 17.54,
+    "ms_max": 20.46,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 17.54,
+    "ms_max": 20.46,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.0,
+    "ms_max": 2.51,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 5.98,
+    "ms_max": 6.98,
+    "calls_median": 1
+   },
+   "pm._send_hammer_update": {
+    "ms_median": 3.95,
+    "ms_max": 6.49,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 16.54,
+    "ms_max": 19.46,
+    "calls_median": 1
+   },
+   "pm.send_hammer_params_to_CUDA": {
+    "ms_median": 3.95,
+    "ms_max": 6.49,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 16.54,
+    "ms_max": 19.46,
+    "calls_median": 1
+   },
+   "sm.pack_hammers": {
+    "ms_median": 1.0,
+    "ms_max": 3.5,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 23.961544036865234,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      1.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.51,
+      1
+     ],
+     "cuda_lock.hold": [
+      11.44,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      5.45,
+      1
+     ],
+     "pm._send_hammer_update": [
+      5.45,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      4.99,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      5.98,
+      1
+     ],
+     "pm.update_parameter": [
+      17.47,
+      1
+     ],
+     "pm.apply": [
+      17.47,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      18.47,
+      1
+     ],
+     "main._apply_parameter_request": [
+      18.47,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 25.44426918029785,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      3.5,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      13.48,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      6.49,
+      1
+     ],
+     "pm._send_hammer_update": [
+      6.49,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      5.98,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      6.98,
+      1
+     ],
+     "pm.update_parameter": [
+      19.46,
+      1
+     ],
+     "pm.apply": [
+      19.46,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      20.46,
+      1
+     ],
+     "main._apply_parameter_request": [
+      20.46,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 20.92123031616211,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      0.98,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      7.94,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      3.95,
+      1
+     ],
+     "pm._send_hammer_update": [
+      3.95,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      3.96,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      4.99,
+      1
+     ],
+     "pm.update_parameter": [
+      14.93,
+      1
+     ],
+     "pm.apply": [
+      14.93,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      15.93,
+      1
+     ],
+     "main._apply_parameter_request": [
+      15.93,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 35.5219841003418,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      1.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.56,
+      1
+     ],
+     "cuda_lock.hold": [
+      7.56,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      3.5,
+      1
+     ],
+     "pm._send_hammer_update": [
+      3.5,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      5.01,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      5.01,
+      1
+     ],
+     "pm.update_parameter": [
+      14.49,
+      1
+     ],
+     "pm.apply": [
+      14.49,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.97,
+      1
+     ],
+     "edit_commit.commit": [
+      15.47,
+      1
+     ],
+     "main._apply_parameter_request": [
+      15.47,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 21.172046661376953,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      0.97,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.77,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      9.67,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      3.18,
+      1
+     ],
+     "pm._send_hammer_update": [
+      3.18,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      5.49,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      6.49,
+      1
+     ],
+     "pm.update_parameter": [
+      16.54,
+      1
+     ],
+     "pm.apply": [
+      16.54,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      17.54,
+      1
+     ],
+     "main._apply_parameter_request": [
+      17.54,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "hammer|n88": {
+  "ack": {
+   "n": 5,
+   "median": 109.23194885253906,
+   "min": 105.24225234985352,
+   "max": 118.8349723815918,
+   "p90": 115.98043441772461
+  },
+  "stages_median": {
+   "coeff.recompose": {
+    "ms_median": 29.92,
+    "ms_max": 33.91,
+    "calls_median": 1
+   },
+   "cpp.setNewExcitationCoefficients": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.setNewHammerParameters": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 36.9,
+    "ms_max": 37.9,
+    "calls_median": 2
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 2
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 104.25,
+    "ms_max": 115.6,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 105.25,
+    "ms_max": 115.6,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.53,
+    "ms_max": 2.99,
+    "calls_median": 1
+   },
+   "pm._recompose_excitation_coefficients": {
+    "ms_median": 31.91,
+    "ms_max": 33.91,
+    "calls_median": 1
+   },
+   "pm._send_hammer_update": {
+    "ms_median": 4.99,
+    "ms_max": 5.5,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 101.75,
+    "ms_max": 112.7,
+    "calls_median": 1
+   },
+   "pm.send_hammer_params_to_CUDA": {
+    "ms_median": 4.99,
+    "ms_max": 5.5,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 101.75,
+    "ms_max": 112.7,
+    "calls_median": 1
+   },
+   "sm.pack_hammers": {
+    "ms_median": 2.97,
+    "ms_max": 3.99,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.9,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.99,
+    "ms_max": 1.99,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 105.24225234985352,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.97,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      2.97,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.53,
+      1
+     ],
+     "cuda_lock.hold": [
+      33.44,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      4.5,
+      1
+     ],
+     "pm._send_hammer_update": [
+      4.5,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      27.95,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      28.95,
+      1
+     ],
+     "pm.update_parameter": [
+      98.3,
+      1
+     ],
+     "pm.apply": [
+      99.29,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      101.26,
+      1
+     ],
+     "main._apply_parameter_request": [
+      101.26,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 111.69862747192383,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      2.06,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      37.9,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      4.99,
+      1
+     ],
+     "pm._send_hammer_update": [
+      4.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      33.91,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      33.91,
+      1
+     ],
+     "pm.update_parameter": [
+      106.71,
+      1
+     ],
+     "pm.apply": [
+      106.71,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      108.71,
+      1
+     ],
+     "main._apply_parameter_request": [
+      108.71,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 109.23194885253906,
+    "stages": {
+     "main.parse_range": [
+      1.0,
+      1
+     ],
+     "undo.begin": [
+      0.5,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      2.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.53,
+      1
+     ],
+     "cuda_lock.hold": [
+      36.92,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      4.52,
+      1
+     ],
+     "pm._send_hammer_update": [
+      4.52,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      1.0,
+      1
+     ],
+     "coeff.recompose": [
+      31.42,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      32.4,
+      1
+     ],
+     "pm.update_parameter": [
+      101.75,
+      1
+     ],
+     "pm.apply": [
+      101.75,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      104.25,
+      1
+     ],
+     "main._apply_parameter_request": [
+      105.25,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 107.2237491607666,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      3.99,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      0.86,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      35.92,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      5.5,
+      1
+     ],
+     "pm._send_hammer_update": [
+      5.5,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      29.43,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      30.43,
+      1
+     ],
+     "pm.update_parameter": [
+      101.26,
+      1
+     ],
+     "pm.apply": [
+      101.26,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.99,
+      1
+     ],
+     "edit_commit.commit": [
+      104.25,
+      1
+     ],
+     "main._apply_parameter_request": [
+      104.25,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 118.8349723815918,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.9,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      2
+     ],
+     "sm.pack_hammers": [
+      2.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.setNewHammerParameters": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      36.9,
+      2
+     ],
+     "pm.send_hammer_params_to_CUDA": [
+      4.99,
+      1
+     ],
+     "pm._send_hammer_update": [
+      4.99,
+      1
+     ],
+     "cpp.setNewExcitationCoefficients": [
+      0.0,
+      1
+     ],
+     "coeff.recompose": [
+      29.92,
+      1
+     ],
+     "pm._recompose_excitation_coefficients": [
+      31.91,
+      1
+     ],
+     "pm.update_parameter": [
+      112.7,
+      1
+     ],
+     "pm.apply": [
+      112.7,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      115.6,
+      1
+     ],
+     "main._apply_parameter_request": [
+      115.6,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "mode|n1": {
+  "ack": {
+   "n": 5,
+   "median": 6.489753723144531,
+   "min": 5.983591079711914,
+   "max": 10.030984878540039,
+   "p90": 9.01341438293457
+  },
+  "stages_median": {
+   "cpp.updateModeParameters_GRANULAR": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 0.97,
+    "ms_max": 1.52,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.99,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 2.97,
+    "ms_max": 4.5,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 2.97,
+    "ms_max": 4.5,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 0.97,
+    "ms_max": 1.52,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 0.97,
+    "ms_max": 1.52,
+    "calls_median": 1
+   },
+   "pm.update_mode_params_GRANULAR": {
+    "ms_median": 0.97,
+    "ms_max": 1.52,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 0.97,
+    "ms_max": 1.52,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 1.02,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 10.030984878540039,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.52,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.52,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      1.52,
+      1
+     ],
+     "pm.update_parameter": [
+      1.52,
+      1
+     ],
+     "pm.apply": [
+      1.52,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.99,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.99,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      4.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      4.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 5.986690521240234,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      0.97,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      0.97,
+      1
+     ],
+     "pm.update_parameter": [
+      0.97,
+      1
+     ],
+     "pm.apply": [
+      0.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.97,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.97,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 5.983591079711914,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.02,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      0.97,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      0.97,
+      1
+     ],
+     "pm.update_parameter": [
+      0.97,
+      1
+     ],
+     "pm.apply": [
+      0.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.99,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 6.489753723144531,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      1.0,
+      1
+     ],
+     "pm.update_parameter": [
+      1.0,
+      1
+     ],
+     "pm.apply": [
+      1.0,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      0.0,
+      1
+     ],
+     "edit_commit.commit": [
+      1.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      1.99,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 7.487058639526367,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.86,
+      1
+     ],
+     "cuda_lock.hold": [
+      0.86,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      0.86,
+      1
+     ],
+     "pm.update_parameter": [
+      0.86,
+      1
+     ],
+     "pm.apply": [
+      0.86,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.86,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.86,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "mode|n196": {
+  "ack": {
+   "n": 5,
+   "median": 10.802030563354492,
+   "min": 8.978128433227539,
+   "max": 13.477563858032227,
+   "p90": 13.091421127319336
+  },
+  "stages_median": {
+   "cpp.updateModeParameters_GRANULAR": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 1.99,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 5.98,
+    "ms_max": 6.96,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 5.98,
+    "ms_max": 6.96,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.99,
+    "ms_max": 2.0,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 3.99,
+    "ms_max": 3.99,
+    "calls_median": 1
+   },
+   "pm.update_mode_params_GRANULAR": {
+    "ms_median": 3.99,
+    "ms_max": 3.99,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 3.99,
+    "ms_max": 3.99,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 1.02,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 2.02,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 10.802030563354492,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      1.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.0,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      3.99,
+      1
+     ],
+     "pm.update_parameter": [
+      3.99,
+      1
+     ],
+     "pm.apply": [
+      3.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      6.96,
+      1
+     ],
+     "main._apply_parameter_request": [
+      6.96,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 8.978128433227539,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.02,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.82,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      2.97,
+      1
+     ],
+     "pm.update_parameter": [
+      2.97,
+      1
+     ],
+     "pm.apply": [
+      2.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      2.02,
+      1
+     ],
+     "edit_commit.commit": [
+      6.01,
+      1
+     ],
+     "main._apply_parameter_request": [
+      6.01,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 13.477563858032227,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.99,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.99,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      3.99,
+      1
+     ],
+     "pm.update_parameter": [
+      3.99,
+      1
+     ],
+     "pm.apply": [
+      3.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      5.98,
+      1
+     ],
+     "main._apply_parameter_request": [
+      5.98,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 12.51220703125,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      1.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      2.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      2.0,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      3.99,
+      1
+     ],
+     "pm.update_parameter": [
+      3.99,
+      1
+     ],
+     "pm.apply": [
+      3.99,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      5.98,
+      1
+     ],
+     "main._apply_parameter_request": [
+      5.98,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 9.482383728027344,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateModeParameters_GRANULAR": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm.update_mode_params_GRANULAR": [
+      2.97,
+      1
+     ],
+     "pm.update_parameter": [
+      2.97,
+      1
+     ],
+     "pm.apply": [
+      2.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.02,
+      1
+     ],
+     "edit_commit.commit": [
+      4.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      4.99,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "feedin60": {
+  "ack": {
+   "n": 5,
+   "median": 16.930580139160156,
+   "min": 13.970375061035156,
+   "max": 20.637035369873047,
+   "p90": 20.139694213867188
+  },
+  "stages_median": {
+   "cpp.updateDeckRow": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 3
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 8.49,
+    "ms_max": 11.26,
+    "calls_median": 3
+   },
+   "cuda_lock.hold": {
+    "ms_median": 10.97,
+    "ms_max": 14.74,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 12.97,
+    "ms_max": 15.74,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 12.97,
+    "ms_max": 15.74,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 10.97,
+    "ms_max": 14.74,
+    "calls_median": 3
+   },
+   "pm._send_deck_update": {
+    "ms_median": 10.97,
+    "ms_max": 14.74,
+    "calls_median": 1
+   },
+   "pm._upload_deck_rows_for_pitches": {
+    "ms_median": 10.97,
+    "ms_max": 14.74,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 10.97,
+    "ms_max": 14.74,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 10.97,
+    "ms_max": 14.74,
+    "calls_median": 1
+   },
+   "sm.pack_pitch_feedin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "sm.update_deck": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.9,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.02,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 19.3936824798584,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      11.26,
+      3
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      14.45,
+      3
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      14.45,
+      1
+     ],
+     "cuda_lock.hold": [
+      14.45,
+      1
+     ],
+     "pm._send_deck_update": [
+      14.45,
+      1
+     ],
+     "pm.update_parameter": [
+      14.45,
+      1
+     ],
+     "pm.apply": [
+      14.45,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      15.45,
+      1
+     ],
+     "main._apply_parameter_request": [
+      15.45,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 13.970375061035156,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      6.48,
+      3
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      8.48,
+      3
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      9.41,
+      1
+     ],
+     "cuda_lock.hold": [
+      9.41,
+      1
+     ],
+     "pm._send_deck_update": [
+      9.41,
+      1
+     ],
+     "pm.update_parameter": [
+      9.41,
+      1
+     ],
+     "pm.apply": [
+      9.41,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.02,
+      1
+     ],
+     "edit_commit.commit": [
+      10.43,
+      1
+     ],
+     "main._apply_parameter_request": [
+      10.43,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 20.637035369873047,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      11.12,
+      3
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      14.74,
+      3
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      14.74,
+      1
+     ],
+     "cuda_lock.hold": [
+      14.74,
+      1
+     ],
+     "pm._send_deck_update": [
+      14.74,
+      1
+     ],
+     "pm.update_parameter": [
+      14.74,
+      1
+     ],
+     "pm.apply": [
+      14.74,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      15.74,
+      1
+     ],
+     "main._apply_parameter_request": [
+      15.74,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 15.98978042602539,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.9,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      8.49,
+      3
+     ],
+     "cpp.updateDeckRow": [
+      1.0,
+      3
+     ],
+     "pm._gpu_upload": [
+      10.48,
+      3
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      10.48,
+      1
+     ],
+     "cuda_lock.hold": [
+      10.48,
+      1
+     ],
+     "pm._send_deck_update": [
+      10.48,
+      1
+     ],
+     "pm.update_parameter": [
+      10.48,
+      1
+     ],
+     "pm.apply": [
+      10.48,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      12.38,
+      1
+     ],
+     "main._apply_parameter_request": [
+      12.38,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 16.930580139160156,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      7.69,
+      3
+     ],
+     "cpp.updateDeckRow": [
+      0.97,
+      3
+     ],
+     "pm._gpu_upload": [
+      10.97,
+      3
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      10.97,
+      1
+     ],
+     "cuda_lock.hold": [
+      10.97,
+      1
+     ],
+     "pm._send_deck_update": [
+      10.97,
+      1
+     ],
+     "pm.update_parameter": [
+      10.97,
+      1
+     ],
+     "pm.apply": [
+      10.97,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      12.97,
+      1
+     ],
+     "main._apply_parameter_request": [
+      12.97,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "sc_feedback128": {
+  "ack": {
+   "n": 5,
+   "median": 6.981372833251953,
+   "min": 6.018638610839844,
+   "max": 8.34035873413086,
+   "p90": 7.801055908203125
+  },
+  "stages_median": {
+   "cpp.updateDeckRow": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cpp.waitForParameterUpdate": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "cuda_lock.hold": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "cuda_lock.wait": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit._record(journal+after)": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   },
+   "edit_commit._snapshot": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "edit_commit.commit": {
+    "ms_median": 2.5,
+    "ms_max": 2.99,
+    "calls_median": 1
+   },
+   "main._apply_parameter_request": {
+    "ms_median": 2.5,
+    "ms_max": 2.99,
+    "calls_median": 1
+   },
+   "main.parse_range": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "pm._gpu_upload": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "pm._send_deck_update": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "pm._upload_deck_rows_for_pitches": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "pm.apply": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "pm.update_parameter": {
+    "ms_median": 1.0,
+    "ms_max": 1.5,
+    "calls_median": 1
+   },
+   "sm.pack_pitch_feedin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "sm.update_deck": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.begin": {
+    "ms_median": 0.0,
+    "ms_max": 0.0,
+    "calls_median": 1
+   },
+   "undo.finish": {
+    "ms_median": 1.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 8.34035873413086,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.38,
+      1
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      1.38,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.38,
+      1
+     ],
+     "pm._send_deck_update": [
+      1.38,
+      1
+     ],
+     "pm.update_parameter": [
+      1.38,
+      1
+     ],
+     "pm.apply": [
+      1.38,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      0.98,
+      1
+     ],
+     "edit_commit.commit": [
+      2.36,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.36,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 6.487607955932617,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.0,
+      1
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      0.7,
+      1
+     ],
+     "cuda_lock.hold": [
+      0.7,
+      1
+     ],
+     "pm._send_deck_update": [
+      0.7,
+      1
+     ],
+     "pm.update_parameter": [
+      0.7,
+      1
+     ],
+     "pm.apply": [
+      0.7,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.7,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.7,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 6.018638610839844,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      0.98,
+      1
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      0.98,
+      1
+     ],
+     "cuda_lock.hold": [
+      0.98,
+      1
+     ],
+     "pm._send_deck_update": [
+      0.98,
+      1
+     ],
+     "pm.update_parameter": [
+      0.98,
+      1
+     ],
+     "pm.apply": [
+      0.98,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      1.98,
+      1
+     ],
+     "main._apply_parameter_request": [
+      1.98,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 6.992101669311523,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.5,
+      1
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      1.5,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.5,
+      1
+     ],
+     "pm._send_deck_update": [
+      1.5,
+      1
+     ],
+     "pm.update_parameter": [
+      1.5,
+      1
+     ],
+     "pm.apply": [
+      1.5,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      0.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.5,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.5,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 6.981372833251953,
+    "stages": {
+     "main.parse_range": [
+      0.0,
+      1
+     ],
+     "undo.begin": [
+      0.0,
+      1
+     ],
+     "sm.update_deck": [
+      0.0,
+      1
+     ],
+     "cuda_lock.wait": [
+      0.0,
+      1
+     ],
+     "sm.pack_pitch_feedin": [
+      0.0,
+      1
+     ],
+     "cpp.waitForParameterUpdate": [
+      0.0,
+      1
+     ],
+     "cpp.updateDeckRow": [
+      0.0,
+      1
+     ],
+     "pm._gpu_upload": [
+      1.0,
+      1
+     ],
+     "pm._upload_deck_rows_for_pitches": [
+      1.0,
+      1
+     ],
+     "cuda_lock.hold": [
+      1.0,
+      1
+     ],
+     "pm._send_deck_update": [
+      1.0,
+      1
+     ],
+     "pm.update_parameter": [
+      1.0,
+      1
+     ],
+     "pm.apply": [
+      1.0,
+      1
+     ],
+     "edit_commit._snapshot": [
+      0.0,
+      1
+     ],
+     "edit_commit._record(journal+after)": [
+      1.0,
+      1
+     ],
+     "undo.finish": [
+      1.0,
+      1
+     ],
+     "edit_commit.commit": [
+      2.99,
+      1
+     ],
+     "main._apply_parameter_request": [
+      2.99,
+      1
+     ]
+    }
+   }
+  ]
+ },
+ "runtime.volume": {
+  "ack": {
+   "n": 5,
+   "median": 2.499103546142578,
+   "min": 1.9707679748535156,
+   "max": 2.5970935821533203,
+   "p90": 2.558279037475586
+  },
+  "stages_median": {
+   "runtime.apply": {
+    "ms_median": 0.0,
+    "ms_max": 1.0,
+    "calls_median": 1
+   }
+  },
+  "rows": [
+   {
+    "ack_ms": 2.5970935821533203,
+    "stages": {
+     "runtime.apply": [
+      0.0,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 1.9958019256591797,
+    "stages": {
+     "runtime.apply": [
+      1.0,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 1.9707679748535156,
+    "stages": {
+     "runtime.apply": [
+      1.0,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 2.499103546142578,
+    "stages": {
+     "runtime.apply": [
+      0.0,
+      1
+     ]
+    }
+   },
+   {
+    "ack_ms": 2.5000572204589844,
+    "stages": {
+     "runtime.apply": [
+      0.0,
+      1
+     ]
+    }
+   }
+  ]
+ }
+}
