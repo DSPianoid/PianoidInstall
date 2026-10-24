@@ -651,7 +651,7 @@ in-place re-inits) BEFORE the hot / structural classification — the same "omit
 the classifier already applied, now also on the full path: `{"path": "presets/X.json"}` alone
 reloads X with the user's current `sample_rate`, `string_iterations`, `sound_derivative_order`,
 `array_size`, `listen_to_modes`, driver, buffer, `volume` anchor, `audio_on`,
-`start_right_away`, `listen_to_midi`, `midi_port` (the path is never inherited; a legacy alias
+`start_right_away`, `listen_to_midi` (the path and, since dev-392a, `midi_port` are never inherited; a legacy alias
 such as `user_1` counts as given). Every success response lists them as
 `inherited_load_params` (`{}` when nothing was inherited), and `load_param_warnings` now also
 covers inherited values. With no engine loaded nothing is inherited and the four keys below are
@@ -707,7 +707,7 @@ Parameter details:
     **Sysadmin / test-harness override:** the backend honours the `PIANOID_LISTEN_TO_MIDI` environment variable. When set to `"0"` or `"1"`, the value overrides whatever the request body sent (read per-request inside `/load_preset` so it applies to every preset load in the session). Unset / any other value → request body wins. Use this to pin listener state regardless of which UI the user runs (e.g. headless CI, mic-only calibration runs).
 
     **Runtime control:** after the engine is up, callers can hot-toggle without re-issuing `/load_preset` via `POST /midi/start` and `POST /midi/stop` (W3 Phase 2). Both are idempotent.
-- `midi_port` (optional, default `0`): rtmidi input-port index used when `listen_to_midi=1`. Use `GET /midi/ports` to enumerate available ports before posting. Use `POST /midi/select_port` to change ports in place without restarting the backend.
+- `midi_port` (optional): rtmidi input-port index to FORCE for this load when `listen_to_midi=1` (not persisted, not inherited by the next load). Omitted (what the Tunner sends) = the user's saved input port, else auto-detect ([MIDI_SYSTEM → Input port](MIDI_SYSTEM.md#input-port-saved-port-and-auto-detect-dev-392a)). Before dev-392a an omitted `midi_port` meant `0`, so every load put the listener back on port 0. Use `GET /midi/ports` to enumerate ports and `POST /midi/select_port` to change ports in place.
 
 Response `200` (full reload — structural change or no live engine):
 ```json
@@ -1932,11 +1932,13 @@ Response `200`:
 {
   "ports": ["VMini 0", "MIDIIN2 (VMini) 1"],
   "active_port": 0,
-  "listening": true
+  "listening": true,
+  "port_state": {"mode": "auto", "port": 0, "name": "VMini 0", "detecting": false}
 }
 ```
 
 - `ports`: ordered list of rtmidi port names; the array index is the canonical port id used by `midi_port` (in `/load_preset`) and by `POST /midi/select_port`.
+- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null), or `null` before the listener started.
 - `active_port`: the port currently held open by the unified MIDI listener, or `null` when the listener is not running.
 - `listening`: `true` when the unified listener thread is alive (i.e. `/load_preset` was called with `listen_to_midi=1`).
 
@@ -1956,12 +1958,15 @@ Request body:
 {"port": 1}
 ```
 
-- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`.
+- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`, or `"auto"` (dev-392a): drop the saved port and auto-detect again now.
+
+The listener **persists** a switch once it succeeded (dev-392a) as `input_port` in `GET /midi/input`: the port NAME without the rtmidi index suffix (`"MIDIIN2 (VMini)"`), or `null` for `"auto"`. Every later listener start (preset load, `/midi/start`, backend restart) opens that port again. The new port is opened before the old one is released; a failed open (port held elsewhere) keeps the old port and persists nothing, and a refused request (409) persists nothing. Route owner: `midi_input_routes.py` (the `/midi/ports`, `/midi/select_port`, `/midi/start`, `/midi/stop` routes moved there from `backendServer.py`, dev-392a).
 
 Response `200`:
 ```json
 {"port": 1, "name": "MIDIIN2 (VMini) 1"}
 ```
+or `{"port": "auto"}`.
 
 Response `400` — bad request body:
 ```json
@@ -2001,7 +2006,7 @@ Request body (all fields optional):
 {"port": 0}
 ```
 
-- `port` (int, default `0`): 0-based rtmidi input-port index to open. Use `GET /midi/ports` to enumerate available ports. Out-of-range ports are rejected with 400.
+- `port` (int, optional): 0-based rtmidi input-port index to force for this start. Omitted (what the Tunner sends since dev-392a) = the user's saved input port, else auto-detect. Use `GET /midi/ports` to enumerate available ports. Out-of-range ports are rejected with 400.
 
 Response 200 — listener now running (or already was):
 ```json
@@ -2148,20 +2153,28 @@ Start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default
 
 Response 200:
 ```json
-{"sustain_cc": 64, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
+{"sustain_cc": 64, "sustain_channel": null, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
+ "input_port": "MIDIIN2 (AMC-10)", "port_state": {"mode": "manual", "port": 2, "name": "MIDIIN2 (AMC-10) 2", "detecting": false},
  "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3}}
 ```
 
-- `sustain_cc`: the CC number treated as the sustain pedal (default 64). That CC, on any channel, reaches the engine as CC64.
-- `polarity`: `normal` (value >= 64 = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the engine's switch at 64).
+- `sustain_cc`: the CC number treated as the sustain pedal (default 64). The default pedal (64, any channel) reaches the engine unchanged (switch at 64). A remapped one (another CC, or a `sustain_channel`) reaches it as CC64 `127` / `0` (hysteresis after the polarity: down at >= 74, up at <= 54). Any other CC64 is dropped.
+- `sustain_channel` (dev-392a): the pedal's MIDI channel 1-16, or `null` = any channel (default). Set it when several pedals send the same CC on different channels (the AMC-10: CC 0 on channels 1-3, sustain = channel 2).
+- `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the switch: the engine's at 64 for the default pedal, the hysteresis for a remapped one).
 - `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
+- `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
+- `port_state` (dev-392a): see `GET /midi/ports`.
 - `sustain_down` / `sustain_value`: the pedal state the engine was last sent / the last raw value of the sustain CC (`null` before the first one).
 - `counts`: messages per type on the played and the tapped ports since the backend started.
 
 ### `POST /midi/input`
 
-Any subset of `{"sustain_cc": 0-127, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool}`. Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
+Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool, "input_port": null | "<port name>"}` (`input_port` applies at the next listener start; to switch now use `POST /midi/select_port`). Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
+
+### Socket.IO `midi_input_state` (server -> client)
+
+(dev-392a) The `GET /midi/input` body, pushed whenever the listener's port changes: started on a forced / saved port, auto-detect waiting, port detected, switched. Not gated by the broadcast switch (a few events per session).
 
 ### Socket.IO `midi_message` (server -> client)
 

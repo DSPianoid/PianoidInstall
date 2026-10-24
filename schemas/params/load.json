@@ -127,9 +127,9 @@
         {
           "name": "midi_port",
           "units": "rtmidi input-port index",
-          "range": "default 0; enumerate with GET /midi/ports",
+          "range": "optional; omitted = the saved input port, else auto-detect (dev-392a); enumerate with GET /midi/ports",
           "class": "stored",
-          "meaning": "MIDI input port used when listen_to_midi = 1.",
+          "meaning": "MIDI input port FORCED for this load when listen_to_midi = 1 (not persisted, not inherited).",
           "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
         },
         {
