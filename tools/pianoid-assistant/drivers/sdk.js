@@ -144,7 +144,8 @@ export class SdkDriver {
         + 'default; render artefacts hold audio_<i>.wav and series_<i>.npy), OUT = "out". Files written to OUT '
         + '(.png .csv .json .npy .txt .wav, at most 20 files / 5 MB each) come back as artefact ids; PNGs are shown to the '
         + 'user in the pane. print() goes to stdout (20 kB cap). Limits: wall clock timeout_s (default 60, max 120), '
-        + 'CPU half of it, memory 2 GB, disk 200 MB. Every run asks the user first. [category: code]',
+        + 'CPU half of it, memory 2 GB, disk 200 MB. A run asks the user first unless the user set Analysis code to Auto '
+        + '(or it is in an approved plan); a turn that used web content always asks. [category: code]',
         {
           code: z.string().describe('Python 3.12 source'),
           inputs: z.array(z.string()).max(10).optional().describe('artefact ids to copy into the run'),

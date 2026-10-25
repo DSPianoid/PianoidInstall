@@ -165,13 +165,16 @@ test('run_python handler (launcher faked): inputs copied, out\\ files become art
   assert.match((await runPython({ code: 'p' }, { paths, launcher: path.join(root, 'none.exe'), exec })).error, /not built/);
 });
 
-test('policy: category code always confirms, never Auto (locked); tainted turns ask hard; other tiers unchanged', () => {
+test('policy: category code is Ask by default, may be Auto (dev-auto1); tainted turns ask hard even on Auto; other tiers unchanged', () => {
   const v = decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: {} });
   assert.equal(v.action, 'confirm');
-  assert.ok(!v.canAuto);
-  assert.equal(decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { approvals: { installation: { code: 'auto' } } } }).action, 'confirm');
-  const t = decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { tainted: true } });
+  assert.equal(v.canAuto, true);                                       // "Don't ask again" is offered
+  const auto = { approvals: { installation: { code: 'auto' } } };
+  assert.deepEqual(decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: auto }), { action: 'allow', auto: true, reason: 'code: Auto' });
+  const t = decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { ...auto, tainted: true } });
+  assert.equal(t.action, 'confirm');
   assert.equal(t.hard, true);
+  assert.ok(!t.canAuto);                                               // never "Don't ask again" on a tainted turn
   assert.match(t.reason, /web content/);
   assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', category: 'playback' }).action, 'allow');
   assert.equal(decide({ command: 'x', tier: 'excluded', category: 'code' }).action, 'deny');
@@ -187,6 +190,48 @@ test('PreToolUse hook: shells and unknown tools denied, analysis re-checked, nev
   assert.equal(decision('mcp__pianoid__play__note', { pitch: 60 }), 'continue');
   assert.equal(decision('mcp__analysis__run_python', { code: '' }), 'deny');
   assert.equal(decision('mcp__analysis__run_python', { code: 'print(1)' }), 'continue');     // canUseTool asks next
+});
+
+test('canRunAnalysis (dev-auto1): "Don\'t ask again" for this installation persists Auto; Auto runs without a confirm via the sandbox runner; a tainted turn still asks; full code logged', async () => {
+  const root = tmp();
+  const paths = { root, config: path.join(root, 'config.json') };
+  const sent = [];
+  const runs = [];
+  const runPythonImpl = async (args) => { runs.push(args); return { ok: true, exit: 0, files: [] }; };
+  const mk = (config) => new AssistantSession({ paths, config, commands: COMMANDS, driverFactory: () => null, broadcast: (m) => sent.push(m), runPythonImpl });
+  const s = mk({ model: 'auto' });
+  const code = 'import numpy as np\n' + 'x = 1\n'.repeat(200);                  // longer than the activity summary
+  const confirms = () => sent.filter((m) => m.type === 'confirm');
+
+  const ask = s.canRunAnalysis({ code }, { toolUseID: 't1' });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(confirms().length, 1);                                  // default Ask
+  assert.equal(confirms()[0].canAuto, true);
+  s.confirm(confirms()[0].id, true, 'installation');
+  assert.equal((await ask).behavior, 'allow');
+  assert.equal(JSON.parse(fs.readFileSync(paths.config, 'utf8')).approvals.code, 'auto');   // persisted (installation)
+  const row = s.approvalsView().categories.find((r) => r.id === 'code');
+  assert.deepEqual([row.mode, row.scope, row.locked], ['auto', 'installation', null]);
+
+  // a restarted service over the same config.json: Auto, no confirm; the run still goes through the sandbox runner
+  const s2 = mk(JSON.parse(fs.readFileSync(paths.config, 'utf8')));
+  assert.equal((await s2.canRunAnalysis({ code }, { toolUseID: 't2' })).behavior, 'allow');
+  assert.equal(confirms().length, 1);                                  // Auto: no new confirm
+  await s2.runAnalysis({ code });
+  assert.equal(runs.length, 1);
+  const entry = s2.activity.findLast((a) => a.command === 'analysis.run_python');
+  assert.equal(entry.decision, 'auto');
+  assert.equal(entry.code, code);                                      // the full code, not the summary
+
+  s2.tainted = true;
+  const tainted = s2.canRunAnalysis({ code }, { toolUseID: 't3' });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(confirms().length, 2);                                  // a tainted turn asks, hard, even on Auto
+  assert.deepEqual([confirms()[1].hard, confirms()[1].canAuto], [true, false]);
+  s2.confirm(confirms()[1].id, false);
+  assert.equal((await tainted).behavior, 'deny');
+  s2.tainted = false;
+  assert.equal((await s2.canRunAnalysis({ code: '' }, {})).behavior, 'deny');   // invalid input: denied whatever the mode
 });
 
 // One real run in the production sandbox (skipped unless `node analysis/setup.js` was run on this machine).

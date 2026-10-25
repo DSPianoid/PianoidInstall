@@ -28,10 +28,10 @@ the wiring, the output map of the backend, and listening.
 | `modal.rig_process` (`frf`, `polymax`, `coefficients`, `build_preset`), `preset.create` (a new preset structure) | **hard confirm, every run** (writes files) |
 | `modal.rig_cancel` (stops the rig job), `job.get`, `job.list`, `job.cancel` | playback / read |
 | `preset.load`, `modal.run_stage`, `modal.apply_to_preset`, `calibration.synthesis`, `calibration.attack_equalize`, `launcher.modal.start` | **hard confirm, every time** |
-| `render.note_playback`, `render.chart`, `render.keyboard` (offline; `export: true` makes an artefact) | renders (asks while live audio plays) |
+| `render.note_playback`, `render.chart`, `render.keyboard` (offline; `export: true` makes an artefact) | renders (asks while live audio plays unless `renders_live` is Auto) |
 | `play.note`, `play.mode`, `play.reset` (live: the sound goes to the exciters on the board) | playback |
 | `param.mute_modes`, `param.mute_channels`, `param.set` | params (Ask unless Auto, inside the safety envelope) |
-| `analysis.run_python` on artefacts from renders / `param.get` / `preset.summary` / **`modal.rig_files`** | asks every run |
+| `analysis.run_python` on artefacts from renders / `param.get` / `preset.summary` / **`modal.rig_files`** | code (Ask by default, may be Auto or a plan step; always asks in a web-tainted turn) |
 
 | The assistant cannot | Why |
 |---|---|

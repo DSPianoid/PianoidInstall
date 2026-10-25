@@ -30,6 +30,10 @@ import { BUG_CMD, BUG_TOOL, buildReport, fileReport, preview, validateDraft } fr
 import {
   enabled as planFlag, validateRequest, createGrant, matchGrant, recordUse, describeGrant, planState, endedReason,
 } from '../planApproval.js';
+import { residualReason, SAFETY_NETS_TEXT, STILL_ASKS_TEXT } from '../autonomy.js';
+import { AuditLog } from './auditLog.js';
+import { backupPreset, middlewareDir } from './presetBackup.js';
+import { MANIFEST_FILE, PresetOwnership } from './presetOwnership.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -39,14 +43,16 @@ const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
 // The plan-approval request tool (dev-28f1): registered unless the kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0.
 export const PLAN_TOOL = 'mcp__assistant__request_plan_approval';
 const ANALYSIS_TOOL = 'mcp__analysis__run_python';
-// The v2 P5 sandbox tool as the policy and the router see it (category `code`: always asks).
+// The v2 P5 sandbox tool as the policy, the router and plan approval see it (category `code`: Ask by default,
+// may be Auto or in a plan since dev-auto1; a tainted turn always asks).
 export const ANALYSIS_CMD = {
   name: 'analysis.run_python', title: 'Run analysis code in the sandbox', tier: 'act', family: 'analysis', category: 'code',
-  approval_category: 'code',          // the confirm request's category (P2 approvals: locked Ask)
+  approval_category: 'code',          // the confirm request's category (P2 approvals)
 };
 // Never available, whatever a setting says: no shell for the model (the analysis tool is the only code path).
 export const DISALLOWED_TOOLS = ['Bash', 'PowerShell'];
 const ENV_TTL_MS = 30000;
+const AUDIT_INPUT_CHARS = 4000;       // the audit log keeps more of a tool input than the pane's 300-char summary
 
 const summarize = (v, n = 300) => {
   const s = typeof v === 'string' ? v : JSON.stringify(v);
@@ -56,16 +62,23 @@ const summarize = (v, n = 300) => {
 // The args the MCP server executes (and the permit must match): `export: true` is the server's own (v2 P5).
 const executed = (cmd, input) => splitExport(cmd, input).args;
 
+// The activity entry's decision for a verdict: plan / autonomous (dev-auto1) / auto / allow / confirm / deny.
+const decisionOf = (v) => (v.plan ? 'plan' : v.autonomous ? 'autonomous' : v.action === 'allow' && v.auto ? 'auto' : v.action);
+
 export class AssistantSession {
   constructor({
     paths, config, commands, driverFactory, broadcast = () => {}, fetchImpl = fetch,
     backendUrl = 'http://127.0.0.1:5000', launcherUrl = 'http://127.0.0.1:3001', commandsDir, limits, settleMs,
     analysis = analysisPaths(), runPythonImpl = runPython, publicUrl = 'http://127.0.0.1:3002',
-    planApproval = planFlag(),
+    planApproval = planFlag(), presetDir = middlewareDir(),
   }) {
     Object.assign(this, {
-      paths, config, driverFactory, broadcast, fetchImpl, backendUrl, launcherUrl, commandsDir, analysis, runPythonImpl, publicUrl,
+      paths, config, driverFactory, broadcast, fetchImpl, backendUrl, launcherUrl, commandsDir, analysis, runPythonImpl, publicUrl, presetDir,
     });
+    // dev-auto1: the on-disk audit log + the preset backups live in the assistant home (none without one)
+    this.audit = new AuditLog({ dir: paths?.root ? path.join(paths.root, 'audit') : null });
+    this.backupDir = paths?.root ? path.join(paths.root, 'preset-backups') : null;
+    this.owned = new PresetOwnership({ file: paths?.root ? path.join(paths.root, MANIFEST_FILE) : null, middleware: presetDir, audit: this.audit });
     this.sessionApprovals = {};       // "this session only" overrides (the service's lifetime)
     this.notes = [];                  // auto-revert notes for the next turn's context
     this.execUrl = null;              // set by the server once it listens (the MCP server's executor)
@@ -74,6 +87,7 @@ export class AssistantSession {
       log: (f) => this.logActivity(f), update: (e, f) => this.updateActivity(e, f), note: (n) => this.notes.push(n),
     });
     this.byName = new Map(commands.map((c) => [c.name, c]));
+    this.plannable = new Map([...this.byName, [ANALYSIS_CMD.name, ANALYSIS_CMD]]);   // what a plan request may name
     this.driver = null;
     this.busy = false;
     this.transcript = [];
@@ -98,6 +112,7 @@ export class AssistantSession {
       model: this.model, dataOptOut: !!this.config.dataOptOut, busy: this.busy, transcript: this.transcript,
       activity: this.activity, usage: this.usage, status: this.status,
       pendingConfirms: [...this.pending.values()].map((p) => p.request), approvals: this.approvalsView(),
+      autonomous: this.autonomyView(),
       ...(this.plan.enabled ? {
         planApproval: this.planView(), pendingPlanRequests: [...this.plan.requests.values()].map((r) => r.request),
       } : {}),
@@ -105,6 +120,32 @@ export class AssistantSession {
   }
 
   approvalState() { return { installation: this.config.approvals || {}, session: this.sessionApprovals }; }
+
+  // ---- Autonomous mode (dev-auto1): config.json `autonomous`, switched only by the pane (WS settings) ----
+
+  autonomyView() {
+    return {
+      on: !!this.config.autonomous, stillAsks: STILL_ASKS_TEXT, safetyNets: SAFETY_NETS_TEXT, auditFile: this.audit.file, backupDir: this.backupDir,
+      auditError: this.audit.lastError,
+    };
+  }
+
+  /** The policy's `settings.autonomous` for one call (undefined when off); `ownPreset` = a preset.save's ownership. */
+  autonomySettings(cmd, input, ownPreset = null) {
+    return this.config.autonomous ? { on: true, residual: residualReason(cmd, input, { ownPreset }) } : undefined;
+  }
+
+  /** A preset.save's permit hooks: refuse when the file changed after the check; record / refresh ownership after it. */
+  saveHooks(save) {
+    return save ? { guard: () => this.owned.unchanged(save), onOk: (res) => this.owned.recordAfterSave(save, res?.result?.path ?? res?.path) } : {};
+  }
+
+  /** An autonomous preset.save runs only after the file it overwrites is backed up; else it asks (fail closed). */
+  backupBeforeSave(input, verdict) {
+    const b = backupPreset({ presetPath: input?.path, middleware: this.presetDir, backupDir: this.backupDir });
+    if (!b.ok) return { action: 'confirm', hard: true, reason: `Autonomous mode could not back up the preset first: ${b.reason}` };
+    return { ...verdict, backup: b.backup, reason: `${verdict.reason}; ${b.reason}` };
+  }
 
   approvalsView() {
     const hard = [...Object.entries(HARD_CONFIRM).map(([command, reason]) => ({ command, reason })),
@@ -206,23 +247,26 @@ export class AssistantSession {
     let before = null;
     let envelope = null;
     const plan = this.planMatch(cmd, input);                   // null unless the flag is on and a grant is active
-    if (usesEnvelope(category) && (modeOf(category, approvals) === 'auto' || plan?.ok)) {
+    const save = cmd.name === 'preset.save' ? this.owned.classify(input?.path) : null;   // provenance (dev-auto1)
+    const autonomous = this.autonomySettings(cmd, input, save);
+    if (usesEnvelope(category) && (modeOf(category, approvals) === 'auto' || plan?.ok || autonomous)) {
       before = await this.auto.before(cmd, input);       // the values the envelope compares against
       envelope = checkEnvelope({ cmd, input, before, limits: this.auto.limits, autoWrites: this.auto.autoWrites });
     }
-    const verdict = decide({
+    let verdict = decide({
       command: cmd.name, tier: cmd.tier, family: cmd.family, category,
-      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: false, approvals, envelope, ...(plan?.ok ? { plan } : {}) },
+      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: !!this.tainted, approvals, envelope, ...(plan?.ok ? { plan } : {}), autonomous },
     });
+    if (verdict.autonomous && cmd.name === 'preset.save') verdict = this.backupBeforeSave(input, verdict);
     if (plan && !plan.ok && verdict.action === 'confirm') verdict.reason = `${verdict.reason} (${plan.reason})`;
-    const decision = verdict.plan ? 'plan' : verdict.action === 'allow' && verdict.auto ? 'auto' : verdict.action;
     const entry = this.logActivity({
-      command: cmd.name, tier: cmd.tier, category, input, decision, reason: verdict.reason, toolUseId: toolUseID,
-      ...(verdict.plan ? { plan: verdict.plan } : {}),
+      command: cmd.name, tier: cmd.tier, category, input, decision: decisionOf(verdict), reason: verdict.reason, toolUseId: toolUseID,
+      ...(verdict.plan ? { plan: verdict.plan } : {}), ...(verdict.backup ? { backup: verdict.backup } : {}),
+      ...(save ? { ownership: save.status } : {}),
     });
     if (verdict.plan) this.usePlan(cmd, plan, entry);
     if (verdict.action === 'allow') {
-      this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry });
+      this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry, ...this.saveHooks(save) });
       return { behavior: 'allow', updatedInput: input };
     }
     if (verdict.action === 'deny') {
@@ -235,35 +279,54 @@ export class AssistantSession {
       this.router.onRefused(cmd.name);
       return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
-    if (remember && verdict.canAuto) this.updateApprovals({ category, mode: 'auto', scope: remember });
-    this.auto.permit(cmd, executed(cmd, input), { entry });
+    if (remember && verdict.canAuto) this.updateApprovals({ category: verdict.category || category, mode: 'auto', scope: remember });
+    this.auto.permit(cmd, executed(cmd, input), { entry, ...this.saveHooks(save) });
     return { behavior: 'allow', updatedInput: input };
   }
 
-  /** The policy verdict of one analysis call (invalid input = deny; else category `code` = confirm). */
-  analysisVerdict(input) {
+  /**
+   * The policy verdict of one analysis call: invalid input = deny; else category `code` (Ask / Auto, a plan step;
+   * a tainted turn = hard confirm). `plan` = planMatch's answer (null = none).
+   */
+  analysisVerdict(input, plan = null) {
     try {
       validateInput(input);
     } catch (e) {
       return { action: 'deny', reason: `invalid analysis.run_python input: ${e.message}` };
     }
-    return decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted } });
+    return decide({
+      ...ANALYSIS_CMD, command: ANALYSIS_CMD.name,
+      settings: {
+        dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState(), ...(plan?.ok ? { plan } : {}),
+        autonomous: this.autonomySettings(ANALYSIS_CMD, input),
+      },
+    });
   }
 
   async canRunAnalysis(input, { signal, toolUseID }) {
     await this.trigger(this.router.onToolCall(ANALYSIS_CMD.name));   // layer 2: the first code run escalates
-    const verdict = this.analysisVerdict(input);
-    const shown = { ...input, code: undefined, code_lines: String(input?.code ?? '').split('\n').length };
-    const entry = this.logActivity({ command: ANALYSIS_CMD.name, tier: ANALYSIS_CMD.tier, input: shown, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
+    const plan = this.planMatch(ANALYSIS_CMD, input);
+    const verdict = this.analysisVerdict(input, plan);
+    const code = String(input?.code ?? '');
+    const shown = { ...input, code: undefined, code_lines: code.split('\n').length };
+    // the full code stays on the entry (`input` is summarized): an Auto run is as auditable as a confirmed one
+    const entry = this.logActivity({
+      command: ANALYSIS_CMD.name, tier: ANALYSIS_CMD.tier, category: ANALYSIS_CMD.category, input: shown, code,
+      decision: decisionOf(verdict), reason: verdict.reason, toolUseId: toolUseID, ...(verdict.plan ? { plan: verdict.plan } : {}),
+    });
+    if (verdict.plan) this.usePlan(ANALYSIS_CMD, plan, entry);
     if (verdict.action === 'deny') {
       this.router.onRefused(ANALYSIS_CMD.name);
       return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     }
-    const { allow } = await this.askConfirm(entry, ANALYSIS_CMD, input, verdict, signal);
-    this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
-    if (!allow) {
-      this.router.onRefused(ANALYSIS_CMD.name);
-      return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
+    if (verdict.action === 'confirm') {
+      const { allow, remember } = await this.askConfirm(entry, ANALYSIS_CMD, input, verdict, signal);
+      this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
+      if (!allow) {
+        this.router.onRefused(ANALYSIS_CMD.name);
+        return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
+      }
+      if (remember && verdict.canAuto) this.updateApprovals({ category: ANALYSIS_CMD.category, mode: 'auto', scope: remember });
     }
     this.analysisEntry = entry;
     return { behavior: 'allow', updatedInput: input };
@@ -297,11 +360,14 @@ export class AssistantSession {
     try {
       validateDraft(input);
       report = buildReport({ draft: input, transcript: this.transcript, activity: this.activity, context: this.lastContext, model: this.model.current });
-      verdict = decide({ ...BUG_CMD, command: BUG_CMD.name, settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState() } });
+      verdict = decide({
+        ...BUG_CMD, command: BUG_CMD.name,
+        settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState(), autonomous: this.autonomySettings(BUG_CMD, input) },
+      });
     } catch (e) {
       verdict = { action: 'deny', reason: `invalid bug report draft: ${e.message}` };
     }
-    const entry = this.logActivity({ command: BUG_CMD.name, tier: BUG_CMD.tier, category: BUG_CMD.category, input: { title: input?.title }, decision: verdict.action === 'allow' ? 'auto' : verdict.action, reason: verdict.reason, toolUseId: toolUseID });
+    const entry = this.logActivity({ command: BUG_CMD.name, tier: BUG_CMD.tier, category: BUG_CMD.category, input: { title: input?.title }, decision: verdict.action === 'allow' ? (verdict.autonomous ? 'autonomous' : 'auto') : verdict.action, reason: verdict.reason, toolUseId: toolUseID });
     if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     if (verdict.action === 'confirm') {
       const { allow, remember } = await this.askConfirm(entry, BUG_CMD, preview(report), verdict, signal);
@@ -358,7 +424,7 @@ export class AssistantSession {
     const id = `c${this.nextId++}`;
     const request = {
       type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input,
-      reason: verdict.reason, category: cmd.approval_category, hard: !!verdict.hard, canAuto: !!verdict.canAuto,
+      reason: verdict.reason, category: verdict.category || cmd.approval_category, hard: !!verdict.hard, canAuto: !!verdict.canAuto,
     };
     return new Promise((resolve) => {
       const done = (allow, remember = null) => {
@@ -383,12 +449,14 @@ export class AssistantSession {
     if (fields.decision === 'deny') entry.status = 'denied';
     this.activity.push(entry);
     if (this.activity.length > 200) this.activity.shift();
+    this.audit.write('activity', { ...entry, input: summarize(fields.input, AUDIT_INPUT_CHARS) });   // dev-auto1: on disk
     this.broadcast({ type: 'activity', entry });
     return entry;
   }
 
   updateActivity(entry, fields) {
     Object.assign(entry, fields);
+    this.audit.write('update', { id: entry.id, command: entry.command, ...fields });
     this.broadcast({ type: 'activity', entry });
   }
 
@@ -427,7 +495,7 @@ export class AssistantSession {
    */
   requestPlan(args) {
     if (!this.plan.enabled) return Promise.resolve({ ok: false, error: 'plan approval is not enabled' });
-    const v = validateRequest(args, this.byName);
+    const v = validateRequest(args, this.plannable);
     if (!v.ok) {
       this.logActivity({ command: 'plan approval', tier: 'settings', decision: 'deny', reason: `invalid request: ${v.error}` });
       return Promise.resolve({ ok: false, error: v.error });
@@ -560,7 +628,7 @@ export class AssistantSession {
     const digest = buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
     const auto = this.approvalsView().autoActive;
     return {
-      ...digest, approvals: { auto: auto.length ? auto : 'none' },
+      ...digest, approvals: { auto: auto.length ? auto : 'none' }, autonomous_mode: !!this.config.autonomous,
       ...(this.plan.enabled ? { plan_approval: this.planContext() } : {}),
       ...(notes.length ? { assistant_notes: notes } : {}),
     };
@@ -618,8 +686,15 @@ export class AssistantSession {
     this.turnJobs = [];
   }
 
-  async updateSettings({ model, dataOptOut }) {
+  async updateSettings({ model, dataOptOut, autonomous }) {
     let restart = false;
+    if (typeof autonomous === 'boolean' && autonomous !== !!this.config.autonomous) {
+      this.config.autonomous = autonomous;               // per installation until the user switches it off
+      this.logActivity({
+        command: 'autonomous mode', tier: 'settings', decision: autonomous ? 'on' : 'off', status: 'ok',
+        reason: autonomous ? `on (this installation): runs without asking except ${STILL_ASKS_TEXT.join('; ')}` : 'off: the per-category approvals apply again',
+      });
+    }
     if (typeof dataOptOut === 'boolean' && dataOptOut !== !!this.config.dataOptOut) {
       this.config.dataOptOut = dataOptOut;
       restart = true;

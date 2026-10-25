@@ -61,14 +61,17 @@ export class AutoWriter {
     return Object.fromEntries(paths.map((p, i) => [p, bodies[i]]));
   }
 
-  /** Leave a permit for a call the policy allowed (or the user confirmed). */
-  permit(cmd, input, { auto = false, watch = false, before = null, entry = null }) {
+  /**
+   * Leave a permit for a call the policy allowed (or the user confirmed). `guard()` -> null | why the call may no
+   * longer run (checked right before it does); `onOk(res)` runs after it succeeded (dev-auto1: preset ownership).
+   */
+  permit(cmd, input, { auto = false, watch = false, before = null, entry = null, guard = null, onOk = null }) {
     const t = this.now();
     this.permits = this.permits.filter((p) => t - p.at < PERMIT_TTL_MS);
     const recorded = RECORDED.has(cmd.approval_category);
     const groupId = recorded ? `assistant-${this.tag}-t${this.turn}-w${++this.writes}` : null;
     if (auto && watch) this.autoWrites += 1;
-    this.permits.push({ key: `${cmd.name}\u0000${canonical(input)}`, at: t, cmd, input, auto, watch, before, entry, groupId, turn: this.turn });
+    this.permits.push({ key: `${cmd.name}\u0000${canonical(input)}`, at: t, cmd, input, auto, watch, before, entry, groupId, turn: this.turn, guard, onOk });
     return groupId;
   }
 
@@ -86,9 +89,12 @@ export class AutoWriter {
     if (!p) {
       return { status: 403, body: { ok: false, status: 403, error: 'not_permitted', message: `${name} was not allowed by the assistant policy for these arguments` } };
     }
+    const why = p.guard?.();
+    if (why) return { status: 409, body: { ok: false, status: 409, error: 'changed', message: why } };
     const res = await callCommand(p.cmd, args, {
       source: 'assistant', fetchImpl: this.fetchImpl, group: p.groupId, urls: { backend: this.backendUrl, launcher: this.launcherUrl },
     });
+    if (res.ok) p.onOk?.(res);
     if (!res.ok || !p.groupId) return { status: 200, body: res };
     const plan = p.before ? revertPlan(p.cmd, p.input, p.before) : (p.cmd.name === 'runtime.set' ? null : { kind: 'history' });
     const rec = { groupId: p.groupId, turn: p.turn, cmd: p.cmd, plan, entry: p.entry, auto: p.auto, reverted: null };

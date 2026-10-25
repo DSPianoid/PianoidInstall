@@ -4,31 +4,43 @@
  * One installation = one user (D5: no user management): the owner-level rules below apply.
  *
  * decide({command, tier, family, category, settings}) ->
- *   {action: 'allow' | 'confirm' | 'deny', reason, auto?, watch?, hard?, canAuto?}
+ *   {action: 'allow' | 'confirm' | 'deny', reason, auto?, watch?, hard?, canAuto?, category?}
+ *   (`category` = the approval category a confirm's "Don't ask again" switches when it is not the command's own)
  * It is called for EVERY tool call from the service's canUseTool hook (and again by the MCP
  * server for deny) — never left to the prompt. In order:
  *
  *   excluded                                never listed; deny if asked anyway
  *   data opt-out ON (D4, default off)       modal / calibration tools DENY
  *   render.* (act) while live audio runs    the stop -> render -> restart renders (LIVE_RENDERS) ask
- *                                           (live audio pauses for the render); any other render, e.g. an
+ *                                           (live audio pauses for the render) unless category
+ *                                           `renders_live` is Auto (dev-auto1; then `renders` decides);
+ *                                           any other render, e.g. an
  *                                           output_scale calibration render, is DENIED (R6). Reads never.
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
+ *   Autonomous mode (dev-auto1,             `settings.autonomous` = {on, residual} (set by the service from
+ *     autonomy.js)                          config.json `autonomous`): every non-read runs (auto,
+ *                                           `autonomous: true`), the hard-confirm list included, EXCEPT the
+ *                                           residual still-ask list (autonomy.js: a plan ticked by the user
+ *                                           may still cover it, else a hard confirm); params / runtime still
+ *                                           need the A2 envelope (outside: hard confirm). After the deny
+ *                                           rows and the tainted row, so it can never bypass them
  *   a plan approval (dev-28f1, on unless   `settings.plan` = planApproval.js matchGrant, set by the service
  *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
  *                                           (auto). A hard-confirm command only when the user ticked it
  *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
- *                                           never `code`, never reads. After the deny rows and the tainted
- *                                           row, so a plan can never bypass them
+ *                                           never reads. After the deny rows and the tainted row, so a
+ *                                           plan can never bypass them (`code` is plannable: dev-auto1)
  *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
  *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
  *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
  *                                           the post-write level watch with auto-revert; outside the
  *                                           envelope it asks, hard (an envelope override)
- *   category `code` (analysis.run_python)   asks: locked Ask in approvals.js (V1); v2 P5
+ *   category `code` (analysis.run_python)   Ask by default, may be Auto (V1 / V8, dev-auto1); a tainted
+ *                                           turn asks, hard (the row above); the sandbox is never bypassed
  *   category Auto, other                    allow
  *
- * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}}.
+ * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}, plan?,
+ *   autonomous?: {on, residual: null | reason}}.
  */
 import { modeOf, switchable, usesEnvelope } from './approvals.js';
 
@@ -44,6 +56,8 @@ export const LIVE_RENDER_CONFIRM = 'live audio pauses for a few seconds: the eng
  * (try / finally restart). Every other render.* stays denied while live audio runs (fail closed).
  */
 export const LIVE_RENDERS = new Set(['render.chart', 'render.note_playback', 'render.keyboard']);
+/** The approval category of the live-audio pause (dev-auto1): Ask by default, switchable / persistable like any other. */
+export const LIVE_RENDER_CATEGORY = 'renders_live';
 
 /**
  * The hard-confirm list (v2 §9, V8): these ask every time and can never be set to Auto. Registry
@@ -89,12 +103,16 @@ export function decide({ command, tier, family, category, settings = {} }) {
   if (settings.tainted && !READ_TIERS.has(tier)) {
     return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
   }
+  const autoVerdict = autonomousStep({ command, tier, category, settings });
+  if (autoVerdict) return autoVerdict;
   const planVerdict = planStep({ command, tier, category, settings });
   if (planVerdict) return planVerdict;
   if (HARD_CONFIRM[command] || category === 'hard_confirm') {
     return { action: 'confirm', hard: true, reason: HARD_CONFIRM[command] || 'on the hard-confirm list' };
   }
-  if (liveRender) return { action: 'confirm', reason: LIVE_RENDER_CONFIRM };
+  if (liveRender && modeOf(LIVE_RENDER_CATEGORY, settings.approvals) === 'ask') {
+    return { action: 'confirm', canAuto: true, category: LIVE_RENDER_CATEGORY, reason: LIVE_RENDER_CONFIRM };
+  }
   const mode = modeOf(category, settings.approvals);
   if (mode === 'ask') {
     return { action: 'confirm', canAuto: switchable(category), reason: `${category}: Ask` };
@@ -108,12 +126,31 @@ export function decide({ command, tier, family, category, settings = {} }) {
 }
 
 /**
+ * The Autonomous-mode row (dev-auto1; null = off or a read: the rows below decide). A residual command keeps
+ * asking (hard) unless a plan the user approved covers it; params / runtime still need the A2 envelope.
+ */
+function autonomousStep({ command, tier, category, settings }) {
+  const a = settings.autonomous;
+  if (!a?.on || READ_TIERS.has(tier)) return null;
+  if (a.residual) {
+    return planStep({ command, tier, category, settings })
+      || { action: 'confirm', hard: true, reason: `${a.residual} (asks even in Autonomous mode)` };
+  }
+  if (usesEnvelope(category)) {
+    const env = settings.envelope;
+    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'outside the envelope' };
+    return { action: 'allow', auto: true, watch: true, autonomous: true, reason: `Autonomous mode, ${env.reason}` };
+  }
+  return { action: 'allow', auto: true, autonomous: true, reason: 'Autonomous mode' };
+}
+
+/**
  * The plan-approval row (null = no plan verdict, the rows below decide). `settings.plan` is absent unless
  * the flag is on and a grant matched, so with the flag off this returns null for every call.
  */
 function planStep({ command, tier, category, settings }) {
   const plan = settings.plan;
-  if (!plan?.ok || READ_TIERS.has(tier) || category === 'code') return null;
+  if (!plan?.ok || READ_TIERS.has(tier)) return null;
   if ((HARD_CONFIRM[command] || category === 'hard_confirm') && plan.ticked !== true) return null;
   if (usesEnvelope(category)) {
     if (!settings.envelope?.ok) return null;

@@ -44,8 +44,8 @@ export const IRREVERSIBLE = {
 };
 const IRREVERSIBLE_RE = /(^|[._])(delete|remove|purge|erase|github|external)/i;
 export const isIrreversible = (name) => !!IRREVERSIBLE[name] || IRREVERSIBLE_RE.test(name);
-/** Never in a plan: analysis code (its own confirm, V1), and what is never available. */
-const NOT_PLANNABLE_CATEGORIES = new Set(['code', 'excluded']);
+/** Never in a plan: what is never available. (analysis.run_python, category `code`, is plannable since dev-auto1.) */
+const NOT_PLANNABLE_CATEGORIES = new Set(['excluded']);
 
 const DRIVE = new Set(['modal.rig_capture', 'modal.rig_sine']);
 const NEEDS_INPUTS = new Set(['modal.rig_capture', 'modal.rig_record']);

@@ -11,6 +11,7 @@ The AI assistant of the Pianoid UI (proposal: `docs/proposals/ai-assistant-in-ui
 | `service/router.js` | v2 P1 | the model router (pure): pre-route, tool / failure triggers, self-escalation, stickiness |
 | `approvals.js`, `envelope.js`, `lib/paramLimits.js` | v2 P2 | per-category Ask / Auto (pure); the A2 envelope checks + level-breach rule (pure); the limits read from `schemas/params` |
 | `planApproval.js` | dev-28f1 (on by default since dev-28f2) | plan pre-approval (pure): the assistant's request, the user-only grant, envelope matching, expiry; see Plan pre-approval |
+| `autonomy.js`, `service/auditLog.js`, `service/presetBackup.js` | dev-auto1 | Autonomous mode (pure: the residual still-ask list, the own-working-preset rule); the on-disk audit log; the backup before an autonomous `preset.save`; see Autonomous mode |
 | `service/autoWrite.js` | v2 P2 | the executor of the service's MCP server: permits, one undo group per action, the post-write level watch and auto-revert |
 | `analysis/` + `sandbox/` | v2 P5 | the analysis sandbox: `analysis.run_python` (in-process MCP server `analysis`), the artefact store, `export: true` on renders / reads, the AppContainer + Job Object launcher `PianoidSandbox.exe` and its SAFE escape suite |
 
@@ -74,11 +75,15 @@ evaluates the code: it writes it to a run dir and spawns the sandbox.
 | `sandbox/launcher/PianoidSandbox.cs` | the launcher (C#, `build.bat` with the Windows .NET 4 `csc`, no SDK, no admin; the `.exe` is not committed). AppContainer with zero capabilities (no network, incl. localhost) + Job Object (memory 2 GB, one process, kill on close, UI limits, below-normal priority). **Wall clock = the hard bound**, CPU time capped at wall / 2 (the job CPU limit fires ~2x late). **Disk watchdog**: the job's write counter (10 ms) and the run dir + container folder size (50 ms) over `--disk-mb` (200) terminate the job (measured kill at 240-270 MB for a 1.8 GB/s fill). **Container wipe**: the container's own folder (`%LOCALAPPDATA%\Packages\<profile>\AC`) and registry storage key are wiped after every run, and a run refuses to start unless both are empty. Output: `limits_hit` (`wall`, `cpu`, `memory`, `disk`, `processes`, `stdout`, `stderr`, `out_files`) |
 | `analysis/runPython.js` | the tool: `{code, inputs: [artefact ids], timeout_s <= 120 (60), memory_mb <= 2048}` -> `runs\<run_id>\` (`code.py` = a service prelude with an audit hook as defence in depth, `user.py` = the model's code, `in\<id>\` copies, `out\`, `tmp\`) -> `{ok, exit, stdout (20 kB), stderr (8 kB), files: [{artifact_id, name, kind, size}], skipped, limits_hit, elapsed_s}`. The code sees `ARTIFACTS`, `artifact_path(id, name=None)`, `OUT`. Runs pruned to the newest 50 |
 | `analysis/store.js` | the artefact store `%USERPROFILE%\.pianoid-assistant\analysis\artifacts\<id>\` (`meta.json` + data; ids `a-<yyyymmddhhmmss>-<hex6>`; newest 500 kept). Only the service creates artefacts; the model passes ids, never paths |
-| `analysis/export.js` | `export: true` on `render.note_playback` / `render.chart` / `render.keyboard` / `param.get` / `preset.summary`: the MCP server strips the flag, runs the command, saves `audio_<i>.wav` (as the backend wrote it) + `series_<i>.npy` (raw engine units before output_scale and volume) or `result.json`, with the command, args and the live `/load_settings`, and returns `artifact: {id, files}`. With live audio a render asks first (it pauses live audio for a few seconds, R6 revised by dev-947d) |
+| `analysis/export.js` | `export: true` on `render.note_playback` / `render.chart` / `render.keyboard` / `param.get` / `preset.summary`: the MCP server strips the flag, runs the command, saves `audio_<i>.wav` (as the backend wrote it) + `series_<i>.npy` (raw engine units before output_scale and volume) or `result.json`, with the command, args and the live `/load_settings`, and returns `artifact: {id, files}`. With live audio a render asks first unless `renders_live` is Auto (it pauses live audio for a few seconds, R6 revised by dev-947d) |
 | pane | a run's PNGs show in the chat ("Analysis result") and on its activity entry, served by the service at `GET /artifacts/<id>/<file>` (listed data files only); a code confirm shows the code |
 
-**Policy:** category `code` always asks (`policy.js`); a tainted turn (web content, P7) says so in the reason and still
-asks. P2's approvals keep `code` locked to Ask; Auto is decision V1 (after the escape suite, never in a tainted turn).
+**Policy:** category `code` is Ask by default and switchable to Auto (the Permissions popover or the confirm's "Don't
+ask again", this session or this installation): decision V1 / V8, unlocked by dev-auto1 (2026-10-25) because the SAFE
+escape suite passed (spike doc §10). A tainted turn (web content, P7) always asks, hard, with no "Don't ask again",
+whatever the mode. Auto never bypasses the sandbox: every run still goes through `runPython` and the launcher. A run can
+also be a step of an approved plan (`analysis.run_python`). Every run's activity entry (and the audit log) carries its
+full code.
 The first `run_python` of a turn escalates it to Opus (router layer 2); code / analysis requests pre-route to Opus.
 
 **One-time setup (idempotent, no admin):** `node analysis/setup.js` builds the launcher if missing (`--rebuild`
@@ -151,15 +156,16 @@ directory / OS account, with their own assistant home and their own subscription
 | | |
 |---|---|
 | reads, ui, `search_docs` (category `view`) | run |
-| playback, renders | run (Auto by default). With live audio (R6, dev-947d): `render.note_playback` / `render.chart` / `render.keyboard` (the routes stop the realtime engine, render offline and restart it) ask every time, even with `renders` on Auto; any other `render.*` (e.g. a calibration render) is denied; read-tier `render.chart_types` never asks |
+| playback, renders | run (Auto by default). With live audio (R6, dev-947d): `render.note_playback` / `render.chart` / `render.keyboard` (the routes stop the realtime engine, render offline and restart it) ask (category `renders_live`, Ask by default; set it to Auto, persistable, and they run under `renders`, dev-auto1); any other `render.*` (e.g. a calibration render) is denied; read-tier `render.chart_types` never asks |
 | `bug.report` (`bug_local`) | Ask by default (switchable); the dialog shows the full draft (see Bug reports) |
-| `params`, `runtime`, `preset_nav`, `history` | Ask by default; Auto per category. Auto `params` / `runtime` run only inside the A2 envelope, then the level watch with auto-revert |
-| the hard-confirm list (save, promote, full load, unload, calibration, modal jobs, launcher start, …) | always confirm (category `hard_confirm`, never Auto) |
+| `params`, `runtime`, `preset_nav`, `history`, `code`, `renders_live` | Ask by default; Auto per category. Auto `params` / `runtime` run only inside the A2 envelope, then the level watch with auto-revert |
+| the hard-confirm list (save, promote, full load, unload, calibration, modal jobs, launcher start, …) | always confirm (category `hard_confirm`, never Auto); in Autonomous mode only the residual still-ask list |
 | "Block measurement data" switch on | modal / calibration denied |
 
 Every registry command names its `approval_category`; a missing one fails the registry load. The categories are set in
 the pane's Permissions popover (per installation in `config.json` `approvals`, or for this session only) and by the
-confirm dialog's "Don't ask again" (this session by default). Confirms are answered in the pane; Stop interrupts the
+confirm dialog's "Don't ask again" (this session by default). The WS `/ws` accepts only a localhost page (the pane) or a
+non-browser client (dev-auto1): a foreign web Origin is refused. Confirms are answered in the pane; Stop interrupts the
 turn, declines pending confirms, drops the turn's permits and cancels the turn's jobs. Details: design note §10.
 
 ## Plan pre-approval (dev-28f1; ON by default since dev-28f2, user approval 2026-10-22)
@@ -175,12 +181,29 @@ rig pipeline (capture → process → preset → load / render):
 
 | | |
 |---|---|
-| request | the assistant calls `request_plan_approval` (in-process `assistant` server) with `steps` and an envelope: `commands`, `max_level_dbfs` (≤ −24: the policy cap is unchanged), `output_channels`, `input_channels`, `max_drive_s` (total), `folders`, `expires_in_min` (≤ 120). `planApproval.js` `validateRequest` checks it against the registry (`code` / excluded never plannable); the tool waits for the user |
+| request | the assistant calls `request_plan_approval` (in-process `assistant` server) with `steps` and an envelope: `commands`, `max_level_dbfs` (≤ −24: the policy cap is unchanged), `output_channels`, `input_channels`, `max_drive_s` (total), `folders`, `expires_in_min` (≤ 120). `planApproval.js` `validateRequest` checks it against the registry + `analysis.run_python` (excluded never plannable; `code` plannable since dev-auto1); the tool waits for the user |
 | grant | ONLY the pane's click (WS `plan_grant {id, accept, ticked}` for a pending request id) creates it; the assistant can never create, widen or extend one. A hard-confirm command (rig drives, `preset.create`, `modal.set_measurements_dir`, preset writes, …) is covered only when the user ticks it; irreversible ones (overwrite / delete / external filing: `IRREVERSIBLE`) are flagged and never pre-ticked. In memory only (ends with the service) |
 | match | `matchGrant`: command in the grant, every drive level ≤ the grant max, every output / input channel listed, cumulative drive time within `max_drive_s`, every write folder (`rig_runs`, `<area>/<run>`, `presets/<name>`, a path) inside `folders`, not expired / revoked. Anything it cannot read fails closed (asks) |
-| policy | `policy.js` plan row: AFTER excluded / data opt-out / live-render deny and AFTER the tainted-turn row, never for `code` or reads; a hard-confirm command only with `ticked`; `params` / `runtime` still need the A2 envelope (then the level watch). Outside the grant everything asks as before, the confirm reason says why |
+| policy | `policy.js` plan row: AFTER excluded / data opt-out / live-render deny and AFTER the tainted-turn row, never for reads; a hard-confirm command only with `ticked`; `params` / `runtime` still need the A2 envelope (then the level watch). Outside the grant everything asks as before, the confirm reason says why |
 | pane | "Plan approval active · N min left" chip with **Revoke** (WS `plan_revoke`); the request dialog (steps, limits, commands with the tick boxes). Every auto-approved step is an activity entry with decision `plan` + the grant id, and in the grant's own log; grant / revoke / expiry are activity entries too |
 | model's view (dev-28f3) | every turn's `<pianoid_context>` carries `plan_approval` (`planState`): `{state: none}`, `active` (title, commands, `hard_ticked`, the envelope, `drive_used_s` of `max_drive_s`, `remaining_min`) or `revoked` / `expired` (title, `at`, `ago`; kept until the next grant). After a revoke / expiry a confirm's reason ends `(outside the plan approval: the plan "T" was revoked 2 min ago)` (or `expired …`), and a declined step tells the model the same; so it can explain why a confirm came back. Not present with the kill-switch |
+
+## Autonomous mode (dev-auto1, user approval 2026-10-25)
+
+The pane's **Autonomous** switch (header; switching ON asks first in a dialog with the lists below, OFF is immediate)
+sets `config.json` `autonomous` for this installation; it stays on until the user switches it off. Only the pane
+(WS `settings {autonomous}`) changes it; the model has no tool for it. No SDK bypass permission mode is used.
+
+| | |
+|---|---|
+| runs without a confirm | every non-excluded category AND the hard-confirm list: renders (live too), analysis code, preset loads / switches, calibration, modal jobs, rig drives, `preset.create` (no overwrite), saving the assistant's OWN working copy (by provenance, below), local bug reports. Activity decision `autonomous` |
+| own working copy (`service/presetOwnership.js`, provenance, not the file name) | a `preset.save` path is OWN only when the assistant CREATED the file (it did not exist when the save was checked, and the save succeeded) AND the file still hashes (sha256) to what the assistant last wrote. Paths resolve like the backend's (relative to pianoid_middleware, `.json` appended), then `..`, symlinks / junctions and (Windows) case are resolved to the real path, which must stay inside `<pianoid_middleware>/presets`. Manifest `%USERPROFILE%\.pianoid-assistant\owned-presets.json` (`{version: 1, entries: {<real path>: {path, sha256, created_at, updated_at, session}}}`), written only by the service, atomically (temp + rename); missing or corrupt = owns nothing (fail closed), recorded in the audit log (`event: ownership`), a corrupt file is kept aside as `owned-presets.json.corrupt-<stamp>` on the next write. A save to a new file is a creation (runs, then recorded); a pre-existing file, one changed since, one not in the manifest or a path outside presets/ asks. A save the user approves over a not-own file runs but does NOT adopt it (it stays the user's; the next save asks again). Between the check and the save the executor re-checks (a creation must still be new, an owned file unchanged) and refuses (409) otherwise. After the save the backend's reported absolute path (`result.path`) must be the checked file; otherwise nothing is recorded and ownership is off (every check asks) until the service restarts (`path_mismatch` in the audit log). The activity entry carries `ownership` (`new` / `owned` / `not_owned` / `modified` / `outside` / `error`) |
+| still asks (hard, no "Don't ask again"; `autonomy.js` `residualReason`) | `preset.save` to anything not own (above); `preset.promote`; delete / remove / unload (`preset.unload`, any `*delete*` / `*remove*` name); `audio.exciters_config`; any external filing / sending name; launcher / process control; `preset.create` with `overwrite`; a rig drive above −24 dBFS or with an unknown level. A plan the user approved and ticked may still cover one |
+| stays in force | excluded tools; "Block measurement data"; the live-render deny (R6); a web-tainted turn (every action asks, hard); the A2 envelope + level watch with auto-revert (bigger steps ask, hard; 20 automatic writes per turn); the rig cap −24 dBFS (registry schemas + backend `SAFE_MAX_LEVEL_DBFS`, re-checked here); the PreToolUse deny hook; the analysis sandbox |
+| preset backup | before an autonomous `preset.save` the file it overwrites is copied to `%USERPROFILE%\.pianoid-assistant\preset-backups\<UTC stamp>__<path>.json` (newest 200 kept; a new file needs none). No preset folder (`PIANOID_CORE_DIR` or `<Install>/PianoidCore` + `pianoid_middleware`), a path outside it or a failed copy = the save asks instead. The activity entry names the backup |
+| audit log | every activity entry and update (tool call, decision, confirm answer, result, setting change, the full analysis code; inputs up to 4000 chars) is appended to `%USERPROFILE%\.pianoid-assistant\audit\audit.jsonl` (`{ts, event, ...}`); rotated at 5 MB, 5 files kept (`audit.1.jsonl` newest). A write error never blocks a call; the pane shows "Audit log error" |
+| undo | "Undo turn" on an undoable activity entry (WS `undo_turn`): every recorded params / runtime edit of that assistant turn, newest first; "Undo" = one action |
+| model | the context carries `autonomous_mode`; the prompt tells the model not to announce confirms then, to save its work to a NEW file in presets/ and keep saving to that one, and, with it off, to request a plan for any multi-step task |
 
 ## Bug reports (v2 P6 minimal, dev-947d)
 
