@@ -173,7 +173,9 @@ export function createAssistantService({
     res.end();
   });
 
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  // dev-auto1 review: only the pane (a localhost page) or a non-browser client may connect: a foreign web page must not
+  // answer confirms, change approvals or switch Autonomous mode through the user's browser
+  const wss = new WebSocketServer({ server, path: '/ws', verifyClient: ({ origin }) => !origin || LOCAL_ORIGIN.test(origin) });
   wss.on('connection', (ws) => {
     clients.add(ws);
     ws.on('close', () => clients.delete(ws));

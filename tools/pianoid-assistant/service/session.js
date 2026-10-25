@@ -124,6 +124,7 @@ export class AssistantSession {
   autonomyView() {
     return {
       on: !!this.config.autonomous, stillAsks: STILL_ASKS_TEXT, safetyNets: SAFETY_NETS_TEXT, auditFile: this.audit.file, backupDir: this.backupDir,
+      auditError: this.audit.lastError,
     };
   }
 
@@ -246,7 +247,7 @@ export class AssistantSession {
     }
     let verdict = decide({
       command: cmd.name, tier: cmd.tier, family: cmd.family, category,
-      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: false, approvals, envelope, ...(plan?.ok ? { plan } : {}), autonomous },
+      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: !!this.tainted, approvals, envelope, ...(plan?.ok ? { plan } : {}), autonomous },
     });
     if (verdict.autonomous && cmd.name === 'preset.save') verdict = this.backupBeforeSave(input, verdict);
     if (plan && !plan.ok && verdict.action === 'confirm') verdict.reason = `${verdict.reason} (${plan.reason})`;

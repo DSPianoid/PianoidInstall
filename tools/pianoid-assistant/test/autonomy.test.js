@@ -230,3 +230,30 @@ test('presetBackup: outside pianoid_middleware refused; a new file needs no back
   assert.equal(kept.length, 3);
   assert.match(kept[0], /^20261025T050001000Z__presets_a_work\.json$/);
 });
+
+test('WS (review fix): a foreign web origin is refused; the pane (localhost) and non-browser clients connect and can switch Autonomous mode', async () => {
+  const { createAssistantService } = await import('../service/server.js');
+  const WebSocket = (await import('ws')).default;
+  const home = tmp('pianoid-auto1-ws-');
+  const svc = createAssistantService({ env: { ...process.env, ANTHROPIC_API_KEY: '', PIANOID_ASSISTANT_HOME: home, PIANOID_BACKEND_URL: 'http://127.0.0.1:1' }, port: 0, driver: 'fake' });
+  const port = await svc.listen();
+  const open = (origin) => new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, origin ? { origin } : {});
+    ws.on('open', () => resolve(ws));
+    ws.on('error', () => resolve(null));
+    ws.on('unexpected-response', () => resolve(null));
+  });
+  try {
+    assert.equal(await open('https://evil.example'), null);
+    const pane = await open('http://localhost:3000');
+    assert.ok(pane, 'the pane origin connects');
+    pane.close();
+    const ws = await open(null);
+    ws.send(JSON.stringify({ type: 'settings', autonomous: true }));
+    for (let i = 0; i < 100 && !svc.session.config.autonomous; i += 1) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).autonomous, true);
+    ws.close();
+  } finally {
+    await svc.close();
+  }
+});
