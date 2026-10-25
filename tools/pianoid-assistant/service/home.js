@@ -8,6 +8,8 @@
  *   config.json    service settings (model choice, data opt-out, the per-installation approvals, Autonomous mode)
  *   audit\         the on-disk audit log (service/auditLog.js, dev-auto1); preset-backups\ = the automatic
  *                  backups before an autonomous preset.save (service/presetBackup.js)
+ *   memory\notes\  the assistant's notes / hand-off memory (service/notesStore.js, dev-mem1): the only memory
+ *                  across sessions, written only by the service
  * One installation = one user (D5): whoever runs Pianoid logs the assistant in with THEIR OWN
  * subscription; %USERPROFILE% resolves per OS user, so users on a shared system stay separate.
  * The child process gets an ALLOW-LISTED env (never process.env): no ANTHROPIC_* key, and HOME /
