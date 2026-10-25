@@ -22,7 +22,8 @@
 export const CATEGORIES = [
   { id: 'view', label: 'View and reads', covers: 'UI commands (panes, selection, zoom) and every read', default: 'auto', locked: 'reads and view changes always run' },
   { id: 'playback', label: 'Playback', covers: 'play notes / chords / modes / MIDI files, reset, cancel a job', default: 'auto' },
-  { id: 'renders', label: 'Offline renders', covers: 'render.* (with live audio each render asks: live audio pauses briefly)', default: 'auto' },
+  { id: 'renders', label: 'Offline renders', covers: 'render.* (with live audio see Renders with live audio)', default: 'auto' },
+  { id: 'renders_live', label: 'Renders with live audio', covers: 'render.note_playback / chart / keyboard while live audio plays: the engine stops, renders offline and restarts (live audio pauses a few seconds)', default: 'ask' },
   { id: 'params', label: 'Parameter edits', covers: 'param.set, mode / channel mutes', default: 'ask', envelope: true },
   { id: 'runtime', label: 'Volume and feedback', covers: 'runtime.set (volume, feedback slider)', default: 'ask', envelope: true },
   { id: 'preset_nav', label: 'Preset navigation', covers: 'switch preset, spawn a working copy, load into the library', default: 'ask' },

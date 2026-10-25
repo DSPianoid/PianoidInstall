@@ -237,7 +237,7 @@ export class AssistantSession {
       this.router.onRefused(cmd.name);
       return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
-    if (remember && verdict.canAuto) this.updateApprovals({ category, mode: 'auto', scope: remember });
+    if (remember && verdict.canAuto) this.updateApprovals({ category: verdict.category || category, mode: 'auto', scope: remember });
     this.auto.permit(cmd, executed(cmd, input), { entry });
     return { behavior: 'allow', updatedInput: input };
   }
@@ -377,7 +377,7 @@ export class AssistantSession {
     const id = `c${this.nextId++}`;
     const request = {
       type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input,
-      reason: verdict.reason, category: cmd.approval_category, hard: !!verdict.hard, canAuto: !!verdict.canAuto,
+      reason: verdict.reason, category: verdict.category || cmd.approval_category, hard: !!verdict.hard, canAuto: !!verdict.canAuto,
     };
     return new Promise((resolve) => {
       const done = (allow, remember = null) => {

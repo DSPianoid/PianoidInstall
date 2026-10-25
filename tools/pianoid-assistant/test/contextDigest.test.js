@@ -142,7 +142,8 @@ test('R6 (dev-947d): with live audio the stop/render/restart renders ask, reads 
   const { decide, LIVE_RENDER_REASON, LIVE_RENDER_CONFIRM, LIVE_RENDERS } = await import('../policy.js');
   const live = { liveAudio: true };
   for (const command of LIVE_RENDERS) {
-    assert.deepEqual(decide({ command, tier: 'act', family: 'render', category: 'renders', settings: live }), { action: 'confirm', reason: LIVE_RENDER_CONFIRM });
+    assert.deepEqual(decide({ command, tier: 'act', family: 'render', category: 'renders', settings: live }),
+      { action: 'confirm', canAuto: true, category: 'renders_live', reason: LIVE_RENDER_CONFIRM });
   }
   // reads are never gated (the transcript's render.chart_types refusal)
   assert.equal(decide({ command: 'render.chart_types', tier: 'read', family: 'render', category: 'view', settings: live }).action, 'allow');
@@ -154,6 +155,14 @@ test('R6 (dev-947d): with live audio the stop/render/restart renders ask, reads 
   assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { ...live, tainted: true } }).hard, true);
   assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: {} }).action, 'allow');
   assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', category: 'playback', settings: live }).action, 'allow');
+  // dev-auto1: renders_live Auto skips the live-audio confirm (renders then decides); tainted / non-LIVE_RENDERS unchanged
+  const liveAuto = { ...live, approvals: { installation: { renders_live: 'auto' } } };
+  assert.deepEqual(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: liveAuto }),
+    { action: 'allow', auto: true, reason: 'renders: Auto' });
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders',
+    settings: { ...liveAuto, approvals: { installation: { renders_live: 'auto', renders: 'ask' } } } }).reason, 'renders: Ask');
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { ...liveAuto, tainted: true } }).hard, true);
+  assert.equal(decide({ command: 'render.recalibrate_output_level', tier: 'act', family: 'render', category: 'renders', settings: liveAuto }).action, 'deny');
 
   const { AssistantSession } = await import('../service/session.js');
   const cmds = [
@@ -178,7 +187,7 @@ test('R6 (dev-947d): with live audio the stop/render/restart renders ask, reads 
   assert.equal((await yes.s.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, { toolUseID: 't' })).behavior, 'allow');
   assert.equal(yes.confirms.length, 1);
   assert.match(yes.confirms[0].reason, /live audio pauses/);
-  assert.equal(yes.confirms[0].canAuto, false);
+  assert.deepEqual([yes.confirms[0].canAuto, yes.confirms[0].category], [true, 'renders_live']);
   const no = make(LIVE, false);
   assert.equal((await no.s.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, {})).behavior, 'deny');
   assert.equal((await make(LIVE, false).s.canUseTool('mcp__pianoid__render__chart_types', {}, {})).behavior, 'allow');
@@ -190,6 +199,23 @@ test('R6 (dev-947d): with live audio the stop/render/restart renders ask, reads 
   assert.equal((await down.s.canUseTool('mcp__pianoid__render__note_playback', {}, {})).behavior, 'deny');
   assert.equal(down.confirms.length, 1);
   assert.equal((await down.s.canUseTool('mcp__pianoid__render__chart_types', {}, {})).behavior, 'allow');
+
+  // dev-auto1: "Don't ask again" on the live-render confirm switches renders_live (not renders) and persists per installation
+  const fsMod = await import('node:fs');
+  const osMod = await import('node:os');
+  const pathMod = await import('node:path');
+  const root = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'pianoid-liverender-'));
+  const confirms = [];
+  const s = new AssistantSession({
+    paths: { root, config: pathMod.join(root, 'config.json') }, config: { model: 'auto' }, commands: cmds, driverFactory: () => null,
+    broadcast: (m) => { if (m.type === 'confirm') { confirms.push(m); setImmediate(() => s.confirm(m.id, true, 'installation')); } },
+    fetchImpl: async (url) => ({ json: async () => LIVE[Object.keys(LIVE).find((k) => url.endsWith(k))] }),
+  });
+  assert.equal((await s.canUseTool('mcp__pianoid__render__note_playback', { pitch: 60 }, { toolUseID: 'a' })).behavior, 'allow');
+  assert.equal(JSON.parse(fsMod.readFileSync(pathMod.join(root, 'config.json'), 'utf8')).approvals.renders_live, 'auto');
+  assert.equal((await s.canUseTool('mcp__pianoid__render__note_playback', { pitch: 61 }, { toolUseID: 'b' })).behavior, 'allow');
+  assert.equal(confirms.length, 1);                                    // the second live render did not ask
+  assert.equal(s.activity.findLast((a) => a.command === 'render.note_playback').decision, 'auto');
 });
 
 test('environment fingerprint (v2 P1): GPU, build, repos, output map; absent when unreachable', () => {

@@ -95,7 +95,7 @@ test('approvals: scopes, precedence, locked categories, the pane view', () => {
   assert.deepEqual(view.autoActive, ['params', 'runtime']);
   assert.equal(view.categories.find((r) => r.id === 'params').scope, 'session');
   assert.equal(view.categories.find((r) => r.id === 'runtime').scope, 'installation');
-  assert.equal(view.categories.length, 11);
+  assert.equal(view.categories.length, 12);                // + renders_live (dev-auto1)
 });
 
 test('envelope limits come from schemas/params; UNKNOWN limits stay outside', () => {
