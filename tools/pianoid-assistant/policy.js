@@ -17,6 +17,13 @@
  *                                           any other render, e.g. an
  *                                           output_scale calibration render, is DENIED (R6). Reads never.
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
+ *   Autonomous mode (dev-auto1,             `settings.autonomous` = {on, residual} (set by the service from
+ *     autonomy.js)                          config.json `autonomous`): every non-read runs (auto,
+ *                                           `autonomous: true`), the hard-confirm list included, EXCEPT the
+ *                                           residual still-ask list (autonomy.js: a plan ticked by the user
+ *                                           may still cover it, else a hard confirm); params / runtime still
+ *                                           need the A2 envelope (outside: hard confirm). After the deny
+ *                                           rows and the tainted row, so it can never bypass them
  *   a plan approval (dev-28f1, on unless   `settings.plan` = planApproval.js matchGrant, set by the service
  *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
  *                                           (auto). A hard-confirm command only when the user ticked it
@@ -32,7 +39,8 @@
  *                                           turn asks, hard (the row above); the sandbox is never bypassed
  *   category Auto, other                    allow
  *
- * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}}.
+ * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}, plan?,
+ *   autonomous?: {on, residual: null | reason}}.
  */
 import { modeOf, switchable, usesEnvelope } from './approvals.js';
 
@@ -95,6 +103,8 @@ export function decide({ command, tier, family, category, settings = {} }) {
   if (settings.tainted && !READ_TIERS.has(tier)) {
     return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
   }
+  const autoVerdict = autonomousStep({ command, tier, category, settings });
+  if (autoVerdict) return autoVerdict;
   const planVerdict = planStep({ command, tier, category, settings });
   if (planVerdict) return planVerdict;
   if (HARD_CONFIRM[command] || category === 'hard_confirm') {
@@ -113,6 +123,25 @@ export function decide({ command, tier, family, category, settings = {} }) {
     return { action: 'allow', auto: true, watch: true, reason: `${category}: Auto, ${env.reason}` };
   }
   return READ_TIERS.has(tier) ? { action: 'allow', reason: tier } : { action: 'allow', auto: true, reason: `${category}: Auto` };
+}
+
+/**
+ * The Autonomous-mode row (dev-auto1; null = off or a read: the rows below decide). A residual command keeps
+ * asking (hard) unless a plan the user approved covers it; params / runtime still need the A2 envelope.
+ */
+function autonomousStep({ command, tier, category, settings }) {
+  const a = settings.autonomous;
+  if (!a?.on || READ_TIERS.has(tier)) return null;
+  if (a.residual) {
+    return planStep({ command, tier, category, settings })
+      || { action: 'confirm', hard: true, reason: `${a.residual} (asks even in Autonomous mode)` };
+  }
+  if (usesEnvelope(category)) {
+    const env = settings.envelope;
+    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'outside the envelope' };
+    return { action: 'allow', auto: true, watch: true, autonomous: true, reason: `Autonomous mode, ${env.reason}` };
+  }
+  return { action: 'allow', auto: true, autonomous: true, reason: 'Autonomous mode' };
 }
 
 /**

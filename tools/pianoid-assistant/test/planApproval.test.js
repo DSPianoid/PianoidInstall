@@ -201,7 +201,7 @@ test('kill-switch (flag=0): the session is byte-for-byte the pre-feature one', a
   const { s, sent } = mkSession(enabled({ [FLAG]: '0' }));   // the kill-switch environment
   assert.equal(s.plan.enabled, false);
   assert.equal('planApproval' in s.state(), false);
-  assert.deepEqual(Object.keys(s.state()), ['type', 'modelChoice', 'model', 'dataOptOut', 'busy', 'transcript', 'activity', 'usage', 'status', 'pendingConfirms', 'approvals']);
+  assert.deepEqual(Object.keys(s.state()), ['type', 'modelChoice', 'model', 'dataOptOut', 'busy', 'transcript', 'activity', 'usage', 'status', 'pendingConfirms', 'approvals', 'autonomous']);   // + autonomous (dev-auto1, its own feature)
   const opts = s.sdkOptions();
   assert.equal(opts.systemPrompt, systemPrompt());
   assert.equal(opts.mcpServers.assistant.requestPlan, undefined);
