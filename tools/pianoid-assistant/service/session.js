@@ -33,6 +33,7 @@ import {
 import { residualReason, SAFETY_NETS_TEXT, STILL_ASKS_TEXT } from '../autonomy.js';
 import { AuditLog } from './auditLog.js';
 import { backupPreset, middlewareDir } from './presetBackup.js';
+import { MANIFEST_FILE, PresetOwnership } from './presetOwnership.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -77,6 +78,7 @@ export class AssistantSession {
     // dev-auto1: the on-disk audit log + the preset backups live in the assistant home (none without one)
     this.audit = new AuditLog({ dir: paths?.root ? path.join(paths.root, 'audit') : null });
     this.backupDir = paths?.root ? path.join(paths.root, 'preset-backups') : null;
+    this.owned = new PresetOwnership({ file: paths?.root ? path.join(paths.root, MANIFEST_FILE) : null, middleware: presetDir, audit: this.audit });
     this.sessionApprovals = {};       // "this session only" overrides (the service's lifetime)
     this.notes = [];                  // auto-revert notes for the next turn's context
     this.execUrl = null;              // set by the server once it listens (the MCP server's executor)
@@ -128,9 +130,14 @@ export class AssistantSession {
     };
   }
 
-  /** The policy's `settings.autonomous` for one call (undefined when off). */
-  autonomySettings(cmd, input) {
-    return this.config.autonomous ? { on: true, residual: residualReason(cmd, input) } : undefined;
+  /** The policy's `settings.autonomous` for one call (undefined when off); `ownPreset` = a preset.save's ownership. */
+  autonomySettings(cmd, input, ownPreset = null) {
+    return this.config.autonomous ? { on: true, residual: residualReason(cmd, input, { ownPreset }) } : undefined;
+  }
+
+  /** A preset.save's permit hooks: refuse when the file changed after the check; record / refresh ownership after it. */
+  saveHooks(save) {
+    return save ? { guard: () => this.owned.unchanged(save), onOk: (res) => this.owned.recordAfterSave(save, res?.result?.path ?? res?.path) } : {};
   }
 
   /** An autonomous preset.save runs only after the file it overwrites is backed up; else it asks (fail closed). */
@@ -240,7 +247,8 @@ export class AssistantSession {
     let before = null;
     let envelope = null;
     const plan = this.planMatch(cmd, input);                   // null unless the flag is on and a grant is active
-    const autonomous = this.autonomySettings(cmd, input);
+    const save = cmd.name === 'preset.save' ? this.owned.classify(input?.path) : null;   // provenance (dev-auto1)
+    const autonomous = this.autonomySettings(cmd, input, save);
     if (usesEnvelope(category) && (modeOf(category, approvals) === 'auto' || plan?.ok || autonomous)) {
       before = await this.auto.before(cmd, input);       // the values the envelope compares against
       envelope = checkEnvelope({ cmd, input, before, limits: this.auto.limits, autoWrites: this.auto.autoWrites });
@@ -254,10 +262,11 @@ export class AssistantSession {
     const entry = this.logActivity({
       command: cmd.name, tier: cmd.tier, category, input, decision: decisionOf(verdict), reason: verdict.reason, toolUseId: toolUseID,
       ...(verdict.plan ? { plan: verdict.plan } : {}), ...(verdict.backup ? { backup: verdict.backup } : {}),
+      ...(save ? { ownership: save.status } : {}),
     });
     if (verdict.plan) this.usePlan(cmd, plan, entry);
     if (verdict.action === 'allow') {
-      this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry });
+      this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry, ...this.saveHooks(save) });
       return { behavior: 'allow', updatedInput: input };
     }
     if (verdict.action === 'deny') {
@@ -271,7 +280,7 @@ export class AssistantSession {
       return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
     if (remember && verdict.canAuto) this.updateApprovals({ category: verdict.category || category, mode: 'auto', scope: remember });
-    this.auto.permit(cmd, executed(cmd, input), { entry });
+    this.auto.permit(cmd, executed(cmd, input), { entry, ...this.saveHooks(save) });
     return { behavior: 'allow', updatedInput: input };
   }
 

@@ -54,3 +54,51 @@ tainted rows, the plan row and the A2 envelope path are unchanged; the plan kill
 
 ### Summary
 3 findings fixed (1 High, 1 Medium, 1 Low), 1 Medium watch (session.js YELLOW). Overall: healthy.
+
+---
+
+## Addendum — local review of the provenance "own working copy" change (dev-auto1, 2026-10-25)
+
+Scope: `tools/pianoid-assistant/service/presetOwnership.js` (NEW), `autonomy.js`, `service/session.js`,
+`service/autoWrite.js`, tests, README / prompt; Tunner `AutonomousMode.jsx` text. Replaces finding 5 above (the
+`presets/<name>_work.json` name rule): a path is own only when the assistant CREATED the file and its sha256 still
+matches what it last wrote (manifest `~/.pianoid-assistant/owned-presets.json`).
+
+### Top 5 Files in Scope by LOC
+| # | File | LOC | Flag |
+|---|------|-----|------|
+| 1 | service/session.js | 788 (was 779) | YELLOW |
+| 2 | test/autonomy.test.js | 354 (test) | — |
+| 3 | service/autoWrite.js | 178 | — |
+| 4 | service/presetOwnership.js | 188 (NEW) | — |
+| 5 | autonomy.js | 71 | — |
+
+### Architectural Consistency
+Layer audit: PASS — the decision input (ownership) is computed by one I/O module; autonomy.js stays pure (it takes the
+fact); the pane only shows text. Server audit: N/A (assistant service only; reads the backend's `/save_preset`
+`result.path`).
+
+### Authority Violations (P1)
+None. The manifest has one writer (`PresetOwnership.write`, atomic temp + rename); the session only calls it.
+
+### Concern Violations (P2)
+| # | Module | Stated Concern | Concern Added/Widened | Severity |
+|---|--------|---------------|----------------------|----------|
+| 1 | service/autoWrite.js | permits + execution + undo of assistant writes | generic `guard` / `onOk` permit hooks (no preset knowledge in it) | none (within concern) |
+
+### Patch / Workaround Findings
+TODO/FIXME/HACK count in scope: 0. Two intentional catches in presetOwnership.js (`read`: corrupt JSON -> the corrupt
+branch; `recordAfterSave`: an unresolvable reported path -> the mismatch branch, fail closed).
+
+### Local findings
+| # | Principle | Severity | Description | Status |
+|---|-----------|----------|-------------|--------|
+| 1 | P1 / fail-fast | Medium | the service resolves pianoid_middleware itself (`PIANOID_CORE_DIR` / `<Install>/PianoidCore`); if that ever differed from the backend's cwd, a path "new" here could be an existing file there, and it would be recorded as owned | FIXED: `recordAfterSave` compares the backend's reported absolute `result.path` with the checked real path; a mismatch (or no path) records nothing and turns ownership off (every later check `error`, audited `path_mismatch`) |
+| 2 | TOCTOU | Low | the check runs in canUseTool, the save later (a confirm can take minutes) | FIXED: permit `guard` re-checks right before the executor runs (a creation must still be new, an owned file unchanged) -> 409 `changed` |
+| 3 | 2.4 | Low | a missing manifest first classified a pre-existing file as `error` | FIXED: missing = owning nothing (`not_owned`), still audited; corrupt = `error` |
+| 4 | watch | Medium | session.js YELLOW 788 (+9 wiring lines) | watch (as before) |
+| 5 | design note | Info | a save the user approves over a not-own file runs but is not adopted (its stale entry is dropped; `not_adopted` audited) | intended, tested |
+
+### Summary
+Pass — 3 findings fixed (1 Medium, 2 Low), 1 Medium watch (session.js YELLOW). assistant `npm test` 128 / 127 pass /
+1 skip; Tunner Assistant Jest 5 suites / 31 pass.

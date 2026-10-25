@@ -10,8 +10,10 @@
  * drive cap (-24 dBFS: the registry schemas + the backend; re-checked here), the PreToolUse deny hook, and
  * the sandbox for analysis code. It never uses an SDK bypass permission mode.
  *
- *   residualReason(cmd, input) -> null (may run autonomously) | why it still asks
- *   isOwnWorkingPreset(path)   -> is `path` the assistant's own working preset (presets/<name>_work.json)?
+ *   residualReason(cmd, input, {ownPreset}) -> null (may run autonomously) | why it still asks
+ * `ownPreset` = service/presetOwnership.js classify(input.path) for a preset.save. PROVENANCE, not the name: a save
+ * runs autonomously only as the creation of a new file in presets/ or over a file the assistant created that nobody
+ * changed since; anything else asks.
  */
 import { footprint, LEVEL_CAP_DBFS } from './planApproval.js';
 
@@ -30,7 +32,7 @@ const DRIVES = new Set(['modal.rig_capture', 'modal.rig_sine']);
 
 /** The still-ask list as the pane and the model see it. */
 export const STILL_ASKS_TEXT = [
-  'saving over a preset that is not the assistant\'s own working copy (presets/<name>_work.json)',
+  'saving over any preset the assistant did not create itself, or one changed since it last wrote it (your files, edited files, unknown files)',
   'preset.promote (overwrites the original preset)',
   'delete / unload operations',
   'audio.exciters_config (hardware protection)',
@@ -49,21 +51,14 @@ export const SAFETY_NETS_TEXT = [
   'analysis code runs only in the sandbox',
 ];
 
-/** presets/<letters, digits, . _ -> _work(.json): the assistant's own working preset (no folders, no `..`). */
-export function isOwnWorkingPreset(p) {
-  if (typeof p !== 'string') return false;
-  const s = p.trim().replace(/\\/g, '/');
-  return /^presets\/[A-Za-z0-9._-]+_work(\.json)?$/i.test(s) && !s.includes('..');
-}
-
-export function residualReason(cmd, input = {}) {
+export function residualReason(cmd, input = {}, { ownPreset = null } = {}) {
   const name = cmd?.name || '';
   if (STILL_ASKS[name]) return STILL_ASKS[name];
   if (cmd?.family === 'launcher' || name.startsWith('launcher.')) return 'process control (launcher)';
   if (DELETE_RE.test(name)) return 'a delete / unload operation';
   if (EXTERNAL_RE.test(name)) return 'external filing / sending';
-  if (name === 'preset.save' && !isOwnWorkingPreset(input?.path)) {
-    return `saves over ${input?.path ?? 'a preset'}, which is not the assistant's own working copy (presets/<name>_work.json)`;
+  if (name === 'preset.save' && ownPreset?.own !== true) {
+    return `saves to ${input?.path ?? 'a preset'}, which is not the assistant's own working copy: ${ownPreset?.reason ?? 'ownership unknown'}`;
   }
   if (name === 'preset.create' && input?.overwrite === true) return 'overwrites an existing preset (preset.create overwrite)';
   if (DRIVES.has(name) && input?.dry_run !== true) {
