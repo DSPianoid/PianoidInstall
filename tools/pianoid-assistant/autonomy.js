@@ -6,7 +6,8 @@
  * hard-confirm list run without a confirm (policy.js autonomous row), EXCEPT the residual still-ask list
  * below, which keeps asking (hard: no "Don't ask again"). What stays in force regardless (policy.js rows
  * above / below the autonomous row, and the executor): excluded tools, the data opt-out, the live-render
- * deny, a web-tainted turn, the A2 envelope + level watch with auto-revert for params / runtime, the rig
+ * deny, a web-tainted turn, the physical gates for params / runtime (CFL check after a string write, level watch
+ * with auto-revert on clipping; dev-free1: no step limits), the rig
  * drive cap (-24 dBFS: the registry schemas + the backend; re-checked here), the PreToolUse deny hook, and
  * the sandbox for analysis code. It never uses an SDK bypass permission mode.
  *
@@ -44,7 +45,8 @@ export const STILL_ASKS_TEXT = [
 
 /** What stays in force in Autonomous mode, as the pane shows it. */
 export const SAFETY_NETS_TEXT = [
-  'parameter / volume / feedback edits only inside the safety envelope, with the level watch and auto-revert',
+  'string edits are undone at once when they break the CFL (Courant) stability limit',
+  'any parameter / volume / feedback edit is reverted automatically when the output clips',
   `rig drives capped at ${LEVEL_CAP_DBFS} dBFS`,
   'a turn that used web content asks for every action',
   '"Block measurement data" still blocks modal / calibration',

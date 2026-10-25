@@ -16,30 +16,33 @@
  *                                           `renders_live` is Auto (dev-auto1; then `renders` decides);
  *                                           any other render, e.g. an
  *                                           output_scale calibration render, is DENIED (R6). Reads never.
+ *   params / runtime, a rejected value      DENY (dev-free1): the physical gates (envelope.js check) reject a value
+ *                                           the engine cannot take; a tool error the model acts on, never a prompt
  *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
  *   Autonomous mode (dev-auto1,             `settings.autonomous` = {on, residual} (set by the service from
  *     autonomy.js)                          config.json `autonomous`): every non-read runs (auto,
  *                                           `autonomous: true`), the hard-confirm list included, EXCEPT the
  *                                           residual still-ask list (autonomy.js: a plan ticked by the user
- *                                           may still cover it, else a hard confirm); params / runtime still
- *                                           need the A2 envelope (outside: hard confirm). After the deny
- *                                           rows and the tainted row, so it can never bypass them
+ *                                           may still cover it, else a hard confirm); params / runtime run
+ *                                           free under the physical gates (the CFL check after a string write,
+ *                                           the level watch with auto-revert). After the deny rows and the
+ *                                           tainted row, so it can never bypass them
  *   a plan approval (dev-28f1, on unless   `settings.plan` = planApproval.js matchGrant, set by the service
  *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
  *                                           (auto). A hard-confirm command only when the user ticked it
- *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
- *                                           never reads. After the deny rows and the tainted row, so a
+ *                                           (`plan.ticked`); params / runtime run free under the physical
+ *                                           gates; never reads. After the deny rows and the tainted row, so a
  *                                           plan can never bypass them (`code` is plannable: dev-auto1)
  *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
  *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
- *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
- *                                           the post-write level watch with auto-revert; outside the
- *                                           envelope it asks, hard (an envelope override)
+ *   category Auto, params / runtime         allow (auto) under the physical gates (envelope.js): the CFL
+ *                                           check after a string write + the post-write level watch, both
+ *                                           with auto-revert. No envelope verdict = a hard confirm (fail closed)
  *   category `code` (analysis.run_python)   Ask by default, may be Auto (V1 / V8, dev-auto1); a tainted
  *                                           turn asks, hard (the row above); the sandbox is never bypassed
  *   category Auto, other                    allow
  *
- * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}, plan?,
+ * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reject?, reason}, plan?,
  *   autonomous?: {on, residual: null | reason}}.
  */
 import { modeOf, switchable, usesEnvelope } from './approvals.js';
@@ -88,7 +91,6 @@ export const HARD_CONFIRM = {
   'audio.test_tone': 'plays on the rig outputs',
 };
 export const HARD_CONFIRM_EXTRA = [
-  'an envelope override (an Auto write outside the limits)',
   'any action in a turn that used web content',
 ];
 
@@ -100,6 +102,7 @@ export function decide({ command, tier, family, category, settings = {} }) {
   }
   const liveRender = family === 'render' && settings.liveAudio && !READ_TIERS.has(tier);
   if (liveRender && !LIVE_RENDERS.has(command)) return { action: 'deny', reason: LIVE_RENDER_REASON };
+  if (usesEnvelope(category) && settings.envelope?.reject) return { action: 'deny', reason: settings.envelope.reason };
   if (settings.tainted && !READ_TIERS.has(tier)) {
     return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
   }
@@ -119,7 +122,7 @@ export function decide({ command, tier, family, category, settings = {} }) {
   }
   if (usesEnvelope(category)) {
     const env = settings.envelope;
-    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'outside the envelope' };
+    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'the physical gates could not be checked' };
     return { action: 'allow', auto: true, watch: true, reason: `${category}: Auto, ${env.reason}` };
   }
   return READ_TIERS.has(tier) ? { action: 'allow', reason: tier } : { action: 'allow', auto: true, reason: `${category}: Auto` };
@@ -127,7 +130,8 @@ export function decide({ command, tier, family, category, settings = {} }) {
 
 /**
  * The Autonomous-mode row (dev-auto1; null = off or a read: the rows below decide). A residual command keeps
- * asking (hard) unless a plan the user approved covers it; params / runtime still need the A2 envelope.
+ * asking (hard) unless a plan the user approved covers it; params / runtime run free under the physical gates
+ * (dev-free1; a rejected value was denied above; no verdict at all = a hard confirm, fail closed).
  */
 function autonomousStep({ command, tier, category, settings }) {
   const a = settings.autonomous;
@@ -138,7 +142,7 @@ function autonomousStep({ command, tier, category, settings }) {
   }
   if (usesEnvelope(category)) {
     const env = settings.envelope;
-    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'outside the envelope' };
+    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'the physical gates could not be checked' };
     return { action: 'allow', auto: true, watch: true, autonomous: true, reason: `Autonomous mode, ${env.reason}` };
   }
   return { action: 'allow', auto: true, autonomous: true, reason: 'Autonomous mode' };

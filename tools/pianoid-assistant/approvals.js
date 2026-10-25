@@ -3,9 +3,10 @@
  *
  * Every registry command carries an `approval_category` (schemas/commands); the v2 tools to come
  * (analysis code, web research, bug filing, named layouts) get theirs when they land. A category is
- * Ask (a confirm dialog in the pane) or Auto (runs without one). Auto for `params` / `runtime` is
- * the A2 envelope (parent proposal §4.3, D3): only writes inside the envelope run directly, and they
- * are level-watched with auto-revert; outside it the policy asks anyway (policy.js, envelope.js).
+ * Ask (a confirm dialog in the pane) or Auto (runs without one). `params` / `runtime` writes are free
+ * (dev-free1: no step limits) under the physical gates (envelope.js): an invalid value is rejected, a
+ * string write is CFL-checked and undone on a violation, every write is level-watched with auto-revert
+ * on clipping (policy.js, envelope.js, service/autoWrite.js).
  *
  * Scopes: the per-installation default lives in the service's config.json (`approvals`, written
  * only by the service); a session override (the confirm dialog's "Don't ask again", which defaults

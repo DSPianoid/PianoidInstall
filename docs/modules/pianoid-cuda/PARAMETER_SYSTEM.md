@@ -257,10 +257,12 @@ per-pitch check** (`_pitch_upload_amp` + `is_stable_with_margin`): an unstable p
 skipped, and the **worst offender across the whole range** sets the `cfl_redline` flag (via
 `_set_cfl_redline`), else the flag is cleared. Both compute the FDTD amplification `max|g|` (closed
 form, `cfl_stability.py`, per-string `tension_offset` honored) over the affected pitch's *current*
-model physics:
+model physics (v2 wording below; **v3, 2026-07-08: the engine APPLIES every edit and only sets the flag** — see
+[SYNTHESIS_ENGINE "Where the CFL reading lives (v3)"](SYNTHESIS_ENGINE.md#where-the-cfl-reading-lives-v3--host-side-indication-only-gate-removed);
+the assistant's CFL gate undoes a flagged assistant write, `tools/pianoid-assistant/README.md` "Physical gates"):
 
 - **reject** — when the edit breaches the CFL **safety** bound: either the worst-string **Courant number**
-  `(coeff_tension − 8·coeff_bending) ≥ CFL_MARGIN` (the upper-edge headroom, currently `0.8`) **or**
+  `(coeff_tension − 8·coeff_bending) ≥ CFL_MARGIN` (the upper-edge headroom, currently `0.99`) **or**
   `max|g| > 1` (true divergence / the lower bending edge) → **raise the `cfl_redline` flag and skip the
   upload**. The edit stays in the Python model; the GPU buffer keeps its last *stable* values, so the
   engine never receives unsafe coefficients and never crashes (no partial write — the granular C++ path
@@ -270,9 +272,9 @@ model physics:
 This is **skip-the-upload, not reject-the-edit** (no exception/4xx). The flag is surfaced to the UI via
 `/health` + the `param_ack`/REST edit response (a "CFL" warning chip).
 
-**The acceptance threshold — `CFL_MARGIN` (Courant number, tunable, currently `0.8`).** The exact upper-edge
-boundary is the Courant number reaching `1.0` (`max|g| = 1`, lossless). The middleware gate rejects ~20%
-*before* that, at `CFL_MARGIN = 0.8`, to give the **float32** engine headroom (it runs float32 with
+**The acceptance threshold — `CFL_MARGIN` (Courant number, tunable, currently `0.99` (measured 2026-10-25, dev-free1: `cfl_redline_info.margin = 0.99` on the installed engine; Core `1ca92ec` restored it from `0.8`)).** The exact upper-edge
+boundary is the Courant number reaching `1.0` (`max|g| = 1`, lossless). The middleware flags ~1%
+*before* that, at `CFL_MARGIN = 0.99`, to give the **float32** engine headroom (it runs float32 with
 boundary + force terms and accumulates over thousands of steps, so a config the float64 closed-form
 scores exactly `|g| = 1.0` can still creep up live). The margin is applied to the **Courant number**, not
 `max|g|` — below the upper edge `|g|` is *flat* at `1.0` then jumps past the edge, so it cannot encode a

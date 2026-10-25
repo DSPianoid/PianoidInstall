@@ -1,5 +1,5 @@
-// Assistant v2 P2 (dev-4324): per-category approvals, the hard-confirm list, the A2 envelope, the
-// level watch with auto-revert and grouped undo — the policy table on the REAL registry + limits,
+// Assistant v2 P2 (dev-4324): per-category approvals, the hard-confirm list, the physical gates (dev-free1: free
+// edits, value validity, the CFL check after a string write), the level watch with auto-revert and grouped undo — the policy table on the REAL registry + limits,
 // and the service end to end (fake driver -> real MCP server -> the service executor -> fake :5000).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { decide, HARD_CONFIRM } from '../policy.js';
 import { applyChange, CATEGORIES, describe, modeOf, switchable } from '../approvals.js';
-import { check, levelBreach, revertPlan } from '../envelope.js';
+import { cflBreach, cflGated, check, levelBreach, revertPlan } from '../envelope.js';
 import { loadCommands } from '../lib/registry.js';
 import { loadLimits } from '../lib/paramLimits.js';
 import { canonical } from '../service/autoWrite.js';
@@ -60,13 +60,18 @@ test('the hard-confirm list can NEVER be Auto (every scope set to auto, envelope
   assert.equal(dec('param.get', { ...settings, tainted: true }).action, 'allow');
 });
 
-test('Auto params / runtime need the envelope: inside -> allow + watch; outside -> hard confirm', () => {
+test('Auto params / runtime run free under the gates: ok -> allow + watch; rejected value -> deny; no verdict -> hard confirm', () => {
   const approvals = { installation: { params: 'auto', runtime: 'auto' }, session: {} };
-  const inside = dec('param.mute_modes', { approvals, envelope: { ok: true, reason: 'mask switch' } });
-  assert.deepEqual([inside.action, inside.auto, inside.watch], ['allow', true, true]);
-  const outside = dec('runtime.set', { approvals, envelope: { ok: false, reason: 'outside the envelope: volume +10' } });
-  assert.deepEqual([outside.action, outside.hard], ['confirm', true]);
-  assert.equal(dec('param.set', { approvals }).action, 'confirm');                 // no envelope verdict = ask
+  const ok = dec('runtime.set', { approvals, envelope: { ok: true, reason: 'free edit' } });
+  assert.deepEqual([ok.action, ok.auto, ok.watch], ['allow', true, true]);
+  const bad = { ok: false, reject: true, reason: 'rejected: volume 128 is above 127' };
+  const denied = dec('runtime.set', { approvals, envelope: bad });
+  assert.deepEqual([denied.action, denied.reason], ['deny', bad.reason]);
+  assert.equal(dec('runtime.set', { envelope: bad }).action, 'deny');               // even in Ask mode: never a prompt
+  assert.equal(dec('runtime.set', { envelope: bad, autonomous: { on: true, residual: null } }).action, 'deny');
+  assert.equal(dec('param.set', { approvals }).hard, true);                        // no verdict = a hard confirm (fail closed)
+  const asked = dec('param.set', { approvals: {}, envelope: { ok: true, reason: 'x' } });
+  assert.deepEqual([asked.action, asked.canAuto], ['confirm', true]);              // Ask mode: an ordinary confirm
   assert.equal(dec('preset.switch', { approvals: { installation: { preset_nav: 'auto' } } }).action, 'allow');
 });
 
@@ -98,34 +103,46 @@ test('approvals: scopes, precedence, locked categories, the pane view', () => {
   assert.equal(view.categories.length, 13);                // + renders_live (dev-auto1), memory (dev-mem1)
 });
 
-test('envelope limits come from schemas/params; UNKNOWN limits stay outside', () => {
-  assert.deepEqual(Object.keys(LIMITS.fields).sort(), ['mode.decrement', 'runtime.feedback_coeff', 'runtime.volume']);
+test('physical gates: no step limits, validity bounds from schemas/params, the CFL flag (dev-free1)', () => {
+  assert.deepEqual(Object.keys(LIMITS.fields).sort(), ['mode.decrement', 'runtime.volume']);
   assert.deepEqual([...LIMITS.masks].sort(), ['param.mute_channels', 'param.mute_modes']);
-  assert.equal(LIMITS.global.max_keys_per_command, 128);
-  const rt = { '/get_runtime_parameters': { volume_level: 64, deck_feedback_coefficient: 1.0 }, '/health': { stored_feedback_coeff: 1.0 } };
-  const rs = (input, before = rt, autoWrites = 0) => check({ cmd: byName['runtime.set'], input, before, limits: LIMITS, autoWrites });
-  assert.equal(rs({ volume: 70 }).ok, true);
-  assert.match(rs({ volume: 71 }).reason, /\+7; at most \+6/);
-  assert.equal(rs({ volume: 10 }).ok, true);                                    // down is free
-  assert.equal(rs({ volume: 128 }).ok, false);
-  assert.equal(rs({ feedback_coeff: 1.5 }).ok, true);
-  assert.equal(rs({ feedback_coeff: 1.6 }).ok, false);
-  assert.equal(rs({ feedback_coeff: 0.6 }).ok, false);                          // lower = louder: bounded too
-  assert.match(rs({ feedback_coeff: 2.1 }, { ...rt, '/get_runtime_parameters': { volume_level: 64, deck_feedback_coefficient: 1.5 } }).reason, /of the stored/);
-  assert.match(rs({ feedback: 70 }).reason, /feedback has no documented limit/);
-  assert.match(rs({ volume_center: 2 }).reason, /no documented limit/);
-  assert.match(rs({ volume: 60 }, rt, 20).reason, /20 automatic writes/);
-  const mode = (values, now) => check({ cmd: byName['param.set'], input: { parameter: 'mode', key_no: '5', values }, before: { '/get_parameter/mode/5': now }, limits: LIMITS });
-  assert.equal(mode({ 5: { decrement: 0.6 } }, { 5: { decrement: 1.0, frequency: 100 } }).ok, true);
-  assert.match(mode({ 5: { decrement: 0.4 } }, { 5: { decrement: 1.0 } }).reason, /x0.40/);
-  assert.match(mode({ 5: { frequency: 90 } }, { 5: { decrement: 1.0 } }).reason, /frequency has no documented limit/);
-  assert.equal(mode({ 5: { decrement: 0.5 } }, { 5: { decrement: 0 } }).ok, false);
-  for (const parameter of ['string', 'hammer', 'feedin', 'feedback_mask', 'gauss']) {
-    assert.equal(check({ cmd: byName['param.set'], input: { parameter, key_no: '60', values: {} }, limits: LIMITS }).ok, false, parameter);
+  assert.equal(LIMITS.global.max_keys_per_command, undefined);
+  assert.equal(LIMITS.global.max_auto_writes_per_turn, undefined);
+  const rs = (input) => check({ cmd: byName['runtime.set'], input, limits: LIMITS });
+  for (const input of [{ volume: 71 }, { volume: 127 }, { volume: 0 }, { feedback_coeff: 0.2 }, { feedback_coeff: 5 }, { feedback: 70 },
+    { volume_center: 2 }, { volume_range: 3 }, { store_feedback_coeff: 2 }]) {
+    assert.equal(rs(input).ok, true, JSON.stringify(input));                       // any size: the limit is clipping
   }
-  assert.equal(check({ cmd: byName['param.mute_modes'], input: { modes: [0, 1], action: 'solo' }, limits: LIMITS }).ok, true);
-  assert.equal(check({ cmd: byName['param.mute_modes'], input: { modes: Array.from({ length: 129 }, (_, i) => i) }, limits: LIMITS }).ok, false);
-  assert.deepEqual(revertPlan(byName['runtime.set'], { volume: 70 }, rt), { kind: 'runtime', values: { volume: 64 } });
+  for (const [input, re] of [[{ volume: 128 }, /above 127/], [{ volume: -1 }, /below 0/], [{ volume: 70.5 }, /integer/], [{ volume: 'x' }, /not a number/]]) {
+    const v = rs(input);
+    assert.deepEqual([v.ok, v.reject], [false, true]);
+    assert.match(v.reason, re);
+  }
+  const mode = (values) => check({ cmd: byName['param.set'], input: { parameter: 'mode', key_no: '5', values }, limits: LIMITS });
+  assert.equal(mode({ 5: { decrement: 0.01 } }).ok, true);                       // a 99% cut: free
+  assert.equal(mode({ 5: { decrement: 40, frequency: 90, mass_inv: 3 } }).ok, true);
+  assert.match(mode({ 5: { decrement: -0.1 } }).reason, /mode 5 decrement -0.1 is below 0/);
+  for (const parameter of ['string', 'hammer', 'feedin', 'feedback_mask', 'gauss', 'excitation']) {
+    assert.equal(check({ cmd: byName['param.set'], input: { parameter, key_no: '60', values: {} }, limits: LIMITS }).ok, true, parameter);
+  }
+  assert.match(check({ cmd: byName['param.set'], input: { parameter: 'string', key_no: '60', values: {} }, limits: LIMITS }).reason, /CFL/);
+  assert.equal(check({ cmd: byName['param.mute_modes'], input: { modes: Array.from({ length: 300 }, (_, i) => i) }, limits: LIMITS }).ok, true);
+  assert.equal(check({ cmd: byName['runtime.set'], input: {}, limits: null }).reject, true);
+  // CFL: only string physics is gated; the engine flag decides; an unreadable flag fails closed
+  assert.equal(cflGated(byName['param.set'], { parameter: 'string' }), true);
+  for (const parameter of ['hammer', 'mode', 'feedin']) assert.equal(cflGated(byName['param.set'], { parameter }), false);
+  assert.equal(cflGated(byName['runtime.set'], {}), false);
+  assert.equal(cflBreach({ cfl_redline: false, cfl_redline_info: null }), null);
+  assert.match(cflBreach({ cfl_redline: true, cfl_redline_info: { pitch: 60, string: 194, amplification: 1.0, courant: 0.912 } }),
+    /CFL violation at pitch 60 \(string 194\): Courant 0\.912, \|g\| 1\.0000/);
+  assert.match(cflBreach({ unreachable: true }), /could not be read/);
+  assert.match(cflBreach({ status: 'healthy' }), /could not be read/);
+  // the revert plan: every runtime field from the value read before
+  const rt = { '/get_runtime_parameters': { volume_level: 64, deck_feedback_coefficient: 1.0, volume_center: 0.5, volume_range: 2 }, '/health': { stored_feedback_coeff: 1.2 } };
+  assert.deepEqual(revertPlan(byName['runtime.set'], { volume: 120 }, rt), { kind: 'runtime', values: { volume: 64 } });
+  assert.deepEqual(revertPlan(byName['runtime.set'], { feedback: 30, volume_center: 9, volume_range: 1, store_feedback_coeff: 3 }, rt),
+    { kind: 'runtime', values: { feedback_coeff: 1.0, volume_center: 0.5, volume_range: 2, store_feedback_coeff: 1.2 } });
+  assert.deepEqual(revertPlan(byName['runtime.set'], { volume: 70 }, {}), { kind: 'runtime', values: {} });
   assert.deepEqual(revertPlan(byName['param.mute_modes'], {}, {}), { kind: 'history' });
 });
 
@@ -148,7 +165,7 @@ const tmpHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'pianoid-assistant-p
 
 function fakeBackend() {
   const calls = [];
-  const state = { volume: 64, clipAfterWrite: false, wrote: false };
+  const state = { volume: 64, clipAfterWrite: false, wrote: false, cflAfterString: false, cfl: false };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
@@ -157,10 +174,11 @@ function fakeBackend() {
       res.setHeader('Content-Type', 'application/json');
       const send = (o, status = 200) => { res.statusCode = status; res.end(JSON.stringify(o)); };
       if (req.url === '/health') {
-        return send({ status: 'healthy', pianoid_loaded: true, clipping: state.clipAfterWrite && state.wrote, peak_level: 0.1, gate_trip_count: 0, stored_feedback_coeff: 1.0, output_scale: { target_dbfs: -20 } });
+        return send({ status: 'healthy', pianoid_loaded: true, clipping: state.clipAfterWrite && state.wrote, peak_level: 0.1, gate_trip_count: 0, stored_feedback_coeff: 1.0, output_scale: { target_dbfs: -20 },
+          cfl_redline: state.cfl, cfl_redline_info: state.cfl ? { pitch: 60, string: 194, amplification: 1.0, courant: 0.93 } : null });
       }
       if (req.url === '/get_runtime_parameters') return send({ volume_level: state.volume, deck_feedback_coefficient: 1.0 });
-      if (req.url === '/history/undo') return send({ entry: 'P', label: 'feedin_mask (assistant)', steps: 1 });
+      if (req.url === '/history/undo') { state.cfl = false; return send({ entry: 'P', label: 'feedin_mask (assistant)', steps: 1 }); }
       if (req.url === '/command/runtime.set') {
         state.volume = JSON.parse(body).volume ?? state.volume;
         state.wrote = true;
@@ -168,6 +186,7 @@ function fakeBackend() {
       }
       if (req.url.startsWith('/command/param.')) {
         state.wrote = true;
+        if (req.url === '/command/param.set' && JSON.parse(body).parameter === 'string') state.cfl = state.cflAfterString;
         return send({ ok: true, status: 200, result: { done: req.url } });
       }
       if (req.url.endsWith('/ui.snapshot')) return send({ ok: true, status: 200, result: { panes: [] } });
@@ -181,6 +200,7 @@ const SCRIPT = [
   { match: 'solo', steps: [{ tool: 'mcp__pianoid__param__mute_modes', input: { modes: [0, 1], action: 'solo' } }, { say: 'Soloed.' }] },
   { match: 'louder a lot', steps: [{ tool: 'mcp__pianoid__runtime__set', input: { volume: 80 } }, { say: 'Done.' }] },
   { match: 'louder', steps: [{ tool: 'mcp__pianoid__runtime__set', input: { volume: 68 } }, { say: 'Done.' }] },
+  { match: 'tension', steps: [{ tool: 'mcp__pianoid__param__set', input: { parameter: 'string', key_no: '60', values: { 60: { tension: 9000 } } } }, { say: 'Set.' }] },
   { match: 'save', steps: [{ tool: 'mcp__pianoid__preset__save', input: { path: 'presets/x.json' } }, { say: 'Saved.' }] },
 ];
 
@@ -252,20 +272,17 @@ test('service: Auto params run without a dialog under their own undo group; sett
   } finally { await t.close(); fake.server.close(); }
 });
 
-test('service: outside the envelope asks (hard); a hard-confirm command asks even with every category Auto', async () => {
+test('service: a big volume step runs without a dialog (no step limit); a hard-confirm command still asks', async () => {
   const fake = await fakeBackend();
   const home = tmpHome();
   fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ approvals: { params: 'auto', runtime: 'auto', preset_nav: 'auto' } }));
   const t = await start(home, fake);
   try {
-    await t.turn('louder a lot');                                             // 64 -> 80 = +16 > +6
-    const c = await t.waitFor((m) => m.type === 'confirm');
-    assert.equal(c.hard, true);
-    assert.equal(c.canAuto, false);
-    assert.match(c.reason, /\+16; at most \+6/);
-    t.send({ type: 'confirm', id: c.id, allow: false });
+    await t.turn('louder a lot');                                             // 64 -> 80 (+16): was a hard confirm before dev-free1
     await t.idle();
-    assert.ok(!fake.calls.some((x) => x.url === '/command/runtime.set'));
+    assert.ok(!t.msgs.some((m) => m.type === 'confirm'));
+    assert.equal(fake.state.volume, 80);
+    assert.equal(activity(t, 'runtime.set').decision, 'auto');
     await t.turn('save it');
     const s = await t.waitFor((m) => m.type === 'confirm');
     assert.deepEqual([s.command, s.hard], ['preset.save', true]);
@@ -319,5 +336,74 @@ test('service: the executor refuses a call without a permit; the pane Undo rever
     t.send({ type: 'undo', groupId: e.groupId });
     await t.waitFor((m) => m.type === 'activity' && m.entry.command === 'revert');
     assert.deepEqual(JSON.parse(fake.calls.find((x) => x.url === '/history/undo').body), { group: e.groupId });
+  } finally { await t.close(); fake.server.close(); }
+});
+
+test('service: the CFL gate undoes a string write that breaks the Courant limit and tells the model (Auto, and confirmed)', async () => {
+  const fake = await fakeBackend();
+  const home = tmpHome();
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ approvals: { params: 'auto' } }));
+  fake.state.cflAfterString = true;
+  let t = await start(home, fake);
+  try {
+    await t.turn('raise the tension');
+    await t.idle();
+    assert.ok(!t.msgs.some((m) => m.type === 'confirm'));                     // never a prompt
+    const write = fake.calls.find((x) => x.url === '/command/param.set');
+    const undo = fake.calls.find((x) => x.url === '/history/undo');
+    assert.ok(undo, JSON.stringify(fake.calls.map((x) => x.url)));
+    assert.deepEqual(JSON.parse(undo.body), { group: write.group });
+    assert.equal(fake.state.cfl, false);                                       // the engine is back on stable values
+    const rev = activity(t, 'revert');
+    assert.match(rev.reason, /CFL gate: CFL violation at pitch 60 \(string 194\): Courant 0\.930/);
+    const res = activity(t, 'param.set');
+    assert.match(res.result || '', /cfl_violation/);
+    // stable: the write stays, no undo
+    fake.state.cflAfterString = false;
+    fake.calls.length = 0;
+    await t.turn('raise the tension again');
+    await t.idle();
+    assert.ok(fake.calls.some((x) => x.url === '/command/param.set'));
+    assert.ok(!fake.calls.some((x) => x.url === '/history/undo'));
+    await t.close();
+    // Ask mode: the user confirms, the gate still undoes a violation
+    fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({}));
+    fake.state.cflAfterString = true;
+    fake.calls.length = 0;
+    t = await start(home, fake);
+    await t.turn('tension up');
+    const c = await t.waitFor((m) => m.type === 'confirm');
+    assert.deepEqual([c.hard ?? false, c.canAuto], [false, true]);
+    t.send({ type: 'confirm', id: c.id, allow: true });
+    await t.idle();
+    assert.ok(fake.calls.some((x) => x.url === '/history/undo'));
+  } finally { await t.close(); fake.server.close(); }
+});
+
+test('service: volume is limited by clipping, not by step: a +16 jump that clips is reverted to the value before (Auto and confirmed)', async () => {
+  const fake = await fakeBackend();
+  const home = tmpHome();
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ approvals: { runtime: 'auto' } }));
+  fake.state.clipAfterWrite = true;
+  let t = await start(home, fake);
+  try {
+    await t.turn('louder a lot');                                             // 64 -> 80
+    await t.waitFor((m) => m.type === 'activity' && m.entry.command === 'revert');
+    await t.idle();
+    assert.ok(!t.msgs.some((m) => m.type === 'confirm'));
+    assert.deepEqual(fake.calls.filter((x) => x.url === '/command/runtime.set').map((x) => JSON.parse(x.body)), [{ volume: 80 }, { volume: 64 }]);
+    assert.equal(fake.state.volume, 64);
+    assert.match(activity(t, 'runtime.set').result || '', /auto_reverted/);
+    await t.close();
+    // Ask mode: the user confirms the jump; the clipping guard still reverts it
+    fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({}));
+    fake.state.wrote = false;
+    fake.calls.length = 0;
+    t = await start(home, fake);
+    await t.turn('louder a lot');
+    const c = await t.waitFor((m) => m.type === 'confirm');
+    t.send({ type: 'confirm', id: c.id, allow: true });
+    await t.waitFor((m) => m.type === 'activity' && m.entry.command === 'revert');
+    assert.equal(fake.state.volume, 64);
   } finally { await t.close(); fake.server.close(); }
 });

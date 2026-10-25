@@ -29,10 +29,8 @@
           "doc": "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection",
           "envelope": {
             "min": 0,
-            "min_step_ratio": 0.5,
-            "max_step_ratio": 2.0,
-            "note": "the doc limits the cut (at most 50% per step, never < 0); the x2 raise bound is a conservative addition (dev-4324: no documented raise limit). A mode whose decrement is 0 asks.",
-            "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+            "note": "validity only (a negative decrement = a growing mode); no step limit",
+            "doc": "modules/pianoid-middleware/REST_API.md#engine-safety-net-catastrophic-input-rejection"
           }
         },
         {
