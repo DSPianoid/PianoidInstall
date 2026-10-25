@@ -10,7 +10,7 @@ audit log), Undo turn in the pane. Level: module (/review), by the implementing 
 |---|------|-----|------|
 | 1 | tools/pianoid-assistant/service/session.js | 778 (was 713) | YELLOW |
 | 2 | PianoidTunner/src/components/Assistant/AssistantPane.jsx | 244 | — |
-| 3 | tools/pianoid-assistant/test/autonomy.test.js | 262 (test) | — |
+| 3 | tools/pianoid-assistant/test/autonomy.test.js | 259 (test) | — |
 | 4 | tools/pianoid-assistant/policy.js | 165 | — |
 | 5 | tools/pianoid-assistant/service/prompt.js | 106 | — |
 
