@@ -25,7 +25,7 @@ export const CONTENT_TYPES = {
   png: 'image/png', csv: 'text/csv', json: 'application/json', npy: 'application/octet-stream', npz: 'application/octet-stream',
   wav: 'audio/wav', txt: 'text/plain', md: 'text/plain',
 };
-export const TAINT_TRACKED_SINCE = '2026-10-25T13:00:00.000Z';   // dev-mem1: artefacts from then on carry `tainted`
+export const TAINT_TRACKED_SINCE = '2026-10-25T13:12:00.000Z';   // dev-mem1: artefacts from then on carry `tainted`
 const KEEP_ARTIFACTS = 500;
 export const KEEP_BYTES = 4 * 1024 ** 3;     // dev-8a9e: rig-file exports are large; the oldest go beyond 4 GB
 

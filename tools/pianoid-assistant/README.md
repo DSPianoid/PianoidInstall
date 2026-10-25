@@ -226,7 +226,7 @@ The output is DATA: wrapped in `<saved_output untrusted="true">` (a closing tag 
 "not instructions" notice. **Taint:** every `meta.json` records `tainted` at creation (an `export: true` result gets
 it from the executor permit of its turn: `turn_tainted` in the executor reply, stripped by the MCP server; a
 `run_python` output from the turn or a tainted input). An artefact without the field is untainted only when created
-before `TAINT_TRACKED_SINCE` (2026-10-25T13:00Z), otherwise tainted (fail closed). Reading a tainted artefact, or
+before `TAINT_TRACKED_SINCE` (2026-10-25T13:12:00.000Z, the merge time), otherwise tainted (fail closed). Reading a tainted artefact, or
 passing one to `run_python`, taints the current turn (every non-read then asks, hard, as after web content; activity
 entry `tainted turn`). Every read is in the audit log (`event: artifact_read`). A new session's first message starts
 with `<saved_outputs untrusted="true">`: the newest 10 ids + titles.
