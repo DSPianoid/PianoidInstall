@@ -6,16 +6,18 @@
  *  - permits: canUseTool's policy verdict leaves a permit; a call without one is refused (403);
  *  - grouped undo: every params / runtime write carries its own X-Pianoid-Group
  *    (`assistant-<tag>-t<turn>-w<n>`): one assistant action = one backend undo group (I3);
- *  - Auto writes inside the envelope: read the values before (envelope.readsFor), a /health level
- *    baseline, then after the write a level check (settle, then a watch window) with AUTO-REVERT on
- *    a breach (D3: ON): POST /history/undo {group} for the undoable domains, a runtime.set of the
- *    values read before for runtime (not in the backend history: REST_API I3, EXEMPT);
+ *  - the physical gates of every params / runtime write (dev-free1: no step limits): read the values
+ *    before (envelope.readsFor) + a /health level baseline; after a string write the engine's CFL flag
+ *    (envelope.cflBreach) -> on a violation the write is undone AT ONCE and the call returns an error;
+ *    then a level check (settle, then a watch window) with AUTO-REVERT on a breach (D3: ON):
+ *    POST /history/undo {group} for the undoable domains, a runtime.set of the values read before for
+ *    runtime (not in the backend history: REST_API I3, EXEMPT);
  *  - the pane's Undo (one group) / Undo turn use the same revert.
  * Pure decisions live in policy.js / envelope.js; this file does the HTTP.
  */
 import crypto from 'node:crypto';
 import { callCommand } from '../mcp/tools.js';
-import { levelBreach, readsFor, revertPlan } from '../envelope.js';
+import { cflBreach, cflGated, levelBreach, readsFor, revertPlan } from '../envelope.js';
 
 const RECORDED = new Set(['params', 'runtime']);
 const PERMIT_TTL_MS = 120000;
@@ -32,7 +34,6 @@ export class AutoWriter {
     this.tag = crypto.randomBytes(2).toString('hex');
     this.turn = 0;
     this.writes = 0;            // writes this turn (group numbering)
-    this.autoWrites = 0;        // Auto writes this turn (the envelope's per-turn bound)
     this.permits = [];
     this.records = [];          // executed params / runtime writes, newest last: {groupId, turn, cmd, plan, entry, reverted}
     this.watchMs = (limits?.global?.level_breach?.watch_s ?? 15) * 1000;
@@ -41,7 +42,6 @@ export class AutoWriter {
   beginTurn() {
     this.turn += 1;
     this.writes = 0;
-    this.autoWrites = 0;
     return this.turn;
   }
 
@@ -54,7 +54,7 @@ export class AutoWriter {
     }
   }
 
-  /** The reads an envelope check needs + the /health level baseline. */
+  /** The reads a revert needs + the /health level baseline. */
   async before(cmd, input) {
     const paths = [...new Set([...readsFor(cmd, input), '/health'])];
     const bodies = await Promise.all(paths.map((p) => this.get(p)));
@@ -70,7 +70,6 @@ export class AutoWriter {
     this.permits = this.permits.filter((p) => t - p.at < PERMIT_TTL_MS);
     const recorded = RECORDED.has(cmd.approval_category);
     const groupId = recorded ? `assistant-${this.tag}-t${this.turn}-w${++this.writes}` : null;
-    if (auto && watch) this.autoWrites += 1;
     this.permits.push({ key: `${cmd.name}\u0000${canonical(input)}`, at: t, cmd, input, auto, watch, before, entry, groupId, turn: this.turn, guard, onOk, tainted });
     return groupId;
   }
@@ -102,10 +101,31 @@ export class AutoWriter {
     this.records.push(rec);
     if (this.records.length > 200) this.records.shift();
     if (p.entry) this.update(p.entry, { groupId: p.groupId, turn: p.turn, undoable: !!plan, auto: p.auto });
-    if (p.auto && p.watch) {
-      res.assistant = await this.levelCheck(rec, p.before?.['/health']);
+    if (p.watch && cflGated(p.cmd, p.input)) {
+      const rejected = await this.cflGate(rec, res);
+      if (rejected) return { status: 200, body: rejected };
     }
+    if (p.watch) res.assistant = await this.levelCheck(rec, p.before?.['/health']);
     return { status: 200, body: res };
+  }
+
+  /**
+   * The CFL gate of a string write (dev-free1): read the engine's flag right after the write; on a violation (or
+   * an unreadable flag: fail closed) undo the write's group at once. Returns null (stable) or the error body.
+   */
+  async cflGate(rec, res) {
+    const why = cflBreach(await this.get('/health'));
+    if (!why) return null;
+    const undo = await this.revert(rec, `CFL gate: ${why}`);
+    const undone = undo.ok === true;
+    return {
+      ok: false, status: 422, error: 'cfl_violation',
+      message: `${rec.cmd.name} rejected: ${why}. ${undone ? 'The write was undone; the engine is back on the values before it.'
+        : `The automatic undo FAILED (${undo.error || undo.code || undo.status}): undo it now (history__undo) or restore the values.`}`,
+      cfl: { reason: why },
+      assistant: { group: rec.groupId, auto_reverted: undone, reason: why, undo },
+      write_result: res.result ?? null,
+    };
   }
 
   /** Settle, check once (the result tells the model), then keep watching for the window. */
@@ -114,10 +134,10 @@ export class AutoWriter {
     const why = levelBreach(baseline, await this.get('/health'), this.limits);
     if (why) {
       const undo = await this.revert(rec, `level breach: ${why}`);
-      return { auto: true, group: rec.groupId, auto_reverted: true, reason: why, undo };
+      return { auto: rec.auto, group: rec.groupId, auto_reverted: true, reason: why, undo };
     }
     this.watch(rec, baseline);
-    return { auto: true, group: rec.groupId, level_check: 'ok', watching_s: this.watchMs / 1000 };
+    return { auto: rec.auto, group: rec.groupId, level_check: 'ok', watching_s: this.watchMs / 1000 };
   }
 
   watch(rec, baseline) {
@@ -127,7 +147,7 @@ export class AutoWriter {
       const why = levelBreach(baseline, await this.get('/health'), this.limits);
       if (why) {
         await this.revert(rec, `level breach: ${why}`);
-        this.note?.(`Your automatic ${rec.cmd.name} (${rec.groupId}) was reverted after a level breach: ${why}.`);
+        this.note?.(`Your ${rec.cmd.name} (${rec.groupId}) was reverted after a level breach: ${why}.`);
         return;
       }
       rec.timer = setTimeout(tick, 1000);

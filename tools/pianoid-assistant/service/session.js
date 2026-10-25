@@ -6,13 +6,13 @@
  * = one user (D5: no user management). Changing the data opt-out restarts the session (the MCP
  * server is spawned with it, so the filter holds in two places).
  * v2 P2: per-category Ask / Auto approvals (approvals.js; installation default in config.json, session
- * overrides in memory), the hard-confirm list and the A2 envelope (policy.js, envelope.js); the MCP
+ * overrides in memory), the hard-confirm list and the physical gates (policy.js, envelope.js); the MCP
  * server executes through service/autoWrite.js (permits, undo groups, level watch, auto-revert).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decide, HARD_CONFIRM, HARD_CONFIRM_EXTRA } from '../policy.js';
-import { applyChange, describe, modeOf, usesEnvelope } from '../approvals.js';
+import { applyChange, describe, usesEnvelope } from '../approvals.js';
 import { check as checkEnvelope } from '../envelope.js';
 import { commandName } from '../lib/registry.js';
 import { LOCAL_READ_TOOLS } from '../mcp/tools.js';
@@ -258,9 +258,9 @@ export class AssistantSession {
     const plan = this.planMatch(cmd, input);                   // null unless the flag is on and a grant is active
     const save = cmd.name === 'preset.save' ? this.owned.classify(input?.path) : null;   // provenance (dev-auto1)
     const autonomous = this.autonomySettings(cmd, input, save);
-    if (usesEnvelope(category) && (modeOf(category, approvals) === 'auto' || plan?.ok || autonomous)) {
-      before = await this.auto.before(cmd, input);       // the values the envelope compares against
-      envelope = checkEnvelope({ cmd, input, before, limits: this.auto.limits, autoWrites: this.auto.autoWrites });
+    if (usesEnvelope(category)) {                         // dev-free1: the physical gates for EVERY params / runtime write
+      before = await this.auto.before(cmd, input);       // the values a revert restores + the /health level baseline
+      envelope = checkEnvelope({ cmd, input, limits: this.auto.limits });
     }
     let verdict = decide({
       command: cmd.name, tier: cmd.tier, family: cmd.family, category,
@@ -289,7 +289,8 @@ export class AssistantSession {
       return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
     if (remember && verdict.canAuto) this.updateApprovals({ category: verdict.category || category, mode: 'auto', scope: remember });
-    this.auto.permit(cmd, executed(cmd, input), { entry, tainted: this.tainted, ...this.saveHooks(save) });
+    // a confirmed params / runtime write keeps the physical gates (the CFL check, the level watch with auto-revert)
+    this.auto.permit(cmd, executed(cmd, input), { watch: usesEnvelope(category), before, entry, tainted: this.tainted, ...this.saveHooks(save) });
     return { behavior: 'allow', updatedInput: input };
   }
 

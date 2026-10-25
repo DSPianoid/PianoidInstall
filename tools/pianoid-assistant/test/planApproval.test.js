@@ -153,11 +153,14 @@ test('policy: a plan never bypasses the deny rows, a tainted turn, code, or an u
   assert.equal(dec('launcher.backend.stop', { plan }).action, 'deny');
   assert.equal(dec('modal.rig_capture', { plan, dataOptOut: true }).action, 'deny');
   assert.equal(decide({ command: 'render.calibration_x', tier: 'act', family: 'render', category: 'renders', settings: { plan, liveAudio: true } }).action, 'deny');
-  // params / runtime: a plan still needs the A2 envelope
+  // params / runtime: a plan covers them free under the physical gates (dev-free1); no verdict / not ok = not covered
   assert.equal(dec('param.mute_modes', { plan }).action, 'confirm');
   const env = dec('param.mute_modes', { plan, envelope: { ok: true, reason: 'mask switch' } });
   assert.deepEqual([env.action, env.watch, env.plan], ['allow', true, 'g']);
   assert.equal(dec('runtime.set', { plan, envelope: { ok: false, reason: 'outside' } }).action, 'confirm');
+  const free = dec('runtime.set', { plan, envelope: { ok: true, reason: 'free edit; level watched' } });   // any size (dev-free1)
+  assert.deepEqual([free.action, free.watch, free.plan], ['allow', true, 'g']);
+  assert.equal(dec('runtime.set', { plan, envelope: { ok: false, reject: true, reason: 'rejected: x' } }).action, 'deny');
   // a failed match (ok false) is the same as no plan
   assert.deepEqual(dec('modal.rig_capture', { plan: { ok: false, reason: 'x' } }), dec('modal.rig_capture', {}));
 });

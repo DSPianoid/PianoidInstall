@@ -85,7 +85,7 @@ test('policy: the residual list still asks (hard, no "Don\'t ask again") in Auto
   assert.deepEqual([dec('preset.save', { path: 'presets/Board.json' }, { plan }).action, dec('preset.save', { path: 'presets/Board.json' }, { plan }).plan], ['allow', 'g']);
 });
 
-test('policy: the deny rows, a tainted turn and the A2 envelope win over Autonomous mode', () => {
+test('policy: the deny rows, a tainted turn and the physical gates win over Autonomous mode', () => {
   assert.equal(dec('launcher.backend.stop').action, 'deny');                                  // excluded
   assert.equal(dec('modal.rig_capture', CAPTURE, { dataOptOut: true }).action, 'deny');       // data opt-out
   assert.equal(decide({ command: 'render.recalibrate_output_level', tier: 'act', family: 'render', category: 'renders',
@@ -95,12 +95,12 @@ test('policy: the deny rows, a tainted turn and the A2 envelope win over Autonom
     assert.deepEqual([v.action, v.hard, !!v.canAuto], ['confirm', true, false], n);           // tainted: hard confirm
   }
   assert.equal(dec('param.get', {}, { tainted: true }).action, 'allow');                      // reads run
-  // params / runtime: only inside the envelope (+ the level watch); outside = a hard confirm
-  const inside = dec('runtime.set', { volume: 66 }, { envelope: { ok: true, reason: 'volume +2' } });
-  assert.deepEqual([inside.action, inside.watch, inside.autonomous], ['allow', true, true]);
-  const outside = dec('runtime.set', { volume: 120 }, { envelope: { ok: false, reason: 'outside the envelope: volume +56' } });
-  assert.deepEqual([outside.action, outside.hard], ['confirm', true]);
-  assert.equal(dec('param.set', {}, {}).action, 'confirm');                                   // no envelope verdict = ask
+  // params / runtime (dev-free1): free under the physical gates (+ the level watch); an invalid value = deny, never a prompt
+  const big = dec('runtime.set', { volume: 120 }, { envelope: { ok: true, reason: 'free edit; level watched' } });
+  assert.deepEqual([big.action, big.watch, big.autonomous], ['allow', true, true]);
+  const bad = dec('runtime.set', { volume: 128 }, { envelope: { ok: false, reject: true, reason: 'rejected: volume 128 is above 127' } });
+  assert.deepEqual([bad.action, bad.reason], ['deny', 'rejected: volume 128 is above 127']);
+  assert.deepEqual([dec('param.set', {}, {}).action, dec('param.set', {}, {}).hard], ['confirm', true]);   // no verdict = fail closed
   // a live render runs (renders_live is not needed), analysis code runs
   assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { liveAudio: true, autonomous: { on: true, residual: null } } }).action, 'allow');
   assert.equal(decide({ command: 'analysis.run_python', tier: 'act', family: 'analysis', category: 'code', settings: { autonomous: { on: true, residual: null } } }).action, 'allow');
@@ -276,16 +276,19 @@ test('session: every residual item still asks (no backup for a refused save); a 
   assert.equal(r.r.behavior, 'deny');
 });
 
-test('session: the A2 envelope is still enforced in Autonomous mode (inside runs + watched, outside asks hard)', async () => {
+test('session: Autonomous mode runs any parameter / volume step (watched); an invalid value is denied, never asked', async () => {
   const { s, sent } = mkSession();
-  assert.equal((await s.canUseTool(tool('runtime.set'), { volume: 66 }, { toolUseID: 'v1' })).behavior, 'allow');
-  const permit = s.auto.permits.find((p) => p.cmd.name === 'runtime.set');
-  assert.deepEqual([permit.auto, permit.watch], [true, true]);               // the level watch with auto-revert follows
-  const p = s.canUseTool(tool('runtime.set'), { volume: 120 }, { toolUseID: 'v2' });
-  const c = await answerNext(s, sent, false);
-  assert.equal(c.hard, true);
-  assert.match(c.reason, /at most \+6/);
-  assert.equal((await p).behavior, 'deny');
+  for (const [input, id] of [[{ volume: 120 }, 'v1'], [{ feedback_coeff: 0.1 }, 'v2']]) {
+    assert.equal((await s.canUseTool(tool('runtime.set'), input, { toolUseID: id })).behavior, 'allow', JSON.stringify(input));
+  }
+  const string = { parameter: 'string', key_no: 'from21to108', values: { 60: { tension: 1e5 } } };
+  assert.equal((await s.canUseTool(tool('param.set'), string, { toolUseID: 's1' })).behavior, 'allow');
+  const permits = s.auto.permits.filter((p) => ['runtime.set', 'param.set'].includes(p.cmd.name));
+  assert.deepEqual(permits.map((p) => [p.auto, p.watch]), [[true, true], [true, true], [true, true]]);   // the gates follow
+  const r = await s.canUseTool(tool('runtime.set'), { volume: 300 }, { toolUseID: 'v3' });
+  assert.equal(r.behavior, 'deny');
+  assert.match(r.message, /volume 300 is above 127/);
+  assert.equal(sent.filter((m) => m.type === 'confirm').length, 0);          // no prompt at all
 });
 
 test('audit log: every activity entry and update is appended to <root>/audit/audit.jsonl, the code in full; rotation', async () => {

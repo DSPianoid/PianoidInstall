@@ -1,0 +1,78 @@
+{
+  "backend": "http://127.0.0.1:5012",
+  "pitch": "60",
+  "original_tension": 650.4881399351901,
+  "steps": [
+    {
+      "step": "step-stable-x36",
+      "requested_tension": 24003.012363608515,
+      "decision": "autonomous",
+      "result": "{\n \"ok\": true,\n \"result\": {\n  \"cfl_redline\": false,\n  \"message\": \"OK\"\n },\n \"status\": 200,\n \"assistant\": {\n  \"auto\": true,\n  \"group\": \"assistant-1bb4-t1-w1\",\n  \"level_check\": \"ok\",\n  \"watching_s\": 15\n }\n}",
+      "revert": null,
+      "health_cfl": {
+        "redline": false,
+        "courant": null,
+        "margin": null
+      },
+      "tension_after": 24003.012363608515
+    },
+    {
+      "step": "step-unstable-x40",
+      "requested_tension": 26019.525597407606,
+      "decision": "autonomous",
+      "result": "{\n \"ok\": false,\n \"status\": 422,\n \"error\": \"cfl_violation\",\n \"message\": \"param.set rejected: CFL violation at pitch 60 (string 2): Courant 1.018, |g| 1.3101 (stable needs the Courant number coeff_tension - 8*coeff_bending < 0.99 and max|g| <= 1). The write was undone; the engine is back on the values before it.\",\n \"cfl\": {\n  \"reason\": \"CFL violation at pitch 60 (string 2): Courant 1.018, |g| 1.3101",
+      "revert": "param.set assistant-1bb4-t2-w1: CFL gate: CFL violation at pitch 60 (string 2): Courant 1.018, |g| 1.3101 (stable needs the Courant number coeff_tension - 8*coeff_bending < 0.99 and max|g| <= 1)",
+      "health_cfl": {
+        "redline": false,
+        "courant": null,
+        "margin": null
+      },
+      "tension_after": 24003.012363608515
+    },
+    {
+      "step": "step-unstable-x100",
+      "requested_tension": 65048.81399351901,
+      "decision": "autonomous",
+      "result": "{\n \"ok\": false,\n \"status\": 422,\n \"error\": \"cfl_violation\",\n \"message\": \"param.set rejected: CFL violation at pitch 60 (string 2): Courant 2.527, |g| 7.9848 (stable needs the Courant number coeff_tension - 8*coeff_bending < 0.99 and max|g| <= 1). The write was undone; the engine is back on the values before it.\",\n \"cfl\": {\n  \"reason\": \"CFL violation at pitch 60 (string 2): Courant 2.527, |g| 7.9848",
+      "revert": "param.set assistant-1bb4-t3-w1: CFL gate: CFL violation at pitch 60 (string 2): Courant 2.527, |g| 7.9848 (stable needs the Courant number coeff_tension - 8*coeff_bending < 0.99 and max|g| <= 1)",
+      "health_cfl": {
+        "redline": false,
+        "courant": null,
+        "margin": null
+      },
+      "tension_after": 24003.012363608515
+    },
+    {
+      "step": "step-restore",
+      "requested_tension": 650.4881399351901,
+      "decision": "autonomous",
+      "result": "{\n \"ok\": true,\n \"result\": {\n  \"cfl_redline\": false,\n  \"message\": \"OK\"\n },\n \"status\": 200,\n \"assistant\": {\n  \"auto\": true,\n  \"group\": \"assistant-1bb4-t4-w1\",\n  \"level_check\": \"ok\",\n  \"watching_s\": 15\n }\n}",
+      "revert": null,
+      "health_cfl": {
+        "redline": false,
+        "courant": null,
+        "margin": null
+      },
+      "tension_after": 650.4881399351901
+    },
+    {
+      "step": "volume 64 -> 127",
+      "decision": "autonomous",
+      "result": "{\n \"ok\": true,\n \"result\": {\n  \"message\": \"OK\",\n  \"updated\": {\n   \"volume\": 127\n  }\n },\n \"status\": 200,\n \"assistant\": {\n  \"auto\": true,\n  \"group\": \"assistant-1bb4-t5-w1\",\n  \"level_check\": \"ok\",\n  \"watching_s\": 15\n }\n}",
+      "revert": null,
+      "health_cfl": {
+        "redline": false,
+        "courant": null,
+        "margin": null
+      },
+      "volume_after": 127,
+      "health_clipping": false
+    },
+    {
+      "step": "volume back 64",
+      "decision": "autonomous",
+      "volume_after": 64
+    }
+  ],
+  "confirms_raised": 0
+}

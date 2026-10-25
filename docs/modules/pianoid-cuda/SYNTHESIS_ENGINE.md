@@ -543,9 +543,9 @@ endpoint — all indication only, none blocking. (v1/v2 history: v2 was skip-the
 user-directed 2026-05-30, replacing the v1 `CflRejected` → HTTP 400 reject; v3 removes even the skip.)
 The deprecated `_raise_if_cfl_unstable` throw-based gate is dead code retained only until its tests migrate.
 
-**`CFL_MARGIN` — a tunable safety margin on the Courant number (currently `0.8`).** The *exact* upper-edge
-boundary is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The live UPLOAD gate rejects
-~20% *before* that, at `CFL_MARGIN = 0.8`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
+**`CFL_MARGIN` — a tunable safety margin on the Courant number (currently `0.99` (measured 2026-10-25, dev-free1: `cfl_redline_info.margin = 0.99` on the installed engine; Core `1ca92ec` restored it from `0.8`)).** The *exact* upper-edge
+boundary is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The indicator flags
+~1% *before* that, at `CFL_MARGIN = 0.99`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
 for the *idealised* recurrence (`0` permissive cells vs a dense-θ truth,
 `dev-eac2-cfl-exactness-check.py` / `dev-eac2-cfl-ratio-boundary.py`), but the real engine runs float32
 with boundary + force terms and accumulates over thousands of steps, so a config the closed-form scores
