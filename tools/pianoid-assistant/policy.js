@@ -18,14 +18,15 @@
  *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
  *                                           (auto). A hard-confirm command only when the user ticked it
  *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
- *                                           never `code`, never reads. After the deny rows and the tainted
- *                                           row, so a plan can never bypass them
+ *                                           never reads. After the deny rows and the tainted row, so a
+ *                                           plan can never bypass them (`code` is plannable: dev-auto1)
  *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
  *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
  *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
  *                                           the post-write level watch with auto-revert; outside the
  *                                           envelope it asks, hard (an envelope override)
- *   category `code` (analysis.run_python)   asks: locked Ask in approvals.js (V1); v2 P5
+ *   category `code` (analysis.run_python)   Ask by default, may be Auto (V1 / V8, dev-auto1); a tainted
+ *                                           turn asks, hard (the row above); the sandbox is never bypassed
  *   category Auto, other                    allow
  *
  * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}}.
@@ -113,7 +114,7 @@ export function decide({ command, tier, family, category, settings = {} }) {
  */
 function planStep({ command, tier, category, settings }) {
   const plan = settings.plan;
-  if (!plan?.ok || READ_TIERS.has(tier) || category === 'code') return null;
+  if (!plan?.ok || READ_TIERS.has(tier)) return null;
   if ((HARD_CONFIRM[command] || category === 'hard_confirm') && plan.ticked !== true) return null;
   if (usesEnvelope(category)) {
     if (!settings.envelope?.ok) return null;

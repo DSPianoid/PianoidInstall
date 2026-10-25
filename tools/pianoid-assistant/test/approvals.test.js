@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { decide, HARD_CONFIRM } from '../policy.js';
-import { applyChange, CATEGORIES, describe, modeOf } from '../approvals.js';
+import { applyChange, CATEGORIES, describe, modeOf, switchable } from '../approvals.js';
 import { check, levelBreach, revertPlan } from '../envelope.js';
 import { loadCommands } from '../lib/registry.js';
 import { loadLimits } from '../lib/paramLimits.js';
@@ -79,11 +79,17 @@ test('approvals: scopes, precedence, locked categories, the pane view', () => {
   st = applyChange(st, { category: 'params', mode: 'ask', scope: 'installation' });
   assert.equal(modeOf('params', st), 'ask');                // the installation change drops the session override
   assert.deepEqual(st.session, {});
-  for (const c of ['view', 'code', 'hard_confirm', 'excluded', 'nope']) {
+  for (const c of ['view', 'hard_confirm', 'excluded', 'nope']) {
     assert.throws(() => applyChange(st, { category: c, mode: 'auto' }), /cannot be changed/, c);
   }
   assert.throws(() => applyChange(st, { category: 'params', mode: 'always' }), /mode/);
-  assert.equal(modeOf('code', { installation: { code: 'auto' } }), 'ask');       // V1: no sandbox yet
+  // code: unlocked by dev-auto1 (V1 / V8, after the SAFE escape suite), default Ask, switchable per session or installation
+  assert.equal(modeOf('code', st), 'ask');
+  assert.ok(switchable('code'));
+  assert.equal(modeOf('code', applyChange(st, { category: 'code', mode: 'auto', scope: 'installation' })), 'auto');
+  assert.equal(modeOf('code', { installation: { code: 'auto' } }), 'auto');
+  const codeRow = describe(st).categories.find((r) => r.id === 'code');
+  assert.deepEqual([codeRow.mode, codeRow.default, codeRow.locked, codeRow.scope], ['ask', 'ask', null, 'default']);
   assert.equal(modeOf('view', { installation: { view: 'ask' } }), 'auto');
   const view = describe({ installation: { runtime: 'auto' }, session: { params: 'auto' } });
   assert.deepEqual(view.autoActive, ['params', 'runtime']);

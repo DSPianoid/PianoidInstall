@@ -140,10 +140,10 @@ test('policy: a plan never bypasses the deny rows, a tainted turn, code, or an u
     const v = dec(n, { plan, tainted: true });
     assert.deepEqual([v.action, v.hard, !!v.canAuto], ['confirm', true, false], n);
   }
-  // analysis code (category code) never takes a plan verdict
-  const code = decide({ command: 'analysis.run_python', tier: 'act', family: 'analysis', category: 'code', settings: { plan } });
-  assert.equal(code.action, 'confirm');
-  assert.ok(!code.plan);
+  // analysis code (category code) takes a plan verdict since dev-auto1, never in a tainted turn
+  const run = (settings) => decide({ command: 'analysis.run_python', tier: 'act', family: 'analysis', category: 'code', settings });
+  assert.deepEqual([run({ plan }).action, run({ plan }).plan], ['allow', 'g']);
+  assert.deepEqual([run({ plan, tainted: true }).action, run({ plan, tainted: true }).hard], ['confirm', true]);
   // a hard-confirm command the user did not tick stays a hard confirm
   for (const n of Object.keys(HARD_CONFIRM).filter((x) => C(x))) {
     const v = dec(n, { plan: { ...plan, ticked: false } });
@@ -244,8 +244,28 @@ test('default (no flag): on — state carries planApproval, the tool and the rig
   assert.equal(opts.systemPrompt, systemPrompt() + planPrompt());
   assert.match(opts.systemPrompt, /request_plan_approval ONCE first/);
   assert.match(opts.systemPrompt, /rig pipeline/);
-  assert.match(opts.systemPrompt, /run_python is never part of a plan/);
+  assert.match(opts.systemPrompt, /name it analysis\.run_python/);
   assert.equal(typeof opts.mcpServers.assistant.requestPlan, 'function');
+});
+
+test('dev-auto1: analysis.run_python is plannable; inside the grant a run needs no confirm and is logged with the grant id', async () => {
+  const { s, sent } = mkSession(true);
+  const pending = s.requestPlan({ title: 'Spectra', steps: ['render', 'analyse'], commands: ['render.note_playback', 'analysis.run_python'], expires_in_min: 10 });
+  const shown = sent.find((m) => m.type === 'plan_request');
+  assert.ok(shown, 'the request reached the pane');
+  s.answerPlan({ id: shown.id, accept: true });
+  assert.equal((await pending).granted, true);
+  assert.equal((await s.canRunAnalysis({ code: 'print(1)' }, { toolUseID: 'r1' })).behavior, 'allow');
+  const e = s.activity.findLast((a) => a.command === 'analysis.run_python');
+  assert.deepEqual([e.decision, e.plan], ['plan', s.plan.grant.id]);
+  assert.ok(!sent.some((m) => m.type === 'confirm'));
+  s.tainted = true;                                                                // a tainted turn still asks
+  const t = s.canRunAnalysis({ code: 'print(1)' }, { toolUseID: 'r2' });
+  await new Promise((r) => setImmediate(r));
+  const c = sent.find((m) => m.type === 'confirm');
+  assert.equal(c.hard, true);
+  s.confirm(c.id, false);
+  assert.equal((await t).behavior, 'deny');
 });
 
 test('flag ON: request -> only the user click grants -> steps auto-run, logged; outside still asks; revoke', async () => {

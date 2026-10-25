@@ -13,8 +13,11 @@
  * ?? default. The browser's localStorage is never used.
  *
  * Fixed categories cannot be switched: `view` (always Auto), `hard_confirm` (always asks: the
- * hard-confirm list, see HARD_CONFIRM in policy.js), `excluded` (never runs) and `code` (Ask until
- * the analysis sandbox escape suite passes, V1: there is no sandbox yet).
+ * hard-confirm list, see HARD_CONFIRM in policy.js) and `excluded` (never runs). `code`
+ * (analysis.run_python) is Ask by default and switchable to Auto (per session or installation):
+ * decision V1 / V8, unlocked by dev-auto1 2026-10-25 after the SAFE sandbox escape suite passed
+ * (spike doc §10, dev-11f8 2026-10-17). A web-tainted turn still asks, hard, whatever the mode
+ * (policy.js), and every run stays inside the AppContainer sandbox (analysis/runPython.js).
  */
 export const CATEGORIES = [
   { id: 'view', label: 'View and reads', covers: 'UI commands (panes, selection, zoom) and every read', default: 'auto', locked: 'reads and view changes always run' },
@@ -25,7 +28,7 @@ export const CATEGORIES = [
   { id: 'preset_nav', label: 'Preset navigation', covers: 'switch preset, spawn a working copy, load into the library', default: 'ask' },
   { id: 'history', label: 'Undo / redo', covers: 'history.undo / history.redo', default: 'ask' },
   { id: 'layout_save', label: 'Save a named layout', covers: 'saving a named layout (command arrives with the runbook, P3)', default: 'ask' },
-  { id: 'code', label: 'Analysis code', covers: 'analysis.run_python: runs analysis code in the sandbox (P5)', default: 'ask', locked: 'Ask until the analysis sandbox escape suite passes (V1)' },
+  { id: 'code', label: 'Analysis code', covers: 'analysis.run_python: runs analysis code in the sandbox (P5)', default: 'ask' },
   { id: 'web', label: 'Web research', covers: 'searches and fetches by the researcher (arrives in P7)', default: 'auto' },
   { id: 'bug_local', label: 'Local bug reports', covers: 'bug.report: files a report to the local collector (POST /bug_report)', default: 'ask' },
 ];

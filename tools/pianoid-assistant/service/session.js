@@ -39,10 +39,11 @@ const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
 // The plan-approval request tool (dev-28f1): registered unless the kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0.
 export const PLAN_TOOL = 'mcp__assistant__request_plan_approval';
 const ANALYSIS_TOOL = 'mcp__analysis__run_python';
-// The v2 P5 sandbox tool as the policy and the router see it (category `code`: always asks).
+// The v2 P5 sandbox tool as the policy, the router and plan approval see it (category `code`: Ask by default,
+// may be Auto or in a plan since dev-auto1; a tainted turn always asks).
 export const ANALYSIS_CMD = {
   name: 'analysis.run_python', title: 'Run analysis code in the sandbox', tier: 'act', family: 'analysis', category: 'code',
-  approval_category: 'code',          // the confirm request's category (P2 approvals: locked Ask)
+  approval_category: 'code',          // the confirm request's category (P2 approvals)
 };
 // Never available, whatever a setting says: no shell for the model (the analysis tool is the only code path).
 export const DISALLOWED_TOOLS = ['Bash', 'PowerShell'];
@@ -74,6 +75,7 @@ export class AssistantSession {
       log: (f) => this.logActivity(f), update: (e, f) => this.updateActivity(e, f), note: (n) => this.notes.push(n),
     });
     this.byName = new Map(commands.map((c) => [c.name, c]));
+    this.plannable = new Map([...this.byName, [ANALYSIS_CMD.name, ANALYSIS_CMD]]);   // what a plan request may name
     this.driver = null;
     this.busy = false;
     this.transcript = [];
@@ -240,30 +242,47 @@ export class AssistantSession {
     return { behavior: 'allow', updatedInput: input };
   }
 
-  /** The policy verdict of one analysis call (invalid input = deny; else category `code` = confirm). */
-  analysisVerdict(input) {
+  /**
+   * The policy verdict of one analysis call: invalid input = deny; else category `code` (Ask / Auto, a plan step;
+   * a tainted turn = hard confirm). `plan` = planMatch's answer (null = none).
+   */
+  analysisVerdict(input, plan = null) {
     try {
       validateInput(input);
     } catch (e) {
       return { action: 'deny', reason: `invalid analysis.run_python input: ${e.message}` };
     }
-    return decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted } });
+    return decide({
+      ...ANALYSIS_CMD, command: ANALYSIS_CMD.name,
+      settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState(), ...(plan?.ok ? { plan } : {}) },
+    });
   }
 
   async canRunAnalysis(input, { signal, toolUseID }) {
     await this.trigger(this.router.onToolCall(ANALYSIS_CMD.name));   // layer 2: the first code run escalates
-    const verdict = this.analysisVerdict(input);
-    const shown = { ...input, code: undefined, code_lines: String(input?.code ?? '').split('\n').length };
-    const entry = this.logActivity({ command: ANALYSIS_CMD.name, tier: ANALYSIS_CMD.tier, input: shown, decision: verdict.action, reason: verdict.reason, toolUseId: toolUseID });
+    const plan = this.planMatch(ANALYSIS_CMD, input);
+    const verdict = this.analysisVerdict(input, plan);
+    const code = String(input?.code ?? '');
+    const shown = { ...input, code: undefined, code_lines: code.split('\n').length };
+    const decision = verdict.plan ? 'plan' : verdict.action === 'allow' && verdict.auto ? 'auto' : verdict.action;
+    // the full code stays on the entry (`input` is summarized): an Auto run is as auditable as a confirmed one
+    const entry = this.logActivity({
+      command: ANALYSIS_CMD.name, tier: ANALYSIS_CMD.tier, category: ANALYSIS_CMD.category, input: shown, code,
+      decision, reason: verdict.reason, toolUseId: toolUseID, ...(verdict.plan ? { plan: verdict.plan } : {}),
+    });
+    if (verdict.plan) this.usePlan(ANALYSIS_CMD, plan, entry);
     if (verdict.action === 'deny') {
       this.router.onRefused(ANALYSIS_CMD.name);
       return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     }
-    const { allow } = await this.askConfirm(entry, ANALYSIS_CMD, input, verdict, signal);
-    this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
-    if (!allow) {
-      this.router.onRefused(ANALYSIS_CMD.name);
-      return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
+    if (verdict.action === 'confirm') {
+      const { allow, remember } = await this.askConfirm(entry, ANALYSIS_CMD, input, verdict, signal);
+      this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
+      if (!allow) {
+        this.router.onRefused(ANALYSIS_CMD.name);
+        return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
+      }
+      if (remember && verdict.canAuto) this.updateApprovals({ category: ANALYSIS_CMD.category, mode: 'auto', scope: remember });
     }
     this.analysisEntry = entry;
     return { behavior: 'allow', updatedInput: input };
@@ -427,7 +446,7 @@ export class AssistantSession {
    */
   requestPlan(args) {
     if (!this.plan.enabled) return Promise.resolve({ ok: false, error: 'plan approval is not enabled' });
-    const v = validateRequest(args, this.byName);
+    const v = validateRequest(args, this.plannable);
     if (!v.ok) {
       this.logActivity({ command: 'plan approval', tier: 'settings', decision: 'deny', reason: `invalid request: ${v.error}` });
       return Promise.resolve({ ok: false, error: v.error });
