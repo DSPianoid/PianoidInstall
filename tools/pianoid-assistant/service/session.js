@@ -696,6 +696,7 @@ export class AssistantSession {
     for (const p of [...this.pending.values()]) p.resolve(false);
     for (const id of [...this.plan.requests.keys()]) this.answerPlan({ id, accept: false });
     this.auto.clearPermits();
+    this.memory.permits.clear();          // dev-mem1 review: a stopped turn leaves no note permit behind
     if (this.busy && this.driver) {
       try { await this.driver.interrupt(); } catch (e) { /* not running */ }
     }

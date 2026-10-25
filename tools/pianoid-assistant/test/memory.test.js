@@ -463,3 +463,11 @@ test('service: fake-driver turn saves a note (Auto) and lists saved outputs; the
     await svc.close();
   }
 });
+
+test('review fix: Stop drops a note permit that was allowed but not yet written', async () => {
+  const { s } = mkSession({ config: { approvals: { memory: 'auto' } } });
+  assert.equal((await s.canUseTool(TOOLS.saveNote, NOTE, { toolUseID: 's1' })).behavior, 'allow');
+  await s.stop();
+  assert.equal(json(await s.memory.call(TOOLS.saveNote, NOTE)).error, 'not_permitted');
+  assert.equal(s.memory.notes.list().length, 0);
+});
