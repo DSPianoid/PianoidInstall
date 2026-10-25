@@ -30,7 +30,7 @@ import { BUG_CMD, BUG_TOOL, buildReport, fileReport, preview, validateDraft } fr
 import {
   enabled as planFlag, validateRequest, createGrant, matchGrant, recordUse, describeGrant, planState, endedReason,
 } from '../planApproval.js';
-import { residualReason, STILL_ASKS_TEXT } from '../autonomy.js';
+import { residualReason, SAFETY_NETS_TEXT, STILL_ASKS_TEXT } from '../autonomy.js';
 import { AuditLog } from './auditLog.js';
 import { backupPreset, middlewareDir } from './presetBackup.js';
 
@@ -122,7 +122,9 @@ export class AssistantSession {
   // ---- Autonomous mode (dev-auto1): config.json `autonomous`, switched only by the pane (WS settings) ----
 
   autonomyView() {
-    return { on: !!this.config.autonomous, stillAsks: STILL_ASKS_TEXT, auditFile: this.audit.file, backupDir: this.backupDir };
+    return {
+      on: !!this.config.autonomous, stillAsks: STILL_ASKS_TEXT, safetyNets: SAFETY_NETS_TEXT, auditFile: this.audit.file, backupDir: this.backupDir,
+    };
   }
 
   /** The policy's `settings.autonomous` for one call (undefined when off). */

@@ -37,7 +37,16 @@ export const STILL_ASKS_TEXT = [
   'any external filing or sending',
   'launcher / process control',
   'preset.create with overwrite',
-  'a rig drive above -24 dBFS or with an unknown level',
+  `a rig drive above ${LEVEL_CAP_DBFS} dBFS or with an unknown level`,
+];
+
+/** What stays in force in Autonomous mode, as the pane shows it. */
+export const SAFETY_NETS_TEXT = [
+  'parameter / volume / feedback edits only inside the safety envelope, with the level watch and auto-revert',
+  `rig drives capped at ${LEVEL_CAP_DBFS} dBFS`,
+  'a turn that used web content asks for every action',
+  '"Block measurement data" still blocks modal / calibration',
+  'analysis code runs only in the sandbox',
 ];
 
 /** presets/<letters, digits, . _ -> _work(.json): the assistant's own working preset (no folders, no `..`). */
