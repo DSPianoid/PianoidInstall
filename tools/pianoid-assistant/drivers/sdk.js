@@ -92,13 +92,17 @@ export class SdkDriver {
         { reason: z.string() },
         async ({ reason }) => ({ content: [{ type: 'text', text: await onEscalate(reason) }] })),
       tool('bug_report',
-        'File a bug report to the local Pianoid bug collector (POST /bug_report: the same store as the bug-button and '
-        + 'automatic reports; never GitHub). Only for an app bug or an environment fault your reads confirmed, not the '
-        + "user's own settings. Show the user the draft in the chat first. The host attaches the context, versions, the "
-        + 'recent chat and activity itself; the user confirms the full report in a dialog. [category: bug_local]',
+        'File a bug report or a feature request to the local Pianoid bug collector (POST /bug_report: the same store as '
+        + 'the bug-button and automatic reports; never GitHub). Only for an app bug or an environment fault your reads '
+        + "confirmed, or a missing capability (feature_request); not the user's own settings. Check pianoid bug__list "
+        + 'first so you do not re-file an open or fixed report. Show the user the draft in the chat first. The host '
+        + 'attaches the context, versions, the recent chat and activity itself; the user confirms the full report in a '
+        + 'dialog. [category: bug_local]',
         {
           title: z.string().max(200),
-          classification: z.enum(['app_bug', 'environment']),
+          classification: z.enum(['app_bug', 'environment', 'feature_request']),
+          severity: z.enum(['critical', 'high', 'medium', 'low']).optional()
+            .describe('critical = crash / data loss / unsafe output; high = wrong results, no workaround; medium = wrong with a workaround; low = cosmetic'),
           description: z.string().describe('what happens, where, why it is wrong'),
           component: z.string().optional().describe('e.g. assistant policy, backend /get_chart_test, Tunner Workbench'),
           steps: z.array(z.string()).max(20).optional(),

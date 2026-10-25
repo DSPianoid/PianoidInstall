@@ -268,11 +268,19 @@ with `<saved_outputs untrusted="true">`: the newest 10 ids + titles.
 `bug_report` on the in-process `assistant` server (`mcp__assistant__bug_report`, registry-style name `bug.report`,
 category **`bug_local`**, Ask by default). Native only: `POST /bug_report` on the backend, the same store as the 🐞 /
 automatic reports (`PianoidCore/logs/reports/bugreport-<createdAt>-assistant-<kind>-<reportId>.json`); never GitHub
-(user decision 2026-10-17). The model gives the draft (`title`, `classification` app_bug | environment — the user's own
-settings are not a bug —, `description`, `component`, `steps`, `expected`, `actual`, `evidence`); `service/bugReport.js`
+(user decision 2026-10-17). The model gives the draft (`title`, `classification` app_bug | environment | feature_request
+— the user's own settings are not a bug —, optional `severity` critical | high | medium | low, `description`,
+`component`, `steps`, `expected`, `actual`, `evidence`); `service/bugReport.js`
 (not the model) attaches the latest `pianoid_context`, `versions` (repos, build, GPU, assistant model), the last 12
 chat messages and the last 30 activity entries. The confirm dialog shows the draft as filed plus the attachment list;
-only the report the user saw is filed, once (the handler looks it up by the draft's canonical JSON). Not built yet
+only the report the user saw is filed, once (the handler looks it up by the draft's canonical JSON).
+
+**Triage (dev-obuf1).** The collector stamps every report `status: open`, `resolution: null`. Two registry commands
+on the `pianoid` server read and update the store: `bug.list` (`GET /bug_reports`, category `view`, runs without
+asking; filters status / kind / source / severity) and `bug.set_status` (`POST /bug_reports/<id>/status`, category
+`bug_local`, Ask by default: status open | fixed | wontfix | duplicate with a resolution note and the fix commits,
+severity, re-class to feature_request). The prompt tells the model to read `bug.list` before filing so it does not
+re-file an open or fixed report. Fields + routes: REST_API.md "Bug reports". Not built yet
 (v2 §7): the service-side triggers, de-duplication, `ui.bug_report.collect`.
 
 ## Operations knowledge (dev-6b34)

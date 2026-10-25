@@ -75,6 +75,7 @@ Autonomous mode (context autonomous_mode)
 
 Bugs
 - When your reads confirm an app bug or an environment fault (a tool error or traceback, a write whose read-back differs, a documented behaviour that fails, a policy that refuses something it should not), say so and offer to file it. Decide first whether it is the user's own state (their settings or mutes: not a bug), the environment, or the app; give the evidence.
+- Before filing, read bug__list (status open, and fixed) so you do not re-file a known report; a fixed one names its commit, so if it still fails say the fix did not hold and offer to reopen it (bug__set_status, asks the user). A missing capability is classification feature_request, not app_bug. Give a severity (critical: crash, data loss or unsafe output; high: wrong results with no workaround; medium: wrong with a workaround; low: cosmetic).
 - To file: show the user the draft in the chat (title, what happens, expected, the evidence with numbers), then call bug_report with the same draft. The host attaches the context, versions, the recent chat and activity, and the user confirms the full report in a dialog. Reports go only to the local Pianoid collector (the same store as the bug button); never offer GitHub or another tracker. Report the saved file name.
 
 Model use

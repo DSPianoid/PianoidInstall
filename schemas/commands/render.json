@@ -61,7 +61,7 @@
     {
       "name": "render.keyboard",
       "title": "Render the keyboard sweep offline",
-      "description": "Stops the online engine, renders the NOTE_ON/NOTE_OFF sweep offline into a peak-normalised WAV (audio_data base64), then restarts the engine.",
+      "description": "Stops the online engine, renders the NOTE_ON/NOTE_OFF sweep offline into a peak-normalised mono WAV of one output channel (audio_data base64; channel, default 0), then restarts the engine.",
       "target": "backend",
       "tier": "act",
       "approval_category": "renders",
@@ -74,7 +74,8 @@
         "properties": {
           "speed_ms_per_note": {"type": "number", "minimum": 10, "maximum": 2000, "default": 100, "description": "NOTE_ON to NOTE_OFF duration per key, ms"},
           "velocity": {"type": "integer", "minimum": 0, "maximum": 127, "default": 63, "description": "MIDI velocity (0 is clamped to 1)"},
-          "pitches": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "description": "Explicit pitch list; omit for all pitches"}
+          "pitches": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "description": "Explicit pitch list; omit for all pitches"},
+          "channel": {"type": "integer", "minimum": 0, "default": 0, "description": "Output channel written to the mono WAV (0 = output pitch 128); the result names num_channels"}
         }
       },
       "result": {"type": "object"}

@@ -20,6 +20,17 @@ test('draft validation: title, description and an app_bug / environment classifi
   assert.throws(() => validateDraft(null), /object/);
 });
 
+test('feature_request is a kind of its own; severity is optional but checked (dev-obuf1 triage)', () => {
+  const fr = { ...DRAFT, classification: 'feature_request', severity: 'low' };
+  assert.doesNotThrow(() => validateDraft(fr));
+  assert.throws(() => validateDraft({ ...DRAFT, severity: 'urgent' }), /severity must be one of critical, high, medium, low/);
+  const r = buildReport({ draft: fr, reportId: 'abcdef0123456789' });
+  assert.deepEqual(r.trigger, { auto: false, source: 'assistant', kind: 'feature_request' });
+  assert.equal(r.severity, 'low');
+  assert.equal(preview(r).severity, 'low');
+  assert.equal(buildReport({ draft: DRAFT, reportId: 'abcdef0123456789' }).severity, null);
+});
+
 test('the host attaches context, versions, the transcript excerpt and the activity; trigger.source assistant', () => {
   const context = { backend: { status: 'healthy' }, environment: { repos: { core: 'dev@15896da' }, build: 'release', gpu: 'RTX 4090' } };
   const transcript = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `m${i}`, at: 1e12 + i }));
@@ -102,4 +113,16 @@ test('session: the dialog shows the full draft; only a confirmed draft is filed,
   assert.equal(v.behavior, 'deny');
   assert.equal(bad.confirms.length, 0);
   assert.deepEqual(bad.s.preToolUse({ tool_name: 'mcp__assistant__bug_report', tool_input: DRAFT }), {});
+});
+
+test('the store reads and the triage update are registry commands: bug.list = view, bug.set_status = bug_local (dev-obuf1)', async () => {
+  const { loadCommands } = await import('../lib/registry.js');
+  const byName = new Map(loadCommands().map((c) => [c.name, c]));
+  assert.equal(byName.get('bug.list').approval_category, 'view');
+  assert.deepEqual(byName.get('bug.list').route, { method: 'GET', path: '/bug_reports' });
+  const set = byName.get('bug.set_status');
+  assert.equal(set.approval_category, 'bug_local');
+  assert.equal(set.route.path, '/bug_reports/{report_id}/status');
+  const d = decide({ ...set, command: set.name, settings: {} });
+  assert.equal(d.action, 'confirm');                     // Ask by default, like filing
 });
