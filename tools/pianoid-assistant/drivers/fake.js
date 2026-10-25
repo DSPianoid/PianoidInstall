@@ -6,7 +6,7 @@
  * {tool: "mcp__pianoid__ui__pane__open", input: {...}} | {escalate: "reason"}]}]; the first rule
  * whose regex matches the user text runs. No match → a canned reply. A tool step passes the
  * session's PreToolUse hooks first (as the real runtime does), then canUseTool; `mcp__analysis__*`
- * runs the session's in-process analysis handler; `{$ref: "<n>.<json path>"}` in an input value
+ * runs the session's in-process analysis handler (the saved-output and notes tools: the session's memory handler); `{$ref: "<n>.<json path>"}` in an input value
  * substitutes a value from the JSON result of the n-th tool step (0-based; e.g. an exported artefact id).
  */
 import fs from 'node:fs';
@@ -41,6 +41,7 @@ export class FakeDriver {
     this.escalate = options.mcpServers?.assistant?.escalate;   // set by the session for the fake runtime
     this.runPython = options.mcpServers?.analysis?.runPython;
     this.bugReport = options.mcpServers?.assistant?.bugReport;
+    this.memoryCall = options.mcpServers?.assistant?.call;   // dev-mem1: notes + saved-output tools (in-process)
     onEvent({ type: 'init', sessionId: 'fake-session', model: this.model, tools: [], mcpServers: [{ name: 'pianoid', status: 'connected' }] });
   }
 
@@ -83,7 +84,9 @@ export class FakeDriver {
         const args = verdict.updatedInput || input;
         let text;
         let isError = false;
-        if (step.tool.startsWith('mcp__analysis__')) {
+        if (/^mcp__(analysis__(list|read)_artifacts?|assistant__\w+_notes?)$/.test(step.tool)) {
+          text = await this.memoryCall(step.tool, args);
+        } else if (step.tool.startsWith('mcp__analysis__')) {
           text = JSON.stringify(await this.runPython(args));
         } else if (step.tool === 'mcp__assistant__bug_report') {
           text = JSON.stringify(await this.bugReport(args));

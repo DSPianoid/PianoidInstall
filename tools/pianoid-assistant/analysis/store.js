@@ -7,8 +7,11 @@
  * or the artefact dir alone with PIANOID_ANALYSIS_ARTIFACTS — the session passes it to the MCP server):
  *   runtime\                   the private Python runtime the sandbox runs (read-only to a run; setup.js)
  *   runs\<run_id>\             one sandboxed run: code.py, user.py, in\, out\, tmp\ (pruned to KEEP_RUNS)
- *   artifacts\<id>\meta.json   {id, kind, source, created_at, files: [{name, kind, size}], ...source meta}
- *   artifacts\<id>\<files>     data: .wav / .npy / .json / .png / .csv / .txt
+ *   artifacts\<id>\meta.json   {id, kind, source, created_at, tainted, files: [{name, kind, size}], ...source meta}
+ *   artifacts\<id>\<files>     data: .wav / .npy / .json / .png / .csv / .txt / .md
+ * `tainted` (dev-mem1): written at creation, true when the turn that produced it was tainted (web content, a
+ * tainted note or artefact read). An artefact without the field counts as untainted only when it was created
+ * before TAINT_TRACKED_SINCE (written before the field existed); otherwise it counts as tainted (fail closed).
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -17,11 +20,12 @@ import path from 'node:path';
 
 export const ARTIFACT_ID = /^a-\d{14}-[0-9a-f]{6}$/;
 export const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-export const KINDS = { '.png': 'png', '.csv': 'csv', '.json': 'json', '.npy': 'npy', '.npz': 'npz', '.wav': 'wav', '.txt': 'txt' };
+export const KINDS = { '.png': 'png', '.csv': 'csv', '.json': 'json', '.npy': 'npy', '.npz': 'npz', '.wav': 'wav', '.txt': 'txt', '.md': 'md' };
 export const CONTENT_TYPES = {
   png: 'image/png', csv: 'text/csv', json: 'application/json', npy: 'application/octet-stream', npz: 'application/octet-stream',
-  wav: 'audio/wav', txt: 'text/plain',
+  wav: 'audio/wav', txt: 'text/plain', md: 'text/plain',
 };
+export const TAINT_TRACKED_SINCE = '2026-10-25T13:12:00.000Z';   // dev-mem1: artefacts from then on carry `tainted`
 const KEEP_ARTIFACTS = 500;
 export const KEEP_BYTES = 4 * 1024 ** 3;     // dev-8a9e: rig-file exports are large; the oldest go beyond 4 GB
 
@@ -49,7 +53,7 @@ export function newId(prefix, now = new Date()) {
  * Create one artefact. files: [{name, data: Buffer | string} | {name, from: absolute path to copy}] (names must
  * match FILE_NAME and a known kind); meta: anything JSON. Returns the stored meta (with id).
  */
-export function createArtifact(dir, { kind, source, meta = {}, files }) {
+export function createArtifact(dir, { kind, source, meta = {}, files, tainted = false }) {
   if (!files?.length) throw new Error('an artefact needs at least one file');
   const id = newId('a');
   const out = path.join(dir, id);
@@ -63,7 +67,7 @@ export function createArtifact(dir, { kind, source, meta = {}, files }) {
     fs.writeFileSync(path.join(out, name), data);
     return { name, kind: kindOf(name), size: Buffer.byteLength(data) };
   });
-  const record = { id, kind, source, created_at: new Date().toISOString(), ...meta, files: listed };
+  const record = { id, kind, source, created_at: new Date().toISOString(), ...meta, tainted: tainted === true, files: listed };
   fs.writeFileSync(path.join(out, 'meta.json'), JSON.stringify(record, null, 1));
   prune(dir);
   return record;
@@ -84,6 +88,50 @@ export function artifactFile(dir, id, name) {
   const meta = readArtifact(dir, id);
   if (!meta || !meta.files.some((f) => f.name === name)) return null;
   return path.join(dir, id, name);
+}
+
+/** Did this artefact come from a tainted turn? A missing flag is untainted only before TAINT_TRACKED_SINCE. */
+export function isTainted(meta) {
+  if (typeof meta?.tainted === 'boolean') return meta.tainted;
+  return !(typeof meta?.created_at === 'string' && meta.created_at < TAINT_TRACKED_SINCE);
+}
+
+const shortArgs = (args) => {
+  const s = args && typeof args === 'object' ? JSON.stringify(args) : '';
+  return s && s !== '{}' ? ` ${s.length > 80 ? `${s.slice(0, 80)}…` : s}` : '';
+};
+
+/** A one-line title of an artefact (derived from its meta, so artefacts written before dev-mem1 get one too). */
+export function titleOf(meta) {
+  if (meta.source === 'analysis.run_python') return `run_python ${meta.run_id || ''} output ${meta.files?.[0]?.name || ''}`.replace(/\s+/g, ' ').trim();
+  if (meta.source === 'modal.rig_files') return `modal.rig_files ${meta.area || ''} ${meta.run || ''}`.replace(/\s+/g, ' ').trim();
+  return `${meta.command || meta.source || meta.kind}${shortArgs(meta.args)}`;
+}
+
+const validMeta = (m, id) => m && typeof m === 'object' && m.id === id && Array.isArray(m.files) && typeof m.created_at === 'string';
+
+/**
+ * Newest-first listing (meta only; a missing / corrupt meta.json is skipped and counted). `kind` matches the
+ * artefact kind or its source command; `since` = an ISO time; `query` = case-insensitive text over the title,
+ * command / source, kind and file names. Returns {items: [meta + title], total, skipped}.
+ */
+export function listArtifacts(dir, { kind, since, query, limit = 20 } = {}) {
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => ARTIFACT_ID.test(n)); } catch (e) { return { items: [], total: 0, skipped: 0 }; }
+  const q = query ? String(query).toLowerCase() : null;
+  let skipped = 0;
+  const all = [];
+  for (const id of names) {
+    const meta = readArtifact(dir, id);
+    if (!validMeta(meta, id)) { skipped += 1; continue; }
+    const title = titleOf(meta);
+    if (kind && meta.kind !== kind && meta.source !== kind && meta.command !== kind) continue;
+    if (since && !(meta.created_at >= since)) continue;
+    if (q && ![title, meta.command, meta.source, meta.kind, ...meta.files.map((f) => f.name)].some((t) => String(t || '').toLowerCase().includes(q))) continue;
+    all.push({ ...meta, title });
+  }
+  all.sort((a, b) => (a.created_at === b.created_at ? (a.id < b.id ? 1 : -1) : a.created_at < b.created_at ? 1 : -1));
+  return { items: all.slice(0, limit), total: all.length, skipped };
 }
 
 export function prune(dir, keep = KEEP_ARTIFACTS, keepBytes = KEEP_BYTES) {

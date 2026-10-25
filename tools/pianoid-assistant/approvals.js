@@ -18,6 +18,8 @@
  * decision V1 / V8, unlocked by dev-auto1 2026-10-25 after the SAFE sandbox escape suite passed
  * (spike doc §10, dev-11f8 2026-10-17). A web-tainted turn still asks, hard, whatever the mode
  * (policy.js), and every run stays inside the AppContainer sandbox (analysis/runPython.js).
+ * `memory` (dev-mem1): the assistant's note writes (save_note / update_note, service/memory.js), Ask by default;
+ * the note reads and the saved-output reads run under `view`.
  */
 export const CATEGORIES = [
   { id: 'view', label: 'View and reads', covers: 'UI commands (panes, selection, zoom) and every read', default: 'auto', locked: 'reads and view changes always run' },
@@ -32,6 +34,7 @@ export const CATEGORIES = [
   { id: 'code', label: 'Analysis code', covers: 'analysis.run_python: runs analysis code in the sandbox (P5)', default: 'ask' },
   { id: 'web', label: 'Web research', covers: 'searches and fetches by the researcher (arrives in P7)', default: 'auto' },
   { id: 'bug_local', label: 'Local bug reports', covers: 'bug.report: files a report to the local collector (POST /bug_report)', default: 'ask' },
+  { id: 'memory', label: 'Assistant notes', covers: 'save_note / update_note: the assistant writes its own notes (hand-off memory, dev-mem1); the dialog shows the full text', default: 'ask' },
 ];
 
 /** Categories that are never switchable and are not shown as rows (they have their own section). */

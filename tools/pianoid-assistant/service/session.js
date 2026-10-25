@@ -18,7 +18,7 @@ import { commandName } from '../lib/registry.js';
 import { LOCAL_READ_TOOLS } from '../mcp/tools.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { childEnv, saveConfig } from './home.js';
-import { contextBlock, planPrompt, systemPrompt } from './prompt.js';
+import { contextBlock, memoryPrompt, planPrompt, systemPrompt } from './prompt.js';
 import { buildDigest } from './contextDigest.js';
 import { Router } from './router.js';
 import { AutoWriter } from './autoWrite.js';
@@ -34,6 +34,7 @@ import { residualReason, SAFETY_NETS_TEXT, STILL_ASKS_TEXT } from '../autonomy.j
 import { AuditLog } from './auditLog.js';
 import { backupPreset, middlewareDir } from './presetBackup.js';
 import { MANIFEST_FILE, PresetOwnership } from './presetOwnership.js';
+import { AssistantMemory } from './memory.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -79,6 +80,10 @@ export class AssistantSession {
     this.audit = new AuditLog({ dir: paths?.root ? path.join(paths.root, 'audit') : null });
     this.backupDir = paths?.root ? path.join(paths.root, 'preset-backups') : null;
     this.owned = new PresetOwnership({ file: paths?.root ? path.join(paths.root, MANIFEST_FILE) : null, middleware: presetDir, audit: this.audit });
+    // dev-mem1: notes + the saved-output reader; the taint of this turn / of the whole session (the only writers)
+    this.memory = new AssistantMemory(this, { notesDir: paths?.root ? path.join(paths.root, 'memory', 'notes') : null, artifactsDir: analysis.artifacts });
+    this.tainted = false;
+    this.sessionTainted = false;
     this.sessionApprovals = {};       // "this session only" overrides (the service's lifetime)
     this.notes = [];                  // auto-revert notes for the next turn's context
     this.execUrl = null;              // set by the server once it listens (the MCP server's executor)
@@ -112,7 +117,7 @@ export class AssistantSession {
       model: this.model, dataOptOut: !!this.config.dataOptOut, busy: this.busy, transcript: this.transcript,
       activity: this.activity, usage: this.usage, status: this.status,
       pendingConfirms: [...this.pending.values()].map((p) => p.request), approvals: this.approvalsView(),
-      autonomous: this.autonomyView(),
+      autonomous: this.autonomyView(), notes: this.memory.view(),
       ...(this.plan.enabled ? {
         planApproval: this.planView(), pendingPlanRequests: [...this.plan.requests.values()].map((r) => r.request),
       } : {}),
@@ -182,18 +187,20 @@ export class AssistantSession {
         ...(this.execUrl ? ['--exec-url', this.execUrl] : [])],
       env: mcpEnv,
     };
-    const planTool = this.plan.enabled ? [(args) => this.requestPlan(args)] : [];
-    const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason), (args) => this.fileBug(args), ...planTool);
+    const memoryCall = (name, args) => this.memory.call(name, args);
+    const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason), (args) => this.fileBug(args),
+      this.plan.enabled ? (args) => this.requestPlan(args) : null, memoryCall);
     assistant.escalate = (reason) => this.escalate(reason);     // the fake driver calls it directly
     assistant.bugReport = (args) => this.fileBug(args);
+    assistant.call = memoryCall;
     if (this.plan.enabled) assistant.requestPlan = (args) => this.requestPlan(args);
-    const analysis = SdkDriver.analysisTools((args) => this.runAnalysis(args));
+    const analysis = SdkDriver.analysisTools((args) => this.runAnalysis(args), memoryCall);
     analysis.runPython = (args) => this.runAnalysis(args);      // the fake driver calls it directly
     return {
       cwd: this.paths.workspace,
       env,
       model: this.model.current,
-      systemPrompt: this.plan.enabled ? systemPrompt() + planPrompt() : systemPrompt(),
+      systemPrompt: systemPrompt() + (this.plan.enabled ? planPrompt() : '') + memoryPrompt(),
       tools: [],                       // NO built-in tools (no Bash / Read / Edit / Web)
       disallowedTools: DISALLOWED_TOOLS,   // and the shells denied by name, in every mode
       settingSources: [],              // no user / project / local settings, no CLAUDE.md
@@ -222,6 +229,7 @@ export class AssistantSession {
     this.driver = null;
     this.model = { current: this.baseModel(), escalated: false, reason: null };
     this.router.reset();
+    this.sessionTainted = false;      // a new session: its start blocks decide again
     this.status = 'idle';
     this.broadcast(this.state());
   }
@@ -232,6 +240,7 @@ export class AssistantSession {
     if (toolName === ESCALATE_TOOL) return { behavior: 'allow', updatedInput: input };
     if (toolName === ANALYSIS_TOOL) return this.canRunAnalysis(input, { signal, toolUseID });
     if (toolName === BUG_TOOL) return this.canFileBug(input, { signal, toolUseID });
+    if (this.memory.handles(toolName)) return this.memory.canUse(toolName, input, { signal, toolUseID });   // dev-mem1
     if (this.plan.enabled && toolName === PLAN_TOOL) return { behavior: 'allow', updatedInput: input };   // a request only
     if (!toolName.startsWith(PIANOID_PREFIX)) {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
@@ -266,7 +275,7 @@ export class AssistantSession {
     });
     if (verdict.plan) this.usePlan(cmd, plan, entry);
     if (verdict.action === 'allow') {
-      this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry, ...this.saveHooks(save) });
+      this.auto.permit(cmd, executed(cmd, input), { auto: !!verdict.auto, watch: !!verdict.watch, before, entry, tainted: this.tainted, ...this.saveHooks(save) });
       return { behavior: 'allow', updatedInput: input };
     }
     if (verdict.action === 'deny') {
@@ -280,7 +289,7 @@ export class AssistantSession {
       return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
     if (remember && verdict.canAuto) this.updateApprovals({ category: verdict.category || category, mode: 'auto', scope: remember });
-    this.auto.permit(cmd, executed(cmd, input), { entry, ...this.saveHooks(save) });
+    this.auto.permit(cmd, executed(cmd, input), { entry, tainted: this.tainted, ...this.saveHooks(save) });
     return { behavior: 'allow', updatedInput: input };
   }
 
@@ -305,6 +314,7 @@ export class AssistantSession {
 
   async canRunAnalysis(input, { signal, toolUseID }) {
     await this.trigger(this.router.onToolCall(ANALYSIS_CMD.name));   // layer 2: the first code run escalates
+    this.memory.taintFromInputs(input?.inputs);                      // dev-mem1: a tainted input taints the turn first
     const plan = this.planMatch(ANALYSIS_CMD, input);
     const verdict = this.analysisVerdict(input, plan);
     const code = String(input?.code ?? '');
@@ -345,7 +355,7 @@ export class AssistantSession {
       const v = this.analysisVerdict(input.tool_input);
       return v.action === 'deny' ? deny(`Denied by the Pianoid policy: ${v.reason}`) : {};
     }
-    if (name === ESCALATE_TOOL || name === BUG_TOOL || name.startsWith(PIANOID_PREFIX)) return {};
+    if (name === ESCALATE_TOOL || name === BUG_TOOL || name.startsWith(PIANOID_PREFIX) || this.memory.handles(name)) return {};
     if (this.plan.enabled && name === PLAN_TOOL) return {};
     return deny(`${name} is not available to the Pianoid assistant`);
   }
@@ -390,7 +400,7 @@ export class AssistantSession {
 
   /** The analysis tool handler: the sandboxed run, then the PNGs to the pane (chat + activity). */
   async runAnalysis(args) {
-    const res = await this.runPythonImpl(args, { paths: this.analysis });
+    const res = await this.runPythonImpl(args, { paths: this.analysis, tainted: this.tainted });
     const files = (res.files || []).map((f) => ({ ...f, url: `${this.publicUrl}/artifacts/${f.artifact_id}/${encodeURIComponent(f.name)}` }));
     const entry = this.analysisEntry;
     this.analysisEntry = null;
@@ -647,6 +657,7 @@ export class AssistantSession {
     if (this.busy) return this.broadcast({ type: 'error', message: 'A turn is already running (Stop it first).' });
     this.busy = true;
     this.turnJobs = [];
+    this.tainted = this.sessionTainted;      // dev-mem1: a turn starts with the session's taint
     this.auto.beginTurn();
     this.broadcast({ type: 'busy', busy: true });
     this.transcript.push({ role: 'user', text, at: Date.now() });
@@ -655,13 +666,25 @@ export class AssistantSession {
       const ctx = await this.context();
       this.lastContext = ctx;               // bug.report attaches it
       await this.routeTurn(text, ctx);
+      const start = this.driver ? null : this.memory.startBlocks();   // dev-mem1: a new session gets the memory blocks
+      if (start?.tainted) {
+        this.sessionTainted = true;
+        this.taintTurn('the session started with a tainted note in its memory');
+      }
       await this.ensureStarted();
       this.currentAssistant = { role: 'assistant', text: '', model: this.model.current, at: Date.now() };
-      await this.driver.send(contextBlock(ctx) + text);
+      await this.driver.send((start?.text || '') + contextBlock(ctx) + text);
     } catch (e) {
       this.endTurn();
       this.broadcast({ type: 'error', message: e?.message || String(e) });
     }
+  }
+
+  /** Taint this turn (dev-mem1): every non-read then asks, hard (policy.js); new artefacts / notes carry it. */
+  taintTurn(why) {
+    if (this.tainted) return;
+    this.tainted = true;
+    this.logActivity({ command: 'tainted turn', tier: 'policy', decision: 'tainted', status: 'ok', reason: `${why}: every action of this turn asks` });
   }
 
   endTurn() {
@@ -673,6 +696,7 @@ export class AssistantSession {
     for (const p of [...this.pending.values()]) p.resolve(false);
     for (const id of [...this.plan.requests.keys()]) this.answerPlan({ id, accept: false });
     this.auto.clearPermits();
+    this.memory.permits.clear();          // dev-mem1 review: a stopped turn leaves no note permit behind
     if (this.busy && this.driver) {
       try { await this.driver.interrupt(); } catch (e) { /* not running */ }
     }
