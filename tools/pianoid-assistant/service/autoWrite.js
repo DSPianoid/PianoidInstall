@@ -65,13 +65,13 @@ export class AutoWriter {
    * Leave a permit for a call the policy allowed (or the user confirmed). `guard()` -> null | why the call may no
    * longer run (checked right before it does); `onOk(res)` runs after it succeeded (dev-auto1: preset ownership).
    */
-  permit(cmd, input, { auto = false, watch = false, before = null, entry = null, guard = null, onOk = null }) {
+  permit(cmd, input, { auto = false, watch = false, before = null, entry = null, guard = null, onOk = null, tainted = false }) {
     const t = this.now();
     this.permits = this.permits.filter((p) => t - p.at < PERMIT_TTL_MS);
     const recorded = RECORDED.has(cmd.approval_category);
     const groupId = recorded ? `assistant-${this.tag}-t${this.turn}-w${++this.writes}` : null;
     if (auto && watch) this.autoWrites += 1;
-    this.permits.push({ key: `${cmd.name}\u0000${canonical(input)}`, at: t, cmd, input, auto, watch, before, entry, groupId, turn: this.turn, guard, onOk });
+    this.permits.push({ key: `${cmd.name}\u0000${canonical(input)}`, at: t, cmd, input, auto, watch, before, entry, groupId, turn: this.turn, guard, onOk, tainted });
     return groupId;
   }
 
@@ -94,6 +94,7 @@ export class AutoWriter {
     const res = await callCommand(p.cmd, args, {
       source: 'assistant', fetchImpl: this.fetchImpl, group: p.groupId, urls: { backend: this.backendUrl, launcher: this.launcherUrl },
     });
+    res.turn_tainted = p.tainted === true;   // dev-mem1: the MCP server records it on an export (and strips it)
     if (res.ok) p.onOk?.(res);
     if (!res.ok || !p.groupId) return { status: 200, body: res };
     const plan = p.before ? revertPlan(p.cmd, p.input, p.before) : (p.cmd.name === 'runtime.set' ? null : { kind: 'history' });

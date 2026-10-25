@@ -104,11 +104,14 @@ export function artifactFromResult(cmd, args, result, context = {}) {
   };
 }
 
-/** Export one successful command envelope; returns {id, kind, files} for the model, or null. */
-export function exportResult(dir, cmd, args, res, context = {}) {
+/**
+ * Export one successful command envelope; returns {id, kind, files} for the model, or null. `tainted` (dev-mem1) =
+ * the turn that ran the command was tainted: recorded in the artefact's meta.
+ */
+export function exportResult(dir, cmd, args, res, context = {}, { tainted = false } = {}) {
   if (!res?.ok) return null;
   const spec = artifactFromResult(cmd, args, res.result, context);
   if (!spec) return null;
-  const rec = createArtifact(dir, spec);
+  const rec = createArtifact(dir, { ...spec, tainted });
   return { id: rec.id, kind: rec.kind, files: rec.files, sample_rate: rec.sample_rate ?? undefined };
 }

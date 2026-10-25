@@ -11,9 +11,10 @@
  *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, remember?} |
  *                  settings {model?, dataOptOut?, autonomous? (dev-auto1)} | approvals {category, mode, scope} |
  *                  undo {groupId} | undo_turn {turn} (the pane's "Undo turn") |
- *                  plan_grant {id, accept, ticked} | plan_revoke (dev-28f1, ignored with PIANOID_ASSISTANT_PLAN_APPROVAL=0)};
+ *                  plan_grant {id, accept, ticked} | plan_revoke (dev-28f1, ignored with PIANOID_ASSISTANT_PLAN_APPROVAL=0) |
+ *                  note_update {id, title?, body?} | note_delete {id} (dev-mem1: the Notes tab)};
  *                  server {type: state | message | delta | activity | confirm | confirm_done |
- *                  usage | model | escalation | busy | session | error | login | approvals}
+ *                  usage | model | escalation | busy | session | error | login | approvals | notes | note_error}
  * Runs on the user's Claude SUBSCRIPTION in the isolated home (service/home.js); refuses to start
  * with an API key in its environment (D1). PIANOID_ASSISTANT_DRIVER=fake = zero-spend scripted
  * driver (tests, demos).
@@ -206,6 +207,10 @@ export function createAssistantService({
           await session.auto.undoGroup(msg.groupId);
         } else if (msg.type === 'undo_turn' && Number.isInteger(msg.turn)) {
           await session.auto.undoTurn(msg.turn);
+        } else if (msg.type === 'note_update' || msg.type === 'note_delete') {
+          // dev-mem1: the Notes tab (a user edit is the user's and untainted; only the pane deletes)
+          const err = msg.type === 'note_update' ? session.memory.userUpdate(msg) : session.memory.userDelete(msg);
+          if (err) ws.send(JSON.stringify({ type: 'note_error', id: msg.id, message: err }));
         }
       } catch (e) {
         ws.send(JSON.stringify({ type: 'error', message: e?.message || String(e) }));

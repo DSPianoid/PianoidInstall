@@ -63,19 +63,22 @@ export function createPianoidMcpServer({
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings });
     if (verdict.action === 'deny') return text({ error: 'denied', reason: verdict.reason }, true);
     const { args: cmdArgs, exportRequested } = splitExport(cmd, args);
-    const res = await callCommand(cmd, cmdArgs, { source, fetchImpl, execUrl });
+    const { turn_tainted: turnTainted, ...res } = await callCommand(cmd, cmdArgs, { source, fetchImpl, execUrl });
     const shaped = shapeResult(cmd, res);
-    if (exportRequested) shaped.artifact = await exportArtifact(cmd, cmdArgs, res);
+    // dev-mem1: the service's executor says whether the calling turn is tainted; without the field (an older
+    // service) a service-spawned export counts as tainted (fail closed); standalone (no executor) there is no turn
+    const tainted = execUrl ? turnTainted !== false : false;
+    if (exportRequested) shaped.artifact = await exportArtifact(cmd, cmdArgs, res, tainted);
     return text(compact(shaped), !res.ok);
   });
   /** `export: true`: the full result as an artefact, with the load settings it was rendered at. */
-  async function exportArtifact(cmd, cmdArgs, res) {
+  async function exportArtifact(cmd, cmdArgs, res, tainted) {
     let loadSettings = null;
     try {
       loadSettings = (await (await fetchImpl(`${BACKEND_URL}/load_settings`)).json())?.settings ?? null;
     } catch (e) { /* backend gone: export without it */ }
     try {
-      return exportResult(artifactsDir, cmd, cmdArgs, res, { load_settings: loadSettings })
+      return exportResult(artifactsDir, cmd, cmdArgs, res, { load_settings: loadSettings }, { tainted })
         || { error: 'nothing to export (no audio / series / result)' };
     } catch (e) {
       return { error: `export failed: ${e.message}` };

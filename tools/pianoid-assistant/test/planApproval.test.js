@@ -6,7 +6,7 @@ import { decide, HARD_CONFIRM } from '../policy.js';
 import { CATEGORIES } from '../approvals.js';
 import { loadCommands } from '../lib/registry.js';
 import { SdkDriver } from '../drivers/sdk.js';
-import { planPrompt, systemPrompt } from '../service/prompt.js';
+import { memoryPrompt, planPrompt, systemPrompt } from '../service/prompt.js';
 import {
   FLAG, enabled, validateRequest, createGrant, matchGrant, recordUse, describeGrant, footprint, LEVEL_CAP_DBFS,
   planState, agoText, endedReason,
@@ -201,9 +201,9 @@ test('kill-switch (flag=0): the session is byte-for-byte the pre-feature one', a
   const { s, sent } = mkSession(enabled({ [FLAG]: '0' }));   // the kill-switch environment
   assert.equal(s.plan.enabled, false);
   assert.equal('planApproval' in s.state(), false);
-  assert.deepEqual(Object.keys(s.state()), ['type', 'modelChoice', 'model', 'dataOptOut', 'busy', 'transcript', 'activity', 'usage', 'status', 'pendingConfirms', 'approvals', 'autonomous']);   // + autonomous (dev-auto1, its own feature)
+  assert.deepEqual(Object.keys(s.state()), ['type', 'modelChoice', 'model', 'dataOptOut', 'busy', 'transcript', 'activity', 'usage', 'status', 'pendingConfirms', 'approvals', 'autonomous', 'notes']);   // + autonomous (dev-auto1), notes (dev-mem1): their own features
   const opts = s.sdkOptions();
-  assert.equal(opts.systemPrompt, systemPrompt());
+  assert.equal(opts.systemPrompt, systemPrompt() + memoryPrompt());   // + the notes section (dev-mem1, its own feature)
   assert.equal(opts.mcpServers.assistant.requestPlan, undefined);
   // the plan tool does not exist: canUseTool / the hook deny it exactly like any foreign tool
   assert.deepEqual(await s.canUseTool(PLAN_TOOL, {}), { behavior: 'deny', message: `${PLAN_TOOL} is not available to the Pianoid assistant` });
@@ -241,7 +241,7 @@ test('default (no flag): on — state carries planApproval, the tool and the rig
   assert.equal(s.state().planApproval, null);
   assert.deepEqual(s.state().pendingPlanRequests, []);
   const opts = s.sdkOptions();
-  assert.equal(opts.systemPrompt, systemPrompt() + planPrompt());
+  assert.equal(opts.systemPrompt, systemPrompt() + planPrompt() + memoryPrompt());
   assert.match(opts.systemPrompt, /request_plan_approval ONCE first/);
   assert.match(opts.systemPrompt, /rig pipeline/);
   assert.match(opts.systemPrompt, /name it analysis\.run_python/);
