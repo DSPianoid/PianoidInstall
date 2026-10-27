@@ -6,9 +6,9 @@
  * The assistant may only REQUEST a plan approval (validateRequest): plan steps plus an envelope
  * (commands, max level dBFS, output / input channels, max total drive time, allowed folders, expiry).
  * Only the user's click in the pane creates a grant (createGrant, called from the WS handler for a
- * pending request id); the assistant can never create, widen or extend one. A hard-confirm command
- * (policy.js HARD_CONFIRM / category hard_confirm: rig drives, preset writes, ...) is in the grant ONLY
- * when the user ticked it; unticked it still asks. Irreversible ones (overwrite / delete / external
+ * pending request id); the assistant can never create, widen or extend one. A command with its own
+ * approval rule (approvals.js `ownRule`: category per_command or a risky name: rig drives, preset writes, ...;
+ * `hard` in the request) is in the grant ONLY when the user ticked it; unticked it still asks. Irreversible ones (overwrite / delete / external
  * filing) are flagged in the dialog and are never pre-ticked.
  *
  *   validateRequest(req, byName)          -> {ok, request?, error?}
@@ -21,6 +21,7 @@
  * Fail closed: a value the matcher cannot read (an unknown level default, a drive time it cannot
  * compute, a path outside the folders) is OUTSIDE the envelope, so the step asks as before.
  */
+import { ownRule } from './approvals.js';
 export const FLAG = 'PIANOID_ASSISTANT_PLAN_APPROVAL';
 const OFF_VALUES = new Set(['0', 'false', 'off', 'no']);
 /** ON unless the kill-switch is set: absent / empty / any other value = on. */
@@ -55,7 +56,7 @@ const arr = (v) => (Array.isArray(v) ? v : []);
 const chan = (c) => String(c).trim().toLowerCase();
 const prop = (schema, key) => schema?.properties?.[key];
 const def = (schema) => schema?.default;
-const isHard = (cmd) => cmd?.approval_category === 'hard_confirm';
+const isHard = (cmd) => ownRule(cmd);   // needs the user's tick in the plan card (dev-unif1: a command rule)
 
 /** A folder normalized for the prefix compare (null for a path with a `..` segment). */
 export function normFolder(p) {

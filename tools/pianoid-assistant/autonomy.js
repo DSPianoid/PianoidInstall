@@ -1,73 +1,73 @@
 /**
- * Autonomous mode of the assistant (dev-auto1, user approval 2026-10-25). Pure.
+ * Autonomous mode = a PRESET of the rule table (dev-unif1; the mode itself: dev-auto1, user approval 2026-10-25). Pure.
  *
- * The user switches it on in the pane (persisted per installation in config.json `autonomous`, written only
- * by the service, until the user switches it off). While it is on, every non-excluded category AND the
- * hard-confirm list run without a confirm (policy.js autonomous row), EXCEPT the residual still-ask list
- * below, which keeps asking (hard: no "Don't ask again"). What stays in force regardless (policy.js rows
- * above / below the autonomous row, and the executor): excluded tools, the data opt-out, the live-render
- * deny, a web-tainted turn, the physical gates for params / runtime (CFL check after a string write, level watch
- * with auto-revert on clipping; dev-free1: no step limits), the rig
- * drive cap (-24 dBFS: the registry schemas + the backend; re-checked here), the PreToolUse deny hook, and
- * the sandbox for analysis code. It never uses an SDK bypass permission mode.
+ * Switching it on (pane only, WS `settings {autonomous: true}`, after the pane's dialog) sets every rule that is
+ * not `dangerous` to Always allow and remembers what each one was before (config.json `autonomous: {on,
+ * previous}`); switching it off puts back every rule the preset changed that is still on Always allow. The
+ * dangerous rules (approvals.js: the still-asks list) keep their own setting: the user can set them to Always allow
+ * in the Permissions list or from their dialog like any other rule. Nothing else changes: the policy has no
+ * Autonomous branch (policy.js), and the automatic checks stay in force (SAFETY_NETS_TEXT).
  *
- *   residualReason(cmd, input, {ownPreset}) -> null (may run autonomously) | why it still asks
- * `ownPreset` = service/presetOwnership.js classify(input.path) for a preset.save. PROVENANCE, not the name: a save
- * runs autonomously only as the creation of a new file in presets/ or over a file the assistant created that nobody
- * changed since; anything else asks.
+ * Also the config migration of the pre-dev-unif1 settings (`approvals` + `autonomous: true`).
  */
-import { footprint, LEVEL_CAP_DBFS } from './planApproval.js';
+import { catalogue, CATEGORIES, MODES } from './approvals.js';
+import { LEVEL_CAP_DBFS } from './planApproval.js';
 
-/** Named residual commands (names that do not exist yet are pinned too). */
-export const STILL_ASKS = {
-  'preset.promote': 'overwrites the original preset JSON',
-  'preset.unload': 'unloads a library entry (unsaved edits are lost)',
-  'audio.exciters_config': 'changes the exciter current limits / sensor mapping (hardware protection)',
-  'launcher.backend.start': 'process control (launcher)',
-  'launcher.modal.start': 'process control (launcher)',
-  'launcher.assistant.start': 'process control (launcher)',
-};
-const DELETE_RE = /(^|[._])(delete|remove|purge|erase|unload|clear_all)/i;
-const EXTERNAL_RE = /(^|[._])(github|external|send|email|mail|upload|share|publish)/i;
-const DRIVES = new Set(['modal.rig_capture', 'modal.rig_sine']);
+/** The rule ids the preset sets to Always allow (every rule that is not dangerous). */
+export const presetRules = (commands) => catalogue(commands).filter((r) => !r.dangerous).map((r) => r.id);
 
-/** The still-ask list as the pane and the model see it. */
-export const STILL_ASKS_TEXT = [
-  'saving over any preset the assistant did not create itself, or one changed since it last wrote it (your files, edited files, unknown files)',
-  'preset.promote (overwrites the original preset)',
-  'delete / unload operations',
-  'audio.exciters_config (hardware protection)',
-  'any external filing or sending',
-  'launcher / process control',
-  'preset.create with overwrite',
-  `a rig drive above ${LEVEL_CAP_DBFS} dBFS or with an unknown level`,
-];
+/** The rules that keep asking after the preset (as the pane and the model see them). */
+export const stillAsks = (commands) => catalogue(commands).filter((r) => r.dangerous)
+  .map((r) => `${r.label}: ${r.warning || r.covers}`);
 
-/** What stays in force in Autonomous mode, as the pane shows it. */
+/** What stays in force whatever the rules say, as the pane shows it. */
 export const SAFETY_NETS_TEXT = [
   'string edits are undone at once when they break the CFL (Courant) stability limit',
   'any parameter / volume / feedback edit is reverted automatically when the output clips',
-  `rig drives capped at ${LEVEL_CAP_DBFS} dBFS`,
-  'a turn that used web content asks for every action',
+  `rig drive levels capped at ${LEVEL_CAP_DBFS} dBFS by the registry and the backend`,
+  'a preset file is backed up before an automatic save over it',
+  'in a turn that used untrusted content, saved rules for actions that send data out or are destructive do not apply',
   '"Block measurement data" still blocks modal / calibration',
   'analysis code runs only in the sandbox',
 ];
 
-export function residualReason(cmd, input = {}, { ownPreset = null } = {}) {
-  const name = cmd?.name || '';
-  if (STILL_ASKS[name]) return STILL_ASKS[name];
-  if (cmd?.family === 'launcher' || name.startsWith('launcher.')) return 'process control (launcher)';
-  if (DELETE_RE.test(name)) return 'a delete / unload operation';
-  if (EXTERNAL_RE.test(name)) return 'external filing / sending';
-  if (name === 'preset.save' && ownPreset?.own !== true) {
-    return `saves to ${input?.path ?? 'a preset'}, which is not the assistant's own working copy: ${ownPreset?.reason ?? 'ownership unknown'}`;
-  }
-  if (name === 'preset.create' && input?.overwrite === true) return 'overwrites an existing preset (preset.create overwrite)';
-  if (DRIVES.has(name) && input?.dry_run !== true) {
-    const { levels } = footprint(cmd, input);
-    if (!levels.length || levels.some((l) => typeof l !== 'number' || !Number.isFinite(l) || l > LEVEL_CAP_DBFS)) {
-      return `a rig drive level above ${LEVEL_CAP_DBFS} dBFS or unknown`;
+/**
+ * {rules, autonomous} -> the new {rules, autonomous} for on / off. On: every preset rule -> 'auto', its
+ * previous value kept (null = it had its default). Off: each preset rule still on 'auto' gets its previous value.
+ */
+export function applyAutonomous({ rules = {}, autonomous }, on, commands) {
+  const cur = autonomous?.on ? autonomous : { on: false, previous: {} };
+  if (on === cur.on) return { rules, autonomous: cur };
+  const next = { ...rules };
+  if (on) {
+    const previous = {};
+    for (const id of presetRules(commands)) {
+      previous[id] = MODES.includes(rules[id]) ? rules[id] : null;
+      next[id] = 'auto';
     }
+    return { rules: next, autonomous: { on: true, previous } };
   }
-  return null;
+  for (const [id, was] of Object.entries(cur.previous || {})) {
+    if (next[id] !== 'auto') continue;              // the user changed it while on: theirs
+    if (was === null) delete next[id];
+    else next[id] = was;
+  }
+  return { rules: next, autonomous: { on: false, previous: {} } };
+}
+
+/**
+ * Migrate a pre-dev-unif1 config.json: `approvals` (per-category Ask / Auto for this installation) becomes
+ * `rules`; `autonomous: true` becomes the preset applied to the table. -> {config, changed}.
+ */
+export function migrateConfig(config, commands) {
+  if (config.rulesVersion === 1) return { config, changed: false };
+  const rules = { ...(config.rules || {}) };
+  const known = new Set(CATEGORIES.map((c) => c.id));
+  for (const [id, mode] of Object.entries(config.approvals || {})) {
+    if (known.has(id) && MODES.includes(mode)) rules[id] = mode;
+  }
+  const wasOn = config.autonomous === true || config.autonomous?.on === true;
+  const { approvals, ...rest } = config;
+  const applied = applyAutonomous({ rules, autonomous: { on: false, previous: {} } }, wasOn, commands);
+  return { config: { ...rest, rulesVersion: 1, ...applied }, changed: true };
 }

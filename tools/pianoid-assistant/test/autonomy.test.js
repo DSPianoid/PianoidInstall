@@ -7,8 +7,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { decide, HARD_CONFIRM } from '../policy.js';
-import { residualReason } from '../autonomy.js';
+import { attributesOf, decide, ruleFor } from '../policy.js';
+import { applyAutonomous } from '../autonomy.js';
 import { loadCommands } from '../lib/registry.js';
 import { loadLimits } from '../lib/paramLimits.js';
 import { AssistantSession } from '../service/session.js';
@@ -19,91 +19,93 @@ const COMMANDS = loadCommands();
 const byName = new Map(COMMANDS.map((c) => [c.name, c]));
 const tmp = (p = 'pianoid-auto1-') => fs.mkdtempSync(path.join(os.tmpdir(), p));
 const OWN = { status: 'owned', own: true, reason: 'own' };                 // presetOwnership.classify of an owned file
-const ON = (cmd, input = {}, ownPreset = null) => ({ on: true, residual: residualReason(cmd, input, { ownPreset }) });
-const dec = (name, input = {}, { own = null, ...settings } = {}) => {
+const RULE_COMMANDS = new Map(COMMANDS.map((c) => [c.name, c]));
+const PRESET = applyAutonomous({ rules: {}, autonomous: { on: false, previous: {} } }, true, RULE_COMMANDS).rules;   // Autonomous on
+const dec = (name, input = {}, { own = null, rules = PRESET, ...settings } = {}) => {
   const c = byName.get(name);
-  return decide({ command: c.name, tier: c.tier, family: c.family, category: c.approval_category, settings: { autonomous: ON(c, input, own), ...settings } });
+  return decide({ command: c.name, title: c.title, tier: c.tier, family: c.family, category: c.approval_category,
+    attrs: attributesOf(c, input, { ownPreset: own }), settings: { rules, ...settings } });
 };
 const CAPTURE = { exciters: [{ output: 'Out 9', level_dbfs: -40 }], inputs: [{ input: 'In 1' }], sweep: { duration_s: 5 }, timing: { repeats: 1 } };
-const RESIDUAL = [
-  ['preset.save', { path: 'presets/BaselinePreset1.json' }],
-  ['preset.save', { path: 'presets/../x_work.json' }],
-  ['preset.save', { path: 'C:/elsewhere/x_work.json' }],
-  ['preset.promote', { name: 'Steinway (working 1)' }],
-  ['preset.unload', { name: 'Steinway' }],
-  ['audio.exciters_config', { exciters: [] }],
-  ['launcher.backend.start', {}],
-  ['launcher.modal.start', {}],
-  ['launcher.assistant.start', {}],
-  ['preset.create', { name: 'B', num_strings: 16, num_channels: 2, array_size: 512, overwrite: true }],
-  ['modal.rig_capture', { ...CAPTURE, exciters: [{ output: 'Out 9', level_dbfs: -20 }] }],   // above the cap
-  ['modal.rig_capture', { ...CAPTURE, exciters: [] }],                                          // no known level
+// the old still-asks list: now the risky rules (Ask by default, the preset leaves them alone)
+const RISKY = [
+  ['preset.save', { path: 'presets/BaselinePreset1.json' }, 'preset.save.not_own'],
+  ['preset.promote', { name: 'Steinway (working 1)' }, 'preset.promote'],
+  ['preset.unload', { name: 'Steinway' }, 'preset.unload'],
+  ['audio.exciters_config', { exciters: [] }, 'audio.exciters_config'],
+  ['launcher.backend.start', {}, 'launcher.backend.start'],
+  ['launcher.modal.start', {}, 'launcher.modal.start'],
+  ['launcher.assistant.start', {}, 'launcher.assistant.start'],
+  ['preset.create', { name: 'B', num_strings: 16, num_channels: 2, array_size: 512, overwrite: true }, 'preset.create.overwrite'],
+  ['modal.rig_capture', { ...CAPTURE, exciters: [{ output: 'Out 9', level_dbfs: -20 }] }, 'rig.drive.any_level'],   // above the cap
+  ['modal.rig_capture', { ...CAPTURE, exciters: [] }, 'rig.drive.any_level'],                                          // no known level
+  ['modal.rig_capture', { ...CAPTURE, loopback: { output: 'Out 9', input: 'In 8' } }, 'rig.drive.any_level'],         // the 2026-10-27 prompt
 ];
 
-test('the own working copy is provenance, not a name: preset.save runs only for an own (created / owned) file', () => {
+test('the own working copy is provenance, not a name: preset.save is rule preset.save only for an own (created / owned) file', () => {
   const save = byName.get('preset.save');
-  for (const own of [OWN, { status: 'new', own: true, reason: 'a new file' }]) assert.equal(residualReason(save, { path: 'presets/X' }, { ownPreset: own }), null);
-  for (const own of [null, { status: 'not_owned', own: false, reason: 'an existing file the assistant did not create' },
-    { status: 'modified', own: false, reason: 'changed' }, { status: 'error', own: false, reason: 'the ownership manifest is corrupt' }]) {
-    assert.match(residualReason(save, { path: 'presets/Board_work.json' }, { ownPreset: own }), /not the assistant's own working copy/);
+  for (const own of [OWN, { status: 'new', own: true, reason: 'a new file' }]) {
+    assert.equal(ruleFor({ command: 'preset.save', category: save.approval_category }, attributesOf(save, { path: 'presets/X' }, { ownPreset: own })), 'preset.save');
+  }
+  for (const own of [null, { status: 'not_owned', own: false, reason: 'x' }, { status: 'modified', own: false, reason: 'changed' }, { status: 'error', own: false, reason: 'corrupt' }]) {
+    assert.equal(ruleFor({ command: 'preset.save', category: save.approval_category }, attributesOf(save, { path: 'presets/B.json' }, { ownPreset: own })), 'preset.save.not_own');
   }
 });
 
-test('policy: Autonomous mode runs every non-residual hard-confirm command and every category without a confirm', () => {
+test('policy: the Autonomous preset runs every non-risky command and category without a dialog (no Autonomous branch in the policy)', () => {
   const ran = [];
   for (const c of COMMANDS) {
     if (['read', 'ui', 'excluded'].includes(c.tier) || c.approval_category === 'excluded') continue;
     const input = c.name === 'preset.save' ? { path: 'presets/Board_work.json' } : c.name.startsWith('modal.rig_') ? CAPTURE : {};
-    if (residualReason(c, input, { ownPreset: OWN })) continue;
     const v = dec(c.name, input, { own: OWN, envelope: { ok: true, reason: 'inside' } });
-    assert.equal(v.action, 'allow', c.name);
-    assert.equal(v.autonomous, true, c.name);
+    if (v.rule?.dangerous) continue;
+    assert.deepEqual([v.action, v.auto], ['allow', true], c.name);
     ran.push(c.name);
   }
   for (const n of ['preset.save', 'preset.load', 'calibration.synthesis', 'modal.run_stage', 'modal.rig_capture', 'modal.rig_process', 'preset.create', 'param.set', 'runtime.set', 'preset.switch']) {
     assert.ok(ran.includes(n), n);
   }
-  // off: the same calls are the pre-feature table (the hard-confirm list asks)
-  assert.equal(decide({ command: 'preset.load', tier: 'destructive', family: 'preset', category: 'hard_confirm', settings: {} }).hard, true);
-  assert.deepEqual(dec('preset.load', {}, { autonomous: undefined }), { action: 'confirm', hard: true, reason: HARD_CONFIRM['preset.load'] });
+  // without the preset: the same calls ask (the table's defaults), the same dialog
+  assert.deepEqual([dec('preset.load', {}, { rules: {} }).action, dec('preset.load', {}, { rules: {} }).rule.id], ['ask', 'preset.load']);
 });
 
-test('policy: the residual list still asks (hard, no "Don\'t ask again") in Autonomous mode, every item', () => {
-  for (const [n, input] of RESIDUAL) {
-    const v = dec(n, input, { envelope: { ok: true, reason: 'inside' }, approvals: { installation: { renders: 'auto' } } });
-    assert.deepEqual([v.action, v.hard, !!v.canAuto], ['confirm', true, false], `${n} ${JSON.stringify(input)}`);
-    assert.match(v.reason, /asks even in Autonomous mode/, n);
+test('policy: the risky rules still ask with the preset (a warning, the same dialog, Always allow offered), and each can be set like any other', () => {
+  for (const [n, input, rule] of RISKY) {
+    const v = dec(n, input, { envelope: { ok: true, reason: 'inside' } });
+    assert.deepEqual([v.action, v.rule.id, v.rule.dangerous, !!v.rule.warning], ['ask', rule, true, true], `${n} ${JSON.stringify(input)}`);
+    assert.equal(dec(n, input, { rules: { ...PRESET, [rule]: 'auto' }, envelope: { ok: true, reason: 'inside' } }).action, 'allow', rule);
   }
-  // names that do not exist yet: any delete / remove / external filing / sending, any launcher command
+  // names that do not exist yet: any delete / remove / external filing / sending, any launcher command = their own risky rule
   for (const n of ['preset.delete', 'modal.rig_runs_remove', 'bug.github_file', 'report.send', 'launcher.backend.restart']) {
-    const cmd = { name: n, tier: 'act', family: n.split('.')[0], approval_category: 'playback' };
-    const v = decide({ command: n, tier: 'act', family: cmd.family, category: 'playback', settings: { autonomous: ON(cmd) } });
-    assert.deepEqual([v.action, v.hard], ['confirm', true], n);
+    const v = decide({ command: n, tier: 'act', family: n.split('.')[0], category: 'playback', settings: { rules: PRESET } });
+    assert.deepEqual([v.action, v.rule.id, v.rule.dangerous], ['ask', n, true], n);
   }
-  // a plan the user approved (and ticked) may still cover a residual item
+  // a plan the user approved (and ticked) may still cover a risky one
   const plan = { ok: true, ticked: true, grantId: 'g', reason: 'plan' };
-  assert.deepEqual([dec('preset.save', { path: 'presets/Board.json' }, { plan }).action, dec('preset.save', { path: 'presets/Board.json' }, { plan }).plan], ['allow', 'g']);
+  const p = dec('preset.save', { path: 'presets/Board.json' }, { plan });
+  assert.deepEqual([p.action, p.plan], ['allow', 'g']);
 });
 
-test('policy: the deny rows, a tainted turn and the physical gates win over Autonomous mode', () => {
+test('policy: the deny rows, a tainted turn (taint rules) and the physical gates win over any rule', () => {
   assert.equal(dec('launcher.backend.stop').action, 'deny');                                  // excluded
   assert.equal(dec('modal.rig_capture', CAPTURE, { dataOptOut: true }).action, 'deny');       // data opt-out
   assert.equal(decide({ command: 'render.recalibrate_output_level', tier: 'act', family: 'render', category: 'renders',
-    settings: { liveAudio: true, autonomous: { on: true, residual: null } } }).action, 'deny');  // R6 live deny
-  for (const n of ['modal.rig_capture', 'preset.save', 'param.set', 'play.note']) {
-    const v = dec(n, n === 'preset.save' ? { path: 'presets/B_work.json' } : CAPTURE, { tainted: true });
-    assert.deepEqual([v.action, v.hard, !!v.canAuto], ['confirm', true, false], n);           // tainted: hard confirm
+    settings: { liveAudio: true, rules: PRESET } }).action, 'deny');                          // R6 live deny
+  for (const n of ['modal.rig_capture', 'preset.save']) {
+    const v = dec(n, n === 'preset.save' ? { path: 'presets/B_work.json' } : CAPTURE, { tainted: true, own: OWN });
+    assert.deepEqual([v.action, !!v.taintNote], ['ask', true], n);                           // a taint rule: asks, says why
   }
+  assert.equal(dec('play.note', {}, { tainted: true }).action, 'allow');                     // not a taint rule
   assert.equal(dec('param.get', {}, { tainted: true }).action, 'allow');                      // reads run
   // params / runtime (dev-free1): free under the physical gates (+ the level watch); an invalid value = deny, never a prompt
   const big = dec('runtime.set', { volume: 120 }, { envelope: { ok: true, reason: 'free edit; level watched' } });
-  assert.deepEqual([big.action, big.watch, big.autonomous], ['allow', true, true]);
+  assert.deepEqual([big.action, big.watch], ['allow', true]);
   const bad = dec('runtime.set', { volume: 128 }, { envelope: { ok: false, reject: true, reason: 'rejected: volume 128 is above 127' } });
   assert.deepEqual([bad.action, bad.reason], ['deny', 'rejected: volume 128 is above 127']);
-  assert.deepEqual([dec('param.set', {}, {}).action, dec('param.set', {}, {}).hard], ['confirm', true]);   // no verdict = fail closed
-  // a live render runs (renders_live is not needed), analysis code runs
-  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { liveAudio: true, autonomous: { on: true, residual: null } } }).action, 'allow');
-  assert.equal(decide({ command: 'analysis.run_python', tier: 'act', family: 'analysis', category: 'code', settings: { autonomous: { on: true, residual: null } } }).action, 'allow');
+  assert.equal(dec('param.set', {}, {}).action, 'ask');                                       // no gate verdict = fail closed
+  // a live render runs (renders_live is in the preset), analysis code runs
+  assert.equal(decide({ command: 'render.note_playback', tier: 'act', family: 'render', category: 'renders', settings: { liveAudio: true, rules: PRESET } }).action, 'allow');
+  assert.equal(decide({ command: 'analysis.run_python', tier: 'act', family: 'analysis', category: 'code', settings: { rules: PRESET } }).action, 'allow');
 });
 
 // ---- the session -----------------------------------------------------------------------------
@@ -138,15 +140,19 @@ test('session: the switch persists per installation, shows in the state + contex
   const { s, paths } = mkSession({ autonomous: false });
   assert.equal(s.state().autonomous.on, false);
   await s.updateSettings({ autonomous: true });
-  assert.equal(JSON.parse(fs.readFileSync(paths.config, 'utf8')).autonomous, true);
+  const cfg = JSON.parse(fs.readFileSync(paths.config, 'utf8'));
+  assert.equal(cfg.autonomous.on, true);
+  assert.equal(cfg.rules['modal.rig_capture'], 'auto');                         // the preset, written to the one table
+  assert.equal(cfg.rules['rig.drive.any_level'], undefined);
   assert.equal(s.state().autonomous.on, true);
   assert.ok(s.state().autonomous.stillAsks.length >= 6);
   assert.equal((await s.context()).autonomous_mode, true);
   assert.equal(s.activity.at(-1).command, 'autonomous mode');
   await s.updateSettings({ autonomous: false });
-  assert.equal(JSON.parse(fs.readFileSync(paths.config, 'utf8')).autonomous, false);
+  const off = JSON.parse(fs.readFileSync(paths.config, 'utf8'));
+  assert.deepEqual([off.autonomous.on, off.rules], [false, {}]);                  // what the preset set is back
   await s.updateSettings({ autonomous: 'yes' });                                  // only a boolean switches it
-  assert.equal(s.config.autonomous, false);
+  assert.equal(s.config.autonomous.on, false);
 });
 
 const mkPresets = (files = {}) => {
@@ -170,7 +176,7 @@ test('session: a preset the assistant CREATED saves without asking (recorded wit
   const mw = mkPresets();
   const { s, sent, root } = mkSession({ presetDir: mw });
   const first = await save(s, sent, 'presets/Board');                         // a new file: a creation
-  assert.deepEqual([first.r.behavior, first.entry.decision, first.entry.ownership, first.entry.backup], ['allow', 'autonomous', 'new', undefined]);
+  assert.deepEqual([first.r.behavior, first.entry.decision, first.entry.ownership, first.entry.backup], ['allow', 'auto', 'new', undefined]);
   assert.equal(first.out.body.ok, true);
   const target = fs.realpathSync.native(path.join(mw, 'presets', 'Board.json'));
   const [entry] = Object.values(manifest(root));
@@ -195,7 +201,7 @@ test('session: a pre-existing file asks even with a _work name; an owned file ed
   const mw = mkPresets({ 'presets/Board_work.json': '{"user": true}' });
   const { s, sent, root } = mkSession({ presetDir: mw });
   const pre = await save(s, sent, 'presets/Board_work.json', { answer: false });
-  assert.deepEqual([pre.r.behavior, pre.c.hard, pre.c.canAuto, pre.entry.ownership], ['deny', true, false, 'not_owned']);
+  assert.deepEqual([pre.r.behavior, pre.c.rule.id, pre.c.rule.dangerous, pre.entry.ownership], ['deny', 'preset.save.not_own', true, 'not_owned']);
   assert.match(pre.c.reason, /did not create/);
   assert.equal(fs.readFileSync(path.join(mw, 'presets', 'Board_work.json'), 'utf8'), '{"user": true}');
   await save(s, sent, 'presets/Mine');                                        // created + owned
@@ -257,14 +263,13 @@ test('session: traversal, a case variant of a user file and a junction to a non-
   assert.equal((await save(s, sent, 'presets/User.json', { answer: false })).entry.ownership, 'not_owned');
 });
 
-test('session: every residual item still asks (no backup for a refused save); a failed backup asks', async () => {
+test('session: every risky rule still asks with the preset (no backup for a refused save); a failed backup asks', async () => {
   const mw = mkPresets({ 'presets/BaselinePreset1.json': '{}' });
   const { s, sent, root } = mkSession({ presetDir: mw });
-  for (const [n, input] of RESIDUAL) {
+  for (const [n, input, rule] of RISKY) {
     const p = s.canUseTool(tool(n), input, { toolUseID: n });
     const c = await answerNext(s, sent, false);
-    assert.equal(c.hard, true, n);
-    assert.equal(c.canAuto, false, n);
+    assert.deepEqual([c.rule.id, c.rule.dangerous], [rule, true], n);
     assert.equal((await p).behavior, 'deny', n);
   }
   assert.ok(!fs.existsSync(path.join(root, 'preset-backups')), 'no backup for a save that asked');
@@ -272,7 +277,8 @@ test('session: every residual item still asks (no backup for a refused save); a 
   await save(s, sent, 'presets/Mine');
   fs.writeFileSync(path.join(root, 'preset-backups'), 'not a folder');
   const r = await save(s, sent, 'presets/Mine', { answer: false });
-  assert.match(r.c.reason, /could not back up the preset first/);
+  assert.match(r.c.reason, /automatic backup before the save failed/);
+  assert.equal(r.c.rule.id, 'preset.save');
   assert.equal(r.r.behavior, 'deny');
 });
 
@@ -298,7 +304,7 @@ test('audit log: every activity entry and update is appended to <root>/audit/aud
   const file = path.join(root, 'audit', 'audit.jsonl');
   const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.ok(lines.every((l) => l.ts && l.event));
-  assert.ok(lines.some((l) => l.event === 'activity' && l.command === 'play.note' && l.decision === 'autonomous'));
+  assert.ok(lines.some((l) => l.event === 'activity' && l.command === 'play.note' && l.decision === 'auto'));
   assert.equal(lines.find((l) => l.command === 'analysis.run_python').code, 'print(42)\n'.repeat(100));
   s.updateActivity(s.activity.at(-1), { status: 'ok', result: 'done' });
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').at(-1)).event, 'update');
@@ -348,8 +354,8 @@ test('WS (review fix): a foreign web origin is refused; the pane (localhost) and
     pane.close();
     const ws = await open(null);
     ws.send(JSON.stringify({ type: 'settings', autonomous: true }));
-    for (let i = 0; i < 100 && !svc.session.config.autonomous; i += 1) await new Promise((r) => setTimeout(r, 20));
-    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).autonomous, true);
+    for (let i = 0; i < 100 && !svc.session.config.autonomous?.on; i += 1) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).autonomous.on, true);
     ws.close();
   } finally {
     await svc.close();

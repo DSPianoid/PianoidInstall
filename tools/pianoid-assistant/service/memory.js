@@ -2,9 +2,9 @@
  * The assistant's memory tools (dev-mem1, user approval 2026-10-25 "Do both proper notes and a tool that can read
  * saved output"): the gate and the handlers of
  *   analysis server  list_artifacts, read_artifact          (category view: no confirm; analysis/artifactTools.js)
- *   assistant server list_notes, read_note                   (view) and save_note, update_note (category `memory`:
- *                    Ask by default, Auto per session / installation, runs in Autonomous mode; a tainted turn asks
- *                    hard). No delete tool: the user deletes in the pane.
+ *   assistant server list_notes, read_note                   (view) and save_note, update_note (rule `memory`:
+ *                    Ask by default, Always allow persisted; a `taint` rule, so a tainted turn asks). No delete
+ *                    tool: the user deletes in the pane.
  * plus the session-start blocks (<assistant_memory untrusted="true">: the pinned hand-off note in full + the other
  * notes' titles; <saved_outputs untrusted="true">: the newest artefacts) and the pane's note edits / deletes.
  * Taint: reading a tainted artefact / note (or passing a tainted artefact to run_python) taints the turn; a tainted
@@ -12,7 +12,6 @@
  * written by the host (service/notesStore.js), never by the sandbox. Every note save / update / delete and every
  * artefact read is in the audit log.
  */
-import { decide } from '../policy.js';
 import { canonical } from './autoWrite.js';
 import { NotesStore, lintNote } from './notesStore.js';
 import { DATA_NOTICE, listTool, readTool, wrapUntrusted } from '../analysis/artifactTools.js';
@@ -58,19 +57,12 @@ export class AssistantMemory {
     const old = toolName === TOOLS.updateNote ? this.notes.get(input?.id) : null;
     const shown = old ? { id: old.id, kind: old.kind, title: input?.title ?? old.title, body: input?.body ?? old.body } : { ...input };
     const why = toolName === TOOLS.updateNote && !old ? `no note ${String(input?.id).slice(0, 40)}` : lintNote(shown);
-    const verdict = why ? { action: 'deny', reason: `invalid note: ${why}` } : decide({
-      ...cmd, command: cmd.name,
-      settings: { dataOptOut: !!s.config.dataOptOut, tainted: !!s.tainted, approvals: s.approvalState(), autonomous: s.autonomySettings(cmd, input) },
-    });
-    const decision = verdict.action === 'allow' ? (verdict.autonomous ? 'autonomous' : 'auto') : verdict.action;
-    const entry = s.logActivity({ command: cmd.name, tier: cmd.tier, category: cmd.category, input: { id: shown.id, title: shown.title, kind: shown.kind }, decision, reason: verdict.reason, toolUseId: toolUseID });
+    const verdict = why ? { action: 'deny', reason: `invalid note: ${why}` } : s.verdict(cmd, input);
+    const decision = verdict.action === 'allow' ? 'auto' : verdict.action;
+    const entry = s.logActivity({ command: cmd.name, tier: cmd.tier, category: cmd.category, input: { id: shown.id, title: shown.title, kind: shown.kind }, decision, reason: verdict.reason, toolUseId: toolUseID, ...(verdict.rule ? { rule: verdict.rule.id } : {}) });
     if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
-    if (verdict.action === 'confirm') {
-      const { allow, remember } = await s.askConfirm(entry, cmd, shown, verdict, signal);   // the dialog shows the full text
-      s.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
-      if (!allow) return { behavior: 'deny', message: `The user declined ${cmd.name}.` };
-      if (remember && verdict.canAuto) s.updateApprovals({ category: 'memory', mode: 'auto', scope: remember });
-    }
+    // the dialog shows the full text
+    if (verdict.action === 'ask' && !(await s.ask(entry, cmd, shown, verdict, signal))) return { behavior: 'deny', message: `The user declined ${cmd.name}.` };
     this.permits.set(`${toolName}\u0000${canonical(input)}`, true);
     return { behavior: 'allow', updatedInput: input };
   }

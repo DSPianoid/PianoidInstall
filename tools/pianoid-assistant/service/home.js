@@ -156,8 +156,9 @@ export function authStatus(paths, { spawn = spawnSync, env = process.env, cli = 
 export const DEFAULT_CONFIG = {
   model: 'auto',           // auto (Sonnet, may escalate) | sonnet | opus  (D2)
   dataOptOut: false,       // D4: default off
-  approvals: {},           // v2 P2: {category: 'ask' | 'auto'} set "for this installation" (approvals.js defaults otherwise)
-  autonomous: false,       // dev-auto1: Autonomous mode (autonomy.js), switched only in the pane, kept until switched off
+  rules: {},               // dev-unif1: {<rule id>: 'ask' | 'auto'}, the ONE approval store (approvals.js defaults otherwise);
+                           // an older config.json (`approvals`, `autonomous: true`) is migrated once by the session (`rulesVersion: 1`)
+  autonomous: { on: false, previous: {} },   // Autonomous mode = a preset of `rules` (autonomy.js), switched only in the pane
 };
 
 export function loadConfig(paths) {

@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { decide, HARD_CONFIRM } from '../policy.js';
+import { attributesOf, decide } from '../policy.js';
 import { loadCommands } from '../lib/registry.js';
 import { createPianoidMcpServer } from '../mcp/server.js';
 import { listTools } from '../mcp/tools.js';
@@ -29,10 +29,9 @@ test('registry: the rig commands exist, typed, long-running in the rig job famil
   for (const n of DRIVES) {
     const c = byName[n];
     assert.ok(c, n);
-    assert.equal(c.approval_category, 'hard_confirm', n);
+    assert.equal(c.approval_category, 'per_command', n);
     assert.equal(c.long_running, true, n);
     assert.equal(c.job_family, 'rig', n);
-    assert.ok(HARD_CONFIRM[n], `${n} pinned in policy.js HARD_CONFIRM`);
   }
   for (const n of ['modal.rig_runs', 'modal.rig_files']) assert.equal(byName[n].tier, 'read', n);
   const lv = byName['modal.rig_capture'].args.properties.exciters.items.properties.level_dbfs;
@@ -42,13 +41,23 @@ test('registry: the rig commands exist, typed, long-running in the rig job famil
   for (const k of ['num_strings', 'num_channels', 'array_size', 'name']) assert.ok(byName['preset.create'].args.required.includes(k), k);
 });
 
-test('policy: every rig drive / write asks hard (even with every category on Auto); reads run; opt-out denies', () => {
-  const allAuto = { approvals: { installation: Object.fromEntries(['view', 'playback', 'renders', 'params', 'runtime', 'preset_nav'].map((c) => [c, 'auto'])) } };
+test('policy: every rig drive / write has its own rule (category Always allow does not cover it; its rule does); reads run; opt-out denies', () => {
+  const allAuto = { rules: Object.fromEntries(['playback', 'renders', 'params', 'runtime', 'preset_nav'].map((c) => [c, 'auto'])) };
   for (const n of DRIVES) {
     const v = verdict(n, allAuto);
-    assert.equal(v.action, 'confirm', n);
-    assert.equal(v.hard, true, n);
+    assert.deepEqual([v.action, v.rule.id], ['ask', n], n);
+    assert.equal(verdict(n, { rules: { [n]: 'auto' } }).action, 'allow', n);
   }
+  // the loopback marker has no level (the 2026-10-27 prompt): rule rig.drive.any_level, not modal.rig_capture
+  const cap = byName['modal.rig_capture'];
+  const input = { exciters: [{ output: 'Out 1', level_dbfs: -24 }], inputs: [{ input: 'In 1' }], loopback: { output: 'Out 9', input: 'In 8' } };
+  const attrs = attributesOf(cap, input);
+  assert.deepEqual(attrs, { driveLevel: 'unverified', why: 'output Out 9: level not stated' });
+  const d = (rules) => decide({ command: cap.name, tier: cap.tier, family: cap.family, category: cap.approval_category, attrs, settings: { rules } });
+  assert.deepEqual([d({ 'modal.rig_capture': 'auto' }).action, d({}).rule.id, d({}).rule.dangerous], ['ask', 'rig.drive.any_level', true]);
+  assert.equal(d({ 'rig.drive.any_level': 'auto' }).action, 'allow');
+  assert.deepEqual(attributesOf(cap, { ...input, loopback: null }), { driveLevel: 'ok' });
+  assert.deepEqual(attributesOf(cap, { ...input, dry_run: true }), {});
   assert.equal(verdict('modal.rig_runs').action, 'allow');
   assert.equal(verdict('modal.rig_files').action, 'allow');
   for (const n of ['modal.rig_capture', 'modal.rig_record', 'modal.rig_files']) assert.equal(verdict(n, { dataOptOut: true }).action, 'deny', n);
