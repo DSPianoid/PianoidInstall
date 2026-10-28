@@ -1267,10 +1267,8 @@ Response `200`:
 {"message": "OK"}
 ```
 
-Response `400` — engine safety net rejection (see "Engine safety net" below):
-```json
-{"error": "mode.decrement=-1 rejected: decrement must be >= 0 (negative damping causes runaway amplitude)"}
-```
+Response `400` — parameter safety net (`parameter_out_of_range`, nothing written; see
+[Parameter safety net](#parameter-safety-net-out-of-domain-rejection) below).
 
 Response `400` — a malformed `feedin_mask` / `feedback_mask` write (dev-fcef, follow-up l; owner
 `pianoid_middleware/mask_rows.py`): every pitch of `key_no` needs a row of exactly `num_modes` values.
@@ -1302,66 +1300,71 @@ or
 "Set parameter route: Internal error in module pianoid.py: <traceback>"
 ```
 
-#### Engine safety net (catastrophic-input rejection)
+#### Parameter safety net (out-of-domain rejection)
 
-Per the **S5 fail-fast** principle (`docs/development/CODE_QUALITY.md` S5b),
-`parameter_manager` rejects values that would corrupt engine state with HTTP 400
-*before* any state mutation or GPU upload. The frontend NumInput callers omit
-`min`/`max` clamps for engine-bound parameters (per dev-2706 directive); this
-backend gate is the single line of defense against catastrophic inputs.
+Owner `pianoid_middleware/param_safety.py` (dev-psafe1, 2026-10-28; reviewed port of Core `14fd5af` /
+dev-9a47). `edit_commit.commit` runs `check_edit` for **every** preset-parameter edit — REST and WS
+`set_parameter`, `set_string_excitation`, `set_hammer_shape`, the assistant's `param.set` (it calls this
+route), `/mute/*`, `/excitation_energy`, the calibration commits, MIDI CC, the auto-tuner, and undo /
+redo. The check runs before the undo step opens and before anything is written. A rejected edit changes
+nothing in the model, the engine, the journal or the undo history. Preset loads are checked too (below).
+Nothing runs on the audio path.
 
-| Parameter | Field | Reject when | Reason |
-|-----------|-------|-------------|--------|
-| `mode` | `mass_inv` | `<= 0` | division-by-zero in `Mode.fit_params` (stiffness = (2πf)²/mass_inv) |
-| `excitation` / `gauss` | `sigma` | `<= 0` | division-by-zero in Gaussian `exp(-((t-mu)/sigma)²)` |
-| `mode` | `frequency` | `< 0` | physically meaningless; produces NaN/instability |
-| `mode` | `decrement` | `< 0` | negative damping → exponential amplitude growth → speaker/ear damage |
-| any | any numeric field | NaN, +Inf, -Inf | non-finite values corrupt every parameter type |
-| `string` / `physics` | (combination of `tension`, `density`, `radius`, `stiffness`, `dx`, `sample_rate`, …) | the FDTD amplification `max_θ\|g(θ)\| > 1` (outside the two-sided box `8·coeff_bending ≤ coeff_tension ≤ 1 + 8·coeff_bending`), or non-finite | explicit FDTD scheme would diverge (Inf/NaN string field → engine-wide noise). Unlike the per-field predicates above, this is a *combination* check. **v2 (host-side):** `parameter_manager` computes the closed-form amplification from the **prospective** physics (current ⊕ this edit) **BEFORE** any GPU upload — honouring the per-string `tension_offset` (worst string decides) and skipping output strings (pitch ≥ 128) — and raises `CflRejected` → 400 if it would diverge. The edit is **never applied** (no `set_param`, no upload); the engine keeps its last-good coefficients. (No kernel guard / shadow buffer / per-string flag — those + the host flag-poll were the v1 design, removed in v2.) See `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability" + `docs/proposals/cfl-stability-guard-v2.md` |
+A value is rejected only when the engine can't run it as a piano. That means one of these:
 
-Example string-edit rejection body (v2) — HTTP `400`, served by the dedicated `@app.errorhandler(CflRejected)`:
+- it isn't finite;
+- the arithmetic is undefined for it (division by zero);
+- it makes a resonator grow instead of decay;
+- it is outside the definition of a quantity that is positive by definition.
+
+There are **no magnitude caps**: the dev-2706 directive stands, and neither the UI nor the backend
+clamps ranges. The FDTD **Courant/CFL** bound of a physical string stays an indication (`cfl_redline`
+on a `200`), never a rejection (user decision 2026-07-08). Each bound's justification is in
+`docs/development/reviews/param-safety-net-review-2026-10-28.md`.
+
+| `parameter` | Field | Rejected unless |
+|---|---|---|
+| any | every numeric leaf, numeric strings included | finite (not NaN / ±Inf) |
+| `mode` | `frequency` | `0 < frequency ≤ sr/π`, where `sr/π` is the played Nyquist of the mode recurrence (15 279 Hz at 48 kHz) |
+| `mode` | `decrement` (`true_decrement`) | `≥ 0` **and** `decrement · frequency / sr < 1` (per-sample decay factor in `(0, 1]`; checked against the mode's prospective state, so a `frequency` edit can trip it) |
+| `mode` | `mass_inv` (legacy `mass`) | `> 0` |
+| `string` / `physics`, piano pitch < 128 | `tension`, `rho` (`string_density`), `length`, `dx`, `hammer_mass` | `> 0` |
+| same | `r`, `gamma`, `disp_decay`, `damper_string`, `damper_tail` | `≥ 0` (`jung` has no sign rule: every shipped preset stores it negative) |
+| same | `tension_offset` (`detuning`) with `tension` | every unison string's `tension · (1 + i · tension_offset) > 0` |
+| `hammer`, and `hammer_*` keys of a string edit | `position` (ratio) · `sharpness` · `width` | `[0, 1]` · `[0, 1)` · `≥ 0` |
+| `gauss` / `excitation` | level key · curve key · `sigma` | `0..127` · `0..4` · `> 0` (`mu`, `volume`, `shift`: finite only, and `volume` is signed in FPGA presets) |
+| `string_excitation_curves` (`/set_string_excitation`) | curve key · `sigma` | `0..4` · `> 0` |
+| `sound_channel`, `string_sound_channel` | row | exactly `num_channels` values (the stored row length) |
+| `feedin`, `feedback`, masks, `excitation_energy`, `deck_feedback_coefficient` | values | finite (shape and range checks have other owners: `StringMap.update_deck`, `mask_rows`, `excitation_energy.normalize`, `runtime_params`) |
+
+Output pitches (≥ 128) are exempt from the string, hammer and `sigma` rules because they carry
+placeholder physics (`tension` / `r` / `length` / `gamma` = 0). They still get the finite check.
+
+Response `400` (REST) or an `error` event plus `{ok: false, …}` ack (WS), with the same body:
 
 ```json
-{
-  "error": "CflRejected",
-  "code": "cfl_unstable",
-  "cfl_redline": true,
-  "pitch": 60,
-  "string": 1,
-  "amplification": 46.123,
-  "message": "cfl_unstable: string parameter rejected — would destabilise the FDTD solver (Courant). pitch 60 (string 1): amplification |g|=46.123 > 1.0. Edit not applied; last-stable coefficients retained.",
-  "path": "/set_parameter/string/60"
-}
+{"error": "parameter_out_of_range", "code": "parameter_out_of_range", "parameter": "mode",
+ "field": "decrement", "mode": 0, "value": -1.0, "bound": ">= 0",
+ "message": "mode.decrement=-1.0 for mode 0 rejected: must be >= 0 (negative damping: the mode grows exponentially). Nothing was written."}
 ```
 
-`code: "cfl_unstable"` and the `cfl_redline` boolean (the redline-crossed flag) let the UI react without
-parsing the message; `pitch`/`string`/`amplification` identify the worst offending string. The WebSocket
-`set_parameter` handler emits the same `{code, cfl_redline, pitch, string, amplification, message}` shape on
-an `error` event. The per-string amplification ratios behind this gate are queryable read-only via
-`GET /get_parameter/stability_ratio/<key_no>` (above) for plotting ratio-vs-pitch.
+The key is `pitch` or `mode`, depending on the parameter. A non-finite `value` comes back as a string
+(`"nan"`) so that the body stays strict JSON.
 
-Example rejection bodies:
+**Preset loads.** `POST /load_preset` builds the preset's model at the requested `sample_rate` and
+checks it with `check_model`. It does this for every reload except `hot` (hot reloads keep the same
+model), and **before** the live engine is re-initialised or torn down. On a failure it returns `400`
+with the same body (`parameter` = `preset`) plus `"The preset was not loaded; the loaded engine keeps
+running."`. `POST /preset/load` (library) runs the same check before the GPU slot is created. Because
+the mode bound follows the sample rate, a preset with modes near 9.5 kHz loads at 48 kHz but is refused
+at 24 kHz. Every shipped preset passes (`tests/unit/test_param_safety.py` preset scan).
 
-```json
-{"error": "mode.mass_inv=0 rejected: mass_inv must be > 0 (division-by-zero in mode update)"}
-```
-```json
-{"error": "excitation.sigma=-0.01 rejected: sigma must be > 0 (division-by-zero in Gauss exp(-((t-mu)/sigma)^2))"}
-```
-```json
-{"error": "mode.frequency=nan rejected: must be a finite number (NaN/Inf would corrupt engine state)"}
-```
-
-The same predicate set applies to:
-- `POST /set_parameter/mode/<key_no>` (canonical route)
-- `POST /set_parameter/excitation/<key_no>` and `POST /set_parameter/gauss/<key_no>` (sigma)
-- `POST /set_string_excitation/<pitch_no>` (sigma in per-pitch curves)
-- WS `set_parameter` and WS `set_string_excitation` (emit `error` with `code: "parameter_range_error"`)
-
-**Range bounds beyond these catastrophic predicates are NOT validated** — values
-the user types flow through to the engine. UX-style range checks (e.g. "volume
-should be < 1e10") were intentionally removed from both UI and backend per
-dev-2706.
+**CFL / Courant (indication only).** A string edit whose FDTD amplification `max|g| > 1` or whose
+Courant number is `≥ CFL_MARGIN` is **applied**. The response is `200` with `cfl_redline: true` and
+`cfl_redline_info`, and the flag also appears on `/health` (v3, 2026-07-08; see
+[PARAMETER_SYSTEM](../pianoid-cuda/PARAMETER_SYSTEM.md#host-side-cfl-stability-gate-physical-params--granular-path)).
+The `CflRejected` / `cfl_unstable` 400 handler remains for a host gate, but the edit paths no longer
+raise it.
 
 ---
 
@@ -1419,9 +1422,8 @@ Response `200`:
 {"message": "String excitation set successfully"}
 ```
 
-Response `400` — see [Engine safety net](#engine-safety-net-catastrophic-input-rejection)
-above. `sigma <= 0` and NaN/Inf in any curve field are rejected before
-`update_pitch_excitation` mutates state.
+Response `400` `parameter_out_of_range` — see [Parameter safety net](#parameter-safety-net-out-of-domain-rejection)
+above: `sigma <= 0`, a curve key outside `0..4` and NaN/Inf in any curve field are rejected before anything is written.
 
 ---
 
