@@ -1,0 +1,302 @@
+{
+ "num_channels": 7,
+ "mode_iteration": 64,
+ "sample_rate": 48000,
+ "play_keyboard": {
+  "http": 200,
+  "reported_duration_ms": 6500.0,
+  "reported_audio_samples": 2352000,
+  "wav_channels": 1,
+  "cycles_rendered": 5250,
+  "raw_over_cycles_x64": 7.0,
+  "metrics": {
+   "samples": 2352000,
+   "duration_s": 49.0,
+   "expected_s": 6.5,
+   "duration_ratio": 7.538,
+   "median_abs_dRMS_lag1_dB": 0.0,
+   "median_abs_dRMS_lag7_dB": 0.0,
+   "lag7_over_lag1": 0.0,
+   "boundary_jump_ratio": 0.0,
+   "line_prominence_dB": {
+    "750Hz": -Infinity,
+    "1500Hz": -Infinity,
+    "2250Hz": -Infinity,
+    "3000Hz": -Infinity
+   },
+   "num_channels_engine": 7
+  }
+ },
+ "dispersion_base": 1.083416484217919e-14,
+ "note_playback": {
+  "x1": {
+   "dispersion_damping": 1.083416484217919e-14,
+   "sound_shape": [
+    7,
+    5712000
+   ],
+   "decays": {
+    "f0_hz": 377.5,
+    "partials": [
+     {
+      "n": 1,
+      "hz": 377.5,
+      "dB_per_s": -1.87,
+      "level_dB_at_0.3s": -168.5
+     },
+     {
+      "n": 2,
+      "hz": 755.0,
+      "dB_per_s": -2.47,
+      "level_dB_at_0.3s": -148.0
+     },
+     {
+      "n": 3,
+      "hz": 1177.5,
+      "dB_per_s": -2.53,
+      "level_dB_at_0.3s": -176.7
+     },
+     {
+      "n": 4,
+      "hz": 1510.0,
+      "dB_per_s": -4.11,
+      "level_dB_at_0.3s": -160.8
+     },
+     {
+      "n": 5,
+      "hz": 1826.2,
+      "dB_per_s": -2.83,
+      "level_dB_at_0.3s": -176.4
+     },
+     {
+      "n": 6,
+      "hz": 2210.0,
+      "dB_per_s": -6.39,
+      "level_dB_at_0.3s": -164.2
+     },
+     {
+      "n": 7,
+      "hz": 2576.2,
+      "dB_per_s": -2.6,
+      "level_dB_at_0.3s": -182.8
+     },
+     {
+      "n": 8,
+      "hz": 3055.0,
+      "dB_per_s": -1.88,
+      "level_dB_at_0.3s": -173.6
+     },
+     {
+      "n": 9,
+      "hz": 3531.2,
+      "dB_per_s": -2.47,
+      "level_dB_at_0.3s": -180.5
+     },
+     {
+      "n": 10,
+      "hz": 3912.5,
+      "dB_per_s": -1.76,
+      "level_dB_at_0.3s": -173.3
+     },
+     {
+      "n": 11,
+      "hz": 4290.0,
+      "dB_per_s": -2.55,
+      "level_dB_at_0.3s": -176.5
+     },
+     {
+      "n": 12,
+      "hz": 4662.5,
+      "dB_per_s": -1.76,
+      "level_dB_at_0.3s": -174.9
+     }
+    ]
+   },
+   "metrics": {
+    "samples": 5712000,
+    "duration_s": 119.0,
+    "expected_s": 17.0,
+    "duration_ratio": 7.0,
+    "median_abs_dRMS_lag1_dB": 5.514,
+    "median_abs_dRMS_lag7_dB": 1.516,
+    "lag7_over_lag1": 0.27,
+    "boundary_jump_ratio": 19.09,
+    "line_prominence_dB": {
+     "750Hz": 16.2,
+     "1500Hz": -18.7,
+     "2250Hz": 5.2,
+     "3000Hz": -3.0
+    },
+    "num_channels_engine": 7
+   }
+  },
+  "x10": {
+   "dispersion_damping": 1.083416484217919e-13,
+   "sound_shape": [
+    7,
+    5712000
+   ],
+   "decays": {
+    "f0_hz": 377.5,
+    "partials": [
+     {
+      "n": 1,
+      "hz": 377.5,
+      "dB_per_s": -1.87,
+      "level_dB_at_0.3s": -168.5
+     },
+     {
+      "n": 2,
+      "hz": 755.0,
+      "dB_per_s": -2.47,
+      "level_dB_at_0.3s": -148.0
+     },
+     {
+      "n": 3,
+      "hz": 1177.5,
+      "dB_per_s": -2.53,
+      "level_dB_at_0.3s": -176.7
+     },
+     {
+      "n": 4,
+      "hz": 1510.0,
+      "dB_per_s": -4.11,
+      "level_dB_at_0.3s": -160.8
+     },
+     {
+      "n": 5,
+      "hz": 1826.2,
+      "dB_per_s": -2.83,
+      "level_dB_at_0.3s": -176.4
+     },
+     {
+      "n": 6,
+      "hz": 2210.0,
+      "dB_per_s": -6.39,
+      "level_dB_at_0.3s": -164.2
+     },
+     {
+      "n": 7,
+      "hz": 2576.2,
+      "dB_per_s": -2.6,
+      "level_dB_at_0.3s": -182.8
+     },
+     {
+      "n": 8,
+      "hz": 3055.0,
+      "dB_per_s": -1.88,
+      "level_dB_at_0.3s": -173.6
+     },
+     {
+      "n": 9,
+      "hz": 3531.2,
+      "dB_per_s": -2.47,
+      "level_dB_at_0.3s": -180.5
+     },
+     {
+      "n": 10,
+      "hz": 3912.5,
+      "dB_per_s": -1.76,
+      "level_dB_at_0.3s": -173.3
+     },
+     {
+      "n": 11,
+      "hz": 4290.0,
+      "dB_per_s": -2.55,
+      "level_dB_at_0.3s": -176.5
+     },
+     {
+      "n": 12,
+      "hz": 4662.5,
+      "dB_per_s": -1.76,
+      "level_dB_at_0.3s": -174.9
+     }
+    ]
+   }
+  },
+  "x100": {
+   "dispersion_damping": 1.083416484217919e-12,
+   "sound_shape": [
+    7,
+    5712000
+   ],
+   "decays": {
+    "f0_hz": 377.5,
+    "partials": [
+     {
+      "n": 1,
+      "hz": 377.5,
+      "dB_per_s": -5.74,
+      "level_dB_at_0.3s": -169.7
+     },
+     {
+      "n": 2,
+      "hz": 755.0,
+      "dB_per_s": -17.9,
+      "level_dB_at_0.3s": -152.7
+     },
+     {
+      "n": 3,
+      "hz": 1177.5,
+      "dB_per_s": -17.92,
+      "level_dB_at_0.3s": -181.4
+     },
+     {
+      "n": 4,
+      "hz": 1555.0,
+      "dB_per_s": -5.79,
+      "level_dB_at_0.3s": -167.5
+     },
+     {
+      "n": 5,
+      "hz": 1826.2,
+      "dB_per_s": -18.25,
+      "level_dB_at_0.3s": -183.5
+     },
+     {
+      "n": 6,
+      "hz": 2305.0,
+      "dB_per_s": -5.78,
+      "level_dB_at_0.3s": -172.0
+     },
+     {
+      "n": 7,
+      "hz": 2733.8,
+      "dB_per_s": -5.55,
+      "level_dB_at_0.3s": -189.3
+     },
+     {
+      "n": 8,
+      "hz": 3055.0,
+      "dB_per_s": -5.78,
+      "level_dB_at_0.3s": -175.0
+     },
+     {
+      "n": 9,
+      "hz": 3531.2,
+      "dB_per_s": -17.88,
+      "level_dB_at_0.3s": -185.3
+     },
+     {
+      "n": 10,
+      "hz": 3912.5,
+      "dB_per_s": -5.57,
+      "level_dB_at_0.3s": -175.0
+     },
+     {
+      "n": 11,
+      "hz": 4290.0,
+      "dB_per_s": -18.0,
+      "level_dB_at_0.3s": -181.7
+     },
+     {
+      "n": 12,
+      "hz": 4662.5,
+      "dB_per_s": -5.56,
+      "level_dB_at_0.3s": -176.7
+     }
+    ]
+   }
+  }
+ }
+}

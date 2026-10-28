@@ -2,8 +2,8 @@
 // envelope matching, expiry, revoke, the activity log, the policy invariants and the flag-off no-change proof.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, HARD_CONFIRM } from '../policy.js';
-import { CATEGORIES } from '../approvals.js';
+import { decide } from '../policy.js';
+import { CATEGORIES, ownRule } from '../approvals.js';
 import { loadCommands } from '../lib/registry.js';
 import { SdkDriver } from '../drivers/sdk.js';
 import { memoryPrompt, planPrompt, systemPrompt } from '../service/prompt.js';
@@ -128,36 +128,39 @@ test('expiry and revoke: an expired / revoked grant matches nothing and is not s
   assert.match(matchGrant(null, { cmd: C('play.note') }).reason, /no active/);
 });
 
-test('policy: a plan never bypasses the deny rows, a tainted turn, code, or an unticked hard-confirm', () => {
+test('policy: a plan never bypasses the deny rows, a tainted turn (taint rules), or an unticked command rule', () => {
   const plan = { ok: true, ticked: true, grantId: 'g', reason: 'plan' };
-  // the point of the feature: a ticked rig hard-confirm command runs inside the plan
+  // the point of the feature: a ticked rig command (its own rule) runs inside the plan
   for (const n of ['modal.rig_capture', 'modal.rig_sine', 'modal.rig_record', 'modal.rig_process', 'preset.create', 'modal.set_measurements_dir']) {
     const v = dec(n, { plan });
     assert.deepEqual([v.action, v.auto, v.plan], ['allow', true, 'g'], n);
   }
-  // tainted turn: hard confirm, never canAuto, plan or not (dev-c0de invariant)
-  for (const n of ['modal.rig_capture', 'play.note', 'param.set', 'preset.switch']) {
+  // tainted turn: a taint rule (destructive / sends data out) asks whatever the plan, with the note and the same rule
+  for (const n of ['modal.rig_capture', 'preset.save', 'preset.create']) {
     const v = dec(n, { plan, tainted: true });
-    assert.deepEqual([v.action, v.hard, !!v.canAuto], ['confirm', true, false], n);
+    assert.deepEqual([v.action, v.rule.id, !!v.taintNote], ['ask', n, true], n);
   }
+  // ... a non-taint rule keeps its plan / Always allow
+  assert.equal(dec('preset.switch', { plan, tainted: true }).action, 'allow');
+  assert.equal(dec('play.note', { tainted: true }).action, 'allow');
   // analysis code (category code) takes a plan verdict since dev-auto1, never in a tainted turn
   const run = (settings) => decide({ command: 'analysis.run_python', tier: 'act', family: 'analysis', category: 'code', settings });
   assert.deepEqual([run({ plan }).action, run({ plan }).plan], ['allow', 'g']);
-  assert.deepEqual([run({ plan, tainted: true }).action, run({ plan, tainted: true }).hard], ['confirm', true]);
-  // a hard-confirm command the user did not tick stays a hard confirm
-  for (const n of Object.keys(HARD_CONFIRM).filter((x) => C(x))) {
+  assert.deepEqual([run({ plan, tainted: true }).action, !!run({ plan, tainted: true }).taintNote], ['ask', true]);
+  // a command with its own rule the user did not tick asks (the dialog offers its rule)
+  for (const n of COMMANDS.filter(ownRule).map((c) => c.name)) {
     const v = dec(n, { plan: { ...plan, ticked: false } });
-    assert.deepEqual([v.action, v.hard], ['confirm', true], n);
+    assert.deepEqual([v.action, v.rule.id], ['ask', n], n);
   }
   // deny rows win
   assert.equal(dec('launcher.backend.stop', { plan }).action, 'deny');
   assert.equal(dec('modal.rig_capture', { plan, dataOptOut: true }).action, 'deny');
   assert.equal(decide({ command: 'render.calibration_x', tier: 'act', family: 'render', category: 'renders', settings: { plan, liveAudio: true } }).action, 'deny');
   // params / runtime: a plan covers them free under the physical gates (dev-free1); no verdict / not ok = not covered
-  assert.equal(dec('param.mute_modes', { plan }).action, 'confirm');
+  assert.equal(dec('param.mute_modes', { plan }).action, 'ask');
   const env = dec('param.mute_modes', { plan, envelope: { ok: true, reason: 'mask switch' } });
   assert.deepEqual([env.action, env.watch, env.plan], ['allow', true, 'g']);
-  assert.equal(dec('runtime.set', { plan, envelope: { ok: false, reason: 'outside' } }).action, 'confirm');
+  assert.equal(dec('runtime.set', { plan, envelope: { ok: false, reason: 'outside' } }).action, 'ask');
   const free = dec('runtime.set', { plan, envelope: { ok: true, reason: 'free edit; level watched' } });   // any size (dev-free1)
   assert.deepEqual([free.action, free.watch, free.plan], ['allow', true, 'g']);
   assert.equal(dec('runtime.set', { plan, envelope: { ok: false, reject: true, reason: 'rejected: x' } }).action, 'deny');
@@ -170,10 +173,10 @@ test('policy flag-off no-change: without settings.plan every verdict equals the 
   // without settings.plan, so a plan-less call is unchanged (no plan field, same action / reason / flags)
   const ALL_AUTO = Object.fromEntries([...CATEGORIES.map((c) => c.id)].map((id) => [id, 'auto']));
   const combos = [];
-  for (const approvals of [undefined, { installation: ALL_AUTO, session: {} }]) {
+  for (const rules of [undefined, ALL_AUTO]) {
     for (const envelope of [undefined, { ok: true, reason: 'e' }, { ok: false, reason: 'o' }]) {
       for (const tainted of [false, true]) for (const liveAudio of [false, true]) for (const dataOptOut of [false, true]) {
-        combos.push({ approvals, envelope, tainted, liveAudio, dataOptOut });
+        combos.push({ rules, envelope, tainted, liveAudio, dataOptOut });
       }
     }
   }
@@ -218,12 +221,12 @@ test('kill-switch (flag=0): the session is byte-for-byte the pre-feature one', a
   assert.equal(s.plan.grant, null);
   assert.deepEqual(sent, []);
   assert.deepEqual(s.activity, []);
-  // a hard-confirm rig command still asks, hard, with no plan in the request
+  // a rig command still asks (its own rule), with no plan in the request
   const p = s.canUseTool(tool('modal.rig_capture'), CAPTURE, { toolUseID: 't1' });
   await new Promise((r) => setImmediate(r));
   const confirm = sent.find((m) => m.type === 'confirm');
-  assert.equal(confirm.hard, true);
-  assert.equal(confirm.reason, HARD_CONFIRM['modal.rig_capture']);
+  assert.equal(confirm.rule.id, 'modal.rig_capture');
+  assert.equal(confirm.reason, C('modal.rig_capture').title);
   s.confirm(confirm.id, false);
   assert.equal((await p).behavior, 'deny');
   assert.ok(!s.activity.some((a) => 'plan' in a));
@@ -266,7 +269,7 @@ test('dev-auto1: analysis.run_python is plannable; inside the grant a run needs 
   const t = s.canRunAnalysis({ code: 'print(1)' }, { toolUseID: 'r2' });
   await new Promise((r) => setImmediate(r));
   const c = sent.find((m) => m.type === 'confirm');
-  assert.equal(c.hard, true);
+  assert.equal(!!c.taintNote, true);
   s.confirm(c.id, false);
   assert.equal((await t).behavior, 'deny');
 });
@@ -309,7 +312,7 @@ test('flag ON: request -> only the user click grants -> steps auto-run, logged; 
   const p2 = s.canUseTool(tool('modal.rig_capture'), CAPTURE, { toolUseID: 't2' });
   await new Promise((r) => setImmediate(r));
   const c2 = sent.find((m) => m.type === 'confirm');
-  assert.equal(c2.hard, true);
+  assert.equal(c2.rule.id, 'modal.rig_capture');
   assert.match(c2.reason, /outside the plan approval: drive 120 s \+ 120 s/);
   s.confirm(c2.id, false);
   await p2;
@@ -384,7 +387,7 @@ test('flag ON: context plan_approval tracks grant -> revoke -> new grant -> expi
   const p1 = s.canUseTool(tool('modal.rig_capture'), CAPTURE, { toolUseID: 'r1' });
   await new Promise((r) => setImmediate(r));
   const c1 = sent.findLast((m) => m.type === 'confirm');
-  assert.equal(c1.hard, true);
+  assert.equal(c1.rule.id, 'modal.rig_capture');
   assert.match(c1.reason, /\(outside the plan approval: the plan "Board measurement" was revoked less than a minute ago\)$/);
   s.confirm(c1.id, false);
   assert.match((await p1).message, /declined modal\.rig_capture\. It asked because it is outside the plan approval: the plan "Board measurement" was revoked/);
@@ -409,7 +412,7 @@ test('kill-switch (flag=0): no plan_approval in the context, no plan note on a c
   const p = s.canUseTool(tool('modal.rig_capture'), CAPTURE, { toolUseID: 'k1' });
   await new Promise((r) => setImmediate(r));
   const c = sent.find((m) => m.type === 'confirm');
-  assert.equal(c.reason, HARD_CONFIRM['modal.rig_capture']);
+  assert.equal(c.reason, C('modal.rig_capture').title);
   s.confirm(c.id, false);
   assert.equal((await p).message, 'The user declined modal.rig_capture.');
 });

@@ -1,0 +1,55 @@
+{
+  "family": "bug",
+  "description": "The local bug-report store (PianoidCore/logs/reports; the same store as the bug button, the automatic reports and the assistant's bug_report tool): list the reports with their triage state and update a report's status (dev-obuf1). Filing a new report is the assistant's bug_report tool, not a registry command.",
+  "commands": [
+    {
+      "name": "bug.list",
+      "title": "List the bug reports",
+      "description": "Report summaries newest first: reportId, source (assistant / auto / manual), kind (app_bug / environment / feature_request, or the fault kind of an automatic report), title, component, severity, status (open / fixed / wontfix / duplicate) and the resolution (note, commits). Read it before filing a report so you do not re-file one that is already open or fixed; a fixed one names the commit that fixed it.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-bug_reports",
+      "route": {"method": "GET", "path": "/bug_reports"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {"type": "string", "enum": ["open", "fixed", "wontfix", "duplicate"]},
+          "kind": {"type": "string", "description": "app_bug, environment, feature_request, or an automatic fault kind"},
+          "source": {"type": "string", "enum": ["assistant", "auto", "manual"]},
+          "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "none"]},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "bug.set_status",
+      "title": "Update a bug report's status",
+      "description": "Set a report's status (open / fixed / wontfix / duplicate), severity or kind (e.g. re-class to feature_request). A non-open status needs a resolution note; duplicate also needs duplicate_of; give the commit(s) of a fix (e.g. \"Core d99e5a0\"). Only when the user asks or confirms, e.g. after verifying a fix with a read or a render.",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "bug_local",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-bug_reportsreport_idstatus",
+      "route": {"method": "POST", "path": "/bug_reports/{report_id}/status"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["report_id"],
+        "properties": {
+          "report_id": {"type": "string", "description": "the reportId or a unique prefix of at least 6 characters"},
+          "status": {"type": "string", "enum": ["open", "fixed", "wontfix", "duplicate"]},
+          "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+          "kind": {"type": "string", "enum": ["app_bug", "environment", "feature_request"]},
+          "resolution": {"type": "string", "description": "what fixed it / why not / of what it is a duplicate"},
+          "commits": {"type": "array", "items": {"type": "string"}, "description": "e.g. [\"Core d99e5a0\", \"Tunner 60200cd\"]"},
+          "duplicate_of": {"type": "string"}
+        }
+      },
+      "result": {"type": "object"}
+    }
+  ]
+}

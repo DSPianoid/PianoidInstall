@@ -23,11 +23,11 @@ test('policy: D3 table on the real registry tiers (single user, D5)', () => {
   for (const n of ['ui.snapshot', 'ui.pane.open', 'play.note', 'render.note_playback', 'render.chart', 'param.get', 'job.list']) {
     assert.equal(d(n), 'allow', n);
   }
-  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'confirm', n);   // Ask by default (v2 §9)
+  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'ask', n);   // Ask by default (v2 §9)
   for (const n of ['preset.save', 'preset.promote', 'preset.load', 'preset.unload', 'calibration.synthesis', 'modal.run_stage', 'modal.apply_to_preset']) {
-    assert.equal(d(n), 'confirm', n);
+    assert.equal(d(n), 'ask', n);
   }
-  assert.equal(d('launcher.backend.start'), 'confirm');
+  assert.equal(d('launcher.backend.start'), 'ask');
   assert.equal(d('launcher.status'), 'allow');
   assert.equal(d('launcher.backend.stop'), 'deny');                      // excluded tier
   assert.equal(d('calibration.status', { dataOptOut: true }), 'deny');

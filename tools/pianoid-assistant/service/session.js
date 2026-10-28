@@ -5,13 +5,14 @@
  * stickiness), the activity log, usage (D7), Stop, and the per-turn UI / health context. One installation
  * = one user (D5: no user management). Changing the data opt-out restarts the session (the MCP
  * server is spawned with it, so the filter holds in two places).
- * v2 P2: per-category Ask / Auto approvals (approvals.js; installation default in config.json, session
- * overrides in memory), the hard-confirm list and the physical gates (policy.js, envelope.js); the MCP
- * server executes through service/autoWrite.js (permits, undo groups, level watch, auto-revert).
+ * dev-unif1: ONE approval model: every call -> policy.js decide (one rule from the rule table, config.json `rules`,
+ * approvals.js) -> allow / ask / deny; every ask is the same dialog (Allow once / Always allow / Deny). The physical
+ * gates (envelope.js) and the preset backup are automatic checks; the MCP server executes through
+ * service/autoWrite.js (permits, undo groups, level watch, auto-revert).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decide, HARD_CONFIRM, HARD_CONFIRM_EXTRA } from '../policy.js';
+import { attributesOf, decide } from '../policy.js';
 import { applyChange, describe, usesEnvelope } from '../approvals.js';
 import { check as checkEnvelope } from '../envelope.js';
 import { commandName } from '../lib/registry.js';
@@ -30,11 +31,11 @@ import { BUG_CMD, BUG_TOOL, buildReport, fileReport, preview, validateDraft } fr
 import {
   enabled as planFlag, validateRequest, createGrant, matchGrant, recordUse, describeGrant, planState, endedReason,
 } from '../planApproval.js';
-import { residualReason, SAFETY_NETS_TEXT, STILL_ASKS_TEXT } from '../autonomy.js';
+import { applyAutonomous, migrateConfig, SAFETY_NETS_TEXT, stillAsks } from '../autonomy.js';
 import { AuditLog } from './auditLog.js';
 import { backupPreset, middlewareDir } from './presetBackup.js';
 import { MANIFEST_FILE, PresetOwnership } from './presetOwnership.js';
-import { AssistantMemory } from './memory.js';
+import { AssistantMemory, MEMORY_CMDS } from './memory.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -44,8 +45,7 @@ const ESCALATE_TOOL = 'mcp__assistant__escalate_model';
 // The plan-approval request tool (dev-28f1): registered unless the kill-switch PIANOID_ASSISTANT_PLAN_APPROVAL=0.
 export const PLAN_TOOL = 'mcp__assistant__request_plan_approval';
 const ANALYSIS_TOOL = 'mcp__analysis__run_python';
-// The v2 P5 sandbox tool as the policy, the router and plan approval see it (category `code`: Ask by default,
-// may be Auto or in a plan since dev-auto1; a tainted turn always asks).
+// The v2 P5 sandbox tool as the policy, the router and plan approval see it (rule `code`: Ask by default).
 export const ANALYSIS_CMD = {
   name: 'analysis.run_python', title: 'Run analysis code in the sandbox', tier: 'act', family: 'analysis', category: 'code',
   approval_category: 'code',          // the confirm request's category (P2 approvals)
@@ -63,8 +63,8 @@ const summarize = (v, n = 300) => {
 // The args the MCP server executes (and the permit must match): `export: true` is the server's own (v2 P5).
 const executed = (cmd, input) => splitExport(cmd, input).args;
 
-// The activity entry's decision for a verdict: plan / autonomous (dev-auto1) / auto / allow / confirm / deny.
-const decisionOf = (v) => (v.plan ? 'plan' : v.autonomous ? 'autonomous' : v.action === 'allow' && v.auto ? 'auto' : v.action);
+// The activity entry's decision for a verdict: plan / auto (a rule on Always allow) / allow (a read) / ask / deny.
+const decisionOf = (v) => (v.plan ? 'plan' : v.action === 'allow' && v.auto ? 'auto' : v.action);
 
 export class AssistantSession {
   constructor({
@@ -84,7 +84,6 @@ export class AssistantSession {
     this.memory = new AssistantMemory(this, { notesDir: paths?.root ? path.join(paths.root, 'memory', 'notes') : null, artifactsDir: analysis.artifacts });
     this.tainted = false;
     this.sessionTainted = false;
-    this.sessionApprovals = {};       // "this session only" overrides (the service's lifetime)
     this.notes = [];                  // auto-revert notes for the next turn's context
     this.execUrl = null;              // set by the server once it listens (the MCP server's executor)
     this.auto = new AutoWriter({
@@ -93,6 +92,9 @@ export class AssistantSession {
     });
     this.byName = new Map(commands.map((c) => [c.name, c]));
     this.plannable = new Map([...this.byName, [ANALYSIS_CMD.name, ANALYSIS_CMD]]);   // what a plan request may name
+    // every command the policy can see (the registry + the service's own tools): the rule catalogue's source
+    this.ruleCommands = new Map([...this.plannable, [BUG_CMD.name, BUG_CMD], ...Object.values(MEMORY_CMDS).map((c) => [c.name, c])]);
+    this.migrate();
     this.driver = null;
     this.busy = false;
     this.transcript = [];
@@ -124,20 +126,44 @@ export class AssistantSession {
     };
   }
 
-  approvalState() { return { installation: this.config.approvals || {}, session: this.sessionApprovals }; }
+  /** dev-unif1: a pre-dev-unif1 config.json (`approvals`, `autonomous: true`) becomes the rule table, once. */
+  migrate() {
+    const { config, changed } = migrateConfig(this.config, this.ruleCommands);
+    if (!changed) return;
+    Object.keys(this.config).forEach((k) => delete this.config[k]);
+    Object.assign(this.config, config);
+    if (this.paths?.config) saveConfig(this.paths, this.config);
+    this.audit.write('migration', { to: 'rules v1', rules: this.config.rules, autonomous: this.config.autonomous?.on === true });
+  }
 
-  // ---- Autonomous mode (dev-auto1): config.json `autonomous`, switched only by the pane (WS settings) ----
+  rules() { return this.config.rules || {}; }
+
+  // ---- Autonomous mode = a preset of the rule table (autonomy.js), switched only by the pane (WS settings) ----
 
   autonomyView() {
     return {
-      on: !!this.config.autonomous, stillAsks: STILL_ASKS_TEXT, safetyNets: SAFETY_NETS_TEXT, auditFile: this.audit.file, backupDir: this.backupDir,
-      auditError: this.audit.lastError,
+      on: this.config.autonomous?.on === true, stillAsks: stillAsks(this.ruleCommands), safetyNets: SAFETY_NETS_TEXT,
+      auditFile: this.audit.file, backupDir: this.backupDir, auditError: this.audit.lastError,
     };
   }
 
-  /** The policy's `settings.autonomous` for one call (undefined when off); `ownPreset` = a preset.save's ownership. */
-  autonomySettings(cmd, input, ownPreset = null) {
-    return this.config.autonomous ? { on: true, residual: residualReason(cmd, input, { ownPreset }) } : undefined;
+  /** The ONE policy verdict of a call (every tool path: registry, analysis, bug report, notes). */
+  verdict(cmd, input, { attrs = attributesOf(cmd, input), envelope = null, plan = null, liveAudio = false } = {}) {
+    return decide({
+      command: cmd.name, title: cmd.title, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, attrs,
+      settings: {
+        dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: !!this.tainted, rules: this.rules(), envelope, ...(plan?.ok ? { plan } : {}),
+      },
+    });
+  }
+
+  /** The ONE dialog: ask the user, apply "Always allow" to the rule table. -> allowed? */
+  async ask(entry, cmd, shown, verdict, signal) {
+    const { allow, always } = await this.askConfirm(entry, cmd, shown, verdict, signal);
+    this.updateActivity(entry, { decision: !allow ? 'rejected' : always ? 'always' : 'confirmed', status: allow ? 'pending' : 'rejected' });
+    if (!allow) this.router.onRefused(cmd.name);
+    else if (always) this.updateApprovals({ rule: verdict.rule.id, mode: 'auto' });
+    return allow;
   }
 
   /** A preset.save's permit hooks: refuse when the file changed after the check; record / refresh ownership after it. */
@@ -145,28 +171,23 @@ export class AssistantSession {
     return save ? { guard: () => this.owned.unchanged(save), onOk: (res) => this.owned.recordAfterSave(save, res?.result?.path ?? res?.path) } : {};
   }
 
-  /** An autonomous preset.save runs only after the file it overwrites is backed up; else it asks (fail closed). */
+  /**
+   * The automatic backup before a preset.save that runs without a dialog (an automatic check, not a rule): a
+   * failed backup turns the allow into the rule's ask, with the reason (fail closed).
+   */
   backupBeforeSave(input, verdict) {
     const b = backupPreset({ presetPath: input?.path, middleware: this.presetDir, backupDir: this.backupDir });
-    if (!b.ok) return { action: 'confirm', hard: true, reason: `Autonomous mode could not back up the preset first: ${b.reason}` };
+    if (!b.ok) return { action: 'ask', rule: verdict.rule, reason: `the automatic backup before the save failed: ${b.reason}` };
     return { ...verdict, backup: b.backup, reason: `${verdict.reason}; ${b.reason}` };
   }
 
-  approvalsView() {
-    const hard = [...Object.entries(HARD_CONFIRM).map(([command, reason]) => ({ command, reason })),
-      ...HARD_CONFIRM_EXTRA.map((reason) => ({ command: null, reason }))];
-    return describe(this.approvalState(), hard);
-  }
+  approvalsView() { return describe(this.rules(), this.ruleCommands); }
 
-  /** Change one category (the popover, or "Don't ask again"); installation scope persists in config.json. */
-  updateApprovals({ category, mode, scope = 'session' }) {
-    const next = applyChange(this.approvalState(), { category, mode, scope });
-    this.sessionApprovals = next.session;
-    if (scope === 'installation') {
-      this.config.approvals = next.installation;
-      saveConfig(this.paths, this.config);
-    }
-    this.logActivity({ command: 'approvals', tier: 'settings', decision: mode, status: 'ok', reason: `${category} -> ${mode} (${scope === 'installation' ? 'this installation' : 'this session'})` });
+  /** Change one rule (the Permissions list, or a dialog's "Always allow"); persisted in config.json. */
+  updateApprovals({ rule, mode }) {
+    this.config.rules = applyChange(this.rules(), { rule, mode }, this.ruleCommands);
+    if (this.paths?.config) saveConfig(this.paths, this.config);
+    this.logActivity({ command: 'approvals', tier: 'settings', decision: mode, status: 'ok', reason: `${rule} -> ${mode === 'auto' ? 'Always allow' : 'Ask'}` });
     this.broadcast({ type: 'approvals', approvals: this.approvalsView() });
   }
 
@@ -252,24 +273,20 @@ export class AssistantSession {
     await this.trigger(this.router.onToolCall(cmd.name));      // layer 2, before the call runs
     const liveAudio = cmd.family === 'render' ? await this.liveAudio() : false;
     const category = cmd.approval_category;
-    const approvals = this.approvalState();
     let before = null;
     let envelope = null;
     const plan = this.planMatch(cmd, input);                   // null unless the flag is on and a grant is active
     const save = cmd.name === 'preset.save' ? this.owned.classify(input?.path) : null;   // provenance (dev-auto1)
-    const autonomous = this.autonomySettings(cmd, input, save);
     if (usesEnvelope(category)) {                         // dev-free1: the physical gates for EVERY params / runtime write
       before = await this.auto.before(cmd, input);       // the values a revert restores + the /health level baseline
       envelope = checkEnvelope({ cmd, input, limits: this.auto.limits });
     }
-    let verdict = decide({
-      command: cmd.name, tier: cmd.tier, family: cmd.family, category,
-      settings: { dataOptOut: !!this.config.dataOptOut, liveAudio, tainted: !!this.tainted, approvals, envelope, ...(plan?.ok ? { plan } : {}), autonomous },
-    });
-    if (verdict.autonomous && cmd.name === 'preset.save') verdict = this.backupBeforeSave(input, verdict);
-    if (plan && !plan.ok && verdict.action === 'confirm') verdict.reason = `${verdict.reason} (${plan.reason})`;
+    let verdict = this.verdict(cmd, input, { attrs: attributesOf(cmd, input, { ownPreset: save }), envelope, plan, liveAudio });
+    if (verdict.action === 'allow' && cmd.name === 'preset.save') verdict = this.backupBeforeSave(input, verdict);
+    if (plan && !plan.ok && verdict.action === 'ask') verdict.reason = `${verdict.reason} (${plan.reason})`;
     const entry = this.logActivity({
       command: cmd.name, tier: cmd.tier, category, input, decision: decisionOf(verdict), reason: verdict.reason, toolUseId: toolUseID,
+      ...(verdict.rule ? { rule: verdict.rule.id } : {}),
       ...(verdict.plan ? { plan: verdict.plan } : {}), ...(verdict.backup ? { backup: verdict.backup } : {}),
       ...(save ? { ownership: save.status } : {}),
     });
@@ -282,21 +299,17 @@ export class AssistantSession {
       this.router.onRefused(cmd.name);
       return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     }
-    const { allow, remember } = await this.askConfirm(entry, cmd, input, verdict, signal);
-    this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
-    if (!allow) {
-      this.router.onRefused(cmd.name);
+    if (!(await this.ask(entry, cmd, input, verdict, signal))) {
       return { behavior: 'deny', message: `The user declined ${cmd.name}.${plan && !plan.ok ? ` It asked because it is ${plan.reason}.` : ''}` };
     }
-    if (remember && verdict.canAuto) this.updateApprovals({ category: verdict.category || category, mode: 'auto', scope: remember });
     // a confirmed params / runtime write keeps the physical gates (the CFL check, the level watch with auto-revert)
     this.auto.permit(cmd, executed(cmd, input), { watch: usesEnvelope(category), before, entry, tainted: this.tainted, ...this.saveHooks(save) });
     return { behavior: 'allow', updatedInput: input };
   }
 
   /**
-   * The policy verdict of one analysis call: invalid input = deny; else category `code` (Ask / Auto, a plan step;
-   * a tainted turn = hard confirm). `plan` = planMatch's answer (null = none).
+   * The policy verdict of one analysis call: invalid input = deny; else the rule `code` (a plan step may cover it).
+   * `plan` = planMatch's answer (null = none).
    */
   analysisVerdict(input, plan = null) {
     try {
@@ -304,13 +317,7 @@ export class AssistantSession {
     } catch (e) {
       return { action: 'deny', reason: `invalid analysis.run_python input: ${e.message}` };
     }
-    return decide({
-      ...ANALYSIS_CMD, command: ANALYSIS_CMD.name,
-      settings: {
-        dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState(), ...(plan?.ok ? { plan } : {}),
-        autonomous: this.autonomySettings(ANALYSIS_CMD, input),
-      },
-    });
+    return this.verdict(ANALYSIS_CMD, input, { plan });
   }
 
   async canRunAnalysis(input, { signal, toolUseID }) {
@@ -324,20 +331,15 @@ export class AssistantSession {
     const entry = this.logActivity({
       command: ANALYSIS_CMD.name, tier: ANALYSIS_CMD.tier, category: ANALYSIS_CMD.category, input: shown, code,
       decision: decisionOf(verdict), reason: verdict.reason, toolUseId: toolUseID, ...(verdict.plan ? { plan: verdict.plan } : {}),
+      ...(verdict.rule ? { rule: verdict.rule.id } : {}),
     });
     if (verdict.plan) this.usePlan(ANALYSIS_CMD, plan, entry);
     if (verdict.action === 'deny') {
       this.router.onRefused(ANALYSIS_CMD.name);
       return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
     }
-    if (verdict.action === 'confirm') {
-      const { allow, remember } = await this.askConfirm(entry, ANALYSIS_CMD, input, verdict, signal);
-      this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
-      if (!allow) {
-        this.router.onRefused(ANALYSIS_CMD.name);
-        return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
-      }
-      if (remember && verdict.canAuto) this.updateApprovals({ category: ANALYSIS_CMD.category, mode: 'auto', scope: remember });
+    if (verdict.action === 'ask' && !(await this.ask(entry, ANALYSIS_CMD, input, verdict, signal))) {
+      return { behavior: 'deny', message: `The user declined ${ANALYSIS_CMD.name}.` };
     }
     this.analysisEntry = entry;
     return { behavior: 'allow', updatedInput: input };
@@ -371,20 +373,14 @@ export class AssistantSession {
     try {
       validateDraft(input);
       report = buildReport({ draft: input, transcript: this.transcript, activity: this.activity, context: this.lastContext, model: this.model.current });
-      verdict = decide({
-        ...BUG_CMD, command: BUG_CMD.name,
-        settings: { dataOptOut: !!this.config.dataOptOut, tainted: !!this.tainted, approvals: this.approvalState(), autonomous: this.autonomySettings(BUG_CMD, input) },
-      });
+      verdict = this.verdict(BUG_CMD, input);
     } catch (e) {
       verdict = { action: 'deny', reason: `invalid bug report draft: ${e.message}` };
     }
-    const entry = this.logActivity({ command: BUG_CMD.name, tier: BUG_CMD.tier, category: BUG_CMD.category, input: { title: input?.title }, decision: verdict.action === 'allow' ? (verdict.autonomous ? 'autonomous' : 'auto') : verdict.action, reason: verdict.reason, toolUseId: toolUseID });
+    const entry = this.logActivity({ command: BUG_CMD.name, tier: BUG_CMD.tier, category: BUG_CMD.category, input: { title: input?.title }, decision: decisionOf(verdict), reason: verdict.reason, toolUseId: toolUseID, ...(verdict.rule ? { rule: verdict.rule.id } : {}) });
     if (verdict.action === 'deny') return { behavior: 'deny', message: `Denied by the Pianoid policy: ${verdict.reason}` };
-    if (verdict.action === 'confirm') {
-      const { allow, remember } = await this.askConfirm(entry, BUG_CMD, preview(report), verdict, signal);
-      this.updateActivity(entry, { decision: allow ? 'confirmed' : 'rejected', status: allow ? 'pending' : 'rejected' });
-      if (!allow) return { behavior: 'deny', message: `The user declined ${BUG_CMD.name}.` };
-      if (remember && verdict.canAuto) this.updateApprovals({ category: BUG_CMD.category, mode: 'auto', scope: remember });
+    if (verdict.action === 'ask' && !(await this.ask(entry, BUG_CMD, preview(report), verdict, signal))) {
+      return { behavior: 'deny', message: `The user declined ${BUG_CMD.name}.` };
     }
     this.bugDrafts = new Map([...(this.bugDrafts || []), [canonical(input), report]]);
     return { behavior: 'allow', updatedInput: input };
@@ -430,19 +426,22 @@ export class AssistantSession {
     }
   }
 
-  /** A confirm dialog in the pane -> {allow, remember: null | 'session' | 'installation'}. */
+  /**
+   * The confirm dialog in the pane (the same for every ask) -> {allow, always}. The request names the rule "Always
+   * allow" sets (`rule`: id, label, dangerous + warning) and, in a tainted turn, why saved rules do not apply.
+   */
   askConfirm(entry, cmd, input, verdict, signal) {
     const id = `c${this.nextId++}`;
     const request = {
       type: 'confirm', id, activityId: entry.id, command: cmd.name, title: cmd.title, tier: cmd.tier, args: input,
-      reason: verdict.reason, category: verdict.category || cmd.approval_category, hard: !!verdict.hard, canAuto: !!verdict.canAuto,
+      reason: verdict.reason, category: cmd.approval_category, rule: verdict.rule, ...(verdict.taintNote ? { taintNote: verdict.taintNote } : {}),
     };
     return new Promise((resolve) => {
-      const done = (allow, remember = null) => {
+      const done = (allow, always = false) => {
         if (!this.pending.has(id)) return;
         this.pending.delete(id);
         this.broadcast({ type: 'confirm_done', id, allow });
-        resolve({ allow, remember: allow && ['session', 'installation'].includes(remember) ? remember : null });
+        resolve({ allow, always: allow && always === true });
       };
       this.pending.set(id, { request, resolve: done });
       signal?.addEventListener?.('abort', () => done(false));
@@ -450,9 +449,9 @@ export class AssistantSession {
     });
   }
 
-  confirm(id, allow, remember) {
+  confirm(id, allow, always = false) {
     const p = this.pending.get(id);
-    if (p) p.resolve(!!allow, remember);
+    if (p) p.resolve(!!allow, always === true);
   }
 
   logActivity(fields) {
@@ -639,7 +638,7 @@ export class AssistantSession {
     const digest = buildDigest({ health, runtime, load, presets, jobs, ui, outputMask, environment });
     const auto = this.approvalsView().autoActive;
     return {
-      ...digest, approvals: { auto: auto.length ? auto : 'none' }, autonomous_mode: !!this.config.autonomous,
+      ...digest, approvals: { auto: auto.length ? auto : 'none' }, autonomous_mode: this.config.autonomous?.on === true,
       ...(this.plan.enabled ? { plan_approval: this.planContext() } : {}),
       ...(notes.length ? { assistant_notes: notes } : {}),
     };
@@ -681,11 +680,11 @@ export class AssistantSession {
     }
   }
 
-  /** Taint this turn (dev-mem1): every non-read then asks, hard (policy.js); new artefacts / notes carry it. */
+  /** Taint this turn (dev-mem1): saved rules for `taint` actions stop applying (policy.js); new artefacts / notes carry it. */
   taintTurn(why) {
     if (this.tainted) return;
     this.tainted = true;
-    this.logActivity({ command: 'tainted turn', tier: 'policy', decision: 'tainted', status: 'ok', reason: `${why}: every action of this turn asks` });
+    this.logActivity({ command: 'tainted turn', tier: 'policy', decision: 'tainted', status: 'ok', reason: `${why}: saved rules for actions that send data out or are destructive do not apply in this turn` });
   }
 
   endTurn() {
@@ -713,12 +712,15 @@ export class AssistantSession {
 
   async updateSettings({ model, dataOptOut, autonomous }) {
     let restart = false;
-    if (typeof autonomous === 'boolean' && autonomous !== !!this.config.autonomous) {
-      this.config.autonomous = autonomous;               // per installation until the user switches it off
+    if (typeof autonomous === 'boolean' && autonomous !== (this.config.autonomous?.on === true)) {
+      // a preset of the rule table (autonomy.js): on = every non-dangerous rule on Always allow; off = put them back
+      Object.assign(this.config, applyAutonomous({ rules: this.rules(), autonomous: this.config.autonomous }, autonomous, this.ruleCommands));
       this.logActivity({
         command: 'autonomous mode', tier: 'settings', decision: autonomous ? 'on' : 'off', status: 'ok',
-        reason: autonomous ? `on (this installation): runs without asking except ${STILL_ASKS_TEXT.join('; ')}` : 'off: the per-category approvals apply again',
+        reason: autonomous ? `on: every rule except the risky ones set to Always allow; still asks: ${stillAsks(this.ruleCommands).join('; ')}`
+          : 'off: the rules the preset set are back to what they were',
       });
+      this.broadcast({ type: 'approvals', approvals: this.approvalsView() });
     }
     if (typeof dataOptOut === 'boolean' && dataOptOut !== !!this.config.dataOptOut) {
       this.config.dataOptOut = dataOptOut;

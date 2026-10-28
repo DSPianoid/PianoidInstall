@@ -232,8 +232,9 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
          collectAudio() → recorded_audio_.append()   (via getCurrentCycleAudio)
          cycle++
        return PlaybackStats
-  5. pianoid_cpp.getRecordedAudio() → float array
-  6. pianoid_cpp.exportAudioToWav(output_wav, audio_data, sample_rate)
+  5. load_offline_channels(pianoid_cpp, mp)[0]  ← getRecordedAudio(): per-cycle blocks [ch0×64, ch1×64, …]
+     de-interleaved to (num_channels, samples); channel 0 = output pitch 128 (dev-obuf1)
+  6. pianoid_cpp.exportAudioToWav(output_wav, channel0, sample_rate)
 ```
 
 Also triggered by chart functions:
@@ -243,7 +244,8 @@ POST /get_chart_test { chartType: "note_playback", pitch: 60, velocity: 80, dura
   ─► chartFunctions.play_note_offline_chart_function()
       1. Build EventQueue: NOTE_ON at cycle 0, NOTE_OFF at cycle N
       2. runOfflinePlayback(queue, config)
-      3. getRecordedAudio() → ChartArray with waveform + base64 WAV audio
+      3. pianoid.result.load_offline_sound_from_pianoid() → result.sound (num_channels, samples)
+         → ChartArray with the channel-0 waveform + base64 WAV audio
 ```
 
 ### 1.6 Direct Mode Playback

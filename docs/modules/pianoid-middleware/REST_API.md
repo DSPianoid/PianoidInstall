@@ -434,7 +434,7 @@ other or with a request that uses the engine. Owner: `pianoid_middleware/engine_
 |---|---|---|
 | **Lifecycle op** (exclusive) | `POST /load_preset` (all reinit kinds), `/preset/load`, `/preset/switch`, `/preset/unload`, `/preset/spawn_working_copy`, `/recalibrate_output_level`, `/shutdown` | **identical** request (same route + same JSON body) → waits and returns the in-flight result with `"coalesced": true` (only `/load_preset` and `/preset/switch` coalesce); anything else → **`409`** `{"error": "LifecycleBusy", "code": "load_in_progress", "message", "in_progress": {"op", "running_for_s"}}` |
 | **Engine use** (shared) | every other HTTP route + the engine Socket.IO events (`play`, `set_parameter`, `set_string_excitation`, `set_hammer_shape`, `set_runtime_parameters`, `set_fix_velocity`) | refused at once: HTTP **`503`** `{"code": "lifecycle_in_progress", "in_progress": {...}}`; a WS event acks `{"ok": false, "code": "lifecycle_in_progress"}` |
-| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
+| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
 
 A lifecycle op first waits for in-flight engine requests to finish (≤ 30 s, else `409` `engine_busy`);
 new engine requests are refused while it is pending. **Why 409, not a queue:** a queued *different*
@@ -1027,16 +1027,16 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 
 | Route | Command | Step |
 |---|---|---|
-| `POST /rig/capture` | `modal.rig_capture` (hard confirm) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
-| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
-| `POST /rig/record` | `modal.rig_record` (hard confirm) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
-| `POST /rig/process` | `modal.rig_process` (hard confirm) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
-| `POST /rig/preset_create` | `preset.create` (hard confirm) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
+| `POST /rig/capture` | `modal.rig_capture` (asks: its own rule) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
+| `POST /rig/sine` | `modal.rig_sine` (asks: its own rule) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
+| `POST /rig/record` | `modal.rig_record` (asks: its own rule) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
+| `POST /rig/process` | `modal.rig_process` (asks: its own rule) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
+| `POST /rig/preset_create` | `preset.create` (asks: its own rule) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
 | `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
 | `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
 | `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
 | `GET /measurements/dir` | `modal.measurements_dir` | the measurements folder and where it comes from ([below](#measurements-folder)) |
-| `POST /measurements/dir` | `modal.set_measurements_dir` (hard confirm) | moves the measurements folder (runtime setting) |
+| `POST /measurements/dir` | `modal.set_measurements_dir` (asks: its own rule) | moves the measurements folder (runtime setting) |
 
 Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the [measurements folder](#measurements-folder); run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
 flags, status), `sessions/<exciter>_m<level>_r<k>/{data.npy (aligned capture, float32 [frames, inputs]),
@@ -1096,7 +1096,7 @@ limiter: `exciter_monitor_routes.py` over `exciter_monitor.py` / `exciter_monito
 `ExciterMonitor.cpp` ([AUDIO_DRIVERS → Exciter monitor](../pianoid-cuda/AUDIO_DRIVERS.md#exciter-monitor-dev-8f54)).
 Design: [controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md). Needs the ASIO
 callback driver (`audio_driver_type 4`); stored per machine under `exciter_monitor` in
-`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (hard confirm),
+`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (asks: its own rule),
 `audio.exciters_clear`.
 
 #### `GET /audio/exciters`
@@ -1281,6 +1281,16 @@ modes, a range with one row only). WS `set_parameter` returns the same message i
 {"error": "invalid_mask_row", "parameter": "feedin_mask", "expected_length": 196, "problem_count": 2,
  "problems": [{"pitch": 21, "problem": "3 values"}, {"pitch": 22, "problem": "no row"}],
  "message": "feedin_mask: every pitch of the range needs a row of exactly 196 0/1 values (num_modes); ..."}
+```
+
+Response `400` — a `string` / `physics` / `gauss` / `excitation` write whose `values` has no entry for some
+pitch of `key_no` (report bc956d19, dev-obuf1; owner `pianoid_middleware/pitch_values.py`). Checked before
+anything is written: it used to `KeyError` half-way (416 + traceback) after the earlier pitches were already
+in the Python model, the engine upload never ran and no undo group was recorded (model and engine diverged).
+WS `set_parameter` returns the same message in its `error`.
+```json
+{"error": "missing_pitch_values", "parameter": "string", "missing_pitches": [60], "missing_count": 1,
+ "message": "string: values has no entry for pitch 60 of the key range. Give a value for every pitch of key_no, or narrow key_no. Nothing was written."}
 ```
 
 Response `416`:
@@ -1818,7 +1828,8 @@ Request body:
   "velocity": 63,
   "capture_mic": false,
   "tail_ms": 2000,
-  "pitches": null
+  "pitches": null,
+  "channel": 0
 }
 ```
 
@@ -1826,12 +1837,13 @@ Request body:
 - `speed_ms_per_note`: NOTE_ON to NOTE_OFF duration per key (also the per-step advance). Clamped to 10–2000 ms.
 - `velocity`: MIDI velocity 1–127, default 63 (mf).
 - `pitches`: optional explicit list; omit for all available pitches.
+- `channel` (offline only, default `0` = output pitch 128): the output channel written to the mono WAV. `400` outside `0..num_channels-1`. The render's buffer holds, per 64-sample cycle, one block per output channel (`[ch0 × 64, ch1 × 64, …]`, [TESTING.md](../../development/TESTING.md)); the route de-interleaves it with `PianoidResult.load_offline_channels`. Before dev-obuf1 the whole buffer went into the WAV as mono: `num_channels` × too long (7 channels: 175 s for 25 s rendered, report 8761b5c4), the level repeating every 7 blocks, a jump at every block boundary and a 750 Hz (= 48000 / 64) line.
 - `capture_mic` (online only, default `false`): when `true`, the server calls `startMicCapture` before scheduling events, sleeps synchronously for `speed_ms_per_note * num_pitches + tail_ms`, then calls `stopMicCapture` and writes an un-normalized 16-bit PCM mic WAV to `/tmp/keyboard_mic_<timestamp>.wav`. Requires an active audio driver with a selected input device — set via `POST /set_mic_device` if needed.
 - `tail_ms` (online, `capture_mic` only): extra capture time after the last NOTE_OFF to catch decay. Clamped to 0–10000 ms, default 2000.
 
 Online response (no mic): scheduled event count + nominal duration, returns immediately — `{status, mode, scheduled_note_on, total_pitches, speed_ms_per_note, duration_ms, schedule_epoch_ms}`. `schedule_epoch_ms` (dev-2cce) = the backend wall-clock time (`time.time()·1000`) that `delay_ms = 0` refers to: note *i* is scheduled at `schedule_epoch_ms + i·speed_ms_per_note`. The frontend Play All highlight anchors to it (same machine, same clock).
 Online response (with mic): adds `mic_wav_path`, `mic_sample_rate`, `mic_samples`, `mic_peak`, `mic_rms`, `mic_nonzero_fraction`. Blocks until capture finishes.
-Offline response: `wav_path`, `audio_data`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+Offline response: `wav_path`, `audio_data`, `audio_samples` (of the one WAV channel = `cycles_rendered` × 64), `cycles_rendered`, `channel`, `num_channels`, `peak`, `rms`, `peak_normalized_scale`. The WAV is peak-normalised whatever the level (the pre-volume kernel output can be ~1e-13; an absolute 1e-9 floor used to write an all-zero WAV); only true silence keeps scale 1.
 
 - `audio_data`: the rendered WAV as a **list of one base64 string** — same shape as `POST /get_chart_test` (`["<base64 WAV string>"]`). It is the base64 of the bytes just written to `wav_path` (a complete RIFF/16-bit-PCM file), so the browser can decode and play it directly (`atob` → `Uint8Array` → `Blob({type:'audio/wav'})`) without reaching the server-side `wav_path`. The frontend "Play All" offline sweep (`PianoidTuner.js` `startSweep`) consumes `audio_data[0]`. `wav_path` is retained for server-side debugging.
 
@@ -2321,7 +2333,7 @@ client-side only when this endpoint is unreachable. See
 Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}` and `reportId`).
 Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|assistant-<kind>|manual>-<reportId|hex6>.json`
 (dir auto-created; oldest pruned beyond 500 files). `assistant-<kind>` = a report filed by the assistant's
-`bug.report` (`trigger: {auto: false, source: "assistant", kind: app_bug|environment}`, dev-947d). `PIANOID_REPORTS_DIR`
+`bug.report` (`trigger: {auto: false, source: "assistant", kind: app_bug|environment|feature_request}`, dev-947d / dev-obuf1). `PIANOID_REPORTS_DIR`
 overrides the folder (an isolated / worktree backend writing into the main checkout's store). The collector is wrapped so
 it can never take the backend down.
 
@@ -2346,7 +2358,50 @@ Response `200`:
 {"ok": true, "saved": "bugreport-...-auto-backend_exception-a1b2c3.json",
  "path": "<abs>", "auto": true, "kind": "backend_exception"}
 ```
-`400` if the body is not a JSON object; `500` (with `{ok:false,error}`) on a write failure.
+`400` if the body is not a JSON object or carries an unknown `severity`; `500` (with `{ok:false,error}`) on a write failure.
+
+**Triage fields (dev-obuf1).** The collector stamps every new report `status: "open"`, `resolution: null` and
+checks `severity` (`critical` | `high` | `medium` | `low` | absent = `null`, not triaged). Owner:
+`pianoid_middleware/bug_reports.py`; see [Bug reports](#bug-reports).
+
+---
+
+### Bug reports
+
+Triage of the report store (dev-obuf1, owner `pianoid_middleware/bug_reports.py`). Never engine-gated (the
+store, not the engine). The file name never changes (it carries the original kind); the content is the truth.
+
+| Field | Values |
+|---|---|
+| `severity` | `critical` · `high` · `medium` · `low` · `null` (not triaged) |
+| `status` | `open` (every new report) · `fixed` · `wontfix` · `duplicate` |
+| `resolution` | `null` while open; else `{note, commits: ["Core d99e5a0", …], duplicate_of, at, by}` |
+| `trigger.kind` | the kind; a triage may re-class to `app_bug` · `environment` · `feature_request` (auto reports carry their fault kind, e.g. `backend_crashed`) |
+| `triage_history` | every status change `{at, by, from, to, note}` |
+
+#### `GET /bug_reports`
+
+Summaries, newest first. Query: `status`, `kind`, `source` (`assistant` · `auto` · `manual`), `severity` (or `none`
+= not triaged), `limit` (1–500, default 50). `400` on an unknown filter value.
+```json
+{"ok": true, "count": 1, "total": 1, "unreadable": 0, "reports": [
+  {"reportId": "8761b5c46b1b49fb", "file": "bugreport-...-assistant-app_bug-8761b5c46b1b49fb.json",
+   "createdAt": "2026-10-18T10:35:04.155Z", "source": "assistant", "kind": "app_bug",
+   "title": "Keyboard sweep render returns a WAV ...", "component": "render.keyboard ...",
+   "severity": "high", "status": "fixed",
+   "resolution": {"note": "...", "commits": ["Core <sha>"], "duplicate_of": null, "at": "...", "by": "dev-obuf1"}}]}
+```
+
+#### `POST /bug_reports/<report_id>/status`
+
+`report_id` = the id (file-name suffix) or a unique prefix of at least 6 characters. Body: at least one of
+`status`, `severity`, `kind`, plus `resolution` (note), `commit` / `commits`, `duplicate_of`, optional `by`
+(else the `X-Pianoid-Source` header, else `rest`). A non-open status needs a `resolution` note; `duplicate` also
+needs `duplicate_of`; back to `open` clears `resolution` (the history keeps it). Written atomically. `200 {ok,
+report: <summary>}`; `400` invalid value / missing note / ambiguous id; `404` no such report.
+```json
+{"status": "fixed", "resolution": "offline buffer de-interleaved (PianoidResult.load_offline_channels)", "commit": "Core 1a2b3c4"}
+```
 
 ---
 
@@ -2685,7 +2740,7 @@ Moves every key pitch's `hammer_mass` into the physical range (2–20 g) with on
 ### `POST /calibrate_attack`
 
 **A-weighted attack equalization** — the Virtual Piano **Calibrate** button (dev-89f7), registry command
-`calibration.attack_equalize` (calibration job family, approval `hard_confirm`). Equalizes what the ear hears
+`calibration.attack_equalize` (calibration job family, approval `per_command`: its own rule, Ask by default). Equalizes what the ear hears
 first: every key's A-weighted level in the first 300 ms after its onset, energy-summed over the heard channels,
 to the reference key, by per-key `hammer_mass`. (`/calibrate_synthesis` matches a 30–300 ms *flat* RMS: on
 F15_measured_plywood it left the treble +13…+21 dB louder at the attack, A-weighted.) Procedure from the

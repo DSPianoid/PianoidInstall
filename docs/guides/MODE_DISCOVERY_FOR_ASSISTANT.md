@@ -23,11 +23,11 @@ the wiring, the output map of the backend, and listening.
 | `system.snapshot`, `system.environment` (incl. the output map), `system.health` (peaks, clipping), `audio.devices` (ASIO in / out list), `calibration.mic_devices` | read, no confirm |
 | `preset.files`, `preset.summary`, `preset.load_settings`, `param.get`, `param.inventory` | read, no confirm |
 | `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact), `modal.measurements_dir` (where the measurement data lives) | read, no confirm |
-| `modal.set_measurements_dir` (moves the measurements folder; data is not moved) | **hard confirm, every time** |
-| `modal.rig_capture` (sweeps per exciter, inputs recorded), `modal.rig_sine` (a tone, optional recording), `modal.rig_record` (inputs only) | **hard confirm, every run** (drives / records the rig) |
-| `modal.rig_process` (`frf`, `polymax`, `coefficients`, `build_preset`), `preset.create` (a new preset structure) | **hard confirm, every run** (writes files) |
+| `modal.set_measurements_dir` (moves the measurements folder; data is not moved) | **asks every time** (its own rule; the user may set it to Always allow) |
+| `modal.rig_capture` (sweeps per exciter, inputs recorded), `modal.rig_sine` (a tone, optional recording), `modal.rig_record` (inputs only) | **asks every run** (its own rule; the user may set it to Always allow) (drives / records the rig) |
+| `modal.rig_process` (`frf`, `polymax`, `coefficients`, `build_preset`), `preset.create` (a new preset structure) | **asks every run** (its own rule; the user may set it to Always allow) (writes files) |
 | `modal.rig_cancel` (stops the rig job), `job.get`, `job.list`, `job.cancel` | playback / read |
-| `preset.load`, `modal.run_stage`, `modal.apply_to_preset`, `calibration.synthesis`, `calibration.attack_equalize`, `launcher.modal.start` | **hard confirm, every time** |
+| `preset.load`, `modal.run_stage`, `modal.apply_to_preset`, `calibration.synthesis`, `calibration.attack_equalize`, `launcher.modal.start` | **asks every time** (its own rule; the user may set it to Always allow) |
 | `render.note_playback`, `render.chart`, `render.keyboard` (offline; `export: true` makes an artefact) | renders (asks while live audio plays unless `renders_live` is Auto) |
 | `play.note`, `play.mode`, `play.reset` (live: the sound goes to the exciters on the board) | playback |
 | `param.mute_modes`, `param.mute_channels`, `param.set` | params (Ask unless Auto / Autonomous / a plan; then free, any size, under the physical gates: CFL undo, clipping revert) |
@@ -42,9 +42,9 @@ the wiring, the output map of the backend, and listening.
 | The 18-fit consensus below 200 Hz, shape plots on the board map, the Layer B recalibration | no command: run several `polymax` fits with other `band_edges` / `p_max` and compare ([R7](#r7)), or hand over |
 
 **Safety (applies to every live step).** Rig audio drives seven exciters on a real board. Always say in one line
-what will play, on which outputs, how loud and how long, and get the user's yes (the hard confirm shows the args
+what will play, on which outputs, how loud and how long, and get the user's yes (the confirm dialog shows the args
 again). For the whole pipeline, ask once instead with `request_plan_approval` (steps + the narrowest envelope; the
-user ticks which hard-confirm commands it covers; a step outside it still asks — [Operations → plan approval](OPERATIONS_FOR_ASSISTANT.md#plan-approval)). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
+user ticks which commands with their own rule it covers; a step outside it still asks — [Operations → plan approval](OPERATIONS_FOR_ASSISTANT.md#plan-approval)). Never play loud or long audio unprompted; run a capture with `dry_run: true` first (plan, no sound). The
 documented working levels are in [Rig facts → levels](#rig-levels); the playback ceiling used on 10-15 was
 per-output peaks ≤ −30 dBFS (measured ≤ −31 dBFS), with E2 at −6 dB. Read `system.health` (`peak_level_now`,
 `clipping_now`) after any live step. Every rig command needs a preset loaded on the **ASIO callback driver**
@@ -62,7 +62,7 @@ already playing finishes). Runs live under `<measurements>/rig_runs/<run_id>/` (
 `rig_checks/` are read-only sources (`area: rig_checks`). REST contract:
 [REST_API → Rig measurement pipeline](../modules/pianoid-middleware/REST_API.md#rig-pipeline).
 
-### `modal.rig_capture`: sweeps per exciter (hard confirm) {#cmd-capture}
+### `modal.rig_capture`: sweeps per exciter (asks: its own rule) {#cmd-capture}
 
 | Arg | Default | Range / values | Meaning |
 |---|---|---|---|
@@ -89,7 +89,7 @@ loudest input), and with a noise record `noise_floor` (per input) + `rms_above_n
 which exciter → sensor paths carry the sweep (about 0 dB = that input heard only its own noise; judge the
 capture by this, not by the take peak, which a noisy input can dominate).
 
-### `modal.rig_sine`: a tone, optional recording (hard confirm) {#cmd-sine}
+### `modal.rig_sine`: a tone, optional recording (asks: its own rule) {#cmd-sine}
 
 | Arg | Default | Range | Meaning |
 |---|---|---|---|
@@ -119,14 +119,14 @@ real time there, so a fixed-buffer driver is no longer a reason to refuse. If it
 set the interface's ASIO buffer size to 64 samples in its driver control panel, then reload the preset; re-read
 the device until `clock.realtime` is true. (dev-431a)
 
-### `modal.rig_record`: inputs only (hard confirm) {#cmd-record}
+### `modal.rig_record`: inputs only (asks: its own rule) {#cmd-record}
 
 `inputs[]` (required, as above), `duration_s` (5; 0.1 … 110), `trigger` (null, or `{input, level_dbfs = −40,
 pre_s = 0.1}`: keep the data from the first crossing minus `pre_s`, saved as `sessions/record/data_triggered.npy`),
 `clip_dbfs` (−0.1: a peak at or above it = clipping), `label`, `sample_rate`, `dry_run`. Result: per channel
 `rms_dbfs`, `peak_dbfs`, `clipping`, the overall `clipping` flag and the `files` for `modal.rig_files`.
 
-### `modal.rig_process`: the pipeline steps (hard confirm) {#cmd-process}
+### `modal.rig_process`: the pipeline steps (asks: its own rule) {#cmd-process}
 
 `{step, run, area = rig_runs, frf | polymax | coefficients | build: {options}}`. A `rig_checks` source writes its
 outputs to `rig_runs/<run>/` (with `source.json`); run the steps in this order.
@@ -144,7 +144,7 @@ Laws ([measured preset §5, §6](../development/measured-plywood-preset-2026-10-
 (rotate by the largest entry's phase, real part, max \|·\| = 1). **These weights are per drive volt** (the
 capture's reference); the 10-17 preset used per-ampere weights from coil currents.
 
-### `preset.create`: a new preset structure (hard confirm) {#cmd-create}
+### `preset.create`: a new preset structure (asks: its own rule) {#cmd-create}
 
 | Arg | Default | Range | Meaning |
 |---|---|---|---|
@@ -174,7 +174,7 @@ Every rig command (capture, sine, record, process, runs, files / export) and the
 `modal.measurements_dir {}` (read, no confirm) answers `{measurements_dir, source, exists, setting, env, default,
 settings_file}`; `source` says which layer won: `setting` (the runtime setting) > `env`
 (`PIANOID_MEASUREMENTS_DIR`) > `default` (`<PianoidInstall>/measurements`, next to the install, on any drive).
-`modal.set_measurements_dir {path}` (hard confirm) sets the runtime setting: an ABSOLUTE folder that exists or can
+`modal.set_measurements_dir {path}` (asks: its own rule) sets the runtime setting: an ABSOLUTE folder that exists or can
 be created and is writable (it is created); `path: null` clears it. The choice persists across restarts (the
 gitignored `pianoid_local_settings.json` in the install root). It never moves data: runs in the old folder are no
 longer listed, so tell the user; it is refused while a rig job runs. Use it when the user asks to keep
@@ -269,7 +269,7 @@ per exciter; relative levels E1 +4.7, E2 +4.5, E3 +0.3, E4 −4.5, E5 −3.5, E6
 | Linearity | small level dependence: about 1 dB per 12 dB below 250 Hz, frequencies within 0.15 %; superposition holds above 35 Hz (all 7 at once = one at a time within 0.4–0.6 dB) |
 | Drift | about 0.13 % in frequency and 0.4–0.6 dB at LF over 1.7 h |
 | Disk | keep ≥ 5 GB free on D: (a full disk aborted a run on 10-14); a full 7 × 7 is 0.7–0.8 GB |
-| Live current limit (playback) | the exciter monitor (`audio.exciters` read, `audio.exciters_config` hard confirm) meters the sense / board inputs during normal playback and limits each exciter's current; it needs the input map + scales set per machine (default OFF, uncalibrated). [REST_API → Exciter monitor](../modules/pianoid-middleware/REST_API.md#exciter-monitor) |
+| Live current limit (playback) | the exciter monitor (`audio.exciters` read, `audio.exciters_config`: its own risky rule) meters the sense / board inputs during normal playback and limits each exciter's current; it needs the input map + scales set per machine (default OFF, uncalibrated). [REST_API → Exciter monitor](../modules/pianoid-middleware/REST_API.md#exciter-monitor) |
 
 ## The procedure ladder {#ladder}
 
@@ -458,7 +458,7 @@ are their parametric form (dev-8a9e). See [Branch status](#branch-status).
 
 - **Purpose:** play the measured preset with the settings it was built and calibrated for.
 - **Commands:** `preset.files` (find `F15_measured_plywood_2026-10-17.json` and its `load_path`), then
-  `preset.load {path}` (hard confirm). Then `preset.load_settings`: if `mismatches` is not empty, reload with the
+  `preset.load {path}` (asks: its own rule). Then `preset.load_settings`: if `mismatches` is not empty, reload with the
   **declared** values (`preset.load` with those settings). Never guess settings from the name.
 - **Declared settings (measured preset §1, §14.5):** `array_size 512`, `string_iterations 16`, 48 kHz, 64
   samples per cycle, `listen_to_modes 0` (strings axis), `sound_derivative_order 1`. Driver: ASIO callback with
@@ -778,7 +778,7 @@ one confirmed command; say what it plays before each live one.
    224 strings (216 piano + 8 output strings), 7 channels (output pitches 128..134 = E1..E7), array_size 384, the
    measured modes below 1020 Hz and the F15 modes above. (Structure only, no measurement: `preset.create {name,
    num_strings: 224, num_channels: 7, array_size: 384}`.)
-7. **Load and check.** `preset.files` → `preset.load {path, array_size: 384, …}` (hard confirm) → `preset.summary`
+7. **Load and check.** `preset.files` → `preset.load {path, array_size: 384, …}` (asks: its own rule) → `preset.summary`
    (`num_strings 224`, `num_channels 7`, `array_size 384`) → one `render.note_playback` (not `all_zero`). The user
    restarts the backend with `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6` before playing it on the board (step 11).
 

@@ -5,6 +5,7 @@
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
 | dev-unif1 | Uniform approval mechanism for in-app assistant (one rule table, Allow once/Always/Deny; delete hard-confirm paths) | [log](logs/dev-unif1-2026-10-27-134103.md) | 2026-10-27 | In Progress |
+| dev-obuf1 | offline buffer de-interleave (/play_keyboard WAV + render charts), param.set missing-pitch 400, bug-report severity/status | [log](logs/dev-obuf1-2026-10-25-210649.md) | 2026-10-25 |
 <!-- dev-free1 COMPLETED 2026-10-25 (user-approved local merge, NOT pushed): assistant free parameter edits under physical gates (CFL check with automatic undo, clipping guard reverts volume), hard confirms only for dangerous actions; Tunner pane texts. Merged Install master d874a58 (feature 93551ca), Tunner dev 908e500 (feature 742a690). Tests: assistant 146 pass, Tunner Assistant Jest 6 suites / 38. Restart the assistant service + the UI. Log logs/archive/dev-free1-2026-10-25-175441.md -->
 <!-- dev-mem1 COMPLETED 2026-10-25 (user-approved local merge, NOT pushed): assistant saved-output reader (list_artifacts / read_artifact, view, untrusted wrapper, path containment) + notes / hand-off memory (<home>/memory/notes, save/update_note in the new memory category, list/read_note, no delete tool, pinned hand-off, caps + secrets lint, session-start <assistant_memory untrusted> / <saved_outputs untrusted>), taint recorded on artefacts / notes and propagated to the turn / session (TAINT_TRACKED_SINCE 2026-10-25T13:12Z), pane Notes tab + Save hand-off. Merged Install master 00eb3ca, Tunner dev 775a3e6. Tests: assistant 144 pass, Tunner Assistant Jest 6 suites / 38. Restart the assistant service + the UI. Log logs/archive/dev-mem1-2026-10-25-144131.md -->
 <!-- dev-392a COMPLETED 2026-10-24 (user live test "OK pedal works, merge everything"; local merge, NOT pushed): channel-aware sustain pedal (sustain_cc 0 on channel 2, inverted, hysteresis down>=74 / up<=54) + MIDI input port auto-detect / persisted manual port (POST /midi/select_port {"port":"auto"}), Tunner Ch select + Auto chip; merged Core dev ce6f801, Tunner dev bca3e08, Install master cc60f4d; live: Auto picked AMC-10 port 1, right pedal 10 down/10 up 0 chatter, left pedal no effect; log archived logs/archive/dev-392a-2026-10-23-133536.md. -->
@@ -301,6 +302,21 @@
 <!-- dev-f2b8 COMPLETED 2026-10-01 — output level ∝ 1/string_iteration fixed (excitation temporal impulse × dt/dt_ref, PianoidBasic dev 91086d7) + decay N-dependence fixed (HF damping + damper × dt/dt_ref in parameterKernel, PianoidCore dev cc4b540); shared venv rebuilt --heavy --both + PianoidBasic; NOT pushed. Follow-ups: tail-damper int truncation (Known Follow-Ups); dev-a480 FPGA converter must drop its N-folding of disp_decay/damper_string (see SYNTHESIS_ENGINE §Numerical scheme invariants). Evidence docs/development/diagnostics/dev-f2b8-renders/summary.md. -->
 <!-- dev-a480 COMPLETED 2026-10-02 — FPGA->GPU preset converter (Pianoid.fpga_tables / fpga_string_layout / fpga_preset_converter / fpga_conversion_metadata, CLI python -m Pianoid.fpga_preset_converter) merged: PianoidBasic dev 529cb5f, PianoidCore dev 5ef4afe (+ preset F15_Elyashev_array512 e5c54a9), root master d30fe87; old swapped-decode presets regenerated (FPGAexc/Fanera6exc, backups *.pre-a480-swapped.json); shared venv PianoidBasic rebuilt + L1/L2 smoke 200; NOT pushed. Open: absolute mode-mass/output-level scale (needs measurement), GPU structural gaps (proposal fpga-to-gpu-preset-port §8, status PARTIALLY IMPLEMENTED). -->
 ---
+
+## Follow-ups from dev-obuf1 (2026-10-25) — offline buffer de-interleave / param.set missing pitch / bug-report triage (feature/dev-obuf1-offline-buffer, NOT merged)
+
+- **OPEN (engine, C++ — not touched): with the engine STOPPED, a parameter edit can miss the next offline render.** Measured
+  in-process audio_off (no realtime thread), preset Tuning18-10-26ver1_work_assistant_3, pitch 67 dispersion_damping:
+  edit x1 -> render A; edit x100 -> render B (applied, |B-A|/|A| = 0.71); edit x1 -> render D = **x100 still** (|D-C| 1e-4),
+  render E = x1 (|E-A| 1e-4). One render late on alternate edits ("Buffers swapped - new parameters published (engine
+  refreshes at cycle boundary)": the offline path does not consume a pending publish before its first cycle). The live
+  backend is probably not affected (inferred, NOT measured: its realtime loop should consume the swap before
+  `_stop_online_engine`); audio_off backends, offline tests and agent harnesses are (measured). Owner: whoever next touches `OfflinePlaybackEngine` / the parameter
+  double buffer (compiled; needs /dev + HEAVY build). Workaround for measurements: render twice after an edit and use
+  the second. Evidence: docs/development/reviews/dev-obuf1-review-2026-10-25.md.
+- **Assistant memory to correct (orchestrator):** project_offline_output_mode_dominated says offline output carries a
+  "750 Hz cycle-rate artifact" — that line was the de-interleave scramble (a flat read of the per-cycle channel blocks):
+  +16.2 dB before, -1.4 dB (ch0) / +1.1 dB (ch1) after this fix.
 
 ## Follow-ups from dev-89f7 (2026-10-18) — Virtual Piano Calibrate (A-weighted attack equalization, `calibration.attack_equalize`)
 

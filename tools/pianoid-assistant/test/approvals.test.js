@@ -8,8 +8,12 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
-import { decide, HARD_CONFIRM } from '../policy.js';
-import { applyChange, CATEGORIES, describe, modeOf, switchable } from '../approvals.js';
+import { decide, ruleFor } from '../policy.js';
+import { applyChange, catalogue, CATEGORIES, describe, modeOf, ruleDef, VARIANTS } from '../approvals.js';
+import { applyAutonomous, migrateConfig, presetRules } from '../autonomy.js';
+import { ANALYSIS_CMD } from '../service/session.js';
+import { BUG_CMD } from '../service/bugReport.js';
+import { MEMORY_CMDS } from '../service/memory.js';
 import { cflBreach, cflGated, check, levelBreach, revertPlan } from '../envelope.js';
 import { loadCommands } from '../lib/registry.js';
 import { loadLimits } from '../lib/paramLimits.js';
@@ -20,87 +24,131 @@ import { FakeDriver } from '../drivers/fake.js';
 const COMMANDS = loadCommands();
 const LIMITS = loadLimits();
 const byName = Object.fromEntries(COMMANDS.map((c) => [c.name, c]));
-const ALL_AUTO = Object.fromEntries([...CATEGORIES.map((c) => c.id), 'hard_confirm', 'excluded'].map((id) => [id, 'auto']));
-const dec = (name, settings = {}) => {
-  const c = byName[name];
-  return decide({ command: c.name, tier: c.tier, family: c.family, category: c.approval_category, settings });
+const RULE_COMMANDS = new Map([...COMMANDS, ANALYSIS_CMD, BUG_CMD, ...Object.values(MEMORY_CMDS)].map((c) => [c.name, c]));
+const dec = (name, settings = {}, attrs = {}) => {
+  const c = RULE_COMMANDS.get(name);
+  return decide({ command: c.name, title: c.title, tier: c.tier, family: c.family, category: c.approval_category, attrs, settings });
+};
+// The attribute variants a call can have (every one the policy distinguishes), per command.
+const ATTRS = {
+  'modal.rig_capture': [{ driveLevel: 'ok' }, { driveLevel: 'unverified' }],
+  'modal.rig_sine': [{ driveLevel: 'ok' }, { driveLevel: 'unverified' }],
+  'preset.save': [{ ownPreset: true }, { ownPreset: false }],
+  'preset.create': [{ overwrite: false }, { overwrite: true }],
 };
 
-test('every registry command has a category; the §9 defaults on the real registry', () => {
-  for (const c of COMMANDS) assert.ok(c.approval_category, c.name);
+test('REGISTRY WALK (dev-unif1): every command x every attribute variant x {live audio, tainted}: every ask offers a persistable rule, and setting that rule to Always allow makes the same call run (outside a tainted turn)', () => {
+  let asks = 0;
+  for (const [name] of RULE_COMMANDS) {
+    for (const attrs of ATTRS[name] || [{}]) {
+      for (const liveAudio of [false, true]) {
+        for (const tainted of [false, true]) {
+          const envelope = { ok: true, reason: 'gates ok' };
+          const v = dec(name, { liveAudio, tainted, envelope }, attrs);
+          if (v.action !== 'ask') continue;
+          asks += 1;
+          const where = `${name} ${JSON.stringify(attrs)} live=${liveAudio} tainted=${tainted}`;
+          assert.ok(v.rule?.id, `${where}: no rule offered`);
+          assert.ok(v.rule.label, where);
+          assert.ok(ruleDef(v.rule.id, RULE_COMMANDS), `${where}: rule ${v.rule.id} not in the catalogue`);
+          const rules = applyChange({}, { rule: v.rule.id, mode: 'auto' }, RULE_COMMANDS);   // "Always allow": accepted
+          const after = dec(name, { liveAudio, tainted, envelope, rules }, attrs);
+          if (tainted && v.taintNote) assert.equal(after.action, 'ask', `${where}: a taint rule must not apply in a tainted turn`);
+          else assert.equal(after.action, 'allow', `${where}: Always allow ${v.rule.id} did not allow it`);
+          assert.equal('hard' in v || 'canAuto' in v, false, `${where}: no second dialog type`);
+        }
+      }
+    }
+  }
+  assert.ok(asks > 50, `walked ${asks} asks`);
+  // the pane lists every rule a call can name
+  const ids = new Set(catalogue(RULE_COMMANDS).map((r) => r.id));
+  for (const [name, cmd] of RULE_COMMANDS) {
+    for (const attrs of ATTRS[name] || [{}]) {
+      const id = ruleFor({ command: name, category: cmd.approval_category, family: cmd.family }, attrs);
+      if (!['view', 'excluded'].includes(cmd.approval_category)) assert.ok(ids.has(id), `${name}: ${id} not listed`);
+    }
+  }
+});
+
+test('defaults: reads run, the categories as before, every command rule and variant asks; the risky ones carry a warning', () => {
   for (const n of ['ui.pane.open', 'param.get', 'system.snapshot', 'play.note', 'render.note_playback', 'job.cancel']) {
     assert.equal(dec(n).action, 'allow', n);
   }
   for (const n of ['param.set', 'param.mute_modes', 'runtime.set', 'preset.switch', 'history.undo']) {
-    const v = dec(n);
-    assert.equal(v.action, 'confirm', n);
-    assert.equal(v.canAuto, true, n);                  // the dialog may offer "Don't ask again"
+    assert.equal(dec(n, { envelope: { ok: true, reason: 'x' } }).action, 'ask', n);
   }
-  assert.equal(dec('launcher.backend.stop').action, 'deny');
+  assert.equal(dec('launcher.backend.stop').action, 'deny');                                 // excluded: never a rule
+  const risky = catalogue(RULE_COMMANDS).filter((r) => r.dangerous).map((r) => r.id).sort();
+  assert.deepEqual(risky, ['audio.exciters_config', 'launcher.assistant.start', 'launcher.backend.start', 'launcher.modal.start',
+    'preset.create.overwrite', 'preset.promote', 'preset.save.not_own', 'preset.unload', 'rig.drive.any_level']);
+  for (const id of risky) {
+    const d = ruleDef(id, RULE_COMMANDS);
+    assert.deepEqual([d.default, d.taint, !!d.warning], ['ask', true, true], id);
+  }
+  const v = dec('preset.promote');
+  assert.deepEqual([v.action, v.rule.dangerous, v.rule.id], ['ask', true, 'preset.promote']);
+  // a future command is covered by its name, without a code change
+  const ext = decide({ command: 'bug.send_github', tier: 'act', family: 'bug', category: 'bug_local' });
+  assert.deepEqual([ext.action, ext.rule.id, ext.rule.dangerous], ['ask', 'bug.send_github', true]);
+  // the obuf1 bug triage commands are covered generically: bug.list (view) runs, bug.set_status = rule bug_local
+  assert.equal(decide({ command: 'bug.list', tier: 'read', family: 'bug', category: 'view' }).action, 'allow');
+  assert.equal(decide({ command: 'bug.set_status', tier: 'act', family: 'bug', category: 'bug_local' }).rule.id, 'bug_local');
 });
 
-test('the hard-confirm list can NEVER be Auto (every scope set to auto, envelope ok)', () => {
-  const settings = { approvals: { installation: ALL_AUTO, session: ALL_AUTO }, envelope: { ok: true, reason: 'x' } };
-  const hard = COMMANDS.filter((c) => c.approval_category === 'hard_confirm').map((c) => c.name);
-  assert.deepEqual(hard.sort(), Object.keys(HARD_CONFIRM).filter((n) => byName[n]).sort());
-  for (const n of ['preset.save', 'preset.promote', 'preset.unload', 'preset.load', 'calibration.synthesis',
-    'calibration.acoustic', 'modal.run_stage', 'modal.apply_to_preset', 'launcher.backend.start', 'launcher.modal.start']) {
-    const v = dec(n, settings);
-    assert.equal(v.action, 'confirm', n);
-    assert.equal(v.hard, true, n);
-    assert.ok(!v.canAuto, n);
-  }
-  // tools that do not exist yet are pinned by name, whatever category they arrive with
-  for (const n of ['audio.session', 'audio.test_tone']) {
-    assert.equal(decide({ command: n, tier: 'write', family: 'x', category: 'params', settings }).action, 'confirm', n);
-  }
-  // a web-tainted turn: every non-read asks hard, reads still run
-  assert.equal(dec('param.mute_modes', { ...settings, tainted: true }).hard, true);
-  assert.equal(dec('play.note', { ...settings, tainted: true }).action, 'confirm');
-  assert.equal(dec('param.get', { ...settings, tainted: true }).action, 'allow');
-});
-
-test('Auto params / runtime run free under the gates: ok -> allow + watch; rejected value -> deny; no verdict -> hard confirm', () => {
-  const approvals = { installation: { params: 'auto', runtime: 'auto' }, session: {} };
-  const ok = dec('runtime.set', { approvals, envelope: { ok: true, reason: 'free edit' } });
+test('Always allow params / runtime run free under the gates: ok -> allow + watch; rejected value -> deny; no verdict -> ask', () => {
+  const rules = { params: 'auto', runtime: 'auto' };
+  const ok = dec('runtime.set', { rules, envelope: { ok: true, reason: 'free edit' } });
   assert.deepEqual([ok.action, ok.auto, ok.watch], ['allow', true, true]);
   const bad = { ok: false, reject: true, reason: 'rejected: volume 128 is above 127' };
-  const denied = dec('runtime.set', { approvals, envelope: bad });
+  const denied = dec('runtime.set', { rules, envelope: bad });
   assert.deepEqual([denied.action, denied.reason], ['deny', bad.reason]);
-  assert.equal(dec('runtime.set', { envelope: bad }).action, 'deny');               // even in Ask mode: never a prompt
-  assert.equal(dec('runtime.set', { envelope: bad, autonomous: { on: true, residual: null } }).action, 'deny');
-  assert.equal(dec('param.set', { approvals }).hard, true);                        // no verdict = a hard confirm (fail closed)
-  const asked = dec('param.set', { approvals: {}, envelope: { ok: true, reason: 'x' } });
-  assert.deepEqual([asked.action, asked.canAuto], ['confirm', true]);              // Ask mode: an ordinary confirm
-  assert.equal(dec('preset.switch', { approvals: { installation: { preset_nav: 'auto' } } }).action, 'allow');
+  assert.equal(dec('runtime.set', { envelope: bad }).action, 'deny');               // even on Ask: never a prompt
+  const nov = dec('param.set', { rules });
+  assert.deepEqual([nov.action, nov.rule.id], ['ask', 'params']);                  // no verdict = asks (fail closed)
+  assert.equal(dec('preset.switch', { rules: { preset_nav: 'auto' } }).action, 'allow');
 });
 
-test('approvals: scopes, precedence, locked categories, the pane view', () => {
-  let st = { installation: {}, session: {} };
-  assert.equal(modeOf('params', st), 'ask');
-  st = applyChange(st, { category: 'params', mode: 'auto', scope: 'session' });
-  assert.equal(modeOf('params', st), 'auto');
-  assert.deepEqual(st.installation, {});
-  st = applyChange(st, { category: 'params', mode: 'ask', scope: 'installation' });
-  assert.equal(modeOf('params', st), 'ask');                // the installation change drops the session override
-  assert.deepEqual(st.session, {});
-  for (const c of ['view', 'hard_confirm', 'excluded', 'nope']) {
-    assert.throws(() => applyChange(st, { category: c, mode: 'auto' }), /cannot be changed/, c);
+test('rule table: one map, changes, defaults stored as removal, unknown rules refused, the pane view', () => {
+  let r = {};
+  assert.equal(modeOf('params', r), 'ask');
+  r = applyChange(r, { rule: 'params', mode: 'auto' });
+  assert.deepEqual(r, { params: 'auto' });
+  r = applyChange(r, { rule: 'params', mode: 'ask' });
+  assert.deepEqual(r, {});                                                          // back to the default
+  for (const id of ['view', 'excluded', 'nope', 'play.note']) {
+    assert.throws(() => applyChange({}, { rule: id, mode: 'auto' }, RULE_COMMANDS), /unknown approval rule/, id);
   }
-  assert.throws(() => applyChange(st, { category: 'params', mode: 'always' }), /mode/);
-  // code: unlocked by dev-auto1 (V1 / V8, after the SAFE escape suite), default Ask, switchable per session or installation
-  assert.equal(modeOf('code', st), 'ask');
-  assert.ok(switchable('code'));
-  assert.equal(modeOf('code', applyChange(st, { category: 'code', mode: 'auto', scope: 'installation' })), 'auto');
-  assert.equal(modeOf('code', { installation: { code: 'auto' } }), 'auto');
-  const codeRow = describe(st).categories.find((r) => r.id === 'code');
-  assert.deepEqual([codeRow.mode, codeRow.default, codeRow.locked, codeRow.scope], ['ask', 'ask', null, 'default']);
-  assert.equal(modeOf('view', { installation: { view: 'ask' } }), 'auto');
-  const view = describe({ installation: { runtime: 'auto' }, session: { params: 'auto' } });
-  assert.deepEqual(view.autoActive, ['params', 'runtime']);
-  assert.equal(view.categories.find((r) => r.id === 'params').scope, 'session');
-  assert.equal(view.categories.find((r) => r.id === 'runtime').scope, 'installation');
-  assert.equal(view.categories.length, 13);                // + renders_live (dev-auto1), memory (dev-mem1)
+  assert.throws(() => applyChange({}, { rule: 'params', mode: 'always' }), /mode/);
+  for (const id of ['modal.rig_capture', 'preset.promote', 'rig.drive.any_level', 'code']) {
+    assert.equal(modeOf(id, applyChange({}, { rule: id, mode: 'auto' }, RULE_COMMANDS), RULE_COMMANDS), 'auto', id);
+  }
+  const view = describe({ runtime: 'auto', 'modal.rig_capture': 'auto' }, RULE_COMMANDS);
+  assert.deepEqual(view.autoActive, ['runtime', 'modal.rig_capture']);
+  assert.deepEqual([...new Set(view.rules.map((x) => x.kind))], ['category', 'command', 'variant']);
+  assert.equal(view.rules.filter((x) => x.kind === 'category').length, CATEGORIES.length);
+  assert.equal(view.rules.filter((x) => x.kind === 'variant').length, VARIANTS.length);
+});
+
+test('Autonomous = a preset of the table; off puts back what it set; migration of approvals + autonomous: true', () => {
+  const on = applyAutonomous({ rules: { code: 'ask', runtime: 'auto' }, autonomous: { on: false, previous: {} } }, true, RULE_COMMANDS);
+  assert.equal(on.autonomous.on, true);
+  for (const id of presetRules(RULE_COMMANDS)) assert.equal(on.rules[id], 'auto', id);
+  for (const id of ['preset.promote', 'rig.drive.any_level', 'preset.save.not_own']) assert.equal(on.rules[id], undefined, id);   // risky: untouched
+  const tweaked = { ...on.rules, history: 'ask', 'rig.drive.any_level': 'auto' };                                              // the user's own changes while on
+  const off = applyAutonomous({ rules: tweaked, autonomous: on.autonomous }, false, RULE_COMMANDS);
+  assert.deepEqual(off.rules, { code: 'ask', runtime: 'auto', history: 'ask', 'rig.drive.any_level': 'auto' });
+  const m = migrateConfig({ model: 'auto', approvals: { params: 'auto', bogus: 'auto' }, autonomous: true }, RULE_COMMANDS);
+  assert.equal(m.changed, true);
+  assert.equal('approvals' in m.config, false);
+  assert.equal(m.config.rulesVersion, 1);
+  assert.equal(m.config.autonomous.on, true);
+  assert.equal(m.config.autonomous.previous.params, 'auto');
+  assert.equal(m.config.rules['modal.rig_capture'], 'auto');
+  assert.equal(m.config.rules['rig.drive.any_level'], undefined);
+  assert.equal(migrateConfig(m.config, RULE_COMMANDS).changed, false);
+  const plain = migrateConfig({ approvals: { code: 'auto' }, autonomous: false }, RULE_COMMANDS).config;
+  assert.deepEqual([plain.rules, plain.autonomous.on], [{ code: 'auto' }, false]);
 });
 
 test('physical gates: no step limits, validity bounds from schemas/params, the CFL flag (dev-free1)', () => {
@@ -242,13 +290,12 @@ test('service: Auto params run without a dialog under their own undo group; sett
   try {
     await t.turn('solo modes 0 and 1');
     const c = await t.waitFor((m) => m.type === 'confirm');                    // Ask by default
-    assert.equal(c.category, 'params');
-    assert.equal(c.canAuto, true);
-    t.send({ type: 'confirm', id: c.id, allow: true, remember: 'session' });  // "Don't ask again" (this session)
+    assert.deepEqual([c.category, c.rule.id], ['params', 'params']);
+    t.send({ type: 'confirm', id: c.id, allow: true, always: true });        // "Always allow"
     await t.idle();
-    assert.equal(activity(t, 'approvals').reason, 'params -> auto (this session)');
+    assert.equal(activity(t, 'approvals').reason, 'params -> Always allow');
     const cfg = path.join(home, 'config.json');
-    assert.ok(!fs.existsSync(cfg) || !JSON.parse(fs.readFileSync(cfg, 'utf8')).approvals?.params);   // session only: not persisted
+    assert.equal(JSON.parse(fs.readFileSync(cfg, 'utf8')).rules.params, 'auto');   // persisted
     await t.turn('solo again');
     await t.idle();
     assert.ok(!t.msgs.some((m) => m.type === 'confirm'));
@@ -259,23 +306,32 @@ test('service: Auto params run without a dialog under their own undo group; sett
     assert.equal(e.groupId, call.group);
     assert.equal(e.undoable, true);
     // installation scope: written to config.json, survives a service restart
-    t.send({ type: 'approvals', category: 'runtime', mode: 'auto', scope: 'installation' });
+    t.send({ type: 'approvals', rule: 'runtime', mode: 'auto' });
     await t.waitFor((m) => m.type === 'approvals');
     await t.close();
     t = await start(home, fake);
     t.send({ type: 'hello' });
     const st = await t.waitFor((m) => m.type === 'state');
-    const rows = Object.fromEntries(st.approvals.categories.map((r) => [r.id, r]));
-    assert.deepEqual([rows.runtime.mode, rows.runtime.scope], ['auto', 'installation']);
-    assert.equal(rows.params.mode, 'ask');                                    // the session override ended
-    assert.deepEqual(st.approvals.autoActive, ['runtime']);
+    const rows = Object.fromEntries(st.approvals.rules.map((r) => [r.id, r]));
+    assert.deepEqual([rows.runtime.mode, rows.params.mode], ['auto', 'auto']);   // both persisted across the restart
+    assert.deepEqual(st.approvals.autoActive, ['params', 'runtime']);
+    t.send({ type: 'approvals', rule: 'params', mode: 'ask' });               // revoke in Permissions
+    await t.waitFor((m) => m.type === 'approvals');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).rules.params, undefined);
   } finally { await t.close(); fake.server.close(); }
 });
 
-test('service: a big volume step runs without a dialog (no step limit); a hard-confirm command still asks', async () => {
+test('service: a big volume step runs without a dialog (no step limit); a command with its own rule still asks', async () => {
   const fake = await fakeBackend();
   const home = tmpHome();
   fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ approvals: { params: 'auto', runtime: 'auto', preset_nav: 'auto' } }));
+  // pin the preset folder: an existing presets/x.json the assistant did not create (else the ownership verdict
+  // depends on whether a real PianoidCore sits next to this checkout: a missing file there is 'new' = own)
+  const core = fs.mkdtempSync(path.join(os.tmpdir(), 'pianoid-core-'));
+  fs.mkdirSync(path.join(core, 'pianoid_middleware', 'presets'), { recursive: true });
+  fs.writeFileSync(path.join(core, 'pianoid_middleware', 'presets', 'x.json'), '{}');
+  const prevCore = process.env.PIANOID_CORE_DIR;
+  process.env.PIANOID_CORE_DIR = core;
   const t = await start(home, fake);
   try {
     await t.turn('louder a lot');                                             // 64 -> 80 (+16): was a hard confirm before dev-free1
@@ -285,10 +341,13 @@ test('service: a big volume step runs without a dialog (no step limit); a hard-c
     assert.equal(activity(t, 'runtime.set').decision, 'auto');
     await t.turn('save it');
     const s = await t.waitFor((m) => m.type === 'confirm');
-    assert.deepEqual([s.command, s.hard], ['preset.save', true]);
+    assert.deepEqual([s.command, s.rule.id], ['preset.save', 'preset.save.not_own']);   // not created by the assistant
     t.send({ type: 'confirm', id: s.id, allow: false });
     await t.idle();
-  } finally { await t.close(); fake.server.close(); }
+  } finally {
+    await t.close(); fake.server.close();
+    if (prevCore === undefined) delete process.env.PIANOID_CORE_DIR; else process.env.PIANOID_CORE_DIR = prevCore;
+  }
 });
 
 test('service: a level breach after an Auto write auto-reverts (history group; runtime before-values)', async () => {
@@ -373,7 +432,7 @@ test('service: the CFL gate undoes a string write that breaks the Courant limit 
     t = await start(home, fake);
     await t.turn('tension up');
     const c = await t.waitFor((m) => m.type === 'confirm');
-    assert.deepEqual([c.hard ?? false, c.canAuto], [false, true]);
+    assert.equal(c.rule.id, 'params');
     t.send({ type: 'confirm', id: c.id, allow: true });
     await t.idle();
     assert.ok(fake.calls.some((x) => x.url === '/history/undo'));

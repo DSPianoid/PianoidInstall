@@ -16,8 +16,11 @@ export const BUG_CMD = {
   name: 'bug.report', title: 'File a bug report (local collector)', tier: 'act', family: 'bug',
   category: 'bug_local', approval_category: 'bug_local',
 };
-// user_state is not a bug (v2 §7: the user's own settings, an R6 / envelope deny): it is not filable
-export const CLASSIFICATIONS = ['app_bug', 'environment'];
+// user_state is not a bug (v2 §7: the user's own settings, an R6 / envelope deny): it is not filable.
+// feature_request: a missing capability the user asked for (dev-obuf1; it used to be filed as app_bug).
+export const CLASSIFICATIONS = ['app_bug', 'environment', 'feature_request'];
+// The triage severity (the collector stores it; GET /bug_reports filters on it). Optional in a draft.
+export const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 const TRANSCRIPT_MESSAGES = 12;
 const ACTIVITY_ENTRIES = 30;
 const TEXT_MAX = 2000;
@@ -37,6 +40,9 @@ export function validateDraft(d) {
   if (!CLASSIFICATIONS.includes(d.classification)) {
     throw new Error(`classification must be one of ${CLASSIFICATIONS.join(', ')} (the user's own settings are not a bug)`);
   }
+  if (d.severity != null && !SEVERITIES.includes(d.severity)) {
+    throw new Error(`severity must be one of ${SEVERITIES.join(', ')}`);
+  }
 }
 
 /** The collector report (schemaVersion 2, the FE report's envelope fields + the assistant's sections). */
@@ -50,6 +56,7 @@ export function buildReport({ draft, transcript = [], activity = [], context = n
     trigger: { auto: false, source: 'assistant', kind: draft.classification },
     title: clip(draft.title, 200),
     classification: draft.classification,
+    severity: draft.severity ?? null,      // triage (dev-obuf1): the collector adds status open + resolution null
     report: {
       description: clip(draft.description, 4000),
       component: draft.component ? clip(draft.component, 200) : null,
@@ -75,7 +82,7 @@ export function buildReport({ draft, transcript = [], activity = [], context = n
 /** What the confirm dialog shows: the draft as filed, the attachments by name and size. */
 export function preview(report) {
   return {
-    title: report.title, classification: report.classification, ...report.report,
+    title: report.title, classification: report.classification, severity: report.severity, ...report.report,
     attached: [
       `pianoid_context${report.pianoid_context ? '' : ' (none)'}`, 'versions',
       `transcript (last ${report.transcript_excerpt.length} messages)`, `activity (last ${report.activity.length} entries)`,
