@@ -34,7 +34,7 @@ export const CATEGORIES = [
   { id: 'layout_save', label: 'Save a named layout', covers: 'saving a named layout (command arrives with the runbook, P3)', default: 'ask' },
   { id: 'code', label: 'Analysis code', covers: 'analysis.run_python: runs analysis code in the sandbox (P5)', default: 'ask' },
   { id: 'web', label: 'Web research', covers: 'searches and fetches by the researcher (arrives in P7)', default: 'auto' },
-  { id: 'bug_local', label: 'Local bug reports', covers: 'bug.report: files a report to the local collector (POST /bug_report)', default: 'ask' },
+  { id: 'bug_local', label: 'Local bug reports', covers: 'bug.report: files a report to the local collector (POST /bug_report); bug.set_status: marks a report fixed / wontfix / duplicate / open', default: 'ask' },
   { id: 'memory', label: 'Assistant notes', covers: 'save_note / update_note: the assistant writes its own notes (hand-off memory, dev-mem1); the dialog shows the full text', default: 'ask' },
 ];
 
