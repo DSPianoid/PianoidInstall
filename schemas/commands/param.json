@@ -138,6 +138,19 @@
       "route": {"method": "GET", "path": "/param/inventory"},
       "args": {"type": "object", "additionalProperties": false, "properties": {"domain": {"type": "string", "description": "one domain, e.g. mode, string, hammer, feedin_mask, runtime, load_settings; omit for the overview"}}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "param.rules",
+      "title": "Read the parameter safety rules",
+      "description": "The parameter rule table of the safety net: every rule (id, family, parameter, field, kind finite / bound / relation / shape, min / max with inclusive flags or the relation expression, enabled, reason, targets) with its default and current values and the overridden flag, plus warnings (e.g. the finite rule disabled). A rejected write (400 parameter_out_of_range) names the violated rule in `rule`: read it with {id} to explain the rejection. Read-only here: the user changes rules in the Tunner Settings > Parameter rules dialog.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#parameter-rule-table",
+      "route": {"method": "GET", "path": "/param_rules"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {"id": {"type": "string", "description": "one rule id, e.g. string.gamma, mode.decrement.per_sample, finite (the `rule` of a rejection)"}, "family": {"type": "string", "description": "one family: general, mode, string, hammer, excitation, coupling, runtime, derived, load"}}},
+      "result": {"type": "object"}
     }
   ]
 }

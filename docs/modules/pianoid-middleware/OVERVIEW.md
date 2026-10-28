@@ -166,15 +166,21 @@ effect on the detector, not a string change); no NaN, all decay.
 
 Owns all parameter packing and GPU transfer operations. Receives `pianoid` (C++ binding), `sm` (StringMap), `modes` (ModeMap), `mp` (ModelParameters), and `cuda_lock`. Created during `initialize_pianoid()`.
 
-**Parameter safety net (`param_safety.py`, dev-psafe1).** Not in `ParameterManager`: the domain
-check runs one layer up, in `edit_commit.commit` (`check_edit`), before the undo step and the write.
-Every edit source reaches the manager through that call, so this one owner covers them all. Preset
-loads use `check_model`. `ParameterRangeError` (a `ValueError`) maps to `400 parameter_out_of_range` on
-REST and to an `error` event on WS. The rules are finite values, no division by zero, no growing
-resonator, and positive-by-definition quantities. There are no magnitude caps, and CFL stays an
-indication. Rule table: REST_API.md
-"[Parameter safety net](REST_API.md#parameter-safety-net-out-of-domain-rejection)". Bounds and their
-justification: `docs/development/reviews/param-safety-net-review-2026-10-28.md`.
+**Parameter safety net (`param_safety.py` + `param_rules.py`, dev-psafe1 / dev-psafe2).** Not in
+`ParameterManager`: the domain check runs one layer up, in `edit_commit.commit` (`check_edit`), before
+the undo step and the write. Every edit source reaches the manager through that call, so this one
+owner covers them all; `runtime_params` (runtime fields) and `/load_preset` (load settings) call it
+too, and preset loads use `check_model`. The rules are **data**: `param_rules.json` (versioned
+defaults, one record per inventory parameter + the global `finite` rule) merged with the user's
+persisted overrides by `param_rules.RuleTable` (sole owner; REST `GET/PUT /param_rules`,
+`param_rules_routes.py`). `param_safety` is the one evaluator: payload / model → leaves → the enabled
+rules in table order (`finite`, `bound`, named `relation` / `shape` checks), no per-parameter branches.
+`ParameterRangeError` (a `ValueError`) maps to `400 parameter_out_of_range` (naming the `rule` id) on
+REST and to an `error` event on WS. Default rules: finite values, no division by zero, no growing
+resonator, positive-by-definition quantities; no magnitude caps, CFL stays an indication. Rule table +
+REST: REST_API.md "[Parameter safety net](REST_API.md#parameter-safety-net-out-of-domain-rejection)",
+"[Parameter rule table](REST_API.md#parameter-rule-table)". Bounds and their justification:
+`docs/development/reviews/param-safety-net-review-2026-10-28.md`.
 
 All GPU uploads go through `_gpu_upload(method, *args)` which calls `waitForParameterUpdate()` before each upload to ensure the double-buffer is IDLE (prevents silent drops under the DROP_IF_BUSY policy).
 

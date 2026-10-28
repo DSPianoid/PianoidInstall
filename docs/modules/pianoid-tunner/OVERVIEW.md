@@ -1266,6 +1266,23 @@ routes, 409), `components/__tests__/MosaicConfigManager.test.jsx` (status line, 
 
 ---
 
+## Parameter rules dialog (dev-psafe2, 2026-10-28)
+
+**Settings (⚙) → Parameter safety rules → "Parameter rules…"** opens `ParamRulesDialog`
+(`src/components/ParamRules/`): the backend's safety-net rule table
+([REST_API "Parameter rule table"](../pianoid-middleware/REST_API.md#parameter-rule-table)), one Accordion
+per family (General, Modes, Strings, Hammer, Excitation, Coupling, Runtime, Load, Derived), a dense table
+per family: rule id (reason in the tooltip), what it checks, **Min / Max** (`NumInput`; `[`/`(` toggles
+the inclusive flag, × removes the bound, `−∞` / `+∞` adds one), **On** switch, an **overridden** chip
+(tooltip = the default) + per-rule reset, **Reset all**. The search box finds the `rule` id a rejection
+names (search expands every family); "Overridden only" filters. A backend warning (the `finite` rule
+disabled) shows as a warning Alert; a refused change (400 `invalid_rule_change`) shows its message and
+changes nothing. State: `useParamRules(active, socketOn)` — the backend (`param_rules.RuleTable`) is the
+sole owner (P1): GET on open, every PUT / reset answers the rule's new state (no optimistic copy),
+`session_changed {domain: "param_rules"}` refetches. Listed-only entries (read-only / owner-typed
+parameters, `targets: []`) are dimmed with the switch disabled. Tests:
+`src/components/ParamRules/__tests__/ParamRulesDialog.test.jsx`.
+
 ## Preset Panel + Per-Pane Settings Popup Pattern (dev-a328, 2026-05-01)
 
 The Pianoid frontend originally exposed a single monolithic `Settings` mosaic pane. That pane was a generic `<ObjectInspector>` that rotated through 9 different settings buckets (`presetLoadSettings`, `virtualPianoSettings`, `modesSettings`, etc.) — clicking the gear icon on any other pane set `currentPropertyManagerName`, which swapped which bucket the Settings pane displayed. This conflated two concerns: (1) preset loading + initialization parameters, (2) per-pane local UI settings.

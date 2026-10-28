@@ -188,3 +188,43 @@ Script: `docs/development/diagnostics/dev-psafe1-live-verify.py`. Result: **14 /
 **Side finding.** `note_playback` renders of the same state are **not bit-identical**. Back-to-back
 renders differ by about 2.5e-4 relative, from sample 48 onwards. This contradicts the "deterministic"
 wording in UI_TESTING, and should be investigated separately.
+
+## 8. User decision and the rule table (dev-psafe2, 2026-10-28)
+
+User decision (verbatim): *"Approve all, but make it mutable for every parameter with uniform
+implementation and management."* All rules of §3 are approved, `tension > 0` (every unison string)
+included; no sign rules on `jung` / `volume` and no magnitude caps, on purpose.
+
+Implementation (Core `feature/dev-psafe2-param-rules`):
+
+- **One declarative table**: `pianoid_middleware/param_rules.json` (versioned). One record per parameter
+  of the parameter inventory (`schemas/params`, pinned by a completeness test) plus the global `finite`
+  rule. Each record: `id`, `family`, `parameter`, `field`, `kind` (`finite` / `bound` / `relation` /
+  `shape`), `min` / `max` + inclusive flags (or `check` + `expression` for a relation / shape),
+  `targets` (payload addresses), `scope`, `enabled`, `reason`. Parameters without a physical rule get a
+  finite entry.
+- **One evaluator**: `param_safety.evaluate` flattens a payload / model into leaves and runs the enabled
+  rules in table order. The only named code is the relation / shape registry (`mode_frequency_over_nyquist`,
+  `mode_decay_per_sample`, `unison_tension`, `row_matches_num_channels`), each referenced from the table.
+- **One owner**: `param_rules.RuleTable` merges the defaults with the user's overrides (persisted in the
+  git-ignored `<PianoidInstall>/param_rules_overrides.json` / `$PIANOID_PARAM_RULES`, the MIDI-settings
+  pattern), validates changes, logs them and serves REST (`GET /param_rules`, `PUT /param_rules/<id>`,
+  `POST …/reset`). Disabling `finite` is allowed but warned.
+- Rejections keep the §1 body and add `rule` (the id, also in the message). The Tunner dialog (Settings →
+  Parameter rules) and the assistant (`param.rules`, view) read the same table.
+
+Semantics that changed slightly with the table:
+
+| Case | psafe1 | psafe2 |
+|---|---|---|
+| `tension` itself | a separate `> 0` rule + the unison check | one relation `string.tension` over every unison string (string 0 blames `tension`, the others `tension_offset`) |
+| a bound rule on a non-finite value | the bound failed too | bounds judge finite values only; NaN / Inf is the `finite` rule's (so disabling a bound never lets NaN through) |
+| runtime `volume_center` / `volume_range` | hard-coded in `runtime_params` | `runtime.*` finite entries (every runtime field) |
+| load settings | not checked | `load_settings.*` finite entries, checked by `/load_preset` |
+| a complex fit `frequency` (negative `mass_inv`) with `mode.mass_inv` **disabled** | rejected as "not a real number" | not judged (the user disabled its cause) |
+
+Not migrated (still owned by their modules, not in the table): `excitation_energy.normalize`
+(`hammer_mass ≤ 1 kg` cap, `c > 0`), `runtime_params` (volume `0..127`, feedback `≥ 0`),
+`mask_rows` / `StringMap.update_deck` / `pitch_values` (shape and coverage). The table lists those
+parameters with the matching lower bounds or as finite entries; relaxing a table rule does not relax
+those owners.

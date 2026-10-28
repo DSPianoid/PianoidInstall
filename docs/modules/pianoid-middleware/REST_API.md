@@ -1302,62 +1302,103 @@ or
 
 #### Parameter safety net (out-of-domain rejection)
 
-Owner `pianoid_middleware/param_safety.py` (dev-psafe1, 2026-10-28; reviewed port of Core `14fd5af` /
-dev-9a47). `edit_commit.commit` runs `check_edit` for **every** preset-parameter edit — REST and WS
+Evaluator `pianoid_middleware/param_safety.py`; the rules are **data**, the [parameter rule table](#parameter-rule-table)
+(dev-psafe2, 2026-10-28; rules reviewed in dev-psafe1, port of Core `14fd5af` / dev-9a47).
+`edit_commit.commit` runs `check_edit` for **every** preset-parameter edit — REST and WS
 `set_parameter`, `set_string_excitation`, `set_hammer_shape`, the assistant's `param.set` (it calls this
 route), `/mute/*`, `/excitation_energy`, the calibration commits, MIDI CC, the auto-tuner, and undo /
 redo. The check runs before the undo step opens and before anything is written. A rejected edit changes
-nothing in the model, the engine, the journal or the undo history. Preset loads are checked too (below).
-Nothing runs on the audio path.
+nothing in the model, the engine, the journal or the undo history. The runtime fields
+(`/set_runtime_parameters`, `runtime.*`) and the `POST /load_preset` load settings (`load_settings.*`)
+go through the same table, and preset loads are checked too (below). Nothing runs on the audio path.
 
-A value is rejected only when the engine can't run it as a piano. That means one of these:
+A default rule rejects a value only when the engine can't run it as a piano. That means one of these:
 
 - it isn't finite;
 - the arithmetic is undefined for it (division by zero);
 - it makes a resonator grow instead of decay;
 - it is outside the definition of a quantity that is positive by definition.
 
-There are **no magnitude caps**: the dev-2706 directive stands, and neither the UI nor the backend
-clamps ranges. The FDTD **Courant/CFL** bound of a physical string stays an indication (`cfl_redline`
-on a `200`), never a rejection (user decision 2026-07-08). Each bound's justification is in
-`docs/development/reviews/param-safety-net-review-2026-10-28.md`.
+There are **no magnitude caps** in the defaults: the dev-2706 directive stands. The FDTD **Courant/CFL**
+bound of a physical string stays an indication (`cfl_redline` on a `200`), never a rejection (user
+decision 2026-07-08). Each bound's justification is in
+`docs/development/reviews/param-safety-net-review-2026-10-28.md`. Every rule can be relaxed, tightened or
+disabled by the user ([rule table](#parameter-rule-table)); the table below shows the **defaults**.
 
-| `parameter` | Field | Rejected unless |
+| Rule id(s) | `parameter` · field | Rejected unless (default) |
 |---|---|---|
-| any | every numeric leaf, numeric strings included | finite (not NaN / ±Inf) |
-| `mode` | `frequency` | `0 < frequency ≤ sr/π`, where `sr/π` is the played Nyquist of the mode recurrence (15 279 Hz at 48 kHz) |
-| `mode` | `decrement` (`true_decrement`) | `≥ 0` **and** `decrement · frequency / sr < 1` (per-sample decay factor in `(0, 1]`; checked against the mode's prospective state, so a `frequency` edit can trip it) |
-| `mode` | `mass_inv` (legacy `mass`) | `> 0` |
-| `string` / `physics`, piano pitch < 128 | `tension`, `rho` (`string_density`), `length`, `dx`, `hammer_mass` | `> 0` |
-| same | `r`, `gamma`, `disp_decay`, `damper_string`, `damper_tail` | `≥ 0` (`jung` has no sign rule: every shipped preset stores it negative) |
-| same | `tension_offset` (`detuning`) with `tension` | every unison string's `tension · (1 + i · tension_offset) > 0` |
-| `hammer`, and `hammer_*` keys of a string edit | `position` (ratio) · `sharpness` · `width` | `[0, 1]` · `[0, 1)` · `≥ 0` |
-| `gauss` / `excitation` | level key · curve key · `sigma` | `0..127` · `0..4` · `> 0` (`mu`, `volume`, `shift`: finite only, and `volume` is signed in FPGA presets) |
-| `string_excitation_curves` (`/set_string_excitation`) | curve key · `sigma` | `0..4` · `> 0` |
+| `finite` | any · every numeric leaf, numeric strings included | finite (not NaN / ±Inf) |
+| `mode.frequency`, `mode.frequency.nyquist` | `mode` · `frequency` | `0 < frequency ≤ sr/π` (`frequency / (sr/π) ≤ 1`: the played Nyquist of the mode recurrence, 15 279 Hz at 48 kHz) |
+| `mode.decrement`, `mode.decrement.per_sample` | `mode` · `decrement` (`true_decrement`) | `≥ 0` **and** `decrement · frequency / sr < 1` (checked against the mode's prospective state, so a `frequency` edit can trip it) |
+| `mode.mass_inv` | `mode` · `mass_inv` (legacy `mass`) | `> 0` |
+| `string.rho`, `string.length`, `string.dx`, `excitation_energy.hammer_mass` | `string` / `physics`, piano pitch < 128 · `rho` (`string_density`), `length`, `dx`, `hammer_mass` | `> 0` |
+| `string.r`, `string.gamma`, `string.dispersion_damping`, `string.damper_string`, `string.damper_tail` | same · `r`, `gamma`, `disp_decay`, `damper_string`, `damper_tail` | `≥ 0` (`string.jung` is finite-only: every shipped preset stores it negative) |
+| `string.tension` | same · `tension`, `tension_offset` (`detuning`) | every unison string's `tension · (1 + i · tension_offset) > 0` |
+| `hammer.hammer_position` · `hammer.hammer_sharpness` · `hammer.hammer_width` | `hammer`, and `hammer_*` keys of a string edit | `[0, 1]` · `[0, 1)` · `≥ 0` |
+| `gauss.level` · `gauss.curve` · `gauss.sigma` | `gauss` / `excitation` / `string_excitation_curves` · level key · curve key · `sigma` | integer `0..127` · integer `0..4` · `> 0` (`gauss.mu` / `gauss.volume` / `gauss.shift`: finite only, `volume` is signed in FPGA presets) |
 | `sound_channel`, `string_sound_channel` | row | exactly `num_channels` values (the stored row length) |
-| `feedin`, `feedback`, masks, `excitation_energy`, `deck_feedback_coefficient` | values | finite (shape and range checks have other owners: `StringMap.update_deck`, `mask_rows`, `excitation_energy.normalize`, `runtime_params`) |
+| `excitation_energy.hammer_speeds` · `excitation_energy.excitation_impulse_calibration` · `deck_feedback_coefficient.store_feedback_coeff` | `excitation_energy`, `deck_feedback_coefficient`, preset load | `≥ 0` · `> 0` · `≥ 0` |
+| finite-only entries | `feedin`, `feedback`, masks, `runtime.*`, `load_settings.*`, … | finite (shape and range checks have other owners: `StringMap.update_deck`, `mask_rows`, `excitation_energy.normalize`, `runtime_params`) |
 
-Output pitches (≥ 128) are exempt from the string, hammer and `sigma` rules because they carry
-placeholder physics (`tension` / `r` / `length` / `gamma` = 0). They still get the finite check.
+Output pitches (≥ 128) are exempt from the `scope: piano` rules (string, hammer, `sigma`) because they
+carry placeholder physics (`tension` / `r` / `length` / `gamma` = 0). They still get the finite check.
 
-Response `400` (REST) or an `error` event plus `{ok: false, …}` ack (WS), with the same body:
+Response `400` (REST) or an `error` event plus `{ok: false, …}` ack (WS), with the same body. `rule` is
+the id of the violated rule (find it in Settings → Parameter rules, or `GET /param_rules?id=<rule>`):
 
 ```json
-{"error": "parameter_out_of_range", "code": "parameter_out_of_range", "parameter": "mode",
- "field": "decrement", "mode": 0, "value": -1.0, "bound": ">= 0",
- "message": "mode.decrement=-1.0 for mode 0 rejected: must be >= 0 (negative damping: the mode grows exponentially). Nothing was written."}
+{"error": "parameter_out_of_range", "code": "parameter_out_of_range", "rule": "mode.decrement",
+ "parameter": "mode", "field": "decrement", "mode": 0, "value": -1.0, "bound": ">= 0",
+ "message": "mode.decrement=-1.0 for mode 0 rejected by rule 'mode.decrement': must be >= 0 (negative damping: the mode grows exponentially). Nothing was written."}
 ```
 
 The key is `pitch` or `mode`, depending on the parameter. A non-finite `value` comes back as a string
-(`"nan"`) so that the body stays strict JSON.
+(`"nan"`) so that the body stays strict JSON. `/set_runtime_parameters` answers its usual
+`400 {error: <message>}` with the same message (rule id included).
 
 **Preset loads.** `POST /load_preset` builds the preset's model at the requested `sample_rate` (Hz, or
-kHz when `< 1000`, the same rule as the route) and checks it with `check_model`. It does this for every reload except `hot` (hot reloads keep the same
-model), and **before** the live engine is re-initialised or torn down. On a failure it returns `400`
-with the same body (`parameter` = `preset`) plus `"The preset was not loaded; the loaded engine keeps
-running."`. `POST /preset/load` (library) runs the same check before the GPU slot is created. Because
-the mode bound follows the sample rate, a preset with modes near 9.5 kHz loads at 48 kHz but is refused
-at 24 kHz. Every shipped preset passes (`tests/unit/test_param_safety.py` preset scan).
+kHz when `< 1000`, the same rule as the route) and checks it with `check_model` (the same table). It does
+this for every reload except `hot` (hot reloads keep the same model), and **before** the live engine is
+re-initialised or torn down. On a failure it returns `400` with the same body (`parameter` = `preset`)
+plus `"The preset was not loaded; the loaded engine keeps running."`. `POST /preset/load` (library) runs
+the same check before the GPU slot is created. Because the mode bound follows the sample rate, a preset
+with modes near 9.5 kHz loads at 48 kHz but is refused at 24 kHz. Every shipped preset passes under the
+defaults (`tests/unit/test_param_safety.py` preset scan).
+
+#### Parameter rule table
+
+Owner `pianoid_middleware/param_rules.py` (`RuleTable`, dev-psafe2). **Defaults** ship versioned in
+`pianoid_middleware/param_rules.json`: one record per parameter of the [parameter inventory](#get-paraminventory)
+(a completeness test pins it) plus the global `finite` rule. **User overrides** persist in a git-ignored
+file outside the repos — `$PIANOID_PARAM_RULES`, else `<PianoidInstall>/param_rules_overrides.json` (the
+MIDI-settings pattern) — and survive a backend restart. An unreadable or invalid stored override is
+ignored with a log line.
+
+| Record field | Meaning |
+|---|---|
+| `id` | the rule id a rejection names (`<domain>.<field>`, plus the `.nyquist` / `.per_sample` relations, and `finite`) |
+| `family` · `parameter` · `field` | grouping (`general`, `mode`, `string`, `hammer`, `excitation`, `coupling`, `runtime`, `derived`, `load`) · the inventory domain + field |
+| `kind` | `finite` (NaN / Inf; a disabled per-parameter finite entry exempts its targets, disabling `finite` itself switches the check off everywhere) · `bound` (the value in `[min, max]`) · `relation` (a named check computes `expression` from the prospective state; that value must be in `[min, max]`) · `shape` (a named structural check, enable only) |
+| `min` / `max` · `min_inclusive` / `max_inclusive` | `null` = unbounded |
+| `check` · `expression` | the relation / shape name in `param_safety.RELATIONS` / `SHAPES` · its human-readable form |
+| `targets` · `scope` | payload addresses `<kind>.<field>` the rule applies to (`[]` = read-only / owner-typed, listed for completeness) · `piano` = pitches < 128 only |
+| `enabled` · `reason` · `doc` | on / off · why the bound exists · doc anchor |
+
+Only `enabled`, `min`, `max`, `min_inclusive` and `max_inclusive` are mutable (bounds only on `bound` /
+`relation` rules). Every change is logged (`param_rules: rule <id> changed by <source>: <before> -> <after>`)
+and broadcast as `session_changed {domain: "param_rules", keys: [<id>]}` (`write_routes` class `session`).
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /param_rules` | `?family=` · `?id=` (optional filters) | `{version, overrides_path, families, overridden: [ids], warnings, rules: [{…static fields, default: {enabled, min, max, min_inclusive, max_inclusive}, current: {…}, overridden}]}`; `404 unknown_rule` |
+| `PUT /param_rules/<id>` | any of `{enabled, min, max, min_inclusive, max_inclusive}` | `{rule, warnings}`; `400 invalid_rule_change` (unknown / immutable key, non-boolean flag, NaN / Inf / non-number bound, bounds on a finite / shape rule, `min > max`, `min == max` with an exclusive end — nothing changed); `404 unknown_rule` |
+| `POST /param_rules/<id>/reset` | — | `{rule, warnings}` (back to the default) |
+| `POST /param_rules/reset` | — | the full table (every override removed) |
+
+Disabling `finite` is allowed but warned: `warnings` carries *"The 'finite' rule is disabled: NaN / Inf
+values now reach the model and the GPU buffers unchecked …"* on every GET / PUT until it is re-enabled,
+and the backend logs it at load. The assistant reads the table with `param.rules` (`view` category,
+read-only). The Tunner edits it in **Settings (⚙) → Parameter rules**.
 
 **CFL / Courant (indication only).** A string edit whose FDTD amplification `max|g| > 1` or whose
 Courant number is `≥ CFL_MARGIN` is **applied**. The response is `200` with `cfl_redline: true` and

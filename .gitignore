@@ -20,3 +20,6 @@ claude-config/
 /measurements/
 /pianoid_local_settings.json
 /pianoid_local_settings.json.tmp
+# The user's parameter-rule overrides (dev-psafe2, param_rules.RuleTable; $PIANOID_PARAM_RULES overrides the path)
+/param_rules_overrides.json
+/param_rules_overrides.json.tmp

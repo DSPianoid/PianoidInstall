@@ -21,7 +21,7 @@ the wiring, the output map of the backend, and listening.
 | The assistant can (registry name) | Category |
 |---|---|
 | `system.snapshot`, `system.environment` (incl. the output map), `system.health` (peaks, clipping), `audio.devices` (ASIO in / out list), `calibration.mic_devices` | read, no confirm |
-| `preset.files`, `preset.summary`, `preset.load_settings`, `param.get`, `param.inventory` | read, no confirm |
+| `preset.files`, `preset.summary`, `preset.load_settings`, `param.get`, `param.inventory`, `param.rules` (the safety-net rule table: read the `rule` a 400 `parameter_out_of_range` names to explain it; the user edits rules in Settings > Parameter rules) | read, no confirm |
 | `modal.rig_runs` (measurement runs and their files), `modal.rig_files` (`export: true`: run files -> an analysis artefact), `modal.measurements_dir` (where the measurement data lives) | read, no confirm |
 | `modal.set_measurements_dir` (moves the measurements folder; data is not moved) | **asks every time** (its own rule; the user may set it to Always allow) |
 | `modal.rig_capture` (sweeps per exciter, inputs recorded), `modal.rig_sine` (a tone, optional recording), `modal.rig_record` (inputs only) | **asks every run** (its own rule; the user may set it to Always allow) (drives / records the rig) |

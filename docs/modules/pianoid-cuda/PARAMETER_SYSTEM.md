@@ -248,14 +248,16 @@ corresponding named sub-buffer.
 ## Parameter Validation (safety net, host-side, pre-write)
 
 Every value that reaches the parameter buffers has already been checked by
-`pianoid_middleware/param_safety.py` (dev-psafe1, 2026-10-28). The check is pure Python and runs on the
+`pianoid_middleware/param_safety.py` (dev-psafe1, 2026-10-28), the one evaluator of the mutable
+[parameter rule table](../pianoid-middleware/REST_API.md#parameter-rule-table) (dev-psafe2: the defaults
+below ship in `param_rules.json`; the user can relax, tighten or disable each rule, persisted). The check is pure Python and runs on the
 request thread: `edit_commit.commit` → `check_edit` for every edit, and `check_model` for preset loads.
 It runs before the undo step, the model write and the GPU upload, so a rejected value never reaches the
 TUNABLE buffer, and the double-buffer swap and kernel pay no per-sample cost. Rules and the 400 body:
 [REST_API.md "Parameter safety net"](../pianoid-middleware/REST_API.md#parameter-safety-net-out-of-domain-rejection).
 Each rule follows from the engine maths documented here and in the linked docs:
 
-| Rule | Engine maths behind it |
+| Default rule | Engine maths behind it |
 |---|---|
 | finite everywhere | NaN / Inf survive the `float` cast and propagate through every buffer |
 | mode `0 < f ≤ sr/π` | the mode recurrence (pianoid-basic OVERVIEW "Piano_mode") has roots `(1−dec)e^{±iθ}`, `cos θ = 1 − ω/2`, `ω = (2πf/sr)²`; `ω ≤ 4 ⇔ f ≤ sr/π` (played Nyquist). `f = 0` is an undamped double root at 1, and `f < 0` makes `dec < 0` |
