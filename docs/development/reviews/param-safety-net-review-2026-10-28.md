@@ -151,6 +151,40 @@ and the stage would have a single caller.
 
 ## 7. Verification
 
-- Unit tests: `tests/unit/test_param_safety.py` (per-rule, write paths, routes, loads, preset scan).
-- Live: an isolated backend on a spare port with audio off. A bad write gives `400` and leaves the
-  model and engine unchanged; a good write applies. Results are in the dev-psafe1 session log.
+**Unit tests.** `tests/unit/test_param_safety.py` passes 77, with 1 skip (IversPond). It covers:
+
+- the per-rule cases;
+- the commit order;
+- the structural write-path test;
+- 11 REST routes and WS `set_parameter`;
+- `/load_preset` and library load;
+- the 49-preset scan.
+
+The neighbouring unit files (the baseline subset of 238) still pass. A broad `tests/unit` run (ESPRIT
+excluded) shows 6 failures that also fail on the unmodified base `ce6f801`: `start_right_away` ×4,
+`command_registry`, `rig_pipeline`. They come from the test environment and schema dir.
+
+The broad run found **one real bug in the first port**. The FE sends `sample_rate: 48` (kHz), and the
+preset check treated it as Hz, which would have refused **every** APPLY. The fix reuses
+`preset_load_params._hz`.
+
+**Live run.** Isolated backend on `:5017`, audio off, `BaselinePreset1` loaded with `sample_rate: 48`.
+Script: `docs/development/diagnostics/dev-psafe1-live-verify.py`. Result: **14 / 14 PASS**.
+
+- Bad writes, each answering `400` with the right `field` and an unchanged GET model value:
+  - mode `decrement` / `frequency` / `mass_inv`;
+  - string `gamma` / `rho` / `tension` = NaN;
+  - gauss `sigma`;
+  - hammer `sharpness`;
+  - `/set_string_excitation` sigma;
+  - `/excitation_energy` NaN speed.
+- After every bad write, the `note_playback` render matched the baseline within 5× the measured
+  render-to-render noise (rel diff 1.9–2.6e-4, tolerance 1.3e-3).
+- A good write (`gamma` ×3) applied: the render moved 0.034 relative. Restoring it brought the render
+  back to the baseline.
+- A bad preset load (mode 3 `mass = −4e-7`) gave `400` (`mass_inv`, mode 3). The loaded engine kept
+  running (health `idle → idle`, render unchanged).
+
+**Side finding.** `note_playback` renders of the same state are **not bit-identical**. Back-to-back
+renders differ by about 2.5e-4 relative, from sample 48 onwards. This contradicts the "deterministic"
+wording in UI_TESTING, and should be investigated separately.

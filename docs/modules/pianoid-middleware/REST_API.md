@@ -1351,8 +1351,8 @@ Response `400` (REST) or an `error` event plus `{ok: false, …}` ack (WS), with
 The key is `pitch` or `mode`, depending on the parameter. A non-finite `value` comes back as a string
 (`"nan"`) so that the body stays strict JSON.
 
-**Preset loads.** `POST /load_preset` builds the preset's model at the requested `sample_rate` and
-checks it with `check_model`. It does this for every reload except `hot` (hot reloads keep the same
+**Preset loads.** `POST /load_preset` builds the preset's model at the requested `sample_rate` (Hz, or
+kHz when `< 1000`, the same rule as the route) and checks it with `check_model`. It does this for every reload except `hot` (hot reloads keep the same
 model), and **before** the live engine is re-initialised or torn down. On a failure it returns `400`
 with the same body (`parameter` = `preset`) plus `"The preset was not loaded; the loaded engine keeps
 running."`. `POST /preset/load` (library) runs the same check before the GPU slot is created. Because
