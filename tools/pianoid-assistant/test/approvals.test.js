@@ -325,6 +325,13 @@ test('service: a big volume step runs without a dialog (no step limit); a comman
   const fake = await fakeBackend();
   const home = tmpHome();
   fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ approvals: { params: 'auto', runtime: 'auto', preset_nav: 'auto' } }));
+  // pin the preset folder: an existing presets/x.json the assistant did not create (else the ownership verdict
+  // depends on whether a real PianoidCore sits next to this checkout: a missing file there is 'new' = own)
+  const core = fs.mkdtempSync(path.join(os.tmpdir(), 'pianoid-core-'));
+  fs.mkdirSync(path.join(core, 'pianoid_middleware', 'presets'), { recursive: true });
+  fs.writeFileSync(path.join(core, 'pianoid_middleware', 'presets', 'x.json'), '{}');
+  const prevCore = process.env.PIANOID_CORE_DIR;
+  process.env.PIANOID_CORE_DIR = core;
   const t = await start(home, fake);
   try {
     await t.turn('louder a lot');                                             // 64 -> 80 (+16): was a hard confirm before dev-free1
@@ -337,7 +344,10 @@ test('service: a big volume step runs without a dialog (no step limit); a comman
     assert.deepEqual([s.command, s.rule.id], ['preset.save', 'preset.save.not_own']);   // not created by the assistant
     t.send({ type: 'confirm', id: s.id, allow: false });
     await t.idle();
-  } finally { await t.close(); fake.server.close(); }
+  } finally {
+    await t.close(); fake.server.close();
+    if (prevCore === undefined) delete process.env.PIANOID_CORE_DIR; else process.env.PIANOID_CORE_DIR = prevCore;
+  }
 });
 
 test('service: a level breach after an Auto write auto-reverts (history group; runtime before-values)', async () => {

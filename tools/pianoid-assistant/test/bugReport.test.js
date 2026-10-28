@@ -124,6 +124,6 @@ test('the store reads and the triage update are registry commands: bug.list = vi
   const set = byName.get('bug.set_status');
   assert.equal(set.approval_category, 'bug_local');
   assert.equal(set.route.path, '/bug_reports/{report_id}/status');
-  const d = decide({ ...set, command: set.name, settings: {} });
-  assert.equal(d.action, 'confirm');                     // Ask by default, like filing
+  const d = decide({ ...set, command: set.name, category: set.approval_category, settings: {} });
+  assert.deepEqual([d.action, d.rule.id], ['ask', 'bug_local']);   // Ask by default, like filing (the uniform model, dev-unif1)
 });
