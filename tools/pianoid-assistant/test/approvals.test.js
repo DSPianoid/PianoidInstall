@@ -80,7 +80,7 @@ test('defaults: reads run, the categories as before, every command rule and vari
   }
   assert.equal(dec('launcher.backend.stop').action, 'deny');                                 // excluded: never a rule
   const risky = catalogue(RULE_COMMANDS).filter((r) => r.dangerous).map((r) => r.id).sort();
-  assert.deepEqual(risky, ['audio.exciters_config', 'launcher.assistant.start', 'launcher.backend.start', 'launcher.modal.start',
+  assert.deepEqual(risky, ['audio.exciters_config', 'env.set', 'launcher.assistant.start', 'launcher.backend.start', 'launcher.modal.start',
     'preset.create.overwrite', 'preset.promote', 'preset.save.not_own', 'preset.unload', 'rig.drive.any_level']);
   for (const id of risky) {
     const d = ruleDef(id, RULE_COMMANDS);

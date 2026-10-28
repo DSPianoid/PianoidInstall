@@ -33,6 +33,7 @@ const RISKY = [
   ['preset.promote', { name: 'Steinway (working 1)' }, 'preset.promote'],
   ['preset.unload', { name: 'Steinway' }, 'preset.unload'],
   ['audio.exciters_config', { exciters: [] }, 'audio.exciters_config'],
+  ['env.set', { name: 'PIANOID_AUDIO_OUTPUT_MAP', value: '8,9,2,3,4,5,6' }, 'env.set'],
   ['launcher.backend.start', {}, 'launcher.backend.start'],
   ['launcher.modal.start', {}, 'launcher.modal.start'],
   ['launcher.assistant.start', {}, 'launcher.assistant.start'],

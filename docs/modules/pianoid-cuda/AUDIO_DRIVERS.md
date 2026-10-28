@@ -194,6 +194,8 @@ UMC1820 (2026-10-20; the driver only offers powers of two, so 1152 itself cannot
 **Engine channel → device output map (dev-a709, callback driver `audio_driver_type 4`).** Engine channel `k` plays
 on ASIO output `map[k]` (0-based); default (no map) = identity, outputs `0..num_channels−1`. The map is a
 per-machine **session setting**: environment variable `PIANOID_AUDIO_OUTPUT_MAP` of the backend process
+(settable at runtime and persisted with `POST /settings/env` / the assistant's `env.set`, applies on the next load:
+[REST_API → Environment settings](../pianoid-middleware/REST_API.md#environment-settings))
 (comma-separated, at least the preset's channel count), applied by `pianoid_middleware/audio_channels.py` through
 `pianoidCuda.setAsioOutputMap(list)` before the driver opens (`getAsioOutputMap()` reads it back). With a map,
 every unmapped device output is written silence each `bufferSwitch` (e.g. the monitor outputs). Validation:
