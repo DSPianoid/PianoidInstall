@@ -151,7 +151,7 @@ and the stage would have a single caller.
 
 ## 7. Verification
 
-**Unit tests.** `tests/unit/test_param_safety.py` passes 77, with 1 skip (IversPond). It covers:
+**Unit tests.** `tests/unit/test_param_safety.py` passes 76, with 1 skip (IversPond). It covers:
 
 - the per-rule cases;
 - the commit order;
