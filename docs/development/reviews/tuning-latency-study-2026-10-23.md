@@ -316,7 +316,9 @@ strike's own NOTE_ON triggers it. Measured: hammer reflected 5 ms after the send
   −4..+17 ms around the request-time anchor).
 - Every "immediate" parameter therefore sits at 15-25 ms (WS) or 30-45 ms (REST).
 
-## Fix options (not implemented)
+## Fix options
+
+**Status (2026-10-28):** PARTIALLY implemented by dev-elat1 (Core a2659d2, Tunner c805037): F2a/F6 one swap per excitation write with the coefficient committed after the swap, F5 GIL yield per pitch, F7b send on Enter, F7f hammer fields skip the settle. Results: [tuning-latency-phase1-3-review-2026-10-28](tuning-latency-phase1-3-review-2026-10-28.md). F1, F2b/c, F3, F4, F7a/c/d/e and F8 remain open.
 
 **F1. String physics heard immediately (root cause 1).** Re-raise the trigger when the swap is adopted, not when
 it is queued.
