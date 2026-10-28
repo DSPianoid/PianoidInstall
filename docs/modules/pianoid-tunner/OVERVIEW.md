@@ -562,6 +562,22 @@ A workbench's accent = `hue(panel/groupe of its current param) × brightness-tie
 
 ★ **TILE-GEOMETRY CONSTRAINT (load-bearing — the dev-ae2a empty-workbench regression):** react-mosaic sizes **only the tile's DIRECT child** (`react-mosaic-component.css`: `.mosaic-tile > * { height:100%; width:100% }`) and `.mosaic-window` has **no intrinsic height**. The original 2-D-color commit (941fedd) inserted a `display:contents` wrapper between `.mosaic-tile` and `.mosaic-window` (to carry the title-accent var) — but a `display:contents` element generates no box, so `.mosaic-tile > *` no-op'd on it and the now-grandchild `.mosaic-window` got no height → it collapsed to its 30px toolbar and the workbench **body to 0px**, so all three workbench TYPES (global-dynamic / panel-following / fixed) spawned but rendered **EMPTY** (no ruler, no barchart). Because the accent now lives on the bars (no var to carry on the title), `renderTile` returns the `MosaicWindow` as the tile's **direct child with no wrapper at all** — the clean, correct geometry. **Rule for any future `renderTile` change: never insert a box-less (`display:contents`) element — or, indeed, any non-`100%×100%` wrapper — between `.mosaic-tile` and `.mosaic-window`.** Pinned by `src/__tests__/workbenchTileGeometry.source.test.js` (no `display:contents` anywhere; no `.wb-accent-host` wrapper / `--wb-accent` var; the bar `seriesColor` is fed by `workbenchColor()` for both workbench paths; workbench titles carry no per-pane accent class).
 
+### Per-panel error boundary — `PanelTile.jsx` + `PanelErrorBoundary.jsx` (dev-ebnd1, 2026-10-28)
+
+`<Mosaic renderTile>` returns `<PanelTile>` (the extracted tile renderer): it renders the `MosaicWindow` as the tile's direct DOM child (the geometry rule above still holds — a function component adds no DOM node) and wraps the pane **body** in `PanelErrorBoundary`. `renderWindowContent(id)` is passed as a thunk and called **below** the boundary, so a throw while building a pane's tree is caught too.
+
+| Aspect | Behaviour |
+|---|---|
+| Crash in one pane | Only that pane's body becomes a compact crash box ("This panel crashed", message, Show/Hide stack, **Reload panel**); its title bar (close/expand) and every other pane keep running |
+| Logging | `componentDidCatch` → `console.error('[PanelErrorBoundary] panel "<id>" crashed:', error, componentStack)` — never silent |
+| Reload panel | Clears the error + bumps a `resetKey` on a keyed Fragment → the pane **remounts** with fresh state |
+| Nothing throws | No behaviour change (no DOM wrapper, constant key) |
+| Survives a pane crash | `PianoidTuner` state + its hooks (the `:5000` socket), `ActiveFieldContext`, ToolBar, BottomBar, the mosaic |
+| **Unguarded** (a throw there still blanks the page) | App shell (`PianoidTuner` render itself, incl. pane titles/toolbar controls), `ToolBar`, `BottomBar`, `TabLeaderBanner`, `UiRemoteChip`, the dialogs (MIDI, BugReport, MosaicConfigManager, GlobalSettings), Snackbar |
+| Note | A pane that owns its own transport loses it while crashed — e.g. the Assistant's `:3002` socket lives in `useAssistant` inside `AssistantPane`; **Reload panel** reconnects it |
+
+Test: `src/components/__tests__/PanelErrorBoundary.test.jsx` (drives `PanelTile` under a react-mosaic stand-in).
+
 ### Bottom bar — Volume / Feedback / Reset (dev-uiqueue T2, 2026-06-15)
 
 `src/components/BottomBar.jsx` is a dedicated control bar below the mosaic that hosts the three
