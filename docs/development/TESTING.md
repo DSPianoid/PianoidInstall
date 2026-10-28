@@ -274,6 +274,15 @@ Key implementation details:
 
 Production-safe: no dependency on `PIANOID_DEBUG_DATA`. Plays a 3-second C major chord (C4+E4+G4) through the audio driver with note-off and release tail.
 
+### test_live_edit_reaches_engine.py
+
+Regression (dev-late1 a, `gpu` + `audio_off`): with the realtime loop running (`OnlinePlaybackEngine`, no audio driver,
+in a CHILD process `live_edit_probe.py` — one Pianoid per process, DEBUG variant for `getParameters`), a strings
+tension edit must change the per-point coefficients (`dev_parameters`) within 1 s WITHOUT a note/pedal event.
+Before: 0 changed in most trials (the coefficients followed only on the next note event). Skips when
+`pianoidCuda_debug` is not installed. Keep a Python reference to the `RealTimeEventBuffer` (the engine holds a raw
+pointer — a temporary segfaults the loop).
+
 ## Integration Tests (implemented)
 
 ### test_excitation_interpolation.py
@@ -327,6 +336,20 @@ Validates that `pack_pitch_feedin()` respects the `listen_to_modes` flag when in
 | `TestEndToEndZeroedFeedinProducesSound::test_zeroed_feedin_via_pack_deck_still_produces_audio` | Modes mode + zeroed feedin + pack_deck → non-silent audio |
 | `TestEndToEndZeroedFeedinProducesSound::test_regular_modes_negligible_vs_sound_channel_modes` | Regular modes have negligible displacement from cross-coupling |
 | `TestStringsModeSilenceOnZeroedFeedin::test_strings_mode_zeroed_feedin_produces_silence` | Strings mode + zeroed feedin + pack_deck → silence (fix validation) |
+
+### test_offline_edit_next_render.py
+
+Regression (dev-late1): an edit made with the engine stopped must reach the VERY NEXT offline render
+(`runOfflinePlayback` waits for the async double buffer). Per class: settle v0/v1 references (rendered twice),
+then alternate v0, v1, v0, v1 with ONE render per edit; each render must be within 1 % of the reference separation
+of its own value (settled-render noise 3–4e-4). Classes: string tension, excitation gauss `mu`, hammer position,
+mode frequency (all modes), deck feedin. 5/5 red on the pre-fix binary.
+
+### test_note_commit_survives_param_edit.py
+
+Regression (dev-late1 b): a note committed (`addOneString`) and then, before the next cycle, a strings edit or a
+sustain-pedal raise — the note must still sound (rms > 0.5 × the no-raise control). Before: the raise stored
+`new_notes_ind = 1` over the pending `noStrings+1`, the gauss kernel was skipped, rms 0.
 
 ### test_length_dx_propagation.py
 

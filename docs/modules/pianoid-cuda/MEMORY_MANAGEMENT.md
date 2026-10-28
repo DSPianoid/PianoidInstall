@@ -123,6 +123,23 @@ read them lock-free — a C++ data race that fired on every async parameter upda
 suspected root cause of the intermittent, live-only, per-pitch "55/56/57 trichotomy". See
 `docs/development/CODE_QUALITY.md` P1 and the dev-427c session log.
 
+### When an edit becomes audible (dev-late1, 2026-10-28)
+
+The edit call returns while the update is still `UPDATING`: the swap lands **18–183 ms later** (median
+61 ms, measured with the engine stopped, `dev-late1-swap-latency.py`) — far longer than one 1.33 ms
+cycle. Consequences and the rules that handle them:
+
+| Consumer | Rule |
+|---|---|
+| Offline render (`OfflinePlaybackEngine::run`) | Waits (`waitForParameterUpdate`) before cycle 0, so every edit committed before `runOfflinePlayback` is in the render. Before: the render started on the old copy and adopted the swap mid-render — the edit reached only the NEXT render. |
+| Derived per-point coefficients (`dev_parameters`, written only by `parameterKernel`) | `runSynthesisKernel` re-runs `parameterKernel` on the cycle that adopts a swap (`refreshSwappablePointersIfPending` returns true). Before: the edit's own `new_notes_ind` raise was consumed on the next cycle with the OLD copy, so a sounding string kept the old value until the next note/pedal event (live, measured). |
+| Per-cycle readers (modes, deck) | Apply from the adoption cycle (one swap latency after the edit). |
+
+`new_notes_ind` is a multi-producer mailbox: a note commit stores `noStrings+1` (parameterKernel AND the gauss
+excitation kernel); an edit / pedal / preset switch requests parameterKernel only via
+`Pianoid::requestParameterKernel()` — an atomic **max** to 1. A plain store of 1 overwrote a pending commit and
+the note was never excited (measured: silent).
+
 Update policy controls behaviour when a second update arrives while one is in progress:
 
 ```cpp
