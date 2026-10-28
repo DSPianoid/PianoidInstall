@@ -17,6 +17,7 @@ PianoidCore/tests/
 │   ├── test_audio_drivers.py
 │   ├── test_backend_midi_ingress.py   # MIDI W5/P4 — backend ingress: emit_midi_note_event broadcast gate + note-only filter, broadcast switchability, schedule_event dispatch + chord stress (audio_off)
 │   ├── test_kernel_midi_batch.py      # MIDI W1/P1 — per-cycle kernel batch envelope: same-cycle chords, NOTE_ON+NOTE_OFF, TEST_* interleave, MAX_EVENTS_PER_CYCLE cap (audio_off)
+│   ├── test_note_intake_cap.py        # dev-ncap1 — per-cycle note-on intake cap (7): 7/8/16/48-note bursts all sound on cycles +i//7, on/off + pedal order kept, cap-lifted control drops notes (audio_off)
 │   ├── midi_latency.py                # MIDI W5/P4 — schedule_event dispatch-latency measurement (standalone script + one pytest test asserting the Gate-3 budget)
 │   ├── test_performance.py
 │   ├── test_performance_audio_off.py  # Perf — GPU/total timing, sound-output quality, sound-regression vs fixtures/reference_c4_preset_test5.npy (audio_off; regression SKIPPED — deferred, see Test preset below)
