@@ -484,32 +484,48 @@ Python-to-C++ transfer significantly and eliminates the Python-side matrix recal
 on every parameter update.
 
 ```
-React: GaussEditor.jsx — user edits Gauss curve for pitch 60
+React: Gauss editor NumInput (Enter) — user edits a Gauss curve of pitch 60
+  PianoidTuner.handleGaussValueChange → applyExcitationChange → changeParametersOfExcitationBatch
+  ─► writeParam → WS set_parameter {parameter:'excitation', key:'60', values}   (REST fallback
+     POST /set_parameter/excitation/60). Enter = explicit commit: sent synchronously in the
+     keydown handler, before the re-render; wheel/arrow edits keep the 50 ms debounce (dev-elat1).
          │
          ▼
-usePreset: changeParametersOfExcitation(...)
-  ─► axios.post('/set_parameter/gauss/60', { velocity_curves_dict })
-         │
-         ▼
-parameter_manager.update_parameter(param='gauss')
-  1. For each pitch in request:
+parameter_manager.update_parameter(param='gauss' | 'excitation')
+  1. For each pitch in request (no cuda_lock):
        pitch.excitation.load_from_dict(values)
          → load_from_dict_to_matrix(): write into levels_matrix[level, param, curve]
-         → recalculate_excitation_matrix():
-             extract 6 base levels (indices [0,5,31,63,95,127])
-             extrapolate() → 128 velocity levels (shape 128×4×5)
-             (Python model updated for preset save/read-back;
-              the 128-level matrix is NOT sent to GPU)
-  2. Single GPU upload (outside loop, with cuda_lock):
-     _gpu_upload() waits for double-buffer IDLE  // prevents DROP_IF_BUSY loss
-     sm.pack_base_excitations()                  // 6 base levels only
-       → for each pitch: pack_base_levels() → 6×4×5 = 120 reals
-       → concatenate → 256 × 120 = 30,720 reals
-     pianoid_cpp.setNewExcitationBaseLevels(base_levels)
-         └── C++ host interpolation: 6 → 128 levels (linear, matching Python extrapolate())
-         └── updateTunableParameter("dev_gauss_params_full", full_params)
-             └── double-buffer swap (same as 2.1)
+         → recalculate_excitation_matrix(): 6 base levels → extrapolate() → 128×4×5
+             (Python model, for preset save/read-back; the 128-level matrix is NOT sent)
+       time.sleep(0)                               // yield the GIL per pitch: note/MIDI threads run
+  2. With cuda_lock — _upload_then_commit_coefficients({'kind':'curve', pitches}, upload):
+     a. CoefficientCache.prepare(): recompute the edited pitches' temporal impulse
+        (level_impulse, 6 levels) → their coefficient rows in the cached table. NO engine write.
+     b. _upload_excitation_curves() = ONE blob upload, whatever the pitch count:
+        _gpu_upload() waits for double-buffer IDLE  // prevents DROP_IF_BUSY loss
+        sm.pack_base_excitations() → num_strings × 120 reals (6 levels × 4 params × 5 curves)
+        pianoid_cpp.setNewExcitationBaseLevels(base_levels)
+          └── C++ host interpolation: 6 → 128 levels per string (linear, = Python extrapolate())
+          └── updateTunableParameter("dev_gauss_params_full", full_params) → double-buffer swap (2.1)
+     c. poll isParameterUpdateInProgress() with time.sleep (GIL released) until IDLE
+        = the swap is published (the engine adopts it at its next cycle)
+     d. CoefficientCache.commit() → setNewExcitationCoefficients(table): host table, live at the
+        next note staging
 ```
+
+**Two halves, two timings.** A struck note reads its curve from `dev_gauss_params_full` (the GPU
+buffer, after the swap is adopted) and its loudness coefficient from the host table
+`excitation_coefficients_` (sampled at note staging, `_append_string_gp`, live the moment
+`setNewExcitationCoefficients` returns — measured 2026-10-28: a ×0.5 table with no swap renders the
+next note at ×0.500000). Committing the coefficient after the swap keeps a strike during the write
+on old curve + old coefficient until the swap, then new + old only for the wait-to-commit gap
+(~1 ms measured offline). Before dev-elat1 the coefficient went live up to the full recompose time
+(~400 ms at 88 pitches) away from the curve, and 1–8 pitches used one swap per unison string
+(`updateExcitationBaseLevelsForString`, ~4 ms each, 24 for 8 pitches); that per-string C++ entry
+is now used only by `test_excitation_interpolation`. Hammer shape edits (§2.5) follow the same
+prepare → upload → wait → commit order with `{'kind':'spatial'}`. Making the coefficient ride the
+swap itself (atomic) is the planned Phase 2 of the
+[tuning-latency study](../development/reviews/tuning-latency-study-2026-10-23.md#fix-options-not-implemented).
 
 **C++ interpolation** (`Pianoid::interpolateBaseLevels`): Private helper used by both
 `loadPresetToLibrary()` and `setNewExcitationBaseLevels()`. Interpolates linearly between
@@ -732,22 +748,23 @@ Preset save/load includes both sections:
 ### 2.5 Hammer Shape
 
 ```
-React: HammerSpatialProperties.jsx — user edits hammer width
+React: HammerStringChart.jsx — user edits hammer position / width / sharpness
+  drag/wheel: staged, committed after a 150 ms settle; Enter in a field: committed at once
+  (explicit commit, dev-elat1) → handleHammerParamChange → changeParametersOfExcitation
          │
          ▼
-axios.post('/set_parameter/hammer/60', { width, sharpness })
+WS set_parameter {parameter:'hammer', key:'60', values}   (REST fallback /set_parameter/hammer/60)
          │
          ▼
-pianoid.update_parameter(param='hammer')
-  1. For each pitch in request:
-       sm.update_hammer_shape(pitchID=60, **values)
-       PianoHammer.calculate_hammer_shape(offset)
-         → Gaussian/circular force profile, min 3 grid points
-  2. send_hammer_params_to_CUDA()
-     sm.pack_hammers()                          // hammer data only
-     pianoid_cpp.setNewHammerParameters(hammer)
-         └── updateTunableParameter("dev_hammer", data)
-             └── double-buffer swap (same as 2.1)
+parameter_manager.update_parameter(param='hammer')
+  1. For each EDITED pitch (hammer_edit drops unchanged/read-only fields):
+       sm.update_hammer_shape(pitchID, **edit) → PianoHammer.calculate_hammer_shape(offset)
+       time.sleep(0)                              // yield the GIL per pitch
+  2. With cuda_lock — _upload_then_commit_coefficients({'kind':'spatial', pitches}, upload):
+     CoefficientCache.prepare()  (re-read the hammer spatial factor; no engine write)
+     upload: ≤ 8 pitches → updateHammerBlockRow per touched block (F7), else
+             setNewHammerParameters(sm.pack_hammers())  → updateTunableParameter("dev_hammer") → swap
+     wait until the swap is published (GIL-free poll) → CoefficientCache.commit()
 
 Also: POST /set_hammer_shape/<pitch_no> (backendserver.py:466)
   ─► sm.update_hammer_shape() + send_hammer_params_to_CUDA()
