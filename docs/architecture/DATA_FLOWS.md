@@ -108,6 +108,9 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
     each cycle:
       all_events  = realtime_buffer.drainEventsUpTo(current_cycle)  // RT first
       all_events += event_queue.getEventsAtCycle(current_cycle)     // queue second
+      (events held back on earlier cycles go FIRST)
+      intake      = takeCycleBatch(all_events, max_note_ons_per_cycle=7)  // prefix with
+                    <= 7 NOTE_ONs; the rest waits IN ORDER for the next cycle (never dropped)
       cap         = MAX_EVENTS_PER_CYCLE = 256                       (constants.h)
       if all_events.size() > cap:
         engine_stats.dropped_events_per_cycle_overflow += overflow
@@ -221,7 +224,8 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
        loop until done:
          processEventsAtCycle(cycle)
            PlaybackCycleExecutor.processEvents(queue, dispatcher, cycle):
-             events = queue.getEventsAtCycle(cycle)
+             events = deferred + queue.getEventsAtCycle(cycle)
+             events, deferred = takeCycleBatch(events, 7)   // note-on intake cap
              if events.size() > MAX_EVENTS_PER_CYCLE: events.resize(...)
              EventDispatcher.dispatchBatch(events)
                (per-cycle envelope: same single beginStringBatch /

@@ -39,6 +39,7 @@ struct PlaybackConfig {
     int  max_duration_ms    = 0;       // 0 = infinite
     int  sample_rate        = 48000;
     int  samples_per_cycle  = 64;
+    int  max_note_ons_per_cycle = MAX_NOTE_ONS_PER_CYCLE;  // 7 — per-cycle note-on intake cap
 };
 
 struct PlaybackStats {
@@ -98,6 +99,8 @@ struct EngineStats {
                                                  // per-cycle drain because
                                                  // a single cycle exceeded
                                                  // MAX_EVENTS_PER_CYCLE = 256
+    uint32_t note_intake_deferred_cycles;        // cycles on which the note-on
+                                                 // intake cap held events back
 };
 ```
 
@@ -107,7 +110,8 @@ The `run()` loop:
 2. Immediate `syncToCycle(0)` for initial calibration
 3. Calls `processEventsAtCycle(current_cycle)` — drains both sources
    into a single `all_events` vector (rt events first, then queue events,
-   preserving insertion order); caps at `MAX_EVENTS_PER_CYCLE = 256`
+   preserving insertion order, after any events held back on earlier cycles);
+   applies the [note-on intake cap](#note-on-intake-cap); caps at `MAX_EVENTS_PER_CYCLE = 256`
    (overflow counted in `EngineStats::dropped_events_per_cycle_overflow`);
    calls `dispatcher_->dispatchBatch(all_events)` so all same-cycle
    excitations ride ONE begin/commit envelope (see `EventDispatcher`
@@ -211,6 +215,27 @@ construction.
 | `appendCycleAudioToHostBuffer()` | D2H copy `dev_soundFloat` → `rawSoundBuffer` (5s ring) | Online regime (when `record_to_host`) |
 | `collectAudio()` (engine-private) | `getCurrentCycleAudio()` → `recorded_audio_[pos]` | Offline engine run loop |
 
+## Note-on intake cap
+
+Each cycle dispatches at most `PlaybackConfig::max_note_ons_per_cycle` NOTE_ONs
+(default `MAX_NOTE_ONS_PER_CYCLE = 7`, `constants.h`; Python
+`pianoidCuda.MAX_NOTE_ONS_PER_CYCLE`). Both engines use
+`PlaybackCycleExecutor::takeCycleBatch`; held-back events live in the engine's
+`deferred_events_` (sole writer: `processEventsAtCycle`, cleared on
+`initialize()` / `run()`) and are dispatched FIRST on the next cycle.
+
+| Rule | Why |
+|---|---|
+| Cut is a **prefix** at the first over-budget NOTE_ON | nothing behind it (its NOTE_OFF, a pedal change, a later note) can run before it — no reordering, no drops |
+| NOTE_OFF / SUSTAIN / PARAM cost no budget | a NOTE_OFF stages velocity 0 = damper close only (no GP slot); SUSTAIN and PARAM have their own GPU paths |
+| 7 × max strings/pitch ≤ `MAX_STRINGS_PER_EVENT` (64) | every shipped preset maps ≤ 3 strings/pitch → 21 strings, margin 43; the 64-string drop in `_append_string_gp` stays a last-resort guard |
+
+A burst of N note-ons therefore starts as `ceil(N/7)` consecutive cycles
+(note i at +`i // 7`), ~1.3 ms per extra cycle at 48 kHz / 64 samples. No
+Python-side intake guard is needed: the engine bounds the batch whatever the
+source (rtmidi listener, MIDI player, REST, several sources at once). Tests:
+`tests/system/test_note_intake_cap.py`.
+
 ## PlaybackCycleExecutor
 
 **File:** `PlaybackCycleExecutor.h` / `PlaybackCycleExecutor.cu`
@@ -223,13 +248,21 @@ class PlaybackCycleExecutor {
 public:
     // Drain the queue's events for one cycle and dispatch them through
     // EventDispatcher::dispatchBatch (which opens the per-cycle envelope
-    // — see EventDispatcher below). Caps at MAX_EVENTS_PER_CYCLE (excess
-    // dropped from the tail).
+    // — see EventDispatcher below). Held-back events (`deferred`, engine-
+    // owned) go first; takeCycleBatch applies the note-on intake cap; then
+    // caps at MAX_EVENTS_PER_CYCLE (excess dropped from the tail).
     static void processEvents(
         EventQueue& queue,
         EventDispatcher& dispatcher,
-        uint32_t cycle_index
+        uint32_t cycle_index,
+        std::vector<PlaybackEvent>& deferred,
+        int max_note_ons
     );
+
+    // Note-on intake cap, shared by both engines: returns the longest prefix
+    // of `due` holding <= max_note_ons NOTE_ONs; the rest stays in `due`.
+    static std::vector<PlaybackEvent> takeCycleBatch(
+        std::vector<PlaybackEvent>& due, int max_note_ons);
 
     // Excite all strings mapped to a MIDI pitch — single-event commit
     // path. Opens its own beginStringBatch/commitStringBatch envelope.
@@ -265,7 +298,7 @@ class EventQueue {
 
 public:
     void addEvent(const PlaybackEvent& event);
-    void sortByCycle();           // Sort ascending by cycle_index
+    void sortByCycle();           // STABLE sort by cycle_index (same-cycle order kept)
     void reset();                 // Rewind current_index_ to 0
     void clear();                 // Remove all events
 
