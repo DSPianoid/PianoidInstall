@@ -46,7 +46,7 @@ coefficient is live (`gaussTest.cu:54,95`; pyd exports `setNewExcitationCoeffici
 ```
 FE gauss params (mu,sigma,volume,shift) ×5            [PianoidTunner]
   └─ handleGaussValueChange → (FE renorm rescales the 5 volumes) → changeParametersOfExcitationBatch
-        POST /set_parameter/gauss/<pitch>
+        WS set_parameter excitation/<pitch>  (REST fallback POST /set_parameter/excitation/<pitch>)
               ▼                                         [pianoid_middleware / PianoidBasic]
   levels_matrix[level, param, curve]   (param 0=mu 1=sigma 2=volume 3=shift)
   temporal_impulse  I = temporal_curve_impulse(level)        # StringExcitation.py:28
@@ -58,6 +58,13 @@ FE gauss params (mu,sigma,volume,shift) ×5            [PianoidTunner]
                  = (c·m·v·spatial / I) · f(t)
                  = c·m·v·spatial · ( f(t) / I )              # = physical scale × UNIT-INTEGRAL shape
 ```
+
+> **Upload timing (2026-10-28, dev-elat1).** The chain above is the steady state. In time, the curve
+> (`g_vol`, μ, σ, shift) reaches the kernel through the double-buffered `dev_gauss_params_full` (live
+> after its swap is adopted), while the coefficient is a host table sampled at note staging (live the
+> moment `setNewExcitationCoefficients` returns). The middleware commits the coefficient after the curve
+> swap is published, so a strike during a write hears at most a ~1 ms new-curve/old-coefficient mix.
+> Current path: [DATA_FLOWS §2.2](../architecture/DATA_FLOWS.md#22-excitation-parameters-base-levels-path).
 
 Two exact consequences fall straight out of `force = c·m·v·spatial · (f/I)`:
 

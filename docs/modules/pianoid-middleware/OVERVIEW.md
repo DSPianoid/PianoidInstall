@@ -179,6 +179,8 @@ defense after dev-2706 removed UI-level value clamps. See REST_API.md
 
 All GPU uploads go through `_gpu_upload(method, *args)` which calls `waitForParameterUpdate()` before each upload to ensure the double-buffer is IDLE (prevents silent drops under the DROP_IF_BUSY policy).
 
+Excitation-curve and hammer edits also move the B2 loudness coefficient, which is a host table live at the next note (no swap). `_upload_then_commit_coefficients(changed, upload)` orders them: `CoefficientCache.prepare` (compute, no engine write) → `upload()` (ONE swap: the excitation blob `setNewExcitationBaseLevels` for any pitch count; hammer per-block ≤ 8 pitches else the whole matrix) → GIL-free wait until the swap is published → `CoefficientCache.commit`. The per-pitch model loops yield the GIL (`time.sleep(0)`) so note/MIDI threads are not starved by a long write (dev-elat1; [DATA_FLOWS §2.2](../../architecture/DATA_FLOWS.md#22-excitation-parameters-base-levels-path)).
+
 Key methods:
 - `update_parameter(param, values, **param_range)` — central dispatcher for all parameter types
 - `update_pitch_physical_params_GRANULAR(pitchID, **params)` — per-pitch granular update via `updateMultiStringParameter_NEW` (preferred for runtime changes)

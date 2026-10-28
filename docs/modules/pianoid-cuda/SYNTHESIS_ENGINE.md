@@ -1021,7 +1021,10 @@ void beginStringBatch();
 
 void addStringToBatch(int stringNo, int velocity);
 // Append one string to the batch:
-//   1. Store (stringNo, volume_coeff[stringNo], timing=0) in host buffer
+//   1. Store (stringNo, excitation TYPE [impulse/sustained], timing=0) in host buffer, and
+//      sample the per-(string,velocity) loudness coefficient from the HOST table
+//      excitation_coefficients_[stringNo*128 + velocity] into the per-note real buffer
+//      string_excitation_coeff (1.0 if the table is unsized)
 //   2. Compute param_offset = (stringNo * 128 + velocity) * 20
 //      into string_gauss_param_indices (index into dev_gauss_params_full)
 //   3. Set dec_open[stringNo] = DUMP_OPEN (damper lifted)
@@ -1309,14 +1312,24 @@ Per velocity level (20 reals):
 |-------------|--------|------|
 | Init | `loadPresetToLibrary(preset_name, ...)` | Once at startup |
 | Runtime | `setNewExcitationBaseLevels()` | Every parameter edit |
+| Runtime, per string | `updateExcitationBaseLevelsForString()` | Test-only since dev-elat1 (2026-10-28); the middleware always uses the one-swap blob |
 
-Both accept 6 base velocity levels per string (30,720 reals) and call the private
+The first two accept 6 base velocity levels per string (30,720 reals) and call the private
 `interpolateBaseLevels()` helper to reconstruct the full 128-level buffer. The
 interpolation is linear between the same anchors [0, 5, 31, 63, 95, 127] as Python's
 `extrapolate()` (last segment span 32; it was 33 until dev-5965 2026-09-22 — see
 DATA_FLOWS.md §2.2). The reconstructed buffer is uploaded via
 `updateTunableParameter()` on the double-buffer system (see
 [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
+
+**The loudness coefficient is NOT in this block.** `excitation_coefficients_`
+(`num_strings × 128` reals, physics-energy B2) is a host-side vector set by
+`setNewExcitationCoefficients()` and read at note staging (`addStringToBatch` /
+`_append_string_gp`). It is not double-buffered: it is live for the next note the moment the
+setter returns (measured 2026-10-28, dev-elat1: a ×0.5 table with no swap rendered the next note
+at ×0.500000). The curve, by contrast, is live only once its swap is adopted at the top of the next
+`runSynthesisKernel`. The middleware therefore commits the coefficient after the curve's swap has
+been published ([DATA_FLOWS §2.2](../../architecture/DATA_FLOWS.md#22-excitation-parameters-base-levels-path)).
 
 ### Mode Excitation
 
