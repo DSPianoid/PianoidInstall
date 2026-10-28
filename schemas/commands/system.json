@@ -73,7 +73,7 @@
       "description": "Partial update of the exciter monitor configuration (validated, saved per machine, applied at once): enabled; inputs merged by index [{index, kind current|board|other, label, scale (units per full scale, null = uncalibrated), unit}]; exciters merged by channel [{channel, name, sense_input, board_input, limit (peak, sense unit; null = no limiter), target (RMS, closed loop), release_ms}] ({..., remove: true} drops one; replace: true replaces the lists; reset: true = defaults); limiter {floor_db, release_threshold, holdoff_switches}; closed_loop {enabled, rate_db_per_s, max_cut_db, max_boost_db}; sensor_check {output_dbfs, min_sense_dbfs, hold_s}; telemetry_hz. Hard confirm: limits and mapping protect the exciters and amplifiers.",
       "target": "backend",
       "tier": "write",
-      "approval_category": "hard_confirm",
+      "approval_category": "per_command",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#post-audioexcitersconfig",
       "route": {"method": "POST", "path": "/audio/exciters/config"},

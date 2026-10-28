@@ -165,17 +165,17 @@ test('run_python handler (launcher faked): inputs copied, out\\ files become art
   assert.match((await runPython({ code: 'p' }, { paths, launcher: path.join(root, 'none.exe'), exec })).error, /not built/);
 });
 
-test('policy: category code is Ask by default, may be Auto (dev-auto1); tainted turns ask hard even on Auto; other tiers unchanged', () => {
+test('policy: rule code is Ask by default, may be Always allow; in a tainted turn the saved rule does not apply (still the same dialog); other tiers unchanged', () => {
   const v = decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: {} });
-  assert.equal(v.action, 'confirm');
-  assert.equal(v.canAuto, true);                                       // "Don't ask again" is offered
-  const auto = { approvals: { installation: { code: 'auto' } } };
-  assert.deepEqual(decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: auto }), { action: 'allow', auto: true, reason: 'code: Auto' });
+  assert.equal(v.action, 'ask');
+  assert.equal(v.rule.id, 'code');                                     // "Always allow" sets the rule `code`
+  const auto = { rules: { code: 'auto' } };
+  const a = decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: auto });
+  assert.deepEqual([a.action, a.auto, a.rule.id], ['allow', true, 'code']);
   const t = decide({ ...ANALYSIS_CMD, command: ANALYSIS_CMD.name, settings: { ...auto, tainted: true } });
-  assert.equal(t.action, 'confirm');
-  assert.equal(t.hard, true);
-  assert.ok(!t.canAuto);                                               // never "Don't ask again" on a tainted turn
-  assert.match(t.reason, /web content/);
+  assert.equal(t.action, 'ask');
+  assert.equal(t.rule.id, 'code');                                     // the same dialog, the same rule offered
+  assert.match(t.taintNote, /untrusted content/);
   assert.equal(decide({ command: 'play.note', tier: 'act', family: 'playback', category: 'playback' }).action, 'allow');
   assert.equal(decide({ command: 'x', tier: 'excluded', category: 'code' }).action, 'deny');
 });
@@ -206,12 +206,12 @@ test('canRunAnalysis (dev-auto1): "Don\'t ask again" for this installation persi
   const ask = s.canRunAnalysis({ code }, { toolUseID: 't1' });
   await new Promise((r) => setImmediate(r));
   assert.equal(confirms().length, 1);                                  // default Ask
-  assert.equal(confirms()[0].canAuto, true);
-  s.confirm(confirms()[0].id, true, 'installation');
+  assert.equal(confirms()[0].rule.id, 'code');
+  s.confirm(confirms()[0].id, true, true);                             // Always allow
   assert.equal((await ask).behavior, 'allow');
-  assert.equal(JSON.parse(fs.readFileSync(paths.config, 'utf8')).approvals.code, 'auto');   // persisted (installation)
-  const row = s.approvalsView().categories.find((r) => r.id === 'code');
-  assert.deepEqual([row.mode, row.scope, row.locked], ['auto', 'installation', null]);
+  assert.equal(JSON.parse(fs.readFileSync(paths.config, 'utf8')).rules.code, 'auto');   // persisted
+  const row = s.approvalsView().rules.find((r) => r.id === 'code');
+  assert.deepEqual([row.mode, row.kind], ['auto', 'category']);
 
   // a restarted service over the same config.json: Auto, no confirm; the run still goes through the sandbox runner
   const s2 = mk(JSON.parse(fs.readFileSync(paths.config, 'utf8')));
@@ -226,8 +226,8 @@ test('canRunAnalysis (dev-auto1): "Don\'t ask again" for this installation persi
   s2.tainted = true;
   const tainted = s2.canRunAnalysis({ code }, { toolUseID: 't3' });
   await new Promise((r) => setImmediate(r));
-  assert.equal(confirms().length, 2);                                  // a tainted turn asks, hard, even on Auto
-  assert.deepEqual([confirms()[1].hard, confirms()[1].canAuto], [true, false]);
+  assert.equal(confirms().length, 2);                                  // a tainted turn asks even on Always allow
+  assert.deepEqual([confirms()[1].rule.id, !!confirms()[1].taintNote], ['code', true]);
   s2.confirm(confirms()[1].id, false);
   assert.equal((await tainted).behavior, 'deny');
   s2.tainted = false;

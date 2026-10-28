@@ -8,8 +8,8 @@
  *   POST /internal/command/<name>   the executor of the service's own MCP server (v2 P2, autoWrite.js):
  *                  runs a command the policy just allowed (a permit), else 403 not_permitted
  *   GET  /artifacts/<id>/<file>   one file of an analysis artefact (the pane shows the PNGs; v2 P5)
- *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, remember?} |
- *                  settings {model?, dataOptOut?, autonomous? (dev-auto1)} | approvals {category, mode, scope} |
+ *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, always?} |
+ *                  settings {model?, dataOptOut?, autonomous? (dev-auto1)} | approvals {rule, mode} |
  *                  undo {groupId} | undo_turn {turn} (the pane's "Undo turn") |
  *                  plan_grant {id, accept, ticked} | plan_revoke (dev-28f1, ignored with PIANOID_ASSISTANT_PLAN_APPROVAL=0) |
  *                  note_update {id, title?, body?} | note_delete {id} (dev-mem1: the Notes tab)};
@@ -194,7 +194,7 @@ export function createAssistantService({
         } else if (msg.type === 'stop') {
           await session.stop();
         } else if (msg.type === 'confirm') {
-          session.confirm(msg.id, msg.allow, msg.remember);
+          session.confirm(msg.id, msg.allow, msg.always === true);
         } else if (msg.type === 'settings') {
           await session.updateSettings(msg);
         } else if (msg.type === 'approvals') {

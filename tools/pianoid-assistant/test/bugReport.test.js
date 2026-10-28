@@ -51,12 +51,13 @@ test('the host attaches context, versions, the transcript excerpt and the activi
   assert.deepEqual(p.attached, ['pianoid_context', 'versions', 'transcript (last 12 messages)', 'activity (last 30 entries)']);
 });
 
-test('category bug_local: Ask by default (switchable), Auto when set, hard in a web-tainted turn', () => {
+test('rule bug_local: Ask by default, Always allow when set, not applied in a tainted turn (same dialog + note)', () => {
   assert.equal(CATEGORIES.find((c) => c.id === 'bug_local').default, 'ask');
   const d = (settings) => decide({ ...BUG_CMD, command: BUG_CMD.name, settings });
-  assert.deepEqual(d({}), { action: 'confirm', canAuto: true, reason: 'bug_local: Ask' });
-  assert.equal(d({ approvals: { installation: { bug_local: 'auto' } } }).action, 'allow');
-  assert.equal(d({ tainted: true }).hard, true);
+  assert.deepEqual([d({}).action, d({}).rule.id], ['ask', 'bug_local']);
+  assert.equal(d({ rules: { bug_local: 'auto' } }).action, 'allow');
+  const t = d({ rules: { bug_local: 'auto' }, tainted: true });
+  assert.deepEqual([t.action, t.rule.id, !!t.taintNote], ['ask', 'bug_local', true]);
 });
 
 test('fileReport POSTs the report to the collector and reports the saved file', async () => {
@@ -95,7 +96,7 @@ test('session: the dialog shows the full draft; only a confirmed draft is filed,
   assert.equal(yes.confirms[0].command, 'bug.report');
   assert.equal(yes.confirms[0].category, 'bug_local');
   assert.equal(yes.confirms[0].args.description, DRAFT.description);
-  assert.equal(yes.confirms[0].canAuto, true);
+  assert.equal(yes.confirms[0].rule.id, 'bug_local');
   assert.equal(posts.length, 0);                                   // nothing filed before the handler runs
   const res = await yes.s.fileBug(DRAFT);
   assert.equal(res.ok, true);

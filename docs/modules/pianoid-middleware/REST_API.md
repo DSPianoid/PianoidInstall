@@ -1027,16 +1027,16 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 
 | Route | Command | Step |
 |---|---|---|
-| `POST /rig/capture` | `modal.rig_capture` (hard confirm) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
-| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
-| `POST /rig/record` | `modal.rig_record` (hard confirm) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
-| `POST /rig/process` | `modal.rig_process` (hard confirm) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
-| `POST /rig/preset_create` | `preset.create` (hard confirm) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
+| `POST /rig/capture` | `modal.rig_capture` (asks: its own rule) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
+| `POST /rig/sine` | `modal.rig_sine` (asks: its own rule) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
+| `POST /rig/record` | `modal.rig_record` (asks: its own rule) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
+| `POST /rig/process` | `modal.rig_process` (asks: its own rule) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
+| `POST /rig/preset_create` | `preset.create` (asks: its own rule) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
 | `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
 | `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
 | `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
 | `GET /measurements/dir` | `modal.measurements_dir` | the measurements folder and where it comes from ([below](#measurements-folder)) |
-| `POST /measurements/dir` | `modal.set_measurements_dir` (hard confirm) | moves the measurements folder (runtime setting) |
+| `POST /measurements/dir` | `modal.set_measurements_dir` (asks: its own rule) | moves the measurements folder (runtime setting) |
 
 Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the [measurements folder](#measurements-folder); run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
 flags, status), `sessions/<exciter>_m<level>_r<k>/{data.npy (aligned capture, float32 [frames, inputs]),
@@ -1096,7 +1096,7 @@ limiter: `exciter_monitor_routes.py` over `exciter_monitor.py` / `exciter_monito
 `ExciterMonitor.cpp` ([AUDIO_DRIVERS → Exciter monitor](../pianoid-cuda/AUDIO_DRIVERS.md#exciter-monitor-dev-8f54)).
 Design: [controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md). Needs the ASIO
 callback driver (`audio_driver_type 4`); stored per machine under `exciter_monitor` in
-`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (hard confirm),
+`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (asks: its own rule),
 `audio.exciters_clear`.
 
 #### `GET /audio/exciters`
@@ -2740,7 +2740,7 @@ Moves every key pitch's `hammer_mass` into the physical range (2–20 g) with on
 ### `POST /calibrate_attack`
 
 **A-weighted attack equalization** — the Virtual Piano **Calibrate** button (dev-89f7), registry command
-`calibration.attack_equalize` (calibration job family, approval `hard_confirm`). Equalizes what the ear hears
+`calibration.attack_equalize` (calibration job family, approval `per_command`: its own rule, Ask by default). Equalizes what the ear hears
 first: every key's A-weighted level in the first 300 ms after its onset, energy-summed over the heard channels,
 to the reference key, by per-key `hammer_mass`. (`/calibrate_synthesis` matches a 30–300 ms *flat* RMS: on
 F15_measured_plywood it left the treble +13…+21 dB louder at the attack, A-weighted.) Procedure from the
