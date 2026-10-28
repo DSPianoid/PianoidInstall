@@ -1,0 +1,427 @@
+{
+ "gauss.c2.volume_x0.5|n1": {
+  "separation": 0.13101893874532405,
+  "by_delay": {
+   "0": [
+    "old",
+    "old",
+    "old"
+   ],
+   "2": [
+    "old",
+    "old",
+    "old"
+   ],
+   "5": [
+    "mixed",
+    "mixed",
+    "mixed"
+   ],
+   "10": [
+    "mixed",
+    "mixed",
+    "mixed"
+   ],
+   "20": [
+    "new",
+    "new",
+    "new"
+   ],
+   "40": [
+    "new",
+    "new",
+    "new"
+   ],
+   "80": [
+    "new",
+    "new",
+    "new"
+   ],
+   "160": [
+    "new",
+    "new",
+    "new"
+   ],
+   "320": [
+    "new",
+    "new",
+    "new"
+   ],
+   "640": [
+    "new",
+    "new",
+    "new"
+   ]
+  },
+  "first_all_new_delay_ms": 20,
+  "ack": {
+   "n": 30,
+   "median": 21.495342254638672,
+   "min": 18.470287322998047,
+   "max": 27.193546295166016,
+   "p90": 24.458003044128418
+  },
+  "rows": [
+   {
+    "d_ms": 0,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0006059083539939141,
+    "err_new": 0.12174811402760553,
+    "strike_minus_send_ms": 0.05841255187988281,
+    "ack_ms": 20.970821380615234,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d0_r0_1793179825125.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.00051285717577953,
+    "err_new": 0.12174558970487748,
+    "strike_minus_send_ms": 2.0532608032226562,
+    "ack_ms": 22.006511688232422,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d2_r0_1793179828690.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 0,
+    "class": "mixed",
+    "err_old": 0.12550859227473066,
+    "err_new": 0.08478318638235215,
+    "strike_minus_send_ms": 5.447864532470703,
+    "ack_ms": 25.470972061157227,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d5_r0_1793179832268.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 0,
+    "class": "mixed",
+    "err_old": 0.4300237036026352,
+    "err_new": 0.31248350818902937,
+    "strike_minus_send_ms": 10.271310806274414,
+    "ack_ms": 21.81100845336914,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d10_r0_1793179835861.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.13102290289305113,
+    "err_new": 0.00043615529928036067,
+    "strike_minus_send_ms": 20.135879516601562,
+    "ack_ms": 19.612550735473633,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d20_r0_1793179839439.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.13100543503785547,
+    "err_new": 0.0007147267136429154,
+    "strike_minus_send_ms": 40.06028175354004,
+    "ack_ms": 18.470287322998047,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d40_r0_1793179843020.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.1310177028651737,
+    "err_new": 0.0007061931999014249,
+    "strike_minus_send_ms": 80.20424842834473,
+    "ack_ms": 18.807172775268555,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d80_r0_1793179846595.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.1310143971281017,
+    "err_new": 0.0006234077717811261,
+    "strike_minus_send_ms": 159.96217727661133,
+    "ack_ms": 20.523548126220703,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d160_r0_1793179850145.wav"
+   },
+   {
+    "d_ms": 320,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.1310202860801191,
+    "err_new": 0.0005986630987131984,
+    "strike_minus_send_ms": 320.1005458831787,
+    "ack_ms": 21.458864212036133,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d320_r0_1793179853738.wav"
+   },
+   {
+    "d_ms": 640,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.1310190476600007,
+    "err_new": 0.0006130773381907498,
+    "strike_minus_send_ms": 640.6900882720947,
+    "ack_ms": 21.740436553955078,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d640_r0_1793179857310.wav"
+   },
+   {
+    "d_ms": 0,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0005731751480718641,
+    "err_new": 0.12173295509404884,
+    "strike_minus_send_ms": 0.059604644775390625,
+    "ack_ms": 24.445056915283203,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d0_r1_1793179860899.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0005987164085343794,
+    "err_new": 0.12173527813621347,
+    "strike_minus_send_ms": 1.9009113311767578,
+    "ack_ms": 20.89667320251465,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d2_r1_1793179864485.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 1,
+    "class": "mixed",
+    "err_old": 0.12551371869773192,
+    "err_new": 0.08478666841176796,
+    "strike_minus_send_ms": 5.354881286621094,
+    "ack_ms": 27.193546295166016,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d5_r1_1793179868061.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 1,
+    "class": "mixed",
+    "err_old": 0.4300408620371452,
+    "err_new": 0.3125011031522331,
+    "strike_minus_send_ms": 10.088920593261719,
+    "ack_ms": 21.667003631591797,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d10_r1_1793179871652.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.13102852891948466,
+    "err_new": 0.0007205016758618463,
+    "strike_minus_send_ms": 20.77198028564453,
+    "ack_ms": 20.826101303100586,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d20_r1_1793179875240.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.13102536541509013,
+    "err_new": 0.0007222879929794736,
+    "strike_minus_send_ms": 39.519309997558594,
+    "ack_ms": 20.937204360961914,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d40_r1_1793179878831.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.13102089078653784,
+    "err_new": 0.0006112281393241633,
+    "strike_minus_send_ms": 79.80895042419434,
+    "ack_ms": 21.26336097717285,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d80_r1_1793179882403.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.13103685331999473,
+    "err_new": 0.0005336805719878482,
+    "strike_minus_send_ms": 159.65533256530762,
+    "ack_ms": 19.90652084350586,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d160_r1_1793179885968.wav"
+   },
+   {
+    "d_ms": 320,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.1310185952467554,
+    "err_new": 0.0007100845466779586,
+    "strike_minus_send_ms": 320.22857666015625,
+    "ack_ms": 22.56155014038086,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d320_r1_1793179889548.wav"
+   },
+   {
+    "d_ms": 640,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.131027931974581,
+    "err_new": 0.0004678737541460085,
+    "strike_minus_send_ms": 639.9533748626709,
+    "ack_ms": 21.894454956054688,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d640_r1_1793179893118.wav"
+   },
+   {
+    "d_ms": 0,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0006101967785611182,
+    "err_new": 0.1217325550151694,
+    "strike_minus_send_ms": 0.0,
+    "ack_ms": 21.53182029724121,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d0_r2_1793179896686.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0006374743420944652,
+    "err_new": 0.12173939820917429,
+    "strike_minus_send_ms": 2.1381378173828125,
+    "ack_ms": 21.303653717041016,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d2_r2_1793179900268.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 2,
+    "class": "mixed",
+    "err_old": 0.12553892318073126,
+    "err_new": 0.0847941363581232,
+    "strike_minus_send_ms": 5.296945571899414,
+    "ack_ms": 22.23062515258789,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d5_r2_1793179903828.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 2,
+    "class": "mixed",
+    "err_old": 0.43004997034139164,
+    "err_new": 0.31251142865942255,
+    "strike_minus_send_ms": 9.969234466552734,
+    "ack_ms": 21.446704864501953,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d10_r2_1793179907391.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.13103094815784713,
+    "err_new": 0.000737881553640348,
+    "strike_minus_send_ms": 19.7756290435791,
+    "ack_ms": 21.834373474121094,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d20_r2_1793179910970.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.13103453951488866,
+    "err_new": 0.000540865068120365,
+    "strike_minus_send_ms": 40.46893119812012,
+    "ack_ms": 21.947622299194336,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d40_r2_1793179914548.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.13103141541288377,
+    "err_new": 0.0007008081048555019,
+    "strike_minus_send_ms": 79.84781265258789,
+    "ack_ms": 20.039081573486328,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d80_r2_1793179918121.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.1310369790545013,
+    "err_new": 0.00047618065499696756,
+    "strike_minus_send_ms": 160.0055694580078,
+    "ack_ms": 22.04608917236328,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d160_r2_1793179921687.wav"
+   },
+   {
+    "d_ms": 320,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.13102951069830393,
+    "err_new": 0.000620520534830481,
+    "strike_minus_send_ms": 320.2035427093506,
+    "ack_ms": 19.58632469177246,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d320_r2_1793179925270.wav"
+   },
+   {
+    "d_ms": 640,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.13102859491798094,
+    "err_new": 0.0005740427293820593,
+    "strike_minus_send_ms": 640.4538154602051,
+    "ack_ms": 24.57451820373535,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_gauss.c2.volume_x0.5_n1_d640_r2_1793179928829.wav"
+   }
+  ]
+ }
+}
