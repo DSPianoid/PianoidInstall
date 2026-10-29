@@ -1265,6 +1265,33 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radiance.import`, `radiance.from_frf`, `radiance.config`; factors via
 `param.set` (`mode.radiance_mono` / `mode.radiance_left` / `mode.radiance_right`).
 
+### Thump string (dev-thump1) {#thump-string-dev-thump1}
+
+The keybed "thump" (Option F of the [hammer-thump proposal](../../proposals/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)):
+a short, light string on its own pitch, struck next to the bridge, so its bridge force is a flat ~0.82·J below its
+first partial (~8.7 kHz) and kicks the board modes through its deck row. When enabled, every key note-on also excites
+it with the key's velocity (engine: [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
+Added to a preset by `python -m Pianoid.thump_string SRC.json DST.json` (PianoidBasic, [OVERVIEW](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1));
+config `model_parameters.thump = {enabled, pitch, gain, trim_db}` (logic `thump_config.py`, the single writer of `mp.thump`).
+
+| Route | Body | Result |
+|---|---|---|
+| `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}} or null, engine_pool, engine_supported}` |
+| `POST /set_parameter/thump/all` | `{enabled?, gain?, trim_db?: {key: dB}}` (`trim_db` merges per key; 0 dB removes the key) | `200`; `416 {message}` for a preset without a thump string / unknown field; `400` from the rule table |
+
+* **Per-key gain** = `gain · 10^(trim_db[key]/20)` (keys 21–108; the thump pitch itself never fires). Rule-table entries
+  `thump.gain` [0, 100] and `thump.trim_db` [−40, 40] dB (`param_rules.json`, family *excitation*).
+* **Undoable** (domain `thump`, Excitation pane Undo), journaled, saved with the preset. `param.set {parameter: thump, key_no: all, values}`.
+* **The thump string's own parameters** are ordinary pitch parameters of the thump pitch (20 by default): `hammer_mass` =
+  keybed effective mass (impulse scale), Gauss `sigma` per level = felt contact time, `mu` = keybed delay + 3σ (pulse
+  must end inside the 9.33 ms window), deck row = rim coupling, `gamma` damps its own partials.
+* **Calibration runs with the thump off**: `enter_calibration_mode` and the `output_scale` render push an empty pool;
+  the hammer-mass calibration and `excitation_retime` skip the thump pitch. Its loudness is a separate channel
+  (mass × gain), not part of the key equalisation.
+* **v1 caveat (one shared string):** a key within ~9.3 ms of the previous one re-excites the string and truncates the
+  previous pulse; keys in the same cycle merge into ONE excitation (the larger `gain × velocity` wins). The engine takes
+  a pool (round-robin per cycle) for a later 2–4-string pool.
+
 ## Parameter Endpoints
 
 ### `GET /get_parameter/<parameter>/<key_no>`
