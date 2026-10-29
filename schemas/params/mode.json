@@ -6,7 +6,7 @@
       "domain": "mode",
       "title": "Resonance modes",
       "read": "param.get {parameter: mode, key_no}",
-      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?, radiance_mono?, radiance_left?, radiance_right?}})",
+      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?, radiance_mono?, radiance_left?, radiance_right?, radiance_stereo?}})",
       "key_space": "MODE index 0..num_modes-1 (not a pitch; the only domain keyed by mode)",
       "shape": "{field: value} per mode",
       "stored_vs_effective": "frequency, decrement and mass_inv are stored; stiffness and damping are derived (read-only); mass is a read-only legacy alias of mass_inv. Mode edits are physics edits: they do NOT clear output_scale_calibrated.",
@@ -63,6 +63,14 @@
           "range": ">= 0, finite",
           "class": "stored",
           "meaning": "Right-speaker radiance factor of the mode in the stereo layout (see radiance_left).",
+          "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
+        },
+        {
+          "name": "radiance_stereo",
+          "units": "[L, R] linear amplitude gains, as radiance_mono; null = follows radiance_mono",
+          "range": "each >= 0, finite; or null",
+          "class": "stored",
+          "meaning": "The STORED stereo pair behind radiance_left / radiance_right (GET returns it; preset key radiance_stereo, written only when set). POST [L, R] sets the pair; null clears it (back to following mono). Undo of an L / R edit restores it exactly, incl. null (dev-rad2).",
           "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
         },
         {

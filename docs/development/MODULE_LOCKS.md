@@ -2693,4 +2693,6 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 <!-- dev-4284 locks RELEASED 2026-10-19 (merged by dev-db3c into Core dev 68615df / Tunner dev 5b42d38): modal_adapter measurement/** + audio_setup/collection_engine/setup_test_engine/measurement_routes/measurement_entity/measurement_import, modal_adapter_server.py, build_pianoid_cuda.bat, .gitignore, sdl_audio_core/** (deleted) + tests; Tunner AudioDevicesSection.jsx + tests -->
 
+<!-- dev-rad2 locks RELEASED 2026-10-29 (Phase 1; Core f8d07e8 / Tunner 06686da on feature/dev-rad2-stereo-null, NOT merged) -->
+
 <!-- dev-gh8 locks RELEASED 2026-10-29 (Phase 2 2026-10-29: merged Core dev b7495a4 / Tunner dev 0062129 / Install master 8ddd30c by merge-rg, NOT pushed; branches deleted, worktrees removed): Core feature/dev-gh8-asio-ring 2e9ddda, Install feature/dev-gh8-docs 06fd82c, Tunner feature/dev-gh8-latency-ui 4dedd52 -->

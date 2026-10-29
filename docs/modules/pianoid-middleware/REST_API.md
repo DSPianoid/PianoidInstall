@@ -1231,9 +1231,12 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 | `dual` | `mono` / `stereo` | both at once; needs **dedicated** speaker channels |
 
 * **Factors** `r[m]`: per-mode fields `radiance_mono`, `radiance_left`, `radiance_right` (linear gains `>= 0` (no cap; absolute factors are in engine row units),
-  default 1; GET returns the EFFECTIVE sides, = mono until a pair is set), `POST /set_parameter/mode/<m>` like any mode
+  default 1; GET returns the EFFECTIVE sides, = mono until a pair is set, plus the STORED `radiance_stereo` (`[L, R]` or
+  `null` = follows mono; hidden in the Modes panel), `POST /set_parameter/mode/<m>` like any mode
   field (undo, journal, `param.set`, rule table). Preset: `modes[m].radiance_mono` / `radiance_stereo: [L, R]`, written
-  only when set. POST also accepts `radiance_stereo` (`null` = back to following mono).
+  only when set. POST also accepts `radiance_stereo` (`[L, R]`, or `null` = clear the pair, back to following mono).
+  Undo of an L / R edit restores the stored pair exactly, incl. "follows mono" (it snapshots `radiance_stereo`, the field
+  L / R write; `parameter_manager.STORED_FIELD_OF`, dev-rad2).
   A radiance-only edit uploads no mode physics; the speaker rows re-upload when a speaker mix plays.
 * **Rows** (host precompute, no kernel change): the speaker channel's deck row is `g·r[m]` (`basis: absolute`) or
   `g·r[m]·b[m]` (`basis: board_motion`, `b[m]` = RMS over the native exciter rows = the engine's mode motion at the
