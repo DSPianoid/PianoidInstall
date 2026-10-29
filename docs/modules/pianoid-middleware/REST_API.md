@@ -521,8 +521,9 @@ Response `200` (healthy):
     "occurred": true,
     "requested": "ASIO_CALLBACK",
     "active": "SDL3",
-    "reason": "Requested ASIO audio driver could not be initialized (...). Falling back to SDL3.",
-    "message": "ASIO_CALLBACK unavailable - using SDL3"
+    "reason": "Requested ASIO audio driver could not be initialized (ASIO driver initialization failed — no working ASIO device found ('UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map))). Falling back to SDL3.",
+    "skipped": ["'UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map)"],
+    "message": "ASIO_CALLBACK unavailable - using SDL3 ('UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map))"
   }
 }
 ```
@@ -571,7 +572,12 @@ dict describing the ASIO→SDL3 runtime fallback — `occurred` is `true` only w
 requested ASIO driver failed to initialize and the engine fell back to SDL3 (so the
 user still has audio instead of `audio_driver_active: false`). `requested`/`active`
 are driver names (`SDL2`/`SDL3`/`ASIO`/`ASIO_CALLBACK`); `message` is the short
-user-facing warning and `reason` the underlying engine detail. The frontend lights a
+user-facing warning and `reason` the underlying engine detail. **`skipped`** (dev-gh8, when
+`occurred`): why EACH installed ASIO driver was skipped by the last open, e.g.
+`'UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map)` (also: not loadable,
+`ASIOInit failed (…)`, no legal buffer size, cannot run at 48 kHz, `ASIOCreateBuffers` / `ASIOStart`
+failed; `no ASIO driver is installed`); `message` appends them, so the UI audio chip shows the reason
+(before dev-gh8 it was only in the backend log and everything read "no working ASIO device found"). The frontend lights a
 "ASIO unavailable — using SDL3" warning on `occurred: true`. The same dict is pushed
 on the WebSocket `lifecycle` event (`audio_driver_fallback` key) so the UI reacts
 without polling. Engine-side mechanics: see
@@ -692,7 +698,13 @@ Parameter details:
 
 **Audio driver selection rule:** Prefer ASIO Callback (`4`) when an ASIO device is available — it provides the lowest latency. If ASIO is not available (no ASIO driver installed, or running without a dedicated audio interface), use SDL (`2`) as fallback. SDL works on all systems without special drivers. `0` is the safe default for tests / headless / "no specific audio hardware" callers — equivalent to type `3`.
 - `cycle_iterations`: samples per cycle; must match audio buffer size, minimum 16, default 64
-- `audio_buffer_size`: buffer chunks; `2`=low latency, `4`=balanced, `8`=high stability
+- `audio_buffer_size`: sizes the audio ring **memory** only (`max(128 × value, 512)` chunk slots). It does
+  **not** change latency or stability — before dev-gh8 this line said "2 = low latency, 4 = balanced,
+  8 = high stability", but the fill depth was hard-coded (ASIO 8, SDL3 16). Use `audio_ring_depth`.
+- `audio_ring_depth` (optional, dev-gh8): the **Latency ↔ Stability** setting — ring fill depth in chunks
+  of 64 frames, `0` = auto, integer `0..128` (rule `load_settings.audio_ring_depth` → `400
+  parameter_out_of_range`). Per machine, persisted; omitted = keep the saved value; applied live (no
+  reload). See [Audio ring depth](#audio-ring-depth-latency-vs-stability).
 - `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512. When the requested value differs from the preset's native `array_size`, string geometry (`main` and `tail`) is scaled proportionally
 - `sample_rate`: Hz; if < 1000 is multiplied by 1000
 - `volume`: the **preset (init) volume** — the level anchor, default `100` (bare center `1.0`); see *Level anchor vs slider level* above. Not the slider level.
@@ -974,6 +986,30 @@ through the real ASIO `asioMessage` handler (ignored by a non-ASIO driver, still
 `device_loss` replays the 2026-10-08 incident (callback stall + `kAsioResetRequest` + every
 ASIO open fails until `device_return`). Response `200`
 `{injected, result, audio_health}`; `400` for an unknown kind / bad `duration_ms` / no engine.
+
+### Audio ring depth (latency vs stability) {#audio-ring-depth-latency-vs-stability}
+
+(dev-gh8, PianoidCore #8) The synthesis thread hands the audio callback one 64-frame chunk per cycle
+through a ring; its **fill depth** (chunks queued ahead of the device) is the latency the engine adds and
+the cushion against a late synthesis cycle (an underrun = an audible click).
+
+| | |
+|---|---|
+| Latency formula | **ring_ms = depth × 64 / sample_rate** (8 → 10.7 ms, 4 → 5.3 ms, 16 → 21.3 ms @ 48 kHz); estimate = ring_ms + the driver's output latency (ASIO-reported `output_latency`, else one host buffer) |
+| Auto (`0`, default) | ASIO callback `max(8, 4 × blocks per host switch)` = 8 on a 64-frame host buffer (unchanged behaviour); SDL3 16 |
+| Explicit `1..128` | the driver floors it: ASIO `max(depth, 2 × blocks per switch, 2)`, SDL3 `max(depth, 16)`; `applied` reports the result |
+| Bounds | rule `load_settings.audio_ring_depth` (integer 0..128) — the same rule for `/load_preset` and this route ([parameter rule table](#parameter-rule-table)) |
+| Persistence | per machine, local settings file key `audio_ring` (survives restarts; not per preset, not per client) |
+| When it applies | **live** on the running driver (`Pianoid::setAudioRingDepth`, no reload, no audio restart); every later driver open / watchdog re-open / SDL3 fallback uses it |
+
+`GET /audio/ring_depth` → `200 {requested, auto, max, applied, live, sample_rate, chunk_frames, ring_ms,
+driver_latency_ms, driver_latency_source (asio_output_latency | host_buffer), estimate_ms, formula}`
+(`live: false`, `applied: null` with no engine).
+`POST /audio/ring_depth {"depth": 4}` → `200` = the GET body + `previous`, `effect` (`applied live` |
+`saved; applies when the audio driver starts`); `400 parameter_out_of_range` outside the bound, `400
+invalid_request` without `depth`. Broadcasts `session_changed {domain: audio_ring}`. Registry commands
+`audio.ring_depth` / `audio.set_ring_depth`; Tunner: Settings → Audio "Latency ↔ Stability".
+Measured on the UMC1820 rig: [AUDIO_DRIVERS → Ring depth measurements](../pianoid-cuda/AUDIO_DRIVERS.md#ring-depth-latency-vs-stability-dev-gh8).
 
 ### `GET /audio/devices`
 

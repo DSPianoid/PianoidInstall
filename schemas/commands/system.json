@@ -55,6 +55,33 @@
       "result": {"type": "object"}
     },
     {
+      "name": "audio.ring_depth",
+      "title": "Read the audio latency / stability setting",
+      "description": "The audio ring fill depth (the Latency <-> Stability setting, dev-gh8): requested (chunks of 64 frames, 0 = auto), applied (the depth in effect after the driver floor: ASIO 2 x blocks per host switch, SDL3 16), ring_ms = depth x 64 / sample_rate, driver_latency_ms (the ASIO reported output latency, else one host buffer) and estimate_ms = ring_ms + driver_latency_ms. live false = no engine running.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#audio-ring-depth-latency-vs-stability",
+      "route": {"method": "GET", "path": "/audio/ring_depth"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "audio.set_ring_depth",
+      "title": "Set audio latency vs stability",
+      "description": "Sets the audio ring fill depth in chunks of 64 frames (0 = auto: ASIO max(8, 4 x blocks per host switch), SDL3 16; 2..128 explicit). Lower = less latency (4 = 5.3 ms at 48 kHz) but underrun clicks when a synthesis cycle is late; higher = more stable (16 = 21.3 ms). Applied LIVE to the running audio driver (no reload) and persisted per machine (survives restarts); the driver raises a too-small value to its floor (see applied). Bounds = the parameter rule load_settings.audio_ring_depth (400 parameter_out_of_range outside 0..128). Result = audio.ring_depth + previous + effect.",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "per_command",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#audio-ring-depth-latency-vs-stability",
+      "route": {"method": "POST", "path": "/audio/ring_depth"},
+      "args": {"type": "object", "required": ["depth"], "additionalProperties": false,
+               "properties": {"depth": {"type": "integer", "minimum": 0, "maximum": 128}}},
+      "result": {"type": "object"}
+    },
+    {
       "name": "audio.exciters",
       "title": "Read the exciter currents",
       "description": "The exciter monitor (dev-8f54): its configuration (metered ASIO inputs with scale / unit, per exciter = engine channel: sense_input, board_input, current limit, target) and the latest telemetry: per exciter current RMS / peak, board RMS / peak, output peak dBFS, limiter gain dB, limiting, attacks, latched max, warnings (sensor_silent, map_suspect, input_clipping, limit_floor, uncalibrated, rate_low). enabled false = not metering.",

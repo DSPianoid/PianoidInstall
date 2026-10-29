@@ -72,7 +72,7 @@ struct AudioConfig {
     int             num_channels;
     int             mode_iteration;         // synthesis chunk size (== segment_length)
     AudioDriverType driver_type;
-    int             circular_buffer_chunks; // buffer depth (default 4)
+    int             circular_buffer_chunks; // ring FILL depth (dev-gh8: ASIO <= 0 = auto; set from audio_ring.py)
     int             cuda_device_id;         // default 0
 };
 ```
@@ -172,8 +172,8 @@ public:
 };
 ```
 
-`circular_buffer_chunks = 4` is recommended for ASIO (minimal latency). SDL3 typically
-uses 16 or more chunks for stability.
+Ring fill depth = the per-machine **Latency ↔ Stability** setting (dev-gh8): see
+[Ring depth (latency vs stability)](#ring-depth-latency-vs-stability-dev-gh8) below.
 
 **Host buffer size + ring depth (dev-431a, `AsioBufferSize.h`).** The engine renders and consumes audio in
 64-frame blocks (`BUFFER_SIZE`). `init_asio_static_data` creates the ASIO buffers at a **driver-legal whole number of
@@ -264,6 +264,36 @@ installed; the actual device load happens later in `ASIOAudioDriver::init()`.
 
 ---
 
+## Ring depth (latency vs stability) (dev-gh8) {#ring-depth-latency-vs-stability-dev-gh8}
+
+PianoidCore #8. The ring between the synthesis thread and the audio callback
+([LockFreeCircularBuffer](#lockfreecircularbuffer)) has two sizes that used to be confused:
+
+| | What | Set by |
+|---|---|---|
+| **Fill depth** (`num_chunks`) | chunks queued ahead of the device = the latency the engine adds and the underrun cushion | `circular_buffer_chunks` ← `audio_ring.init_chunks()` (the persisted per-machine request), live via `Pianoid::setAudioRingDepth` |
+| **Storage** (`num_chunks_in_buffer`) | memory slots only | `max(128 × audio_buffer_size, 512)` (`asiobuf::ringStorageChunks`) |
+
+Before dev-gh8 the depth was hard-coded in `pianoid.py` (ASIO callback 8, SDL3 16) and
+`audio_buffer_size`, documented as "2 = low latency … 8 = high stability", only sized the storage.
+
+**Depth rules** (`asiobuf::ringChunksFor`, `SDL3AudioDriver::setRingDepth`): request `0` = auto →
+ASIO callback `max(8, 4 × N)` with N = engine blocks per host switch (8 at the usual 64-frame host
+buffer), SDL3 16. An explicit request is floored: ASIO `max(depth, 2 × N, 2)` (a switch of N blocks drains
+N chunks in one burst), SDL3 `max(depth, 16)` (dev-f99c underruns below 16). Bounds 0..128: rule
+`load_settings.audio_ring_depth`. Ring latency = `depth × 64 / sample_rate` (+ the driver's own output
+latency). **Live:** `AudioDriverInterface::setRingDepth(int)` → `LockFreeCircularBuffer::setNumChunks`
+(storage unchanged, producer re-checks its slot predicate under the ring mutex; a shallower depth takes
+effect once the consumer drained the surplus). `Pianoid::setAudioRingDepth` runs under `audioDriverMutex_`
+(never races a watchdog re-open) and stores the request in `init_params_` so every re-open / SDL3
+fallback (`max(request, 16)`) uses it. REST / assistant / UI: [REST_API → Audio ring depth](../pianoid-middleware/REST_API.md#audio-ring-depth-latency-vs-stability).
+
+**Measured** (UMC1820, ASIO callback, 64-frame host buffer; 6-note chord; underruns per 3000 callbacks;
+round trip = loopback Out 8 → In 8 marker): *pending the dev-gh8 live run — table filled from the
+measurement*.
+
+---
+
 ## ASIO → SDL3 Runtime Fallback
 
 **File:** `Pianoid.cu` (`Pianoid::startAudioDriver()`) — added dev-asioload, 2026-06-02.
@@ -275,9 +305,18 @@ but the physical device is only **opened** later, when `startAudioDriver()` call
 `HKLM\SOFTWARE\ASIO`; with no ASIO driver installed it throws
 (`"ASIO driver initialization failed — no working ASIO device found"`).
 
+**Why it was skipped (dev-gh8).** The ASIO open records a reason for EVERY driver it tried
+(`AsioAudioOutput::lastInitFailures()`, Python `pianoidCuda.getAsioInitFailures()`): not loadable,
+`ASIOInit failed (<driver message>)`, `N outputs < M needed (engine channels / output map)`, no legal
+buffer size, cannot run at 48 kHz, `ASIOCreateBuffers` / `ASIOStart` failed, or `no ASIO driver is
+installed`. `init()` throws `"... no working ASIO device found ('UMC1820' skipped: 8 outputs < 10 needed
+(engine channels / output map))"`, so the reason reaches the fallback reason, `/health
+audio_driver_fallback.skipped` / `message` and the Tunner audio chip — before, the outputs-vs-map skip
+(`AsioAudioInterface.cpp` `init_asio_static_data`) was only logged.
+
 `startAudioDriver()` catches that throw and, **only when the requested driver was an
 ASIO variant** (`ASIO` or `ASIO_CALLBACK`), reconstructs the driver as **SDL3**
-(`circular_buffer_chunks = 16`), re-runs `setupCuda` + `init`, and continues — so the
+(ring depth `max(requested, 16)`, dev-gh8), re-runs `setupCuda` + `init`, and continues — so the
 user still gets audio instead of `audio_driver_active = false` (silent no-sound).
 
 The fallback is **not silent**: the engine records it (engine is the sole writer — P1)
@@ -501,7 +540,9 @@ public:
 };
 ```
 
-Internal storage is `std::vector<Sint32>` on the CPU. `produce()` performs a
+Internal storage is **pinned** host memory (`cudaHostAlloc(..., cudaHostAllocPortable)`, freed with
+`cudaFreeHost`; dev-gh8 — it was a pageable `std::vector<Sint32>`, which turned the async D→H copy into a
+staged, effectively synchronous one; a failed pinned allocation throws, no pageable fallback). `produce()` performs a
 `cudaMemcpyAsync` from GPU to this buffer on a **dedicated non-blocking CUDA stream**
 (`produce_stream`), then `cudaStreamSynchronize` on that stream. The dedicated stream
 isolates the D→H copy from the synthesis kernel on the default stream — a correctness
@@ -546,7 +587,5 @@ SDL3: audioStreamCallback  /  ASIO: audioCallbackForASIO
 Audio hardware
 ```
 
-Buffer depth (`circular_buffer_chunks`; the ASIO callback driver deepens it to 2 × the blocks per switch on a
-multi-block host buffer, dev-431a) trades latency for stability:
-- 4 chunks (ASIO default): minimal latency, requires consistent GPU cycle timing
-- 16+ chunks (SDL3 default): greater cushion against timing jitter
+Buffer depth trades latency for stability — the per-machine setting of
+[Ring depth (latency vs stability)](#ring-depth-latency-vs-stability-dev-gh8) (ASIO auto 8 = 10.7 ms; SDL3 ≥ 16).
