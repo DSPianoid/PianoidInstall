@@ -6,7 +6,7 @@
       "domain": "mode",
       "title": "Resonance modes",
       "read": "param.get {parameter: mode, key_no}",
-      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?, radiance_mono?, radiance_stereo?}})",
+      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?, radiance_mono?, radiance_left?, radiance_right?}})",
       "key_space": "MODE index 0..num_modes-1 (not a pitch; the only domain keyed by mode)",
       "shape": "{field: value} per mode",
       "stored_vs_effective": "frequency, decrement and mass_inv are stored; stiffness and damping are derived (read-only); mass is a read-only legacy alias of mass_inv. Mode edits are physics edits: they do NOT clear output_scale_calibrated.",
@@ -50,11 +50,19 @@
           "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
         },
         {
-          "name": "radiance_stereo",
-          "units": "[L, R] linear amplitude gains, as radiance_mono",
-          "range": "each 0..1000, finite; null = follows radiance_mono (L = R = mono, the default until measured)",
+          "name": "radiance_left",
+          "units": "linear amplitude gain, as radiance_mono",
+          "range": "0..1000, finite",
           "class": "stored",
-          "meaning": "Per-speaker radiance factors of the mode in the stereo layout.",
+          "meaning": "Left-speaker radiance factor of the mode in the stereo layout. GET returns the EFFECTIVE value (= radiance_mono until a stereo pair is set); setting it stores an explicit pair [L, R] (preset key radiance_stereo) whose other side keeps its effective value. POST also accepts radiance_stereo [L, R] (null = back to following mono).",
+          "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
+        },
+        {
+          "name": "radiance_right",
+          "units": "linear amplitude gain, as radiance_mono",
+          "range": "0..1000, finite",
+          "class": "stored",
+          "meaning": "Right-speaker radiance factor of the mode in the stereo layout (see radiance_left).",
           "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
         },
         {

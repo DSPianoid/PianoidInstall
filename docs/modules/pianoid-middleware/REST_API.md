@@ -1194,8 +1194,10 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 | `speakers` | `mono` / `stereo` | the speaker channel(s) carry `y = D^k Σ_m g·r[m]·q_m`; every exciter channel silent |
 | `dual` | `mono` / `stereo` | both at once; needs **dedicated** speaker channels |
 
-* **Factors** `r[m]`: per-mode fields `radiance_mono` (scalar) and `radiance_stereo` (`[L, R]`, `null` = follows mono),
-  linear gains `0..1000`, default 1; `POST /set_parameter/mode/<m>` like any mode field (undo, journal, `param.set`).
+* **Factors** `r[m]`: per-mode fields `radiance_mono`, `radiance_left`, `radiance_right` (linear gains `0..1000`,
+  default 1; GET returns the EFFECTIVE sides, = mono until a pair is set), `POST /set_parameter/mode/<m>` like any mode
+  field (undo, journal, `param.set`, rule table). Preset: `modes[m].radiance_mono` / `radiance_stereo: [L, R]`, written
+  only when set. POST also accepts `radiance_stereo` (`null` = back to following mono).
   A radiance-only edit uploads no mode physics; the speaker rows re-upload when a speaker mix plays.
 * **Rows** (host precompute, no kernel change): the speaker channel's deck row is `g·r[m]` (`basis: absolute`) or
   `g·r[m]·b[m]` (`basis: board_motion`, `b[m]` = RMS over the native exciter rows = the engine's mode motion at the
@@ -1222,7 +1224,7 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 | `POST /radiance/from_frf` | `{frf_path, exciters?, speakers?, mic?, band_octaves?, layout? mono/L/R, apply?, source?, provisional?}` | the MEASURED absolute factors from a rig FRF + the LIVE model: `r[m] = sqrt(<\|Σ_c W[c,m]·H_mic←E_c(f)\|²> / <\|H_mic←spk(f)\|²>)` over a 1/3-octave band at the live mode frequency (mono: `H_spk = H_L + H_R`); `apply` writes them (one undoable `mode` edit) with `basis: absolute` |
 
 Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radiance.import`, `radiance.from_frf`, `radiance.config`; factors via
-`param.set` (`mode.radiance_mono` / `mode.radiance_stereo`).
+`param.set` (`mode.radiance_mono` / `mode.radiance_left` / `mode.radiance_right`).
 
 ## Parameter Endpoints
 
