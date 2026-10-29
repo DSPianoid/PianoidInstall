@@ -215,7 +215,7 @@ write never overwrites a slot a switch still reads. Per-switch cost: one atomic 
 A **mirror** `(engine channel, device output)` copies the channel's final block (after the exciter monitor) to one
 more output — mono speaker output on both speakers from one engine channel. Validation (`ValueError`): outputs
 `0..31` distinct over map + mirror outputs, mirror sources inside the map; live (an engine is bound): map length ==
-the engine's channels and reach <= the open device's outputs. Used by the output routing
+the engine's channels and reach <= the open device's outputs (the binding is dropped in `Close()`, so a full reload to another channel count is checked only against its own engine). Used by the output routing
 ([REST_API → Output routing](../pianoid-middleware/REST_API.md#output-routing-dev-rad1)), which composes the map from
 `PIANOID_AUDIO_OUTPUT_MAP` (exciter channels) and `PIANOID_SPEAKER_OUTPUTS` (speaker channels, default `0,1`).
 
