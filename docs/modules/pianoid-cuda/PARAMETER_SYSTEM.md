@@ -245,6 +245,32 @@ corresponding named sub-buffer.
 
 ---
 
+## Parameter Validation (safety net, host-side, pre-write)
+
+Every value that reaches the parameter buffers has already been checked by
+`pianoid_middleware/param_safety.py` (dev-psafe1, 2026-10-28), the one evaluator of the mutable
+[parameter rule table](../pianoid-middleware/REST_API.md#parameter-rule-table) (dev-psafe2: the defaults
+below ship in `param_rules.json`; the user can relax, tighten or disable each rule, persisted). The check is pure Python and runs on the
+request thread: `edit_commit.commit` → `check_edit` for every edit, and `check_model` for preset loads.
+It runs before the undo step, the model write and the GPU upload, so a rejected value never reaches the
+TUNABLE buffer, and the double-buffer swap and kernel pay no per-sample cost. Rules and the 400 body:
+[REST_API.md "Parameter safety net"](../pianoid-middleware/REST_API.md#parameter-safety-net-out-of-domain-rejection).
+Each rule follows from the engine maths documented here and in the linked docs:
+
+| Default rule | Engine maths behind it |
+|---|---|
+| finite everywhere | NaN / Inf survive the `float` cast and propagate through every buffer |
+| mode `0 < f ≤ sr/π` | the mode recurrence (pianoid-basic OVERVIEW "Piano_mode") has roots `(1−dec)e^{±iθ}`, `cos θ = 1 − ω/2`, `ω = (2πf/sr)²`; `ω ≤ 4 ⇔ f ≤ sr/π` (played Nyquist). `f = 0` is an undamped double root at 1, and `f < 0` makes `dec < 0` |
+| mode `decrement ≥ 0`, `dec = decrement·f/sr < 1` | the decay factor `1 − dec` must lie in `(0, 1]`. `dec < 0` grows, `dec ≥ 1` flips sign every sample, and `dec > 2` diverges |
+| mode `mass_inv > 0` | the kernel multiplies the force by `mass_inv` ([MODE_PHYSICS.md](MODE_PHYSICS.md)). A negative value inverts the soundboard coupling, and 0 divides by zero in `fit_params`' legacy `mass + stiffness` path |
+| string `rho, length/dx > 0` | `coeff_tension = tension/rho·dt²/dx²` and `coeff_bending ∝ 1/(rho·dx⁴)` (see the CFL section below) |
+| string `gamma, disp_decay, damper_* ≥ 0` | negative damping: measured closed-form `max|g| > 1` (`cfl_stability.max_amplification`, BaselinePreset1 p60) |
+| string `tension > 0` on every unison string `tension·(1+i·offset)` | stored vs effective: the engine packs the per-string tension. `≤ 0` is not a string |
+
+**CFL is not part of the safety net.** The Courant bound below stays an indication: the edit is
+applied and the `cfl_redline` flag is raised. The safety net never rejects a positive-tension string
+for being near or over the Courant edge.
+
 ## Host-Side CFL Stability Gate (physical params — GRANULAR path)
 
 Before a **granular** string edit reaches the kernel, the middleware runs a host-side Courant/CFL

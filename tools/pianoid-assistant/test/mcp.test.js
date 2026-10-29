@@ -137,7 +137,7 @@ test('stdio: the real server process lists tools (standalone .mcp.json use)', as
 
 test('v2 P1 state reads are listed read-only and allowed without a confirm', () => {
   const STATE = ['system.health', 'system.environment', 'system.snapshot', 'audio.devices', 'midi.ports',
-    'midi.broadcast_state', 'preset.summary', 'preset.files', 'param.inventory'];
+    'midi.broadcast_state', 'preset.summary', 'preset.files', 'param.inventory', 'param.rules'];
   const tools = new Map(listTools(COMMANDS).map((t) => [t.name, t]));
   for (const name of STATE) {
     const cmd = COMMANDS.find((c) => c.name === name);
