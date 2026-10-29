@@ -1148,7 +1148,10 @@ addThumpToBatch: first thump of the batch -> pool string (round-robin per batch)
 **Measured (offline `runOfflinePlayback`, `Tuning18-10-26ver1` + thump on pitch 20 / slot 235, 512/si 8, order 2):**
 thump-string Courant 0.25 (max\|g\| 0.992), no redline; output with the string present but not struck within
 −0.004 dB of the original preset (spectral peaks identical); response linear in the thump `hammer_mass`
-(10× mass → 9.997× output). Metric tables: [session log dev-thump1](../../development/logs/dev-thump1-2026-10-29-142109.md).
+(10× mass → 9.997× output). Auto-trigger (scratch build): key note-on + thump = an explicit thump note within
+the float noise floor (rel 2e-4); thump off = the pre-change build (rel 1.9e-4, level 1e-5 dB); a 0/4/8 ms roll gives
+2.41× one thump's energy vs 2.79× when 10.7 ms apart (the truncation cost); a same-cycle chord gives exactly one thump;
+perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 ms (noise). Metric tables: [session log dev-thump1](../../development/logs/dev-thump1-2026-10-29-142109.md).
 
 ### Kernel Trigger: `new_notes_ind`
 
