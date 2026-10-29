@@ -2078,7 +2078,7 @@ Backend-timed MIDI-file player ([MIDI_SYSTEM.md → MIDI player](MIDI_SYSTEM.md#
 | Method + path | Body | Effect |
 |---|---|---|
 | `GET /midi_player/status` | — | current status |
-| `GET /midi_player/library` | — | `{midi_dir, bundled_dir, files: [{name, path, source: "midi"\|"bundled", folder, bytes}]}` (`<PianoidInstall>/midi` or `$PIANOID_MIDI_DIR`, recursive, + `MIDI_records/`) |
+| `GET /midi_player/library` | — | `{midi_dir, midi_dir_source: "setting"\|"env"\|"default", bundled_dir, files: [{name, path, source: "midi"\|"bundled", folder, bytes}]}` (MIDI folder = local-settings `midi_dir` -> `$PIANOID_MIDI_DIR` -> `<PianoidInstall>/MidiRecords`, recursive, + `MIDI_records/`) |
 | `POST /midi_player/load` | `{"path": "<absolute path>"}` or multipart field `file` | stop, parse, load (mutes cleared; speed / loop / transpose / velocity kept) |
 | `POST /midi_player/transport` | `{"action": "play" \| "pause" \| "stop"}` | play needs a running engine; pause/stop = all notes off; stop rewinds to 0 |
 | `POST /midi_player/seek` | `{"position_ms": float}` | while playing: all notes off, resume there (pedal state chased) |
