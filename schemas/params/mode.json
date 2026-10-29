@@ -44,7 +44,7 @@
         {
           "name": "radiance_mono",
           "units": "linear amplitude gain (dimensionless); speaker drive per unit engine mode signal (basis absolute) or per unit board motion (basis board_motion, see output.get_mode)",
-          "range": "0..1000, finite (negative = a polarity flip, rejected); default 1 (absent in old presets)",
+          "range": ">= 0, finite (negative = a polarity flip, rejected; no cap: absolute factors are in engine row units, ~1e4); default 1 (absent in old presets)",
           "class": "stored",
           "meaning": "Speaker radiance factor of the mode in the mono layout: the speaker channel row is g*r[m] (x b[m] for board_motion), g = energy match to the exciter channels + trim. Inert in output target board. A radiance-only edit uploads no mode physics.",
           "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
@@ -52,7 +52,7 @@
         {
           "name": "radiance_left",
           "units": "linear amplitude gain, as radiance_mono",
-          "range": "0..1000, finite",
+          "range": ">= 0, finite",
           "class": "stored",
           "meaning": "Left-speaker radiance factor of the mode in the stereo layout. GET returns the EFFECTIVE value (= radiance_mono until a stereo pair is set); setting it stores an explicit pair [L, R] (preset key radiance_stereo) whose other side keeps its effective value. POST also accepts radiance_stereo [L, R] (null = back to following mono).",
           "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
@@ -60,7 +60,7 @@
         {
           "name": "radiance_right",
           "units": "linear amplitude gain, as radiance_mono",
-          "range": "0..1000, finite",
+          "range": ">= 0, finite",
           "class": "stored",
           "meaning": "Right-speaker radiance factor of the mode in the stereo layout (see radiance_left).",
           "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"

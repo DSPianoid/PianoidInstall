@@ -1194,7 +1194,7 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 | `speakers` | `mono` / `stereo` | the speaker channel(s) carry `y = D^k Σ_m g·r[m]·q_m`; every exciter channel silent |
 | `dual` | `mono` / `stereo` | both at once; needs **dedicated** speaker channels |
 
-* **Factors** `r[m]`: per-mode fields `radiance_mono`, `radiance_left`, `radiance_right` (linear gains `0..1000`,
+* **Factors** `r[m]`: per-mode fields `radiance_mono`, `radiance_left`, `radiance_right` (linear gains `>= 0` (no cap; absolute factors are in engine row units),
   default 1; GET returns the EFFECTIVE sides, = mono until a pair is set), `POST /set_parameter/mode/<m>` like any mode
   field (undo, journal, `param.set`, rule table). Preset: `modes[m].radiance_mono` / `radiance_stereo: [L, R]`, written
   only when set. POST also accepts `radiance_stereo` (`null` = back to following mono).
