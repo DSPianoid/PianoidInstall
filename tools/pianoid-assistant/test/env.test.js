@@ -22,7 +22,7 @@ test('registry: env.get is a read, env.set an own command rule naming the allow-
   const set = BY.get('env.set');
   assert.deepEqual([set.tier, set.approval_category, set.route.path], ['act', 'per_command', '/settings/env']);
   assert.deepEqual(set.args.required, ['name', 'value']);
-  assert.deepEqual(set.args.properties.name.enum, ['PIANOID_AUDIO_OUTPUT_MAP', 'PIANOID_ASIO_BUFFER_SIZE', 'PIANOID_LISTEN_TO_MIDI']);
+  assert.deepEqual(set.args.properties.name.enum, ['PIANOID_AUDIO_OUTPUT_MAP', 'PIANOID_SPEAKER_OUTPUTS', 'PIANOID_ASIO_BUFFER_SIZE', 'PIANOID_LISTEN_TO_MIDI']);
 });
 
 test('policy: env.get runs; env.set asks (risky, with a warning) and offers its own Always allow; the Autonomous preset leaves it on Ask', () => {
