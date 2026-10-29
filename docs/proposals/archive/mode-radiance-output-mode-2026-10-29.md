@@ -1,6 +1,8 @@
 # Mode radiance factors and mono / stereo output mode (design only)
 
-**Status:** IMPLEMENTATION IN PROGRESS (dev-rad1 Phase B, 2026-10-29): branches `feature/dev-rad1-radiance` (Basic),
+**Status:** IMPLEMENTED by dev-rad1 (merged 2026-10-29 by merge-rg: Core dev e19e473, Basic dev 62959d4, Tunner dev cf288a0, Install master 49708a5; NOT pushed) - Archived 2026-10-29. Working docs: REST_API Output routing, AUDIO_DRIVERS live output routing. Deferred (WORK_IN_PROGRESS dev-rad1 COMPLETED comment): measured stereo L/R factors, re-measured mono factors at the listening position, a dual-capable user preset.
+
+**Former status:** IMPLEMENTATION IN PROGRESS (dev-rad1 Phase B, 2026-10-29): branches `feature/dev-rad1-radiance` (Basic),
 `feature/dev-rad1-output-routing` (Core, Tunner), `feature/dev-rad1-design` (Install). The user's decisions are in
 [§0](#0-decisions-2026-10-29-supersede-the-options-below); they take precedence over the options discussed below.
 **Date:** 2026-10-29
@@ -68,9 +70,9 @@ synthesized sound through the speakers to sound similarly to the excited board."
 ## 2. How output works today (strings-listen mode, `listen_to_modes = 0`)
 
 Doc support:
-- [SYNTHESIS_ENGINE "Sound strings" / "Sound-Channel Gain Path"](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md)
-- [DATA_FLOWS §2.4 disambiguation](../architecture/DATA_FLOWS.md)
-- [pianoid-basic OVERVIEW "SoundChannels — Stored vs effective"](../modules/pianoid-basic/OVERVIEW.md)
+- [SYNTHESIS_ENGINE "Sound strings" / "Sound-Channel Gain Path"](../../modules/pianoid-cuda/SYNTHESIS_ENGINE.md)
+- [DATA_FLOWS §2.4 disambiguation](../../architecture/DATA_FLOWS.md)
+- [pianoid-basic OVERVIEW "SoundChannels — Stored vs effective"](../../modules/pianoid-basic/OVERVIEW.md)
 
 Source was confirmed for each step below.
 

@@ -1222,7 +1222,7 @@ TEST HOOK (`session`): `{input, level_fs}` — physical input `input` reads at l
 
 Where the synthesized sound goes, and how each soundboard mode reaches the speakers. Logic:
 `output_routing.py` (session state + plan + rows), routes `output_routing_routes.py`. Design:
-[mode-radiance-output-mode proposal](../../proposals/mode-radiance-output-mode-2026-10-29.md).
+[mode-radiance-output-mode proposal (archived)](../../proposals/archive/mode-radiance-output-mode-2026-10-29.md).
 
 | target | layout | engine channels |
 |---|---|---|
