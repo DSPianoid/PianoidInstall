@@ -482,6 +482,32 @@ are their parametric form (dev-8a9e). See [Branch status](#branch-status).
   UNKNOWN until the inspection result is known). The acoustic judgement (rattle, balance) is the user's: the
   assistant has no listening microphone on the board unless the user selected one.
 
+### Step 12: speaker radiance (synth through speakers sounding like the board) {#step-12-speaker-radiance}
+
+Goal (user, 2026-10-29): per-mode **speaker-drive gains** r[m] so that the synthesized modes played through the
+speakers (Out 1/2) sound like the same modes radiated by the excited board. r[m] multiplies the speaker drive, so it
+is **measured**, not derived: [REST_API → Output routing](../modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1).
+
+1. **Capture** one `modal.rig_capture` run with every exciter E1..En **and** both speakers (`SPKL` Out 1, `SPKR` Out 2)
+   as references, the mic (`MIC`, In 1) as a response, at the listening position. Speakers ~6 dB below the
+   exciters is fine; check the speaker repeat SNR (>= 25 dB) in `frf/report.json`.
+2. **Process** `modal.rig_process` step `frf` -> `frf/frf.npz`.
+3. **Measure** `radiance.from_frf {frf_path, layout: mono}` (speakers fed together = `H_L + H_R`) — it uses the LIVE
+   model (the working copy's mode frequencies and native exciter rows W):
+   `r[m] = sqrt(<|Σ_c W[c,m]·H_mic←E_c(f)|²> / <|H_mic←spk(f)|²>)` over a 1/3-octave band at f_m. Read the
+   spread first; then `apply: true` writes them (one undoable edit, `basis: absolute`, `provisional: true`).
+   Stereo: `layout: L` / `R` with each speaker alone fill `radiance_left` / `radiance_right`.
+4. **Several mic positions** (the room moves single values by ~10 dB RMS): run 1-3 per position with `apply: false`,
+   power-average the factors (`sqrt(mean(r²))` per mode), then `radiance.import {mono: [...], basis: absolute}`.
+5. **Listen:** `output.set_mode {target: speakers, layout: mono}` (asks: its own rule) — or `dual` with a preset that
+   has dedicated speaker channels — and compare with `board`. `output.get_mode` shows the gain and the provenance.
+
+Modes with no exciter coupling (all native rows 0) get r = 0: they are silent through the exciters too. The older
+relative curve (assistant coefA, per unit board motion with the piezos as the motion proxy) can still be imported as
+`radiance.import {mono_db, basis: board_motion, provisional: true}`; it is energy-matched to the exciter channels
+instead of being absolute. The two are different quantities (coefA divides out the piezo motion; the absolute
+factor keeps the engine's own exciter weights W), so do not expect them to agree mode by mode.
+
 ## Analysis recipes (`analysis.run_python`) {#recipes}
 
 The sandbox has numpy / scipy / soundfile / matplotlib, no network, no Pianoid access and no files except its

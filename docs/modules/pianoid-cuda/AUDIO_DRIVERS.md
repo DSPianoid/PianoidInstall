@@ -203,6 +203,22 @@ entries `0..31`, distinct (`ValueError`); at driver init the map length must equ
 device must have `max(map)+1` outputs (else the device is skipped → the documented ASIO→SDL3 fallback). The
 legacy non-callback ASIO driver (type 1) rejects a map. Example (10-15 plywood rig, E1..E7 on Out 9, 10, 3..7):
 `PIANOID_AUDIO_OUTPUT_MAP=8,9,2,3,4,5,6`. Not used by SDL (stereo downmix of channels 0/1).
+
+### Live output routing and mirrors (dev-rad1)
+
+**Live output routing and mirrors (dev-rad1).** `AsioAudioOutput::setOutputRouting(map, mirrors)` (pybind
+`setAsioOutputRouting`, GIL released; `setAsioOutputMap(map)` = no mirrors; `getAsioOutputMirrors()`) may be called
+**while the driver runs**: the routing is double-buffered (two fixed `OutputRouting` slots, `int map[32]` + up to 4
+mirrors); the writer fills the inactive slot and publishes it with one atomic store, the `bufferSwitch` loads the
+active index once per switch, and the writer returns only after 2 switches (or 100 ms of driver idle) so a later
+write never overwrites a slot a switch still reads. Per-switch cost: one atomic load (+ one `memcpy` per mirror).
+A **mirror** `(engine channel, device output)` copies the channel's final block (after the exciter monitor) to one
+more output — mono speaker output on both speakers from one engine channel. Validation (`ValueError`): outputs
+`0..31` distinct over map + mirror outputs, mirror sources inside the map; live (an engine is bound): map length ==
+the engine's channels and reach <= the open device's outputs (the binding is dropped in `Close()`, so a full reload to another channel count is checked only against its own engine). Used by the output routing
+([REST_API → Output routing](../pianoid-middleware/REST_API.md#output-routing-dev-rad1)), which composes the map from
+`PIANOID_AUDIO_OUTPUT_MAP` (exciter channels) and `PIANOID_SPEAKER_OUTPUTS` (speaker channels, default `0,1`).
+
 **Map vs preset channel count (dev-16af).** A map **longer** than the preset's channels is a per-machine map
 for a wider preset: its **first N** entries are used (channel `k` still plays on `map[k]`) and `/load_preset`
 answers with `output_map_warning`. A **shorter** map cannot route every channel, and a map with a
