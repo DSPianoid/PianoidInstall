@@ -1,6 +1,8 @@
 # Mode radiance factors and mono / stereo output mode (design only)
 
-**Status:** PROPOSAL (Phase A of dev-rad1). Nothing is implemented. Branch `feature/dev-rad1-design`, not merged.
+**Status:** IMPLEMENTATION IN PROGRESS (dev-rad1 Phase B, 2026-10-29): branches `feature/dev-rad1-radiance` (Basic),
+`feature/dev-rad1-output-routing` (Core, Tunner), `feature/dev-rad1-design` (Install). The user's decisions are in
+[§0](#0-decisions-2026-10-29-supersede-the-options-below); they take precedence over the options discussed below.
 **Date:** 2026-10-29
 **Trigger (user, verbatim):** "output channel coefficient mask to replicate soundboard emission on stereo speakers (check my
 dialog with the assistant). For that each mode should get additional parameter (radiance factor), one figure for mono,
@@ -10,6 +12,19 @@ dialog with the assistant). For that each mode should get additional parameter (
 cycle time significantly." See [§5](#5-where-the-summation-runs-cycle-cost).
 
 ---
+
+## 0. Decisions (2026-10-29, supersede the options below)
+
+| Topic | Decision (user) | Implemented as |
+|---|---|---|
+| What r[m] is | multiplies the speaker drive voltage → **measure** it | `basis: absolute` (default): r = speaker drive per unit engine mode signal, `r[m] = sqrt(<\|Σ_c W[c,m] H_mic←E_c\|²>/<\|H_mic←spk\|²>)` (`Pianoid.radiance.radiance_from_frf`, `POST /radiance/from_frf` on the LIVE model); rows = trim·r, no energy match |
+| Piezo proxy | piezos sit independently of the exciters but move ~in sync at a mode → usable proxy | `basis: board_motion` for the assistant's coefA (relative): rows = g·trim·r·b, b = RMS of native exciter rows, g = energy match |
+| Mono | same signal on both speakers | two identical rows (borrowed ch0/ch1) or one channel + an ASIO **mirror** |
+| Stereo | measure later; fields + collapse now | `radiance_left` / `radiance_right` (effective, = mono until set; stored as `radiance_stereo`) |
+| Live map swap | include the host C++ fix | double-buffered `setOutputRouting(map, mirrors)`, one atomic load per bufferSwitch |
+| Output targets | board / speakers / dual | `target ∈ {board, speakers, dual}` × `layout ∈ {mono, stereo}`; dual needs dedicated speaker channels (`model_parameters.radiance.speaker_channels`) |
+| Headroom | −3 dB OK | `trim_db` default −3 |
+| Where the sum runs | must not cost cycle time | §5 (a): host precompute into the existing output rows — no kernel change |
 
 ## 1. What the assistant dialog established (2026-10-29, session `a15f04f3…`)
 

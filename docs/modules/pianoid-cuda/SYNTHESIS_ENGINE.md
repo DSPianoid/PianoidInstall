@@ -879,6 +879,14 @@ expected. The strings-axis editor in PianoidTunner's SoundChannelsPane
 implements the latter; see `docs/modules/pianoid-tunner/OVERVIEW.md`
 "Strings-axis key normalization".
 
+**Output routing (dev-rad1).** The middleware can REPLACE the values of these output rows (host precompute, no kernel
+change, zero per-cycle cost: the dense mode→string scatter does the same work for any values): speaker channels get
+`g·r[m]` (per-mode radiance), silenced channels 0, and the ASIO map is swapped live
+([REST_API → Output routing](../pianoid-middleware/REST_API.md#output-routing-dev-rad1)). Rows load into registers at
+kernel launch, so a switch is live at the next cycle. In the single-deck build the output row is also the output
+string's feedin row; output strings carry tension 0, so their bridge force (and with it any back-coupling) is expected
+to be ~0 — to be confirmed by measurement (dev-rad1 V4).
+
 The data-model contract for `string_coefficients` is documented in
 `docs/modules/pianoid-basic/OVERVIEW.md` "SoundChannels — Stored vs effective
 entries"; the disambiguation between `deck`, `mode_sound_channels`, and

@@ -98,6 +98,10 @@ from .StringState import StringState
 
 File: `ModelParams.py`
 
+`radiance` (dev-rad1, optional dict, saved by `pack()` only when set): the preset's speaker radiance config
+`{basis: absolute | board_motion, trim_db, speaker_channels, source, provisional}` (PianoidCore
+`output_routing.radiance_config` fills the defaults: absolute, −3 dB, no dedicated speaker channels).
+
 Global simulation configuration. Holds the parameters that determine how the CUDA kernel is sized and how the time-stepping is structured.
 
 | Attribute | Default | Meaning |
@@ -363,6 +367,15 @@ File: `Mode.py`
 
 **Piano_mode** — a damped harmonic oscillator representing one resonator mode of the piano soundboard.
 
+**Speaker radiance (dev-rad1).** `radiance_mono` (scalar) and `radiance_stereo` (`[L, R]`, `None` = follows mono) are
+per-mode linear speaker-drive gains (default 1; preset keys written only when set, so old presets round-trip
+unchanged). `set_radiance` validates everything before writing (via `update_params`); `radiance_left` /
+`radiance_right` are the effective sides (setting one stores an explicit pair). `ModeMap.radiance_matrix(layout)`
+(S x num_modes) and `ModeMap.response_energies(order)` feed the output routing. Math in `radiance.py`:
+`radiance_from_frf` (the MEASURED absolute factor, [MODE_DISCOVERY step 12](../../guides/MODE_DISCOVERY_FOR_ASSISTANT.md#step-12-speaker-radiance)),
+`board_motion_basis`, `energy_match_gain`, `fold_flat`, `mode_energy` (the closed form of DATA_FLOWS "Analytic
+audible weight"). Routing semantics: [REST_API → Output routing](../pianoid-middleware/REST_API.md#output-routing-dev-rad1).
+
 Discrete-time state variables:
 
 | Variable | Meaning |
@@ -511,6 +524,12 @@ DARKEN the mid sustain (−0.6…−1.3 oct, p48–84): the old 3.28 ms pulse (�
 ### SoundChannels
 
 File: `SoundChannels.py`
+
+**Output-row override (dev-rad1).** `StringMap.output_rows_provider` (default `None` = native) is called by
+`pitch_deck_row` for every OUTPUT pitch as `provider(sm, channel)` → a domain row (`num_modes` values) or `None`
+(native). The middleware output routing is its only writer (speaker radiance rows / silent rows); `native_output_row(s)`
+give the native row `effective_deck('feedback') x SC string gain` the provider is built from. Piano rows are never
+touched; with the provider unset or returning `None` every packed row is byte-identical to before.
 
 Two classes manage the coupling between modes/strings and audio output channels.
 

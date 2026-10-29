@@ -870,7 +870,8 @@ effective_coeff = stored_coeff[active preset]  ×  env_multiplier(slider positio
   },
   "blocks": [[0,1], [2,3], ...],
   "modes": [
-    { "ID": 0, "frequency": 27.5, "decrement": 0.001 }
+    { "ID": 0, "frequency": 27.5, "decrement": 0.001,
+      "radiance_mono": 0.5, "radiance_stereo": [0.4, 0.6] }   // dev-rad1, optional (absent = 1 / follows mono)
   ],
   "mode_sound_channels": {
     "num_channels": 4,
