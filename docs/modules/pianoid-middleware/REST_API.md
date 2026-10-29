@@ -1293,6 +1293,33 @@ WS `set_parameter` returns the same message in its `error`.
  "message": "string: values has no entry for pitch 60 of the key range. Give a value for every pitch of key_no, or narrow key_no. Nothing was written."}
 ```
 
+**Every keyed write is all-or-nothing (dev-mpart1, same owner).** Each `set_parameter` family checks its
+whole payload before its first model write, so a rejected write leaves the model AND the engine untouched
+and records no undo / journal entry:
+
+| Parameter | Key coverage (`key_no` = the range) | Entry check | Error |
+|---|---|---|---|
+| `mode` | every **mode** of `key_no` (`all` = every mode) | `{field: number}` | `missing_mode_values` (`missing_modes`) / `invalid_values` |
+| `string`, `physics` | every pitch | `{field: number}` (`hammer_shape` may be a name) | `missing_pitch_values` / `invalid_values` |
+| `gauss`, `excitation` | every pitch | `{level: {curve: {mu, sigma, volume, shift: number}}}` | same |
+| `feedin`, `feedback` | every pitch | row shape: StringMap, before writing | `missing_pitch_values` |
+| `feedin_mask`, `feedback_mask` | every pitch | `num_modes` 0/1 values (above) | `invalid_mask_row` |
+| `sound_channel`, `sound_channel_mask`, `string_sound_channel` | none (a pitch without a row is skipped) | each given row = `num_channels` numbers | `invalid_values` |
+| `hammer` | none (skipped) | `hammer_payload.hammer_edit`, all pitches before writing | 416 (atomic; not yet a 400) |
+
+Before dev-mpart1 (measured on dev a2659d2, isolated backend, `dev-mpart1-mode-partial-write.py`):
+`mode` `key_no=all` with 25 of the modes wrote those 25 into the model, answered 416 `KeyError '25'`, and the
+`note_playback` render did not change (rel 2.3e-4 = render noise; the same values via `from0to24`: 1.4e-2):
+model ≠ engine until the next full reload (a preset *switch* copies device buffers only). A non-number
+(`string` / `mode` / `gauss`) or a wrong-length sound-channel row did the same part-way. Now each is 400 with
+nothing written; a GET → POST round-trip of every family (`all`) still answers 200.
+```json
+{"error": "missing_mode_values", "parameter": "mode", "missing_modes": [25, 26, "..."], "missing_count": 14,
+ "message": "mode: values has no entry for mode 25, ... of the key range. Give a value for every mode of key_no, or narrow key_no. Nothing was written."}
+{"error": "invalid_values", "parameter": "string", "key_kind": "pitch", "problem_count": 1,
+ "problems": [{"pitch": 60, "problem": "damper_string='abc' is not a number"}], "message": "..."}
+```
+
 Response `416`:
 ```json
 {"message": "Wrong parameter request"}
