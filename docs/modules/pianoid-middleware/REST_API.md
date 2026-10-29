@@ -2141,7 +2141,7 @@ Response `200`:
 ```
 
 - `ports`: ordered list of rtmidi port names; the array index is the canonical port id used by `midi_port` (in `/load_preset`) and by `POST /midi/select_port`.
-- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null) / `all` (dev-midiall: every input port played, merged; `port` and `name` null), or `null` before the listener started. `ports` (dev-midiall) = the names of every played port (`[]` while auto-detecting); a port keeps the name it was opened under when a hot-plug shifts its index.
+- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null) / `all` (dev-midiall: every input port played, merged; `port` and `name` null), or `null` before the listener started. `ports` (dev-midiall) = the stable names (no rtmidi index suffix) of every played port (`[]` while auto-detecting or waiting). `waiting` (dev-midiall) = the name of the saved device the listener waits for while it is unplugged (manual / forced; `null` otherwise): no other device is played meanwhile, and it is reopened when it returns. A played device whose index changes after a re-enumeration is reopened at its new index by name within ~1 s (`port` / `name` follow it).
 - `active_port`: the port currently held open by the unified MIDI listener, or `null` when the listener is not running.
 - `listening`: `true` when the unified listener thread is alive (i.e. `/load_preset` was called with `listen_to_midi=1`).
 
@@ -2358,9 +2358,9 @@ Response 200:
 ```json
 {"sustain_cc": 64, "sustain_channel": null, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
  "input_port": "all", "port_sustain": {"AMC-10": {"sustain_cc": 0, "sustain_channel": 2, "polarity": "inverted"}, "MIDIIN2 (AMC-10)": {"sustain_cc": 0, "sustain_channel": 2, "polarity": "inverted"}},
- "all_exclude": [], "port_state": {"mode": "all", "port": null, "name": null, "detecting": false, "ports": ["MIDIIN2 (AMC-10) 2", "Pianoid 3"]},
+ "all_exclude": ["MIDIIN2 (AMC-10)"], "port_state": {"mode": "all", "port": null, "name": null, "detecting": false, "ports": ["AMC-10", "Pianoid"], "waiting": null},
  "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3},
- "port_counts": {"MIDIIN2 (AMC-10) 2": {"messages": 3, "notes": 1}, "Pianoid 3": {"messages": 6, "notes": 2}}}
+ "port_counts": {"AMC-10": {"messages": 3, "notes": 1}, "Pianoid": {"messages": 6, "notes": 2}}}
 ```
 
 - `sustain_cc`: the CC number treated as the sustain pedal (default 64). The default pedal (64, any channel) reaches the engine unchanged (switch at 64). A remapped one (another CC, or a `sustain_channel`) reaches it as CC64 `127` / `0` (hysteresis after the polarity: down at >= 74, up at <= 54). Any other CC64 is dropped.
@@ -2370,8 +2370,8 @@ Response 200:
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
 - `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), `"all"` = Listen to All (dev-midiall), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
 - `port_sustain` (dev-midiall): per-port pedal maps `{port name (no index suffix): {sustain_cc, sustain_channel, polarity}}`; a port without an entry uses the global `sustain_cc` / `sustain_channel` / `polarity` above. Applies in every mode (the played port's entry).
-- `all_exclude` (dev-midiall): port names (no index suffix) Listen to All never opens (e.g. a second port of a device that duplicates the first one's stream).
-- `port_counts` (dev-midiall): per played port, messages and note-ons since the backend started.
+- `all_exclude` (dev-midiall): port names (no index suffix) Listen to All never opens. Default `["MIDIIN2 (AMC-10)"]`: the AMC-10 sends the same stream on both its ports (not yet confirmed live for the keys).
+- `port_counts` (dev-midiall): per played port (stable name), messages and note-ons since the backend started.
 - `port_state` (dev-392a): see `GET /midi/ports`.
 - `sustain_down` / `sustain_value`: the pedal state the engine was last sent (dev-midiall: the OR of the played ports' pedals) / the last raw value of a sustain CC (`null` before the first one).
 - `counts`: messages per type on the played and the tapped ports since the backend started.

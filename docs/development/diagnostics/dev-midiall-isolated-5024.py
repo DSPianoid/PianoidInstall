@@ -169,9 +169,9 @@ def main():
         until(lambda: http('GET', '/midi/ports')[1]['port_state']['mode'] == 'all')
         out['ports_all'] = http('GET', '/midi/ports')[1]
 
-        # two keyboards + both pedal maps
+        # two keyboards + both pedal maps (MIDIIN2 (AMC-10) = the default-excluded duplicate port)
         BUS.send('Pianoid', [0x90, 60, 80], [0x90, 64, 81], [0xB0, 64, 127])      # FATAR, CC64
-        BUS.send('MIDIIN2 (AMC-10)', [0x90, 60, 70], [0xB1, 0, 5], [0xB2, 0, 41])  # AMC, CC0 ch2
+        BUS.send('AMC-10', [0x90, 60, 70], [0xB1, 0, 5], [0xB2, 0, 41])  # AMC, CC0 ch2
         until(lambda: len(stub.scheduled) >= 6)
         BUS.send('Pianoid', [0x80, 60, 0], [0x80, 64, 0], [0xB0, 64, 0])          # off + pedal up
         time.sleep(0.2)
@@ -184,7 +184,7 @@ def main():
         BUS.unplug('MIDIIN2 (AMC-10)')
         BUS.unplug('AMC-10')
         BUS.plug('Roland A-49')
-        until(lambda: 'Roland A-49 2' in http('GET', '/midi/ports')[1]['port_state']['ports'])
+        until(lambda: 'Roland A-49' in http('GET', '/midi/ports')[1]['port_state']['ports'])
         time.sleep(0.1)
         out['hotplug_release'] = stub.scheduled[n0:]
         out['ports_after_hotplug'] = http('GET', '/midi/ports')[1]['port_state']
