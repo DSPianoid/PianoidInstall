@@ -281,6 +281,10 @@ Key implementation details:
 
 Production-safe: no dependency on `PIANOID_DEBUG_DATA`. Plays a 3-second C major chord (C4+E4+G4) through the audio driver with note-off and release tail.
 
+### sc_panel_e2e/ (Sound-channel energy harness)
+
+`tests/system/sc_panel_e2e/` (`sc_measurement.py` + `test_sc_harness_validation.py`, fixture `presets/sc_e2e_strings_fixture.json`; merged Core dev 2026-10-29, 2cad8fa). Renders a fixed chord via `sound_test` offline (`sources=kernel`, all channels) and measures per-output-channel band energy; self-validates against known preset edits (ch2 ×0.8 → R=0.640, mute → 0.0, null reload → 1.000; re-measured 2026-10-29 identical). It RELOADS presets on its target backend, so it needs an isolated spare-port backend and skips unless `SC_BASE_URL` is set (never :5000): `SC_BASE_URL=http://localhost:5015 pytest tests/system/sc_panel_e2e`. Generated variant presets are deleted afterwards. See its README.
+
 ### test_live_edit_reaches_engine.py
 
 Regression (dev-late1 a, `gpu` + `audio_off`): with the realtime loop running (`OnlinePlaybackEngine`, no audio driver,
@@ -414,6 +418,8 @@ Regression net for the parameter-editing-system refactor (strategy: `reviews/par
 | `test_param_sound_belarus.py` | integration on Belarus_196modes (finite non-silent output + excitation mu probe) | own session instance (`@slow`) |
 
 **Findings (measured on the current engine, pinned not forced):** (1) excitation curve `volume` is normalized OUT of delivered force (conserve mode / dev-normfix) — the strategy's "volume↑→∫force↑" is false; loudness lever is velocity/hammer_mass (P3). (2) No offline post-volume sound surface (`get_sint_audio` is online-only) — audio_off volume verification is limited to pre-vol invariance + coefficient monotonicity. (3) Single-mode output-spectrum isolation fails on the multi-mode preset (a lone mode doesn't reach the output channels) — mode tests observe mode state. **Next step:** the P1 string-physics tier (tension/density/radius/stiffness inharmonicity, γ decay) needs the DEBUG build's `getSoundRecords` bridge-force TS + a single-string/single-mode preset — not built here.
+
+**Merged into Core dev 2026-10-29 (brclean1, 38fa438).** Re-run on the installed engine: suite 20/20, full `tests/integration` green (only pre-existing modal SVD 120 s timeouts in `test_synth_validate` / `test_synth_routes`). One harness fix: `excited_string()` discovery is DIFFERENTIAL (renders the pitch at two velocities, keeps strings whose `fetchExcitation` buffer changes) — a string excited by an earlier test on the shared session engine keeps a stale buffer (seen after `test_feedback_coupling`), which made mu/sigma/shift probe a frozen buffer. No expectation changed. Running from a Core worktree needs a `.venv` junction to `PianoidCore/.venv` and `PIANOID_COMMANDS_DIR=<PianoidInstall>/schemas/commands`.
 
 ### test_modal_pipeline_payload.py
 
