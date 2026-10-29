@@ -6,7 +6,7 @@
       "domain": "mode",
       "title": "Resonance modes",
       "read": "param.get {parameter: mode, key_no}",
-      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?}})",
+      "write": "param.set {parameter: mode, key_no, values} (values = {mode: {frequency?, decrement?, mass_inv?, radiance_mono?, radiance_stereo?}})",
       "key_space": "MODE index 0..num_modes-1 (not a pitch; the only domain keyed by mode)",
       "shape": "{field: value} per mode",
       "stored_vs_effective": "frequency, decrement and mass_inv are stored; stiffness and damping are derived (read-only); mass is a read-only legacy alias of mass_inv. Mode edits are physics edits: they do NOT clear output_scale_calibrated.",
@@ -40,6 +40,22 @@
           "class": "stored",
           "meaning": "Inverse-mass coefficient multiplying the applied force (q'' + 2*gamma*q' + omega^2*q = mass_inv * F); UI label 1/mass; up -> louder mode.",
           "doc": "modules/pianoid-cuda/MODE_PHYSICS.md#tldr"
+        },
+        {
+          "name": "radiance_mono",
+          "units": "linear amplitude gain (dimensionless); speaker drive per unit engine mode signal (basis absolute) or per unit board motion (basis board_motion, see output.get_mode)",
+          "range": "0..1000, finite (negative = a polarity flip, rejected); default 1 (absent in old presets)",
+          "class": "stored",
+          "meaning": "Speaker radiance factor of the mode in the mono layout: the speaker channel row is g*r[m] (x b[m] for board_motion), g = energy match to the exciter channels + trim. Inert in output target board. A radiance-only edit uploads no mode physics.",
+          "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
+        },
+        {
+          "name": "radiance_stereo",
+          "units": "[L, R] linear amplitude gains, as radiance_mono",
+          "range": "each 0..1000, finite; null = follows radiance_mono (L = R = mono, the default until measured)",
+          "class": "stored",
+          "meaning": "Per-speaker radiance factors of the mode in the stereo layout.",
+          "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1"
         },
         {
           "name": "stiffness",

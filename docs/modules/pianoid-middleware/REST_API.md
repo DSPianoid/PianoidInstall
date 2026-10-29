@@ -1182,6 +1182,48 @@ TEST HOOK (`session`): `{input, level_fs}` — physical input `input` reads at l
 
 ---
 
+### Output routing (dev-rad1) {#output-routing-dev-rad1}
+
+Where the synthesized sound goes, and how each soundboard mode reaches the speakers. Logic:
+`output_routing.py` (session state + plan + rows), routes `output_routing_routes.py`. Design:
+[mode-radiance-output-mode proposal](../../proposals/mode-radiance-output-mode-2026-10-29.md).
+
+| target | layout | engine channels |
+|---|---|---|
+| `board` (default) | — | the preset's exciter rows, unchanged (bit-identical to before dev-rad1); dedicated speaker channels silent |
+| `speakers` | `mono` / `stereo` | the speaker channel(s) carry `y = D^k Σ_m g·r[m]·q_m`; every exciter channel silent |
+| `dual` | `mono` / `stereo` | both at once; needs **dedicated** speaker channels |
+
+* **Factors** `r[m]`: per-mode fields `radiance_mono` (scalar) and `radiance_stereo` (`[L, R]`, `null` = follows mono),
+  linear gains `0..1000`, default 1; `POST /set_parameter/mode/<m>` like any mode field (undo, journal, `param.set`).
+  A radiance-only edit uploads no mode physics; the speaker rows re-upload when a speaker mix plays.
+* **Rows** (host precompute, no kernel change): the speaker channel's deck row is `g·r[m]` (`basis: absolute`) or
+  `g·r[m]·b[m]` (`basis: board_motion`, `b[m]` = RMS over the native exciter rows = the engine's mode motion at the
+  exciter points). `g` makes the speaker channel's analytic energy (`Σ_m row[m]²·E_m`, `E_m` = the unit-force response
+  energy at `sound_derivative_order`, DATA_FLOWS "Analytic audible weight") equal the mean exciter channel energy, then
+  `trim_db` (default −3 dB headroom) applies. Flat-tier presets fold the uniform flat columns to one energy-weighted value.
+* **Speaker channels.** *Dedicated*: `model_parameters.radiance.speaker_channels` = `[c]` or `[cL, cR]` (output channels
+  built for the speakers, e.g. an 8th output pitch); `PIANOID_AUDIO_OUTPUT_MAP` then maps only the exciter channels and
+  the speaker channels go to `PIANOID_SPEAKER_OUTPUTS` (`L,R` 0-based, default `0,1` = Out 1/2). *Borrowed* (none
+  declared): `speakers` uses engine channels 0/1 and swaps the ASIO map live (Out 9/10 = E1/E2 become unmapped →
+  silent); `dual` → 409 `dual_unavailable`. Mono on ONE channel is mirrored to the R output
+  ([AUDIO_DRIVERS → output routing](../pianoid-cuda/AUDIO_DRIVERS.md#live-output-routing-and-mirrors-dev-rad1)).
+* **Switch order:** entering a speaker target the map swaps first, leaving it the rows change first, so an exciter
+  never receives the speaker mix. Both take effect at the next cycle; no preset reload.
+* **State:** session (not saved), survives preset switches; a preset that cannot play the current target falls back
+  to `board` with a printed warning.
+
+| Route | Body | Result |
+|---|---|---|
+| `GET /output_routing` | — | `{target, layout, available{target:{layout: null or reason}}, speaker_channels, speaker_outputs, asio_map, asio_mirrors, basis, trim_db, radiance_source, provisional, plan?, gain?, gain_db?}` |
+| `POST /output_routing` | `{target?, layout?}` | the new status; `409 {error, code}` (`dual_unavailable`, `layout_unavailable`, `rebuild_needed`, `asio_rejected`, `bad_request`), state unchanged |
+| `POST /radiance/config` | `{basis?, trim_db?, speaker_channels?, source?, provisional?}` | status; merged into `model_parameters.radiance` (saved with the preset; write class `param_coarse`, not undoable) |
+| `POST /radiance/import` | `{mono[N] or mono_db[N] (+reference_db, default median), stereo?[N][2], basis?, source?, provisional?}` | status + `imported_modes`; ONE undoable `mode` edit over all N modes, in mode order |
+| `POST /radiance/from_frf` | `{frf_path, exciters?, speakers?, mic?, band_octaves?, layout? mono/L/R, apply?, source?, provisional?}` | the MEASURED absolute factors from a rig FRF + the LIVE model: `r[m] = sqrt(<\|Σ_c W[c,m]·H_mic←E_c(f)\|²> / <\|H_mic←spk(f)\|²>)` over a 1/3-octave band at the live mode frequency (mono: `H_spk = H_L + H_R`); `apply` writes them (one undoable `mode` edit) with `basis: absolute` |
+
+Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radiance.import`, `radiance.from_frf`, `radiance.config`; factors via
+`param.set` (`mode.radiance_mono` / `mode.radiance_stereo`).
+
 ## Parameter Endpoints
 
 ### `GET /get_parameter/<parameter>/<key_no>`

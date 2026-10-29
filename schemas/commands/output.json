@@ -1,0 +1,241 @@
+{
+  "family": "output",
+  "description": "Output routing (dev-rad1): where the synthesized sound goes - board (native exciter channels), speakers (the per-mode radiance mix on the speaker outputs, exciters silent) or dual (both) - in a mono or stereo layout; plus the per-mode speaker radiance factors (also plain mode fields radiance_mono / radiance_stereo via param.set).",
+  "commands": [
+    {
+      "name": "output.get_mode",
+      "title": "Read the output routing",
+      "description": "GET /output_routing: target (board|speakers|dual), layout (mono|stereo), which combinations the loaded preset can play (available: null = OK, else the reason), speaker_channels (dedicated, from model_parameters.radiance) and speaker_outputs (PIANOID_SPEAKER_OUTPUTS, 0-based), the live asio_map / asio_mirrors, the radiance basis / trim_db / source / provisional flag and, when a speaker mix plays, its overall gain (energy-matched to the exciter channels, incl. the trim).",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1",
+      "route": {
+        "method": "GET",
+        "path": "/output_routing"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "output.set_mode",
+      "title": "Switch the output routing",
+      "description": "POST /output_routing {target?, layout?}: live switch (next cycle, no preset reload). board = the preset's exciter rows; speakers = channel(s) carrying sum_m g*r[m]*q_m to the speaker outputs, every exciter channel silent; dual = both (needs dedicated speaker channels in the preset). mono = the same signal on both speakers; stereo = radiance_stereo L/R (L = R = mono until measured). 409 {code} when the preset / driver cannot play it (state unchanged). Hard confirm: it moves the sound between the exciters and the speakers.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "per_command",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1",
+      "route": {
+        "method": "POST",
+        "path": "/output_routing"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "enum": [
+              "board",
+              "speakers",
+              "dual"
+            ]
+          },
+          "layout": {
+            "enum": [
+              "mono",
+              "stereo"
+            ]
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "radiance.import",
+      "title": "Import per-mode speaker radiance factors",
+      "description": "POST /radiance/import: one factor per mode, in mode order, for ALL modes, written as ONE undoable mode edit. mono = linear gains >= 0, or mono_db = dB values re reference_db (default: their median, so the median mode gets 1.0); stereo = optional [[L, R] x num_modes] (absent = L = R = mono). Optional config written with it: basis (absolute = speaker drive per unit engine mode signal; board_motion = per unit board motion, multiplied by the native exciter-row RMS), source (provenance, e.g. a rig run), provisional (true for a single mic position). The assistant's radiance_sweep_pos2b.json coefA_mode_db is board_motion + provisional.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1",
+      "route": {
+        "method": "POST",
+        "path": "/radiance/import"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mono": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "mono_db": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "reference_db": {
+            "type": "number"
+          },
+          "stereo": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "basis": {
+            "enum": [
+              "absolute",
+              "board_motion"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "provisional": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "radiance.config",
+      "title": "Set the speaker radiance config",
+      "description": "POST /radiance/config: the preset's model_parameters.radiance (saved with the preset): basis (absolute | board_motion), trim_db (overall speaker level after the energy match; default -3 dB headroom), speaker_channels ([c] or [cL, cR]: output channels built for the speakers; needed for dual), source, provisional. Validated against the live routing; the speaker rows re-upload at once when a speaker mix plays. Not undoable (re-set it instead).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1",
+      "route": {
+        "method": "POST",
+        "path": "/radiance/config"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "absolute",
+              "board_motion"
+            ]
+          },
+          "trim_db": {
+            "type": "number",
+            "minimum": -60,
+            "maximum": 20
+          },
+          "speaker_channels": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 11
+            },
+            "maxItems": 2
+          },
+          "source": {
+            "type": "string"
+          },
+          "provisional": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "radiance.from_frf",
+      "title": "Measure speaker radiance from a rig FRF",
+      "description": "POST /radiance/from_frf: the MEASURED absolute factors r[m] (speaker drive per unit engine mode signal, basis absolute) from one mic position: r[m] = sqrt(<|sum_c W[c,m] H_mic<-E_c(f)|^2> / <|H_mic<-speaker(f)|^2>) over a band_octaves band (default 1/3) around the LIVE mode frequency, W = the live native exciter rows. frf_path = the frf/frf.npz of a modal.rig_capture run with every exciter AND the speakers as references (modal.rig_process step frf); exciters = the FRF refs of the exciter channels in channel order (default E1..En); speakers default [SPKL, SPKR]; layout mono (speakers fed together: H_L + H_R), L or R (one speaker -> radiance_stereo side). apply=true writes them as ONE undoable mode edit and sets basis absolute + provenance (provisional default true: one mic position; average several positions by importing the power-mean). Modes with no exciter coupling get 0 (silent on the board too).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#output-routing-dev-rad1",
+      "route": {
+        "method": "POST",
+        "path": "/radiance/from_frf"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "frf_path"
+        ],
+        "properties": {
+          "frf_path": {
+            "type": "string"
+          },
+          "exciters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "speakers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 2
+          },
+          "mic": {
+            "type": "string"
+          },
+          "band_octaves": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 2
+          },
+          "layout": {
+            "enum": [
+              "mono",
+              "L",
+              "R"
+            ]
+          },
+          "apply": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "provisional": {
+            "type": "boolean"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    }
+  ]
+}
