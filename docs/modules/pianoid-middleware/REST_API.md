@@ -1331,14 +1331,18 @@ disabled by the user ([rule table](#parameter-rule-table)); the table below show
 | `mode.frequency`, `mode.frequency.nyquist` | `mode` · `frequency` | `0 < frequency ≤ sr/π` (`frequency / (sr/π) ≤ 1`: the played Nyquist of the mode recurrence, 15 279 Hz at 48 kHz) |
 | `mode.decrement`, `mode.decrement.per_sample` | `mode` · `decrement` (`true_decrement`) | `≥ 0` **and** `decrement · frequency / sr < 1` (checked against the mode's prospective state, so a `frequency` edit can trip it) |
 | `mode.mass_inv` | `mode` · `mass_inv` (legacy `mass`) | `> 0` |
-| `string.rho`, `string.length`, `string.dx`, `excitation_energy.hammer_mass` | `string` / `physics`, piano pitch < 128 · `rho` (`string_density`), `length`, `dx`, `hammer_mass` | `> 0` |
+| `string.rho`, `string.length`, `string.dx` | `string` / `physics`, piano pitch < 128 · `rho` (`string_density`), `length`, `dx` | `> 0` |
+| `excitation_energy.hammer_mass` | `excitation_energy`, and `hammer_mass` of a string edit, piano pitch | `(0, 1]` kg |
 | `string.r`, `string.gamma`, `string.dispersion_damping`, `string.damper_string`, `string.damper_tail` | same · `r`, `gamma`, `disp_decay`, `damper_string`, `damper_tail` | `≥ 0` (`string.jung` is finite-only: every shipped preset stores it negative) |
 | `string.tension` | same · `tension`, `tension_offset` (`detuning`) | every unison string's `tension · (1 + i · tension_offset) > 0` |
 | `hammer.hammer_position` · `hammer.hammer_sharpness` · `hammer.hammer_width` | `hammer`, and `hammer_*` keys of a string edit | `[0, 1]` · `[0, 1)` · `≥ 0` |
 | `gauss.level` · `gauss.curve` · `gauss.sigma` | `gauss` / `excitation` / `string_excitation_curves` · level key · curve key · `sigma` | integer `0..127` · integer `0..4` · `> 0` (`gauss.mu` / `gauss.volume` / `gauss.shift`: finite only, `volume` is signed in FPGA presets) |
 | `sound_channel`, `string_sound_channel` | row | exactly `num_channels` values (the stored row length) |
 | `excitation_energy.hammer_speeds` · `excitation_energy.excitation_impulse_calibration` · `deck_feedback_coefficient.store_feedback_coeff` | `excitation_energy`, `deck_feedback_coefficient`, preset load | `≥ 0` · `> 0` · `≥ 0` |
-| finite-only entries | `feedin`, `feedback`, masks, `runtime.*`, `load_settings.*`, … | finite (shape and range checks have other owners: `StringMap.update_deck`, `mask_rows`, `excitation_energy.normalize`, `runtime_params`) |
+| `runtime.volume` · `runtime.feedback`, `runtime.feedback_coeff` · `fix_velocity.level` | `/set_runtime_parameters` · `/set_fix_velocity` | `0..127` · `≥ 0` (no upper bound) · integer `0..127` |
+| finite-only entries | `feedin`, `feedback`, masks, other `runtime.*`, `load_settings.*`, … | finite (feedin / feedback / mask **row shape** stays with `StringMap.update_deck` / `mask_rows`: structural, not a value domain) |
+
+No value range is checked anywhere else: `excitation_energy.normalize`, `runtime_params` and `set_fix_velocity` keep only payload shape / type checks, so relaxing a rule relaxes the write path end to end (dev-psafe2). `amplitude_limit` is still clamped into `1..1e7` by `runtime_params` (a clamp, not a rejection).
 
 Output pitches (≥ 128) are exempt from the `scope: piano` rules (string, hammer, `sigma`) because they
 carry placeholder physics (`tension` / `r` / `length` / `gamma` = 0). They still get the finite check.

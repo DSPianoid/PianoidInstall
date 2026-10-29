@@ -223,8 +223,12 @@ Semantics that changed slightly with the table:
 | load settings | not checked | `load_settings.*` finite entries, checked by `/load_preset` |
 | a complex fit `frequency` (negative `mass_inv`) with `mode.mass_inv` **disabled** | rejected as "not a real number" | not judged (the user disabled its cause) |
 
-Not migrated (still owned by their modules, not in the table): `excitation_energy.normalize`
-(`hammer_mass ≤ 1 kg` cap, `c > 0`), `runtime_params` (volume `0..127`, feedback `≥ 0`),
-`mask_rows` / `StringMap.update_deck` / `pitch_values` (shape and coverage). The table lists those
-parameters with the matching lower bounds or as finite entries; relaxing a table rule does not relax
-those owners.
+Range checks moved into the table (coordinator follow-up, 2026-10-29, "no parallel check"):
+`excitation_energy.normalize` (`hammer_mass` `(0, 1]` kg → `excitation_energy.hammer_mass` max 1;
+speeds `≥ 0`; `c > 0`), `runtime_params` (volume `0..127` → `runtime.volume`; `feedback` direct
+coefficient, `feedback_coeff`, `store_feedback_coeff` `≥ 0`; the `amplitude_limit` finite check) and
+`set_fix_velocity` (level `0..127` → `fix_velocity.level`). Those owners now check payload shape and type
+only. Sound-channel row length had no other owner (already table-only). Row shape of feedin / feedback /
+masks (`StringMap.update_deck`, `mask_rows`) and pitch coverage (`pitch_values`) stay with their owners:
+they are structural, not value domains. Radiance fields (`radiance_mono` / `radiance_stereo`, dev-rad1)
+did not exist on Core yet: add `bound min 0` entries when they land.
