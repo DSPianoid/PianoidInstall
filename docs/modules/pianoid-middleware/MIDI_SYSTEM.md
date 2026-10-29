@@ -364,7 +364,39 @@ Why the split (review H2, orchestrator decision 2026-10-23): MIDI 1.0 defines CC
 
 **Switching and failures (review C1, M1, M2).** The unified listener releases a port with `MidiListener.close_port()` only. The legacy `stop()` also calls `pianoid.stopApplication(True)`, which ended the synthesis engine when "Auto" was picked from a playing port. A switch to a port opens it on a fresh rtmidi input BEFORE the old port is released (`replace_port`). A failed open, for example a port another program holds, raises; the old port, or the running scan, stays as it was, `port_state` is unchanged, and nothing is persisted. The listener persists `input_port` itself, only after a switch succeeded; `/midi/select_port` only queues the request. The auto scan retries ports it could not open every `SCAN_RETRY_S` (1 s), so a port still held by the previous listener during a preset reload joins the scan.
 
-**UI.** MIDI panel port select: `Auto (first port that plays)` + the ports. A saved port that is unplugged is shown as `<name> (disconnected)`. The chip next to it shows `AUTO: waiting` / `AUTO: <port>` / `MANUAL` / `FORCED` (`port_state`, pushed as Socket.IO `midi_input_state`). Picking a port persists it, through `/midi/select_port` while listening or `/midi/input {input_port}` while stopped (the hub stores the name without the index suffix, one form for every writer). Picking Auto while already in AUTO does nothing. **Start** sends no port. The old browser-saved default port (star) is no longer read: it could re-pin `UMC1820`. Auto-detect or an explicit pick decides.
+**UI.** MIDI panel port select: `Auto (first port that plays)`, `Listen to All` ([below](#listen-to-all-dev-midiall)) + the ports. A saved port that is unplugged is shown as `<name> (disconnected)`. The chip next to it shows `AUTO: waiting` / `AUTO: <port>` / `MANUAL` / `FORCED` (`port_state`, pushed as Socket.IO `midi_input_state`). Picking a port persists it, through `/midi/select_port` while listening or `/midi/input {input_port}` while stopped (the hub stores the name without the index suffix, one form for every writer). Picking Auto while already in AUTO does nothing. **Start** sends no port. The old browser-saved default port (star) is no longer read: it could re-pin `UMC1820`. Auto-detect or an explicit pick decides.
+
+## Listen to All (dev-midiall)
+
+**Why (2026-10-29, user: "allow combining midi from different sources ... Listen to All, right after Auto").** Several devices play the one instrument at once: the AMC-10 (keys + pedals; sustain = CC#0 on channel 2, inverted) and the "Pianoid" USB-MIDI controller (FATAR keybed via the FPGA; sustain = standard CC64). The engine takes at most 7 note-ons per cycle and queues the rest, so bursts from several sources are safe.
+
+**Mode `all`** (`POST /midi/select_port {"port": "all"}`, persisted as `input_port: "all"`; Tunner: "Listen to All" right after "Auto"). The listener opens EVERY input port (minus `all_exclude`) and drains them all into the one event path; every message is tagged with its port (the hub's pedal map / bookkeeping / `port_counts`, and the monitor's port column). The single-port path is unchanged apart from carrying its port name with each message.
+
+| Piece | File | Concern |
+|---|---|---|
+| `MergedInputs` | `midi_merge.py` | the ALL ports: open every port, poll them port by port, `rescan` = open new ports, close vanished ones; a busy port is retried at the next rescan (reported once) |
+| `NoteLedger`, `PedalSources` | `midi_merge.py` | who holds which pitch / whose pedal is down |
+| `PortController` mode `all` | `midi_port_select.py` | start / switch to / leave ALL; rescan every `SCAN_RETRY_S` (1 s) and on demand (`select_port all` again; Tunner Refresh); `next_message()` -> `(message, port, name)` |
+| `MidiInputHub` | `midi_input.py` | `port_sustain` per-port pedal maps (global = fallback), `map_message(data, source)`, the OR pedal, `release_messages`, `port_counts` |
+
+**Rules.**
+
+| Case | Behaviour | Why |
+|---|---|---|
+| Pedal map | the port's `port_sustain` entry (by name without the index suffix), else the global `sustain_cc` / `sustain_channel` / `polarity` | each device sends its pedal differently |
+| Pedals of several sources | the engine pedal is the **OR**: down while any source holds its pedal down; a release while another source holds is dropped; the default CC64 pedal still passes its value while down | a real piano has one pedal; "last event wins" would cut a pedal still held on the other device |
+| Same note from two sources | NOTE_ONs are never deduplicated (each is a strike, the engine re-strikes); a NOTE_OFF is forwarded only when no other source still holds that pitch (A60 on, B60 on, A60 off -> nothing; B60 off -> damped) | the engine damps a pitch on NOTE_OFF whoever struck it; same rule as the MIDI player's note pairing |
+| One source | identical to before (every NOTE_OFF forwarded, a stray one too; pedal unchanged) | |
+| Hot-plug | rescan every 1 s: a new port is opened, a vanished one closed; a port keeps the name it was opened under when its index shifts | |
+| A port stops being played (unplugged, or the user leaves ALL / switches port) | its held keys get NOTE_OFFs and its pedal goes up, each only where no other source still holds it | no stuck notes / pedal from a device that is gone |
+| New listener session | the holders are forgotten (`reset_sources`) | a source of a previous session must not hold the OR pedal for good |
+| Ordering across ports | port by port within one poll (~1-3 ms); per-port order is kept | rtmidi delta times are per port |
+
+**Exclusions.** No Pianoid code opens a MIDI output or a virtual port, so there is no loopback of our own to exclude. `all_exclude` (names, no index suffix) keeps a port out of ALL: the AMC-10 exposes `AMC-10` and `MIDIIN2 (AMC-10)` with identical CC streams ([above](#input-port-saved-port-and-auto-detect-dev-392a)); if its keys also arrive on both, every key would strike twice - exclude one of them. **Pending: live check of the AMC-10's two ports in ALL mode.**
+
+**Settings migration.** `tools/migrate_midi_port_sustain.py` (PianoidCore) moves a remapped global pedal map into `port_sustain` for `AMC-10` and `MIDIIN2 (AMC-10)` and puts the global back to the standard (CC64, any channel, normal), the fallback for the Pianoid controller and every other port. Idempotent; run it with no backend running (a running backend rewrites the file from memory).
+
+**Verification.** `tests/unit/test_midi_all_ports.py` (fake rtmidi bus, no engine): two-port merge + tags + counts, persistence, exclusion + busy ports, per-port maps, the OR pedal, the single-source pedal unchanged, the note ledger, hot-plug with releases, periodic / on-demand rescan, leaving ALL, the migration, and the real `MIDI_listener_unified` loop over two fake ports. `tests/unit/conftest.py` refuses any real `rtmidi.MidiIn.open_port` in unit tests. Isolated backend: `docs/development/diagnostics/dev-midiall-isolated-5024.py` (real Flask routes + listener on :5024, virtual MIDI bus, engine recorder; winmm has no virtual ports and loopMIDI is not installed). Live on the real devices: pending.
 
 ## MIDI player (dev-6f0c)
 
