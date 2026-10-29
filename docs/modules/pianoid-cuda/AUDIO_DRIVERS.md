@@ -289,8 +289,22 @@ effect once the consumer drained the surplus). `Pianoid::setAudioRingDepth` runs
 fallback (`max(request, 16)`) uses it. REST / assistant / UI: [REST_API → Audio ring depth](../pianoid-middleware/REST_API.md#audio-ring-depth-latency-vs-stability).
 
 **Measured** (UMC1820, ASIO callback, 64-frame host buffer; 6-note chord; underruns per 3000 callbacks;
-round trip = loopback Out 8 → In 8 marker): *pending the dev-gh8 live run — table filled from the
-measurement*.
+loopback Out 8 → In 8 = note-on event → onset on In 8; N = 3 each; 2026-10-29, desktop GPU, iter 4):
+
+| Depth | Ring ms | Underruns / 3000 callbacks | Measured event → loopback onset |
+|---|---|---|---|
+| 2 | 2.7 | 0 | 11.7 ms |
+| 4 | 5.3 | 0 / 0 / 0 | 14.4 ms |
+| 8 (auto) | 10.7 | 0 / 0 / 0 (pinned) · 0 / 0 / 0 (pre-dev-gh8 pageable) | 19.7 ms |
+| 16 | 21.3 | 0 / 0 / 0 | 30.4 ms |
+| 32 | 42.7 | 0 / 0 / 0 | 51.7 ms |
+
+Slope **1.333 ms per chunk** (= 64 / 48000, the formula exactly); intercept 9.1 ms = the next-cycle wait +
+ASIO output latency (driver reports 3.5 ms) + input latency of the loopback capture. This machine never
+underran, even at depth 2 (callback max interval ≈ 2.1 ms), so pinned vs pageable shows no underrun
+difference here — the pinned ring matters on hosts where the D→H copy competes (the reporter's eGPU);
+GPU cycle time unchanged (perf suite mean 0.469 → 0.469 ms, N = 3). The reporter's eGPU rig should raise
+the depth (e.g. 16 – 32) until the clicks stop.
 
 ---
 
