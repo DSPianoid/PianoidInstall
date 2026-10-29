@@ -354,6 +354,15 @@ same `writeParam({kind:'runtime', wsEvent:'set_runtime_parameters', …})` path 
 (crash guard)" section — a `Switch` (Amplitude gate) + a `NumInput` "Crash-guard ceiling" (range 1..1e7,
 `decPlaces=0`). Pinned by `GlobalSettingsDialog.ampGate.test.jsx`.
 
+**Audio latency ↔ stability (dev-gh8, PianoidCore #8).** The same ⚙ dialog hosts `AudioLatencySection`
+(`src/components/AudioLatencySection.jsx` + `src/hooks/useAudioRingDepth.js`): a stepped slider over the
+audio ring fill depth (Auto, 2 … 128 chunks of 64 frames) showing the ring latency (`depth × 64 / sr`) and
+the backend's "in effect" status (applied depth after the driver floor, ring + driver ≈ output latency).
+Released = `POST /audio/ring_depth` — the backend (`audio_ring.py`, sole owner, per machine) applies it
+live and answers the new status (no optimistic copy); a 400 (rule `load_settings.audio_ring_depth`) shows an
+error; `session_changed {domain: audio_ring}` refetches. The per-pane load setting `audio_buffer_size` is
+relabelled "Audio Ring Memory" (it sizes memory only, never latency). Pinned by `AudioLatencySection.test.jsx`.
+
 Preset loading uses `ensureBackendAndLoadPreset()` in `PianoidTuner.js`. On every call it performs a **fresh HTTP probe** to `:5000/health` (never trusts stale React state). Decision matrix:
 
 | `:5000` responds | Launcher owns process | Action |
