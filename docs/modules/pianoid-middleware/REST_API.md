@@ -2139,12 +2139,12 @@ Response `200`:
   "ports": ["VMini 0", "MIDIIN2 (VMini) 1"],
   "active_port": 0,
   "listening": true,
-  "port_state": {"mode": "auto", "port": 0, "name": "VMini 0", "detecting": false}
+  "port_state": {"mode": "auto", "port": 0, "name": "VMini 0", "detecting": false, "ports": ["VMini 0"]}
 }
 ```
 
 - `ports`: ordered list of rtmidi port names; the array index is the canonical port id used by `midi_port` (in `/load_preset`) and by `POST /midi/select_port`.
-- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null), or `null` before the listener started.
+- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null) / `all` (dev-midiall: every input port played, merged; `port` and `name` null), or `null` before the listener started. `ports` (dev-midiall) = the stable names (no rtmidi index suffix) of every played port (`[]` while auto-detecting or waiting). `waiting` (dev-midiall) = the name of the saved device the listener waits for while it is unplugged (manual / forced; `null` otherwise): no other device is played meanwhile, and it is reopened when it returns. A played device whose index changes after a re-enumeration is reopened at its new index by name within ~1 s (`port` / `name` follow it).
 - `active_port`: the port currently held open by the unified MIDI listener, or `null` when the listener is not running.
 - `listening`: `true` when the unified listener thread is alive (i.e. `/load_preset` was called with `listen_to_midi=1`).
 
@@ -2164,7 +2164,7 @@ Request body:
 {"port": 1}
 ```
 
-- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`, or `"auto"` (dev-392a): drop the saved port and auto-detect again now.
+- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`, or `"auto"` (dev-392a): drop the saved port and auto-detect again now, or `"all"` (dev-midiall, "Listen to All"): play every input port at once, merged ([MIDI_SYSTEM → Listen to All](MIDI_SYSTEM.md#listen-to-all-dev-midiall)); persisted as `input_port: "all"`; sent again while in ALL = rescan the ports now (the listener also rescans every second for hot-plug).
 
 The listener **persists** a switch once it succeeded (dev-392a) as `input_port` in `GET /midi/input`: the port NAME without the rtmidi index suffix (`"MIDIIN2 (VMini)"`), or `null` for `"auto"`. Every later listener start (preset load, `/midi/start`, backend restart) opens that port again. The new port is opened before the old one is released; a failed open (port held elsewhere) keeps the old port and persists nothing, and a refused request (409) persists nothing. Route owner: `midi_input_routes.py` (the `/midi/ports`, `/midi/select_port`, `/midi/start`, `/midi/stop` routes moved there from `backendServer.py`, dev-392a).
 
@@ -2360,8 +2360,10 @@ Start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default
 Response 200:
 ```json
 {"sustain_cc": 64, "sustain_channel": null, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
- "input_port": "MIDIIN2 (AMC-10)", "port_state": {"mode": "manual", "port": 2, "name": "MIDIIN2 (AMC-10) 2", "detecting": false},
- "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3}}
+ "input_port": "all", "port_sustain": {"AMC-10": {"sustain_cc": 0, "sustain_channel": 2, "polarity": "inverted"}, "MIDIIN2 (AMC-10)": {"sustain_cc": 0, "sustain_channel": 2, "polarity": "inverted"}},
+ "all_exclude": ["MIDIIN2 (AMC-10)"], "port_state": {"mode": "all", "port": null, "name": null, "detecting": false, "ports": ["AMC-10", "Pianoid"], "waiting": null},
+ "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3},
+ "port_counts": {"AMC-10": {"messages": 3, "notes": 1}, "Pianoid": {"messages": 6, "notes": 2}}}
 ```
 
 - `sustain_cc`: the CC number treated as the sustain pedal (default 64). The default pedal (64, any channel) reaches the engine unchanged (switch at 64). A remapped one (another CC, or a `sustain_channel`) reaches it as CC64 `127` / `0` (hysteresis after the polarity: down at >= 74, up at <= 54). Any other CC64 is dropped.
@@ -2369,14 +2371,17 @@ Response 200:
 - `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the switch: the engine's at 64 for the default pedal, the hysteresis for a remapped one).
 - `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
-- `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
+- `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), `"all"` = Listen to All (dev-midiall), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
+- `port_sustain` (dev-midiall): per-port pedal maps `{port name (no index suffix): {sustain_cc, sustain_channel, polarity}}`; a port without an entry uses the global `sustain_cc` / `sustain_channel` / `polarity` above. Applies in every mode (the played port's entry).
+- `all_exclude` (dev-midiall): port names (no index suffix) Listen to All never opens. Default `["MIDIIN2 (AMC-10)"]`: the AMC-10 sends the same stream on both its ports (not yet confirmed live for the keys).
+- `port_counts` (dev-midiall): per played port (stable name), messages and note-ons since the backend started.
 - `port_state` (dev-392a): see `GET /midi/ports`.
-- `sustain_down` / `sustain_value`: the pedal state the engine was last sent / the last raw value of the sustain CC (`null` before the first one).
+- `sustain_down` / `sustain_value`: the pedal state the engine was last sent (dev-midiall: the OR of the played ports' pedals) / the last raw value of a sustain CC (`null` before the first one).
 - `counts`: messages per type on the played and the tapped ports since the backend started.
 
 ### `POST /midi/input`
 
-Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool, "input_port": null | "<port name>"}` (`input_port` applies at the next listener start; to switch now use `POST /midi/select_port`). Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
+Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool, "input_port": null | "all" | "<port name>", "port_sustain": {"<port name>": {"sustain_cc", "sustain_channel", "polarity"}}, "all_exclude": ["<port name>"]}` (`port_sustain` replaces the whole map; each entry needs all three keys) (`input_port` applies at the next listener start; to switch now use `POST /midi/select_port`). Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
 
 ### Socket.IO `midi_input_state` (server -> client)
 

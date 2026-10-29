@@ -133,7 +133,7 @@
     {
       "name": "midi.ports",
       "title": "Read the MIDI input ports",
-      "description": "The rtmidi input ports (array index = port id), the port the unified MIDI listener holds open (active_port, null when not listening) and whether the listener runs (listening; it starts with a load with listen_to_midi 1). Works before a preset is loaded.",
+      "description": "The rtmidi input ports (array index = port id), the port the unified MIDI listener holds open (active_port, null when not listening or in Listen to All), whether the listener runs (listening; it starts with a load with listen_to_midi 1) and port_state (mode forced / manual / auto / all; ports = the names of every played port: in mode all, every input port merged). Works before a preset is loaded.",
       "target": "backend",
       "tier": "read",
       "approval_category": "view",
@@ -172,7 +172,7 @@
     {
       "name": "midi.set_input_settings",
       "title": "Set the MIDI pedal mapping",
-      "description": "Change any subset of the live MIDI input settings (persisted across backend restarts; applies to the next incoming message). sustain_cc: the CC number the pedal sends (0-127, 64 = standard; read midi.input_settings counts or the MIDI monitor to see what the pedal really sends). sustain_channel: the MIDI channel of the pedal (1-16) or null = any channel; set it when several pedals send the same CC on different channels (e.g. the AMC-10 sends CC 0 from three pedal inputs on channels 1-3; its sustain = CC 0 on channel 2, inverted). polarity: 'inverted' for a pedal that sends 0 when pressed and 127 when released. show_realtime: show MIDI clock / active sensing in the monitor. monitor_all_ports: also monitor the other input ports (applies at the next listener start or port switch). The MIDI input PORT (input_port) is deliberately not settable here: the user picks it in the MIDI panel (POST /midi/select_port) or auto-detect decides.",
+      "description": "Change any subset of the live MIDI input settings (persisted across backend restarts; applies to the next incoming message). sustain_cc: the CC number the pedal sends (0-127, 64 = standard; read midi.input_settings counts or the MIDI monitor to see what the pedal really sends). sustain_channel: the MIDI channel of the pedal (1-16) or null = any channel; set it when several pedals send the same CC on different channels (e.g. the AMC-10 sends CC 0 from three pedal inputs on channels 1-3; its sustain = CC 0 on channel 2, inverted). polarity: 'inverted' for a pedal that sends 0 when pressed and 127 when released. show_realtime: show MIDI clock / active sensing in the monitor. monitor_all_ports: also monitor the other input ports (applies at the next listener start or port switch). port_sustain: per-port pedal maps {port name: {sustain_cc, sustain_channel, polarity}} (all three per port; replaces the whole map; a port without an entry uses the global sustain_cc / sustain_channel / polarity) - used when several devices are played at once (Listen to All), e.g. the AMC-10: MIDIIN2 (AMC-10) -> sustain_cc 0, sustain_channel 2, polarity inverted. all_exclude: port names Listen to All never opens. The MIDI input PORT (input_port, incl. 'all' = Listen to All) is deliberately not settable here: the user picks it in the MIDI panel (POST /midi/select_port) or auto-detect decides.",
       "target": "backend",
       "tier": "write",
       "approval_category": "runtime",
@@ -187,7 +187,22 @@
           "sustain_channel": {"type": ["integer", "null"], "minimum": 1, "maximum": 16, "description": "MIDI channel of the sustain pedal (1-16); null = any channel"},
           "polarity": {"type": "string", "enum": ["normal", "inverted"], "description": "normal: high value = down; inverted: low value = down (default CC64 pedal: switch at 64; remapped pedal: hysteresis, down at >= 74, up at <= 54 after the polarity)"},
           "show_realtime": {"type": "boolean", "description": "Show clock / active sensing in the MIDI monitor"},
-          "monitor_all_ports": {"type": "boolean", "description": "Also monitor the input ports the listener does not play from"}
+          "monitor_all_ports": {"type": "boolean", "description": "Also monitor the input ports the listener does not play from"},
+          "port_sustain": {
+            "type": "object",
+            "description": "Per-port pedal maps keyed by port name (rtmidi index suffix optional); replaces the whole map",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sustain_cc", "sustain_channel", "polarity"],
+              "properties": {
+                "sustain_cc": {"type": "integer", "minimum": 0, "maximum": 127},
+                "sustain_channel": {"type": ["integer", "null"], "minimum": 1, "maximum": 16},
+                "polarity": {"type": "string", "enum": ["normal", "inverted"]}
+              }
+            }
+          },
+          "all_exclude": {"type": "array", "items": {"type": "string"}, "description": "Port names Listen to All never opens"}
         }
       },
       "result": {"type": "object"}
