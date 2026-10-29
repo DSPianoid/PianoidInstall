@@ -49,6 +49,7 @@ export const DANGEROUS_COMMANDS = {
   'preset.promote': 'overwrites the original preset JSON',
   'preset.unload': 'unloads a library entry (unsaved edits are lost)',
   'audio.exciters_config': 'changes the exciter current limits / sensor mapping (hardware protection)',
+  'env.set': 'changes the backend process environment (e.g. the ASIO output map: which physical output each engine channel drives), persisted; applies on the next preset load',
 };
 const DANGEROUS_RE = /(^|[._])(delete|remove|purge|erase|unload|clear_all|github|external|send|email|mail|upload|share|publish)/i;
 export function dangerWhy(cmd) {

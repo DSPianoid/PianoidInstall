@@ -12,7 +12,8 @@
  *    then a level check (settle, then a watch window) with AUTO-REVERT on a breach (D3: ON):
  *    POST /history/undo {group} for the undoable domains, a runtime.set of the values read before for
  *    runtime (not in the backend history: REST_API I3, EXEMPT);
- *  - the pane's Undo (one group) / Undo turn use the same revert.
+ *  - the pane's Undo (one group) / Undo turn use the same revert; env.set (dev-aenv1) is recorded too and
+ *    reverts by an env.set of its `previous` setting.
  * Pure decisions live in policy.js / envelope.js; this file does the HTTP.
  */
 import crypto from 'node:crypto';
@@ -20,6 +21,9 @@ import { callCommand } from '../mcp/tools.js';
 import { cflBreach, cflGated, levelBreach, readsFor, revertPlan } from '../envelope.js';
 
 const RECORDED = new Set(['params', 'runtime']);
+/** Commands outside those categories that are still undoable (dev-aenv1): env.set reverts to its `previous` setting. */
+const UNDOABLE = new Set(['env.set']);
+const isRecorded = (cmd) => RECORDED.has(cmd.approval_category) || UNDOABLE.has(cmd.name);
 const PERMIT_TTL_MS = 120000;
 export const SETTLE_MS = 1200;
 
@@ -68,7 +72,7 @@ export class AutoWriter {
   permit(cmd, input, { auto = false, watch = false, before = null, entry = null, guard = null, onOk = null, tainted = false }) {
     const t = this.now();
     this.permits = this.permits.filter((p) => t - p.at < PERMIT_TTL_MS);
-    const recorded = RECORDED.has(cmd.approval_category);
+    const recorded = isRecorded(cmd);
     const groupId = recorded ? `assistant-${this.tag}-t${this.turn}-w${++this.writes}` : null;
     this.permits.push({ key: `${cmd.name}\u0000${canonical(input)}`, at: t, cmd, input, auto, watch, before, entry, groupId, turn: this.turn, guard, onOk, tainted });
     return groupId;
@@ -96,7 +100,8 @@ export class AutoWriter {
     res.turn_tainted = p.tainted === true;   // dev-mem1: the MCP server records it on an export (and strips it)
     if (res.ok) p.onOk?.(res);
     if (!res.ok || !p.groupId) return { status: 200, body: res };
-    const plan = p.before ? revertPlan(p.cmd, p.input, p.before) : (p.cmd.name === 'runtime.set' ? null : { kind: 'history' });
+    const plan = p.cmd.name === 'env.set' ? { kind: 'env', values: { name: p.input.name, value: res.result?.previous ?? null } }
+      : p.before ? revertPlan(p.cmd, p.input, p.before) : (p.cmd.name === 'runtime.set' ? null : { kind: 'history' });
     const rec = { groupId: p.groupId, turn: p.turn, cmd: p.cmd, plan, entry: p.entry, auto: p.auto, reverted: null };
     this.records.push(rec);
     if (this.records.length > 200) this.records.shift();
@@ -166,8 +171,9 @@ export class AutoWriter {
     const headers = { 'Content-Type': 'application/json', 'X-Pianoid-Source': 'assistant' };
     let body;
     try {
-      const r = rec.plan?.kind === 'runtime'
-        ? await this.fetchImpl(`${this.backendUrl}/command/runtime.set`, { method: 'POST', headers, body: JSON.stringify(rec.plan.values) })
+      const via = { runtime: 'runtime.set', env: 'env.set' }[rec.plan?.kind];
+      const r = via
+        ? await this.fetchImpl(`${this.backendUrl}/command/${via}`, { method: 'POST', headers, body: JSON.stringify(rec.plan.values) })
         : await this.fetchImpl(`${this.backendUrl}/history/undo`, { method: 'POST', headers, body: JSON.stringify({ group: rec.groupId }) });
       body = await r.json();
       body = { ...body, status: r.status, ok: r.ok };

@@ -846,6 +846,43 @@ active_preset (GET /preset/summary of the active entry, null without an engine)}
 per-turn context carries only the environment `fingerprint` (so it notices an engine / build change
 between turns); this read is the first call of a "full state" question.
 
+### Environment settings {#environment-settings}
+
+(dev-aenv1) `GET` / `POST /settings/env`: the **governed** way to read and set the backend's environment
+variables (owner `pianoid_middleware/runtime_env.py`, routes in `system_routes.py`, `write_routes` class
+`read_only` / `action`, tests `tests/unit/test_runtime_env.py`). Registry: `env.get`, `env.set` (assistant rule
+`env.set`: Ask by default, risky = a warning line, can be set to Always allow; not part of the Autonomous preset;
+undoable by the pane's Undo / Undo turn, which sets the `previous` value back).
+
+| variable | target | applies | value | meaning |
+|---|---|---|---|---|
+| `PIANOID_AUDIO_OUTPUT_MAP` | backend | next load | distinct outputs `0..31`, comma-separated | engine channel k -> ASIO output `map[k]` ([AUDIO_DRIVERS](../pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver)) |
+| `PIANOID_ASIO_BUFFER_SIZE` | backend | next load | frames, multiple of 64, <= 8192 | requested ASIO host buffer (callback driver) |
+| `PIANOID_LISTEN_TO_MIDI` | backend | next load | `"0"` / `"1"` | forces the MIDI listener on every `/load_preset` ([MIDI_SYSTEM](MIDI_SYSTEM.md)) |
+
+- **Order:** setting (the gitignored local settings file `<PianoidInstall>/pianoid_local_settings.json`, key
+  `env`; `$PIANOID_LOCAL_SETTINGS` in tests) > the environment the backend inherited from the launcher > unset.
+  The backend applies the persisted values at boot (`init_system_routes`), so they survive restarts.
+- **Applies `next_load`:** `POST` writes the value into the backend process at once (`os.environ`; the
+  engine's C++ `getenv` sees it too: shared UCRT, measured); the readers use it on the **next `/load_preset`**
+  (a reload of the same preset is enough). The running engine is unchanged until then. **`restart`** (no
+  variable yet): saved only, `restart_required: true`; nothing restarts by itself (launcher commands).
+- **Allow-list only:** an unknown name -> `400 {error: "unknown_variable", allowed}` (the backend environment
+  also steers DLL search, CUDA and Python, so there is no "any variable" mode; a new variable = one row in
+  `runtime_env.VARS` + the `env.set` name enum, kept equal by a test). Secret-looking names (KEY / TOKEN /
+  SECRET / PASSWORD / CREDENTIAL / AUTH) are refused and their values never returned (`<masked>`).
+- `GET` -> `{variables: [{name, description, doc, target, applies, value_format, value, source
+  (setting|env|unset), setting, inherited, restart_pending}], settings_file}`.
+- `POST {name, value}` (`value` null or `""` clears the setting: back to the inherited value) -> the variable's
+  state + `previous` (the setting before), `restart_required`, `effect`; invalid value ->
+  `400 {error: "invalid_value", message}`. Every change is printed to the backend log (`[runtime_env]`) and,
+  for the assistant, recorded in its audit log.
+
+**Migration (2026-10-28):** the rig's output map `8,9,2,3,4,5,6` (E1/E2 rewired to Out 9/10, then
+process-scoped in the backend's environment) is saved once as the setting
+(`env.set PIANOID_AUDIO_OUTPUT_MAP "8,9,2,3,4,5,6"`) when this lands; from then on no environment variable is
+needed for it.
+
 ### `GET /preset/files`
 
 `{roots: {presets: "presets"}, count, truncated, files: [{root, file, load_path, size_kb, modified,
