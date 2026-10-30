@@ -1145,13 +1145,34 @@ addThumpToBatch: first thump of the batch -> pool string (round-robin per batch)
 | Damper | the thump pitch never receives a note-off from a key (velocity 0 stages nothing); its `damper_*` are 0, `gamma` damps it |
 | Calibration | the middleware pushes an empty pool around every calibration render (`thump_config.suspended`) |
 
-**Measured (offline `runOfflinePlayback`, `Tuning18-10-26ver1` + thump on pitch 20 / slot 235, 512/si 8, order 2):**
+**Measured (offline `runOfflinePlayback`, `Tuning18-10-26ver1` + thump on pitch 20 (preset string id 235 = CUDA slot 232, the value `engine_pool` reports), 512/si 8, order 2):**
 thump-string Courant 0.25 (max\|g\| 0.992), no redline; output with the string present but not struck within
 −0.004 dB of the original preset (spectral peaks identical); response linear in the thump `hammer_mass`
 (10× mass → 9.997× output). Auto-trigger (scratch build): key note-on + thump = an explicit thump note within
 the float noise floor (rel 2e-4); thump off = the pre-change build (rel 1.9e-4, level 1e-5 dB); a 0/4/8 ms roll gives
 2.41× one thump's energy vs 2.79× when 10.7 ms apart (the truncation cost); a same-cycle chord gives exactly one thump;
 perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 ms (noise). Metric tables: [session log dev-thump1](../../development/logs/archive/dev-thump1-2026-10-29-142109.md).
+
+**Which presets have it.** Only presets built with [`thump_string`](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1). The standard `Tuning18-10-26ver1` has **no thump string** (and no `model_parameters.thump`): `available` is false and a thump edit answers 416. The `Tuning18-10-26ver1_thump_live*.json` variants have it enabled:
+
+| Preset suffix | `hammer_mass` | Deck row |
+|---|---|---|
+| `_thump_live` | 3.4 g | low-mode rim row: pitch 60's row, zeroed above 250 Hz (`--max-mode-hz 250`) |
+| `_thump_live_10g`, `_15g` | 10 g, 15 g | same low-mode rim row |
+| `_thump_live_c4row`, `_c4row_10g`, `_c4row_15g` | 3.4, 10, 15 g | pitch 60's whole row |
+
+**Mic A/B on the real board (2026-10-30), slider 82.** Metric: 50–200 Hz level, first 30 ms minus 0.5–1 s after the onset, dB (`results.txt`, data in `D:\modal_measurements\thump-live-2026-10-29\`):
+
+| Condition | C4 v80 | G4 v80 | A2 v80 |
+|---|---|---|---|
+| Real piano (target, [proposal §0](../../proposals/archive/hammer-thump-injection-2026-10-28.md#0-the-problem-in-measured-terms)) | +27 | +27 | +6 |
+| 3.4 g low row | ≥ +20.4 | ≥ +20.3 | +7.3 |
+| 10 g low row | ≥ +31.3 | ≥ +30.1 | +13.1 |
+| 15 g low row | ≥ +33.0 | ≥ +34.1 | +16.1 |
+| 3.4 g C4 row | ≥ +17.8 | ≥ +13.4 | +6.4 |
+| Thump off | noise | noise | +3.5 |
+
+**3.4 g low row is the best match.** C4 and G4 are lower bounds (their late window sits on the room noise, so the true metric can only be higher); only A2 is a true comparison.
 
 ### Kernel Trigger: `new_notes_ind`
 

@@ -102,6 +102,10 @@ File: `ModelParams.py`
 `{basis: absolute | board_motion, trim_db, speaker_channels, source, provisional}` (PianoidCore
 `output_routing.radiance_config` fills the defaults: absolute, −3 dB, no dedicated speaker channels).
 
+`thump` (dev-thump1, optional dict, saved by `pack()` only when set): the keybed thump config
+`{enabled, pitch, gain, trim_db}`; `None` = no thump string in the preset, which is the case for the standard
+`Tuning18-10-26ver1` ([thump_string](#thump_string-keybed-thump-dev-thump1)).
+
 Global simulation configuration. Holds the parameters that determine how the CUDA kernel is sized and how the time-stepping is structured.
 
 | Attribute | Default | Meaning |
@@ -539,6 +543,9 @@ engine side [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE
 | Exclusions | `excitation_retime` skips the thump pitch; the middleware hammer-mass calibration does too |
 
 CLI: `python -m Pianoid.thump_string SRC.json DST.json [--pitch 20] [--mass 0.0034] [--deck-from 60] [--deck-scale 1] [--max-mode-hz 250] [--enable]`.
+Run it with the PianoidCore venv Python. `DST` is a new file, and the thump is **disabled** in it unless `--enable` is given.
+The string is short and light, not stiff (`jung` 0), and `--mass` is about 7× the median key `hammer_mass` of `Tuning18-10-26ver1` (0.46 g).
+String id vs slot: the padding string keeps its preset string id (235 in `Tuning18-10-26ver1`, taken from output pitch 134); the engine addresses it by CUDA slot (232, `chores[20]`, `engine_pool`).
 
 ### SoundChannels
 

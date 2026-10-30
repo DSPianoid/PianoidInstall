@@ -1279,9 +1279,12 @@ config `model_parameters.thump = {enabled, pitch, gain, trim_db}` (logic `thump_
 | `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}} or null, engine_pool, engine_supported}` |
 | `POST /set_parameter/thump/all` | `{enabled?, gain?, trim_db?: {key: dB}}` (`trim_db` merges per key; 0 dB removes the key) | `200`; `416 {message}` for a preset without a thump string / unknown field; `400` from the rule table |
 
+* **Which presets:** the standard `Tuning18-10-26ver1` has no thump string: `GET` answers `{available: false, config: null, engine_pool: [], ...}` and `POST` answers `416 {message: "this preset has no thump string (...)"}`. `Tuning18-10-26ver1_thump_live.json` has one, enabled ([presets + measured status](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
+* **Enable / disable:** `POST /set_parameter/thump/all {"enabled": true|false}`. `engine_pool` shows the effect: the CUDA slot (`[232]` in the `thump_live` presets) when on, `[]` when off. It takes effect at once; saving the preset keeps it.
 * **Per-key gain** = `gain · 10^(trim_db[key]/20)` (keys 21–108; the thump pitch itself never fires). Rule-table entries
   `thump.gain` [0, 100] and `thump.trim_db` [−40, 40] dB (`param_rules.json`, family *excitation*).
 * **Undoable** (domain `thump`, Excitation pane Undo), journaled, saved with the preset. `param.set {parameter: thump, key_no: all, values}`.
+* **`gain` and mass:** both scale the same coefficient linearly, so with the default 3.4 g, `gain` 1 = 3.4 g, 2.94 ≈ 10 g, 4.41 ≈ 15 g of impulse. The measured 10 g / 15 g results used the `hammer_mass` of the `_10g` / `_15g` presets (with `gain` 1), not `gain`.
 * **The thump string's own parameters** are ordinary pitch parameters of the thump pitch (20 by default): `hammer_mass` =
   keybed effective mass (impulse scale), Gauss `sigma` per level = felt contact time, `mu` = keybed delay + 3σ (pulse
   must end inside the 9.33 ms window), deck row = rim coupling, `gamma` damps its own partials.

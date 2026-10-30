@@ -143,6 +143,10 @@ interactive latency.
 - [guides/OPERATIONS_FOR_ASSISTANT.md](guides/OPERATIONS_FOR_ASSISTANT.md) — Operations primer
   (install on a new machine, start / stop, update from git, rebuild, symptom → procedure, gotchas,
   the assistant's own setup, doc / script disagreements); the in-UI assistant reads it with `read_docs`
+- [Keybed thump](modules/pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1) — The optional thump
+  string: engine, which presets have it (the standard Tuning18 does not), measured status; REST in
+  [REST_API](modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1), the preset tool in
+  [PianoidBasic](modules/pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1)
 - [guides/MODE_DISCOVERY_FOR_ASSISTANT.md](guides/MODE_DISCOVERY_FOR_ASSISTANT.md) — Soundboard mode discovery
   for the assistant: rig facts (E1–E7 output map, P1–P8, weights, resonances, E2 distortion, crosstalk), the
   procedure ladder (sweeps → PolyMAX / consensus → Q → shapes → appropriation → measured preset → load at the
