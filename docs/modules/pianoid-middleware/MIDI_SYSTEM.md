@@ -438,7 +438,7 @@ Tests: `tests/unit/test_midi_all_ports.py` (`test_manual_port_follows_its_name_w
 
 **Pianoid's own sustain map is separate.** The device decides what a pedal SENDS (e.g. CC64 on channel 1); `midi_input` decides what Pianoid does with it (`sustain_cc` / `port_sustain`). The defaults match: the device's X12 sends CC64, Pianoid's global map is CC64 any channel.
 
-**Verification.** `tests/unit/test_pianoid_controller.py` (fake device speaking the protocol behind fake rtmidi ports: request bytes, reply decode, both reply paths, errors, stream, link, REST); Tunner `PianoidControllerSection.test.jsx`. Device side: controller repo `tools/test_pctl_logic.py` (curve / EEPROM / frame unit test) and `sim/tb_link_ctl.sv` (the rate switch in RTL). On hardware: pending.
+**Verification.** `tests/unit/test_pianoid_controller.py` (fake device speaking the protocol behind fake rtmidi ports: request bytes, reply decode, both reply paths, errors, stream, link, REST); Tunner `PianoidControllerSection.test.jsx`. Device side: controller repo `tools/test_pctl_logic.py` (curve / EEPROM / frame unit test) and `sim/tb_link_ctl.sv` (the rate switch in RTL). On hardware (2026-10-30, firmware v3, device side only): `verify_ctl.py` 17/17 in RAM and from flash, 31/31 extra checks (SAVE, DEFAULTS, saved rate at boot, recovery, fallback on an old image), speed 8x / 4x / 1x each with the 257/257 storm. Not tested on hardware: a real power cycle, the calibration flow, the 500 ms revert (simulation only). Details: controller repo `docs/IMPLEMENTATION_REPORT.md` §14.
 
 ## MIDI player (dev-6f0c)
 

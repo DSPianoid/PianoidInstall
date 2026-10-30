@@ -147,6 +147,10 @@ interactive latency.
   string: engine, which presets have it (the standard Tuning18 does not), measured status; REST in
   [REST_API](modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1), the preset tool in
   [PianoidBasic](modules/pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1)
+- [Pianoid controller](modules/pianoid-middleware/MIDI_SYSTEM.md#pianoid-controller-configuration-dev-pctl) — The
+  "Pianoid" USB-MIDI controller's own configuration (pedal calibration, MIDI message per pedal, link speed): it
+  lives on the device; REST in [REST_API](modules/pianoid-middleware/REST_API.md#pianoid-controller-controller-dev-pctl),
+  UI in the MIDI panel, assistant `controller.*` commands
 - [guides/MODE_DISCOVERY_FOR_ASSISTANT.md](guides/MODE_DISCOVERY_FOR_ASSISTANT.md) — Soundboard mode discovery
   for the assistant: rig facts (E1–E7 output map, P1–P8, weights, resonances, E2 distortion, crosstalk), the
   procedure ladder (sweeps → PolyMAX / consensus → Q → shapes → appropriation → measured preset → load at the
