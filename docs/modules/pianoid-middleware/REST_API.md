@@ -2433,6 +2433,60 @@ Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity":
 - `raw`: the bytes as received, hex (sysex: first 16 bytes + `...`). `playing`: false = a tapped port (monitor only).
 - `sustain`: this message is the configured sustain CC; `sustain_down`: the engine's pedal state after it.
 
+### Pianoid controller — `/controller/*` (dev-pctl)
+
+Configuration of the **"Pianoid" USB-MIDI controller** (FATAR keybed → FPGA → Arduino Micro). The device owns its configuration and keeps it in its EEPROM; these routes read and write it over SysEx (manufacturer ID `0x7D`) on the MIDI **output** port named `Pianoid`. Replies come back on the `Pianoid` input port: through the MIDI listener when it plays or taps that port (`MidiInputHub.sysex_hook`, kept off the monitor), else on an input the backend opens itself and releases after 5 s idle. Nothing touches the engine; the routes work before a preset is loaded. Protocol: controller repo `docs/proposals/controller-config-2026-10-29.md`; client: `pianoid_controller.py`; routes: `pianoid_controller_routes.py` (a nested blueprint of the MIDI input routes). Classified `action` (POST) / `read_only` (GET): no state event. A change is live on the device at once and survives a power cycle only after `POST /controller/save`.
+
+Errors (all routes): `404 NotConnected` (no `Pianoid` port), `504 NoReply` (the device did not answer within 0.6 s, 2.5 s for the link), `400 BadArgument` (checked here and by the device: e.g. CC 120-127, a note on a continuous input, a calibration without travel), `409 Unsupported` (a bitstream without the runtime link speed), `502 Failed` (the device could not complete, e.g. a link switch that fell back).
+
+### `GET /controller`
+
+`{"present": false}` when no `Pianoid` port is listed. Otherwise (registry `controller.status`):
+```json
+{"present": true, "port": "Pianoid 1",
+ "identity": {"firmware": 3, "protocol": 1, "inputs": 8, "speed": "8x", "selectable": true, "wanted": "8x", "route": "usb"},
+ "inputs": [{"index": 2, "connector": "X12 (ADC10)", "type": "switch", "message": "cc", "number": 64, "channel": 1,
+             "polarity": "auto", "pullup": true, "curve": "linear", "min": 1015, "mid": 512, "max": 18,
+             "presence": "active", "raw": 1016, "value": 0}],
+ "link": {"speed": "8x", "baud": 250000, "wanted": "8x", "selectable": true, "beacons": 12, "fails": 0, "build_speed": "8x"},
+ "duplicates": [[0, 2]]}
+```
+- `inputs` (8, `index` 0-7): `type` `off` / `switch` / `continuous`; `message` `cc` / `note` / `channel_pressure` / `pitch_bend`; `channel` 1-16; `polarity` `auto` (a switch's level at power-up = released) / `normal` / `inverted`; `curve` `none` (uncalibrated: raw / 8; a switch reads digitally) / `linear` / `piecewise` / `power`; `min` / `mid` / `max` raw ADC (10-bit); `presence`: `active` = the input reads below 1000 now (a pedal pulls it), `seen` = it did since the controller booted, `idle` = only idle-high (an empty jack, **and also an open switch pedal**); `raw` = the last reading, `value` = the last value sent (0-127).
+- `link`: the FPGA → controller link (port 2 of the FPGA; the DIN socket is always 31250). `selectable` = the bitstream answers the switch protocol. `wanted` = the speed the controller applies at boot.
+- `duplicates`: groups of enabled inputs that send the same message (warning, not an error).
+
+### `GET /controller/inputs/<i>`
+
+One input (the `inputs` record without `raw` / `value`).
+
+### `POST /controller/inputs/<i>/message`
+
+`{"type": "off"|"switch"|"continuous", "message": "cc"|"note"|"channel_pressure"|"pitch_bend" (default cc), "number": 0-127, "channel": 1-16 (default 1), "polarity": "auto"|"normal"|"inverted" (default auto)}` → the input. A switch sends 0 / 127 (a note: Note-On velocity 100 / Note-Off); a continuous input sends its calibrated 0-127 (pitch bend: 0-16383). Registry: `controller.set_pedal_message`.
+
+### `POST /controller/inputs/<i>/calibration`
+
+`{"curve": "none"|"linear"|"piecewise"|"power", "min": 0-1023, "mid": 0-1023, "max": 0-1023}` (raw ADC at released / half / fully pressed; `min > max` = a reversed pedal) → the input. Continuous: linear min→0, max→127; piecewise min→0, mid→64, max→127; power `127·t^g` with `g` chosen so mid→64 (mid must lie at 10-90 % of the travel). Switch: pressed above 5/8 of the travel, released below 3/8 (hysteresis); the order of min and max gives the polarity. The device refuses less than 16 counts of travel, or a mid outside min..max. Calibrated in the MIDI panel (Calibrate pedal); not an assistant command (it needs the operator at the pedal).
+
+### `POST /controller/inputs/<i>/stream`
+
+`{"on": true|false}` → `{"input", "streaming"}`. Starts (renews) / stops the device's raw ADC stream of input `i` (50 Hz; the device stops by itself after 10 s without a renewal).
+
+### `GET /controller/inputs/<i>/raw`
+
+The latest stream sample `{"input", "raw", "value", "pressed", "active", "seen"}` (`value` = the output with the current calibration). `404 NoSample` when none arrived in the last 0.5 s.
+
+### `POST /controller/link`
+
+`{"speed": "1x"|"4x"|"8x"}` (31250 / 125000 / 250000 baud) → the `link` record. Both chips switch together (the FPGA holds its port 2 while the rate changes; keys wait in its queue); a switch the controller cannot confirm falls back to the previous speed within ~1 s. Registry: `controller.set_link_speed`.
+
+### `POST /controller/save`
+
+Writes the configuration (inputs, calibrations, link speed) to the device EEPROM → `{"saved": true}`. Registry: `controller.save`.
+
+### `POST /controller/defaults`
+
+The factory map in the device RAM (X14 CC67, X13 CC66, X12 CC64 switches; X9 CC11 continuous; the rest off; uncalibrated) → the `GET /controller` body. Save to keep it.
+
 ---
 
 ### `GET /get_available_notes`

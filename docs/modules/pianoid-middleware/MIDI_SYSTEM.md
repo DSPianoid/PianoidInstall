@@ -392,7 +392,7 @@ Why the split (review H2, orchestrator decision 2026-10-23): MIDI 1.0 defines CC
 | New listener session | the holders are forgotten (`reset_sources`) | a source of a previous session must not hold the OR pedal for good |
 | Ordering across ports | port by port within one poll (~1-3 ms); per-port order is kept | rtmidi delta times are per port |
 
-**Exclusions.** No Pianoid code opens a MIDI output or a virtual port, so there is no loopback of our own to exclude. `all_exclude` (names, no index suffix) keeps a port out of ALL. **Default: `["MIDIIN2 (AMC-10)"]`** - the AMC-10 exposes `AMC-10` and `MIDIIN2 (AMC-10)` with identical CC streams in every capture ([above](#input-port-saved-port-and-auto-detect-dev-392a)), so with both every key / pedal would arrive twice. **Not yet confirmed live** (dev-ped1 saw the keys on `MIDIIN2 (AMC-10)`; if port `AMC-10` does not carry them, set `all_exclude` to `["AMC-10"]`): change it with `POST /midi/input {"all_exclude": [...]}` (assistant `midi.set_input_settings`).
+**Exclusions.** No Pianoid code opens a virtual port, and the only MIDI output it opens is the "Pianoid" controller's, for its configuration SysEx ([below](#pianoid-controller-configuration-dev-pctl)), so there is no loopback of our own to exclude. `all_exclude` (names, no index suffix) keeps a port out of ALL. **Default: `["MIDIIN2 (AMC-10)"]`** - the AMC-10 exposes `AMC-10` and `MIDIIN2 (AMC-10)` with identical CC streams in every capture ([above](#input-port-saved-port-and-auto-detect-dev-392a)), so with both every key / pedal would arrive twice. **Not yet confirmed live** (dev-ped1 saw the keys on `MIDIIN2 (AMC-10)`; if port `AMC-10` does not carry them, set `all_exclude` to `["AMC-10"]`): change it with `POST /midi/input {"all_exclude": [...]}` (assistant `midi.set_input_settings`).
 
 **Settings migration.** `tools/migrate_midi_port_sustain.py` (PianoidCore) moves a remapped global pedal map into `port_sustain` for `AMC-10` and `MIDIIN2 (AMC-10)` and puts the global back to the standard (CC64, any channel, normal), the fallback for the Pianoid controller and every other port. Idempotent; run it with no backend running (a running backend rewrites the file from memory).
 
@@ -411,6 +411,34 @@ Why the split (review H2, orchestrator decision 2026-10-23): MIDI 1.0 defines CC
 | ALL | ports keyed by name, so exclusion and the per-port pedal maps follow a device wherever it moves |
 
 Tests: `tests/unit/test_midi_all_ports.py` (`test_manual_port_follows_its_name_when_the_list_reorders` replays the live reorder; waiting / reopen; missing at start; ALL with exclude + pedal maps across the reorder; default exclusion; legacy names).
+
+## Pianoid controller configuration (dev-pctl)
+
+**Why (2026-10-29, user: "In MIDI menu two new controls, applicable to Pianoid controller only: Calibrate Pedal ... Assign Midi Command to Pedal ... and Select Speed").** The "Pianoid" USB-MIDI controller (FATAR keybed → FPGA → Arduino Micro; repo `fatar-midicontroller`) has 8 pedal inputs (X9-X16) and a fast FPGA → Micro link. Their configuration lives **on the device** (Micro EEPROM): calibration, the MIDI message per pedal, the link speed. Pianoid reads and writes it; it stores nothing.
+
+| Piece | File | Concern |
+|---|---|---|
+| `PianoidController` (process singleton) | `pianoid_controller.py` | the SysEx request / reply client (manufacturer ID `0x7D`): opens the MIDI OUTPUT port `Pianoid`, sends `F0 7D 10 <cmd> ... F7`, waits for `F0 7D 12 <cmd> <status> ...`; the raw ADC stream `F0 7D 13 ...`; decode to dicts; duplicate assignments |
+| routes | `pianoid_controller_routes.py` | `/controller/*` ([REST_API](REST_API.md#pianoid-controller-controller-dev-pctl)), a nested blueprint of the MIDI input routes |
+| hook | `midi_input.MidiInputHub.sysex_hook` | a `0x7D` SysEx from the `Pianoid` port goes to the client and, if it was a config reply / sample, **not** to the monitor |
+| UI | Tunner `PianoidControllerSection.jsx`, `PedalCalibrateDialog.jsx`, `PedalAssignDialog.jsx`, `usePianoidController.js` | shown only while a `Pianoid` port is listed |
+
+**Replies and the input port.** Replies come back on the `Pianoid` INPUT port. A Windows MIDI input has one owner. When the listener plays or taps that port (Listen to All, the played port, or `monitor_all_ports`, the default), the client gets the replies through the hub hook. Otherwise it opens the input itself (its own open fails while the listener holds it) and releases it after 5 s without traffic, so the listener can take the port again.
+
+**What the device does with it** (protocol: controller repo `docs/proposals/controller-config-2026-10-29.md`):
+
+| Control | Device behaviour |
+|---|---|
+| Calibrate pedal | `min` / `mid` / `max` raw ADC + curve. Continuous: linear (min→0, max→127), piecewise through mid (mid→64), or power through mid; monotonic, clamped. Switch: pressed above 5/8 of the travel, released below 3/8; the order of min and max gives the polarity (an uncalibrated switch keeps the digital read + POL_AUTO). |
+| Pedal assignments | per input: off / switch / continuous; CC (0-119) / note (switch) / channel pressure / pitch bend; channel 1-16; polarity. Defaults: X12 sustain CC64, X14 CC67, X13 CC66, X9 CC11 continuous. |
+| Link speed | the FPGA → Micro wire (not the DIN socket, always 31250): 1x 31250 / 4x 125000 / 8x 250000. Both chips switch together over the Micro → FPGA aux line; an unconfirmed switch falls back. Needs a bitstream with `link_ctl` (else `selectable: false`). |
+| Save | EEPROM; until then a change is live but lost at power-off. |
+
+**Presence of a pedal.** The inputs have the Micro's internal pull-up and no board resistor: an empty jack reads ~1023, a pulled input (a continuous pedal, a closed switch) reads lower. `presence`: `active` (below 1000 now), `seen` (since the controller booted), `idle`. An open switch pedal reads like an empty jack, so the calibration dialog lists every input, connected ones first.
+
+**Pianoid's own sustain map is separate.** The device decides what a pedal SENDS (e.g. CC64 on channel 1); `midi_input` decides what Pianoid does with it (`sustain_cc` / `port_sustain`). The defaults match: the device's X12 sends CC64, Pianoid's global map is CC64 any channel.
+
+**Verification.** `tests/unit/test_pianoid_controller.py` (fake device speaking the protocol behind fake rtmidi ports: request bytes, reply decode, both reply paths, errors, stream, link, REST); Tunner `PianoidControllerSection.test.jsx`. Device side: controller repo `tools/test_pctl_logic.py` (curve / EEPROM / frame unit test) and `sim/tb_link_ctl.sv` (the rate switch in RTL). On hardware: pending.
 
 ## MIDI player (dev-6f0c)
 
