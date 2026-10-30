@@ -1125,7 +1125,7 @@ the per-cycle drain.
 `setThumpConfig`), `PlaybackCycleExecutor.cu` (call site). Host-side only, no kernel change.
 
 Every key note-on can also excite ONE shared **thump string** (an ordinary string on its own pitch, short and light,
-struck next to the bridge — [proposal §9](../../proposals/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)),
+struck next to the bridge — [proposal §9](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)),
 inside the same envelope, after the key's own strings:
 
 ```
@@ -1151,7 +1151,7 @@ thump-string Courant 0.25 (max\|g\| 0.992), no redline; output with the string p
 (10× mass → 9.997× output). Auto-trigger (scratch build): key note-on + thump = an explicit thump note within
 the float noise floor (rel 2e-4); thump off = the pre-change build (rel 1.9e-4, level 1e-5 dB); a 0/4/8 ms roll gives
 2.41× one thump's energy vs 2.79× when 10.7 ms apart (the truncation cost); a same-cycle chord gives exactly one thump;
-perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 ms (noise). Metric tables: [session log dev-thump1](../../development/logs/dev-thump1-2026-10-29-142109.md).
+perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 ms (noise). Metric tables: [session log dev-thump1](../../development/logs/archive/dev-thump1-2026-10-29-142109.md).
 
 ### Kernel Trigger: `new_notes_ind`
 

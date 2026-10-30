@@ -1267,7 +1267,7 @@ Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radianc
 
 ### Thump string (dev-thump1) {#thump-string-dev-thump1}
 
-The keybed "thump" (Option F of the [hammer-thump proposal](../../proposals/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)):
+The keybed "thump" (Option F of the [hammer-thump proposal](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)):
 a short, light string on its own pitch, struck next to the bridge, so its bridge force is a flat ~0.82·J below its
 first partial (~8.7 kHz) and kicks the board modes through its deck row. When enabled, every key note-on also excites
 it with the key's velocity (engine: [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).

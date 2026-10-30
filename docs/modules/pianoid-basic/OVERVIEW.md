@@ -524,7 +524,7 @@ DARKEN the mid sustain (−0.6…−1.3 oct, p48–84): the old 3.28 ms pulse (�
 ### thump_string (keybed thump, dev-thump1)
 
 File: `thump_string.py`. A **preset-data operation** (src JSON → new JSON, never in place) that adds the keybed thump
-string ([proposal §9](../../proposals/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29);
+string ([proposal §9](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29);
 engine side [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)):
 
 | Item | Value |

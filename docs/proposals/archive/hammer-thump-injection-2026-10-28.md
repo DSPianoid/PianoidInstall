@@ -1,6 +1,7 @@
+**Status:** IMPLEMENTED Option F (§9, one shared thump string) by dev-thump1, merged Core 87884e2 / Basic 24159cb / Tunner f3864d6 / Install a9d1226. Options A–E were not pursued. Engine doc: [SYNTHESIS_ENGINE → Thump string](../../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1) — Archived 2026-10-30.
+
 # Hammer "thump" injection: candidate architectures (design only)
 
-**Status:** Option F (§9, one shared thump string) APPROVED 2026-10-29 and IMPLEMENTED by dev-thump1 on `feature/dev-thump1-*` (Basic `thump_string.py`, Core host C++ `addThumpToBatch` + `thump_config.py`, Tunner Thump bar) — NOT merged; live listen pending. Options A–E remain proposals. Engine doc: [SYNTHESIS_ENGINE → Thump string](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1).
 **Date:** 2026-10-28
 **Trigger:** user request "Propose several ways to structure the thump injection function. Try to make it the most compatible with real physics."
 **Evidence:** assistant feature request `PianoidCore/logs/reports/bugreport-2026-10-25T19-17-39-802Z-assistant-app_bug-5e2c20fd8e46142c.json`, and `D:\modal_measurements\assistant-sessions\2026-10-25\TUNING_NOTE.md`.
