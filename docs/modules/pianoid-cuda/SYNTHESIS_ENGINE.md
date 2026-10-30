@@ -1119,6 +1119,40 @@ below this cap — overflow is a signal that something upstream
 (typically a runaway test harness or a wedged producer) is flooding
 the per-cycle drain.
 
+### Thump string (keybed, dev-thump1)
+
+**Files:** `ThumpTrigger.h` (config + pool rotation), `Pianoid_excitation.cu` (`Pianoid::addThumpToBatch`,
+`setThumpConfig`), `PlaybackCycleExecutor.cu` (call site). Host-side only, no kernel change.
+
+Every key note-on can also excite ONE shared **thump string** (an ordinary string on its own pitch, short and light,
+struck next to the bridge — [proposal §9](../../proposals/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)),
+inside the same envelope, after the key's own strings:
+
+```
+stageStringsForPitch(pitch, vel):  addStringToBatch(s, vel) for the key's strings
+                                   addThumpToBatch(pitch, vel)      // no-op: pool empty, vel 0 (note-off) or gain[pitch] 0
+addThumpToBatch: first thump of the batch -> pool string (round-robin per batch), staged like any string, coeff *= gain[pitch]
+                 later keys in the SAME batch -> merged into that one slot: the larger gain*velocity rewrites its
+                 velocity (Gauss row) and coefficient; never a second slot (two gaussKernel blocks on one row would race)
+```
+
+| Item | Value |
+|---|---|
+| Config | `setThumpConfig(pool, key_gains[128])` (pybind; middleware `thump_config.push`). Empty pool = off (the default): nothing is staged, output bit-identical |
+| Budget | at most `MAX_THUMP_STRINGS_PER_BATCH` = 1 extra string per envelope: `MAX_NOTE_ONS_PER_CYCLE` 7 × `MAX_STRINGS_PER_PITCH` 3 + 1 = 22 ≤ `MAX_STRINGS_PER_EVENT` 64 (`static_assert` in `constants.h`) |
+| Same-cycle chord | one excitation, the loudest `gain × velocity` (bounded, independent of chord size) |
+| Overlap | a thump within ~9.3 ms (the 7-segment window) of the previous one re-runs `gaussKernel` on the same row: the earlier pulse is cut (force function overwritten, `exct_cycle_index` reset); the string state is additive, so ringing superposes. Accepted for v1 (one string); a pool of 2–4 strings removes it (the engine already rotates a pool) |
+| Damper | the thump pitch never receives a note-off from a key (velocity 0 stages nothing); its `damper_*` are 0, `gamma` damps it |
+| Calibration | the middleware pushes an empty pool around every calibration render (`thump_config.suspended`) |
+
+**Measured (offline `runOfflinePlayback`, `Tuning18-10-26ver1` + thump on pitch 20 / slot 235, 512/si 8, order 2):**
+thump-string Courant 0.25 (max\|g\| 0.992), no redline; output with the string present but not struck within
+−0.004 dB of the original preset (spectral peaks identical); response linear in the thump `hammer_mass`
+(10× mass → 9.997× output). Auto-trigger (scratch build): key note-on + thump = an explicit thump note within
+the float noise floor (rel 2e-4); thump off = the pre-change build (rel 1.9e-4, level 1e-5 dB); a 0/4/8 ms roll gives
+2.41× one thump's energy vs 2.79× when 10.7 ms apart (the truncation cost); a same-cycle chord gives exactly one thump;
+perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 ms (noise). Metric tables: [session log dev-thump1](../../development/logs/dev-thump1-2026-10-29-142109.md).
+
 ### Kernel Trigger: `new_notes_ind`
 
 `runSynthesisKernel()` checks `new_notes_ind` to decide which kernels to launch:
@@ -1370,6 +1404,7 @@ This is used for testing individual resonator modes without triggering string ex
 | `NO_EXCITATION_LEVELS` | 128 | MIDI velocity levels |
 | `EXCITATION_FACTOR` | 8 | Excitation window = 8 temporal segments of one cycle each (`initTotalSteps` sub-steps = `mode_iteration/sr`, 1.333 ms at 64/48 kHz; the written 7-segment window is 9.33 ms). gaussKernel writes segments 0–6; segment 7 is silent by construction (see [Temporal Segmentation](#temporal-segmentation--grid-reconciliation)) |
 | `MAX_STRINGS_PER_EVENT` | 64 | Max strings per batch |
+| `MAX_STRINGS_PER_PITCH` / `MAX_THUMP_STRINGS_PER_BATCH` | 3 / 1 | Intake budget terms: 7 note-ons × 3 strings + 1 thump ≤ 64 (dev-thump1) |
 
 ---
 
