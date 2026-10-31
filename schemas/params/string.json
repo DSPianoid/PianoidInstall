@@ -101,6 +101,74 @@
           "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#coefficient-scaling-table"
         }
       ]
+    },
+    {
+      "domain": "pedal",
+      "title": "Half-pedal damper curve (dev-pedal1)",
+      "read": "param.get {parameter: pedal, key_no: all} -> {config, defaults, limits, engine_supported}",
+      "write": "param.set {parameter: pedal, key_no: all, values: {field: value}}",
+      "key_space": "global config; the engine derives a band per string slot from the slot's pitch",
+      "shape": "{dead_low, dead_high, register_spread, patch_width, patch_offset, blend_power, decay_range}",
+      "stored_vs_effective": "Stored in model_parameters.pedal as the fields that differ from the defaults (absent = all defaults). Effective: per-string lift bands + patch in dev_damper_curve; sustain 0 and 127 ignore all of it except the dead zones.",
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1",
+      "fields": [
+        {
+          "name": "dead_low",
+          "units": "pedal steps",
+          "range": "1-60",
+          "class": "stored",
+          "meaning": "At or below this pedal value every damper is down.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        },
+        {
+          "name": "dead_high",
+          "units": "pedal steps",
+          "range": "67-127",
+          "class": "stored",
+          "meaning": "At or above this pedal value every damper is up.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        },
+        {
+          "name": "register_spread",
+          "units": "pedal steps",
+          "range": "0-100, below dead_high - dead_low",
+          "class": "stored",
+          "meaning": "Steps between the bass and the treble lifting (bass first); 0 = all together.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        },
+        {
+          "name": "patch_width",
+          "units": "fraction of the string",
+          "range": "0-0.5",
+          "class": "stored",
+          "meaning": "Damper patch width; 0 = the whole string.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        },
+        {
+          "name": "patch_offset",
+          "units": "fraction of the string",
+          "range": "-0.5..0.5",
+          "class": "stored",
+          "meaning": "Patch centre from the hammer point, towards the bridge when positive.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        },
+        {
+          "name": "blend_power",
+          "units": "exponent",
+          "range": "0.1-16",
+          "class": "stored",
+          "meaning": "The whole-string share of the damper rate = closure^power.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        },
+        {
+          "name": "decay_range",
+          "units": "ratio",
+          "range": "1.001-1e6",
+          "class": "stored",
+          "meaning": "Cap on fully damped rate / own rate; matters for a string with gamma 0.",
+          "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1"
+        }
+      ]
     }
   ]
 }

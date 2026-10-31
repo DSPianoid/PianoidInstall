@@ -5,7 +5,7 @@
     {
       "name": "param.get",
       "title": "Read a parameter",
-      "description": "Reads preset parameters. parameter: string | mode | gauss | gauss_flat | gauss_full | hammer | excitation | feedin | feedback | feedin_mask | feedback_mask | sound_channel | sound_channel_mask | string_sound_channel | thump. key_no: 'all' for `thump` (the keybed thump config; available false = the preset has no thump string); a mode number for `mode`; a PITCH number for every other parameter (feedin / feedback / masks rows are indexed by mode); 'all' or 'from<a>to<b>' for ranges.",
+      "description": "Reads preset parameters. parameter: string | mode | gauss | gauss_flat | gauss_full | hammer | excitation | feedin | feedback | feedin_mask | feedback_mask | sound_channel | sound_channel_mask | string_sound_channel | thump | pedal. key_no: 'all' for `pedal` (the half-pedal curve) and `thump` (the keybed thump config; available false = the preset has no thump string); a mode number for `mode`; a PITCH number for every other parameter (feedin / feedback / masks rows are indexed by mode); 'all' or 'from<a>to<b>' for ranges.",
       "target": "backend",
       "tier": "read",
       "approval_category": "view",

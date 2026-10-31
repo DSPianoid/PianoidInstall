@@ -226,7 +226,7 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 | `coeff_tension` | `(T/ρ) · dt² / dx²` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:133` | `Pitch.py:307` |
 | `coeff_bending` | `(π·E·r⁴ / 4ρ) · dt² / dx⁴` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:135` | `Pitch.py:310` |
 | `coeff_frequency_decay` | HF damping: `γ_HF · 1e12 / (2·dx²) · dt/dt_ref` | `∝ dt` (∝ 1/iter; = legacy value at the reference grid, dev-f2b8) | `Kernels.cu:144` | `Pitch.py:321` (`c2dec ∝ 1/(dt·dx²)` — differs; Python is not the reference for this term) |
-| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping; `dump_coeff` = damper step count on the main string, `damper_tail` on the tail — see below) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
+| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping; `dump_coeff` = the graded damper multiplier on the main string, `damper_tail` on the tail — see below) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
 | `coeff_force` | `dt² · dec_inv · hammer[p]` (per-point force coefficient) | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:155–158` | `Pitch.py:319` (`cf = dt² · dec_inv`) |
 | `shift_0` | `(2 + 12·coeff_bending − 2·coeff_tension) · dec_inv` | derived | `Kernels.cu:144` | `Pitch.py:314` |
 | `shift_b` | `(dec_curr − 1) · dec_inv` | derived | `Kernels.cu:148` | `Pitch.py:318` |
@@ -237,12 +237,23 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 `REFERENCE_SUBSTEP_RATE = 48000·4` (`constants.h`) — exactly `1.0` on the reference grid, so presets tuned at
 48 kHz × 4 are unchanged there.
 
-**Damper multiplier `dump_coeff` (dev-f27f, 2026-10-02).** `dump_coeff` multiplies `damper_string`:
+#### Damper multiplier (dev-pedal1) {#damper-multiplier-dev-pedal1}
+
+`dump_coeff` multiplies `damper_string` (dev-f27f real-valued, dev-pedal1 graded by the pedal). Law: `DamperLaw.cuh`, tested host-side by `tests/unit/damper_law_test.cpp`.
 
 | Points | `dump_coeff` | Values |
 |---|---|---|
-| main string | `int(pow((127 − sustain) · dumper_position, 0.6))` — integer damper step count | 18 damper closed, 0 open (key held); intermediate with the sustain pedal |
-| tail | `damper_tail` (`physical_parameters[14]`) — a **real, dimensionless multiplier** | e.g. 127 (`PhysicalParameters` default, the former constant `DUMP_ON_TAIL`), FPGA converter 1…1e6 |
+| main string | `closed_steps · fraction(closure) · weight(point, closure)` | see below |
+| tail | `damper_tail` (`physical_parameters[14]`) — a **real, dimensionless multiplier**, independent of the pedal and of the key | e.g. 127 (`PhysicalParameters` default, the former constant `DUMP_ON_TAIL`), FPGA converter 1…1e6 |
+
+| Term | Definition | Notes |
+|---|---|---|
+| `closed_steps` | `int(pow(127 · dumper_position, 0.6))` | the pedal-up multiplier. **Stored vs effective:** `dec_open` is 0 while the key is held (0 steps), 1 (`DUMP_CLOSED`) after a note-off (18 steps), and 127 (Basic `CLOSED`, the host init) on a string never struck since the preset loaded (334 steps) |
+| `closure` | `damperClosure`: 1 at `v <=` the string's `band_closed`, 0 at `v >=` `band_open`, linear between | `v` = sustain 0-127, 127 = pedal down. Bands per string slot from `pedal_config.py` ([dead zones, register staging](../pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1)) |
+| `fraction` | `(R^closure − 1)/(R − 1)`, `R = (base + full)/base` capped at `decay_range` | `base` = `γ·dt`, `full` = `damper_string · closed_steps · dt/dt_ref`. The string's total rate moves geometrically from its own rate to its fully damped rate, so equal pedal steps are equal log-decay steps at every pitch although `damper_string` spans orders of magnitude (Tuning18: 2e-6 mid-keyboard, 7e-10 in the top octave, `R` about 25 and 1.005). `R` near 1 = linear |
+| `weight` | `whole + (1 − whole) · patch`, `whole = closure^blend_power`, `patch` = raised cosine of half-width `h` around the damper point, scaled by `L/h` | area-normalised: the mean over the string is 1, so localising keeps the rate averaged over the partials; a partial with a node at the damper decays less. Damper point = `(hammer_position + patch_offset)·L`, kept inside the string; `h = patch_width·L/2`, at least 2 points; `patch_width` 0 = the whole string. Points off the main string get `whole` |
+
+At sustain 0 and 127 the terms short-circuit to exactly `closed_steps` and 0 on the whole string, the pre-dev-pedal1 values, so a 0 / 127 pedal and every stock preset are unchanged. A string under a held key has 0 steps at any pedal. The amplitude-dependent contact of a real half-pedalled damper (a loud string buzzing on the felt) is not modelled.
 
 So the tail decrement is `damper_string · damper_tail · dt/dt_ref`: only the product matters, `damper_tail` is
 NOT an absolute damping value (history: PianoidCore 3ad994e `DUMP_ON_TAIL = 127` → 6e0182b slot 14 + PianoidBasic
