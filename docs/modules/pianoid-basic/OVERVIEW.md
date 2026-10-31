@@ -535,15 +535,16 @@ engine side [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE
 |---|---|
 | Slot | the last string of the last output pitch with > 1 string (a padding duplicate: an output pitch's strings all write the same sample) — zero new strings / blocks; no padding string → `ValueError` (restructure first) |
 | Pitch | 20 by default (any non-key id 0–20 / 109–127); a key pitch (`keyPitches`), never a sound pitch |
-| String | main 12, tail 2, dx 5 mm, T 300 N, `jung` 0, ρ from Courant 0.5 (`ρ = T·dt²/(0.25·dx²)`, 3.26e-4 kg/m at 48 kHz / si 8 → f1 8.7 kHz), `gamma` 3000 /s, dampers 0, hammer at (main−2)/main, width 1.5·dx |
+| String | main 12, tail 2, dx 5 mm, T 300 N, `jung` 0, ρ from Courant 0.5 at the preset's own `string_iteration` (`ρ = T·dt²/(0.25·dx²)`: 3.26e-4 kg/m at 48 kHz / si 8 → f1 8.7 kHz; 8.14e-5 kg/m at si 16 → f1 17.5 kHz), `gamma` 3000 /s, dampers 0, hammer at (main−2)/main, width 1.5·dx |
 | Curves | one Gaussian per level: contact time τ(v) = 2 ms·(v/2.4)^−0.43 (felt p = 2.5) clamped 0.8–3 ms (σ = τ/√(2π)), `mu` = 1 ms delay + 3σ (fits the 9.33 ms window); volume = the preset's max curve volume (keeps the [0:1] normalisation factor) |
 | Deck | the row of `--deck-from` (default pitch 60) × `--deck-scale`, optionally zeroed above `--max-mode-hz`; feedin = feedback |
-| Mass | `--mass` (kg): the keybed effective mass. Coefficient `c·m·v·G` as every key (physical string gain G ≈ 69 for this light string restores the delivered impulse) |
+| Mass | `--mass` (kg): the keybed effective mass. Coefficient `c·m·v·G` as every key (physical string gain G ≈ 69 at si 8, 4× that at si 16, restores the delivered impulse; the measured thump levels are all si 8) |
 | Config | `model_parameters.thump = {enabled: false, pitch, gain: 1, trim_db: {}}` (`ModelParameters.thump`, saved only when set); `validate_config`, `key_gains` (128 per-key linear gains, zero when disabled), `is_thump_pitch` |
 | Exclusions | `excitation_retime` skips the thump pitch; the middleware hammer-mass calibration does too |
 
 CLI: `python -m Pianoid.thump_string SRC.json DST.json [--pitch 20] [--mass 0.0034] [--deck-from 60] [--deck-scale 1] [--max-mode-hz 250] [--enable]`.
 Run it with the PianoidCore venv Python. `DST` is a new file, and the thump is **disabled** in it unless `--enable` is given.
+The assistant runs the same operation with the `preset.add_thump` command ([REST_API](../pianoid-middleware/REST_API.md#rig-pipeline)): typed options only, the source must exist, the name must be new.
 The string is short and light, not stiff (`jung` 0), and `--mass` is about 7× the median key `hammer_mass` of `Tuning18-10-26ver1` (0.46 g).
 String id vs slot: the padding string keeps its preset string id (235 in `Tuning18-10-26ver1`, taken from output pitch 134); the engine addresses it by CUDA slot (232, `chores[20]`, `engine_pool`).
 
