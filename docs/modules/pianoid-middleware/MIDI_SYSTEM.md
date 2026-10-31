@@ -468,7 +468,7 @@ Tuning: `GET /get_parameter/pedal/all`, `POST /set_parameter/pedal/all` ([REST_A
 
 **Files that use CC64 as a switch with values other than 0 / 127.** Values 118-127 and 0-6 are the ends; a file holding the pedal at, say, 100 now half-pedals (a recorded performance wants that; the old switch flattened it).
 
-**Status.** Python and the law are unit-tested; the engine result is not measured until the rebuild: [test plan](../../development/half-pedal-test-plan-2026-10-31.md).
+**Status.** Measured on the rebuilt engine, offline; the real pedal is still to try: [results](../../development/half-pedal-test-plan-2026-10-31.md).
 
 ## MIDI player (dev-6f0c)
 

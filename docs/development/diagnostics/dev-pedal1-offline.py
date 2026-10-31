@@ -282,5 +282,36 @@ if 'moving' in tests:           # tests 8 + 9: 100 Hz CC under 10 sounding notes
     print(res, flush=True)
     REPORT['moving'] = res
     save()
+if 'moving2' in tests:          # tests 8 + 9 refined: N=3 wall per kernel; clicks against the local HF level
+    notes = [36, 43, 48, 55, 60, 64, 67, 72, 76, 84]
+    base = [on(q, 0.02) for q in notes]
+    dur = 4000
+    res = {}
+
+    def local_crest(x):
+        """2 ms block HF (> 8 kHz) energy over the median of the +-100 ms around it, max dB, after 0.6 s."""
+        s = np.fft.rfft(x.sum(axis=0))
+        f = np.fft.rfftfreq(x.shape[1], 1 / SR)
+        s[f < 8000] = 0
+        y = np.fft.irfft(s, x.shape[1])
+        n = int(SR * 0.002)
+        e = (y[:len(y) // n * n].reshape(-1, n) ** 2).mean(axis=1)
+        out = [e[i] / (np.median(e[i - 50:i + 50]) + 1e-300) for i in range(300, len(e) - 50)]
+        return float(10 * np.log10(max(out))), float(10 * np.log10(np.percentile(out, 99)))
+
+    ramp = [sus(int(63.5 + 63.5 * np.sin(2 * np.pi * 0.5 * k / 100)), 0.1 + k / 100) for k in range(390)]
+    plans = {'still': [], 'cc100hz': ramp, 'cc25hz': ramp[::4], 'ends_12hz': [sus(127 if (k // 8) % 2 else 0, 0.1 + k / 100) for k in range(390)],
+             'dup100hz': [sus(64, 0.1 + k / 100) for k in range(390)]}
+    for rep in range(3):
+        for name, extra in plans.items():
+            x, wall = render([sus(64, CYC)] + base + extra, dur)
+            r_ = res.setdefault(name, {'wall': [], 'crest': None})
+            r_['wall'].append(wall)
+            if rep == 0:
+                r_['crest'] = local_crest(x)
+    print(res, flush=True)
+    REPORT['moving2'] = res
+    save()
+
 print('DONE', flush=True)
 save()
