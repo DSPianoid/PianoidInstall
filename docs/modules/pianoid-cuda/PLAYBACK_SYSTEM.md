@@ -363,7 +363,7 @@ Derived event types add typed fields:
 | EventType | Bits 63..32 | Bits 31..16 | Bits 15..0 |
 |---|---|---|---|
 | `NOTE_ON` / `NOTE_OFF` | unused | unused | `(pitch << 8)` \| `velocity` |
-| `SUSTAIN` | unused | unused | `value & 0x7F` (raw MIDI CC, 0–127) |
+| `SUSTAIN` | unused | unused | `value & 0x7F` (continuous, 0–127; `processSustain` leaves it pending, `applyPendingSustain` lands it once per cycle, rate-limited: [Half pedal](../pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1)) |
 | `PARAM_UPDATE_SINGLE` / `PARAM_UPDATE_BATCH` | bits 63..56=`param_type`, bits 55..40=`string_index`, bits 39..32=unused | (continued) | bits 31..0=IEEE-754 `float` value |
 | `TEST_STRING_ONLY` | bit 63=`reset_flag`, bits 62..32=unused | unused | `target_index` (string index, NOT pitch) |
 | `TEST_MODE_ONLY` | unused | bits 23..16=`velocity` | `mode_index` |

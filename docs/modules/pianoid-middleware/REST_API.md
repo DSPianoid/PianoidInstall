@@ -1265,6 +1265,17 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radiance.import`, `radiance.from_frf`, `radiance.config`; factors via
 `param.set` (`mode.radiance_mono` / `mode.radiance_left` / `mode.radiance_right`).
 
+### Half-pedal curve (dev-pedal1) {#half-pedal-curve-dev-pedal1}
+
+How the pedal value grades the dampers: [MIDI_SYSTEM → Half pedal](MIDI_SYSTEM.md#half-pedal-dev-pedal1) (fields, defaults, meaning). Config `model_parameters.pedal` (only the fields that differ from the defaults; absent = the defaults), logic `pedal_config.py`, the single writer of `mp.pedal`.
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /get_parameter/pedal/all` | — | `{config, defaults, limits, engine_supported}` (`config` = effective) |
+| `POST /set_parameter/pedal/all` | any of `{dead_low, dead_high, register_spread, patch_width, patch_offset, blend_power, decay_range}` | `200`; `416` on a value out of range |
+
+Undoable (domain `pedal`), journaled, rule table entries `pedal.*`. `param.set {parameter: pedal, key_no: all, values}`. Takes effect at the next cycle, also on sounding strings.
+
 ### Thump string (dev-thump1) {#thump-string-dev-thump1}
 
 The keybed "thump" (Option F of the [hammer-thump proposal](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)):
@@ -2396,9 +2407,9 @@ Response 200:
  "port_counts": {"AMC-10": {"messages": 3, "notes": 1}, "Pianoid": {"messages": 6, "notes": 2}}}
 ```
 
-- `sustain_cc`: the CC number treated as the sustain pedal (default 64). The default pedal (64, any channel) reaches the engine unchanged (switch at 64). A remapped one (another CC, or a `sustain_channel`) reaches it as CC64 `127` / `0` (hysteresis after the polarity: down at >= 74, up at <= 54). Any other CC64 is dropped.
+- `sustain_cc`: the CC number treated as the sustain pedal (default 64). The engine gets it as CC64 with the value after polarity (continuous, dev-pedal1). Any other CC64 is dropped.
 - `sustain_channel` (dev-392a): the pedal's MIDI channel 1-16, or `null` = any channel (default). Set it when several pedals send the same CC on different channels (the AMC-10: CC 0 on channels 1-3, sustain = channel 2).
-- `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the switch: the engine's at 64 for the default pedal, the hysteresis for a remapped one).
+- `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`).
 - `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
 - `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), `"all"` = Listen to All (dev-midiall), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
@@ -2406,7 +2417,7 @@ Response 200:
 - `all_exclude` (dev-midiall): port names (no index suffix) Listen to All never opens. Default `["MIDIIN2 (AMC-10)"]`: the AMC-10 sends the same stream on both its ports (not yet confirmed live for the keys).
 - `port_counts` (dev-midiall): per played port (stable name), messages and note-ons since the backend started.
 - `port_state` (dev-392a): see `GET /midi/ports`.
-- `sustain_down` / `sustain_value`: the pedal state the engine was last sent (dev-midiall: the OR of the played ports' pedals) / the last raw value of a sustain CC (`null` before the first one).
+- `sustain_down` / `sustain_value`: the down / up indicator (hysteresis: down at >= 64, up at <= 54; any played port) / the last raw value of a sustain CC (`null` before the first one). The sound follows the value, not the indicator.
 - `counts`: messages per type on the played and the tapped ports since the backend started.
 
 ### `POST /midi/input`
