@@ -197,7 +197,7 @@ export function footprint(cmd, input = {}) {
     if (input.dry_run !== true) fp.folders.push('rig_runs');
   } else if (cmd.name === 'modal.rig_process') {
     fp.folders.push(`${input.area ?? def(prop(a, 'area')) ?? 'rig_runs'}/${input.run}`);
-  } else if (cmd.name === 'preset.create') {
+  } else if (cmd.name === 'preset.create' || cmd.name === 'preset.add_thump') {
     fp.folders.push(`presets/${input.name}`);
   } else if (cmd.name === 'preset.save' || cmd.name === 'modal.set_measurements_dir') {
     fp.folders.push(input.path);

@@ -280,6 +280,82 @@
       "result": {
         "type": "object"
       }
+    },
+    {
+      "name": "preset.add_thump",
+      "title": "Add the keybed thump string to a new preset",
+      "description": "Writes a NEW preset presets/<name>.json from a source preset with the keybed thump string added (Pianoid.thump_string): a short light string on a non-key pitch that every key note-on also strikes. The source must exist and stays unchanged; name must not exist (there is no overwrite); a source that already has the pitch, or has no padding string on its output pitches, is refused. rho is derived from the source's string_iteration. File work only, the engine is not touched: load the result with preset.load. Long-running: returns a jobId.",
+      "target": "backend",
+      "tier": "destructive",
+      "approval_category": "per_command",
+      "long_running": true,
+      "job_family": "rig",
+      "doc": "modules/pianoid-middleware/REST_API.md#rig-pipeline",
+      "route": {
+        "method": "POST",
+        "path": "/rig/preset_add_thump"
+      },
+      "args": {
+        "type": "object",
+        "required": [
+          "source",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Source preset name in presets/ (without .json)"
+          },
+          "name": {
+            "type": "string",
+            "description": "New preset name (letters, digits, . _ -); must not exist"
+          },
+          "pitch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127,
+            "default": 20,
+            "description": "Thump pitch: a non-key id, 0-20 or 109-127"
+          },
+          "mass": {
+            "type": "number",
+            "minimum": 0.0001,
+            "maximum": 0.1,
+            "default": 0.0034,
+            "description": "Keybed effective mass (kg)"
+          },
+          "deck_from": {
+            "type": "integer",
+            "minimum": 21,
+            "maximum": 108,
+            "default": 60,
+            "description": "Key pitch whose deck row the thump string copies"
+          },
+          "deck_scale": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 1.0,
+            "description": "Scale of the copied deck row"
+          },
+          "max_mode_hz": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 24000,
+            "default": 0,
+            "description": "Zero the deck row above this frequency (250 = the low-mode rim row); 0 = keep the whole row"
+          },
+          "enable": {
+            "type": "boolean",
+            "default": false,
+            "description": "Thump on in the new preset; false = present but off"
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
     }
   ]
 }

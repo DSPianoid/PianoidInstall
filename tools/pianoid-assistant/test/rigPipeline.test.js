@@ -19,7 +19,7 @@ import { launcherArgs, LIMITS, prepareRun } from '../analysis/runPython.js';
 const COMMANDS = loadCommands();
 const byName = Object.fromEntries(COMMANDS.map((c) => [c.name, c]));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'pianoid-rig-test-'));
-const DRIVES = ['modal.rig_capture', 'modal.rig_sine', 'modal.rig_record', 'modal.rig_process', 'preset.create'];
+const DRIVES = ['modal.rig_capture', 'modal.rig_sine', 'modal.rig_record', 'modal.rig_process', 'preset.create', 'preset.add_thump'];
 const verdict = (name, settings = {}) => {
   const c = byName[name];
   return decide({ command: c.name, tier: c.tier, family: c.family, category: c.approval_category, settings });
@@ -39,6 +39,13 @@ test('registry: the rig commands exist, typed, long-running in the rig job famil
   assert.equal(byName['modal.rig_sine'].args.properties.outputs.items.properties.level_dbfs.maximum, -24);
   assert.deepEqual(byName['modal.rig_process'].args.properties.step.enum, ['frf', 'polymax', 'coefficients', 'build_preset']);
   for (const k of ['num_strings', 'num_channels', 'array_size', 'name']) assert.ok(byName['preset.create'].args.required.includes(k), k);
+});
+
+test('registry: preset.add_thump takes typed options only, no overwrite and no free-form argument', () => {
+  const a = byName['preset.add_thump'].args;
+  assert.deepEqual(a.required, ['source', 'name']);
+  assert.equal(a.additionalProperties, false);
+  assert.equal(a.properties.overwrite, undefined);
 });
 
 test('policy: every rig drive / write has its own rule (category Always allow does not cover it; its rule does); reads run; opt-out denies', () => {

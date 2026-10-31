@@ -1105,6 +1105,7 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 | `POST /rig/record` | `modal.rig_record` (asks: its own rule) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
 | `POST /rig/process` | `modal.rig_process` (asks: its own rule) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
 | `POST /rig/preset_create` | `preset.create` (asks: its own rule) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
+| `POST /rig/preset_add_thump` | `preset.add_thump` (asks: its own rule) | a NEW preset with the [keybed thump string](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1) from a source preset; refuses a missing source, an existing name (no overwrite) and a source that already has the pitch |
 | `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
 | `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
 | `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
