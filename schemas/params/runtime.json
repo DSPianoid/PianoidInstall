@@ -38,7 +38,7 @@
         {
           "name": "feedback",
           "units": "0 = silence; 1-127 MIDI-style level (64 -> 1.0, 127 -> 8.0, 1 -> ~0.125); other values a direct coefficient",
-          "range": "coefficient after mapping 0.0..1000",
+          "range": "coefficient after mapping >= 0; no upper bound",
           "class": "stored",
           "meaning": "Deck feedback coefficient by level (auto-detected mapping); scales piano-pitch resonance feedback only.",
           "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
@@ -46,7 +46,7 @@
         {
           "name": "feedback_coeff",
           "units": "direct effective deck feedback coefficient",
-          "range": "0.0..1000",
+          "range": ">= 0; no upper bound",
           "class": "effective",
           "meaning": "Bypasses the feedback level mapping; the two-layer FE slider sends effective = stored_coeff(preset) x slider multiplier. Lower feedback = louder / sharper attack but stable (a damping coefficient; risk = clipping).",
           "doc": "modules/pianoid-tunner/OVERVIEW.md#bottom-bar-volume-feedback-reset-dev-uiqueue-t2-2026-06-15"
@@ -54,7 +54,7 @@
         {
           "name": "deck_feedback_coefficient",
           "units": "deck coupling scalar (engine value)",
-          "range": "0.0..1000 (validation range)",
+          "range": ">= 0; no upper bound (validation range)",
           "class": "effective",
           "meaning": "GET: the live engine deck feedback coefficient (RuntimeParameters default 1.0); feedback = feedin x this scalar on piano-pitch rows.",
           "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#runtime-feedback-coefficient"
@@ -138,7 +138,7 @@
         {
           "name": "store_feedback_coeff",
           "units": "deck feedback coefficient",
-          "range": "0.0..1000; default 1.0",
+          "range": ">= 0; no upper bound; default 1.0",
           "class": "stored",
           "meaning": "The 'Set' / fold button value: the new per-preset stored feedback baseline.",
           "doc": "modules/pianoid-middleware/REST_API.md#post-set_runtime_parameters"
