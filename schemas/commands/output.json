@@ -236,6 +236,128 @@
       "result": {
         "type": "object"
       }
+    },
+    {
+      "name": "output.get_trim",
+      "title": "Read the machine speaker trim",
+      "description": "GET /output_trim: speaker_trim_db (null = uncalibrated, plays at the digital cap), provenance, calibrated (true only for a mic calibration), cap_db (the level at which the speaker row energy equals the loudest exciter channel on the loaded preset) and effective_db. The trim is per machine, not per preset; the board is the reference and is never moved.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#speaker-trim-dev-spktrim",
+      "route": {
+        "method": "GET",
+        "path": "/output_trim"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "output.set_trim",
+      "title": "Set the machine speaker trim",
+      "description": "POST /output_trim {speaker_trim_db}: a manual machine trim in dB, or null to go back to the uncalibrated default. Applies at once when the speakers play, always limited to cap_db. Saved in pianoid_local_settings.json. 409 while a speaker calibration runs. Hard confirm: it changes the speaker level.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "per_command",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#speaker-trim-dev-spktrim",
+      "route": {
+        "method": "POST",
+        "path": "/output_trim"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "speaker_trim_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -90,
+            "maximum": 24
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "output.calibrate_speakers",
+      "title": "Calibrate the speakers against the board with the mic",
+      "description": "POST /speaker_calibration: starts the mic job (poll GET /speaker_calibration; stop with POST /calibration_cancel). Plays C3, C4, C5 on the board, then on the speakers from 30 dB below the cap up, and saves the trim that matches them at the mic, only with SNR >= 10 dB in both modes. Always restores the routing. Needs ASIO, the mic on In 1, the engine live and no session running; 409 with the reason otherwise. The mic must be at the listening position and the analogue speaker gain must stay fixed afterwards. Hard confirm: it makes sound.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "per_command",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#speaker-trim-dev-spktrim",
+      "route": {
+        "method": "POST",
+        "path": "/speaker_calibration"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "strikes": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 5
+          },
+          "velocity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 127
+          },
+          "start_below_cap_db": {
+            "type": "number",
+            "minimum": 6,
+            "maximum": 90
+          },
+          "user_offset_db": {
+            "type": "number",
+            "minimum": -20,
+            "maximum": 20
+          },
+          "mic_input": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "output.calibration_status",
+      "title": "Read the speaker calibration job",
+      "description": "GET /speaker_calibration: running, stage (idle, noise, board, speakers, done, failed, aborted), progress 0-1, message, the measured passes (trim_db, level_db, snr_db), result, error.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#speaker-trim-dev-spktrim",
+      "route": {
+        "method": "GET",
+        "path": "/speaker_calibration"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
     }
   ]
 }
