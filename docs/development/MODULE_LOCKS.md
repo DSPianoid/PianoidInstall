@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-volsess locks RELEASED 2026-11-01 (Phase 1, NOT merged, NOT pushed): Core b771a98, Tunner 61230a2, Install docs, all feature/dev-volsess-session-volume. -->
 <!-- dev-mswitch locks RELEASED 2026-11-01 (Phase 2 2026-11-01: merged Core dev 729c729 / Install master 9d3d928, NOT pushed): Core de8d232 on feature/dev-mswitch-midi-survives-switch. -->
 <!-- dev-pedal1 locks RELEASED 2026-10-31 (Phase 2: merged Core dev 2ed31d0 / Basic dev 61ebf4f / Install master 61a4459 with add_thump, NOT pushed; branches deleted, worktrees removed). -->
 <!-- dev-midiall locks RELEASED 2026-10-29 (Phase 2 2026-10-29: merged Core dev 43bd695 / Tunner dev aeb03c3 / Install master 5317470 by merge-b3, NOT pushed; branches deleted, worktrees removed). -->

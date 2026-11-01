@@ -1033,24 +1033,13 @@ backendserver.py: preset_switch_route()                 (line 345)
      from an edit on the previous preset must not persist (user-directed 2026-05-30).
      (The APPLY / POST /load_preset path recreates the whole Pianoid → fresh
      ParameterManager → flag already False, plus an explicit clear after initialize().)
-  5c. Layer B: calibrate_output_scale() for the TARGET preset only if its
-     output_scale is stale AND the engine is not live; with the realtime
-     engine running it refuses the render and KEEPS the stored output_scale
-     (warning on /health.output_scale) — dev-0da4, never render live.
-     Stale = an excitation SHAPE edit (or other physics) since the last
-     calibration; mass/speed/c edits never stale it, and the calibration is
-     impulse-referenced (p60 at the preset's target x J_now/J_ref; target =
-     model_parameters.output_scale_target_dbfs, default -2 dBFS, chord headroom
-     dev-0ccf) — dev-5852.
-  6. Restore the global volume/feedback surface: volume_level and
-     volume_range kept; volume_center = bare seed x TARGET output_scale;
-     deck_feedback_coefficient = TARGET stored baseline (per-preset)
-     With the engine live the volume_center move is RAMPED (preset_level_ramp,
-     dev-mswitch): 20 equal dB steps, 5 ms apart, ending on the exact same value.
-     Target quieter: the fade runs BEFORE step 0 (undone if the swap fails).
-     Target louder: step 6 writes the old centre and the ramp runs after it. So
-     a note struck after the swap is never above its own preset's level. A move
-     under 0.01 dB, a stopped engine or the legacy formula: one direct write.
+  6. One read-modify-write of RuntimeParameters: deck_feedback_coefficient =
+     TARGET stored baseline (per-preset). Everything else stays exactly as it
+     is: volume_level, the engine volume_center, volume_range, amplitude_limit,
+     amplitude_gate_enabled, and the applied scale (dev-volsess). The target's
+     stored output_scale is neither applied nor written and nothing calibrates:
+     a stale target stays stale (/health.output_scale.stale) until a full Apply
+     or POST /recalibrate_output_level.
   Playback continues uninterrupted — double-buffer swap is atomic; the MIDI
   player keeps running through the op (EngineGate NON_DESTRUCTIVE_OPS)
 ```
@@ -1109,12 +1098,21 @@ binding and delegates bookkeeping to it.
   it used to pick the first other name, e.g. a different preset's read-only original);
   an original left with no working copies gets one auto-spawned
   (`PresetLibrary.remove` + `Pianoid.unload_preset`).
-- **Global runtime state.** Volume, feedback and volume sensitivity
-  (`volume_center`/`volume_range`) are one library-wide configuration —
-  `switch_preset` snapshots and restores all of them, so switching is
-  loudness-neutral for newly struck notes. Ringing strings do get the change
-  of `output_scale` (ramped, up to the ~26 dB between presets). They are not
-  per-preset and not stored in `PresetEntry`.
+- **Session volume state (dev-volsess, user objective 2026-11-01: "I load one
+  preset, add another one to library, and if they are equal to start with, they
+  should sound equally").** `volume_level`, `volume_center`, `volume_range`,
+  `amplitude_limit`, `amplitude_gate_enabled` and the applied Layer B scale are
+  one session-wide state, not stored in `PresetEntry`. `switch_preset` leaves
+  them untouched; a full Apply captures them before it destroys the `Pianoid`
+  and restores them on the new one. The output gain does not depend on how a
+  preset arrived, so each plays at its **true relative loudness**: a difference
+  heard between two presets comes from their parameters. A preset whose raw
+  output is much higher plays that much louder (the limiter guards the rail).
+  A preset's own `output_scale` applies only at the first load after a backend
+  start or an explicit calibration; a change of a setting that sets the level
+  re-anchors the session
+  ([Layer B](../modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale)).
+  The feedback baseline stays per-preset (2.6).
 
 REST: `GET /preset/list` returns `{name, kind, source, path, source_path}` records;
 `POST /preset/spawn_working_copy {source}` and `POST /preset/promote
