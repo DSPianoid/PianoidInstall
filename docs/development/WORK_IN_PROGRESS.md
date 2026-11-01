@@ -4,7 +4,6 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-volsess | Session-level volume state across library preset switches (BelarusNew level check) | see logs/dev-volsess-* | 2026-11-01 |
 <!-- dev-pedal1 COMPLETED 2026-10-31 (user-approved merge + rebuild, NOT pushed): smooth half pedal (continuous pedal value, per-string graded damper law, patch, model_parameters.pedal) + asst-thump preset.add_thump. Merged Core dev 2ed31d0 / Basic dev 61ebf4f / Install master 61a4459. Open with the user: X12 to continuous + calibrate (test 12), AMC-10 live (test 13), tuning by ear; results docs/development/half-pedal-test-plan-2026-10-31.md. -->
 <!-- dev-pctl COMPLETED 2026-10-30 (user-approved on Telegram; merged by merge-pctl): Pianoid controller config (SysEx client, /controller REST, MIDI panel section, assistant controller.* commands). Merged into Core dev, Tunner dev, Install master, fatar-midicontroller master. Open: calibration flow with a real pedal, real power cycle (controller IMPLEMENTATION_REPORT 14). -->
 <!-- dev-thump1 COMPLETED 2026-10-30 (user-approved on Telegram; merged by merge-thump): Option F keybed thump string (Basic thump_string.py, Core host C++ addThumpToBatch + thump_config.py, Tunner Thump bar). Merged Core dev 87884e2 (d4e30c3), Basic dev 24159cb (cdee0ac), Tunner dev f3864d6 (858816f), Install master a9d1226 (8a0c9b6). Proposal archived. Off unless a preset carries a thump string + model_parameters.thump. -->
