@@ -637,7 +637,7 @@ stays).
 midpoint. The field commits `onVolumeSensitivityChange(center, range)` where `center =
 exp((presetVolume-100)/8)`; usePreset sends `volume_center`/`volume_range` to the engine. **Volume slider
 level** = engine-owned session state (no `/load_preset` kind changes it; the load body's `volume` is the
-preset level anchor, not the slider — dev-2fbf): after every load `usePreset.loadPreset` mirrors
+preset level anchor, not the slider — dev-2fbf): after every load, and likewise the engine's sensitivity + center with no write (dev-volsess), `usePreset.loadPreset` mirrors
 `GET /get_runtime_parameters` `volume_level` into the slider (a page reload starts at 64 while the backend
 kept the user's level) and keeps the leftmost mute (center epsilon) when that level is 0. **Feedback
 sensitivity** (NEW, the volume analogue) = the **base of the env-multiplier curve** —

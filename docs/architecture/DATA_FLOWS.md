@@ -1038,7 +1038,7 @@ backendserver.py: preset_switch_route()                 (line 345)
      is: volume_level, the engine volume_center, volume_range, amplitude_limit,
      amplitude_gate_enabled, and the applied scale (dev-volsess). The target's
      stored output_scale is neither applied nor written and nothing calibrates:
-     a stale target stays stale (/health.output_scale.stale) until a full load
+     a stale target stays stale (/health.output_scale.stale) until a full Apply
      or POST /recalibrate_output_level.
   Playback continues uninterrupted — double-buffer swap is atomic; the MIDI
   player keeps running through the op (EngineGate NON_DESTRUCTIVE_OPS)
@@ -1098,17 +1098,20 @@ binding and delegates bookkeeping to it.
   it used to pick the first other name, e.g. a different preset's read-only original);
   an original left with no working copies gets one auto-spawned
   (`PresetLibrary.remove` + `Pianoid.unload_preset`).
-- **Session volume state (dev-volsess, user rule 2026-11-01: "volume settings
-  should not reset or change when switching between the presets").**
-  `volume_level`, `volume_center`, `volume_range`, `amplitude_limit`,
-  `amplitude_gate_enabled` and the applied Layer B scale are one session-wide
-  state; `switch_preset` leaves them untouched, they are not stored in
-  `PresetEntry`. The output gain is therefore identical before and after a
-  switch, so each preset plays at its **true relative loudness**: a difference
-  heard between two library presets comes from their parameters. A preset whose
-  raw output is much higher plays that much louder (the limiter guards the
-  rail). The preset's own `output_scale` applies only at a full load or an
-  explicit calibration ([Layer B](../modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale)).
+- **Session volume state (dev-volsess, user objective 2026-11-01: "I load one
+  preset, add another one to library, and if they are equal to start with, they
+  should sound equally").** `volume_level`, `volume_center`, `volume_range`,
+  `amplitude_limit`, `amplitude_gate_enabled` and the applied Layer B scale are
+  one session-wide state, not stored in `PresetEntry`. `switch_preset` leaves
+  them untouched; a full Apply captures them before it destroys the `Pianoid`
+  and restores them on the new one. The output gain does not depend on how a
+  preset arrived, so each plays at its **true relative loudness**: a difference
+  heard between two presets comes from their parameters. A preset whose raw
+  output is much higher plays that much louder (the limiter guards the rail).
+  A preset's own `output_scale` applies only at the first load after a backend
+  start or an explicit calibration; a change of a setting that sets the level
+  re-anchors the session
+  ([Layer B](../modules/pianoid-middleware/REST_API.md#layer-b-output-level-output_scale)).
   The feedback baseline stays per-preset (2.6).
 
 REST: `GET /preset/list` returns `{name, kind, source, path, source_path}` records;
