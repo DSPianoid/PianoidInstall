@@ -219,7 +219,7 @@ All parameter modifications route through `ParameterManager`, and every one of t
 
 **Runtime parameters** (volume, feedback, volume_center/range, max_volume) do NOT go through `ParameterManager` — they live on `Pianoid` directly and use `setRuntimeParameters` / `set_volume_level` / `set_deck_feedback_coefficient`. Their ONE write path is `runtime_params.apply_runtime_parameters` (dev-960f, extracted from `backendServer.py`): REST + WS `set_runtime_parameters`, the HOT / FULL `/load_preset` paths, the MIDI CC volume / feedback / deck-scaling knobs and the calibration volume auto-ranging all call it; it records `state_changed{domain:'runtime'}`. Its one PRESET field, `store_feedback_coeff` (`mp.deck_feedback_coefficient`), goes through `edit_commit.commit`.
 
-**Layer B output level** (`output_level.py`, dev-0da4) owns the per-preset `output_scale`: the offline p60 v127
+**Layer B output level** (`output_level.py`, dev-0da4) owns the applied scale (session state, kept across a library switch, dev-volsess) and the per-preset `output_scale`: the offline p60 v127
 measurement (refused while the engine is live — checked before any engine call), the commit rule (only a real,
 non-zero, finite peak is written; a refused/failed/silent render keeps the stored value and records a `/health`
 warning), and the bare ↔ engine `volume_center` conversion (`engine = bare × output_scale`; every SET multiplies,
