@@ -494,7 +494,9 @@ A backend player for MIDI files with transport, seek, speed, loop, transpose, ve
 | Mutes | muted track / channel: its NOTE_ONs and CCs are skipped, its held notes released at once; NOTE_OFFs always pass (no stuck notes). Muting a separate "Pedal" track removes the sustain |
 | Transpose / velocity | ±24 semitones; velocity × 0.1-2.0 clamped to 1-127; notes outside the preset's pitches are skipped and counted (`skipped_notes`) |
 | Loop | seamless: release at the end cycle, restart at the next cycle |
-| Engine lost | a preset load (EngineGate refusal) or a rebuilt engine (buffer identity changed) stops the player without touching the engine |
+| Engine lost | `/load_preset`, `/recalibrate_output_level` or `/shutdown` (EngineGate refusal), or a rebuilt engine (buffer identity changed), stops the player without touching the engine |
+| Library preset ops | `/preset/switch`, `/preset/load`, `/preset/unload`, `/preset/spawn_working_copy` do not stop the engine, so the player plays through them (`EngineGate.try_enter_shared(tolerate=NON_DESTRUCTIVE_OPS)`, dev-mswitch). The playable pitches follow the new preset; a note ringing across the switch keeps its strings, and its NOTE_OFF goes to the same pitch number under the new string map. Level change: [switch flow](../../architecture/DATA_FLOWS.md) step 6 |
+| Stall | if the thread falls behind the pushed horizon, the song is shifted by the gap: it resumes where the push stopped and the missed events do not fire as one burst |
 | State push | Socket.IO `midi_player_state` on every change and every 250 ms while playing |
 
 **Measured live (dev-6f0c, ASIO callback, BaselinePreset1, in-process):** cycle clock 1.3315 ms measured vs 1.3333 ms assumed (`mode_iteration / sample_rate`, −0.14 %); a metronome file at 400 ms gave onsets exactly 400.0 ms apart (std 0.0 at the 20 ms envelope resolution), at speed 1.5 a mean of 265.7 ms (expected 266.7); elise.mid from 10 s: position advanced 2961 ms in 3003 ms of wall time (the 40 ms start lead), pause -> output −71 dB re playing within 2 s, resume at 2x advanced 3923 ms in 2003 ms; event buffer peak 14 events, 0 dropped.
