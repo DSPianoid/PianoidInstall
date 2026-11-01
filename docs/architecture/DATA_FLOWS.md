@@ -1045,7 +1045,14 @@ backendserver.py: preset_switch_route()                 (line 345)
   6. Restore the global volume/feedback surface: volume_level and
      volume_range kept; volume_center = bare seed x TARGET output_scale;
      deck_feedback_coefficient = TARGET stored baseline (per-preset)
-  Playback continues uninterrupted — double-buffer swap is atomic
+     With the engine live the volume_center move is RAMPED (preset_level_ramp,
+     dev-mswitch): 20 equal dB steps, 5 ms apart, ending on the exact same value.
+     Target quieter: the fade runs BEFORE step 0 (undone if the swap fails).
+     Target louder: step 6 writes the old centre and the ramp runs after it. So
+     a note struck after the swap is never above its own preset's level. A move
+     under 0.01 dB, a stopped engine or the legacy formula: one direct write.
+  Playback continues uninterrupted — double-buffer swap is atomic; the MIDI
+  player keeps running through the op (EngineGate NON_DESTRUCTIVE_OPS)
 ```
 
 #### GPU Memory Layout
@@ -1105,7 +1112,9 @@ binding and delegates bookkeeping to it.
 - **Global runtime state.** Volume, feedback and volume sensitivity
   (`volume_center`/`volume_range`) are one library-wide configuration —
   `switch_preset` snapshots and restores all of them, so switching is
-  loudness-neutral. They are not per-preset and not stored in `PresetEntry`.
+  loudness-neutral for newly struck notes. Ringing strings do get the change
+  of `output_scale` (ramped, up to the ~26 dB between presets). They are not
+  per-preset and not stored in `PresetEntry`.
 
 REST: `GET /preset/list` returns `{name, kind, source, path, source_path}` records;
 `POST /preset/spawn_working_copy {source}` and `POST /preset/promote

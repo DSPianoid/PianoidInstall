@@ -436,6 +436,8 @@ other or with a request that uses the engine. Owner: `pianoid_middleware/engine_
 | **Engine use** (shared) | every other HTTP route + the engine Socket.IO events (`play`, `set_parameter`, `set_string_excitation`, `set_hammer_shape`, `set_runtime_parameters`, `set_fix_velocity`) | refused at once: HTTP **`503`** `{"code": "lifecycle_in_progress", "in_progress": {...}}`; a WS event acks `{"ok": false, "code": "lifecycle_in_progress"}` |
 | **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
 
+One exception to the shared-slot refusal: the MIDI player's own scheduler thread is not a request and keeps its slot through the library ops that leave the engine running (`NON_DESTRUCTIVE_OPS`: `preset_switch`, `preset_load`, `preset_unload`, `preset_spawn_working_copy`), so playback survives them (dev-mswitch). Every route keeps its `503`, the `/midi_player/*` routes too.
+
 A lifecycle op first waits for in-flight engine requests to finish (≤ 30 s, else `409` `engine_busy`);
 new engine requests are refused while it is pending. **Why 409, not a queue:** a queued *different*
 load would destroy the engine the first one just built — last-writer-wins on a destructive op is exactly
