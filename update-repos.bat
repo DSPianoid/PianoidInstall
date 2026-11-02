@@ -210,6 +210,14 @@ rem consume PianoidBasic).
 if "%BASIC_CHANGED%"=="1" set "NEED_BASIC=1"
 rem PianoidCore compiled sources changed -> CUDA rebuild.
 if "%CORE_CUDA_CHANGED%"=="1" set "NEED_CUDA=1"
+rem No-GPU install: no engine in the venv and no NVIDIA driver, nothing to rebuild.
+if "%NEED_CUDA%"=="1" if not exist "%CORE_DIR%\.venv\Lib\site-packages\pianoidCuda*.pyd" (
+    where nvidia-smi >nul 2>&1
+    if errorlevel 1 (
+        echo   No-GPU install: skipping the CUDA rebuild.
+        set "NEED_CUDA=0"
+    )
+)
 rem npm deps changed, or never installed -> npm install.
 if "%TUNNER_DEPS_CHANGED%"=="1" set "NEED_NPM=1"
 if not exist "%TUNNER_DIR%\node_modules" set "NEED_NPM=1"

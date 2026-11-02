@@ -140,6 +140,16 @@ echo "  OK  STEP 2 COMPLETED"
 echo
 
 # -- STEP 3: PianoidCuda -----------------------------------------------------
+# No-GPU install (FPGA work): --no-gpu or PIANOID_NO_GPU=1, or automatically when nvidia-smi is
+# absent. The backend then starts with the GPU engine unavailable. PIANOID_NO_GPU=0 forces the build.
+NO_GPU=0
+[[ "${1:-}" == "--no-gpu" || "${PIANOID_NO_GPU:-}" == "1" ]] && NO_GPU=1
+command -v nvidia-smi >/dev/null 2>&1 || NO_GPU=1
+[[ "${PIANOID_NO_GPU:-}" == "0" ]] && NO_GPU=0
+if [[ "$NO_GPU" == "1" ]]; then
+echo "[STEP 3/4] SKIPPED: no NVIDIA GPU, the PianoidCuda engine is not built."
+echo "  The UI, the FPGA tools and the Modal Adapter work; GPU presets cannot load."
+else
 echo "[STEP 3/4] Building PianoidCuda (release + debug)..."
 echo "========================================================================="
 if [[ ! -f "$CORE_DIR/build_pianoid_cuda.sh" ]]; then
@@ -149,6 +159,7 @@ fi
 chmod +x "$CORE_DIR/build_pianoid_cuda.sh" 2>/dev/null || true
 ( cd "$CORE_DIR" && bash build_pianoid_cuda.sh --heavy --both )
 echo "  OK  STEP 3 COMPLETED"
+fi
 echo
 
 # -- STEP 4: Frontend dependencies -------------------------------------------
@@ -176,13 +187,13 @@ echo "========================================================================="
 echo
 echo "  [1/4]  Python venv and dependencies"
 echo "  [2/4]  PianoidBasic package"
-echo "  [3/4]  PianoidCuda (release + debug)"
+if [[ "$NO_GPU" == "1" ]]; then echo "  [3/4]  PianoidCuda SKIPPED - no-GPU install"; else echo "  [3/4]  PianoidCuda (release + debug)"; fi
 echo "  [4/4]  Frontend dependencies"
 echo
 SO_RELEASE=$(ls "$VENV_DIR"/lib/python*/site-packages/pianoidCuda*.so 2>/dev/null | head -n 1 || true)
 if [[ -n "$SO_RELEASE" ]]; then
     echo "  OK  pianoidCuda*.so found: $SO_RELEASE"
-else
+elif [[ "$NO_GPU" != "1" ]]; then
     echo "  ??  pianoidCuda*.so not found in site-packages"
 fi
 if [[ -d "$TUNNER_DIR/node_modules" ]]; then

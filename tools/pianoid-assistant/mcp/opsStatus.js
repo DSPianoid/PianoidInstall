@@ -203,7 +203,7 @@ export function hints({ repos, engine, basic, tunner, assistant, leftovers }) {
     if (r.branch !== r.integration) out.push(hint('not_on_integration_branch', `${r.name} is on ${r.branch}, not ${r.integration}: update-repos.bat skips it (it updates only ${r.integration})`, 'update', { repo: r.name }));
     if (r.dirty) out.push(hint('local_changes', `${r.name} has ${r.changed.length}${r.changed.length === 10 ? '+' : ''} changed tracked file(s): ${r.name === 'PianoidInstall' ? 'update-repos.bat skips it' : 'a pull may refuse'}`, 'update', { repo: r.name }));
   }
-  if (!engine.release.built) out.push(hint('engine_missing', 'pianoidCuda is not installed in the venv', 'rebuild'));
+  if (!engine.release.built) out.push(hint('engine_missing', 'pianoidCuda is not installed in the venv (expected on a no-GPU install; on a GPU machine rebuild it)', 'rebuild'));
   else if (engine.release.rebuild_needed) out.push(hint('cuda_rebuild_needed', `compiled sources changed since the engine was built (${engine.release.built})${files(engine.release)}`, 'rebuild'));
   else if (engine.debug.rebuild_needed) out.push(hint('debug_variant_stale', 'the debug engine (pianoidCuda_debug) is missing or older than the compiled sources: rebuild with --both', 'rebuild'));
   if (basic.rebuild_needed) out.push(hint('basic_rebuild_needed', basic.built ? `PianoidBasic changed since the wheel was installed (${basic.built})${files(basic)}` : 'the Pianoid (Basic) wheel is not installed', 'rebuild'));

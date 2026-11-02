@@ -23,13 +23,15 @@ echo   3. Force reinstall CUDA only
 echo   4. Force reinstall Node.js only
 echo   5. Force reinstall all components
 echo   6. Create sample config file
+echo   8. No-GPU install, for FPGA work: Python, Build Tools, Node.js. No CUDA, no SDL.
+echo      The compiler is still needed: pip builds simpleaudio from source.
 echo.
 echo   --- separate (NOT part of the install pipeline) ---
 echo   7. Reinstall NVIDIA DISPLAY DRIVER (fixes "NVML not found" / driver mismatch
 echo      that a CUDA-toolkit reinstall above CANNOT fix; prompts on risks, then
 echo      downloads + installs automatically; reboot required)
 echo.
-set /p choice="Choose option (1-7): "
+set /p choice="Choose option (1-8): "
 
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 
@@ -58,6 +60,9 @@ if "%choice%"=="1" (
         echo Sample configuration file created successfully!
         echo Edit setup-config.json to customize versions and options.
     )
+) else if "%choice%"=="8" (
+    echo Running the no-GPU install...
+    "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "& '%~dp0setup-dev.ps1' -SkipCUDA -SkipSDL"
 ) else if "%choice%"=="7" (
     echo.
     echo Reinstalling the NVIDIA DISPLAY DRIVER ^(separate from the CUDA toolkit^)...

@@ -358,6 +358,11 @@ main() {
     [[ "$BASIC_CHANGED" == "1" ]] && NEED_BASIC=1
     # PianoidCore compiled sources changed -> CUDA rebuild.
     [[ "$CORE_CUDA_CHANGED" == "1" ]] && NEED_CUDA=1
+    # No-GPU install: no engine in the venv and no NVIDIA driver, nothing to rebuild.
+    if [[ "$NEED_CUDA" == "1" ]] && ! command -v nvidia-smi >/dev/null 2>&1         && ! ls "$CORE_DIR"/.venv/lib/python*/site-packages/pianoidCuda*.so >/dev/null 2>&1; then
+        echo "  No-GPU install: skipping the CUDA rebuild."
+        NEED_CUDA=0
+    fi
     # npm deps changed, or never installed -> npm install.
     [[ "$TUNNER_DEPS_CHANGED" == "1" || ! -d "$TUNNER_DIR/node_modules" ]] && NEED_NPM=1
     [[ "$ASSISTANT_DEPS_CHANGED" == "1" ]] && NEED_NPM_ASSISTANT=1
