@@ -15,6 +15,11 @@ export function commandsDir(env = process.env) {
   return env.PIANOID_COMMANDS_DIR || path.join(INSTALL_ROOT, 'schemas', 'commands');
 }
 
+/** The docs search_docs / read_docs serve: `$PIANOID_DOCS_DIR`, else <PianoidInstall>/docs. */
+export function docsDir(env = process.env) {
+  return env.PIANOID_DOCS_DIR || path.join(INSTALL_ROOT, 'docs');
+}
+
 /**
  * [record + family] of every registry command, sorted by name. Every command must name a known
  * `approval_category` (approvals.js, v2 §9): a missing / unknown one throws (fail fast).

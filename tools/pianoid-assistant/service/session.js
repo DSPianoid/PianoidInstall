@@ -201,6 +201,7 @@ export class AssistantSession {
       PIANOID_ANALYSIS_ARTIFACTS: this.analysis.artifacts,
     };
     if (this.commandsDir) mcpEnv.PIANOID_COMMANDS_DIR = this.commandsDir;
+    if (process.env.PIANOID_DOCS_DIR) mcpEnv.PIANOID_DOCS_DIR = process.env.PIANOID_DOCS_DIR;
     const pianoid = {
       type: 'stdio',
       command: process.execPath,

@@ -13,12 +13,13 @@
  * permit-gated executor instead of the backend: the service names the undo group, runs the Auto
  * write's level watch and auto-revert, and refuses a call its policy did not just allow.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { INSTALL_ROOT, commandName, loadCommands } from '../lib/registry.js';
+import { commandName, docsDir as defaultDocsDir, loadCommands } from '../lib/registry.js';
 import { decide } from '../policy.js';
 import { BACKEND_URL, callCommand, compact, listTools, READ_DOCS, SEARCH_DOCS, shapeResult } from './tools.js';
 import { buildIndex, readSection, search } from './docsIndex.js';
@@ -33,7 +34,7 @@ const arg = (name, fallback) => {
 
 export function createPianoidMcpServer({
   source = 'mcp', commands = loadCommands(),
-  docsDir = path.join(INSTALL_ROOT, 'docs'), fetchImpl = fetch, settings = {}, execUrl = null,
+  docsDir = defaultDocsDir(), fetchImpl = fetch, settings = {}, execUrl = null,
   artifactsDir = analysisPaths().artifacts, readOps = opsStatus,
 } = {}) {
   const byName = new Map(commands.map((c) => [c.name, c]));
@@ -48,12 +49,14 @@ export function createPianoidMcpServer({
       content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 1) }],
       isError,
     });
-    if (name === SEARCH_DOCS.name) {
+    if (name === SEARCH_DOCS.name || name === READ_DOCS.name) {
+      if (!fs.existsSync(docsDir)) return text({ error: 'docs_unavailable', docs_dir: docsDir, hint: 'set PIANOID_DOCS_DIR' }, true);
       if (!docs) docs = buildIndex(docsDir);
+    }
+    if (name === SEARCH_DOCS.name) {
       return text(search(docs, String(args.query || ''), Math.min(10, args.limit || 5)));
     }
     if (name === READ_DOCS.name) {
-      if (!docs) docs = buildIndex(docsDir);
       const section = readSection(docs, { page: args.page, anchor: args.anchor });
       return text(section, !!section.error);
     }

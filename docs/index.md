@@ -151,6 +151,9 @@ interactive latency.
   "Pianoid" USB-MIDI controller's own configuration (pedal calibration, MIDI message per pedal, link speed): it
   lives on the device; REST in [REST_API](modules/pianoid-middleware/REST_API.md#pianoid-controller-controller-dev-pctl),
   UI in the MIDI panel, assistant `controller.*` commands
+- [guides/MEASUREMENT_PIPELINE_FOR_ASSISTANT.md](guides/MEASUREMENT_PIPELINE_FOR_ASSISTANT.md) — Measurement skill for
+  the assistant, on any rig: hard rules, setup detection and branches, the full pipeline, time against precision,
+  safe exploration
 - [guides/MODE_DISCOVERY_FOR_ASSISTANT.md](guides/MODE_DISCOVERY_FOR_ASSISTANT.md) — Soundboard mode discovery
   for the assistant: rig facts (E1–E7 output map, P1–P8, weights, resonances, E2 distortion, crosstalk), the
   procedure ladder (sweeps → PolyMAX / consensus → Q → shapes → appropriation → measured preset → load at the
