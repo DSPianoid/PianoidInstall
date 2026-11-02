@@ -218,10 +218,15 @@ node --version
 echo.
 
 pushd "%TUNNER_DIR%"
-echo Running npm ci...
-rem npm ci installs exactly from the committed package-lock.json (reproducible,
-rem clean node_modules) rather than resolving fresh like `npm install`.
-npm ci
+rem npm ci installs exactly from package-lock.json, but PianoidTunner ignores that file, so a
+rem fresh clone has none and takes npm install. npm is npm.cmd: without CALL this script ends here.
+if exist package-lock.json (
+    echo Running npm ci...
+    call npm ci
+) else (
+    echo No package-lock.json: running npm install...
+    call npm install
+)
 set "NPM_EXIT=!errorlevel!"
 popd
 
@@ -234,7 +239,7 @@ rem The assistant's dependencies (incl. the Claude Code CLI bundled with the Age
 rem "Connect Claude subscription"). Optional: Pianoid runs without the assistant, so a failure only warns.
 echo Installing the assistant dependencies (tools\pianoid-assistant)...
 pushd "%ROOT_DIR%tools\pianoid-assistant"
-npm ci
+call npm ci
 set "ASSISTANT_NPM_EXIT=!errorlevel!"
 popd
 if not !ASSISTANT_NPM_EXIT! equ 0 (
