@@ -162,12 +162,18 @@ Without exciters the run fails with `channels_not_configured`.
 
 **Loopback reference (D4) and alignment.** Per session the loopback output carries a one-sample
 marker at frame 0 followed by a 0.12 s lead before the drive; the marker onset on the loopback
-input (the backend's own `audio_session.measure_loopback`) is the electrical round trip of that
+input (the backend's own detector, `loopback_marker.measure_loopback`: onset = the first sample above
+10 % of the marker peak within 0.1 s of the emission) is the electrical round trip of that
 session and the capture is shifted by it, so recording frame *n* = drive frame *n*. The
 recorder therefore applies **no onset re-alignment** (`shift_applied: 0`); the reference
 channel's acoustic onset is kept in metadata and the loopback channel's onset is a check
 (≤ 1 sample) when it carries the drive (D7). Without a loopback the session compensates the
 driver-reported latency and the legacy reference-onset alignment applies.
+`loopback_marker.py` is dependency-free (numpy only) on purpose: the rig pipeline steps run as a
+child `python -m pianoid_middleware.modal_adapter.rig_pipeline` (cwd `PianoidCore`, package imports
+only), where the backend's flat-import modules (`audio_session` -> `asio_clock`) do not resolve -
+bug 3250328b (dev-aclk1): every loopback capture aborted with `No module named 'asio_clock'` and runs
+fell back to the reported latency. Pinned by `tests/unit/test_loopback_marker.py` (subprocess import test).
 
 **Drive mirror (`loopback.mirror`, default off).** Measured on the rig 2026-10-11: a copy of
 the drive on Out 5 leaks electrically into In 5–7 (onset 1 sample; early peak −37 / −42 /

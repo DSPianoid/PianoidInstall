@@ -23,11 +23,11 @@ test('policy: D3 table on the real registry tiers (single user, D5)', () => {
   for (const n of ['ui.snapshot', 'ui.pane.open', 'play.note', 'render.note_playback', 'render.chart', 'param.get', 'job.list']) {
     assert.equal(d(n), 'allow', n);
   }
-  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'confirm', n);   // Ask by default (v2 §9)
+  for (const n of ['param.set', 'runtime.set', 'preset.switch', 'history.undo']) assert.equal(d(n), 'ask', n);   // Ask by default (v2 §9)
   for (const n of ['preset.save', 'preset.promote', 'preset.load', 'preset.unload', 'calibration.synthesis', 'modal.run_stage', 'modal.apply_to_preset']) {
-    assert.equal(d(n), 'confirm', n);
+    assert.equal(d(n), 'ask', n);
   }
-  assert.equal(d('launcher.backend.start'), 'confirm');
+  assert.equal(d('launcher.backend.start'), 'ask');
   assert.equal(d('launcher.status'), 'allow');
   assert.equal(d('launcher.backend.stop'), 'deny');                      // excluded tier
   assert.equal(d('calibration.status', { dataOptOut: true }), 'deny');
@@ -137,7 +137,7 @@ test('stdio: the real server process lists tools (standalone .mcp.json use)', as
 
 test('v2 P1 state reads are listed read-only and allowed without a confirm', () => {
   const STATE = ['system.health', 'system.environment', 'system.snapshot', 'audio.devices', 'midi.ports',
-    'midi.broadcast_state', 'preset.summary', 'preset.files', 'param.inventory'];
+    'midi.broadcast_state', 'preset.summary', 'preset.files', 'param.inventory', 'param.rules'];
   const tools = new Map(listTools(COMMANDS).map((t) => [t.name, t]));
   for (const name of STATE) {
     const cmd = COMMANDS.find((c) => c.name === name);

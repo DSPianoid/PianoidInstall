@@ -95,7 +95,9 @@ test('login: the browser callback completes it without a code; a wrong code fail
 
 test('login: cancel kills the CLI; timeout ends it; a second login while active is the same flow', async () => {
   const paths = tmpPaths();
-  const a = new AuthManager({ paths, env: ENV, cli: CLI, timeoutMs: 600 });
+  // the first flow must outlive the fake CLI's start-up (~1 s on Windows: its stdout reaches the pipe only after its
+  // BROWSER spawnSync); a 600 ms flow timeout here raced it and timed out before 'waiting' (the livetest-ou flake)
+  const a = new AuthManager({ paths, env: ENV, cli: CLI, timeoutMs: 20000 });
   a.login();
   const pid = a.child.pid;
   await until(() => a.flowState().state === 'waiting');
@@ -103,6 +105,7 @@ test('login: cancel kills the CLI; timeout ends it; a second login while active 
   assert.equal(a.child.pid, pid);
   assert.equal(a.cancel().state, 'cancelled');
   await until(() => !alive(pid));
+  a.timeoutMs = 600;                                       // the second flow times out on purpose
   a.login();
   const pid2 = a.child.pid;
   await until(() => a.flowState().state === 'timeout', 5000);

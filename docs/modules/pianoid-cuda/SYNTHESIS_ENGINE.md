@@ -227,7 +227,7 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 | `coeff_tension` | `(T/ρ) · dt² / dx²` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:133` | `Pitch.py:307` |
 | `coeff_bending` | `(π·E·r⁴ / 4ρ) · dt² / dx⁴` | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:135` | `Pitch.py:310` |
 | `coeff_frequency_decay` | HF damping: `γ_HF · 1e12 / (2·dx²) · dt/dt_ref` | `∝ dt` (∝ 1/iter; = legacy value at the reference grid, dev-f2b8) | `Kernels.cu:144` | `Pitch.py:321` (`c2dec ∝ 1/(dt·dx²)` — differs; Python is not the reference for this term) |
-| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping; `dump_coeff` = damper step count on the main string, `damper_tail` on the tail — see below) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
+| `dec_curr` | `γ_string · dt + damper_string · dump_coeff · dt/dt_ref` (velocity damping; `dump_coeff` = the graded damper multiplier on the main string, `damper_tail` on the tail — see below) | `∝ dt` (∝ 1/iter; damper term dt-scaled since dev-f2b8) | `Kernels.cu:146` | `Pitch.py:311` |
 | `coeff_force` | `dt² · dec_inv · hammer[p]` (per-point force coefficient) | `∝ dt²` (∝ 1/iter²) | `Kernels.cu:155–158` | `Pitch.py:319` (`cf = dt² · dec_inv`) |
 | `shift_0` | `(2 + 12·coeff_bending − 2·coeff_tension) · dec_inv` | derived | `Kernels.cu:144` | `Pitch.py:314` |
 | `shift_b` | `(dec_curr − 1) · dec_inv` | derived | `Kernels.cu:148` | `Pitch.py:318` |
@@ -238,12 +238,23 @@ coefficients above, each traceable to a Python reference formula for GPU↔Pytho
 `REFERENCE_SUBSTEP_RATE = 48000·4` (`constants.h`) — exactly `1.0` on the reference grid, so presets tuned at
 48 kHz × 4 are unchanged there.
 
-**Damper multiplier `dump_coeff` (dev-f27f, 2026-10-02).** `dump_coeff` multiplies `damper_string`:
+#### Damper multiplier (dev-pedal1) {#damper-multiplier-dev-pedal1}
+
+`dump_coeff` multiplies `damper_string` (dev-f27f real-valued, dev-pedal1 graded by the pedal). Law: `DamperLaw.cuh`, tested host-side by `tests/unit/damper_law_test.cpp`.
 
 | Points | `dump_coeff` | Values |
 |---|---|---|
-| main string | `int(pow((127 − sustain) · dumper_position, 0.6))` — integer damper step count | 18 damper closed, 0 open (key held); intermediate with the sustain pedal |
-| tail | `damper_tail` (`physical_parameters[14]`) — a **real, dimensionless multiplier** | e.g. 127 (`PhysicalParameters` default, the former constant `DUMP_ON_TAIL`), FPGA converter 1…1e6 |
+| main string | `closed_steps · fraction(closure) · weight(point, closure)` | see below |
+| tail | `damper_tail` (`physical_parameters[14]`) — a **real, dimensionless multiplier**, independent of the pedal and of the key | e.g. 127 (`PhysicalParameters` default, the former constant `DUMP_ON_TAIL`), FPGA converter 1…1e6 |
+
+| Term | Definition | Notes |
+|---|---|---|
+| `closed_steps` | `int(pow(127 · dumper_position, 0.6))` | the pedal-up multiplier. **Stored vs effective:** `dec_open` is 0 while the key is held (0 steps), 1 (`DUMP_CLOSED`) after a note-off (18 steps), and 127 (Basic `CLOSED`, the host init) on a string never struck since the preset loaded (334 steps) |
+| `closure` | `damperClosure`: 1 at `v <=` the string's `band_closed`, 0 at `v >=` `band_open`, linear between | `v` = sustain 0-127, 127 = pedal down. Bands per string slot from `pedal_config.py` ([dead zones, register staging](../pianoid-middleware/MIDI_SYSTEM.md#half-pedal-dev-pedal1)) |
+| `fraction` | `(R^closure − 1)/(R − 1)`, `R = (base + full)/base` capped at `decay_range` | `base` = `γ·dt`, `full` = `damper_string · closed_steps · dt/dt_ref`. The string's total rate moves geometrically from its own rate to its fully damped rate, so equal pedal steps are equal log-decay steps at every pitch although `damper_string` spans orders of magnitude (Tuning18: 2e-6 mid-keyboard, 7e-10 in the top octave, `R` about 25 and 1.005). `R` near 1 = linear |
+| `weight` | `whole + (1 − whole) · patch`, `whole = closure^blend_power`, `patch` = raised cosine of half-width `h` around the damper point, scaled by `L/h` | area-normalised: the mean over the string is 1, so localising keeps the rate averaged over the partials; a partial with a node at the damper decays less. Damper point = `(hammer_position + patch_offset)·L`, kept inside the string; `h = patch_width·L/2`, at least 2 points; `patch_width` 0 = the whole string. Points off the main string get `whole` |
+
+At sustain 0 and 127 the terms short-circuit to exactly `closed_steps` and 0 on the whole string, the pre-dev-pedal1 values, so a 0 / 127 pedal and every stock preset are unchanged. A string under a held key has 0 steps at any pedal. The amplitude-dependent contact of a real half-pedalled damper (a loud string buzzing on the felt) is not modelled.
 
 So the tail decrement is `damper_string · damper_tail · dt/dt_ref`: only the product matters, `damper_tail` is
 NOT an absolute damping value (history: PianoidCore 3ad994e `DUMP_ON_TAIL = 127` → 6e0182b slot 14 + PianoidBasic
@@ -544,9 +555,9 @@ endpoint — all indication only, none blocking. (v1/v2 history: v2 was skip-the
 user-directed 2026-05-30, replacing the v1 `CflRejected` → HTTP 400 reject; v3 removes even the skip.)
 The deprecated `_raise_if_cfl_unstable` throw-based gate is dead code retained only until its tests migrate.
 
-**`CFL_MARGIN` — a tunable safety margin on the Courant number (currently `0.8`).** The *exact* upper-edge
-boundary is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The live UPLOAD gate rejects
-~20% *before* that, at `CFL_MARGIN = 0.8`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
+**`CFL_MARGIN` — a tunable safety margin on the Courant number (currently `0.99` (measured 2026-10-25, dev-free1: `cfl_redline_info.margin = 0.99` on the installed engine; Core `1ca92ec` restored it from `0.8`)).** The *exact* upper-edge
+boundary is the Courant number reaching `1.0` (`max|g| = 1.0`, lossless). The indicator flags
+~1% *before* that, at `CFL_MARGIN = 0.99`, to give the **float32** engine headroom — the closed-form `max|g|` is exact
 for the *idealised* recurrence (`0` permissive cells vs a dense-θ truth,
 `dev-eac2-cfl-exactness-check.py` / `dev-eac2-cfl-ratio-boundary.py`), but the real engine runs float32
 with boundary + force terms and accumulates over thousands of steps, so a config the closed-form scores
@@ -880,6 +891,14 @@ expected. The strings-axis editor in PianoidTunner's SoundChannelsPane
 implements the latter; see `docs/modules/pianoid-tunner/OVERVIEW.md`
 "Strings-axis key normalization".
 
+**Output routing (dev-rad1).** The middleware can REPLACE the values of these output rows (host precompute, no kernel
+change, zero per-cycle cost: the dense mode→string scatter does the same work for any values): speaker channels get
+`g·r[m]` (per-mode radiance), silenced channels 0, and the ASIO map is swapped live
+([REST_API → Output routing](../pianoid-middleware/REST_API.md#output-routing-dev-rad1)). Rows load into registers at
+kernel launch, so a switch is live at the next cycle. In the single-deck build the output row is also the output
+string's feedin row; output strings carry tension 0, so their bridge force (and with it any back-coupling) is expected
+to be ~0 — to be confirmed by measurement (dev-rad1 V4).
+
 The data-model contract for `string_coefficients` is documented in
 `docs/modules/pianoid-basic/OVERVIEW.md` "SoundChannels — Stored vs effective
 entries"; the disambiguation between `deck`, `mode_sound_channels`, and
@@ -1022,7 +1041,10 @@ void beginStringBatch();
 
 void addStringToBatch(int stringNo, int velocity);
 // Append one string to the batch:
-//   1. Store (stringNo, volume_coeff[stringNo], timing=0) in host buffer
+//   1. Store (stringNo, excitation TYPE [impulse/sustained], timing=0) in host buffer, and
+//      sample the per-(string,velocity) loudness coefficient from the HOST table
+//      excitation_coefficients_[stringNo*128 + velocity] into the per-note real buffer
+//      string_excitation_coeff (1.0 if the table is unsized)
 //   2. Compute param_offset = (stringNo * 128 + velocity) * 20
 //      into string_gauss_param_indices (index into dev_gauss_params_full)
 //   3. Set dec_open[stringNo] = DUMP_OPEN (damper lifted)
@@ -1108,6 +1130,61 @@ counts the drops for diagnostics. Production traffic stays well
 below this cap — overflow is a signal that something upstream
 (typically a runaway test harness or a wedged producer) is flooding
 the per-cycle drain.
+
+### Thump string (keybed, dev-thump1)
+
+**Files:** `ThumpTrigger.h` (config + pool rotation), `Pianoid_excitation.cu` (`Pianoid::addThumpToBatch`,
+`setThumpConfig`), `PlaybackCycleExecutor.cu` (call site). Host-side only, no kernel change.
+
+Every key note-on can also excite ONE shared **thump string** (an ordinary string on its own pitch, short and light,
+struck next to the bridge — [proposal §9](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)),
+inside the same envelope, after the key's own strings:
+
+```
+stageStringsForPitch(pitch, vel):  addStringToBatch(s, vel) for the key's strings
+                                   addThumpToBatch(pitch, vel)      // no-op: pool empty, vel 0 (note-off) or gain[pitch] 0
+addThumpToBatch: first thump of the batch -> pool string (round-robin per batch), staged like any string, coeff *= gain[pitch]
+                 later keys in the SAME batch -> merged into that one slot: the larger gain*velocity rewrites its
+                 velocity (Gauss row) and coefficient; never a second slot (two gaussKernel blocks on one row would race)
+```
+
+| Item | Value |
+|---|---|
+| Config | `setThumpConfig(pool, key_gains[128])` (pybind; middleware `thump_config.push`). Empty pool = off (the default): nothing is staged, output bit-identical |
+| Budget | at most `MAX_THUMP_STRINGS_PER_BATCH` = 1 extra string per envelope: `MAX_NOTE_ONS_PER_CYCLE` 7 × `MAX_STRINGS_PER_PITCH` 3 + 1 = 22 ≤ `MAX_STRINGS_PER_EVENT` 64 (`static_assert` in `constants.h`) |
+| Same-cycle chord | one excitation, the loudest `gain × velocity` (bounded, independent of chord size) |
+| Overlap | a thump within ~9.3 ms (the 7-segment window) of the previous one re-runs `gaussKernel` on the same row: the earlier pulse is cut (force function overwritten, `exct_cycle_index` reset); the string state is additive, so ringing superposes. Accepted for v1 (one string); a pool of 2–4 strings removes it (the engine already rotates a pool) |
+| Damper | the thump pitch never receives a note-off from a key (velocity 0 stages nothing); its `damper_*` are 0, `gamma` damps it |
+| Calibration | the middleware pushes an empty pool around every calibration render (`thump_config.suspended`) |
+
+**Measured (offline `runOfflinePlayback`, `Tuning18-10-26ver1` + thump on pitch 20 (preset string id 235 = CUDA slot 232, the value `engine_pool` reports), 512/si 8, order 2):**
+thump-string Courant 0.25 (max\|g\| 0.992), no redline; output with the string present but not struck within
+−0.004 dB of the original preset (spectral peaks identical); response linear in the thump `hammer_mass`
+(10× mass → 9.997× output). Auto-trigger (scratch build): key note-on + thump = an explicit thump note within
+the float noise floor (rel 2e-4); thump off = the pre-change build (rel 1.9e-4, level 1e-5 dB); a 0/4/8 ms roll gives
+2.41× one thump's energy vs 2.79× when 10.7 ms apart (the truncation cost); a same-cycle chord gives exactly one thump;
+perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 ms (noise). Metric tables: [session log dev-thump1](../../development/logs/archive/dev-thump1-2026-10-29-142109.md).
+
+**Which presets have it.** Only presets built with [`thump_string`](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1). The standard `Tuning18-10-26ver1` has **no thump string** (and no `model_parameters.thump`): `available` is false and a thump edit answers 416. The `Tuning18-10-26ver1_thump_live*.json` variants have it enabled:
+
+| Preset suffix | `hammer_mass` | Deck row |
+|---|---|---|
+| `_thump_live` | 3.4 g | low-mode rim row: pitch 60's row, zeroed above 250 Hz (`--max-mode-hz 250`) |
+| `_thump_live_10g`, `_15g` | 10 g, 15 g | same low-mode rim row |
+| `_thump_live_c4row`, `_c4row_10g`, `_c4row_15g` | 3.4, 10, 15 g | pitch 60's whole row |
+
+**Mic A/B on the real board (2026-10-30), slider 82.** Metric: 50–200 Hz level, first 30 ms minus 0.5–1 s after the onset, dB (`results.txt`, data in `D:\modal_measurements\thump-live-2026-10-29\`):
+
+| Condition | C4 v80 | G4 v80 | A2 v80 |
+|---|---|---|---|
+| Real piano (target, [proposal §0](../../proposals/archive/hammer-thump-injection-2026-10-28.md#0-the-problem-in-measured-terms)) | +27 | +27 | +6 |
+| 3.4 g low row | ≥ +20.4 | ≥ +20.3 | +7.3 |
+| 10 g low row | ≥ +31.3 | ≥ +30.1 | +13.1 |
+| 15 g low row | ≥ +33.0 | ≥ +34.1 | +16.1 |
+| 3.4 g C4 row | ≥ +17.8 | ≥ +13.4 | +6.4 |
+| Thump off | noise | noise | +3.5 |
+
+**3.4 g low row is the best match.** C4 and G4 are lower bounds (their late window sits on the room noise, so the true metric can only be higher); only A2 is a true comparison.
 
 ### Kernel Trigger: `new_notes_ind`
 
@@ -1310,14 +1387,24 @@ Per velocity level (20 reals):
 |-------------|--------|------|
 | Init | `loadPresetToLibrary(preset_name, ...)` | Once at startup |
 | Runtime | `setNewExcitationBaseLevels()` | Every parameter edit |
+| Runtime, per string | `updateExcitationBaseLevelsForString()` | Test-only since dev-elat1 (2026-10-28); the middleware always uses the one-swap blob |
 
-Both accept 6 base velocity levels per string (30,720 reals) and call the private
+The first two accept 6 base velocity levels per string (30,720 reals) and call the private
 `interpolateBaseLevels()` helper to reconstruct the full 128-level buffer. The
 interpolation is linear between the same anchors [0, 5, 31, 63, 95, 127] as Python's
 `extrapolate()` (last segment span 32; it was 33 until dev-5965 2026-09-22 — see
 DATA_FLOWS.md §2.2). The reconstructed buffer is uploaded via
 `updateTunableParameter()` on the double-buffer system (see
 [MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)).
+
+**The loudness coefficient is NOT in this block.** `excitation_coefficients_`
+(`num_strings × 128` reals, physics-energy B2) is a host-side vector set by
+`setNewExcitationCoefficients()` and read at note staging (`addStringToBatch` /
+`_append_string_gp`). It is not double-buffered: it is live for the next note the moment the
+setter returns (measured 2026-10-28, dev-elat1: a ×0.5 table with no swap rendered the next note
+at ×0.500000). The curve, by contrast, is live only once its swap is adopted at the top of the next
+`runSynthesisKernel`. The middleware therefore commits the coefficient after the curve's swap has
+been published ([DATA_FLOWS §2.2](../../architecture/DATA_FLOWS.md#22-excitation-parameters-base-levels-path)).
 
 ### Mode Excitation
 
@@ -1350,6 +1437,7 @@ This is used for testing individual resonator modes without triggering string ex
 | `NO_EXCITATION_LEVELS` | 128 | MIDI velocity levels |
 | `EXCITATION_FACTOR` | 8 | Excitation window = 8 temporal segments of one cycle each (`initTotalSteps` sub-steps = `mode_iteration/sr`, 1.333 ms at 64/48 kHz; the written 7-segment window is 9.33 ms). gaussKernel writes segments 0–6; segment 7 is silent by construction (see [Temporal Segmentation](#temporal-segmentation--grid-reconciliation)) |
 | `MAX_STRINGS_PER_EVENT` | 64 | Max strings per batch |
+| `MAX_STRINGS_PER_PITCH` / `MAX_THUMP_STRINGS_PER_BATCH` | 3 / 1 | Intake budget terms: 7 note-ons × 3 strings + 1 thump ≤ 64 (dev-thump1) |
 
 ---
 

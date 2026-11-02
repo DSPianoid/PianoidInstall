@@ -23,8 +23,7 @@
             "min": 0,
             "max": 127,
             "integer": true,
-            "max_up_per_step": 6,
-            "note": "down is free within 0..127 (quieter)",
+            "note": "validity only: any change within 0..127 runs; the limit is clipping (the level watch reverts the write)",
             "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
           }
         },
@@ -50,13 +49,7 @@
           "range": "0.0..1000",
           "class": "effective",
           "meaning": "Bypasses the feedback level mapping; the two-layer FE slider sends effective = stored_coeff(preset) x slider multiplier. Lower feedback = louder / sharper attack but stable (a damping coefficient; risk = clipping).",
-          "doc": "modules/pianoid-tunner/OVERVIEW.md#bottom-bar-volume-feedback-reset-dev-uiqueue-t2-2026-06-15",
-          "envelope": {
-            "max_step_ratio": 1.5,
-            "max_multiplier_of_stored": 2.0,
-            "note": "step ratio new/current within [1/1.5, 1.5] both ways (lower feedback is LOUDER, the risk is clipping); new / stored baseline (/health stored_feedback_coeff) <= 2.0",
-            "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
-          }
+          "doc": "modules/pianoid-tunner/OVERVIEW.md#bottom-bar-volume-feedback-reset-dev-uiqueue-t2-2026-06-15"
         },
         {
           "name": "deck_feedback_coefficient",

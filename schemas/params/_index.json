@@ -82,9 +82,16 @@
     }
   ],
   "envelope": {
-    "description": "The A2 envelope of the assistant's Auto writes (categories params / runtime, v2 proposal section 9): a field or domain carries an `envelope` entry only where the docs give a limit; everything else is Ask-only (the policy asks even when the category is Auto).",
-    "max_keys_per_command": 128,
-    "max_auto_writes_per_turn": 20,
+    "description": "The physical gates of the assistant's params / runtime writes (dev-free1, user decision 2026-10-25): NO step, ratio or count limits; every synthesis-parameter edit is free. A field `envelope` entry is a VALIDITY bound only (min / max / integer; an invalid value is rejected with a tool error). The physical criteria run automatically after the write and undo it, never ask: `cfl` (string physics) and `level_breach` (clipping).",
+    "cfl": {
+      "domains": [
+        "string"
+      ],
+      "signal": "GET /health cfl_redline (+ cfl_redline_info {pitch, string, amplification, courant}) right after the write: the engine flags the worst string of the last granular string edit when its Courant number coeff_tension - 8*coeff_bending >= CFL_MARGIN (0.99, cfl_redline_info.margin) or max|g| > 1",
+      "action": "undo the write group at once (POST /history/undo) and return a tool error (cfl_violation); an unreadable flag also undoes (fail closed)",
+      "prospective": "not available: the engine applies every string edit (v3, indication only) and has no dry-run route",
+      "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#fdtd-stability-cfl--courant-bound"
+    },
     "level_breach": {
       "over_target_db": 3,
       "signals": [
@@ -94,16 +101,9 @@
         "gate_trip_count increase"
       ],
       "watch_s": 15,
-      "doc": "modules/pianoid-middleware/REST_API.md#get-health"
+      "doc": "modules/pianoid-middleware/REST_API.md#get-health",
+      "applies_to": "every params / runtime write (Auto, Autonomous mode, a plan, or confirmed); the write is reverted on a breach"
     },
-    "not_in_envelope": [
-      "string (needs a prospective CFL check, not available)",
-      "hammer / gauss / excitation (no documented step limit)",
-      "feedin / feedback / sound_channel raw rows (no documented step limit)",
-      "mode.frequency / mode.mass_inv",
-      "runtime.feedback (level mapping auto-detected by value)",
-      "runtime.store_feedback_coeff / volume_center / volume_range"
-    ],
-    "doc": "proposals/ai-assistant-in-ui-2026-10-13.md#43-safety-model-for-direct-execution"
+    "doc": "development/reviews/assistant-free-params-review-2026-10-25.md"
   }
 }

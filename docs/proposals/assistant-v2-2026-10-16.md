@@ -472,7 +472,7 @@ category → decision):
 | `preset_nav` | `preset.switch`, `preset.spawn_working_copy`, `preset.load_to_library` | Ask | yes |
 | `history` | `history.undo` / `redo` | Ask | yes |
 | `layout_save` | named-layout save (new command) | Ask | yes |
-| `code` | `analysis.run_python` | Ask | yes (user, 2026-10-17); P2 / P5 ship it locked Ask (follow-up: unlock the switch) |
+| `code` | `analysis.run_python` | Ask | yes (user, 2026-10-17); switchable since dev-auto1 (2026-10-25) |
 | `web` | the researcher (search / fetch) | Auto (searches) | yes |
 | `bug_local` | `bug.report` (the native `POST /bug_report`; built minimal by dev-947d) | **Ask** (orchestrator brief 2026-10-18: show the draft first) | yes |
 

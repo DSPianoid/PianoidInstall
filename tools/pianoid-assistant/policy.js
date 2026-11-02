@@ -1,128 +1,116 @@
 /**
- * The assistant's permission policy (user decisions D3 / D4, 2026-10-15; v2 P2 approvals, §9). Pure.
+ * The assistant's permission policy: ONE decision function (dev-unif1, user request 2026-10-27: "make it uniform,
+ * don't patch each case separately"; earlier rows: D3 / D4 2026-10-15, v2 P2, dev-28f1, dev-free1). Pure.
  *
- * One installation = one user (D5: no user management): the owner-level rules below apply.
+ *   attributesOf(cmd, input, {ownPreset}) -> {driveLevel?, ownPreset?, overwrite?, why?}   the risky attributes of a call
+ *   ruleFor(cmd, attrs, {liveRender})     -> the ONE rule (approvals.js) this call needs
+ *   decide({command, title?, tier, family, category, attrs, settings})
+ *     -> {action: 'allow' | 'ask' | 'deny', reason, rule?, auto?, watch?, plan?, taintNote?}
  *
- * decide({command, tier, family, category, settings}) ->
- *   {action: 'allow' | 'confirm' | 'deny', reason, auto?, watch?, hard?, canAuto?}
- * It is called for EVERY tool call from the service's canUseTool hook (and again by the MCP
- * server for deny) — never left to the prompt. In order:
+ * Called for EVERY tool call by the service (canUseTool and the service's own tools) and by the MCP server.
+ * In order (there is no other branch):
  *
- *   excluded                                never listed; deny if asked anyway
- *   data opt-out ON (D4, default off)       modal / calibration tools DENY
- *   render.* (act) while live audio runs    the stop -> render -> restart renders (LIVE_RENDERS) ask
- *                                           (live audio pauses for the render); any other render, e.g. an
- *                                           output_scale calibration render, is DENIED (R6). Reads never.
- *   a web-tainted turn (P7)                 every non-read asks, hard (never Auto)
- *   a plan approval (dev-28f1, on unless   `settings.plan` = planApproval.js matchGrant, set by the service
- *     PIANOID_ASSISTANT_PLAN_APPROVAL=0)    only with the feature on: a step inside the user's grant runs
- *                                           (auto). A hard-confirm command only when the user ticked it
- *                                           (`plan.ticked`); params / runtime still need the A2 envelope;
- *                                           never `code`, never reads. After the deny rows and the tainted
- *                                           row, so a plan can never bypass them
- *   the hard-confirm list                   asks, hard: never Auto, no "don't ask again"
- *   category Ask (approvals.js)             asks; the dialog may offer "Don't ask again"
- *   category Auto, params / runtime         allow ONLY inside the A2 envelope (envelope.js): auto +
- *                                           the post-write level watch with auto-revert; outside the
- *                                           envelope it asks, hard (an envelope override)
- *   category `code` (analysis.run_python)   asks: locked Ask in approvals.js (V1); v2 P5
- *   category Auto, other                    allow
+ *   deny   not a Pianoid tool; an `excluded` tool; "Block measurement data" on for modal / calibration (D4);
+ *          a render inside the live engine other than the stop -> render -> restart ones (R6, a crash risk);
+ *          a params / runtime value the engine cannot take (the validity gate, envelope.js)
+ *   allow  reads (`view` and the read / ui tiers): never a rule
+ *   rule   ruleFor -> its mode in the rule table (`settings.rules`, defaults in approvals.js):
+ *            Always allow -> allow (params / runtime: watched by the physical gates, the CFL undo + the clipping
+ *            revert, which also apply to a write the user allowed once);
+ *            else a plan grant the user approved covers it -> allow (a `command` / `variant` rule only if the
+ *            user ticked that command in the plan card);
+ *            else ask: the dialog offers Allow once / Always allow (this rule) / Deny.
+ *   taint  in a turn that used untrusted content (`settings.tainted`), a rule with `taint` (it can send data out
+ *          or is destructive) does not apply, and neither does a plan: the call asks and `taintNote` says why.
  *
- * `settings`: {dataOptOut, liveAudio, tainted, approvals: {installation, session}, envelope: {ok, reason}}.
+ * `settings`: {dataOptOut, liveAudio, tainted, rules (the rule table), envelope: {ok, reject?, reason},
+ * plan?: planApproval.js matchGrant}.
  */
-import { modeOf, switchable, usesEnvelope } from './approvals.js';
+import { modeOf, ownRule, ruleDef, usesEnvelope } from './approvals.js';
+import { footprint, LEVEL_CAP_DBFS } from './planApproval.js';
 
 const MEASUREMENT_FAMILIES = new Set(['modal', 'calibration']);
 const READ_TIERS = new Set(['read', 'ui']);
 export const LIVE_RENDER_REASON = 'this render is blocked while live audio is running: only the renders that stop the '
   + 'realtime engine, render offline and restart it are allowed (a calibration render inside the live engine is a '
   + 'backend crash risk). Judge the level from the context (peak, limiter, clipping) or ask the user to listen';
-export const LIVE_RENDER_CONFIRM = 'live audio pauses for a few seconds: the engine stops, renders offline and restarts by itself';
 /**
  * The renders whose backend route stops the realtime engine, renders offline and restarts it (R6, dev-947d):
- * /get_chart_test chart functions (_stop_online_engine / _restart_online_engine) and /play_keyboard offline
- * (try / finally restart). Every other render.* stays denied while live audio runs (fail closed).
+ * /get_chart_test chart functions and /play_keyboard offline. Every other render.* is denied while live audio runs.
  */
 export const LIVE_RENDERS = new Set(['render.chart', 'render.note_playback', 'render.keyboard']);
+export const TAINT_NOTE = 'this turn used untrusted content (web or a tainted note / saved output): saved rules for '
+  + 'actions that send data out or are destructive do not apply in it, so it asks';
+const DRIVES = new Set(['modal.rig_capture', 'modal.rig_sine']);
 
-/**
- * The hard-confirm list (v2 §9, V8): these ask every time and can never be set to Auto. Registry
- * commands carry approval_category 'hard_confirm'; the names below also pin the tools that do not
- * exist yet (audio session / test tone) and are checked by a unit test.
- */
-export const HARD_CONFIRM = {
-  'preset.save': 'saves over a preset file',
-  'preset.promote': 'overwrites the original preset JSON',
-  'preset.unload': 'unloads a library entry (unsaved edits are lost)',
-  'preset.load': 'full reload: re-initialises the engine',
-  'calibration.synthesis': 'calibration (minutes; rewrites the levels)',
-  'calibration.acoustic': 'calibration with the microphone (rewrites hammer_mass)',
-  'calibration.attack_equalize': 'calibration (minutes; rewrites hammer_mass of every key)',
-  'modal.run_stage': 'modal measurement job',
-  'modal.apply_to_preset': 'writes measured modes into the preset',
-  'launcher.backend.start': 'process control (launcher)',
-  'launcher.modal.start': 'process control (launcher)',
-  'launcher.assistant.start': 'process control (launcher)',
-  'modal.rig_capture': 'plays sweeps on the rig exciters and records the inputs',
-  'modal.rig_sine': 'plays a sine on the rig exciters',
-  'modal.rig_record': 'records the rig inputs (synthesis pauses)',
-  'modal.rig_process': 'runs a measurement-pipeline step (FRF / PolyMAX / coefficients / preset build); writes files',
-  'modal.set_measurements_dir': 'moves the measurements folder every rig command uses (data is not moved)',
-  'preset.create': 'writes a new preset file (structure change)',
-  'audio.exciters_config': 'changes the exciter current limits / sensor mapping (hardware protection)',
-  'audio.session': 'plays on the rig outputs',
-  'audio.test_tone': 'plays on the rig outputs',
-};
-export const HARD_CONFIRM_EXTRA = [
-  'an envelope override (an Auto write outside the limits)',
-  'any action in a turn that used web content',
-];
+/** The risky attributes of one call (only what changes its rule). `ownPreset` = presetOwnership classify(). */
+export function attributesOf(cmd, input = {}, { ownPreset = null } = {}) {
+  const name = cmd?.name;
+  if (DRIVES.has(name) && input?.dry_run !== true) {
+    const { levels, outputs } = footprint(cmd, input);
+    const bad = levels.findIndex((l) => typeof l !== 'number' || !Number.isFinite(l) || l > LEVEL_CAP_DBFS);
+    if (!levels.length) return { driveLevel: 'unverified', why: 'no drive level stated' };
+    if (bad < 0) return { driveLevel: 'ok' };
+    return { driveLevel: 'unverified', why: `output ${outputs[bad]}: level ${levels[bad] ?? 'not stated'}` };
+  }
+  if (name === 'preset.save') {
+    return ownPreset?.own === true ? { ownPreset: true }
+      : { ownPreset: false, why: `${input?.path ?? 'a preset'}: ${ownPreset?.reason ?? 'ownership unknown'}` };
+  }
+  if (name === 'preset.create') return { overwrite: input?.overwrite === true };
+  return {};
+}
 
-export function decide({ command, tier, family, category, settings = {} }) {
+/** The ONE rule id a call needs. */
+export function ruleFor({ command, category, family }, attrs = {}, { liveRender = false } = {}) {
+  if (liveRender) return 'renders_live';
+  if (attrs.driveLevel === 'unverified') return 'rig.drive.any_level';
+  if (command === 'preset.save' && attrs.ownPreset === false) return 'preset.save.not_own';
+  if (command === 'preset.create' && attrs.overwrite) return 'preset.create.overwrite';
+  if (ownRule({ name: command, approval_category: category, family })) return command;
+  return category;
+}
+
+/** The rule as the confirm dialog shows it. */
+const shown = (def) => ({
+  id: def.id, kind: def.kind, label: def.kind === 'command' ? `${def.id} (this command)` : def.label,
+  dangerous: !!def.dangerous, ...(def.warning ? { warning: def.warning } : {}),
+});
+
+export function decide({ command, title, tier, family, category, attrs = {}, settings = {} }) {
   if (!command) return { action: 'deny', reason: 'not a Pianoid tool' };
   if (tier === 'excluded' || category === 'excluded') return { action: 'deny', reason: `${command} is never available to the assistant` };
   if (settings.dataOptOut && MEASUREMENT_FAMILIES.has(family)) {
     return { action: 'deny', reason: 'measurement data is opted out (pane switch "Block measurement data")' };
   }
-  const liveRender = family === 'render' && settings.liveAudio && !READ_TIERS.has(tier);
+  const liveRender = family === 'render' && !!settings.liveAudio && !READ_TIERS.has(tier);
   if (liveRender && !LIVE_RENDERS.has(command)) return { action: 'deny', reason: LIVE_RENDER_REASON };
-  if (settings.tainted && !READ_TIERS.has(tier)) {
-    return { action: 'confirm', hard: true, reason: 'this turn used web content: every action asks again' };
-  }
-  const planVerdict = planStep({ command, tier, category, settings });
-  if (planVerdict) return planVerdict;
-  if (HARD_CONFIRM[command] || category === 'hard_confirm') {
-    return { action: 'confirm', hard: true, reason: HARD_CONFIRM[command] || 'on the hard-confirm list' };
-  }
-  if (liveRender) return { action: 'confirm', reason: LIVE_RENDER_CONFIRM };
-  const mode = modeOf(category, settings.approvals);
-  if (mode === 'ask') {
-    return { action: 'confirm', canAuto: switchable(category), reason: `${category}: Ask` };
-  }
-  if (usesEnvelope(category)) {
-    const env = settings.envelope;
-    if (!env?.ok) return { action: 'confirm', hard: true, reason: env?.reason || 'outside the envelope' };
-    return { action: 'allow', auto: true, watch: true, reason: `${category}: Auto, ${env.reason}` };
-  }
-  return READ_TIERS.has(tier) ? { action: 'allow', reason: tier } : { action: 'allow', auto: true, reason: `${category}: Auto` };
-}
+  const gated = usesEnvelope(category);                     // params / runtime: the physical gates (envelope.js)
+  const env = gated ? settings.envelope : null;
+  if (env?.reject) return { action: 'deny', reason: env.reason };
+  if (READ_TIERS.has(tier) || category === 'view') return { action: 'allow', reason: tier };
 
-/**
- * The plan-approval row (null = no plan verdict, the rows below decide). `settings.plan` is absent unless
- * the flag is on and a grant matched, so with the flag off this returns null for every call.
- */
-function planStep({ command, tier, category, settings }) {
-  const plan = settings.plan;
-  if (!plan?.ok || READ_TIERS.has(tier) || category === 'code') return null;
-  if ((HARD_CONFIRM[command] || category === 'hard_confirm') && plan.ticked !== true) return null;
-  if (usesEnvelope(category)) {
-    if (!settings.envelope?.ok) return null;
-    return { action: 'allow', auto: true, watch: true, plan: plan.grantId, reason: `${plan.reason}; ${settings.envelope.reason}` };
+  // the rule lookup needs only this command (a command rule is derived from it; the catalogue is the pane's)
+  const commands = new Map([[command, { name: command, approval_category: category, family, title }]]);
+  const id = ruleFor({ command, category, family }, attrs, { liveRender });
+  const def = ruleDef(id, commands) || { id, kind: 'unknown', label: id, default: 'ask', taint: true };   // unknown: asks
+  const rule = shown(def);
+  const blocked = !!settings.tainted && def.taint;
+  const watched = (v) => (gated ? { ...v, watch: true, reason: `${v.reason}; ${env.reason}` } : v);
+  const gatesOk = !gated || env?.ok === true;              // no gate verdict = not runnable without a dialog (fail closed)
+  if (!blocked && gatesOk && modeOf(id, settings.rules, commands) === 'auto') {
+    return watched({ action: 'allow', auto: true, rule, reason: `${rule.label}: Always allow` });
   }
-  return { action: 'allow', auto: true, plan: plan.grantId, reason: plan.reason };
+  const plan = settings.plan;
+  const planCovers = plan?.ok && (def.kind === 'category' || plan.ticked === true);
+  if (!blocked && gatesOk && planCovers) return watched({ action: 'allow', auto: true, rule, plan: plan.grantId, reason: plan.reason });
+  const why = [attrs.why, def.warning || def.covers || def.label, gatesOk ? null : (env?.reason || 'the physical gates could not be checked')]
+    .filter(Boolean).join('; ');
+  return { action: 'ask', rule, reason: why, ...(blocked ? { taintNote: TAINT_NOTE } : {}) };
 }
 
 /** Is a command listed at all (the MCP server hides what can never run)? */
 export function listedFor(cmd, settings = {}) {
-  return decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings }).action !== 'deny';
+  return decide({ command: cmd.name, title: cmd.title, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings }).action !== 'deny';
 }
+

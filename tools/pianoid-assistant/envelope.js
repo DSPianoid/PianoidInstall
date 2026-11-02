@@ -1,124 +1,128 @@
 /**
- * The A2 envelope of the assistant's Auto writes (parent proposal §4.3, D3; v2 proposal §9). Pure.
+ * The physical gates of the assistant's params / runtime writes (dev-free1, user decision 2026-10-25:
+ * "make change parameters free ... volume limited at clipping, string parameters by the Courant criterion"). Pure.
  *
- * The LIMITS are data: the `envelope` entries of schemas/params (lib/paramLimits.js), written from
- * the docs. A write the entries do not cover is OUTSIDE the envelope, so it asks even when its
- * category is Auto (an UNKNOWN limit is never invented here).
+ * There are NO step / ratio / count limits: every synthesis-parameter edit is free. What stays:
+ *  - value validity (`check`): a value the engine cannot take (a non-integer or out-of-range volume, a negative
+ *    mode decrement) is REJECTED (a tool error, never a prompt). The bounds are data: the `envelope` entries of
+ *    schemas/params (lib/paramLimits.js), validity only (min / max / integer);
+ *  - the CFL gate (`cflGated` / `cflBreach`): a string-physics write (param.set string) is applied, then the
+ *    engine's own CFL flag is read (`/health cfl_redline`, ParameterManager._flag_cfl_indication: worst-string
+ *    Courant number coeff_tension - 8*coeff_bending >= CFL_MARGIN (0.99, measured), or max|g| > 1; SYNTHESIS_ENGINE.md
+ *    "FDTD Stability (CFL / Courant) Bound"). On a violation the write is undone at once and the model gets a
+ *    tool error. Applied-then-checked: the engine has no dry-run route (v3 uploads every edit, the flag is an
+ *    indicator), so a prospective check is not available to the assistant;
+ *  - the clipping gate (`levelBreach`): after every params / runtime write the output level is watched; on
+ *    clipping (or a guard trip / a peak far over the target) the write is reverted automatically.
  *
- *   readsFor(cmd, input)                  -> the GET paths the check needs (the session reads them)
- *   check({cmd, input, before, limits, autoWrites}) -> {ok, reason}
+ *   readsFor(cmd)                         -> the GET paths a revert needs (the session reads them, plus /health)
+ *   check({cmd, input, limits})           -> {ok: true, reason} | {ok: false, reject: true, reason}
+ *   cflGated(cmd, input)                  -> does the write need the CFL check?
+ *   cflBreach(health)                     -> null | reason   (the engine's flag after the write)
  *   revertPlan(cmd, input, before)        -> how to undo the write: {kind: 'history'} | {kind: 'runtime', values}
  *   levelBreach(before, after, limits)    -> null | reason   (the post-write level watch)
  */
 const MUTE_COMMANDS = new Set(['param.mute_modes', 'param.mute_channels']);
+/** The param.set domains whose values feed the FDTD string coefficients (schemas/params/string.json). */
+export const CFL_DOMAINS = new Set(['string']);
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-const listLen = (v) => (Array.isArray(v) ? v.length : 1);
-const out = (reason) => ({ ok: false, reason: `outside the envelope: ${reason}` });
+const reject = (reason) => ({ ok: false, reject: true, reason: `rejected: ${reason}` });
 
-/** The GET paths a check needs (`before` is keyed by these paths). */
-export function readsFor(cmd, input = {}) {
+/** The GET paths a write needs before it runs (`before` is keyed by these paths; /health is always read). */
+export function readsFor(cmd) {
   if (cmd.name === 'runtime.set') return ['/get_runtime_parameters', '/health'];
-  if (cmd.name === 'param.set' && input.parameter === 'mode' && typeof input.key_no === 'string') {
-    return [`/get_parameter/mode/${encodeURIComponent(input.key_no)}`];
-  }
   return [];
 }
 
-function checkMode(input, before, lim) {
-  const env = lim.fields['mode.decrement'];
-  if (!env) return out('mode has no envelope entry');
+/** One value against its validity entry ({min, max, integer}); null = valid. */
+function invalid(name, v, env) {
+  if (!env) return null;
+  if (!isNum(v)) return `${name} ${v} is not a number`;
+  if (env.integer && !Number.isInteger(v)) return `${name} ${v} must be an integer`;
+  if (isNum(env.min) && v < env.min) return `${name} ${v} is below ${env.min}`;
+  if (isNum(env.max) && v > env.max) return `${name} ${v} is above ${env.max}`;
+  return null;
+}
+
+function invalidMode(input, lim) {
   const values = input.values && !Array.isArray(input.values) ? input.values : null;
-  if (!values) return out('mode values must be {mode: {decrement}}');
-  const keys = Object.keys(values);
-  if (!keys.length) return out('no modes given');
-  if (keys.length > lim.global.max_keys_per_command) return out(`${keys.length} modes > ${lim.global.max_keys_per_command} per command`);
-  const now = before[readsFor({ name: 'param.set' }, input)[0]] || {};
-  for (const k of keys) {
-    const v = values[k];
-    const extra = v && typeof v === 'object' ? Object.keys(v).filter((f) => f !== 'decrement') : ['?'];
-    if (extra.length) return out(`mode ${k}: ${extra.join(', ')} has no documented limit (only decrement is in the envelope)`);
-    const from = now[k]?.decrement;
-    const to = v.decrement;
-    if (!isNum(to) || to < env.min) return out(`mode ${k} decrement ${to} (must be a number >= ${env.min})`);
-    if (!isNum(from) || from <= 0) return out(`mode ${k}: the current decrement is ${from ?? 'unknown'} (no ratio)`);
-    const r = to / from;
-    if (r < env.min_step_ratio || r > env.max_step_ratio) {
-      return out(`mode ${k} decrement ${from} -> ${to} (x${r.toFixed(2)}; one step allows x${env.min_step_ratio}..x${env.max_step_ratio})`);
+  for (const [k, v] of Object.entries(values || {})) {
+    if (!v || typeof v !== 'object') continue;
+    for (const [f, x] of Object.entries(v)) {
+      const why = invalid(`mode ${k} ${f}`, x, lim.fields[`mode.${f}`]);
+      if (why) return why;
     }
   }
-  return { ok: true, reason: `mode decrement within x${env.min_step_ratio}..x${env.max_step_ratio} per step` };
+  return null;
 }
 
-function checkRuntime(input, before, lim) {
-  const fields = Object.keys(input);
-  const outside = fields.filter((f) => !lim.fields[`runtime.${f}`]);
-  if (!fields.length) return out('no runtime field given');
-  if (outside.length) return out(`${outside.join(', ')} has no documented limit`);
-  const rt = before['/get_runtime_parameters'] || {};
-  const health = before['/health'] || {};
-  if ('volume' in input) {
-    const env = lim.fields['runtime.volume'];
-    const to = input.volume;
-    const from = rt.volume_level;
-    if (!Number.isInteger(to) || to < env.min || to > env.max) return out(`volume ${to} (an integer ${env.min}..${env.max})`);
-    if (!isNum(from)) return out('the current volume level is unknown');
-    if (to - from > env.max_up_per_step) return out(`volume ${from} -> ${to} (+${to - from}; at most +${env.max_up_per_step} per step)`);
+/** Is one params / runtime write valid? Otherwise free: the CFL and clipping gates run after the write. */
+export function check({ cmd, input = {}, limits }) {
+  if (!limits) return reject('the parameter inventory (schemas/params) is not loaded');
+  let why = null;
+  if (cmd.name === 'runtime.set') {
+    for (const [f, v] of Object.entries(input)) why = why || invalid(f, v, limits.fields[`runtime.${f}`]);
+  } else if (cmd.name === 'param.set' && input.parameter === 'mode') {
+    why = invalidMode(input, limits);
   }
-  if ('feedback_coeff' in input) {
-    const env = lim.fields['runtime.feedback_coeff'];
-    const to = input.feedback_coeff;
-    const from = rt.deck_feedback_coefficient;
-    const stored = health.stored_feedback_coeff;
-    if (!isNum(to) || to <= 0) return out(`feedback_coeff ${to} (must be > 0)`);
-    if (!isNum(from) || from <= 0 || !isNum(stored) || stored <= 0) return out('the current / stored feedback coefficient is unknown');
-    const r = to / from;
-    if (r > env.max_step_ratio || r < 1 / env.max_step_ratio) {
-      return out(`feedback ${from} -> ${to} (x${r.toFixed(2)}; one step allows x${(1 / env.max_step_ratio).toFixed(2)}..x${env.max_step_ratio})`);
-    }
-    if (to / stored > env.max_multiplier_of_stored) {
-      return out(`feedback ${to} = x${(to / stored).toFixed(2)} of the stored ${stored} (at most x${env.max_multiplier_of_stored})`);
-    }
-  }
-  return { ok: true, reason: 'runtime change within the envelope' };
+  if (why) return reject(why);
+  if (cflGated(cmd, input)) return { ok: true, reason: 'free edit; CFL checked after the write (undone on a violation), level watched' };
+  if (MUTE_COMMANDS.has(cmd.name)) return { ok: true, reason: 'mask switch; level watched' };
+  return { ok: true, reason: 'free edit; level watched (reverted on clipping)' };
 }
 
-function checkMute(cmd, input, lim) {
-  if (!lim.masks.has(cmd.name)) return out(`${cmd.name} has no envelope entry`);
-  const n = Math.max(listLen(input.pitches ?? 'all'), listLen(input.modes ?? input.channels));
-  if (n > lim.global.max_keys_per_command) return out(`${n} keys > ${lim.global.max_keys_per_command} per command`);
-  return { ok: true, reason: 'mask switch (mute / solo / unmute) within the envelope' };
+export const cflGated = (cmd, input = {}) => cmd?.name === 'param.set' && CFL_DOMAINS.has(input.parameter);
+
+/**
+ * The engine's CFL verdict after a string write: `/health` `cfl_redline` (+ `cfl_redline_info` {pitch, string,
+ * amplification, courant?, message}). The flag is the worst offender of the LAST granular string edit, so right
+ * after our write it is ours. An unreadable /health fails closed (the write cannot be verified, so it is undone).
+ */
+export function cflBreach(health) {
+  if (!health || health.unreachable || typeof health.cfl_redline !== 'boolean') {
+    return 'the CFL state could not be read after the write (GET /health), so the write cannot be verified';
+  }
+  if (!health.cfl_redline) return null;
+  const i = health.cfl_redline_info || {};
+  const at = isNum(i.pitch) ? ` at pitch ${i.pitch}${isNum(i.string) ? ` (string ${i.string})` : ''}` : '';
+  const c = isNum(i.courant) ? `Courant ${i.courant.toFixed(3)}` : null;
+  const g = isNum(i.amplification) ? `|g| ${i.amplification.toFixed(4)}` : null;
+  const nums = [c, g].filter(Boolean).join(', ');
+  const margin = isNum(i.margin) ? i.margin : 'CFL_MARGIN';
+  return `CFL violation${at}${nums ? `: ${nums}` : ''} (stable needs the Courant number coeff_tension - 8*coeff_bending `
+    + `< ${margin} and max|g| <= 1)`;
 }
 
-/** Is one Auto write inside the envelope? */
-export function check({ cmd, input = {}, before = {}, limits, autoWrites = 0 }) {
-  if (!limits) return out('the envelope limits are not loaded');
-  if (autoWrites >= limits.global.max_auto_writes_per_turn) {
-    return out(`${autoWrites} automatic writes this turn (at most ${limits.global.max_auto_writes_per_turn})`);
-  }
-  if (MUTE_COMMANDS.has(cmd.name)) return checkMute(cmd, input, limits);
-  if (cmd.name === 'runtime.set') return checkRuntime(input, before, limits);
-  if (cmd.name === 'param.set') {
-    if (input.parameter === 'mode') return checkMode(input, before, limits);
-    return out(`${input.parameter} edits have no documented step limit`);
-  }
-  return out(`${cmd.name} has no envelope entry`);
-}
+/**
+ * The runtime fields and where their value-before is read (GET /get_runtime_parameters, /health): runtime is not
+ * in the backend history (REST_API I3: EXEMPT), so a revert re-sets the values read before. [path, key, set as].
+ */
+const RUNTIME_BEFORE = {
+  volume: ['/get_runtime_parameters', 'volume_level'],
+  feedback: ['/get_runtime_parameters', 'deck_feedback_coefficient', 'feedback_coeff'],
+  feedback_coeff: ['/get_runtime_parameters', 'deck_feedback_coefficient'],
+  volume_center: ['/get_runtime_parameters', 'volume_center'],
+  volume_range: ['/get_runtime_parameters', 'volume_range'],
+  store_feedback_coeff: ['/health', 'stored_feedback_coeff'],
+};
 
-/** How the service undoes one write: runtime is not in the backend history (REST_API I3: EXEMPT). */
+/** How the service undoes one write. A runtime field whose value-before is unknown cannot be undone (omitted). */
 export function revertPlan(cmd, input = {}, before = {}) {
   if (cmd.name !== 'runtime.set') return { kind: 'history' };
-  const rt = before['/get_runtime_parameters'] || {};
   const values = {};
-  if ('volume' in input && isNum(rt.volume_level)) values.volume = rt.volume_level;
-  if ('feedback_coeff' in input && isNum(rt.deck_feedback_coefficient)) values.feedback_coeff = rt.deck_feedback_coefficient;
+  for (const f of Object.keys(input)) {
+    const [path, key, as] = RUNTIME_BEFORE[f] || [];
+    const v = path ? before[path]?.[key] : undefined;
+    if (isNum(v)) values[as || f] = v;
+  }
   return { kind: 'runtime', values };
 }
 
 const db = (x) => 20 * Math.log10(x);
 
 /**
- * Did the output level breach after an Auto write? `before` / `after` are /health bodies. Signals
+ * Did the output level breach after a write? `before` / `after` are /health bodies. Signals
  * (REST_API GET /health, dev-538e): clipping_now; clipping newly latched; the amplitude guard
  * tripped (gate_trip_count grew); the latched peak newly above target + over_target_db (target =
  * output_scale.target_dbfs, default -2 dBFS). An unreadable /health decides nothing (null).

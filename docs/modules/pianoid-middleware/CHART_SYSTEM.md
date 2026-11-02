@@ -218,10 +218,15 @@ Each function has signature `(pianoid, **kwargs)` and returns `(ChartArray, top_
 `PlaybackCycleExecutor::executeCycle` so nothing reaches the speakers. That same
 skip also bypasses `appendRawSound()`, leaving the `rawSoundBuffer` that
 `PianoidResult.get_sound_from_pianoid()` reads empty. Offline chart functions
-therefore call the local `_load_offline_sound_to_result(pianoid)` helper, which
-reads the offline engine's `getRecordedAudio()` output (populated by
-`OfflinePlaybackEngine::collectAudio()` cycle-by-cycle into channel 0) and writes
-it into `pianoid.result.sound` with shape `(num_channels, N)`. Live/online charts
+therefore call `pianoid.result.load_offline_sound_from_pianoid()`, which reads the
+offline engine's `getRecordedAudio()` output (populated by
+`OfflinePlaybackEngine::collectAudio()` one cycle at a time with one 64-sample block
+**per output channel**, `[ch0 × 64, ch1 × 64, …]`) and de-interleaves it into
+`pianoid.result.sound` with shape `(num_channels, N)`. Before dev-obuf1 a local
+helper wrote the whole flat buffer into channel 0: `num_channels` × too long, the
+level repeating every `num_channels` blocks, a jump at every block boundary and a
+750 Hz (= 48000 / 64) line (reports 8761b5c4 / 06c895bc; measured 7 channels: a
+17 s render read as 119 s, boundary-jump ratio 19, 750 Hz line +16 dB). Live/online charts
 (`sound_function`, etc.) continue to use `get_sound_from_pianoid()` — their raw
 buffer is filled normally by `playSoundSamples()`.
 

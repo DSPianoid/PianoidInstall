@@ -98,6 +98,14 @@ from .StringState import StringState
 
 File: `ModelParams.py`
 
+`radiance` (dev-rad1, optional dict, saved by `pack()` only when set): the preset's speaker radiance config
+`{basis: absolute | board_motion, trim_db, speaker_channels, source, provisional}` (PianoidCore
+`output_routing.radiance_config` fills the defaults: absolute, −3 dB, no dedicated speaker channels).
+
+`thump` (dev-thump1, optional dict, saved by `pack()` only when set): the keybed thump config
+`{enabled, pitch, gain, trim_db}`; `None` = no thump string in the preset, which is the case for the standard
+`Tuning18-10-26ver1` ([thump_string](#thump_string-keybed-thump-dev-thump1)).
+
 Global simulation configuration. Holds the parameters that determine how the CUDA kernel is sized and how the time-stepping is structured.
 
 | Attribute | Default | Meaning |
@@ -363,6 +371,15 @@ File: `Mode.py`
 
 **Piano_mode** — a damped harmonic oscillator representing one resonator mode of the piano soundboard.
 
+**Speaker radiance (dev-rad1).** `radiance_mono` (scalar) and `radiance_stereo` (`[L, R]`, `None` = follows mono) are
+per-mode linear speaker-drive gains (default 1; preset keys written only when set, so old presets round-trip
+unchanged). `set_radiance` validates everything before writing (via `update_params`); `radiance_left` /
+`radiance_right` are the effective sides (setting one stores an explicit pair). `ModeMap.radiance_matrix(layout)`
+(S x num_modes) and `ModeMap.response_energies(order)` feed the output routing. Math in `radiance.py`:
+`radiance_from_frf` (the MEASURED absolute factor, [MODE_DISCOVERY step 12](../../guides/MODE_DISCOVERY_FOR_ASSISTANT.md#step-12-speaker-radiance)),
+`board_motion_basis`, `energy_match_gain`, `fold_flat`, `mode_energy` (the closed form of DATA_FLOWS "Analytic
+audible weight"). Routing semantics: [REST_API → Output routing](../pianoid-middleware/REST_API.md#output-routing-dev-rad1).
+
 Discrete-time state variables:
 
 | Variable | Meaning |
@@ -437,7 +454,7 @@ Key responsibilities:
 
 - Assigns integer `stringID` values and places each `StringState` into the correct `StringBlock`
 - Maintains `string_index` (ordered list of string IDs matching CUDA thread order) and `pitch_index`
-- `generate_chores()` — builds the `chores` array: shape `(140, 3)`, mapping each MIDI pitch to up to 3 string numbers in the CUDA thread index
+- `generate_chores()` — builds the `chores` array: shape `(140, 3)`, mapping each MIDI pitch to up to 3 string numbers in the CUDA thread index. Entries are **0-based slots** into `string_index`; `-1` is the only "no string" sentinel, so slot `0` is a real string. Packed flat as the engine's `strings_in_pitches` (`pitch*3 + i`), which `Pianoid::getStringIndicesForPitch` reads at every note-on/off. Until dev-slot0 (2026-10-29), a `> 0` check there dropped slot 0, so that string was never struck: C8's third unison string in `Tuning18-10-26ver1`, and the whole of pitch 23 in `BaselinePreset1`. Guarded by `tests/integration/test_every_unison_string_struck.py`.
 - `pack_parameters()` — returns all data needed for one CUDA kernel call: chores, block states, excitations, physics, hammers, volume, excitation cycle indices, damper open flags, string map
 - `pack_output_mask()` — returns a flat per-string `[1.0/0.0]` list over `string_index`: `1.0` for strings of output/sound-channel pitches (`pitch >= 128`, the audio-output tap rows), `0.0` for piano-key strings (`0–127` resonance-coupling rows). Uploaded once at init (`pianoid.py:init_pianoid` → `devMemoryInit`) as the kernel's `dev_feedback_output_mask`, so the runtime feedback coefficient (`deck_feedback_coeff`) scales only piano-resonance feedback rows and leaves the output-tap rows unscaled (note audio survives `feedback=0`). Added with dev-d52b's proportional piano-only feedback coefficient. The classification is static per preset. **Build note:** this method is consumed by `init_pianoid` AND its result is passed as a new positional arg to the C++ `devMemoryInit`, so a tree updated to dev-d52b requires BOTH a fresh PianoidBasic wheel (for the method) AND a fresh `pianoidCuda` `.pyd` (for the matching `devMemoryInit` signature) — see [BUILD_SYSTEM.md — Post-Merge / Post-Pull Rebuild Gate](../../architecture/BUILD_SYSTEM.md#post-merge--post-pull-rebuild-gate).
 - `pack_deck()` — assembles `feedin` and `feedback` matrices (shape: `num_strings × num_modes`) for CUDA
@@ -508,9 +525,38 @@ DARKEN the mid sustain (−0.6…−1.3 oct, p48–84): the old 3.28 ms pulse (�
 
 ---
 
+### thump_string (keybed thump, dev-thump1)
+
+File: `thump_string.py`. A **preset-data operation** (src JSON → new JSON, never in place) that adds the keybed thump
+string ([proposal §9](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29);
+engine side [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)):
+
+| Item | Value |
+|---|---|
+| Slot | the last string of the last output pitch with > 1 string (a padding duplicate: an output pitch's strings all write the same sample) — zero new strings / blocks; no padding string → `ValueError` (restructure first) |
+| Pitch | 20 by default (any non-key id 0–20 / 109–127); a key pitch (`keyPitches`), never a sound pitch |
+| String | main 12, tail 2, dx 5 mm, T 300 N, `jung` 0, ρ from Courant 0.5 at the preset's own `string_iteration` (`ρ = T·dt²/(0.25·dx²)`: 3.26e-4 kg/m at 48 kHz / si 8 → f1 8.7 kHz; 8.14e-5 kg/m at si 16 → f1 17.5 kHz), `gamma` 3000 /s, dampers 0, hammer at (main−2)/main, width 1.5·dx |
+| Curves | one Gaussian per level: contact time τ(v) = 2 ms·(v/2.4)^−0.43 (felt p = 2.5) clamped 0.8–3 ms (σ = τ/√(2π)), `mu` = 1 ms delay + 3σ (fits the 9.33 ms window); volume = the preset's max curve volume (keeps the [0:1] normalisation factor) |
+| Deck | the row of `--deck-from` (default pitch 60) × `--deck-scale`, optionally zeroed above `--max-mode-hz`; feedin = feedback |
+| Mass | `--mass` (kg): the keybed effective mass. Coefficient `c·m·v·G` as every key (physical string gain G ≈ 69 at si 8, 4× that at si 16, restores the delivered impulse; the measured thump levels are all si 8) |
+| Config | `model_parameters.thump = {enabled: false, pitch, gain: 1, trim_db: {}}` (`ModelParameters.thump`, saved only when set); `validate_config`, `key_gains` (128 per-key linear gains, zero when disabled), `is_thump_pitch` |
+| Exclusions | `excitation_retime` skips the thump pitch; the middleware hammer-mass calibration does too |
+
+CLI: `python -m Pianoid.thump_string SRC.json DST.json [--pitch 20] [--mass 0.0034] [--deck-from 60] [--deck-scale 1] [--max-mode-hz 250] [--enable]`.
+Run it with the PianoidCore venv Python. `DST` is a new file, and the thump is **disabled** in it unless `--enable` is given.
+The assistant runs the same operation with the `preset.add_thump` command ([REST_API](../pianoid-middleware/REST_API.md#rig-pipeline)): typed options only, the source must exist, the name must be new.
+The string is short and light, not stiff (`jung` 0), and `--mass` is about 7× the median key `hammer_mass` of `Tuning18-10-26ver1` (0.46 g).
+String id vs slot: the padding string keeps its preset string id (235 in `Tuning18-10-26ver1`, taken from output pitch 134); the engine addresses it by CUDA slot (232, `chores[20]`, `engine_pool`).
+
 ### SoundChannels
 
 File: `SoundChannels.py`
+
+**Output-row override (dev-rad1).** `StringMap.output_rows_provider` (default `None` = native) is called by
+`pitch_deck_row` for every OUTPUT pitch as `provider(sm, channel)` → a domain row (`num_modes` values) or `None`
+(native). The middleware output routing is its only writer (speaker radiance rows / silent rows); `native_output_row(s)`
+give the native row `effective_deck('feedback') x SC string gain` the provider is built from. Piano rows are never
+touched; with the provider unset or returning `None` every packed row is byte-identical to before.
 
 Two classes manage the coupling between modes/strings and audio output channels.
 

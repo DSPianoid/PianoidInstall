@@ -20,6 +20,17 @@ test('draft validation: title, description and an app_bug / environment classifi
   assert.throws(() => validateDraft(null), /object/);
 });
 
+test('feature_request is a kind of its own; severity is optional but checked (dev-obuf1 triage)', () => {
+  const fr = { ...DRAFT, classification: 'feature_request', severity: 'low' };
+  assert.doesNotThrow(() => validateDraft(fr));
+  assert.throws(() => validateDraft({ ...DRAFT, severity: 'urgent' }), /severity must be one of critical, high, medium, low/);
+  const r = buildReport({ draft: fr, reportId: 'abcdef0123456789' });
+  assert.deepEqual(r.trigger, { auto: false, source: 'assistant', kind: 'feature_request' });
+  assert.equal(r.severity, 'low');
+  assert.equal(preview(r).severity, 'low');
+  assert.equal(buildReport({ draft: DRAFT, reportId: 'abcdef0123456789' }).severity, null);
+});
+
 test('the host attaches context, versions, the transcript excerpt and the activity; trigger.source assistant', () => {
   const context = { backend: { status: 'healthy' }, environment: { repos: { core: 'dev@15896da' }, build: 'release', gpu: 'RTX 4090' } };
   const transcript = Array.from({ length: 20 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `m${i}`, at: 1e12 + i }));
@@ -40,12 +51,13 @@ test('the host attaches context, versions, the transcript excerpt and the activi
   assert.deepEqual(p.attached, ['pianoid_context', 'versions', 'transcript (last 12 messages)', 'activity (last 30 entries)']);
 });
 
-test('category bug_local: Ask by default (switchable), Auto when set, hard in a web-tainted turn', () => {
+test('rule bug_local: Ask by default, Always allow when set, not applied in a tainted turn (same dialog + note)', () => {
   assert.equal(CATEGORIES.find((c) => c.id === 'bug_local').default, 'ask');
   const d = (settings) => decide({ ...BUG_CMD, command: BUG_CMD.name, settings });
-  assert.deepEqual(d({}), { action: 'confirm', canAuto: true, reason: 'bug_local: Ask' });
-  assert.equal(d({ approvals: { installation: { bug_local: 'auto' } } }).action, 'allow');
-  assert.equal(d({ tainted: true }).hard, true);
+  assert.deepEqual([d({}).action, d({}).rule.id], ['ask', 'bug_local']);
+  assert.equal(d({ rules: { bug_local: 'auto' } }).action, 'allow');
+  const t = d({ rules: { bug_local: 'auto' }, tainted: true });
+  assert.deepEqual([t.action, t.rule.id, !!t.taintNote], ['ask', 'bug_local', true]);
 });
 
 test('fileReport POSTs the report to the collector and reports the saved file', async () => {
@@ -84,7 +96,7 @@ test('session: the dialog shows the full draft; only a confirmed draft is filed,
   assert.equal(yes.confirms[0].command, 'bug.report');
   assert.equal(yes.confirms[0].category, 'bug_local');
   assert.equal(yes.confirms[0].args.description, DRAFT.description);
-  assert.equal(yes.confirms[0].canAuto, true);
+  assert.equal(yes.confirms[0].rule.id, 'bug_local');
   assert.equal(posts.length, 0);                                   // nothing filed before the handler runs
   const res = await yes.s.fileBug(DRAFT);
   assert.equal(res.ok, true);
@@ -102,4 +114,16 @@ test('session: the dialog shows the full draft; only a confirmed draft is filed,
   assert.equal(v.behavior, 'deny');
   assert.equal(bad.confirms.length, 0);
   assert.deepEqual(bad.s.preToolUse({ tool_name: 'mcp__assistant__bug_report', tool_input: DRAFT }), {});
+});
+
+test('the store reads and the triage update are registry commands: bug.list = view, bug.set_status = bug_local (dev-obuf1)', async () => {
+  const { loadCommands } = await import('../lib/registry.js');
+  const byName = new Map(loadCommands().map((c) => [c.name, c]));
+  assert.equal(byName.get('bug.list').approval_category, 'view');
+  assert.deepEqual(byName.get('bug.list').route, { method: 'GET', path: '/bug_reports' });
+  const set = byName.get('bug.set_status');
+  assert.equal(set.approval_category, 'bug_local');
+  assert.equal(set.route.path, '/bug_reports/{report_id}/status');
+  const d = decide({ ...set, command: set.name, category: set.approval_category, settings: {} });
+  assert.deepEqual([d.action, d.rule.id], ['ask', 'bug_local']);   // Ask by default, like filing (the uniform model, dev-unif1)
 });

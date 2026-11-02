@@ -170,6 +170,8 @@ def diff_onset(ref, sig, shift, start, k=8.0, win=48, noise_span=(0.10, 0.40), h
 
 
 def save_json(name, obj):
+    tag = os.environ.get("LAT_TAG")          # dev-elat1: keep before/after runs apart
+    name = f"{tag}_{name}" if tag else name
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", name)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w") as f:

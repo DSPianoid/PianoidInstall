@@ -1,0 +1,427 @@
+{
+ "hammer.position_0.25|n88": {
+  "separation": 0.30531470205983263,
+  "by_delay": {
+   "0": [
+    "old",
+    "old",
+    "old"
+   ],
+   "2": [
+    "old",
+    "old",
+    "old"
+   ],
+   "5": [
+    "old",
+    "old",
+    "old"
+   ],
+   "10": [
+    "old",
+    "old",
+    "old"
+   ],
+   "20": [
+    "old",
+    "old",
+    "old"
+   ],
+   "40": [
+    "old",
+    "old",
+    "old"
+   ],
+   "80": [
+    "old",
+    "old",
+    "old"
+   ],
+   "160": [
+    "new",
+    "new",
+    "new"
+   ],
+   "320": [
+    "new",
+    "new",
+    "new"
+   ],
+   "640": [
+    "new",
+    "new",
+    "new"
+   ]
+  },
+  "first_all_new_delay_ms": 160,
+  "ack": {
+   "n": 30,
+   "median": 108.46686363220215,
+   "min": 102.92434692382812,
+   "max": 117.00677871704102,
+   "p90": 113.79892826080322
+  },
+  "rows": [
+   {
+    "d_ms": 0,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0005821736893159877,
+    "err_new": 0.3077345751334211,
+    "strike_minus_send_ms": 0.5564689636230469,
+    "ack_ms": 102.92434692382812,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d0_r0_1793181808291.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0005745648636017048,
+    "err_new": 0.30773468102950235,
+    "strike_minus_send_ms": 2.32696533203125,
+    "ack_ms": 108.5808277130127,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d2_r0_1793181811948.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0005804241490224157,
+    "err_new": 0.3077345362586595,
+    "strike_minus_send_ms": 5.0525665283203125,
+    "ack_ms": 107.55753517150879,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d5_r0_1793181815602.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0006700459141396472,
+    "err_new": 0.30773732464009707,
+    "strike_minus_send_ms": 9.936809539794922,
+    "ack_ms": 104.85363006591797,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d10_r0_1793181819278.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0006044891569505773,
+    "err_new": 0.30775064944853486,
+    "strike_minus_send_ms": 19.25826072692871,
+    "ack_ms": 108.3528995513916,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d20_r0_1793181822952.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0005163431428280573,
+    "err_new": 0.3077376145291779,
+    "strike_minus_send_ms": 39.83139991760254,
+    "ack_ms": 103.96695137023926,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d40_r0_1793181826626.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 0,
+    "class": "old",
+    "err_old": 0.0004088916364895525,
+    "err_new": 0.3077428611934833,
+    "strike_minus_send_ms": 80.2161693572998,
+    "ack_ms": 106.43768310546875,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d80_r0_1793181830281.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.30531498633364235,
+    "err_new": 0.0004397495646437861,
+    "strike_minus_send_ms": 160.3684425354004,
+    "ack_ms": 104.86578941345215,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d160_r0_1793181833957.wav"
+   },
+   {
+    "d_ms": 320,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.3053165786218725,
+    "err_new": 0.0005938347568031127,
+    "strike_minus_send_ms": 319.547176361084,
+    "ack_ms": 109.56788063049316,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d320_r0_1793181837626.wav"
+   },
+   {
+    "d_ms": 640,
+    "rep": 0,
+    "class": "new",
+    "err_old": 0.305315686772902,
+    "err_new": 0.000467661992564485,
+    "strike_minus_send_ms": 640.4335498809814,
+    "ack_ms": 105.35788536071777,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d640_r0_1793181841287.wav"
+   },
+   {
+    "d_ms": 0,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0005533895209104127,
+    "err_new": 0.30775384922450055,
+    "strike_minus_send_ms": 0.5588531494140625,
+    "ack_ms": 106.10651969909668,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d0_r1_1793181844980.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0005615675545943598,
+    "err_new": 0.30774613704771075,
+    "strike_minus_send_ms": 1.5604496002197266,
+    "ack_ms": 106.72760009765625,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d2_r1_1793181848641.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0005125634103599127,
+    "err_new": 0.30772698501476964,
+    "strike_minus_send_ms": 4.900217056274414,
+    "ack_ms": 108.68954658508301,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d5_r1_1793181852305.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0006079429885168291,
+    "err_new": 0.3077511408700282,
+    "strike_minus_send_ms": 9.987115859985352,
+    "ack_ms": 108.74009132385254,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d10_r1_1793181855982.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0006134592216808022,
+    "err_new": 0.3077479626650825,
+    "strike_minus_send_ms": 19.529342651367188,
+    "ack_ms": 105.59797286987305,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d20_r1_1793181859660.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0006559829691186469,
+    "err_new": 0.3077547509333049,
+    "strike_minus_send_ms": 39.971351623535156,
+    "ack_ms": 107.0704460144043,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d40_r1_1793181863314.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 1,
+    "class": "old",
+    "err_old": 0.0006548618427863813,
+    "err_new": 0.3077506143789254,
+    "strike_minus_send_ms": 80.31249046325684,
+    "ack_ms": 105.26013374328613,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d80_r1_1793181866970.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.30531176242254227,
+    "err_new": 0.0004978590950541109,
+    "strike_minus_send_ms": 159.7294807434082,
+    "ack_ms": 112.55431175231934,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d160_r1_1793181870625.wav"
+   },
+   {
+    "d_ms": 320,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.3053135497587735,
+    "err_new": 0.0005563500172417226,
+    "strike_minus_send_ms": 319.9496269226074,
+    "ack_ms": 105.37147521972656,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d320_r1_1793181874310.wav"
+   },
+   {
+    "d_ms": 640,
+    "rep": 1,
+    "class": "new",
+    "err_old": 0.30532368787310565,
+    "err_new": 0.0005423788648173621,
+    "strike_minus_send_ms": 640.0425434112549,
+    "ack_ms": 105.47018051147461,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d640_r1_1793181877955.wav"
+   },
+   {
+    "d_ms": 0,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0005323009244498049,
+    "err_new": 0.3077314323614724,
+    "strike_minus_send_ms": 0.05984306335449219,
+    "ack_ms": 113.1746768951416,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d0_r2_1793181881611.wav"
+   },
+   {
+    "d_ms": 2,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0005914216863928379,
+    "err_new": 0.3077587999827491,
+    "strike_minus_send_ms": 1.7826557159423828,
+    "ack_ms": 113.70182037353516,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d2_r2_1793181885282.wav"
+   },
+   {
+    "d_ms": 5,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0004791452096348656,
+    "err_new": 0.3077395251057174,
+    "strike_minus_send_ms": 5.459785461425781,
+    "ack_ms": 114.67289924621582,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d5_r2_1793181888951.wav"
+   },
+   {
+    "d_ms": 10,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0006391706202973557,
+    "err_new": 0.30775999220500694,
+    "strike_minus_send_ms": 9.58251953125,
+    "ack_ms": 117.00677871704102,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d10_r2_1793181892625.wav"
+   },
+   {
+    "d_ms": 20,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.00041974187090689435,
+    "err_new": 0.30774018318305535,
+    "strike_minus_send_ms": 19.131183624267578,
+    "ack_ms": 116.36948585510254,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d20_r2_1793181896299.wav"
+   },
+   {
+    "d_ms": 40,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0006541426232007882,
+    "err_new": 0.3077575131611654,
+    "strike_minus_send_ms": 39.90459442138672,
+    "ack_ms": 110.5344295501709,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d40_r2_1793181899964.wav"
+   },
+   {
+    "d_ms": 80,
+    "rep": 2,
+    "class": "old",
+    "err_old": 0.0004788157660739796,
+    "err_new": 0.30775173297276825,
+    "strike_minus_send_ms": 79.84185218811035,
+    "ack_ms": 111.55867576599121,
+    "ok": true,
+    "strike_before_ack": true,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d80_r2_1793181903642.wav"
+   },
+   {
+    "d_ms": 160,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.3053160723681318,
+    "err_new": 0.0005342075023869195,
+    "strike_minus_send_ms": 160.1884365081787,
+    "ack_ms": 110.42451858520508,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d160_r2_1793181907303.wav"
+   },
+   {
+    "d_ms": 320,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.30531640899578427,
+    "err_new": 0.0005287136339012745,
+    "strike_minus_send_ms": 319.2777633666992,
+    "ack_ms": 109.18760299682617,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d320_r2_1793181910980.wav"
+   },
+   {
+    "d_ms": 640,
+    "rep": 2,
+    "class": "new",
+    "err_old": 0.30531385270424627,
+    "err_new": 0.0005813626534191833,
+    "strike_minus_send_ms": 640.2719020843506,
+    "ack_ms": 109.90738868713379,
+    "ok": true,
+    "strike_before_ack": false,
+    "wav": "D:/modal_measurements/latency-2026-10-23\\exp04_hammer.position_0.25_n88_d640_r2_1793181914660.wav"
+   }
+  ]
+ }
+}

@@ -227,6 +227,42 @@
           "doc": "modules/pianoid-basic/OVERVIEW.md#modelparameters"
         }
       ]
+    },
+    {
+      "domain": "thump",
+      "title": "Keybed thump string (dev-thump1)",
+      "read": "param.get {parameter: thump, key_no: all} -> {available, config, engine_pool, engine_supported}",
+      "write": "param.set {parameter: thump, key_no: all, values: {enabled?, gain?, trim_db?: {key: dB}}} (trim_db merges per key; 0 removes)",
+      "key_space": "global config; trim_db keyed by piano pitch 21-108",
+      "shape": "{enabled: bool, pitch: int (the thump pitch, default 20), gain: float, trim_db: {pitch: dB}}",
+      "stored_vs_effective": "Stored in model_parameters.thump (saved with the preset; absent = no thump string). Effective per-key engine gain = gain * 10^(trim_db/20), 0 for every key when disabled. The thump string's own physics (hammer_mass = keybed mass, gauss sigma/mu = contact time/delay, deck row = rim coupling) are ordinary parameters of the thump pitch. Excluded from loudness calibration.",
+      "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1",
+      "fields": [
+        {
+          "name": "enabled",
+          "units": "bool",
+          "range": "true/false (default false = output unchanged)",
+          "class": "stored",
+          "meaning": "Every key note-on also excites the shared thump string with the key's velocity.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1"
+        },
+        {
+          "name": "gain",
+          "units": "linear",
+          "range": "0-100 (rule thump.gain)",
+          "class": "stored",
+          "meaning": "Global gain on the thump-string coefficient (impulse).",
+          "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1"
+        },
+        {
+          "name": "trim_db",
+          "units": "dB per key",
+          "range": "-40..40 (rule thump.trim_db)",
+          "class": "stored",
+          "meaning": "Per-key trim of the thump gain.",
+          "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1"
+        }
+      ]
     }
   ]
 }

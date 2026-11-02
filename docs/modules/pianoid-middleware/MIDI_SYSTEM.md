@@ -289,7 +289,7 @@ All action methods share the signature `(self, pitch, velocity)`.
 
 **Omni decode.** `midi_to_event_type` (and the `schedule_event` lifecycle gate / Fix-MIDI clamp) read the message TYPE from the status high nibble and ignore the channel: NOTE_ON `0x90-0x9F`, NOTE_OFF `0x80-0x8F` (or NOTE_ON velocity 0), CC64 sustain `0xB0-0xBF`. Before dev-6f0c the decode matched exact bytes: notes on channel 1 only (`144`/`128`) and the pedal on channels 1-3 only (`176-178`), so a keyboard set to channel 2+ played nothing and a pedal on channel 4+ was ignored (measured on the pre-fix code: `0x99`/`0x89` and `0xB3 64` returned `None`). The engine has one instrument and one pedal, so the channel has no meaning there. Other CCs (e.g. `0xB2 1 x` = mod wheel on channel 3, the source of the `Unknown MIDI command: 178` log line) are still dropped; the log line itself is reported once per status (dev-c6b6).
 
-**Pedal semantics — a switch at the MIDI threshold (measured, dev-6f0c).** `sustain_engine_value` maps CC64 `0-63` -> SUSTAIN `0` (up) and `64-127` -> `127` (down), on the live path, the old `/midi_playback`, the offline MidiRecord render and the MIDI player. Reason, measured in the live online ring (BaselinePreset1, p60, note-off at 700 ms, level at 1.0 s re the attack peak): with the raw value passed through, the engine's damper law `int(((127 - v) * dumper_position)^0.6)` ([SYNTHESIS_ENGINE.md](../pianoid-cuda/SYNTHESIS_ENGINE.md)) leaves every `v < 127` at >= 1 damper step, and one step damps a released string almost like 18: v = 0 / 32 / 64 / 96 / 110 / 118 / 122 / 125 gave −45.8 / −45.8 / −46.0 / −47.3 / −48.2 / −49.3 / −48.3 / −42.4 dB, only v = 127 sustained (−16.2 dB). So "half pedal" did nothing, and a pedal whose full press reads 120-126 did not sustain at all. With the switch: 0 / 32 -> −45.8 dB (up), 64…127 -> −16.2 dB (down). True half-pedal needs an engine damper curve that grades between 0 and 1 step (WIP follow-up). The bundled files only use 0 / 127 (renders unchanged). The default live pedal (CC64, any channel) still goes through this switch unchanged; a REMAPPED pedal (another CC or a channel) reaches the engine as 0 / 127, decided by the pedal map's hysteresis ([below](#pedal-channel-and-hysteresis-dev-392a)).
+**Pedal semantics — continuous since dev-pedal1.** `sustain_engine_value` passes the value on (clamped to 0-127) on the live path, the old `/midi_playback`, the offline MidiRecord render, WebSocket `/play` and the MIDI player; the engine grades the dampers: [Half pedal](#half-pedal-dev-pedal1). History: dev-6f0c made it a switch at 64 on purpose, because the old law `int(((127 - v) * dumper_position)^0.6)` left every `v < 127` at >= 1 damper step and one step already damped a released string almost like 18 (BaselinePreset1, p60, level at 1.0 s, `dev-6f0c-sustain-player-live.py --only half_sweep`: v = 0 / 32 / 64 / 96 / 110 / 118 / 122 / 125 gave −45.8 / −45.8 / −46.0 / −47.3 / −48.2 / −49.3 / −48.3 / −42.4 dB, only v = 127 sustained, −16.2 dB).
 
 | Live measurement (dev-6f0c, ring, p60) | Result |
 |---|---|
@@ -299,7 +299,7 @@ All action methods share the signature `(self, pitch, velocity)`.
 | re-strike while sustained (2nd NOTE_ON at 1.5 s) | jumps to −8.1 dB at 1.8 s, rings until pedal up at 3.0 s, then −55 dB by 3.4 s |
 | key held through pedal-up (pedal up 1.0 s, key off 2.5 s) | note keeps sounding (−35 dB at 2.2 s vs −60 pedal up) and stops at the key release; pedal down adds ~5 dB of sympathetic ringing while the key is held (−13.9 vs −18.8 dB at 0.6 s) |
 
-**What a real pedal needs:** a sustain pedal plugged into the keyboard (or a MIDI interface); select that device's input port in the MIDI panel (`POST /midi/select_port`) and start the listener (`listen_to_midi=1` or `POST /midi/start`). No channel setting is needed for a standard pedal. A pedal that sends another CC than 64, sends 0 when pressed, or shares its CC with other pedals on other channels is mapped in the MIDI panel's pedal row ([below](#pedal-mapping-and-the-midi-monitor-dev-ped1)). Switch and continuous pedals both work (default CC64: the switch at 64; a remapped pedal: hysteresis, [below](#pedal-channel-and-hysteresis-dev-392a)); half-pedal is not supported by the engine yet.
+**What a real pedal needs:** a sustain pedal plugged into the keyboard (or a MIDI interface); select that device's input port in the MIDI panel (`POST /midi/select_port`) and start the listener (`listen_to_midi=1` or `POST /midi/start`). No channel setting is needed for a standard pedal. A pedal that sends another CC than 64, sends 0 when pressed, or shares its CC with other pedals on other channels is mapped in the MIDI panel's pedal row ([below](#pedal-mapping-and-the-midi-monitor-dev-ped1)). Switch and continuous pedals both work, on every map: [Half pedal](#half-pedal-dev-pedal1).
 
 ## Pedal mapping and the MIDI monitor (dev-ped1)
 
@@ -333,12 +333,11 @@ With `sustain_cc = 0` on any channel, the left pedal also drove sustain and the 
 
 | Message | To the engine |
 |---|---|
-| The DEFAULT source (`sustain_cc` 64, `sustain_channel` `null`) | CC64 with the value after polarity, unchanged; the engine switch at 64 decides (exactly as before dev-392a) |
-| A REMAPPED source (`sustain_cc` not 64, or a `sustain_channel`) | CC64 `127` (down) / `0` (up): value -> polarity -> hysteresis: from up, down at **>= 74**; from down, up at **<= 54**; 55-73 keeps the state. The source CC itself is never forwarded |
+| The sustain source (default or remapped) | CC64 with the value after polarity (dev-pedal1; dev-392a sent a remapped pedal as 127 / 0). The source CC itself is never forwarded. A value that does not change the engine pedal is dropped |
 | Any other CC64 (another channel, or `sustain_cc` is not 64) | dropped: the source is the only sustain owner, so `sustain_down` is always what the engine was sent |
 | Other CCs (e.g. the left pedal's CC#0) | unchanged (the engine ignores them) |
 
-Why the split (review H2, orchestrator decision 2026-10-23): MIDI 1.0 defines CC64 64-127 as down, and a spec pedal or a shallow half-damper press (64-73) must keep working, so the default path is untouched. A remapped source is a continuous controller (the AMC-10's CC#0), which would flutter at every 63 <-> 64 crossing without the hysteresis. The MIDI player and the offline renders keep the plain switch at 64 (`sustain_engine_value`); their files use 0 / 127.
+**Indicator.** `sustain_down` (the PEDAL DOWN/UP chip) has hysteresis so it does not flutter: from up, down at >= 64 (MIDI 1.0); from down, up at <= 54. It does not touch the sound. Remapped pedals are continuous too because what the 74 / 54 switch protected against is gone: the channel filter removes the ch3 noise, and the curve's dead zones absorb the AMC-10's ends (rest 0-2, pressed 120-123 after polarity). The AMC-10 right pedal therefore half-pedals as well.
 
 **Replay of the capture** (`test_capture_replay_*`): with the AMC-10 map the 3 855 played-port messages give exactly one pedal down and one pedal up, both from `B1`; the 122 left-pedal and 3 594 ch3 messages pass with the sustain state untouched; with `sustain_channel = null` the ch3 noise ends the replay with the pedal held down.
 
@@ -364,7 +363,112 @@ Why the split (review H2, orchestrator decision 2026-10-23): MIDI 1.0 defines CC
 
 **Switching and failures (review C1, M1, M2).** The unified listener releases a port with `MidiListener.close_port()` only. The legacy `stop()` also calls `pianoid.stopApplication(True)`, which ended the synthesis engine when "Auto" was picked from a playing port. A switch to a port opens it on a fresh rtmidi input BEFORE the old port is released (`replace_port`). A failed open, for example a port another program holds, raises; the old port, or the running scan, stays as it was, `port_state` is unchanged, and nothing is persisted. The listener persists `input_port` itself, only after a switch succeeded; `/midi/select_port` only queues the request. The auto scan retries ports it could not open every `SCAN_RETRY_S` (1 s), so a port still held by the previous listener during a preset reload joins the scan.
 
-**UI.** MIDI panel port select: `Auto (first port that plays)` + the ports. A saved port that is unplugged is shown as `<name> (disconnected)`. The chip next to it shows `AUTO: waiting` / `AUTO: <port>` / `MANUAL` / `FORCED` (`port_state`, pushed as Socket.IO `midi_input_state`). Picking a port persists it, through `/midi/select_port` while listening or `/midi/input {input_port}` while stopped (the hub stores the name without the index suffix, one form for every writer). Picking Auto while already in AUTO does nothing. **Start** sends no port. The old browser-saved default port (star) is no longer read: it could re-pin `UMC1820`. Auto-detect or an explicit pick decides.
+**UI.** MIDI panel port select: `Auto (first port that plays)`, `Listen to All` ([below](#listen-to-all-dev-midiall)) + the ports. A saved port that is unplugged is shown as `<name> (disconnected)`. The chip next to it shows `AUTO: waiting` / `AUTO: <port>` / `MANUAL` / `FORCED` (`port_state`, pushed as Socket.IO `midi_input_state`). Picking a port persists it, through `/midi/select_port` while listening or `/midi/input {input_port}` while stopped (the hub stores the name without the index suffix, one form for every writer). Picking Auto while already in AUTO does nothing. **Start** sends no port. The old browser-saved default port (star) is no longer read: it could re-pin `UMC1820`. Auto-detect or an explicit pick decides.
+
+## Listen to All (dev-midiall)
+
+**Why (2026-10-29, user: "allow combining midi from different sources ... Listen to All, right after Auto").** Several devices play the one instrument at once: the AMC-10 (keys + pedals; sustain = CC#0 on channel 2, inverted) and the "Pianoid" USB-MIDI controller (FATAR keybed via the FPGA; sustain = standard CC64). The engine takes at most 7 note-ons per cycle and queues the rest, so bursts from several sources are safe.
+
+**Mode `all`** (`POST /midi/select_port {"port": "all"}`, persisted as `input_port: "all"`; Tunner: "Listen to All" right after "Auto"). The listener opens EVERY input port (minus `all_exclude`) and drains them all into the one event path; every message is tagged with its port (the hub's pedal map / bookkeeping / `port_counts`, and the monitor's port column). The single-port path is unchanged apart from carrying its port name with each message.
+
+| Piece | File | Concern |
+|---|---|---|
+| `MergedInputs` | `midi_merge.py` | the ALL ports: open every port, poll them port by port, `rescan` = open new ports, close vanished ones; a busy port is retried at the next rescan (reported once) |
+| `NoteLedger`, `PedalSources` | `midi_merge.py` | who holds which pitch / each source's pedal value and down state |
+| `PortController` mode `all` | `midi_port_select.py` | start / switch to / leave ALL; rescan every `SCAN_RETRY_S` (1 s) and on demand (`select_port all` again; Tunner Refresh); `next_message()` -> `(message, port, name)` |
+| `MidiInputHub` | `midi_input.py` | `port_sustain` per-port pedal maps (global = fallback), `map_message(data, source)`, the deepest-press pedal, `release_messages`, `port_counts` |
+
+**Rules.**
+
+| Case | Behaviour | Why |
+|---|---|---|
+| Pedal map | the port's `port_sustain` entry (by name without the index suffix), else the global `sustain_cc` / `sustain_channel` / `polarity` | each device sends its pedal differently |
+| Pedals of several sources | the engine pedal is the **deepest press** of the sources (dev-pedal1; the OR of dev-midiall, generalised); a message that does not change it is dropped | a real piano has one pedal; "last event wins" would let a release on one device cut a pedal held on the other |
+| Same note from two sources | NOTE_ONs are never deduplicated (each is a strike, the engine re-strikes); a NOTE_OFF is forwarded only when no other source still holds that pitch (A60 on, B60 on, A60 off -> nothing; B60 off -> damped) | the engine damps a pitch on NOTE_OFF whoever struck it; same rule as the MIDI player's note pairing |
+| One source | identical to before (every NOTE_OFF forwarded, a stray one too; pedal unchanged) | |
+| Hot-plug | rescan every 1 s: a new port is opened, a vanished one closed; ports are named by their stable name (no rtmidi index suffix; a second identical device = `<name> #2`), so tags, `port_counts` and `port_state.ports` do not change when an index shifts | |
+| A port stops being played (unplugged, or the user leaves ALL / switches port) | its held keys get NOTE_OFFs and its pedal goes up, each only where no other source still holds it | no stuck notes / pedal from a device that is gone |
+| New listener session | the holders are forgotten (`reset_sources`) | a source of a previous session must not hold the OR pedal for good |
+| Ordering across ports | port by port within one poll (~1-3 ms); per-port order is kept | rtmidi delta times are per port |
+
+**Exclusions.** No Pianoid code opens a virtual port, and the only MIDI output it opens is the "Pianoid" controller's, for its configuration SysEx ([below](#pianoid-controller-configuration-dev-pctl)), so there is no loopback of our own to exclude. `all_exclude` (names, no index suffix) keeps a port out of ALL. **Default: `["MIDIIN2 (AMC-10)"]`** - the AMC-10 exposes `AMC-10` and `MIDIIN2 (AMC-10)` with identical CC streams in every capture ([above](#input-port-saved-port-and-auto-detect-dev-392a)), so with both every key / pedal would arrive twice. **Not yet confirmed live** (dev-ped1 saw the keys on `MIDIIN2 (AMC-10)`; if port `AMC-10` does not carry them, set `all_exclude` to `["AMC-10"]`): change it with `POST /midi/input {"all_exclude": [...]}` (assistant `midi.set_input_settings`).
+
+**Settings migration.** `tools/migrate_midi_port_sustain.py` (PianoidCore) moves a remapped global pedal map into `port_sustain` for `AMC-10` and `MIDIIN2 (AMC-10)` and puts the global back to the standard (CC64, any channel, normal), the fallback for the Pianoid controller and every other port. Idempotent; run it with no backend running (a running backend rewrites the file from memory).
+
+**Verification.** `tests/unit/test_midi_all_ports.py` (fake rtmidi bus, no engine): two-port merge + tags + counts, persistence, exclusion + busy ports, per-port maps, the OR pedal, the single-source pedal unchanged, the note ledger, hot-plug with releases, periodic / on-demand rescan, leaving ALL, the migration, and the real `MIDI_listener_unified` loop over two fake ports. `tests/unit/conftest.py` refuses any real `rtmidi.MidiIn.open_port` in unit tests. Isolated backend: `docs/development/diagnostics/dev-midiall-isolated-5024.py` (real Flask routes + listener on :5024, virtual MIDI bus, engine recorder; winmm has no virtual ports and loopMIDI is not installed). Live on the real devices: pending.
+
+### Port identity = NAME (dev-midiall, live 2026-10-29)
+
+**Why.** Measured live: ports `[UMC1820 0, AMC-10 1, MIDIIN2 (AMC-10) 2, Pianoid 3]`, manual = `MIDIIN2 (AMC-10) 2`; the "Pianoid" Arduino re-enumerated -> `[UMC1820 0, Pianoid 1, AMC-10 2, MIDIIN2 (AMC-10) 3]`; the backend kept reporting `active_port 2` (now "AMC-10") until a later start re-resolved the name. The rtmidi index is not an identity on Windows.
+
+| Rule | Behaviour |
+|---|---|
+| Stored form | every port reference (`input_port`, `all_exclude`, `port_sustain` keys) is the NAME without the trailing index (`"Pianoid 3"` -> `"Pianoid"`); a legacy suffixed value is stripped on load; `tools/migrate_midi_port_sustain.py` rewrites the file in that form |
+| Single port (manual / forced / auto-picked) | the listener re-reads the port list every `SCAN_RETRY_S` (1 s); a played device whose index changed is reopened at its new index by name (its pending messages are kept); the monitor taps are re-synced |
+| Device gone | manual / forced: **waiting for `<name>`** (`port_state.waiting`, Tunner chip `WAITING: <name>`): nothing is played and no other device is used; it is reopened as soon as it is back. Auto: detects again |
+| Saved device missing at start | waiting for it (before: silently fell back to auto-detect) |
+| ALL | ports keyed by name, so exclusion and the per-port pedal maps follow a device wherever it moves |
+
+Tests: `tests/unit/test_midi_all_ports.py` (`test_manual_port_follows_its_name_when_the_list_reorders` replays the live reorder; waiting / reopen; missing at start; ALL with exclude + pedal maps across the reorder; default exclusion; legacy names).
+
+## Pianoid controller configuration (dev-pctl)
+
+**Why (2026-10-29, user: "In MIDI menu two new controls, applicable to Pianoid controller only: Calibrate Pedal ... Assign Midi Command to Pedal ... and Select Speed").** The "Pianoid" USB-MIDI controller (FATAR keybed → FPGA → Arduino Micro; repo `fatar-midicontroller`) has 8 pedal inputs (X9-X16) and a fast FPGA → Micro link. Their configuration lives **on the device** (Micro EEPROM): calibration, the MIDI message per pedal, the link speed. Pianoid reads and writes it; it stores nothing.
+
+| Piece | File | Concern |
+|---|---|---|
+| `PianoidController` (process singleton) | `pianoid_controller.py` | the SysEx request / reply client (manufacturer ID `0x7D`): opens the MIDI OUTPUT port `Pianoid`, sends `F0 7D 10 <cmd> ... F7`, waits for `F0 7D 12 <cmd> <status> ...`; the raw ADC stream `F0 7D 13 ...`; decode to dicts; duplicate assignments |
+| routes | `pianoid_controller_routes.py` | `/controller/*` ([REST_API](REST_API.md#pianoid-controller-controller-dev-pctl)), a nested blueprint of the MIDI input routes |
+| hook | `midi_input.MidiInputHub.sysex_hook` | a `0x7D` SysEx from the `Pianoid` port goes to the client and, if it was a config reply / sample, **not** to the monitor |
+| UI | Tunner `PianoidControllerSection.jsx`, `PedalCalibrateDialog.jsx`, `PedalAssignDialog.jsx`, `usePianoidController.js` | shown only while a `Pianoid` port is listed |
+
+**Replies and the input port.** Replies come back on the `Pianoid` INPUT port. A Windows MIDI input has one owner. When the listener plays or taps that port (Listen to All, the played port, or `monitor_all_ports`, the default), the client gets the replies through the hub hook. Otherwise it opens the input itself (its own open fails while the listener holds it) and releases it after 5 s without traffic, so the listener can take the port again.
+
+**What the device does with it** (protocol: controller repo `docs/proposals/controller-config-2026-10-29.md`):
+
+| Control | Device behaviour |
+|---|---|
+| Calibrate pedal | `min` / `mid` / `max` raw ADC + curve. Continuous: linear (min→0, max→127), piecewise through mid (mid→64), or power through mid; monotonic, clamped. Switch: pressed above 5/8 of the travel, released below 3/8; the order of min and max gives the polarity (an uncalibrated switch keeps the digital read + POL_AUTO). |
+| Pedal assignments | per input: off / switch / continuous; CC (0-119) / note (switch) / channel pressure / pitch bend; channel 1-16; polarity. Defaults: X12 sustain CC64, X14 CC67, X13 CC66, X9 CC11 continuous. |
+| Link speed | the FPGA → Micro wire (not the DIN socket, always 31250): 1x 31250 / 4x 125000 / 8x 250000. Both chips switch together over the Micro → FPGA aux line; an unconfirmed switch falls back. Needs a bitstream with `link_ctl` (else `selectable: false`). |
+| Save | EEPROM; until then a change is live but lost at power-off. |
+
+**Presence of a pedal.** The inputs have the Micro's internal pull-up and no board resistor: an empty jack reads ~1023, a pulled input (a continuous pedal, a closed switch) reads lower. `presence`: `active` (below 1000 now), `seen` (since the controller booted), `idle`. An open switch pedal reads like an empty jack, so the calibration dialog lists every input, connected ones first.
+
+**Half pedal on this controller.** The factory X12 is a switch: it sends only 0 / 127, however the pedal moves. In the MIDI panel: Pedal assignments → X12 → type `continuous` (CC 64); Calibrate pedal → released / half / pressed → Through mid → Apply → Save to controller. No reflash; the settings go to the device's EEPROM. Not yet applied to the real board. With a switch-type pedal plugged in keep `switch`. [Half pedal](#half-pedal-dev-pedal1).
+
+**Pianoid's own sustain map is separate.** The device decides what a pedal SENDS (e.g. CC64 on channel 1); `midi_input` decides what Pianoid does with it (`sustain_cc` / `port_sustain`). The defaults match: the device's X12 sends CC64, Pianoid's global map is CC64 any channel.
+
+**Verification.** `tests/unit/test_pianoid_controller.py` (fake device speaking the protocol behind fake rtmidi ports: request bytes, reply decode, both reply paths, errors, stream, link, REST); Tunner `PianoidControllerSection.test.jsx`. Device side: controller repo `tools/test_pctl_logic.py` (curve / EEPROM / frame unit test) and `sim/tb_link_ctl.sv` (the rate switch in RTL). On hardware (2026-10-30, firmware v3, device side only): `verify_ctl.py` 17/17 in RAM and from flash, 31/31 extra checks (SAVE, DEFAULTS, saved rate at boot, recovery, fallback on an old image), speed 8x / 4x / 1x each with the 257/257 storm. Not tested on hardware: a real power cycle, the calibration flow, the 500 ms revert (simulation only). Details: controller repo `docs/IMPLEMENTATION_REPORT.md` §14.
+
+## Half pedal (dev-pedal1) {#half-pedal-dev-pedal1}
+
+**User decision (2026-10-31, "Build smooth pedal").** The pedal value grades the dampers; a pedal or file that sends only 0 / 127 sounds as before.
+
+| Stage | Where | What |
+|---|---|---|
+| Source | device | the "Pianoid" controller's X12 is a switch by default (0 / 127, no firmware change needed): for half pedal set it to continuous and calibrate it ([below](#pianoid-controller-configuration-dev-pctl)). A continuous input changes by >= 2 steps at most every 10 ms |
+| Map | `MidiInputHub._map_pedal` | polarity, per source; the engine pedal = the deepest press of the sources (`PedalSources`), so one device letting go does not cut another's half pedal |
+| Value | `pianoid.sustain_engine_value` | clamp only; the one curve is the engine's |
+| Rate | `Pianoid::applyPendingSustain` | once per cycle: an unchanged value costs nothing; intermediate values land at most every `SUSTAIN_MIN_CYCLE_GAP` (4) cycles, the latest wins; 0 and 127 land at once |
+| Curve | `pedal_config.py`, `model_parameters.pedal` | per-string lift bands + the patch, `setDamperCurve` at load, preset switch and edit |
+| Law | `DamperLaw.cuh`, `parameterKernel` | [SYNTHESIS_ENGINE → Damper multiplier](../pianoid-cuda/SYNTHESIS_ENGINE.md#damper-multiplier-dev-pedal1) |
+
+Tuning: `GET /get_parameter/pedal/all`, `POST /set_parameter/pedal/all` ([REST_API](REST_API.md#half-pedal-curve-dev-pedal1)); undoable, saved with the preset only when it differs from the defaults (old presets load unchanged).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `dead_low` | 6 | at or below: every damper down (a pedal resting at 1-5 is fully up) |
+| `dead_high` | 118 | at or above: every damper up (a pedal peaking at 120-126 sustains fully) |
+| `register_spread` | 24 | pedal steps between the bass and the treble lifting: the band of a key slides up with its pitch (21 → 108). Bass first. Starting value, to be tuned by ear; 0 = all together |
+| `patch_width` | 0.04 | damper patch width, fraction of the string (at least 5 points); 0 = the whole string as before |
+| `patch_offset` | 0.02 | patch centre from the hammer point, fraction of the string, towards the bridge |
+| `blend_power` | 3 | the whole-string share of the rate = closure^power: at closure 0.5 the patch carries 87.5 % |
+| `decay_range` | 10000 | cap on fully damped rate / own rate, for a string with gamma 0 |
+
+**Files that use CC64 as a switch with values other than 0 / 127.** Values 118-127 and 0-6 are the ends; a file holding the pedal at, say, 100 now half-pedals (a recorded performance wants that; the old switch flattened it).
+
+**Status.** Measured on the rebuilt engine, offline; the real pedal is still to try: [results](../../development/half-pedal-test-plan-2026-10-31.md).
 
 ## MIDI player (dev-6f0c)
 
@@ -386,7 +490,7 @@ A backend player for MIDI files with transport, seek, speed, loop, transpose, ve
 | Note pairing | `_held[(track, channel, pitch)] = engine pitch` at NOTE_ON (after transpose); the NOTE_OFF damps that pitch, so changing transpose mid-note never leaves a note hanging; a pitch still held by another source is not damped |
 | All notes off | pause, stop, seek, end of song, loop wrap: clear the window, NOTE_OFF every pitch struck since the last release, SUSTAIN 0 |
 | Seek / resume | play resumes at the first event at or after the position, after a 40 ms lead; the pedal state at that position is re-sent (chased CC64) |
-| Sustain + key CCs | CC64 -> SUSTAIN (switch at 64, as the live path); CC121 -> SUSTAIN 0; CC123 / CC120 -> NOTE_OFF of that track+channel's held notes; other CCs dropped (engine has no per-channel volume / pan / soft pedal) |
+| Sustain + key CCs | CC64 -> SUSTAIN (the value, as the live path); CC121 -> SUSTAIN 0; CC123 / CC120 -> NOTE_OFF of that track+channel's held notes; other CCs dropped (engine has no per-channel volume / pan / soft pedal) |
 | Mutes | muted track / channel: its NOTE_ONs and CCs are skipped, its held notes released at once; NOTE_OFFs always pass (no stuck notes). Muting a separate "Pedal" track removes the sustain |
 | Transpose / velocity | ±24 semitones; velocity × 0.1-2.0 clamped to 1-127; notes outside the preset's pitches are skipped and counted (`skipped_notes`) |
 | Loop | seamless: release at the end cycle, restart at the next cycle |
@@ -395,7 +499,7 @@ A backend player for MIDI files with transport, seek, speed, loop, transpose, ve
 
 **Measured live (dev-6f0c, ASIO callback, BaselinePreset1, in-process):** cycle clock 1.3315 ms measured vs 1.3333 ms assumed (`mode_iteration / sample_rate`, −0.14 %); a metronome file at 400 ms gave onsets exactly 400.0 ms apart (std 0.0 at the 20 ms envelope resolution), at speed 1.5 a mean of 265.7 ms (expected 266.7); elise.mid from 10 s: position advanced 2961 ms in 3003 ms of wall time (the 40 ms start lead), pause -> output −71 dB re playing within 2 s, resume at 2x advanced 3923 ms in 2003 ms; event buffer peak 14 events, 0 dropped.
 
-The MIDI folder is `<PianoidInstall>/midi` (env `PIANOID_MIDI_DIR`; contents git-ignored); `GET /midi_player/library` lists it plus the bundled `MIDI_records/`. The old `/midi_playback` (`play.midi_file`, whole-file push, stop without note-offs) is unchanged for the assistant's command; moving it onto the player is a WIP follow-up.
+The MIDI folder (dev-midirec) is resolved by `midi_player_routes.resolve_midi_dir`, first set wins: `midi_dir` in the local settings file (`<PianoidInstall>/pianoid_local_settings.json` or `$PIANOID_LOCAL_SETTINGS`, the same file and layering as the measurements folder) -> `$PIANOID_MIDI_DIR` -> the standard folder `<PianoidInstall>/MidiRecords` (tracked by its `README.md`, every other file git-ignored). `GET /midi_player/library` lists it plus the bundled `MIDI_records/`; the launcher's Open dialog (`server/midiFileDialog.js`) resolves the same layers to choose its start folder. `<PianoidInstall>/midi/` now holds only the MIDI input settings. There is no MIDI recording/saving yet; a future writer should save to `midi_dir()`. The old `/midi_playback` (`play.midi_file`, whole-file push, stop without note-offs) is unchanged for the assistant's command; moving it onto the player is a WIP follow-up.
 
 ## MIDI files (`MidiRecord.read_midi`)
 

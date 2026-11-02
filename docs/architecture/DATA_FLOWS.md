@@ -108,6 +108,9 @@ add_realtime_event(event_type, data1, data2, delay_ms=0)
     each cycle:
       all_events  = realtime_buffer.drainEventsUpTo(current_cycle)  // RT first
       all_events += event_queue.getEventsAtCycle(current_cycle)     // queue second
+      (events held back on earlier cycles go FIRST)
+      intake      = takeCycleBatch(all_events, max_note_ons_per_cycle=7)  // prefix with
+                    <= 7 NOTE_ONs; the rest waits IN ORDER for the next cycle (never dropped)
       cap         = MAX_EVENTS_PER_CYCLE = 256                       (constants.h)
       if all_events.size() > cap:
         engine_stats.dropped_events_per_cycle_overflow += overflow
@@ -221,7 +224,8 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
        loop until done:
          processEventsAtCycle(cycle)
            PlaybackCycleExecutor.processEvents(queue, dispatcher, cycle):
-             events = queue.getEventsAtCycle(cycle)
+             events = deferred + queue.getEventsAtCycle(cycle)
+             events, deferred = takeCycleBatch(events, 7)   // note-on intake cap
              if events.size() > MAX_EVENTS_PER_CYCLE: events.resize(...)
              EventDispatcher.dispatchBatch(events)
                (per-cycle envelope: same single beginStringBatch /
@@ -232,8 +236,9 @@ pianoid.render_midi_offline(midi_file, output_wav, sample_rate, spc)
          collectAudio() → recorded_audio_.append()   (via getCurrentCycleAudio)
          cycle++
        return PlaybackStats
-  5. pianoid_cpp.getRecordedAudio() → float array
-  6. pianoid_cpp.exportAudioToWav(output_wav, audio_data, sample_rate)
+  5. load_offline_channels(pianoid_cpp, mp)[0]  ← getRecordedAudio(): per-cycle blocks [ch0×64, ch1×64, …]
+     de-interleaved to (num_channels, samples); channel 0 = output pitch 128 (dev-obuf1)
+  6. pianoid_cpp.exportAudioToWav(output_wav, channel0, sample_rate)
 ```
 
 Also triggered by chart functions:
@@ -243,7 +248,8 @@ POST /get_chart_test { chartType: "note_playback", pitch: 60, velocity: 80, dura
   ─► chartFunctions.play_note_offline_chart_function()
       1. Build EventQueue: NOTE_ON at cycle 0, NOTE_OFF at cycle N
       2. runOfflinePlayback(queue, config)
-      3. getRecordedAudio() → ChartArray with waveform + base64 WAV audio
+      3. pianoid.result.load_offline_sound_from_pianoid() → result.sound (num_channels, samples)
+         → ChartArray with the channel-0 waveform + base64 WAV audio
 ```
 
 ### 1.6 Direct Mode Playback
@@ -478,32 +484,48 @@ Python-to-C++ transfer significantly and eliminates the Python-side matrix recal
 on every parameter update.
 
 ```
-React: GaussEditor.jsx — user edits Gauss curve for pitch 60
+React: Gauss editor NumInput (Enter) — user edits a Gauss curve of pitch 60
+  PianoidTuner.handleGaussValueChange → applyExcitationChange → changeParametersOfExcitationBatch
+  ─► writeParam → WS set_parameter {parameter:'excitation', key:'60', values}   (REST fallback
+     POST /set_parameter/excitation/60). Enter = explicit commit: sent synchronously in the
+     keydown handler, before the re-render; wheel/arrow edits keep the 50 ms debounce (dev-elat1).
          │
          ▼
-usePreset: changeParametersOfExcitation(...)
-  ─► axios.post('/set_parameter/gauss/60', { velocity_curves_dict })
-         │
-         ▼
-parameter_manager.update_parameter(param='gauss')
-  1. For each pitch in request:
+parameter_manager.update_parameter(param='gauss' | 'excitation')
+  1. For each pitch in request (no cuda_lock):
        pitch.excitation.load_from_dict(values)
          → load_from_dict_to_matrix(): write into levels_matrix[level, param, curve]
-         → recalculate_excitation_matrix():
-             extract 6 base levels (indices [0,5,31,63,95,127])
-             extrapolate() → 128 velocity levels (shape 128×4×5)
-             (Python model updated for preset save/read-back;
-              the 128-level matrix is NOT sent to GPU)
-  2. Single GPU upload (outside loop, with cuda_lock):
-     _gpu_upload() waits for double-buffer IDLE  // prevents DROP_IF_BUSY loss
-     sm.pack_base_excitations()                  // 6 base levels only
-       → for each pitch: pack_base_levels() → 6×4×5 = 120 reals
-       → concatenate → 256 × 120 = 30,720 reals
-     pianoid_cpp.setNewExcitationBaseLevels(base_levels)
-         └── C++ host interpolation: 6 → 128 levels (linear, matching Python extrapolate())
-         └── updateTunableParameter("dev_gauss_params_full", full_params)
-             └── double-buffer swap (same as 2.1)
+         → recalculate_excitation_matrix(): 6 base levels → extrapolate() → 128×4×5
+             (Python model, for preset save/read-back; the 128-level matrix is NOT sent)
+       time.sleep(0)                               // yield the GIL per pitch: note/MIDI threads run
+  2. With cuda_lock — _upload_then_commit_coefficients({'kind':'curve', pitches}, upload):
+     a. CoefficientCache.prepare(): recompute the edited pitches' temporal impulse
+        (level_impulse, 6 levels) → their coefficient rows in the cached table. NO engine write.
+     b. _upload_excitation_curves() = ONE blob upload, whatever the pitch count:
+        _gpu_upload() waits for double-buffer IDLE  // prevents DROP_IF_BUSY loss
+        sm.pack_base_excitations() → num_strings × 120 reals (6 levels × 4 params × 5 curves)
+        pianoid_cpp.setNewExcitationBaseLevels(base_levels)
+          └── C++ host interpolation: 6 → 128 levels per string (linear, = Python extrapolate())
+          └── updateTunableParameter("dev_gauss_params_full", full_params) → double-buffer swap (2.1)
+     c. poll isParameterUpdateInProgress() with time.sleep (GIL released) until IDLE
+        = the swap is published (the engine adopts it at its next cycle)
+     d. CoefficientCache.commit() → setNewExcitationCoefficients(table): host table, live at the
+        next note staging
 ```
+
+**Two halves, two timings.** A struck note reads its curve from `dev_gauss_params_full` (the GPU
+buffer, after the swap is adopted) and its loudness coefficient from the host table
+`excitation_coefficients_` (sampled at note staging, `_append_string_gp`, live the moment
+`setNewExcitationCoefficients` returns — measured 2026-10-28: a ×0.5 table with no swap renders the
+next note at ×0.500000). Committing the coefficient after the swap keeps a strike during the write
+on old curve + old coefficient until the swap, then new + old only for the wait-to-commit gap
+(~1 ms measured offline). Before dev-elat1 the coefficient went live up to the full recompose time
+(~400 ms at 88 pitches) away from the curve, and 1–8 pitches used one swap per unison string
+(`updateExcitationBaseLevelsForString`, ~4 ms each, 24 for 8 pitches); that per-string C++ entry
+is now used only by `test_excitation_interpolation`. Hammer shape edits (§2.5) follow the same
+prepare → upload → wait → commit order with `{'kind':'spatial'}`. Making the coefficient ride the
+swap itself (atomic) is the planned Phase 2 of the
+[tuning-latency study](../development/reviews/tuning-latency-study-2026-10-23.md#fix-options-not-implemented).
 
 **C++ interpolation** (`Pianoid::interpolateBaseLevels`): Private helper used by both
 `loadPresetToLibrary()` and `setNewExcitationBaseLevels()`. Interpolates linearly between
@@ -726,22 +748,23 @@ Preset save/load includes both sections:
 ### 2.5 Hammer Shape
 
 ```
-React: HammerSpatialProperties.jsx — user edits hammer width
+React: HammerStringChart.jsx — user edits hammer position / width / sharpness
+  drag/wheel: staged, committed after a 150 ms settle; Enter in a field: committed at once
+  (explicit commit, dev-elat1) → handleHammerParamChange → changeParametersOfExcitation
          │
          ▼
-axios.post('/set_parameter/hammer/60', { width, sharpness })
+WS set_parameter {parameter:'hammer', key:'60', values}   (REST fallback /set_parameter/hammer/60)
          │
          ▼
-pianoid.update_parameter(param='hammer')
-  1. For each pitch in request:
-       sm.update_hammer_shape(pitchID=60, **values)
-       PianoHammer.calculate_hammer_shape(offset)
-         → Gaussian/circular force profile, min 3 grid points
-  2. send_hammer_params_to_CUDA()
-     sm.pack_hammers()                          // hammer data only
-     pianoid_cpp.setNewHammerParameters(hammer)
-         └── updateTunableParameter("dev_hammer", data)
-             └── double-buffer swap (same as 2.1)
+parameter_manager.update_parameter(param='hammer')
+  1. For each EDITED pitch (hammer_edit drops unchanged/read-only fields):
+       sm.update_hammer_shape(pitchID, **edit) → PianoHammer.calculate_hammer_shape(offset)
+       time.sleep(0)                              // yield the GIL per pitch
+  2. With cuda_lock — _upload_then_commit_coefficients({'kind':'spatial', pitches}, upload):
+     CoefficientCache.prepare()  (re-read the hammer spatial factor; no engine write)
+     upload: ≤ 8 pitches → updateHammerBlockRow per touched block (F7), else
+             setNewHammerParameters(sm.pack_hammers())  → updateTunableParameter("dev_hammer") → swap
+     wait until the swap is published (GIL-free poll) → CoefficientCache.commit()
 
 Also: POST /set_hammer_shape/<pitch_no> (backendserver.py:466)
   ─► sm.update_hammer_shape() + send_hammer_params_to_CUDA()
@@ -847,7 +870,8 @@ effective_coeff = stored_coeff[active preset]  ×  env_multiplier(slider positio
   },
   "blocks": [[0,1], [2,3], ...],
   "modes": [
-    { "ID": 0, "frequency": 27.5, "decrement": 0.001 }
+    { "ID": 0, "frequency": 27.5, "decrement": 0.001,
+      "radiance_mono": 0.5, "radiance_stereo": [0.4, 0.6] }   // dev-rad1, optional (absent = 1 / follows mono)
   ],
   "mode_sound_channels": {
     "num_channels": 4,

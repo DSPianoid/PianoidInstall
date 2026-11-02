@@ -102,7 +102,9 @@ if LOG:
                   "_send_hammer_update", "_upload_hammer_blocks_for_pitches", "send_hammer_params_to_CUDA",
                   "update_pitches_physical_params_GRANULAR", "_flush_gpu_write_plan",
                   "update_mode_params_GRANULAR", "_apply_pitch_physical_to_model", "_pitch_upload_amp",
-                  "_collect_pitch_gpu_writes", "apply", "update_pitch_excitation"]
+                  "_collect_pitch_gpu_writes", "apply", "update_pitch_excitation",
+                  # dev-elat1 (Phase 1): prepare -> one swap -> wait -> commit
+                  "_upload_then_commit_coefficients", "_upload_excitation_curves", "_upload_hammer_for_pitches"]
 
     def _patch(modname, mod):
         if modname == "parameter_manager":
@@ -126,7 +128,7 @@ if LOG:
                     setattr(H, m, timed("undo." + m, getattr(H, m)))
         elif modname == "excitation_coefficients":
             C = mod.CoefficientCache
-            for m in ("seed", "recompose"):
+            for m in ("seed", "recompose", "prepare", "commit"):
                 if hasattr(C, m):
                     setattr(C, m, timed("coeff." + m, getattr(C, m)))
         elif modname == "runtime_params":

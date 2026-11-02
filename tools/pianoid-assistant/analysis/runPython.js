@@ -13,7 +13,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ARTIFACT_ID, analysisPaths, createArtifact, kindOf, newId, readArtifact } from './store.js';
+import { ARTIFACT_ID, analysisPaths, createArtifact, isTainted, kindOf, newId, readArtifact } from './store.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const LAUNCHER = process.env.PIANOID_SANDBOX_LAUNCHER
@@ -72,6 +72,7 @@ export function prepareRun(paths, { code, inputs }) {
   const dir = path.join(paths.runs, runId);
   const index = {};
   let inputBytes = 0;
+  let inputsTainted = false;
   for (const id of inputs) {
     const meta = readArtifact(paths.artifacts, id);
     if (!meta) throw new Error(`inputs: unknown artefact ${id}`);
@@ -81,12 +82,13 @@ export function prepareRun(paths, { code, inputs }) {
       inputBytes += fs.statSync(path.join(dir, 'in', id, f.name)).size;
     }
     index[id] = meta;
+    inputsTainted ||= isTainted(meta);
   }
   fs.mkdirSync(path.join(dir, 'in'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'in', 'index.json'), JSON.stringify(index));
   fs.writeFileSync(path.join(dir, 'code.py'), PRELUDE);
   fs.writeFileSync(path.join(dir, 'user.py'), code);
-  return { runId, dir, inputBytes };
+  return { runId, dir, inputBytes, inputsTainted };
 }
 
 /**
@@ -106,18 +108,21 @@ const execLauncher = (file, args, timeoutMs) => new Promise((resolve) => {
   });
 });
 
-/** Turn the launcher's out\ listing into artefacts (over-cap and unknown kinds are skipped). */
-export function collectOutputs(paths, dir, runId, launcherFiles, inputs) {
+/**
+ * Turn the launcher's out\ listing into artefacts (over-cap and unknown kinds are skipped). `tainted` (dev-mem1) =
+ * the turn was tainted or an input artefact was: the outputs carry it.
+ */
+export function collectOutputs(paths, dir, runId, launcherFiles, inputs, tainted = false) {
   const files = [];
   const skipped = [];
   for (const f of launcherFiles || []) {
     const kind = kindOf(f.name);
     if (f.over_cap || !kind || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(f.name)) {
-      skipped.push({ name: f.name, reason: f.over_cap ? 'over the output caps (20 files, 5 MB each, 20 MB total)' : 'not a png / csv / json / npy / txt / wav file' });
+      skipped.push({ name: f.name, reason: f.over_cap ? 'over the output caps (20 files, 5 MB each, 20 MB total)' : 'not a png / csv / json / npy / txt / md / wav file' });
       continue;
     }
     const rec = createArtifact(paths.artifacts, {
-      kind, source: 'analysis.run_python', meta: { run_id: runId, inputs },
+      kind, source: 'analysis.run_python', meta: { run_id: runId, inputs }, tainted,
       files: [{ name: f.name, data: fs.readFileSync(path.join(dir, 'out', f.name)) }],
     });
     files.push({ artifact_id: rec.id, name: f.name, kind, size: f.size });
@@ -130,8 +135,8 @@ function pruneRuns(runsDir, keep = KEEP_RUNS) {
   for (const r of runs.slice(0, Math.max(0, runs.length - keep))) fs.rmSync(path.join(runsDir, r), { recursive: true, force: true });
 }
 
-/** The tool handler. `exec` is injectable for tests. */
-export async function runPython(input, { paths = analysisPaths(), launcher = LAUNCHER, exec = execLauncher } = {}) {
+/** The tool handler. `exec` is injectable for tests; `tainted` = the calling turn is tainted (dev-mem1). */
+export async function runPython(input, { paths = analysisPaths(), launcher = LAUNCHER, exec = execLauncher, tainted = false } = {}) {
   let v;
   try { v = validateInput(input); } catch (e) { return { ok: false, error: e.message }; }
   if (!fs.existsSync(launcher)) return { ok: false, error: `the sandbox launcher is not built: ${launcher} (run: node analysis/setup.js)` };
@@ -146,7 +151,7 @@ export async function runPython(input, { paths = analysisPaths(), launcher = LAU
     return { ok: false, run_id: run.runId, error: `sandbox launcher failed: ${(r.stderr || r.error?.message || r.stdout).slice(-600)}` };
   }
   if (!j.ok) return { ok: false, run_id: run.runId, error: j.error };
-  const out = collectOutputs(paths, run.dir, run.runId, j.files, v.inputs);
+  const out = collectOutputs(paths, run.dir, run.runId, j.files, v.inputs, tainted || run.inputsTainted);
   pruneRuns(paths.runs);
   return {
     ok: j.exit === 0 && !j.limits_hit.some((l) => ['wall', 'cpu', 'memory', 'disk'].includes(l)),

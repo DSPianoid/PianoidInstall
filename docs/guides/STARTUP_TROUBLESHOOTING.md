@@ -130,6 +130,12 @@ Note: `/api/kill-stale` walks both `netstat -ano` (any TCP state) and `wmic proc
 !!! warning "Never blanket-kill processes"
     Do **not** use `taskkill //F //IM python.exe` or `taskkill //F //IM node.exe` — this kills MCP servers, Claude Code, and other unrelated processes. Always kill by specific PID on a specific port.
 
+### Port held by `hw_server.exe` (Vivado JTAG)
+
+After JTAG work on the Pianoid controller's FPGA, Vivado's `hw_server.exe` can keep ports 3000-3003, so the
+frontend and the launcher cannot bind. On the spare ports 3002-3003 the sweep only reports it, because it is not a
+Pianoid process. Stop `hw_server.exe` by its PID when the JTAG work is done.
+
 ### Zombie socket diagnosis
 
 This is almost never a kernel-level TCP leak. The usual root cause:

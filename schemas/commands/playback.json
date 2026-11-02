@@ -133,7 +133,7 @@
     {
       "name": "midi.ports",
       "title": "Read the MIDI input ports",
-      "description": "The rtmidi input ports (array index = port id), the port the unified MIDI listener holds open (active_port, null when not listening) and whether the listener runs (listening; it starts with a load with listen_to_midi 1). Works before a preset is loaded.",
+      "description": "The rtmidi input ports (array index = port id), the port the unified MIDI listener holds open (active_port, null when not listening or in Listen to All), whether the listener runs (listening; it starts with a load with listen_to_midi 1) and port_state (mode forced / manual / auto / all; ports = the names of every played port: in mode all, every input port merged). Works before a preset is loaded.",
       "target": "backend",
       "tier": "read",
       "approval_category": "view",
@@ -172,7 +172,7 @@
     {
       "name": "midi.set_input_settings",
       "title": "Set the MIDI pedal mapping",
-      "description": "Change any subset of the live MIDI input settings (persisted across backend restarts; applies to the next incoming message). sustain_cc: the CC number the pedal sends (0-127, 64 = standard; read midi.input_settings counts or the MIDI monitor to see what the pedal really sends). sustain_channel: the MIDI channel of the pedal (1-16) or null = any channel; set it when several pedals send the same CC on different channels (e.g. the AMC-10 sends CC 0 from three pedal inputs on channels 1-3; its sustain = CC 0 on channel 2, inverted). polarity: 'inverted' for a pedal that sends 0 when pressed and 127 when released. show_realtime: show MIDI clock / active sensing in the monitor. monitor_all_ports: also monitor the other input ports (applies at the next listener start or port switch). The MIDI input PORT (input_port) is deliberately not settable here: the user picks it in the MIDI panel (POST /midi/select_port) or auto-detect decides.",
+      "description": "Change any subset of the live MIDI input settings (persisted across backend restarts; applies to the next incoming message). sustain_cc: the CC number the pedal sends (0-127, 64 = standard; read midi.input_settings counts or the MIDI monitor to see what the pedal really sends). sustain_channel: the MIDI channel of the pedal (1-16) or null = any channel; set it when several pedals send the same CC on different channels (e.g. the AMC-10 sends CC 0 from three pedal inputs on channels 1-3; its sustain = CC 0 on channel 2, inverted). polarity: 'inverted' for a pedal that sends 0 when pressed and 127 when released. show_realtime: show MIDI clock / active sensing in the monitor. monitor_all_ports: also monitor the other input ports (applies at the next listener start or port switch). port_sustain: per-port pedal maps {port name: {sustain_cc, sustain_channel, polarity}} (all three per port; replaces the whole map; a port without an entry uses the global sustain_cc / sustain_channel / polarity) - used when several devices are played at once (Listen to All), e.g. the AMC-10: MIDIIN2 (AMC-10) -> sustain_cc 0, sustain_channel 2, polarity inverted. all_exclude: port names Listen to All never opens. The MIDI input PORT (input_port, incl. 'all' = Listen to All) is deliberately not settable here: the user picks it in the MIDI panel (POST /midi/select_port) or auto-detect decides.",
       "target": "backend",
       "tier": "write",
       "approval_category": "runtime",
@@ -187,9 +187,93 @@
           "sustain_channel": {"type": ["integer", "null"], "minimum": 1, "maximum": 16, "description": "MIDI channel of the sustain pedal (1-16); null = any channel"},
           "polarity": {"type": "string", "enum": ["normal", "inverted"], "description": "normal: high value = down; inverted: low value = down (default CC64 pedal: switch at 64; remapped pedal: hysteresis, down at >= 74, up at <= 54 after the polarity)"},
           "show_realtime": {"type": "boolean", "description": "Show clock / active sensing in the MIDI monitor"},
-          "monitor_all_ports": {"type": "boolean", "description": "Also monitor the input ports the listener does not play from"}
+          "monitor_all_ports": {"type": "boolean", "description": "Also monitor the input ports the listener does not play from"},
+          "port_sustain": {
+            "type": "object",
+            "description": "Per-port pedal maps keyed by port name (rtmidi index suffix optional); replaces the whole map",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sustain_cc", "sustain_channel", "polarity"],
+              "properties": {
+                "sustain_cc": {"type": "integer", "minimum": 0, "maximum": 127},
+                "sustain_channel": {"type": ["integer", "null"], "minimum": 1, "maximum": 16},
+                "polarity": {"type": "string", "enum": ["normal", "inverted"]}
+              }
+            }
+          },
+          "all_exclude": {"type": "array", "items": {"type": "string"}, "description": "Port names Listen to All never opens"}
         }
       },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "controller.status",
+      "title": "Read the Pianoid controller (pedal inputs, calibration, link speed)",
+      "description": "Only for the \"Pianoid\" USB-MIDI controller (FATAR keybed + FPGA + Arduino Micro). present=false when no port named Pianoid is connected. Otherwise: identity (firmware, protocol), the 8 pedal inputs (connector X9-X16, type off / switch / continuous, MIDI message cc / note / channel_pressure / pitch_bend, number, channel 1-16, polarity, calibration curve + min / mid / max raw ADC 0-1023, presence: active = a pedal pulls the input now, seen = it did since the controller booted, idle = only idle-high seen, which is also how an open switch pedal reads), the live raw value, the FPGA -> controller link speed (1x / 4x / 8x; selectable = the bitstream supports switching) and duplicates (inputs that send the same message). Read from the device; nothing is stored in Pianoid. Works before a preset is loaded.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-controller",
+      "route": {"method": "GET", "path": "/controller"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "controller.set_pedal_message",
+      "title": "Assign the MIDI message of a Pianoid controller pedal input",
+      "description": "Set what one pedal input of the Pianoid controller sends (live on the device at once; it survives a power cycle only after controller.save). input: 0-7 (controller.status lists them with their connectors; X12 = input 2 is the sustain pedal by default, X14 = input 0 is CC 67). type: off / switch (0 / 127, or note on / off) / continuous. message: cc (number 0-119; 64 = sustain, 66 = sostenuto, 67 = soft, 11 = expression), note (switch only), channel_pressure, pitch_bend. channel: 1-16. polarity: auto (a switch's level at power-up = released), normal, inverted. The device refuses CC 120-127 (channel-mode messages). Two inputs on the same message are allowed (controller.status reports them as duplicates). Pianoid's sustain pedal is CC 64 on any channel by default (midi.input_settings).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-controllerinputsimessage",
+      "route": {"method": "POST", "path": "/controller/inputs/{input}/message"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["input", "type"],
+        "properties": {
+          "input": {"type": "integer", "minimum": 0, "maximum": 7, "description": "pedal input 0-7"},
+          "type": {"type": "string", "enum": ["off", "switch", "continuous"]},
+          "message": {"type": "string", "enum": ["cc", "note", "channel_pressure", "pitch_bend"]},
+          "number": {"type": "integer", "minimum": 0, "maximum": 127, "description": "CC number (0-119) or note number"},
+          "channel": {"type": "integer", "minimum": 1, "maximum": 16},
+          "polarity": {"type": "string", "enum": ["auto", "normal", "inverted"]}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "controller.set_link_speed",
+      "title": "Set the Pianoid controller's FPGA link speed",
+      "description": "The rate of the wire from the controller's FPGA to its USB chip (not the DIN MIDI socket, which is always standard 31250): 1x = 31250, 4x = 125000, 8x = 250000 (default; a chord of 8 notes takes 1 ms on the wire instead of 7.7 ms). Both chips switch together; a switch that does not complete falls back to the previous speed by itself. 409 Unsupported = the FPGA bitstream has no runtime speed switch. Survives a power cycle only after controller.save.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-controllerlink",
+      "route": {"method": "POST", "path": "/controller/link"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["speed"],
+        "properties": {"speed": {"type": "string", "enum": ["1x", "4x", "8x"]}}
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "controller.save",
+      "title": "Save the Pianoid controller's configuration",
+      "description": "Write the controller's current pedal assignments, calibrations and link speed to its EEPROM, so they survive a power cycle (until then a change is live but temporary).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-controllersave",
+      "route": {"method": "POST", "path": "/controller/save"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
     }
   ]

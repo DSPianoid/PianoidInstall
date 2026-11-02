@@ -78,11 +78,19 @@
         },
         {
           "name": "audio_buffer_size",
-          "units": "buffer chunks",
-          "range": "2 = low latency, 4 = balanced, 8 = high stability",
+          "units": "x 128 ring chunk slots (memory)",
+          "range": "integer >= 1 (default 4); the ring holds max(128 x value, 512) slots",
           "class": "stored",
-          "meaning": "Audio buffer depth; structural.",
+          "meaning": "Sizes the audio ring MEMORY only - it does NOT change latency (dev-gh8: before, the docs said it did; the depth was hard-coded). The latency / stability control is audio_ring_depth; structural.",
           "doc": "modules/pianoid-middleware/REST_API.md#post-load_preset"
+        },
+        {
+          "name": "audio_ring_depth",
+          "units": "chunks of 64 frames (0 = auto)",
+          "range": "integer 0..128 (rule load_settings.audio_ring_depth); auto = ASIO max(8, 4 x blocks per host switch), SDL3 16; the driver floors an explicit value (ASIO 2 x blocks per switch, min 2; SDL3 16)",
+          "class": "stored",
+          "meaning": "The Latency <-> Stability setting (dev-gh8): chunks queued ahead of the audio device; ring latency = depth x 64 / sample_rate (8 = 10.7 ms @ 48 kHz). Per machine, persisted in the backend's local settings; an omitted value keeps the saved one. Applied live (hot, no reload). Also audio.set_ring_depth / POST /audio/ring_depth.",
+          "doc": "modules/pianoid-middleware/REST_API.md#audio-ring-depth-latency-vs-stability"
         },
         {
           "name": "volume",

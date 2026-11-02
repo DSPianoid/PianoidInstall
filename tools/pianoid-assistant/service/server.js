@@ -8,11 +8,13 @@
  *   POST /internal/command/<name>   the executor of the service's own MCP server (v2 P2, autoWrite.js):
  *                  runs a command the policy just allowed (a permit), else 403 not_permitted
  *   GET  /artifacts/<id>/<file>   one file of an analysis artefact (the pane shows the PNGs; v2 P5)
- *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, remember?} |
- *                  settings | approvals {category, mode, scope} | undo {groupId} | undo_turn {turn} |
- *                  plan_grant {id, accept, ticked} | plan_revoke (dev-28f1, ignored with PIANOID_ASSISTANT_PLAN_APPROVAL=0)};
+ *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, always?} |
+ *                  settings {model?, dataOptOut?, autonomous? (dev-auto1)} | approvals {rule, mode} |
+ *                  undo {groupId} | undo_turn {turn} (the pane's "Undo turn") |
+ *                  plan_grant {id, accept, ticked} | plan_revoke (dev-28f1, ignored with PIANOID_ASSISTANT_PLAN_APPROVAL=0) |
+ *                  note_update {id, title?, body?} | note_delete {id} (dev-mem1: the Notes tab)};
  *                  server {type: state | message | delta | activity | confirm | confirm_done |
- *                  usage | model | escalation | busy | session | error | login | approvals}
+ *                  usage | model | escalation | busy | session | error | login | approvals | notes | note_error}
  * Runs on the user's Claude SUBSCRIPTION in the isolated home (service/home.js); refuses to start
  * with an API key in its environment (D1). PIANOID_ASSISTANT_DRIVER=fake = zero-spend scripted
  * driver (tests, demos).
@@ -172,7 +174,9 @@ export function createAssistantService({
     res.end();
   });
 
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  // dev-auto1 review: only the pane (a localhost page) or a non-browser client may connect: a foreign web page must not
+  // answer confirms, change approvals or switch Autonomous mode through the user's browser
+  const wss = new WebSocketServer({ server, path: '/ws', verifyClient: ({ origin }) => !origin || LOCAL_ORIGIN.test(origin) });
   wss.on('connection', (ws) => {
     clients.add(ws);
     ws.on('close', () => clients.delete(ws));
@@ -190,7 +194,7 @@ export function createAssistantService({
         } else if (msg.type === 'stop') {
           await session.stop();
         } else if (msg.type === 'confirm') {
-          session.confirm(msg.id, msg.allow, msg.remember);
+          session.confirm(msg.id, msg.allow, msg.always === true);
         } else if (msg.type === 'settings') {
           await session.updateSettings(msg);
         } else if (msg.type === 'approvals') {
@@ -203,6 +207,10 @@ export function createAssistantService({
           await session.auto.undoGroup(msg.groupId);
         } else if (msg.type === 'undo_turn' && Number.isInteger(msg.turn)) {
           await session.auto.undoTurn(msg.turn);
+        } else if (msg.type === 'note_update' || msg.type === 'note_delete') {
+          // dev-mem1: the Notes tab (a user edit is the user's and untainted; only the pane deletes)
+          const err = msg.type === 'note_update' ? session.memory.userUpdate(msg) : session.memory.userDelete(msg);
+          if (err) ws.send(JSON.stringify({ type: 'note_error', id: msg.id, message: err }));
         }
       } catch (e) {
         ws.send(JSON.stringify({ type: 'error', message: e?.message || String(e) }));

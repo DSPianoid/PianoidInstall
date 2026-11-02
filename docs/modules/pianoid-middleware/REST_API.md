@@ -434,7 +434,7 @@ other or with a request that uses the engine. Owner: `pianoid_middleware/engine_
 |---|---|---|
 | **Lifecycle op** (exclusive) | `POST /load_preset` (all reinit kinds), `/preset/load`, `/preset/switch`, `/preset/unload`, `/preset/spawn_working_copy`, `/recalibrate_output_level`, `/shutdown` | **identical** request (same route + same JSON body) → waits and returns the in-flight result with `"coalesced": true` (only `/load_preset` and `/preset/switch` coalesce); anything else → **`409`** `{"error": "LifecycleBusy", "code": "load_in_progress", "message", "in_progress": {"op", "running_for_s"}}` |
 | **Engine use** (shared) | every other HTTP route + the engine Socket.IO events (`play`, `set_parameter`, `set_string_excitation`, `set_hammer_shape`, `set_runtime_parameters`, `set_fix_velocity`) | refused at once: HTTP **`503`** `{"code": "lifecycle_in_progress", "in_progress": {...}}`; a WS event acks `{"ok": false, "code": "lifecycle_in_progress"}` |
-| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
+| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
 
 A lifecycle op first waits for in-flight engine requests to finish (≤ 30 s, else `409` `engine_busy`);
 new engine requests are refused while it is pending. **Why 409, not a queue:** a queued *different*
@@ -521,8 +521,9 @@ Response `200` (healthy):
     "occurred": true,
     "requested": "ASIO_CALLBACK",
     "active": "SDL3",
-    "reason": "Requested ASIO audio driver could not be initialized (...). Falling back to SDL3.",
-    "message": "ASIO_CALLBACK unavailable - using SDL3"
+    "reason": "Requested ASIO audio driver could not be initialized (ASIO driver initialization failed — no working ASIO device found ('UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map))). Falling back to SDL3.",
+    "skipped": ["'UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map)"],
+    "message": "ASIO_CALLBACK unavailable - using SDL3 ('UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map))"
   }
 }
 ```
@@ -571,7 +572,12 @@ dict describing the ASIO→SDL3 runtime fallback — `occurred` is `true` only w
 requested ASIO driver failed to initialize and the engine fell back to SDL3 (so the
 user still has audio instead of `audio_driver_active: false`). `requested`/`active`
 are driver names (`SDL2`/`SDL3`/`ASIO`/`ASIO_CALLBACK`); `message` is the short
-user-facing warning and `reason` the underlying engine detail. The frontend lights a
+user-facing warning and `reason` the underlying engine detail. **`skipped`** (dev-gh8, when
+`occurred`): why EACH installed ASIO driver was skipped by the last open, e.g.
+`'UMC1820' skipped: 8 outputs < 10 needed (engine channels / output map)` (also: not loadable,
+`ASIOInit failed (…)`, no legal buffer size, cannot run at 48 kHz, `ASIOCreateBuffers` / `ASIOStart`
+failed; `no ASIO driver is installed`); `message` appends them, so the UI audio chip shows the reason
+(before dev-gh8 it was only in the backend log and everything read "no working ASIO device found"). The frontend lights a
 "ASIO unavailable — using SDL3" warning on `occurred: true`. The same dict is pushed
 on the WebSocket `lifecycle` event (`audio_driver_fallback` key) so the UI reacts
 without polling. Engine-side mechanics: see
@@ -638,7 +644,7 @@ Initializes the engine from a preset file (Apply). Optionally starts playback im
 
 **HOT vs STRUCTURAL re-init (Cluster C, dev-applyc).** When a live engine is already loaded, the route DIFFS the request against the signature of what's currently running and routes by what changed:
 
-- **STRUCTURAL change** (preset name/path, `array_size`, `string_iterations`, `cycle_iterations`, `sample_rate`, `debug_mode`, `listen_to_modes`, `sound_derivative_order`, `audio_driver_type`, `audio_buffer_size`, `audio_on`) — or no live engine — → **full reload**: destroy the instance + re-initialize (re-allocates GPU buffers, re-opens the audio driver). Response `reinit: "full"`. These params are baked into the C++ constructor / `InitializationParameters` at init and have no runtime setter (`audio_driver_type`/`audio_buffer_size` open the driver in the constructor; there is **no driver-only reopen path**, so a driver/buffer change requires a full reload).
+- **STRUCTURAL change** (preset name/path, `array_size`, `string_iterations`, `cycle_iterations`, `sample_rate`, `debug_mode`, `listen_to_modes`, `sound_derivative_order`, `audio_driver_type`, `audio_buffer_size`, `audio_on`) — or no live engine — → **full reload**: destroy the instance + re-initialize (re-allocates GPU buffers, re-opens the audio driver). Response `reinit: "full"`. These params are baked into the C++ constructor / `InitializationParameters` at init and have no runtime setter (`audio_driver_type`/`audio_buffer_size` open the driver in the constructor; there is **no driver-only reopen path**, so a driver/buffer change requires a full reload). **`array_size` (Block Size) is full-reload on purpose:** an in-place re-init at a new `array_size` renders SILENT because the StringMap rebuild drops the per-pitch sound-channel gains — a **Python** bug (not C++, whatever the `preset_reinit.py` / `pianoid.py` comments say); the fix is on PianoidCore `feature/dev-applyc-arraysize` (acb103d), DEFERRED by user decision 2026-10-28 ([WORK_IN_PROGRESS](../../development/WORK_IN_PROGRESS.md#deferred-block-size-array_size-in-place-re-init-silences-output-user-decision-2026-10-28)). Cost of the full reload: unsaved edits and the editor undo history are lost.
 - **HOT-only change** (`volume` / `max_volume` / `feedback` / `feedback_coeff`) → **soft re-init**, **keeping the engine, the audio driver, and all loaded state** (no `devMemoryInit`, no `StringMap` rebuild). `feedback` / `feedback_coeff` go through the `/set_runtime_parameters` path; `volume` / `max_volume` are the **level anchor** (below) and are re-seeded in place **only if they differ from the live load** — an identical re-load writes nothing (`applied: {}`). Response `reinit: "hot"`. The frontend (`usePreset.loadPreset`) mirrors this by **suppressing its `presetVersion` bump + editor re-fetch** on `reinit: "hot"`, so the user's edited (unsaved) values are preserved across Apply.
 
 **Level anchor vs slider level (dev-2fbf).** The load body's `volume` is the **preset (init) volume** — NOT the slider. It sets the level-64 anchor: bare `volume_center = exp((volume-100)/8)` (`1.0` at the default `100`) and `max_volume = volume_center^(127/64)`; an explicit `max_volume` wins (bare center `max_volume^(64/127)`). The **slider level** (`volume_level`, the `volume` of `/set_runtime_parameters` — same name, different thing) is session state owned by `/set_runtime_parameters`: **no load kind changes it** — hot and structural-inplace keep it, a full reload carries it over from the destroyed engine (a first load starts at 64), a library switch keeps it. Cold and hot agree: the same body gives the same anchor and level either way (measured p60 v127: full reload at volume 92 / slider 80 = hot re-load at volume 92 = −5.606 dBFS). The frontend mirrors the engine's level after every load (`GET /get_runtime_parameters` `volume_level` → slider). Before dev-2fbf the hot path forwarded the body's `volume` (100) to the slider level → an identical re-load (e.g. the UI autoload after a page reload) jumped the slider to 100, p60 +11.43 dB.
@@ -692,7 +698,13 @@ Parameter details:
 
 **Audio driver selection rule:** Prefer ASIO Callback (`4`) when an ASIO device is available — it provides the lowest latency. If ASIO is not available (no ASIO driver installed, or running without a dedicated audio interface), use SDL (`2`) as fallback. SDL works on all systems without special drivers. `0` is the safe default for tests / headless / "no specific audio hardware" callers — equivalent to type `3`.
 - `cycle_iterations`: samples per cycle; must match audio buffer size, minimum 16, default 64
-- `audio_buffer_size`: buffer chunks; `2`=low latency, `4`=balanced, `8`=high stability
+- `audio_buffer_size`: sizes the audio ring **memory** only (`max(128 × value, 512)` chunk slots). It does
+  **not** change latency or stability — before dev-gh8 this line said "2 = low latency, 4 = balanced,
+  8 = high stability", but the fill depth was hard-coded (ASIO 8, SDL3 16). Use `audio_ring_depth`.
+- `audio_ring_depth` (optional, dev-gh8): the **Latency ↔ Stability** setting — ring fill depth in chunks
+  of 64 frames, `0` = auto, integer `0..128` (rule `load_settings.audio_ring_depth` → `400
+  parameter_out_of_range`). Per machine, persisted; omitted = keep the saved value; applied live (no
+  reload). See [Audio ring depth](#audio-ring-depth-latency-vs-stability).
 - `array_size`: spatial discretization points per string block; `384` (default) or `512`. Clamped to 384–512. When the requested value differs from the preset's native `array_size`, string geometry (`main` and `tail`) is scaled proportionally
 - `sample_rate`: Hz; if < 1000 is multiplied by 1000
 - `volume`: the **preset (init) volume** — the level anchor, default `100` (bare center `1.0`); see *Level anchor vs slider level* above. Not the slider level.
@@ -856,6 +868,43 @@ active_preset (GET /preset/summary of the active entry, null without an engine)}
 per-turn context carries only the environment `fingerprint` (so it notices an engine / build change
 between turns); this read is the first call of a "full state" question.
 
+### Environment settings {#environment-settings}
+
+(dev-aenv1) `GET` / `POST /settings/env`: the **governed** way to read and set the backend's environment
+variables (owner `pianoid_middleware/runtime_env.py`, routes in `system_routes.py`, `write_routes` class
+`read_only` / `action`, tests `tests/unit/test_runtime_env.py`). Registry: `env.get`, `env.set` (assistant rule
+`env.set`: Ask by default, risky = a warning line, can be set to Always allow; not part of the Autonomous preset;
+undoable by the pane's Undo / Undo turn, which sets the `previous` value back).
+
+| variable | target | applies | value | meaning |
+|---|---|---|---|---|
+| `PIANOID_AUDIO_OUTPUT_MAP` | backend | next load | distinct outputs `0..31`, comma-separated | engine channel k -> ASIO output `map[k]` ([AUDIO_DRIVERS](../pianoid-cuda/AUDIO_DRIVERS.md#asioaudiodriver)) |
+| `PIANOID_ASIO_BUFFER_SIZE` | backend | next load | frames, multiple of 64, <= 8192 | requested ASIO host buffer (callback driver) |
+| `PIANOID_LISTEN_TO_MIDI` | backend | next load | `"0"` / `"1"` | forces the MIDI listener on every `/load_preset` ([MIDI_SYSTEM](MIDI_SYSTEM.md)) |
+
+- **Order:** setting (the gitignored local settings file `<PianoidInstall>/pianoid_local_settings.json`, key
+  `env`; `$PIANOID_LOCAL_SETTINGS` in tests) > the environment the backend inherited from the launcher > unset.
+  The backend applies the persisted values at boot (`init_system_routes`), so they survive restarts.
+- **Applies `next_load`:** `POST` writes the value into the backend process at once (`os.environ`; the
+  engine's C++ `getenv` sees it too: shared UCRT, measured); the readers use it on the **next `/load_preset`**
+  (a reload of the same preset is enough). The running engine is unchanged until then. **`restart`** (no
+  variable yet): saved only, `restart_required: true`; nothing restarts by itself (launcher commands).
+- **Allow-list only:** an unknown name -> `400 {error: "unknown_variable", allowed}` (the backend environment
+  also steers DLL search, CUDA and Python, so there is no "any variable" mode; a new variable = one row in
+  `runtime_env.VARS` + the `env.set` name enum, kept equal by a test). Secret-looking names (KEY / TOKEN /
+  SECRET / PASSWORD / CREDENTIAL / AUTH) are refused and their values never returned (`<masked>`).
+- `GET` -> `{variables: [{name, description, doc, target, applies, value_format, value, source
+  (setting|env|unset), setting, inherited, restart_pending}], settings_file}`.
+- `POST {name, value}` (`value` null or `""` clears the setting: back to the inherited value) -> the variable's
+  state + `previous` (the setting before), `restart_required`, `effect`; invalid value ->
+  `400 {error: "invalid_value", message}`. Every change is printed to the backend log (`[runtime_env]`) and,
+  for the assistant, recorded in its audit log.
+
+**Migration (2026-10-28):** the rig's output map `8,9,2,3,4,5,6` (E1/E2 rewired to Out 9/10, then
+process-scoped in the backend's environment) is saved once as the setting
+(`env.set PIANOID_AUDIO_OUTPUT_MAP "8,9,2,3,4,5,6"`) when this lands; from then on no environment variable is
+needed for it.
+
 ### `GET /preset/files`
 
 `{roots: {presets: "presets"}, count, truncated, files: [{root, file, load_path, size_kb, modified,
@@ -948,6 +997,30 @@ through the real ASIO `asioMessage` handler (ignored by a non-ASIO driver, still
 ASIO open fails until `device_return`). Response `200`
 `{injected, result, audio_health}`; `400` for an unknown kind / bad `duration_ms` / no engine.
 
+### Audio ring depth (latency vs stability) {#audio-ring-depth-latency-vs-stability}
+
+(dev-gh8, PianoidCore #8) The synthesis thread hands the audio callback one 64-frame chunk per cycle
+through a ring; its **fill depth** (chunks queued ahead of the device) is the latency the engine adds and
+the cushion against a late synthesis cycle (an underrun = an audible click).
+
+| | |
+|---|---|
+| Latency formula | **ring_ms = depth × 64 / sample_rate** (8 → 10.7 ms, 4 → 5.3 ms, 16 → 21.3 ms @ 48 kHz); estimate = ring_ms + the driver's output latency (ASIO-reported `output_latency`, else one host buffer) |
+| Auto (`0`, default) | ASIO callback `max(8, 4 × blocks per host switch)` = 8 on a 64-frame host buffer (unchanged behaviour); SDL3 16 |
+| Explicit `1..128` | the driver floors it: ASIO `max(depth, 2 × blocks per switch, 2)`, SDL3 `max(depth, 16)`; `applied` reports the result |
+| Bounds | rule `load_settings.audio_ring_depth` (integer 0..128) — the same rule for `/load_preset` and this route ([parameter rule table](#parameter-rule-table)) |
+| Persistence | per machine, local settings file key `audio_ring` (survives restarts; not per preset, not per client) |
+| When it applies | **live** on the running driver (`Pianoid::setAudioRingDepth`, no reload, no audio restart); every later driver open / watchdog re-open / SDL3 fallback uses it |
+
+`GET /audio/ring_depth` → `200 {requested, auto, max, applied, live, sample_rate, chunk_frames, ring_ms,
+driver_latency_ms, driver_latency_source (asio_output_latency | host_buffer), estimate_ms, formula}`
+(`live: false`, `applied: null` with no engine).
+`POST /audio/ring_depth {"depth": 4}` → `200` = the GET body + `previous`, `effect` (`applied live` |
+`saved; applies when the audio driver starts`); `400 parameter_out_of_range` outside the bound, `400
+invalid_request` without `depth`. Broadcasts `session_changed {domain: audio_ring}`. Registry commands
+`audio.ring_depth` / `audio.set_ring_depth`; Tunner: Settings → Audio "Latency ↔ Stability".
+Measured on the UMC1820 rig: [AUDIO_DRIVERS → Ring depth measurements](../pianoid-cuda/AUDIO_DRIVERS.md#ring-depth-latency-vs-stability-dev-gh8).
+
 ### `GET /audio/devices`
 
 (dev-1b6c) Snapshot of the ASIO host the engine has open (cached when the driver opened —
@@ -1037,16 +1110,17 @@ step's result or its error. One rig job at a time (`409 rig_busy`). The ASIO ste
 
 | Route | Command | Step |
 |---|---|---|
-| `POST /rig/capture` | `modal.rig_capture` (hard confirm) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
-| `POST /rig/sine` | `modal.rig_sine` (hard confirm) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
-| `POST /rig/record` | `modal.rig_record` (hard confirm) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
-| `POST /rig/process` | `modal.rig_process` (hard confirm) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
-| `POST /rig/preset_create` | `preset.create` (hard confirm) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
+| `POST /rig/capture` | `modal.rig_capture` (asks: its own rule) | a sweep (ESS / linear) per exciter × repeats on the chosen outputs, the chosen inputs recorded; level guard (redo a first repeat above `guard_dbfs` at `step_db` lower, abort above `stop_dbfs`); `dry_run` plans only |
+| `POST /rig/sine` | `modal.rig_sine` (asks: its own rule) | a sine on chosen outputs (per-output level, fades), `duration_s` or `until_stopped` (chunks of `chunk_s`, ≤ `max_duration_s`), optional `record_inputs` (play + record); `sequence` = several tones in turn (per step `frequency_hz` / `outputs` / `duration_s`, `pause_s` silence between; ≤ 64 steps, ≤ 1800 s of tone) |
+| `POST /rig/record` | `modal.rig_record` (asks: its own rule) | inputs only, `duration_s` ≤ 110 s, optional software `trigger`; result: per-channel `rms_dbfs` / `peak_dbfs` / `clipping` |
+| `POST /rig/process` | `modal.rig_process` (asks: its own rule) | `step` = `frf` · `polymax` · `coefficients` · `build_preset` on a run (`area` `rig_runs` or the read-only `rig_checks`) |
+| `POST /rig/preset_create` | `preset.create` (asks: its own rule) | a NEW preset with `num_strings` / `num_channels` / `array_size` (/ `num_modes`) from a base preset; refuses an existing name unless `overwrite` |
+| `POST /rig/preset_add_thump` | `preset.add_thump` (asks: its own rule) | a NEW preset with the [keybed thump string](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1) from a source preset; refuses a missing source, an existing name (no overwrite) and a source that already has the pitch |
 | `POST /rig/cancel` | `modal.rig_cancel` (also `job.cancel`) | terminates the step's process; a sweep / chunk already playing finishes |
 | `GET /rig/runs[?run=&area=&limit=]` | `modal.rig_runs` | the runs (id, kind, steps done, size) or one run's config, step reports and files |
 | `GET /rig/files?run=&area=&files=…` | `modal.rig_files` | absolute path + size of run files (the assistant's `export: true` copies them into an analysis artefact) |
 | `GET /measurements/dir` | `modal.measurements_dir` | the measurements folder and where it comes from ([below](#measurements-folder)) |
-| `POST /measurements/dir` | `modal.set_measurements_dir` (hard confirm) | moves the measurements folder (runtime setting) |
+| `POST /measurements/dir` | `modal.set_measurements_dir` (asks: its own rule) | moves the measurements folder (runtime setting) |
 
 Run layout `<measurements>/rig_runs/<run_id>/` (`<measurements>` = the [measurements folder](#measurements-folder); run id `<yyyymmddThhmmss>-<label>`): `config.json` (spec, channel maps, levels, takes,
 flags, status), `sessions/<exciter>_m<level>_r<k>/{data.npy (aligned capture, float32 [frames, inputs]),
@@ -1106,7 +1180,7 @@ limiter: `exciter_monitor_routes.py` over `exciter_monitor.py` / `exciter_monito
 `ExciterMonitor.cpp` ([AUDIO_DRIVERS → Exciter monitor](../pianoid-cuda/AUDIO_DRIVERS.md#exciter-monitor-dev-8f54)).
 Design: [controlled playback](../../proposals/controlled-playback-exciter-current-2026-10-20.md). Needs the ASIO
 callback driver (`audio_driver_type 4`); stored per machine under `exciter_monitor` in
-`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (hard confirm),
+`pianoid_local_settings.json`. Assistant: `audio.exciters`, `audio.exciters_config` (asks: its own rule),
 `audio.exciters_clear`.
 
 #### `GET /audio/exciters`
@@ -1154,6 +1228,94 @@ TEST HOOK (`session`): `{input, level_fs}` — physical input `input` reads at l
 (0–4 FS, 0 = off) in the engine, so the limiter can be exercised without a sensor. `409` with no engine.
 
 ---
+
+### Output routing (dev-rad1) {#output-routing-dev-rad1}
+
+Where the synthesized sound goes, and how each soundboard mode reaches the speakers. Logic:
+`output_routing.py` (session state + plan + rows), routes `output_routing_routes.py`. Design:
+[mode-radiance-output-mode proposal (archived)](../../proposals/archive/mode-radiance-output-mode-2026-10-29.md).
+
+| target | layout | engine channels |
+|---|---|---|
+| `board` (default) | — | the preset's exciter rows, unchanged (bit-identical to before dev-rad1); dedicated speaker channels silent |
+| `speakers` | `mono` / `stereo` | the speaker channel(s) carry `y = D^k Σ_m g·r[m]·q_m`; every exciter channel silent |
+| `dual` | `mono` / `stereo` | both at once; needs **dedicated** speaker channels |
+
+* **Factors** `r[m]`: per-mode fields `radiance_mono`, `radiance_left`, `radiance_right` (linear gains `>= 0` (no cap; absolute factors are in engine row units),
+  default 1; GET returns the EFFECTIVE sides, = mono until a pair is set, plus the STORED `radiance_stereo` (`[L, R]` or
+  `null` = follows mono; hidden in the Modes panel), `POST /set_parameter/mode/<m>` like any mode
+  field (undo, journal, `param.set`, rule table). Preset: `modes[m].radiance_mono` / `radiance_stereo: [L, R]`, written
+  only when set. POST also accepts `radiance_stereo` (`[L, R]`, or `null` = clear the pair, back to following mono).
+  Undo of an L / R edit restores the stored pair exactly, incl. "follows mono" (it snapshots `radiance_stereo`, the field
+  L / R write; `parameter_manager.STORED_FIELD_OF`, dev-rad2).
+  A radiance-only edit uploads no mode physics; the speaker rows re-upload when a speaker mix plays.
+* **Rows** (host precompute, no kernel change): the speaker channel's deck row is `g·r[m]` (`basis: absolute`) or
+  `g·r[m]·b[m]` (`basis: board_motion`, `b[m]` = RMS over the native exciter rows = the engine's mode motion at the
+  exciter points). `g` makes the speaker channel's analytic energy (`Σ_m row[m]²·E_m`, `E_m` = the unit-force response
+  energy at `sound_derivative_order`, DATA_FLOWS "Analytic audible weight") equal the mean exciter channel energy, then
+  `trim_db` (default −3 dB headroom) applies. Flat-tier presets fold the uniform flat columns to one energy-weighted value.
+* **Speaker channels.** *Dedicated*: `model_parameters.radiance.speaker_channels` = `[c]` or `[cL, cR]` (output channels
+  built for the speakers, e.g. an 8th output pitch); `PIANOID_AUDIO_OUTPUT_MAP` then maps only the exciter channels and
+  the speaker channels go to `PIANOID_SPEAKER_OUTPUTS` (`L,R` 0-based, default `0,1` = Out 1/2). *Borrowed* (none
+  declared): `speakers` uses engine channels 0/1 and swaps the ASIO map live (Out 9/10 = E1/E2 become unmapped →
+  silent); `dual` → 409 `dual_unavailable`. Mono on ONE channel is mirrored to the R output
+  ([AUDIO_DRIVERS → output routing](../pianoid-cuda/AUDIO_DRIVERS.md#live-output-routing-and-mirrors-dev-rad1)).
+* **Switch order:** entering a speaker target the map swaps first, leaving it the rows change first, so an exciter
+  never receives the speaker mix. Both take effect at the next cycle; no preset reload.
+* **State:** session (not saved), survives preset switches; a preset that cannot play the current target falls back
+  to `board` with a printed warning.
+
+| Route | Body | Result |
+|---|---|---|
+| `GET /output_routing` | — | `{target, layout, available{target:{layout: null or reason}}, speaker_channels, speaker_outputs, asio_map, asio_mirrors, basis, trim_db, radiance_source, provisional, plan?, gain?, gain_db?}` |
+| `POST /output_routing` | `{target?, layout?}` | the new status; `409 {error, code}` (`dual_unavailable`, `layout_unavailable`, `rebuild_needed`, `asio_rejected`, `bad_request`), state unchanged |
+| `POST /radiance/config` | `{basis?, trim_db?, speaker_channels?, source?, provisional?}` | status; merged into `model_parameters.radiance` (saved with the preset; write class `param_coarse`, not undoable) |
+| `POST /radiance/import` | `{mono[N] or mono_db[N] (+reference_db, default median), stereo?[N][2], basis?, source?, provisional?}` | status + `imported_modes`; ONE undoable `mode` edit over all N modes, in mode order |
+| `POST /radiance/from_frf` | `{frf_path, exciters?, speakers?, mic?, band_octaves?, layout? mono/L/R, apply?, source?, provisional?}` | the MEASURED absolute factors from a rig FRF + the LIVE model: `r[m] = sqrt(<\|Σ_c W[c,m]·H_mic←E_c(f)\|²> / <\|H_mic←spk(f)\|²>)` over a 1/3-octave band at the live mode frequency (mono: `H_spk = H_L + H_R`); `apply` writes them (one undoable `mode` edit) with `basis: absolute` |
+
+Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radiance.import`, `radiance.from_frf`, `radiance.config`; factors via
+`param.set` (`mode.radiance_mono` / `mode.radiance_left` / `mode.radiance_right`).
+
+### Half-pedal curve (dev-pedal1) {#half-pedal-curve-dev-pedal1}
+
+How the pedal value grades the dampers: [MIDI_SYSTEM → Half pedal](MIDI_SYSTEM.md#half-pedal-dev-pedal1) (fields, defaults, meaning). Config `model_parameters.pedal` (only the fields that differ from the defaults; absent = the defaults), logic `pedal_config.py`, the single writer of `mp.pedal`.
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /get_parameter/pedal/all` | — | `{config, defaults, limits, engine_supported}` (`config` = effective) |
+| `POST /set_parameter/pedal/all` | any of `{dead_low, dead_high, register_spread, patch_width, patch_offset, blend_power, decay_range}` | `200`; `416` on a value out of range |
+
+Undoable (domain `pedal`), journaled, rule table entries `pedal.*`. `param.set {parameter: pedal, key_no: all, values}`. Takes effect at the next cycle, also on sounding strings.
+
+### Thump string (dev-thump1) {#thump-string-dev-thump1}
+
+The keybed "thump" (Option F of the [hammer-thump proposal](../../proposals/archive/hammer-thump-injection-2026-10-28.md#9-option-f-thump-string-user-proposal-2026-10-29)):
+a short, light string on its own pitch, struck next to the bridge, so its bridge force is a flat ~0.82·J below its
+first partial (~8.7 kHz) and kicks the board modes through its deck row. When enabled, every key note-on also excites
+it with the key's velocity (engine: [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
+Added to a preset by `python -m Pianoid.thump_string SRC.json DST.json` (PianoidBasic, [OVERVIEW](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1));
+config `model_parameters.thump = {enabled, pitch, gain, trim_db}` (logic `thump_config.py`, the single writer of `mp.thump`).
+
+| Route | Body | Result |
+|---|---|---|
+| `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}} or null, engine_pool, engine_supported}` |
+| `POST /set_parameter/thump/all` | `{enabled?, gain?, trim_db?: {key: dB}}` (`trim_db` merges per key; 0 dB removes the key) | `200`; `416 {message}` for a preset without a thump string / unknown field; `400` from the rule table |
+
+* **Which presets:** the standard `Tuning18-10-26ver1` has no thump string: `GET` answers `{available: false, config: null, engine_pool: [], ...}` and `POST` answers `416 {message: "this preset has no thump string (...)"}`. `Tuning18-10-26ver1_thump_live.json` has one, enabled ([presets + measured status](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
+* **Enable / disable:** `POST /set_parameter/thump/all {"enabled": true|false}`. `engine_pool` shows the effect: the CUDA slot (`[232]` in the `thump_live` presets) when on, `[]` when off. It takes effect at once; saving the preset keeps it.
+* **Per-key gain** = `gain · 10^(trim_db[key]/20)` (keys 21–108; the thump pitch itself never fires). Rule-table entries
+  `thump.gain` [0, 100] and `thump.trim_db` [−40, 40] dB (`param_rules.json`, family *excitation*).
+* **Undoable** (domain `thump`, Excitation pane Undo), journaled, saved with the preset. `param.set {parameter: thump, key_no: all, values}`.
+* **`gain` and mass:** both scale the same coefficient linearly, so with the default 3.4 g, `gain` 1 = 3.4 g, 2.94 ≈ 10 g, 4.41 ≈ 15 g of impulse. The measured 10 g / 15 g results used the `hammer_mass` of the `_10g` / `_15g` presets (with `gain` 1), not `gain`.
+* **The thump string's own parameters** are ordinary pitch parameters of the thump pitch (20 by default): `hammer_mass` =
+  keybed effective mass (impulse scale), Gauss `sigma` per level = felt contact time, `mu` = keybed delay + 3σ (pulse
+  must end inside the 9.33 ms window), deck row = rim coupling, `gamma` damps its own partials.
+* **Calibration runs with the thump off**: `enter_calibration_mode` and the `output_scale` render push an empty pool;
+  the hammer-mass calibration and `excitation_retime` skip the thump pitch. Its loudness is a separate channel
+  (mass × gain), not part of the key equalisation.
+* **v1 caveat (one shared string):** a key within ~9.3 ms of the previous one re-excites the string and truncates the
+  previous pulse; keys in the same cycle merge into ONE excitation (the larger `gain × velocity` wins). The engine takes
+  a pool (round-robin per cycle) for a later 2–4-string pool.
 
 ## Parameter Endpoints
 
@@ -1277,10 +1439,8 @@ Response `200`:
 {"message": "OK"}
 ```
 
-Response `400` — engine safety net rejection (see "Engine safety net" below):
-```json
-{"error": "mode.decrement=-1 rejected: decrement must be >= 0 (negative damping causes runaway amplitude)"}
-```
+Response `400` — parameter safety net (`parameter_out_of_range`, nothing written; see
+[Parameter safety net](#parameter-safety-net-out-of-domain-rejection) below).
 
 Response `400` — a malformed `feedin_mask` / `feedback_mask` write (dev-fcef, follow-up l; owner
 `pianoid_middleware/mask_rows.py`): every pitch of `key_no` needs a row of exactly `num_modes` values.
@@ -1293,6 +1453,43 @@ modes, a range with one row only). WS `set_parameter` returns the same message i
  "message": "feedin_mask: every pitch of the range needs a row of exactly 196 0/1 values (num_modes); ..."}
 ```
 
+Response `400` — a `string` / `physics` / `gauss` / `excitation` write whose `values` has no entry for some
+pitch of `key_no` (report bc956d19, dev-obuf1; owner `pianoid_middleware/pitch_values.py`). Checked before
+anything is written: it used to `KeyError` half-way (416 + traceback) after the earlier pitches were already
+in the Python model, the engine upload never ran and no undo group was recorded (model and engine diverged).
+WS `set_parameter` returns the same message in its `error`.
+```json
+{"error": "missing_pitch_values", "parameter": "string", "missing_pitches": [60], "missing_count": 1,
+ "message": "string: values has no entry for pitch 60 of the key range. Give a value for every pitch of key_no, or narrow key_no. Nothing was written."}
+```
+
+**Every keyed write is all-or-nothing (dev-mpart1, same owner).** Each `set_parameter` family checks its
+whole payload before its first model write, so a rejected write leaves the model AND the engine untouched
+and records no undo / journal entry:
+
+| Parameter | Key coverage (`key_no` = the range) | Entry check | Error |
+|---|---|---|---|
+| `mode` | every **mode** of `key_no` (`all` = every mode) | `{field: number}` | `missing_mode_values` (`missing_modes`) / `invalid_values` |
+| `string`, `physics` | every pitch | `{field: number}` (`hammer_shape` may be a name) | `missing_pitch_values` / `invalid_values` |
+| `gauss`, `excitation` | every pitch | `{level: {curve: {mu, sigma, volume, shift: number}}}` | same |
+| `feedin`, `feedback` | every pitch | row shape: StringMap, before writing | `missing_pitch_values` |
+| `feedin_mask`, `feedback_mask` | every pitch | `num_modes` 0/1 values (above) | `invalid_mask_row` |
+| `sound_channel`, `sound_channel_mask`, `string_sound_channel` | none (a pitch without a row is skipped) | each given row = `num_channels` numbers | `invalid_values` |
+| `hammer` | none (skipped) | `hammer_payload.hammer_edit`, all pitches before writing | 416 (atomic; not yet a 400) |
+
+Before dev-mpart1 (measured on dev a2659d2, isolated backend, `dev-mpart1-mode-partial-write.py`):
+`mode` `key_no=all` with 25 of the modes wrote those 25 into the model, answered 416 `KeyError '25'`, and the
+`note_playback` render did not change (rel 2.3e-4 = render noise; the same values via `from0to24`: 1.4e-2):
+model ≠ engine until the next full reload (a preset *switch* copies device buffers only). A non-number
+(`string` / `mode` / `gauss`) or a wrong-length sound-channel row did the same part-way. Now each is 400 with
+nothing written; a GET → POST round-trip of every family (`all`) still answers 200.
+```json
+{"error": "missing_mode_values", "parameter": "mode", "missing_modes": [25, 26, "..."], "missing_count": 14,
+ "message": "mode: values has no entry for mode 25, ... of the key range. Give a value for every mode of key_no, or narrow key_no. Nothing was written."}
+{"error": "invalid_values", "parameter": "string", "key_kind": "pitch", "problem_count": 1,
+ "problems": [{"pitch": 60, "problem": "damper_string='abc' is not a number"}], "message": "..."}
+```
+
 Response `416`:
 ```json
 {"message": "Wrong parameter request"}
@@ -1302,66 +1499,116 @@ or
 "Set parameter route: Internal error in module pianoid.py: <traceback>"
 ```
 
-#### Engine safety net (catastrophic-input rejection)
+#### Parameter safety net (out-of-domain rejection)
 
-Per the **S5 fail-fast** principle (`docs/development/CODE_QUALITY.md` S5b),
-`parameter_manager` rejects values that would corrupt engine state with HTTP 400
-*before* any state mutation or GPU upload. The frontend NumInput callers omit
-`min`/`max` clamps for engine-bound parameters (per dev-2706 directive); this
-backend gate is the single line of defense against catastrophic inputs.
+Evaluator `pianoid_middleware/param_safety.py`; the rules are **data**, the [parameter rule table](#parameter-rule-table)
+(dev-psafe2, 2026-10-28; rules reviewed in dev-psafe1, port of Core `14fd5af` / dev-9a47).
+`edit_commit.commit` runs `check_edit` for **every** preset-parameter edit — REST and WS
+`set_parameter`, `set_string_excitation`, `set_hammer_shape`, the assistant's `param.set` (it calls this
+route), `/mute/*`, `/excitation_energy`, the calibration commits, MIDI CC, the auto-tuner, and undo /
+redo. The check runs before the undo step opens and before anything is written. A rejected edit changes
+nothing in the model, the engine, the journal or the undo history. The runtime fields
+(`/set_runtime_parameters`, `runtime.*`) and the `POST /load_preset` load settings (`load_settings.*`)
+go through the same table, and preset loads are checked too (below). Nothing runs on the audio path.
 
-| Parameter | Field | Reject when | Reason |
-|-----------|-------|-------------|--------|
-| `mode` | `mass_inv` | `<= 0` | division-by-zero in `Mode.fit_params` (stiffness = (2πf)²/mass_inv) |
-| `excitation` / `gauss` | `sigma` | `<= 0` | division-by-zero in Gaussian `exp(-((t-mu)/sigma)²)` |
-| `mode` | `frequency` | `< 0` | physically meaningless; produces NaN/instability |
-| `mode` | `decrement` | `< 0` | negative damping → exponential amplitude growth → speaker/ear damage |
-| any | any numeric field | NaN, +Inf, -Inf | non-finite values corrupt every parameter type |
-| `string` / `physics` | (combination of `tension`, `density`, `radius`, `stiffness`, `dx`, `sample_rate`, …) | the FDTD amplification `max_θ\|g(θ)\| > 1` (outside the two-sided box `8·coeff_bending ≤ coeff_tension ≤ 1 + 8·coeff_bending`), or non-finite | explicit FDTD scheme would diverge (Inf/NaN string field → engine-wide noise). Unlike the per-field predicates above, this is a *combination* check. **v2 (host-side):** `parameter_manager` computes the closed-form amplification from the **prospective** physics (current ⊕ this edit) **BEFORE** any GPU upload — honouring the per-string `tension_offset` (worst string decides) and skipping output strings (pitch ≥ 128) — and raises `CflRejected` → 400 if it would diverge. The edit is **never applied** (no `set_param`, no upload); the engine keeps its last-good coefficients. (No kernel guard / shadow buffer / per-string flag — those + the host flag-poll were the v1 design, removed in v2.) See `docs/modules/pianoid-cuda/SYNTHESIS_ENGINE.md` "FDTD Stability" + `docs/proposals/cfl-stability-guard-v2.md` |
+A default rule rejects a value only when the engine can't run it as a piano. That means one of these:
 
-Example string-edit rejection body (v2) — HTTP `400`, served by the dedicated `@app.errorhandler(CflRejected)`:
+- it isn't finite;
+- the arithmetic is undefined for it (division by zero);
+- it makes a resonator grow instead of decay;
+- it is outside the definition of a quantity that is positive by definition.
+
+There are **no magnitude caps** in the defaults: the dev-2706 directive stands. The FDTD **Courant/CFL**
+bound of a physical string stays an indication (`cfl_redline` on a `200`), never a rejection (user
+decision 2026-07-08). Each bound's justification is in
+`docs/development/reviews/param-safety-net-review-2026-10-28.md`. Every rule can be relaxed, tightened or
+disabled by the user ([rule table](#parameter-rule-table)); the table below shows the **defaults**.
+
+| Rule id(s) | `parameter` · field | Rejected unless (default) |
+|---|---|---|
+| `finite` | any · every numeric leaf, numeric strings included | finite (not NaN / ±Inf) |
+| `mode.frequency`, `mode.frequency.nyquist` | `mode` · `frequency` | `0 < frequency ≤ sr/π` (`frequency / (sr/π) ≤ 1`: the played Nyquist of the mode recurrence, 15 279 Hz at 48 kHz) |
+| `mode.decrement`, `mode.decrement.per_sample` | `mode` · `decrement` (`true_decrement`) | `≥ 0` **and** `decrement · frequency / sr < 1` (checked against the mode's prospective state, so a `frequency` edit can trip it) |
+| `mode.mass_inv` | `mode` · `mass_inv` (legacy `mass`) | `> 0` |
+| `string.rho`, `string.length`, `string.dx` | `string` / `physics`, piano pitch < 128 · `rho` (`string_density`), `length`, `dx` | `> 0` |
+| `excitation_energy.hammer_mass` | `excitation_energy`, and `hammer_mass` of a string edit, piano pitch | `(0, 1]` kg |
+| `string.r`, `string.gamma`, `string.dispersion_damping`, `string.damper_string`, `string.damper_tail` | same · `r`, `gamma`, `disp_decay`, `damper_string`, `damper_tail` | `≥ 0` (`string.jung` is finite-only: every shipped preset stores it negative) |
+| `string.tension` | same · `tension`, `tension_offset` (`detuning`) | every unison string's `tension · (1 + i · tension_offset) > 0` |
+| `hammer.hammer_position` · `hammer.hammer_sharpness` · `hammer.hammer_width` | `hammer`, and `hammer_*` keys of a string edit | `[0, 1]` · `[0, 1)` · `≥ 0` |
+| `gauss.level` · `gauss.curve` · `gauss.sigma` | `gauss` / `excitation` / `string_excitation_curves` · level key · curve key · `sigma` | integer `0..127` · integer `0..4` · `> 0` (`gauss.mu` / `gauss.volume` / `gauss.shift`: finite only, `volume` is signed in FPGA presets) |
+| `sound_channel`, `string_sound_channel` | row | exactly `num_channels` values (the stored row length) |
+| `excitation_energy.hammer_speeds` · `excitation_energy.excitation_impulse_calibration` · `deck_feedback_coefficient.store_feedback_coeff` | `excitation_energy`, `deck_feedback_coefficient`, preset load | `≥ 0` · `> 0` · `≥ 0` |
+| `runtime.volume` · `runtime.feedback`, `runtime.feedback_coeff` · `fix_velocity.level` | `/set_runtime_parameters` · `/set_fix_velocity` | `0..127` · `≥ 0` (no upper bound) · integer `0..127` |
+| finite-only entries | `feedin`, `feedback`, masks, other `runtime.*`, `load_settings.*`, … | finite (feedin / feedback / mask **row shape** stays with `StringMap.update_deck` / `mask_rows`: structural, not a value domain) |
+
+No value range is checked anywhere else: `excitation_energy.normalize`, `runtime_params` and `set_fix_velocity` keep only payload shape / type checks, so relaxing a rule relaxes the write path end to end (dev-psafe2). `amplitude_limit` is still clamped into `1..1e7` by `runtime_params` (a clamp, not a rejection).
+
+Output pitches (≥ 128) are exempt from the `scope: piano` rules (string, hammer, `sigma`) because they
+carry placeholder physics (`tension` / `r` / `length` / `gamma` = 0). They still get the finite check.
+
+Response `400` (REST) or an `error` event plus `{ok: false, …}` ack (WS), with the same body. `rule` is
+the id of the violated rule (find it in Settings → Parameter rules, or `GET /param_rules?id=<rule>`):
 
 ```json
-{
-  "error": "CflRejected",
-  "code": "cfl_unstable",
-  "cfl_redline": true,
-  "pitch": 60,
-  "string": 1,
-  "amplification": 46.123,
-  "message": "cfl_unstable: string parameter rejected — would destabilise the FDTD solver (Courant). pitch 60 (string 1): amplification |g|=46.123 > 1.0. Edit not applied; last-stable coefficients retained.",
-  "path": "/set_parameter/string/60"
-}
+{"error": "parameter_out_of_range", "code": "parameter_out_of_range", "rule": "mode.decrement",
+ "parameter": "mode", "field": "decrement", "mode": 0, "value": -1.0, "bound": ">= 0",
+ "message": "mode.decrement=-1.0 for mode 0 rejected by rule 'mode.decrement': must be >= 0 (negative damping: the mode grows exponentially). Nothing was written."}
 ```
 
-`code: "cfl_unstable"` and the `cfl_redline` boolean (the redline-crossed flag) let the UI react without
-parsing the message; `pitch`/`string`/`amplification` identify the worst offending string. The WebSocket
-`set_parameter` handler emits the same `{code, cfl_redline, pitch, string, amplification, message}` shape on
-an `error` event. The per-string amplification ratios behind this gate are queryable read-only via
-`GET /get_parameter/stability_ratio/<key_no>` (above) for plotting ratio-vs-pitch.
+The key is `pitch` or `mode`, depending on the parameter. A non-finite `value` comes back as a string
+(`"nan"`) so that the body stays strict JSON. `/set_runtime_parameters` answers its usual
+`400 {error: <message>}` with the same message (rule id included).
 
-Example rejection bodies:
+**Preset loads.** `POST /load_preset` builds the preset's model at the requested `sample_rate` (Hz, or
+kHz when `< 1000`, the same rule as the route) and checks it with `check_model` (the same table). It does
+this for every reload except `hot` (hot reloads keep the same model), and **before** the live engine is
+re-initialised or torn down. On a failure it returns `400` with the same body (`parameter` = `preset`)
+plus `"The preset was not loaded; the loaded engine keeps running."`. `POST /preset/load` (library) runs
+the same check before the GPU slot is created. Because the mode bound follows the sample rate, a preset
+with modes near 9.5 kHz loads at 48 kHz but is refused at 24 kHz. Every shipped preset passes under the
+defaults (`tests/unit/test_param_safety.py` preset scan).
 
-```json
-{"error": "mode.mass_inv=0 rejected: mass_inv must be > 0 (division-by-zero in mode update)"}
-```
-```json
-{"error": "excitation.sigma=-0.01 rejected: sigma must be > 0 (division-by-zero in Gauss exp(-((t-mu)/sigma)^2))"}
-```
-```json
-{"error": "mode.frequency=nan rejected: must be a finite number (NaN/Inf would corrupt engine state)"}
-```
+#### Parameter rule table
 
-The same predicate set applies to:
-- `POST /set_parameter/mode/<key_no>` (canonical route)
-- `POST /set_parameter/excitation/<key_no>` and `POST /set_parameter/gauss/<key_no>` (sigma)
-- `POST /set_string_excitation/<pitch_no>` (sigma in per-pitch curves)
-- WS `set_parameter` and WS `set_string_excitation` (emit `error` with `code: "parameter_range_error"`)
+Owner `pianoid_middleware/param_rules.py` (`RuleTable`, dev-psafe2). **Defaults** ship versioned in
+`pianoid_middleware/param_rules.json`: one record per parameter of the [parameter inventory](#get-paraminventory)
+(a completeness test pins it) plus the global `finite` rule. **User overrides** persist in a git-ignored
+file outside the repos — `$PIANOID_PARAM_RULES`, else `<PianoidInstall>/param_rules_overrides.json` (the
+MIDI-settings pattern) — and survive a backend restart. An unreadable or invalid stored override is
+ignored with a log line.
 
-**Range bounds beyond these catastrophic predicates are NOT validated** — values
-the user types flow through to the engine. UX-style range checks (e.g. "volume
-should be < 1e10") were intentionally removed from both UI and backend per
-dev-2706.
+| Record field | Meaning |
+|---|---|
+| `id` | the rule id a rejection names (`<domain>.<field>`, plus the `.nyquist` / `.per_sample` relations, and `finite`) |
+| `family` · `parameter` · `field` | grouping (`general`, `mode`, `string`, `hammer`, `excitation`, `coupling`, `runtime`, `derived`, `load`) · the inventory domain + field |
+| `kind` | `finite` (NaN / Inf; a disabled per-parameter finite entry exempts its targets, disabling `finite` itself switches the check off everywhere) · `bound` (the value in `[min, max]`) · `relation` (a named check computes `expression` from the prospective state; that value must be in `[min, max]`) · `shape` (a named structural check, enable only) |
+| `min` / `max` · `min_inclusive` / `max_inclusive` | `null` = unbounded |
+| `check` · `expression` | the relation / shape name in `param_safety.RELATIONS` / `SHAPES` · its human-readable form |
+| `targets` · `scope` | payload addresses `<kind>.<field>` the rule applies to (`[]` = read-only / owner-typed, listed for completeness) · `piano` = pitches < 128 only |
+| `enabled` · `reason` · `doc` | on / off · why the bound exists · doc anchor |
+
+Only `enabled`, `min`, `max`, `min_inclusive` and `max_inclusive` are mutable (bounds only on `bound` /
+`relation` rules). Every change is logged (`param_rules: rule <id> changed by <source>: <before> -> <after>`)
+and broadcast as `session_changed {domain: "param_rules", keys: [<id>]}` (`write_routes` class `session`).
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /param_rules` | `?family=` · `?id=` (optional filters) | `{version, overrides_path, families, overridden: [ids], warnings, rules: [{…static fields, default: {enabled, min, max, min_inclusive, max_inclusive}, current: {…}, overridden}]}`; `404 unknown_rule` |
+| `PUT /param_rules/<id>` | any of `{enabled, min, max, min_inclusive, max_inclusive}` | `{rule, warnings}`; `400 invalid_rule_change` (unknown / immutable key, non-boolean flag, NaN / Inf / non-number bound, bounds on a finite / shape rule, `min > max`, `min == max` with an exclusive end — nothing changed); `404 unknown_rule` |
+| `POST /param_rules/<id>/reset` | — | `{rule, warnings}` (back to the default) |
+| `POST /param_rules/reset` | — | the full table (every override removed) |
+
+Disabling `finite` is allowed but warned: `warnings` carries *"The 'finite' rule is disabled: NaN / Inf
+values now reach the model and the GPU buffers unchecked …"* on every GET / PUT until it is re-enabled,
+and the backend logs it at load. The assistant reads the table with `param.rules` (`view` category,
+read-only). The Tunner edits it in **Settings (⚙) → Parameter rules**.
+
+**CFL / Courant (indication only).** A string edit whose FDTD amplification `max|g| > 1` or whose
+Courant number is `≥ CFL_MARGIN` is **applied**. The response is `200` with `cfl_redline: true` and
+`cfl_redline_info`, and the flag also appears on `/health` (v3, 2026-07-08; see
+[PARAMETER_SYSTEM](../pianoid-cuda/PARAMETER_SYSTEM.md#host-side-cfl-stability-gate-physical-params--granular-path)).
+The `CflRejected` / `cfl_unstable` 400 handler remains for a host gate, but the edit paths no longer
+raise it.
 
 ---
 
@@ -1419,9 +1666,8 @@ Response `200`:
 {"message": "String excitation set successfully"}
 ```
 
-Response `400` — see [Engine safety net](#engine-safety-net-catastrophic-input-rejection)
-above. `sigma <= 0` and NaN/Inf in any curve field are rejected before
-`update_pitch_excitation` mutates state.
+Response `400` `parameter_out_of_range` — see [Parameter safety net](#parameter-safety-net-out-of-domain-rejection)
+above: `sigma <= 0`, a curve key outside `0..4` and NaN/Inf in any curve field are rejected before anything is written.
 
 ---
 
@@ -1828,7 +2074,8 @@ Request body:
   "velocity": 63,
   "capture_mic": false,
   "tail_ms": 2000,
-  "pitches": null
+  "pitches": null,
+  "channel": 0
 }
 ```
 
@@ -1836,12 +2083,13 @@ Request body:
 - `speed_ms_per_note`: NOTE_ON to NOTE_OFF duration per key (also the per-step advance). Clamped to 10–2000 ms.
 - `velocity`: MIDI velocity 1–127, default 63 (mf).
 - `pitches`: optional explicit list; omit for all available pitches.
+- `channel` (offline only, default `0` = output pitch 128): the output channel written to the mono WAV. `400` outside `0..num_channels-1`. The render's buffer holds, per 64-sample cycle, one block per output channel (`[ch0 × 64, ch1 × 64, …]`, [TESTING.md](../../development/TESTING.md)); the route de-interleaves it with `PianoidResult.load_offline_channels`. Before dev-obuf1 the whole buffer went into the WAV as mono: `num_channels` × too long (7 channels: 175 s for 25 s rendered, report 8761b5c4), the level repeating every 7 blocks, a jump at every block boundary and a 750 Hz (= 48000 / 64) line.
 - `capture_mic` (online only, default `false`): when `true`, the server calls `startMicCapture` before scheduling events, sleeps synchronously for `speed_ms_per_note * num_pitches + tail_ms`, then calls `stopMicCapture` and writes an un-normalized 16-bit PCM mic WAV to `/tmp/keyboard_mic_<timestamp>.wav`. Requires an active audio driver with a selected input device — set via `POST /set_mic_device` if needed.
 - `tail_ms` (online, `capture_mic` only): extra capture time after the last NOTE_OFF to catch decay. Clamped to 0–10000 ms, default 2000.
 
 Online response (no mic): scheduled event count + nominal duration, returns immediately — `{status, mode, scheduled_note_on, total_pitches, speed_ms_per_note, duration_ms, schedule_epoch_ms}`. `schedule_epoch_ms` (dev-2cce) = the backend wall-clock time (`time.time()·1000`) that `delay_ms = 0` refers to: note *i* is scheduled at `schedule_epoch_ms + i·speed_ms_per_note`. The frontend Play All highlight anchors to it (same machine, same clock).
 Online response (with mic): adds `mic_wav_path`, `mic_sample_rate`, `mic_samples`, `mic_peak`, `mic_rms`, `mic_nonzero_fraction`. Blocks until capture finishes.
-Offline response: `wav_path`, `audio_data`, `audio_samples`, `cycles_rendered`, `peak`, `rms`, `peak_normalized_scale`.
+Offline response: `wav_path`, `audio_data`, `audio_samples` (of the one WAV channel = `cycles_rendered` × 64), `cycles_rendered`, `channel`, `num_channels`, `peak`, `rms`, `peak_normalized_scale`. The WAV is peak-normalised whatever the level (the pre-volume kernel output can be ~1e-13; an absolute 1e-9 floor used to write an all-zero WAV); only true silence keeps scale 1.
 
 - `audio_data`: the rendered WAV as a **list of one base64 string** — same shape as `POST /get_chart_test` (`["<base64 WAV string>"]`). It is the base64 of the bytes just written to `wav_path` (a complete RIFF/16-bit-PCM file), so the browser can decode and play it directly (`atob` → `Uint8Array` → `Blob({type:'audio/wav'})`) without reaching the server-side `wav_path`. The frontend "Play All" offline sweep (`PianoidTuner.js` `startSweep`) consumes `audio_data[0]`. `wav_path` is retained for server-side debugging.
 
@@ -1885,7 +2133,7 @@ Backend-timed MIDI-file player ([MIDI_SYSTEM.md → MIDI player](MIDI_SYSTEM.md#
 | Method + path | Body | Effect |
 |---|---|---|
 | `GET /midi_player/status` | — | current status |
-| `GET /midi_player/library` | — | `{midi_dir, bundled_dir, files: [{name, path, source: "midi"\|"bundled", folder, bytes}]}` (`<PianoidInstall>/midi` or `$PIANOID_MIDI_DIR`, recursive, + `MIDI_records/`) |
+| `GET /midi_player/library` | — | `{midi_dir, midi_dir_source: "setting"\|"env"\|"default", bundled_dir, files: [{name, path, source: "midi"\|"bundled", folder, bytes}]}` (MIDI folder = local-settings `midi_dir` -> `$PIANOID_MIDI_DIR` -> `<PianoidInstall>/MidiRecords`, recursive, + `MIDI_records/`) |
 | `POST /midi_player/load` | `{"path": "<absolute path>"}` or multipart field `file` | stop, parse, load (mutes cleared; speed / loop / transpose / velocity kept) |
 | `POST /midi_player/transport` | `{"action": "play" \| "pause" \| "stop"}` | play needs a running engine; pause/stop = all notes off; stop rewinds to 0 |
 | `POST /midi_player/seek` | `{"position_ms": float}` | while playing: all notes off, resume there (pedal state chased) |
@@ -1943,12 +2191,12 @@ Response `200`:
   "ports": ["VMini 0", "MIDIIN2 (VMini) 1"],
   "active_port": 0,
   "listening": true,
-  "port_state": {"mode": "auto", "port": 0, "name": "VMini 0", "detecting": false}
+  "port_state": {"mode": "auto", "port": 0, "name": "VMini 0", "detecting": false, "ports": ["VMini 0"]}
 }
 ```
 
 - `ports`: ordered list of rtmidi port names; the array index is the canonical port id used by `midi_port` (in `/load_preset`) and by `POST /midi/select_port`.
-- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null), or `null` before the listener started.
+- `port_state` (dev-392a): how the listener chose its port: `mode` `forced` (explicit request port) / `manual` (the user's saved port) / `auto` (auto-detect; `detecting: true` while it waits, `port` null) / `all` (dev-midiall: every input port played, merged; `port` and `name` null), or `null` before the listener started. `ports` (dev-midiall) = the stable names (no rtmidi index suffix) of every played port (`[]` while auto-detecting or waiting). `waiting` (dev-midiall) = the name of the saved device the listener waits for while it is unplugged (manual / forced; `null` otherwise): no other device is played meanwhile, and it is reopened when it returns. A played device whose index changes after a re-enumeration is reopened at its new index by name within ~1 s (`port` / `name` follow it).
 - `active_port`: the port currently held open by the unified MIDI listener, or `null` when the listener is not running.
 - `listening`: `true` when the unified listener thread is alive (i.e. `/load_preset` was called with `listen_to_midi=1`).
 
@@ -1968,7 +2216,7 @@ Request body:
 {"port": 1}
 ```
 
-- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`, or `"auto"` (dev-392a): drop the saved port and auto-detect again now.
+- `port` (int, required): 0-based rtmidi input-port index from `GET /midi/ports`, or `"auto"` (dev-392a): drop the saved port and auto-detect again now, or `"all"` (dev-midiall, "Listen to All"): play every input port at once, merged ([MIDI_SYSTEM → Listen to All](MIDI_SYSTEM.md#listen-to-all-dev-midiall)); persisted as `input_port: "all"`; sent again while in ALL = rescan the ports now (the listener also rescans every second for hot-plug).
 
 The listener **persists** a switch once it succeeded (dev-392a) as `input_port` in `GET /midi/input`: the port NAME without the rtmidi index suffix (`"MIDIIN2 (VMini)"`), or `null` for `"auto"`. Every later listener start (preset load, `/midi/start`, backend restart) opens that port again. The new port is opened before the old one is released; a failed open (port held elsewhere) keeps the old port and persists nothing, and a refused request (409) persists nothing. Route owner: `midi_input_routes.py` (the `/midi/ports`, `/midi/select_port`, `/midi/start`, `/midi/stop` routes moved there from `backendServer.py`, dev-392a).
 
@@ -2164,23 +2412,28 @@ Start the listener with `listen_to_midi=1` on `/load_preset` (W3 Phase 2 default
 Response 200:
 ```json
 {"sustain_cc": 64, "sustain_channel": null, "polarity": "normal", "show_realtime": false, "monitor_all_ports": true,
- "input_port": "MIDIIN2 (AMC-10)", "port_state": {"mode": "manual", "port": 2, "name": "MIDIIN2 (AMC-10) 2", "detecting": false},
- "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3}}
+ "input_port": "all", "port_sustain": {"AMC-10": {"sustain_cc": 0, "sustain_channel": 2, "polarity": "inverted"}, "MIDIIN2 (AMC-10)": {"sustain_cc": 0, "sustain_channel": 2, "polarity": "inverted"}},
+ "all_exclude": ["MIDIIN2 (AMC-10)"], "port_state": {"mode": "all", "port": null, "name": null, "detecting": false, "ports": ["AMC-10", "Pianoid"], "waiting": null},
+ "sustain_down": false, "sustain_value": 0, "counts": {"note_on": 12, "note_off": 12, "control_change": 3},
+ "port_counts": {"AMC-10": {"messages": 3, "notes": 1}, "Pianoid": {"messages": 6, "notes": 2}}}
 ```
 
-- `sustain_cc`: the CC number treated as the sustain pedal (default 64). The default pedal (64, any channel) reaches the engine unchanged (switch at 64). A remapped one (another CC, or a `sustain_channel`) reaches it as CC64 `127` / `0` (hysteresis after the polarity: down at >= 74, up at <= 54). Any other CC64 is dropped.
+- `sustain_cc`: the CC number treated as the sustain pedal (default 64). The engine gets it as CC64 with the value after polarity (continuous, dev-pedal1). Any other CC64 is dropped.
 - `sustain_channel` (dev-392a): the pedal's MIDI channel 1-16, or `null` = any channel (default). Set it when several pedals send the same CC on different channels (the AMC-10: CC 0 on channels 1-3, sustain = channel 2).
-- `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`, before the switch: the engine's at 64 for the default pedal, the hysteresis for a remapped one).
+- `polarity`: `normal` (a high value = down) or `inverted` (the pedal sends 0 when pressed: the value is mirrored, `127 - v`).
 - `show_realtime`: clock / start / stop / active sensing / reset (`0xF8`-`0xFF`) are pushed to the monitor only when true.
 - `monitor_all_ports`: the monitor also reads every other input port (monitor only; the engine plays from the selected port alone). Applied at the next listener start or port switch.
-- `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
+- `input_port` (dev-392a): the input port the user picked, by name (rtmidi index suffix stripped), `"all"` = Listen to All (dev-midiall), or `null` = auto-detect (default). Written by `POST /midi/select_port` (or here); used at every listener start.
+- `port_sustain` (dev-midiall): per-port pedal maps `{port name (no index suffix): {sustain_cc, sustain_channel, polarity}}`; a port without an entry uses the global `sustain_cc` / `sustain_channel` / `polarity` above. Applies in every mode (the played port's entry).
+- `all_exclude` (dev-midiall): port names (no index suffix) Listen to All never opens. Default `["MIDIIN2 (AMC-10)"]`: the AMC-10 sends the same stream on both its ports (not yet confirmed live for the keys).
+- `port_counts` (dev-midiall): per played port (stable name), messages and note-ons since the backend started.
 - `port_state` (dev-392a): see `GET /midi/ports`.
-- `sustain_down` / `sustain_value`: the pedal state the engine was last sent / the last raw value of the sustain CC (`null` before the first one).
+- `sustain_down` / `sustain_value`: the down / up indicator (hysteresis: down at >= 64, up at <= 54; any played port) / the last raw value of a sustain CC (`null` before the first one). The sound follows the value, not the indicator.
 - `counts`: messages per type on the played and the tapped ports since the backend started.
 
 ### `POST /midi/input`
 
-Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool, "input_port": null | "<port name>"}` (`input_port` applies at the next listener start; to switch now use `POST /midi/select_port`). Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
+Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity": "normal" | "inverted", "show_realtime": bool, "monitor_all_ports": bool, "input_port": null | "all" | "<port name>", "port_sustain": {"<port name>": {"sustain_cc", "sustain_channel", "polarity"}}, "all_exclude": ["<port name>"]}` (`port_sustain` replaces the whole map; each entry needs all three keys) (`input_port` applies at the next listener start; to switch now use `POST /midi/select_port`). Validated, applied to the next message, persisted to `$PIANOID_MIDI_SETTINGS` or `<PianoidInstall>/midi/midi_input_settings.json` (git-ignored). Response 200 = the `GET` body; 400 `{"error": "BadRequest", "message": "polarity must be one of normal, inverted"}` on a bad or unknown field or an empty body. Registry: `midi.set_input_settings`. Classified `session` (`session_changed{domain: 'midi'}`).
 
 ### Socket.IO `midi_input_state` (server -> client)
 
@@ -2201,6 +2454,60 @@ Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity":
 - `channel`: 1-16 (null for system messages). `number`: note or CC number. `value`: velocity / CC value / program / pressure / pitch bend (-8192..8191, 0 = centre).
 - `raw`: the bytes as received, hex (sysex: first 16 bytes + `...`). `playing`: false = a tapped port (monitor only).
 - `sustain`: this message is the configured sustain CC; `sustain_down`: the engine's pedal state after it.
+
+### Pianoid controller — `/controller/*` (dev-pctl)
+
+Configuration of the **"Pianoid" USB-MIDI controller** (FATAR keybed → FPGA → Arduino Micro). The device owns its configuration and keeps it in its EEPROM; these routes read and write it over SysEx (manufacturer ID `0x7D`) on the MIDI **output** port named `Pianoid`. Replies come back on the `Pianoid` input port: through the MIDI listener when it plays or taps that port (`MidiInputHub.sysex_hook`, kept off the monitor), else on an input the backend opens itself and releases after 5 s idle. Nothing touches the engine; the routes work before a preset is loaded. Protocol: controller repo `docs/proposals/controller-config-2026-10-29.md`; client: `pianoid_controller.py`; routes: `pianoid_controller_routes.py` (a nested blueprint of the MIDI input routes). Classified `action` (POST) / `read_only` (GET): no state event. A change is live on the device at once and survives a power cycle only after `POST /controller/save`.
+
+Errors (all routes): `404 NotConnected` (no `Pianoid` port), `504 NoReply` (the device did not answer within 0.6 s, 2.5 s for the link), `400 BadArgument` (checked here and by the device: e.g. CC 120-127, a note on a continuous input, a calibration without travel), `409 Unsupported` (a bitstream without the runtime link speed), `502 Failed` (the device could not complete, e.g. a link switch that fell back).
+
+### `GET /controller`
+
+`{"present": false}` when no `Pianoid` port is listed. Otherwise (registry `controller.status`):
+```json
+{"present": true, "port": "Pianoid 1",
+ "identity": {"firmware": 3, "protocol": 1, "inputs": 8, "speed": "8x", "selectable": true, "wanted": "8x", "route": "usb"},
+ "inputs": [{"index": 2, "connector": "X12 (ADC10)", "type": "switch", "message": "cc", "number": 64, "channel": 1,
+             "polarity": "auto", "pullup": true, "curve": "linear", "min": 1015, "mid": 512, "max": 18,
+             "presence": "active", "raw": 1016, "value": 0}],
+ "link": {"speed": "8x", "baud": 250000, "wanted": "8x", "selectable": true, "beacons": 12, "fails": 0, "build_speed": "8x"},
+ "duplicates": [[0, 2]]}
+```
+- `inputs` (8, `index` 0-7): `type` `off` / `switch` / `continuous`; `message` `cc` / `note` / `channel_pressure` / `pitch_bend`; `channel` 1-16; `polarity` `auto` (a switch's level at power-up = released) / `normal` / `inverted`; `curve` `none` (uncalibrated: raw / 8; a switch reads digitally) / `linear` / `piecewise` / `power`; `min` / `mid` / `max` raw ADC (10-bit); `presence`: `active` = the input reads below 1000 now (a pedal pulls it), `seen` = it did since the controller booted, `idle` = only idle-high (an empty jack, **and also an open switch pedal**); `raw` = the last reading, `value` = the last value sent (0-127).
+- `link`: the FPGA → controller link (port 2 of the FPGA; the DIN socket is always 31250). `selectable` = the bitstream answers the switch protocol. `wanted` = the speed the controller applies at boot.
+- `duplicates`: groups of enabled inputs that send the same message (warning, not an error).
+
+### `GET /controller/inputs/<i>`
+
+One input (the `inputs` record without `raw` / `value`).
+
+### `POST /controller/inputs/<i>/message`
+
+`{"type": "off"|"switch"|"continuous", "message": "cc"|"note"|"channel_pressure"|"pitch_bend" (default cc), "number": 0-127, "channel": 1-16 (default 1), "polarity": "auto"|"normal"|"inverted" (default auto)}` → the input. A switch sends 0 / 127 (a note: Note-On velocity 100 / Note-Off); a continuous input sends its calibrated 0-127 (pitch bend: 0-16383). Registry: `controller.set_pedal_message`.
+
+### `POST /controller/inputs/<i>/calibration`
+
+`{"curve": "none"|"linear"|"piecewise"|"power", "min": 0-1023, "mid": 0-1023, "max": 0-1023}` (raw ADC at released / half / fully pressed; `min > max` = a reversed pedal) → the input. Continuous: linear min→0, max→127; piecewise min→0, mid→64, max→127; power `127·t^g` with `g` chosen so mid→64 (mid must lie at 10-90 % of the travel). Switch: pressed above 5/8 of the travel, released below 3/8 (hysteresis); the order of min and max gives the polarity. The device refuses less than 16 counts of travel, or a mid outside min..max. Calibrated in the MIDI panel (Calibrate pedal); not an assistant command (it needs the operator at the pedal).
+
+### `POST /controller/inputs/<i>/stream`
+
+`{"on": true|false}` → `{"input", "streaming"}`. Starts (renews) / stops the device's raw ADC stream of input `i` (50 Hz; the device stops by itself after 10 s without a renewal).
+
+### `GET /controller/inputs/<i>/raw`
+
+The latest stream sample `{"input", "raw", "value", "pressed", "active", "seen"}` (`value` = the output with the current calibration). `404 NoSample` when none arrived in the last 0.5 s.
+
+### `POST /controller/link`
+
+`{"speed": "1x"|"4x"|"8x"}` (31250 / 125000 / 250000 baud) → the `link` record. Both chips switch together (the FPGA holds its port 2 while the rate changes; keys wait in its queue); a switch the controller cannot confirm falls back to the previous speed within ~1 s. Registry: `controller.set_link_speed`.
+
+### `POST /controller/save`
+
+Writes the configuration (inputs, calibrations, link speed) to the device EEPROM → `{"saved": true}`. Registry: `controller.save`.
+
+### `POST /controller/defaults`
+
+The factory map in the device RAM (X14 CC67, X13 CC66, X12 CC64 switches; X9 CC11 continuous; the rest off; uncalibrated) → the `GET /controller` body. Save to keep it.
 
 ---
 
@@ -2331,7 +2638,7 @@ client-side only when this endpoint is unreachable. See
 Body: the report JSON (`schemaVersion 2`, includes `trigger:{auto,kind,...}` and `reportId`).
 Saved to `PianoidCore/logs/reports/bugreport-<createdAt>-<auto-<kind>|assistant-<kind>|manual>-<reportId|hex6>.json`
 (dir auto-created; oldest pruned beyond 500 files). `assistant-<kind>` = a report filed by the assistant's
-`bug.report` (`trigger: {auto: false, source: "assistant", kind: app_bug|environment}`, dev-947d). `PIANOID_REPORTS_DIR`
+`bug.report` (`trigger: {auto: false, source: "assistant", kind: app_bug|environment|feature_request}`, dev-947d / dev-obuf1). `PIANOID_REPORTS_DIR`
 overrides the folder (an isolated / worktree backend writing into the main checkout's store). The collector is wrapped so
 it can never take the backend down.
 
@@ -2356,7 +2663,50 @@ Response `200`:
 {"ok": true, "saved": "bugreport-...-auto-backend_exception-a1b2c3.json",
  "path": "<abs>", "auto": true, "kind": "backend_exception"}
 ```
-`400` if the body is not a JSON object; `500` (with `{ok:false,error}`) on a write failure.
+`400` if the body is not a JSON object or carries an unknown `severity`; `500` (with `{ok:false,error}`) on a write failure.
+
+**Triage fields (dev-obuf1).** The collector stamps every new report `status: "open"`, `resolution: null` and
+checks `severity` (`critical` | `high` | `medium` | `low` | absent = `null`, not triaged). Owner:
+`pianoid_middleware/bug_reports.py`; see [Bug reports](#bug-reports).
+
+---
+
+### Bug reports
+
+Triage of the report store (dev-obuf1, owner `pianoid_middleware/bug_reports.py`). Never engine-gated (the
+store, not the engine). The file name never changes (it carries the original kind); the content is the truth.
+
+| Field | Values |
+|---|---|
+| `severity` | `critical` · `high` · `medium` · `low` · `null` (not triaged) |
+| `status` | `open` (every new report) · `fixed` · `wontfix` · `duplicate` |
+| `resolution` | `null` while open; else `{note, commits: ["Core d99e5a0", …], duplicate_of, at, by}` |
+| `trigger.kind` | the kind; a triage may re-class to `app_bug` · `environment` · `feature_request` (auto reports carry their fault kind, e.g. `backend_crashed`) |
+| `triage_history` | every status change `{at, by, from, to, note}` |
+
+#### `GET /bug_reports`
+
+Summaries, newest first. Query: `status`, `kind`, `source` (`assistant` · `auto` · `manual`), `severity` (or `none`
+= not triaged), `limit` (1–500, default 50). `400` on an unknown filter value.
+```json
+{"ok": true, "count": 1, "total": 1, "unreadable": 0, "reports": [
+  {"reportId": "8761b5c46b1b49fb", "file": "bugreport-...-assistant-app_bug-8761b5c46b1b49fb.json",
+   "createdAt": "2026-10-18T10:35:04.155Z", "source": "assistant", "kind": "app_bug",
+   "title": "Keyboard sweep render returns a WAV ...", "component": "render.keyboard ...",
+   "severity": "high", "status": "fixed",
+   "resolution": {"note": "...", "commits": ["Core <sha>"], "duplicate_of": null, "at": "...", "by": "dev-obuf1"}}]}
+```
+
+#### `POST /bug_reports/<report_id>/status`
+
+`report_id` = the id (file-name suffix) or a unique prefix of at least 6 characters. Body: at least one of
+`status`, `severity`, `kind`, plus `resolution` (note), `commit` / `commits`, `duplicate_of`, optional `by`
+(else the `X-Pianoid-Source` header, else `rest`). A non-open status needs a `resolution` note; `duplicate` also
+needs `duplicate_of`; back to `open` clears `resolution` (the history keeps it). Written atomically. `200 {ok,
+report: <summary>}`; `400` invalid value / missing note / ambiguous id; `404` no such report.
+```json
+{"status": "fixed", "resolution": "offline buffer de-interleaved (PianoidResult.load_offline_channels)", "commit": "Core 1a2b3c4"}
+```
 
 ---
 
@@ -2695,7 +3045,7 @@ Moves every key pitch's `hammer_mass` into the physical range (2–20 g) with on
 ### `POST /calibrate_attack`
 
 **A-weighted attack equalization** — the Virtual Piano **Calibrate** button (dev-89f7), registry command
-`calibration.attack_equalize` (calibration job family, approval `hard_confirm`). Equalizes what the ear hears
+`calibration.attack_equalize` (calibration job family, approval `per_command`: its own rule, Ask by default). Equalizes what the ear hears
 first: every key's A-weighted level in the first 300 ms after its onset, energy-summed over the heard channels,
 to the reference key, by per-key `hammer_mass`. (`/calibrate_synthesis` matches a 30–300 ms *flat* RMS: on
 F15_measured_plywood it left the treble +13…+21 dB louder at the attack, A-weighted.) Procedure from the
