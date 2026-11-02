@@ -44,8 +44,33 @@ export const READ_DOCS = {
   annotations: { title: 'Read one documentation section', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 };
 
-/** The server's own read-only tools (no registry command, no backend call): they run without a confirm. */
-export const LOCAL_TOOLS = [SEARCH_DOCS, READ_DOCS, OPS_STATUS];
+export const SAVE_FILE = {
+  name: 'save_file',
+  title: 'Save analysis files to disk',
+  description: 'Copies the files of an analysis artefact (WAV, PNG, CSV, NPY, JSON, TXT: run_python outputs, export: true '
+    + 'renders / reads) into the user\'s folder <measurements folder>\\assistant_exports, so the user can open them. '
+    + 'file = one listed file of the artefact (default: all of them); name = a plain file name for that one file (the '
+    + 'source\'s extension is kept). Never overwrites: an existing name gets -1, -2, ... Returns the folder and every '
+    + 'saved path: tell the user the full paths. Needs the backend (it owns the measurements folder). '
+    + '[writes only into that folder; runs without a confirm]',
+  inputSchema: {
+    type: 'object',
+    required: ['artifact_id'],
+    additionalProperties: false,
+    properties: {
+      artifact_id: { type: 'string', description: 'e.g. "a-20261022155159-dc3108"' },
+      file: { type: 'string', description: 'one file of the artefact, e.g. "note_online.wav"; omit for all' },
+      name: { type: 'string', description: 'target file name for that one file, e.g. "C4_online_2026-10-22.wav"' },
+    },
+  },
+  annotations: { title: 'Save analysis files to disk', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+};
+
+/**
+ * The server's own tools (no registry command): they run without a confirm. All read-only except save_file, which
+ * writes only copies of the assistant's own artefacts into the export folder, never over an existing file (dev-9cff).
+ */
+export const LOCAL_TOOLS = [SEARCH_DOCS, READ_DOCS, OPS_STATUS, SAVE_FILE];
 export const LOCAL_READ_TOOLS = new Set(LOCAL_TOOLS.map((t) => t.name));
 
 /** MCP tool definition of one registry command. */

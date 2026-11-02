@@ -720,7 +720,9 @@ Evidence: `docs/development/diagnostics/dev-a480-renders/summary.md`, `dev-f27f-
 File: `measured_mode_preset.py`. CLI `python -m Pianoid.measured_mode_preset BASE.json MEASURED.json --out OUT.json
 [--n-modes 196] [--hf-level energy|max] [--seed 0] [--fpga-dir DIR --template T.json]`. Replaces the modes of an
 FPGA-converted base preset below the measured table's `boundary_hz` by measured board modes; the base modes at and
-above it stay verbatim, in order. Decisions + the first preset (F15_measured_plywood_2026-10-15):
+above it stay verbatim, in order. Base modes stored as the editor saves them (`mass`, `stiffness`, `damping`, no
+`frequency`) are first read through the loader's own law (`Piano_mode.fit_params`, `frequency_modes`; dev-9cff).
+Decisions + the first preset (F15_measured_plywood_2026-10-15):
 [measured-plywood-preset](../../development/measured-plywood-preset-2026-10-15.md).
 
 | Field | Rule |
@@ -746,9 +748,9 @@ File: `preset_restructure.py`, `restructure(base, num_strings, num_channels, arr
 
 | Item | Rule |
 |---|---|
-| strings | `num_strings` = piano strings + `ceil(channels / nsa) × nsa` output strings; unison strings are removed (most strings first, `treble_first` / `bass_first`), the rest renumbered 0..n-1; adding strings is refused |
+| strings | `num_strings` = piano strings + `ceil(channels / nsa) × nsa` output strings; unison strings are removed (most strings first, `treble_first` / `bass_first`), or with `outer_keys` whole piano blocks, the one holding the lowest remaining key first (the base pairs lowest + highest key, so exactly the outermost keys and their per-pitch rows go; dev-9cff), the rest renumbered 0..n-1; adding strings is refused |
 | blocks | untouched blocks are kept; the strings of the blocks that lost one are re-packed by an exact search, else all piano blocks largest-first; a block fits when `2 + Σ(main + tail + STEM_LENGTH + interval) ≤ array_size` (`StringBlock.add_string`) |
-| channels | `set_output_pitches` + `resize_sound_channels` of the measured builder (new channels copy the first output row) |
+| channels | `set_output_pitches` + `resize_sound_channels` of the measured builder (new channels copy the first output row; the modes mute mask `mode_sound_channels_mute_mask` is resized too — user mutes kept, new channels unmuted, rows of removed output pitches dropped, dev-a90b) |
 | array_size | geometry `main` / `tail` × new / old (the loader's law), declared `array_size` (and `fpga_conversion.load_params`) updated |
 | modes | the first `num_modes` kept, deck columns cut; `num_modes + channels ≤ num_strings` |
 | Layer B | `output_scale_calibrated = false` |

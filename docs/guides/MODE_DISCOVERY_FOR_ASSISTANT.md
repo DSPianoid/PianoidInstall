@@ -136,7 +136,7 @@ outputs to `rig_runs/<run>/` (with `source.json`); run the steps in this order.
 | `frf` | `ir_window_s` (4; 0.1 … 30: resolution = 1 / window), `taper_frac` (0.1), `pre_samples` (30), `f_min_hz` (0 = the sweep start), `f_max_hz` (1200), `average` (`mean` · `median` over the repeats), `regularization` (1e-6), `noise_from_repeats` (false: store the repeat variance for PolyMAX), `exciters` / `inputs` (label subsets; [] = all) | `frf/frf.npz` (f, H [repeats, F, inputs, exciters]), `frf/coarse_frf.npz` (freqs, H3 = the average), `frf/report.json` (labels, repeat SNR per path) |
 | `polymax` | `p_max` (40; 4 … 120), `band_edges` (30, 60, 120, 250, 500, 1000, 2000, 4000, 9500), `overlap` (0.15), `max_lines` (4000), `f_min_hz` / `f_max_hz` (0 = the FRF's), `snr_detect_db` (10), `prune` (true), `prune_min_gain` (0.2), `prune_min_snr_db` (10), `loo` (false), `stab` {`p_min` 2, `tol_f` 0.01, `tol_zeta` 0.1, `tol_mpf` 0.9, `zeta_min` 1e-4, `zeta_max` 0.2, `min_stable_frac` 0.3, `use_mpf` true}, `hum_hz` (50) / `hum_harmonics` (3) / `hum_width_hz` (1): lines removed before the fit | `polymax/report.json` (per mode f, ζ, stability, shape, MPF), `polymax/modes.npz`, `polymax/stabilization.png` |
 | `coefficients` | `method` (`residue_svd` · `modal_appropriation`), `f_min_hz` (20), `boundary_hz` (1020), `min_stability` (0.3), `max_fit_residual` (1), `min_rank1_ratio` (0), `zeta_min` / `zeta_max` (5e-4 / 0.2), `mass_trend` (`fit` · `none`), `mass_clip_db` (6), `ridge` (1e-3), `zeta_overrides[]` (`{f_hz, zeta, tol_hz = 1}`, e.g. a stop-and-decay ζ), hum options as above | `coefficients/measured_table.json` (the builder input: per mode f, ζ, `mass_inv_rel`, real channel weights with max \|·\| = 1, below `boundary_hz`), `coefficients/report.json` (dropped modes and why, the trend exponent, energy kept by the real projection) |
-| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights; result `n_measured` + `n_base_kept_above_boundary` + `n_fill_from_fpga_tables` = `n_modes` |
+| `build_preset` | `name` (required), `base_preset` (`F15_Elyashev_array512`; needs keys 21..108; modes stored either as frequency/decrement/mass or, as the editor saves them, mass/stiffness/damping), `n_modes` (196; ≤ measured + base modes above the boundary unless the base's FPGA tables are on this machine), `hf_level` (`energy` · `max`), `seed` (0), `num_strings` / `array_size` (0 = keep; else the structure change of `preset.create` first), `string_removal`, `overwrite` (false) | a NEW `presets/<name>.json`: measured modes below the boundary, the base's above, one channel per exciter with the weights; result `n_measured` + `n_base_kept_above_boundary` + `n_fill_from_fpga_tables` = `n_modes` |
 
 Laws ([measured preset §5, §6](../development/measured-plywood-preset-2026-10-15.md)): relative 1/m ∝
 σ1 · max\|u\| · max\|v\| of each mode's residue matrix (inputs × exciters), its power-law trend over f removed
@@ -154,12 +154,21 @@ capture's reference); the 10-17 preset used per-ampere weights from coil current
 | `array_size` (required) | | 384 … 512 | the string geometry is scaled by new / old; every block must fit |
 | `num_modes` | 0 (keep) | 0 … 2000 | keep the first N modes |
 | `base_preset` | `F15_Elyashev_array512` | | a preset in `presets/` |
-| `string_removal` | `treble_first` | `treble_first` · `bass_first` | which unisons lose a string (3-string ones first); try the other order if a block does not fit |
+| `string_removal` | `treble_first` | `treble_first` · `bass_first` · `outer_keys` | `treble_first` / `bass_first`: which unisons lose a string (3-string ones first; every key kept); try the other order if a block does not fit. `outer_keys`: remove whole piano blocks, the one holding the lowest remaining key first — the base pairs the lowest key (1 string) with the highest (3 unison), so the outermost keys go and every other key keeps all its strings (refused when such a block does not hold whole keys) |
 | `overwrite` | false | | |
 
 The new channels copy the base's first output row (equal weights); `modal.rig_process build_preset` writes the
 measured weights. The output scale is marked uncalibrated (the engine re-derives it at load). Adding strings or
 modes beyond the base is refused.
+
+**Fit a measured preset to N blocks by dropping outer keys** (dev-9cff). The measured build needs all 88 keys, so
+it is two steps: (1) `modal.rig_process` `build_preset` from the base with `num_strings` / `array_size` 0 (keep);
+(2) `preset.create` with `base_preset` = the step-1 preset, `num_strings` = 4 × N blocks, `num_channels`,
+`array_size` = its own, `string_removal: outer_keys`. Example: Tuning18-10-26ver1 (236 strings) + the 10-21 run's
+74 measured modes (6 exciters, 196 modes) → 224 strings / 56 blocks / 8 channels drops keys 21–23 and 106–108
+(keys 24–105 keep their unisons, every other block unchanged). A channel change keeps each existing channel's
+measured row; the channels added beyond the measured exciters copy channel 0 and are NOT silent: zero their
+`feedback` rows (and move a channel to match the output map) after loading, then save.
 
 ### `modal.rig_runs`, `modal.rig_files`: reads (no confirm) {#cmd-reads}
 

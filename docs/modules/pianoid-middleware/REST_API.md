@@ -773,6 +773,16 @@ Response `400` (when `use_simulation=1`):
 }
 ```
 
+Response `409` (preset's kernel grid does not fit this GPU, added dev-a90b 2026-10-22): checked by
+`pianoid_middleware/load_fit.py` on the full path **before** the live engine is destroyed, so the current
+preset keeps playing — `{"error": "PresetDoesNotFit", "code": "coop_launch_shortage", "message": "… The current
+preset was kept.", "blocks": 59, "capacity": 56}`: the preset's grid (`ceil(num_strings / num_strings_in_array)`
+blocks) exceeds the live engine's `cooperative_launch.capacity`. The live report is only used when the request's
+`array_size` (clamped 384..512) equals its `block_threads` and the build variant (`debug_mode`) matches — capacity
+depends on both. With no live engine or another kernel configuration it is skipped and the init pre-flight below
+decides (500, engine already gone). FE: the Tunner shows `coop_launch_shortage` as a persistent notification
+(409 warning, 500 error).
+
 Response `500` (cooperative co-residency shortage, added dev-1cda 2026-10-09): the engine's init
 pre-flight found that the `addKernel` grid (`num_strings/4` blocks of `array_size` threads) cannot
 be co-resident on this GPU — `{"error": "CoopLaunchShortage", "code": "coop_launch_shortage",

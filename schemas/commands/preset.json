@@ -209,7 +209,7 @@
     {
       "name": "preset.create",
       "title": "Create a preset with a new structure",
-      "description": "Writes a NEW preset presets/<name>.json from a base preset with the given number of strings, output channels (exciters), array_size and (optionally fewer) modes: removes unison strings (treble_first / bass_first), re-packs the blocks, rebuilds the output pitches 128.. and scales the string geometry to array_size; refuses when a block does not fit. The new channels copy the base's first output row (set real weights with modal.rig_process build_preset). Never overwrites unless overwrite: true. Output scale must be re-derived after loading. Long-running: returns a jobId.",
+      "description": "Writes a NEW preset presets/<name>.json from a base preset with the given number of strings, output channels (exciters), array_size and (optionally fewer) modes: removes unison strings (treble_first / bass_first) or whole outer-key blocks (outer_keys), re-packs the blocks, rebuilds the output pitches 128.. and scales the string geometry to array_size; refuses when a block does not fit. The new channels copy the base's first output row (set real weights with modal.rig_process build_preset). Never overwrites unless overwrite: true. Output scale must be re-derived after loading. Long-running: returns a jobId.",
       "target": "backend",
       "tier": "destructive",
       "approval_category": "per_command",
@@ -266,10 +266,11 @@
             "type": "string",
             "enum": [
               "treble_first",
-              "bass_first"
+              "bass_first",
+              "outer_keys"
             ],
             "default": "treble_first",
-            "description": "Which unisons lose a string first (3-string unisons before 2-string ones)"
+            "description": "treble_first / bass_first: which unisons lose a string first (3-string unisons before 2-string ones; every key kept). outer_keys: remove whole piano blocks instead, the one holding the lowest remaining key first (the base pairs the lowest key with the highest), so the outermost keys go (e.g. 236 -> 224 strings at 8 channels drops keys 21-23 and 106-108) and every other key keeps all its strings; refused when such a block does not hold whole keys. A measured build needs all 88 keys: run modal.rig_process build_preset first, then preset.create with outer_keys on its result"
           },
           "overwrite": {
             "type": "boolean",

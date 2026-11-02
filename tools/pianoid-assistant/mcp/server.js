@@ -21,11 +21,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { commandName, docsDir as defaultDocsDir, loadCommands } from '../lib/registry.js';
 import { decide } from '../policy.js';
-import { BACKEND_URL, callCommand, compact, listTools, READ_DOCS, SEARCH_DOCS, shapeResult } from './tools.js';
+import { BACKEND_URL, callCommand, compact, listTools, READ_DOCS, SAVE_FILE, SEARCH_DOCS, shapeResult } from './tools.js';
 import { buildIndex, readSection, search } from './docsIndex.js';
 import { OPS_STATUS, opsStatus } from './opsStatus.js';
 import { exportResult, splitExport } from '../analysis/export.js';
 import { analysisPaths } from '../analysis/store.js';
+import { exportFolder, saveArtifactFiles } from '../analysis/saveFile.js';
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -61,6 +62,14 @@ export function createPianoidMcpServer({
       return text(section, !!section.error);
     }
     if (name === OPS_STATUS.name) return text(await readOps());
+    if (name === SAVE_FILE.name) {
+      try {
+        const folder = await exportFolder(BACKEND_URL, fetchImpl);
+        return text({ ok: true, folder, saved: saveArtifactFiles(artifactsDir, folder, args) });
+      } catch (e) {
+        return text({ error: e.message }, true);
+      }
+    }
     const cmd = byName.get(commandName(name));
     if (!cmd) return text({ error: 'unknown_tool', tool: name }, true);
     const verdict = decide({ command: cmd.name, tier: cmd.tier, family: cmd.family, category: cmd.approval_category, settings });
