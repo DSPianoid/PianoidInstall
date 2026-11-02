@@ -184,6 +184,9 @@ folder: read `modal.measurements_dir` first. Contract:
 
 ## Rig facts {#rig}
 
+These facts describe one rig. On any other system, or after any rewiring, they are questions to confirm, not facts:
+detect the setup with [Step 0 of the measurement pipeline](MEASUREMENT_PIPELINE_FOR_ASSISTANT.md#detect).
+
 Source: [report 10-14 §1, §3, §5](../development/report-mode-discovery-2026-10-14.md), the dev-fd69 session log
 (`development/logs/archive/dev-fd69-2026-10-11-165927.md`, 10-14 evening … 10-15), [measured preset §2, §6,
 §10b](../development/measured-plywood-preset-2026-10-15.md), [AUDIO_DRIVERS → ASIOAudioDriver and Rig
@@ -773,7 +776,7 @@ piezos P1..P8 on **In 1 … In 8** (no loopback input free: alignment on the rep
 one confirmed command; say what it plays before each live one.
 
 0. **State.** `system.snapshot` (ASIO callback driver, no fallback; a preset loaded), `audio.devices` (the UMC with
-   In 1–8 / Out 1–10). Ask the user to confirm the wiring above and that D: has ≥ 5 GB free.
+   In 1–8 / Out 1–10). Ask the user to confirm the wiring above and that the drive of `modal.measurements_dir` has ≥ 5 GB free.
 1. **Noise floor.** `modal.rig_record {label: "floor", inputs: [{input: "In 1", name: "P1"}, …, {input: "In 8",
    name: "P8"}], duration_s: 5}` → `rms_dbfs` per piezo (expect the floor + 50 Hz hum; no `clipping`).
 2. **Plan, then capture.**

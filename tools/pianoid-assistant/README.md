@@ -319,7 +319,7 @@ symptom → procedure, gotchas, the assistant's own setup, the doc / script disa
 
 | Tool | What |
 |---|---|
-| `read_docs {page, anchor?}` (`mcp/docsIndex.js` `readSection`) | one whole docs section with its subsections (≤ 24k chars), or the page outline without an anchor; `page` = a docs path or a `search_docs` link |
+| `read_docs {page, anchor?}` (`mcp/docsIndex.js` `readSection`) | one whole docs section with its subsections (≤ 24k chars), or the page outline without an anchor; `page` = a docs path or a `search_docs` link. The docs root is `$PIANOID_DOCS_DIR`, else `<PianoidInstall>/docs` relative to this code (`lib/registry.js` `docsDir`), so any checkout finds it; only a copy of this folder outside a checkout needs the variable (and `PIANOID_COMMANDS_DIR`). A missing root answers `docs_unavailable` |
 | `ops_status {}` (`mcp/opsStatus.js`) | per repo: branch, SHA, ahead / behind `origin/<integration>` as of the last fetch (never fetches), local changes; the engine (release + debug) and the Basic wheel against the files changed in the checkout since they were built (`HEAD@{build time}..HEAD` + later uncommitted edits); Tunner / assistant npm deps against `node_modules/.package-lock.json`; the sandbox; hints linking the primer. Git runs with `GIT_OPTIONAL_LOCKS=0` (no index refresh) |
 
 The prompt routes such questions to `ops_status` then `read_docs` on the primer; the router sends them to Opus
