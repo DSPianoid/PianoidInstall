@@ -783,17 +783,22 @@ Response `400` (when `use_simulation=1`):
 built, `initialize()` asks the engine how many `addKernel` blocks of `array_size` threads co-reside on THIS
 device (`<module>.queryCoopCapacity(block_threads)`: the loaded binary's registers, the SM count, the
 `PIANOID_COOP_SM_BUDGET` knob honoured). A preset whose grid (`ceil(num_strings / num_strings_in_array)`) is
-larger loads as a **trimmed copy** cut by `Pianoid.preset_restructure.fit_to_blocks` to exactly `capacity`
+larger loads as a **trimmed copy** cut by `Pianoid.preset_restructure.fit_to_blocks` to at most `capacity`
 blocks — the file on disk is not changed; a preset that fits is loaded untouched (on the RTX 4090, 128 blocks,
-every current preset fits). Trim policy ([pianoid-basic OVERVIEW → keep_keys](../pianoid-basic/OVERVIEW.md)):
-unison strings go first, the longest first (bass/tenor unisons before treble ones), every key keeps at least one
-string; only when the strings cannot fill or pack into the blocks do whole keys go, the lowest bass first; modes
-above the full-deck ceiling (`num_strings − channels`) are cut, the first ones kept; channels, `array_size` and
-the output scale stay. Measured on every local preset: at 38 blocks (RTX 3060 Ti) every key stays (152
-strings); at 28 blocks the 2–4 lowest bass keys go. The full success response and `/health` carry
-`gpu_fit` (`null` = loaded as is): `{trimmed, message, source_path, capacity, blocks_per_sm, num_sms,
-device_sms, num_regs, array_size, blocks_from, blocks_to, strings_from, strings_to, keys_from, keys_to,
-keys_removed, unison_strings_removed, modes_from, modes_to}`; the backend logs the same `[GPU-FIT] …` line. The
+every current preset fits). **Trim policy (user decision 2026-11-03): whole blocks only, from the outside in.**
+A preset block pairs the i-th longest bass string with the i-th shortest treble triplet (measured on
+BaselinePreset1 and Tuning18-10-26ver1: block 0 = key 23 + key 106 ×3, …; a bichord bass key spans 2 blocks, a
+trichord 3), so dropping blocks 0, 1, 2, … removes keys from both ends together and keeps the middle of the
+keyboard. A bass key whose unison spans several blocks goes with all of them (the trim may end 1–2 blocks under
+`capacity`). No unison string is ever removed — every kept key keeps all its strings — and the kept blocks are
+not re-packed (string IDs renumbered, order kept). Output blocks (and a thump string on an output-block slot) are
+never touched; modes above the full-deck ceiling (`num_strings − channels`) are cut, the first ones kept;
+channels, `array_size` and the output scale stay. Measured: at 38 blocks (RTX 3060 Ti) BaselinePreset1 keeps
+keys 37–88 (52 of 84), Tuning18-10-26ver1 keys 38–86 (49 of 88, 37 blocks, modes 196 → 141); at 28 blocks
+42–78 and 43–76. The full success response and `/health` carry `gpu_fit` (`null` = loaded as is):
+`{trimmed, message, source_path, capacity, blocks_per_sm, num_sms, device_sms, num_regs, array_size,
+blocks_from, blocks_to, strings_from, strings_to, keys_from, keys_to, keys_removed, keys_kept, modes_from,
+modes_to}`; the backend logs the same `[GPU-FIT] …` line. The
 trimmed copy carries the report as a `gpu_fit` preset section, and `/save_preset` / promote onto the file it was
 trimmed FROM is refused (500 `Error saving preset: This preset was trimmed to fit this GPU … Save it under a new
 name.`). `/preset/load` (library) trims the same way at the running engine's `array_size`. Owner:
