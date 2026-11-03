@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-uiguide | Tunner user guide EN+RU + in-app help (Help button, TOC, search, EN/RU) + mkdocs pages | [log](logs/dev-uiguide-2026-11-03-105821.md) | 2026-11-03 |
 | dev-9cff | assistant help: preset.create outer_keys, editor-saved base modes, channel-change rows, build_preset pre-check, save_file (follow-up when dev-c0de's lock clears: save_file as a switchable approval category + own Activity row in session.js / approvals.js, README section) | [log](logs/dev-9cff-2026-10-22-104627.md) | 2026-10-22 |
 <!-- dev-a90b COMPLETED 2026-10-22 (Phase 2; merged with origin + PUSHED 2026-10-22): /load_preset pre-teardown GPU co-residency check -> 409 PresetDoesNotFit coop_launch_shortage (current preset kept; the parallel output-map part was folded into dev-16af load_output_map_check on the origin merge); FE persistent notification + library clears on an unloaded backend; PianoidBasic resize_sound_channels resizes the modes mute mask (Tuning18-10-26ver1_56blk_8ch.json repaired, 7->8 entries). Core dev 0ec7cd1, Tunner dev 191636e, Basic dev 36d8ad5 (wheel rebuilt). Live :5012: 7ch + 8ch load 200, 236-string Tuning18 409 with engine kept. Follow-up: a pre-teardown channel-array consistency check (a malformed preset still dies after teardown). Log: logs/archive/dev-a90b-2026-10-21-113832.md -->
 | dev-spktrim | Speaker trim, one-button Board/Speakers switch, routing calibration guard, mic speaker calibration | [log](logs/dev-spktrim-2026-11-01-153542.md) | 2026-11-01 | In Progress |
