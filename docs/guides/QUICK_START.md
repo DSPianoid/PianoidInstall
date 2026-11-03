@@ -197,6 +197,22 @@ cd PianoidInstall\PianoidCore\pianoid_middleware
 
 ---
 
+### No-GPU install (FPGA work) {#no-gpu-install}
+
+A machine with no NVIDIA GPU cannot build or run the CUDA engine, but it can run everything else: the UI, the
+backend, the FPGA tools and the Modal Adapter (CPU). Nothing synthesises there and nothing pretends to.
+
+| Step | No-GPU form |
+|---|---|
+| System packages | `setup-packages.bat`, option **8**: Python, VS Build Tools, Node.js; no CUDA Toolkit, no SDL. The compiler stays because pip builds `simpleaudio` from source (no Python 3.12 wheel) |
+| Build | `setup-pianoid.bat` skips the engine by itself when `nvidia-smi` is absent. Force it with `setup-pianoid.bat /no-gpu` or `PIANOID_NO_GPU=1`; `PIANOID_NO_GPU=0` forces the CUDA build. Linux: `setup-pianoid.sh --no-gpu`, system packages `setup-packages.sh --python --node --build` |
+| Start | `start-pianoid.bat` as usual: `check-cuda.ps1` prints one line instead of the warning pop-up (only with no `nvidia-smi` AND no engine in the venv) |
+| Update | `update-repos` skips the CUDA rebuild on the same condition |
+
+The status bar shows **No GPU engine**; APPLY explains that GPU presets cannot load (`POST /load_preset` answers
+[503](../modules/pianoid-middleware/REST_API.md#post-load_preset)). Going to a GPU later: install the NVIDIA driver,
+run `setup-packages.bat` option 1, then `setup-pianoid.bat`.
+
 ## Step 4 — Start (UI Method)
 
 The standard way to run Pianoid uses the launcher architecture: a Node.js process manager (port 3001) controls the backend lifecycle from the browser UI.

@@ -278,6 +278,15 @@ function Show-CudaWarning {
 # Main - fully wrapped so ANY failure falls through to exit 0 (launch).
 # =========================================================================
 try {
+    # No-GPU install (FPGA work): no NVIDIA driver AND no engine in the venv is a deliberate setup,
+    # not a fault, so one console line and no pop-up. A GPU box that lost its driver keeps the warning.
+    $site = Join-Path (Split-Path (Split-Path $VenvPython)) 'Lib\site-packages'
+    if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue) -and
+        -not (Test-Path (Join-Path $site 'pianoidCuda*.pyd'))) {
+        Write-Host 'No-GPU install: the GPU engine is unavailable. The UI and the FPGA tools work.'
+        exit 0
+    }
+
     $info = Get-CudaInfoViaCupy
 
     if ($info.Determined) {

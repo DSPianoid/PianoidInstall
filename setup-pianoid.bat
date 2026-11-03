@@ -11,6 +11,17 @@ set "CORE_DIR=%ROOT_DIR%PianoidCore"
 set "BASIC_DIR=%ROOT_DIR%PianoidBasic"
 set "TUNNER_DIR=%ROOT_DIR%PianoidTunner"
 
+rem No-GPU install (FPGA work, no NVIDIA GPU): the CUDA engine cannot be built or run here,
+rem so step 3 is skipped and the backend starts with the GPU engine unavailable.
+rem Chosen by /no-gpu or PIANOID_NO_GPU=1, or automatically when nvidia-smi is absent (no
+rem NVIDIA driver). PIANOID_NO_GPU=0 forces the CUDA build.
+set "NO_GPU=0"
+if /I "%~1"=="/no-gpu" set "NO_GPU=1"
+if "%PIANOID_NO_GPU%"=="1" set "NO_GPU=1"
+where nvidia-smi >nul 2>&1
+if errorlevel 1 set "NO_GPU=1"
+if "%PIANOID_NO_GPU%"=="0" set "NO_GPU=0"
+
 echo Root directory:  %ROOT_DIR%
 echo PianoidCore:     %CORE_DIR%
 echo PianoidBasic:    %BASIC_DIR%
@@ -155,6 +166,15 @@ echo.
 rem =========================================================================
 rem STEP 3: Build PianoidCuda package (debug + release)
 rem =========================================================================
+if "%NO_GPU%"=="1" (
+    echo [STEP 3/4] SKIPPED: no NVIDIA GPU, the PianoidCuda engine is not built.
+    echo =========================================================================
+    echo   The UI, the FPGA tools and the Modal Adapter work; GPU presets cannot load.
+    echo   On a machine with a GPU, install the NVIDIA driver and run this again.
+    echo.
+    goto :after_cuda_build
+)
+
 echo [STEP 3/4] Building PianoidCuda package (release + debug)...
 echo =========================================================================
 
@@ -179,6 +199,8 @@ echo.
 echo   OK  STEP 3 COMPLETED
 echo.
 
+:after_cuda_build
+
 rem =========================================================================
 rem STEP 4: Install frontend dependencies
 rem =========================================================================
@@ -196,10 +218,15 @@ node --version
 echo.
 
 pushd "%TUNNER_DIR%"
-echo Running npm ci...
-rem npm ci installs exactly from the committed package-lock.json (reproducible,
-rem clean node_modules) rather than resolving fresh like `npm install`.
-npm ci
+rem npm ci installs exactly from package-lock.json, but PianoidTunner ignores that file, so a
+rem fresh clone has none and takes npm install. npm is npm.cmd: without CALL this script ends here.
+if exist package-lock.json (
+    echo Running npm ci...
+    call npm ci
+) else (
+    echo No package-lock.json: running npm install...
+    call npm install
+)
 set "NPM_EXIT=!errorlevel!"
 popd
 
@@ -212,7 +239,7 @@ rem The assistant's dependencies (incl. the Claude Code CLI bundled with the Age
 rem "Connect Claude subscription"). Optional: Pianoid runs without the assistant, so a failure only warns.
 echo Installing the assistant dependencies (tools\pianoid-assistant)...
 pushd "%ROOT_DIR%tools\pianoid-assistant"
-npm ci
+call npm ci
 set "ASSISTANT_NPM_EXIT=!errorlevel!"
 popd
 if not !ASSISTANT_NPM_EXIT! equ 0 (
@@ -233,13 +260,17 @@ echo =========================================================================
 echo.
 echo   [1/4]  Python venv and dependencies
 echo   [2/4]  PianoidBasic package
-echo   [3/4]  PianoidCuda (release + debug)
+if "%NO_GPU%"=="1" (
+    echo   [3/4]  PianoidCuda SKIPPED - no-GPU install, the GPU engine is unavailable
+) else (
+    echo   [3/4]  PianoidCuda ^(release + debug^)
+)
 echo   [4/4]  Frontend dependencies
 echo.
 
 if exist "%CORE_DIR%\.venv\Lib\site-packages\pianoidCuda*.pyd" (
     echo   OK  pianoidCuda.pyd found
-) else (
+) else if not "%NO_GPU%"=="1" (
     echo   ??  pianoidCuda.pyd not found in site-packages
 )
 if exist "%TUNNER_DIR%\node_modules" (

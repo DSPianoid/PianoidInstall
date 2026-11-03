@@ -140,6 +140,16 @@ echo "  OK  STEP 2 COMPLETED"
 echo
 
 # -- STEP 3: PianoidCuda -----------------------------------------------------
+# No-GPU install (FPGA work): --no-gpu or PIANOID_NO_GPU=1, or automatically when nvidia-smi is
+# absent. The backend then starts with the GPU engine unavailable. PIANOID_NO_GPU=0 forces the build.
+NO_GPU=0
+[[ "${1:-}" == "--no-gpu" || "${PIANOID_NO_GPU:-}" == "1" ]] && NO_GPU=1
+command -v nvidia-smi >/dev/null 2>&1 || NO_GPU=1
+[[ "${PIANOID_NO_GPU:-}" == "0" ]] && NO_GPU=0
+if [[ "$NO_GPU" == "1" ]]; then
+echo "[STEP 3/4] SKIPPED: no NVIDIA GPU, the PianoidCuda engine is not built."
+echo "  The UI, the FPGA tools and the Modal Adapter work; GPU presets cannot load."
+else
 echo "[STEP 3/4] Building PianoidCuda (release + debug)..."
 echo "========================================================================="
 if [[ ! -f "$CORE_DIR/build_pianoid_cuda.sh" ]]; then
@@ -149,6 +159,7 @@ fi
 chmod +x "$CORE_DIR/build_pianoid_cuda.sh" 2>/dev/null || true
 ( cd "$CORE_DIR" && bash build_pianoid_cuda.sh --heavy --both )
 echo "  OK  STEP 3 COMPLETED"
+fi
 echo
 
 # -- STEP 4: Frontend dependencies -------------------------------------------
@@ -160,9 +171,9 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 echo "Node.js version: $(node --version)"
 
-# npm ci installs exactly from the committed package-lock.json (reproducible,
-# clean node_modules) rather than resolving fresh like `npm install`.
-( cd "$TUNNER_DIR" && npm ci )
+# npm ci installs exactly from package-lock.json, but PianoidTunner ignores that file, so a
+# fresh clone has none and takes npm install.
+if [[ -f "$TUNNER_DIR/package-lock.json" ]]; then ( cd "$TUNNER_DIR" && npm ci ); else ( cd "$TUNNER_DIR" && npm install ); fi
 # The assistant's dependencies (incl. the Claude Code CLI bundled with the Agent SDK, used by
 # "Connect Claude subscription"). Optional: Pianoid runs without the assistant, so a failure only warns.
 ( cd "$ROOT_DIR/tools/pianoid-assistant" && npm ci )   || echo "WARNING: assistant npm ci failed - the Assistant pane will not start (fix: cd tools/pianoid-assistant && npm install)"
@@ -176,13 +187,13 @@ echo "========================================================================="
 echo
 echo "  [1/4]  Python venv and dependencies"
 echo "  [2/4]  PianoidBasic package"
-echo "  [3/4]  PianoidCuda (release + debug)"
+if [[ "$NO_GPU" == "1" ]]; then echo "  [3/4]  PianoidCuda SKIPPED - no-GPU install"; else echo "  [3/4]  PianoidCuda (release + debug)"; fi
 echo "  [4/4]  Frontend dependencies"
 echo
 SO_RELEASE=$(ls "$VENV_DIR"/lib/python*/site-packages/pianoidCuda*.so 2>/dev/null | head -n 1 || true)
 if [[ -n "$SO_RELEASE" ]]; then
     echo "  OK  pianoidCuda*.so found: $SO_RELEASE"
-else
+elif [[ "$NO_GPU" != "1" ]]; then
     echo "  ??  pianoidCuda*.so not found in site-packages"
 fi
 if [[ -d "$TUNNER_DIR/node_modules" ]]; then

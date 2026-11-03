@@ -493,8 +493,11 @@ Response `200` (not started):
 }
 ```
 
-`gpu_available` (top-level, added dev-cudaguard 2026-06-10): a cached CuPy device probe (mirrors
-`/modal/gpu_status`) — `true` iff a usable CUDA device is present. Reported even before a preset is
+`gpu_available` (top-level, added dev-cudaguard 2026-06-10): `true` iff the GPU engine can run here:
+`pianoidCuda` is installed (checked without importing it) AND a CUDA device answers (cached CuPy probe, mirrors
+`/modal/gpu_status`). `gpu_engine` (dev-nogpu) says why not: `{available, reason, message}`, `reason`
+`engine_not_installed` (a [no-GPU install](../../guides/QUICK_START.md#no-gpu-install)) or `no_cuda_device`; owner
+`engine_availability.py`. Reported even before a preset is
 loaded (`pianoid_loaded: false`) so the frontend can disable APPLY + show a limited-mode warning
 **before** a doomed load. When `false`, `POST /load_preset` is gated (HTTP `503 GpuUnavailable` —
 see below) because the GPU synthesis engine cannot initialise. Real CPU synthesis is a deferred
@@ -799,7 +802,8 @@ Response `503` (no-CUDA limited mode, added dev-cudaguard 2026-06-10):
   "error": "GpuUnavailable",
   "code": "gpu_unavailable",
   "gpu_available": false,
-  "message": "No CUDA device available - GPU presets are disabled (limited mode). The Modal Adapter still works on CPU. Run tools/cuda_diagnostic.ps1 to diagnose the GPU/CUDA issue. (CPU synthesis is a deferred future feature.)"
+  "reason": "no_cuda_device",
+  "message": "No CUDA device available - GPU presets are disabled (limited mode). The Modal Adapter still works on CPU. Run diagnose-cuda.ps1 to diagnose the GPU/CUDA issue."
 }
 ```
 
