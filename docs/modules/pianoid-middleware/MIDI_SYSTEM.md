@@ -86,7 +86,9 @@ The unified ingress path uses two surfaces, both wired in `pianoid.py`:
 
 ### `Pianoid.list_midi_ports()`
 
-Stateless rtmidi probe — opens a transient `rtmidi.MidiIn()`, reads `get_ports()`, discards. Safe before `init_pianoid` and from any thread. Backs `GET /midi/ports`.
+Lists through `midi_ports.input_port_names()` — ONE long-lived `rtmidi.MidiIn` per process (dev-hstall, 2026-11-03), re-enumerated on every call so hot-plug stays visible. Safe before `init_pianoid` and from any thread. Backs `GET /midi/ports`.
+
+**Port listing never creates a transient rtmidi instance (dev-hstall).** Measured in the backend process: each `rtmidi.MidiIn()` created only to list the ports grew private memory by ~37 KB that was never returned (`GET /midi/ports` 37 KB/call; the ALL-mode rescan once a second ~29 KB/s). After a 46 h session the backend held 8.7 GB private and its degraded heap made an 88-key excitation write take 25–38 s instead of 0.6 s (numpy temporaries stuck in `RtlAllocateHeap`). `midi_ports.py` owns listing (`input_port_names`, `output_port_names`); `/midi/ports`, `list_midi_ports`, the ALL-mode rescan (`MergedInputs(list_ports=...)`), the monitor taps (`MidiPortTaps`) and the controller's output listing use it. Opening a port still creates its own instance (long-lived, one per open port). After the fix: 0.0 KB/call over 27.7k calls; ALL-mode idle flat.
 
 ### `Pianoid.request_port_switch(new_port)`
 
