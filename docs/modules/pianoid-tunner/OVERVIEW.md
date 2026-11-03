@@ -658,6 +658,27 @@ stored := `v`, slider → 64 (persisted), one `set_runtime_parameters {feedback_
 volume + feedback Sensitivity fields commit through to their handlers; the coefficient field shows
 stored × multiplier and commits/clamps typed values) + `hooks/__tests__/usePreset.feedbackCoeffField.test.js`.
 
+### In-app help / user guide (dev-uiguide, 2026-11-03)
+
+The user guide ships with the frontend and is also the mkdocs guide — **one source per language**:
+`src/help/content/en.md` and `src/help/content/ru.md` (edit there; `docs/guides/USER_GUIDE.md` and
+`USER_GUIDE_RU.md` only include them with `pymdownx.snippets`). The files are imported as static
+assets (CRA gives an `.md` import its URL), fetched on first open and cached, so help works offline.
+
+| Module | Job |
+|---|---|
+| `help/HelpContext.jsx` | `<HelpProvider>` (wraps `<PianoidTuner>` in `index.js`) — sole owner of `{open, sectionId, lang}`; `useHelp().openHelp(sectionId?)`. Language = `localStorage["pianoid.helpLanguage"]`, else the browser language (`ru*` → RU). |
+| `help/HelpDialog.jsx` | The dialog: table of contents, search (every word, title + body; a matching subsection keeps its chapter), EN/RU toggle. |
+| `help/helpMarkdown.js` | Parser for the guide's Markdown subset (`##`/`###` headings with **required** `{#id}`, paragraphs, one-level lists, tables, `>` notes, bold/italic/code/links). |
+| `help/HelpContent.jsx`, `help/useHelpContent.js` | Renderer (MUI; `#id` links scroll inside the dialog) and loader. |
+| `help/HelpButtons.jsx`, `help/paneHelp.js` | Top-bar **?** (`ToolBar`, before Settings) and the pane-title **?** (`PanelTile`) for panes mapped to a section; both render nothing outside a provider. |
+
+Content rules: section ids are shared by both languages (pane links target them) — EN and RU must have
+the same ids, levels and order; no nested lists; no raw `<…>` outside code spans (mkdocs would read it
+as HTML). Pinned by `src/help/__tests__/` (`helpContent.test.js` checks both real files: same sections,
+internal links resolve, every pane link exists; `HelpDialog.test.jsx` renders both real guides, search,
+pane links, language memory, load failure).
+
 ### Diagnostic bug-report tool (dev-6ef1, 2026-07-10)
 
 An in-app "Report a problem" tool that captures the EXACT current config + the user's recent action

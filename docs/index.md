@@ -132,6 +132,9 @@ interactive latency.
 
 ### Guides
 
+- [guides/USER_GUIDE.md](guides/USER_GUIDE.md) / [guides/USER_GUIDE_RU.md](guides/USER_GUIDE_RU.md) — User guide
+  for musicians and tuners (English / Russian): every pane, bar and gesture, recipes, troubleshooting. Same text as
+  the in-app help (**?** in the top bar); source files live in `PianoidTunner/src/help/content/`
 - [guides/QUICK_START.md](guides/QUICK_START.md) — Prerequisites, build steps, and running the
   full stack locally
 - [guides/STARTUP_TROUBLESHOOTING.md](guides/STARTUP_TROUBLESHOOTING.md) — Three-process

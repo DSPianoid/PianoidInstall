@@ -62,6 +62,8 @@ nav:
       - Diagnostic Bug-Report Tool: development/standards/DIAGNOSTIC_BUG_REPORT_TOOL.md
   - Proposals: proposals/index.md
   - Guides:
+    - User Guide (English): guides/USER_GUIDE.md
+    - "Руководство пользователя (Russian)": guides/USER_GUIDE_RU.md
     - Quick Start: guides/QUICK_START.md
     - Startup Troubleshooting: guides/STARTUP_TROUBLESHOOTING.md
     - UI Testing: guides/UI_TESTING.md
@@ -85,5 +87,10 @@ markdown_extensions:
   - pymdownx.details
   - tables
   - attr_list
+  # dev-uiguide: the user guide pages include the PianoidTunner help files (one source per
+  # language, also bundled into the app). Paths are relative to the PianoidInstall root.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: false
   - toc:
       permalink: true
