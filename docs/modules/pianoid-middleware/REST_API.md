@@ -2238,7 +2238,7 @@ Response `200`:
 
 ### `GET /midi/ports`
 
-Returns the list of available rtmidi input ports as observed at the moment of the call. Stateless — works even before `/load_preset` has initialized a `pianoid` instance, because the implementation opens a transient `rtmidi.MidiIn()` to read the port table.
+Returns the list of available rtmidi input ports as observed at the moment of the call. Stateless — works even before `/load_preset` has initialized a `pianoid` instance; the port table is read through the process's one shared enumerator (`midi_ports.py`, dev-hstall: a transient `rtmidi.MidiIn()` per call leaked ~37 KB, see [MIDI_SYSTEM](MIDI_SYSTEM.md)).
 
 Use this to populate a port-picker UI before posting `listen_to_midi=1` to `/load_preset` or before calling `POST /midi/select_port`.
 
