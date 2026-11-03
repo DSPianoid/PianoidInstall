@@ -43,6 +43,25 @@ for ~63 s, eight times. Fixed by dev-hstall (Core `feature/dev-hstall-write-stal
   one write in flight per debounce key, newest wins
   ([Tunner OVERVIEW](../modules/pianoid-tunner/OVERVIEW.md)).
 
+## Temporal impulse in C++ (user decision 2026-11-03: "try it on C++, if still slow then GPU")
+
+| Stage (88 keys, median of 5, spare-port backend) | numpy | C++ |
+|---|---|---|
+| temporal impulses, 528 curves (standalone) | 289 ms | 95.7 ms single thread -> 19.2 ms (threads + exact-zero skips) |
+| `coeff.prepare`, gauss curve edit | 330 ms | 23 ms (C++ call 21 ms) |
+| `coeff.prepare`, hammer position | 28 ms | 1.8 ms (batched resplice) |
+| whole write, gauss volume / mu | 557-564 ms | 248 ms (first reps of a run up to 450) |
+| whole write, hammer position | 105 ms | 76 ms |
+| 1-key writes | 17-18 / 10 ms | 17 / 9.5 ms |
+
+- Bit-identity: 528/528 live-preset curves; 4 grids x 64 random curves (unit test); the incremental table after an
+  88-key curve and hammer edit on the live preset model == the pure-Python full rebuild (30208/30208 values).
+- GPU threshold: 50 ms for 88 keys. C++ is 19-21 ms, so no GPU version.
+- Notes during an 88-key write (audio In 8, N=6, Python path): X=10 ms 71, X=50 125, X=150 117 ms (idle 24 ms);
+  `ping_ws` max during the write 161 ms (Python) vs 140 ms (C++). Unchanged within noise: the stall sits in the
+  first ~200 ms (`load_from_dict`, PianoidBasic), which C++ did not touch. The C++-path audio rerun was not possible:
+  the In 8 capture went silent for both backends after many forced backend kills (device present, ASIO healthy).
+
 ## Open
 
 - The FE fix is verified by Jest (real hook code, socket mocked) and by the live `ping_ws` latency
