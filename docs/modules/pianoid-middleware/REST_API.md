@@ -1255,7 +1255,7 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
   `g·r[m]·b[m]` (`basis: board_motion`, `b[m]` = RMS over the native exciter rows = the engine's mode motion at the
   exciter points). `g` makes the speaker channel's analytic energy (`Σ_m row[m]²·E_m`, `E_m` = the unit-force response
   energy at `sound_derivative_order`, DATA_FLOWS "Analytic audible weight") equal the mean exciter channel energy, then
-  `trim_db` (default −3 dB headroom) applies. Flat-tier presets fold the uniform flat columns to one energy-weighted value.
+  `trim_db` (default −3 dB headroom) applies, then the [machine speaker trim](#speaker-trim-dev-spktrim) (`g = match × preset trim × machine trim`). Flat-tier presets fold the uniform flat columns to one energy-weighted value.
 * **Speaker channels.** *Dedicated*: `model_parameters.radiance.speaker_channels` = `[c]` or `[cL, cR]` (output channels
   built for the speakers, e.g. an 8th output pitch); `PIANOID_AUDIO_OUTPUT_MAP` then maps only the exciter channels and
   the speaker channels go to `PIANOID_SPEAKER_OUTPUTS` (`L,R` 0-based, default `0,1` = Out 1/2). *Borrowed* (none
@@ -1269,14 +1269,38 @@ Where the synthesized sound goes, and how each soundboard mode reaches the speak
 
 | Route | Body | Result |
 |---|---|---|
-| `GET /output_routing` | — | `{target, layout, available{target:{layout: null or reason}}, speaker_channels, speaker_outputs, asio_map, asio_mirrors, basis, trim_db, radiance_source, provisional, plan?, gain?, gain_db?}` |
-| `POST /output_routing` | `{target?, layout?}` | the new status; `409 {error, code}` (`dual_unavailable`, `layout_unavailable`, `rebuild_needed`, `asio_rejected`, `bad_request`), state unchanged |
+| `GET /output_routing` | — | `{target, layout, available{target:{layout: null or reason}}, speaker_channels, speaker_outputs, asio_map, asio_mirrors, basis, trim_db, radiance_source, provisional, output_trim, plan?, gain?, gain_db?}` |
+| `POST /output_routing` | `{target?, layout?}` | the new status; `409 {error, code}` (`dual_unavailable`, `layout_unavailable`, `rebuild_needed`, `asio_rejected`, `bad_request`, `calibrating`), state unchanged |
 | `POST /radiance/config` | `{basis?, trim_db?, speaker_channels?, source?, provisional?}` | status; merged into `model_parameters.radiance` (saved with the preset; write class `param_coarse`, not undoable) |
 | `POST /radiance/import` | `{mono[N] or mono_db[N] (+reference_db, default median), stereo?[N][2], basis?, source?, provisional?}` | status + `imported_modes`; ONE undoable `mode` edit over all N modes, in mode order |
 | `POST /radiance/from_frf` | `{frf_path, exciters?, speakers?, mic?, band_octaves?, layout? mono/L/R, apply?, source?, provisional?}` | the MEASURED absolute factors from a rig FRF + the LIVE model: `r[m] = sqrt(<\|Σ_c W[c,m]·H_mic←E_c(f)\|²> / <\|H_mic←spk(f)\|²>)` over a 1/3-octave band at the live mode frequency (mono: `H_spk = H_L + H_R`); `apply` writes them (one undoable `mode` edit) with `basis: absolute` |
 
 Assistant: `output.get_mode`, `output.set_mode` (its own confirm rule), `radiance.import`, `radiance.from_frf`, `radiance.config`; factors via
 `param.set` (`mode.radiance_mono` / `mode.radiance_left` / `mode.radiance_right`).
+
+### Speaker trim (dev-spktrim) {#speaker-trim-dev-spktrim}
+
+The acoustic balance between the speakers and the board belongs to the machine (amplifier, room), not to a preset. Logic: `output_trim.py` (the setting, single writer), `speaker_calibration.py` (the mic job), routes in `output_routing_routes.py`.
+
+* **Setting:** `output_trim` in `pianoid_local_settings.json`: `{speaker_trim_db, source: mic|manual, ...provenance}`. Not saved with a preset, not part of `output_level.capture_session` / `restore_session`: it scales only the speaker rows, below the applied scale.
+* **The board is the reference.** It never moves. The offline render behind `output_scale` always measures the board rows (`OutputRouting.suspended` in `output_level.measure_bare_peak`): `POST /recalibrate_output_level` and a full Apply on speakers give the same scale as on board. The render reaches no driver, so the ASIO map stays. Before this the render took the max over the channels of the ACTIVE routing, which would have moved the scale, and the board with it, by the speakers' digital excess. Scope: `output_scale` only, the per-pitch tuners are not routed through it.
+* **Digital cap:** `cap_db` = the gain that brings the loudest speaker row to the loudest exciter channel's analytic energy on the loaded preset (no output limiter exists). A stored trim is limited to it (`capped`). Uncalibrated, the trim is `min(0, cap_db)`. The cap is digital only: it says nothing about the acoustic level of the speakers.
+* **Mic calibration:** live notes, NEVER an offline render. Preflight (ASIO, engine live, mic input, nothing else measuring) → 1 s noise floor → board: C3, C4, C5 (MIDI 48, 60, 72), velocity 80, current volume, `strikes` per pitch → speakers from `cap - start_below_cap_db` up in 6 dB passes, one strike per pitch, until within 3 dB of the board or at the cap → `strikes` per pitch there → `trim = current + (L_board - L_speakers) + user_offset_db`, limited to the cap → one verification pass → save if SNR ≥ 10 dB in both modes.
+  * Level: 1/3-octave band power 100 Hz to 4 kHz minus the noise floor, power mean over the strikes, mean dB over the pitches. SNR: the worst pitch.
+  * Low SNR is never extrapolated and never answered with more level: the job fails with "The mic cannot hear X at C3: SNR n dB".
+  * Abort (mic peak > -12 dBFS, speaker digital peak > -3 dBFS, gate trip, stop, volume / feedback / preset change, engine stopped): to the lowest trim, then the original routing, previous trim kept. Test levels are a never-persisted override, so a crash cannot leave one stored.
+  * While it runs `POST /output_routing` and `POST /output_trim` answer `409 calibrating`.
+  * After saving, the analogue speaker gain must stay fixed; a trim is valid for that setting and mic position.
+
+| Route | Body | Result |
+|---|---|---|
+| `GET /output_trim` | — | `{speaker_trim_db, provenance, calibrated, min_db, max_db, cap_db?, effective_db?, capped?}` (`calibrated` only for a mic result; the last three need a preset that can play speakers) |
+| `POST /output_trim` | `{speaker_trim_db: dB or null}` | the same; applies at once on speakers; `null` = back to uncalibrated; `400`, `409 calibrating` |
+| `POST /speaker_calibration` | `{strikes? 3-5, velocity?, start_below_cap_db? 6-90, user_offset_db? ±20, mic_input? 0 = In 1}` | job status; `400` bad body, `409 {code: calibration_refused, error}` with the preflight reason |
+| `GET /speaker_calibration` | — | `{running, kind: speaker_trim, stage: idle/noise/board/speakers/done/failed/aborted, progress, message, passes[{mode, trim_db, strikes, level_db, snr_db}], result, error, restore_error?}` |
+| `GET /calibration_status`, `POST /calibration_cancel` | — | while the job runs: its status / stop it |
+
+Assistant: `output.get_trim`, `output.set_trim`, `output.calibrate_speakers`, `output.calibration_status`.
 
 ### Half-pedal curve (dev-pedal1) {#half-pedal-curve-dev-pedal1}
 
