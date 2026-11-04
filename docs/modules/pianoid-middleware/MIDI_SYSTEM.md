@@ -637,7 +637,15 @@ leaves about 10 ms per update after the ~20 ms engine floor. Measurement: harnes
   preset switch; bake; the REST surface; the worker thread.
 - PianoidBasic `tests/test_controller_mappings.py`.
 - Tunner `MidiControllersSection.test.jsx` (including the read-only badge).
-
+- Live, silent (2026-11-04, isolated backend :5024, audio_on=0, BaselinePreset1, MIDI bytes through REST `/play`;
+  `docs/development/diagnostics/dev-midictl-live-check.py`, `dev-midictl-live-bow.py`):
+  - learn-new from a CC 20 -> control `CC 20 ch 1`; a tension-scale mapping 0.95..1.05 moved to 127 -> `live.value` 1.05;
+  - pitch 60 f0 (note_playback render) x1.02448, expected sqrt(1.05) = x1.02470; the stored tension unchanged (650.49);
+  - bake: stored 683.01 (x1.05), live back to neutral, f0 unchanged (x1.02448); undo: stored 650.49, f0 x1.0000000;
+  - bow: the default Mod wheel -> bow.force drive on a bowed pitch 60, render RMS 0 / 4.1e-5 / 0 at CC 0 / 127 / 0,
+    stored bow values unchanged; a second velocity mapping -> 400; the velocity mapping re-targeted to force ->
+    the engine map (`GET /get_parameter/bow_settings/all` velocity.field) speed -> force.
+  - The MIDI badge was verified by Jest only (no live UI run).
 ## MIDI player (dev-6f0c)
 
 A backend player for MIDI files with transport, seek, speed, loop, transpose, velocity scale and track / channel mutes. Its UI is the **MIDI Player** mosaic pane ([Tunner OVERVIEW](../pianoid-tunner/OVERVIEW.md)); routes are `/midi_player/*` ([REST_API.md](REST_API.md)).
