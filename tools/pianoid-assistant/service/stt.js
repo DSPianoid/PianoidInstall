@@ -6,9 +6,9 @@
  *
  * Python: PIANOID_STT_PYTHON > <PIANOID_CORE_DIR | <Install>/PianoidCore>/.venv python (the canonical venv,
  * which carries faster-whisper). Model: the request's `model` (base | small | medium) else PIANOID_STT_MODEL
- * else small. The worker starts on the first request, keeps the model loaded, and ends after IDLE_MS without
+ * else medium (user decision 2026-11-04: accuracy over speed; ~13 s for a 10 s clip on the reference CPU). The worker starts on the first request, keeps the model loaded, and ends after IDLE_MS without
  * a request (frees ~0.5-1.5 GB RAM). `warm` (the pane calls it when recording starts) loads the model while the
- * user speaks, so the first clip does not wait for the Python start + model load (~3-4 s for small).
+ * user speaks, so the first clip does not wait for the Python start + model load (~3-4 s small, ~11 s medium).
  * One request at a time (a queue); one that takes longer than TIMEOUT_MS kills the worker (the next starts afresh).
  */
 import { spawn } from 'node:child_process';
@@ -46,7 +46,7 @@ export class SttService {
     this.idleMs = idleMs;
     this.timeoutMs = timeoutMs;
     this.python = sttPython(env);
-    this.defaultModel = MODELS.includes(env.PIANOID_STT_MODEL) ? env.PIANOID_STT_MODEL : 'small';
+    this.defaultModel = MODELS.includes(env.PIANOID_STT_MODEL) ? env.PIANOID_STT_MODEL : 'medium';
     this.child = null;
     this.ready = null;          // Promise of the worker's hello
     this.pending = new Map();   // id -> {resolve, timer}

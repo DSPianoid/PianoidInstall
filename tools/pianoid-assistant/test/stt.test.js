@@ -41,7 +41,7 @@ test('stt route: a localhost page gets the text, the clip file is removed, the m
     assert.deepEqual([j.ok, j.text, j.language, j.model], [true, 'heard 1234 bytes', 'ru', 'base']);
     const again = await (await post(base, '', Buffer.alloc(10))).json();
     assert.equal(again.pid, j.pid, 'one persistent worker');
-    assert.equal(again.model, 'small', 'default model');
+    assert.equal(again.model, 'medium', 'default model');
     assert.deepEqual(fs.readdirSync(path.join(home, 'stt')), [], 'clips are deleted after transcription');
     const warm = await (await fetch(`${base}/stt/warm?model=medium`, { method: 'POST', headers: { Origin: 'http://localhost:3000' } })).json();
     assert.deepEqual([warm.ok, warm.model, warm.pid], [true, 'medium', j.pid], 'warm loads ahead in the same worker');

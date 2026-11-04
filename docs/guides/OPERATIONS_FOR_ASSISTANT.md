@@ -251,7 +251,8 @@ Source: `tools/pianoid-assistant/README.md` (Setup, First-time setup, Analysis s
 3. **Start:** the pane's **Start assistant** button (`launcher.assistant.start`, asks); the service listens on
    127.0.0.1:3002.
 4. **Voice input (the pane's mic button):** needs nothing beyond the canonical venv (`PianoidCore\.venv`, which has
-   `faster-whisper`); the speech model (default `small`) downloads into the Hugging Face cache on its first use.
+   `faster-whisper`); the speech model (default `medium`, about 1.5 GB) downloads into the Hugging Face cache on its
+   first use. The "Rig mic" choice needs the backend on an ASIO driver (it records through the engine).
    Errors "The speech-to-text Python was not found" / "faster-whisper is not installed" = the venv is missing or
    incomplete (set `PIANOID_STT_PYTHON` for another Python). Source: `tools/pianoid-assistant/README.md` "Voice input".
 5. **Analysis sandbox (once, optional, for analysis code):** `node analysis\setup.js` in `tools\pianoid-assistant`

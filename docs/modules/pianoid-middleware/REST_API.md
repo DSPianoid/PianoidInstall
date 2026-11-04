@@ -311,6 +311,7 @@ hammer mass byte-identically. `play.note` through WS `command` vs the raw `play`
   /calibration_params       -- GET/POST perception curves, timing bands, level multipliers
   /mic_devices              -- list microphone input devices
   /set_mic_device           -- select microphone input device
+  /voice/status|start|stop|cancel -- rig-mic clip for the assistant's voice input (engine mic capture, dev-voice)
   /preset/list              -- list library entry records + active preset
   /preset/load              -- load preset to GPU library as a read-only original
   /preset/switch            -- switch active preset (double-buffer swap)
@@ -3242,6 +3243,40 @@ the SDL3 driver (lost on a preset load, no read-back). Each change is a `session
 The UI selector is `MicDeviceSelector` in the **Calibration Settings** pane (on ASIO an input picker).
 The measurement session `POST /audio/session` chooses its own inputs (and pauses synthesis);
 this setting is for the mic capture during synthesis only.
+
+---
+
+### Voice capture (`/voice/*`, dev-voice) {#voice-capture}
+
+The rig mic for the assistant's voice input (the pane's mic button, "Rig mic" in its settings): the browser must not
+open the engine's ASIO interface, so the ENGINE records the clip with its existing mic capture (`startMicCapture` ->
+`CaptureBuffer`, [AUDIO_DRIVERS → Mic capture input](../pianoid-cuda/AUDIO_DRIVERS.md)): a host buffer allocated on
+the request thread, filled by the running `bufferSwitch` (convert + `memcpy` of one input, lock-free). No device
+reopen, no rate change, no synthesis pause. Logic `voice_capture.py`, routes `voice_capture_routes.py`; write class
+`action` (status `read_only`). ASIO only.
+
+| Route | Body | Response |
+|---|---|---|
+| `GET /voice/status` | — | `{available, driver, inputs [{index, name}] (supported types only), default_input (the /set_mic_device input), recording, other_capture}`; unavailable = `{available: false, reason, code: engine_not_loaded \| asio_not_open, recording: false}` |
+| `POST /voice/start` | `{input_channel? (default the selected input), max_s? 1..60 (60)}` | `{ok, recording, input, input_name, max_s}` |
+| `POST /voice/stop` | — | `{ok, input, seconds, sample_rate: 16000, peak_dbfs, rms_dbfs, wav_base64 (16 kHz mono PCM16), underruns_during, callbacks_during}` |
+| `POST /voice/cancel` | — | `{ok, cancelled}` (the clip is dropped) |
+
+- A different `input_channel` than the selected one is switched for the clip and restored after it.
+- `underruns_during` / `callbacks_during` = the engine's `getCallbackStats()` delta over the clip: the evidence that
+  recording did not disturb the output (expected 0 underruns).
+- A clip nobody stops ends by itself `max_s` + 5 s after the start (dropped), so it never blocks a calibration.
+- Errors (`{ok: false, error, code}`): `400 invalid_args` (`max_s`, a non-integer `input_channel`), `400 invalid_input`
+  (the device has no such input), `409 engine_not_loaded` / `asio_not_open`, `409 engine_busy` (a transient such as a
+  preset load, calibration mode, an `/audio/session` running), `409 capture_busy` (another mic capture: a measurement,
+  `capture_mic`), `409 recording` (a clip already running), `409 not_recording` (stop without start).
+- One mic capture at a time in the engine (one `CaptureBuffer`). `/voice/start` refuses while another capture runs,
+  but the older capture users (`capture_mic`, acoustic / speaker / sound-channel calibration, `measurement_engine`)
+  call `startMicCapture` without checking, so one started DURING a voice clip takes the capture over (the clip comes
+  back short / empty). Pre-existing engine hazard, not new: `ASIOAudioDriver::startCapture` replaces the
+  `unique_ptr` (freeing the old buffer) BEFORE it repoints `staticCaptureBuffer`, so a bufferSwitch running at that
+  moment can append into the freed buffer. Follow-up (CUDA rebuild): publish the new buffer first and retire the old
+  one after a switch, or refuse a second start in C++.
 
 ---
 

@@ -1,7 +1,7 @@
 """Speech-to-text worker of the assistant service (dev-voice): local faster-whisper on the CPU.
 
 One JSON request per stdin line, one JSON reply per stdout line:
-  {"id": 1, "path": "<audio file>", "language": "auto" | "en" | "ru", "model": "small"}
+  {"id": 1, "path": "<audio file>", "language": "auto" | "en" | "ru", "model": "medium"}
   -> {"id": 1, "ok": true, "text": "...", "language": "ru",
       "duration_s": 6.1, "elapsed_s": 2.4, "load_s": 0.0, "model": "small"}
   -> {"id": 1, "ok": false, "error": "..."}
@@ -57,9 +57,12 @@ class Transcriber:
 
     def transcribe(self, req):
         from faster_whisper import decode_audio
-        load_s = self.load(req.get("model") or "small")
+        load_s = self.load(req.get("model") or "medium")
         t0 = time.perf_counter()
         audio = decode_audio(req["path"], sampling_rate=16000)
+        peak = float(abs(audio).max()) if len(audio) else 0.0
+        if 0 < peak < 0.5:                       # a quiet clip (the rig mic: room level, no AGC): to -6 dBFS, <= +40 dB
+            audio = audio * min(0.5 / peak, 100.0)
         language = req.get("language") or "auto"
         if language != "auto" and language not in ALLOWED:
             raise ValueError(f"language must be auto, {' or '.join(ALLOWED)}")
@@ -99,7 +102,7 @@ def main():
         try:
             req = json.loads(line)
             if req.get("warm"):
-                load_s = worker.load(req.get("model") or "small")
+                load_s = worker.load(req.get("model") or "medium")
                 reply({"id": req.get("id"), "ok": True, "load_s": round(load_s, 2), "model": worker.name})
                 continue
             reply({"id": req.get("id"), "ok": True, **worker.transcribe(req)})

@@ -65,31 +65,39 @@ order with fakes plus the real bundled CLI on a throwaway home (logged out, logi
 
 ## Voice input (dev-voice, user request 2026-11-04)
 
-The pane's mic button records in the browser (Tunner `hooks/useVoiceInput.js`) and sends the clip here; the text goes
-back to the pane's input box, where the user edits and sends it like typed text. The model has no tool for the mic
-or for these routes, and the turn path is unchanged.
+The pane's mic button records a clip (a browser mic, or the rig mic through the backend: Tunner
+`hooks/useVoiceInput.js` / `voiceSources.js`) and sends it here; the text goes back to the pane's input box, where
+the user edits and sends it like typed text ("Send immediately", off by default, sends it at once). The model has no
+tool for the mic or for these routes. The only model-side change is one line of the system prompt (`prompt.js`): a
+message may be a speech transcript, so expect misheard words (Pianoid terms above all) and ask once when a misheard
+word would change the action.
 
 | | |
 |---|---|
 | routes | `POST /stt?language=auto\|en\|ru&model=base\|small\|medium` (body `audio/*`, the pane sends 16 kHz mono PCM16 WAV; ≤ 8 MB) -> `{ok, text, language, duration_s, elapsed_s, load_s, model}` or 422 `{ok: false, error}`; `POST /stt/warm?model=` loads the model ahead (the pane calls it when recording starts); `GET /stt/status` = `{available, python, running, defaultModel, models, languages, cached, lastError}`. A localhost page or no page (a foreign Origin is refused, as for `/auth`) |
 | engine | `stt/worker.py`, a persistent Python child of the service (JSON lines on stdin / stdout): faster-whisper, `device="cpu"`, `compute_type="int8"`, `CUDA_VISIBLE_DEVICES=""`, `cpu_threads` = min(4, cores / 2) (`PIANOID_STT_THREADS`), below-normal process priority: it never touches the GPU and yields the CPU to the realtime engine. VAD trims silence; a short domain prompt (Pianoid vocabulary, per language) biases the decoder |
 | language | `auto` = Whisper's per-segment detection from the same encoder pass (`multilingual=True`; a separate `detect_language` pass would add a second encoder run, +3 s on small); the reply's `language` is read from the text's script (Cyrillic = ru). `en` / `ru` force the language |
-| model | the request's `model`, else `PIANOID_STT_MODEL`, else `small`. A model missing from the Hugging Face cache downloads on first use (small ≈ 480 MB, medium ≈ 1.5 GB) |
+| model | the request's `model`, else `PIANOID_STT_MODEL`, else `medium` (user decision 2026-11-04: accuracy first; the pane's default is medium too). A model missing from the Hugging Face cache downloads on first use (small ≈ 480 MB, medium ≈ 1.5 GB) |
 | Python | `PIANOID_STT_PYTHON`, else `<PIANOID_CORE_DIR or <Install>/PianoidCore>/.venv` (the canonical venv carries faster-whisper). Missing Python / faster-whisper = a 422 with the reason, shown in the pane |
 | lifecycle | started on the first request, model kept loaded, ended after 10 min idle; one request at a time (a queue); a request over 120 s kills the worker (the next starts afresh); clips are written to `<root>\stt\` only for the call and deleted after it |
 
 Measured (2026-11-04, i5-9400F 6 cores, 3 threads, int8, 8-11 s clips of the EN / RU fixtures `fixtures/stt`, Windows
 SAPI voices, with the user's live stack running): **small** 3.8-5.2 s forced, 4.0-6.2 s auto, model load 2.4-2.9 s
 (hidden by the warm-up); EN exact except "baseline" -> "bassline" once, RU close ("сыграю", "За грузей"); **medium**
-10.5-14.4 s forced, 18-28 s with a separate language pass (slower than real time on this CPU); **base** 1.2-1.6 s but
-splits Russian words ("наноти", "Моддеки"). Hence the default `small`. Tests: `test/stt.test.js` (routes, worker
+10.5-14.4 s forced, 15.3-15.7 s auto (one encoder pass; 18-28 s with a separate language pass), model load 9.8 s
+(the warm-up overlaps it with the speaking), the best Russian ("сыграй"); **base** 1.2-1.6 s but splits Russian words
+("наноти", "Моддеки"). Default: `medium` (the user chose accuracy; the pane shows "Transcribing… N s" meanwhile). Tests: `test/stt.test.js` (routes, worker
 crash / hang / idle / missing over `fixtures/fake-stt-worker.js`; `PIANOID_STT_E2E=1` runs the real worker on the
 fixtures); the pane's own encoder end to end: `docs/development/diagnostics/dev-voice-fe-wav-e2e.mjs`.
 
-**Which microphone.** The browser's. The engine's ASIO session owns the audio interface (Behringer UMC1820, the rig
-mic on In 1), so the pane never picks an input of it automatically and warns when the user picks one: a browser
-(WASAPI) capture of an ASIO-owned interface can make the driver reset or change rate and disturb the engine's audio.
-Taking the rig mic without that risk would need the backend to hand the ASIO input to the service (not built).
+**Which microphone.** A browser mic, or the **rig mic**. The engine's ASIO session owns the audio interface (Behringer
+UMC1820, the rig mic on In 1), so the browser never opens an input of it automatically and warns when the user picks
+one (a browser / WASAPI capture of an ASIO-owned interface can make the driver reset or change rate). The rig mic is
+recorded by the ENGINE instead: "Rig mic (IN 01)" in the voice settings (offered when `GET :5000/voice/status` says
+available) makes the pane call `POST :5000/voice/start` / `stop`, which use the engine's existing mic capture inside
+its running ASIO callback (no reopen, no rate change, synthesis keeps running; REST_API.md "Voice capture"), and the
+clip (16 kHz WAV) comes back to the pane, which sends it here. Quiet clips (the rig mic has no AGC) are raised to
+-6 dBFS (at most +40 dB) by the worker before transcription.
 
 ## Analysis sandbox (v2 P5)
 
