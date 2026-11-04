@@ -6,7 +6,10 @@
  *
  * Edits: every `state_changed` not caused by the assistant itself (source kind `assistant`) becomes an edit
  * {t, domain, key, label, before, after, source}; `after` is the event's stored value of the key, `before` the last
- * value this session saw (the stream or the GET seed of the focus pitches at start), else null = "not observed".
+ * value this session saw (the stream or the GET seed of the focus pitches at start); on a miss the backend's undo
+ * history supplies it (GET /history/steps?domain&key: the stored before / after of that edit, found by its `after`;
+ * also the values of an edit of more than 16 keys, which the event leaves out). A backend without the route, or an
+ * edit the history does not hold (session state, a replay), stays "before not observed".
  * Steps are delimited by RENDERS: a step is ready to render after `gap_s` without edits and is SEALED when an
  * offline render starts (engine_busy start of /get_chart_test or /play_keyboard): its after-renders, which are also
  * the next step's before-renders. An edit after the quiet gap but before any render re-opens the step ("merged"); an
@@ -29,9 +32,15 @@ const RENDER = /get_chart_test|play_keyboard/;
 const MAX_STEPS = 60;
 const MAX_EDITS = 200;
 const MAX_MS = 4 * 3600 * 1000;
+const RESOLVE_PER_EVENT = 16;      // history lookups per event (a whole-keyboard edit keeps the rest unresolved)
+/** Domains the backend undo history records (REST_API.md "Undo / redo (SSOT I3)"): only these can be looked up. */
+const UNDOABLE = new Set(['string', 'mode', 'hammer', 'gauss', 'excitation', 'string_excitation_curves', 'feedin', 'feedback',
+  'feedin_mask', 'feedback_mask', 'sound_channel', 'sound_channel_mask', 'string_sound_channel', 'excitation_energy',
+  'deck_feedback_coefficient', 'thump', 'pedal']);
 
-/** The value of `key` in a state_changed `after`: {key: v}, or {field: {key: v}} (excitation_energy). */
+/** The value of `key` in a state_changed `after`: {key: v}, or {field: {key: v}} (excitation_energy); null key = all. */
 export function valueOf(after, key) {
+  if (key === null) return after ?? undefined;
   if (!after || typeof after !== 'object') return undefined;
   if (Object.hasOwn(after, key)) return after[key];
   const nested = Object.entries(after).filter(([, v]) => v && typeof v === 'object' && Object.hasOwn(v, key));
@@ -39,6 +48,14 @@ export function valueOf(after, key) {
 }
 
 const short = (v) => (typeof v === 'number' ? Number(v.toPrecision(6)) : v);
+
+/** `part` (a history snapshot, possibly only the edited fields) agrees with `full` (the event's stored value). */
+export function agrees(full, part) {
+  if (part && typeof part === 'object' && !Array.isArray(part) && full && typeof full === 'object') {
+    return Object.keys(part).every((k) => agrees(full[k], part[k]));
+  }
+  return JSON.stringify(full) === JSON.stringify(part);
+}
 
 /** before -> after in a few words: the changed fields of an object, the changed cells of a row, or a scalar. */
 export function diffLabel(before, after) {
@@ -50,7 +67,8 @@ export function diffLabel(before, after) {
     return `${shown}${idx.length > 6 ? ` (+${idx.length - 6} more)` : ''}`;
   }
   if (before && after && typeof before === 'object' && typeof after === 'object') {
-    const keys = Object.keys(after).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+    // the history keeps only the edited fields of a string / mode row: compare the fields both sides hold
+    const keys = Object.keys(after).filter((k) => Object.hasOwn(before, k) && JSON.stringify(before[k]) !== JSON.stringify(after[k]));
     return keys.slice(0, 6).map((k) => `${k} ${JSON.stringify(short(before[k]))} -> ${JSON.stringify(short(after[k]))}`).join(', ');
   }
   return `${JSON.stringify(short(before))} -> ${JSON.stringify(short(after))}`;
@@ -62,6 +80,7 @@ export class TuningObserver {
     this.fetchImpl = fetchImpl;
     this.now = now;
     this.streamFactory = streamFactory || ((opts) => new JournalStream({ url: socketUrl(backendUrl), ...opts }).start());
+    this.pending = new Set();      // history lookups in flight (settle() awaits them)
     this.session = null;           // the active session
     this.last = null;              // the last stopped session (for describe / tuning_record after stop)
   }
@@ -73,7 +92,7 @@ export class TuningObserver {
     const s = {
       id, operator, pitches: [...new Set(pitches)], velocities: [...new Set(velocities)], duration_ms, gapMs: gap_s * 1000, note,
       started: this.now(), cache: new Map(), steps: [{ n: 0, status: 'closed', edits: [], flags: [], opened: this.now(), closed: this.now(), renders: 0 }],
-      rendering: false, skipped: 0, levelOnly: 0, events: 0, link: 'connecting', seedErrors: [],
+      rendering: false, skipped: 0, levelOnly: 0, events: 0, link: 'connecting', seedErrors: [], history: 'unused',
     };
     this.session = s;
     await this.seed(s);
@@ -127,16 +146,55 @@ export class TuningObserver {
     // the hammer / bow choice of a key is session state, but it changes the sound of that key
     if (name !== 'state_changed' && !(name === 'session_changed' && p.domain === 'excitation_mode')) return undefined;
     if (p.source?.kind === 'assistant') { s.skipped += 1; return undefined; }
-    for (const key of (p.keys || []).map(String)) {
-      if (LEVEL_ONLY(p.domain, key)) { s.levelOnly += 1; continue; }
+    const keys = (p.keys || []).map(String);
+    let lookups = 0;
+    for (const key of keys.length ? keys : [null]) {       // keys [] = a whole-domain value (thump, pedal, baseline)
+      if (key !== null && LEVEL_ONLY(p.domain, key)) { s.levelOnly += 1; continue; }
+      const ck = `${p.domain}:${key ?? '*'}`;
       const after = valueOf(p.after, key);
-      const before = s.cache.get(`${p.domain}:${key}`);
-      if (after !== undefined) s.cache.set(`${p.domain}:${key}`, after);
-      else s.cache.delete(`${p.domain}:${key}`);
-      this.edit({ domain: p.domain, key, label: `${p.domain} [${key}] ${diffLabel(before, after)}`, before: before ?? null, after: after ?? null, source: p.source?.kind ?? null, ts: p.ts });
+      const before = s.cache.get(ck);
+      if (after !== undefined) s.cache.set(ck, after);
+      else s.cache.delete(ck);
+      const e = this.edit({ domain: p.domain, key, label: this.label(p.domain, key, before, after), before: before ?? null, after: after ?? null, source: p.source?.kind ?? null, ts: p.ts });
+      if (e && before === undefined && UNDOABLE.has(p.domain) && lookups < RESOLVE_PER_EVENT) {
+        lookups += 1;
+        const job = this.resolve(s, e, ck).finally(() => this.pending.delete(job));
+        this.pending.add(job);
+      }
     }
     return undefined;
   }
+
+  label(domain, key, before, after) { return `${domain}${key === null ? '' : ` [${key}]`} ${diffLabel(before, after)}`; }
+
+  /** A missing before (and an omitted after) from the backend undo history: the latest step of this domain / key
+   * whose stored `after` agrees with the event's. Never fatal: a backend without the route is noted once. */
+  async resolve(s, e, ck) {
+    if (s.history === 'unavailable') return;
+    const q = `domain=${encodeURIComponent(e.domain)}${e.key === null ? '' : `&key=${encodeURIComponent(e.key)}`}&limit=5`;
+    try {
+      const r = await this.fetchImpl(`${this.backendUrl}/history/steps?${q}`);
+      if (!r.ok) { if (r.status === 404) s.history = 'unavailable'; return; }
+      s.history = 'used';
+      const steps = ((await r.json()).groups || []).flatMap((g) => g.steps || []).filter((st) => st.domain === e.domain);
+      const hit = steps.find((st) => e.after === null || agrees(e.after, valueOf(st.after, e.key)));
+      if (!hit) return;
+      const before = valueOf(hit.before, e.key);
+      if (before === undefined) return;
+      e.before = before;
+      if (e.after === null) {
+        e.after = valueOf(hit.after, e.key) ?? null;
+        if (e.after !== null && !s.cache.has(ck)) s.cache.set(ck, e.after);
+      }
+      e.label = this.label(e.domain, e.key, before, e.after ?? undefined);
+      e.before_from = 'history';
+    } catch {
+      s.history = 'unavailable';
+    }
+  }
+
+  /** Wait for the history lookups in flight (tests; a status read does not need to). */
+  async settle() { await Promise.all([...this.pending]); }
 
   /** A render start seals the current step (its state is what the render hears); the step counts its renders. */
   busy(p) {
@@ -159,7 +217,7 @@ export class TuningObserver {
     const s = this.session;
     let step = this.current();
     if (step.sealed || step.n === 0) {
-      if (s.steps.length > MAX_STEPS) return;
+      if (s.steps.length > MAX_STEPS) return null;
       const flags = [];
       if (!step.sealed) flags.push('no_baseline_render');
       else if (step.renders < step.expected || s.rendering) {
@@ -173,8 +231,11 @@ export class TuningObserver {
       step.closed = null;
       if (!step.flags.includes('merged')) step.flags.push('merged');
     }
-    if (step.edits.length < MAX_EDITS) step.edits.push({ t: new Date(this.now()).toISOString(), ...e });
     step.last = this.now();
+    if (step.edits.length >= MAX_EDITS) return null;
+    const rec = { t: new Date(this.now()).toISOString(), ...e };
+    step.edits.push(rec);
+    return rec;
   }
 
   /** Close the open step after the quiet gap; end a session that runs too long. */
@@ -217,7 +278,7 @@ export class TuningObserver {
     return {
       observing: s === this.session, id: s.id, operator: s.operator, pitches: s.pitches, velocities: s.velocities, duration_ms: s.duration_ms,
       started: new Date(s.started).toISOString(), link: s.link, events: s.events, assistant_edits_ignored: s.skipped, level_only_ignored: s.levelOnly,
-      seed_errors: s.seedErrors, render_settings: { duration_ms: s.duration_ms, observe: s.id },
+      seed_errors: s.seedErrors, history_steps: s.history, render_settings: { duration_ms: s.duration_ms, observe: s.id },
       steps: s.steps.map((st) => this.stepView(s, st)),
       todo: s.steps.map((st) => this.todo(s, st)).filter(Boolean),
     };

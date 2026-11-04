@@ -245,7 +245,7 @@ or tune by hand while you are open.
 
 | Tool | Does | Asks |
 |---|---|---|
-| `observe {action: start, operator, pitches, velocities?, duration_ms?, gap_s?}` | follows the backend's state broadcast (read-only: a socket.io client that never emits a write); seeds the focus pitches' stored string / hammer / excitation values so the first edit of each has a before | no (category view) |
+| `observe {action: start, operator, pitches, velocities?, duration_ms?, gap_s?}` | follows the backend's state broadcast (read-only: a socket.io client that never emits a write); the before value of an edit is the last value the session saw (a start seed of the focus pitches, then the stream), else the backend's undo history (`GET /history/steps`, which also fills the values of a whole-keyboard edit) | no (category view) |
 | `observe {action: status}` | the steps: each edit as `domain [key] field before -> after`, its time and source (fe, midi_cc, undo, ...); the step state (`open`, `ready_to_render`, `rendered`), flags, what to render, the `todo` | no |
 | `observe {action: stop}` | ends watching; the steps stay readable for describe and `tuning_record` | no |
 | `observe_describe {step, description, phrases?, verdict?}` | the library pairs the step's after-samples with the session's earlier samples (same pitch and velocity), measures the trait deltas, stores the observation and answers what the words meant this time and so far | rule Sample library |
@@ -314,9 +314,10 @@ high. Each step counts once (the median over its pitches and velocities). Eviden
   excess are open: no lever is known. Say so when the request lands there.
 - Scores from different settings (order, iterations, pedal, feedback) are not comparable; neither are live and
   rendered levels.
-- Observe mode: the before value of an edit is what the session saw (the stream, or the start seed of the focus
-  pitches' string / hammer / excitation); an edit of another key or domain shows "before not observed" (the backend
-  undo history holds it but has no read route). An edit of more than 16 keys at once carries no values (refetch).
+- Observe mode: the before value of an edit comes from what the session saw or from the backend undo history
+  (`GET /history/steps`, `history_steps: used` in the status). Session state (the hammer / bow switch) is not in the
+  history and shows "before not observed" on its first change; so does every edit on a backend without the route
+  (`history_steps: unavailable`). Of an edit of more than 16 keys, 16 are looked up; the rest show no values.
   The live step buffer is in the assistant service's memory: a restart of the service ends the session (the described
   steps are already stored). A phrase is read as describing the change the step caused; the lexicon learns nothing
   from a step without comparable pairs.

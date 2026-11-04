@@ -113,6 +113,50 @@ test('recorded session: steps delimited by renders, seed + stream before values,
   assert.equal(obs.find(stopped.id).id, stopped.id);
 });
 
+test('history: a before the session never saw comes from GET /history/steps (matched by its after), also the values of a >16-key edit and a keyless domain; no route = noted once', async () => {
+  const asked = [];
+  const groups = {
+    'domain=hammer&key=62': [{ label: 'hammer hammer_width [62] (fe)', steps: [{ domain: 'hammer', keys: ['62'], before: { 62: { hammer_width: 0.02 } }, after: { 62: { hammer_width: 0.025 } } }] },
+      { label: 'older', steps: [{ domain: 'hammer', keys: ['62'], before: { 62: { hammer_width: 0.01 } }, after: { 62: { hammer_width: 0.02 } } }] }],
+    'domain=string&key=40': [{ label: 'string gamma [40,41,42...] (fe)', steps: [{ domain: 'string', keys: ['40'], fields: ['gamma'], before: { 40: { gamma: 1.0 } }, after: { 40: { gamma: 0.8 } } }] }],
+    'domain=thump': [{ label: 'thump (fe)', steps: [{ domain: 'thump', keys: [], before: { enabled: false, gain: 1 }, after: { enabled: true, gain: 1 } }] }],
+  };
+  const fetchImpl = async (url) => {
+    asked.push(url);
+    const q = url.split('/history/steps?')[1]?.replace(/&limit=\d+$/, '');
+    if (q === undefined) return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ entry: 'E', groups: groups[q] || [] }) };
+  };
+  const obs = new TuningObserver({ backendUrl: 'http://b', fetchImpl, now: () => 0, streamFactory: () => ({ close() {} }) });
+  await obs.start({ operator: 'leonid', pitches: [60], velocities: [95] });
+  obs.ingest('state_changed', { domain: 'hammer', keys: [62], after: { 62: { hammer_width: 0.025, hammer_radius: 0.0125 } }, source: { kind: 'fe' } });
+  obs.ingest('state_changed', { domain: 'string', keys: Array.from({ length: 17 }, (_, i) => 40 + i), after: null, source: { kind: 'fe' } });
+  obs.ingest('state_changed', { domain: 'thump', keys: [], after: { enabled: true, gain: 1 }, source: { kind: 'fe' } });
+  obs.ingest('session_changed', { domain: 'excitation_mode', keys: [60], after: { 60: 1 }, source: { kind: 'fe' } });
+  await obs.settle();
+  const edits = obs.session.steps[1].edits;
+  assert.equal(edits[0].label, 'hammer [62] hammer_width 0.02 -> 0.025');
+  assert.equal(edits[0].before_from, 'history');
+  assert.equal(edits[1].label, 'string [40] gamma 1 -> 0.8');                       // values the event left out
+  assert.match(edits[2].label, /values not in the event/);                          // no history step for key 41
+  assert.equal(edits.filter((e) => e.domain === 'string').length, 17);
+  assert.equal(asked.filter((u) => u.includes('domain=string')).length, 16);        // at most 16 lookups per event
+  assert.equal(edits[18].label, 'thump enabled false -> true');
+  assert.match(edits[19].label, /before not observed/);                            // session state: not in the history
+  assert.equal(asked.some((u) => u.includes('excitation_mode')), false);
+  assert.equal(obs.view().history_steps, 'used');
+  // a backend without the route: noted once, no more lookups
+  const old = new TuningObserver({ backendUrl: 'http://b', fetchImpl: async (url) => { asked.push(url); return { ok: false, status: 404 }; }, now: () => 0, streamFactory: () => ({ close() {} }) });
+  await old.start({ operator: 'x', pitches: [60] });
+  const n = asked.length;
+  old.ingest('state_changed', { domain: 'hammer', keys: [62], after: { 62: { hammer_width: 0.03 } }, source: { kind: 'fe' } });
+  await old.settle();
+  old.ingest('state_changed', { domain: 'hammer', keys: [63], after: { 63: { hammer_width: 0.03 } }, source: { kind: 'fe' } });
+  await old.settle();
+  assert.equal(asked.length - n, 1);
+  assert.equal(old.view().history_steps, 'unavailable');
+});
+
 test('an edit before the baseline render is flagged; one session at a time; the 4 h limit stops it', async () => {
   const { obs, setTime } = await recorded();
   // a level-only change (the volume slider) is not a step: a peak-normalised render cannot hear it
