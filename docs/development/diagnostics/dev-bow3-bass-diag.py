@@ -37,12 +37,12 @@ def main():
     mw = os.path.join(args.core, "pianoid_middleware")
     sys.path.insert(0, mw)
     os.chdir(mw)
-    import pianoidCuda as pc
     from pianoid import initialize
     p = initialize(os.path.join(mw, "presets", "BaselinePreset1.json"), filterlen=48 * 128 * 3,
                    string_iteration=4, array_size=384, sample_rate=SR, samples_in_cycle=SPC,
                    buffer_size=4, max_volume=5e18, audio_on=False, audio_driver_type=0,
                    use_debug_build=args.debug)
+    import pianoidCuda as pc   # AFTER initialize: an earlier import pins the release variant
     eng = p.pianoid
     ns = eng.getNumStrings()
     fb_default = p.get_deck_feedback_coefficient()
@@ -61,7 +61,19 @@ def main():
                 p.set_pitch_excitation_mode(P, 0)
                 m = h.metrics(x, f0, ref)
                 row = {"pitch": P, "strings": strings, "deck_feedback": "default" if fb is None else fb, **m}
-                if args.debug:
+                if args.debug:   # a short run of its own: the record buffer holds 500 cycles from the note-on
+                    p.set_pitch_excitation_mode(P, 1)
+                    eng.resetStringsState()
+                    eng.clearRecords()
+                    q = pc.EventQueue()
+                    e = pc.PlaybackEvent()
+                    e.type, e.channel, e.cycle_index, e.data = pc.EventType.NOTE_ON, 0, 2, (P << 8) | 90
+                    q.addEvent(e)
+                    cfg = pc.PlaybackConfig()
+                    cfg.audio_enabled, cfg.record_to_buffer, cfg.max_duration_ms = False, False, 1200
+                    cfg.sample_rate, cfg.samples_per_cycle = SR, SPC
+                    assert eng.runOfflinePlayback(q, cfg).completed_successfully
+                    p.set_pitch_excitation_mode(P, 0)
                     rec = np.array(eng.getSoundRecords(100000)).reshape(-1, 4, ns, SPC)
                     per_string = {}
                     for s in strings:
