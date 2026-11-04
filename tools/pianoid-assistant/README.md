@@ -94,7 +94,7 @@ fixtures); the pane's own encoder end to end: `docs/development/diagnostics/dev-
 **Which microphone.** A browser mic, or the **rig mic**. The engine's ASIO session owns the audio interface (Behringer
 UMC1820, the rig mic on In 1), so the browser never opens an input of it automatically and warns when the user picks
 one (a browser / WASAPI capture of an ASIO-owned interface can make the driver reset or change rate). The rig mic is
-recorded by the ENGINE instead: "Rig mic (IN 01)" in the voice settings (offered when `GET :5000/voice/status` says
+recorded by the ENGINE instead: "Rig mic (IN 01)" in the voice settings (the Assistant pane's gear; offered when `GET :5000/voice/status` says
 available) makes the pane call `POST :5000/voice/start` / `stop`, which use the engine's existing mic capture inside
 its running ASIO callback (no reopen, no rate change, synthesis keeps running; REST_API.md "Voice capture"), and the
 clip (16 kHz WAV) comes back to the pane, which sends it here. Quiet clips (the rig mic has no AGC) are raised to

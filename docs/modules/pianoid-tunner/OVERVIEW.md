@@ -497,6 +497,7 @@ Manages all UI configuration state, persisted to `localStorage`. Parameter categ
 | `soundChannelSettings` | `soundChannelSettings` | Piano height, modes width, aggregate mode, `visualization` (bar/line; default `bar` = the shared default, governs BOTH the aggregate view and the per-channel matrix — dev-scbar), `_vizSchema` (hidden migration marker), `autoScale` (bar y-axis auto-range; default ON — applies to both the aggregate curve and the per-channel matrix bars) |
 | `workbenchSettings` | `workbenchSettings` | `visualization` (bar/line) — governs both the default Workbench pane and every dynamic workbench clone — plus `autoScale` (bar y-axis auto-range; default ON) plus `placement` (PER-TYPE: `{fixed, panelFollowing, globalDynamic}`, each screen-bottom/panel-bottom; defaults panel-bottom/panel-bottom/screen-bottom) — where each workbench type docks when spawned; edited in the global ⚙ dialog; see "Workbench types" under Mosaic Window Management |
 | `excitationSettings` | `excitationSettings` | `stretchStep` (positive float, default `1.2`) — multiplier applied per click of the four Excitation pane stretch/shrink toolbar buttons. See "Excitation stretch/shrink toolbar" below |
+| `assistantSettings` | `assistantSettings` | Assistant pane voice input (its gear): `language` (auto/en/ru), `model` (medium/small/base), `deviceId` (""=automatic, `rig`, or a browser input id), `sendImmediately`. Defaults `DEFAULT_ASSISTANT_SETTINGS` (auto/medium/""/false); the dev-voice key `pianoid.assistant.voice` is migrated once (dev-voiceset). See "Voice input" under the Assistant pane |
 
 Includes `migratePresetSettings()` which renames old parameter keys (`user_1` → `audio_driver_type`, `user_3` → `audio_buffer_size`) in-place in localStorage on first load. `loadSetting()` merges stored values on top of current defaults (`{ ...prev, ...parsed }`) so that new fields added to a settings object — such as `visualization` in Wave 2 of the drawable-chart merge — are present even for users whose localStorage predates the field.
 
@@ -979,7 +980,7 @@ the command registry). Proposal + user decisions D1–D7: `docs/proposals/ai-ass
   own Pianoid installation / OS account with their own assistant login; there is no in-app user management.
 - The assistant drives this UI through the I5 `ui` commands (leader tab), so its pane opening / zooming shows the
   "Layout driven by assistant" chip.
-- **Voice input (dev-voice).** `components/Assistant/VoiceInput.jsx` (mic button + settings popover) over
+- **Voice input (dev-voice).** `components/Assistant/VoiceInput.jsx` (mic button; `micOptions` + `VoiceSettingsNote` for the settings) over
   `hooks/useVoiceInput.js`, `hooks/voiceSources.js` (the two sources) and the pure `utils/wavEncoder.js`. Hold to
   talk (released after 450 ms) or click to start / stop, `Esc` cancels, 60 s cap; red button + elapsed time + level
   meter while recording, then "Transcribing… N s". Browser source: `getUserMedia` (echo cancellation / noise
@@ -994,10 +995,19 @@ the command registry). Proposal + user decisions D1–D7: `docs/proposals/ai-ass
   turn). Input choice (`chooseInput`): the user's pick, else the system default, but never an input of the engine's
   audio interface (`ENGINE_DEVICE` = Behringer / UMC / ASIO in the label) unless picked explicitly (then a warning);
   on first use without labels the default is opened and, if it is the engine's interface, closed at once and
-  another mic opened. Prefs (language auto / en / ru, model base / small / medium, mic, send immediately) =
-  localStorage `pianoid.assistant.voice` (per-browser convenience; defaults auto / medium / automatic mic / off). Errors shown above the input: permission denied,
+  another mic opened. Settings (dev-voiceset): the Assistant pane's own settings, by the one pane convention — the
+  pane wraps its content in `<PaneWithSettings>` (gear in the title bar → **Assistant Settings** dialog →
+  `ObjectInspector`, Apply commits) bound to the `useSettings` bucket `assistantSettings` (localStorage
+  `assistantSettings`; fields `language` auto / en / ru, `model` medium / small / base, `deviceId` "" = automatic /
+  `rig` / a browser input id, `sendImmediately`; defaults auto / medium / automatic / off), passed in by
+  `PianoidTuner` as `settings` / `setSettings`; `useVoiceInput` only reads them (`prefs`). The microphone choices are
+  run-time (`micOptions(devices, rig, current)` → the dialog's `fieldOptions.deviceId`), the gear re-lists them
+  (`onOpen` → `refreshDevices`), and the note above the fields (`headerContent`) carries the engine-interface
+  warning. The old key `pianoid.assistant.voice` is adopted once by `loadSettingsFromLocalStorage`, then removed.
+  Errors shown above the input: permission denied,
   no mic, only the engine's interface, too short, service down, transcription failed, nothing recognised. Tests:
-  `utils/__tests__/wavEncoder.test.js`, `hooks/__tests__/useVoiceInput.test.js`, `AssistantPane.test.jsx`.
+  `utils/__tests__/wavEncoder.test.js`, `hooks/__tests__/useVoiceInput.test.js`, `AssistantPane.test.jsx`,
+  `hooks/__tests__/useSettings.assistantSettings.test.jsx`.
 
 ### UI commands (I5, dev-c491)
 
@@ -1067,6 +1077,8 @@ Manages the set of open/closed mosaic panes and their IDs.
 Owns the open/close state for one pane's settings dialog and portals a gear `<IconButton>` into the MosaicWindow's native title bar (`.mosaic-window-controls` ancestor of the pane's root). Lifted from the existing pattern in `modules/ModalAdapter.jsx:60-81` (the canonical reference) and generalised so every consumer pane gets exactly one gear with one tooltip and zero duplication.
 
 Concern (P2): own dialog `open` state + portal the gear; **knows nothing about the settings bucket itself** — caller passes settings + setSettings to `<PaneSettingsDialog>` directly through `<PaneWithSettings>`.
+
+Optional `onOpen` is called when the gear opens the dialog (the Assistant pane re-lists the microphones there).
 
 Returns: `{ open, openSettings, closeSettings, gearPortal }`. The `gearPortal` value is wrapped in a `React.Fragment` (NOT a bare `ReactPortal`). This wrap is load-bearing: MUI v6 Box's `propTypes.children` uses the `prop-types` package's `node` validator, which **predates the ReactPortal type and does not recognise `Symbol(react.portal)` as a valid node**. A bare ReactPortal embedded in a Box's `children` array trips `Warning: Failed prop type: Invalid prop \`children\` supplied to ForwardRef(Box)`. Wrapping in a Fragment makes the children look like `[Symbol(react.fragment), Symbol(react.element), ...]` — all valid per the validator. (Same pattern is needed if `modules/ModalAdapter.jsx` is ever updated; it has the same warning today, out of scope for the dev-a328 refactor.)
 
@@ -1406,6 +1418,8 @@ Every other pane that owns a settings bucket wraps its content in `<PaneWithSett
   <Modes ... />
 </PaneWithSettings>
 ```
+
+Optional props, passed through: `headerContent` (a note above the fields — the dialog's generic slot), `fieldOptions` (`{ field: [{ value, label }] }` — select choices known only at run time; they replace that field's `PARAMETER_CONFIG` options in `ObjectInspector`), `onOpen` (see `usePaneSettingsDialog`). A pane may render the HOC itself when its dynamic options live in the pane (the Assistant pane does: its microphones come from its voice hook).
 
 The HOC owns one `usePaneSettingsDialog` instance, portals one gear into the MosaicWindow's `.mosaic-window-controls`, and renders one `<PaneSettingsDialog>` at the end of its DOM subtree. Every Pianoid pane that needs settings uses this HOC — **one canonical pattern, no per-pane wrappers**. Phase 3 of the refactor consolidated all 9 panes (Modes, Strings, Excitation, Feedin, Feedback, Sound Channels, Virtual Piano, Charts, Workbench) onto this single HOC. The Modal Adapter pane is the one exception — it has its own bespoke `useLayoutEffect` portal pattern (`modules/ModalAdapter.jsx:60-81`) that pre-dates the refactor and was kept as-is to avoid scope creep.
 
