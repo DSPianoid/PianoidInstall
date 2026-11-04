@@ -793,7 +793,10 @@ keyboard. A bass key whose unison spans several blocks goes with all of them (th
 `capacity`). No unison string is ever removed — every kept key keeps all its strings — and the kept blocks are
 not re-packed (string IDs renumbered, order kept). Output blocks (and a thump string on an output-block slot) are
 never touched; modes above the full-deck ceiling (`num_strings − channels`) are cut, the first ones kept;
-channels, `array_size` and the output scale stay. Measured: at 38 blocks (RTX 3060 Ti) BaselinePreset1 keeps
+channels, `array_size` and the output scale stay. The per-pitch `model_parameters` of a removed key go with it
+(`bow.pitches`, `excitation_mode.bow`, `thump.trim_db`; an emptied `excitation_mode` is dropped); the thump
+`level_coeff` (per velocity level) and `controller_mappings` (key ranges, resolved against the loaded keys) stay
+as they are. Measured: at 38 blocks (RTX 3060 Ti) BaselinePreset1 keeps
 keys 37–88 (52 of 84), Tuning18-10-26ver1 keys 38–86 (49 of 88, 37 blocks, modes 196 → 141); at 28 blocks
 42–78 and 43–76. The full success response and `/health` carry `gpu_fit` (`null` = loaded as is):
 `{trimmed, message, source_path, capacity, blocks_per_sm, num_sms, device_sms, num_regs, array_size,
