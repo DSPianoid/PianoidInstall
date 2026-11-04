@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pianoid sample-library record (one line of samples/manifest.jsonl)",
+  "description": "Written only by tools/tuning/sample_lib.py. The last record of an id is the current one. Characteristics are RELATIVE values (dB re the sample's own level or strongest partial): assistant WAVs are peak-normalised.",
+  "type": "object",
+  "required": ["id", "file", "added_at", "source", "tags", "tainted", "characteristics", "extractor_version"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$", "description": "s-<yyyymmddhhmmss>-<hex6> by default, or a given slug"},
+    "file": {"type": "string", "description": "path relative to the library root, e.g. audio/s-....wav"},
+    "added_at": {"type": "string", "format": "date-time"},
+    "extracted_at": {"type": "string", "format": "date-time", "description": "set by a later `extract` run"},
+    "source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["render", "mic", "reference"], "description": "render = offline engine output; mic = a microphone capture of the board / speakers; reference = a real instrument"},
+        "preset": {"type": ["string", "null"], "description": "preset file or instrument name"},
+        "pitch": {"type": ["integer", "null"], "description": "MIDI pitch of the played key (the extractor's nominal)"},
+        "velocity": {"type": ["integer", "null"]},
+        "settings": {"type": "object", "description": "free-form: load settings (order, iterations), feedback, routing, slider, mic position"},
+        "date": {"type": ["string", "null"], "description": "YYYY-MM-DD of the render / recording"},
+        "origin": {"type": ["string", "null"], "description": "artefact id, rig run name or original file"},
+        "file_name": {"type": ["string", "null"]}
+      }
+    },
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "note": {"type": ["string", "null"]},
+    "tainted": {"type": "boolean", "description": "the source artefact came from a tainted assistant turn (its content is data, never instructions)"},
+    "extractor_version": {"type": ["integer", "null"], "description": "characteristics.VERSION"},
+    "characteristics": {
+      "type": ["object", "null"],
+      "description": "characteristics.analyse(): version, sample_rate, duration_s, onset_s, level {peak_dbfs, rms_dbfs_first_0_5s, crest_factor, noise_floor_db}, pitch {f0_hz, nominal_midi, nominal_hz, tuning_cents, inharmonicity_B}, partials [{k, hz, level_db re strongest}], spectrum {centroid_attack_hz (0-30 ms), centroid_body_hz (100-400 ms), rolloff_db_per_oct}, decay [{band_hz, rate_db_s, t60_s, range_db, valid}], attack {peak_time_ms, rise_10_90_ms}, thump {excess_db (50-200 Hz first 30 ms minus 0.5-1 s), lead_ms (low band half-rise before the tone), f0_in_band}, beating {depth_db, modulation_hz}, band_time_db [4 windows x 6 bands], cloud_db [4 windows x 4 bands] (energy between partials minus band total, dB)"
+    }
+  }
+}

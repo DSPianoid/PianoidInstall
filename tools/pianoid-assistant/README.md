@@ -327,6 +327,29 @@ with `<saved_outputs untrusted="true">`: the newest 10 ids + titles.
 | pane (Notes tab, `NotesPanel.jsx`) | every note in full with pinned / fact / tainted chips; Edit (saved as the user's, untainted), Delete (asks first); **Save hand-off** sends the hand-off request as a turn. WS `note_update {id, title?, body?}` / `note_delete {id}`; the service sends `notes` after every change and `note_error` for a refused edit |
 | audit | every save / update / delete (`event: note`: op, by, id, title, tainted, pinned, pruned) plus the activity entries of the tool calls |
 
+## Sample library and tuning records (dev-tuneskill, user request 2026-11-04)
+
+The tuning skill = a docs page the model reads with `read_docs` (`docs/guides/TUNING_FOR_ASSISTANT.md`: hard rules,
+the cooperative loop, the words-to-traits vocabulary, the levers, measuring, the knowledge base, the library, recording)
+plus one routing block in `prompt.js`, like the measurement skill. Its knowledge base is versioned under `docs/tuning/`
+(`knowledge/parameter_effects.json` = SSOT, rendered to `PARAMETER_EFFECTS.md` by `tools/tuning/render_knowledge.py`;
+`cases/` one file per finished case); the model reads both with `read_docs` and never writes them.
+
+Five tools on the in-process `assistant` server (`service/tuningLibrary.js`, wired like the notes):
+
+| Tool | Rule | What |
+|---|---|---|
+| `samples_list {source?, preset?, pitch?, tag?, query?}`, `samples_get {id}`, `samples_compare {a, b}` | view (no confirm) | the repo sample library `<PianoidInstall>/samples` (git-ignored; README + `schema.json` tracked): renders, mic recordings, references and their characteristics card; compare = b minus a (band-time RMS, cloud, partials, cents, B, centroids, T60, attack, thump). Reads are wrapped `<library untrusted>`; a tainted sample taints the turn |
+| `samples_add {artifact_id, file?, source, preset, pitch, velocity, settings, tags, note, id?, date?}` | `library` (Ask by default; taint rule; in the Autonomous preset) | copies ONE WAV of the assistant's own artefact (id + listed file name, never a path) into the library and extracts its card; a tainted artefact / turn marks the sample |
+| `tuning_record {description, interpretation, options_offered, chosen, changes, before, after, samples, verdict, lessons}` | `library` | appends a session record to `samples/sessions.jsonl` + writes the case draft `samples/sessions/<id>.md`; the service first reads `GET /history` so the user's own undo labels are in it (`user_edits`) |
+
+The folder's ONE writer is the CLI `tools/tuning/sample_lib.py` (manifest JSONL, append-only, last record of an id wins),
+run with the canonical venv python (`stt.js` `sttPython`: `PIANOID_STT_PYTHON` > `<PIANOID_CORE_DIR | <Install>/PianoidCore>/.venv`),
+CPU only at below-normal priority; the extractor `tools/tuning/characteristics.py` (f0 + cents, inharmonicity B, partials,
+roll-off, centroids, T60 per band, attack, crest, cloud between partials, thump excess and lead, beating, band-time matrix)
+ports the fit library / auto_tuner / param_sound_harness algorithms. `PIANOID_SAMPLES_DIR` overrides the root. Tests:
+`test/tuningLibrary.test.js`, `test/tuningSkill.test.js`; Python `PianoidCore\.venv\Scripts\python -m pytest tools/tuning/tests`.
+
 ## Bug reports (v2 P6 minimal, dev-947d)
 
 `bug_report` on the in-process `assistant` server (`mcp__assistant__bug_report`, registry-style name `bug.report`,

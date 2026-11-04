@@ -61,6 +61,10 @@ nav:
     - Standards:
       - Diagnostic Bug-Report Tool: development/standards/DIAGNOSTIC_BUG_REPORT_TOOL.md
   - Proposals: proposals/index.md
+  - Tuning Knowledge Base:
+    - Overview: tuning/index.md
+    - Parameter Effects: tuning/knowledge/PARAMETER_EFFECTS.md
+    - Tuning Cases: tuning/cases/index.md
   - Guides:
     - User Guide (English): guides/USER_GUIDE.md
     - "Руководство пользователя (Russian)": guides/USER_GUIDE_RU.md
@@ -71,6 +75,7 @@ nav:
     - Telegram Channel & Voice I/O: guides/TELEGRAM_CHANNEL_SETUP.md
     - Operations Primer (assistant): guides/OPERATIONS_FOR_ASSISTANT.md
     - Measurement Pipeline (assistant): guides/MEASUREMENT_PIPELINE_FOR_ASSISTANT.md
+    - Tuning Skill (assistant): guides/TUNING_FOR_ASSISTANT.md
     - Mode Discovery (assistant): guides/MODE_DISCOVERY_FOR_ASSISTANT.md
 
 markdown_extensions:

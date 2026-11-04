@@ -28,3 +28,8 @@ claude-config/
 # The user's parameter-rule overrides (dev-psafe2, param_rules.RuleTable; $PIANOID_PARAM_RULES overrides the path)
 /param_rules_overrides.json
 /param_rules_overrides.json.tmp
+
+# The sound-sample library (dev-tuneskill): contents local, README + schema tracked
+/samples/*
+!/samples/README.md
+!/samples/schema.json
