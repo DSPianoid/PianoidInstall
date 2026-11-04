@@ -91,7 +91,7 @@ returns) and responses are unchanged.
 |---|---|---|
 | `state_changed` | `entry`, `version`, `domain`, `keys`, `fields`, `after` (+ `opIds` when coalesced) | `domain` of library `entry` changed. `version` = per-entry counter, stamped at EMIT time: strictly +1 per emitted `state_changed` of that entry (a coalesced event takes the version of its emission), `0` for `entry null`. `keys` = the addressed key numbers (see key spaces below; field NAMES for `runtime`). `fields` = edited field names (`string`/`mode`/`hammer`/`excitation_energy`), else `null`. `after` = the STORED values of exactly `keys` in the `GET /get_parameter/<domain>/<key>` shape (`{"57": [..]}`), or `null` → refetch the domain |
 | `preset_changed` | `kind`, `entry`, `version` (the entry's current version) | `kind` ∈ `load_full` · `load_hot` · `load_structural` · `switch` · `spawn` · `promote` · `unload` · `save` · `library_load`; `entry` = the entry it concerns (the ACTIVE one for load / save / switch). `load_full` / `load_structural` / `switch` / `unload` replace editor data (today's `presetVersion` bump); `load_hot` keeps it; `save` / `promote` / `spawn` / `library_load` change only the library list |
-| `session_changed` | `domain`, `keys`, `after` | session state outside the preset: `fix_velocity` (`after {enabled, level}`), `excitation_mode` (`keys [pitch]`, `after {pitch: 0 hammer / 1 bow}`), `bow` (`after {force, angle, bowed_strings}`, REST writes only; the MIDI CCs do not journal), `midi`, `mic`, `limiter`, `synthesis`, `audio`, `calibration_job`, `lifecycle` (`after null` → refetch) |
+| `session_changed` | `domain`, `keys`, `after` | session state outside the preset: `fix_velocity` (`after {enabled, level}`), `bow` (`after {force, angle, width, bowed_strings}`, REST writes only; the MIDI CCs do not journal), `midi`, `mic`, `limiter`, `synthesis`, `audio`, `calibration_job`, `lifecycle` (`after null` → refetch) |
 | `domain_invalidated` | `domain` | coarse: refetch the domain. Either a `param_coarse` route (`calibration_curve`, `calibration_reference`, `calibration_params`) or the **I1b safety net**: a GPU upload group that no precise event covered — `deck` (→ `feedin`, `feedback`, `*_mask`, `sound_channel*`, `string_sound_channel`), `string`, `hammer`, `excitation`, `mode`, `excitation_coeffs` (→ `excitation_energy`), `runtime` (→ `GET /get_runtime_parameters`). The backend log names the uncovered call site (`[journal] WARNING …`) |
 | `history_changed` | `entry`, `can_undo`, `can_redo`, `undo` / `redo` (labels, latest first, <=20), `undo_domains` / `redo_domains`, `depth` | the undo history of `entry` changed (a recorded edit, an undo / redo, a clear on load / unload) or the active entry switched — the same payload as `GET /history` (SSOT I3). A HINT outside the state-event stream: no `seq` / `version`, not replayed by `hello` (clients re-read `GET /history` on reconnect) |
 | `engine_busy` | `phase` `start`/`end`, `reason` (endpoint) | a `transient` route (offline chart render, `/start_test`, `/audio/session`, `/synthesis_measure`) temporarily overrides the engine and restores it; no state event follows |
@@ -281,7 +281,7 @@ hammer mass byte-identically. `play.note` through WS `command` vs the raw `play`
   /set_hammer_shape/<pitch>       -- write hammer geometry (delegates to dispatcher)
   /set_fix_velocity         -- enable/disable Fix-MIDI velocity clamp (POST)
   /get_fix_velocity         -- read current Fix-MIDI clamp state (GET)
-  /set_excitation_mode      -- set a pitch's excitation hammer / friction bow (POST)
+  /set_excitation_mode      -- set keys' excitation hammer / friction bow, a preset parameter (POST)
   /get_excitation_mode      -- read every preset pitch's excitation (GET)
   /set_bow_controls         -- live bow force / angle, 0..1 (POST, dev-bow2)
   /get_bow_controls         -- live bow force / angle + bowed string count (GET, dev-bow2)
@@ -1881,12 +1881,21 @@ state per option B.
 
 Read-back of the per-pitch excitation for every pitch of the active preset — `0` = hammer (one-shot
 strike), `1` = friction bow ([SYNTHESIS_ENGINE → Friction bow](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2)):
-a note-on engages the bow with MIDI velocity as bow speed, the note-off lifts it. Session state on the
-live engine (not preset-persisted). The frontend `useExcitationModes` hook hydrates from it on mount, on `presetVersion`
-bumps and on an I2 resync; live edits arrive as `session_changed{domain: 'excitation_mode', keys: [pitch],
-after: {pitch: 0|1}}` (written by `POST /set_excitation_mode {pitch, mode: "hammer"|"bow"|0|1}`, or, dev-bow3, `{pitches:
-[n, ...] | "from<a>to<b>" | "all", mode}` = one write and one `session_changed` with all the keys; 400 on a key
-outside the preset). Session state has no undo history.
+a note-on engages the bow with MIDI velocity as bow speed, the note-off lifts it.
+
+**A preset parameter (dev-bow3).** The preset stores the bowed keys, `model_parameters.excitation_mode =
+{"bow": [pitch, ...]}`; absent = every key hammer, so old presets load unchanged. It is saved, loaded and
+switched with the library; every load / reconstruct / switch pushes it to the engine (after the thump push,
+`excitation_modes.push`). The route reads the preset, not the engine. The frontend `useExcitationModes` hook
+hydrates from it on mount, on `presetVersion` bumps and on an I2 resync.
+
+`POST /set_excitation_mode {pitch, mode: "hammer"|"bow"|0|1}` or `{pitches: [n, ...] | "from<a>to<b>" |
+"all", mode}` is ONE edit through `edit_commit` (owner `excitation_modes.py`): `409 preset_read_only` on an
+original, rule `excitation_mode.modes` (integer 0..1), one `state_changed{domain: 'excitation_mode', keys:
+[pitch, ...], after: {"pitch": 0|1}}` and one undo step (Excitation undo button; per-key, so undoing an older
+edit keeps a later edit of another key); `400` on a key outside the preset. Response `{"message": "OK",
+"mode": 0|1, "pitch" | "pitches", "bow": [the preset's bowed keys]}`. After the engine write the keybed
+thump gains are refreshed once (`Pianoid.set_engine_excitation_modes`, a bowed key fires no thump).
 
 Response `200`:
 ```json
@@ -1896,8 +1905,9 @@ Response `200`:
 ### `POST /set_bow_controls` / `GET /get_bow_controls`
 
 Live friction-bow controls (dev-bow2), the REST twin of the bow MIDI CCs
-([MIDI_SYSTEM → Bow controls](MIDI_SYSTEM.md#bow-controls-dev-bow2)). Body `{"force": 0..1, "angle": 0..1}`
-(either may be omitted; `400` outside 0..1 or when both are missing; `503` without an engine). `force` = bow
+([MIDI_SYSTEM → Bow controls](MIDI_SYSTEM.md#bow-controls-dev-bow2)). Body `{"force": 0..1, "angle": 0..1,
+"width": 1..7}` (any may be omitted; `400` outside the ranges or when all are missing; `width` = bow contact
+points, dev-bow3, default 2, see [SYNTHESIS_ENGINE → Friction bow](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2); `503` without an engine). `force` = bow
 pressure as a fraction of the Schelleng maximum (0.5 = mid playable window), `angle` = bow tilt = softness of
 the friction curve (0 = sharp / bright, 1 = soft / dark). Both apply at once to every bowed note (no
 retrigger; the kernel glides them over ~5 ms) and to later notes. Session state (not preset-persisted;
@@ -1905,7 +1915,7 @@ defaults 0.5 / 0.3 at engine start); a REST write journals `session_changed{doma
 
 Response `200` (both routes):
 ```json
-{"force": 0.5, "angle": 0.3, "bowed_strings": 2, "string_loss": 0.0, "position": 0.0}
+{"force": 0.5, "angle": 0.3, "width": 2, "bowed_strings": 2, "string_loss": 0.0, "position": 0.0}
 ```
 
 Response `400` if `Pianoid not initialized`. Classified `read_only` (records no event).

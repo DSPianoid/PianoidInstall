@@ -1195,7 +1195,7 @@ sites), `Pianoid_excitation.cu` (note-on / off), `Pianoid_synthesis.cu` (`applyB
 [bow-realism proposal, Option B](../../proposals/bow-realism-2026-10-29.md).
 
 A pitch set to bow (`setPitchExcitationMode(pitch, 1)`, REST `POST /set_excitation_mode`, the Excitation
-panel toggle) gets no hammer force row at note-on. Its strings are driven by a **two-way friction contact
+panel toggle; a preset parameter since dev-bow3, `model_parameters.excitation_mode`) gets no hammer force row at note-on. Its strings are driven by a **two-way friction contact
 at the hammer-centre point** (param slot 10): every sub-step the bow-point thread solves the friction force
 against the string's own free update, so stick-slip (Helmholtz motion), the string's pitch and a
 self-limited amplitude come out of the physics.

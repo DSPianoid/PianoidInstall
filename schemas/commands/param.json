@@ -85,10 +85,10 @@
     {
       "name": "param.excitation_mode",
       "title": "Set hammer or bow on keys",
-      "description": "Switches piano keys between the hammer and the friction bow (session state, not saved in the preset). pitches: 'all' | 'from<a>to<b>' | n | [n, ...]; or pitch: one key. mode: hammer | bow. One write, one session_changed event. A bowed key sustains while held, MIDI velocity = bow speed; force / angle / width: param.bow.",
+      "description": "Switches piano keys between the hammer and the friction bow. A preset parameter (saved with the preset, undoable; 409 on a read-only original). pitches: 'all' | 'from<a>to<b>' | n | [n, ...]; or pitch: one key. mode: hammer | bow. One write = one state_changed event and one undo step. A bowed key sustains while held, MIDI velocity = bow speed; force / angle / width: param.bow (session controls).",
       "target": "backend",
       "tier": "write",
-      "approval_category": "runtime",
+      "approval_category": "params",
       "long_running": false,
       "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode",
       "route": {"method": "POST", "path": "/set_excitation_mode"},

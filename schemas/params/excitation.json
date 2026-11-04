@@ -271,6 +271,26 @@
           "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1"
         }
       ]
+    },
+    {
+      "domain": "excitation_mode",
+      "title": "Per-pitch excitation (hammer / friction bow)",
+      "read": "REST GET /get_excitation_mode (from the preset)",
+      "write": "param.excitation_mode {pitch | pitches, mode} (REST POST /set_excitation_mode)",
+      "key_space": "piano pitch",
+      "shape": "{modes: {pitch: 0|1}}",
+      "stored_vs_effective": "Stored in the preset: model_parameters.excitation_mode = {bow: [pitch, ...]} (absent = every key hammer; old presets load unchanged). Saved, loaded and switched with the library; pushed to the engine (read at note-on) on every load / switch / edit. An edit goes through edit_commit: rule excitation_mode.modes (int 0..1), state_changed{excitation_mode}, one undo step per edit, 409 on a read-only original.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode",
+      "fields": [
+        {
+          "name": "modes",
+          "units": "per pitch: 0 = hammer (one-shot strike), 1 = friction bow (sustains while held, velocity = bow speed)",
+          "range": "0 | 1",
+          "class": "stored",
+          "meaning": "Excitation type of each pitch of the active preset.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode"
+        }
+      ]
     }
   ]
 }
