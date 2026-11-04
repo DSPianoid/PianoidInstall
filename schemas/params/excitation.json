@@ -271,6 +271,90 @@
           "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1"
         }
       ]
+    },
+    {
+      "domain": "excitation_mode",
+      "title": "Per-pitch excitation (hammer / friction bow)",
+      "read": "REST GET /get_excitation_mode (from the preset)",
+      "write": "param.excitation_mode {pitch | pitches, mode} (REST POST /set_excitation_mode)",
+      "key_space": "piano pitch",
+      "shape": "{modes: {pitch: 0|1}}",
+      "stored_vs_effective": "Stored in the preset: model_parameters.excitation_mode = {bow: [pitch, ...]} (absent = every key hammer; old presets load unchanged). Saved, loaded and switched with the library; pushed to the engine (read at note-on) on every load / switch / edit. An edit goes through edit_commit: rule excitation_mode.modes (int 0..1), state_changed{excitation_mode}, one undo step per edit, 409 on a read-only original.",
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode",
+      "fields": [
+        {
+          "name": "modes",
+          "units": "per pitch: 0 = hammer (one-shot strike), 1 = friction bow (sustains while held, velocity = bow speed)",
+          "range": "0 | 1",
+          "class": "stored",
+          "meaning": "Excitation type of each pitch of the active preset.",
+          "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode"
+        }
+      ]
+    },
+    {
+      "domain": "bow",
+      "title": "Friction-bow parameters (per pitch)",
+      "read": "param.get {parameter: bow, key_no}",
+      "write": "param.bow {key_no, values} = param.set {parameter: bow, key_no, values}",
+      "key_space": "piano pitch (shared by the pitch's unison strings)",
+      "shape": "{pitch: {speed, force, position, tilt}}; a write may send {field: value} for every key of key_no",
+      "stored_vs_effective": "Stored in the preset: model_parameters.bow.pitches = {pitch: {speed, force, position, tilt}} for the edited pitches only; an absent pitch = the register defaults (speed 0.5; force 0.5 x (x1 up to 40, x0.6 at 46-55, x1 at 60-78, x0.5 from 88); position 1; tilt 0.3 up to 55, 0.1 from 60). GET returns the effective values. Pushed to the engine (BowController, per pitch -> the pitch's strings) on load / switch / edit / undo. A MIDI controller assignment (dev-midictl) moves the ENGINE values within its own range without changing the stored ones; velocity -> speed (default) or force is such an assignment, applied at note-on.",
+      "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2",
+      "fields": [
+        {
+          "name": "speed",
+          "units": "normalised; x BOW_SPEED_SCALE engine displacement per sub-step",
+          "range": "0..1 (rule bow.speed)",
+          "class": "stored",
+          "meaning": "Bow speed; the level follows it linearly. Default: set by the MIDI velocity (velocity / 127) unless the velocity is assigned to force.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2"
+        },
+        {
+          "name": "force",
+          "units": "fraction of the Schelleng maximum force (2 Z vb / (beta (mu_s - mu_d)) at beta 0.125)",
+          "range": "0..1 (rule bow.force)",
+          "class": "stored",
+          "meaning": "Bow pressure. 0.5 = the middle of the Helmholtz window; low = airy / surface sound, high = raucous.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2"
+        },
+        {
+          "name": "position",
+          "units": "multiple of the hammer point's distance from the string end",
+          "range": "0.5..3 (rule bow.position)",
+          "class": "stored",
+          "meaning": "Bow contact point; 1 = the hammer point (beta ~0.12-0.15), larger = towards sul tasto. Kept inside the main string.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2"
+        },
+        {
+          "name": "tilt",
+          "units": "normalised",
+          "range": "0..1 (rule bow.tilt)",
+          "class": "stored",
+          "meaning": "Bow tilt, one physical control: contact width = ribbon x (1 - 0.7 tilt) of the main string (min 3, max 16 points), friction-curve softness v0 = vb (0.2 + 2.8 tilt), string HF loss x 2^(1.2 (tilt - 0.3)).",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2"
+        }
+      ]
+    },
+    {
+      "domain": "bow_settings",
+      "title": "Friction-bow ribbon (per preset)",
+      "read": "param.get {parameter: bow_settings, key_no: all}",
+      "write": "param.set {parameter: bow_settings, key_no: all, values: {max_width}}",
+      "key_space": "none (preset-level)",
+      "shape": "{max_width} (the GET adds limits, fields, engaged_strings, velocity {field, curve}, engine_supported)",
+      "stored_vs_effective": "Stored in the preset: model_parameters.bow.max_width (absent = 0.035). The kernel converts ribbon x (1 - 0.7 tilt) x main-string length to contact points, at least 3, at most 16, inside the main string.",
+      "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2",
+      "fields": [
+        {
+          "name": "max_width",
+          "units": "fraction of the main string",
+          "range": "0..0.5 (rule bow_settings.max_width); default 0.035 (CPU model: 0.06 slips twice per period on C2 at tilt 0.3)",
+          "class": "stored",
+          "meaning": "Hair ribbon of a flat bow; tilt narrows it. 0 = a one-point contact.",
+          "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2"
+        }
+      ]
     }
   ]
 }

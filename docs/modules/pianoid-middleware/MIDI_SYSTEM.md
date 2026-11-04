@@ -479,12 +479,17 @@ force and angle, on joystick for example. They should come by separate midi comm
 
 | Control | MIDI | Engine |
 |---|---|---|
-| Bow speed | NOTE_ON velocity of a bowed pitch (Excitation panel Hammer / Bow toggle, `POST /set_excitation_mode`) | per note, `speed = velocity / 127` |
-| Bow force (pressure) | **CC 1** (mod wheel; joystick Y+ on most keyboards), any channel | live, every bowed note, `force = value / 127` |
-| Bow angle (tilt = friction softness) | **CC 16** (general purpose 1; assign the joystick X axis to it), any channel | live, every bowed note, `angle = value / 127` |
+| Bow speed | NOTE_ON velocity of a bowed pitch (Hammer / Bow: Excitation or Bow pane, `POST /set_excitation_mode`) | per note: the engine velocity map, default `speed = velocity / 127` (dev-bow3: `bow_config.set_velocity_map` can map it to force instead, with a range and a curve) |
+| Bow force (pressure) | **CC 1** (mod wheel; joystick Y+ on most keyboards), any channel | live, every key's ENGINE force `= value / 127` (the preset's per-pitch force is not changed) |
+| Bow tilt (dev-bow2 "angle") | **CC 16** (general purpose 1; assign the joystick X axis to it), any channel | live, every key's ENGINE tilt `= value / 127` |
+
+dev-bow3: the bow's speed / force / position / tilt are per-pitch PRESET parameters (Bow pane,
+[REST_API → Friction-bow parameters](REST_API.md#friction-bow-parameters-dev-bow3)); the CCs above move
+the engine values only (`Pianoid.set_bow_controls` -> `bow_config.set_effective`), until the generic
+controller assignments (dev-midictl) replace this special case.
 
 The CC numbers are `MidiInputHub` settings `bow_force_cc` / `bow_angle_cc` (`POST /midi/input`, `null` = not
-mapped, persisted with the pedal map). `Pianoid.schedule_event` turns a bow CC into `set_bow_controls`
+mapped, persisted with the pedal map). `Pianoid.schedule_event` turns a bow CC into `set_bow_controls` (dev-bow3: an engine-only shim)
 (never an engine event, never journaled: a joystick streams), so the live listener, the MIDI player and WS /
 REST MIDI bytes all reach it (`POST /play` / WS `play` with `command` 176-191, `pitch` = the CC number,
 `velocity` = the value; a bow CC skips the note deduplication, since a joystick repeats its CC). The sustain source wins if it shares a CC with a bow control. Changes are live:
