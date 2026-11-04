@@ -10,6 +10,7 @@ old (WRAP loop) and the new (friction) engine, so one script measures both.
 
 Usage (cwd anywhere):
     PianoidCore/.venv/Scripts/python dev-bow2-cycle-timing.py --core D:/repos/wt-bow-core --label before
+    [--pyd-dir <dir>]   (dev-bowsoft: a pianoidCuda build outside the venv, first on sys.path)
 """
 import argparse
 import json
@@ -22,13 +23,17 @@ SAMPLE_RATE = 48000
 SAMPLES_PER_CYCLE = 64
 BUDGET_MS = SAMPLES_PER_CYCLE / SAMPLE_RATE * 1000
 
+SEVERAL = [36, 43, 48, 55, 60, 67]
 CASES = {
-    # name: (bowed pitches, played pitches)
-    "a_no_bow": ([], [60]),
-    "b_one_bowed": ([36], [36]),
-    "c_several_bowed": ([36, 43, 48, 55, 60, 67], [36, 43, 48, 55, 60, 67]),
+    # name: (bowed pitches, played pitches, contact (ribbon, tilt, edge taper) or None = default)
+    "a_no_bow": ([], [60], None),
+    "b_one_bowed": ([36], [36], None),
+    "c_several_bowed": (SEVERAL, SEVERAL, None),
     # dev-bow3: the widest contact (16 points on the bass): ribbon 0.5 of the main string, tilt 0
-    "d_several_bowed_width16": ([36, 43, 48, 55, 60, 67], [36, 43, 48, 55, 60, 67]),
+    "d_several_bowed_width16": (SEVERAL, SEVERAL, (0.5, 0.0, None)),
+    # dev-bowsoft (cap 32 points): the soft wide contact (C2 25 points), and the widest (32 on the bass)
+    "e_several_bowed_soft3": (SEVERAL, SEVERAL, (0.105, 0.15, 3.0)),
+    "f_several_bowed_width32": (SEVERAL, SEVERAL, (0.5, 0.0, 3.0)),
 }
 
 
@@ -41,11 +46,14 @@ def note_event(pc, pitch, velocity, cycle, on=True):
     return ev
 
 
-def run_case(p, pc, bowed, played, duration_s, wide=False):
+def run_case(p, pc, bowed, played, duration_s, contact=None):
     eng = p.pianoid
-    if hasattr(eng, "setBowMaxWidth"):    # dev-bow3 engine: default ribbon, or the widest contact
-        eng.setBowMaxWidth(0.5 if wide else 0.035)
-        eng.setBowParams(list(bowed), 3, [0.0 if wide else 0.3] * len(bowed))
+    if hasattr(eng, "setBowMaxWidth"):    # dev-bow3 engine: default ribbon, or the case's contact
+        ribbon, tilt, taper = contact or (0.035, 0.3, None)
+        eng.setBowMaxWidth(ribbon)
+        eng.setBowParams(list(bowed), 3, [tilt] * len(bowed))
+        if hasattr(eng, "setBowEdgeTaper"):
+            eng.setBowEdgeTaper(1.0 if taper is None else taper)
     strings = {}
     for pitch in set(bowed) | set(played):
         strings[pitch] = int(p.set_pitch_excitation_mode(pitch, 1 if pitch in bowed else 0))
@@ -93,10 +101,13 @@ def main():
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--duration", type=float, default=3.0)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--pyd-dir", default=None)
     args = ap.parse_args()
 
     mw = os.path.join(args.core, "pianoid_middleware")
     sys.path.insert(0, mw)
+    if args.pyd_dir:
+        sys.path.insert(0, args.pyd_dir)
     os.chdir(mw)
     import pianoidCuda as pc
     from pianoid import initialize
@@ -105,14 +116,15 @@ def main():
                    string_iteration=4, array_size=384, sample_rate=SAMPLE_RATE,
                    samples_in_cycle=SAMPLES_PER_CYCLE, buffer_size=4, max_volume=5e18,
                    audio_on=False, audio_driver_type=0)
-    results = {"coop_occupancy": dict(pc.getCoopOccupancyReport())}
+    results = {"pianoidCuda": pc.__file__, "coop_occupancy": dict(pc.getCoopOccupancyReport())}
     print("coop occupancy:", results["coop_occupancy"], flush=True)
     try:
-        for name, (bowed, played) in CASES.items():
-            if name.endswith("width16") and not hasattr(p.pianoid, "setBowMaxWidth"):
+        for name, (bowed, played, contact) in CASES.items():
+            if contact and not hasattr(p.pianoid, "setBowMaxWidth"):
                 continue                       # an engine before dev-bow3
-            runs = [run_case(p, pc, bowed, played, args.duration, name.endswith("width16"))
-                    for _ in range(args.runs)]
+            if contact and contact[2] is not None and not hasattr(p.pianoid, "setBowEdgeTaper"):
+                continue                       # an engine before dev-bowsoft
+            runs = [run_case(p, pc, bowed, played, args.duration, contact) for _ in range(args.runs)]
             results[name] = runs
             for i, r in enumerate(runs):
                 print(f"{args.label} {name} run{i}: " + " ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"

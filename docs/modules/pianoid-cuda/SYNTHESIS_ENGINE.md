@@ -1209,11 +1209,11 @@ self-limited amplitude come out of the physics.
 | Force | `F_N = force * 32 * lambda * vb`: force 1.0 = the Schelleng maximum `2 Z vb / (beta (mu_s - mu_d))` at `beta = 0.125`, so force is a fraction of the playable window for every string and speed sets the loudness. Per-pitch preset parameter (default 0.5 x the register scale below) |
 | Tilt (dev-bow2 "angle") | ONE physical control, per pitch (default 0.3 up to G3, 0.1 from C4: the 3-point contact darkens C4, tilt 0.1 restores its approved brightness). Tilting puts less hair on the string: contact width = `max_width x (1 - 0.7 tilt)` of the main string (below); softer friction `v0 = vb * (0.2 + 2.8 * tilt)`; string loss x `2^(1.2 (tilt - 0.3))` (x0.78 flat .. x1.79 tilted) |
 | Register | defaults by pitch (`bow_config.defaults`): force x1 up to 40, x0.6 at 46-55, x1 at 60-78, x0.5 from 88 (linear between; the stick phase of a 10-16 point top string pulls the pitch: 91 -36 -> -20 cents, 103 -96 -> -66 cents); tilt 0.3 -> 0.1 from 55 to 60 |
-| Width (dev-bow3) | the hair ribbon `max_width` (preset, default 0.035 of the main string; tilt narrows it) converted per string in `bowContactSelect`: `round(fraction x main length)`, at least 3 points (like the hammer), at most 16 and the main string; fraction 0 = one point. Centre-weighted parabolic weights `w_k = 1 - x_k^2` (normalised, computed at load), ONE friction solve on the weighted contact velocity, each point takes `w_k F` (admittance `0.5 sum w_k^2`). No extra barrier: contact points publish their free velocity / increment before the sub-step's first barrier and each runs the same solve after it (O(span) shared loads per contact thread), before the s_a write; the lead promotes the slip flag. The span is centred on position x hammer index and kept inside the main string [2, length), so the short treble strings (87, 91, 97-107) get a contact |
+| Width (dev-bow3) | the hair ribbon `max_width` (preset, default 0.035 of the main string; tilt narrows it) converted per string in `bowContactSelect`: `round(fraction x main length)`, at least 3 points (like the hammer), at most 32 (dev-bowsoft; 16 before) and the main string; fraction 0 = one point. Centre-weighted weights `w_k = (1 - x_k^2)^p` with the preset's edge taper `p` (dev-bowsoft `bow_settings.edge_taper`, 0.5..8, default 1 = the dev-bow3 parabola; larger = the edges recede more steeply, towards a Gaussian), normalised to sum 1 so the total force does not depend on the profile, computed once per launch (no inner-loop cost), ONE friction solve on the weighted contact velocity, each point takes `w_k F` (admittance `0.5 sum w_k^2`). No extra barrier: contact points publish their free velocity / increment before the sub-step's first barrier and each runs the same solve after it (O(span) shared loads per contact thread), before the s_a write; the lead promotes the slip flag. The span is centred on position x hammer index and kept inside the main string [2, length), so the short treble strings (87, 91, 97-107) get a contact |
 | Position | per-pitch preset parameter 0.5..3: the bow point at r x the hammer point's distance from the string end (1 = the hammer point, default) |
 | Smoothing | the bow-point thread glides speed / force / angle to the targets once per sample, time constant 240 samples (5 ms at 48 kHz): note-on = the bow settles on the string, a CC change glides, note-off = bow lift (force target 0; the host drops the string from the bowed path 50 ms later) |
 | String loss | while a string's bow is engaged (note-on until 50 ms after note-off) its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by the control's string-loss factor: by register (`BowRegister` in `BowController.h`: x40 up to pitch 43, x100 at 48-55, x40 from 60 (dev-bow3, was x60: the 3-point contact keeps the C4 brightness), linear between) times the tilt factor, once per launch: an effective stand-in for the hair / rosin loading of the string. Not a user parameter. Without it the engine's low-loss strings slip several times per period; see [v1 -> v2](#friction-bow-timing) |
-| State | `dev_bow_control` (host, `BOW_CTRL_*`: active, generation, speed, force, softness, loss, position, width fraction; filled per string by `BowController` from its pitch's parameters) and `dev_bow_state` (kernel, `BOW_STATE_*`: generation, smoothed controls, slip flag). A new generation (every bowed note-on) restarts from rest. `resetStringsState` stops every bow at once |
+| State | `dev_bow_control` (host, `BOW_CTRL_*`: active, generation, speed, force, softness, loss, position, width fraction, edge taper; filled per string by `BowController` from its pitch's parameters) and `dev_bow_state` (kernel, `BOW_STATE_*`: generation, smoothed controls, slip flag). A new generation (every bowed note-on) restarts from rest. `resetStringsState` stops every bow at once |
 
 **Kernel cost.** Each thread knows at launch whether it is a bow point (param slot 10 + its string's
 `active` flag); `blockBowed = __syncthreads_or(isBowPoint)`. In the release build the sub-step loop is a
@@ -1235,7 +1235,7 @@ quickly; with the sustain pedal down it rings on. Switching a bowed pitch back t
 `bow_config.py`, REST [`/set_parameter/bow`](../pianoid-middleware/REST_API.md#friction-bow-parameters-dev-bow3),
 the Tunner **Bow** pane. Engine API: `setBowParams(pitches, field 0 speed / 1 force / 2 position / 3 tilt,
 values)` (live on the engaged strings of those pitches, the kernel glides it), `getBowParams(pitch)`,
-`setBowMaxWidth(fraction)`, `setBowVelocityMap(field, mins[128], maxs[128], curve)`, `getBowStatus()`. The
+`setBowMaxWidth(fraction)`, `setBowEdgeTaper(p)` (dev-bowsoft), `setBowVelocityMap(field, mins[128], maxs[128], curve)`, `getBowStatus()`. The
 dev-bow2 live setters (`setBowForce` / `Softness` / `StringLoss` / `Position` / `Width`, `getBowControls`) are
 removed. MIDI control of the values is a controller assignment (dev-midictl) driving the engine values.
 
@@ -1273,6 +1273,35 @@ Cost (`dev-bow2-cycle-timing.py`, N=3 x 2200 cycles, `addKernel` mean): no bow 0
 at the widest contact (ribbon 0.5, tilt 0: 16 points) 0.576-0.581 (+23 %, 43 % of the 1.333 ms budget).
 ptxas: release 123-126 registers (sm_89 runtime 123), debug 120, 0 spill on sm_80/86/89; 1 block/SM, the
 cooperative capacity unchanged.
+
+**dev-bowsoft: a softer bow = a wider contact with receding edges** (2026-11-04, `dev-bowsoft-render.py`, offline,
+BaselinePreset1, velocity 90, tilt 0.15 on C2-C4, keys 87 / 91 at their defaults). Variants (ribbon `max_width`,
+edge taper): bow3 (0.035, 1), soft1 (0.07, 1), soft2 (0.0875, 2), soft3 (0.105, 3). Noise = energy between the
+partials re on them; HF = energy above 3 kHz re the total:
+
+| Note | points bow3 / soft1 / soft2 / soft3 | centroid Hz bow3 -> soft1 / soft2 / soft3 | noise dB bow3 -> soft1 / 2 / 3 | HF dB bow3 -> soft1 / 2 / 3 |
+|---|---|---|---|---|
+| C2 | 8 / 17 / 21 / 25 | 1214 -> 1086 / 1081 / 1072 | -15.8 -> -26.3 / -25.9 / -25.7 | -45.1 -> -48.0 / -48.1 / -48.2 |
+| A2 | 6 / 12 / 15 / 18 | 1780 -> 1555 / 1568 / 1539 | -14.8 -> -21.1 / -19.2 / -20.5 | -22.6 -> -30.8 / -31.0 / -33.0 |
+| C3 | 5 / 10 / 13 / 16 | 1619 -> 1462 / 1450 / 1459 | -28.9 -> -30.5 / -32.1 / -30.1 | -27.3 -> -34.6 / -35.0 / -34.1 |
+| C4 | 3 / 4 / 5 / 5 | 2723 -> 2468 / 2467 / 2389 | -21.9 -> -28.0 / -29.5 / -31.2 | -7.9 -> -9.7 / -7.4 / -11.2 |
+| 87, 91 | 3 (short main strings) | unchanged within scatter (87 6045 -> 5926..6393, 91 4489 -> 4693..5066) | unchanged | unchanged |
+
+Levels re the hammer stay within 0.3 dB (C4 +0.5..2.2 dB): the weights are normalised. The short treble strings
+keep the 3-point minimum, so a wider ribbon does not reach them, and a steeper taper on 3 points only narrows
+the contact (87 / 91 are slightly brighter with p = 3). The CPU model (`dev-bow3-width-golden.py` engine stencil,
+profile `(1 - x^2)^p`) stays at about 1 slip per period for all three variants. Only ribbon x3 with p = 2 slips
+twice on C2, so a wide ribbon needs a steeper taper. Bowed renders are not sample-deterministic run to run (the
+note-on control upload races the try-lock tick): correlation 0.98-0.99 on the bass, ~0 on C4 / 87; levels agree
+within 0.2 dB. Compare the metrics, not the waveforms. The defaults are unchanged (ribbon 0.035, taper 1); soft3 =
+`POST /set_parameter/bow_settings/all {"max_width": 0.105, "edge_taper": 3}`.
+
+Cost (`dev-bow2-cycle-timing.py --pyd-dir`, N=3 x 2200 cycles, `addKernel` mean, before = merged dev): no bow
+0.456-0.460 -> 0.457-0.462 ms (unchanged), one bowed pitch 0.482-0.487 -> 0.487-0.496, 16 bowed strings at the
+default 0.490-0.491 -> 0.495-0.498 (+1 %), 16 strings at soft3 (C2 25 points) 0.581-0.584 (+27 % over no bow, 44 %
+of the 1.333 ms budget; the dev-bow3 widest, 16 points, was 0.578), 16 strings at the widest contact (ribbon 0.5,
+32 points on the bass) 0.646-0.657 (+42 %, 49 % of budget). ptxas `addKernel`: release 124-126 registers, debug
+121-124, 0 spill on sm_80/86/89, smem 20332 B (+768); 1 block/SM, the cooperative capacity is unchanged (2.29x margin).
 
 #### Friction bow: timing and verification {#friction-bow-timing}
 
