@@ -82,3 +82,33 @@ handoff, and the GIL is held through it (review §2.2: no `gil_scoped_release` o
   F2b should also bring the swap under 1 ms, so `TICK_S` could drop to 10 ms.
 
 Raw data: the harness `RESULT` JSON of this run (scratchpad, not committed). Re-run with the harness above.
+
+## F2b + F2c (dev-swapwait, HELD)
+
+Core `feature/dev-swapwait` e835d6a: a condition-variable swap handoff (F2b) and the GIL released on
+`waitForParameterUpdate` / `updateMultiStringParameter_NEW` (F2c). HEAVY `--both` build, the same harness, N = 3,
+silent. "Before" is the merged dev build (bacc3ae, measured just before). Values are ms; each cell gives the three
+runs.
+
+| | Before | After |
+|---|---|---|
+| M3 swap wait, p50 | 5.35 / 5.37 / 5.44 | 0.38 / 0.37 / 0.38 |
+| M3 swap wait, p99 | 7.7 / 8.0 / 7.9 | 0.97 / 0.82 / 0.75 |
+| M2 overlay single write, p50 | 6.69 / 6.70 / 6.74 | 1.78 / 1.85 / 1.66 |
+| M2 single write, p99 (= the max of 30) | 27.3* / 9.6 / 9.1 | 23.2* / 20.6 / 2.9 |
+| M2 stream upload, p50 / p99 | 6.6-6.7 / 9.5-9.9 | 1.5-1.6 / 2.6-5.2 |
+| M2 stream uploads/s | 47.6 / 49.1 / 48.4 | 47.4 / 46.9 / 46.5 (the 20 ms tick) |
+| GIL probe during the M2 stream, p99 | 8.5 / 8.6 / 8.9 | **1.7 / 1.9 / 1.8** |
+| M1 edit path single, p50 | 14.9 / 15.0 / 15.5 | 9.7 / 10.1 / 10.3 |
+| M1 100 Hz stream achieved | 64.7 / 63.9 / 63.8 Hz | 94.9 / 94.3 / 94.2 Hz |
+| GIL probe during the M1 stream, p99 | 17.4 / 20.0 / 21.0 | 9.7 / 10.0 / 9.8 |
+
+\* The first write after the mapping is created includes the one-time clamp-frontier check (84 keys x 2,
+about 20 ms). The after-run 1 outlier (20.6 ms) is a single write among 30; its other 29 are under 3 ms.
+
+**Verdict.** The GIL criterion (<= 5 ms) is met: 1.7-1.9 ms p99 during the stream. A controller write now takes
+about 1.8 ms, so one move is about 22 ms to sound, including the ~20 ms engine floor. With the swap under 1 ms, the
+overlay's `TICK_S` could drop from 20 ms to 10 ms; this branch does not change it. The edit path gains too
+(15 -> 10 ms). Held for the user's approval: not merged, and the shared venv was rebuilt back to the merged dev
+build afterwards.
+

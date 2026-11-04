@@ -94,6 +94,15 @@ UpdateState machine:
   IDLE:      sync_complete_event_ has fired. System returns to idle.
 ```
 
+**Handoff (dev-swapwait, F2b + F2c; branch held for user approval).** `update_state_` has one writer,
+`setUpdateState()`, which also notifies a condition variable. The poll thread waits on that condition variable
+while IDLE. While a copy is in flight it re-queries the CUDA event after a `yield()`, instead of the old 100 µs
+sleeps, which last >= ~1 ms on Windows. `waitForUpdateCompletion()` waits on the same condition variable for IDLE.
+The lock order is `update_mutex_` -> `state_cv_mutex_` only. The bindings `waitForParameterUpdate` and
+`updateMultiStringParameter_NEW` release the GIL. Measured (dev-midictl harness, N = 3): the swap wait fell from
+5.4 to 0.38 ms p50, and the GIL delay seen by a Python thread during a 100 Hz controller stream fell from
+8.5-8.9 to 1.7-1.9 ms p99 ([results](../../development/midi-controller-latency-2026-11-04.md#f2b--f2c-dev-swapwait-held)).
+
 The GPU-buffer swap is atomic from the GPU's perspective — kernels never observe a
 partially-updated parameter block.
 
