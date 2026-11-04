@@ -235,6 +235,7 @@ driver re-creation (preset loads, watchdog re-opens); `init()` resets an index t
 its sample type is supported → else `std::invalid_argument` / `ValueError`; no device open → `std::runtime_error`).
 The bufferSwitch capture reads the atomic per switch and converts `bufferInfos[ch]` by `channelInfos[ch].type`
 (was hard-wired to input 0). REST: [`/mic_devices`, `/set_mic_device {input_channel}`](../pianoid-middleware/REST_API.md#post-set_mic_device).
+Also used, during live synthesis, by the assistant's rig-mic voice input ([`/voice/*`](../pianoid-middleware/REST_API.md#voice-capture), dev-voice).
 
 ---
 

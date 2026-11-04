@@ -979,6 +979,25 @@ the command registry). Proposal + user decisions D1–D7: `docs/proposals/ai-ass
   own Pianoid installation / OS account with their own assistant login; there is no in-app user management.
 - The assistant drives this UI through the I5 `ui` commands (leader tab), so its pane opening / zooming shows the
   "Layout driven by assistant" chip.
+- **Voice input (dev-voice).** `components/Assistant/VoiceInput.jsx` (mic button + settings popover) over
+  `hooks/useVoiceInput.js`, `hooks/voiceSources.js` (the two sources) and the pure `utils/wavEncoder.js`. Hold to
+  talk (released after 450 ms) or click to start / stop, `Esc` cancels, 60 s cap; red button + elapsed time + level
+  meter while recording, then "Transcribing… N s". Browser source: `getUserMedia` (echo cancellation / noise
+  suppression / AGC on) -> ScriptProcessor frames -> 16 kHz PCM16 WAV. Rig source ("Rig mic (IN 01)", offered when
+  `GET :5000/voice/status` is available): the backend records the engine's ASIO input with the engine's own mic
+  capture (`POST /voice/start` / `stop`, REST_API.md "Voice capture"; no live level, a busy bar instead). Either
+  clip -> `POST :3002/stt?language=&model=` (the assistant service transcribes locally on the CPU, see the assistant
+  README "Voice input"; default model medium); recording start also sends `POST /stt/warm` so the model loads while
+  the user speaks. The
+  text is appended to the input box (the box owns it: edit, then `Enter`); "Send immediately" sends it as a turn
+  when the box was empty and the assistant is idle. The service's turn path is unchanged (a voice turn is a typed
+  turn). Input choice (`chooseInput`): the user's pick, else the system default, but never an input of the engine's
+  audio interface (`ENGINE_DEVICE` = Behringer / UMC / ASIO in the label) unless picked explicitly (then a warning);
+  on first use without labels the default is opened and, if it is the engine's interface, closed at once and
+  another mic opened. Prefs (language auto / en / ru, model base / small / medium, mic, send immediately) =
+  localStorage `pianoid.assistant.voice` (per-browser convenience; defaults auto / medium / automatic mic / off). Errors shown above the input: permission denied,
+  no mic, only the engine's interface, too short, service down, transcription failed, nothing recognised. Tests:
+  `utils/__tests__/wavEncoder.test.js`, `hooks/__tests__/useVoiceInput.test.js`, `AssistantPane.test.jsx`.
 
 ### UI commands (I5, dev-c491)
 

@@ -1,0 +1,26 @@
+[
+ {
+  "id": "en1",
+  "lang": "en",
+  "voice": "Microsoft David Desktop",
+  "text": "Raise the feedback on middle C a little, then play the note again and show me the spectrum of the soundboard modes."
+ },
+ {
+  "id": "en2",
+  "lang": "en",
+  "voice": "Microsoft Zira Desktop",
+  "text": "Load the baseline preset and set the volume to ninety. Why does the A four string sound so dull?"
+ },
+ {
+  "id": "ru1",
+  "lang": "ru",
+  "voice": "Microsoft Irina Desktop",
+  "text": "Увеличь немного затухание на ноте до первой октавы, потом сыграй её ещё раз и покажи спектр мод деки."
+ },
+ {
+  "id": "ru2",
+  "lang": "ru",
+  "voice": "Microsoft Irina Desktop",
+  "text": "Загрузи базовый пресет и поставь громкость девяносто. Почему струна ля четвёртой октавы звучит так глухо?"
+ }
+]
