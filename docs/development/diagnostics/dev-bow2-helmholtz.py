@@ -24,7 +24,8 @@ def main():
     ap.add_argument("--vel", type=int, default=90)
     ap.add_argument("--forces", default="0.15,0.5,0.95")
     ap.add_argument("--angles", default="0.3")
-    ap.add_argument("--losses", default="", help="string-loss factors to sweep (setBowStringLoss)")
+    ap.add_argument("--losses", default="", help="string-loss factors to sweep (setBowStringLoss; 0 = register curve)")
+    ap.add_argument("--position", type=float, default=0.0, help="bow position x hammer index (0 = hammer point)")
     args = ap.parse_args()
     mw = os.path.join(args.core, "pianoid_middleware")
     sys.path.insert(0, mw)
@@ -40,6 +41,8 @@ def main():
     strings = list(eng.getStringIndicesForPitch(args.pitch))
     s0 = strings[0]
     p.set_pitch_excitation_mode(args.pitch, 1)
+    if hasattr(eng, "setBowPosition"):
+        eng.setBowPosition(args.position)
     f_nom = 440.0 * 2 ** ((args.pitch - 69) / 12)
     try:
         for loss in ([float(x) for x in args.losses.split(",")] if args.losses else [None]):

@@ -1205,9 +1205,11 @@ self-limited amplitude come out of the physics.
 | Impedance | point impedance of the discrete string `lambda = sqrt(shift_1 + 4 shift_2)` (a sustained per-step force `F` gives the point velocity `F / (2 lambda)`; measured on the CPU golden) |
 | Speed | `vb = speed * BOW_SPEED_SCALE * dt/dt_ref`, `speed = MIDI velocity / 127` per note |
 | Force | `F_N = force * 32 * lambda * vb`: force 1.0 = the Schelleng maximum `2 Z vb / (beta (mu_s - mu_d))` at `beta = 0.125`, so force is a fraction of the playable window for every string and speed sets the loudness |
-| Angle | bow tilt = friction-curve softness: `v0 = vb * (0.2 + 2.8 * angle)`. 0 = sharp curve (bright, scratchy attack), 1 = soft (smooth, dark) |
+| Angle | bow tilt: softens the friction curve, `v0 = vb * (0.2 + 2.8 * angle)`, AND scales the string loss by `2^(1.2 (angle - 0.3))` (x0.78 flat .. x1.79 tilted), live. C3: centroid 1.76 / 1.58 / 1.39 kHz at angle 0 / 0.3 / 1 |
+| Register | `BowRegister` force scale by pitch: x1 up to 40, x0.6 at 46-55, x1 from 60 (linear between), applied to the live force at note-on and on every force change |
+| Position | `setBowPosition(r)`: the bow point at r x the hammer point's distance from the string end (0 = the hammer point, default). Sul tasto (r 1.6 / 2.0) measured ROUGHER at C3 (noise between partials -9.5 / -17.5 dB vs -31), so it stays off |
 | Smoothing | the bow-point thread glides speed / force / angle to the targets once per sample, time constant 240 samples (5 ms at 48 kHz): note-on = the bow settles on the string, a CC change glides, note-off = bow lift (force target 0; the host drops the string from the bowed path 50 ms later) |
-| String loss | while a string's bow is engaged (note-on until 50 ms after note-off) its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by the control's string-loss factor (default x40, the user's choice by ear; `setBowStringLoss` 1..200), once per launch: an effective stand-in for the hair / rosin loading of the string. Without it the engine's low-loss strings slip several times per period; see [v1 -> v2](#friction-bow-timing) |
+| String loss | while a string's bow is engaged (note-on until 50 ms after note-off) its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by the control's string-loss factor, by register (`BowRegister` in `BowController.h`: x40 up to pitch 43, x100 at 48-55, x60 from 60, linear between; `setBowStringLoss` 1..200 overrides, 0 = the curve) times the angle factor below, once per launch: an effective stand-in for the hair / rosin loading of the string. Without it the engine's low-loss strings slip several times per period; see [v1 -> v2](#friction-bow-timing) |
 | State | `dev_bow_control` (host, `BOW_CTRL_*`: active, generation, speed, force, softness) and `dev_bow_state` (kernel, `BOW_STATE_*`: generation, smoothed controls, slip flag). A new generation (every bowed note-on) restarts from rest. `resetStringsState` stops every bow at once |
 
 **Kernel cost.** Each thread knows at launch whether it is a bow point (param slot 10 + its string's
@@ -1289,6 +1291,25 @@ motivation is qualitative (the bow hair and rosin load the string, and piano ste
 violin string); the factor is an effective one, chosen as the smallest that gives one slip per period, and is
 not derived from contact mechanics. Still open: the bass (pitch 36) at force 0.8, and angle has little effect
 in the Helmholtz regime.
+
+**C3 "too sharp" (user, 2026-11-04) - measured with `dev-bow2-harshness.py`.** Harshness = a spectrum that does
+not roll off: partial level vs harmonic number (h1-h24) and the centroid as a harmonic number of f0. Noise between
+the partials and the attack (~30 ms) were the same at C3 and C4.
+
+| Pitch 48 unless noted, vel 90 | centroid (x f0) | roll-off dB/oct | between partials | level re hammer |
+|---|---|---|---|---|
+| C4 at x60 (the user's favourite) | 2.87 kHz (11.1) | -4.5 | -27.5 dB | +6.9 dB |
+| C3 at x60, force 0.5 (before) | 2.18 kHz (16.8) | 0.0 | -25.6 dB | -1.1 dB |
+| C3 x100 (c) | 1.80 kHz (13.9) | -1.9 | | -2.8 dB |
+| C3 force 0.3 (b) | 1.87 kHz (14.4) | -1.9 | -31.0 dB | -1.8 dB |
+| C3 x100 + force 0.3 = the new C3 default | 1.58 kHz (12.2) | -4.4 | -28.9 dB | -3.8 dB |
+| C3 x60, bow position 1.6 / 2.0 (a) | 1.99 / 1.98 kHz | -1.2 / -3.1 | -9.5 / -17.5 dB | -4.8 / -3.6 dB |
+| G3 (55) default / A2 (45) default | 1.79 kHz (9.2) / 1.80 kHz (16.5) | -7.6 / -6.0 | -31.2 / -6.5 dB | +4.1 / -5.1 dB |
+
+Main slips per period at the new defaults (angle 0.3), force 0.3 / 0.5 / 0.8: pitch 36 1.5 / 1.2 / 1.1, 48 1.0 / 1.1 /
+1.1, 60 1.1 / 1.0 / 1.0, 67 1.0 / 1.0 / 1.0. At angle 1 (loss x1.79): 48 2.0 / 2.0 / 2.1 and 36 2.7-4.6 (multi-slip
+again), 60 / 67 1.1-1.2. Timing (N=3): no bow 0.458 ms mean, 16 bowed 0.467. The bass (A2, C2) stays noisy
+between partials at every setting (-4 to -6.5 dB, residual multi-slip).
 
 ### Kernel Trigger: `new_notes_ind`
 
