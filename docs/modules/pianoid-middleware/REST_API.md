@@ -1929,12 +1929,11 @@ library and pushed to the engine on every load / switch / edit / undo. A write i
 `bow_settings`, after `{max_width}`) and one undo step (per pitch: undoing an older edit keeps a later
 edit of another pitch). An unknown field or a value outside the field's range is `400`.
 
-No min / max is stored: a MIDI controller's range lives on its controller assignment (dev-midictl),
-which drives the ENGINE values (`bow_config.set_effective`, `set_velocity_map`) without touching the
-stored ones. Velocity drives `speed` (velocity / 127) until an assignment says otherwise (velocity ->
-force, a range, a curve). `POST /set_bow_controls` / `GET /get_bow_controls` (dev-bow2 session state)
-are removed; the bow CCs reach the engine through `Pianoid.set_bow_controls`, an engine-only shim
-until the controller assignments replace them.
+No min / max is stored: a MIDI controller's range lives on its mapping
+([MIDI controllers](#midi-controllers-dev-midictl)), which drives the ENGINE values (`bow_config.set_effective`,
+`set_velocity_map`) without touching the stored ones. The preset's velocity mapping (default: velocity -> `speed`
+0..1) is compiled into the engine's velocity map. `POST /set_bow_controls` / `GET /get_bow_controls` (dev-bow2
+session state) are removed; the bow CCs are ordinary mappings (default Mod wheel -> force, Joystick X -> tilt).
 
 ---
 
