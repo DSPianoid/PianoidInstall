@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-tuneskill locks RELEASED 2026-11-04 (Phase 1 + observe mode committed on feature/dev-tuneskill, worktree D:/repos/wt-tuneskill-install; NOT merged, awaiting the user). -->
 <!-- dev-tuneskill locks RELEASED 2026-11-04 (Phase 1 committed on feature/dev-tuneskill, worktree D:/repos/wt-tuneskill-install; NOT merged, awaiting the user). -->
 <!-- dev-bow2 locks RELEASED 2026-11-04 (MERGED locally Core dev c759957, Tunner dev 88d98fd, Install master 8ba54c6; worktrees removed; not pushed). -->
 <!-- dev-voiceset locks RELEASED 2026-11-04 (MERGED locally Tunner dev 86a512c, Install master 9d90f08; worktrees removed; not pushed). dev-digitfix (worktree-only locks) MERGED Tunner dev bedcf74, Install master 32b5579. -->

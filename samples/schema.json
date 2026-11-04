@@ -31,5 +31,31 @@
       "type": ["object", "null"],
       "description": "characteristics.analyse(): version, sample_rate, duration_s, onset_s, level {peak_dbfs, rms_dbfs_first_0_5s, crest_factor, noise_floor_db}, pitch {f0_hz, nominal_midi, nominal_hz, tuning_cents, inharmonicity_B}, partials [{k, hz, level_db re strongest}], spectrum {centroid_attack_hz (0-30 ms), centroid_body_hz (100-400 ms), rolloff_db_per_oct}, decay [{band_hz, rate_db_s, t60_s, range_db, valid}], attack {peak_time_ms, rise_10_90_ms}, thump {excess_db (50-200 Hz first 30 ms minus 0.5-1 s), lead_ms (low band half-rise before the tone), f0_in_band}, beating {depth_db, modulation_hz}, band_time_db [4 windows x 6 bands], cloud_db [4 windows x 4 bands] (energy between partials minus band total, dB)"
     }
+  },
+  "$defs": {
+    "observation": {
+      "title": "One line of samples/observations.jsonl (observe mode) and of docs/tuning/lexicon/<operator>.observations.jsonl",
+      "description": "Written only by tools/tuning/sample_lib.py (observe; lexicon-export copies lines verbatim). Immutable: the last line of an id wins.",
+      "type": "object",
+      "required": ["id", "recorded_at", "operator", "observe_id", "step", "description", "phrases", "pairs", "traits"],
+      "properties": {
+        "id": {"type": "string", "description": "o-<yyyymmddhhmmss>-<hex6>"},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "operator": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$", "description": "whose words these are (the lexicon file name)"},
+        "observe_id": {"type": "string", "description": "the observe session; its samples carry the tags obs-<observe_id> and step-<n>"},
+        "step": {"type": "integer", "minimum": 1},
+        "description": {"type": "string", "description": "the operator's words, verbatim (typed or a voice transcript)"},
+        "phrases": {"type": "array", "items": {"type": "string"}, "description": "normalised phrase keys (lexicon.phrases / normalise)"},
+        "language": {"type": ["string", "null"]},
+        "verdict": {"enum": ["kept", "undone", "open"]},
+        "preset": {"type": ["string", "null"]},
+        "edits": {"type": "array", "description": "the step's edits from the state journal: {t, domain, key, label 'domain [key] field before -> after', source}"},
+        "flags": {"type": "array", "items": {"enum": ["merged", "contaminated", "preset_changed", "no_baseline_render", "journal_gap"]}},
+        "pitches": {"type": "array", "items": {"type": "integer"}, "description": "pitches with a comparable pair"},
+        "pairs": {"type": "array", "description": "{pitch, velocity, before, after, before_step?, traits? | excluded: reason}"},
+        "traits": {"type": ["object", "null"], "description": "lexicon.TRAITS -> the median over the comparable pairs (b minus a); null = nothing comparable or contaminated: not learned from"},
+        "tainted": {"type": "boolean"}
+      }
+    }
   }
 }

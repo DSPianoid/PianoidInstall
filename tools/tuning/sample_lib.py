@@ -9,6 +9,11 @@ the folder.
     samples/sessions.jsonl         tuning session records (what the user asked, what was offered and chosen,
                                    the measured result); append-only
     samples/sessions/<id>.md       the case draft of a session, ready to be promoted to docs/tuning/cases/
+    samples/observations.jsonl     observe mode: one record per described step (the operator's words, the edits,
+                                   the before / after pairs and their trait deltas); append-only
+    docs/tuning/lexicon/<operator>.observations.jsonl + <operator>.md
+                                   the VERSIONED evidence + the rendered lexicon (lexicon-export; the lexicon itself
+                                   is derived on every read by lexicon.py, never stored as a second truth)
 
 Usage (the canonical venv python, CPU only, below-normal priority):
     python tools/tuning/sample_lib.py add --file X.wav --source render --preset P --pitch 60 --velocity 95 [...]
@@ -17,6 +22,9 @@ Usage (the canonical venv python, CPU only, below-normal priority):
     python tools/tuning/sample_lib.py get --id s-...
     python tools/tuning/sample_lib.py compare --a s-... --b s-...
     python tools/tuning/sample_lib.py record --json '{...}'     (a tuning session record + its case draft)
+    python tools/tuning/sample_lib.py observe --json '{...}'    (observe mode: one described step -> an observation)
+    python tools/tuning/sample_lib.py lexicon --operator X [--phrase "warmer"]   (derived: versioned + local)
+    python tools/tuning/sample_lib.py lexicon-export --operator X [--check]      (copy into docs/tuning/lexicon/)
     python tools/tuning/sample_lib.py stats
 Every command prints ONE JSON object on stdout (ok: true | false). Root: --root, else $PIANOID_SAMPLES_DIR,
 else <PianoidInstall>/samples. Record fields: samples/schema.json.
@@ -36,9 +44,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import characteristics as ch  # noqa: E402
+import lexicon as lx  # noqa: E402
+from case_draft import case_draft  # noqa: E402
 
 SOURCES = ("render", "mic", "reference")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+OPERATOR_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+STEP_TAG = re.compile(r"^step-(\d+)$")
 LIST_LIMIT = 50
 
 
@@ -58,6 +70,17 @@ def default_root():
     return Path(os.environ.get("PIANOID_SAMPLES_DIR") or HERE.parent.parent / "samples")
 
 
+def default_kb():
+    return Path(os.environ.get("PIANOID_LEXICON_DIR") or HERE.parent.parent / "docs" / "tuning" / "lexicon")
+
+
+def operator_slug(name):
+    slug = re.sub(r"[^a-z0-9_-]+", "-", str(name or "").strip().lower()).strip("-")[:40]
+    if not OPERATOR_RE.match(slug):
+        raise ValueError("operator: a name of letters / digits (it becomes a file name)")
+    return slug
+
+
 def new_id(prefix="s"):
     return f"{prefix}-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}"
 
@@ -67,8 +90,10 @@ def now_iso():
 
 
 class Library:
-    def __init__(self, root):
+    def __init__(self, root, kb=None):
         self.root = Path(root)
+        self.kb = Path(kb) if kb else default_kb()
+        self.observations = self.root / "observations.jsonl"
         self.audio = self.root / "audio"
         self.manifest = self.root / "manifest.jsonl"
         self.sessions = self.root / "sessions.jsonl"
@@ -211,6 +236,9 @@ class Library:
             "changes": data.get("changes") or [], "user_edits": data.get("user_edits") or [],
             "before": data.get("before") or {}, "after": data.get("after") or {}, "samples": data.get("samples") or [],
             "verdict": data.get("verdict") or "open", "lessons": data.get("lessons") or [], "tainted": bool(data.get("tainted")),
+            "mode": "observe" if data.get("observe_id") else "cooperative", "operator": data.get("operator"),
+            "observe_id": data.get("observe_id"), "observed_steps": data.get("observed_steps") or [],
+            "observations": data.get("observations") or [],
         }
         if not ID_RE.match(rec["id"]):
             raise ValueError("id: letters, digits, . _ - only")
@@ -219,6 +247,104 @@ class Library:
         draft = self.session_dir / f"{rec['id']}.md"
         draft.write_text(case_draft(rec), encoding="utf-8", newline="\n")
         return {"id": rec["id"], "draft": str(draft), "verdict": rec["verdict"]}
+
+    # ---- observe mode: observations and the operator lexicon ---------------------------------------
+
+    def _pairs(self, observe_id, step):
+        """The before / after pairs of a step from the library tags: after = the samples tagged obs-<id> + step-<n>,
+        before = the same pitch and velocity at the latest earlier step of that observe session."""
+        mine = []
+        for r in self.records().values():
+            if f"obs-{observe_id}" not in r.get("tags", []):
+                continue
+            n = next((int(m.group(1)) for t in r.get("tags", []) if (m := STEP_TAG.match(t))), None)
+            if n is not None:
+                mine.append((n, r))
+        pairs = []
+        for _, after in (x for x in mine if x[0] == step):
+            src = after["source"]
+            earlier = [(m, r) for m, r in mine if m < step and r["source"].get("pitch") == src.get("pitch")
+                       and r["source"].get("velocity") == src.get("velocity")]
+            pair = {"pitch": src.get("pitch"), "velocity": src.get("velocity"), "after": after["id"], "before": None}
+            if not earlier:
+                pairs.append({**pair, "excluded": "no earlier sample of this pitch and velocity in the session"})
+                continue
+            m, before = max(earlier, key=lambda x: (x[0], x[1].get("added_at", "")))
+            pair.update(before=before["id"], before_step=m)
+            if (before["source"].get("settings") or {}) != (src.get("settings") or {}):
+                pair["excluded"] = "render settings differ between before and after"
+            elif not before.get("characteristics") or not after.get("characteristics"):
+                pair["excluded"] = "a sample has no characteristics"
+            else:
+                pair["traits"] = lx.traits_delta(before["characteristics"], after["characteristics"])
+            pairs.append(pair)
+        return sorted(pairs, key=lambda p: (p["pitch"] is None, p["pitch"] or 0, p["velocity"] or 0))
+
+    def observe(self, data):
+        """One described step of an observe session -> an observation (the operator's words + the measured delta)."""
+        operator = operator_slug(data.get("operator"))
+        desc = str(data.get("description") or "").strip()
+        if not desc:
+            raise ValueError("description: the operator's words are required")
+        oid, step = str(data.get("observe_id") or ""), data.get("step")
+        if not ID_RE.match(oid) or not isinstance(step, int) or step < 1:
+            raise ValueError("observe_id and step (>= 1) are required")
+        keys = [lx.normalise(p) for p in data.get("phrases") or []] or lx.phrases(desc)
+        pairs = self._pairs(oid, step)
+        good = [p for p in pairs if p.get("traits")]
+        flags = sorted(set(data.get("flags") or []))
+        rec = {
+            "id": data.get("id") or new_id("o"), "recorded_at": now_iso(), "operator": operator, "observe_id": oid,
+            "step": step, "description": desc, "phrases": [k for k in keys if k], "language": data.get("language"),
+            "verdict": data.get("verdict") or "open", "preset": data.get("preset"), "edits": data.get("edits") or [],
+            "flags": flags, "pitches": sorted({p["pitch"] for p in good if p["pitch"] is not None}),
+            "pairs": pairs, "traits": lx.step_traits(good) if good and "contaminated" not in flags else None,
+            "tainted": bool(data.get("tainted")),
+        }
+        if not ID_RE.match(rec["id"]):
+            raise ValueError("id: letters, digits, . _ - only")
+        self._append(self.observations, rec)
+        lex = lx.build(self.operator_observations(operator)["observations"])
+        return {"observation": rec, "lexicon": {k: {**lex[k], "summary": lx.summary(lex[k])} for k in rec["phrases"] if k in lex},
+                "comparable_pairs": len(good), "excluded_pairs": [p for p in pairs if p.get("excluded")]}
+
+    def operator_observations(self, operator):
+        """The versioned evidence of the operator plus this machine's not yet exported observations (by id)."""
+        operator = operator_slug(operator)
+        versioned = self._read(self.kb / f"{operator}.observations.jsonl")
+        local = {k: v for k, v in self._read(self.observations).items() if v.get("operator") == operator}
+        merged = {**local, **versioned}
+        return {"operator": operator, "observations": sorted(merged.values(), key=lambda o: o.get("recorded_at", "")),
+                "versioned": len(versioned), "local_only": len(set(local) - set(versioned))}
+
+    def lexicon(self, operator, phrase=None):
+        """The operator's lexicon, derived now (never stored); with a phrase, only the entries that request uses."""
+        obs = self.operator_observations(operator)
+        lex = lx.build(obs["observations"])
+        for e in lex.values():
+            e["summary"] = lx.summary(e)
+        head = {"operator": obs["operator"], "observations": len(obs["observations"]), "versioned": obs["versioned"],
+                "local_only": obs["local_only"], "phrases": len(lex),
+                "tainted": any(o.get("tainted") for o in obs["observations"])}
+        return {**head, **lx.lookup(lex, phrase)} if phrase else {**head, "lexicon": lex}
+
+    def lexicon_export(self, operator, check=False):
+        """Copy the operator's observations into the versioned knowledge base and render its page. check: the page on
+        disk must equal the render of the versioned evidence; nothing is written."""
+        operator = operator_slug(operator)
+        evidence, page = self.kb / f"{operator}.observations.jsonl", self.kb / f"{operator}.md"
+        versioned = self._read(evidence)
+        if not check:
+            for o in self.operator_observations(operator)["observations"]:
+                if o["id"] not in versioned:
+                    self._append(evidence, o)
+            versioned = self._read(evidence)
+        obs = sorted(versioned.values(), key=lambda o: o.get("recorded_at", ""))
+        text = lx.render_md(operator, lx.build(obs), obs)
+        if check:
+            return {"operator": operator, "in_sync": page.exists() and page.read_text(encoding="utf-8") == text}
+        page.write_text(text, encoding="utf-8", newline="\n")
+        return {"operator": operator, "evidence": str(evidence), "page": str(page), "observations": len(obs)}
 
     def sessions_list(self, limit=LIST_LIMIT):
         rows = sorted(self._read(self.sessions).values(), key=lambda r: r.get("recorded_at", ""), reverse=True)
@@ -230,58 +356,7 @@ class Library:
         for r in recs.values():
             by[r["source"]["kind"]] = by.get(r["source"]["kind"], 0) + 1
         return {"root": str(self.root), "samples": len(recs), "by_source": by, "sessions": len(self._read(self.sessions)),
-                "extractor_version": ch.VERSION}
-
-
-def case_draft(rec):
-    """The tuning-case page of a session record, in the docs/tuning/cases layout (promote by copying it there)."""
-    def lines(items, fmt=lambda x: f"- {x}"):
-        return "\n".join(fmt(i) for i in items) if items else "- (none)"
-    def kv(d):
-        return "\n".join(f"- {k}: {json.dumps(v, ensure_ascii=False)}" for k, v in (d or {}).items()) or "- (none)"
-    return f"""# Tuning case: {rec['description'][:80]}
-
-- **Date:** {rec['recorded_at'][:10]} · **Session record:** `{rec['id']}` · **Verdict:** {rec['verdict']}
-- **Preset:** {rec.get('preset') or 'unknown'} · **Pitches:** {rec.get('pitches') or 'unknown'}
-- **Evidence:** session record (samples/sessions.jsonl); samples {', '.join(rec.get('samples') or []) or 'none'}
-- **Confidence:** measured (one session) unless stated otherwise below
-
-## Goal (the user's words)
-
-{rec['description']}
-
-## Interpreted target
-
-{rec.get('interpretation') or '(not recorded)'}
-
-## Options offered
-
-{lines(rec.get('options_offered') or [])}
-
-## What was done
-
-Chosen: {rec.get('chosen') or '(not recorded)'}
-
-{lines(rec.get('changes') or [])}
-
-The user's own edits (backend history at the time of the record):
-
-{lines(rec.get('user_edits') or [])}
-
-## Measurements
-
-Before:
-
-{kv(rec.get('before'))}
-
-After:
-
-{kv(rec.get('after'))}
-
-## Verdict and lessons
-
-{lines(rec.get('lessons') or [])}
-"""
+                "observations": len(self._read(self.observations)), "extractor_version": ch.VERSION}
 
 
 # ---- CLI ----------------------------------------------------------------------------------------------
@@ -289,6 +364,7 @@ After:
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="sample_lib", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", help="library folder (default $PIANOID_SAMPLES_DIR or <PianoidInstall>/samples)")
+    ap.add_argument("--kb", help="versioned lexicon folder (default $PIANOID_LEXICON_DIR or <PianoidInstall>/docs/tuning/lexicon)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("add")
     a.add_argument("--file", required=True)
@@ -320,11 +396,19 @@ def main(argv=None):
     c.add_argument("--b", required=True)
     r = sub.add_parser("record")
     r.add_argument("--json", required=True, help="the session record as a JSON object (or @file)")
+    o = sub.add_parser("observe")
+    o.add_argument("--json", required=True, help="the observation as a JSON object (or @file)")
+    lxp = sub.add_parser("lexicon")
+    lxp.add_argument("--operator", required=True)
+    lxp.add_argument("--phrase", help="a request in the operator's words: the entries it uses")
+    lxe = sub.add_parser("lexicon-export")
+    lxe.add_argument("--operator", required=True)
+    lxe.add_argument("--check", action="store_true")
     sub.add_parser("sessions")
     sub.add_parser("stats")
     args = ap.parse_args(argv)
     lower_priority()
-    lib = Library(args.root or default_root())
+    lib = Library(args.root or default_root(), args.kb)
     try:
         if args.cmd == "add":
             settings = json.loads(args.settings) if args.settings else None
@@ -342,6 +426,16 @@ def main(argv=None):
         elif args.cmd == "record":
             text = Path(args.json[1:]).read_text(encoding="utf-8") if args.json.startswith("@") else args.json
             out = lib.record(json.loads(text))
+        elif args.cmd == "observe":
+            text = Path(args.json[1:]).read_text(encoding="utf-8") if args.json.startswith("@") else args.json
+            out = lib.observe(json.loads(text))
+        elif args.cmd == "lexicon":
+            out = lib.lexicon(args.operator, args.phrase)
+        elif args.cmd == "lexicon-export":
+            out = lib.lexicon_export(args.operator, args.check)
+            if args.check and not out["in_sync"]:
+                print(json.dumps({"ok": False, "error": f"{out['operator']}.md is out of date: run lexicon-export", **out}))
+                return 1
         elif args.cmd == "sessions":
             out = lib.sessions_list()
         else:

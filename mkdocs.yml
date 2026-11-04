@@ -65,6 +65,7 @@ nav:
     - Overview: tuning/index.md
     - Parameter Effects: tuning/knowledge/PARAMETER_EFFECTS.md
     - Tuning Cases: tuning/cases/index.md
+    - Operator Lexicons: tuning/lexicon/index.md
   - Guides:
     - User Guide (English): guides/USER_GUIDE.md
     - "Руководство пользователя (Russian)": guides/USER_GUIDE_RU.md

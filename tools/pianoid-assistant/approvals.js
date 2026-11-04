@@ -35,7 +35,7 @@ export const CATEGORIES = [
   { id: 'web', label: 'Web research', covers: 'searches and fetches by the researcher (arrives in P7)', default: 'auto' },
   { id: 'bug_local', label: 'Local bug reports', covers: 'bug.report: files a report to the local collector (POST /bug_report); bug.set_status: marks a report fixed / wontfix / duplicate / open', default: 'ask', taint: true },
   { id: 'memory', label: 'Assistant notes', covers: 'save_note / update_note: the assistant writes its own notes (hand-off memory); the dialog shows the full text', default: 'ask', taint: true },
-  { id: 'library', label: 'Sample library and tuning records', covers: 'samples_add: copies one of the saved WAVs into the repo sample library (samples/, git-ignored) and extracts its characteristics; tuning_record: appends a tuning-session record (the request, options, result)', default: 'ask', taint: true },
+  { id: 'library', label: 'Sample library and tuning records', covers: 'samples_add: copies one of the saved WAVs into the repo sample library (samples/, git-ignored) and extracts its characteristics; tuning_record: appends a tuning-session record (the request, options, result); observe_describe: records the words of the operator for an observed step and its measured before / after delta (the operator lexicon)', default: 'ask', taint: true },
 ];
 
 /** The risky attributes of a call (policy.js attributesOf decides when one applies). */

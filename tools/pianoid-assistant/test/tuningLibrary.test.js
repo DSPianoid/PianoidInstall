@@ -31,12 +31,12 @@ function fakeSession({ rules = {}, answer = true, tainted = false } = {}) {
 
 const wav = () => ({ name: 'audio_0.wav', data: Buffer.from('RIFF') });
 
-test('category: library is a rule of the catalogue (ask by default, taint), and both writes map to it', () => {
+test('category: library is a rule of the catalogue (ask by default, taint), and the three writes map to it', () => {
   const c = CATEGORIES.find((x) => x.id === 'library');
   assert.ok(c && c.default === 'ask' && c.taint === true);
   assert.equal(modeOf({}, 'library'), 'ask');
   for (const cmd of Object.values(LIBRARY_CMDS)) assert.equal(cmd.approval_category, 'library');
-  assert.equal(Object.keys(LIBRARY_CMDS).length, 2);
+  assert.equal(Object.keys(LIBRARY_CMDS).length, 3);
 });
 
 test('gate: reads run without asking; samples_add asks under rule library, Always allow runs it; a decline denies', async () => {
@@ -152,11 +152,11 @@ test('tuning_record: the backend history is read and attached as the user\'s edi
   assert.equal(JSON.parse(await down.call(TOOLS.record, { description: 'other' })).error, 'not_permitted');
 });
 
-test('SDK: the five tools sit on the assistant server only when a library handler is given', () => {
+test('SDK: the library tools sit on the assistant server only when a library handler is given', () => {
   const names = (srv) => srv.instance?._registeredTools ? Object.keys(srv.instance._registeredTools) : (srv.tools || []).map((t) => t.name);
   const without = names(SdkDriver.assistantTools(async () => '', async () => ({}), null, async () => ''));
   const withLib = names(SdkDriver.assistantTools(async () => '', async () => ({}), null, async () => '', async () => ''));
-  for (const t of ['samples_list', 'samples_get', 'samples_compare', 'samples_add', 'tuning_record']) {
+  for (const t of ['samples_list', 'samples_get', 'samples_compare', 'samples_add', 'tuning_record', 'observe', 'observe_describe', 'lexicon_get']) {
     assert.ok(!without.includes(t), t);
     assert.ok(withLib.includes(t), t);
   }
@@ -181,4 +181,49 @@ test('real CLI (skipped without the canonical venv): stats / record / sessions o
   const bad = await runCli(sttPython(), ['--root', root, 'get', '--id', 'nope']);
   assert.equal(bad.ok, false);
   assert.match(bad.error, /no sample/);
+  // observe mode end to end through the real CLI: two tagged renders -> an observation -> the lexicon, a long
+  // argument through the @file path (cliJson), the answer fields the describe handler reads
+  const dir = tmp();
+  for (const [name, step, tilt] of [['c4_0', 0, -6], ['c4_1', 1, -14]]) {
+    const file = path.join(dir, `${name}.wav`);
+    fs.writeFileSync(file, toneWav(261.63, tilt));
+    const r = await runCli(sttPython(), ['--root', root, 'add', '--file', file, '--source', 'render', '--pitch', '60', '--velocity', '95', '--id', name, '--tags', `obs-ob9,step-${step}`, '--settings', '{"duration_ms":2000}']);
+    assert.equal(r.ok, true, r.error);
+  }
+  const lib = new TuningLibrary(fakeSession(), { artifactsDir: dir, root, python: sttPython() });
+  const edits = Array.from({ length: 40 }, (_, i) => ({ label: `mode [${i}] decrement ${'9'.repeat(150)}` }));
+  const kbDir = path.join(dir, 'kb');
+  process.env.PIANOID_LEXICON_DIR = kbDir;
+  try {
+    const o = await lib.cliJson('observe', { operator: 'tester', observe_id: 'ob9', step: 1, description: 'warmer, a bit too dull', edits });
+    assert.equal(o.ok, true, o.error);
+    assert.deepEqual(o.observation.phrases, ['warmer', 'too dull']);
+    assert.equal(o.comparable_pairs, 1);
+    assert.ok(o.observation.traits.centroid_body_pct < -3);
+    assert.equal(o.observation.edits.length, 40);
+    assert.match(o.lexicon.warmer.summary, /single observation/);
+    const lx = await runCli(sttPython(), ['--root', root, 'lexicon', '--operator', 'tester', '--phrase', 'warmer please']);
+    assert.equal(lx.ok, true);
+    assert.equal(lx.exact.warmer.n, 1);
+    assert.equal(lx.local_only, 1);
+  } finally {
+    delete process.env.PIANOID_LEXICON_DIR;
+  }
 });
+
+/** A 2 s decaying harmonic tone, 16-bit mono 48 kHz WAV, tilt dB per octave. */
+function toneWav(f0, tilt, sr = 48000, dur = 2) {
+  const n = sr * dur;
+  const x = new Float64Array(n);
+  for (let k = 1; k <= 12; k += 1) {
+    const a = 10 ** ((tilt * Math.log2(k)) / 20);
+    for (let i = 0; i < n; i += 1) x[i] += a * Math.sin((2 * Math.PI * k * f0 * i) / sr) * 10 ** ((-12 * i) / sr / 20);
+  }
+  const peak = x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVE', 8); buf.write('fmt ', 12);
+  buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sr, 24);
+  buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i += 1) buf.writeInt16LE(Math.round((0.5 * x[i] / peak) * 32767), 44 + i * 2);
+  return buf;
+}

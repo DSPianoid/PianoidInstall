@@ -8,7 +8,11 @@ numbers quoted here are *examples from one instrument and one board*; the knowle
 source and confidence.
 
 Read with `read_docs` (page `guides/TUNING_FOR_ASSISTANT.md`). Anchors: `hard-rules`, `loop`, `vocabulary`,
-`levers`, `measure`, `knowledge`, `samples`, `record`, `limits`.
+`levers`, `measure`, `knowledge`, `samples`, `record`, `observe`, `limits`.
+
+Two modes: **cooperative** (the [loop](#loop): the user asks, you measure, offer and apply) and **observe** (the
+operator tunes in the UI by hand, you watch, measure each step and learn what their words mean: [observe](#observe)).
+What you learn in observe mode comes back in the cooperative loop as the operator's own lexicon.
 
 ## Hard rules: nothing here relaxes them {#hard-rules}
 
@@ -54,9 +58,12 @@ These hold in every mode: Autonomous, Always allow, an approved plan.
 
 Tuning is a conversation. Each round is short and ends in a measured, recorded step.
 
-1. **Hear the request in the user's words**, then map it to measurable traits with the [vocabulary](#vocabulary).
-   State the mapping back in one line ("harsh = a flat spectrum and noise between the partials; I will read the
-   centroid, the roll-off and the cloud of C4").
+1. **Hear the request in the user's words**, then map it to measurable traits: first with **their own lexicon**
+   (`lexicon_get {operator, phrase: their words}`, learned in [observe mode](#observe)), else with the generic
+   [vocabulary](#vocabulary). State the mapping back in one line and say which one you used: "by your lexicon,
+   warmer = centroid -10..-20 % and partials 4-8 down 3-6 dB, attack unchanged (4 of 4 observations); I will read
+   the centroid and partials 4-8 of C4", or "no entry for 'singing' in your lexicon yet; generically that is a long
+   sustain of the top partials".
 2. **Ask at most one or two targeted questions**, only where the mapping forks: which key(s) or register; attack or
    sustain; compared with what (another preset, a recording, memory); live on the board or in a render. Never ask for
    a value you can read with a tool (the active parameter, the preset, the settings).
@@ -82,13 +89,21 @@ Tuning is a conversation. Each round is short and ends in a measured, recorded s
    the options, what was chosen (or what the user did themselves: the host attaches the backend undo history), the
    before / after numbers, the sample ids, the verdict, the lesson. Then the next round.
 
-When the user tunes by hand and asks you only to watch: still measure before / after and record it; that is how
-their own successful moves enter the knowledge base.
+When the user tunes by hand and asks you only to watch, switch to [observe mode](#observe): it measures before /
+after and records their steps and words; that is how their own successful moves and their vocabulary enter the
+knowledge base.
 
 ## Vocabulary: words to traits {#vocabulary}
 
 Map first, then confirm the mapping in one line. The trait names are the fields of the characteristics card
 ([measure](#measure)). Register matters: ask which key when the request has none.
+
+**The operator's lexicon comes first.** `lexicon_get {operator, phrase}` returns the entries their request uses
+(exact phrases, then near ones sharing a word). Use an entry by its confidence: `single observation` = a hint only,
+say so and confirm with the operator; `low` (2-3) = a likely reading, confirm in the same line; `medium` / `high` =
+use it and name it. An entry with **contradictions** on a trait is ambiguous on that trait: ask which they mean.
+When their lexicon and the table below disagree, theirs wins for them, and you say that it differs. No entry: the
+table, and note the word for observe mode.
 
 | The user says | Measurable trait (card field) | Typical levers (see the knowledge base for direction and risk) |
 |---|---|---|
@@ -219,6 +234,73 @@ record (`samples/sessions/<id>.md`); tell the user it is there. Kept sessions ar
 and their measured levers into the parameter map by the dev team. When a session ends unfinished, the hand-off
 note (`save_note`, kind handoff) names the record ids and the working file.
 
+## Observe mode: watch the operator tune, learn their words {#observe}
+
+The operator tunes in the UI themselves; you follow every edit, measure each step before and after, record how they
+describe the result in their own words (typed, or spoken through the voice input, which arrives as text), and learn
+what those words mean for this operator as observable changes. Use it when they say "watch me", "learn what I mean",
+or tune by hand while you are open.
+
+**Tools**
+
+| Tool | Does | Asks |
+|---|---|---|
+| `observe {action: start, operator, pitches, velocities?, duration_ms?, gap_s?}` | follows the backend's state broadcast (read-only: a socket.io client that never emits a write); seeds the focus pitches' stored string / hammer / excitation values so the first edit of each has a before | no (category view) |
+| `observe {action: status}` | the steps: each edit as `domain [key] field before -> after`, its time and source (fe, midi_cc, undo, ...); the step state (`open`, `ready_to_render`, `rendered`), flags, what to render, the `todo` | no |
+| `observe {action: stop}` | ends watching; the steps stay readable for describe and `tuning_record` | no |
+| `observe_describe {step, description, phrases?, verdict?}` | the library pairs the step's after-samples with the session's earlier samples (same pitch and velocity), measures the trait deltas, stores the observation and answers what the words meant this time and so far | rule Sample library |
+| `lexicon_get {operator, phrase?}` | the operator's lexicon, whole or the entries a request uses | no |
+| `render.note_playback` with `export: true`, `samples_add` | the renders and their library entries (the usual commands and rules: a render asks while live audio runs unless Offline renders is Auto; `samples_add` asks unless Sample library is Auto) | as usual |
+
+Your own writes never count as the operator's (source `assistant` is ignored). Level-only changes (the volume
+slider, `output_level`) are not steps: a peak-normalised render cannot hear them. The hammer / bow switch of a key
+(`excitation_mode`) is an edit of that key.
+
+**The flow**
+
+1. **Start.** Ask once for the operator's name (it names their lexicon; remember it in a note) and the keys they will
+   work on. `observe {action: start, operator, pitches}` (velocities default to 95; pick 2 for a dynamics question).
+2. **Baseline (step 0) before the first edit:** render each focus pitch x velocity offline
+   (`render.note_playback {pitch, velocity, duration_ms, export: true}`), `samples_add` each with `source: render`,
+   `pitch`, `velocity`, `settings` = the session's `render_settings` exactly, and `tags: [obs-<id>, step-0]`. Tell the
+   operator when they can start.
+3. **Steps.** The operator edits; edits that follow each other are one step. A step is `ready_to_render` after
+   `gap_s` of quiet. A render **seals** the step: its after-renders are also the next step's before. So render a
+   ready step promptly and ask the operator to wait while it renders. `status` lists the pitches: the edited keys for
+   per-key domains (string, hammer, gauss, excitation, feedin, ...); the focus pitches for shared ones (mode, feedback,
+   thump, pedal, runtime). Tags `[obs-<id>, step-<n>]`, the same settings, the same duration.
+4. **Ask and record.** "How did that come out?" Record their words verbatim with `observe_describe {step, description}`
+   (pass `phrases` when you split "warmer, but a bit too woody" yourself: `["warmer", "too woody"]`). Never put your
+   own words in their mouth; if they say nothing, leave the step undescribed. `verdict`: kept / undone (they undid
+   it) / open.
+5. **Feed back** in one line what their words meant this time ("warmer here = centroid -14 %, partials 4-8 -4 dB")
+   and, when an entry has 2+ observations, what it means so far. Show a contradiction when one appears.
+6. **Stop** when they are done: `observe {action: stop}`, then `tuning_record {description, observe_id, verdict,
+   lessons}`: the host attaches the operator and their observed edits. A kept session becomes a tuning case
+   attributed to the operator after review.
+
+**Flags.** `merged` = they edited again before the render (one step); `contaminated` = an edit landed while a step's
+renders were still running (its delta is not trusted and is not learned from; say so); `preset_changed` = a preset
+load / switch broke the chain (render a new baseline); `no_baseline_render` = the first step began before step 0
+was rendered; `journal_gap` = the backend restarted or the link dropped long enough to lose events. A pair is
+excluded when the before sample is missing (a key outside the baseline: its after-render becomes the base of later
+steps) or the settings differ.
+
+**Safety.** Observing is read-only. Renders are offline (`note_playback`): never play live, never touch the slider or
+the level, never load a preset, never undo for the operator. Observing ends on stop or after 4 hours; a session holds at most
+60 steps.
+
+**The lexicon** (derived by `tools/tuning/lexicon.py` on every read, never stored as a second copy). Per phrase, per
+trait of the card (centroids, roll-off, partial groups 1-3 / 4-8 / 9-12, T60 low / mid / high, attack rise, cloud,
+thump, B, pitch, beating): a direction needs 3 of 4 observations to agree beyond the trait's threshold (centroid
+3 %, partial groups 1 dB, T60 5 %, ...: conventions, not measured noise floors); its range is that of the agreeing
+observations; `unchanged` lists traits that stayed inside the threshold in 2+ observations; a **contradiction** is
+both signs at 25 % or more. Confidence follows the count only: 1 = single observation, 2-3 low, 4-7 medium, 8+
+high. Each step counts once (the median over its pitches and velocities). Evidence: the local
+`samples/observations.jsonl`; the dev team exports it into the versioned knowledge base (`tuning/lexicon/<operator>.md` +
+`.observations.jsonl`), and the lexicon reads both. Format and maintenance:
+[operator lexicons](../tuning/lexicon/index.md).
+
 ## Limits of this page {#limits}
 
 - The numbers here and in the knowledge base come from one piano (a Belarus upright recording), one plywood
@@ -232,3 +314,9 @@ note (`save_note`, kind handoff) names the record ids and the working file.
   excess are open: no lever is known. Say so when the request lands there.
 - Scores from different settings (order, iterations, pedal, feedback) are not comparable; neither are live and
   rendered levels.
+- Observe mode: the before value of an edit is what the session saw (the stream, or the start seed of the focus
+  pitches' string / hammer / excitation); an edit of another key or domain shows "before not observed" (the backend
+  undo history holds it but has no read route). An edit of more than 16 keys at once carries no values (refetch).
+  The live step buffer is in the assistant service's memory: a restart of the service ends the session (the described
+  steps are already stored). A phrase is read as describing the change the step caused; the lexicon learns nothing
+  from a step without comparable pairs.

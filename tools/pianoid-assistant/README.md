@@ -335,20 +335,23 @@ plus one routing block in `prompt.js`, like the measurement skill. Its knowledge
 (`knowledge/parameter_effects.json` = SSOT, rendered to `PARAMETER_EFFECTS.md` by `tools/tuning/render_knowledge.py`;
 `cases/` one file per finished case); the model reads both with `read_docs` and never writes them.
 
-Five tools on the in-process `assistant` server (`service/tuningLibrary.js`, wired like the notes):
+Eight tools on the in-process `assistant` server (`service/tuningLibrary.js`, wired like the notes):
 
 | Tool | Rule | What |
 |---|---|---|
 | `samples_list {source?, preset?, pitch?, tag?, query?}`, `samples_get {id}`, `samples_compare {a, b}` | view (no confirm) | the repo sample library `<PianoidInstall>/samples` (git-ignored; README + `schema.json` tracked): renders, mic recordings, references and their characteristics card; compare = b minus a (band-time RMS, cloud, partials, cents, B, centroids, T60, attack, thump). Reads are wrapped `<library untrusted>`; a tainted sample taints the turn |
 | `samples_add {artifact_id, file?, source, preset, pitch, velocity, settings, tags, note, id?, date?}` | `library` (Ask by default; taint rule; in the Autonomous preset) | copies ONE WAV of the assistant's own artefact (id + listed file name, never a path) into the library and extracts its card; a tainted artefact / turn marks the sample |
-| `tuning_record {description, interpretation, options_offered, chosen, changes, before, after, samples, verdict, lessons}` | `library` | appends a session record to `samples/sessions.jsonl` + writes the case draft `samples/sessions/<id>.md`; the service first reads `GET /history` so the user's own undo labels are in it (`user_edits`) |
+| `tuning_record {description, interpretation, options_offered, chosen, changes, before, after, samples, verdict, lessons}` | `library` | appends a session record to `samples/sessions.jsonl` + writes the case draft `samples/sessions/<id>.md`; the service first reads `GET /history` so the user's own undo labels are in it (`user_edits`); with `observe_id` the host attaches the operator, the observed steps and the observation ids (mode observe) |
+| `observe {action: start \| status \| stop, operator, pitches, velocities?, duration_ms?, gap_s?}` | view | observe mode: `service/tuningObserver.js` follows the backend's state broadcast through `service/journalStream.js` (a READ-ONLY socket.io client over `ws`: Engine.IO 4 websocket, ping / pong, the backend's `hello` replay after a reconnect, never a write event); edits not made by the assistant become steps delimited by offline renders (`engine_busy` of `/get_chart_test` / `/play_keyboard`), with before -> after from a GET seed of the focus pitches and the stream; flags merged / contaminated / preset_changed / no_baseline_render / journal_gap; one session, in memory, 4 h max |
+| `observe_describe {step, description, phrases?, verdict?, observe_id?}` | `library` | only for a RENDERED step: the CLI `observe` pairs the step's samples by their tags (`obs-<id>`, `step-<n>`), measures the trait deltas (`tools/tuning/lexicon.py`) and appends the observation to `samples/observations.jsonl`; answers what the words meant this time and so far |
+| `lexicon_get {operator, phrase?}` | view | the operator's lexicon, derived by the CLI from `docs/tuning/lexicon/<operator>.observations.jsonl` (versioned, exported by `sample_lib.py lexicon-export`) + the local observations; wrapped `<library untrusted>`; tainted evidence taints the turn |
 
 The folder's ONE writer is the CLI `tools/tuning/sample_lib.py` (manifest JSONL, append-only, last record of an id wins),
 run with the canonical venv python (`stt.js` `sttPython`: `PIANOID_STT_PYTHON` > `<PIANOID_CORE_DIR | <Install>/PianoidCore>/.venv`),
 CPU only at below-normal priority; the extractor `tools/tuning/characteristics.py` (f0 + cents, inharmonicity B, partials,
 roll-off, centroids, T60 per band, attack, crest, cloud between partials, thump excess and lead, beating, band-time matrix)
 ports the fit library / auto_tuner / param_sound_harness algorithms. `PIANOID_SAMPLES_DIR` overrides the root. Tests:
-`test/tuningLibrary.test.js`, `test/tuningSkill.test.js`; Python `PianoidCore\.venv\Scripts\python -m pytest tools/tuning/tests`.
+`test/tuningLibrary.test.js`, `test/tuningSkill.test.js`, `test/tuningObserver.test.js` (a broadcast fixture `fixtures/journal/observe-session.json` + a fake socket.io server); Python `PianoidCore\.venv\Scripts\python -m pytest tools/tuning/tests`.
 
 ## Bug reports (v2 P6 minimal, dev-947d)
 
