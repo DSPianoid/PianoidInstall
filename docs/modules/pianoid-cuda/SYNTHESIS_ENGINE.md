@@ -1151,6 +1151,8 @@ addThumpToBatch: first thump of the batch -> pool string (round-robin per batch)
 | Item | Value |
 |---|---|
 | Config | `setThumpConfig(pool, key_gains[128])` (pybind; middleware `thump_config.push`). Empty pool = off (the default): nothing is staged, output bit-identical |
+| Per-level force | `model_parameters.thump.level_coeff` (dev-lthump) lives in the thump string's row of the host coefficient table (`excitation_coefficients_`, `setNewExcitationCoefficients`), which `addThumpToBatch` already samples at the played velocity: no engine change ([REST_API](../pianoid-middleware/REST_API.md#thump-string-dev-thump1)) |
+| Bowed keys | a bowed note-on stages through the same `stageStringsForPitch` -> `addThumpToBatch`; the middleware pushes key gain 0 for every bowed key, so a bowed note fires no thump (dev-lthump, no engine change) |
 | Budget | at most `MAX_THUMP_STRINGS_PER_BATCH` = 1 extra string per envelope: `MAX_NOTE_ONS_PER_CYCLE` 7 × `MAX_STRINGS_PER_PITCH` 3 + 1 = 22 ≤ `MAX_STRINGS_PER_EVENT` 64 (`static_assert` in `constants.h`) |
 | Same-cycle chord | one excitation, the loudest `gain × velocity` (bounded, independent of chord size) |
 | Overlap | a thump within ~9.3 ms (the 7-segment window) of the previous one re-runs `gaussKernel` on the same row: the earlier pulse is cut (force function overwritten, `exct_cycle_index` reset); the string state is additive, so ringing superposes. Accepted for v1 (one string); a pool of 2–4 strings removes it (the engine already rotates a pool) |
