@@ -232,10 +232,10 @@
       "domain": "thump",
       "title": "Keybed thump string (dev-thump1)",
       "read": "param.get {parameter: thump, key_no: all} -> {available, config, engine_pool, engine_supported}",
-      "write": "param.set {parameter: thump, key_no: all, values: {enabled?, gain?, trim_db?: {key: dB}}} (trim_db merges per key; 0 removes)",
+      "write": "param.set {parameter: thump, key_no: all, values: {enabled?, gain?, trim_db?: {key: dB}, level_coeff?: [pp, p, mf, f, ff]}} (trim_db merges per key; 0 removes; level_coeff is the whole list of 5)",
       "key_space": "global config; trim_db keyed by piano pitch 21-108",
-      "shape": "{enabled: bool, pitch: int (the thump pitch, default 20), gain: float, trim_db: {pitch: dB}}",
-      "stored_vs_effective": "Stored in model_parameters.thump (saved with the preset; absent = no thump string). Effective per-key engine gain = gain * 10^(trim_db/20), 0 for every key when disabled. The thump string's own physics (hammer_mass = keybed mass, gauss sigma/mu = contact time/delay, deck row = rim coupling) are ordinary parameters of the thump pitch. Excluded from loudness calibration.",
+      "shape": "{enabled: bool, pitch: int (the thump pitch, default 20), gain: float, trim_db: {pitch: dB}, level_coeff: [5 floats]}",
+      "stored_vs_effective": "Stored in model_parameters.thump (saved with the preset; absent = no thump string). Effective per-key engine gain = gain * 10^(trim_db/20), 0 for every key when disabled. level_coeff multiplies the thump string's own excitation coefficient at velocities 5/31/63/95/127 (linear between levels; independent of enabled). The thump string's own physics (hammer_mass = keybed mass, gauss sigma/mu = contact time/delay, deck row = rim coupling) are ordinary parameters of the thump pitch. Excluded from loudness calibration.",
       "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1",
       "fields": [
         {
@@ -260,6 +260,14 @@
           "range": "-40..40 (rule thump.trim_db)",
           "class": "stored",
           "meaning": "Per-key trim of the thump gain.",
+          "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1"
+        },
+        {
+          "name": "level_coeff",
+          "units": "linear, per velocity level",
+          "range": "5 values 0-10 (rule thump.level_coeff), default 1.0; order pp, p, mf, f, ff = velocities 5, 31, 63, 95, 127",
+          "class": "stored",
+          "meaning": "Thump force coefficient per velocity level for all keys (0 = no thump at that level). Scales the thump string's coefficient row; between levels the force moves linearly. Low Thump pane.",
           "doc": "modules/pianoid-middleware/REST_API.md#thump-string-dev-thump1"
         }
       ]

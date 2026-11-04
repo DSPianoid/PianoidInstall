@@ -1327,17 +1327,27 @@ a short, light string on its own pitch, struck next to the bridge, so its bridge
 first partial (~8.7 kHz) and kicks the board modes through its deck row. When enabled, every key note-on also excites
 it with the key's velocity (engine: [SYNTHESIS_ENGINE → Thump string](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
 Added to a preset by `python -m Pianoid.thump_string SRC.json DST.json` (PianoidBasic, [OVERVIEW](../pianoid-basic/OVERVIEW.md#thump_string-keybed-thump-dev-thump1));
-config `model_parameters.thump = {enabled, pitch, gain, trim_db}` (logic `thump_config.py`, the single writer of `mp.thump`).
+config `model_parameters.thump = {enabled, pitch, gain, trim_db, level_coeff}` (logic `thump_config.py`, the single writer of `mp.thump`).
 
 | Route | Body | Result |
 |---|---|---|
-| `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}} or null, engine_pool, engine_supported}` |
-| `POST /set_parameter/thump/all` | `{enabled?, gain?, trim_db?: {key: dB}}` (`trim_db` merges per key; 0 dB removes the key) | `200`; `416 {message}` for a preset without a thump string / unknown field; `400` from the rule table |
+| `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}, level_coeff: [5]} or null, engine_pool, engine_supported}` |
+| `POST /set_parameter/thump/all` | `{enabled?, gain?, trim_db?: {key: dB}, level_coeff?: [pp, p, mf, f, ff]}` (`trim_db` merges per key; 0 dB removes the key; `level_coeff` is the whole list) | `200`; `416 {message}` for a preset without a thump string / unknown field; `400` from the rule table |
 
 * **Which presets:** the standard `Tuning18-10-26ver1` has no thump string: `GET` answers `{available: false, config: null, engine_pool: [], ...}` and `POST` answers `416 {message: "this preset has no thump string (...)"}`. `Tuning18-10-26ver1_thump_live.json` has one, enabled ([presets + measured status](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
-* **Enable / disable:** `POST /set_parameter/thump/all {"enabled": true|false}`. `engine_pool` shows the effect: the CUDA slot (`[232]` in the `thump_live` presets) when on, `[]` when off. It takes effect at once; saving the preset keeps it.
+* **Enable / disable:** `POST /set_parameter/thump/all {"enabled": true|false}`. `engine_pool` shows the effect: the CUDA slot (`[232]` in the `thump_live` presets) when on, `[]` when off. It takes effect at once; saving the preset keeps it. This is the mute of the Low Thump pane and the switch of the Thump bar.
 * **Per-key gain** = `gain · 10^(trim_db[key]/20)` (keys 21–108; the thump pitch itself never fires). Rule-table entries
   `thump.gain` [0, 100] and `thump.trim_db` [−40, 40] dB (`param_rules.json`, family *excitation*).
+* **Per-level force (dev-lthump):** `level_coeff` = five LINEAR coefficients at velocities 5 / 31 / 63 / 95 / 127
+  (pp / p / mf / f / ff), for every key, default 1.0; rule `thump.level_coeff` [0, 10] (0 = no thump at that level).
+  They multiply the thump string's own excitation coefficient (the 7th factor `level_gain` of
+  `StringMap.pack_excitation_factors`; 1.0 on every other pitch, so every other row is bit-identical): the thump
+  force at velocity v = gain · trim(key) · coefficient(v), and between two levels the coefficient row is interpolated
+  linearly like every coefficient (linear, not log, so 0 is allowed). A change recomposes ONLY the thump string's row
+  (`CoefficientCache` kind `level_gain`; also on undo). Independent of `enabled`: muting keeps the values and leaves
+  the table alone. A preset saved before has no `level_coeff` and reads as all 1.0. Needs the PianoidBasic with
+  `StringMap.level_gain`. UI: the **Low Thump** pane ([Tunner OVERVIEW](../pianoid-tunner/OVERVIEW.md)).
+  Offline check (only the thump row moves, every other row bit-identical): `docs/development/diagnostics/dev-lthump-table-check.py`.
 * **Undoable** (domain `thump`, Excitation pane Undo), journaled, saved with the preset. `param.set {parameter: thump, key_no: all, values}`.
 * **`gain` and mass:** both scale the same coefficient linearly, so with the default 3.4 g, `gain` 1 = 3.4 g, 2.94 ≈ 10 g, 4.41 ≈ 15 g of impulse. The measured 10 g / 15 g results used the `hammer_mass` of the `_10g` / `_15g` presets (with `gain` 1), not `gain`.
 * **The thump string's own parameters** are ordinary pitch parameters of the thump pitch (20 by default): `hammer_mass` =
