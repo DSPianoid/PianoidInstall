@@ -4,7 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
-| dev-bow2 | Friction bow (Option B, bow-realism-2026-10-29): retire old WRAP bow, MIDI velocity=bow speed, CC force/angle live, kernel budget top constraint | [log](logs/dev-bow2-2026-11-03-215033.md) | 2026-11-03 | In Progress |
+<!-- dev-bow2 COMPLETED 2026-11-04 (user-ordered on Telegram "Ok push and then merge now"; merged locally, NOT pushed): friction bow replaces the WRAP bow - MIDI velocity = bow speed, CC1 = force, CC16 = angle (live), per-register bowed-string loss (x40 bass, x100 + force x0.6 around C3, x60 from C4; angle scales it). No-bow cycle unchanged, addKernel release 118 / debug 126 regs, 0 spill. Merged Core dev c759957 (e373c2b), Tunner dev 88d98fd (2930297), Install master 8ba54c6 (df33bfb). Log: logs/archive/dev-bow2-2026-11-03-215033.md -->
 <!-- dev-voiceset COMPLETED 2026-11-04 (merged locally, NOT pushed): assistant voice settings moved into the pane's gear (PaneWithSettings + useSettings assistantSettings bucket, legacy-key migration). Merged Tunner dev 86a512c (bab4c32), Install master 9d90f08 (6001d74). Log: logs/archive/dev-voiceset-2026-11-04-160944.md -->
 <!-- dev-digitfix COMPLETED 2026-11-04 (merged locally, NOT pushed): one wheel-step store, digit choice on the active parameter field (bug 1100c9e0). Merged Tunner dev bedcf74 (bcff725), Install master 32b5579 (363b440). Log: logs/archive/dev-digitfix-2026-11-04-160930.md -->
 <!-- dev-modereject COMPLETED 2026-11-04 (user-ordered on Telegram "fix all properly and merge to the dev"; merged + PUSHED by devrestore): refused param write no longer poisons the editor (param-rule clamp for Modes/Strings edits, rollback + snackbar on 4xx, granular single-mode writes) + NumInput zoom-overlay crash fix (capture-phase mouseup, one drag at a time, caretAt null guard; identical to dev-zoomfix e91d170). Merged Tunner dev 242f3a1 (d106622), Install master 696f9d9 (82d0850). Log: logs/archive/dev-modereject-2026-11-04-140209.md -->
@@ -162,7 +162,7 @@
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-cflgate — Refactor Courant/CFL stability GATE → visual FILL indicator (shows current Courant, red near 1); remove blocki | repos: - | branches: feature/dev-cflgate | SHAs: - | status: unknown | started 2026-07-07 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-exp1 — Universal-excitation Phase 1: per-string traversal descriptor (dev_exct_descriptor AoS [loop_start,loop_end,lo | repos: - | branches: feature/dev-excitimpl-p1 | SHAs: - | status: HOLD,NOT-merged/pushed,pushed | started 2026-07-07 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-exp2 — Universal-excitation Phase 2: bow/WRAP mode (continuous re-emission, gated on dec_open=held) + per-pitch hamme | repos: - | branches: feature/dev-excitimpl-p2 | SHAs: - | status: HOLD | started 2026-07-07 -->
-<!-- dev-bow2 2026-11-04: the WRAP bow below is retired (friction bow, feature/dev-bow2); Phases 3-4 dropped.
+<!-- dev-bow2 2026-11-04: the WRAP bow below is retired (friction bow, dev-bow2, merged 2026-11-04); Phases 3-4 dropped.
      Still open from Phase 2b: preset persistence of the per-pitch hammer/bow assignment. -->
 <!-- DEFERRED (universal-excitation, team-lead 2026-07-07) — "Phase 2b: user-settable + persistent bow assignment":
      (1) preset-JSON per-pitch excitation-mode FIELD (persistence: load/save the hammer/bow assignment in the preset),

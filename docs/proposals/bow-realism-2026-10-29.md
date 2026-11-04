@@ -1,6 +1,6 @@
 # Bow realism: analysis of today's bow and a path to a physical bowed string (design only)
 
-**Status:** PARTIALLY IMPLEMENTED (dev-bow2, 2026-11-04, branch feature/dev-bow2, not merged): Option B
+**Status:** IMPLEMENTED - Option B (dev-bow2, merged 2026-11-04: Core dev c759957, Tunner dev 88d98fd, Install master 8ba54c6):
 (friction solve at the hammer point, central velocity) with MIDI velocity = bow speed and live force / angle
 (angle = friction-curve softness, a cheap stand-in for bow tilt / contact width) and a per-register high-frequency loss on the bowed string (x40 bass, x100 C3 region, x60 C4 up; angle scales it) (clean Helmholtz motion: one slip per period above the bass); the old WRAP bow is retired.
 Open: the rest of Option C (bow noise, thermal friction, Guettler-aware attack, Schelleng-aware UI, a separate
