@@ -106,21 +106,21 @@
     },
     {
       "name": "param.bow",
-      "title": "Set the live bow controls",
-      "description": "Friction-bow controls for every bowed key, live: force 0..1 (pressure, fraction of the playable maximum), angle 0..1 (tilt: softer and darker as it rises), width 1..7 (contact points of the bow hair). Same as the bow MIDI CCs (force CC1, angle CC16).",
+      "title": "Set the bow parameters of keys",
+      "description": "Friction-bow parameters per key (preset parameters, saved, undoable; 409 on a read-only original): speed 0..1 (bow speed, the level follows it), force 0..1 (pressure, 0.5 = the middle of the clean range), position 0.5..3 (bow point as a multiple of the hammer point), tilt 0..1 (less hair on the string: narrower contact, softer, darker). key_no: n | 'from<a>to<b>' | 'all'. values: {field: value} for every key of key_no, or {pitch: {field: value}}. One write = one state_changed{bow} and one undo step. Read them with param.get {parameter: bow}. The keys must be set to bow with param.excitation_mode.",
       "target": "backend",
       "tier": "write",
-      "approval_category": "runtime",
+      "approval_category": "params",
       "long_running": false,
-      "doc": "modules/pianoid-middleware/REST_API.md#post-set_bow_controls-get-get_bow_controls",
-      "route": {"method": "POST", "path": "/set_bow_controls"},
+      "doc": "modules/pianoid-middleware/REST_API.md#friction-bow-parameters-dev-bow3",
+      "route": {"method": "POST", "path": "/set_parameter/bow/{key_no}", "body_arg": "values"},
       "args": {
         "type": "object",
+        "required": ["key_no", "values"],
         "additionalProperties": false,
         "properties": {
-          "force": {"type": "number", "minimum": 0, "maximum": 1, "description": "Bow pressure 0..1"},
-          "angle": {"type": "number", "minimum": 0, "maximum": 1, "description": "Bow tilt 0..1"},
-          "width": {"type": "integer", "minimum": 1, "maximum": 7, "description": "Contact points 1..7"}
+          "key_no": {"type": "string", "description": "Pitch number, 'from<a>to<b>' or 'all'"},
+          "values": {"type": "object", "description": "{speed?, force?, position?, tilt?} or {pitch: {...}}"}
         }
       },
       "result": {"type": "object"}

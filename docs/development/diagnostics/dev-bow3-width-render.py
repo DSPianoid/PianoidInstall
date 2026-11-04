@@ -1,11 +1,13 @@
-"""dev-bow3: width WAVs + numbers, short treble strings, hammer unchanged. SILENT (offline, audio off).
+"""dev-bow3: tilt / wide-contact WAVs + numbers, short treble strings, hammer unchanged. SILENT (offline, audio off).
 
   --stage before : on the installed build BEFORE dev-bow3 -> hammer 91 / 99 buffers (.npy), bowed 91 / 99
-                   (expected silent there: no contact point), and width-1 WAVs as the "before"
-  --stage after  : on the dev-bow3 build -> WAVs bow_<note>_width<N>.wav for N in --widths, harshness
-                   metrics (centroid, roll-off, noise between partials, level), bowed 91 / 99 at f0,
-                   hammer 91 / 99 compared with the before buffers (correlation, max difference)
-Usage: python dev-bow3-width-render.py --core <core> --stage before|after --out <dir> [--widths 1,2,3]
+                   (silent there: no contact point on the short main string), and the default bow WAVs as
+                   the "before" (bow_<note>_before.wav)
+  --stage after  : on the dev-bow3 build -> for every note and tilt: WAV bow_<note>_tilt<T>_width<N>.wav
+                   (N = the contact points, round(ribbon x (1 - 0.7 tilt) x main length), min 3, max 16) and
+                   the harshness metrics (centroid, roll-off, noise between partials, level); bowed 91 / 99
+                   at f0; hammer 91 / 99 compared with the before buffers (correlation, max difference)
+Usage: python dev-bow3-width-render.py --core <core> --stage before|after --out <dir> [--tilts 0,0.3,0.6,0.9]
 """
 import argparse
 import importlib.util
@@ -17,6 +19,8 @@ import numpy as np
 
 SR = 48000
 NOTES = {"C2": 36, "A2": 45, "C3": 48, "C4": 60}
+MAIN_LEN = {"C2": 268, "A2": 190, "C3": 166, "C4": 58}   # main-string points (dev-bow2-dump-coeffs.py)
+TILT = 3                                                  # BowParam field (BowController.h)
 
 
 def load(here, name, file):
@@ -37,12 +41,16 @@ def f0_of(x):
     return SR / k
 
 
+def points(name, tilt, ribbon):
+    return int(min(16, max(3, round(ribbon * (1 - 0.7 * tilt) * MAIN_LEN[name]))))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--core", required=True)
     ap.add_argument("--stage", choices=("before", "after"), required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--widths", default="1,2,3")
+    ap.add_argument("--tilts", default="0,0.3,0.6,0.9")
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     w = load(here, "w", "dev-bow2-wavs.py")
@@ -56,7 +64,8 @@ def main():
                    string_iteration=4, array_size=384, sample_rate=SR, samples_in_cycle=64,
                    buffer_size=4, max_volume=5e18, audio_on=False, audio_driver_type=0)
     eng = p.pianoid
-    has_width = hasattr(eng, "setBowWidth")
+    new = hasattr(eng, "setBowParams")
+    ribbon = float(eng.getBowStatus()[1]) if new else 0.0
     rows = []
     try:
         for P in (91, 99):                                   # short treble strings
@@ -78,22 +87,23 @@ def main():
             rows.append({"case": f"bow {P}", "steady_rms": rms,
                          "f0": round(f0_of(x), 1) if rms > 0 else None, "nominal": round(nominal, 1),
                          "nan": int(np.isnan(x).sum())})
-        widths = [1] if args.stage == "before" else [int(v) for v in args.widths.split(",")]
+        tilts = [None] if args.stage == "before" or not new else [float(v) for v in args.tilts.split(",")]
         for name, P in NOTES.items():
             f0 = 440.0 * 2 ** ((P - 69) / 12) * 2 ** (-16 / 1200)
             hm = w.render(p, pc, P, 80)
             ref = float(np.sqrt(np.mean(hm[int(0.02 * SR):int(0.22 * SR)] ** 2)))
-            for W in widths:
-                if has_width:
-                    eng.setBowWidth(W)
+            default_tilt = float(eng.getBowParams(P)[TILT]) if new else None
+            for t in tilts:
+                if t is not None:
+                    eng.setBowParams([P], TILT, [t])
                 p.set_pitch_excitation_mode(P, 1)
                 x = w.render(p, pc, P, 90)
                 p.set_pitch_excitation_mode(P, 0)
-                tag = "before" if args.stage == "before" else f"width{W}"
+                tag = "before" if t is None else f"tilt{t:g}_width{points(name, t, ribbon)}"
                 w.write24(os.path.join(args.out, f"bow_{name}_{tag}.wav"), x, w.norm_gain(x))
                 rows.append({"case": f"{name} {tag}", **h.metrics(x, f0, ref)})
-        if has_width:
-            eng.setBowWidth(2)
+            if default_tilt is not None:
+                eng.setBowParams([P], TILT, [default_tilt])
     finally:
         eng.shutdownGpu()
     for r in rows:

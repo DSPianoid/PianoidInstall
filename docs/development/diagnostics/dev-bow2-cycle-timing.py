@@ -27,6 +27,8 @@ CASES = {
     "a_no_bow": ([], [60]),
     "b_one_bowed": ([36], [36]),
     "c_several_bowed": ([36, 43, 48, 55, 60, 67], [36, 43, 48, 55, 60, 67]),
+    # dev-bow3: the widest contact (16 points on the bass): ribbon 0.5 of the main string, tilt 0
+    "d_several_bowed_width16": ([36, 43, 48, 55, 60, 67], [36, 43, 48, 55, 60, 67]),
 }
 
 
@@ -39,8 +41,11 @@ def note_event(pc, pitch, velocity, cycle, on=True):
     return ev
 
 
-def run_case(p, pc, bowed, played, duration_s):
+def run_case(p, pc, bowed, played, duration_s, wide=False):
     eng = p.pianoid
+    if hasattr(eng, "setBowMaxWidth"):    # dev-bow3 engine: default ribbon, or the widest contact
+        eng.setBowMaxWidth(0.5 if wide else 0.035)
+        eng.setBowParams(list(bowed), 3, [0.0 if wide else 0.3] * len(bowed))
     strings = {}
     for pitch in set(bowed) | set(played):
         strings[pitch] = int(p.set_pitch_excitation_mode(pitch, 1 if pitch in bowed else 0))
@@ -104,7 +109,10 @@ def main():
     print("coop occupancy:", results["coop_occupancy"], flush=True)
     try:
         for name, (bowed, played) in CASES.items():
-            runs = [run_case(p, pc, bowed, played, args.duration) for _ in range(args.runs)]
+            if name.endswith("width16") and not hasattr(p.pianoid, "setBowMaxWidth"):
+                continue                       # an engine before dev-bow3
+            runs = [run_case(p, pc, bowed, played, args.duration, name.endswith("width16"))
+                    for _ in range(args.runs)]
             results[name] = runs
             for i, r in enumerate(runs):
                 print(f"{args.label} {name} run{i}: " + " ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"

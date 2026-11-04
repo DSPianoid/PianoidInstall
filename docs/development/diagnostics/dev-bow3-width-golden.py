@@ -52,6 +52,9 @@ def profile(w, kind):
         return np.array([1.0])
     if kind == "flat":
         p = np.ones(w)
+    elif kind == "para":   # parabolic (Welch) window: centre-weighted, no trig (the kernel candidate)
+        x = (np.arange(w) - (w - 1) / 2) / ((w + 1) / 2)
+        p = 1 - x * x
     else:
         p = np.sin(np.pi * (np.arange(w) + 1) / (w + 1)) ** 2
     return p / p.sum()
@@ -59,7 +62,7 @@ def profile(w, kind):
 
 def sim(name, width=1, kind="flat", mode="indep", vb=1e-4, angle=0.3, steps=None, ramp=1200, eps=0.0):
     n, bow, s1, s2, cu, hf, loss, force = STR[name]
-    hf *= loss
+    hf *= loss * 2 ** (1.2 * (angle - 0.3))     # BowController angleLossScale
     lam = np.sqrt(s1 + 4 * s2)
     per = 2 * (n + 1) / lam
     steps = steps or int(max(60000, 36 * per))
@@ -152,6 +155,87 @@ def soft_sweep():
         print("%s stick softness %.1f main_slips %.2f stick %.3f noise_between %.1f dB centroid %.1f xf0 rolloff %.1f"
               % (nm, e, m[0], m[1], m[2], m[3], m[4]), flush=True)
 
+
+MAX_FRAC, TILT_K, MAX_W = 0.06, 0.7, 16
+
+
+def tilt_width(name, tilt):
+    global MAX_FRAC
+    if len(sys.argv) > 2 and sys.argv[1] == "tilt":   # the Pool workers re-import: read it again
+        MAX_FRAC = float(sys.argv[2])
+    """Tilt -> contact points: the hair ribbon (MAX_FRAC of the main string) narrowed by tilt, min 3."""
+    n = STR[name][0]
+    return int(min(MAX_W, n - 2, max(3, round(MAX_FRAC * n * (1 - TILT_K * tilt)))))
+
+
+def metrics_tilt(args):
+    name, tilt, ramp = args
+    w = tilt_width(name, tilt)
+    flag, out, per = sim(name, w, "para", "coupled", angle=tilt, ramp=ramp)
+    return (name, tilt, w) + metrics_from(flag, out, per)
+
+
+def metrics_from(flag, out, per):
+    h0 = len(flag) // 2
+    tail = flag[h0:].astype(int)
+    segs = np.split(tail, np.flatnonzero(np.diff(tail)) + 1)
+    main = sum(1 for s in segs if s[0] == 1 and len(s) >= 8) / (len(tail) / per)
+    o = out[h0:]
+    m = len(o)
+    sp = np.abs(np.fft.rfft(o * np.hanning(m), 4 * m)) ** 2
+    fr = np.fft.rfftfreq(4 * m)
+    f0 = 1 / per
+    on = np.zeros_like(fr, bool)
+    harm = []
+    for h in range(1, 25):
+        band = (fr > f0 * (h - 0.15)) & (fr < f0 * (h + 0.15))
+        on |= band
+        harm.append(sp[band].max())
+    region = fr < f0 * 24.5
+    noise = 10 * np.log10(sp[region & ~on].sum() / sp[region & on].sum())
+    roll = np.polyfit(np.log2(np.arange(1, 25)), 10 * np.log10(np.array(harm) / harm[0]), 1)[0]
+    amp = np.sqrt(sp[region])
+    return main, 1 - tail.mean(), noise, (amp * fr[region]).sum() / amp.sum() / f0, roll,         10 * np.log10(sp[region].sum())
+
+
+def _report(groups, label):
+    for key, vals in groups.items():
+        m = np.mean(vals, axis=0); sd = np.std(vals, axis=0)
+        print(label % key + " main_slips %.2f stick %.3f noise_between %.1f (+-%.1f) dB centroid %.1f xf0"
+              " rolloff %.1f level %.1f dB" % (m[0], m[1], m[2], sd[2], m[3], m[4], m[5]), flush=True)
+
+
+def wide_sweep():
+    """Large coupled widths (parabolic window) on the bass: noise vs width, 3 attack ramps each."""
+    cfg = [(nm, w, "para", "coupled", r) for nm in ("C2", "A2") for w in (1, 3, 5, 8, 12, 16) for r in (900, 1200, 1700)]
+    with Pool(6) as p:
+        res = p.map(lambda_wide, cfg)
+    groups = {}
+    for c, r in zip(cfg, res):
+        groups.setdefault(c[:2], []).append(np.array(r))
+    _report(groups, "%s width %2d para coupled")
+
+
+def lambda_wide(c):
+    flag, out, per = sim(c[0], c[1], c[2], c[3], ramp=c[4])
+    return metrics_from(flag, out, per)
+
+
+def tilt_sweep():
+    cfg = [(nm, t, r) for nm in ("C2", "C3", "C4") for t in (0.0, 0.3, 0.6, 0.9) for r in (900, 1200, 1700)]
+    with Pool(6) as p:
+        res = p.map(metrics_tilt, cfg)
+    groups = {}
+    for r in res:
+        groups.setdefault(r[:3], []).append(np.array(r[3:]))
+    _report(groups, "%s tilt %.1f -> width %2d")
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in ("wide", "tilt"):
+    if len(sys.argv) > 2:   # tilt <max width fraction>
+        MAX_FRAC = float(sys.argv[2])
+    wide_sweep() if sys.argv[1] == "wide" else tilt_sweep()
+    sys.exit()
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "soft":
     soft_sweep()
