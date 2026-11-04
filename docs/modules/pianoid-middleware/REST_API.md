@@ -1890,7 +1890,7 @@ defaults 0.5 / 0.3 at engine start); a REST write journals `session_changed{doma
 
 Response `200` (both routes):
 ```json
-{"force": 0.5, "angle": 0.3, "bowed_strings": 2, "string_loss": 20.0}
+{"force": 0.5, "angle": 0.3, "bowed_strings": 2, "string_loss": 40.0}
 ```
 
 Response `400` if `Pianoid not initialized`. Classified `read_only` (records no event).

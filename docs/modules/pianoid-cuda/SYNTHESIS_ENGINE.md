@@ -1207,7 +1207,7 @@ self-limited amplitude come out of the physics.
 | Force | `F_N = force * 32 * lambda * vb`: force 1.0 = the Schelleng maximum `2 Z vb / (beta (mu_s - mu_d))` at `beta = 0.125`, so force is a fraction of the playable window for every string and speed sets the loudness |
 | Angle | bow tilt = friction-curve softness: `v0 = vb * (0.2 + 2.8 * angle)`. 0 = sharp curve (bright, scratchy attack), 1 = soft (smooth, dark) |
 | Smoothing | the bow-point thread glides speed / force / angle to the targets once per sample, time constant 240 samples (5 ms at 48 kHz): note-on = the bow settles on the string, a CC change glides, note-off = bow lift (force target 0; the host drops the string from the bowed path 50 ms later) |
-| String loss | while a string's bow is engaged (note-on until 50 ms after note-off) its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by the control's string-loss factor (default x20, `setBowStringLoss` 1..200), once per launch: an effective stand-in for the hair / rosin loading of the string. Without it the engine's low-loss strings slip several times per period; see [v1 -> v2](#friction-bow-timing) |
+| String loss | while a string's bow is engaged (note-on until 50 ms after note-off) its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by the control's string-loss factor (default x40, the user's choice by ear; `setBowStringLoss` 1..200), once per launch: an effective stand-in for the hair / rosin loading of the string. Without it the engine's low-loss strings slip several times per period; see [v1 -> v2](#friction-bow-timing) |
 | State | `dev_bow_control` (host, `BOW_CTRL_*`: active, generation, speed, force, softness) and `dev_bow_state` (kernel, `BOW_STATE_*`: generation, smoothed controls, slip flag). A new generation (every bowed note-on) restarts from rest. `resetStringsState` stops every bow at once |
 
 **Kernel cost.** Each thread knows at launch whether it is a bow point (param slot 10 + its string's
@@ -1255,16 +1255,20 @@ slipped several times per period (the debug build records the slip flag in `SOUN
 strings (`dev-bow2-dump-coeffs.py` -> `dev_bow2_golden_engine.py`, `dev-bow2-hfloss-golden.py`): the strings'
 very low high-frequency loss, not the grid or the point contact. A coarser solve rate, a 3-5 point contact
 width (independent or one coupled solve) and bow-hair compliance did not help; more HF loss did, in every
-register. v2 multiplies the bowed string's HF loss by a runtime factor, default x20 (the smallest robust one).
+register. v2 multiplies the bowed string's HF loss by a runtime factor. x20 is the smallest robust one; the
+user chose x40 by ear (2026-11-04), which is the default.
 
-| Engine: main slips per period (>= 2 samples), force 0.3 / 0.5 / 0.8 | x1 (v1) | x10 | x20 (default) | x40 |
-|---|---|---|---|---|
-| pitch 36 (bass) | 5.1 / 4.1 / 12.6 | 1.2 / 1.2 / 2.7 | 1.2 / 1.1 / 2.9 | 1.3 / 1.4 / 2.1 |
-| pitch 48 | 6.0 / 1.2 / 20.5 | 1.0 / 1.0 / 1.4 | 1.0 / 1.0 / 1.8 | 1.0 / 1.0 / 2.1 |
-| pitch 60 | 8.5 / 6.9 / 10.3 | 1.0 / 3.4 / 1.1 | 1.0 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 |
-| pitch 67 | 4.7 / 3.1 / 7.0 | 1.1 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 | 1.2 / 1.0 / 1.0 |
+| Engine: main slips per period (>= 2 samples), force 0.3 / 0.5 / 0.8 | x1 (v1) | x10 | x20 | x40 (default) | x60 | x80 |
+|---|---|---|---|---|---|---|
+| pitch 36 (bass) | 5.1 / 4.1 / 12.6 | 1.2 / 1.2 / 2.7 | 1.2 / 1.1 / 2.9 | 1.3-1.6 / 1.2-1.4 / 1.0-2.1 | 3.0 / 1.4 / 2.1 | 4.6 / 2.1 / 1.0 |
+| pitch 48 | 6.0 / 1.2 / 20.5 | 1.0 / 1.0 / 1.4 | 1.0 / 1.0 / 1.8 | 1.0 / 1.0 / 2.0-2.1 | 1.0 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 |
+| pitch 60 | 8.5 / 6.9 / 10.3 | 1.0 / 3.4 / 1.1 | 1.0 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 | 1.1 / 1.0 / 1.0 | 1.1 / 1.0 / 1.0 |
+| pitch 67 | 4.7 / 3.1 / 7.0 | 1.1 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 | 1.0-1.2 / 1.0 / 1.0 | 1.1 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 |
 
-Stick fraction at x20: 0.82-0.87 (Helmholtz: 1 - beta = 0.85). The motion is chaotic, so single runs scatter.
+Stick fraction 0.80-0.87 at every factor >= x10 (Helmholtz: 1 - beta = 0.85). The motion is chaotic, so single
+runs scatter (two x40 runs shown as ranges). Centroid at pitch 48 / 60, x20 / x40 / x60 / x80: 3.3 / 2.5 / 2.2 /
+1.9 kHz and 4.2 / 3.4 / 2.8 / 2.5 kHz; steady level vs x40: x60 -0.7 to -1.2 dB, x80 -1.0 to -2.3 dB, every factor
+starts within 250 ms.
 
 | Timbre, pitch 48 (`dev-bow2-timbre.py`, steady 1.5-2.5 s; decay = free ring under the pedal 0.3-1.7 s after key-up) | centroid | partials re h1, mean of h2-5 / h6-10 / h11-16 | decay fundamental / 1-2.5 kHz |
 |---|---|---|---|
