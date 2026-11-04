@@ -586,6 +586,14 @@ Batch path (used by play_mode, init):
         └── updateTunableParameter("dev_mode_state", data)
 ```
 
+**Editor writes (Tunner, dev-modereject).** The Modes editor (`useGuardedEditorWrites`) clamps a
+new value into its `GET /param_rules` bound before recording it, and a workbench paint sends only the
+span of modes it changed (one bar → `set_parameter/mode/<m>`; one gesture across bars → one growing
+`from<lo>to<hi>` range under one debounce key), never the whole `from0to<N-1>` row. A write the backend
+still refuses (`400` / WS `{ok:false}` → REST `400`, nothing written) is rolled back: the refused rows
+are re-read from `GET /get_parameter/mode/all` into the editor and the rule's message is shown once —
+[Tunner OVERVIEW → usePreset](http://localhost:8001/modules/pianoid-tunner/OVERVIEW/#usepreset).
+
 The `mass_inv` row carries the inverse-mass coefficient (`1/m`) the kernel
 multiplies into the modal forcing term. See
 [MODE_PHYSICS.md](../modules/pianoid-cuda/MODE_PHYSICS.md) for the 2026-04-30
