@@ -36,6 +36,7 @@ import { AuditLog } from './auditLog.js';
 import { backupPreset, middlewareDir } from './presetBackup.js';
 import { MANIFEST_FILE, PresetOwnership } from './presetOwnership.js';
 import { AssistantMemory, MEMORY_CMDS } from './memory.js';
+import { LIBRARY_CMDS, TuningLibrary } from './tuningLibrary.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MCP_SERVER = path.resolve(HERE, '..', 'mcp', 'server.js');
@@ -82,6 +83,7 @@ export class AssistantSession {
     this.owned = new PresetOwnership({ file: paths?.root ? path.join(paths.root, MANIFEST_FILE) : null, middleware: presetDir, audit: this.audit });
     // dev-mem1: notes + the saved-output reader; the taint of this turn / of the whole session (the only writers)
     this.memory = new AssistantMemory(this, { notesDir: paths?.root ? path.join(paths.root, 'memory', 'notes') : null, artifactsDir: analysis.artifacts });
+    this.library = new TuningLibrary(this, { artifactsDir: analysis.artifacts, fetchImpl });   // dev-tuneskill: samples_* / tuning_record
     this.tainted = false;
     this.sessionTainted = false;
     this.notes = [];                  // auto-revert notes for the next turn's context
@@ -93,7 +95,7 @@ export class AssistantSession {
     this.byName = new Map(commands.map((c) => [c.name, c]));
     this.plannable = new Map([...this.byName, [ANALYSIS_CMD.name, ANALYSIS_CMD]]);   // what a plan request may name
     // every command the policy can see (the registry + the service's own tools): the rule catalogue's source
-    this.ruleCommands = new Map([...this.plannable, [BUG_CMD.name, BUG_CMD], ...Object.values(MEMORY_CMDS).map((c) => [c.name, c])]);
+    this.ruleCommands = new Map([...this.plannable, [BUG_CMD.name, BUG_CMD], ...Object.values(MEMORY_CMDS).map((c) => [c.name, c]), ...Object.values(LIBRARY_CMDS).map((c) => [c.name, c])]);
     this.migrate();
     this.driver = null;
     this.busy = false;
@@ -209,9 +211,9 @@ export class AssistantSession {
         ...(this.execUrl ? ['--exec-url', this.execUrl] : [])],
       env: mcpEnv,
     };
-    const memoryCall = (name, args) => this.memory.call(name, args);
+    const memoryCall = (name, args) => (this.library.handles(name) ? this.library.call(name, args) : this.memory.call(name, args));
     const assistant = SdkDriver.assistantTools((reason) => this.escalate(reason), (args) => this.fileBug(args),
-      this.plan.enabled ? (args) => this.requestPlan(args) : null, memoryCall);
+      this.plan.enabled ? (args) => this.requestPlan(args) : null, memoryCall, memoryCall);
     assistant.escalate = (reason) => this.escalate(reason);     // the fake driver calls it directly
     assistant.bugReport = (args) => this.fileBug(args);
     assistant.call = memoryCall;
@@ -263,6 +265,7 @@ export class AssistantSession {
     if (toolName === ANALYSIS_TOOL) return this.canRunAnalysis(input, { signal, toolUseID });
     if (toolName === BUG_TOOL) return this.canFileBug(input, { signal, toolUseID });
     if (this.memory.handles(toolName)) return this.memory.canUse(toolName, input, { signal, toolUseID });   // dev-mem1
+    if (this.library.handles(toolName)) return this.library.canUse(toolName, input, { signal, toolUseID });   // dev-tuneskill
     if (this.plan.enabled && toolName === PLAN_TOOL) return { behavior: 'allow', updatedInput: input };   // a request only
     if (!toolName.startsWith(PIANOID_PREFIX)) {
       return { behavior: 'deny', message: `${toolName} is not available to the Pianoid assistant` };
@@ -359,7 +362,7 @@ export class AssistantSession {
       const v = this.analysisVerdict(input.tool_input);
       return v.action === 'deny' ? deny(`Denied by the Pianoid policy: ${v.reason}`) : {};
     }
-    if (name === ESCALATE_TOOL || name === BUG_TOOL || name.startsWith(PIANOID_PREFIX) || this.memory.handles(name)) return {};
+    if (name === ESCALATE_TOOL || name === BUG_TOOL || name.startsWith(PIANOID_PREFIX) || this.memory.handles(name) || this.library.handles(name)) return {};
     if (this.plan.enabled && name === PLAN_TOOL) return {};
     return deny(`${name} is not available to the Pianoid assistant`);
   }
@@ -698,6 +701,7 @@ export class AssistantSession {
     for (const id of [...this.plan.requests.keys()]) this.answerPlan({ id, accept: false });
     this.auto.clearPermits();
     this.memory.permits.clear();          // dev-mem1 review: a stopped turn leaves no note permit behind
+    this.library.permits.clear();
     if (this.busy && this.driver) {
       try { await this.driver.interrupt(); } catch (e) { /* not running */ }
     }

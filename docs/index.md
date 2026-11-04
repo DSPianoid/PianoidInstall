@@ -157,6 +157,10 @@ interactive latency.
 - [guides/MEASUREMENT_PIPELINE_FOR_ASSISTANT.md](guides/MEASUREMENT_PIPELINE_FOR_ASSISTANT.md) — Measurement skill for
   the assistant, on any rig: hard rules, setup detection and branches, the full pipeline, time against precision,
   safe exploration
+- [guides/TUNING_FOR_ASSISTANT.md](guides/TUNING_FOR_ASSISTANT.md) — Tuning skill for the assistant: the
+  cooperative loop (words -> measurable traits -> 2-3 options -> one measured change -> record), hard rules, the
+  vocabulary, the levers, the sample library tools; knowledge base in [tuning/index.md](tuning/index.md)
+  (parameter-effect map + tuning cases)
 - [guides/MODE_DISCOVERY_FOR_ASSISTANT.md](guides/MODE_DISCOVERY_FOR_ASSISTANT.md) — Soundboard mode discovery
   for the assistant: rig facts (E1–E7 output map, P1–P8, weights, resonances, E2 distortion, crosstalk), the
   procedure ladder (sweeps → PolyMAX / consensus → Q → shapes → appropriation → measured preset → load at the

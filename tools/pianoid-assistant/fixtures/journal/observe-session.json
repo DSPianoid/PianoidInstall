@@ -1,0 +1,36 @@
+{
+  "note": "An observe session as the backend broadcasts it (payload shapes of REST_API.md 'State events (SSOT I1)'; composed for the test, not captured live: dev-tuneskill had no backend). at_ms = time since observe start. Focus pitch 60, velocities [95, 60].",
+  "seed": {
+    "string/60": {"60": {"tension": 812.4, "length": 0.62, "tail": 0.062, "gamma": 1.0, "jung": 2.0e11, "r": 0.00052, "dispersion_damping": 8e-15}},
+    "hammer/60": {"60": {"hammer_width": 0.03, "hammer_position": 0.12, "hammer_width_effective": 0.03, "hammer_radius": 0.015}},
+    "excitation/60": {"60": [0.2, 0.5, 0.3]}
+  },
+  "events": [
+    {"at_ms": 1000, "event": "engine_busy", "payload": {"seq": 101, "ts": 1.0, "phase": "start", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 2500, "event": "engine_busy", "payload": {"seq": 102, "ts": 2.5, "phase": "end", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 3000, "event": "engine_busy", "payload": {"seq": 103, "ts": 3.0, "phase": "start", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 4500, "event": "engine_busy", "payload": {"seq": 104, "ts": 4.5, "phase": "end", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+
+    {"at_ms": 10000, "event": "state_changed", "payload": {"seq": 105, "ts": 10.0, "entry": "Tuning18_assistant_1", "version": 7, "domain": "string", "keys": [60], "fields": ["tension"], "after": {"60": {"tension": 815.0, "length": 0.62, "tail": 0.062, "gamma": 1.0, "jung": 2.0e11, "r": 0.00052, "dispersion_damping": 8e-15}}, "source": {"kind": "fe", "clientId": "tab-1", "opId": "op-1"}}},
+    {"at_ms": 11000, "event": "state_changed", "payload": {"seq": 106, "ts": 11.0, "entry": "Tuning18_assistant_1", "version": 8, "domain": "string", "keys": [60], "fields": ["dispersion_damping"], "after": {"60": {"tension": 815.0, "length": 0.62, "tail": 0.062, "gamma": 1.0, "jung": 2.0e11, "r": 0.00052, "dispersion_damping": 4e-15}}, "source": {"kind": "fe", "clientId": "tab-1", "opId": "op-2"}}},
+    {"at_ms": 11500, "event": "state_changed", "payload": {"seq": 107, "ts": 11.5, "entry": "Tuning18_assistant_1", "version": 9, "domain": "hammer", "keys": [62], "fields": ["hammer_width"], "after": {"62": {"hammer_width": 0.05}}, "source": {"kind": "assistant", "groupId": "turn-3"}}},
+    {"at_ms": 12000, "event": "history_changed", "payload": {"entry": "Tuning18_assistant_1", "can_undo": true, "undo": ["string dispersion_damping [60] (fe)", "string tension [60] (fe)"], "depth": 2}},
+
+    {"at_ms": 19000, "event": "engine_busy", "payload": {"seq": 108, "ts": 19.0, "phase": "start", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 20500, "event": "engine_busy", "payload": {"seq": 109, "ts": 20.5, "phase": "end", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 21000, "event": "engine_busy", "payload": {"seq": 110, "ts": 21.0, "phase": "start", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 22500, "event": "engine_busy", "payload": {"seq": 111, "ts": 22.5, "phase": "end", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+
+    {"at_ms": 30000, "event": "state_changed", "payload": {"seq": 112, "ts": 30.0, "entry": "Tuning18_assistant_1", "version": 10, "domain": "hammer", "keys": [60], "fields": ["hammer_width"], "after": {"60": {"hammer_width": 0.038, "hammer_position": 0.12, "hammer_width_effective": 0.038, "hammer_radius": 0.019}}, "source": {"kind": "fe", "clientId": "tab-1"}}},
+    {"at_ms": 45000, "event": "state_changed", "payload": {"seq": 113, "ts": 45.0, "entry": "Tuning18_assistant_1", "version": 11, "domain": "excitation_energy", "keys": [60], "fields": null, "after": {"hammer_mass": {"60": 0.0105}}, "source": {"kind": "midi_cc"}}},
+
+    {"at_ms": 52000, "event": "engine_busy", "payload": {"seq": 114, "ts": 52.0, "phase": "start", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 53500, "event": "engine_busy", "payload": {"seq": 115, "ts": 53.5, "phase": "end", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 54000, "event": "state_changed", "payload": {"seq": 116, "ts": 54.0, "entry": "Tuning18_assistant_1", "version": 12, "domain": "mode", "keys": [5], "fields": ["decrement"], "after": {"5": {"frequency": 1520.0, "decrement": 0.9, "mass_inv": 1.0}}, "source": {"kind": "fe", "clientId": "tab-1"}}},
+    {"at_ms": 54200, "event": "engine_busy", "payload": {"seq": 117, "ts": 54.2, "phase": "start", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+    {"at_ms": 55700, "event": "engine_busy", "payload": {"seq": 118, "ts": 55.7, "phase": "end", "reason": "/get_chart_test", "source": {"kind": "assistant"}}},
+
+    {"at_ms": 70000, "event": "state_changed", "payload": {"seq": 119, "ts": 70.0, "entry": "Tuning18_assistant_1", "version": 13, "domain": "string", "keys": [40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56], "fields": ["gamma"], "after": null, "source": {"kind": "fe", "clientId": "tab-1"}}},
+    {"at_ms": 80000, "event": "preset_changed", "payload": {"seq": 120, "ts": 80.0, "kind": "switch", "entry": "Tuning18-10-26ver1", "version": 3, "source": {"kind": "fe"}}}
+  ]
+}
