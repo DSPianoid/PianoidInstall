@@ -175,7 +175,7 @@
     },
     {
       "domain": "excitation_mode",
-      "title": "Per-pitch excitation type (hammer / bow)",
+      "title": "Per-pitch excitation (hammer / friction bow)",
       "read": "none in the registry; REST GET /get_excitation_mode",
       "write": "none in the registry; REST POST /set_excitation_mode {pitch, mode: hammer|bow|0|1}",
       "key_space": "piano pitch",
@@ -185,7 +185,7 @@
       "fields": [
         {
           "name": "modes",
-          "units": "per pitch: 0 = hammer (impulse, one-shot), 1 = bow (sustained)",
+          "units": "per pitch: 0 = hammer (one-shot strike), 1 = friction bow (sustains while held, velocity = bow speed)",
           "range": "0 | 1",
           "class": "stored",
           "meaning": "Excitation type of each pitch of the active preset.",

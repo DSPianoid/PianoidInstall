@@ -1186,6 +1186,131 @@ perf (N=4 interleaved) GPU mean 0.926 → 0.929 ms, total cycle 0.972 → 0.968 
 
 **3.4 g low row is the best match.** C4 and G4 are lower bounds (their late window sits on the room noise, so the true metric can only be higher); only A2 is a true comparison.
 
+### Friction bow (dev-bow2) {#friction-bow-dev-bow2}
+
+**Files:** `BowFriction.cuh` (kernel physics), `BowController.h` (host targets), `MainKernel.cu` (call
+sites), `Pianoid_excitation.cu` (note-on / off), `Pianoid_synthesis.cu` (`applyBowControl`). Design:
+[bow-realism proposal, Option B](../../proposals/bow-realism-2026-10-29.md).
+
+A pitch set to bow (`setPitchExcitationMode(pitch, 1)`, REST `POST /set_excitation_mode`, the Excitation
+panel toggle) gets no hammer force row at note-on. Its strings are driven by a **two-way friction contact
+at the hammer-centre point** (param slot 10): every sub-step the bow-point thread solves the friction force
+against the string's own free update, so stick-slip (Helmholtz motion), the string's pitch and a
+self-limited amplitude come out of the physics.
+
+| Piece | What |
+|---|---|
+| Velocity | the bow point's CENTRAL velocity `(s_v_old + s_v_new) / 2` (engine units: displacement per sub-step). A bow force `F` added to this sub-step's `dv` moves it by `F / 2` (same-step admittance 1/2), so the stick force is exact and cannot overshoot. The forward increment alone does not give Helmholtz motion (CPU golden) |
+| Friction | hyperbolic `mu(x) = mu_d + (mu_s - mu_d) v0 / (v0 + x)`, `mu_s 0.8`, `mu_d 0.3`. Stick while `|F_stick| <= mu_s F_N`; slip: closed-form quadratic (one `sqrt`), the larger root continues the slip, no positive root = recapture |
+| Impedance | point impedance of the discrete string `lambda = sqrt(shift_1 + 4 shift_2)` (a sustained per-step force `F` gives the point velocity `F / (2 lambda)`; measured on the CPU golden) |
+| Speed | `vb = speed * BOW_SPEED_SCALE * dt/dt_ref`, `speed = MIDI velocity / 127` per note |
+| Force | `F_N = force * 32 * lambda * vb`: force 1.0 = the Schelleng maximum `2 Z vb / (beta (mu_s - mu_d))` at `beta = 0.125`, so force is a fraction of the playable window for every string and speed sets the loudness |
+| Angle | bow tilt: softens the friction curve, `v0 = vb * (0.2 + 2.8 * angle)`, AND scales the string loss by `2^(1.2 (angle - 0.3))` (x0.78 flat .. x1.79 tilted), live. C3: centroid 1.76 / 1.58 / 1.39 kHz at angle 0 / 0.3 / 1 |
+| Register | `BowRegister` force scale by pitch: x1 up to 40, x0.6 at 46-55, x1 from 60 (linear between), applied to the live force at note-on and on every force change |
+| Position | `setBowPosition(r)`: the bow point at r x the hammer point's distance from the string end (0 = the hammer point, default). Sul tasto (r 1.6 / 2.0) measured ROUGHER at C3 (noise between partials -9.5 / -17.5 dB vs -31), so it stays off |
+| Smoothing | the bow-point thread glides speed / force / angle to the targets once per sample, time constant 240 samples (5 ms at 48 kHz): note-on = the bow settles on the string, a CC change glides, note-off = bow lift (force target 0; the host drops the string from the bowed path 50 ms later) |
+| String loss | while a string's bow is engaged (note-on until 50 ms after note-off) its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by the control's string-loss factor, by register (`BowRegister` in `BowController.h`: x40 up to pitch 43, x100 at 48-55, x60 from 60, linear between; `setBowStringLoss` 1..200 overrides, 0 = the curve) times the angle factor below, once per launch: an effective stand-in for the hair / rosin loading of the string. Without it the engine's low-loss strings slip several times per period; see [v1 -> v2](#friction-bow-timing) |
+| State | `dev_bow_control` (host, `BOW_CTRL_*`: active, generation, speed, force, softness) and `dev_bow_state` (kernel, `BOW_STATE_*`: generation, smoothed controls, slip flag). A new generation (every bowed note-on) restarts from rest. `resetStringsState` stops every bow at once |
+
+**Kernel cost.** Each thread knows at launch whether it is a bow point (param slot 10 + its string's
+`active` flag); `blockBowed = __syncthreads_or(isBowPoint)`. In the release build the sub-step loop is a
+lambda instantiated twice (`std::true_type` / `std::false_type`) and the choice is made once per sample on
+the block-uniform `blockBowed`: a block without a bowed string runs the original loop instructions. In a
+bowed block only the bow-point thread does the solve (~20 flops + `sqrt` per sub-step); its warp waits at
+the existing barrier. All bow state is shared (`s_bow`, one row per string; the targets and the grid ratio
+are copied there at launch). The DEBUG build keeps ONE loop instance with a per-sub-step `isBowPoint` test:
+two instances overrun its 128-register budget (ptxas spills, the build fails). Two rejected layouts, measured:
+the duplicate in debug (spills) and folding the bow point into the stem branch (`if (onStem || bow)`), which
+kept the loop single but cost +2.9 % `addKernel` time with no bow (the nested branch). `addKernel`: release
+118 registers (113 before; same 120-per-thread allocation, still 1 block/SM, same cooperative capacity),
+debug 126-128, 0 spill on sm_80/86/89, smem +192 B. Measured cycle times: [below](#friction-bow-timing).
+
+**Release.** Key-up lifts the bow and closes the damper as for a hammer note, so the string dies
+quickly; with the sustain pedal down it rings on. Switching a bowed pitch back to the hammer lifts its bow.
+
+#### Friction bow: timing and verification {#friction-bow-timing}
+
+dev-bow2, 2026-11-04; BaselinePreset1, array 384, 4 sub-steps, 64 / 48 kHz, RTX 4090.
+
+| `addKernel` (N=3 offline runs x 2200 cycles) | dev before (old WRAP bow) | after | budget |
+|---|---|---|---|
+| no bow, mean / median / p99 ms | 0.469 / 0.457 / 0.54 | 0.468 / 0.457 / 0.53 | 1.333 |
+| one bowed pitch (2 strings) | 0.471 / 0.463 / 0.53 | 0.470 / 0.460 / 0.54 | |
+| six bowed pitches (16 strings) | 0.468 / 0.458 / 0.53 | 0.471 / 0.462 / 0.53 | |
+
+No-bow difference -0.2 % (noise: the same dev build measured 0.475 median an hour earlier); 16 bowed strings
++0.7 %. Script: `docs/development/diagnostics/dev-bow2-cycle-timing.py`.
+
+| Offline render (`dev-bow2-bow-render.py`, pitch 48), v1 (before the HF-loss boost, see below) | Result |
+|---|---|
+| hammer note vs the dev build | correlation 0.9999998, max diff 2.6e-4 of peak (render noise): unchanged |
+| old WRAP bow | periodic at 750 Hz (the cycle rate), dominant 3 kHz, not the note |
+| friction bow, vel 90 | f0 129.4 Hz (the preset's own pitch 48), steady within 1.2 dB, level = a vel-80 hammer attack; note-off -35 dB in 0.5 s; NaN 0, gate trips 0 |
+| speed vel 40 -> 115 | +6.4 dB |
+| force 0.1 / 0.3 / 0.5 / 0.95 | RMS 1.1 / 1.9 / 2.1 / 7.0 e-5; 0.1 and 0.95 leave the clean regime (period doubling, partial 4) |
+| angle 0 / 0.5 / 1 | RMS 1.9 / 2.2 / 3.1 e-5, spectral centroid 6.4 / 6.7 / 6.9 kHz |
+| force 0.5 -> 0.05 while held | smooth 12 dB step, centroid 6.7 -> 4.7 kHz, no gap, no new attack |
+
+**v1 -> v2: clean Helmholtz motion (2026-11-04).** v1 (point contact on the preset's own string loss)
+slipped several times per period (the debug build records the slip flag in `SOUND_REC_APPLIED_FORCE`,
+`dev-bow2-helmholtz.py --losses`). Cause, from the CPU golden with the EXACT engine coefficients of four
+strings (`dev-bow2-dump-coeffs.py` -> `dev_bow2_golden_engine.py`, `dev-bow2-hfloss-golden.py`): the strings'
+very low high-frequency loss, not the grid or the point contact. A coarser solve rate, a 3-5 point contact
+width (independent or one coupled solve) and bow-hair compliance did not help; more HF loss did, in every
+register. v2 multiplies the bowed string's HF loss by a runtime factor. x20 is the smallest robust one; the
+user chose x40 by ear (2026-11-04), which is the default.
+
+| Engine: main slips per period (>= 2 samples), force 0.3 / 0.5 / 0.8 | x1 (v1) | x10 | x20 | x40 (default) | x60 | x80 |
+|---|---|---|---|---|---|---|
+| pitch 36 (bass) | 5.1 / 4.1 / 12.6 | 1.2 / 1.2 / 2.7 | 1.2 / 1.1 / 2.9 | 1.3-1.6 / 1.2-1.4 / 1.0-2.1 | 3.0 / 1.4 / 2.1 | 4.6 / 2.1 / 1.0 |
+| pitch 48 | 6.0 / 1.2 / 20.5 | 1.0 / 1.0 / 1.4 | 1.0 / 1.0 / 1.8 | 1.0 / 1.0 / 2.0-2.1 | 1.0 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 |
+| pitch 60 | 8.5 / 6.9 / 10.3 | 1.0 / 3.4 / 1.1 | 1.0 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 | 1.1 / 1.0 / 1.0 | 1.1 / 1.0 / 1.0 |
+| pitch 67 | 4.7 / 3.1 / 7.0 | 1.1 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 | 1.0-1.2 / 1.0 / 1.0 | 1.1 / 1.0 / 1.0 | 1.0 / 1.0 / 1.0 |
+
+Stick fraction 0.80-0.87 at every factor >= x10 (Helmholtz: 1 - beta = 0.85). The motion is chaotic, so single
+runs scatter (two x40 runs shown as ranges). Centroid at pitch 48 / 60, x20 / x40 / x60 / x80: 3.3 / 2.5 / 2.2 /
+1.9 kHz and 4.2 / 3.4 / 2.8 / 2.5 kHz; steady level vs x40: x60 -0.7 to -1.2 dB, x80 -1.0 to -2.3 dB, every factor
+starts within 250 ms.
+
+| Timbre, pitch 48 (`dev-bow2-timbre.py`, steady 1.5-2.5 s; decay = free ring under the pedal 0.3-1.7 s after key-up) | centroid | partials re h1, mean of h2-5 / h6-10 / h11-16 | decay fundamental / 1-2.5 kHz |
+|---|---|---|---|
+| hammer vel 80 | 1.09 kHz | -10.6 / -27.4 / -45.4 dB | -7.4 / -12.6 dB/s |
+| bow x1 (v1) | 6.78 kHz | +13.6 / +10.1 / +19.1 dB | -3.3 / -17.7 dB/s |
+| bow x20 (v2) | 3.23 kHz | +0.3 / -4.8 / -1.0 dB | -7.0 / -11.4 dB/s |
+| bow x40 | 2.54 kHz | -4.2 / -5.1 / +0.1 dB | -11.7 / -16.4 dB/s |
+
+The bowed note does not go dull: at x20 the partials sit level with the fundamental (the flat spectrum of
+Helmholtz bridge motion) and the centroid is 3x the hammer's; v1's upper partials stood 10-19 dB ABOVE the
+fundamental (buzz). Scope: the factor follows the bow control, not the pitch's mode: it applies from note-on to
+50 ms after note-off. After key-up the ringing string's 1-2.5 kHz band decays like the hammer note's (-11 to
+-18 dB/s; with the factor still on it would be ~20x faster), and a hammer note played on the pitch after
+bowing and switching back matches the reference: max difference 1.9e-3 of peak vs 1.8e-3 between two
+renders of that same note (pedal-down renders are noisier), identical partials and decay. Release -25 dB in
+0.5 s without pedal. Timing at x20: no bow 0.467 ms mean (dev 0.469), 16 bowed strings 0.473. The physical
+motivation is qualitative (the bow hair and rosin load the string, and piano steel has far less loss than a
+violin string); the factor is an effective one, chosen as the smallest that gives one slip per period, and is
+not derived from contact mechanics. Still open: the bass (pitch 36) at force 0.8, and angle has little effect
+in the Helmholtz regime.
+
+**C3 "too sharp" (user, 2026-11-04) - measured with `dev-bow2-harshness.py`.** Harshness = a spectrum that does
+not roll off: partial level vs harmonic number (h1-h24) and the centroid as a harmonic number of f0. Noise between
+the partials and the attack (~30 ms) were the same at C3 and C4.
+
+| Pitch 48 unless noted, vel 90 | centroid (x f0) | roll-off dB/oct | between partials | level re hammer |
+|---|---|---|---|---|
+| C4 at x60 (the user's favourite) | 2.87 kHz (11.1) | -4.5 | -27.5 dB | +6.9 dB |
+| C3 at x60, force 0.5 (before) | 2.18 kHz (16.8) | 0.0 | -25.6 dB | -1.1 dB |
+| C3 x100 (c) | 1.80 kHz (13.9) | -1.9 | | -2.8 dB |
+| C3 force 0.3 (b) | 1.87 kHz (14.4) | -1.9 | -31.0 dB | -1.8 dB |
+| C3 x100 + force 0.3 = the new C3 default | 1.58 kHz (12.2) | -4.4 | -28.9 dB | -3.8 dB |
+| C3 x60, bow position 1.6 / 2.0 (a) | 1.99 / 1.98 kHz | -1.2 / -3.1 | -9.5 / -17.5 dB | -4.8 / -3.6 dB |
+| G3 (55) default / A2 (45) default | 1.79 kHz (9.2) / 1.80 kHz (16.5) | -7.6 / -6.0 | -31.2 / -6.5 dB | +4.1 / -5.1 dB |
+
+Main slips per period at the new defaults (angle 0.3), force 0.3 / 0.5 / 0.8: pitch 36 1.5 / 1.2 / 1.1, 48 1.0 / 1.1 /
+1.1, 60 1.1 / 1.0 / 1.0, 67 1.0 / 1.0 / 1.0. At angle 1 (loss x1.79): 48 2.0 / 2.0 / 2.1 and 36 2.7-4.6 (multi-slip
+again), 60 / 67 1.1-1.2. Timing (N=3): no bow 0.458 ms mean, 16 bowed 0.467. The bass (A2, C2) stays noisy
+between partials at every setting (-4 to -6.5 dB, residual multi-slip).
+
 ### Kernel Trigger: `new_notes_ind`
 
 `runSynthesisKernel()` checks `new_notes_ind` to decide which kernels to launch:
@@ -1290,19 +1415,14 @@ at note-on in `gaussKernel` (mirrors the `exct_cycle_index` reset) and defaulted
 (`Pianoid.cu` devMemoryInit) for pre-first-note validity. See the design proposal
 `docs/proposals/universal-excitation-looping-design-2026-07-07.md` §2.
 
-**Bow/WRAP + per-pitch mode (Phase 2, dev-exp2 2026-07-07).** `EXCT_MODE_WRAP` is now implemented:
-`MainKernel.cu` (B)/(C) re-emit continuously by wrapping the counter into `[loop_start, loop_end)`.
-The per-pitch excitation TYPE (`EXCT_TYPE_IMPULSE`=hammer / `EXCT_TYPE_SUSTAINED`=bow) is host config
-(`Pianoid::excitation_mode_`, set via `setPitchExcitationMode` → pybind → `pianoid.set_pitch_excitation_mode`
-→ REST `POST /set_excitation_mode`); the facade `_append_string_gp` stages it per note-event into the unused
-legacy slot `string_excitation_params[i*3+1]`, and `gaussKernel` maps it at note-on to the descriptor
-(SUSTAINED → `WRAP`, `[5·initTotalSteps, 6·initTotalSteps)` = park-and-loop segment 5; IMPULSE → `CLAMP`
-full window). **WRAP is gated in the kernel on the note being HELD** (`decay_dump_coefficients==DUMP_OPEN`):
-note-off (the facade sets `dec_open=DUMP_CLOSED`) reverts to `CLAMP`, so the offset leaves the loop window,
-the drive stops, and the string tails out via the existing damper — no separate note-off write. Hammer
-(IMPULSE/CLAMP) stays byte-identical (verified: force_function bit-exact + within-noise vs Phase 1).
-Normalization is unchanged in Phase 2 — an un-normalized bow re-delivers impulse each loop and is louder /
-may grow; power/RMS calibration is Phase 4.
+**WRAP mode (Phase 2, dev-exp2 2026-07-07; bow use retired by dev-bow2 2026-11-04).** `EXCT_MODE_WRAP`
+re-emits the force row continuously: `MainKernel.cu` (B)/(C) wrap the counter into `[loop_start, loop_end)`
+while the string's damper is open (`decay_dump_coefficients == DUMP_OPEN`); `DUMP_CLOSED` reverts to `CLAMP`.
+The old bow looped segment 5 of the hammer curve this way; it drove the string at the cycle rate (750 Hz at
+64 / 48 kHz), not at its pitch, and was replaced by the [friction bow](#friction-bow-dev-bow2). Nothing sets
+WRAP today (`gaussKernel` always writes `CLAMP`); the mechanism stays because it is generic: the
+board-observer proposal (2026-11-02, stage 3) streams real data through a dedicated string's row with it.
+Its cost is in the per-cycle force staging, outside the sub-step loop.
 
 **0–7 vs 0–8 grid reconciliation (why they agree, NOT an off-by-one).** Two independent x-coordinate maps
 exist:
