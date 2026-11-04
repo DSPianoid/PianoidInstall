@@ -1331,11 +1331,12 @@ config `model_parameters.thump = {enabled, pitch, gain, trim_db, level_coeff}` (
 
 | Route | Body | Result |
 |---|---|---|
-| `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}, level_coeff: [5]} or null, engine_pool, engine_supported}` |
+| `GET /get_parameter/thump/all` | — | `{available, config: {enabled, pitch, gain, trim_db: {key: dB}, level_coeff: [5]} or null, engine_pool, engine_key_gains: [128] (the EFFECTIVE gains the engine holds), bowed_keys, engine_supported}` |
 | `POST /set_parameter/thump/all` | `{enabled?, gain?, trim_db?: {key: dB}, level_coeff?: [pp, p, mf, f, ff]}` (`trim_db` merges per key; 0 dB removes the key; `level_coeff` is the whole list) | `200`; `416 {message}` for a preset without a thump string / unknown field; `400` from the rule table |
 
 * **Which presets:** the standard `Tuning18-10-26ver1` has no thump string: `GET` answers `{available: false, config: null, engine_pool: [], ...}` and `POST` answers `416 {message: "this preset has no thump string (...)"}`. `Tuning18-10-26ver1_thump_live.json` has one, enabled ([presets + measured status](../pianoid-cuda/SYNTHESIS_ENGINE.md#thump-string-keybed-dev-thump1)).
 * **Enable / disable:** `POST /set_parameter/thump/all {"enabled": true|false}`. `engine_pool` shows the effect: the CUDA slot (`[232]` in the `thump_live` presets) when on, `[]` when off. It takes effect at once; saving the preset keeps it. This is the mute of the Low Thump pane and the switch of the Thump bar.
+* **No thump on bowed notes (dev-lthump):** a key in friction-bow mode (`POST /set_excitation_mode`, [read-back](#get-get_excitation_mode)) fires no thump; hammer keys are unchanged and switching the key back to hammer restores its thump. The engine skips a key whose gain is 0 (`ThumpTrigger::gainFor`; the bow note-on goes through the same `stageStringsForPitch` -> `addThumpToBatch`), so the middleware pushes EFFECTIVE gains = stored `gain · trim` with 0 for every bowed key (`thump_config.engine_args(bowed=...)`, the bowed set read from the engine with `getPitchExcitationMode`), re-pushed by every excitation-mode change. The stored config is never changed: a save keeps the real trims (stored vs effective); `config` shows the stored values, `engine_key_gains` / `bowed_keys` the effective ones. No engine change.
 * **Per-key gain** = `gain · 10^(trim_db[key]/20)` (keys 21–108; the thump pitch itself never fires). Rule-table entries
   `thump.gain` [0, 100] and `thump.trim_db` [−40, 40] dB (`param_rules.json`, family *excitation*).
 * **Per-level force (dev-lthump):** `level_coeff` = five LINEAR coefficients at velocities 5 / 31 / 63 / 95 / 127
