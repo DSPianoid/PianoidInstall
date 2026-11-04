@@ -3266,6 +3266,10 @@ reopen, no rate change, no synthesis pause. Logic `voice_capture.py`, routes `vo
 - `underruns_during` / `callbacks_during` = the engine's `getCallbackStats()` delta over the clip: the evidence that
   recording did not disturb the output (expected 0 underruns).
 - A clip nobody stops ends by itself `max_s` + 5 s after the start (dropped), so it never blocks a calibration.
+- Measured 2026-11-04 (UMC ASIO, BelarusNewAgent011126v1 at the user's load settings, volume 127, soft C4 / E4 / G4
+  notes during every clip; `docs/development/diagnostics/dev-voice-rig-underruns.py`): 5 x 10 s clips from In 1,
+  `underruns_during` 0 in every clip, `callbacks_during` 7508-7518 (= 750 switches/s, 48 kHz / 64), plus one 8 s clip
+  with 0; rig-mic room level peak -35 dBFS, RMS -50 dBFS.
 - Errors (`{ok: false, error, code}`): `400 invalid_args` (`max_s`, a non-integer `input_channel`), `400 invalid_input`
   (the device has no such input), `409 engine_not_loaded` / `asio_not_open`, `409 engine_busy` (a transient such as a
   preset load, calibration mode, an `/audio/session` running), `409 capture_busy` (another mic capture: a measurement,

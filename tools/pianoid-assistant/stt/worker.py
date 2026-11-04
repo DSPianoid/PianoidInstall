@@ -26,7 +26,14 @@ PROMPTS = {
     "ru": "Pianoid, настройка фортепиано: пресет, дека, моды, струна, затухание, громкость, октава.",
     "auto": "Pianoid: preset, soundboard, modes, feedback, decrement. Пресет, дека, моды, струна, затухание.",
 }
-CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+CYRILLIC = re.compile(r"[\u0400-\u04FF]")
+# Non-speech (piano, room noise) makes Whisper invent stock phrases: measured on a rig-mic clip of piano only,
+# "Thanks for watching!" came with no_speech_prob 0.60 / avg_logprob -0.77, real speech with <= 0.01 / -0.17.
+NO_SPEECH_MAX = 0.4
+STOCK_PHRASES = {
+    "thank you", "thanks for watching", "thank you for watching", "thank you very much", "you", "bye", "pianoid",
+    "спасибо", "спасибо за просмотр", "продолжение следует", "субтитры сделал dimatorzok", "редактор субтитров",
+}
 LATIN = re.compile("[A-Za-z]")
 
 
@@ -69,7 +76,10 @@ class Transcriber:
         segments, _ = self.model.transcribe(
             audio, language="en" if language == "auto" else language, multilingual=language == "auto",
             beam_size=5, vad_filter=True, condition_on_previous_text=False, initial_prompt=PROMPTS[language])
-        text = " ".join(s.text.strip() for s in segments).strip()
+        kept = [s for s in segments if s.no_speech_prob < NO_SPEECH_MAX]
+        text = " ".join(s.text.strip() for s in kept).strip()
+        if re.sub(r"[^\w ]", "", text.lower()).strip() in STOCK_PHRASES:
+            text = ""                            # a stock phrase alone = no speech
         if language == "auto":
             language = "ru" if len(CYRILLIC.findall(text)) > len(LATIN.findall(text)) else "en"
         return {
