@@ -83,6 +83,49 @@
       "result": {"type": "object"}
     },
     {
+      "name": "param.excitation_mode",
+      "title": "Set hammer or bow on keys",
+      "description": "Switches piano keys between the hammer and the friction bow (session state, not saved in the preset). pitches: 'all' | 'from<a>to<b>' | n | [n, ...]; or pitch: one key. mode: hammer | bow. One write, one session_changed event. A bowed key sustains while held, MIDI velocity = bow speed; force / angle / width: param.bow.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-get_excitation_mode",
+      "route": {"method": "POST", "path": "/set_excitation_mode"},
+      "args": {
+        "type": "object",
+        "required": ["mode"],
+        "additionalProperties": false,
+        "properties": {
+          "pitches": {"type": ["string", "integer", "array"], "description": "Piano keys: 'all', 'from<a>to<b>', n or a list"},
+          "pitch": {"type": "integer", "minimum": 0, "maximum": 127, "description": "One key (instead of pitches)"},
+          "mode": {"type": "string", "enum": ["hammer", "bow"], "description": "hammer or bow"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "param.bow",
+      "title": "Set the live bow controls",
+      "description": "Friction-bow controls for every bowed key, live: force 0..1 (pressure, fraction of the playable maximum), angle 0..1 (tilt: softer and darker as it rises), width 1..7 (contact points of the bow hair). Same as the bow MIDI CCs (force CC1, angle CC16).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-set_bow_controls-get-get_bow_controls",
+      "route": {"method": "POST", "path": "/set_bow_controls"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "force": {"type": "number", "minimum": 0, "maximum": 1, "description": "Bow pressure 0..1"},
+          "angle": {"type": "number", "minimum": 0, "maximum": 1, "description": "Bow tilt 0..1"},
+          "width": {"type": "integer", "minimum": 1, "maximum": 7, "description": "Contact points 1..7"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
       "name": "param.mute_modes",
       "title": "Mute / unmute / solo a mode range",
       "description": "Mutes, unmutes or solos a set of MODES on a set of keys through the deck masks (feedin_mask / feedback_mask), writing the whole num_modes rows for you in one undo step. modes: 'all' | 'from<a>to<b>' | n | [n, ...] (mode indices). pitches: piano keys, default 'all' (never the output pitches 128+). side: feedin | feedback | both (default). action: mute | unmute | solo (solo = the named modes on, every other mode off). 'Mute all modes except 0 and 1' = {modes: [0, 1], action: 'solo'}. The raw deck values are never touched.",

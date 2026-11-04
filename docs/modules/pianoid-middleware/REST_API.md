@@ -1884,7 +1884,9 @@ strike), `1` = friction bow ([SYNTHESIS_ENGINE → Friction bow](../pianoid-cuda
 a note-on engages the bow with MIDI velocity as bow speed, the note-off lifts it. Session state on the
 live engine (not preset-persisted). The frontend `useExcitationModes` hook hydrates from it on mount, on `presetVersion`
 bumps and on an I2 resync; live edits arrive as `session_changed{domain: 'excitation_mode', keys: [pitch],
-after: {pitch: 0|1}}` (written by `POST /set_excitation_mode {pitch, mode: "hammer"|"bow"|0|1}`).
+after: {pitch: 0|1}}` (written by `POST /set_excitation_mode {pitch, mode: "hammer"|"bow"|0|1}`, or, dev-bow3, `{pitches:
+[n, ...] | "from<a>to<b>" | "all", mode}` = one write and one `session_changed` with all the keys; 400 on a key
+outside the preset). Session state has no undo history.
 
 Response `200`:
 ```json
