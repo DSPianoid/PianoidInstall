@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-midictl locks RELEASED 2026-11-04 (Phase 1, NOT merged, NOT pushed): feature/dev-midictl in D:/repos/wt-midictl-{core,basic,tunner,install}; Core controller_{controls,map,overlay,bow,targets,routes}.py NEW + midi_input, midi_input_routes, pianoid, parameter_manager, runtime_params, backendServer, write_routes, undo_history, bow_config + tests; Basic ModelParams.py + test; Tunner MidiControllersSection/MidiControlsList/MidiMappingBadge NEW, useMidiControllers NEW, utils/midiControllers NEW, MidiComponent, Strings, Mode, PianoidTuner.js (provider) + test; Install docs + schemas/commands/playback.json + diagnostics. Tunner worktree has per-package node_modules junctions, Core a .venv junction: unlink before removal. -->
 <!-- dev-tuneskill locks RELEASED 2026-11-04 (MERGED locally Core dev 97e5963, Install master 6521a1f; worktrees removed; not pushed). -->
 <!-- dev-bow2 locks RELEASED 2026-11-04 (MERGED locally Core dev c759957, Tunner dev 88d98fd, Install master 8ba54c6; worktrees removed; not pushed). -->
 <!-- dev-lthump locks RELEASED 2026-11-04 (MERGED locally Basic dev 64d64ed, Core dev f171d90, Tunner dev 2f5d2ec, Install master 4b95932; worktrees removed; not pushed). -->

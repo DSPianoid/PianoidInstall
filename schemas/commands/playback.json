@@ -275,6 +275,561 @@
       "route": {"method": "POST", "path": "/controller/save"},
       "args": {"type": "object", "additionalProperties": false, "properties": {}},
       "result": {"type": "object"}
+    },
+    {
+      "name": "midi.controls",
+      "title": "Read this rig's MIDI controls",
+      "description": "The machine's named physical controls (the hardware binding of this rig, not preset data): name, the MIDI message it sends (CC number / pitch bend, channel, port) and its live position. Preset mappings name a control; learn = the control waiting for MIDI learn ('new' = the next message creates a control).",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "GET",
+        "path": "/midi/controls"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.control_add",
+      "title": "Add a MIDI control to this rig",
+      "description": "Name a physical control of this rig and the MIDI message it sends (persisted on this machine). Without source.number, follow with midi.control_learn while the user moves it.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/controls"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "the control's name (unique on this rig; mappings name it; not 'velocity')"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The MIDI message the control sends: type 'cc' (number 0-127, null = not learned yet) or 'pitch_bend'; channel 1-16 or null = any; port = an input port name or null = any",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cc",
+                  "pitch_bend"
+                ]
+              },
+              "number": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 127
+              },
+              "channel": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 16
+              },
+              "port": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.control_set",
+      "title": "Change a MIDI control of this rig",
+      "description": "Rename a control or change its MIDI message (a partial object; source merges). Renaming unbinds the mappings that name the old name.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/controls/{id}"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the id (from midi.controls / midi.mappings)"
+          },
+          "name": {
+            "type": "string",
+            "description": "the control's name (unique on this rig; mappings name it; not 'velocity')"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The MIDI message the control sends: type 'cc' (number 0-127, null = not learned yet) or 'pitch_bend'; channel 1-16 or null = any; port = an input port name or null = any",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cc",
+                  "pitch_bend"
+                ]
+              },
+              "number": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 127
+              },
+              "channel": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 16
+              },
+              "port": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.control_forget",
+      "title": "Forget a MIDI control of this rig",
+      "description": "Drop a control from this rig's table; the preset mappings naming it are kept (shown as not on this rig) and drive nothing.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "DELETE",
+        "path": "/midi/controls/{id}"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the id (from midi.controls / midi.mappings)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.control_learn",
+      "title": "MIDI-learn a control",
+      "description": "Arm MIDI learn: id = a control (its message becomes the next CC / pitch bend that arrives), 'new' (the next message creates a control named after it), null = cancel. Tell the user to move the control.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/controls/learn"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.mappings",
+      "title": "Read the preset's MIDI controller mappings",
+      "description": "The ACTIVE PRESET's mappings: a control (by name) or the note velocity -> one parameter, with mode (scale = a live coefficient across the board on the stored values; drive = the value inside [lo, hi]), range, curve, smoothing, key range, the control's MIDI source (type 'unbound' = no such control on this rig) and the live value (live.value = the curve's value, live.applied = what the engine has now, after smoothing and the parameter-rule / CFL clamp). defaults = the preset has no mappings of its own (the default set is shown). Also returns this rig's controls and every target a mapping can drive. The live value is an overlay: it is not in the stored preset and makes no undo step.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "GET",
+        "path": "/midi/mappings"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.mapping_add",
+      "title": "Add a MIDI controller mapping to the preset",
+      "description": "Map a control (by name) or the note velocity to a parameter. A preset edit: undoable, saved with the preset, 409 on a read-only original. Only target is needed: mode / lo / hi default from the target (string tension: scale 0.94..1.06).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/mappings"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "label shown in the MIDI panel"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "control": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the NAME of one of this rig's controls (midi.controls), 'velocity' (the note velocity, per note at note-on: only bow.speed / bow.force, drive, curve linear or power, at most one enabled), or null (not bound yet)"
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "domain",
+              "param"
+            ],
+            "description": "The parameter: string.tension / string.gamma / string.dispersion_damping / string.jung / mode.frequency / mode.decrement / mode.mass_inv (scale), runtime.volume (drive), bow.speed / bow.force / bow.position / bow.tilt (per pitch: drive = one value for every addressed key, or scale). keys = [first, last] pitch (string, bow) or mode range, null = all (across the board)",
+            "properties": {
+              "domain": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "mode",
+                  "runtime",
+                  "bow"
+                ]
+              },
+              "param": {
+                "type": "string"
+              },
+              "keys": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "scale",
+              "drive"
+            ],
+            "description": "scale = a live coefficient on the stored values of every addressed key; drive = the value inside [lo, hi]"
+          },
+          "lo": {
+            "type": "number",
+            "description": "value at the control's minimum (scale: the coefficient, e.g. 0.94; drive: the parameter value)"
+          },
+          "hi": {
+            "type": "number",
+            "description": "value at the control's maximum"
+          },
+          "curve": {
+            "type": "string",
+            "enum": [
+              "linear",
+              "exp",
+              "smooth",
+              "power"
+            ],
+            "description": "exp = equal ratios per step (needs lo, hi > 0); smooth = S-curve; power = lo + t^power (hi - lo)"
+          },
+          "power": {
+            "type": "number",
+            "description": "the exponent of the power curve (> 0, default 1)"
+          },
+          "invert": {
+            "type": "boolean"
+          },
+          "smooth_ms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2000,
+            "description": "glide time toward the control value (default 30)"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.mapping_set",
+      "title": "Change a MIDI controller mapping",
+      "description": "Change any field of a mapping (a partial object). A preset edit (undoable).",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/mappings/{id}"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the id (from midi.controls / midi.mappings)"
+          },
+          "name": {
+            "type": "string",
+            "description": "label shown in the MIDI panel"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "control": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the NAME of one of this rig's controls (midi.controls), 'velocity' (the note velocity, per note at note-on: only bow.speed / bow.force, drive, curve linear or power, at most one enabled), or null (not bound yet)"
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "domain",
+              "param"
+            ],
+            "description": "The parameter: string.tension / string.gamma / string.dispersion_damping / string.jung / mode.frequency / mode.decrement / mode.mass_inv (scale), runtime.volume (drive), bow.speed / bow.force / bow.position / bow.tilt (per pitch: drive = one value for every addressed key, or scale). keys = [first, last] pitch (string, bow) or mode range, null = all (across the board)",
+            "properties": {
+              "domain": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "mode",
+                  "runtime",
+                  "bow"
+                ]
+              },
+              "param": {
+                "type": "string"
+              },
+              "keys": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "scale",
+              "drive"
+            ],
+            "description": "scale = a live coefficient on the stored values of every addressed key; drive = the value inside [lo, hi]"
+          },
+          "lo": {
+            "type": "number",
+            "description": "value at the control's minimum (scale: the coefficient, e.g. 0.94; drive: the parameter value)"
+          },
+          "hi": {
+            "type": "number",
+            "description": "value at the control's maximum"
+          },
+          "curve": {
+            "type": "string",
+            "enum": [
+              "linear",
+              "exp",
+              "smooth",
+              "power"
+            ],
+            "description": "exp = equal ratios per step (needs lo, hi > 0); smooth = S-curve; power = lo + t^power (hi - lo)"
+          },
+          "power": {
+            "type": "number",
+            "description": "the exponent of the power curve (> 0, default 1)"
+          },
+          "invert": {
+            "type": "boolean"
+          },
+          "smooth_ms": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2000,
+            "description": "glide time toward the control value (default 30)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.mapping_unassign",
+      "title": "Unassign a MIDI controller mapping",
+      "description": "Drop a mapping from the preset (undoable); its parameter returns to the stored value.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "DELETE",
+        "path": "/midi/mappings/{id}"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the id (from midi.controls / midi.mappings)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.mapping_reset",
+      "title": "Reset a MIDI mapping's live value",
+      "description": "The mapping's live value goes back to neutral (a scale -> x1, a drive leaves the parameter at its stored value) until the control moves again. No preset change.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "runtime",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/mappings/{id}/reset"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the id (from midi.controls / midi.mappings)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "midi.mapping_bake",
+      "title": "Bake a MIDI mapping's live value into the preset",
+      "description": "Fold the current live value of a mapping into the stored preset values: stored x factor of a scale, or the driven value of a bow drive, for every key it covers. ONE undoable parameter edit; the overlay goes back to neutral, so the sound does not change. 409 when there is nothing to fold (a scale at x1, a runtime drive, a velocity mapping, a control that has not moved). Only when the user asks to keep the controller setting.",
+      "target": "backend",
+      "tier": "write",
+      "approval_category": "params",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl",
+      "route": {
+        "method": "POST",
+        "path": "/midi/mappings/{id}/bake"
+      },
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the id (from midi.controls / midi.mappings)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "result": {
+        "type": "object"
+      }
     }
   ]
 }
