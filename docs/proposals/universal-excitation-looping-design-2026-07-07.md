@@ -1,7 +1,10 @@
 # Design Proposal: Universal Excitation via Looped Segment Traversal (2026-07-07)
 
-> **Status:** DRAFT design plan (planning only, NO code). Awaiting user confirmation on the
-> impulse-vs-power normalization direction (§4) before design lock.
+> **Status:** Phases 1-2 implemented (traversal descriptor, `EXCT_MODE_WRAP`). The WRAP **bow** is RETIRED
+> (dev-bow2, 2026-11-04: it drove the string at the cycle rate, 750 Hz) and replaced by the friction bow
+> ([bow-realism Option B](bow-realism-2026-10-29.md)); Phases 3-4 (jitter, power normalization) are dropped:
+> the friction bow balances its own energy. The descriptor and WRAP stay as a generic stream mechanism
+> (board-observer proposal, stage 3).
 > **Origin:** user request — consolidate the excitation system, make it universal to also support
 > sustained/bow excitation, WITHOUT abandoning the existing 7-segment structure; universality via
 > LOOPING (a counter embedded in one of the 7 segments). Grounded in the code + the just-added

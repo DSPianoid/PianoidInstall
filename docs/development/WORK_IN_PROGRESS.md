@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-bow2 | Friction bow (Option B, bow-realism-2026-10-29): retire old WRAP bow, MIDI velocity=bow speed, CC force/angle live, kernel budget top constraint | [log](logs/dev-bow2-2026-11-03-215033.md) | 2026-11-03 | In Progress |
 <!-- dev-hstall COMPLETED 2026-11-03 (user-approved on Telegram; merged by merge-tested): excitation-write stall fix - MIDI port listing through one shared rtmidi instance (backend heap leak), excitation temporal impulse in C++ (bit-identical) + batched coefficient resplice; FE no REST copy of a slow-but-alive WS write, one write in flight per key. Merged Core dev c8e71df (1c042e7), Tunner dev e75ff4f (396d0be), Install master 38e87b7 (f297722). Log: logs/archive/dev-hstall-2026-11-03-131137.md -->
 <!-- dev-nogpu COMPLETED 2026-11-03 (user-approved on Telegram; merged by merge-tested): install + start on a machine with no NVIDIA GPU (setup/update/launch check), engine_availability (/health gpu_engine, 503 load-gate reason), FE No GPU engine state. Merged Core dev d8ed0dc (50da613), Tunner dev ab2f6d3 (d6f3751), Install master 1854c29 (fbda47c). test/nogpu-fpga NOT merged (held FPGA Tier 1). Log: logs/archive/dev-nogpu-2026-11-02-134828.md -->
 <!-- dev-uiguide COMPLETED 2026-11-03 (user-approved on Telegram; merged by merge-tested): in-app user guide EN + RU (help dialog, search, pane help links) + mkdocs USER_GUIDE / USER_GUIDE_RU. Merged Tunner dev a3f7a96 (c3dc357), Install master 0480a30 (455cc02). Log: logs/archive/dev-uiguide-2026-11-03-105821.md -->
@@ -156,6 +157,8 @@
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-cflgate — Refactor Courant/CFL stability GATE → visual FILL indicator (shows current Courant, red near 1); remove blocki | repos: - | branches: feature/dev-cflgate | SHAs: - | status: unknown | started 2026-07-07 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-exp1 — Universal-excitation Phase 1: per-string traversal descriptor (dev_exct_descriptor AoS [loop_start,loop_end,lo | repos: - | branches: feature/dev-excitimpl-p1 | SHAs: - | status: HOLD,NOT-merged/pushed,pushed | started 2026-07-07 -->
 <!-- WIP row removed 2026-09-30 (Phase-2 sweep, agent dead): dev-exp2 — Universal-excitation Phase 2: bow/WRAP mode (continuous re-emission, gated on dec_open=held) + per-pitch hamme | repos: - | branches: feature/dev-excitimpl-p2 | SHAs: - | status: HOLD | started 2026-07-07 -->
+<!-- dev-bow2 2026-11-04: the WRAP bow below is retired (friction bow, feature/dev-bow2); Phases 3-4 dropped.
+     Still open from Phase 2b: preset persistence of the per-pitch hammer/bow assignment. -->
 <!-- DEFERRED (universal-excitation, team-lead 2026-07-07) — "Phase 2b: user-settable + persistent bow assignment":
      (1) preset-JSON per-pitch excitation-mode FIELD (persistence: load/save the hammer/bow assignment in the preset),
      (2) FE excitation-type TOGGLE. Both HELD until AFTER Phase-4 power/steady-state normalization — the bow isn't

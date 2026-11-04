@@ -472,6 +472,29 @@ Tuning: `GET /get_parameter/pedal/all`, `POST /set_parameter/pedal/all` ([REST_A
 
 **Status.** Measured on the rebuilt engine, offline; the real pedal is still to try: [results](../../development/half-pedal-test-plan-2026-10-31.md).
 
+## Bow controls (dev-bow2) {#bow-controls-dev-bow2}
+
+**User request (2026-11-03):** "MIDI velocity controls speed of the bow. There can be two additional controls -
+force and angle, on joystick for example. They should come by separate midi commands."
+
+| Control | MIDI | Engine |
+|---|---|---|
+| Bow speed | NOTE_ON velocity of a bowed pitch (Excitation panel Hammer / Bow toggle, `POST /set_excitation_mode`) | per note, `speed = velocity / 127` |
+| Bow force (pressure) | **CC 1** (mod wheel; joystick Y+ on most keyboards), any channel | live, every bowed note, `force = value / 127` |
+| Bow angle (tilt = friction softness) | **CC 16** (general purpose 1; assign the joystick X axis to it), any channel | live, every bowed note, `angle = value / 127` |
+
+The CC numbers are `MidiInputHub` settings `bow_force_cc` / `bow_angle_cc` (`POST /midi/input`, `null` = not
+mapped, persisted with the pedal map). `Pianoid.schedule_event` turns a bow CC into `set_bow_controls`
+(never an engine event, never journaled: a joystick streams), so the live listener, the MIDI player and WS /
+REST MIDI bytes all reach it (`POST /play` / WS `play` with `command` 176-191, `pitch` = the CC number,
+`velocity` = the value; a bow CC skips the note deduplication, since a joystick repeats its CC). The sustain source wins if it shares a CC with a bow control. Changes are live:
+the engine applies them on the next cycle and the kernel glides the bow to them over ~5 ms, without a
+retrigger. Not handled: CCs inside an offline `MidiRecord` render. Physics and ranges:
+[SYNTHESIS_ENGINE → Friction bow](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2).
+
+**Verification.** `tests/unit/test_bow_controls.py` (CC map on every channel, settings and validation,
+`schedule_event` routing, the facade call); engine side: [SYNTHESIS_ENGINE](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2).
+
 ## MIDI player (dev-6f0c)
 
 A backend player for MIDI files with transport, seek, speed, loop, transpose, velocity scale and track / channel mutes. Its UI is the **MIDI Player** mosaic pane ([Tunner OVERVIEW](../pianoid-tunner/OVERVIEW.md)); routes are `/midi_player/*` ([REST_API.md](REST_API.md)).

@@ -173,7 +173,7 @@ Written by `recordOutputData()` calls in the kernel. Constants defined in `const
 |----------|-------|---------|
 | `SOUND_REC_BRIDGE_FORCE` | 0 | `force_on_bridge_summed` (bridge force per string) |
 | `SOUND_REC_MODE_STATE` | 1 | `s_mode` (mode displacement) |
-| `SOUND_REC_APPLIED_FORCE` | 2 | `applied_force` (force after hammer processing) |
+| `SOUND_REC_APPLIED_FORCE` | 2 | `applied_force` at the hammer-centre point: 0 for a hammer note; for a bowed string the friction bow's slip flag (0 stick / 1 slip) after each sample's last sub-step (dev-bow2, read by `diagnostics/dev-bow2-helmholtz.py`) |
 | `SOUND_REC_MODE_FORCE` | 3 | `s_mode_applied_force` (force applied to mode) |
 
 Controlled by `sound_record_index`. The archival write was reinstated in C2

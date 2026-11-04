@@ -1,6 +1,11 @@
 # Bow realism: analysis of today's bow and a path to a physical bowed string (design only)
 
-**Status:** PROPOSAL, for discussion. Nothing implemented. Not committed.
+**Status:** PARTIALLY IMPLEMENTED (dev-bow2, 2026-11-04, branch feature/dev-bow2, not merged): Option B
+(friction solve at the hammer point, central velocity) with MIDI velocity = bow speed and live force / angle
+(angle = friction-curve softness, a cheap stand-in for bow tilt / contact width); the old WRAP bow is retired.
+Open: the rest of Option C (bow noise, thermal friction, Guettler-aware attack, Schelleng-aware UI, a separate
+bow position), Option D, preset persistence of the bow assignment. Reference:
+[SYNTHESIS_ENGINE → Friction bow](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2).
 **Date:** 2026-10-29 · **Agent:** des-bow1
 **Trigger:** user request "Analyze how the bow action works and propose how to do it more realistic."
 **Builds on:** [`universal-excitation-looping-design-2026-07-07.md`](universal-excitation-looping-design-2026-07-07.md)
