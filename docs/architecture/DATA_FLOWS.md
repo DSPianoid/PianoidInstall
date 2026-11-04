@@ -1148,6 +1148,30 @@ pianoid.pack_for_interface(type, pitches, modes)
   All reads come from Python model (not GPU memory)
 ```
 
+### 2.10 Live MIDI Controller Overlay (dev-midictl)
+
+A MIDI controller mapping (machine control by name -> parameter; the mappings are preset data, edited through
+edit_commit) does NOT move a parameter through the edit path above (no model write, no journal entry, no undo step
+per move). The stored values stay; the engine gets stored x factor:
+
+```
+rtmidi -> MIDI_listener_unified -> hub.map_message -> schedule_event(source=port)
+  -> ControlTable.match (the rig's named control)  -> position recorded, its mappings marked, O(1), returns
+ControllerOverlay worker (one thread, <= 1 write per target per 20 ms, latest wins):
+  smooth (one-pole smooth_ms) -> clamp per key (param rules + CFL frontier, cached)
+  -> string: ParameterManager.reupload_string_param -> _flush_gpu_write_plan (compose: stored x factor)
+             -> updateMultiStringParameter_NEW (one swap)
+  -> mode:   ParameterManager.reupload_modes -> updateModeParameters_GRANULAR (dec/omega/mass_inv composed)
+  -> bow:    bow_config.set_effective (per pitch, engine only)
+  -> volume: runtime_params.apply_controller_volume
+  -> controllers_changed (<= 10 Hz); a volume drive also one throttled state_changed{runtime}
+note velocity: compiled, not streamed -> bow_config.set_velocity_map(field, lo[128], hi[128], power)
+```
+
+Every stored edit of a scaled parameter passes the same compose hook (ParameterManager, bow_config), and a preset
+load or switch re-evaluates the new preset's mappings. Bake = ONE edit_commit write of stored x factor plus the factor reset to x1. Details:
+[MIDI_SYSTEM → MIDI controllers](../modules/pianoid-middleware/MIDI_SYSTEM.md#midi-controllers-dev-midictl).
+
 ### Parameter Flow Summary Diagram
 
 ```

@@ -479,26 +479,164 @@ force and angle, on joystick for example. They should come by separate midi comm
 
 | Control | MIDI | Engine |
 |---|---|---|
-| Bow speed | NOTE_ON velocity of a bowed pitch (Hammer / Bow: Excitation or Bow pane, `POST /set_excitation_mode`) | per note: the engine velocity map, default `speed = velocity / 127` (dev-bow3: `bow_config.set_velocity_map` can map it to force instead, with a range and a curve) |
+| Bow speed | NOTE_ON velocity of a bowed pitch (Hammer / Bow: Excitation or Bow pane, `POST /set_excitation_mode`) | per note: the engine velocity map, compiled from the preset's velocity mapping (default `speed = velocity / 127`; a mapping can drive force instead, with a range and a curve) |
 | Bow force (pressure) | **CC 1** (mod wheel; joystick Y+ on most keyboards), any channel | live, every key's ENGINE force `= value / 127` (the preset's per-pitch force is not changed) |
 | Bow tilt (dev-bow2 "angle") | **CC 16** (general purpose 1; assign the joystick X axis to it), any channel | live, every key's ENGINE tilt `= value / 127` |
 
 dev-bow3: the bow's speed / force / position / tilt are per-pitch PRESET parameters (Bow pane,
 [REST_API → Friction-bow parameters](REST_API.md#friction-bow-parameters-dev-bow3)); the CCs above move
-the engine values only (`Pianoid.set_bow_controls` -> `bow_config.set_effective`), until the generic
-controller assignments (dev-midictl) replace this special case.
+the engine values only (`bow_config.set_effective`), never the stored preset.
 
-The CC numbers are `MidiInputHub` settings `bow_force_cc` / `bow_angle_cc` (`POST /midi/input`, `null` = not
-mapped, persisted with the pedal map). `Pianoid.schedule_event` turns a bow CC into `set_bow_controls` (dev-bow3: an engine-only shim)
-(never an engine event, never journaled: a joystick streams), so the live listener, the MIDI player and WS /
-REST MIDI bytes all reach it (`POST /play` / WS `play` with `command` 176-191, `pitch` = the CC number,
-`velocity` = the value; a bow CC skips the note deduplication, since a joystick repeats its CC). The sustain source wins if it shares a CC with a bow control. Changes are live:
+Since dev-midictl (with dev-bow3's per-pitch bow parameters) the bow controls are ordinary
+[MIDI controller](#midi-controllers-dev-midictl) assignments: a preset without mappings has the
+defaults note velocity -> `bow.speed` 0..1, "Mod wheel" (CC 1) -> `bow.force`, "Joystick X" (CC 16) -> `bow.tilt`
+(drive, every key). The old
+`MidiInputHub` settings `bow_force_cc` / `bow_angle_cc` are gone (not migrated; `POST /midi/input` rejects them).
+Change, re-learn or remove them in the MIDI panel's Controllers section. `Pianoid.schedule_event` hands a bow CC to the
+controller map (never an engine event, never journaled: a joystick streams), so the live listener, the MIDI
+player and WS / REST MIDI bytes all reach it (`POST /play` / WS `play` with `command` 176-191, `pitch` = the CC
+number, `velocity` = the value; a controller CC skips the note deduplication, since a joystick repeats its CC).
+CC64 is never a controller (the sustain pedal). Changes are live:
 the engine applies them on the next cycle and the kernel glides the bow to them over ~5 ms, without a
 retrigger. Not handled: CCs inside an offline `MidiRecord` render. Physics and ranges:
 [SYNTHESIS_ENGINE → Friction bow](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2).
 
-**Verification.** `tests/unit/test_bow_controls.py` (CC map on every channel, settings and validation,
+**Verification.** `tests/unit/test_bow_controls.py` (the default bow assignments on every channel, re-assignment,
 `schedule_event` routing, the facade call); engine side: [SYNTHESIS_ENGINE](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2).
+
+## MIDI controllers (dev-midictl) {#midi-controllers-dev-midictl}
+
+**User request (2026-11-04, Telegram):**
+- "I should be able to assign a parameter to control with this device [pedal / MIDI], and every parameter
+  should have a functionality to apply a coefficient across the board" (first use: a pedal scaling string tension
+  across the keyboard);
+- "MIDI control for the parameter is not the separate logic, it the same as parameter control by pedal."
+
+So there is ONE mechanism. Any MIDI source can drive any controllable parameter: a CC (number + channel + port) or
+the pitch bend, from a pedal of the Pianoid controller, a knob, the mod wheel, a joystick axis, plus the note
+velocity. The sustain pedal keeps its own map (above).
+
+**Two tables, one owner each** (team-lead decision (C), 2026-11-04):
+
+| Table | Scope | Owner / file | What it holds |
+|---|---|---|---|
+| **Controls** | per machine (the hardware binding of this rig) | `ControlTable`, `controller_controls.py`; `$PIANOID_MIDI_CONTROLS` or `<PianoidInstall>/midi/midi_controls.json` (git-ignored) | named physical controls `{id, name, source: {type: cc \| pitch_bend, number, channel, port}}`, their live positions (never persisted), MIDI learn |
+| **Mappings** | per preset (the musical intent) | `controller_map.write` (single writer) behind `edit_commit.commit`, kind `controller_mappings`; `model_parameters.controller_mappings` (PianoidBasic `ModelParameters`, saved only when set) | `{id, name, enabled, control, target: {domain, param, keys}, mode, lo, hi, curve, power, invert, smooth_ms}` |
+
+- A mapping names its control by NAME. When a preset moves to another rig, it keeps its intent, and the rig
+  resolves the name to its own MIDI bytes. A name the rig lacks shows as "not on this rig" and drives nothing.
+- Re-cabling a pedal changes one control entry, for every preset at once.
+- `control = 'velocity'` is the note velocity (a reserved name, never a control).
+- A mapping edit is a preset edit: read-only guard (409 on an original), param rules, `state_changed{controller_mappings}`,
+  undo (`controller_map.snapshot` / `write`). It is saved with the preset.
+- A preset without the field has the **default mappings**: velocity → `bow.speed` 0..1 linear (what the engine did
+  by itself, dev-bow2), "Mod wheel" → `bow.force` drive 0..1, "Joystick X" → `bow.tilt` drive 0..1.
+- A new rig has the **default controls** "Mod wheel" (CC 1) and "Joystick X" (CC 16), any port, any channel.
+- The old `MidiInputHub` settings `bow_force_cc` / `bow_angle_cc` are gone and are not migrated.
+
+**Range and curve belong to the mapping.** A parameter keeps only its stored value and its hard bounds (the
+parameter rules, the CFL bound). The same parameter can be driven by several mappings with different ranges. The
+param panels show a read-only "MIDI" badge (`MidiMappingBadge`) next to a mapped parameter. Its tooltip lists the
+mappings; they are edited only in the MIDI panel.
+
+| Piece | File | Concern |
+|---|---|---|
+| target table | `controller_targets.py` | what a mapping can drive: kind, allowed modes, default range, CFL flag, velocity flag; `rule_interval` reads a hard bound from the rule table |
+| `ControllerMap` (process singleton, `shared_map()`) | `controller_map.py` | the active preset's mappings resolved against the controls (each with its `source`); a mapping's value = its curve at its control's position; Reset; the edits |
+| `ControllerOverlay` | `controller_overlay.py` | sole owner of the effective values: one worker thread smooths, clamps and writes the engine; `controllers_changed` |
+| bow targets + velocity | `controller_bow.py` | per-pitch bow fields through dev-bow3 `bow_config.set_effective`; the velocity mapping compiled to `bow_config.set_velocity_map` |
+| engine writes | `parameter_manager.py` (`reupload_string_param`, `reupload_modes`, compose hooks), `runtime_params.apply_controller_volume`, `bow_config` | ParameterManager stays the only GPU writer of the preset buffers |
+| REST + stream | `controller_routes.py` (nested in the MIDI input blueprint) | `/midi/controls*`, `/midi/mappings*` ([REST_API](REST_API.md#midi-controllers-dev-midictl)); assistant `midi.controls`, `midi.control_add` / `_set` / `_forget` / `_learn`, `midi.mappings`, `midi.mapping_add` / `_set` / `_unassign` / `_reset` / `_bake` |
+| UI | Tunner `MidiControllersSection.jsx` (Controls + Mappings), `MidiControlsList.jsx`, `MidiMappingBadge.jsx` (+ `MidiMappingsProvider` at the root), `useMidiControllers.js`, `utils/midiControllers.js` | mirrors the backend, no browser-local truth |
+
+**Controls.**
+- Position `t` = the CC value / 127, or the 14-bit bend / 16383.
+- MIDI learn on a control: the next CC or pitch bend from a played port becomes its message (number, channel,
+  port).
+- "Learn new" creates a control named after the next message (e.g. `CC 20 ch 2 Pianoid`).
+- Names are unique. Renaming a control unbinds the mappings that name the old name.
+
+**Mappings.**
+- `invert` flips `t`. The value is `lo..hi` by `curve`:
+  - `linear`;
+  - `exp`: equal ratios per step, the natural law of a coefficient;
+  - `smooth`: a smoothstep;
+  - `power`: `lo + t^power (hi - lo)`, the law of the engine's velocity map, so the same field means the same for
+    every source.
+- Reset: a scale returns to x1 and a drive to the stored value, until the control moves again.
+
+| Target | Mode | Default range | How it reaches the engine |
+|---|---|---|---|
+| `string.tension`, `string.gamma`, `string.dispersion_damping`, `string.jung` | scale | 0.94..1.06 / 0.5..2 / 0.5..2 / 0.5..1.5 | stored x factor per string, granular `updateMultiStringParameter_NEW` (one swap); tension keeps the unison detuning (`tension x (1 + i x offset) x factor`) |
+| `mode.frequency`, `mode.decrement`, `mode.mass_inv` | scale | 0.97..1.03 / 0.5..2 / 0.5..2 | `dec`, `omega`, `mass_inv` of every mode x factor^(1, 2, 0) / ^(1, 0, 0) / ^(0, 0, 1) ([DATA_FLOWS](../../architecture/DATA_FLOWS.md): `d = decrement·f/sr`, `w = (2πf/sr)²`), granular mode upload |
+| `runtime.volume` | drive | 0..127 | `set_volume_level` (direct, no swap) |
+| `bow.speed`, `bow.force`, `bow.position`, `bow.tilt` (per pitch, dev-bow3) | drive (one value for every addressed key) or scale | 0..1 / 0..1 / 0.5..3 / 0..1 | `bow_config.set_effective` (engine only; the kernel glides ~5 ms); where nothing drives a field, the stored values go back; `bow_config`'s own stored push calls `controller_overlay.compose_bow` |
+
+**Note velocity** (`control = 'velocity'`) is a per-note source. It works only for the targets the engine applies
+at note-on: `bow.speed` and `bow.force`.
+- It is not streamed. The mapping is compiled into the engine's velocity map,
+  `bow_config.set_velocity_map(field, lo[128], hi[128], power)`; the value at note-on is
+  `lo + (velocity / 127)^power (hi - lo)`. A note costs no Python.
+- Keys outside the mapping's range get `lo = hi =` their stored value.
+- Mode drive only, curve `linear` or `power` only.
+- At most ONE enabled velocity mapping, because the engine has one map. With none, the overlay sends
+  `set_velocity_map(None)`, and the field keeps its parameter value.
+- It is compiled again on every change of the mappings and on every preset load / switch.
+
+Not offered:
+- excitation curves, hammer, length, density and deck rows. They are too slow on the edit path, or act only at a
+  strike ([controller latency review §1.2](../../development/reviews/realtime-controller-latency-2026-11-03.md));
+- the feedback coefficient, which waits for system review R2 (the frontend still composes its effective value).
+
+**The overlay.** The stored preset values never change while a control moves; the engine gets the effective
+values.
+- Several scales on one target multiply, each over its key range (`keys = [first, last]`, null = all keys).
+  Sound-channel pitches >= 128 are never scaled.
+- A drive writes its value; the latest-moved drive wins.
+- A stored edit of a scaled parameter (Strings panel, undo, assistant) is composed on its way to the engine:
+  `_flush_gpu_write_plan`, the mode upload and `bow_config`'s push call the overlay.
+- A preset load or switch re-evaluates every mapping of the new preset and every target of the old one.
+- Removing a mapping, or Reset, returns the parameter to its stored value.
+
+**Bake** (`POST /midi/mappings/<id>/bake`) is the one way into the preset. It makes ONE undoable edit: stored x
+factor for a scale, or the driven value for a bow drive, on every covered key. In the same step the overlay goes back
+to neutral (the worker is held off meanwhile), so the sound does not change. The control takes over again at its
+next move.
+
+**Clamp.**
+- Per key, a scale is limited to the frontier the parameter rules admit (the user's rule table,
+  `param_safety.check_edit`) and, for tension and stiffness, the FDTD bound (`cfl_stability`: Courant <
+  `CFL_MARGIN` and max|g| <= 1).
+- The frontier is checked once per stored value and mapping range: the two ends the mappings can reach (2 rule
+  checks per key), with a bisection from x1 only toward an end that fails. It is cached until the key's stored
+  physics or the range changes, so a moving control costs no rule check.
+- If the stored value already fails in one direction, that direction stays at x1.
+- A drive is clamped to its target's bound rule.
+
+**Rate, smoothing, broadcast.**
+- The listener thread only records the control position and marks its mappings dirty (O(1)).
+- One worker thread applies the values: at most one engine write per target per `TICK_S` = 20 ms. A burst inside a
+  tick coalesces (the latest wins) and only one write is in flight.
+- Each value glides toward the control through a one-pole filter of `smooth_ms` (default 30 ms; 0 = jump).
+- Uploads run in a transient journal context: no `domain_invalidated`, no undo entry, no `state_changed` per move.
+- `controllers_changed {live: {id: {raw, t, value, applied}}}` goes out at most every 100 ms. A volume drive is also
+  recorded as ONE throttled `state_changed{runtime}`, so the bottom bar follows it.
+- An edit or a completed learn emits `controllers_changed` with the whole state.
+
+**Latency.** The 30 ms target ([review](../../development/reviews/realtime-controller-latency-2026-11-03.md))
+leaves about 10 ms per update after the ~20 ms engine floor. Measurement: harness
+`docs/development/diagnostics/dev-midictl-latency.py` (in-process, silent); results in
+[the controller latency results](../../development/midi-controller-latency-2026-11-04.md).
+
+**Verification.**
+- `tests/unit/test_midi_controllers.py`, with a fake engine and fake `bow_config`, and mapping edits through the
+  real `edit_commit`: the control table, persistence and learn (including learn-new); the mapping schema; preset
+  storage (defaults, read-only guard, undo restore); unbound names; the curves; Reset; smoothing; the factor product
+  over key ranges; the clamp frontier (including the real Courant margin); stored-edit composition; the mode
+  powers; the volume drive and its throttled mirror; per-pitch bow drive / scale / compose; the velocity map;
+  preset switch; bake; the REST surface; the worker thread.
+- PianoidBasic `tests/test_controller_mappings.py`.
+- Tunner `MidiControllersSection.test.jsx` (including the read-only badge).
 
 ## MIDI player (dev-6f0c)
 

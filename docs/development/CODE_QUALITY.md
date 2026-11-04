@@ -558,7 +558,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | `PianoidCore/pianoid_cuda/setup.py` | 516 |
 | `PianoidCore/pianoid_middleware/test_audio_driver.py` | 514 |
 | `PianoidTunner/src/hooks/useSettings.js` | 514 |
-| `PianoidCore/pianoid_middleware/parameter_manager.py` | 999 (at the RED line — dev-960f kept it under 1000 by moving the excitation-energy branch to `excitation_energy.py` and the upload-group table to `state_journal.py`; next growth needs a split plan) |
+| `PianoidCore/pianoid_middleware/parameter_manager.py` | 1085 (RED: crossed 1000 before dev-midictl at 1049; dev-midictl +36 = the controller-overlay compose hooks + `reupload_string_param` / `reupload_modes`. Split plan still open: candidate carve-outs are the CFL indication block (`_prospective_string_coeffs` .. `_raise_if_cfl_unstable`, ~180 LOC) and the mode granular path) |
 | `PianoidCore/pianoid_middleware/ChartRegistry.py` | 507 |
 | `PianoidCore/pianoid_cuda/SDL3AudioDriver.cpp` | 506 |
 

@@ -2575,6 +2575,56 @@ Any subset of `{"sustain_cc": 0-127, "sustain_channel": null | 1-16, "polarity":
 - `raw`: the bytes as received, hex (sysex: first 16 bytes + `...`). `playing`: false = a tapped port (monitor only).
 - `sustain`: this message is the configured sustain CC; `sustain_down`: the engine's pedal state after it.
 
+### MIDI controllers — `/midi/controls*`, `/midi/mappings*` (dev-midictl) {#midi-controllers-dev-midictl}
+
+Two tables ([MIDI_SYSTEM → MIDI controllers](MIDI_SYSTEM.md#midi-controllers-dev-midictl)):
+- the **controls** of this rig: named physical controls, per machine
+  (`$PIANOID_MIDI_CONTROLS` or `<PianoidInstall>/midi/midi_controls.json`);
+- the **mappings** of the active preset: control name or `velocity` → parameter, range, curve. They are preset
+  data in `model_parameters.controller_mappings`.
+
+A mapping's live value is an overlay: it is not written into the stored preset, makes no undo step and does not
+produce a `state_changed` per move. Nested blueprint of the MIDI input routes; the controls work before a preset
+is loaded.
+
+| Route | Body | Response | Registry | Class |
+|---|---|---|---|---|
+| `GET /midi/controls` | — | `{"controls": [{id, name, source, live}], "learn": id \| "new" \| null}` | `midi.controls` | read_only |
+| `POST /midi/controls` | `{name, source}` | 201, the GET body + `id` | `midi.control_add` | session (`midi_controls`) |
+| `POST /midi/controls/<id>` | any subset (`source` merges) | the GET body | `midi.control_set` | session |
+| `DELETE /midi/controls/<id>` | — | the GET body; mappings naming it become unbound | `midi.control_forget` | session |
+| `POST /midi/controls/learn` | `{"id": id \| "new" \| null}` | the GET body | `midi.control_learn` | session |
+| `GET /midi/mappings` | — | `{"mappings": [...], "controls", "learn", "defaults", "preset_loaded", "targets": [{domain, param, kind, modes, range, cfl, label, keyed, velocity}]}` | `midi.mappings` | read_only |
+| `POST /midi/mappings` | a mapping; only `target` is required | 201, the GET body + `id` | `midi.mapping_add` | param (`controller_mappings`) |
+| `POST /midi/mappings/<id>` | any subset of the mapping fields | the GET body | `midi.mapping_set` | param |
+| `DELETE /midi/mappings/<id>` | — | the GET body; the parameter returns to its stored value | `midi.mapping_unassign` | param |
+| `POST /midi/mappings/<id>/reset` | — | the GET body; the live value back to neutral until the control moves | `midi.mapping_reset` | session |
+| `POST /midi/mappings/<id>/bake` | — | the GET body + `baked: {domain, keys}`; ONE undoable edit of the live value into the stored values, the overlay back to neutral. 409 `NothingToBake`; 400 on a parameter-rule rejection | `midi.mapping_bake` | param |
+
+A mapping (GET shape):
+```json
+{"id": "m4", "name": "String tension", "enabled": true, "control": "X13 pedal",
+ "source": {"type": "cc", "number": 11, "channel": 1, "port": "Pianoid"},
+ "target": {"domain": "string", "param": "tension", "keys": null},
+ "mode": "scale", "lo": 0.94, "hi": 1.06, "curve": "linear", "power": 1.0, "invert": false, "smooth_ms": 30,
+ "live": {"raw": 127, "t": 1.0, "value": 1.06}}
+```
+- `control`: a control name, `velocity` (bow.speed / bow.force only, drive, curve linear or power, at most one
+  enabled), or null (not bound).
+- `source`: resolved from the rig's controls; `{"type": "unbound"}` = no such control here, `{"type": "velocity"}`
+  for the note velocity.
+- `target.keys` is `[first, last]` (pitches for `string` / `bow`, modes for `mode`) or null = every key.
+- `curve` is `linear`, `exp` (needs lo, hi > 0), `smooth` or `power`. `smooth_ms` is 0-2000.
+- A mapping edit on a read-only original returns 409 (`preset_read_only`).
+- Errors: 400 `{"error": "BadRequest", "message": ...}` names the bad field; 404 `NotFound` for an unknown id.
+
+### Socket.IO `controllers_changed` (server -> client)
+
+(dev-midictl) Two shapes:
+- the `GET /midi/mappings` state (without `targets`) after an edit or a completed MIDI learn;
+- `{"live": {"<mapping id>": {"raw", "t", "value", "applied"}}}` while controls move, at most every 100 ms.
+  `applied` = what the engine has now, after smoothing and the clamp.
+
 ### Pianoid controller — `/controller/*` (dev-pctl)
 
 Configuration of the **"Pianoid" USB-MIDI controller** (FATAR keybed → FPGA → Arduino Micro). The device owns its configuration and keeps it in its EEPROM; these routes read and write it over SysEx (manufacturer ID `0x7D`) on the MIDI **output** port named `Pianoid`. Replies come back on the `Pianoid` input port: through the MIDI listener when it plays or taps that port (`MidiInputHub.sysex_hook`, kept off the monitor), else on an input the backend opens itself and releases after 5 s idle. Nothing touches the engine; the routes work before a preset is loaded. Protocol: controller repo `docs/proposals/controller-config-2026-10-29.md`; client: `pianoid_controller.py`; routes: `pianoid_controller_routes.py` (a nested blueprint of the MIDI input routes). Classified `action` (POST) / `read_only` (GET): no state event. A change is live on the device at once and survives a power cycle only after `POST /controller/save`.
