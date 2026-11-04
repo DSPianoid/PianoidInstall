@@ -24,6 +24,7 @@ def main():
     ap.add_argument("--vel", type=int, default=90)
     ap.add_argument("--forces", default="0.15,0.5,0.95")
     ap.add_argument("--angles", default="0.3")
+    ap.add_argument("--losses", default="", help="string-loss factors to sweep (setBowStringLoss)")
     args = ap.parse_args()
     mw = os.path.join(args.core, "pianoid_middleware")
     sys.path.insert(0, mw)
@@ -41,7 +42,10 @@ def main():
     p.set_pitch_excitation_mode(args.pitch, 1)
     f_nom = 440.0 * 2 ** ((args.pitch - 69) / 12)
     try:
-        for angle in [float(a) for a in args.angles.split(",")]:
+        for loss in ([float(x) for x in args.losses.split(",")] if args.losses else [None]):
+          if loss is not None:
+              eng.setBowStringLoss(loss)
+          for angle in [float(a) for a in args.angles.split(",")]:
             for force in [float(f) for f in args.forces.split(",")]:
                 eng.setBowForce(force)
                 eng.setBowSoftness(angle)
@@ -70,7 +74,7 @@ def main():
                 runs = np.diff(np.flatnonzero(np.diff(stick.astype(int)) != 0))
                 segs = np.split(stick.astype(int), np.flatnonzero(np.diff(stick.astype(int))) + 1)
                 main = sum(1 for sg in segs if sg[0] == 0 and len(sg) >= 2) / periods   # slips >= 2 samples
-                print(f"pitch {args.pitch} string {s0} force {force:.2f} angle {angle:.2f}: samples={len(flag)} "
+                print(f"pitch {args.pitch} string {s0} loss {loss} force {force:.2f} angle {angle:.2f}: "
                       f"stick_frac={stick.mean():.3f} slips/period={slips / periods:.2f} main_slips(>=2 samples)/period={main:.2f} "
                       f"median_run={int(np.median(runs)) if len(runs) else 0} period_samples={SR / f_nom:.0f} "
                       f"nan={int(np.isnan(flag).sum())}", flush=True)
