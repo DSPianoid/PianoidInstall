@@ -8,6 +8,9 @@
  *   POST /internal/command/<name>   the executor of the service's own MCP server (v2 P2, autoWrite.js):
  *                  runs a command the policy just allowed (a permit), else 403 not_permitted
  *   GET  /artifacts/<id>/<file>   one file of an analysis artefact (the pane shows the PNGs; v2 P5)
+ *   POST /stt?language=auto|en|ru&model=base|small|medium  (body audio/*) -> {ok, text, language, elapsed_s, ...};
+ *   GET  /stt/status, POST /stt/warm?model= (load ahead): the pane's voice input (dev-voice, service/stt.js:
+ *                  local faster-whisper on the CPU). A localhost page or no page; the text goes back to the pane only
  *   WS   /ws       the pane protocol: client {type: hello | turn | stop | confirm {id, allow, always?} |
  *                  settings {model?, dataOptOut?, autonomous? (dev-auto1)} | approvals {rule, mode} |
  *                  undo {groupId} | undo_turn {turn} (the pane's "Undo turn") |
@@ -32,12 +35,13 @@ import { assertSubscriptionOnly, assistantPaths, ensureHome, loadConfig, loginCo
 import { AuthManager, publicLogin } from './auth.js';
 import { AssistantSession } from './session.js';
 import { analysisPaths, artifactFile, CONTENT_TYPES, kindOf } from '../analysis/store.js';
+import { MAX_BYTES as MAX_STT_BYTES, SttService } from './stt.js';
 
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 export function createAssistantService({
   env = process.env, port = Number(env.PIANOID_ASSISTANT_PORT) || 3002, driver = env.PIANOID_ASSISTANT_DRIVER || 'sdk',
-  driverFactory = null, authOptions = {}, fetchImpl = fetch, settleMs,
+  driverFactory = null, authOptions = {}, sttOptions = {}, fetchImpl = fetch, settleMs,
 } = {}) {
   assertSubscriptionOnly(env);
   const paths = ensureHome(assistantPaths(env));
@@ -56,6 +60,7 @@ export function createAssistantService({
     launcherUrl: env.PIANOID_LAUNCHER_URL || 'http://127.0.0.1:3001', limits: loadLimits(paramsDir(env)), settleMs,
   });
 
+  const stt = new SttService({ env, dir: path.join(paths.root, 'stt'), ...sttOptions });
   let login = null;
   const sendLogin = (ws) => ws.send(JSON.stringify({ type: 'login', login, loginCommand: loginCommand(paths, auth.cli) }));
   const auth = new AuthManager({
@@ -143,7 +148,55 @@ export function createAssistantService({
     });
   };
 
+  // dev-voice: the pane's speech-to-text (a localhost page only, like the auth routes; never the model)
+  const sttRoute = (req, res, route) => {
+    const origin = req.headers.origin;
+    if (origin && !LOCAL_ORIGIN.test(origin)) {
+      res.statusCode = 403;
+      return res.end();
+    }
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+    const reply = (status, body) => {
+      res.statusCode = status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(body));
+    };
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.statusCode = 204;
+      return res.end();
+    }
+    if (route === '/status' && req.method === 'GET') return reply(200, stt.status());
+    if (route === '/warm' && req.method === 'POST') {
+      const model = new URL(req.url, 'http://x').searchParams.get('model') || undefined;
+      return stt.warm(model).then((out) => reply(out.ok ? 200 : 422, out));
+    }
+    // a POST must carry audio (a cross-site form cannot send it without a preflight, refused above)
+    if (route !== '' || req.method !== 'POST' || !String(req.headers['content-type'] || '').startsWith('audio/')) {
+      return reply(405, { ok: false, error: 'POST /stt with an audio/* body' });
+    }
+    const q = new URL(req.url, 'http://x').searchParams;
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_STT_BYTES) {
+        reply(413, { ok: false, error: 'The recording is too long' });
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on('end', async () => {
+      if (res.writableEnded) return;
+      if (!size) return reply(400, { ok: false, error: 'Empty recording' });
+      const out = await stt.transcribe(Buffer.concat(chunks), { language: q.get('language') || 'auto', model: q.get('model') || undefined });
+      reply(out.ok ? 200 : 422, out);
+    });
+  };
+
   const server = http.createServer((req, res) => {
+    const sttUrl = /^\/stt(\/status|\/warm)?(\?.*)?$/.exec(req.url || '');
+    if (sttUrl) return sttRoute(req, res, sttUrl[1] || '');
     const authUrl = /^\/auth\/(status|login|login\/code|login\/cancel|logout)(\?.*)?$/.exec(req.url || '');
     if (authUrl) return authRoute(req, res, authUrl[1]);
     const internal = /^\/internal\/command\/([\w.]+)$/.exec(req.url);
@@ -219,7 +272,7 @@ export function createAssistantService({
   });
 
   return {
-    session, paths, server, auth,
+    session, paths, server, auth, stt,
     listen: () => new Promise((resolve) => server.listen(port, '127.0.0.1', () => {
       session.execUrl = `http://127.0.0.1:${server.address().port}/internal/command`;
       session.publicUrl = `http://127.0.0.1:${server.address().port}`;   // the pane loads the plots from here
@@ -227,6 +280,7 @@ export function createAssistantService({
     })),
     close: async () => {
       auth.cancel();
+      stt.stop();
       session.auto.stopWatches();
       await session.restart().catch(() => {});
       for (const ws of clients) ws.terminate();
