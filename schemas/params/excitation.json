@@ -299,7 +299,7 @@
       "write": "param.bow {key_no, values} = param.set {parameter: bow, key_no, values}",
       "key_space": "piano pitch (shared by the pitch's unison strings)",
       "shape": "{pitch: {speed, force, position, tilt}}; a write may send {field: value} for every key of key_no",
-      "stored_vs_effective": "Stored in the preset: model_parameters.bow.pitches = {pitch: {speed, force, position, tilt}} for the edited pitches only; an absent pitch = the defaults (speed 0.5, force 0.5 x the register scale (x0.6 at pitches 46-55, linear to x1 at 40 and 60), position 1, tilt 0.3). GET returns the effective values. Pushed to the engine (BowController, per pitch -> the pitch's strings) on load / switch / edit / undo. A MIDI controller assignment (dev-midictl) moves the ENGINE values within its own range without changing the stored ones; velocity -> speed (default) or force is such an assignment, applied at note-on.",
+      "stored_vs_effective": "Stored in the preset: model_parameters.bow.pitches = {pitch: {speed, force, position, tilt}} for the edited pitches only; an absent pitch = the register defaults (speed 0.5; force 0.5 x (x1 up to 40, x0.6 at 46-55, x1 at 60-78, x0.5 from 88); position 1; tilt 0.3 up to 55, 0.1 from 60). GET returns the effective values. Pushed to the engine (BowController, per pitch -> the pitch's strings) on load / switch / edit / undo. A MIDI controller assignment (dev-midictl) moves the ENGINE values within its own range without changing the stored ones; velocity -> speed (default) or force is such an assignment, applied at note-on.",
       "doc": "modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2",
       "fields": [
         {

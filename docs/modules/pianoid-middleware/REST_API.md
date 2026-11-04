@@ -1916,8 +1916,9 @@ Fields (normalised; physics in [SYNTHESIS_ENGINE → Friction bow](../pianoid-cu
 `speed` 0..1 (bow speed, the level follows it), `force` 0..1 (fraction of the Schelleng maximum, 0.5 =
 the middle of the Helmholtz window), `position` 0.5..3 (multiple of the hammer point's distance from the
 string end, 1 = the hammer point), `tilt` 0..1 (one control: narrower contact, softer friction, more
-high-frequency loss). Defaults: speed 0.5, force 0.5 x the register scale (x0.6 at pitches 46-55,
-linear to x1 at 40 and 60), position 1, tilt 0.3, ribbon 0.035.
+high-frequency loss). Defaults by register (`bow_config.defaults`): speed 0.5; force 0.5 x (x1 up to
+40, x0.6 at 46-55, x1 at 60-78, x0.5 from 88, linear between); position 1; tilt 0.3 up to 55, 0.1 from 60;
+ribbon 0.035.
 
 Stored as `model_parameters.bow = {"pitches": {"<pitch>": {...}}, "max_width": x}` (only the edited
 pitches; absent = the defaults, so old presets load unchanged); saved, loaded and switched with the
