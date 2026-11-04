@@ -4,6 +4,7 @@
 
 | Agent | Task | Log | Started |
 |-------|------|-----|---------|
+| dev-modereject | Mode-chart rejected-edit poisoning (rule clamp, rollback on 400, granular mode writes, zoom js_error) | [log](logs/dev-modereject-2026-11-04-140209.md) | 2026-11-04 |
 <!-- dev-hstall COMPLETED 2026-11-03 (user-approved on Telegram; merged by merge-tested): excitation-write stall fix - MIDI port listing through one shared rtmidi instance (backend heap leak), excitation temporal impulse in C++ (bit-identical) + batched coefficient resplice; FE no REST copy of a slow-but-alive WS write, one write in flight per key. Merged Core dev c8e71df (1c042e7), Tunner dev e75ff4f (396d0be), Install master 38e87b7 (f297722). Log: logs/archive/dev-hstall-2026-11-03-131137.md -->
 <!-- dev-nogpu COMPLETED 2026-11-03 (user-approved on Telegram; merged by merge-tested): install + start on a machine with no NVIDIA GPU (setup/update/launch check), engine_availability (/health gpu_engine, 503 load-gate reason), FE No GPU engine state. Merged Core dev d8ed0dc (50da613), Tunner dev ab2f6d3 (d6f3751), Install master 1854c29 (fbda47c). test/nogpu-fpga NOT merged (held FPGA Tier 1). Log: logs/archive/dev-nogpu-2026-11-02-134828.md -->
 <!-- dev-uiguide COMPLETED 2026-11-03 (user-approved on Telegram; merged by merge-tested): in-app user guide EN + RU (help dialog, search, pane help links) + mkdocs USER_GUIDE / USER_GUIDE_RU. Merged Tunner dev a3f7a96 (c3dc357), Install master 0480a30 (455cc02). Log: logs/archive/dev-uiguide-2026-11-03-105821.md -->
