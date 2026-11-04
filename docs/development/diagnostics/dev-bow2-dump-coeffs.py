@@ -28,7 +28,11 @@ cfg.record_to_buffer = False
 cfg.max_duration_ms = 100
 cfg.sample_rate = 48000
 cfg.samples_per_cycle = 64
-eng.runOfflinePlayback(pc.EventQueue(), cfg)   # runs stringMap + parameter kernels
+q = pc.EventQueue()
+if len(sys.argv) > 2:                           # hold this pitch (damper open) while dumping
+    e = pc.PlaybackEvent(); e.type = pc.EventType.NOTE_ON; e.channel = 0; e.cycle_index = 2
+    e.data = (int(sys.argv[2]) << 8) | 90; q.addEvent(e)
+eng.runOfflinePlayback(q, cfg)   # runs stringMap + parameter kernels
 par = np.array(eng.getParameters())
 A = 384
 blocks = len(par) // (A * 32)
@@ -40,10 +44,11 @@ for b in range(blocks):
         s1, s2, hf, d2, string_no = blk[1, i], blk[2, i], blk[7, i], blk[8, i], int(blk[11, i])
         lam = np.sqrt(max(s1 + 4 * s2, 0))
         n_main = int(np.sum((blk[18] > 0.5) & (blk[11] == blk[11, i])))
-        rows.append((string_no, lam, hf, d2, hf / max(lam * lam, 1e-12), int(blk[20, i]), n_main))
+        rows.append((string_no, lam, hf, d2, hf / max(lam * lam, 1e-12), int(blk[20, i]), n_main,
+                     blk[0, i], blk[1, i], blk[2, i], blk[4, i]))
 rows.sort()
 for r in rows:
-    print("string %3d lambda=%.4f hf=%.3e dec2=%.3e hf/lam2=%.3e idx=%d main_points=%d" % r)
+    print("string %3d lambda=%.4f hf=%.3e dec2=%.3e hf/lam2=%.3e idx=%d main_points=%d s0=%.6e s1=%.6e s2=%.6e c_u=%.6e" % r)
 for pitch in (36, 48, 60, 72):
     print("pitch", pitch, "strings", list(eng.getStringIndicesForPitch(pitch)))
 eng.shutdownGpu()

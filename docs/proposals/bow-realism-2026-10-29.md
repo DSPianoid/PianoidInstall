@@ -2,7 +2,7 @@
 
 **Status:** PARTIALLY IMPLEMENTED (dev-bow2, 2026-11-04, branch feature/dev-bow2, not merged): Option B
 (friction solve at the hammer point, central velocity) with MIDI velocity = bow speed and live force / angle
-(angle = friction-curve softness, a cheap stand-in for bow tilt / contact width); the old WRAP bow is retired.
+(angle = friction-curve softness, a cheap stand-in for bow tilt / contact width) and a x40 high-frequency loss on the bowed string (clean Helmholtz motion: one slip per period above the bass); the old WRAP bow is retired.
 Open: the rest of Option C (bow noise, thermal friction, Guettler-aware attack, Schelleng-aware UI, a separate
 bow position), Option D, preset persistence of the bow assignment. Reference:
 [SYNTHESIS_ENGINE → Friction bow](../modules/pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2).

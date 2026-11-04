@@ -1207,6 +1207,7 @@ self-limited amplitude come out of the physics.
 | Force | `F_N = force * 32 * lambda * vb`: force 1.0 = the Schelleng maximum `2 Z vb / (beta (mu_s - mu_d))` at `beta = 0.125`, so force is a fraction of the playable window for every string and speed sets the loudness |
 | Angle | bow tilt = friction-curve softness: `v0 = vb * (0.2 + 2.8 * angle)`. 0 = sharp curve (bright, scratchy attack), 1 = soft (smooth, dark) |
 | Smoothing | the bow-point thread glides speed / force / angle to the targets once per sample, time constant 240 samples (5 ms at 48 kHz): note-on = the bow settles on the string, a CC change glides, note-off = bow lift (force target 0; the host drops the string from the bowed path 50 ms later) |
+| String loss | while a string is bowed its high-frequency (Kelvin-Voigt) loss coefficient is multiplied by `BOW_STRING_HF_LOSS` = 40, once per launch (bow hair and rosin loading the string). Without it the engine's low-loss strings slip several times per period; see [Open / v2](#friction-bow-timing) |
 | State | `dev_bow_control` (host, `BOW_CTRL_*`: active, generation, speed, force, softness) and `dev_bow_state` (kernel, `BOW_STATE_*`: generation, smoothed controls, slip flag). A new generation (every bowed note-on) restarts from rest. `resetStringsState` stops every bow at once |
 
 **Kernel cost.** Each thread knows at launch whether it is a bow point (param slot 10 + its string's
@@ -1238,7 +1239,7 @@ dev-bow2, 2026-11-04; BaselinePreset1, array 384, 4 sub-steps, 64 / 48 kHz, RTX 
 No-bow difference -0.2 % (noise: the same dev build measured 0.475 median an hour earlier); 16 bowed strings
 +0.7 %. Script: `docs/development/diagnostics/dev-bow2-cycle-timing.py`.
 
-| Offline render (`dev-bow2-bow-render.py`, pitch 48) | Result |
+| Offline render (`dev-bow2-bow-render.py`, pitch 48), v1 (before the HF-loss boost, see below) | Result |
 |---|---|
 | hammer note vs the dev build | correlation 0.9999998, max diff 2.6e-4 of peak (render noise): unchanged |
 | old WRAP bow | periodic at 750 Hz (the cycle rate), dominant 3 kHz, not the note |
@@ -1248,13 +1249,28 @@ No-bow difference -0.2 % (noise: the same dev build measured 0.475 median an hou
 | angle 0 / 0.5 / 1 | RMS 1.9 / 2.2 / 3.1 e-5, spectral centroid 6.4 / 6.7 / 6.9 kHz |
 | force 0.5 -> 0.05 while held | smooth 12 dB step, centroid 6.7 -> 4.7 kHz, no gap, no new attack |
 
-**Open: not clean Helmholtz motion.** The debug build records the bow's slip flag in
-`SOUND_REC_APPLIED_FORCE` (`dev-bow2-helmholtz.py`): stick fraction 0.75-0.84 (Helmholtz: 1 - beta = 0.85),
-but 2 slips per period at the defaults (force 0.5, angle 0.3) and 3-26 at other settings (multiple slip).
-The CPU golden (`dev-bow2-friction-golden.py`, the engine stencil) shows the same at the engine's Courant
-number (lambda 0.18-0.23 per sub-step) and clean Helmholtz at lambda 0.9: numerical dispersion of the
-low-Courant grid at a point contact. Candidates: a contact width over 2-3 points, hair compliance
-(proposal Option C).
+**v1 -> v2: clean Helmholtz motion (2026-11-04).** v1 (point contact on the preset's own string loss)
+slipped several times per period (the debug build records the slip flag in `SOUND_REC_APPLIED_FORCE`,
+`dev-bow2-helmholtz.py`). Cause, from the CPU golden with the EXACT engine coefficients of four strings
+(`dev-bow2-dump-coeffs.py` -> `dev_bow2_golden_engine.py`, `dev-bow2-hfloss-golden.py`): the strings' very low
+high-frequency loss, not the grid or the point contact. A coarser solve rate, a 3-5 point contact width
+(independent or one coupled solve) and bow-hair compliance did not help; x10-x40 HF loss did, in every
+register. v2 multiplies the bowed string's HF loss by 40.
+
+| Main slips per period (>= 2 samples), force 0.3 / 0.5 / 0.8, angle 0.3 | v1 | v2 |
+|---|---|---|
+| pitch 36 (bass) | 3.7 / 2.0 / 6.9 | 2.0 / 1.4 / 2.3 |
+| pitch 48 | 5.4 / 2.3 / 20.0 | 1.02 / 1.00 / 1.00 |
+| pitch 60 | 3.2 / 3.0 / 10.6 | 0.99 / 0.99 / 0.97 |
+| pitch 67 | 3.3 / 3.6 / 7.2 | 1.00 / 0.99 / 0.98 |
+| stick fraction (Helmholtz: 1 - beta = 0.85) | 0.76-0.85 | 0.82-0.86 |
+
+v2 pitch 48: spectral centroid 6.6 -> 2.4 kHz (darker), harmonic 7 notch -20 dB (beta ~ 1/7, the Helmholtz
+signature), level re-calibrated (`BOW_SPEED_SCALE` 1e-7: vel 90 = 2.1e-5 RMS), force 0.1 -> 0.95 +8.5 dB and
+centroid 1.7 -> 2.5 kHz, angle 0 -> 1 only +0.8 dB (weak). Release -25 dB in 0.5 s (the extra loss ends with the
+bow). Timing unchanged: no bow 0.466 ms mean (dev 0.469), 16 bowed strings 0.473. The hammer render differs
+from dev by 2.96e-4 of peak, the same as two renders of one build (2.9e-4, float `atomicAdd`). Still open: the
+bass (pitch 36) keeps 1.4-2.3 slips; angle has little effect in the Helmholtz regime.
 
 ### Kernel Trigger: `new_notes_ind`
 

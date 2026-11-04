@@ -68,8 +68,10 @@ def main():
                 slips = np.sum(np.diff(stick.astype(int)) == -1)
                 periods = len(flag) / SR * f_nom
                 runs = np.diff(np.flatnonzero(np.diff(stick.astype(int)) != 0))
+                segs = np.split(stick.astype(int), np.flatnonzero(np.diff(stick.astype(int))) + 1)
+                main = sum(1 for sg in segs if sg[0] == 0 and len(sg) >= 2) / periods   # slips >= 2 samples
                 print(f"pitch {args.pitch} string {s0} force {force:.2f} angle {angle:.2f}: samples={len(flag)} "
-                      f"stick_frac={stick.mean():.3f} slips/period={slips / periods:.2f} "
+                      f"stick_frac={stick.mean():.3f} slips/period={slips / periods:.2f} main_slips(>=2 samples)/period={main:.2f} "
                       f"median_run={int(np.median(runs)) if len(runs) else 0} period_samples={SR / f_nom:.0f} "
                       f"nan={int(np.isnan(flag).sum())}", flush=True)
     finally:
