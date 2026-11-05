@@ -31,6 +31,24 @@ export const pageUrl = (rel) => {
 };
 
 /**
+ * A page's lines with pymdownx.snippets includes expanded (`--8<-- "path"` alone on a line; mkdocs.yml
+ * `base_path: ["."]` = the folder that holds docs/). The user guide pages are such wrappers around the in-app help
+ * (PianoidTunner/src/help/content/{en,ru}.md): without this the index held only their header. A missing file leaves
+ * the line as it is (`check_paths: false`, like MkDocs); a file already being included is not included again.
+ */
+const SNIPPET = /^\s*-+8<-+\s+["']([^"']+)["']\s*$/;
+const pageLines = (file, base, open = new Set([file])) => {
+  const out = [];
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const m = SNIPPET.exec(line);
+    const inc = m && path.resolve(base, m[1]);
+    if (inc && !open.has(inc) && fs.existsSync(inc)) out.push(...pageLines(inc, base, new Set([...open, inc])));
+    else out.push(line);
+  }
+  return out;
+};
+
+/**
  * [{title, page, url, anchor, level, text}] for every heading section of every page, in page order. A heading
  * with no body of its own is kept (text ''): read_docs needs it as the parent of its subsections. `anchor` =
  * the explicit `{#id}` (attr_list) or the toc slug; level 0 = the text before the first heading.
@@ -42,7 +60,7 @@ export function buildIndex(docsDir) {
     const url = pageUrl(rel);
     let current = { title: rel, page: rel, url, anchor: '', level: 0, lines: [] };
     let fence = false;
-    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    for (const line of pageLines(file, path.dirname(docsDir))) {
       if (/^\s*(```|~~~)/.test(line)) fence = !fence;
       const m = !fence && /^(#{1,6})\s+(.*?)\s*$/.exec(line);
       if (m) {

@@ -84,7 +84,7 @@
     {
       "name": "ui.pane.maximize",
       "title": "Maximize a pane",
-      "description": "Shows one open pane full screen.",
+      "description": "Lets one open pane fill the whole pane area (not the browser Full screen of the side bar, which only the user can switch).",
       "target": "ui",
       "tier": "ui",
       "approval_category": "view",
@@ -400,7 +400,7 @@
     {
       "name": "ui.select.level",
       "title": "Select the velocity level",
-      "description": "The toolbar velocity level.",
+      "description": "The velocity Level in the top bar.",
       "target": "ui",
       "tier": "ui",
       "approval_category": "view",
