@@ -90,6 +90,19 @@ test('the grant: hard-confirm commands only when ticked; irreversible ones too (
   assert.equal(g.expiresAt, NOW + 30 * 60000);
 });
 
+test('dev-bugsync: sending bug reports to GitHub is plannable only as a ticked, irreversible step', () => {
+  const v = validateRequest({ ...RIG_REQ, commands: ['bug.list', 'bug.github_preview', 'bug.file_github', 'bug.sync_github'] }, byName);
+  assert.ok(v.ok, v.error);
+  const gh = v.request.commands.filter((c) => c.name.endsWith('_github'));
+  assert.deepEqual(gh.map((c) => [c.name, c.hard, c.irreversible]), [['bug.file_github', true, true], ['bug.sync_github', true, true]]);
+  assert.equal(v.request.commands.find((c) => c.name === 'bug.github_preview').hard, false);
+  const g0 = createGrant(v.request, { now: NOW });
+  assert.ok(!g0.commands.includes('bug.file_github') && !g0.commands.includes('bug.sync_github'));   // never implied
+  const g = createGrant(v.request, { ticked: ['bug.file_github'], now: NOW });
+  assert.ok(g.commands.includes('bug.file_github') && !g.commands.includes('bug.sync_github'));
+  assert.equal(matchGrant(g, { cmd: C('bug.file_github'), input: { report_id: 'f4e51adc' }, now: NOW + 1000 }).ok, true);
+});
+
 test('envelope matching: commands, level, channels, drive budget, folders (fail closed)', () => {
   let g = createGrant(req(), { ticked: ['modal.rig_capture', 'modal.rig_process', 'preset.create'], now: NOW });
   const m = (name, input, now = NOW + 1000) => matchGrant(g, { cmd: C(name), input, now });

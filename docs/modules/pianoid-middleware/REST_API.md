@@ -436,7 +436,7 @@ other or with a request that uses the engine. Owner: `pianoid_middleware/engine_
 |---|---|---|
 | **Lifecycle op** (exclusive) | `POST /load_preset` (all reinit kinds), `/preset/load`, `/preset/switch`, `/preset/unload`, `/preset/spawn_working_copy`, `/recalibrate_output_level`, `/shutdown` | **identical** request (same route + same JSON body) → waits and returns the in-flight result with `"coalesced": true` (only `/load_preset` and `/preset/switch` coalesce); anything else → **`409`** `{"error": "LifecycleBusy", "code": "load_in_progress", "message", "in_progress": {"op", "running_for_s"}}` |
 | **Engine use** (shared) | every other HTTP route + the engine Socket.IO events (`play`, `set_parameter`, `set_string_excitation`, `set_hammer_shape`, `set_runtime_parameters`, `set_fix_velocity`) | refused at once: HTTP **`503`** `{"code": "lifecycle_in_progress", "in_progress": {...}}`; a WS event acks `{"ok": false, "code": "lifecycle_in_progress"}` |
-| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
+| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, the `/bug_reports/.../github` routes, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
 
 One exception to the shared-slot refusal: the MIDI player's own scheduler thread is not a request and keeps its slot through the library ops that leave the engine running (`NON_DESTRUCTIVE_OPS`: `preset_switch`, `preset_load`, `preset_unload`, `preset_spawn_working_copy`), so playback survives them (dev-mswitch). Every route keeps its `503`, the `/midi_player/*` routes too.
 
@@ -2917,6 +2917,73 @@ report: <summary>}`; `400` invalid value / missing note / ambiguous id; `404` no
 ```json
 {"status": "fixed", "resolution": "offline buffer de-interleaved (PianoidResult.load_offline_channels)", "commit": "Core 1a2b3c4"}
 ```
+
+### Bug reports -> GitHub issues
+
+dev-bugsync (owner `pianoid_middleware/bug_github.py`; the issue text `bug_issue_body.py`). A report filed on any
+machine can be sent to ONE GitHub repo as an issue, so the development machine's agents list and fix it there. Never
+engine-gated (the store, not the engine). The issue is recorded in the report (`github: {repo, number, url, state,
+synced_at, body_sha, report_status, at_sync}`, written only through `bug_reports.set_github`), so a second send
+updates the issue instead of filing a duplicate. New reports carry `filedOn: {host, machine, os, repos: {name:
+{branch, sha, dirty}}}` (the collector's stamp, cached 60 s), so the issue names the builds the bug was filed on; an
+older report names the state at its first sync, marked as such.
+
+**Per-machine config** (never in a repo; the token goes only to `api.github.com`):
+
+| Setting | Source, highest first |
+|---|---|
+| repo | `PIANOID_GITHUB_REPO` > config file `repo` > `DSPianoid/PianoidInstall` |
+| token | `PIANOID_GITHUB_TOKEN` > `GH_TOKEN` > `GITHUB_TOKEN` > config file `token` > `gh auth token` (an authenticated gh CLI) |
+| auto_send | `PIANOID_GITHUB_AUTO_SEND` > config file `auto_send`: `off` (default) · `manual` (the user's own 🐞 reports, sent in the background on filing) · `all` (the assistant's and the automatic fault reports too) |
+| machine label | config file `machine` > `PIANOID_MACHINE_NAME` > the host name |
+| config file | `PIANOID_GITHUB_CONFIG` > `~/.pianoid/github.json`, e.g. `{"token": "github_pat_...", "machine": "dima-rig", "auto_send": "manual"}` |
+
+The token: a fine-grained personal access token with access to the one repo and **Issues: read and write** (nothing
+else). The backend reads the config per request (the env / gh CLI changes need a backend restart).
+
+**The issue.** Title = the report's title / description (90 chars). Labels: `bug-report`, `source:<manual|auto|assistant>`,
+`kind:<kind|unclassified>`, `machine:<label>`, `severity:<s>` when triaged (GitHub creates a missing label). Body: a
+`<!-- pianoid-bug-report id=<reportId> machine=<label> -->` marker, the description, a facts table (report id,
+source / kind, severity / status, filed, machine, builds, preset, layout, health, store file) and collapsed
+`<details>`: the assistant's draft, the action history (newest kept, about 36 k chars), the config snapshot without
+the `params` arrays (14 k chars), the assistant transcript / activity; body at most 60 000 chars. Redacted first:
+GitHub / Anthropic / AWS / Slack / Google tokens, JWTs, `Bearer` values, private keys, email addresses and every
+field whose name says token / secret / password / api key / authorization / cookie / credential (paths with user
+names stay).
+
+**Status, two-way.** On every send / sync of a filed report, the side that changed since the last sync wins: the
+issue closed on GitHub -> the report `fixed` (`state_reason` `not_planned` -> `wontfix`), resolution `closed on
+GitHub <repo>#N`, `by: github`; reopened -> `open`. A report triaged here (`fixed` / `wontfix` / `duplicate`) -> the
+issue closed (`completed` / `not_planned`) with the resolution note and commits as a comment; back to `open` ->
+reopened. The text is PATCHed only when it changed (`body_sha`).
+
+#### `GET /bug_reports/github`
+
+The machine's config, never the token: `{ok, repo, configured, token_source, auto_send, machine, path, error}`; not
+configured adds `message` (what to set, where).
+
+#### `GET /bug_reports/<report_id>/github`
+
+Dry run: the exact issue that a send would post, nothing written, works without a token. `200 {ok, action:
+"dry_run", would: "create" | "update", reportId, repo, number, configured, issue: {title, labels, body},
+body_chars}`; `404` no such report.
+
+#### `POST /bug_reports/<report_id>/github`
+
+Send one report: create the issue, or refresh a filed one (status both ways, text when changed). Body: optional
+`{"dry_run": true}` (= the GET). `200 {ok, action: "created" | "updated" | "unchanged" | "skipped", reportId, repo,
+number, url, changes}` (`skipped` = filed in another repo than the configured one); `409 {code:
+"github_not_configured", error}` no token; `502 {code: "github_auth" | "github_error", error}` GitHub refused
+(the message says why: token rejected, no Issues write, no access, issues disabled) or unreachable.
+
+#### `POST /bug_reports/github/sync`
+
+Refresh every report already filed in the configured repo, then file up to `limit` (default 20) unfiled reports
+matching the filter, oldest first. Body (all optional): `status` (default `open`), `source` (default
+`manual,assistant`; `auto`, `all`, or a comma list), `kind`, `severity` (or `none`), `since` (ISO `createdAt`
+lower bound), `limit`, `dry_run`. One report's failure is listed, an auth failure stops the run. `200 {ok, repo,
+dry_run, counts: {created, updated, unchanged, skipped, error | would_create, would_update}, results: [...]}`
+(a dry run of more than one report lists titles, not bodies); `400` unknown filter value.
 
 ---
 

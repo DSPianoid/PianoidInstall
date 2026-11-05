@@ -260,6 +260,20 @@ Source: `tools/pianoid-assistant/README.md` (Setup, First-time setup, Analysis s
    runtime); the private Python runtime under `%USERPROFILE%\.pianoid-assistant\analysis\runtime` is created with the
    README's PowerShell block. No Admin.
 
+## Bug reports to GitHub {#bug-github}
+
+Source: [BUG_REPORT_TOOL "Sending Reports to GitHub"](../modules/pianoid-tunner/BUG_REPORT_TOOL.md#sending-reports-to-github-dev-bugsync),
+[REST_API "Bug reports -> GitHub issues"](../modules/pianoid-middleware/REST_API.md#bug-reports-github-issues).
+A machine sends its bug reports to the team's GitHub repo only after the user sets a token there (the assistant never
+asks for, stores or repeats one):
+
+1. A fine-grained personal access token with only the team repo and **Issues: Read and write** (or `gh auth login` with
+   the gh CLI installed).
+2. `%USERPROFILE%\.pianoid\github.json` = `{"token": "github_pat_...", "machine": "<a short name for this computer>"}`
+   (optional `"auto_send": "manual"` sends every bug-button report on filing; `"all"` also the assistant's and the
+   automatic ones), or the `PIANOID_GITHUB_TOKEN` environment variable.
+3. Restart the backend. `bug.github_config` then says `configured: true`; the bug dialog's **Send to GitHub** is enabled.
+
 ## Doc / script disagreements {#conflicts}
 
 Found 2026-10-18 (dev-6b34) against PianoidInstall master `e3e1f0e` / PianoidCore dev `269efbd`. Unless marked

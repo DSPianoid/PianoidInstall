@@ -1,6 +1,6 @@
 {
   "family": "bug",
-  "description": "The local bug-report store (PianoidCore/logs/reports; the same store as the bug button, the automatic reports and the assistant's bug_report tool): list the reports with their triage state and update a report's status (dev-obuf1). Filing a new report is the assistant's bug_report tool, not a registry command.",
+  "description": "The local bug-report store (PianoidCore/logs/reports; the same store as the bug button, the automatic reports and the assistant's bug_report tool): list the reports with their triage state and update a report's status (dev-obuf1). Filing a new report is the assistant's bug_report tool, not a registry command. A stored report can be sent to the team's GitHub repo as an issue (bug.file_github / bug.sync_github, dev-bugsync) so the developers' agents pick it up and fix it; bug.github_preview shows the exact issue first.",
   "commands": [
     {
       "name": "bug.list",
@@ -47,6 +47,85 @@
           "resolution": {"type": "string", "description": "what fixed it / why not / of what it is a duplicate"},
           "commits": {"type": "array", "items": {"type": "string"}, "description": "e.g. [\"Core d99e5a0\", \"Tunner 60200cd\"]"},
           "duplicate_of": {"type": "string"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "bug.github_config",
+      "title": "GitHub sync settings of this machine",
+      "description": "Whether this machine can send bug reports to GitHub: the target repo, configured (a token is set; the token itself is never shown), where the token comes from, auto_send (off / manual / all) and the machine label. Not configured: the message says what the user must set (an operation for the user, never for you).",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-bug_reportsgithub",
+      "route": {"method": "GET", "path": "/bug_reports/github"},
+      "args": {"type": "object", "additionalProperties": false, "properties": {}},
+      "result": {"type": "object"}
+    },
+    {
+      "name": "bug.github_preview",
+      "title": "Preview a report's GitHub issue",
+      "description": "Dry run: the exact GitHub issue (title, labels, body) that bug.file_github would post for one report, and whether it would create a new issue or update the existing one. Writes nothing; works without a token. Show it to the user before sending.",
+      "target": "backend",
+      "tier": "read",
+      "approval_category": "view",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#get-bug_reportsreport_idgithub",
+      "route": {"method": "GET", "path": "/bug_reports/{report_id}/github"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["report_id"],
+        "properties": {
+          "report_id": {"type": "string", "description": "the reportId or a unique prefix of at least 6 characters"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "bug.file_github",
+      "title": "Send a bug report to GitHub",
+      "description": "Send one stored report to the team's GitHub repo as an issue (sends data outside this machine: title, description, build SHAs, preset, layout, action history, a trimmed config snapshot; secrets and emails are redacted). Idempotent: a report already filed updates its issue (status both ways: a closed issue marks the report fixed; a report marked fixed here closes the issue) instead of filing a duplicate. Returns the issue number and url. Only when the user asks or agrees; file the report first (bug_report) when it is not in the store.",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "bug_local",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-bug_reportsreport_idgithub",
+      "route": {"method": "POST", "path": "/bug_reports/{report_id}/github"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["report_id"],
+        "properties": {
+          "report_id": {"type": "string", "description": "the reportId or a unique prefix of at least 6 characters"},
+          "dry_run": {"type": "boolean", "default": false, "description": "build the issue only (prefer bug.github_preview: it needs no confirm)"}
+        }
+      },
+      "result": {"type": "object"}
+    },
+    {
+      "name": "bug.sync_github",
+      "title": "Sync the bug reports with GitHub",
+      "description": "Refresh every report already sent to GitHub (status both ways, the text when it changed) and send up to limit unsent reports matching the filter (default: open manual + assistant reports, oldest first). Automatic fault reports are sent only with source auto or all. Run it with dry_run first to list what would be sent.",
+      "target": "backend",
+      "tier": "act",
+      "approval_category": "bug_local",
+      "long_running": false,
+      "doc": "modules/pianoid-middleware/REST_API.md#post-bug_reportsgithubsync",
+      "route": {"method": "POST", "path": "/bug_reports/github/sync"},
+      "args": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {"type": "string", "enum": ["open", "fixed", "wontfix", "duplicate"], "default": "open"},
+          "source": {"type": "string", "description": "assistant, manual, auto, all, or a comma list; default manual,assistant"},
+          "kind": {"type": "string"},
+          "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "none"]},
+          "since": {"type": "string", "description": "ISO time: only reports created at or after it"},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 20},
+          "dry_run": {"type": "boolean", "default": false}
         }
       },
       "result": {"type": "object"}
