@@ -702,7 +702,9 @@ detune was first verified analytically (ideal-string law) at the engine call bou
   The control changes the beating as expected: none at 0 c on C5, and faster with more detune. The rates do not
   follow the uncoupled-string formula, and the f0 peak moves (C6: 1041 Hz at 0 c, 1028 Hz at 2 c). The likely cause
   (not yet confirmed) is that the unison strings couple through the bridge / soundboard modes, so the heard beat
-  comes from the coupled system. "Cents" is exact for the per-string tensions, not for the heard beat rate.
+  comes from the coupled system. **Decision (team-lead, 2026-11-05): cents stay the unit.** They are the tuning of the
+  unison strings (exact for the per-string tensions); the heard beat follows the coupled bridge / board system. The
+  picker hint says so.
 
 ## Control cards and the Add-control wizard (dev-midiux) {#control-cards-dev-midiux}
 
