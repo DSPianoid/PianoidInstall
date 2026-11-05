@@ -389,6 +389,13 @@ symptom → procedure, gotchas, the assistant's own setup, the doc / script disa
 The prompt routes such questions to `ops_status` then `read_docs` on the primer; the router sends them to Opus
 (category `operations procedure`). Tests: `test/opsStatus.test.js` (real git fixtures), `test/routing-corpus.json`.
 
+**UI questions (dev-asstlayout).** "Where is X / how do I … in the app" goes to `read_docs` on the user guide
+(`guides/USER_GUIDE.md`, RU `guides/USER_GUIDE_RU.md`; the prompt lists the anchors). Those pages are pymdownx.snippets
+wrappers (`--8<-- "PianoidTunner/src/help/content/en.md"`) around the in-app help, so the index expands such an include
+(`mcp/docsIndex.js` `pageLines`, base = the folder that holds `docs/`, like mkdocs.yml `base_path: ["."]`; a missing
+file stays a plain line). The help text is the single source: a UI change updates `src/help/content/{en,ru}.md` and
+the assistant reads it on its next start (the index is built once per service). Test: `test/userGuide.test.js`.
+
 ## Standalone MCP (Claude Code / the orchestrator)
 
 `.mcp.json` entry (Claude Code's own permission prompt confirms each tool):

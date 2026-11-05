@@ -369,7 +369,7 @@ channels. Before dev-168c it sliced the interleaved buffer as if it were mono, i
 channels on a 4-channel preset.
 
 **Attack equalization (`attack_equalizer.py`, dev-89f7).** `calibrate_attack(reference_pitch, pitches, velocity)` —
-the Virtual Piano Calibrate button — equalizes the A-weighted 300 ms ATTACK level (energy sum over the unmuted
+the side bar's Tune (calibrate) button (the Virtual Piano Calibrate button until dev-uispace) — equalizes the A-weighted 300 ms ATTACK level (energy sum over the unmuted
 channels) of every key to the reference by `hammer_mass`, iterating to a tolerance; it renders through
 `SynthesisTuner.render_note` (the offline render primitive `_synthesis_only_measure` also uses) and runs inside the
 same pass lifecycle as the synthesis / acoustic passes (`_calibration_pass`: running flag + cancel ref, one
