@@ -1916,8 +1916,17 @@ a note-on engages the bow with MIDI velocity as bow speed, the note-off lifts it
 **A preset parameter (dev-bow3).** The preset stores the bowed keys, `model_parameters.excitation_mode =
 {"bow": [pitch, ...]}`; absent = every key hammer, so old presets load unchanged. It is saved, loaded and
 switched with the library; every load / reconstruct / switch pushes it to the engine (after the thump push,
-`excitation_modes.push`). The route reads the preset, not the engine. The frontend `useExcitationModes` hook
-hydrates from it on mount, on `presetVersion` bumps and on an I2 resync.
+`excitation_modes.push`). The route reads the preset, not the engine. The frontend Bow store (`useBowParams`, dev-bowpanel) hydrates
+from the generic `GET /get_parameter/excitation_mode/all` (below) on mount, on `presetVersion` bumps and on an
+I2 resync.
+
+**An ordinary per-pitch parameter (dev-bowpanel), kind `excitation_mode`:** `GET
+/get_parameter/excitation_mode/<key_no>` -> `{"<pitch>": 0|1}`; `set_parameter` (REST `POST
+/set_parameter/excitation_mode/<key_no>` or WS) with `{"<pitch>": 0|1, ...}` (each key its own value, one
+edit, e.g. a painted workbench range) or `{"mode": 0|1|"hammer"|"bow"}` (every key of `key_no`); a pitch
+outside the preset -> `416`, a mode outside 0..1 -> `400 parameter_out_of_range` (rule `excitation_mode.modes`).
+Same owner and machinery as below (`excitation_modes.apply_values` -> `commit_modes`); the storage is unchanged,
+so no preset migration. The Tunner's Bow pane / workbench use this route.
 
 `POST /set_excitation_mode {pitch, mode: "hammer"|"bow"|0|1}` or `{pitches: [n, ...] | "from<a>to<b>" |
 "all", mode}` is ONE edit through `edit_commit` (owner `excitation_modes.py`): `409 preset_read_only` on an
