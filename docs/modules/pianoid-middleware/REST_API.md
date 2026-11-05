@@ -1522,6 +1522,11 @@ Response `400` — a malformed `feedin_mask` / `feedback_mask` write (dev-fcef, 
 Checked before anything is written; it rejects exactly the writes StringMap used to fail with a 416 +
 Python traceback (measured in the 2026-10-16 assistant session 2c86b530: rows of 3 / 198 values for 196
 modes, a range with one row only). WS `set_parameter` returns the same message in its `error`.
+A caller that holds only some rows addresses exactly those (`from<lo>to<hi>`), not `all`: `all` is every key
+pitch of the preset, which on a thump preset includes the thump pitch (20). The Tunner deck panes hold keys 21–108
+and post their whole-matrix writes to `from21to108` (bug a392d5de, dev-feedinmask; measured on
+`Tuning18-10-26ver1_thump_live`: 21–108 rows to `feedin_mask/all` → 400 `pitch 20: no row`, to
+`feedin_mask/from21to108` → 200).
 ```json
 {"error": "invalid_mask_row", "parameter": "feedin_mask", "expected_length": 196, "problem_count": 2,
  "problems": [{"pitch": 21, "problem": "3 values"}, {"pitch": 22, "problem": "no row"}],
