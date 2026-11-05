@@ -530,6 +530,7 @@ Snapshot taken 2026-04-19. These files are currently above the C4 thresholds and
 | File | LOC |
 |------|-----|
 | `PianoidCore/pianoid_middleware/modal_adapter/routes.py` | 880 |
+| `PianoidCore/pianoid_middleware/controller_overlay.py` | 505 | (dev-midiux, 2026-11-05: crossed 500 with the control-position broadcast + the hammer / bow apply branch; the per-family appliers already live in `controller_bow.py` / `controller_excitation.py` - the next family goes to its own module too) |
 | `PianoidCore/pianoid_cuda/AddArraysWithCUDA.cpp` | 953 | (dev-19be: +28, getAudioHealth dict binding + 2 audio-recovery defs; approaching RED) |
 | `PianoidCore/pianoid_middleware/modal_adapter/preset_injector.py` | 827 |
 | `PianoidCore/pianoid_middleware/modal_adapter/collection_engine.py` | 920 | (dev-4284, 2026-10-11: 1014 → 920, back to YELLOW — pause/resume HTTP removed, per-exciter loop added; split candidate stays the facade rework) |
