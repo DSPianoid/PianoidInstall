@@ -83,7 +83,7 @@ handoff, and the GIL is held through it (review §2.2: no `gil_scoped_release` o
 
 Raw data: the harness `RESULT` JSON of this run (scratchpad, not committed). Re-run with the harness above.
 
-## F2b + F2c (dev-swapwait, HELD)
+## F2b + F2c (dev-swapwait)
 
 Core `feature/dev-swapwait` e835d6a: a condition-variable swap handoff (F2b) and the GIL released on
 `waitForParameterUpdate` / `updateMultiStringParameter_NEW` (F2c). HEAVY `--both` build, the same harness, N = 3,
@@ -109,6 +109,9 @@ about 20 ms). The after-run 1 outlier (20.6 ms) is a single write among 30; its 
 **Verdict.** The GIL criterion (<= 5 ms) is met: 1.7-1.9 ms p99 during the stream. A controller write now takes
 about 1.8 ms, so one move is about 22 ms to sound, including the ~20 ms engine floor. With the swap under 1 ms, the
 overlay's `TICK_S` could drop from 20 ms to 10 ms; this branch does not change it. The edit path gains too
-(15 -> 10 ms). Held for the user's approval: not merged, and the shared venv was rebuilt back to the merged dev
-build afterwards.
+(15 -> 10 ms).
+
+**Merged into Core dev 2026-11-05** (06c35c9, on top of gpufit + bowsoft). Re-run on the merged build, N = 1:
+swap wait p50 0.37 / p99 0.54 ms, overlay single write p50 1.72 ms, stream upload p50 1.55 / p99 2.36 ms,
+GIL probe during the M2 stream p99 1.75 ms, M1 single p50 9.4 ms, M1 stream 94.8 Hz. The gain holds.
 
