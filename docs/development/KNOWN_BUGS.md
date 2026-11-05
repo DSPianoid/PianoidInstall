@@ -6,6 +6,59 @@ Bugs we know about but haven't fixed. Each entry captures the symptom, the inves
 
 ---
 
+## Feedin pane mode-mask edits rejected on presets with a thump string
+
+- **Status:** OPEN
+- **First reported:** 2026-11-05 (user, via the assistant)
+- **Last confirmed:** 2026-11-05
+- **Severity:** Medium. Mode mute/unmute from the Feedin pane fails on these presets; nothing is written.
+- **Component:** Tunner Feedin pane mask write / backend `feedin_mask` validation
+- **Bug report id:** `a392d5def5b0f274`
+
+### Symptom
+
+On a preset with a keybed thump string on pitch 20, toggling a mode mute/unmute in the Feedin pane fails with:
+
+> invalid_mask_row: feedin_mask: every pitch of the range needs a row of exactly 196 0/1 values (num_modes); pitch 20: no row. Nothing was written.
+
+The cell reverts to muted and nothing is written.
+
+### Reproduction
+
+1. Load a preset with a keybed thump string enabled on pitch 20. The reporting preset, `PlywoodNew_224s_verified.json`, exists only on the reporting machine, so use another thump preset or enable a thump.
+2. Mute a mode on all keys (for example via `POST /mute/modes`).
+3. Click to unmute that mode in the Feedin pane.
+4. Observe the `pitch 20: no row` error and the cell reverting to muted.
+
+### Expected
+
+The write succeeds, either by including a row for thump pitch 20 or by addressing only pitches 21-108.
+
+### Evidence
+
+- `param.set feedin_mask` with `key_no` from 20 to 21 and a row only for 21 returns 400 `invalid_mask_row` (pitch 20: no row); nothing is written.
+- `param.get feedin_mask` for key 20 returns a valid 196-value row, so the thump pitch does have a mask row.
+- `POST /mute/modes` works and reports pitches `[20, 108]`.
+- The undo history shows no frontend `feedin_mask` edits for mode 4 despite the user's unmute attempts.
+
+### Suspected cause (INFERRED, not confirmed)
+
+Inferred from the error text; the pane's payload was not observed. The pane appears to address pitches 20-108 but send rows only for 21-108. Capture the actual request first.
+
+### Workaround
+
+Mute and unmute through `POST /mute/modes` instead of the Feedin pane.
+
+### Versions seen
+
+Tunner `dev@721015b`, Basic `dev@783de8f`, Core `dev@f80042f`, Install `master@dc007d77`. Tunner and Basic had local changes.
+
+### Upstream check
+
+At filing time, no commit on `origin/dev` that was missing from the reporting machine's local `dev` (Tunner `721015b`, Core `f80042f`) touched `feedin_mask` or `invalid_mask_row`. No upstream fix was found.
+
+---
+
 ## Heatmap vertical-border smoothing not visible on production builds
 
 - **Status:** OPEN
