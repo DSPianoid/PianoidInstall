@@ -171,6 +171,7 @@ cause a re-render:
 | `selection` | `PianoidTuner` effect | `pitch`, `pitches`, `mode`, `modes` |
 | `settings_change` | `PianoidTuner` effect | `uiPreferences` |
 | `layout_change` | `PianoidTuner` effect | `activeMosaicConfig` |
+| `digit_select` | `NumInput/useNumInputDigitSelect` (dev-wheelfix) | `active` (entered / left), `field` (`[data-param-field]` key or null) |
 | `system_signal` | `systemSignals.recordSystemSignal` (via the axios interceptor, /health watch, `useSocketIO`, `window.onerror`/`unhandledrejection`) | `kind`, `detail` |
 
 Every entry additionally carries `t` (ms since app load) and `type`.
