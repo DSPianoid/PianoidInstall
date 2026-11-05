@@ -549,7 +549,7 @@ mappings; they are edited only in the MIDI panel.
 | bow targets + velocity | `controller_bow.py` | per-pitch bow fields through dev-bow3 `bow_config.set_effective`; the velocity mapping compiled to `bow_config.set_velocity_map` |
 | engine writes | `parameter_manager.py` (`reupload_string_param`, `reupload_modes`, compose hooks), `runtime_params.apply_controller_volume`, `bow_config` | ParameterManager stays the only GPU writer of the preset buffers |
 | REST + stream | `controller_routes.py` (nested in the MIDI input blueprint) | `/midi/controls*`, `/midi/mappings*` ([REST_API](REST_API.md#midi-controllers-dev-midictl)); assistant `midi.controls`, `midi.control_add` / `_set` / `_forget` / `_learn`, `midi.mappings`, `midi.mapping_add` / `_set` / `_unassign` / `_reset` / `_bake` |
-| UI | Tunner `MidiControllersSection.jsx` (Controls + Mappings), `MidiControlsList.jsx`, `MidiMappingBadge.jsx` (+ `MidiMappingsProvider` at the root), `useMidiControllers.js`, `utils/midiControllers.js` | mirrors the backend, no browser-local truth |
+| UI | Tunner `MidiControls/*` (cards + Add-control wizard, [below](#control-cards-dev-midiux)); under Advanced `MidiControllersSection.jsx` (Controls + Mappings), `MidiControlsList.jsx`; `MidiMappingBadge.jsx` (+ `MidiMappingsProvider` at the root), `useMidiControllers.js`, `utils/midiControllers.js` | mirrors the backend, no browser-local truth |
 
 **Controls.**
 - Position `t` = the CC value / 127, or the 14-bit bend / 16383.
@@ -648,6 +648,75 @@ leaves about 10 ms per update after the ~20 ms engine floor. Measurement: harnes
     stored bow values unchanged; a second velocity mapping -> 400; the velocity mapping re-targeted to force ->
     the engine map (`GET /get_parameter/bow_settings/all` velocity.field) speed -> force.
   - The MIDI badge was verified by Jest only (no live UI run).
+## Control cards and the Add-control wizard (dev-midiux) {#control-cards-dev-midiux}
+
+**User feedback (2026-11-05):** "I don't understand how the assignment and mapping works. Interface is not
+intuitive." Three layers were on three screens, glued by a CC number the user managed by hand: the Pianoid
+controller's pedal assignments (device EEPROM), the machine's controls, and the preset's mappings. Now the MIDI
+panel opens on **one card per physical control**, and one wizard goes from "touch it" to a working control. The
+three tables stay as they were (one owner each); only the flow and the words changed. The old screens are under
+**Advanced** (collapsed, unmounted).
+
+| Card | What it shows |
+|---|---|
+| a control | where it is (device, or "Pianoid · socket X10"), one line per mapping of THIS preset in words ("→ String tension · multiply ×0.94 … ×1.06 · all keys", "toggle hammer ↔ bow"), the live value, enable / edit / reset / bake / remove, the position bar, "+ parameter", Calibrate for a socket; it lights up when the control moves |
+| a group (`group` + `axis`) | a joystick: its parts (X / Y / button), each with its bar and mappings |
+| dashed | a control of this machine that this preset does not map ("Map it") |
+| amber | the preset names a control this machine lacks ("Pick a control": the new control takes that name) |
+| Sustain pedal (built-in) | the machine's sustain map (the socket that sends CC 64, any device's CC 64, devices with their own `port_sustain` map), the pedal state, Calibrate |
+| Key velocity (built-in) | the velocity mapping (bowed keys) |
+| Unused sockets (collapsed) | Pianoid sockets in use on the device that are no control here (soft, sostenuto: "the engine has no … action yet") |
+
+**Wizard.** 1 Touch it → 2 Set it up → 3 Parameter → 4 Range.
+
+| Step | What happens | Owner / route |
+|---|---|---|
+| 1 | a detect session lists what moved since the wizard opened, the widest move first; a chatty source that never moved is "Ignored · noise"; two axes that moved on one port are offered as one joystick; a control that already has a card offers "Add a parameter to it / Edit it / Keep listening" | `controller_detect.DetectSession` (fed by `ControlTable.match`, never consumes a message), `/midi/controls/detect` |
+| 2 | a name (unique on this machine) and smooth vs on / off (suggested from the values seen). A **Pianoid socket** also calibrates inline (released / half / pressed with the live raw stream) and, on Next, is **provisioned**: SET_CAL, then SET_MSG = the type + a CC on channel 1 | `controller_provision`, `/controller/inputs/<i>/provision` |
+| 3 | grouped, searchable parameters (group + one-line hint from `controller_targets`), chips = the controls that already drive one; "Sustain (this machine, all presets)" for a new pedal | |
+| 4 | the mode in words (multiply the preset's values = scale, set one value = drive; a mode the target lacks is greyed with the reason), a two-handle range with the control's live position and the value now, the response, the keys, "How it reacts": follow the control / **toggle on each press** | |
+
+Finish creates the control (with `socket` / `group` + `axis`), then the mapping, and after a socket setup saves the
+device EEPROM. Cancel puts a provisioned socket back (`/restore`). A read-only original preset gets a banner with
+"Make a working copy" (the list and the wizard; the wizard keeps its place); steps 1-2, Calibrate and Sustain are
+machine data and need no copy.
+
+**Rules.**
+- **Socket detection.** The device's raw stream covers one input at a time, so the session polls LIST (all 8
+  inputs' raw ADC in one request) every `SOCKET_POLL_S` = 0.25 s while the wizard listens, and scales the raw to
+  0-127. A socket switched off, or sharing its CC with another, is still found. A CC from the Pianoid port is
+  matched to the socket whose assignment sends it and folded into that socket's candidate. The reader runs only
+  while the device is listed (`present()`, the shared enumerator: no rtmidi instance per poll). **LIST cost on the
+  real link: not measured yet** (needs a read-only check on the hardware; the 4 Hz rate is a default).
+- **The CC a socket gets.** Its own CC if still free (no other switched-on socket and no control on the Pianoid
+  port or on any port use it, and not 64 / 66 / 67), else the first free of 20-31, 102-119 (undefined in MIDI 1.0).
+  Sustain = 64 on purpose (the global map's pedal).
+- **Sustain for a third-party pedal** writes its own map into `port_sustain` (its CC + channel); the engine pedal
+  stays the deepest press of all sources ([Listen to All](#listen-to-all-dev-midiall)). CC 64 itself never reaches
+  the detect session (it is not a controller), so a standard CC 64 pedal needs no setup.
+- **Toggle** (`trigger: toggle`, any target): each press flips the value between `lo` and `hi`, the first press
+  -> `hi`; neutral before the first press and after a Reset or any mapping edit / preset switch.
+- **Hammer / bow** (`excitation.mode`, `controller_excitation`): the latest-moved drive that covers a key sets its
+  engine mode (>= 0.5 = bow); keys nothing drives keep the preset's stored mode; `excitation_modes.push` composes
+  through the overlay, so a stored edit while a button holds keys on the bow keeps them there; Reset / remove /
+  disable give the stored modes back. Not bakeable.
+- **Detect sessions carry an id**: a stop names the session it ends, so a quick remount (React StrictMode, a
+  reopen) whose new session started first keeps it; a poll that finds the session ended starts a new one.
+- The overlay broadcasts every control position in `controllers_changed.controls` (an unmapped control lights up
+  its card too); one emitter as before.
+
+**Verification.**
+- Core: `tests/unit/test_controller_detect.py` (ranking, noise, switch kind, bend scale, joystick, idle stop,
+  sessions, REST, the position broadcast) and `tests/unit/test_controller_provision.py` (allocator, provision order
+  SET_CAL -> SET_MSG, no save, restore, REST, socket candidates from LIST with the CC folded in, reader errors,
+  control fields, toggle press / release / reset, hammer / bow on a key range + back to stored, stored push
+  composed), on the fake device of `test_pianoid_controller.py`.
+- Tunner: `components/MidiControls/__tests__/ControlCards{,Phase2}.test.jsx`, `utils/__tests__/midiCards.test.js`.
+- UI on an isolated GPU-free stack: `docs/development/diagnostics/dev-midiux-mock-backend.py` (the real controller
+  routes + the fake device on :5090) with the worktree CRA. Verified end to end: socket X10 found from its raw,
+  calibrated (reversed), provisioned (CC 20, piecewise), mapped to Hammer / bow with toggle, EEPROM saved once,
+  two presses -> 1 then 0. Not tested on the real controller.
+
 ## MIDI player (dev-6f0c)
 
 A backend player for MIDI files with transport, seek, speed, loop, transpose, velocity scale and track / channel mutes. Its UI is the **MIDI Player** mosaic pane ([Tunner OVERVIEW](../pianoid-tunner/OVERVIEW.md)); routes are `/midi_player/*` ([REST_API.md](REST_API.md)).

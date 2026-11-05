@@ -319,6 +319,35 @@
             "type": "string",
             "description": "the control's name (unique on this rig; mappings name it; not 'velocity')"
           },
+          "socket": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 7,
+            "description": "the Pianoid controller input the control is plugged into (0-7 = X14, X13, X12, X9, X10, X11, X15, X16), or null"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one physical device with several controls (e.g. Joystick), or null"
+          },
+          "axis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "x",
+              "y",
+              "button",
+              null
+            ],
+            "description": "the control's part of its group"
+          },
           "source": {
             "type": "object",
             "additionalProperties": false,
@@ -388,6 +417,35 @@
           "name": {
             "type": "string",
             "description": "the control's name (unique on this rig; mappings name it; not 'velocity')"
+          },
+          "socket": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 7,
+            "description": "the Pianoid controller input the control is plugged into (0-7 = X14, X13, X12, X9, X10, X11, X15, X16), or null"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one physical device with several controls (e.g. Joystick), or null"
+          },
+          "axis": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "x",
+              "y",
+              "button",
+              null
+            ],
+            "description": "the control's part of its group"
           },
           "source": {
             "type": "object",
@@ -553,7 +611,7 @@
               "domain",
               "param"
             ],
-            "description": "The parameter: string.tension / string.gamma / string.dispersion_damping / string.jung / mode.frequency / mode.decrement / mode.mass_inv (scale), runtime.volume (drive), bow.speed / bow.force / bow.position / bow.tilt (per pitch: drive = one value for every addressed key, or scale). keys = [first, last] pitch (string, bow) or mode range, null = all (across the board)",
+            "description": "The parameter: string.tension / string.gamma / string.dispersion_damping / string.jung / mode.frequency / mode.decrement / mode.mass_inv (scale), runtime.volume (drive), bow.speed / bow.force / bow.position / bow.tilt (per pitch: drive = one value for every addressed key, or scale), excitation.mode (per pitch, drive: >= 0.5 = bow, engine only; a button toggles it). keys = [first, last] pitch (string, bow) or mode range, null = all (across the board)",
             "properties": {
               "domain": {
                 "type": "string",
@@ -561,7 +619,8 @@
                   "string",
                   "mode",
                   "runtime",
-                  "bow"
+                  "bow",
+                  "excitation"
                 ]
               },
               "param": {
@@ -616,6 +675,14 @@
             "minimum": 0,
             "maximum": 2000,
             "description": "glide time toward the control value (default 30)"
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "continuous",
+              "toggle"
+            ],
+            "description": "continuous (default) = follows the control; toggle = each press (position crossing 0.5 upwards) flips the value between lo and hi, first press -> hi (a button / footswitch); not for the note velocity"
           }
         },
         "required": [
@@ -668,7 +735,7 @@
               "domain",
               "param"
             ],
-            "description": "The parameter: string.tension / string.gamma / string.dispersion_damping / string.jung / mode.frequency / mode.decrement / mode.mass_inv (scale), runtime.volume (drive), bow.speed / bow.force / bow.position / bow.tilt (per pitch: drive = one value for every addressed key, or scale). keys = [first, last] pitch (string, bow) or mode range, null = all (across the board)",
+            "description": "The parameter: string.tension / string.gamma / string.dispersion_damping / string.jung / mode.frequency / mode.decrement / mode.mass_inv (scale), runtime.volume (drive), bow.speed / bow.force / bow.position / bow.tilt (per pitch: drive = one value for every addressed key, or scale), excitation.mode (per pitch, drive: >= 0.5 = bow, engine only; a button toggles it). keys = [first, last] pitch (string, bow) or mode range, null = all (across the board)",
             "properties": {
               "domain": {
                 "type": "string",
@@ -676,7 +743,8 @@
                   "string",
                   "mode",
                   "runtime",
-                  "bow"
+                  "bow",
+                  "excitation"
                 ]
               },
               "param": {
@@ -731,6 +799,14 @@
             "minimum": 0,
             "maximum": 2000,
             "description": "glide time toward the control value (default 30)"
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "continuous",
+              "toggle"
+            ],
+            "description": "continuous (default) = follows the control; toggle = each press (position crossing 0.5 upwards) flips the value between lo and hi, first press -> hi (a button / footswitch); not for the note velocity"
           }
         },
         "required": [

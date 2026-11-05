@@ -2639,7 +2639,9 @@ is loaded.
 | `POST /midi/controls/<id>` | any subset (`source` merges) | the GET body | `midi.control_set` | session |
 | `DELETE /midi/controls/<id>` | — | the GET body; mappings naming it become unbound | `midi.control_forget` | session |
 | `POST /midi/controls/learn` | `{"id": id \| "new" \| null}` | the GET body | `midi.control_learn` | session |
-| `GET /midi/mappings` | — | `{"mappings": [...], "controls", "learn", "defaults", "preset_loaded", "targets": [{domain, param, kind, modes, range, cfl, label, keyed, velocity}]}` | `midi.mappings` | read_only |
+| `POST /midi/controls/detect` | `{"on": bool, "session"?: id}` | the detect snapshot (below) + `session`; a stop naming an older session is ignored | — (MIDI panel wizard) | session (machine) |
+| `GET /midi/controls/detect` | — | `{"active", "session", "candidates": [...], "joysticks": [{port, axes: [source, source]}], "sockets": bool, "socket_error"}`; the poll keeps the session alive (30 s idle stop) | — | read_only |
+| `GET /midi/mappings` | — | `{"mappings": [...], "controls", "learn", "defaults", "preset_loaded", "targets": [{domain, param, kind, modes, range, cfl, label, keyed, velocity, group, hint}]}` | `midi.mappings` | read_only |
 | `POST /midi/mappings` | a mapping; only `target` is required | 201, the GET body + `id` | `midi.mapping_add` | param (`controller_mappings`) |
 | `POST /midi/mappings/<id>` | any subset of the mapping fields | the GET body | `midi.mapping_set` | param |
 | `DELETE /midi/mappings/<id>` | — | the GET body; the parameter returns to its stored value | `midi.mapping_unassign` | param |
@@ -2652,14 +2654,24 @@ A mapping (GET shape):
  "source": {"type": "cc", "number": 11, "channel": 1, "port": "Pianoid"},
  "target": {"domain": "string", "param": "tension", "keys": null},
  "mode": "scale", "lo": 0.94, "hi": 1.06, "curve": "linear", "power": 1.0, "invert": false, "smooth_ms": 30,
- "live": {"raw": 127, "t": 1.0, "value": 1.06}}
+ "trigger": "continuous", "live": {"raw": 127, "t": 1.0, "value": 1.06}}
 ```
+- `trigger` (dev-midiux): `continuous` (default) or `toggle` = each press (the position crossing 0.5 upwards, after
+  `invert`) flips the value between `lo` and `hi`, first press -> `hi`; neutral before the first press and after a
+  Reset; not for the note velocity.
+- Target `excitation.mode` (dev-midiux): hammer (`< 0.5`) / bow (`>= 0.5`) per key, drive only, engine only (the
+  preset's stored modes come back when nothing drives a key).
 - `control`: a control name, `velocity` (bow.speed / bow.force only, drive, curve linear or power, at most one
   enabled), or null (not bound).
 - `source`: resolved from the rig's controls; `{"type": "unbound"}` = no such control here, `{"type": "velocity"}`
   for the note velocity.
 - `target.keys` is `[first, last]` (pitches for `string` / `bow`, modes for `mode`) or null = every key.
 - `curve` is `linear`, `exp` (needs lo, hi > 0), `smooth` or `power`. `smooth_ms` is 0-2000.
+- A control (dev-midiux) may also carry `socket` (the Pianoid controller input 0-7 it is plugged into), `group`
+  + `axis` (`x` / `y` / `button`: one device with several controls, e.g. a joystick).
+- A detect candidate: `{"source": {type: cc | pitch_bend | socket, number, channel, port}, "span", "distinct",
+  "count", "first", "last", "moved", "noise", "kind": switch | continuous, "control": name | null, "socket"?:
+  {index, connector, type, message, number, channel}}` (values on the 0-127 scale; a socket's raw ADC x 127/1023).
 - A mapping edit on a read-only original returns 409 (`preset_read_only`).
 - Errors: 400 `{"error": "BadRequest", "message": ...}` names the bad field; 404 `NotFound` for an unknown id.
 
@@ -2667,7 +2679,8 @@ A mapping (GET shape):
 
 (dev-midictl) Two shapes:
 - the `GET /midi/mappings` state (without `targets`) after an edit or a completed MIDI learn;
-- `{"live": {"<mapping id>": {"raw", "t", "value", "applied"}}}` while controls move, at most every 100 ms.
+- `{"live": {"<mapping id>": {"raw", "t", "value", "applied"}}, "controls": {"<control id>": {"raw", "t", "seq"}}}`
+  while controls move, at most every 100 ms (`controls`: every control position, mapped or not; dev-midiux).
   `applied` = what the engine has now, after smoothing and the clamp.
 
 ### Pianoid controller — `/controller/*` (dev-pctl)
@@ -2711,6 +2724,14 @@ One input (the `inputs` record without `raw` / `value`).
 ### `GET /controller/inputs/<i>/raw`
 
 The latest stream sample `{"input", "raw", "value", "pressed", "active", "seen"}` (`value` = the output with the current calibration). `404 NoSample` when none arrived in the last 0.5 s.
+
+### `POST /controller/inputs/<i>/provision` (dev-midiux)
+
+`{"kind": "switch"|"continuous", "number"?: CC, "calibration"?: {curve, min, mid, max}}` → `{"input", "previous", "number"}`. The Add-control wizard's socket setup (`controller_provision.py`): SET_CAL (when given), then SET_MSG = the type, a CC on channel 1, polarity `auto` (the calibration order is the direction). The CC: `number` as given (64 = make it the sustain pedal), else the socket's own CC if no other switched-on socket and no control of the machine on the Pianoid port (or any port) uses it and it is not 64 / 66 / 67, else the first free of 20-31, 102-119. RAM only: the wizard's Finish calls `/controller/save`. `previous` = the input before, for `/restore`. No registry command (MIDI panel only).
+
+### `POST /controller/inputs/<i>/restore` (dev-midiux)
+
+`{"previous": <the record /provision returned for this input>}` → the input. The wizard's Cancel: calibration, then message, back as they were (RAM; nothing was saved). 400 when `previous` is not this input's.
 
 ### `POST /controller/link`
 
