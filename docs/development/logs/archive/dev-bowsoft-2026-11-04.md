@@ -18,3 +18,13 @@
   soft3 0.581-0.584; widest (32 points) 0.646-0.657 (49 % of budget). verdict=pass
 - Renders (dev-bowsoft-render.py, silent offline): see SYNTHESIS_ENGINE "dev-bowsoft". Bowed renders are not
   sample-deterministic run to run (bow3-setting old vs new build compared by level / metrics: within scatter).
+
+## Merge + soft3 default — 2026-11-05 (agent mergesoft; user approved "merge it and make this the default")
+- soft3 made the default: bow_config DEFAULT_MAX_WIDTH 0.035 -> 0.105, DEFAULT_EDGE_TAPER 1 -> 3, mirrored in BowController.h (Core 7b9452d); docs SYNTHESIS_ENGINE / REST_API (Install 5ca1ff5). No preset in pianoid_middleware/presets stores model_parameters.bow, so every preset gets the new default; none edited.
+- Merged --no-ff onto post-gpufit dev: Core dev f80042f, Install master 484a90d. No conflicts (AddArraysWithCUDA.cpp auto-merged).
+- HEAVY --both: ptxas addKernel release 124-126 / debug 121-124 registers, 0 spill, smem 20332 B; setBowEdgeTaper in both .pyd; L1 both OK.
+- Silent backend :5012: GET /get_parameter/bow_settings/all -> max_width 0.105, edge_taper 3.0 (defaults 0.105 / 3.0), engine_supported.
+- Offline bowed C2 (BaselinePreset1, default tilt 0.3, velocity 90, no setting touched): engine status width 0.105 / taper 3, 22 contact points, noise between partials -26.1 dB, centroid 1083 Hz; explicit soft3 -25.9 dB / 1082 Hz (same); explicit bow3 7 points, -17.0 dB / 1123 Hz.
+- Note: the soft3 listening renders used tilt 0.15 on C2-C4; the per-pitch default tilt (0.3 up to G3) is unchanged.
+- Worktrees wt-bowsoft-{core,install} + isobuild removed. NOT pushed.
+[STEP-10A-PHASE-2] 2026-11-05
