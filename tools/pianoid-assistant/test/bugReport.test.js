@@ -1,4 +1,4 @@
-// v2 P6 minimal (dev-947d): bug.report -> the native collector POST /bug_report (never GitHub).
+// v2 P6 minimal (dev-947d): bug.report -> the native collector POST /bug_report (GitHub is a separate command, dev-bugsync).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildReport, fileReport, preview, validateDraft, BUG_CMD } from '../service/bugReport.js';
@@ -47,7 +47,8 @@ test('the host attaches context, versions, the transcript excerpt and the activi
   assert.deepEqual(r.report.steps, DRAFT.steps);
   const p = preview(r);
   assert.equal(p.title, DRAFT.title);
-  assert.match(p.destination, /never GitHub/);
+  assert.match(p.destination, /local collector/);
+  assert.match(p.destination, /GitHub only by bug\.file_github/);
   assert.deepEqual(p.attached, ['pianoid_context', 'versions', 'transcript (last 12 messages)', 'activity (last 30 entries)']);
 });
 

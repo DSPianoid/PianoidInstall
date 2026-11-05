@@ -80,7 +80,7 @@ test('defaults: reads run, the categories as before, every command rule and vari
   }
   assert.equal(dec('launcher.backend.stop').action, 'deny');                                 // excluded: never a rule
   const risky = catalogue(RULE_COMMANDS).filter((r) => r.dangerous).map((r) => r.id).sort();
-  assert.deepEqual(risky, ['audio.exciters_config', 'env.set', 'launcher.assistant.start', 'launcher.backend.start', 'launcher.modal.start',
+  assert.deepEqual(risky, ['audio.exciters_config', 'bug.file_github', 'bug.sync_github', 'env.set', 'launcher.assistant.start', 'launcher.backend.start', 'launcher.modal.start',
     'preset.create.overwrite', 'preset.promote', 'preset.save.not_own', 'preset.unload', 'rig.drive.any_level']);
   for (const id of risky) {
     const d = ruleDef(id, RULE_COMMANDS);
@@ -94,6 +94,12 @@ test('defaults: reads run, the categories as before, every command rule and vari
   // the obuf1 bug triage commands are covered generically: bug.list (view) runs, bug.set_status = rule bug_local
   assert.equal(decide({ command: 'bug.list', tier: 'read', family: 'bug', category: 'view' }).action, 'allow');
   assert.equal(decide({ command: 'bug.set_status', tier: 'act', family: 'bug', category: 'bug_local' }).rule.id, 'bug_local');
+  // dev-bugsync: sending to GitHub = its own risky rule (data leaves the machine); the config + preview reads run
+  for (const n of ['bug.file_github', 'bug.sync_github']) {
+    const g = dec(n);
+    assert.deepEqual([g.action, g.rule.id, g.rule.dangerous, ruleDef(n, RULE_COMMANDS).taint], ['ask', n, true, true], n);
+  }
+  for (const n of ['bug.github_config', 'bug.github_preview']) assert.equal(dec(n).action, 'allow', n);
 });
 
 test('Always allow params / runtime run free under the gates: ok -> allow + watch; rejected value -> deny; no verdict -> ask', () => {

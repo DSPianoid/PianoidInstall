@@ -1,8 +1,9 @@
 /**
  * The assistant's bug filing (v2 proposal §7, P6 minimal; dev-947d). Native only: the report goes to
  * the backend's collector POST /bug_report, the same store as the 🐞 / automatic reports
- * (PianoidCore/logs/reports/bugreport-<createdAt>-assistant-<kind>-<reportId>.json). Never GitHub
- * (user decision 2026-10-17).
+ * (PianoidCore/logs/reports/bugreport-<createdAt>-assistant-<kind>-<reportId>.json). Sending a stored report to
+ * GitHub is a separate step with its own confirm: the registry command bug.file_github (dev-bugsync, user decision
+ * 2026-11-05; the backend's bug_github.py), or the machine's auto_send = all.
  *
  * The model writes the draft (title, classification, description, steps, expected / actual, evidence);
  * this module, not the model, attaches the context: the latest pianoid_context, the versions, a
@@ -87,7 +88,7 @@ export function preview(report) {
       `pianoid_context${report.pianoid_context ? '' : ' (none)'}`, 'versions',
       `transcript (last ${report.transcript_excerpt.length} messages)`, `activity (last ${report.activity.length} entries)`,
     ],
-    destination: 'local collector POST /bug_report (PianoidCore/logs/reports); never GitHub',
+    destination: 'local collector POST /bug_report (PianoidCore/logs/reports); GitHub only by bug.file_github (its own confirm) or the machine auto_send = all',
   };
 }
 

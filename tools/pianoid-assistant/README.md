@@ -357,8 +357,8 @@ ports the fit library / auto_tuner / param_sound_harness algorithms. `PIANOID_SA
 
 `bug_report` on the in-process `assistant` server (`mcp__assistant__bug_report`, registry-style name `bug.report`,
 category **`bug_local`**, Ask by default). Native only: `POST /bug_report` on the backend, the same store as the 🐞 /
-automatic reports (`PianoidCore/logs/reports/bugreport-<createdAt>-assistant-<kind>-<reportId>.json`); never GitHub
-(user decision 2026-10-17). The model gives the draft (`title`, `classification` app_bug | environment | feature_request
+automatic reports (`PianoidCore/logs/reports/bugreport-<createdAt>-assistant-<kind>-<reportId>.json`); sending it to
+GitHub is a separate command (below). The model gives the draft (`title`, `classification` app_bug | environment | feature_request
 — the user's own settings are not a bug —, optional `severity` critical | high | medium | low, `description`,
 `component`, `steps`, `expected`, `actual`, `evidence`); `service/bugReport.js`
 (not the model) attaches the latest `pianoid_context`, `versions` (repos, build, GPU, assistant model), the last 12
@@ -372,6 +372,22 @@ asking; filters status / kind / source / severity) and `bug.set_status` (`POST /
 severity, re-class to feature_request). The prompt tells the model to read `bug.list` before filing so it does not
 re-file an open or fixed report. Fields + routes: REST_API.md "Bug reports". Not built yet
 (v2 §7): the service-side triggers, de-duplication, `ui.bug_report.collect`.
+
+**GitHub (dev-bugsync, user request 2026-11-05: "the assistant from another system can file and you can fix").** Four
+registry commands over the backend's `bug_github.py` ([REST_API.md "Bug reports -> GitHub issues"](../../docs/modules/pianoid-middleware/REST_API.md#bug-reports-github-issues)):
+
+| Command | Route | Rule |
+|---|---|---|
+| `bug.github_config` | `GET /bug_reports/github` | `view` (runs): repo, configured, token source, auto_send, machine label; never the token |
+| `bug.github_preview` | `GET /bug_reports/{report_id}/github` | `view` (runs): the exact issue (title, labels, body), nothing sent |
+| `bug.file_github` | `POST /bug_reports/{report_id}/github` | its own risky rule (the name matches `DANGEROUS_RE` `github`: "sends data outside Pianoid"), Ask, taint |
+| `bug.sync_github` | `POST /bug_reports/github/sync` | the same |
+
+Plan pre-approval: both senders are `hard` and `irreversible` (`planApproval.js` `IRREVERSIBLE_RE`), so a plan covers
+one only when the user ticks it in the plan card; never pre-ticked, never implied. A tainted turn (web content) asks
+regardless. The prompt (`service/prompt.js`) tells the model: file locally with `bug_report` first, preview, send on
+the user's request, give the issue link. The `bug_report` confirm dialog names GitHub as a separate step (or the
+machine's `auto_send = all`). Tests: `test/approvals.test.js`, `test/planApproval.test.js`, `test/bugReport.test.js`.
 
 ## Operations knowledge (dev-6b34)
 

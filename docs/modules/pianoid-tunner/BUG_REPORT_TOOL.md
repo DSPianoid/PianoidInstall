@@ -462,6 +462,54 @@ reported state:
 
 ---
 
+## Sending Reports to GitHub (dev-bugsync)
+
+User request 2026-11-05: "a tool to propagate natively filed bugs to GitHub, and the assistant should have access to
+it, so the assistant from another system can file and you can fix." A report stays in the machine's own store
+(`PianoidCore/logs/reports/`); a send makes it ONE GitHub issue in the team repo (default `DSPianoid/PianoidInstall`),
+where the development machine's agents pick it up. Contract, config and the issue format:
+[REST_API.md "Bug reports -> GitHub issues"](../pianoid-middleware/REST_API.md#bug-reports-github-issues).
+
+| Surface | What |
+|---|---|
+| Dialog | after **Generate report** saved the report to the store: **Send to GitHub** (backend `POST /bug_reports/<id>/github`) shows `GitHub issue #N (created / updated / unchanged)` with **Open the issue**. Disabled, with the backend's setup message as the tooltip, on a machine without a token (`GET /bug_reports/github`); absent when the report only downloaded. With this machine's `auto_send` = `manual` / `all` the saved message says it is also being sent (the backend sends in the background; the button then just shows the link) |
+| Assistant | `bug.github_config`, `bug.github_preview` (dry run, runs without asking), `bug.file_github`, `bug.sync_github` (own Ask rules: data leaves the machine; a plan covers them only when ticked) — `tools/pianoid-assistant/README.md` "Bug reports" |
+| REST / agents | `POST /bug_reports/github/sync` (refresh the filed ones, file the open manual + assistant ones; `dry_run`) |
+
+Code: `PianoidCore/pianoid_middleware/bug_github.py` (config, client, sync, per-report send lock),
+`bug_issue_body.py` (issue text + redaction), `bug_reports.set_github` (the only writer of the `github` field);
+Tunner `src/utils/bugGithub.js` + `BugReportDialog.jsx`. Tests: Core `tests/unit/test_bug_github.py` (mocked GitHub),
+Tunner `src/components/__tests__/BugReportDialog.github.test.jsx`.
+
+### Turning it on, per machine
+
+1. A token that may write issues in the one repo: a fine-grained personal access token (GitHub → Settings → Developer
+   settings → Fine-grained tokens; Repository access = only the team repo; Permissions → **Issues: Read and write**).
+   The repo owner creates it, or adds the machine's GitHub user as a collaborator first. Or an authenticated gh CLI
+   (`winget install GitHub.cli`, then `gh auth login`): the backend uses `gh auth token`.
+2. Put it where the backend reads it, never in a repo: `%USERPROFILE%\.pianoid\github.json`
+   `{"token": "github_pat_...", "machine": "dima-rig", "auto_send": "off"}` (or the `PIANOID_GITHUB_TOKEN` env var).
+   `machine` is the issue label (default: the host name); `auto_send` `manual` sends every 🐞 report on filing,
+   `all` also the assistant's and the automatic ones.
+3. Restart the backend; `GET :5000/bug_reports/github` (or the dialog's tooltip, or the assistant's
+   `bug.github_config`) shows `configured: true`. `GET :5000/bug_reports/<id>/github` previews an issue without
+   sending.
+
+### Picking the issues up (the development machine's agents)
+
+- List: `gh issue list --repo DSPianoid/PianoidInstall --label bug-report --state open` (add `--label machine:dima-rig`,
+  `--label source:manual`, …); one: `gh issue view N --repo DSPianoid/PianoidInstall`. Without gh:
+  `GET https://api.github.com/repos/DSPianoid/PianoidInstall/issues?labels=bug-report&state=open` with the token.
+  The first line of the body is `<!-- pianoid-bug-report id=<reportId> machine=<label> -->`; the facts table names
+  the builds (SHAs at filing), the preset and the layout; the collapsed sections carry the action history and the
+  trimmed config snapshot for the reproduction ([Consumption Workflow](#consumption-workflow-how-a-developeragent-reproduces-from-a-report)).
+  The full report JSON (with the `params` arrays) stays on the filing machine.
+- Fix: reference the issue in the commit — `fixes #N` closes it when the commit reaches the default branch of the
+  issue's repo (PianoidInstall `master`); a Core / Tunner / Basic commit says `fixes DSPianoid/PianoidInstall#N`.
+  Otherwise close it (`gh issue close N --comment "Core abc1234"`). The filing machine's next send / sync pulls the
+  state: the report becomes `fixed` (`not_planned` → `wontfix`) with `by: github`. The other way, a report marked
+  `fixed` locally (`bug.set_status`) closes its issue with the resolution as a comment at the next send / sync.
+
 ## Under-Documented / Improvement Notes
 
 Observations from documenting the shipped tool (candidates, not defects):
