@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-barfreq locks RELEASED 2026-11-05 (MERGED Tunner dev + Install master, pushed; worktrees removed, junctions unlinked first). -->
 <!-- dev-wheelfix locks RELEASED 2026-11-05 (MERGED locally Tunner dev a9f70e5, Install master 87a0f55; worktrees removed, junctions unlinked first; not pushed). -->
 <!-- dev-bowpanel locks RELEASED 2026-11-05 (MERGED locally Core dev 4e88b04, Tunner dev f5270c6, Install master 2d94931; worktrees removed; NOT pushed). -->
 <!-- dev-uispace locks RELEASED 2026-11-05 (Phase 1, NOT merged): Tunner feature/dev-uispace c6ac7fd in D:/repos/wt-uispace-tunner (per-package node_modules junctions: unlink before removal) - src/PianoidTuner.js, index.css, components/{ToolBar,BottomBar,WorkbenchFunctionTools,FileUploader,ObjectInspector}.jsx, MidiPlayer/MidiPlayerPane.jsx, hooks/useSettings.js, help/content/{en,ru}.md + NEW SideBar/*, MidiPlayer/MidiPlayPauseButton.jsx, WorkbenchViewOptions.jsx, hooks/{useFullscreen,useLoadedPresetName}.js + tests; Install docs feature/dev-uispace (D:/repos/wt-uispace-install). -->
