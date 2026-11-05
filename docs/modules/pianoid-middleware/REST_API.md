@@ -2935,7 +2935,8 @@ older report names the state at its first sync, marked as such.
 | repo | `PIANOID_GITHUB_REPO` > config file `repo` > `DSPianoid/PianoidInstall` |
 | token | `PIANOID_GITHUB_TOKEN` > `GH_TOKEN` > `GITHUB_TOKEN` > config file `token` > `gh auth token` (an authenticated gh CLI) |
 | auto_send | `PIANOID_GITHUB_AUTO_SEND` > config file `auto_send`: `off` (default) · `manual` (the user's own 🐞 reports, sent in the background on filing) · `all` (the assistant's and the automatic fault reports too) |
-| machine label | config file `machine` > `PIANOID_MACHINE_NAME` > the host name |
+| machine label | config file `machine` > `PIANOID_MACHINE_NAME` > the host name (the `machine:` label; the store is local, so the sending machine is the filing one) |
+| api_url | `PIANOID_GITHUB_API_URL` > config file `api_url` > `https://api.github.com` (GitHub Enterprise, or a local fake GitHub for an end-to-end test) |
 | config file | `PIANOID_GITHUB_CONFIG` > `~/.pianoid/github.json`, e.g. `{"token": "github_pat_...", "machine": "dima-rig", "auto_send": "manual"}` |
 
 The token: a fine-grained personal access token with access to the one repo and **Issues: read and write** (nothing
@@ -2959,7 +2960,7 @@ reopened. The text is PATCHed only when it changed (`body_sha`).
 
 #### `GET /bug_reports/github`
 
-The machine's config, never the token: `{ok, repo, configured, token_source, auto_send, machine, path, error}`; not
+The machine's config, never the token: `{ok, repo, configured, token_source, auto_send, machine, api_url, path, error}`; not
 configured adds `message` (what to set, where).
 
 #### `GET /bug_reports/<report_id>/github`
