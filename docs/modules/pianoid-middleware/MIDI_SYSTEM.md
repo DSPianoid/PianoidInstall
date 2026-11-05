@@ -690,7 +690,19 @@ GPU-free mock (`dev-midiux-mock-backend.py`, now also serving BaselinePreset1's 
 with the worktree CRA (2026-11-05): cards as above, the Modes picker lists "0 · 77.25 Hz" … for all 100 modes, One
 mode -> 15 saved as `keys [15, 15]` (GET `/midi/mappings`) and the card reads "mode 15 (236.7 Hz)"; the detune range
 step reads "0 … 4 cents"; 0 requests to :5000/:3001. No audio render: the GPU was busy with the user's stack, so the
-detune is verified analytically (ideal-string law) at the engine call boundary, not by a measured beat rate.
+detune was first verified analytically (ideal-string law) at the engine call boundary.
+- **Measured beat rate** (2026-11-05, isolated silent backend :5100, BaselinePreset1, 4 s `note_playback` renders,
+  `docs/development/diagnostics/dev-midiux2-detune-beats.py`; the beat is the envelope line of the fundamental band):
+
+  | key | stored 0.865 c | 0 c | 2 c | ideal uncoupled 2 c (neighbour / outer) |
+  |---|---|---|---|---|
+  | C5 (72) | 0.93 Hz (3.6 dB ripple) | none (2.6 dB) | 1.64 Hz (6.8 dB) | 0.59 / 1.19 Hz |
+  | C6 (84) | 1.50 Hz (18.8 dB) | 0.15 Hz swell, no beat (24 dB) | 1.84 Hz (19 dB) | 1.20 / 2.41 Hz |
+
+  The control changes the beating as expected: none at 0 c on C5, and faster with more detune. The rates do not
+  follow the uncoupled-string formula, and the f0 peak moves (C6: 1041 Hz at 0 c, 1028 Hz at 2 c). The likely cause
+  (not yet confirmed) is that the unison strings couple through the bridge / soundboard modes, so the heard beat
+  comes from the coupled system. "Cents" is exact for the per-string tensions, not for the heard beat rate.
 
 ## Control cards and the Add-control wizard (dev-midiux) {#control-cards-dev-midiux}
 
