@@ -67,3 +67,68 @@ None currently. Heatmap data is correct (the algorithm doesn't touch the underly
 - The user's "horizontal" / "vertical" terminology refers to the BORDER ORIENTATION, not the pair-axis direction. A vertical border is the line between two horizontally-adjacent cells.
 - If the bug turns out to be a stale build on the secondary system (option 3), this entry should be re-classified as RESOLVED with a note about the bundle-refresh procedure.
 - If option 1 catches the bug in jsdom, the structural-symmetry assumption from the round-28 diagnosis was wrong — the apparent symmetry hid a real code defect.
+
+---
+
+# Fixed
+
+Entries moved here once fixed: status FIXED, the confirmed root cause and the fix. Kept so a recurrence is recognised.
+
+## Feedin pane mode-mask edits rejected on presets with a thump string
+
+- **Status:** FIXED 2026-11-05 by dev-feedinmask on Tunner `feature/dev-feedinmask` (awaiting the user's test + merge approval)
+- **First reported:** 2026-11-05 (user, via the assistant)
+- **Last confirmed:** 2026-11-05
+- **Severity:** Medium. Mode mute/unmute from the Feedin pane fails on these presets; nothing is written.
+- **Component:** Tunner Feedin pane mask write / backend `feedin_mask` validation
+- **Bug report id:** `a392d5def5b0f274`
+
+### Symptom
+
+On a preset with a keybed thump string on pitch 20, toggling a mode mute/unmute in the Feedin pane fails with:
+
+> invalid_mask_row: feedin_mask: every pitch of the range needs a row of exactly 196 0/1 values (num_modes); pitch 20: no row. Nothing was written.
+
+The cell reverts to muted and nothing is written.
+
+### Reproduction
+
+1. Load a preset with a keybed thump string enabled on pitch 20. The reporting preset, `PlywoodNew_224s_verified.json`, exists only on the reporting machine, so use another thump preset or enable a thump.
+2. Mute a mode on all keys (for example via `POST /mute/modes`).
+3. Click to unmute that mode in the Feedin pane.
+4. Observe the `pitch 20: no row` error and the cell reverting to muted.
+
+### Expected
+
+The write succeeds, either by including a row for thump pitch 20 or by addressing only pitches 21-108.
+
+### Evidence
+
+- `param.set feedin_mask` with `key_no` from 20 to 21 and a row only for 21 returns 400 `invalid_mask_row` (pitch 20: no row); nothing is written.
+- `param.get feedin_mask` for key 20 returns a valid 196-value row, so the thump pitch does have a mask row.
+- `POST /mute/modes` works and reports pitches `[20, 108]`.
+- The undo history shows no frontend `feedin_mask` edits for mode 4 despite the user's unmute attempts.
+
+### Root cause (CONFIRMED by capture, dev-feedinmask)
+
+Reproduced on Tunner `dev@a9f70e5` / Core `dev@4e88b04` with `Tuning18-10-26ver1_thump_live` (key pitches 20-108, 196 modes), after `POST /mute/modes {modes: 4, side: feedin}`. A Feedin pane whole-row mute or unmute sent `POST /set_parameter/feedin_mask/all` with 88 rows (pitches 21-108, 196 values each); the response was 400 `invalid_mask_row` ("pitch 20: no row"). The deck panes hold keys 21-108 only, while `all` is every key pitch of the preset, including thump pitch 20. The row set and the key came from two different sources.
+
+The same mismatch affected every whole-matrix deck write: `feedback_mask/all` (400) and the raw `feedin/All` and `feedback/All` rows (400 `missing_pitch_values`). Single-pitch writes and `POST /mute/modes` were not affected. The backend was correct.
+
+### Fix
+
+Tunner only. A whole-matrix Feedin or Feedback write (mask or raw rows) now addresses the pitch range of the rows it sends, `from21to108`, through `matrixEmit.rowsRangeKey`. The string and excitation bulk writers already work this way. The backend already accepted that sub-range, so it is unchanged. The thump row is not edited from the panes: they show keys 21-108 only, and the thump string's deck row is its own parameter (rim coupling). Use `POST /mute/modes` or `set_parameter feedin_mask/20` for it. A mode muted on all pitches with `/mute/modes` and then unmuted in the pane therefore stays muted on pitch 20.
+
+Tests: `PianoidTunner/src/hooks/__tests__/usePreset.deckRangeKey.test.jsx` (new) and `src/utils/__tests__/matrixEmit.test.js` (`rowsRangeKey`). Live check on an isolated stack (silent): mute and unmute of mode 4 posted to `from21to108` and returned 200, the backend mask matched, and the pane Undo restored it. Screenshots: `logs/livetest-feedinmask-0{1..4}-*.png`.
+
+### Workaround (before the fix)
+
+Mute and unmute through `POST /mute/modes` instead of the Feedin pane.
+
+### Versions seen
+
+Tunner `dev@721015b`, Basic `dev@783de8f`, Core `dev@f80042f`, Install `master@dc007d77`. Tunner and Basic had local changes.
+
+### Upstream check
+
+At filing time, no commit on `origin/dev` that was missing from the reporting machine's local `dev` (Tunner `721015b`, Core `f80042f`) touched `feedin_mask` or `invalid_mask_row`. No upstream fix was found.
