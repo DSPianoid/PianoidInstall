@@ -1941,8 +1941,8 @@ Per-PITCH preset parameters of the friction bow (shared by the pitch's unison st
 |---|---|
 | `GET /get_parameter/bow/<key_no>` | `{"<pitch>": {"speed", "force", "position", "tilt"}}`, the effective values (stored over the defaults) |
 | `POST /set_parameter/bow/<key_no>` | `{field: value}` for every key of `key_no` (n, `from<a>to<b>`, `all`), or `{"<pitch>": {field: value}}` |
-| `GET /get_parameter/bow_settings/all` | `{max_width, default_max_width, limits, fields, engaged_strings, velocity: {field, curve}, engine_supported}` |
-| `POST /set_parameter/bow_settings/all` | `{"max_width": 0..0.5}` (the preset's hair ribbon) |
+| `GET /get_parameter/bow_settings/all` | `{max_width, default_max_width, edge_taper, default_edge_taper, limits, fields, engaged_strings, velocity: {field, curve}, engine_supported}` |
+| `POST /set_parameter/bow_settings/all` | `{"max_width": 0..0.5, "edge_taper": 0.5..8}`, either or both (the preset's hair ribbon; dev-bowsoft: the exponent p of the contact weights `(1 - x^2)^p`, 1 = parabola) |
 
 Fields (normalised; physics in [SYNTHESIS_ENGINE → Friction bow](../pianoid-cuda/SYNTHESIS_ENGINE.md#friction-bow-dev-bow2)):
 `speed` 0..1 (bow speed, the level follows it), `force` 0..1 (fraction of the Schelleng maximum, 0.5 =
@@ -1950,15 +1950,15 @@ the middle of the Helmholtz window), `position` 0.5..3 (multiple of the hammer p
 string end, 1 = the hammer point), `tilt` 0..1 (one control: narrower contact, softer friction, more
 high-frequency loss). Defaults by register (`bow_config.defaults`): speed 0.5; force 0.5 x (x1 up to
 40, x0.6 at 46-55, x1 at 60-78, x0.5 from 88, linear between); position 1; tilt 0.3 up to 55, 0.1 from 60;
-ribbon 0.035.
+ribbon 0.105 + edge taper 3 (dev-bowsoft soft3; dev-bow3 had ribbon 0.035, taper 1).
 
-Stored as `model_parameters.bow = {"pitches": {"<pitch>": {...}}, "max_width": x}` (only the edited
+Stored as `model_parameters.bow = {"pitches": {"<pitch>": {...}}, "max_width": x, "edge_taper": p}` (only the edited
 pitches; absent = the defaults, so old presets load unchanged); saved, loaded and switched with the
 library and pushed to the engine on every load / switch / edit / undo. A write is ONE edit through
 `edit_commit`: `409 preset_read_only` on an original, rules `bow.speed` / `bow.force` / `bow.position`
-/ `bow.tilt` / `bow_settings.max_width` (`400 parameter_out_of_range`), one
+/ `bow.tilt` / `bow_settings.max_width` / `bow_settings.edge_taper` (`400 parameter_out_of_range`), one
 `state_changed{domain: 'bow', keys: [pitch, ...], after: {"<pitch>": {all four fields}}}` (or
-`bow_settings`, after `{max_width}`) and one undo step (per pitch: undoing an older edit keeps a later
+`bow_settings`, after `{max_width, edge_taper}`) and one undo step (per pitch: undoing an older edit keeps a later
 edit of another pitch). An unknown field or a value outside the field's range is `400`.
 
 No min / max is stored: a MIDI controller's range lives on its mapping
