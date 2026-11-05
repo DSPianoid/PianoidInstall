@@ -683,11 +683,15 @@ machine data and need no copy.
 
 **Rules.**
 - **Socket detection.** The device's raw stream covers one input at a time, so the session polls LIST (all 8
-  inputs' raw ADC in one request) every `SOCKET_POLL_S` = 0.25 s while the wizard listens, and scales the raw to
-  0-127. A socket switched off, or sharing its CC with another, is still found. A CC from the Pianoid port is
+  inputs' raw ADC in one request) every `SOCKET_POLL_S` = 0.125 s (8 Hz) while the wizard listens, and scales
+  the raw to 0-127. A socket switched off, or sharing its CC with another, is still found. A CC from the Pianoid port is
   matched to the socket whose assignment sends it and folded into that socket's candidate. The reader runs only
-  while the device is listed (`present()`, the shared enumerator: no rtmidi instance per poll). **LIST cost on the
-  real link: not measured yet** (needs a read-only check on the hardware; the 4 Hz rate is a default).
+  while the device is listed (`present()`, the shared enumerator: no rtmidi instance per poll). **Cost, measured
+  2026-11-05 on the live backend** (read-only, listener in Listen to All, replies through the hub hook;
+  `docs/development/diagnostics/dev-midiux-list-cost.py`): 40 `GET /controller` (11 SysEx round trips each:
+  identify, LIST, 8 x GET_INPUT, link) ramped 2 -> 8 Hz: p50 13.1 ms, p95 34.6 ms, max 43.2 ms, no error;
+  `/health` p50 4.2 ms / p95 23.5 ms during it; no error, warning or underrun line in `backend_stdout.log`. So one
+  LIST is ~1-3 ms and 8 Hz polling (one LIST per tick) is about 1/11 of the load that was measured harmless.
 - **The CC a socket gets.** Its own CC if still free (no other switched-on socket and no control on the Pianoid
   port or on any port use it, and not 64 / 66 / 67), else the first free of 20-31, 102-119 (undefined in MIDI 1.0).
   Sustain = 64 on purpose (the global map's pedal).
