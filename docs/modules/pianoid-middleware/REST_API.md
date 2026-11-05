@@ -1918,7 +1918,7 @@ the middle of the Helmholtz window), `position` 0.5..3 (multiple of the hammer p
 string end, 1 = the hammer point), `tilt` 0..1 (one control: narrower contact, softer friction, more
 high-frequency loss). Defaults by register (`bow_config.defaults`): speed 0.5; force 0.5 x (x1 up to
 40, x0.6 at 46-55, x1 at 60-78, x0.5 from 88, linear between); position 1; tilt 0.3 up to 55, 0.1 from 60;
-ribbon 0.035.
+ribbon 0.105 + edge taper 3 (dev-bowsoft soft3; dev-bow3 had ribbon 0.035, taper 1).
 
 Stored as `model_parameters.bow = {"pitches": {"<pitch>": {...}}, "max_width": x, "edge_taper": p}` (only the edited
 pitches; absent = the defaults, so old presets load unchanged); saved, loaded and switched with the
