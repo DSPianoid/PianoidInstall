@@ -430,14 +430,16 @@ Tests: `tests/unit/test_midi_all_ports.py` (`test_manual_port_follows_its_name_w
 
 | Control | Device behaviour |
 |---|---|
-| Calibrate pedal | `min` / `mid` / `max` raw ADC + curve. Continuous: linear (min→0, max→127), piecewise through mid (mid→64), or power through mid; monotonic, clamped. Switch: pressed above 5/8 of the travel, released below 3/8; the order of min and max gives the polarity (an uncalibrated switch keeps the digital read + POL_AUTO). |
-| Pedal assignments | per input: off / switch / continuous; CC (0-119) / note (switch) / channel pressure / pitch bend; channel 1-16; polarity. Defaults: X12 sustain CC64, X14 CC67, X13 CC66, X9 CC11 continuous. |
+| Calibrate pedal | `min` / `mid` / `max` raw ADC + curve. Continuous: linear (min→0, max→127), piecewise through mid (mid→64), or power through mid; monotonic, clamped. Switch: pressed above 5/8 of the travel, released below 3/8; the order of min and max gives the polarity (an uncalibrated switch keeps the digital read + POL_AUTO). The dialog states the derived direction (`normal` = the raw value rises when pressed, `reversed` = it falls) and Apply resets an explicit polarity setting to `auto` (SET_MSG after SET_CAL; Revert restores both), because the firmware applies `inverted` to a calibrated continuous input a second time (dev-pedalcal). |
+| Pedal assignments | per input: off / switch / continuous; CC (0-119) / note (switch) / channel pressure / pitch bend; channel 1-16; polarity. A calibrated input shows `from calibration (normal / reversed)` instead of the polarity select: recalibrate to change it (dev-pedalcal). Defaults: X12 sustain CC64, X14 CC67, X13 CC66, X9 CC11 continuous. |
 | Link speed | the FPGA → Micro wire (not the DIN socket, always 31250): 1x 31250 / 4x 125000 / 8x 250000. Both chips switch together over the Micro → FPGA aux line; an unconfirmed switch falls back. Needs a bitstream with `link_ctl` (else `selectable: false`). |
 | Save | EEPROM; until then a change is live but lost at power-off. |
 
 **Presence of a pedal.** The inputs have the Micro's internal pull-up and no board resistor: an empty jack reads ~1023, a pulled input (a continuous pedal, a closed switch) reads lower. `presence`: `active` (below 1000 now), `seen` (since the controller booted), `idle`. An open switch pedal reads like an empty jack, so the calibration dialog lists every input, connected ones first.
 
 **Half pedal on this controller.** The factory X12 is a switch: it sends only 0 / 127, however the pedal moves. In the MIDI panel: Pedal assignments → X12 → type `continuous` (CC 64); Calibrate pedal → released / half / pressed → Through mid → Apply → Save to controller. No reflash; the settings go to the device's EEPROM. Not yet applied to the real board. With a switch-type pedal plugged in keep `switch`. [Half pedal](#half-pedal-dev-pedal1).
+
+**A pedal that works backwards (2026-11-05, new board, blank EEPROM).** An uncalibrated switch's POL_AUTO reads the pin ONCE, at power-up, as "released" (`micro_usb_midi.ino` `initInput`). A normally-closed pedal (rest LOW) plugged in AFTER power-up is latched as released = HIGH, so it is inverted until the next boot. The fix is one calibration (released → pressed, Apply, Save to controller): a calibrated switch follows the captured travel and never uses the boot latch. Measured on the operator's X12 pedal after calibration: rest raw ~314-326 → CC64 0, pressed ~711-715 → CC64 127, 3/3 presses clean.
 
 **Pianoid's own sustain map is separate.** The device decides what a pedal SENDS (e.g. CC64 on channel 1); `midi_input` decides what Pianoid does with it (`sustain_cc` / `port_sustain`). The defaults match: the device's X12 sends CC64, Pianoid's global map is CC64 any channel.
 
