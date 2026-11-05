@@ -594,6 +594,7 @@ without polling. Engine-side mechanics: see
 
 - `gate_trip_count` (int): cumulative number of synthesis cycles in which the amplitude/NaN crash-guard tripped (its self-heal path fired) since backend start / last `resetGateTripStats`. `0` at boot. Drives the toolbar "gate fired" indicator. Read from a device counter (`getGateTripStats`) with one cheap 2-int D2H copy per poll. Counts BOTH the amplitude-branch trip (`|displacement| > amplitude_limit`) and the unconditional `isnan` trip (in practice a geometric runaway is dominated by the amplitude branch).
 - `last_gate_trip` (int): the synthesis-cycle index of the most recent trip, or `-1` if `gate_trip_count == 0`.
+- `gpu_fit` (top-level, dev-gpufit 2026-11-03): what the active full load trimmed to fit this GPU, `null` = loaded as is (or no preset). Fields + policy: [`POST /load_preset` → GPU fit](#post-load_preset).
 - `cooperative_launch` (top-level, added dev-1cda 2026-10-09; present even when no preset is loaded): the `addKernel` cooperative co-residency report — `{checked, ok, kernel, phase, grid_blocks, block_threads, num_regs, static_smem, max_threads_per_block, blocks_per_sm, device_sms, num_sms, capacity, message}` from `<module>.getCoopOccupancyReport()`. `phase` = `init` (pre-flight at `devMemoryInit`), `online` (re-check after the audio driver starts) or `launch` (the cooperative launch itself failed). `ok=false` ⇒ the grid cannot co-reside: an `init` shortage fails the load (`/load_preset` 500 `coop_launch_shortage`; with no engine left, this field keeps that failure — `{checked, ok:false, kernel, phase:"init", message}` — until the next successful load); an `online`/`launch` failure stops the realtime thread and also sets `exception` (status `crashed`). `null` = never checked (no load yet). See [SYNTHESIS_ENGINE → Register budget](../pianoid-cuda/SYNTHESIS_ENGINE.md#register-budget--cooperative-co-residency-pre-flight-dev-1cda-2026-10-09).
 - `clipping` (bool): **latched** — `true` if any output channel's post-volume peak reached/exceeded INT32 full-scale (`2147483647`, the driver's hard-clip rail) since the last `/clear_limiting` or preset load. Survives the slow poll (clip-hold). Drives the toolbar clipping indicator.
 - `clipping_now` (bool): **current** — a channel's current peak (below) `>=` full-scale.
@@ -778,7 +779,38 @@ Response `400` (when `use_simulation=1`):
 }
 ```
 
-Response `409` (preset's kernel grid does not fit this GPU, added dev-a90b 2026-10-22): checked by
+**GPU fit — a preset larger than this GPU loads trimmed (dev-gpufit, 2026-11-03).** Before the engine is
+built, `initialize()` asks the engine how many `addKernel` blocks of `array_size` threads co-reside on THIS
+device (`<module>.queryCoopCapacity(block_threads)`: the loaded binary's registers, the SM count, the
+`PIANOID_COOP_SM_BUDGET` knob honoured). A preset whose grid (`ceil(num_strings / num_strings_in_array)`) is
+larger loads as a **trimmed copy** cut by `Pianoid.preset_restructure.fit_to_blocks` to at most `capacity`
+blocks — the file on disk is not changed; a preset that fits is loaded untouched (on the RTX 4090, 128 blocks,
+every current preset fits). **Trim policy (user decision 2026-11-03): whole blocks only, from the outside in.**
+A preset block pairs the i-th longest bass string with the i-th shortest treble triplet (measured on
+BaselinePreset1 and Tuning18-10-26ver1: block 0 = key 23 + key 106 ×3, …; a bichord bass key spans 2 blocks, a
+trichord 3), so dropping blocks 0, 1, 2, … removes keys from both ends together and keeps the middle of the
+keyboard. A bass key whose unison spans several blocks goes with all of them (the trim may end 1–2 blocks under
+`capacity`). No unison string is ever removed — every kept key keeps all its strings — and the kept blocks are
+not re-packed (string IDs renumbered, order kept). Output blocks (and a thump string on an output-block slot) are
+never touched; modes above the full-deck ceiling (`num_strings − channels`) are cut, the first ones kept;
+channels, `array_size` and the output scale stay. The per-pitch `model_parameters` of a removed key go with it
+(`bow.pitches`, `excitation_mode.bow`, `thump.trim_db`; an emptied `excitation_mode` is dropped); the thump
+`level_coeff` (per velocity level) and `controller_mappings` (key ranges, resolved against the loaded keys) stay
+as they are. Measured: at 38 blocks (RTX 3060 Ti) BaselinePreset1 keeps
+keys 37–88 (52 of 84), Tuning18-10-26ver1 keys 38–86 (49 of 88, 37 blocks, modes 196 → 141); at 28 blocks
+42–78 and 43–76. The full success response and `/health` carry `gpu_fit` (`null` = loaded as is):
+`{trimmed, message, source_path, capacity, blocks_per_sm, num_sms, device_sms, num_regs, array_size,
+blocks_from, blocks_to, strings_from, strings_to, keys_from, keys_to, keys_removed, keys_kept, modes_from,
+modes_to}`; the backend logs the same `[GPU-FIT] …` line. The
+trimmed copy carries the report as a `gpu_fit` preset section, and `/save_preset` / promote onto the file it was
+trimmed FROM is refused (500 `Error saving preset: This preset was trimmed to fit this GPU … Save it under a new
+name.`). `/preset/load` (library) trims the same way at the running engine's `array_size`. Owner:
+`pianoid_middleware/gpu_fit.py`; tests `tests/unit/test_gpu_fit.py`. `PIANOID_GPU_FIT=off` restores the refusal
+below (409 / 500) instead of trimming. Simulate a smaller GPU on a big one with `PIANOID_COOP_SM_BUDGET=<SMs>`
+(e.g. `38` for a 3060 Ti) in the backend's environment.
+
+Response `409` (preset's kernel grid does not fit this GPU, added dev-a90b 2026-10-22; **only with
+`PIANOID_GPU_FIT=off`** since dev-gpufit — otherwise the preset loads trimmed, above): checked by
 `pianoid_middleware/load_fit.py` on the full path **before** the live engine is destroyed, so the current
 preset keeps playing — `{"error": "PresetDoesNotFit", "code": "coop_launch_shortage", "message": "… The current
 preset was kept.", "blocks": 59, "capacity": 56}`: the preset's grid (`ceil(num_strings / num_strings_in_array)`
