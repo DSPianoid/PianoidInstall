@@ -192,7 +192,7 @@ Three parts, each a single-concern module (mirrors the manual tool's shape):
 | Signal capture | `src/utils/systemSignals.js` | Record internal faults into the SAME ring buffer (`type:"system_signal"`) + classify significance + notify subscribers. Module singleton, re-render-free, never-throws. |
 | Auto-report controller | `src/utils/autoReporter.js` | Dedup/rate-limit/debounce → assemble (reuse `buildReport`) → deliver (collector POST, localStorage fallback, flush-on-recovery + backoff retry, `createPendingRetrier`). |
 | Wiring | `src/hooks/useAutoReport.js` | Install the fault sources (axios interceptor, `/health` watch, `window.onerror`/`unhandledrejection`), gate on the setting, feed the controller. Mounted once in `PianoidTuner`. |
-| Collector | `PianoidCore/pianoid_middleware/backendServer.py` → `POST /bug_report` | Save the posted report JSON to `PianoidCore/logs/reports/`. |
+| Collector | `PianoidCore/pianoid_middleware/backendServer.py` → `POST /bug_report` | Save the posted report JSON to `PianoidCore/logs/reports/` (the user's `:5000` backend; a spare-port backend saves into `logs/reports-port<N>/`, `PIANOID_REPORTS_DIR` overrides both — `bug_reports.default_reports_dir`, dev-bugs1106). |
 
 ### The fault set (what fires, what is context-only)
 

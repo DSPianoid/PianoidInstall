@@ -436,7 +436,7 @@ other or with a request that uses the engine. Owner: `pianoid_middleware/engine_
 |---|---|---|
 | **Lifecycle op** (exclusive) | `POST /load_preset` (all reinit kinds), `/preset/load`, `/preset/switch`, `/preset/unload`, `/preset/spawn_working_copy`, `/recalibrate_output_level`, `/shutdown` | **identical** request (same route + same JSON body) → waits and returns the in-flight result with `"coalesced": true` (only `/load_preset` and `/preset/switch` coalesce); anything else → **`409`** `{"error": "LifecycleBusy", "code": "load_in_progress", "message", "in_progress": {"op", "running_for_s"}}` |
 | **Engine use** (shared) | every other HTTP route + the engine Socket.IO events (`play`, `set_parameter`, `set_string_excitation`, `set_hammer_shape`, `set_runtime_parameters`, `set_fix_velocity`) | refused at once: HTTP **`503`** `{"code": "lifecycle_in_progress", "in_progress": {...}}`; a WS event acks `{"ok": false, "code": "lifecycle_in_progress"}` |
-| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, the `/bug_reports/.../github` routes, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
+| **Never gated** | `GET /health`, `/ping`, `/get_settings`, `GET /param_rules` (a table read, dev-bugs1106), `POST /bug_report`, `GET /bug_reports`, `POST /bug_reports/<id>/status`, the `/bug_reports/.../github` routes, CORS `OPTIONS` | `/health` answers `200` with `"status": "loading"` + `"lifecycle_op"` built from Python-level state only (never dereferences the engine being built / destroyed) |
 
 One exception to the shared-slot refusal: the MIDI player's own scheduler thread is not a request and keeps its slot through the library ops that leave the engine running (`NON_DESTRUCTIVE_OPS`: `preset_switch`, `preset_load`, `preset_unload`, `preset_spawn_working_copy`), so playback survives them (dev-mswitch). Every route keeps its `503`, the `/midi_player/*` routes too.
 
@@ -456,6 +456,9 @@ The frontend additionally elects ONE tab leader that performs automatic loads
 `PIANOID_BACKEND_PORT` (env, default `5000`) moves the backend to another port — agents use it with the
 launcher's `PIANOID_LAUNCHER_PORT` / `PIANOID_BACKEND_PORT` / `PIANOID_MODAL_PORT` / `PIANOID_CORE_DIR` for an isolated stack
 that the user's open `:3000` tabs never see (the launcher starts `modal_adapter_server.py --port $PIANOID_MODAL_PORT`).
+A backend on any port but `5000` files its bug reports into `<core>/logs/reports-port<N>/`, never the user's
+`logs/reports/` (`bug_reports.default_reports_dir`; `PIANOID_REPORTS_DIR` overrides; dev-bugs1106: barfield's `:5018`
+stack, run from the main Core checkout, had filed three false `backend_crashed` reports into the user's store).
 
 ---
 

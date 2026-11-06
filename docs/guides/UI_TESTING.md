@@ -188,6 +188,13 @@ The FE hard-codes `:5000`/`:3001`, so open agent pages via `navigate_page` with 
 junction to `PianoidCore/.venv`; its backend logs go to `<core worktree>/logs/backend_stdout.log`. Same
 initScript caveat as above: a reload that bypasses `navigate_page` drops the rewrite.
 
+**Bug reports stay out of the user's store (dev-bugs1106).** The page's auto-reporter POSTs to the backend it talks to;
+a backend on any port but `5000` saves into `<core>/logs/reports-port<N>/` (`bug_reports.default_reports_dir`), so a
+spare-port stack never writes the user's `PianoidCore/logs/reports/` even when `PIANOID_CORE_DIR` is the main checkout
+(2026-11-06: barfield's `:5018` stack, `start_right_away=0`, filed three false `backend_crashed` reports there). Set
+`PIANOID_REPORTS_DIR` only to file deliberately into another store (e.g. the user's bugs from an isolated assistant
+backend, dev-947d). Delete your `reports-port<N>/` folder when you clean up.
+
 **Keep the machine light while the user's live stack runs (dev-2a50 incident, 2026-10-19).** A full-parallel Jest run (one worker per core, ~6 min) plus a fresh worktree CRA compile, started while the user played on :3000/:5000, starved the realtime backend: their tab auto-reported `/health` timeouts and a 5.4 s `/midi/ports` stall, and they closed the stack. No request or kill reached it — the load alone did. Rule: while the user's live stack runs, Jest only with `--maxWorkers=2` or targeted suites; no fresh CRA compile; heavy builds and full test runs wait until it is down.
 
 **Never reload an initScript page (dev-fe18 incident, 2026-10-18).** A `location.reload()` from inside the page
