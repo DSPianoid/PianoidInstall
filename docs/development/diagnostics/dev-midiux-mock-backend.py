@@ -17,7 +17,11 @@ Mock-only routes:
   GET  /mock/device the fake device's config + raw + EEPROM saves
   GET  /preset/list, POST /preset/spawn_working_copy, POST /preset/switch   a 2-entry library
                     (original "Grand_A" read-only, its working copy)
+  GET  /get_parameter/mode/all   the modes of BaselinePreset1 (real ModeMap, no GPU): the Tunner's mode
+                    frequencies (ChartFrequencyContext) for the Modes picker (dev-midiux2)
 Everything else: GET -> {} (the Tunner boots from it), POST logged.
+dev-midiux2 adds two mappings: "Knob 1" -> Unison detune (drive 0..4 cents), "Slider 2" -> Mode decrement
+x0.8..1.2 on modes 12-18.
 
 Usage (PianoidCore venv):  python -u dev-midiux-mock-backend.py <core pianoid_middleware dir> [port=5090]
 Point the page at it with the dev-2d06 URL rewrite (:5000|:5001|:3001 -> :<port>).
@@ -81,6 +85,10 @@ MAPPINGS = [
      'mode': 'scale', 'lo': 0.94, 'hi': 1.06, 'name': 'String tension'},
     {'id': 'm5', 'control': 'Expression', 'target': {'domain': 'bow', 'param': 'position', 'keys': None},
      'mode': 'drive', 'lo': 0.5, 'hi': 3.0, 'name': 'Bow position'},
+    {'id': 'm6', 'control': 'Knob 1', 'target': {'domain': 'string', 'param': 'detuning', 'keys': None},
+     'mode': 'drive', 'lo': 0.0, 'hi': 4.0, 'name': 'Unison detune'},
+    {'id': 'm7', 'control': 'Slider 2', 'target': {'domain': 'mode', 'param': 'decrement', 'keys': [12, 18]},
+     'mode': 'scale', 'lo': 0.8, 'hi': 1.2, 'name': 'Mode decrement'},
 ]
 pw = FakePianoid(mp=SimpleNamespace(controller_mappings=[dict(m) for m in MAPPINGS]), sm=SimpleNamespace(pitches={}))
 
@@ -90,6 +98,7 @@ table = cc.ControlTable(path=controls_path, seed=lambda: [
     {'name': 'Mod wheel', 'source': {'type': 'cc', 'number': 1, 'channel': None, 'port': None}},
     {'name': 'Joystick X', 'source': {'type': 'cc', 'number': 16, 'channel': None, 'port': None}},
     {'name': 'Knob 1', 'source': {'type': 'cc', 'number': 21, 'channel': 1, 'port': 'Launchkey Mini'}},
+    {'name': 'Slider 2', 'source': {'type': 'cc', 'number': 22, 'channel': 1, 'port': 'Launchkey Mini'}},
 ])
 cmap = cm.ControllerMap(table, lambda: pw)
 cm._MAP = cmap
@@ -242,6 +251,22 @@ def mock_socket():
             time.sleep(body.get('gap_ms', 60) / 1000.0)
     threading.Thread(target=run, daemon=True).start()
     return jsonify({'moves': len(body['raws'])})
+
+
+MODES = {}
+
+
+@app.route('/get_parameter/mode/all')
+def modes_all():
+    """BaselinePreset1's modes as the real route shapes them ({index: fields}), built once (no GPU)."""
+    if not MODES:
+        import json
+        import param_safety
+        with open(os.path.join(MIDDLEWARE, 'presets', 'BaselinePreset1.json')) as f:
+            _sm, modes, _mp = param_safety.model_from_preset(json.load(f))
+        MODES.update({str(int(m)): {'frequency': o.frequency, 'decrement': o.decrement, 'mass_inv': o.mass_inv}
+                      for m, o in modes.modes.items() if int(m) >= 0})
+    return jsonify(MODES)
 
 
 @app.route('/mock/device')

@@ -570,6 +570,7 @@ mappings; they are edited only in the MIDI panel.
 | Target | Mode | Default range | How it reaches the engine |
 |---|---|---|---|
 | `string.tension`, `string.gamma`, `string.dispersion_damping`, `string.jung` | scale | 0.94..1.06 / 0.5..2 / 0.5..2 / 0.5..1.5 | stored x factor per string, granular `updateMultiStringParameter_NEW` (one swap); tension keeps the unison detuning (`tension x (1 + i x offset) x factor`) |
+| `string.detuning` (dev-midiux2; the unison spread = `pitch.tension_offset`) | drive (cents) or scale | 0..4 cents / x0..2 | the stored tension of every key re-uploaded, composed per string: `T_i / (1 + i o_stored) x (1 + i o_eff)`; see [Unison detune and mode ranges](#unison-detune-and-mode-ranges-dev-midiux2) |
 | `mode.frequency`, `mode.decrement`, `mode.mass_inv` | scale | 0.97..1.03 / 0.5..2 / 0.5..2 | `dec`, `omega`, `mass_inv` of every mode x factor^(1, 2, 0) / ^(1, 0, 0) / ^(0, 0, 1) ([DATA_FLOWS](../../architecture/DATA_FLOWS.md): `d = decrement·f/sr`, `w = (2πf/sr)²`), granular mode upload |
 | `runtime.volume` | drive | 0..127 | `set_volume_level` (direct, no swap) |
 | `bow.speed`, `bow.force`, `bow.position`, `bow.tilt` (per pitch, dev-bow3) | drive (one value for every addressed key) or scale | 0..1 / 0..1 / 0.5..3 / 0..1 | `bow_config.set_effective` (engine only; the kernel glides ~5 ms); where nothing drives a field, the stored values go back; `bow_config`'s own stored push calls `controller_overlay.compose_bow` |
@@ -648,6 +649,63 @@ leaves about 10 ms per update after the ~20 ms engine floor. Measurement: harnes
     stored bow values unchanged; a second velocity mapping -> 400; the velocity mapping re-targeted to force ->
     the engine map (`GET /get_parameter/bow_settings/all` velocity.field) speed -> force.
   - The MIDI badge was verified by Jest only (no live UI run).
+### Unison detune and mode ranges (dev-midiux2) {#unison-detune-and-mode-ranges-dev-midiux2}
+
+**User feedback (2026-11-05):** "Add detuning to the string parameters. Modes - what is it being applied to? All the
+modes? It should be applied to the specific mode or the range of the modes."
+
+**Unison detune** (`string.detuning`, String group "Unison detune", `controller_detune.py`).
+- What it is: the Strings panel's "detuning" = `pitch.tension_offset`. String i of a key (its unison position,
+  `stringIDs` order) is packed with `tension x (1 + i x offset)`: string 0 keeps the key's tension, each next string
+  is one step higher (not symmetric around the key's pitch). The engine has no offset field; the offset reaches it
+  only inside the per-string tension.
+- **Drive** = cents between neighbouring unison strings, one value for every addressed key (default 0..4). The ideal
+  string has f ~ sqrt(T), so `c = 600 log2(1 + o)` and `o = 2^(c/600) - 1` (stiffness makes it approximate; the
+  inharmonicity term is small). A stored offset of 0.001 (BaselinePreset1) = 0.865 c.
+- **Scale** = the stored offset x c (default x0..2: x0 = the unison in tune, x2 = twice the spread).
+- The latest-moved drive covering a key wins, then every scale covering it multiplies. The overlay re-uploads the
+  STORED tension of every key (one swap) and `compose_string_plan` replaces each string's `(1 + i o_stored)` by
+  `(1 + i o_eff)` before the tension scale. A stored detuning edit (Strings panel, undo) keeps the live spread.
+- Clamp per key: the effective offset stays inside what the rules (every unison tension > 0) and the CFL bound admit,
+  searched once from the stored offset toward the ends the mappings reach and cached (same mechanism as the scales).
+  It is checked with the stored tension, so a tension scale and a detune on one key are each clamped on their own.
+- Bake: ONE edit `{pitch: {detuning: o}}` on the covered keys (the drive's offset, or stored x the scale).
+
+**Mode ranges.** `target.keys` of a mode-domain mapping is a mode INDEX range `[first, last]` (`[m, m]` = one mode,
+null = every mode). The overlay applies a scale only to the modes in the range (verified on the real compose path:
+`tests/unit/test_controller_detune.py` builds BaselinePreset1's ModeMap and the real ParameterManager and checks the
+values that reach `updateModeParameters_GRANULAR`: a decrement x1.2 on modes 12-18 changes exactly those 7 modes'
+`dec`, a frequency scale on [5, 5] changes only mode 5's `omega`). Bake folds only those modes.
+- Wizard step 4 for a mode target: **Modes: All / One mode / Range** (`ModeRangePicker.jsx`). A mode is picked by
+  number with its frequency ("12 · 400.0 Hz", the modes editor's `frequency` via `ChartFrequencyContext`); the
+  caption gives the count and the Hz span. Defaults: One mode = the current first mode (else 0); Range = the current
+  range, else the first 10 modes.
+- The card says which modes: "→ Mode decrement · multiply ×0.8 … ×1.2 · modes 12–18 (206–545 Hz)" (BaselinePreset1; the
+  span is the lowest and highest frequency among those modes, mode order is not frequency order).
+- A detune drive reads in cents on the card ("set to 0 … 4 cents", live "1.512 cents") and can be baked.
+
+**Verification (dev-midiux2).** Core `tests/unit/test_controller_detune.py` (13, no GPU; see above). Tunner
+`components/MidiControls/__tests__/ModeRangeDetune.test.jsx` + `utils/__tests__/midiCards.test.js`. UI on the
+GPU-free mock (`dev-midiux-mock-backend.py`, now also serving BaselinePreset1's modes and two dev-midiux2 mappings)
+with the worktree CRA (2026-11-05): cards as above, the Modes picker lists "0 · 77.25 Hz" … for all 100 modes, One
+mode -> 15 saved as `keys [15, 15]` (GET `/midi/mappings`) and the card reads "mode 15 (236.7 Hz)"; the detune range
+step reads "0 … 4 cents"; 0 requests to :5000/:3001. No audio render: the GPU was busy with the user's stack, so the
+detune was first verified analytically (ideal-string law) at the engine call boundary.
+- **Measured beat rate** (2026-11-05, isolated silent backend :5100, BaselinePreset1, 4 s `note_playback` renders,
+  `docs/development/diagnostics/dev-midiux2-detune-beats.py`; the beat is the envelope line of the fundamental band):
+
+  | key | stored 0.865 c | 0 c | 2 c | ideal uncoupled 2 c (neighbour / outer) |
+  |---|---|---|---|---|
+  | C5 (72) | 0.93 Hz (3.6 dB ripple) | none (2.6 dB) | 1.64 Hz (6.8 dB) | 0.59 / 1.19 Hz |
+  | C6 (84) | 1.50 Hz (18.8 dB) | 0.15 Hz swell, no beat (24 dB) | 1.84 Hz (19 dB) | 1.20 / 2.41 Hz |
+
+  The control changes the beating as expected: none at 0 c on C5, and faster with more detune. The rates do not
+  follow the uncoupled-string formula, and the f0 peak moves (C6: 1041 Hz at 0 c, 1028 Hz at 2 c). The likely cause
+  (not yet confirmed) is that the unison strings couple through the bridge / soundboard modes, so the heard beat
+  comes from the coupled system. **Decision (team-lead, 2026-11-05): cents stay the unit.** They are the tuning of the
+  unison strings (exact for the per-string tensions); the heard beat follows the coupled bridge / board system. The
+  picker hint says so.
+
 ## Control cards and the Add-control wizard (dev-midiux) {#control-cards-dev-midiux}
 
 **User feedback (2026-11-05):** "I don't understand how the assignment and mapping works. Interface is not

@@ -2665,7 +2665,8 @@ A mapping (GET shape):
   enabled), or null (not bound).
 - `source`: resolved from the rig's controls; `{"type": "unbound"}` = no such control here, `{"type": "velocity"}`
   for the note velocity.
-- `target.keys` is `[first, last]` (pitches for `string` / `bow`, modes for `mode`) or null = every key.
+- `target.keys` is `[first, last]` (pitches for `string` / `bow`, mode indices for `mode`: `[m, m]` = one mode) or null = every key.
+- `string.detuning` (dev-midiux2): `mode` drive = cents between neighbouring unison strings (default 0..4), scale = x the stored `tension_offset` (default 0..2); `GET /midi/mappings` targets carry `unit` (`cents`) and `scale_range`.
 - `curve` is `linear`, `exp` (needs lo, hi > 0), `smooth` or `power`. `smooth_ms` is 0-2000.
 - A control (dev-midiux) may also carry `socket` (the Pianoid controller input 0-7 it is plugged into), `group`
   + `axis` (`x` / `y` / `button`: one device with several controls, e.g. a joystick).
