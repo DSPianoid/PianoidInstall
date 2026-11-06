@@ -155,6 +155,10 @@ To verify a frontend branch while the user's stack (`:3000` main checkout, `:300
   Open the tab in an isolated Chrome context with a `navigate_page` `initScript` that answers every non-GET
   XHR/fetch to `:5000/:5001/:3001` locally (`load_preset` → `{"reinit":"full"}` so the FE hydrates via GETs) and
   blocks WebSockets to them; edits then change only the tab's local history. Verify afterwards by a backend GET.
+  A ready guard for the USER's own `:3000` (no rewrite, nothing reaches `:5000/:5001/:3001/:3002` but GETs):
+  `docs/development/diagnostics/dev-tinylin-readonly-guard-initscript.js`. Do not THROW from the WebSocket shim (the
+  launcher console socket then crashes `PianoidTuner`): hand back a socket to the discard port. Without a socket the tab
+  does not hydrate the loaded preset, so measure a chart's option with the real ECharts in Node / Jest instead.
 - **An `initScript` guard covers ONE navigation only (dev-6c93 incident, 2026-10-06).** A `location.reload()` from
   `evaluate_script` and a CRA live-reload after a source edit both reload the tab WITHOUT the guard — the fresh origin's
   autoload then POSTs `/load_preset` with DEFAULT settings (listen_to_modes=1, number_of_modes=64, …) = a full engine
