@@ -6,6 +6,7 @@ Locks are released after: commit (wrap-up), revert (reset), or commit/stash (pau
 
 | Agent | Files | Locked At | Task |
 |-------|-------|-----------|------|
+<!-- dev-bugs1106 locks RELEASED 2026-11-06 (MERGED locally Core dev 3ac4da0 / Tunner dev 6f50515 / Install master 99ecdd0; NOT pushed; worktrees removed, junctions unlinked first). -->
 <!-- dev-barfield locks RELEASED 2026-11-06 (MERGED locally Tunner dev 6d1030d, Install master 461dce4; NOT pushed; worktrees removed, junctions unlinked first). -->
 <!-- dev-midiux locks RELEASED 2026-11-05 (MERGED locally Core dev dc0fbb2 / Tunner dev 291ea58 / Install master 3c3ea08, NOT pushed; worktrees removed): feature/dev-midiux in D:/repos/wt-midiux-{core,tunner,install} (Core .venv junction; Tunner per-package node_modules junctions: unlink before removal). -->
 <!-- dev-barfreq locks RELEASED 2026-11-05 (MERGED Tunner dev + Install master, pushed; worktrees removed, junctions unlinked first). -->
